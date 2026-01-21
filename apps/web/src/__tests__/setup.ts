@@ -3,6 +3,31 @@ import { cleanup } from '@testing-library/react';
 import { afterEach, beforeAll, afterAll, vi } from 'vitest';
 import { server } from './mocks/server';
 
+// Set base URL for fetch
+const BASE_URL = 'http://localhost:3000';
+if (typeof global !== 'undefined') {
+  (global as any).BASE_URL = BASE_URL;
+}
+
+// Mock location for testing
+Object.defineProperty(window, 'location', {
+  writable: true,
+  value: {
+    href: BASE_URL,
+    origin: BASE_URL,
+    protocol: 'http:',
+    host: 'localhost:3000',
+    hostname: 'localhost',
+    port: '3000',
+    pathname: '/',
+    search: '',
+    hash: '',
+    reload: vi.fn(),
+    assign: vi.fn(),
+    replace: vi.fn(),
+  },
+});
+
 // Mock window.matchMedia
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
