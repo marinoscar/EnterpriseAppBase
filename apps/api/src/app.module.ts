@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_FILTER, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { ZodValidationPipe } from 'nestjs-zod';
@@ -9,10 +9,12 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { SettingsModule } from './settings/settings.module';
 import { HealthModule } from './health/health.module';
+import { LoggerModule } from './common/logger/logger.module';
 
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
+import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 
 import configuration from './config/configuration';
 
@@ -26,6 +28,9 @@ import configuration from './config/configuration';
 
     // Database
     PrismaModule,
+
+    // Logger
+    LoggerModule,
 
     // Feature modules
     CommonModule,
@@ -57,4 +62,10 @@ import configuration from './config/configuration';
     },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer
+      .apply(RequestIdMiddleware)
+      .forRoutes('*');
+  }
+}

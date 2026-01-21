@@ -1,3 +1,6 @@
+// IMPORTANT: Load instrumentation before anything else
+import './instrumentation';
+
 import { NestFactory } from '@nestjs/core';
 import {
   FastifyAdapter,
