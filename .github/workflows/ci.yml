@@ -183,14 +183,14 @@ jobs:
         run: npm run build --workspace=web
 
       - name: Upload API build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: api-dist
           path: apps/api/dist
           retention-days: 7
 
       - name: Upload Web build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: web-dist
           path: apps/web/dist
