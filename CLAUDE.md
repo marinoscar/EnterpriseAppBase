@@ -154,32 +154,72 @@ Key variables (see `.env.example` for full list):
 3. Update TypeScript types
 4. Add frontend UI if user-facing
 
-## Specialized Subagents
+## Specialized Subagents (MANDATORY)
 
-This project includes specialized subagents in `.claude/agents/` for focused development tasks:
+**CRITICAL REQUIREMENT**: This project uses specialized subagents for all development work. You MUST delegate tasks to the appropriate subagent. Do NOT attempt to perform development tasks directly without using the designated agent.
 
-| Agent | Purpose | When to Use |
-|-------|---------|-------------|
-| `backend-dev` | NestJS API, auth, RBAC, services | Implementing API endpoints, guards, business logic |
-| `frontend-dev` | React, MUI, components, theming | Building UI components, pages, responsive design |
-| `database-dev` | PostgreSQL, Prisma, migrations | Schema changes, migrations, query optimization |
-| `testing-dev` | Jest, Supertest, RTL, typecheck | Writing tests, ensuring type safety, CI quality |
-| `docs-dev` | Technical documentation | Creating/updating architecture, security, API docs |
+### Why Subagents Are Mandatory
+- Each agent contains domain-specific knowledge from the System Specification
+- Agents ensure consistent patterns and conventions across the codebase
+- Agents have the full context needed for their specialized area
+- Direct implementation without agents risks missing requirements
+
+### Available Agents
+
+| Agent | Domain | MUST Use For |
+|-------|--------|--------------|
+| `backend-dev` | NestJS API, Fastify, auth, RBAC | **ANY** backend code: endpoints, services, guards, middleware, JWT, OAuth |
+| `frontend-dev` | React, MUI, TypeScript | **ANY** frontend code: components, pages, hooks, theming, responsive design |
+| `database-dev` | PostgreSQL, Prisma | **ANY** database work: schema changes, migrations, seeds, queries |
+| `testing-dev` | Jest, Supertest, RTL | **ANY** testing: unit tests, integration tests, typecheck, test fixtures |
+| `docs-dev` | Technical documentation | **ANY** documentation: ARCHITECTURE.md, SECURITY.md, API.md, README updates |
+
+### Mandatory Delegation Rules
+
+1. **Backend code changes** → ALWAYS use `backend-dev`
+2. **Frontend code changes** → ALWAYS use `frontend-dev`
+3. **Database/Prisma changes** → ALWAYS use `database-dev`
+4. **Writing or updating tests** → ALWAYS use `testing-dev`
+5. **Documentation updates** → ALWAYS use `docs-dev`
+
+### Multi-Domain Tasks
+
+For tasks spanning multiple domains, you MUST invoke multiple agents sequentially:
+
+**Example: "Add a new user preference setting"**
+1. `database-dev` → Add migration for schema change
+2. `backend-dev` → Implement API endpoint
+3. `frontend-dev` → Build UI component
+4. `testing-dev` → Write tests for all layers
+5. `docs-dev` → Update API documentation
 
 ### Usage Examples
 ```
-# Backend work
+# Backend work - MUST use backend-dev
 "Use backend-dev to implement the user settings endpoint"
 
-# Frontend work
+# Frontend work - MUST use frontend-dev
 "Use frontend-dev to create the theme toggle component"
 
-# Database work
+# Database work - MUST use database-dev
 "Use database-dev to add audit_events table migration"
 
-# Testing work
+# Testing work - MUST use testing-dev
 "Use testing-dev to write integration tests for auth"
 
-# Documentation work
+# Documentation work - MUST use docs-dev
 "Use docs-dev to update SECURITY.md with new auth flow"
 ```
+
+### What You Should NOT Do Directly
+- Do NOT write NestJS controllers, services, or guards without `backend-dev`
+- Do NOT create React components or pages without `frontend-dev`
+- Do NOT modify Prisma schema or create migrations without `database-dev`
+- Do NOT write Jest/RTL tests without `testing-dev`
+- Do NOT update documentation files without `docs-dev`
+
+The only exceptions are:
+- Reading files to understand context
+- Answering questions about the codebase
+- Planning and coordination between agents
+- Running simple commands (git status, npm install, etc.)
