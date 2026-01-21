@@ -1031,8 +1031,3 @@ This security architecture provides defense-in-depth through multiple layers:
 5. **Audit**: Comprehensive logging for compliance and monitoring
 
 The system is designed for production use and follows industry best practices for web application security. Regular security audits and updates are recommended to maintain security posture.
-
-**For More Information:**
-- [ARCHITECTURE.md](./ARCHITECTURE.md) - System design and components
-- [SECURITY.md](./SECURITY.md) - Security policies and procedures
-- [API.md](./API.md) - API reference and authentication flow
