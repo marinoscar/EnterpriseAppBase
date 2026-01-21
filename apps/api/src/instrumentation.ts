@@ -3,7 +3,7 @@ import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentation
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
 import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
-import { Resource as ResourceClass } from '@opentelemetry/resources';
+import { resourceFromAttributes } from '@opentelemetry/resources';
 import {
   ATTR_SERVICE_NAME,
   ATTR_SERVICE_VERSION,
@@ -27,7 +27,7 @@ export function initializeOtel(): NodeSDK | null {
   const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT || 'http://localhost:4318';
   const serviceName = process.env.OTEL_SERVICE_NAME || 'enterprise-app-api';
 
-  const resource = new ResourceClass({
+  const resource = resourceFromAttributes({
     [ATTR_SERVICE_NAME]: serviceName,
     [ATTR_SERVICE_VERSION]: process.env.npm_package_version || '0.0.1',
     [SEMRESATTRS_DEPLOYMENT_ENVIRONMENT]: process.env.NODE_ENV || 'development',
@@ -48,7 +48,10 @@ export function initializeOtel(): NodeSDK | null {
       getNodeAutoInstrumentations({
         // Customize instrumentations
         '@opentelemetry/instrumentation-http': {
-          ignoreIncomingPaths: ['/api/health/live', '/api/health/ready'],
+          ignoreIncomingRequestHook: (request) => {
+            const url = request.url || '';
+            return url.includes('/api/health/live') || url.includes('/api/health/ready');
+          },
         },
         '@opentelemetry/instrumentation-fs': {
           enabled: false, // Disable noisy FS instrumentation
