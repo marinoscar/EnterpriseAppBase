@@ -23,6 +23,7 @@
     "prisma:migrate:dev": "node scripts/prisma-env.js migrate dev",
     "prisma:studio": "node scripts/prisma-env.js studio",
     "prisma:seed": "node scripts/prisma-env.js db seed",
+    "prisma:push": "node scripts/prisma-env.js db push",
     "db:test": "node scripts/test-db-connection.js"
   },
   "dependencies": {
