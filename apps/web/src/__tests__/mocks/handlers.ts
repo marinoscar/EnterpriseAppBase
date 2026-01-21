@@ -9,7 +9,7 @@ const mockUser = {
   email: 'test@example.com',
   displayName: 'Test User',
   profileImageUrl: null,
-  roles: ['viewer'],
+  roles: [{ name: 'viewer' }],
   permissions: ['user_settings:read', 'user_settings:write'],
   isActive: true,
   createdAt: new Date().toISOString(),
@@ -47,7 +47,8 @@ const mockProviders = [
 export const handlers = [
   // Auth endpoints
   http.get(`${API_BASE}/auth/providers`, () => {
-    return HttpResponse.json({ data: mockProviders });
+    // Real API returns { providers: [...] } which gets unwrapped by api.ts
+    return HttpResponse.json({ providers: mockProviders });
   }),
 
   http.get(`${API_BASE}/auth/me`, () => {

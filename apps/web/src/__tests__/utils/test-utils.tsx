@@ -47,7 +47,7 @@ export interface MockUser {
   email: string;
   displayName: string | null;
   profileImageUrl: string | null;
-  roles: string[];
+  roles: { name: string }[];
   permissions: string[];
   isActive: boolean;
   createdAt: string;
@@ -58,7 +58,7 @@ export const mockUser: MockUser = {
   email: 'test@example.com',
   displayName: 'Test User',
   profileImageUrl: null,
-  roles: ['viewer'],
+  roles: [{ name: 'viewer' }],
   permissions: ['user_settings:read', 'user_settings:write'],
   isActive: true,
   createdAt: new Date().toISOString(),
@@ -69,7 +69,7 @@ export const mockAdminUser: MockUser = {
   email: 'admin@example.com',
   displayName: 'Admin User',
   profileImageUrl: null,
-  roles: ['admin'],
+  roles: [{ name: 'admin' }],
   permissions: [
     'user_settings:read',
     'user_settings:write',

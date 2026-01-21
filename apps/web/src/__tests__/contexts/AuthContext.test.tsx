@@ -71,11 +71,10 @@ describe('AuthContext', () => {
     it('should authenticate user when refresh succeeds', async () => {
       server.use(
         http.post('/api/auth/refresh', () => {
+          // Refresh endpoint returns token at root level (not wrapped in data)
           return HttpResponse.json({
-            data: {
-              accessToken: 'test-token',
-              expiresIn: 900,
-            },
+            accessToken: 'test-token',
+            expiresIn: 900,
           });
         }),
       );
@@ -97,7 +96,8 @@ describe('AuthContext', () => {
       server.use(
         http.post('/api/auth/refresh', () => {
           return HttpResponse.json({
-            data: { accessToken: 'test-token', expiresIn: 900 },
+            accessToken: 'test-token',
+            expiresIn: 900,
           });
         }),
       );
@@ -185,7 +185,8 @@ describe('AuthContext', () => {
       server.use(
         http.post('/api/auth/refresh', () => {
           return HttpResponse.json({
-            data: { accessToken: 'test-token', expiresIn: 900 },
+            accessToken: 'test-token',
+            expiresIn: 900,
           });
         }),
       );
@@ -208,7 +209,7 @@ describe('AuthContext', () => {
               id: 'test-user-id',
               email: 'updated@example.com',
               displayName: 'Updated User',
-              roles: ['viewer'],
+              roles: [{ name: 'viewer' }],
               permissions: ['user_settings:read', 'user_settings:write'],
               isActive: true,
             },
@@ -249,7 +250,8 @@ describe('AuthContext', () => {
       server.use(
         http.post('/api/auth/refresh', () => {
           return HttpResponse.json({
-            data: { accessToken: 'test-token', expiresIn: 900 },
+            accessToken: 'test-token',
+            expiresIn: 900,
           });
         }),
         http.post('/api/auth/logout', () => {

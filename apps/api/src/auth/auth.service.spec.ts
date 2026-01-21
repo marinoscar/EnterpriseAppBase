@@ -164,29 +164,48 @@ describe('AuthService', () => {
     it('should grant admin role when shouldGrantAdminRole returns true', async () => {
       const mockViewerRole = { id: 'viewer-role', name: 'viewer', rolePermissions: [] };
       const mockAdminRole = { id: 'admin-role', name: 'admin', rolePermissions: [] };
-      const mockUser = {
+      const mockUserCreated = {
         id: 'new-admin',
         email: 'admin@example.com',
         isActive: true,
-        userRoles: [{ role: mockAdminRole }],
+        userRoles: [{ role: mockViewerRole }],
+      };
+      const mockUserWithAdmin = {
+        id: 'new-admin',
+        email: 'admin@example.com',
+        isActive: true,
+        userRoles: [{ role: mockViewerRole }, { role: mockAdminRole }],
       };
 
       mockAdminBootstrap.shouldGrantAdminRole.mockResolvedValue(true);
       mockPrisma.userIdentity.findUnique.mockResolvedValue(null);
       mockPrisma.user.findUnique
-        .mockResolvedValueOnce(null) // Check by email
-        .mockResolvedValueOnce(mockUser as any); // Reload after admin assignment
-      mockPrisma.role.findUnique.mockResolvedValue(mockViewerRole as any);
+        .mockResolvedValueOnce(null) // Check by email in handleGoogleLogin
+        .mockResolvedValueOnce(mockUserWithAdmin as any); // Reload after admin assignment in transaction
+      mockPrisma.role.findUnique
+        .mockResolvedValueOnce(mockViewerRole as any) // Get default role
+        .mockResolvedValueOnce(mockAdminRole as any); // Get admin role in transaction
       mockPrisma.$transaction.mockImplementation(async (callback) => callback(mockPrisma));
-      mockPrisma.user.create.mockResolvedValue(mockUser as any);
-      mockPrisma.user.update.mockResolvedValue(mockUser as any);
+      mockPrisma.user.create.mockResolvedValue(mockUserCreated as any);
+      mockPrisma.userRole.upsert.mockResolvedValue({} as any);
+      mockPrisma.user.update.mockResolvedValue(mockUserWithAdmin as any);
       mockPrisma.refreshToken.create.mockResolvedValue({} as any);
 
       const adminProfile = { ...mockGoogleProfile, email: 'admin@example.com' };
       const result = await service.handleGoogleLogin(adminProfile);
 
       expect(mockAdminBootstrap.shouldGrantAdminRole).toHaveBeenCalledWith('admin@example.com');
-      expect(mockAdminBootstrap.assignAdminRole).toHaveBeenCalledWith('new-admin');
+      // Admin role is now assigned directly in transaction, not via adminBootstrap.assignAdminRole
+      expect(mockPrisma.userRole.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            userId_roleId: {
+              userId: 'new-admin',
+              roleId: 'admin-role',
+            },
+          },
+        }),
+      );
       expect(result.accessToken).toBeDefined();
     });
   });

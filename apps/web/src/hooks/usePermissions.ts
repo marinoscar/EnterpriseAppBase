@@ -9,7 +9,7 @@ export function usePermissions() {
   }, [user?.permissions]);
 
   const roles = useMemo(() => {
-    return new Set(user?.roles || []);
+    return new Set(user?.roles?.map((r) => r.name) || []);
   }, [user?.roles]);
 
   const hasPermission = (permission: string): boolean => {
