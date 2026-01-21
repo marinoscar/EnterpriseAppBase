@@ -7,6 +7,8 @@
 # -----------------------------------------------------------------------------
 FROM node:20-alpine AS base
 WORKDIR /app
+# Install OpenSSL for Prisma compatibility
+RUN apk add --no-cache openssl openssl-dev
 RUN corepack enable
 
 # -----------------------------------------------------------------------------
@@ -15,7 +17,8 @@ RUN corepack enable
 FROM base AS deps
 COPY package*.json ./
 COPY prisma ./prisma/
-RUN npm ci
+# Using npm install since this is a workspace package without its own lock file
+RUN npm install --ignore-scripts && npx prisma generate
 
 # -----------------------------------------------------------------------------
 # Development stage

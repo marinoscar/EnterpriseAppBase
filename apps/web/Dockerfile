@@ -13,7 +13,8 @@ WORKDIR /app
 # -----------------------------------------------------------------------------
 FROM base AS deps
 COPY package*.json ./
-RUN npm ci
+# Using npm install since this is a workspace package without its own lock file
+RUN npm install
 
 # -----------------------------------------------------------------------------
 # Development stage
