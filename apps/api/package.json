@@ -23,6 +23,7 @@
     "@nestjs/platform-fastify": "^10.x",
     "@nestjs/schedule": "^6.1.0",
     "@nestjs/swagger": "^7.4.2",
+    "@nestjs/terminus": "^10.3.0",
     "@prisma/client": "^5.x",
     "nestjs-zod": "^3.0.0",
     "passport": "^0.7.0",
