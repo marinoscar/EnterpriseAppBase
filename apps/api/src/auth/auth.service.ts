@@ -573,7 +573,9 @@ export class AuthService {
       user.profileImageUrl || user.providerProfileImageUrl || null;
 
     // Extract roles
-    const roles = user.userRoles.map((ur) => ur.role.name);
+    const roles = user.userRoles.map((ur) => ({
+      name: ur.role.name,
+    }));
 
     // Aggregate permissions
     const permissionsSet = new Set<string>();
