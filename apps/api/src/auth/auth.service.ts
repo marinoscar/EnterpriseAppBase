@@ -212,7 +212,27 @@ export class AuthService {
 
       // Grant admin role if applicable
       if (shouldGrantAdmin) {
-        await this.adminBootstrapService.assignAdminRole(newUser.id);
+        // Get admin role and assign within transaction
+        const adminRole = await tx.role.findUnique({
+          where: { name: 'admin' },
+        });
+
+        if (adminRole) {
+          await tx.userRole.upsert({
+            where: {
+              userId_roleId: {
+                userId: newUser.id,
+                roleId: adminRole.id,
+              },
+            },
+            update: {},
+            create: {
+              userId: newUser.id,
+              roleId: adminRole.id,
+            },
+          });
+          this.logger.log(`Admin role assigned to user: ${newUser.id}`);
+        }
 
         // Reload user with admin role included
         const userWithAdmin = await tx.user.findUnique({

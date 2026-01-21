@@ -140,8 +140,12 @@ export class AuthController {
     } catch (error) {
       this.logger.error('Error in Google OAuth callback', error);
       const appUrl = this.configService.get<string>('appUrl');
+      // Sanitize error message for URL - remove newlines and encode
+      const errorMessage = error instanceof Error
+        ? encodeURIComponent(error.message.replace(/[\r\n]/g, ' ').substring(0, 100))
+        : 'authentication_failed';
       return res.redirect(
-        `${appUrl}/auth/callback?error=${error instanceof Error ? error.message : 'authentication_failed'}`,
+        `${appUrl}/auth/callback?error=${errorMessage}`,
       );
     }
   }
