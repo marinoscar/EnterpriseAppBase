@@ -71,11 +71,11 @@ export function UserProfileCard() {
           >
             {user.roles.map((role) => (
               <Chip
-                key={role}
-                label={role}
+                key={role.name}
+                label={role.name}
                 size="small"
-                color={role === 'admin' ? 'primary' : 'default'}
-                variant={role === 'admin' ? 'filled' : 'outlined'}
+                color={role.name.toLowerCase() === 'admin' ? 'primary' : 'default'}
+                variant={role.name.toLowerCase() === 'admin' ? 'filled' : 'outlined'}
               />
             ))}
           </Stack>
