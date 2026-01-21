@@ -1,39 +1,129 @@
-import { createContext, useContext, ReactNode, useState } from 'react';
-import { User } from '../types';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useCallback,
+  ReactNode,
+} from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { api, ApiError } from '../services/api';
+import { User, AuthProvider as AuthProviderType } from '../types';
 
-interface AuthContextType {
+interface AuthContextValue {
   user: User | null;
   isLoading: boolean;
+  isAuthenticated: boolean;
+  providers: AuthProviderType[];
   login: (provider: string) => void;
   logout: () => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const AuthContext = createContext<AuthContextValue | null>(null);
 
-export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user] = useState<User | null>(null);
-  const [isLoading] = useState(false);
+interface AuthProviderProps {
+  children: ReactNode;
+}
 
-  const login = (provider: string) => {
-    // Placeholder - will be implemented in later spec
-    console.log('Login with provider:', provider);
-  };
+export function AuthProvider({ children }: AuthProviderProps) {
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [providers, setProviders] = useState<AuthProviderType[]>([]);
+  const navigate = useNavigate();
+  const location = useLocation();
 
-  const logout = async () => {
-    // Placeholder - will be implemented in later spec
-    console.log('Logout');
+  // Fetch auth providers on mount
+  useEffect(() => {
+    const fetchProviders = async () => {
+      try {
+        const data = await api.get<AuthProviderType[]>('/auth/providers', {
+          skipAuth: true,
+        });
+        setProviders(data);
+      } catch (error) {
+        console.error('Failed to fetch auth providers:', error);
+      }
+    };
+    fetchProviders();
+  }, []);
+
+  // Check for existing session on mount
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        // Try to refresh token (uses httpOnly cookie)
+        const refreshed = await api.refreshToken();
+        if (refreshed) {
+          await fetchUser();
+        }
+      } catch (error) {
+        console.error('Auth initialization failed:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    initAuth();
+  }, []);
+
+  const fetchUser = useCallback(async () => {
+    try {
+      const userData = await api.get<User>('/auth/me');
+      setUser(userData);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        setUser(null);
+        api.setAccessToken(null);
+      }
+      throw error;
+    }
+  }, []);
+
+  const login = useCallback((provider: string) => {
+    // Store return URL for redirect after login
+    const from = location.state?.from?.pathname || '/';
+    sessionStorage.setItem('auth_return_url', from);
+
+    // Redirect to OAuth provider
+    window.location.href = `/api/auth/${provider}`;
+  }, [location.state]);
+
+  const logout = useCallback(async () => {
+    try {
+      await api.post('/auth/logout');
+    } catch (error) {
+      console.error('Logout error:', error);
+    } finally {
+      setUser(null);
+      api.setAccessToken(null);
+      navigate('/login');
+    }
+  }, [navigate]);
+
+  const refreshUser = useCallback(async () => {
+    await fetchUser();
+  }, [fetchUser]);
+
+  const value: AuthContextValue = {
+    user,
+    isLoading,
+    isAuthenticated: !!user,
+    providers,
+    login,
+    logout,
+    refreshUser,
   };
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, logout }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );
 }
 
-export function useAuth() {
+export function useAuth(): AuthContextValue {
   const context = useContext(AuthContext);
-  if (context === undefined) {
+  if (!context) {
     throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
