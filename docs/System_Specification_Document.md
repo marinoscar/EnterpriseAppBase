@@ -106,14 +106,20 @@ Enterprise-grade instrumentation required from day one:
     API.md                  # optional but recommended
     SPEC.md                 # this document
   infra/
-    docker-compose.yml           # Base services
-    docker-compose.override.yml  # Dev overrides (auto-loaded)
-    docker-compose.prod.yml      # Production overrides
-    docker-compose.otel.yml      # Observability stack
-    otel-collector-config.yaml
+    compose/
+      docker-compose.yml           # Core: api, web, db, nginx
+      docker-compose.override.yml  # Dev overrides (auto-loaded)
+      docker-compose.prod.yml      # Production overrides
+      docker-compose.otel.yml      # Observability: uptrace, clickhouse, otel-collector
+      .env.example                 # Environment variables template
+    nginx/
+      nginx.conf            # Nginx routing configuration
+    otel/
+      otel-collector-config.yaml   # OTEL Collector config
+      uptrace.yml                  # Uptrace configuration
   tests/
     e2e/                    # optional full-system tests
-  .env.example
+  .env.example              # Root env template (symlink or copy from infra/compose/)
   README.md
 ```
 
@@ -534,52 +540,127 @@ Initial Admin bootstrap:
 ## 14. Docker and Local Development
 
 ### 14.1 Hybrid Docker Structure
-Dockerfiles stay with their application code for natural build context, while compose orchestration lives in `/infra`:
+Dockerfiles stay with their application code for natural build context, while compose orchestration and infrastructure configs live in `/infra`:
 
 **Dockerfiles (with code):**
 - `apps/api/Dockerfile` - API container definition
 - `apps/web/Dockerfile` - Web container definition
 
-**Compose files (in infra/):**
+**Infrastructure directory:**
 ```
 infra/
-  docker-compose.yml           # Base services (api, web, db)
-  docker-compose.override.yml  # Dev overrides (auto-loaded by Docker)
-  docker-compose.prod.yml      # Production overrides
-  docker-compose.otel.yml      # Observability stack
-  otel-collector-config.yaml
+  compose/
+    docker-compose.yml           # Core: api, web, db, nginx
+    docker-compose.override.yml  # Dev overrides (auto-loaded)
+    docker-compose.prod.yml      # Production overrides
+    docker-compose.otel.yml      # Observability: uptrace, clickhouse, otel-collector
+    .env.example                 # Environment variables template
+  nginx/
+    nginx.conf                   # Nginx routing (/ → web, /api → api)
+  otel/
+    otel-collector-config.yaml   # OTEL Collector exports to Uptrace
+    uptrace.yml                  # Uptrace configuration
 ```
 
-### 14.2 Docker Compose Services (Minimum)
-- api
-- web
-- db (Postgres)
+### 14.2 Docker Compose Services
 
-Recommended additions (in `docker-compose.otel.yml`):
-- otel-collector
-- jaeger
-- prometheus
-- grafana
+**Core services (docker-compose.yml):**
+- `nginx` - Reverse proxy (same-origin routing)
+- `api` - NestJS backend
+- `web` - React frontend
+- `db` - PostgreSQL database
+
+**Observability services (docker-compose.otel.yml):**
+- `otel-collector` - Collects traces, metrics, logs
+- `uptrace` - Unified observability UI
+- `clickhouse` - Uptrace storage backend
 
 ### 14.3 Environment Variables
-- `.env.example` at repo root
-- docker-compose uses `.env` for local values (copy from `.env.example`)
+Environment variables are defined in `infra/compose/.env.example`:
+
+```bash
+# ===================
+# Application
+# ===================
+NODE_ENV=development
+PORT=3000
+APP_URL=http://localhost
+
+# ===================
+# Database (PostgreSQL)
+# ===================
+DATABASE_URL=postgresql://postgres:postgres@db:5432/appdb
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
+POSTGRES_DB=appdb
+
+# ===================
+# JWT / Session
+# ===================
+JWT_SECRET=your-super-secret-key-min-32-characters-long
+JWT_ACCESS_TTL_MINUTES=15
+JWT_REFRESH_TTL_DAYS=14
+
+# ===================
+# OAuth - Google (Required)
+# ===================
+GOOGLE_CLIENT_ID=your-google-client-id
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+GOOGLE_CALLBACK_URL=http://localhost/api/auth/google/callback
+
+# ===================
+# OAuth - Microsoft (Optional)
+# ===================
+# MICROSOFT_ENABLED=false
+# MICROSOFT_CLIENT_ID=
+# MICROSOFT_CLIENT_SECRET=
+# MICROSOFT_CALLBACK_URL=http://localhost/api/auth/microsoft/callback
+
+# ===================
+# Initial Admin Bootstrap
+# ===================
+INITIAL_ADMIN_EMAIL=admin@example.com
+
+# ===================
+# Observability (OpenTelemetry)
+# ===================
+OTEL_ENABLED=true
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+OTEL_SERVICE_NAME=enterprise-app-api
+LOG_LEVEL=info
+
+# ===================
+# Uptrace (when using docker-compose.otel.yml)
+# ===================
+UPTRACE_DSN=http://project1_secret_token@localhost:14317/1
+```
+
+Copy to `.env` and customize:
+```bash
+cp infra/compose/.env.example infra/compose/.env
+```
 
 ### 14.4 Running Docker Compose
 Docker automatically loads `docker-compose.override.yml` when present, simplifying dev commands:
 
 ```bash
 # Development (auto-loads override.yml for hot reload, volumes)
-docker compose -f infra/docker-compose.yml up
+docker compose -f infra/compose/docker-compose.yml up
 
-# Development with observability
-docker compose -f infra/docker-compose.yml -f infra/docker-compose.otel.yml up
+# Development with observability (Uptrace UI at http://localhost:14318)
+docker compose -f infra/compose/docker-compose.yml -f infra/compose/docker-compose.otel.yml up
 
 # Production (explicit, skips override)
-docker compose -f infra/docker-compose.yml -f infra/docker-compose.prod.yml up
+docker compose -f infra/compose/docker-compose.yml -f infra/compose/docker-compose.prod.yml up
 ```
 
-### 14.5 Startup (Dev vs Prod)
+### 14.5 Service URLs (Development)
+- **Application**: http://localhost (via Nginx)
+- **API directly**: http://localhost:3000 (dev only)
+- **Swagger UI**: http://localhost/api/docs
+- **Uptrace**: http://localhost:14318 (when otel stack running)
+
+### 14.6 Startup (Dev vs Prod)
 - Dev can auto-run migrations on startup
 - Prod should run migrations as a separate step/job
 

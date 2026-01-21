@@ -13,8 +13,9 @@ Web Application Foundation with React UI + Node API + PostgreSQL. Production-gra
 - **Database**: PostgreSQL with Prisma ORM
 - **Auth**: Passport strategies (Google OAuth required)
 - **Testing**: Jest + Supertest (backend), React Testing Library + Jest (frontend)
-- **Observability**: OpenTelemetry, Pino structured logging
+- **Observability**: OpenTelemetry, Uptrace, Pino structured logging
 - **Containerization**: Docker + Docker Compose
+- **Reverse Proxy**: Nginx (same-origin routing)
 
 ## Repository Structure
 
@@ -33,14 +34,20 @@ Web Application Foundation with React UI + Node API + PostgreSQL. Production-gra
       src/__tests__/
       Dockerfile            # Web container (near its code)
   docs/                     # Documentation
-  infra/                    # Docker Compose orchestration
-    docker-compose.yml           # Base services
-    docker-compose.override.yml  # Dev overrides (auto-loaded)
-    docker-compose.prod.yml      # Production overrides
-    docker-compose.otel.yml      # Observability stack
-    otel-collector-config.yaml
+  infra/                    # Infrastructure configuration
+    compose/
+      docker-compose.yml           # Core: api, web, db, nginx
+      docker-compose.override.yml  # Dev overrides (auto-loaded)
+      docker-compose.prod.yml      # Production overrides
+      docker-compose.otel.yml      # Observability: uptrace, clickhouse, otel-collector
+      .env.example                 # Environment variables template
+    nginx/
+      nginx.conf                   # Nginx routing configuration
+    otel/
+      otel-collector-config.yaml   # OTEL Collector config
+      uptrace.yml                  # Uptrace configuration
   tests/e2e/                # Optional E2E tests
-  .env.example
+  .env.example              # Root env template (copy from infra/compose/)
 ```
 
 ## Architecture Principles
@@ -53,14 +60,17 @@ Web Application Foundation with React UI + Node API + PostgreSQL. Production-gra
 ## Key Commands
 
 ```bash
-# Start development (auto-loads docker-compose.override.yml)
-docker compose -f infra/docker-compose.yml up
+# Setup: copy environment template
+cp infra/compose/.env.example infra/compose/.env
 
-# Start development with observability (Jaeger, OTEL Collector)
-docker compose -f infra/docker-compose.yml -f infra/docker-compose.otel.yml up
+# Start development (auto-loads docker-compose.override.yml)
+docker compose -f infra/compose/docker-compose.yml up
+
+# Start development with observability (Uptrace UI at http://localhost:14318)
+docker compose -f infra/compose/docker-compose.yml -f infra/compose/docker-compose.otel.yml up
 
 # Start production mode (skips dev overrides)
-docker compose -f infra/docker-compose.yml -f infra/docker-compose.prod.yml up
+docker compose -f infra/compose/docker-compose.yml -f infra/compose/docker-compose.prod.yml up
 
 # Run API tests
 cd apps/api && npm test
@@ -77,6 +87,12 @@ cd apps/api && npx prisma migrate dev --name <migration_name>
 # Apply migrations
 cd apps/api && npx prisma migrate deploy
 ```
+
+## Service URLs (Development)
+
+- **Application**: http://localhost (via Nginx)
+- **Swagger UI**: http://localhost/api/docs
+- **Uptrace**: http://localhost:14318 (when otel stack running)
 
 ## API Endpoints (MVP)
 
@@ -146,11 +162,28 @@ cd apps/api && npx prisma migrate deploy
 
 ## Environment Variables
 
-Key variables (see `.env.example` for full list):
+Key variables (see `infra/compose/.env.example` for full list):
+
+**Application:**
+- `NODE_ENV` - Environment (development/production)
+- `PORT` - API port (default: 3000)
+- `APP_URL` - Base URL (default: http://localhost)
+
+**Database:**
 - `DATABASE_URL` - PostgreSQL connection string
-- `JWT_SECRET` - JWT signing secret
-- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` - OAuth credentials
+- `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` - DB credentials
+
+**Authentication:**
+- `JWT_SECRET` - JWT signing secret (min 32 chars)
+- `JWT_ACCESS_TTL_MINUTES` - Access token TTL (default: 15)
+- `JWT_REFRESH_TTL_DAYS` - Refresh token TTL (default: 14)
+- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` - Google OAuth credentials
 - `INITIAL_ADMIN_EMAIL` - First user with this email becomes Admin
+
+**Observability:**
+- `OTEL_ENABLED` - Enable OpenTelemetry (default: true)
+- `OTEL_EXPORTER_OTLP_ENDPOINT` - OTEL Collector endpoint
+- `UPTRACE_DSN` - Uptrace connection string
 
 ## Common Patterns
 
