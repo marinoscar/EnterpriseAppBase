@@ -28,6 +28,10 @@
     "jest": "^29.x",
     "prisma": "^5.x",
     "ts-jest": "^29.x",
+    "ts-node": "^10.x",
     "typescript": "^5.x"
+  },
+  "prisma": {
+    "seed": "ts-node prisma/seed.ts"
   }
 }
