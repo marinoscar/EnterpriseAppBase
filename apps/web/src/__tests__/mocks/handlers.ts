@@ -1,6 +1,7 @@
 import { http, HttpResponse } from 'msw';
 
-const API_BASE = 'http://localhost:3000/api';
+// Use wildcard matching for flexibility
+const API_BASE = '*/api';
 
 // Mock data
 const mockUser = {

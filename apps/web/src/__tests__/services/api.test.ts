@@ -33,6 +33,12 @@ describe('ApiService', () => {
 
   describe('GET requests', () => {
     it('should make GET request', async () => {
+      server.use(
+        http.get('*/api/health/live', () => {
+          return HttpResponse.json({ data: { status: 'ok' } });
+        }),
+      );
+
       const data = await api.get('/health/live');
 
       expect(data).toHaveProperty('status', 'ok');
@@ -42,7 +48,7 @@ describe('ApiService', () => {
       let capturedHeaders: Headers | null = null;
 
       server.use(
-        http.get('/api/auth/me', ({ request }) => {
+        http.get('*/api/auth/me', ({ request }) => {
           capturedHeaders = request.headers;
           return HttpResponse.json({ data: { id: 'user' } });
         }),
@@ -58,7 +64,7 @@ describe('ApiService', () => {
       let capturedHeaders: Headers | null = null;
 
       server.use(
-        http.get('/api/auth/providers', ({ request }) => {
+        http.get('*/api/auth/providers', ({ request }) => {
           capturedHeaders = request.headers;
           return HttpResponse.json({ data: [] });
         }),
@@ -72,7 +78,7 @@ describe('ApiService', () => {
 
     it('should extract data from response', async () => {
       server.use(
-        http.get('/api/test', () => {
+        http.get('*/api/test', () => {
           return HttpResponse.json({ data: { message: 'success' } });
         }),
       );
@@ -88,7 +94,7 @@ describe('ApiService', () => {
       let capturedBody: any = null;
 
       server.use(
-        http.post('/api/test', async ({ request }) => {
+        http.post('*/api/test', async ({ request }) => {
           capturedBody = await request.json();
           return HttpResponse.json({ data: { success: true } });
         }),
@@ -101,7 +107,7 @@ describe('ApiService', () => {
 
     it('should make POST request without body', async () => {
       server.use(
-        http.post('/api/test', () => {
+        http.post('*/api/test', () => {
           return HttpResponse.json({ data: { success: true } });
         }),
       );
@@ -115,7 +121,7 @@ describe('ApiService', () => {
       let capturedHeaders: Headers | null = null;
 
       server.use(
-        http.post('/api/test', ({ request }) => {
+        http.post('*/api/test', ({ request }) => {
           capturedHeaders = request.headers;
           return HttpResponse.json({ data: {} });
         }),
@@ -132,7 +138,7 @@ describe('ApiService', () => {
       let capturedBody: any = null;
 
       server.use(
-        http.put('/api/test', async ({ request }) => {
+        http.put('*/api/test', async ({ request }) => {
           capturedBody = await request.json();
           return HttpResponse.json({ data: { updated: true } });
         }),
@@ -149,7 +155,7 @@ describe('ApiService', () => {
       let capturedBody: any = null;
 
       server.use(
-        http.patch('/api/test', async ({ request }) => {
+        http.patch('*/api/test', async ({ request }) => {
           capturedBody = await request.json();
           return HttpResponse.json({ data: { patched: true } });
         }),
@@ -164,7 +170,7 @@ describe('ApiService', () => {
       let capturedHeaders: Headers | null = null;
 
       server.use(
-        http.patch('/api/user-settings', ({ request }) => {
+        http.patch('*/api/user-settings', ({ request }) => {
           capturedHeaders = request.headers;
           return HttpResponse.json({ data: {} });
         }),
@@ -181,7 +187,7 @@ describe('ApiService', () => {
   describe('DELETE requests', () => {
     it('should make DELETE request', async () => {
       server.use(
-        http.delete('/api/test/:id', ({ params }) => {
+        http.delete('*/api/test/:id', ({ params }) => {
           return HttpResponse.json({ data: { deleted: params.id } });
         }),
       );
@@ -195,7 +201,7 @@ describe('ApiService', () => {
   describe('Error Handling', () => {
     it('should throw ApiError on 4xx response', async () => {
       server.use(
-        http.get('/api/not-found', () => {
+        http.get('*/api/not-found', () => {
           return HttpResponse.json(
             { message: 'Not found', code: 'NOT_FOUND' },
             { status: 404 },
@@ -208,7 +214,7 @@ describe('ApiService', () => {
 
     it('should throw ApiError on 5xx response', async () => {
       server.use(
-        http.get('/api/error', () => {
+        http.get('*/api/error', () => {
           return new HttpResponse(null, { status: 500 });
         }),
       );
@@ -218,7 +224,7 @@ describe('ApiService', () => {
 
     it('should include status code in error', async () => {
       server.use(
-        http.get('/api/forbidden', () => {
+        http.get('*/api/forbidden', () => {
           return HttpResponse.json(
             { message: 'Forbidden', code: 'FORBIDDEN' },
             { status: 403 },
@@ -236,7 +242,7 @@ describe('ApiService', () => {
 
     it('should include error code in error', async () => {
       server.use(
-        http.get('/api/validation-error', () => {
+        http.get('*/api/validation-error', () => {
           return HttpResponse.json(
             { message: 'Validation failed', code: 'VALIDATION_ERROR' },
             { status: 400 },
@@ -254,7 +260,7 @@ describe('ApiService', () => {
 
     it('should include error message', async () => {
       server.use(
-        http.get('/api/bad-request', () => {
+        http.get('*/api/bad-request', () => {
           return HttpResponse.json(
             { message: 'Invalid input', code: 'BAD_REQUEST' },
             { status: 400 },
@@ -272,7 +278,7 @@ describe('ApiService', () => {
 
     it('should handle non-JSON error responses', async () => {
       server.use(
-        http.get('/api/text-error', () => {
+        http.get('*/api/text-error', () => {
           return new HttpResponse('Internal Server Error', { status: 500 });
         }),
       );
@@ -291,14 +297,14 @@ describe('ApiService', () => {
       let callCount = 0;
 
       server.use(
-        http.get('/api/protected', () => {
+        http.get('*/api/protected', () => {
           callCount++;
           if (callCount === 1) {
             return new HttpResponse(null, { status: 401 });
           }
           return HttpResponse.json({ data: { success: true } });
         }),
-        http.post('/api/auth/refresh', () => {
+        http.post('*/api/auth/refresh', () => {
           return HttpResponse.json({
             data: { accessToken: 'new-token', expiresIn: 900 },
           });
@@ -317,14 +323,14 @@ describe('ApiService', () => {
       let protectedCallCount = 0;
 
       server.use(
-        http.get('/api/data', () => {
+        http.get('*/api/data', () => {
           protectedCallCount++;
           if (protectedCallCount === 1) {
             return new HttpResponse(null, { status: 401 });
           }
           return HttpResponse.json({ data: { value: 'success' } });
         }),
-        http.post('/api/auth/refresh', () => {
+        http.post('*/api/auth/refresh', () => {
           return HttpResponse.json({
             data: { accessToken: 'refreshed-token', expiresIn: 900 },
           });
@@ -340,10 +346,10 @@ describe('ApiService', () => {
 
     it('should throw if refresh fails', async () => {
       server.use(
-        http.get('/api/protected', () => {
+        http.get('*/api/protected', () => {
           return new HttpResponse(null, { status: 401 });
         }),
-        http.post('/api/auth/refresh', () => {
+        http.post('*/api/auth/refresh', () => {
           return new HttpResponse(null, { status: 401 });
         }),
       );
@@ -357,10 +363,10 @@ describe('ApiService', () => {
       let refreshCalled = false;
 
       server.use(
-        http.get('/api/public', () => {
+        http.get('*/api/public', () => {
           return new HttpResponse(null, { status: 401 });
         }),
-        http.post('/api/auth/refresh', () => {
+        http.post('*/api/auth/refresh', () => {
           refreshCalled = true;
           return HttpResponse.json({ data: { accessToken: 'new' } });
         }),
@@ -377,10 +383,10 @@ describe('ApiService', () => {
 
     it('should clear token when refresh fails', async () => {
       server.use(
-        http.get('/api/protected', () => {
+        http.get('*/api/protected', () => {
           return new HttpResponse(null, { status: 401 });
         }),
-        http.post('/api/auth/refresh', () => {
+        http.post('*/api/auth/refresh', () => {
           return new HttpResponse(null, { status: 401 });
         }),
       );
@@ -400,7 +406,7 @@ describe('ApiService', () => {
   describe('204 No Content', () => {
     it('should handle 204 responses', async () => {
       server.use(
-        http.post('/api/auth/logout', () => {
+        http.post('*/api/auth/logout', () => {
           return new HttpResponse(null, { status: 204 });
         }),
       );
@@ -412,7 +418,7 @@ describe('ApiService', () => {
 
     it('should handle 204 from DELETE', async () => {
       server.use(
-        http.delete('/api/resource/123', () => {
+        http.delete('*/api/resource/123', () => {
           return new HttpResponse(null, { status: 204 });
         }),
       );
@@ -428,7 +434,7 @@ describe('ApiService', () => {
       let capturedCredentials: RequestCredentials | undefined;
 
       server.use(
-        http.get('/api/test', ({ request }) => {
+        http.get('*/api/test', ({ request }) => {
           // Can't directly access credentials, but we can verify the request is made
           return HttpResponse.json({ data: {} });
         }),
@@ -444,7 +450,7 @@ describe('ApiService', () => {
   describe('refreshToken method', () => {
     it('should return true on successful refresh', async () => {
       server.use(
-        http.post('/api/auth/refresh', () => {
+        http.post('*/api/auth/refresh', () => {
           return HttpResponse.json({
             data: { accessToken: 'new-token', expiresIn: 900 },
           });
@@ -459,7 +465,7 @@ describe('ApiService', () => {
 
     it('should return false on failed refresh', async () => {
       server.use(
-        http.post('/api/auth/refresh', () => {
+        http.post('*/api/auth/refresh', () => {
           return new HttpResponse(null, { status: 401 });
         }),
       );
@@ -472,7 +478,7 @@ describe('ApiService', () => {
 
     it('should handle network errors during refresh', async () => {
       server.use(
-        http.post('/api/auth/refresh', () => {
+        http.post('*/api/auth/refresh', () => {
           throw new Error('Network error');
         }),
       );
@@ -487,7 +493,7 @@ describe('ApiService', () => {
   describe('Data Extraction', () => {
     it('should extract data property from response', async () => {
       server.use(
-        http.get('/api/users', () => {
+        http.get('*/api/users', () => {
           return HttpResponse.json({
             data: [{ id: 1, name: 'User 1' }],
             meta: { total: 1 },
@@ -502,7 +508,7 @@ describe('ApiService', () => {
 
     it('should return full response if no data property', async () => {
       server.use(
-        http.get('/api/legacy', () => {
+        http.get('*/api/legacy', () => {
           return HttpResponse.json({ users: [], count: 0 });
         }),
       );
