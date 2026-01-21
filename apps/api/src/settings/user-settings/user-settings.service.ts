@@ -33,13 +33,13 @@ export class UserSettingsService {
       settings = await this.prisma.userSettings.create({
         data: {
           userId,
-          value: DEFAULT_USER_SETTINGS,
+          value: DEFAULT_USER_SETTINGS as any,
         },
       });
       this.logger.log(`Created default settings for user: ${userId}`);
     }
 
-    const value = settings.value as UserSettingsValue;
+    const value = settings.value as unknown as UserSettingsValue;
 
     return {
       theme: value.theme,
@@ -59,12 +59,12 @@ export class UserSettingsService {
     const settings = await this.prisma.userSettings.upsert({
       where: { userId },
       update: {
-        value: validated,
+        value: validated as any,
         version: { increment: 1 },
       },
       create: {
         userId,
-        value: validated,
+        value: validated as any,
       },
     });
 
@@ -75,7 +75,7 @@ export class UserSettingsService {
 
     this.logger.log(`Settings replaced for user: ${userId}`);
 
-    const value = settings.value as UserSettingsValue;
+    const value = settings.value as unknown as UserSettingsValue;
 
     return {
       theme: value.theme,
@@ -129,7 +129,7 @@ export class UserSettingsService {
     const settings = await this.prisma.userSettings.update({
       where: { userId },
       data: {
-        value: validated,
+        value: validated as any,
         version: { increment: 1 },
       },
     });
@@ -141,7 +141,7 @@ export class UserSettingsService {
 
     this.logger.log(`Settings patched for user: ${userId}`);
 
-    const value = settings.value as UserSettingsValue;
+    const value = settings.value as unknown as UserSettingsValue;
 
     return {
       theme: value.theme,
