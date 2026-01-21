@@ -7,6 +7,8 @@
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo 'No linter configured'",
     "test": "jest --config ./test/jest.config.js --testPathIgnorePatterns='e2e'",
     "test:all": "jest --config ./test/jest.config.js",
     "test:watch": "jest --config ./test/jest.config.js --watch --testPathIgnorePatterns='e2e'",
