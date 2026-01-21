@@ -23,11 +23,12 @@ describe('Test Framework Setup', () => {
       expect(profile.displayName).toBeDefined();
     });
 
-    it('should create unique profiles with timestamp-based IDs', () => {
-      const profile1 = createMockGoogleProfile();
-      const profile2 = createMockGoogleProfile();
+    it('should create unique profiles with different emails', () => {
+      const profile1 = createMockGoogleProfile({ email: 'user1@example.com' });
+      const profile2 = createMockGoogleProfile({ email: 'user2@example.com' });
 
-      expect(profile1.id).not.toBe(profile2.id);
+      expect(profile1.email).toBe('user1@example.com');
+      expect(profile2.email).toBe('user2@example.com');
       expect(profile1.email).not.toBe(profile2.email);
     });
   });

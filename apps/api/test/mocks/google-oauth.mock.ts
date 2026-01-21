@@ -23,9 +23,11 @@ export class MockGoogleStrategy extends PassportStrategy(Strategy, 'google') {
   };
 
   constructor() {
-    super((req: any, done: any) => {
-      done(null, MockGoogleStrategy.mockProfile);
-    });
+    super();
+  }
+
+  validate(req: any, done: any): void {
+    done(null, MockGoogleStrategy.mockProfile);
   }
 
   /**
