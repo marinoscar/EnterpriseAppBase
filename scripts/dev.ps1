@@ -217,14 +217,16 @@ function Restart-Services {
 }
 
 function Rebuild-Services {
-    Write-Info "Rebuilding EnterpriseAppBase services..."
+    Write-Info "Rebuilding EnterpriseAppBase services (no cache)..."
     if ($Otel) {
         Write-Info "Including OpenTelemetry observability stack..."
     }
     if ($Service) {
-        Invoke-DockerCompose @("up", "-d", "--build", $Service)
+        Invoke-DockerCompose @("build", "--no-cache", $Service)
+        Invoke-DockerCompose @("up", "-d", $Service)
     } else {
-        Invoke-DockerCompose @("up", "-d", "--build")
+        Invoke-DockerCompose @("build", "--no-cache")
+        Invoke-DockerCompose @("up", "-d")
     }
     Write-Success "Services rebuilt and started!"
     Write-Host ""
