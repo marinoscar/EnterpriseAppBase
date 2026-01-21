@@ -1,0 +1,82 @@
+# =============================================================================
+# Docker Compose - Observability Stack (OpenTelemetry + Uptrace)
+# =============================================================================
+# Usage:
+#   docker compose -f base.compose.yml -f dev.compose.yml -f otel.compose.yml up
+#
+# Services:
+#   - OpenTelemetry Collector: Receives and exports telemetry data
+#   - Uptrace: Unified traces, metrics, and logs visualization
+#   - ClickHouse: Storage backend for Uptrace
+#
+# Access Uptrace UI at: http://localhost:14318
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # API - Enable OTEL
+  # ---------------------------------------------------------------------------
+  api:
+    environment:
+      - OTEL_ENABLED=true
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+    depends_on:
+      - otel-collector
+
+  # ---------------------------------------------------------------------------
+  # OpenTelemetry Collector
+  # ---------------------------------------------------------------------------
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ../otel/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC receiver
+      - "4318:4318"   # OTLP HTTP receiver
+    depends_on:
+      - uptrace
+    networks:
+      - app-network
+
+  # ---------------------------------------------------------------------------
+  # Uptrace - Observability Platform
+  # ---------------------------------------------------------------------------
+  uptrace:
+    image: uptrace/uptrace:latest
+    volumes:
+      - ../otel/uptrace.yml:/etc/uptrace/uptrace.yml:ro
+      - uptrace-data:/var/lib/uptrace
+    ports:
+      - "14317:14317"  # OTLP gRPC
+      - "14318:14318"  # Uptrace UI
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  # ---------------------------------------------------------------------------
+  # ClickHouse - Storage Backend for Uptrace
+  # ---------------------------------------------------------------------------
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    environment:
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-default}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-}
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  uptrace-data:
+  clickhouse-data:

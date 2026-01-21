@@ -1,0 +1,99 @@
+# =============================================================================
+# Uptrace Configuration
+# =============================================================================
+# Unified observability platform for traces, metrics, and logs
+# Access UI at: http://localhost:14318
+# =============================================================================
+
+##
+## Uptrace configuration
+##
+
+ch:
+  addr: clickhouse:9000
+  user: default
+  password:
+  database: uptrace
+
+##
+## Uptrace Projects
+##
+
+projects:
+  # Default project for the application
+  - id: 1
+    name: Enterprise App
+    token: project1_secret_token
+    pinned_attrs:
+      - service.name
+      - host.name
+      - deployment.environment
+
+##
+## Alerting (optional)
+##
+
+alerting:
+  rules: []
+
+##
+## Server configuration
+##
+
+listen:
+  # OTLP/gRPC API
+  grpc:
+    addr: ":14317"
+
+  # HTTP API and UI
+  http:
+    addr: ":14318"
+
+##
+## Storage configuration
+##
+
+# Spans retention (how long to keep traces)
+spans:
+  ttl: 7d
+
+# Metrics retention
+metrics:
+  ttl: 30d
+
+##
+## Authentication (disabled for local development)
+##
+
+auth:
+  users: []
+
+##
+## SMTP (optional, for alerts)
+##
+
+# smtp:
+#   enabled: false
+#   host: localhost
+#   port: 1025
+#   from: "uptrace@localhost"
+
+##
+## Logging
+##
+
+logging:
+  level: INFO
+
+##
+## Secret key for sessions (generate a random string for production)
+##
+
+secret_key: "your-secret-key-for-sessions-change-in-production"
+
+##
+## Site configuration
+##
+
+site:
+  addr: "http://localhost:14318"

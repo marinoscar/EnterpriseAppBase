@@ -36,18 +36,17 @@ Web Application Foundation with React UI + Node API + PostgreSQL. Production-gra
   docs/                     # Documentation
   infra/                    # Infrastructure configuration
     compose/
-      docker-compose.yml           # Core: api, web, db, nginx
-      docker-compose.override.yml  # Dev overrides (auto-loaded)
-      docker-compose.prod.yml      # Production overrides
-      docker-compose.otel.yml      # Observability: uptrace, clickhouse, otel-collector
-      .env.example                 # Environment variables template
+      base.compose.yml       # Core services: api, web, db, nginx
+      dev.compose.yml        # Development overrides (hot reload, volumes)
+      prod.compose.yml       # Production overrides (resource limits)
+      otel.compose.yml       # Observability: uptrace, clickhouse, otel-collector
+      .env.example           # Environment variables template
     nginx/
-      nginx.conf                   # Nginx routing configuration
+      nginx.conf             # Nginx routing configuration
     otel/
       otel-collector-config.yaml   # OTEL Collector config
-      uptrace.yml                  # Uptrace configuration
+      uptrace.yml            # Uptrace configuration
   tests/e2e/                # Optional E2E tests
-  .env.example              # Root env template (copy from infra/compose/)
 ```
 
 ## Architecture Principles
@@ -63,14 +62,14 @@ Web Application Foundation with React UI + Node API + PostgreSQL. Production-gra
 # Setup: copy environment template
 cp infra/compose/.env.example infra/compose/.env
 
-# Start development (auto-loads docker-compose.override.yml)
-docker compose -f infra/compose/docker-compose.yml up
+# Start development (from infra/compose folder)
+cd infra/compose && docker compose -f base.compose.yml -f dev.compose.yml up
 
 # Start development with observability (Uptrace UI at http://localhost:14318)
-docker compose -f infra/compose/docker-compose.yml -f infra/compose/docker-compose.otel.yml up
+cd infra/compose && docker compose -f base.compose.yml -f dev.compose.yml -f otel.compose.yml up
 
-# Start production mode (skips dev overrides)
-docker compose -f infra/compose/docker-compose.yml -f infra/compose/docker-compose.prod.yml up
+# Start production mode
+cd infra/compose && docker compose -f base.compose.yml -f prod.compose.yml up
 
 # Run API tests
 cd apps/api && npm test

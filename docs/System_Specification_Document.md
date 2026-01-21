@@ -107,11 +107,11 @@ Enterprise-grade instrumentation required from day one:
     SPEC.md                 # this document
   infra/
     compose/
-      docker-compose.yml           # Core: api, web, db, nginx
-      docker-compose.override.yml  # Dev overrides (auto-loaded)
-      docker-compose.prod.yml      # Production overrides
-      docker-compose.otel.yml      # Observability: uptrace, clickhouse, otel-collector
-      .env.example                 # Environment variables template
+      base.compose.yml       # Core services: api, web, db, nginx
+      dev.compose.yml        # Development overrides (hot reload, volumes)
+      prod.compose.yml       # Production overrides (resource limits)
+      otel.compose.yml       # Observability: uptrace, clickhouse, otel-collector
+      .env.example           # Environment variables template
     nginx/
       nginx.conf            # Nginx routing configuration
     otel/
@@ -119,7 +119,6 @@ Enterprise-grade instrumentation required from day one:
       uptrace.yml                  # Uptrace configuration
   tests/
     e2e/                    # optional full-system tests
-  .env.example              # Root env template (symlink or copy from infra/compose/)
   README.md
 ```
 
@@ -550,11 +549,11 @@ Dockerfiles stay with their application code for natural build context, while co
 ```
 infra/
   compose/
-    docker-compose.yml           # Core: api, web, db, nginx
-    docker-compose.override.yml  # Dev overrides (auto-loaded)
-    docker-compose.prod.yml      # Production overrides
-    docker-compose.otel.yml      # Observability: uptrace, clickhouse, otel-collector
-    .env.example                 # Environment variables template
+    base.compose.yml       # Core services: api, web, db, nginx
+    dev.compose.yml        # Development overrides (hot reload, volumes)
+    prod.compose.yml       # Production overrides (resource limits)
+    otel.compose.yml       # Observability: uptrace, clickhouse, otel-collector
+    .env.example           # Environment variables template
   nginx/
     nginx.conf                   # Nginx routing (/ → web, /api → api)
   otel/
@@ -641,17 +640,19 @@ cp infra/compose/.env.example infra/compose/.env
 ```
 
 ### 14.4 Running Docker Compose
-Docker automatically loads `docker-compose.override.yml` when present, simplifying dev commands:
+Run commands from the `infra/compose` folder where `.env` is located:
 
 ```bash
-# Development (auto-loads override.yml for hot reload, volumes)
-docker compose -f infra/compose/docker-compose.yml up
+cd infra/compose
+
+# Development (hot reload, volumes, exposed ports)
+docker compose -f base.compose.yml -f dev.compose.yml up
 
 # Development with observability (Uptrace UI at http://localhost:14318)
-docker compose -f infra/compose/docker-compose.yml -f infra/compose/docker-compose.otel.yml up
+docker compose -f base.compose.yml -f dev.compose.yml -f otel.compose.yml up
 
-# Production (explicit, skips override)
-docker compose -f infra/compose/docker-compose.yml -f infra/compose/docker-compose.prod.yml up
+# Production (resource limits, restart policies)
+docker compose -f base.compose.yml -f prod.compose.yml up
 ```
 
 ### 14.5 Service URLs (Development)
