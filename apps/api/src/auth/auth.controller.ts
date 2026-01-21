@@ -8,6 +8,7 @@ import {
   HttpCode,
   HttpStatus,
   Logger,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
@@ -28,6 +29,15 @@ import {
   AuthProviderDto,
 } from './dto/auth-provider.dto';
 import { CurrentUserDto } from './dto/auth-user.dto';
+
+const REFRESH_TOKEN_COOKIE = 'refresh_token';
+const COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax' as const,
+  path: '/api/auth',
+  maxAge: 14 * 24 * 60 * 60 * 1000, // 14 days in ms
+};
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -116,11 +126,16 @@ export class AuthController {
       // Handle login and generate tokens
       const tokens = await this.authService.handleGoogleLogin(profile);
 
-      // Redirect to frontend with token
-      const appUrl = this.configService.get<string>('appUrl');
-      const redirectUrl = `${appUrl}/auth/callback?token=${tokens.accessToken}`;
+      // Set refresh token in HttpOnly cookie
+      res.setCookie(REFRESH_TOKEN_COOKIE, tokens.refreshToken!, COOKIE_OPTIONS);
 
-      return res.redirect(redirectUrl);
+      // Redirect to frontend with access token only
+      const appUrl = this.configService.get<string>('appUrl');
+      const redirectUrl = new URL('/auth/callback', appUrl);
+      redirectUrl.searchParams.set('token', tokens.accessToken);
+      redirectUrl.searchParams.set('expiresIn', tokens.expiresIn.toString());
+
+      return res.redirect(302, redirectUrl.toString());
     } catch (error) {
       this.logger.error('Error in Google OAuth callback', error);
       const appUrl = this.configService.get<string>('appUrl');
@@ -160,8 +175,49 @@ export class AuthController {
   }
 
   /**
+   * POST /auth/refresh
+   * Refresh access token using refresh token from cookie
+   */
+  @Public()
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Refresh access token',
+    description: 'Exchanges a refresh token for a new access token',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'New access token',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Invalid or expired refresh token',
+  })
+  async refresh(
+    @Req() req: FastifyRequest,
+    @Res({ passthrough: true }) res: FastifyReply,
+  ) {
+    const refreshToken = req.cookies[REFRESH_TOKEN_COOKIE];
+
+    if (!refreshToken) {
+      throw new UnauthorizedException('No refresh token provided');
+    }
+
+    const tokens = await this.authService.refreshAccessToken(refreshToken);
+
+    // Set new refresh token in cookie (rotation)
+    res.setCookie(REFRESH_TOKEN_COOKIE, tokens.refreshToken!, COOKIE_OPTIONS);
+
+    // Return new access token
+    return {
+      accessToken: tokens.accessToken,
+      expiresIn: tokens.expiresIn,
+    };
+  }
+
+  /**
    * POST /auth/logout
-   * Logout endpoint (stateless - client discards token)
+   * Logout current user and revoke refresh token
    */
   @Post('logout')
   @UseGuards(JwtAuthGuard)
@@ -169,7 +225,7 @@ export class AuthController {
   @ApiBearerAuth()
   @ApiOperation({
     summary: 'Logout',
-    description: 'Logout endpoint. Since JWT is stateless, client should discard the token.',
+    description: 'Logout endpoint and revoke refresh token',
   })
   @ApiResponse({
     status: 204,
@@ -179,9 +235,50 @@ export class AuthController {
     status: 401,
     description: 'Unauthorized - invalid or missing token',
   })
-  async logout(@CurrentUser() user: RequestUser): Promise<void> {
+  async logout(
+    @CurrentUser() user: RequestUser,
+    @Req() req: FastifyRequest,
+    @Res({ passthrough: true }) res: FastifyReply,
+  ): Promise<void> {
+    const refreshToken = req.cookies[REFRESH_TOKEN_COOKIE];
+
+    await this.authService.logout(user.userId, refreshToken);
+
+    // Clear refresh token cookie
+    res.clearCookie(REFRESH_TOKEN_COOKIE, { path: '/api/auth' });
+
     this.logger.log(`User logged out: ${user.email}`);
-    // Stateless JWT - client discards token
-    // In future, could add token blacklist or refresh token revocation
+  }
+
+  /**
+   * POST /auth/logout-all
+   * Logout from all devices by revoking all refresh tokens
+   */
+  @Post('logout-all')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Logout from all devices',
+    description: 'Revoke all refresh tokens for the current user',
+  })
+  @ApiResponse({
+    status: 204,
+    description: 'All tokens revoked successfully',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - invalid or missing token',
+  })
+  async logoutAll(
+    @CurrentUser() user: RequestUser,
+    @Res({ passthrough: true }) res: FastifyReply,
+  ): Promise<void> {
+    await this.authService.revokeAllUserTokens(user.userId);
+
+    // Clear refresh token cookie
+    res.clearCookie(REFRESH_TOKEN_COOKIE, { path: '/api/auth' });
+
+    this.logger.log(`User logged out from all devices: ${user.email}`);
   }
 }

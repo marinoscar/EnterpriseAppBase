@@ -2,11 +2,13 @@ import { Module } from '@nestjs/common';
 import { PassportModule } from '@nestjs/passport';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { CommonModule } from '../common/common.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { GoogleStrategy } from './strategies/google.strategy';
 import { JwtStrategy } from './strategies/jwt.strategy';
+import { TokenCleanupTask } from './tasks/token-cleanup.task';
 
 @Module({
   imports: [
@@ -24,11 +26,14 @@ import { JwtStrategy } from './strategies/jwt.strategy';
       }),
     }),
 
+    // Schedule module for cron jobs
+    ScheduleModule.forRoot(),
+
     // Common module for AdminBootstrapService
     CommonModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, GoogleStrategy, JwtStrategy],
+  providers: [AuthService, GoogleStrategy, JwtStrategy, TokenCleanupTask],
   exports: [AuthService, JwtModule],
 })
 export class AuthModule {}

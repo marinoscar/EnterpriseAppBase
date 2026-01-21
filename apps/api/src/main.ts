@@ -5,6 +5,7 @@ import {
 } from '@nestjs/platform-fastify';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { Logger } from '@nestjs/common';
+import fastifyCookie from '@fastify/cookie';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -14,6 +15,11 @@ async function bootstrap() {
     AppModule,
     new FastifyAdapter({ logger: true }),
   );
+
+  // Register cookie plugin
+  await app.register(fastifyCookie, {
+    secret: process.env.COOKIE_SECRET || process.env.JWT_SECRET,
+  });
 
   // Global prefix for all routes
   app.setGlobalPrefix('api');

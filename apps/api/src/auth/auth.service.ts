@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
+import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AdminBootstrapService } from '../common/services/admin-bootstrap.service';
 import { DEFAULT_ROLE } from '../common/constants/roles.constants';
@@ -15,6 +16,12 @@ import { JwtPayload } from './strategies/jwt.strategy';
 import { RequestUser } from './decorators/current-user.decorator';
 import { TokenResponseDto } from './dto/auth-user.dto';
 import { AuthProviderDto } from './dto/auth-provider.dto';
+
+export interface FullTokenResponse {
+  accessToken: string;
+  expiresIn: number;
+  refreshToken?: string; // Only returned on initial auth, not refresh
+}
 
 @Injectable()
 export class AuthService {
@@ -33,7 +40,7 @@ export class AuthService {
    */
   async handleGoogleLogin(
     profile: GoogleProfile,
-  ): Promise<TokenResponseDto> {
+  ): Promise<FullTokenResponse> {
     this.logger.log(`Google login attempt for email: ${profile.email}`);
 
     // Check if identity already exists
@@ -125,7 +132,7 @@ export class AuthService {
     }
 
     // Generate JWT tokens
-    const tokens = await this.generateTokens(user);
+    const tokens = await this.generateFullTokens(user);
 
     this.logger.log(`Login successful for user: ${user.email}`);
     return tokens;
@@ -266,6 +273,197 @@ export class AuthService {
       accessToken,
       expiresIn: accessTtlMinutes * 60, // Convert to seconds
     };
+  }
+
+  /**
+   * Generate both access and refresh tokens
+   */
+  async generateFullTokens(user: {
+    id: string;
+    email: string;
+    userRoles: Array<{ role: { name: string } }>;
+  }): Promise<FullTokenResponse> {
+    const accessToken = this.generateAccessToken(user);
+    const refreshToken = await this.createRefreshToken(user.id);
+
+    return {
+      accessToken: accessToken.token,
+      expiresIn: accessToken.expiresIn,
+      refreshToken,
+    };
+  }
+
+  /**
+   * Generate access token only
+   */
+  private generateAccessToken(user: {
+    id: string;
+    email: string;
+    userRoles: Array<{ role: { name: string } }>;
+  }) {
+    const roles = user.userRoles.map((ur) => ur.role.name);
+
+    const payload: JwtPayload = {
+      sub: user.id,
+      email: user.email,
+      roles,
+    };
+
+    const accessTtlMinutes = this.configService.get<number>(
+      'jwt.accessTtlMinutes',
+      15,
+    );
+
+    return {
+      token: this.jwtService.sign(payload),
+      expiresIn: accessTtlMinutes * 60,
+    };
+  }
+
+  /**
+   * Create a new refresh token
+   */
+  private async createRefreshToken(userId: string): Promise<string> {
+    const refreshTtlDays = this.configService.get<number>(
+      'jwt.refreshTtlDays',
+      14,
+    );
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + refreshTtlDays);
+
+    // Generate random token
+    const token = randomBytes(32).toString('hex');
+    const tokenHash = this.hashToken(token);
+
+    // Store hashed token in database
+    await this.prisma.refreshToken.create({
+      data: {
+        userId,
+        tokenHash,
+        expiresAt,
+      },
+    });
+
+    this.logger.debug(`Created refresh token for user: ${userId}`);
+
+    return token;
+  }
+
+  /**
+   * Refresh access token using refresh token
+   */
+  async refreshAccessToken(refreshToken: string): Promise<FullTokenResponse> {
+    const tokenHash = this.hashToken(refreshToken);
+
+    // Find valid refresh token
+    const storedToken = await this.prisma.refreshToken.findUnique({
+      where: { tokenHash },
+      include: {
+        user: {
+          include: {
+            userRoles: {
+              include: { role: true },
+            },
+          },
+        },
+      },
+    });
+
+    if (!storedToken) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    // Check if revoked
+    if (storedToken.revokedAt) {
+      // Potential token reuse attack - revoke all tokens for user
+      await this.revokeAllUserTokens(storedToken.userId);
+      this.logger.warn(
+        `Refresh token reuse detected for user: ${storedToken.userId}`,
+      );
+      throw new UnauthorizedException('Refresh token has been revoked');
+    }
+
+    // Check if expired
+    if (storedToken.expiresAt < new Date()) {
+      throw new UnauthorizedException('Refresh token has expired');
+    }
+
+    // Check if user is active
+    if (!storedToken.user.isActive) {
+      throw new UnauthorizedException('User account is deactivated');
+    }
+
+    // Rotate token - revoke old one, create new one
+    await this.prisma.refreshToken.update({
+      where: { id: storedToken.id },
+      data: { revokedAt: new Date() },
+    });
+
+    // Generate new tokens
+    const newRefreshToken = await this.createRefreshToken(storedToken.userId);
+    const accessToken = this.generateAccessToken(storedToken.user);
+
+    return {
+      accessToken: accessToken.token,
+      expiresIn: accessToken.expiresIn,
+      refreshToken: newRefreshToken,
+    };
+  }
+
+  /**
+   * Logout - revoke refresh token
+   */
+  async logout(userId: string, refreshToken?: string): Promise<void> {
+    if (refreshToken) {
+      // Revoke specific token
+      const tokenHash = this.hashToken(refreshToken);
+      await this.prisma.refreshToken.updateMany({
+        where: { tokenHash, userId },
+        data: { revokedAt: new Date() },
+      });
+    } else {
+      // Revoke all tokens for user
+      await this.revokeAllUserTokens(userId);
+    }
+
+    this.logger.log(`User logged out: ${userId}`);
+  }
+
+  /**
+   * Revoke all refresh tokens for a user
+   */
+  async revokeAllUserTokens(userId: string): Promise<void> {
+    await this.prisma.refreshToken.updateMany({
+      where: {
+        userId,
+        revokedAt: null,
+      },
+      data: { revokedAt: new Date() },
+    });
+  }
+
+  /**
+   * Clean up expired tokens (run periodically)
+   */
+  async cleanupExpiredTokens(): Promise<number> {
+    const result = await this.prisma.refreshToken.deleteMany({
+      where: {
+        OR: [
+          { expiresAt: { lt: new Date() } },
+          { revokedAt: { not: null } },
+        ],
+      },
+    });
+
+    this.logger.log(`Cleaned up ${result.count} expired/revoked tokens`);
+    return result.count;
+  }
+
+  /**
+   * Hash token for storage
+   */
+  private hashToken(token: string): string {
+    return createHash('sha256').update(token).digest('hex');
   }
 
   /**

@@ -21,6 +21,7 @@
     "@nestjs/jwt": "^11.0.2",
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-fastify": "^10.x",
+    "@nestjs/schedule": "^6.1.0",
     "@nestjs/swagger": "^7.4.2",
     "@prisma/client": "^5.x",
     "nestjs-zod": "^3.0.0",
