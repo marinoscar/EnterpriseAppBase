@@ -5,7 +5,6 @@ import {
   Box,
   IconButton,
   useTheme,
-  useMediaQuery,
 } from '@mui/material';
 import {
   Brightness4 as DarkModeIcon,
@@ -24,7 +23,6 @@ export function AppBar({ onMenuClick }: AppBarProps) {
   const theme = useTheme();
   const navigate = useNavigate();
   const { isDarkMode, toggleMode } = useThemeContext();
-  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
   return (
     <MuiAppBar
@@ -36,18 +34,16 @@ export function AppBar({ onMenuClick }: AppBarProps) {
       }}
     >
       <Toolbar>
-        {/* Hamburger Menu (Mobile Only) */}
-        {isMobile && (
-          <IconButton
-            color="inherit"
-            aria-label="open drawer"
-            edge="start"
-            onClick={onMenuClick}
-            sx={{ mr: 2 }}
-          >
-            <MenuIcon />
-          </IconButton>
-        )}
+        {/* Hamburger Menu (Always Visible) */}
+        <IconButton
+          color="inherit"
+          aria-label="toggle drawer"
+          edge="start"
+          onClick={onMenuClick}
+          sx={{ mr: 2 }}
+        >
+          <MenuIcon />
+        </IconButton>
 
         {/* Logo/Title */}
         <Typography

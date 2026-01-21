@@ -9,7 +9,6 @@ import {
   Divider,
   Box,
   useTheme,
-  useMediaQuery,
 } from '@mui/material';
 import {
   Home as HomeIcon,
@@ -31,7 +30,6 @@ export function Sidebar({ open, onClose }: SidebarProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const { isAdmin } = usePermissions();
-  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
   const menuItems = [
     {
@@ -56,9 +54,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
 
   const handleNavigate = (path: string) => {
     navigate(path);
-    if (isMobile) {
-      onClose();
-    }
+    onClose();
   };
 
   const drawerContent = (
@@ -102,8 +98,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
 
   return (
     <Drawer
-      variant={isMobile ? 'temporary' : 'permanent'}
-      open={isMobile ? open : true}
+      variant="temporary"
+      open={open}
       onClose={onClose}
       sx={{
         width: DRAWER_WIDTH,
