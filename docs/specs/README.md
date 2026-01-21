@@ -46,6 +46,17 @@ Specs are organized by implementation order and domain. Follow the dependencies 
 | [17](17-web-user-settings-page.md) | User Settings Page | Frontend | 14 | Medium |
 | [18](18-web-system-settings-page.md) | System Settings Page | Frontend | 14 | Medium |
 
+### Testing
+
+| Spec | Title | Domain | Dependencies | Complexity |
+|------|-------|--------|--------------|------------|
+| [19](19-api-test-framework.md) | API Test Framework | Testing | 04 | Medium |
+| [20](20-api-auth-tests.md) | Auth Module Tests | Testing | 05, 06, 19 | High |
+| [21](21-api-rbac-tests.md) | RBAC & Guards Tests | Testing | 07, 19 | Medium |
+| [22](22-api-endpoints-tests.md) | API Endpoints Tests | Testing | 08, 09, 10, 11, 19 | High |
+| [23](23-web-test-framework.md) | Web Test Framework | Testing | 13 | Medium |
+| [24](24-web-component-tests.md) | Web Component Tests | Testing | 14, 15, 16, 17, 18, 23 | High |
+
 ## Dependency Graph
 
 ```
@@ -60,13 +71,19 @@ Specs are organized by implementation order and domain. Follow the dependencies 
 │   │       ├── 09-user-settings-endpoints
 │   │       └── 10-system-settings-endpoints
 │   ├── 11-health-endpoints
-│   └── 12-api-observability
+│   ├── 12-api-observability
+│   └── 19-api-test-framework
+│       ├── 20-api-auth-tests (after 05, 06)
+│       ├── 21-api-rbac-tests (after 07)
+│       └── 22-api-endpoints-tests (after 08, 09, 10, 11)
 └── 13-web-project-setup
-    └── 14-web-auth-context
-        ├── 15-web-login-page
-        ├── 16-web-home-page
-        ├── 17-web-user-settings-page
-        └── 18-web-system-settings-page
+    ├── 14-web-auth-context
+    │   ├── 15-web-login-page
+    │   ├── 16-web-home-page
+    │   ├── 17-web-user-settings-page
+    │   └── 18-web-system-settings-page
+    └── 23-web-test-framework
+        └── 24-web-component-tests (after 14-18)
 ```
 
 ## Implementation Phases
@@ -97,6 +114,14 @@ Specs are organized by implementation order and domain. Follow the dependencies 
 17. **17-web-user-settings-page** - User preferences
 18. **18-web-system-settings-page** - Admin settings
 
+### Phase 5: Testing
+19. **19-api-test-framework** - Jest, Supertest, test DB setup
+20. **20-api-auth-tests** - Auth module unit and integration tests
+21. **21-api-rbac-tests** - RBAC guards and authorization tests
+22. **22-api-endpoints-tests** - API endpoint integration tests
+23. **23-web-test-framework** - Vitest, RTL, MSW setup
+24. **24-web-component-tests** - Component and page tests
+
 ## Spec Structure
 
 Each specification follows this format:
@@ -104,8 +129,8 @@ Each specification follows this format:
 ```markdown
 # Spec XX: Title
 
-**Domain:** Backend | Frontend | Database | Infrastructure
-**Agent:** `backend-dev` | `frontend-dev` | `database-dev` | etc.
+**Domain:** Backend | Frontend | Database | Infrastructure | Testing
+**Agent:** `backend-dev` | `frontend-dev` | `database-dev` | `testing-dev` | etc.
 **Depends On:** List of prerequisite specs
 **Estimated Complexity:** Low | Medium | High
 
@@ -132,7 +157,24 @@ Additional context and considerations.
 | `database-dev` | 02, 03 |
 | `backend-dev` | 04, 05, 06, 07, 08, 09, 10, 11, 12 |
 | `frontend-dev` | 13, 14, 15, 16, 17, 18 |
+| `testing-dev` | 19, 20, 21, 22, 23, 24 |
 | Manual/Orchestration | 01 |
+
+## Running Tests
+
+After implementing the testing specs, use these commands:
+
+```bash
+# API Tests
+cd apps/api && npm test              # Run all tests
+cd apps/api && npm run test:cov      # Run with coverage
+cd apps/api && npm run test:watch    # Watch mode
+
+# Web Tests
+cd apps/web && npm test              # Run all tests
+cd apps/web && npm run test:coverage # Run with coverage
+cd apps/web && npm run test:ui       # Visual test UI
+```
 
 ## Using These Specs
 
@@ -141,6 +183,7 @@ Additional context and considerations.
 3. **Follow acceptance criteria** - use as a checklist
 4. **Reference code examples** - adapt to your specific needs
 5. **Consult the System Specification Document** for broader context
+6. **Run tests after implementation** - verify specs 19-24 for test coverage
 
 ## Related Documents
 
