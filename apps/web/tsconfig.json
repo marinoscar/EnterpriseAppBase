@@ -22,7 +22,7 @@
     "forceConsistentCasingInFileNames": true,
 
     /* Testing */
-    "types": ["vite/client", "@testing-library/jest-dom"]
+    "types": ["vite/client", "vitest/globals", "@testing-library/jest-dom"]
   },
   "include": ["src"],
   "references": [{ "path": "./tsconfig.node.json" }]
