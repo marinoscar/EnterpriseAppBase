@@ -60,10 +60,8 @@ export const handlers = [
 
   http.post(`${API_BASE}/auth/refresh`, () => {
     return HttpResponse.json({
-      data: {
-        accessToken: 'new-mock-token',
-        expiresIn: 900,
-      },
+      accessToken: 'new-mock-token',
+      expiresIn: 900,
     });
   }),
 

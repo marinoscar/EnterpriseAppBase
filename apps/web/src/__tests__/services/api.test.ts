@@ -306,7 +306,8 @@ describe('ApiService', () => {
         }),
         http.post('*/api/auth/refresh', () => {
           return HttpResponse.json({
-            data: { accessToken: 'new-token', expiresIn: 900 },
+            accessToken: 'new-token',
+            expiresIn: 900,
           });
         }),
       );
@@ -332,7 +333,8 @@ describe('ApiService', () => {
         }),
         http.post('*/api/auth/refresh', () => {
           return HttpResponse.json({
-            data: { accessToken: 'refreshed-token', expiresIn: 900 },
+            accessToken: 'refreshed-token',
+            expiresIn: 900,
           });
         }),
       );
@@ -368,7 +370,7 @@ describe('ApiService', () => {
         }),
         http.post('*/api/auth/refresh', () => {
           refreshCalled = true;
-          return HttpResponse.json({ data: { accessToken: 'new' } });
+          return HttpResponse.json({ accessToken: 'new', expiresIn: 900 });
         }),
       );
 
@@ -452,7 +454,8 @@ describe('ApiService', () => {
       server.use(
         http.post('*/api/auth/refresh', () => {
           return HttpResponse.json({
-            data: { accessToken: 'new-token', expiresIn: 900 },
+            accessToken: 'new-token',
+            expiresIn: 900,
           });
         }),
       );

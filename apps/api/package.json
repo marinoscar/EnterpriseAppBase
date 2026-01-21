@@ -7,13 +7,14 @@
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
-    "test": "jest --config ./test/jest.config.js",
-    "test:watch": "jest --config ./test/jest.config.js --watch",
-    "test:cov": "jest --config ./test/jest.config.js --coverage",
-    "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand --config ./test/jest.config.js",
-    "test:e2e": "jest --config ./test/jest.config.js --testRegex '.e2e-spec.ts$'",
+    "test": "jest --config ./test/jest.config.js --testPathIgnorePatterns='e2e'",
+    "test:all": "jest --config ./test/jest.config.js",
+    "test:watch": "jest --config ./test/jest.config.js --watch --testPathIgnorePatterns='e2e'",
+    "test:cov": "jest --config ./test/jest.config.js --coverage --testPathIgnorePatterns='e2e'",
+    "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand --config ./test/jest.config.js --testPathIgnorePatterns='e2e'",
+    "test:e2e": "jest --config ./test/jest.config.js --testRegex '.e2e.spec.ts$'",
     "test:unit": "jest --config ./test/jest.config.js --testPathIgnorePatterns='e2e'",
-    "test:ci": "jest --config ./test/jest.config.js --coverage --ci --reporters=default --reporters=jest-junit"
+    "test:ci": "jest --config ./test/jest.config.js --coverage --ci --reporters=default --reporters=jest-junit --testPathIgnorePatterns='e2e'"
   },
   "dependencies": {
     "@fastify/cookie": "^9.4.0",

@@ -1,30 +1,47 @@
-import { ReactElement, ReactNode, createContext } from 'react';
+import { ReactElement, ReactNode } from 'react';
 import { render, RenderOptions, RenderResult } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { ThemeProvider } from '@mui/material/styles';
 import { CssBaseline } from '@mui/material';
 import { lightTheme, darkTheme } from '../../theme';
 import { vi } from 'vitest';
-import { AuthProvider as AuthProviderType } from '../../types';
 
-// Create a mock AuthContext for testing
-interface AuthContextValue {
-  user: any | null;
-  isLoading: boolean;
-  isAuthenticated: boolean;
-  providers: AuthProviderType[];
-  login: (provider: string) => void;
-  logout: () => Promise<void>;
-  refreshUser: () => Promise<void>;
-}
+// Mock the API module to prevent network calls
+vi.mock('../../services/api', () => ({
+  api: {
+    get: vi.fn(),
+    post: vi.fn(),
+    put: vi.fn(),
+    patch: vi.fn(),
+    delete: vi.fn(),
+    setAccessToken: vi.fn(),
+    refreshToken: vi.fn(),
+  },
+  ApiError: class ApiError extends Error {
+    status: number;
+    code?: string;
+    details?: any;
+    constructor(message: string, status: number, code?: string, details?: any) {
+      super(message);
+      this.status = status;
+      this.code = code;
+      this.details = details;
+    }
+  },
+}));
 
-const AuthContext = createContext<AuthContextValue | null>(null);
+// Import AuthContext and ThemeContextProvider after mocking
+import { AuthContext } from '../../contexts/AuthContext';
+import { ThemeContextProvider } from '../../contexts/ThemeContext';
+import type { AuthProvider as AuthProviderType } from '../../types';
 
 interface WrapperOptions {
   route?: string;
   theme?: 'light' | 'dark';
   authenticated?: boolean;
   user?: MockUser | null;
+  isLoading?: boolean;
+  providers?: AuthProviderType[];
 }
 
 export interface MockUser {
@@ -62,26 +79,35 @@ export const mockAdminUser: MockUser = {
   isActive: true,
 };
 
+// Default mock providers
+const defaultMockProviders: AuthProviderType[] = [
+  { name: 'google', authUrl: '/api/auth/google' },
+];
+
 // Mock Auth Provider for testing
 interface MockAuthProviderProps {
   children: ReactNode;
   authenticated?: boolean;
   user?: MockUser | null;
+  isLoading?: boolean;
+  providers?: AuthProviderType[];
 }
 
 function MockAuthProvider({
   children,
   authenticated = true,
   user = mockUser,
+  isLoading = false,
+  providers = defaultMockProviders,
 }: MockAuthProviderProps) {
   const contextValue = {
     user: authenticated ? user : null,
-    isLoading: false,
+    isLoading,
     isAuthenticated: authenticated,
-    providers: [],
+    providers,
     login: vi.fn(),
-    logout: vi.fn(),
-    refreshUser: vi.fn(),
+    logout: vi.fn().mockResolvedValue(undefined),
+    refreshUser: vi.fn().mockResolvedValue(undefined),
   };
 
   return (
@@ -97,19 +123,24 @@ function createWrapper(options: WrapperOptions = {}) {
     theme = 'light',
     authenticated = true,
     user = mockUser,
+    isLoading = false,
+    providers = defaultMockProviders,
   } = options;
 
   return function Wrapper({ children }: { children: ReactNode }) {
-    const selectedTheme = theme === 'light' ? lightTheme : darkTheme;
-
     return (
       <MemoryRouter initialEntries={[route]}>
-        <ThemeProvider theme={selectedTheme}>
+        <ThemeContextProvider>
           <CssBaseline />
-          <MockAuthProvider authenticated={authenticated} user={user}>
+          <MockAuthProvider
+            authenticated={authenticated}
+            user={user}
+            isLoading={isLoading}
+            providers={providers}
+          >
             {children}
           </MockAuthProvider>
-        </ThemeProvider>
+        </ThemeContextProvider>
       </MemoryRouter>
     );
   };

@@ -366,7 +366,8 @@ describe('UserMenu', () => {
 
       const avatarButton = screen.getByRole('button');
       expect(avatarButton).toHaveAttribute('aria-haspopup', 'true');
-      expect(avatarButton).toHaveAttribute('aria-expanded', 'false');
+      // aria-expanded is undefined when menu is closed (not set)
+      expect(avatarButton).not.toHaveAttribute('aria-expanded');
 
       await user.click(avatarButton);
 
@@ -384,8 +385,11 @@ describe('UserMenu', () => {
       await user.click(avatarButton);
 
       await waitFor(() => {
-        const menu = screen.getByRole('menu');
-        expect(menu).toHaveAttribute('id', 'user-menu');
+        // MUI Menu puts the id on the presentation wrapper, not the menu role element
+        const menuWrapper = document.getElementById('user-menu');
+        expect(menuWrapper).toBeInTheDocument();
+        // Verify the menu role element exists inside
+        expect(screen.getByRole('menu')).toBeInTheDocument();
       });
     });
   });
