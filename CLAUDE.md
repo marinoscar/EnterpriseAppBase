@@ -78,13 +78,16 @@ cd apps/api && npm test
 cd apps/web && npm test
 
 # Generate Prisma client after schema changes
-cd apps/api && npx prisma generate
+cd apps/api && npm run prisma:generate
 
-# Create a new migration
-cd apps/api && npx prisma migrate dev --name <migration_name>
+# Create a new migration (development)
+cd apps/api && npm run prisma:migrate:dev -- --name <migration_name>
 
-# Apply migrations
-cd apps/api && npx prisma migrate deploy
+# Apply migrations (production)
+cd apps/api && npm run prisma:migrate
+
+# Note: Use npm scripts (prisma:*) instead of direct npx commands
+# They automatically construct DATABASE_URL from individual env vars
 ```
 
 ## Service URLs (Development)
@@ -168,9 +171,15 @@ Key variables (see `infra/compose/.env.example` for full list):
 - `PORT` - API port (default: 3000)
 - `APP_URL` - Base URL (default: http://localhost:3535)
 
-**Database:**
-- `DATABASE_URL` - PostgreSQL connection string
-- `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` - DB credentials
+**Database (individual connection parameters):**
+- `POSTGRES_HOST` - Database hostname (default: db in Docker, localhost otherwise)
+- `POSTGRES_PORT` - Database port (default: 5432)
+- `POSTGRES_USER` - Database user (default: postgres)
+- `POSTGRES_PASSWORD` - Database password (default: postgres)
+- `POSTGRES_DB` - Database name (default: appdb)
+- `POSTGRES_SSL` - Enable SSL connection (default: false)
+
+Note: `DATABASE_URL` is constructed automatically from these variables at runtime.
 
 **Authentication:**
 - `JWT_SECRET` - JWT signing secret (min 32 chars)

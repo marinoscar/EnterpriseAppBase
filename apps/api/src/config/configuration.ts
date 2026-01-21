@@ -1,13 +1,34 @@
-export default () => ({
-  // Application
-  nodeEnv: process.env.NODE_ENV || 'development',
-  port: parseInt(process.env.PORT || '3000', 10),
-  appUrl: process.env.APP_URL || 'http://localhost:3535',
+export default () => {
+  // Construct DATABASE_URL from individual PostgreSQL variables
+  const host = process.env.POSTGRES_HOST || 'localhost';
+  const port = process.env.POSTGRES_PORT || '5432';
+  const user = process.env.POSTGRES_USER || 'postgres';
+  const password = process.env.POSTGRES_PASSWORD || 'postgres';
+  const dbName = process.env.POSTGRES_DB || 'appdb';
+  const ssl = process.env.POSTGRES_SSL === 'true';
+  const sslParam = ssl ? '?sslmode=require' : '';
 
-  // Database
-  database: {
-    url: process.env.DATABASE_URL,
-  },
+  const databaseUrl = `postgresql://${user}:${password}@${host}:${port}/${dbName}${sslParam}`;
+
+  // Set DATABASE_URL for Prisma
+  process.env.DATABASE_URL = databaseUrl;
+
+  return {
+    // Application
+    nodeEnv: process.env.NODE_ENV || 'development',
+    port: parseInt(process.env.PORT || '3000', 10),
+    appUrl: process.env.APP_URL || 'http://localhost:3535',
+
+    // Database
+    database: {
+      host,
+      port: parseInt(port, 10),
+      user,
+      password,
+      name: dbName,
+      ssl,
+      url: databaseUrl,
+    },
 
   // JWT
   jwt: {
@@ -34,4 +55,5 @@ export default () => ({
   },
 
   logLevel: process.env.LOG_LEVEL || 'info',
-});
+  };
+};

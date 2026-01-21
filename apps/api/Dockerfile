@@ -17,8 +17,11 @@ RUN corepack enable
 FROM base AS deps
 COPY package*.json ./
 COPY prisma ./prisma/
+COPY scripts ./scripts/
 # Using npm install since this is a workspace package without its own lock file
-RUN npm install --ignore-scripts && npx prisma generate
+# Set dummy DATABASE_URL for Prisma generate (actual connection not needed at build time)
+RUN npm install --ignore-scripts && \
+    DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npx prisma generate
 
 # -----------------------------------------------------------------------------
 # Development stage
@@ -45,5 +48,6 @@ COPY --from=build /app/dist ./dist
 COPY --from=deps /app/node_modules ./node_modules
 COPY package*.json ./
 COPY prisma ./prisma/
+COPY scripts ./scripts/
 EXPOSE 3000
 CMD ["npm", "run", "start:prod"]

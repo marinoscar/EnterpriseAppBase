@@ -570,12 +570,20 @@ const response = await request(app.getHttpServer())
 
 2. **Create Migration:**
    ```bash
-   npx prisma migrate dev --name descriptive_name
+   # Using npm script (recommended - handles environment variables)
+   npm run prisma:migrate:dev -- --name descriptive_name
+
+   # Or in Docker container
+   docker compose exec api npm run prisma:migrate:dev -- --name descriptive_name
    ```
 
 3. **Generate Prisma Client:**
    ```bash
-   npx prisma generate
+   # Using npm script (recommended)
+   npm run prisma:generate
+
+   # Or in Docker container
+   docker compose exec api npm run prisma:generate
    ```
 
 4. **Update Seeds (if needed):**
@@ -583,6 +591,8 @@ const response = await request(app.getHttpServer())
    # Edit prisma/seed.ts
    npx tsx prisma/seed.ts
    ```
+
+**Note:** The project uses individual database environment variables (`POSTGRES_HOST`, `POSTGRES_PORT`, etc.) instead of a single `DATABASE_URL`. The npm scripts (`prisma:*`) automatically construct the connection URL from these variables. See `apps/api/scripts/README.md` for details.
 
 ### Adding New API Endpoints
 

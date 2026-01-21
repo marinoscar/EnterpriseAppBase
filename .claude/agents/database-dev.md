@@ -209,22 +209,30 @@ model AuditEvent {
 
 ## Migration Commands
 
+**IMPORTANT:** Use npm scripts instead of direct `npx prisma` commands. The scripts automatically construct `DATABASE_URL` from individual environment variables (`POSTGRES_HOST`, `POSTGRES_PORT`, etc.).
+
 ```bash
-# Create a new migration
-cd apps/api && npx prisma migrate dev --name <migration_name>
+# Create a new migration (development)
+cd apps/api && npm run prisma:migrate:dev -- --name <migration_name>
 
 # Apply migrations (production)
-cd apps/api && npx prisma migrate deploy
-
-# Reset database (development only!)
-cd apps/api && npx prisma migrate reset
+cd apps/api && npm run prisma:migrate
 
 # Generate Prisma client after schema changes
-cd apps/api && npx prisma generate
+cd apps/api && npm run prisma:generate
 
 # Open Prisma Studio for data exploration
-cd apps/api && npx prisma studio
+cd apps/api && npm run prisma:studio
+
+# Any other Prisma command
+cd apps/api && npm run prisma -- <command> [args]
 ```
+
+**Why npm scripts?**
+- The project uses individual database environment variables for flexibility
+- Runtime configuration (`src/config/configuration.ts`) constructs `DATABASE_URL` from these variables
+- npm scripts use `scripts/prisma-env.js` to do the same for CLI commands
+- See `apps/api/scripts/README.md` for detailed documentation
 
 ## Seeding Requirements
 

@@ -340,7 +340,13 @@ function Run-E2ETests {
     # Run E2E tests from API
     Push-Location $ApiDir
     try {
-        $env:DATABASE_URL = "postgresql://postgres:postgres@localhost:5433/enterprise_app_test"
+        # Set individual database variables for test environment
+        $env:POSTGRES_HOST = "localhost"
+        $env:POSTGRES_PORT = "5433"
+        $env:POSTGRES_USER = "postgres"
+        $env:POSTGRES_PASSWORD = "postgres"
+        $env:POSTGRES_DB = "enterprise_app_test"
+        $env:POSTGRES_SSL = "false"
         npm run test:e2e
     } finally {
         Pop-Location
@@ -473,30 +479,30 @@ function Invoke-Prisma {
         switch ($Service.ToLower()) {
             "generate" {
                 Write-Info "Generating Prisma client..."
-                npx prisma generate
+                npm run prisma:generate
                 Write-Success "Prisma client generated!"
             }
             "migrate" {
                 if ($ExtraArg.ToLower() -eq "deploy") {
                     Write-Info "Applying migrations (production mode)..."
-                    npx prisma migrate deploy
+                    npm run prisma:migrate
                 } else {
                     Write-Info "Running migrations (dev mode)..."
-                    npx prisma migrate dev
+                    npm run prisma:migrate:dev
                 }
                 Write-Success "Migrations complete!"
             }
             "studio" {
                 Write-Info "Opening Prisma Studio..."
                 Write-Info "Studio will be available at: http://localhost:5555"
-                npx prisma studio
+                npm run prisma:studio
             }
             "reset" {
                 Write-Warn "WARNING: This will reset the database and DELETE all data!"
                 $confirmation = Read-Host "Are you sure? Type 'yes' to confirm"
                 if ($confirmation -eq "yes") {
                     Write-Info "Resetting database..."
-                    npx prisma migrate reset --force
+                    npm run prisma -- migrate reset --force
                     Write-Success "Database reset complete!"
                 } else {
                     Write-Info "Reset cancelled."
@@ -504,7 +510,7 @@ function Invoke-Prisma {
             }
             "seed" {
                 Write-Info "Seeding database..."
-                npx prisma db seed
+                npm run prisma:seed
                 Write-Success "Database seeded!"
             }
             default {
@@ -526,6 +532,9 @@ function Invoke-Prisma {
                 Write-Host "  .\dev.ps1 prisma generate"
                 Write-Host "  .\dev.ps1 prisma migrate"
                 Write-Host "  .\dev.ps1 prisma studio"
+                Write-Host ""
+                Write-Host "Note: Scripts automatically construct DATABASE_URL from"
+                Write-Host "      individual POSTGRES_* environment variables."
                 Write-Host ""
             }
         }
