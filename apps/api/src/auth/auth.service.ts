@@ -13,7 +13,7 @@ import { DEFAULT_ROLE } from '../common/constants/roles.constants';
 import { DEFAULT_USER_SETTINGS } from '../common/types/settings.types';
 import { GoogleProfile } from './strategies/google.strategy';
 import { JwtPayload } from './strategies/jwt.strategy';
-import { RequestUser } from './decorators/current-user.decorator';
+import { AuthenticatedUser } from './interfaces/authenticated-user.interface';
 import { TokenResponseDto } from './dto/auth-user.dto';
 import { AuthProviderDto } from './dto/auth-provider.dto';
 
@@ -469,7 +469,7 @@ export class AuthService {
   /**
    * Validates JWT payload and returns user with roles and permissions
    */
-  async validateJwtPayload(payload: JwtPayload): Promise<RequestUser | null> {
+  async validateJwtPayload(payload: JwtPayload): Promise<AuthenticatedUser | null> {
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       include: {
@@ -493,24 +493,7 @@ export class AuthService {
       return null;
     }
 
-    // Extract roles
-    const roles = user.userRoles.map((ur) => ur.role.name);
-
-    // Aggregate permissions from all roles
-    const permissionsSet = new Set<string>();
-    user.userRoles.forEach((ur) => {
-      ur.role.rolePermissions.forEach((rp) => {
-        permissionsSet.add(rp.permission.name);
-      });
-    });
-    const permissions = Array.from(permissionsSet);
-
-    return {
-      userId: user.id,
-      email: user.email,
-      roles,
-      permissions,
-    };
+    return user;
   }
 
   /**

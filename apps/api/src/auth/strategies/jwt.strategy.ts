@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { AuthService } from '../auth.service';
-import { RequestUser } from '../decorators/current-user.decorator';
+import { AuthenticatedUser } from '../interfaces/authenticated-user.interface';
 
 /**
  * JWT payload structure
@@ -37,7 +37,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
    * Validates the JWT payload and returns the user object
    * This method is called after the JWT signature is verified
    */
-  async validate(payload: JwtPayload): Promise<RequestUser> {
+  async validate(payload: JwtPayload): Promise<AuthenticatedUser> {
     const user = await this.authService.validateJwtPayload(payload);
 
     if (!user) {

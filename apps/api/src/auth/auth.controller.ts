@@ -22,7 +22,8 @@ import { AuthService } from './auth.service';
 import { GoogleOAuthGuard } from './guards/google-oauth.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { Public } from './decorators/public.decorator';
-import { CurrentUser, RequestUser } from './decorators/current-user.decorator';
+import { CurrentUser } from './decorators/current-user.decorator';
+import { RequestUser } from './interfaces/authenticated-user.interface';
 import { GoogleProfile } from './strategies/google.strategy';
 import {
   AuthProvidersResponseDto,
@@ -168,7 +169,7 @@ export class AuthController {
   async getCurrentUser(
     @CurrentUser() user: RequestUser,
   ): Promise<{ data: CurrentUserDto }> {
-    const currentUser = await this.authService.getCurrentUser(user.userId);
+    const currentUser = await this.authService.getCurrentUser(user.id);
     return {
       data: currentUser,
     };
@@ -242,7 +243,7 @@ export class AuthController {
   ): Promise<void> {
     const refreshToken = req.cookies[REFRESH_TOKEN_COOKIE];
 
-    await this.authService.logout(user.userId, refreshToken);
+    await this.authService.logout(user.id, refreshToken);
 
     // Clear refresh token cookie
     res.clearCookie(REFRESH_TOKEN_COOKIE, { path: '/api/auth' });
@@ -274,7 +275,7 @@ export class AuthController {
     @CurrentUser() user: RequestUser,
     @Res({ passthrough: true }) res: FastifyReply,
   ): Promise<void> {
-    await this.authService.revokeAllUserTokens(user.userId);
+    await this.authService.revokeAllUserTokens(user.id);
 
     // Clear refresh token cookie
     res.clearCookie(REFRESH_TOKEN_COOKIE, { path: '/api/auth' });
