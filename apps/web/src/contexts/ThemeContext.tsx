@@ -2,7 +2,6 @@ import {
   createContext,
   useContext,
   useState,
-  useEffect,
   useMemo,
   ReactNode,
   useCallback,
@@ -60,12 +59,6 @@ export function ThemeContextProvider({ children }: ThemeContextProviderProps) {
   const toggleMode = useCallback(() => {
     setMode(isDarkMode ? 'light' : 'dark');
   }, [isDarkMode, setMode]);
-
-  // Sync theme with user settings when available
-  const syncWithUserSettings = useCallback((userTheme: ThemeMode) => {
-    setModeState(userTheme);
-    // Don't persist to localStorage as this comes from server
-  }, []);
 
   const value: ThemeContextValue = {
     mode,
