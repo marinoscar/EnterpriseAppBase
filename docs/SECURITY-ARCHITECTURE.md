@@ -901,7 +901,146 @@ NODE_ENV=production
 
 ---
 
-## 9. File Reference
+## 9. Implementation Notes: Fastify + Passport OAuth
+
+### Challenge: OAuth Strategy Compatibility
+
+This application uses NestJS with **Fastify adapter** instead of Express. Passport OAuth strategies (like `passport-google-oauth20`) are designed for Express and expect Express-style request/response objects, which creates a compatibility challenge.
+
+### The Problem
+
+Passport OAuth strategies perform these operations:
+1. Redirect user to OAuth provider (Google)
+2. Handle callback from provider
+3. Extract user profile from provider response
+4. Attach user object to request
+
+Passport expects to work with Node.js `http.IncomingMessage` and `http.ServerResponse` objects directly, but Fastify wraps these in its own `FastifyRequest` and `FastifyReply` objects with different APIs.
+
+**Key Differences:**
+- Express/Node.js: `res.status(200).json(data)`, `res.redirect(url)`
+- Fastify: `res.code(200).send(data)`, `res.redirect(url)`
+
+### The Solution: Custom OAuth Guard
+
+The `GoogleOAuthGuard` uses NestJS's execution context to provide Passport with the raw Node.js objects it expects, then copies the authenticated user back to the Fastify request.
+
+**Implementation (`apps/api/src/auth/guards/google-oauth.guard.ts`):**
+
+```typescript
+import { ExecutionContext, Injectable } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
+
+@Injectable()
+export class GoogleOAuthGuard extends AuthGuard('google') {
+  // Provide raw Node.js request to Passport
+  getRequest(context: ExecutionContext) {
+    const request = context.switchToHttp().getRequest();
+    return request.raw || request;  // request.raw is the underlying http.IncomingMessage
+  }
+
+  // Provide raw Node.js response to Passport
+  getResponse(context: ExecutionContext) {
+    const response = context.switchToHttp().getResponse();
+    return response.raw || response;  // response.raw is the underlying http.ServerResponse
+  }
+
+  // After Passport authentication, copy user to Fastify request
+  handleRequest<TUser = unknown>(
+    err: Error | null,
+    user: TUser | false,
+    _info: unknown,
+    context: ExecutionContext,
+  ): TUser {
+    if (err || !user) {
+      throw err || new Error('Authentication failed');
+    }
+
+    // Copy user from raw request to Fastify request
+    // so controllers can access req.user normally
+    const fastifyRequest = context.switchToHttp().getRequest();
+    fastifyRequest.user = user;
+
+    return user;
+  }
+}
+```
+
+**How It Works:**
+
+1. **`getRequest()`**: Returns `request.raw` - the underlying Node.js `IncomingMessage` object that Passport can work with
+2. **`getResponse()`**: Returns `response.raw` - the underlying Node.js `ServerResponse` object
+3. **OAuth Flow**: Passport performs the OAuth redirect and callback using these raw objects
+4. **`handleRequest()`**: After successful authentication, copies the user profile from the raw request to the Fastify request object
+5. **Controller Access**: Controllers can now access `req.user` as if using Express
+
+**Controller Usage:**
+
+```typescript
+@Get('google/callback')
+@Public()
+@UseGuards(GoogleOAuthGuard)
+async googleAuthCallback(
+  @Req() req: FastifyRequest & { user?: GoogleProfile },
+  @Res() res: FastifyReply,
+) {
+  // Guard has populated req.user with the Google profile
+  const profile = req.user;
+
+  // Process authentication...
+  const tokens = await this.authService.handleGoogleLogin(profile);
+
+  // Use Fastify methods for response
+  return res.redirect(302, redirectUrl.toString());
+}
+```
+
+### Error Handling in OAuth Callbacks
+
+When OAuth callbacks fail, error messages must be safely embedded in redirect URLs.
+
+**Challenge:** Error messages may contain newlines, special characters, or exceed URL length limits.
+
+**Solution:** Sanitize error messages before adding to URL:
+
+```typescript
+try {
+  // OAuth authentication logic...
+} catch (error) {
+  this.logger.error('Error in Google OAuth callback', error);
+  const appUrl = this.configService.get<string>('appUrl');
+
+  // Sanitize: remove newlines, URL encode, limit length
+  const errorMessage = error instanceof Error
+    ? encodeURIComponent(error.message.replace(/[\r\n]/g, ' ').substring(0, 100))
+    : 'authentication_failed';
+
+  return res.redirect(`${appUrl}/auth/callback?error=${errorMessage}`);
+}
+```
+
+**Sanitization Steps:**
+1. Extract error message safely (check `instanceof Error`)
+2. Replace newlines with spaces: `replace(/[\r\n]/g, ' ')`
+3. Limit length: `substring(0, 100)`
+4. URL encode: `encodeURIComponent()`
+5. Provide fallback: default to generic error code if not an Error object
+
+### Key Takeaways for Developers
+
+**When working with Passport OAuth in Fastify:**
+
+1. ✅ **Override `getRequest()` and `getResponse()`** to return raw Node.js objects
+2. ✅ **Override `handleRequest()`** to copy user from raw request to Fastify request
+3. ✅ **Use Fastify response methods** in controllers: `res.code()` and `res.send()`
+4. ✅ **Sanitize error messages** before embedding in redirect URLs
+5. ✅ **Type request with user property**: `FastifyRequest & { user?: GoogleProfile }`
+
+**This pattern applies to all Passport OAuth strategies**, not just Google. If you add Microsoft, GitHub, or other OAuth providers, use the same guard pattern.
+
+---
+
+## 10. File Reference
 
 ### Key Security Files
 
@@ -974,7 +1113,7 @@ apps/web/src/
 
 ---
 
-## 10. Security Best Practices Summary
+## 11. Security Best Practices Summary
 
 ### For Developers
 
