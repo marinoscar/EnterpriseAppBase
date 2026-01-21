@@ -40,3 +40,4 @@ apps/api/prisma/*.db-journal
 # Misc
 *.tgz
 .cache/
+nul
