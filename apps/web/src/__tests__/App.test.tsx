@@ -1,19 +1,28 @@
 import { describe, it, expect } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
-import { BrowserRouter } from 'react-router-dom';
+import { screen, waitFor } from '@testing-library/react';
+import { renderWithProviders } from './utils/test-utils';
 import App from '../App';
 
 describe('App', () => {
-  it('renders without crashing', async () => {
-    render(
-      <BrowserRouter>
-        <App />
-      </BrowserRouter>
-    );
+  it('renders home page when authenticated', async () => {
+    renderWithProviders(<App />, {
+      wrapperOptions: { authenticated: true },
+    });
 
     // Wait for lazy loaded component to render
     await waitFor(() => {
-      expect(screen.getByText(/Login Page/i)).toBeInTheDocument();
+      expect(screen.getByText(/Home Page/i)).toBeInTheDocument();
+    });
+  });
+
+  it('renders login page when not authenticated', async () => {
+    renderWithProviders(<App />, {
+      wrapperOptions: { authenticated: false },
+    });
+
+    // Wait for lazy loaded component to render
+    await waitFor(() => {
+      expect(screen.getByText(/Sign in with/i)).toBeInTheDocument();
     });
   });
 });
