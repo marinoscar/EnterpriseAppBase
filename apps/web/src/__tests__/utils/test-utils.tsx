@@ -1,13 +1,24 @@
-import React, { ReactElement, ReactNode } from 'react';
+import React, { ReactElement, ReactNode, createContext } from 'react';
 import { render, RenderOptions, RenderResult } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { ThemeProvider } from '@mui/material/styles';
 import { CssBaseline } from '@mui/material';
 import { lightTheme, darkTheme } from '../../theme';
 import { vi } from 'vitest';
+import { AuthProvider as AuthProviderType } from '../../types';
 
-// Import the actual context for proper typing
-import { AuthContext } from '../../contexts/AuthContext';
+// Create a mock AuthContext for testing
+interface AuthContextValue {
+  user: any | null;
+  isLoading: boolean;
+  isAuthenticated: boolean;
+  providers: AuthProviderType[];
+  login: (provider: string) => void;
+  logout: () => Promise<void>;
+  refreshUser: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthContextValue | null>(null);
 
 interface WrapperOptions {
   route?: string;
