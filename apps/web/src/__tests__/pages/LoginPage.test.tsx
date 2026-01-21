@@ -112,7 +112,7 @@ describe('LoginPage', () => {
 
     it('should handle provider fetch errors gracefully', async () => {
       server.use(
-        http.get('/api/auth/providers', () => {
+        http.get('*/api/auth/providers', () => {
           return new HttpResponse(null, { status: 500 });
         }),
       );

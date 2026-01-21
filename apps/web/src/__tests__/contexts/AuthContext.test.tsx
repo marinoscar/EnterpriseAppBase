@@ -36,8 +36,12 @@ describe('AuthContext', () => {
     });
 
     it('should be unauthenticated without valid token', async () => {
+      // Override both refresh and me endpoints to simulate failed auth
       server.use(
-        http.post('/api/auth/refresh', () => {
+        http.post('*/api/auth/refresh', () => {
+          return new HttpResponse(null, { status: 401 });
+        }),
+        http.get('*/api/auth/me', () => {
           return new HttpResponse(null, { status: 401 });
         }),
       );
@@ -70,7 +74,7 @@ describe('AuthContext', () => {
   describe('Authentication', () => {
     it('should authenticate user when refresh succeeds', async () => {
       server.use(
-        http.post('/api/auth/refresh', () => {
+        http.post('*/api/auth/refresh', () => {
           // Refresh endpoint returns token at root level (not wrapped in data)
           return HttpResponse.json({
             accessToken: 'test-token',
@@ -94,7 +98,7 @@ describe('AuthContext', () => {
 
     it('should handle logout', async () => {
       server.use(
-        http.post('/api/auth/refresh', () => {
+        http.post('*/api/auth/refresh', () => {
           return HttpResponse.json({
             accessToken: 'test-token',
             expiresIn: 900,
@@ -183,7 +187,7 @@ describe('AuthContext', () => {
   describe('User Refresh', () => {
     it('should refresh user data', async () => {
       server.use(
-        http.post('/api/auth/refresh', () => {
+        http.post('*/api/auth/refresh', () => {
           return HttpResponse.json({
             accessToken: 'test-token',
             expiresIn: 900,
@@ -203,7 +207,7 @@ describe('AuthContext', () => {
 
       // Change the mock to return updated user data
       server.use(
-        http.get('/api/auth/me', () => {
+        http.get('*/api/auth/me', () => {
           return HttpResponse.json({
             data: {
               id: 'test-user-id',
@@ -229,7 +233,7 @@ describe('AuthContext', () => {
   describe('Error Handling', () => {
     it('should handle API errors gracefully', async () => {
       server.use(
-        http.post('/api/auth/refresh', () => {
+        http.post('*/api/auth/refresh', () => {
           return new HttpResponse(null, { status: 500 });
         }),
       );
@@ -248,13 +252,13 @@ describe('AuthContext', () => {
 
     it('should handle logout errors', async () => {
       server.use(
-        http.post('/api/auth/refresh', () => {
+        http.post('*/api/auth/refresh', () => {
           return HttpResponse.json({
             accessToken: 'test-token',
             expiresIn: 900,
           });
         }),
-        http.post('/api/auth/logout', () => {
+        http.post('*/api/auth/logout', () => {
           return new HttpResponse(null, { status: 500 });
         }),
       );
@@ -277,7 +281,7 @@ describe('AuthContext', () => {
 
     it('should handle provider fetch errors', async () => {
       server.use(
-        http.get('/api/auth/providers', () => {
+        http.get('*/api/auth/providers', () => {
           return new HttpResponse(null, { status: 500 });
         }),
       );
