@@ -30,7 +30,7 @@
     "@testing-library/user-event": "^14.x",
     "@types/react": "^18.x",
     "@types/react-dom": "^18.x",
-    "@vitejs/plugin-react": "^4.x",
+    "@vitejs/plugin-react": "^5.x",
     "@vitest/coverage-v8": "^1.x",
     "@vitest/ui": "^1.x",
     "jsdom": "^24.x",
