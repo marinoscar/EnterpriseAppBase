@@ -31,7 +31,7 @@
     "@types/react": "^18.x",
     "@types/react-dom": "^18.x",
     "@vitejs/plugin-react": "^4.x",
-    "@vitest/coverage-v8": "^1.x",
+    "@vitest/coverage-v8": "^4.x",
     "@vitest/ui": "^1.x",
     "jsdom": "^24.x",
     "msw": "^2.x",
