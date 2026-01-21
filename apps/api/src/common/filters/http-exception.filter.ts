@@ -74,18 +74,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
       this.logger.warn(`${request.method} ${request.url} - ${status}: ${message}`);
     }
 
-    // Handle both Express and Fastify response types
-    if (typeof response.status === 'function') {
-      // Express-style
-      response.status(status).json(errorResponse);
-    } else if (typeof response.code === 'function') {
-      // Fastify-style
-      response.code(status).send(errorResponse);
-    } else {
-      // Fallback - raw response
-      response.statusCode = status;
-      response.end(JSON.stringify(errorResponse));
-    }
+    // Fastify response - use code() and send()
+    response.code(status).send(errorResponse);
   }
 
   private getCodeFromStatus(status: number): string {
