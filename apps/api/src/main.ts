@@ -3,18 +3,53 @@ import {
   FastifyAdapter,
   NestFastifyApplication,
 } from '@nestjs/platform-fastify';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { Logger } from '@nestjs/common';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
+  const logger = new Logger('Bootstrap');
+
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
-    new FastifyAdapter(),
+    new FastifyAdapter({ logger: true }),
   );
+
+  // Global prefix for all routes
+  app.setGlobalPrefix('api');
+
+  // Enable CORS (same-origin by default, configurable)
+  app.enableCors({
+    origin: process.env.CORS_ORIGIN || true,
+    credentials: true,
+  });
+
+  // Swagger/OpenAPI setup
+  const config = new DocumentBuilder()
+    .setTitle('Enterprise App API')
+    .setDescription('API documentation for the Enterprise App Foundation')
+    .setVersion('1.0')
+    .addBearerAuth(
+      {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        description: 'Enter JWT token',
+      },
+      'JWT-auth',
+    )
+    .build();
+
+  const document = SwaggerModule.createDocument(app, config);
+  SwaggerModule.setup('api/docs', app, document, {
+    jsonDocumentUrl: 'api/openapi.json',
+  });
 
   const port = process.env.PORT || 3000;
   await app.listen(port, '0.0.0.0');
 
-  console.log(`Application is running on: http://localhost:${port}`);
+  logger.log(`Application running on port ${port}`);
+  logger.log(`Swagger UI available at /api/docs`);
 }
 
 bootstrap();
