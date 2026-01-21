@@ -1,10 +1,34 @@
-import { Box, Typography } from '@mui/material';
+import { Box, Container, Typography, Grid } from '@mui/material';
+import { UserProfileCard } from '../components/user/UserProfileCard';
+import { QuickActions } from '../components/home/QuickActions';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function HomePage() {
+  const { user } = useAuth();
+
   return (
-    <Box>
-      <Typography variant="h4">Home Page</Typography>
-      <Typography>This page will be implemented in a later spec.</Typography>
-    </Box>
+    <Container maxWidth="lg">
+      <Box sx={{ py: 4 }}>
+        {/* Welcome Header */}
+        <Typography variant="h4" component="h1" gutterBottom>
+          Welcome back{user?.displayName ? `, ${user.displayName}` : ''}
+        </Typography>
+        <Typography color="text.secondary" paragraph>
+          Your dashboard overview
+        </Typography>
+
+        <Grid container spacing={3}>
+          {/* User Profile Card */}
+          <Grid item xs={12} md={4}>
+            <UserProfileCard />
+          </Grid>
+
+          {/* Quick Actions */}
+          <Grid item xs={12} md={8}>
+            <QuickActions />
+          </Grid>
+        </Grid>
+      </Box>
+    </Container>
   );
 }
