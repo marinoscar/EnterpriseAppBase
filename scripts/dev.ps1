@@ -129,11 +129,13 @@ function Show-Help {
     Write-Host "  .\dev.ps1 test web coverage    # Run Web tests with coverage"
     Write-Host "  .\dev.ps1 test e2e             # Run E2E tests (requires database)"
     Write-Host ""
-    Write-Host "Prisma Options:"
+    Write-Host "Prisma Options (runs in Docker):"
     Write-Host "  .\dev.ps1 prisma generate      # Generate Prisma client"
-    Write-Host "  .\dev.ps1 prisma migrate       # Run pending migrations (dev)"
+    Write-Host "  .\dev.ps1 prisma migrate       # Push schema changes (dev)"
     Write-Host "  .\dev.ps1 prisma migrate deploy # Apply migrations (production)"
-    Write-Host "  .\dev.ps1 prisma studio        # Open Prisma Studio"
+    Write-Host "  .\dev.ps1 prisma push          # Push schema changes to database"
+    Write-Host "  .\dev.ps1 prisma studio        # Open Prisma Studio (local)"
+    Write-Host "  .\dev.ps1 prisma seed          # Run database seed script"
     Write-Host "  .\dev.ps1 prisma reset         # Reset database (destroys data)"
     Write-Host ""
     Write-Host "Examples:"
@@ -473,73 +475,111 @@ function Run-Tests {
     }
 }
 
+function Invoke-PrismaInDocker {
+    param([string]$Command)
+
+    # Check if API container is running
+    $containerName = "compose-api-1"
+    $containerRunning = docker ps --filter "name=$containerName" --format "{{.Names}}" 2>$null
+
+    if (-not $containerRunning) {
+        Write-Err "ERROR: API container is not running."
+        Write-Info "Start the services first with: .\dev.ps1 start"
+        exit 1
+    }
+
+    Write-Info "Running in Docker container: $Command"
+    # Use -t only (not -it) to avoid TTY issues on Windows
+    docker exec $containerName sh -c $Command
+    return $LASTEXITCODE
+}
+
 function Invoke-Prisma {
-    Push-Location $ApiDir
-    try {
-        switch ($Service.ToLower()) {
-            "generate" {
-                Write-Info "Generating Prisma client..."
-                npm run prisma:generate
+    switch ($Service.ToLower()) {
+        "generate" {
+            Write-Info "Generating Prisma client..."
+            Invoke-PrismaInDocker "node scripts/prisma-env.js generate"
+            if ($LASTEXITCODE -eq 0) {
                 Write-Success "Prisma client generated!"
             }
-            "migrate" {
-                if ($ExtraArg.ToLower() -eq "deploy") {
-                    Write-Info "Applying migrations (production mode)..."
-                    npm run prisma:migrate
-                } else {
-                    Write-Info "Running migrations (dev mode)..."
-                    npm run prisma:migrate:dev
-                }
+        }
+        "migrate" {
+            if ($ExtraArg.ToLower() -eq "deploy") {
+                Write-Info "Applying migrations (production mode)..."
+                Invoke-PrismaInDocker "node scripts/prisma-env.js migrate deploy"
+            } else {
+                Write-Info "Running migrations (dev mode)..."
+                Write-Info "Note: Using 'db push' for development (interactive migrate not supported in container)"
+                Invoke-PrismaInDocker "node scripts/prisma-env.js db push"
+            }
+            if ($LASTEXITCODE -eq 0) {
                 Write-Success "Migrations complete!"
             }
-            "studio" {
-                Write-Info "Opening Prisma Studio..."
-                Write-Info "Studio will be available at: http://localhost:5555"
-                npm run prisma:studio
-            }
-            "reset" {
-                Write-Warn "WARNING: This will reset the database and DELETE all data!"
-                $confirmation = Read-Host "Are you sure? Type 'yes' to confirm"
-                if ($confirmation -eq "yes") {
-                    Write-Info "Resetting database..."
-                    npm run prisma -- migrate reset --force
-                    Write-Success "Database reset complete!"
-                } else {
-                    Write-Info "Reset cancelled."
-                }
-            }
-            "seed" {
-                Write-Info "Seeding database..."
-                npm run prisma:seed
-                Write-Success "Database seeded!"
-            }
-            default {
-                Write-Host ""
-                Write-Info "Prisma Commands"
-                Write-Host "==============="
-                Write-Host ""
-                Write-Host "Usage: .\dev.ps1 prisma <command>"
-                Write-Host ""
-                Write-Host "Commands:"
-                Write-Host "  generate       Generate Prisma client after schema changes"
-                Write-Host "  migrate        Run pending migrations (interactive, dev mode)"
-                Write-Host "  migrate deploy Apply migrations (non-interactive, production)"
-                Write-Host "  studio         Open Prisma Studio GUI"
-                Write-Host "  reset          Reset database (destroys all data)"
-                Write-Host "  seed           Run database seed script"
-                Write-Host ""
-                Write-Host "Examples:"
-                Write-Host "  .\dev.ps1 prisma generate"
-                Write-Host "  .\dev.ps1 prisma migrate"
-                Write-Host "  .\dev.ps1 prisma studio"
-                Write-Host ""
-                Write-Host "Note: Scripts automatically construct DATABASE_URL from"
-                Write-Host "      individual POSTGRES_* environment variables."
-                Write-Host ""
+        }
+        "push" {
+            Write-Info "Pushing schema changes to database..."
+            Invoke-PrismaInDocker "node scripts/prisma-env.js db push"
+            if ($LASTEXITCODE -eq 0) {
+                Write-Success "Schema pushed successfully!"
             }
         }
-    } finally {
-        Pop-Location
+        "studio" {
+            Write-Info "Opening Prisma Studio..."
+            Write-Info "Studio will be available at: http://localhost:5555"
+            Write-Warn "Note: Studio runs locally (not in Docker) to allow browser access"
+            Push-Location $ApiDir
+            try {
+                npm run prisma:studio
+            } finally {
+                Pop-Location
+            }
+        }
+        "reset" {
+            Write-Warn "WARNING: This will reset the database and DELETE all data!"
+            $confirmation = Read-Host "Are you sure? Type 'yes' to confirm"
+            if ($confirmation -eq "yes") {
+                Write-Info "Resetting database..."
+                Invoke-PrismaInDocker "node scripts/prisma-env.js migrate reset --force"
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Success "Database reset complete!"
+                }
+            } else {
+                Write-Info "Reset cancelled."
+            }
+        }
+        "seed" {
+            Write-Info "Seeding database..."
+            Invoke-PrismaInDocker "node scripts/prisma-env.js db seed"
+            if ($LASTEXITCODE -eq 0) {
+                Write-Success "Database seeded!"
+            }
+        }
+        default {
+            Write-Host ""
+            Write-Info "Prisma Commands (runs inside Docker)"
+            Write-Host "====================================="
+            Write-Host ""
+            Write-Host "Usage: .\dev.ps1 prisma <command>"
+            Write-Host ""
+            Write-Host "Commands:"
+            Write-Host "  generate       Generate Prisma client after schema changes"
+            Write-Host "  migrate        Push schema changes to database (dev mode)"
+            Write-Host "  migrate deploy Apply migrations (non-interactive, production)"
+            Write-Host "  push           Push schema changes to database"
+            Write-Host "  studio         Open Prisma Studio GUI (runs locally)"
+            Write-Host "  reset          Reset database (destroys all data)"
+            Write-Host "  seed           Run database seed script"
+            Write-Host ""
+            Write-Host "Examples:"
+            Write-Host "  .\dev.ps1 prisma generate"
+            Write-Host "  .\dev.ps1 prisma migrate"
+            Write-Host "  .\dev.ps1 prisma push"
+            Write-Host "  .\dev.ps1 prisma studio"
+            Write-Host ""
+            Write-Host "Note: Commands run inside the Docker API container to ensure"
+            Write-Host "      proper database connectivity."
+            Write-Host ""
+        }
     }
 }
 
