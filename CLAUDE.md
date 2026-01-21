@@ -27,12 +27,19 @@ Web Application Foundation with React UI + Node API + PostgreSQL. Production-gra
       prisma/
         schema.prisma
         migrations/
+      Dockerfile            # API container (near its code)
     web/                    # Frontend React app
       src/
       src/__tests__/
+      Dockerfile            # Web container (near its code)
   docs/                     # Documentation
+  infra/                    # Docker Compose orchestration
+    docker-compose.yml           # Base services
+    docker-compose.override.yml  # Dev overrides (auto-loaded)
+    docker-compose.prod.yml      # Production overrides
+    docker-compose.otel.yml      # Observability stack
+    otel-collector-config.yaml
   tests/e2e/                # Optional E2E tests
-  docker-compose.yml
   .env.example
 ```
 
@@ -46,8 +53,14 @@ Web Application Foundation with React UI + Node API + PostgreSQL. Production-gra
 ## Key Commands
 
 ```bash
-# Start local development environment
-docker compose up
+# Start development (auto-loads docker-compose.override.yml)
+docker compose -f infra/docker-compose.yml up
+
+# Start development with observability (Jaeger, OTEL Collector)
+docker compose -f infra/docker-compose.yml -f infra/docker-compose.otel.yml up
+
+# Start production mode (skips dev overrides)
+docker compose -f infra/docker-compose.yml -f infra/docker-compose.prod.yml up
 
 # Run API tests
 cd apps/api && npm test

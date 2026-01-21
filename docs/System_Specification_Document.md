@@ -94,20 +94,25 @@ Enterprise-grade instrumentation required from day one:
       prisma/
         schema.prisma
         migrations/
-      Dockerfile
+      Dockerfile            # API container (near its code)
     web/
       src/
       src/__tests__/        # or colocated tests
-      Dockerfile
+      Dockerfile            # Web container (near its code)
   docs/
     ARCHITECTURE.md
     SECURITY.md
     OBSERVABILITY.md
-    API.md                 # optional but recommended
-    SPEC.md                # this document
+    API.md                  # optional but recommended
+    SPEC.md                 # this document
+  infra/
+    docker-compose.yml           # Base services
+    docker-compose.override.yml  # Dev overrides (auto-loaded)
+    docker-compose.prod.yml      # Production overrides
+    docker-compose.otel.yml      # Observability stack
+    otel-collector-config.yaml
   tests/
-    e2e/                   # optional full-system tests
-  docker-compose.yml
+    e2e/                    # optional full-system tests
   .env.example
   README.md
 ```
@@ -528,21 +533,53 @@ Initial Admin bootstrap:
 
 ## 14. Docker and Local Development
 
-### 14.1 Docker Compose Services (Minimum)
+### 14.1 Hybrid Docker Structure
+Dockerfiles stay with their application code for natural build context, while compose orchestration lives in `/infra`:
+
+**Dockerfiles (with code):**
+- `apps/api/Dockerfile` - API container definition
+- `apps/web/Dockerfile` - Web container definition
+
+**Compose files (in infra/):**
+```
+infra/
+  docker-compose.yml           # Base services (api, web, db)
+  docker-compose.override.yml  # Dev overrides (auto-loaded by Docker)
+  docker-compose.prod.yml      # Production overrides
+  docker-compose.otel.yml      # Observability stack
+  otel-collector-config.yaml
+```
+
+### 14.2 Docker Compose Services (Minimum)
 - api
+- web
 - db (Postgres)
 
-Recommended additions:
+Recommended additions (in `docker-compose.otel.yml`):
 - otel-collector
 - jaeger
 - prometheus
 - grafana
 
-### 14.2 Environment Variables
+### 14.3 Environment Variables
 - `.env.example` at repo root
-- docker-compose uses `.env` for local values
+- docker-compose uses `.env` for local values (copy from `.env.example`)
 
-### 14.3 Startup (Dev vs Prod)
+### 14.4 Running Docker Compose
+Docker automatically loads `docker-compose.override.yml` when present, simplifying dev commands:
+
+```bash
+# Development (auto-loads override.yml for hot reload, volumes)
+docker compose -f infra/docker-compose.yml up
+
+# Development with observability
+docker compose -f infra/docker-compose.yml -f infra/docker-compose.otel.yml up
+
+# Production (explicit, skips override)
+docker compose -f infra/docker-compose.yml -f infra/docker-compose.prod.yml up
+```
+
+### 14.5 Startup (Dev vs Prod)
 - Dev can auto-run migrations on startup
 - Prod should run migrations as a separate step/job
 
