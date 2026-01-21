@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { server } from '../mocks/server';
 import { api, ApiError } from '../../services/api';
@@ -45,11 +45,11 @@ describe('ApiService', () => {
     });
 
     it('should include auth header when token is set', async () => {
-      let capturedHeaders: Headers | null = null;
+      let authHeader: string | null = null;
 
       server.use(
         http.get('*/api/auth/me', ({ request }) => {
-          capturedHeaders = request.headers;
+          authHeader = request.headers.get('Authorization');
           return HttpResponse.json({ data: { id: 'user' } });
         }),
       );
@@ -57,15 +57,15 @@ describe('ApiService', () => {
       api.setAccessToken('test-token');
       await api.get('/auth/me');
 
-      expect(capturedHeaders?.get('Authorization')).toBe('Bearer test-token');
+      expect(authHeader).toBe('Bearer test-token');
     });
 
     it('should not include auth header when skipAuth is true', async () => {
-      let capturedHeaders: Headers | null = null;
+      let authHeader: string | null = null;
 
       server.use(
         http.get('*/api/auth/providers', ({ request }) => {
-          capturedHeaders = request.headers;
+          authHeader = request.headers.get('Authorization');
           return HttpResponse.json({ data: [] });
         }),
       );
@@ -73,7 +73,7 @@ describe('ApiService', () => {
       api.setAccessToken('test-token');
       await api.get('/auth/providers', { skipAuth: true });
 
-      expect(capturedHeaders?.get('Authorization')).toBeNull();
+      expect(authHeader).toBeNull();
     });
 
     it('should extract data from response', async () => {
@@ -118,18 +118,18 @@ describe('ApiService', () => {
     });
 
     it('should set Content-Type header', async () => {
-      let capturedHeaders: Headers | null = null;
+      let contentTypeHeader: string | null = null;
 
       server.use(
         http.post('*/api/test', ({ request }) => {
-          capturedHeaders = request.headers;
+          contentTypeHeader = request.headers.get('Content-Type');
           return HttpResponse.json({ data: {} });
         }),
       );
 
       await api.post('/test', { data: 'test' });
 
-      expect(capturedHeaders?.get('Content-Type')).toBe('application/json');
+      expect(contentTypeHeader).toBe('application/json');
     });
   });
 
@@ -167,11 +167,11 @@ describe('ApiService', () => {
     });
 
     it('should include custom headers', async () => {
-      let capturedHeaders: Headers | null = null;
+      let ifMatchHeader: string | null = null;
 
       server.use(
         http.patch('*/api/user-settings', ({ request }) => {
-          capturedHeaders = request.headers;
+          ifMatchHeader = request.headers.get('If-Match');
           return HttpResponse.json({ data: {} });
         }),
       );
@@ -180,7 +180,7 @@ describe('ApiService', () => {
         headers: { 'If-Match': '5' },
       });
 
-      expect(capturedHeaders?.get('If-Match')).toBe('5');
+      expect(ifMatchHeader).toBe('5');
     });
   });
 
@@ -433,10 +433,8 @@ describe('ApiService', () => {
 
   describe('Cookies', () => {
     it('should include credentials for cookie handling', async () => {
-      let capturedCredentials: RequestCredentials | undefined;
-
       server.use(
-        http.get('*/api/test', ({ request }) => {
+        http.get('*/api/test', () => {
           // Can't directly access credentials, but we can verify the request is made
           return HttpResponse.json({ data: {} });
         }),

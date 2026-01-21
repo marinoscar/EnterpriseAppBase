@@ -45,7 +45,7 @@ describe('UserMenu', () => {
           user: {
             ...mockUser,
             profileImageUrl: null,
-            displayName: 'Test User',
+            displayName: 'Test User' as string | null,
           },
         },
       });
@@ -60,7 +60,7 @@ describe('UserMenu', () => {
         wrapperOptions: {
           user: {
             ...mockUser,
-            displayName: null,
+            displayName: null as string | null,
           },
         },
       });
@@ -130,7 +130,7 @@ describe('UserMenu', () => {
         wrapperOptions: {
           user: {
             ...mockUser,
-            displayName: null,
+            displayName: null as string | null,
           },
         },
       });

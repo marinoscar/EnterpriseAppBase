@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
@@ -55,7 +55,6 @@ describe('LoginPage', () => {
   describe('OAuth Flow', () => {
     it('should redirect to OAuth provider on button click', async () => {
       const user = userEvent.setup();
-      const mockLogin = vi.fn();
 
       // We need to create a custom wrapper with a mocked login function
       render(<LoginPage />, {

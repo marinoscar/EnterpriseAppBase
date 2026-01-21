@@ -1,8 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { http, HttpResponse } from 'msw';
-import { server } from '../mocks/server';
 import { render, mockAdminUser } from '../utils/test-utils';
 import SystemSettingsPage from '../../pages/SystemSettingsPage';
 
@@ -80,9 +78,11 @@ describe('SystemSettingsPage', () => {
             id: 'viewer-id',
             email: 'viewer@example.com',
             displayName: 'Viewer User',
+            profileImageUrl: null,
             roles: ['viewer'],
             permissions: ['user_settings:read'],
             isActive: true,
+            createdAt: new Date().toISOString(),
           },
         },
       });
@@ -286,7 +286,6 @@ describe('SystemSettingsPage', () => {
           updatedBy: {
             id: 'admin-id',
             email: 'admin@example.com',
-            displayName: 'Admin User',
           },
           version: 1,
         },

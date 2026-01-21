@@ -1,8 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { http, HttpResponse } from 'msw';
-import { server } from '../mocks/server';
 import { render } from '../utils/test-utils';
 import UserSettingsPage from '../../pages/UserSettingsPage';
 
@@ -24,9 +21,9 @@ describe('UserSettingsPage', () => {
       settings: {
         theme: 'system',
         profile: {
-          displayName: null,
+          displayName: undefined,
           useProviderImage: true,
-          customImageUrl: null,
+          customImageUrl: undefined,
         },
         updatedAt: new Date().toISOString(),
         version: 1,
@@ -108,9 +105,9 @@ describe('UserSettingsPage', () => {
         settings: {
           theme: 'light',
           profile: {
-            displayName: null,
+            displayName: undefined,
             useProviderImage: true,
-            customImageUrl: null,
+            customImageUrl: undefined,
           },
           updatedAt: new Date().toISOString(),
           version: 1,
@@ -137,9 +134,9 @@ describe('UserSettingsPage', () => {
         settings: {
           theme: 'system',
           profile: {
-            displayName: null,
+            displayName: undefined,
             useProviderImage: true,
-            customImageUrl: null,
+            customImageUrl: undefined,
           },
           updatedAt: new Date().toISOString(),
           version: 1,
@@ -167,9 +164,9 @@ describe('UserSettingsPage', () => {
         settings: {
           theme: 'system',
           profile: {
-            displayName: null,
+            displayName: undefined,
             useProviderImage: true,
-            customImageUrl: null,
+            customImageUrl: undefined,
           },
           updatedAt: new Date().toISOString(),
           version: 1,
@@ -227,9 +224,9 @@ describe('UserSettingsPage', () => {
         settings: {
           theme: 'system',
           profile: {
-            displayName: null,
+            displayName: undefined,
             useProviderImage: true,
-            customImageUrl: null,
+            customImageUrl: undefined,
           },
           updatedAt: new Date().toISOString(),
           version: 1,
@@ -294,7 +291,6 @@ describe('UserSettingsPage', () => {
 
   describe('Snackbar Notifications', () => {
     it('should close success message when dismissed', async () => {
-      const user = userEvent.setup();
       render(<UserSettingsPage />);
 
       // Snackbar should be present in the component

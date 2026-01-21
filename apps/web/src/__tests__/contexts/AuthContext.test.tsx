@@ -1,28 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { waitFor } from '@testing-library/react';
 import { renderHook, act } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { server } from '../mocks/server';
 import { AuthProvider, useAuth } from '../../contexts/AuthContext';
-import { render } from '../utils/test-utils';
 import { ReactNode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
-
-// Helper component to test context
-function AuthConsumer() {
-  const { user, isLoading, isAuthenticated, logout } = useAuth();
-
-  if (isLoading) return <div>Loading...</div>;
-  if (!isAuthenticated) return <div>Not authenticated</div>;
-
-  return (
-    <div>
-      <span data-testid="user-email">{user?.email}</span>
-      <button onClick={logout}>Logout</button>
-    </div>
-  );
-}
 
 // Wrapper for hooks that need AuthProvider
 function createAuthWrapper() {
@@ -138,9 +121,13 @@ describe('AuthContext', () => {
 
   describe('Login Flow', () => {
     it('should redirect to OAuth provider on login', async () => {
-      const originalLocation = window.location;
-      delete (window as any).location;
-      window.location = { ...originalLocation, href: '' } as any;
+      const originalHref = window.location.href;
+      let mockHref = '';
+
+      Object.defineProperty(window, 'location', {
+        writable: true,
+        value: { ...window.location, href: mockHref },
+      });
 
       const { result } = renderHook(() => useAuth(), {
         wrapper: createAuthWrapper(),
@@ -156,7 +143,10 @@ describe('AuthContext', () => {
 
       expect(window.location.href).toBe('/api/auth/google');
 
-      window.location = originalLocation;
+      Object.defineProperty(window, 'location', {
+        writable: true,
+        value: { ...window.location, href: originalHref },
+      });
     });
 
     it('should store return URL before login', async () => {
@@ -169,9 +159,12 @@ describe('AuthContext', () => {
       });
 
       // Mock to prevent actual redirect
-      const originalLocation = window.location;
-      delete (window as any).location;
-      window.location = { ...originalLocation, href: '' } as any;
+      const originalHref = window.location.href;
+
+      Object.defineProperty(window, 'location', {
+        writable: true,
+        value: { ...window.location, href: '' },
+      });
 
       act(() => {
         result.current.login('google');
@@ -180,7 +173,10 @@ describe('AuthContext', () => {
       const returnUrl = sessionStorage.getItem('auth_return_url');
       expect(returnUrl).toBeDefined();
 
-      window.location = originalLocation;
+      Object.defineProperty(window, 'location', {
+        writable: true,
+        value: { ...window.location, href: originalHref },
+      });
     });
   });
 

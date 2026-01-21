@@ -1,9 +1,7 @@
 import { ReactElement, ReactNode } from 'react';
 import { render, RenderOptions, RenderResult } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { ThemeProvider } from '@mui/material/styles';
 import { CssBaseline } from '@mui/material';
-import { lightTheme, darkTheme } from '../../theme';
 import { vi } from 'vitest';
 
 // Mock the API module to prevent network calls
@@ -47,25 +45,30 @@ interface WrapperOptions {
 export interface MockUser {
   id: string;
   email: string;
-  displayName: string;
+  displayName: string | null;
+  profileImageUrl: string | null;
   roles: string[];
   permissions: string[];
   isActive: boolean;
+  createdAt: string;
 }
 
 export const mockUser: MockUser = {
   id: 'test-user-id',
   email: 'test@example.com',
   displayName: 'Test User',
+  profileImageUrl: null,
   roles: ['viewer'],
   permissions: ['user_settings:read', 'user_settings:write'],
   isActive: true,
+  createdAt: new Date().toISOString(),
 };
 
 export const mockAdminUser: MockUser = {
   id: 'admin-user-id',
   email: 'admin@example.com',
   displayName: 'Admin User',
+  profileImageUrl: null,
   roles: ['admin'],
   permissions: [
     'user_settings:read',
@@ -77,6 +80,7 @@ export const mockAdminUser: MockUser = {
     'rbac:manage',
   ],
   isActive: true,
+  createdAt: new Date().toISOString(),
 };
 
 // Default mock providers
@@ -120,7 +124,6 @@ function MockAuthProvider({
 function createWrapper(options: WrapperOptions = {}) {
   const {
     route = '/',
-    theme = 'light',
     authenticated = true,
     user = mockUser,
     isLoading = false,

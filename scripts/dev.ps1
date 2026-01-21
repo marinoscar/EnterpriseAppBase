@@ -11,7 +11,7 @@
 
 .PARAMETER Service
     Optional: Specific service to target (api, web, db, nginx)
-    For test action: api, web, all, coverage, e2e
+    For test action: api, web, all, coverage, e2e, typecheck
     For prisma action: generate, migrate, studio, reset
 
 .PARAMETER Otel
@@ -118,14 +118,16 @@ function Show-Help {
     Write-Host "Services: api, web, db, nginx"
     Write-Host ""
     Write-Host "Test Options:"
-    Write-Host "  .\dev.ps1 test                 # Run all tests (API + Web)"
+    Write-Host "  .\dev.ps1 test                 # Run type checks + unit tests (API + Web)"
+    Write-Host "  .\dev.ps1 test all             # Run ALL tests (type checks + unit + E2E)"
+    Write-Host "  .\dev.ps1 test typecheck       # Run type checks only"
     Write-Host "  .\dev.ps1 test api             # Run API tests (Jest)"
     Write-Host "  .\dev.ps1 test api watch       # Run API tests in watch mode"
     Write-Host "  .\dev.ps1 test api coverage    # Run API tests with coverage"
     Write-Host "  .\dev.ps1 test web             # Run Web tests (Vitest)"
     Write-Host "  .\dev.ps1 test web ui          # Open Vitest UI for Web tests"
     Write-Host "  .\dev.ps1 test web coverage    # Run Web tests with coverage"
-    Write-Host "  .\dev.ps1 test e2e             # Run E2E tests"
+    Write-Host "  .\dev.ps1 test e2e             # Run E2E tests (requires database)"
     Write-Host ""
     Write-Host "Prisma Options:"
     Write-Host "  .\dev.ps1 prisma generate      # Generate Prisma client"
@@ -351,6 +353,42 @@ function Run-E2ETests {
     }
 }
 
+function Run-TypeCheck {
+    Write-Info "Running type checks..."
+
+    # Type check API
+    Write-Info "Type checking API..."
+    Push-Location $ApiDir
+    try {
+        npx tsc --noEmit
+        if ($LASTEXITCODE -ne 0) {
+            Write-Err "API type check failed!"
+            return $false
+        }
+        Write-Success "API type check passed!"
+    } finally {
+        Pop-Location
+    }
+
+    # Type check Web
+    Write-Info "Type checking Web..."
+    Push-Location $WebDir
+    try {
+        npx tsc --noEmit
+        if ($LASTEXITCODE -ne 0) {
+            Write-Err "Web type check failed!"
+            return $false
+        }
+        Write-Success "Web type check passed!"
+    } finally {
+        Pop-Location
+    }
+
+    Write-Success "All type checks passed!"
+    Write-Host ""
+    return $true
+}
+
 function Run-Tests {
     switch ($Service.ToLower()) {
         "api" {
@@ -368,8 +406,53 @@ function Run-Tests {
             Write-Host ""
             Run-WebTests -Mode "coverage"
         }
+        "typecheck" {
+            Run-TypeCheck
+        }
+        "all" {
+            Write-Info "Running ALL tests (type checks + unit + integration + E2E)..."
+
+            # Run type checks first
+            $typeCheckPassed = Run-TypeCheck
+            if (-not $typeCheckPassed) {
+                Write-Err "Type checks failed. Stopping."
+                exit 1
+            }
+
+            # Run API unit tests
+            Run-ApiTests
+            if ($LASTEXITCODE -ne 0) {
+                Write-Err "API tests failed. Stopping."
+                exit 1
+            }
+
+            Write-Host ""
+
+            # Run Web tests
+            Run-WebTests
+            if ($LASTEXITCODE -ne 0) {
+                Write-Err "Web tests failed. Stopping."
+                exit 1
+            }
+
+            Write-Host ""
+
+            # Run E2E tests
+            Run-E2ETests
+
+            Write-Host ""
+            Write-Success "All tests completed!"
+        }
         default {
             Write-Info "Running all tests..."
+
+            # Run type checks first
+            $typeCheckPassed = Run-TypeCheck
+            if (-not $typeCheckPassed) {
+                Write-Err "Type checks failed. Stopping."
+                exit 1
+            }
+
             Run-ApiTests
             if ($LASTEXITCODE -eq 0) {
                 Write-Host ""

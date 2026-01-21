@@ -18,7 +18,7 @@ describe('ProtectedRoute', () => {
 
       // Initially may show loading
       // The component transitions quickly so this test verifies it doesn't crash
-      expect(container).toBeInTheDocument();
+      expect(container).toBeTruthy();
     });
   });
 
@@ -78,7 +78,7 @@ describe('ProtectedRoute', () => {
 
   describe('Unauthenticated Access', () => {
     it('should redirect to login when not authenticated', async () => {
-      const { container } = render(
+      render(
         <Routes>
           <Route path="/" element={<ProtectedRoute />}>
             <Route index element={<div>Protected Content</div>} />
@@ -124,7 +124,7 @@ describe('ProtectedRoute', () => {
       );
 
       // Component handles loading state internally
-      expect(container).toBeInTheDocument();
+      expect(container).toBeTruthy();
     });
   });
 
