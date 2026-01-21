@@ -1,0 +1,33 @@
+{
+  "name": "api",
+  "version": "0.0.1",
+  "scripts": {
+    "build": "nest build",
+    "start": "nest start",
+    "start:dev": "nest start --watch",
+    "start:debug": "nest start --debug --watch",
+    "start:prod": "node dist/main",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:cov": "jest --coverage"
+  },
+  "dependencies": {
+    "@nestjs/common": "^10.x",
+    "@nestjs/core": "^10.x",
+    "@nestjs/platform-fastify": "^10.x",
+    "@prisma/client": "^5.x",
+    "reflect-metadata": "^0.2.x",
+    "rxjs": "^7.x"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^10.x",
+    "@nestjs/schematics": "^10.x",
+    "@nestjs/testing": "^10.x",
+    "@types/jest": "^29.x",
+    "@types/node": "^20.x",
+    "jest": "^29.x",
+    "prisma": "^5.x",
+    "ts-jest": "^29.x",
+    "typescript": "^5.x"
+  }
+}
