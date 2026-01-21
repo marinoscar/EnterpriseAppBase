@@ -37,10 +37,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
   useEffect(() => {
     const fetchProviders = async () => {
       try {
-        const data = await api.get<AuthProviderType[]>('/auth/providers', {
+        const response = await api.get<{ providers: AuthProviderType[] }>('/auth/providers', {
           skipAuth: true,
         });
-        setProviders(data);
+        setProviders(response.providers);
       } catch (error) {
         console.error('Failed to fetch auth providers:', error);
       }
