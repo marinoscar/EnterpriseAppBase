@@ -54,13 +54,11 @@ export interface AllowedEmailEntry {
 }
 
 export interface AllowlistResponse {
-  data: AllowedEmailEntry[];
-  meta: {
-    total: number;
-    page: number;
-    pageSize: number;
-    totalPages: number;
-  };
+  items: AllowedEmailEntry[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
 }
 
 export interface UserListItem {
@@ -69,6 +67,7 @@ export interface UserListItem {
   displayName: string | null;
   providerDisplayName: string | null;
   profileImageUrl: string | null;
+  providerProfileImageUrl?: string | null;
   isActive: boolean;
   roles: string[];
   createdAt: string;
@@ -76,11 +75,9 @@ export interface UserListItem {
 }
 
 export interface UsersResponse {
-  data: UserListItem[];
-  meta: {
-    total: number;
-    page: number;
-    pageSize: number;
-    totalPages: number;
-  };
+  items: UserListItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
 }

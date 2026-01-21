@@ -44,11 +44,11 @@ export function useAllowlist(): UseAllowlistResult {
       setError(null);
       try {
         const response: AllowlistResponse = await fetchAllowlistApi(params);
-        setEntries(response.data);
-        setTotal(response.meta.total);
-        setPage(response.meta.page);
-        setPageSize(response.meta.pageSize);
-        setTotalPages(response.meta.totalPages);
+        setEntries(response.items);
+        setTotal(response.total);
+        setPage(response.page);
+        setPageSize(response.pageSize);
+        setTotalPages(response.totalPages);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to fetch allowlist';
         setError(message);
