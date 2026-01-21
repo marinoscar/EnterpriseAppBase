@@ -4,6 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { CommonModule } from '../common/common.module';
+import { AllowlistModule } from '../allowlist/allowlist.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { GoogleStrategy } from './strategies/google.strategy';
@@ -31,6 +32,9 @@ import { TokenCleanupTask } from './tasks/token-cleanup.task';
 
     // Common module for AdminBootstrapService
     CommonModule,
+
+    // Allowlist module for email allowlist checks
+    AllowlistModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, GoogleStrategy, JwtStrategy, TokenCleanupTask],

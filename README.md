@@ -6,7 +6,8 @@ A production-grade full-stack application foundation built with React, NestJS, a
 
 - **Authentication**: Google OAuth 2.0 with JWT access tokens and refresh token rotation
 - **Authorization**: Role-Based Access Control (RBAC) with three roles (Admin, Contributor, Viewer)
-- **User Management**: Admin interface for managing users and role assignments
+- **Access Control**: Email allowlist restricts application access to pre-authorized users
+- **User Management**: Admin interface for managing users, role assignments, and allowlist
 - **Settings Framework**: System-wide and per-user settings with type-safe schemas
 - **Observability**: OpenTelemetry instrumentation with traces, metrics, and structured logging
 - **API Documentation**: Swagger/OpenAPI documentation at `/api/docs`
@@ -97,6 +98,8 @@ exit
 ### 6. First Login
 
 The first user to login with email matching `INITIAL_ADMIN_EMAIL` (from `.env`) will automatically be granted the **admin** role. All subsequent users get **viewer** role by default.
+
+**Important:** Only email addresses in the **allowlist** can login. The `INITIAL_ADMIN_EMAIL` is automatically added to the allowlist during seeding. After your first login as admin, use the Admin interface (`/admin/users`, Allowlist tab) to add additional email addresses before other users can login.
 
 ## Development
 
@@ -216,6 +219,11 @@ Interactive API documentation is available at `/api/docs` when running the appli
 - `GET /api/users/:id` - Get user by ID
 - `PATCH /api/users/:id` - Update user
 
+**Allowlist (Admin only):**
+- `GET /api/allowlist` - List allowlisted emails
+- `POST /api/allowlist` - Add email to allowlist
+- `DELETE /api/allowlist/:id` - Remove email from allowlist
+
 **Settings:**
 - `GET /api/user-settings` - Get user settings
 - `PUT /api/user-settings` - Update user settings
@@ -291,6 +299,14 @@ Passport OAuth strategies expect Express-style objects. The `GoogleOAuthGuard` h
 
 ### "Default role not found" error
 **Solution:** Run database seeds (see step 4 in Quick Start)
+
+### "Email not authorized" error during login
+**Solution:** The email must be in the allowlist. If you're the first admin:
+1. Ensure your email matches `INITIAL_ADMIN_EMAIL` in `.env` exactly
+2. Restart containers to apply environment variable changes
+3. Re-run database seeds if needed
+
+If you're not the first admin, ask an existing admin to add your email to the allowlist at `/admin/users` (Allowlist tab).
 
 ### OAuth redirect fails
 **Solution:**

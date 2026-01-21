@@ -36,6 +36,10 @@ const PERMISSIONS = [
 
   // RBAC management
   { name: 'rbac:manage', description: 'Manage roles and permissions' },
+
+  // Allowlist management
+  { name: 'allowlist:read', description: 'View allowlisted emails' },
+  { name: 'allowlist:write', description: 'Manage allowlisted emails' },
 ] as const;
 
 // Role to permissions mapping
@@ -48,6 +52,8 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     'users:read',
     'users:write',
     'rbac:manage',
+    'allowlist:read',
+    'allowlist:write',
   ],
   contributor: [
     'user_settings:read',
@@ -154,6 +160,25 @@ async function seedSystemSettings() {
   console.log('✓ Seeded default system settings');
 }
 
+async function seedInitialAdminAllowlist() {
+  console.log('Seeding initial admin allowlist...');
+
+  const initialAdminEmail = process.env.INITIAL_ADMIN_EMAIL;
+  if (initialAdminEmail) {
+    await prisma.allowedEmail.upsert({
+      where: { email: initialAdminEmail.toLowerCase() },
+      update: {},
+      create: {
+        email: initialAdminEmail.toLowerCase(),
+        notes: 'Initial admin (auto-seeded)',
+      },
+    });
+    console.log(`✓ Added ${initialAdminEmail} to allowlist`);
+  } else {
+    console.log('⊘ INITIAL_ADMIN_EMAIL not set, skipping allowlist seed');
+  }
+}
+
 // =============================================================================
 // Main Seed Function
 // =============================================================================
@@ -165,6 +190,7 @@ async function main() {
   await seedPermissions();
   await seedRolePermissions();
   await seedSystemSettings();
+  await seedInitialAdminAllowlist();
 
   console.log('\n✓ Database seeding completed successfully');
 }

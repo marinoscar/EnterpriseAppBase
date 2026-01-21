@@ -9,6 +9,7 @@ import { JwtService } from '@nestjs/jwt';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AdminBootstrapService } from '../common/services/admin-bootstrap.service';
+import { AllowlistService } from '../allowlist/allowlist.service';
 import { DEFAULT_ROLE } from '../common/constants/roles.constants';
 import { DEFAULT_USER_SETTINGS } from '../common/types/settings.types';
 import { GoogleProfile } from './strategies/google.strategy';
@@ -32,6 +33,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly adminBootstrapService: AdminBootstrapService,
+    private readonly allowlistService: AllowlistService,
   ) {}
 
   /**
@@ -42,6 +44,18 @@ export class AuthService {
     profile: GoogleProfile,
   ): Promise<FullTokenResponse> {
     this.logger.log(`Google login attempt for email: ${profile.email}`);
+
+    // Check allowlist before any user lookup/creation
+    const email = profile.email.toLowerCase();
+    const isAllowed = await this.allowlistService.isEmailAllowed(email);
+    const isInitialAdmin = this.isInitialAdminEmail(email);
+
+    if (!isAllowed && !isInitialAdmin) {
+      this.logger.warn(`Login denied - email not in allowlist: ${email}`);
+      throw new ForbiddenException(
+        'Your email is not authorized to access this application. Please contact an administrator.',
+      );
+    }
 
     // Check if identity already exists
     let identity = await this.prisma.userIdentity.findUnique({
@@ -113,6 +127,9 @@ export class AuthService {
         // Create new user with identity
         this.logger.log(`Creating new user: ${profile.email}`);
         user = await this.createNewUser(profile);
+
+        // Mark email as claimed in allowlist
+        await this.allowlistService.markEmailClaimed(email, user.id);
       }
     }
 
@@ -595,5 +612,13 @@ export class AuthService {
       roles,
       permissions,
     };
+  }
+
+  /**
+   * Check if email matches the initial admin email
+   */
+  private isInitialAdminEmail(email: string): boolean {
+    const initialAdminEmail = this.configService.get<string>('INITIAL_ADMIN_EMAIL');
+    return initialAdminEmail ? email === initialAdminEmail.toLowerCase() : false;
   }
 }

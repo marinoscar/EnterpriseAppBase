@@ -9,6 +9,7 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { SettingsModule } from './settings/settings.module';
 import { HealthModule } from './health/health.module';
+import { AllowlistModule } from './allowlist/allowlist.module';
 import { LoggerModule } from './common/logger/logger.module';
 
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
@@ -38,6 +39,7 @@ import configuration from './config/configuration';
     UsersModule,
     SettingsModule,
     HealthModule,
+    AllowlistModule,
   ],
   providers: [
     // Global validation pipe (Zod)

@@ -186,3 +186,71 @@ export class ApiError extends Error {
 }
 
 export const api = new ApiService();
+
+// Import types
+import type {
+  AllowlistResponse,
+  AllowedEmailEntry,
+  UsersResponse,
+  UserListItem,
+} from '../types';
+
+// Allowlist API
+export async function getAllowlist(params?: {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  status?: 'all' | 'pending' | 'claimed';
+}): Promise<AllowlistResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.page) searchParams.set('page', String(params.page));
+  if (params?.pageSize) searchParams.set('pageSize', String(params.pageSize));
+  if (params?.search) searchParams.set('search', params.search);
+  if (params?.status) searchParams.set('status', params.status);
+
+  return api.get<AllowlistResponse>(`/allowlist?${searchParams}`);
+}
+
+export async function addToAllowlist(
+  email: string,
+  notes?: string,
+): Promise<AllowedEmailEntry> {
+  return api.post<AllowedEmailEntry>('/allowlist', { email, notes });
+}
+
+export async function removeFromAllowlist(id: string): Promise<void> {
+  await api.delete<void>(`/allowlist/${id}`);
+}
+
+// Users API
+export async function getUsers(params?: {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  role?: string;
+  isActive?: boolean;
+}): Promise<UsersResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.page) searchParams.set('page', String(params.page));
+  if (params?.pageSize) searchParams.set('pageSize', String(params.pageSize));
+  if (params?.search) searchParams.set('search', params.search);
+  if (params?.role) searchParams.set('role', params.role);
+  if (params?.isActive !== undefined)
+    searchParams.set('isActive', String(params.isActive));
+
+  return api.get<UsersResponse>(`/users?${searchParams}`);
+}
+
+export async function updateUser(
+  id: string,
+  data: { displayName?: string; isActive?: boolean },
+): Promise<UserListItem> {
+  return api.patch<UserListItem>(`/users/${id}`, data);
+}
+
+export async function updateUserRoles(
+  id: string,
+  roles: string[],
+): Promise<UserListItem> {
+  return api.put<UserListItem>(`/users/${id}/roles`, { roles });
+}

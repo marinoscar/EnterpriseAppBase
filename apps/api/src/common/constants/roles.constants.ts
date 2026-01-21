@@ -29,6 +29,10 @@ export const PERMISSIONS = {
 
   // RBAC
   RBAC_MANAGE: 'rbac:manage',
+
+  // Allowlist
+  ALLOWLIST_READ: 'allowlist:read',
+  ALLOWLIST_WRITE: 'allowlist:write',
 } as const;
 
 export type PermissionName = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

@@ -2,10 +2,11 @@
 
 ## Executive Summary
 
-This document provides a comprehensive overview of the security architecture for the Enterprise Application Foundation. The system implements defense-in-depth security through multiple layers: OAuth 2.0 authentication with Google, JWT-based session management with token rotation, Role-Based Access Control (RBAC), and comprehensive audit logging.
+This document provides a comprehensive overview of the security architecture for the Enterprise Application Foundation. The system implements defense-in-depth security through multiple layers: OAuth 2.0 authentication with Google, JWT-based session management with token rotation, email allowlist access control, Role-Based Access Control (RBAC), and comprehensive audit logging.
 
 **Key Security Technologies:**
 - **Authentication**: OAuth 2.0 / OpenID Connect (Google)
+- **Access Control**: Email allowlist restricts access to pre-authorized users
 - **Session Management**: JWT access tokens + HttpOnly refresh tokens with rotation
 - **Authorization**: Role-Based Access Control (RBAC) with three roles (Admin, Contributor, Viewer)
 - **Token Storage**: SHA256 hashed refresh tokens in PostgreSQL
@@ -54,16 +55,25 @@ sequenceDiagram
 - `GET /api/auth/google/callback` - Handles OAuth callback, provisions user, returns tokens
 
 **User Provisioning Logic:**
-1. Check if user identity exists (provider + subject)
-2. If not, check if user exists by email (identity linking)
-3. If neither, create new user with:
+1. **Allowlist check**: Verify email is in `allowed_emails` table (or matches `INITIAL_ADMIN_EMAIL`)
+2. If not in allowlist, reject login with "Email not authorized" error
+3. Check if user identity exists (provider + subject)
+4. If not, check if user exists by email (identity linking)
+5. If neither, create new user with:
    - Default role: `viewer`
    - Default user settings (theme, locale)
    - Linked OAuth identity
-4. Check if user email matches `INITIAL_ADMIN_EMAIL`
-5. If match and no other admins exist, grant admin role
-6. Update provider profile information (display name, profile image)
-7. Generate JWT tokens
+   - Mark allowlist entry as claimed (`claimedById`, `claimedAt`)
+6. Check if user email matches `INITIAL_ADMIN_EMAIL`
+7. If match and no other admins exist, grant admin role
+8. Update provider profile information (display name, profile image)
+9. Generate JWT tokens
+
+**Allowlist Security:**
+- Only admins can add/remove emails from the allowlist
+- The `INITIAL_ADMIN_EMAIL` bypasses allowlist check (bootstrap access)
+- Allowlist entries that have been claimed cannot be removed (prevents accidentally removing existing user access)
+- All allowlist operations are audit logged
 
 ### JWT Token Structure
 
@@ -303,6 +313,8 @@ erDiagram
 | `users:read` | View user list and details | ✅ | ❌ | ❌ |
 | `users:write` | Modify user accounts (activate/deactivate, assign roles) | ✅ | ❌ | ❌ |
 | `rbac:manage` | Assign roles to users | ✅ | ❌ | ❌ |
+| `allowlist:read` | View allowlisted email addresses | ✅ | ❌ | ❌ |
+| `allowlist:write` | Add/remove emails from allowlist | ✅ | ❌ | ❌ |
 | `user_settings:read` | View own user settings | ✅ | ✅ | ✅ |
 | `user_settings:write` | Modify own user settings | ✅ | ✅ | ✅ |
 
@@ -433,7 +445,205 @@ async getProviders() {
 
 ---
 
-## 4. Request Lifecycle
+## 4. Email Allowlist Access Control
+
+### Overview
+
+The application implements an **email allowlist** as an additional security layer to restrict access to pre-authorized users only. This feature prevents unauthorized users from gaining access even if they successfully authenticate via OAuth.
+
+**Security Benefits:**
+- Prevents open registration - only invited users can access the application
+- Provides administrative control over who can login
+- Tracks when allowlist entries are claimed (first login)
+- Prevents accidental removal of access for existing users
+
+### Allowlist Enforcement Flow
+
+```mermaid
+flowchart TD
+    A[OAuth Callback] --> B{Email == INITIAL_ADMIN_EMAIL?}
+    B -->|Yes| J[Bypass Allowlist Check]
+    B -->|No| C{Email in allowed_emails?}
+    C -->|No| D[Reject Login]
+    D --> E[Redirect to /auth/error?error=not_authorized]
+    C -->|Yes| F{User Already Exists?}
+    F -->|Yes| K[Load Existing User]
+    F -->|No| G[Create New User]
+    G --> H[Mark Allowlist Entry as Claimed]
+    H --> I[Set claimedById + claimedAt]
+    I --> K
+    J --> K
+    K --> L[Generate JWT Tokens]
+    L --> M[Successful Login]
+```
+
+### Allowlist Table Schema
+
+```typescript
+model AllowedEmail {
+  id          String    @id @default(uuid())
+  email       String    @unique              // Pre-authorized email
+  addedById   String?                        // Admin who added this
+  addedAt     DateTime  @default(now())      // When it was allowlisted
+  claimedById String?   @unique              // User who claimed it
+  claimedAt   DateTime?                      // When user first logged in
+  notes       String?                        // Optional admin notes
+}
+```
+
+**Key Fields:**
+- `email` - Unique constraint ensures no duplicates
+- `claimedById` - Unique constraint (one user per allowlist entry)
+- `claimedAt` - Null = pending, populated = claimed
+
+### Status Types
+
+| Status | Description | claimedById | claimedAt |
+|--------|-------------|-------------|-----------|
+| **Pending** | Email added but user hasn't logged in yet | `null` | `null` |
+| **Claimed** | User has successfully logged in | User ID | Timestamp |
+
+### Admin Operations
+
+#### Add Email to Allowlist
+
+**Endpoint:** `POST /api/allowlist`
+
+**Permission Required:** `allowlist:write` (Admin only)
+
+**Request:**
+```json
+{
+  "email": "newuser@example.com",
+  "notes": "New team member starting next week"
+}
+```
+
+**Business Logic:**
+1. Validate email format
+2. Check for duplicates (return 409 if exists)
+3. Create allowlist entry with `addedById` = current admin
+4. Audit log the addition
+
+**Use Case:** Admins pre-authorize users before they attempt their first login.
+
+---
+
+#### Remove Email from Allowlist
+
+**Endpoint:** `DELETE /api/allowlist/:id`
+
+**Permission Required:** `allowlist:write` (Admin only)
+
+**Validation:**
+- ✅ Can remove if `claimedById` is `null` (pending entry)
+- ❌ Cannot remove if `claimedById` is populated (claimed entry)
+
+**Rationale:** Prevents admins from accidentally removing access for existing users. To revoke access for existing users, use the user deactivation feature instead (`PATCH /api/users/:id` with `isActive: false`).
+
+**Business Logic:**
+1. Check if entry is claimed
+2. If claimed, return 400 Bad Request with error message
+3. If pending, delete entry
+4. Audit log the removal
+
+---
+
+#### List Allowlist Entries
+
+**Endpoint:** `GET /api/allowlist`
+
+**Permission Required:** `allowlist:read` (Admin only)
+
+**Query Parameters:**
+- `status` - Filter by: `all`, `pending`, `claimed`
+- `search` - Search by email
+- `sortBy` - Sort by: `email`, `addedAt`, `claimedAt`
+- `sortOrder` - Order: `asc`, `desc`
+
+**Response Includes:**
+- Email address
+- Status (pending/claimed)
+- Admin who added it
+- When it was added
+- User who claimed it (if claimed)
+- When it was claimed (if claimed)
+- Optional notes
+
+### Bootstrap Admin Bypass
+
+The `INITIAL_ADMIN_EMAIL` environment variable provides a special bypass to enable the first admin to login without being pre-added to the allowlist.
+
+**Bootstrap Logic:**
+```typescript
+async validateOAuthUser(profile: OAuthProfile) {
+  const email = profile.email;
+
+  // Special case: initial admin bypasses allowlist
+  if (email === process.env.INITIAL_ADMIN_EMAIL) {
+    // Allow login without allowlist check
+    return this.provisionUser(profile);
+  }
+
+  // Check allowlist for all other users
+  const allowlistEntry = await this.allowlistService.findByEmail(email);
+  if (!allowlistEntry) {
+    throw new UnauthorizedException('Email not authorized');
+  }
+
+  return this.provisionUser(profile);
+}
+```
+
+**Why This is Secure:**
+- The admin must have access to the `.env` file (server access)
+- Only one email bypasses the check
+- After initial admin logs in, they can add other users to the allowlist
+- The initial admin email is automatically added to the allowlist during database seeding
+
+### Integration with User Provisioning
+
+When a user with a allowlisted email successfully authenticates:
+
+1. **Check allowlist** before user provisioning
+2. **Create user** if they don't exist
+3. **Mark entry as claimed** by setting:
+   - `claimedById` = new user's ID
+   - `claimedAt` = current timestamp
+4. **Update is idempotent** - if user logs in again, allowlist entry remains claimed
+
+### Audit Trail
+
+All allowlist operations are logged to the `audit_events` table:
+
+| Action | Actor | Target | Description |
+|--------|-------|--------|-------------|
+| `allowlist.added` | Admin User ID | Allowlist Entry ID | Admin added email to allowlist |
+| `allowlist.removed` | Admin User ID | Allowlist Entry ID | Admin removed pending entry |
+| `allowlist.claimed` | User ID | Allowlist Entry ID | User claimed allowlist entry on first login |
+
+### Security Considerations
+
+**Protection Against:**
+- ✅ Unauthorized access - Only allowlisted emails can login
+- ✅ Open registration - No public signup, invitation-only
+- ✅ Accidental removal - Cannot delete claimed entries
+
+**Edge Cases Handled:**
+- Email case-insensitivity (normalized to lowercase)
+- Duplicate email prevention (unique constraint)
+- Race condition on claim (unique constraint on claimedById)
+- Orphaned allowlist entries (admin can clean up pending entries)
+
+**Best Practices:**
+- Add users to allowlist before sharing OAuth link
+- Use notes field to track why user was allowlisted
+- Regularly audit claimed vs pending entries
+- Use user deactivation (`isActive: false`) instead of allowlist removal for revoking access
+
+---
+
+## 5. Request Lifecycle
 
 ### End-to-End Protected Request Flow
 
@@ -552,7 +762,7 @@ interface RequestUser {
 
 ---
 
-## 5. Database Security Model
+## 6. Database Security Model
 
 ### Security Tables ERD
 
@@ -562,6 +772,8 @@ erDiagram
     User ||--o{ UserRole : "has"
     User ||--o{ RefreshToken : "has"
     User ||--o{ AuditEvent : "performs"
+    User ||--o{ AllowedEmail : "added by"
+    User ||--o| AllowedEmail : "claimed by"
     Role ||--o{ UserRole : "assigned to"
     Role ||--o{ RolePermission : "has"
     Permission ||--o{ RolePermission : "granted to"
@@ -627,6 +839,16 @@ erDiagram
         json meta "Additional context"
         timestamptz createdAt
     }
+
+    AllowedEmail {
+        uuid id PK
+        string email UK "Pre-authorized email address"
+        uuid addedById FK "Admin who added this email"
+        timestamptz addedAt "When email was allowlisted"
+        uuid claimedById FK,UK "User who claimed this entry"
+        timestamptz claimedAt "When user first logged in"
+        string notes "Optional admin notes"
+    }
 ```
 
 **Table Descriptions:**
@@ -640,6 +862,7 @@ erDiagram
 | `role_permissions` | Role-to-permission mapping | Defines RBAC matrix |
 | `user_roles` | User role assignments | Modified by admins via API, cascade delete |
 | `refresh_tokens` | Active refresh tokens | SHA256 hashed, includes revocation timestamp |
+| `allowed_emails` | Email allowlist | Restricts access, tracks claim status, prevents removal if claimed |
 | `audit_events` | Security audit log | Immutable log of all security events |
 
 ### Audit Logging
@@ -652,6 +875,8 @@ The `audit_events` table provides a comprehensive audit trail for compliance and
 - User activation/deactivation
 - System settings modifications
 - User settings modifications
+- Allowlist email additions/removals
+- Allowlist entry claims (when user first logs in)
 - Authentication events (login, logout, token refresh)
 
 **Audit Event Structure:**
@@ -701,7 +926,7 @@ interface AuditEvent {
 
 ---
 
-## 6. Infrastructure Security
+## 7. Infrastructure Security
 
 ### Nginx Security Headers
 
@@ -796,7 +1021,7 @@ cp .env.example .env
 
 ---
 
-## 7. Attack Mitigation Matrix
+## 8. Attack Mitigation Matrix
 
 | Attack Vector | Mitigation Strategy | Implementation |
 |--------------|---------------------|----------------|
@@ -826,7 +1051,7 @@ cp .env.example .env
 
 ---
 
-## 8. Configuration Reference
+## 9. Configuration Reference
 
 ### Environment Variables
 
@@ -901,7 +1126,7 @@ NODE_ENV=production
 
 ---
 
-## 9. Implementation Notes: Fastify + Passport OAuth
+## 10. Implementation Notes: Fastify + Passport OAuth
 
 ### Challenge: OAuth Strategy Compatibility
 
@@ -1040,7 +1265,7 @@ try {
 
 ---
 
-## 10. File Reference
+## 11. File Reference
 
 ### Key Security Files
 
@@ -1070,11 +1295,22 @@ apps/api/src/auth/
     └── authenticated-user.interface.ts  # User object types
 ```
 
+**Allowlist Access Control:**
+```
+apps/api/src/allowlist/
+├── allowlist.controller.ts         # Allowlist endpoints (list, add, remove)
+├── allowlist.service.ts            # Allowlist business logic
+├── allowlist.module.ts             # Allowlist module configuration
+└── dto/
+    ├── add-email.dto.ts            # Add email request validation
+    └── allowlist-query.dto.ts      # List query parameters validation
+```
+
 **Database & RBAC:**
 ```
 apps/api/prisma/
-├── schema.prisma                   # Database schema (security tables)
-├── seed.ts                         # RBAC seed data (roles, permissions)
+├── schema.prisma                   # Database schema (security tables, allowlist)
+├── seed.ts                         # RBAC seed data (roles, permissions, initial allowlist)
 └── migrations/                     # Database migration history
 ```
 
@@ -1113,7 +1349,7 @@ apps/web/src/
 
 ---
 
-## 11. Security Best Practices Summary
+## 12. Security Best Practices Summary
 
 ### For Developers
 
@@ -1126,6 +1362,8 @@ apps/web/src/
 - ✅ Log security events to audit table
 - ✅ Use environment variables for all secrets
 - ✅ Keep dependencies updated (npm audit)
+- ✅ Add users to allowlist before sharing OAuth login link
+- ✅ Use user deactivation (`isActive: false`) instead of allowlist removal to revoke access
 
 **Don'ts:**
 - ❌ Never commit `.env` files to Git
@@ -1147,6 +1385,7 @@ apps/web/src/
 - [ ] Rate limiting configured on Nginx or API
 - [ ] Security headers enabled in Nginx
 - [ ] Admin bootstrap email configured correctly
+- [ ] Initial admin email added to allowlist during seeding
 - [ ] OAuth credentials from production Google project
 - [ ] Audit logging verified and monitored
 - [ ] Error handler sanitizes responses (no stack traces)
@@ -1157,6 +1396,8 @@ apps/web/src/
 - [ ] Track authentication failure rates
 - [ ] Monitor token refresh frequency
 - [ ] Watch for unusual role assignment changes
+- [ ] Monitor allowlist additions/removals for unauthorized changes
+- [ ] Track "email not authorized" login failures
 
 ---
 

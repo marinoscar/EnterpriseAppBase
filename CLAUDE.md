@@ -119,6 +119,11 @@ cd apps/api && npm run prisma:migrate
 - `PUT /api/system-settings` - Replace system settings (Admin)
 - `PATCH /api/system-settings` - Partial update system settings (Admin)
 
+### Allowlist (Admin-only)
+- `GET /api/allowlist` - List allowlisted emails (paginated, filterable)
+- `POST /api/allowlist` - Add email to allowlist
+- `DELETE /api/allowlist/{id}` - Remove email from allowlist
+
 ### Health
 - `GET /api/health/live` - Liveness check
 - `GET /api/health/ready` - Readiness check (includes DB)
@@ -135,6 +140,7 @@ cd apps/api && npm run prisma:migrate
 - `user_settings:read/write` - User settings access
 - `users:read/write` - User management
 - `rbac:manage` - Role assignment
+- `allowlist:read/write` - Allowlist management (Admin only)
 
 ## Database Tables
 
@@ -145,6 +151,33 @@ cd apps/api && npm run prisma:migrate
 - `system_settings` - Global app settings (JSONB)
 - `user_settings` - Per-user settings (JSONB)
 - `audit_events` - Action audit log
+- `refresh_tokens` - JWT refresh tokens (hashed)
+- `allowed_emails` - Allowlist for access control
+
+## Access Control: Email Allowlist
+
+The application uses an **email allowlist** to restrict access to pre-authorized users only.
+
+### How It Works
+1. Admins add email addresses to the allowlist before users can login
+2. During OAuth login, the user's email is checked against the allowlist
+3. If the email is not in the allowlist, login is denied with a clear error message
+4. Exception: `INITIAL_ADMIN_EMAIL` always bypasses the allowlist check
+
+### Configuration
+- `INITIAL_ADMIN_EMAIL` environment variable grants initial admin access
+- This email is automatically added to the allowlist during database seeding
+
+### Admin Management
+- Access allowlist management at `/admin/users` (Allowlist tab)
+- Two tabs available:
+  - **Users**: Manage existing registered users
+  - **Allowlist**: Pre-authorize email addresses for future logins
+
+### Status Tracking
+- **Pending**: Email added to allowlist but user hasn't logged in yet
+- **Claimed**: User has successfully logged in and created an account
+- Claimed entries cannot be removed (prevents accidentally removing existing user access)
 
 ## Security Guidelines
 
@@ -154,6 +187,7 @@ cd apps/api && npm run prisma:migrate
 - Input validation on all endpoints
 - Rate limiting on auth and sensitive writes
 - File uploads: images only, size/type limits, randomized filenames
+- Email allowlist restricts application access to pre-authorized users
 
 ## Testing Requirements
 

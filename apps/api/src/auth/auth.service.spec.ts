@@ -6,6 +6,7 @@ import { AuthService } from './auth.service';
 import { GoogleProfile } from './strategies/google.strategy';
 import { PrismaService } from '../prisma/prisma.service';
 import { AdminBootstrapService } from '../common/services/admin-bootstrap.service';
+import { AllowlistService } from '../allowlist/allowlist.service';
 import { createMockPrismaService, MockPrismaService } from '../../test/mocks/prisma.mock';
 
 describe('AuthService', () => {
@@ -14,6 +15,7 @@ describe('AuthService', () => {
   let mockJwtService: jest.Mocked<JwtService>;
   let mockConfigService: jest.Mocked<ConfigService>;
   let mockAdminBootstrap: jest.Mocked<AdminBootstrapService>;
+  let mockAllowlistService: jest.Mocked<AllowlistService>;
 
   const mockGoogleProfile: GoogleProfile = {
     id: 'google-123',
@@ -45,6 +47,10 @@ describe('AuthService', () => {
       shouldGrantAdminRole: jest.fn().mockResolvedValue(false),
       assignAdminRole: jest.fn().mockResolvedValue(undefined),
     } as any;
+    mockAllowlistService = {
+      isEmailAllowed: jest.fn().mockResolvedValue(true),
+      markEmailClaimed: jest.fn().mockResolvedValue(undefined),
+    } as any;
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -53,6 +59,7 @@ describe('AuthService', () => {
         { provide: JwtService, useValue: mockJwtService },
         { provide: ConfigService, useValue: mockConfigService },
         { provide: AdminBootstrapService, useValue: mockAdminBootstrap },
+        { provide: AllowlistService, useValue: mockAllowlistService },
       ],
     }).compile();
 

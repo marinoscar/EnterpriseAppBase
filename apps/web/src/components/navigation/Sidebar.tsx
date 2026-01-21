@@ -14,6 +14,7 @@ import {
   Home as HomeIcon,
   Settings as SettingsIcon,
   AdminPanelSettings as AdminIcon,
+  People as PeopleIcon,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -43,6 +44,12 @@ export function Sidebar({ open, onClose }: SidebarProps) {
       icon: <SettingsIcon />,
       path: '/settings',
       visible: true,
+    },
+    {
+      label: 'User Management',
+      icon: <PeopleIcon />,
+      path: '/admin/users',
+      visible: isAdmin,
     },
     {
       label: 'System Settings',

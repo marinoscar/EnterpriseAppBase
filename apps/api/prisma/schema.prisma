@@ -27,12 +27,14 @@ model User {
   updatedAt               DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relations
-  identities      UserIdentity[]
-  userRoles       UserRole[]
-  userSettings    UserSettings?
-  auditEvents     AuditEvent[]     @relation("ActorEvents")
-  settingsUpdates SystemSettings[] @relation("SettingsUpdater")
-  refreshTokens   RefreshToken[]   @relation("UserRefreshTokens")
+  identities                UserIdentity[]
+  userRoles                 UserRole[]
+  userSettings              UserSettings?
+  auditEvents               AuditEvent[]     @relation("ActorEvents")
+  settingsUpdates           SystemSettings[] @relation("SettingsUpdater")
+  refreshTokens             RefreshToken[]   @relation("UserRefreshTokens")
+  allowlistEntriesAdded     AllowedEmail[]   @relation("AllowlistAddedBy")
+  allowlistEntry            AllowedEmail?    @relation("AllowlistClaimedBy")
 
   @@map("users")
 }
@@ -174,4 +176,24 @@ model RefreshToken {
   @@index([userId])
   @@index([expiresAt])
   @@map("refresh_tokens")
+}
+
+// =============================================================================
+// Allowlist (Email Access Control)
+// =============================================================================
+
+model AllowedEmail {
+  id          String    @id @default(uuid()) @db.Uuid
+  email       String    @unique
+  addedById   String?   @map("added_by_id") @db.Uuid
+  addedAt     DateTime  @default(now()) @map("added_at") @db.Timestamptz
+  claimedById String?   @unique @map("claimed_by_id") @db.Uuid
+  claimedAt   DateTime? @map("claimed_at") @db.Timestamptz
+  notes       String?
+
+  // Relations
+  addedBy   User? @relation("AllowlistAddedBy", fields: [addedById], references: [id], onDelete: SetNull)
+  claimedBy User? @relation("AllowlistClaimedBy", fields: [claimedById], references: [id], onDelete: SetNull)
+
+  @@map("allowed_emails")
 }

@@ -48,6 +48,8 @@ export default function AuthCallbackPage() {
   }, [searchParams, navigate, refreshUser]);
 
   if (error) {
+    const isNotAuthorized = error.toLowerCase().includes('not authorized');
+
     return (
       <Box
         sx={{
@@ -57,13 +59,24 @@ export default function AuthCallbackPage() {
           justifyContent: 'center',
           height: '100vh',
           gap: 2,
+          px: 2,
         }}
       >
-        <Alert severity="error" sx={{ maxWidth: 400 }}>
-          {error}
+        <Alert severity="error" sx={{ maxWidth: 500 }}>
+          <Typography variant="body1" gutterBottom>
+            {error}
+          </Typography>
+          {isNotAuthorized && (
+            <Typography variant="body2" sx={{ mt: 1 }}>
+              If you believe this is an error, please contact your system
+              administrator.
+            </Typography>
+          )}
         </Alert>
         <Typography variant="body2" color="text.secondary">
-          <a href="/login">Return to login</a>
+          <a href="/login" style={{ textDecoration: 'none', color: 'inherit' }}>
+            Return to login
+          </a>
         </Typography>
       </Box>
     );
