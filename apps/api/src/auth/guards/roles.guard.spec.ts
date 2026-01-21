@@ -43,13 +43,8 @@ describe('RolesGuard', () => {
           id: `role-${name}`,
           name,
           description: `${name} role`,
-          createdAt: new Date(),
-          updatedAt: new Date(),
           rolePermissions: [],
         },
-        userId: 'user-id',
-        roleId: `role-${name}`,
-        assignedAt: new Date(),
       })),
     } as Partial<AuthenticatedUser>;
   }

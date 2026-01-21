@@ -111,18 +111,16 @@ export async function seedBaseData(prisma: PrismaService): Promise<void> {
 
   // Create default system settings
   await prisma.systemSettings.upsert({
-    where: { id: 'default' },
+    where: { key: 'default' },
     update: {},
     create: {
-      id: 'default',
+      key: 'default',
       value: {
         ui: { allowUserThemeOverride: true },
         security: { jwtAccessTtlMinutes: 15, refreshTtlDays: 14 },
         features: {},
-        updatedAt: new Date().toISOString(),
-        updatedBy: null,
-        version: 1,
       },
+      version: 1,
     },
   });
 }

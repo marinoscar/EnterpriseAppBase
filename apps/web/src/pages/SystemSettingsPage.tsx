@@ -40,7 +40,6 @@ export default function SystemSettingsPage() {
     error,
     isSaving,
     updateSettings,
-    refresh,
   } = useSystemSettings();
 
   const [tabIndex, setTabIndex] = useState(0);

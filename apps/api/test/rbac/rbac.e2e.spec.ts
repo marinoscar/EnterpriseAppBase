@@ -1,4 +1,4 @@
-import * as request from 'supertest';
+import request from 'supertest';
 import { TestContext, createTestApp, closeTestApp } from '../helpers/test-app.helper';
 import { resetDatabase } from '../helpers/database.helper';
 import {
