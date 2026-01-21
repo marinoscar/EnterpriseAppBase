@@ -72,7 +72,7 @@ export const handlers = [
   }),
 
   http.put(`${API_BASE}/user-settings`, async ({ request }) => {
-    const body = await request.json();
+    const body = (await request.json()) as Record<string, unknown>;
     return HttpResponse.json({
       data: {
         ...mockUserSettings,
@@ -84,7 +84,7 @@ export const handlers = [
   }),
 
   http.patch(`${API_BASE}/user-settings`, async ({ request }) => {
-    const body = await request.json();
+    const body = (await request.json()) as Record<string, unknown>;
     return HttpResponse.json({
       data: {
         ...mockUserSettings,
@@ -101,7 +101,7 @@ export const handlers = [
   }),
 
   http.patch(`${API_BASE}/system-settings`, async ({ request }) => {
-    const body = await request.json();
+    const body = (await request.json()) as Record<string, unknown>;
     return HttpResponse.json({
       data: {
         ...mockSystemSettings,

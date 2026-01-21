@@ -1,5 +1,5 @@
 import { renderHook, RenderHookOptions, RenderHookResult } from '@testing-library/react';
-import React, { ReactNode } from 'react';
+import { ReactNode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { ThemeProvider } from '@mui/material/styles';
 import { lightTheme } from '../../theme';

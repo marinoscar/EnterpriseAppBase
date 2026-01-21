@@ -1,4 +1,4 @@
-import React, { ReactNode } from 'react';
+import { ReactNode } from 'react';
 import { vi } from 'vitest';
 import { ThemeProvider } from '@mui/material/styles';
 import { lightTheme, darkTheme } from '../../theme';

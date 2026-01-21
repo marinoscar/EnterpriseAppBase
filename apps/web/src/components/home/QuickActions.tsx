@@ -7,7 +7,6 @@ import {
   Box,
 } from '@mui/material';
 import {
-  Settings as SettingsIcon,
   AdminPanelSettings as AdminIcon,
   Person as PersonIcon,
   Palette as ThemeIcon,
