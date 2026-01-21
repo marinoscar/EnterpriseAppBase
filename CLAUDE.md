@@ -89,8 +89,8 @@ cd apps/api && npx prisma migrate deploy
 
 ## Service URLs (Development)
 
-- **Application**: http://localhost (via Nginx)
-- **Swagger UI**: http://localhost/api/docs
+- **Application**: http://localhost:3535 (via Nginx)
+- **Swagger UI**: http://localhost:3535/api/docs
 - **Uptrace**: http://localhost:14318 (when otel stack running)
 
 ## API Endpoints (MVP)
@@ -166,7 +166,7 @@ Key variables (see `infra/compose/.env.example` for full list):
 **Application:**
 - `NODE_ENV` - Environment (development/production)
 - `PORT` - API port (default: 3000)
-- `APP_URL` - Base URL (default: http://localhost)
+- `APP_URL` - Base URL (default: http://localhost:3535)
 
 **Database:**
 - `DATABASE_URL` - PostgreSQL connection string

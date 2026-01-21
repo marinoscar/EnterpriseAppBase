@@ -734,9 +734,9 @@ add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
 
 The application uses same-origin architecture (frontend and API served from same host via Nginx), so CORS is disabled by default:
 
-- Frontend: `http://localhost/`
-- API: `http://localhost/api`
-- Swagger: `http://localhost/api/docs`
+- Frontend: `http://localhost:3535/`
+- API: `http://localhost:3535/api`
+- Swagger: `http://localhost:3535/api/docs`
 
 **Benefits of Same-Origin:**
 - No CORS configuration needed
@@ -846,12 +846,12 @@ COOKIE_SECRET=your-cookie-secret-key-min-32-characters-long
 # Google OAuth (Required)
 GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=your-google-client-secret
-GOOGLE_CALLBACK_URL=http://localhost/api/auth/google/callback
+GOOGLE_CALLBACK_URL=http://localhost:3535/api/auth/google/callback
 
 # Microsoft OAuth (Optional)
 MICROSOFT_CLIENT_ID=your-microsoft-client-id
 MICROSOFT_CLIENT_SECRET=your-microsoft-client-secret
-MICROSOFT_CALLBACK_URL=http://localhost/api/auth/microsoft/callback
+MICROSOFT_CALLBACK_URL=http://localhost:3535/api/auth/microsoft/callback
 ```
 
 **Database:**
@@ -872,7 +872,7 @@ INITIAL_ADMIN_EMAIL=admin@example.com
 ```bash
 NODE_ENV=development              # development | production
 PORT=3000                         # API server port
-APP_URL=http://localhost          # Base URL (for OAuth redirects)
+APP_URL=http://localhost:3535     # Base URL (for OAuth redirects)
 ```
 
 ### Recommended Security Settings

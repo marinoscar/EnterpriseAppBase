@@ -167,7 +167,7 @@ Environment variables for observability settings.
 # API Reference
 
 ## Base URL
-- Development: http://localhost:3000/api
+- Development: http://localhost:3535/api
 - Production: https://yourdomain.com/api
 
 ## Authentication
@@ -240,9 +240,9 @@ Brief description of the project.
 4. Start services
    docker compose up
 5. Access application
-   - UI: http://localhost:3000
-   - API: http://localhost:3000/api
-   - Swagger: http://localhost:3000/api/docs
+   - UI: http://localhost:3535
+   - API: http://localhost:3535/api
+   - Swagger: http://localhost:3535/api/docs
 
 ## Development
 
@@ -282,7 +282,7 @@ JWT_REFRESH_TTL_DAYS=14
 # OAuth - Google
 GOOGLE_CLIENT_ID=your-google-client-id
 GOOGLE_CLIENT_SECRET=your-google-client-secret
-GOOGLE_CALLBACK_URL=http://localhost:3000/api/auth/google/callback
+GOOGLE_CALLBACK_URL=http://localhost:3535/api/auth/google/callback
 
 # OAuth - Microsoft (optional)
 # MICROSOFT_CLIENT_ID=

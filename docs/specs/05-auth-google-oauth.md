@@ -645,11 +645,11 @@ Add to `apps/api/package.json`:
 ```bash
 GOOGLE_CLIENT_ID=your-client-id
 GOOGLE_CLIENT_SECRET=your-client-secret
-GOOGLE_CALLBACK_URL=http://localhost/api/auth/google/callback
+GOOGLE_CALLBACK_URL=http://localhost:3535/api/auth/google/callback
 JWT_SECRET=your-secret-min-32-chars
 JWT_ACCESS_TTL_MINUTES=15
 INITIAL_ADMIN_EMAIL=admin@example.com
-APP_URL=http://localhost
+APP_URL=http://localhost:3535
 ```
 
 ---

@@ -605,7 +605,7 @@ JWT_REFRESH_TTL_DAYS=14
 # ===================
 GOOGLE_CLIENT_ID=your-google-client-id
 GOOGLE_CLIENT_SECRET=your-google-client-secret
-GOOGLE_CALLBACK_URL=http://localhost/api/auth/google/callback
+GOOGLE_CALLBACK_URL=http://localhost:3535/api/auth/google/callback
 
 # ===================
 # OAuth - Microsoft (Optional)
@@ -613,7 +613,7 @@ GOOGLE_CALLBACK_URL=http://localhost/api/auth/google/callback
 # MICROSOFT_ENABLED=false
 # MICROSOFT_CLIENT_ID=
 # MICROSOFT_CLIENT_SECRET=
-# MICROSOFT_CALLBACK_URL=http://localhost/api/auth/microsoft/callback
+# MICROSOFT_CALLBACK_URL=http://localhost:3535/api/auth/microsoft/callback
 
 # ===================
 # Initial Admin Bootstrap
@@ -656,9 +656,9 @@ docker compose -f base.compose.yml -f prod.compose.yml up
 ```
 
 ### 14.5 Service URLs (Development)
-- **Application**: http://localhost (via Nginx)
-- **API directly**: http://localhost:3000 (dev only)
-- **Swagger UI**: http://localhost/api/docs
+- **Application**: http://localhost:3535 (via Nginx)
+- **API directly**: http://localhost:3000 (dev only, not via Nginx)
+- **Swagger UI**: http://localhost:3535/api/docs
 - **Uptrace**: http://localhost:14318 (when otel stack running)
 
 ### 14.6 Startup (Dev vs Prod)
