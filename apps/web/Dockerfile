@@ -12,7 +12,7 @@ WORKDIR /app
 # Dependencies stage
 # -----------------------------------------------------------------------------
 FROM base AS deps
-COPY package*.json ./
+COPY apps/web/package*.json ./
 # Using npm install since this is a workspace package without its own lock file
 RUN npm install
 
@@ -21,7 +21,7 @@ RUN npm install
 # -----------------------------------------------------------------------------
 FROM base AS development
 COPY --from=deps /app/node_modules ./node_modules
-COPY . .
+COPY apps/web/. .
 EXPOSE 5173
 CMD ["npm", "run", "dev", "--", "--host"]
 
@@ -30,7 +30,7 @@ CMD ["npm", "run", "dev", "--", "--host"]
 # -----------------------------------------------------------------------------
 FROM base AS build
 COPY --from=deps /app/node_modules ./node_modules
-COPY . .
+COPY apps/web/. .
 RUN npm run build
 
 # -----------------------------------------------------------------------------
@@ -38,6 +38,6 @@ RUN npm run build
 # -----------------------------------------------------------------------------
 FROM nginx:alpine AS production
 COPY --from=build /app/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY apps/web/nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]

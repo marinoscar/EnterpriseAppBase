@@ -15,8 +15,8 @@ RUN corepack enable
 # Dependencies stage
 # -----------------------------------------------------------------------------
 FROM base AS deps
-COPY package*.json ./
-COPY prisma ./prisma/
+COPY apps/api/package*.json ./
+COPY apps/api/prisma ./prisma/
 # Using npm install since this is a workspace package without its own lock file
 RUN npm install --ignore-scripts && npx prisma generate
 
@@ -25,7 +25,7 @@ RUN npm install --ignore-scripts && npx prisma generate
 # -----------------------------------------------------------------------------
 FROM base AS development
 COPY --from=deps /app/node_modules ./node_modules
-COPY . .
+COPY apps/api/. .
 EXPOSE 3000
 CMD ["npm", "run", "start:dev"]
 
@@ -34,7 +34,7 @@ CMD ["npm", "run", "start:dev"]
 # -----------------------------------------------------------------------------
 FROM base AS build
 COPY --from=deps /app/node_modules ./node_modules
-COPY . .
+COPY apps/api/. .
 RUN npm run build
 
 # -----------------------------------------------------------------------------
@@ -43,7 +43,7 @@ RUN npm run build
 FROM base AS production
 COPY --from=build /app/dist ./dist
 COPY --from=deps /app/node_modules ./node_modules
-COPY package*.json ./
-COPY prisma ./prisma/
+COPY apps/api/package*.json ./
+COPY apps/api/prisma ./prisma/
 EXPOSE 3000
 CMD ["npm", "run", "start:prod"]
