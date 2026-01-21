@@ -6,6 +6,8 @@ interface RequestOptions extends RequestInit {
 
 class ApiService {
   private accessToken: string | null = null;
+  private isRefreshing = false;
+  private refreshPromise: Promise<boolean> | null = null;
 
   setAccessToken(token: string | null) {
     this.accessToken = token;
@@ -37,11 +39,38 @@ class ApiService {
     });
 
     if (response.status === 401 && !skipAuth) {
-      // Try to refresh token
+      // Try to refresh token (only once, avoid infinite loops)
       const refreshed = await this.refreshToken();
       if (refreshed) {
-        // Retry original request
-        return this.request(endpoint, options);
+        // Update authorization header with new token and retry ONCE
+        const retryHeaders: HeadersInit = {
+          'Content-Type': 'application/json',
+          ...fetchOptions.headers,
+          'Authorization': `Bearer ${this.accessToken}`,
+        };
+
+        const retryResponse = await fetch(`${API_BASE_URL}${endpoint}`, {
+          ...fetchOptions,
+          headers: retryHeaders,
+          credentials: 'include',
+        });
+
+        if (!retryResponse.ok) {
+          const error = await retryResponse.json().catch(() => ({}));
+          throw new ApiError(
+            error.message || 'Request failed',
+            retryResponse.status,
+            error.code,
+            error.details,
+          );
+        }
+
+        if (retryResponse.status === 204) {
+          return undefined as T;
+        }
+
+        const data = await retryResponse.json();
+        return data.data ?? data;
       }
       throw new ApiError('Unauthorized', 401);
     }
@@ -66,6 +95,23 @@ class ApiService {
   }
 
   async refreshToken(): Promise<boolean> {
+    // Prevent concurrent refresh attempts
+    if (this.isRefreshing && this.refreshPromise) {
+      return this.refreshPromise;
+    }
+
+    this.isRefreshing = true;
+    this.refreshPromise = this.doRefreshToken();
+
+    try {
+      return await this.refreshPromise;
+    } finally {
+      this.isRefreshing = false;
+      this.refreshPromise = null;
+    }
+  }
+
+  private async doRefreshToken(): Promise<boolean> {
     try {
       const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
         method: 'POST',
@@ -78,6 +124,13 @@ class ApiService {
       }
 
       const data = await response.json();
+
+      // Validate that we actually got a token
+      if (!data.accessToken || typeof data.accessToken !== 'string') {
+        this.accessToken = null;
+        return false;
+      }
+
       this.accessToken = data.accessToken;
       return true;
     } catch {
