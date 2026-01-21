@@ -109,6 +109,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           boxSizing: 'border-box',
           backgroundColor: theme.palette.background.paper,
           borderRight: `1px solid ${theme.palette.divider}`,
+          top: { xs: 56, sm: 64 }, // Position below AppBar (56px on mobile, 64px on desktop)
+          height: { xs: 'calc(100% - 56px)', sm: 'calc(100% - 64px)' }, // Adjust height
         },
       }}
       ModalProps={{
