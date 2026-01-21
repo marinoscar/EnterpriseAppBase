@@ -1,5 +1,6 @@
 import { Injectable, NestMiddleware } from '@nestjs/common';
-import { FastifyRequest, FastifyReply } from 'fastify';
+import { FastifyRequest } from 'fastify';
+import { ServerResponse } from 'http';
 import { trace, context } from '@opentelemetry/api';
 import { randomUUID } from 'crypto';
 
@@ -13,7 +14,8 @@ declare module 'fastify' {
 
 @Injectable()
 export class RequestIdMiddleware implements NestMiddleware {
-  use(req: FastifyRequest, res: FastifyReply, next: () => void) {
+  // NestJS middleware with Fastify receives raw Node.js objects
+  use(req: FastifyRequest['raw'] & { requestId?: string; traceId?: string; spanId?: string }, res: ServerResponse, next: () => void) {
     // Get or generate request ID
     const requestId =
       (req.headers['x-request-id'] as string) || randomUUID();
@@ -22,17 +24,17 @@ export class RequestIdMiddleware implements NestMiddleware {
     const activeSpan = trace.getSpan(context.active());
     const spanContext = activeSpan?.spanContext();
 
-    // Attach to request
-    req.requestId = requestId;
+    // Attach to request (cast to any to add custom properties)
+    (req as any).requestId = requestId;
     if (spanContext) {
-      req.traceId = spanContext.traceId;
-      req.spanId = spanContext.spanId;
+      (req as any).traceId = spanContext.traceId;
+      (req as any).spanId = spanContext.spanId;
     }
 
-    // Set response headers
-    res.header('x-request-id', requestId);
+    // Set response headers using Node.js API
+    res.setHeader('x-request-id', requestId);
     if (spanContext) {
-      res.header('x-trace-id', spanContext.traceId);
+      res.setHeader('x-trace-id', spanContext.traceId);
     }
 
     next();

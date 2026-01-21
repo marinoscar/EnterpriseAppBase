@@ -6,7 +6,6 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
-import { FastifyReply, FastifyRequest } from 'fastify';
 
 interface ErrorResponse {
   statusCode: number;
@@ -23,8 +22,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
-    const response = ctx.getResponse<FastifyReply>();
-    const request = ctx.getRequest<FastifyRequest>();
+    const response = ctx.getResponse();
+    const request = ctx.getRequest();
 
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let code = 'INTERNAL_ERROR';
@@ -75,7 +74,18 @@ export class HttpExceptionFilter implements ExceptionFilter {
       this.logger.warn(`${request.method} ${request.url} - ${status}: ${message}`);
     }
 
-    response.status(status).send(errorResponse);
+    // Handle both Express and Fastify response types
+    if (typeof response.status === 'function') {
+      // Express-style
+      response.status(status).json(errorResponse);
+    } else if (typeof response.code === 'function') {
+      // Fastify-style
+      response.code(status).send(errorResponse);
+    } else {
+      // Fallback - raw response
+      response.statusCode = status;
+      response.end(JSON.stringify(errorResponse));
+    }
   }
 
   private getCodeFromStatus(status: number): string {
