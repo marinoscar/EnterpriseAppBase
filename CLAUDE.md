@@ -153,3 +153,33 @@ Key variables (see `.env.example` for full list):
 2. Add migration if schema structure changes
 3. Update TypeScript types
 4. Add frontend UI if user-facing
+
+## Specialized Subagents
+
+This project includes specialized subagents in `.claude/agents/` for focused development tasks:
+
+| Agent | Purpose | When to Use |
+|-------|---------|-------------|
+| `backend-dev` | NestJS API, auth, RBAC, services | Implementing API endpoints, guards, business logic |
+| `frontend-dev` | React, MUI, components, theming | Building UI components, pages, responsive design |
+| `database-dev` | PostgreSQL, Prisma, migrations | Schema changes, migrations, query optimization |
+| `testing-dev` | Jest, Supertest, RTL, typecheck | Writing tests, ensuring type safety, CI quality |
+| `docs-dev` | Technical documentation | Creating/updating architecture, security, API docs |
+
+### Usage Examples
+```
+# Backend work
+"Use backend-dev to implement the user settings endpoint"
+
+# Frontend work
+"Use frontend-dev to create the theme toggle component"
+
+# Database work
+"Use database-dev to add audit_events table migration"
+
+# Testing work
+"Use testing-dev to write integration tests for auth"
+
+# Documentation work
+"Use docs-dev to update SECURITY.md with new auth flow"
+```
