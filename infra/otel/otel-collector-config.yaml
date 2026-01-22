@@ -23,11 +23,6 @@ processors:
     limit_mib: 400
     spike_limit_mib: 100
 
-  resourcedetection:
-    detectors: [env, system]
-    timeout: 5s
-    override: false
-
 exporters:
   # Export to Uptrace
   otlp/uptrace:
@@ -37,8 +32,8 @@ exporters:
     headers:
       uptrace-dsn: "http://project1_secret_token@localhost:14317/1"
 
-  # Debug logging (optional, for troubleshooting)
-  logging:
+  # Debug output (replaces deprecated 'logging' exporter)
+  debug:
     verbosity: basic
     sampling_initial: 5
     sampling_thereafter: 200
@@ -47,30 +42,25 @@ extensions:
   health_check:
     endpoint: 0.0.0.0:13133
 
-  zpages:
-    endpoint: 0.0.0.0:55679
-
 service:
-  extensions: [health_check, zpages]
+  extensions: [health_check]
 
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [memory_limiter, resourcedetection, batch]
+      processors: [memory_limiter, batch]
       exporters: [otlp/uptrace]
 
     metrics:
       receivers: [otlp]
-      processors: [memory_limiter, resourcedetection, batch]
+      processors: [memory_limiter, batch]
       exporters: [otlp/uptrace]
 
     logs:
       receivers: [otlp]
-      processors: [memory_limiter, resourcedetection, batch]
+      processors: [memory_limiter, batch]
       exporters: [otlp/uptrace]
 
   telemetry:
     logs:
       level: info
-    metrics:
-      address: 0.0.0.0:8888

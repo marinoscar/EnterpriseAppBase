@@ -7,7 +7,8 @@
 # Services:
 #   - OpenTelemetry Collector: Receives and exports telemetry data
 #   - Uptrace: Unified traces, metrics, and logs visualization
-#   - ClickHouse: Storage backend for Uptrace
+#   - ClickHouse: Storage backend for Uptrace (traces/metrics)
+#   - PostgreSQL: Storage backend for Uptrace (metadata)
 #
 # Access Uptrace UI at: http://localhost:14318
 # =============================================================================
@@ -32,8 +33,8 @@ services:
     volumes:
       - ../otel/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
     ports:
-      - "4317:4317"   # OTLP gRPC receiver
-      - "4318:4318"   # OTLP HTTP receiver
+      - "4327:4317"   # OTLP gRPC receiver (remapped to avoid conflict)
+      - "4328:4318"   # OTLP HTTP receiver (remapped to avoid conflict)
     depends_on:
       - uptrace
     networks:
@@ -43,31 +44,57 @@ services:
   # Uptrace - Observability Platform
   # ---------------------------------------------------------------------------
   uptrace:
-    image: uptrace/uptrace:latest
+    image: uptrace/uptrace:1.7.2
     volumes:
       - ../otel/uptrace.yml:/etc/uptrace/uptrace.yml:ro
       - uptrace-data:/var/lib/uptrace
     ports:
       - "14317:14317"  # OTLP gRPC
       - "14318:14318"  # Uptrace UI
+    environment:
+      - UPTRACE_PGHOST=uptrace-pg
+      - UPTRACE_PGUSER=uptrace
+      - UPTRACE_PGPASSWORD=uptrace
+      - UPTRACE_PGDATABASE=uptrace
     depends_on:
       clickhouse:
+        condition: service_healthy
+      uptrace-pg:
         condition: service_healthy
     networks:
       - app-network
 
   # ---------------------------------------------------------------------------
-  # ClickHouse - Storage Backend for Uptrace
+  # ClickHouse - Storage Backend for Uptrace (traces/metrics)
   # ---------------------------------------------------------------------------
   clickhouse:
-    image: clickhouse/clickhouse-server:latest
+    image: clickhouse/clickhouse-server:23.8
     environment:
-      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-default}
-      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-}
+      - CLICKHOUSE_DB=uptrace
+      - ALLOW_EMPTY_PASSWORD=yes
     volumes:
       - clickhouse-data:/var/lib/clickhouse
     healthcheck:
       test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL - Storage Backend for Uptrace (metadata)
+  # ---------------------------------------------------------------------------
+  uptrace-pg:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=uptrace
+      - POSTGRES_PASSWORD=uptrace
+      - POSTGRES_DB=uptrace
+    volumes:
+      - uptrace-pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U uptrace"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -80,3 +107,4 @@ services:
 volumes:
   uptrace-data:
   clickhouse-data:
+  uptrace-pg-data:
