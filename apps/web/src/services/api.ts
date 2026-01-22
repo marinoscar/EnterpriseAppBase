@@ -100,7 +100,6 @@ class ApiService {
   async refreshToken(): Promise<boolean> {
     // If a refresh is already in progress, wait for it
     if (this.refreshPromise) {
-      console.log('[API] Refresh already in progress, waiting...');
       return this.refreshPromise;
     }
 
@@ -116,17 +115,12 @@ class ApiService {
 
   private async doRefreshToken(): Promise<boolean> {
     try {
-      console.log('[API] Attempting token refresh...');
       const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
         method: 'POST',
         credentials: 'include',
       });
 
-      console.log('[API] Refresh response status:', response.status);
-
       if (!response.ok) {
-        const errorBody = await response.text().catch(() => 'no body');
-        console.error('[API] Refresh failed:', response.status, errorBody);
         this.accessToken = null;
         return false;
       }
@@ -134,20 +128,16 @@ class ApiService {
       const responseData = await response.json();
       // Unwrap the { data: { accessToken } } structure from TransformInterceptor
       const tokenData = responseData.data ?? responseData;
-      console.log('[API] Refresh succeeded, got token:', !!tokenData.accessToken);
 
       // Validate that we actually got a token
       if (!tokenData.accessToken || typeof tokenData.accessToken !== 'string') {
-        console.error('[API] Invalid token in refresh response');
         this.accessToken = null;
         return false;
       }
 
       this.accessToken = tokenData.accessToken;
-      console.log('[API] Token stored successfully');
       return true;
-    } catch (err) {
-      console.error('[API] Refresh error:', err);
+    } catch {
       this.accessToken = null;
       return false;
     }
