@@ -104,12 +104,14 @@ cd apps/api && npm run prisma:migrate
 - `GET /api/auth/google/callback` - OAuth callback
 - `POST /api/auth/refresh` - Refresh access token
 - `POST /api/auth/logout` - Logout and invalidate session
+- `POST /api/auth/logout-all` - Logout from all devices
 - `GET /api/auth/me` - Get current user
 
 ### Users (Admin-only)
 - `GET /api/users` - List users (paginated)
 - `GET /api/users/{id}` - Get user by ID
 - `PATCH /api/users/{id}` - Update user (roles, activation)
+- `PUT /api/users/{id}/roles` - Update user roles
 
 ### Settings
 - `GET /api/user-settings` - Get current user's settings
@@ -182,10 +184,9 @@ The application uses an **email allowlist** to restrict access to pre-authorized
 ## Security Guidelines
 
 - Secrets via environment variables only (see `.env.example`)
-- JWT access tokens are short-lived (10-20 min)
+- JWT access tokens are short-lived (15 min default)
 - Refresh tokens in HttpOnly cookies with rotation
 - Input validation on all endpoints
-- Rate limiting on auth and sensitive writes
 - File uploads: images only, size/type limits, randomized filenames
 - Email allowlist restricts application access to pre-authorized users
 
