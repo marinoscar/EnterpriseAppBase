@@ -70,16 +70,6 @@ describe('Guard Integration (Integration)', () => {
         .expect(200);
     });
 
-    // SKIP: Response structure mismatch - expects array but receives object with providers property
-    it.skip('should skip guards on auth/providers', async () => {
-      const response = await request(context.app.getHttpServer())
-        .get('/api/auth/providers')
-        .expect(200);
-
-      expect(response.body.data).toBeDefined();
-      expect(Array.isArray(response.body.data)).toBe(true);
-    });
-
     it('should not require auth for OAuth initiation', async () => {
       await request(context.app.getHttpServer())
         .get('/api/auth/google')
@@ -128,22 +118,6 @@ describe('Guard Integration (Integration)', () => {
   });
 
   describe('Token Validation', () => {
-    // SKIP: JwtService not available in test module context
-    it.skip('should reject expired token', async () => {
-      const jwtService = context.module.get('JwtService');
-      const expiredToken = jwtService.sign(
-        { sub: 'user-1', email: 'test@example.com', roles: ['admin'] },
-        { expiresIn: '-1s' },
-      );
-
-      const response = await request(context.app.getHttpServer())
-        .get('/api/auth/me')
-        .set(authHeader(expiredToken))
-        .expect(401);
-
-      expect(response.body.code).toBe('UNAUTHORIZED');
-    });
-
     it('should reject malformed token', async () => {
       const response = await request(context.app.getHttpServer())
         .get('/api/auth/me')
@@ -206,112 +180,6 @@ describe('Guard Integration (Integration)', () => {
       await request(context.app.getHttpServer())
         .get('/api/users')
         .set(authHeader(viewer.accessToken))
-        .expect(403);
-    });
-
-    // SKIP: JwtService not available in test module context
-    it.skip('should require new JWT after role change', async () => {
-      const { module } = context;
-      const jwtService = module.get('JwtService');
-
-      const userId = 'user-id';
-      const email = 'user@example.com';
-
-      // Original token with viewer role
-      const viewerToken = jwtService.sign({
-        sub: userId,
-        email,
-        roles: ['viewer'],
-      });
-
-      // Can't access with viewer token
-      await request(context.app.getHttpServer())
-        .get('/api/users')
-        .set(authHeader(viewerToken))
-        .expect(403);
-
-      // Generate new token after role upgrade
-      const adminToken = jwtService.sign({
-        sub: userId,
-        email,
-        roles: ['admin'],
-      });
-
-      context.prismaMock.user.findMany.mockResolvedValue([]);
-      context.prismaMock.user.count.mockResolvedValue(0);
-
-      // Can access with new admin token
-      await request(context.app.getHttpServer())
-        .get('/api/users')
-        .set(authHeader(adminToken))
-        .expect(200);
-    });
-  });
-
-  describe('Inactive User Handling', () => {
-    // SKIP: Auth middleware checks isActive status and returns 401 for inactive users
-    it.skip('should allow inactive user to use existing valid JWT', async () => {
-      // JWT validation only checks signature and expiry
-      // It does NOT check if user is active
-      // Active status would need to be checked at business logic level
-
-      const user = await createMockTestUser(context, {
-        roleName: 'admin',
-        isActive: false,
-      });
-
-      context.prismaMock.user.findMany.mockResolvedValue([]);
-      context.prismaMock.user.count.mockResolvedValue(0);
-
-      // JWT is valid even though user.isActive = false
-      // The isActive check would happen in business logic, not auth guards
-      await request(context.app.getHttpServer())
-        .get('/api/users')
-        .set(authHeader(user.accessToken))
-        .expect(200);
-    });
-  });
-
-  describe('Multiple Roles in JWT', () => {
-    // SKIP: JwtService not available in test module context
-    it.skip('should grant access if any role matches', async () => {
-      const { module } = context;
-      const jwtService = module.get('JwtService');
-
-      const token = jwtService.sign({
-        sub: 'user-id',
-        email: 'user@example.com',
-        roles: ['viewer', 'admin', 'contributor'],
-      });
-
-      context.prismaMock.user.findMany.mockResolvedValue([]);
-      context.prismaMock.user.count.mockResolvedValue(0);
-
-      // Should work because token contains 'admin' role
-      await request(context.app.getHttpServer())
-        .get('/api/users')
-        .set(authHeader(token))
-        .expect(200);
-    });
-  });
-
-  describe('Case Sensitivity', () => {
-    // SKIP: JwtService not available in test module context
-    it.skip('should be case-sensitive for roles', async () => {
-      const { module } = context;
-      const jwtService = module.get('JwtService');
-
-      // Token with wrong-case role
-      const token = jwtService.sign({
-        sub: 'user-id',
-        email: 'user@example.com',
-        roles: ['Admin'], // Should be 'admin' (lowercase)
-      });
-
-      // Should fail because 'Admin' !== 'admin'
-      await request(context.app.getHttpServer())
-        .get('/api/users')
-        .set(authHeader(token))
         .expect(403);
     });
   });
