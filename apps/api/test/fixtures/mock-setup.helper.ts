@@ -1,4 +1,4 @@
-import { prismaMock } from '../mocks/prisma.mock';
+import { prismaMock, mockPrismaTransaction } from '../mocks/prisma.mock';
 import {
   createMockUser,
   createMockUserWithRelations,
@@ -159,13 +159,38 @@ export function setupMockUserList(
     async (args: any) => {
       const where = args?.where;
       const include = args?.include;
+      const skip = args?.skip || 0;
+      const take = args?.take;
+      const orderBy = args?.orderBy;
       let filtered = mockUsers;
 
       // Apply filters
       if (where) {
+        // Handle isActive filter
         if (where.isActive !== undefined) {
           filtered = filtered.filter((u) => u.isActive === where.isActive);
         }
+        // Handle OR clause (search)
+        if (where.OR && Array.isArray(where.OR)) {
+          filtered = filtered.filter((u: any) =>
+            where.OR.some((condition: any) => {
+              if (condition.email?.contains) {
+                const search = condition.email.contains.toLowerCase();
+                return u.email?.toLowerCase().includes(search);
+              }
+              if (condition.displayName?.contains) {
+                const search = condition.displayName.contains.toLowerCase();
+                return u.displayName?.toLowerCase().includes(search);
+              }
+              if (condition.providerDisplayName?.contains) {
+                const search = condition.providerDisplayName.contains.toLowerCase();
+                return u.providerDisplayName?.toLowerCase().includes(search);
+              }
+              return false;
+            }),
+          );
+        }
+        // Handle simple email filter
         if (
           where.email &&
           typeof where.email === 'object' &&
@@ -176,6 +201,7 @@ export function setupMockUserList(
             u.email.toLowerCase().includes(search),
           );
         }
+        // Handle role filter
         if (where.userRoles && 'some' in where.userRoles) {
           const roleFilter = where.userRoles.some;
           if (roleFilter?.role?.name) {
@@ -188,7 +214,35 @@ export function setupMockUserList(
         }
       }
 
-      return filtered;
+      // Apply sorting
+      if (orderBy) {
+        const [sortField, sortDirection] = Object.entries(orderBy)[0] as [string, 'asc' | 'desc'];
+        filtered = [...filtered].sort((a: any, b: any) => {
+          const aVal = a[sortField];
+          const bVal = b[sortField];
+          if (aVal === null || aVal === undefined) return 1;
+          if (bVal === null || bVal === undefined) return -1;
+
+          let comparison = 0;
+          if (typeof aVal === 'string' && typeof bVal === 'string') {
+            comparison = aVal.localeCompare(bVal);
+          } else if (aVal instanceof Date && bVal instanceof Date) {
+            comparison = aVal.getTime() - bVal.getTime();
+          } else {
+            comparison = aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
+          }
+
+          return sortDirection === 'desc' ? -comparison : comparison;
+        });
+      }
+
+      // Apply pagination
+      let paginated = filtered;
+      if (skip || take) {
+        paginated = filtered.slice(skip, take ? skip + take : undefined);
+      }
+
+      return paginated;
     },
   );
 
@@ -198,9 +252,31 @@ export function setupMockUserList(
     let filtered = mockUsers;
 
     if (where) {
+      // Handle isActive filter
       if (where.isActive !== undefined) {
         filtered = filtered.filter((u) => u.isActive === where.isActive);
       }
+      // Handle OR clause (search)
+      if (where.OR && Array.isArray(where.OR)) {
+        filtered = filtered.filter((u: any) =>
+          where.OR.some((condition: any) => {
+            if (condition.email?.contains) {
+              const search = condition.email.contains.toLowerCase();
+              return u.email?.toLowerCase().includes(search);
+            }
+            if (condition.displayName?.contains) {
+              const search = condition.displayName.contains.toLowerCase();
+              return u.displayName?.toLowerCase().includes(search);
+            }
+            if (condition.providerDisplayName?.contains) {
+              const search = condition.providerDisplayName.contains.toLowerCase();
+              return u.providerDisplayName?.toLowerCase().includes(search);
+            }
+            return false;
+          }),
+        );
+      }
+      // Handle simple email filter
       if (
         where.email &&
         typeof where.email === 'object' &&
@@ -210,6 +286,17 @@ export function setupMockUserList(
         filtered = filtered.filter((u: any) =>
           u.email.toLowerCase().includes(search),
         );
+      }
+      // Handle role filter
+      if (where.userRoles && 'some' in where.userRoles) {
+        const roleFilter = where.userRoles.some;
+        if (roleFilter?.role?.name) {
+          filtered = filtered.filter((u: any) =>
+            u.userRoles?.some(
+              (ur: any) => ur.role.name === roleFilter.role.name,
+            ),
+          );
+        }
       }
     }
 
@@ -464,6 +551,16 @@ export function setupBaseMocks(): void {
   setupUserSettingsMocks();
   setupMockSystemSettings();
   setupMockAuditEvents();
+
+  // Mock transactions
+  mockPrismaTransaction();
+
+  // Mock userRole operations (used in transactions)
+  (prismaMock.userRole.deleteMany as jest.Mock).mockResolvedValue({ count: 0 });
+  (prismaMock.userRole.create as jest.Mock).mockImplementation(async ({ data }: any) => ({
+    userId: data.userId,
+    roleId: data.roleId,
+  }));
 
   // Mock $connect and $disconnect
   (prismaMock.$connect as jest.Mock).mockResolvedValue(undefined);

@@ -215,6 +215,175 @@ describe('AuthService', () => {
       );
       expect(result.accessToken).toBeDefined();
     });
+
+    it('should update user picture on login if changed', async () => {
+      const existingUser = {
+        id: 'user-with-old-picture',
+        email: mockGoogleProfile.email,
+        isActive: true,
+        providerProfileImageUrl: 'https://old-url.com/photo.jpg',
+        userRoles: [{ role: { name: 'viewer', rolePermissions: [] } }],
+      };
+
+      mockPrisma.userIdentity.findUnique.mockResolvedValue({
+        user: existingUser,
+      } as any);
+      mockPrisma.user.update.mockResolvedValue({
+        ...existingUser,
+        providerProfileImageUrl: mockGoogleProfile.picture,
+      } as any);
+      mockPrisma.refreshToken.create.mockResolvedValue({} as any);
+
+      await service.handleGoogleLogin(mockGoogleProfile);
+
+      // Verify that user.update was called with new profile info
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: existingUser.id },
+        data: {
+          providerDisplayName: mockGoogleProfile.displayName,
+          providerProfileImageUrl: mockGoogleProfile.picture,
+        },
+      });
+    });
+
+    it('should throw ForbiddenException when email not in allowlist', async () => {
+      mockAllowlistService.isEmailAllowed.mockResolvedValue(false);
+
+      await expect(service.handleGoogleLogin(mockGoogleProfile)).rejects.toThrow(
+        ForbiddenException,
+      );
+      await expect(service.handleGoogleLogin(mockGoogleProfile)).rejects.toThrow(
+        'Your email is not authorized to access this application',
+      );
+    });
+
+    it('should create user identity linking on first login', async () => {
+      const mockRole = { id: 'role-1', name: 'viewer', rolePermissions: [] };
+      const mockUser = {
+        id: 'new-user-1',
+        email: mockGoogleProfile.email,
+        isActive: true,
+        userRoles: [{ role: mockRole }],
+      };
+
+      mockPrisma.userIdentity.findUnique.mockResolvedValue(null);
+      mockPrisma.user.findUnique.mockResolvedValue(null);
+      mockPrisma.role.findUnique.mockResolvedValue(mockRole as any);
+      mockPrisma.$transaction.mockImplementation(async (callback) => callback(mockPrisma));
+      mockPrisma.user.create.mockResolvedValue(mockUser as any);
+      mockPrisma.user.update.mockResolvedValue(mockUser as any);
+      mockPrisma.refreshToken.create.mockResolvedValue({} as any);
+
+      await service.handleGoogleLogin(mockGoogleProfile);
+
+      // Verify identity was created in transaction
+      expect(mockPrisma.user.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            email: mockGoogleProfile.email,
+            identities: expect.objectContaining({
+              create: expect.objectContaining({
+                provider: 'google',
+                providerSubject: mockGoogleProfile.id,
+                providerEmail: mockGoogleProfile.email,
+              }),
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('should assign default role to new users', async () => {
+      const mockRole = { id: 'role-1', name: 'viewer', rolePermissions: [] };
+      const mockUser = {
+        id: 'new-user-2',
+        email: mockGoogleProfile.email,
+        isActive: true,
+        userRoles: [{ role: mockRole }],
+      };
+
+      mockPrisma.userIdentity.findUnique.mockResolvedValue(null);
+      mockPrisma.user.findUnique.mockResolvedValue(null);
+      mockPrisma.role.findUnique.mockResolvedValue(mockRole as any);
+      mockPrisma.$transaction.mockImplementation(async (callback) => callback(mockPrisma));
+      mockPrisma.user.create.mockResolvedValue(mockUser as any);
+      mockPrisma.user.update.mockResolvedValue(mockUser as any);
+      mockPrisma.refreshToken.create.mockResolvedValue({} as any);
+
+      await service.handleGoogleLogin(mockGoogleProfile);
+
+      // Verify default role was assigned in transaction
+      expect(mockPrisma.user.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            userRoles: expect.objectContaining({
+              create: expect.objectContaining({
+                roleId: mockRole.id,
+              }),
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('should create user settings for new users', async () => {
+      const mockRole = { id: 'role-1', name: 'viewer', rolePermissions: [] };
+      const mockUser = {
+        id: 'new-user-3',
+        email: mockGoogleProfile.email,
+        isActive: true,
+        userRoles: [{ role: mockRole }],
+      };
+
+      mockPrisma.userIdentity.findUnique.mockResolvedValue(null);
+      mockPrisma.user.findUnique.mockResolvedValue(null);
+      mockPrisma.role.findUnique.mockResolvedValue(mockRole as any);
+      mockPrisma.$transaction.mockImplementation(async (callback) => callback(mockPrisma));
+      mockPrisma.user.create.mockResolvedValue(mockUser as any);
+      mockPrisma.user.update.mockResolvedValue(mockUser as any);
+      mockPrisma.refreshToken.create.mockResolvedValue({} as any);
+
+      await service.handleGoogleLogin(mockGoogleProfile);
+
+      // Verify user settings were created in transaction
+      expect(mockPrisma.user.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            userSettings: expect.objectContaining({
+              create: expect.objectContaining({
+                value: expect.any(Object),
+              }),
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('should mark email as claimed in allowlist after creating new user', async () => {
+      const mockRole = { id: 'role-1', name: 'viewer', rolePermissions: [] };
+      const mockUser = {
+        id: 'new-user-4',
+        email: mockGoogleProfile.email,
+        isActive: true,
+        userRoles: [{ role: mockRole }],
+      };
+
+      mockPrisma.userIdentity.findUnique.mockResolvedValue(null);
+      mockPrisma.user.findUnique.mockResolvedValue(null);
+      mockPrisma.role.findUnique.mockResolvedValue(mockRole as any);
+      mockPrisma.$transaction.mockImplementation(async (callback) => callback(mockPrisma));
+      mockPrisma.user.create.mockResolvedValue(mockUser as any);
+      mockPrisma.user.update.mockResolvedValue(mockUser as any);
+      mockPrisma.refreshToken.create.mockResolvedValue({} as any);
+
+      await service.handleGoogleLogin(mockGoogleProfile);
+
+      // Verify allowlist was marked as claimed
+      expect(mockAllowlistService.markEmailClaimed).toHaveBeenCalledWith(
+        mockGoogleProfile.email.toLowerCase(),
+        mockUser.id,
+      );
+    });
   });
 
   describe('validateJwtPayload', () => {
