@@ -6,7 +6,7 @@ export const userListQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
   search: z.string().optional(),
   role: z.string().optional(),
-  isActive: z.enum(['true', 'false']).optional().transform((v) => v === 'true'),
+  isActive: z.enum(['true', 'false']).optional().transform((v) => v !== undefined ? v === 'true' : undefined),
   sortBy: z.enum(['email', 'createdAt', 'updatedAt']).default('createdAt'),
   sortOrder: z.enum(['asc', 'desc']).default('desc'),
 });
