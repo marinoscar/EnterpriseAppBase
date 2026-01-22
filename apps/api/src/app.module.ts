@@ -11,6 +11,7 @@ import { UsersModule } from './users/users.module';
 import { SettingsModule } from './settings/settings.module';
 import { HealthModule } from './health/health.module';
 import { AllowlistModule } from './allowlist/allowlist.module';
+import { DeviceAuthModule } from './device-auth/device-auth.module';
 import { LoggerModule } from './common/logger/logger.module';
 
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
@@ -44,6 +45,7 @@ import configuration from './config/configuration';
     SettingsModule,
     HealthModule,
     AllowlistModule,
+    DeviceAuthModule,
   ],
   providers: [
     // Global validation pipe (Zod)

@@ -35,6 +35,7 @@ model User {
   refreshTokens             RefreshToken[]   @relation("UserRefreshTokens")
   allowlistEntriesAdded     AllowedEmail[]   @relation("AllowlistAddedBy")
   allowlistEntry            AllowedEmail?    @relation("AllowlistClaimedBy")
+  deviceCodes               DeviceCode[]     @relation("UserDeviceCodes")
 
   @@map("users")
 }
@@ -196,4 +197,37 @@ model AllowedEmail {
   claimedBy User? @relation("AllowlistClaimedBy", fields: [claimedById], references: [id], onDelete: SetNull)
 
   @@map("allowed_emails")
+}
+
+// =============================================================================
+// Device Authorization Flow (RFC 8628)
+// =============================================================================
+
+enum DeviceCodeStatus {
+  pending
+  approved
+  denied
+  expired
+}
+
+model DeviceCode {
+  id         String           @id @default(uuid()) @db.Uuid
+  deviceCode String           @unique @map("device_code")
+  userCode   String           @unique @map("user_code")
+  userId     String?          @map("user_id") @db.Uuid
+  status     DeviceCodeStatus @default(pending)
+  clientInfo Json?            @map("client_info")
+  scopes     String[]
+  expiresAt  DateTime         @map("expires_at") @db.Timestamptz
+  createdAt  DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime         @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  user User? @relation("UserDeviceCodes", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([deviceCode])
+  @@index([userCode])
+  @@index([status, expiresAt])
+  @@index([userId])
+  @@map("device_codes")
 }

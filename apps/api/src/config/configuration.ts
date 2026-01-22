@@ -47,6 +47,12 @@ export default () => {
   // Admin bootstrap
   initialAdminEmail: process.env.INITIAL_ADMIN_EMAIL,
 
+  // Device Authorization Flow (RFC 8628)
+  deviceAuth: {
+    expiryMinutes: parseInt(process.env.DEVICE_CODE_EXPIRY_MINUTES || '15', 10),
+    pollInterval: parseInt(process.env.DEVICE_CODE_POLL_INTERVAL || '5', 10),
+  },
+
   // Observability
   otel: {
     enabled: process.env.OTEL_ENABLED === 'true',

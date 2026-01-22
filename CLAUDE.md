@@ -107,6 +107,14 @@ cd apps/api && npm run prisma:migrate
 - `POST /api/auth/logout-all` - Logout from all devices
 - `GET /api/auth/me` - Get current user
 
+### Device Authorization (RFC 8628)
+- `POST /api/auth/device/code` - Generate device code (Public)
+- `POST /api/auth/device/token` - Poll for authorization (Public)
+- `GET /api/auth/device/activate` - Get activation info
+- `POST /api/auth/device/authorize` - Approve/deny device
+- `GET /api/auth/device/sessions` - List device sessions
+- `DELETE /api/auth/device/sessions/{id}` - Revoke device session
+
 ### Users (Admin-only)
 - `GET /api/users` - List users (paginated)
 - `GET /api/users/{id}` - Get user by ID
@@ -155,6 +163,7 @@ cd apps/api && npm run prisma:migrate
 - `audit_events` - Action audit log
 - `refresh_tokens` - JWT refresh tokens (hashed)
 - `allowed_emails` - Allowlist for access control
+- `device_codes` - Device authorization codes (RFC 8628)
 
 ## Access Control: Email Allowlist
 
@@ -222,6 +231,8 @@ Note: `DATABASE_URL` is constructed automatically from these variables at runtim
 - `JWT_REFRESH_TTL_DAYS` - Refresh token TTL (default: 14)
 - `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` - Google OAuth credentials
 - `INITIAL_ADMIN_EMAIL` - First user with this email becomes Admin
+- `DEVICE_CODE_EXPIRY_MINUTES` - Device code lifetime (default: 15)
+- `DEVICE_CODE_POLL_INTERVAL` - Device polling interval in seconds (default: 5)
 
 **Observability:**
 - `OTEL_ENABLED` - Enable OpenTelemetry (default: true)

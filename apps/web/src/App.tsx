@@ -13,6 +13,7 @@ import { LoadingSpinner } from './components/common/LoadingSpinner';
 
 const LoginPage = lazy(() => import('./pages/LoginPage'));
 const AuthCallbackPage = lazy(() => import('./pages/AuthCallbackPage'));
+const ActivateDevicePage = lazy(() => import('./pages/ActivateDevicePage'));
 const HomePage = lazy(() => import('./pages/HomePage'));
 const UserSettingsPage = lazy(() => import('./pages/UserSettingsPage'));
 const SystemSettingsPage = lazy(() => import('./pages/SystemSettingsPage'));
@@ -33,6 +34,9 @@ function AppRoutes() {
 
             {/* Protected routes */}
             <Route element={<ProtectedRoute />}>
+              {/* Device activation page - without layout for full-screen experience */}
+              <Route path="/activate" element={<ActivateDevicePage />} />
+
               <Route element={<Layout />}>
                 <Route path="/" element={<HomePage />} />
                 <Route path="/settings" element={<UserSettingsPage />} />

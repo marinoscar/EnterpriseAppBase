@@ -188,6 +188,278 @@ Sets new refresh token in HttpOnly cookie (token rotation).
 
 ---
 
+### Device Authorization (RFC 8628)
+
+The Device Authorization Flow enables input-constrained devices (CLI tools, IoT devices, Smart TVs) to obtain user authorization. See [DEVICE-AUTH.md](DEVICE-AUTH.md) for comprehensive guide and integration examples.
+
+#### POST /auth/device/code
+**Public endpoint** - Generate device code pair to initiate device authorization flow.
+
+**Request Body:**
+```json
+{
+  "clientInfo": {
+    "name": "My CLI Tool",
+    "version": "1.0.0",
+    "platform": "linux"
+  }
+}
+```
+
+**Fields:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `clientInfo` | object | No | Optional metadata about client device |
+| `clientInfo.name` | string | No | Application name |
+| `clientInfo.version` | string | No | Application version |
+| `clientInfo.platform` | string | No | Platform identifier |
+
+**Response:**
+```json
+{
+  "data": {
+    "deviceCode": "a4f3b8c9d2e1f5a6b7c8d9e0f1a2b3c4",
+    "userCode": "ABCD-1234",
+    "verificationUri": "http://localhost:3535/device",
+    "verificationUriComplete": "http://localhost:3535/device?code=ABCD-1234",
+    "expiresIn": 900,
+    "interval": 5
+  }
+}
+```
+
+**Response Fields:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `deviceCode` | string | Opaque code for device polling (keep secret) |
+| `userCode` | string | Human-readable code for user entry (XXXX-XXXX format) |
+| `verificationUri` | string | URL where user should authorize |
+| `verificationUriComplete` | string | URL with user code pre-filled |
+| `expiresIn` | number | Code lifetime in seconds (default: 900) |
+| `interval` | number | Minimum polling interval in seconds (default: 5) |
+
+---
+
+#### POST /auth/device/token
+**Public endpoint** - Poll for authorization status and obtain tokens when approved.
+
+**Request Body:**
+```json
+{
+  "deviceCode": "a4f3b8c9d2e1f5a6b7c8d9e0f1a2b3c4"
+}
+```
+
+**Response (200 OK - Authorized):**
+```json
+{
+  "data": {
+    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "refreshToken": "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6",
+    "tokenType": "Bearer",
+    "expiresIn": 900
+  }
+}
+```
+
+**Error Responses (400 Bad Request):**
+
+While authorization is pending:
+```json
+{
+  "error": "authorization_pending",
+  "error_description": "User has not yet authorized this device"
+}
+```
+
+Device polling too frequently:
+```json
+{
+  "error": "slow_down",
+  "error_description": "Polling too frequently. Please slow down."
+}
+```
+
+Code has expired:
+```json
+{
+  "error": "expired_token",
+  "error_description": "The device code has expired"
+}
+```
+
+User denied authorization:
+```json
+{
+  "error": "access_denied",
+  "error_description": "User denied the authorization request"
+}
+```
+
+**Error Response (401 Unauthorized):**
+
+Invalid device code:
+```json
+{
+  "error": "invalid_grant",
+  "error_description": "Invalid device code"
+}
+```
+
+**Usage:**
+1. Device requests code from `/auth/device/code`
+2. Device displays `userCode` and `verificationUri` to user
+3. Device polls this endpoint every `interval` seconds
+4. User visits verification page and approves device
+5. Polling returns tokens when approved
+
+---
+
+#### GET /auth/device/activate
+**Requires Authentication** - Get activation page information and validate user code.
+
+**Query Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `code` | string | No | User verification code to validate |
+
+**Request (No Code):**
+```http
+GET /auth/device/activate
+Authorization: Bearer <token>
+```
+
+**Response (No Code):**
+```json
+{
+  "data": {
+    "verificationUri": "http://localhost:3535/device"
+  }
+}
+```
+
+**Request (With Code):**
+```http
+GET /auth/device/activate?code=ABCD-1234
+Authorization: Bearer <token>
+```
+
+**Response (With Valid Code):**
+```json
+{
+  "data": {
+    "verificationUri": "http://localhost:3535/device",
+    "userCode": "ABCD-1234",
+    "clientInfo": {
+      "name": "My CLI Tool",
+      "version": "1.0.0",
+      "platform": "linux"
+    },
+    "expiresAt": "2024-01-01T12:15:00.000Z"
+  }
+}
+```
+
+**Error Cases:**
+- 404 Not Found - Invalid user code
+- 400 Bad Request - Code has expired or already been processed
+
+---
+
+#### POST /auth/device/authorize
+**Requires Authentication** - Approve or deny device authorization request.
+
+**Request Body:**
+```json
+{
+  "userCode": "ABCD-1234",
+  "approve": true
+}
+```
+
+**Fields:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `userCode` | string | Yes | User code from the device |
+| `approve` | boolean | Yes | true to approve, false to deny |
+
+**Response:**
+```json
+{
+  "data": {
+    "success": true,
+    "message": "Device authorized successfully"
+  }
+}
+```
+
+**Error Cases:**
+- 404 Not Found - Invalid user code
+- 400 Bad Request - Code has expired or already been processed
+
+---
+
+#### GET /auth/device/sessions
+**Requires Authentication** - List current user's approved device sessions.
+
+**Query Parameters:**
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `page` | number | No | 1 | Page number |
+| `limit` | number | No | 10 | Items per page |
+
+**Response:**
+```json
+{
+  "data": {
+    "sessions": [
+      {
+        "id": "uuid-1234",
+        "userCode": "ABCD-1234",
+        "status": "approved",
+        "clientInfo": {
+          "name": "My CLI Tool",
+          "version": "1.0.0",
+          "platform": "linux"
+        },
+        "createdAt": "2024-01-01T12:00:00.000Z",
+        "expiresAt": "2024-01-01T12:15:00.000Z"
+      }
+    ],
+    "total": 5,
+    "page": 1,
+    "limit": 10
+  }
+}
+```
+
+**Use Case:** View all devices that have been authorized to access the account.
+
+---
+
+#### DELETE /auth/device/sessions/:id
+**Requires Authentication** - Revoke a specific device session.
+
+**Parameters:**
+- `id` (UUID) - Session ID to revoke
+
+**Response:**
+```json
+{
+  "data": {
+    "success": true,
+    "message": "Device session revoked successfully"
+  }
+}
+```
+
+**Error Cases:**
+- 404 Not Found - Session not found or doesn't belong to current user
+
+**Use Case:** Revoke access for lost or compromised devices.
+
+---
+
 ### Users
 
 **All user endpoints require Admin role (`users:read` or `users:write` permissions)**

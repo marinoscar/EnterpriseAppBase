@@ -5,6 +5,7 @@ A production-grade full-stack application foundation built with React, NestJS, a
 ## Features
 
 - **Authentication**: Google OAuth 2.0 with JWT access tokens and refresh token rotation
+- **Device Authorization**: RFC 8628 Device Authorization Flow for CLI tools, mobile apps, and IoT devices
 - **Authorization**: Role-Based Access Control (RBAC) with three roles (Admin, Contributor, Viewer)
 - **Access Control**: Email allowlist restricts application access to pre-authorized users
 - **User Management**: Admin interface for managing users, role assignments, and allowlist
@@ -198,6 +199,8 @@ EnterpriseAppBase/
 - **[DEVELOPMENT.md](docs/DEVELOPMENT.md)** - Development setup, common patterns, and troubleshooting
 - **[SECURITY-ARCHITECTURE.md](docs/SECURITY-ARCHITECTURE.md)** - Security design and implementation
 - **[TESTING.md](docs/TESTING.md)** - Testing strategy and best practices
+- **[DEVICE-AUTH.md](docs/DEVICE-AUTH.md)** - Device Authorization Flow guide and integration examples
+- **[API.md](docs/API.md)** - Complete API reference
 - **[System Specification](docs/System_Specification_Document.md)** - Complete project specification
 - **[Feature Specs](docs/specs/)** - Individual feature specifications
 
@@ -213,6 +216,12 @@ Interactive API documentation is available at `/api/docs` when running the appli
 - `GET /api/auth/me` - Get current user
 - `POST /api/auth/refresh` - Refresh access token
 - `POST /api/auth/logout` - Logout
+
+**Device Authorization (RFC 8628):**
+- `POST /api/auth/device/code` - Generate device code for CLI/IoT devices
+- `POST /api/auth/device/token` - Poll for device authorization
+- `GET /api/auth/device/sessions` - List authorized devices
+- `DELETE /api/auth/device/sessions/:id` - Revoke device access
 
 **Users (Admin only):**
 - `GET /api/users` - List users

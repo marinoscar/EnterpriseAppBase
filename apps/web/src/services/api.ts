@@ -197,6 +197,8 @@ import type {
   AllowedEmailEntry,
   UsersResponse,
   UserListItem,
+  DeviceActivationInfo,
+  DeviceAuthorizationResponse,
 } from '../types';
 
 // Allowlist API
@@ -257,4 +259,21 @@ export async function updateUserRoles(
   roles: string[],
 ): Promise<UserListItem> {
   return api.put<UserListItem>(`/users/${id}/roles`, { roles });
+}
+
+// Device Activation API
+export async function getDeviceActivationInfo(
+  userCode: string,
+): Promise<DeviceActivationInfo> {
+  return api.get<DeviceActivationInfo>(`/auth/device/activate?code=${userCode}`);
+}
+
+export async function authorizeDevice(
+  userCode: string,
+  approve: boolean,
+): Promise<DeviceAuthorizationResponse> {
+  return api.post<DeviceAuthorizationResponse>('/auth/device/authorize', {
+    userCode,
+    approve,
+  });
 }

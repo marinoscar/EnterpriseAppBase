@@ -81,3 +81,18 @@ export interface UsersResponse {
   pageSize: number;
   totalPages: number;
 }
+
+export interface DeviceActivationInfo {
+  userCode: string;
+  clientInfo: {
+    deviceName?: string;
+    userAgent?: string;
+    ipAddress?: string;
+  };
+  expiresAt: string;
+}
+
+export interface DeviceAuthorizationResponse {
+  success: boolean;
+  message: string;
+}
