@@ -4,6 +4,7 @@ import {
   useEffect,
   useState,
   useCallback,
+  useRef,
   ReactNode,
 } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -32,6 +33,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [providers, setProviders] = useState<AuthProviderType[]>([]);
   const navigate = useNavigate();
   const location = useLocation();
+  const initRef = useRef(false);
 
   // Fetch auth providers on mount
   useEffect(() => {
@@ -48,8 +50,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
     fetchProviders();
   }, []);
 
-  // Check for existing session on mount
+  // Check for existing session on mount (runs only once)
   useEffect(() => {
+    // Skip if already initialized or on auth callback page
+    // (the callback page will set the token directly from URL params)
+    if (initRef.current || location.pathname === '/auth/callback') {
+      setIsLoading(false);
+      return;
+    }
+    initRef.current = true;
+
     const initAuth = async () => {
       try {
         // Try to refresh token (uses httpOnly cookie)
@@ -64,7 +74,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
     };
     initAuth();
-  }, []);
+  }, [location.pathname]);
 
   const fetchUser = useCallback(async () => {
     try {
