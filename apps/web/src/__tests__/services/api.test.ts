@@ -117,7 +117,23 @@ describe('ApiService', () => {
       expect(result).toEqual({ success: true });
     });
 
-    it('should set Content-Type header', async () => {
+    it('should NOT set Content-Type header when body is omitted (Fastify 5 strict)', async () => {
+      let contentTypeHeader: string | null = null;
+
+      server.use(
+        http.post('*/api/auth/logout', ({ request }) => {
+          contentTypeHeader = request.headers.get('Content-Type');
+          return new HttpResponse(null, { status: 204 });
+        }),
+      );
+
+      await api.post('/auth/logout');
+
+      // Fastify 5 requires no Content-Type when there's no body
+      expect(contentTypeHeader).toBeNull();
+    });
+
+    it('should set Content-Type header when body is provided', async () => {
       let contentTypeHeader: string | null = null;
 
       server.use(
@@ -488,6 +504,130 @@ describe('ApiService', () => {
 
       expect(result).toBe(false);
       expect(api.getAccessToken()).toBeNull();
+    });
+
+    it('should unwrap wrapped refresh response (TransformInterceptor)', async () => {
+      server.use(
+        http.post('*/api/auth/refresh', () => {
+          // Backend wraps response in { data: { accessToken } } via TransformInterceptor
+          return HttpResponse.json({
+            data: {
+              accessToken: 'wrapped-token',
+              expiresIn: 900,
+            },
+          });
+        }),
+      );
+
+      const result = await api.refreshToken();
+
+      expect(result).toBe(true);
+      expect(api.getAccessToken()).toBe('wrapped-token');
+    });
+
+    it('should handle unwrapped refresh response (backwards compatibility)', async () => {
+      server.use(
+        http.post('*/api/auth/refresh', () => {
+          // Direct response without wrapper (backwards compatibility)
+          return HttpResponse.json({
+            accessToken: 'direct-token',
+            expiresIn: 900,
+          });
+        }),
+      );
+
+      const result = await api.refreshToken();
+
+      expect(result).toBe(true);
+      expect(api.getAccessToken()).toBe('direct-token');
+    });
+
+    it('should reject invalid token response (missing accessToken)', async () => {
+      server.use(
+        http.post('*/api/auth/refresh', () => {
+          // Response missing accessToken field
+          return HttpResponse.json({
+            data: {
+              expiresIn: 900,
+            },
+          });
+        }),
+      );
+
+      const result = await api.refreshToken();
+
+      expect(result).toBe(false);
+      expect(api.getAccessToken()).toBeNull();
+    });
+
+    it('should reject invalid token response (non-string accessToken)', async () => {
+      server.use(
+        http.post('*/api/auth/refresh', () => {
+          // accessToken is not a string
+          return HttpResponse.json({
+            data: {
+              accessToken: 12345,
+              expiresIn: 900,
+            },
+          });
+        }),
+      );
+
+      const result = await api.refreshToken();
+
+      expect(result).toBe(false);
+      expect(api.getAccessToken()).toBeNull();
+    });
+
+    it('should only trigger one refresh for concurrent requests', async () => {
+      let refreshCallCount = 0;
+      let protectedCallCount = 0;
+
+      server.use(
+        http.get('*/api/protected', () => {
+          protectedCallCount++;
+          if (protectedCallCount <= 3) {
+            // First 3 calls fail with 401
+            return new HttpResponse(null, { status: 401 });
+          }
+          // Subsequent calls succeed
+          return HttpResponse.json({ data: { success: true } });
+        }),
+        http.post('*/api/auth/refresh', async () => {
+          refreshCallCount++;
+          // Simulate slow refresh to ensure concurrent requests wait
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          return HttpResponse.json({
+            data: {
+              accessToken: 'refreshed-token',
+              expiresIn: 900,
+            },
+          });
+        }),
+      );
+
+      api.setAccessToken('expired-token');
+
+      // Make 3 concurrent requests that will all get 401
+      const [result1, result2, result3] = await Promise.all([
+        api.get('/protected'),
+        api.get('/protected'),
+        api.get('/protected'),
+      ]);
+
+      // All should succeed
+      expect(result1).toEqual({ success: true });
+      expect(result2).toEqual({ success: true });
+      expect(result3).toEqual({ success: true });
+
+      // But refresh should only be called ONCE (not 3 times)
+      expect(refreshCallCount).toBe(1);
+
+      // Protected endpoint called: 3 initial 401s + 3 retries = 6 total
+      expect(protectedCallCount).toBe(6);
+
+      // Token should be updated
+      expect(api.getAccessToken()).toBe('refreshed-token');
     });
   });
 
