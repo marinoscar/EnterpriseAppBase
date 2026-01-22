@@ -81,6 +81,6 @@
     "typescript": "^5.x"
   },
   "prisma": {
-    "seed": "ts-node prisma/seed.ts"
+    "seed": "ts-node --project prisma/tsconfig.json prisma/seed.ts"
   }
 }
