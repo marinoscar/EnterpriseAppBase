@@ -6,11 +6,13 @@ import {
 import { AppModule } from '../../src/app.module';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { ValidationPipe } from '@nestjs/common';
-import { MockPrismaService } from '../mocks/prisma-e2e.mock';
+import { prismaMock } from '../mocks/prisma.mock';
 
 export interface TestContext {
   app: NestFastifyApplication;
   prisma: PrismaService;
+  /** Access to Prisma mock methods (only available when isMocked is true) */
+  prismaMock: any;
   module: TestingModule;
   isMocked: boolean;
 }
@@ -18,51 +20,34 @@ export interface TestContext {
 export interface TestAppOptions {
   /**
    * If true, uses a mocked PrismaService instead of connecting to a real database
-   * This is useful when running tests without a database available
+   * This is recommended for unit/integration tests
+   * Set to false only for true E2E tests that need a real database
    */
   useMockDatabase?: boolean;
 }
 
 /**
- * Detects if a real database is available
- */
-async function isDatabaseAvailable(): Promise<boolean> {
-  // If DATABASE_URL is not set or is for a test database that might not be running
-  const dbUrl = process.env.DATABASE_URL;
-  if (!dbUrl) {
-    return false;
-  }
-
-  // Check if we should force mock mode
-  if (process.env.USE_MOCK_DB === 'true') {
-    return false;
-  }
-
-  // For now, we'll default to mock mode to avoid connection issues
-  // In CI or when a real test database is running, set USE_MOCK_DB=false
-  return false;
-}
-
-/**
  * Creates a fully configured test application
+ * By default, uses mocked PrismaService (no real database)
  */
-export async function createTestApp(options: TestAppOptions = {}): Promise<TestContext> {
-  const shouldUseMock = options.useMockDatabase ?? await isDatabaseAvailable() === false;
+export async function createTestApp(
+  options: TestAppOptions = {},
+): Promise<TestContext> {
+  // Default to mocked database for unit/integration tests
+  const shouldUseMock = options.useMockDatabase ?? true;
 
   let moduleFixture: TestingModule;
 
   if (shouldUseMock) {
     // Create test module with mocked PrismaService
-    const mockPrismaService = new MockPrismaService();
-
     moduleFixture = await Test.createTestingModule({
       imports: [AppModule],
     })
       .overrideProvider(PrismaService)
-      .useValue(mockPrismaService)
+      .useValue(prismaMock)
       .compile();
   } else {
-    // Create test module with real database
+    // Create test module with real database (for true E2E tests)
     moduleFixture = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
@@ -85,7 +70,13 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestC
 
   const prisma = moduleFixture.get<PrismaService>(PrismaService);
 
-  return { app, prisma, module: moduleFixture, isMocked: shouldUseMock };
+  return {
+    app,
+    prisma,
+    prismaMock: shouldUseMock ? prismaMock : null,
+    module: moduleFixture,
+    isMocked: shouldUseMock,
+  };
 }
 
 /**
@@ -105,10 +96,11 @@ export async function createTestModule(
  * Closes the test application and cleans up
  */
 export async function closeTestApp(context: TestContext): Promise<void> {
-  if (context && context.prisma) {
-    await context.prisma.$disconnect();
-  }
   if (context && context.app) {
     await context.app.close();
+  }
+  // Skip disconnect if using mocked database
+  if (context && context.prisma && !context.isMocked) {
+    await context.prisma.$disconnect();
   }
 }

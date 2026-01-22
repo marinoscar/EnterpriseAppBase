@@ -32,6 +32,11 @@ export function Sidebar({ open, onClose }: SidebarProps) {
   const location = useLocation();
   const { isAdmin } = usePermissions();
 
+  // Don't render anything when closed to avoid any potential blocking issues
+  if (!open) {
+    return null;
+  }
+
   const menuItems = [
     {
       label: 'Home',
@@ -111,6 +116,9 @@ export function Sidebar({ open, onClose }: SidebarProps) {
       sx={{
         width: DRAWER_WIDTH,
         flexShrink: 0,
+        '& .MuiBackdrop-root': {
+          top: { xs: 56, sm: 64 }, // Position backdrop below AppBar
+        },
         '& .MuiDrawer-paper': {
           width: DRAWER_WIDTH,
           boxSizing: 'border-box',
@@ -121,7 +129,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         },
       }}
       ModalProps={{
-        keepMounted: true, // Better mobile performance
+        keepMounted: false, // Don't keep mounted to avoid blocking issues
       }}
     >
       {drawerContent}
