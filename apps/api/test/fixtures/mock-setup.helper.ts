@@ -362,33 +362,88 @@ export function setupMockAuditEvents(): void {
 // User Settings Mocks
 // ============================================================================
 
-export function setupMockUserSettings(userId: string, settings: any): void {
+// Registry for user settings
+let mockUserSettingsRegistry: Map<string, any> = new Map();
+
+/**
+ * Setup user settings mocks that work with the user registry
+ */
+export function setupUserSettingsMocks(): void {
+  mockUserSettingsRegistry = new Map();
+
   (prismaMock.userSettings.findUnique as jest.Mock).mockImplementation(
     async ({ where }: any) => {
-      if (where.userId === userId) {
-        return {
-          id: `settings-${userId}`,
-          userId,
-          value: settings,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        };
+      // Check custom settings first
+      if (mockUserSettingsRegistry.has(where.userId)) {
+        return mockUserSettingsRegistry.get(where.userId);
       }
-      return null;
+      // Fall back to user's default settings from registry
+      const user = mockUserRegistry.get(where.userId);
+      if (user?.userSettings) {
+        return user.userSettings;
+      }
+      // Create default settings
+      return {
+        id: `settings-${where.userId}`,
+        userId: where.userId,
+        value: { theme: 'system' },
+        version: 1,
+        updatedAt: new Date(),
+      };
     },
   );
 
   (prismaMock.userSettings.update as jest.Mock).mockImplementation(
     async ({ where, data }: any) => {
-      return {
-        id: `settings-${userId}`,
-        userId,
-        value: { ...settings, ...data.value },
-        createdAt: new Date(),
+      const existing = mockUserSettingsRegistry.get(where.userId) || {
+        id: `settings-${where.userId}`,
+        userId: where.userId,
+        value: { theme: 'system' },
+        version: 1,
         updatedAt: new Date(),
       };
+      const updated = {
+        ...existing,
+        value: data.value ?? existing.value,
+        version: data.version ?? existing.version,
+        updatedAt: new Date(),
+      };
+      mockUserSettingsRegistry.set(where.userId, updated);
+      return updated;
     },
   );
+
+  (prismaMock.userSettings.upsert as jest.Mock).mockImplementation(
+    async ({ where, create, update }: any) => {
+      const existing = mockUserSettingsRegistry.get(where.userId);
+      if (existing) {
+        const updated = { ...existing, ...update };
+        mockUserSettingsRegistry.set(where.userId, updated);
+        return updated;
+      }
+      const created = {
+        id: `settings-${where.userId}`,
+        userId: where.userId,
+        ...create,
+        updatedAt: new Date(),
+      };
+      mockUserSettingsRegistry.set(where.userId, created);
+      return created;
+    },
+  );
+}
+
+/**
+ * Set custom settings for a specific user
+ */
+export function setupMockUserSettings(userId: string, settings: any): void {
+  mockUserSettingsRegistry.set(userId, {
+    id: `settings-${userId}`,
+    userId,
+    value: settings,
+    version: 1,
+    updatedAt: new Date(),
+  });
 }
 
 // ============================================================================
@@ -400,7 +455,13 @@ export function setupMockUserSettings(userId: string, settings: any): void {
  * Call this in beforeEach() after resetPrismaMock()
  */
 export function setupBaseMocks(): void {
+  // Clear registries
+  clearMockUserRegistry();
+
+  // Setup base mocks
   setupRoleMocks();
+  setupUserMocks();
+  setupUserSettingsMocks();
   setupMockSystemSettings();
   setupMockAuditEvents();
 

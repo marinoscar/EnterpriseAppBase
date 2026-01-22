@@ -65,8 +65,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
   ];
 
   const handleNavigate = (path: string) => {
-    navigate(path);
     onClose();
+    navigate(path);
   };
 
   const drawerContent = (
