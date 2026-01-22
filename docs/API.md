@@ -82,7 +82,14 @@ Endpoints returning lists support pagination with the following query parameters
 **Response:**
 ```json
 {
-  "data": ["google"]
+  "data": {
+    "providers": [
+      {
+        "name": "google",
+        "enabled": true
+      }
+    ]
+  }
 }
 ```
 
@@ -160,6 +167,8 @@ Sets new refresh token in HttpOnly cookie (token rotation).
 #### POST /auth/logout
 **Requires Authentication** - Logout and revoke refresh token.
 
+**Request:** No body required
+
 **Response:** HTTP 204 No Content
 - Clears refresh token cookie
 - Revokes refresh token in database
@@ -169,9 +178,11 @@ Sets new refresh token in HttpOnly cookie (token rotation).
 #### POST /auth/logout-all
 **Requires Authentication** - Logout from all devices and revoke all refresh tokens.
 
+**Request:** No body required
+
 **Response:** HTTP 204 No Content
 - Clears refresh token cookie
-- Revokes ALL refresh tokens for the user across all devices
+- Revokes ALL refresh tokens for the current user across all devices
 
 **Use Case:** Security feature to force re-authentication on all sessions (e.g., after password change or suspected compromise).
 
@@ -192,6 +203,8 @@ List all users with pagination and filtering.
 | `search` | string | - | Search by email or display name |
 | `isActive` | boolean | - | Filter by active status |
 | `role` | string | - | Filter by role name |
+| `sortBy` | enum | `createdAt` | Sort field: `email`, `createdAt`, `updatedAt` |
+| `sortOrder` | enum | `desc` | Sort order: `asc`, `desc` |
 
 **Response:**
 ```json
@@ -202,6 +215,8 @@ List all users with pagination and filtering.
       "email": "user@example.com",
       "displayName": "John Doe",
       "profileImageUrl": "https://...",
+      "providerDisplayName": "John Doe",
+      "providerProfileImageUrl": "https://lh3.googleusercontent.com/...",
       "isActive": true,
       "createdAt": "2024-01-01T00:00:00.000Z",
       "roles": [
@@ -221,6 +236,8 @@ List all users with pagination and filtering.
 }
 ```
 
+**Note:** `providerDisplayName` and `providerProfileImageUrl` may be null if not available from OAuth provider.
+
 ---
 
 #### GET /users/:id
@@ -236,6 +253,8 @@ Get user by ID.
   "email": "user@example.com",
   "displayName": "John Doe",
   "profileImageUrl": "https://...",
+  "providerDisplayName": "John Doe",
+  "providerProfileImageUrl": "https://lh3.googleusercontent.com/...",
   "isActive": true,
   "createdAt": "2024-01-01T00:00:00.000Z",
   "updatedAt": "2024-01-01T00:00:00.000Z",
@@ -254,6 +273,8 @@ Get user by ID.
   ]
 }
 ```
+
+**Note:** `providerDisplayName` and `providerProfileImageUrl` may be null if not available from OAuth provider.
 
 **Error Cases:**
 - 404 Not Found - User not found
@@ -314,14 +335,14 @@ Update user roles (replaces all current roles).
 **Request Body:**
 ```json
 {
-  "roles": ["admin", "contributor"]
+  "roleNames": ["admin", "contributor"]
 }
 ```
 
 **Fields:**
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `roles` | string[] | Yes | Array of role names to assign |
+| `roleNames` | string[] | Yes | Array of role names to assign (min: 1) |
 
 **Response:**
 ```json
@@ -333,20 +354,28 @@ Update user roles (replaces all current roles).
   "roles": [
     {
       "id": "uuid",
-      "name": "admin"
+      "name": "admin",
+      "description": "Administrator with full access"
     },
     {
       "id": "uuid",
-      "name": "contributor"
+      "name": "contributor",
+      "description": "Standard user capabilities"
     }
   ]
 }
 ```
 
+**Validation Rules:**
+- Cannot remove own admin role (prevents accidental lockout)
+- At least one role must be assigned
+- Role names must exist in the system
+
 **Error Cases:**
+- 400 Bad Request - Invalid role names, empty array, or attempting to remove own admin role
+- 401 Unauthorized - Not authenticated
+- 403 Forbidden - Missing `rbac:manage` permission
 - 404 Not Found - User not found
-- 400 Bad Request - Invalid role names
-- 403 Forbidden - Cannot remove own admin role
 
 ---
 
@@ -378,8 +407,7 @@ List allowlisted emails with pagination, filtering, and sorting.
       "email": "user@example.com",
       "addedBy": {
         "id": "uuid",
-        "email": "admin@example.com",
-        "displayName": "Admin User"
+        "email": "admin@example.com"
       },
       "addedAt": "2024-01-01T00:00:00.000Z",
       "claimedBy": {
@@ -395,8 +423,7 @@ List allowlisted emails with pagination, filtering, and sorting.
       "email": "pending@example.com",
       "addedBy": {
         "id": "uuid",
-        "email": "admin@example.com",
-        "displayName": "Admin User"
+        "email": "admin@example.com"
       },
       "addedAt": "2024-01-03T00:00:00.000Z",
       "claimedBy": null,
@@ -412,6 +439,8 @@ List allowlisted emails with pagination, filtering, and sorting.
   }
 }
 ```
+
+**Note:** `addedBy` object contains only `id` and `email` (no `displayName`). `claimedBy` object contains `id`, `email`, and `displayName` when not null.
 
 **Status Filters:**
 - `all` - All allowlist entries
@@ -446,8 +475,7 @@ Add email to allowlist.
   "email": "newuser@example.com",
   "addedBy": {
     "id": "uuid",
-    "email": "admin@example.com",
-    "displayName": "Admin User"
+    "email": "admin@example.com"
   },
   "addedAt": "2024-01-01T00:00:00.000Z",
   "claimedBy": null,
@@ -455,6 +483,8 @@ Add email to allowlist.
   "notes": "Marketing team member - starts next week"
 }
 ```
+
+**Note:** `addedBy` object contains only `id` and `email` (no `displayName`).
 
 **Error Cases:**
 - 409 Conflict - Email already exists in allowlist
@@ -489,15 +519,25 @@ Remove email from allowlist.
 ```json
 {
   "theme": "light",
-  "language": "en",
-  "notifications": {
-    "email": true,
-    "push": false
-  }
+  "profile": {
+    "displayName": "John Doe",
+    "useProviderImage": true,
+    "customImageUrl": null
+  },
+  "updatedAt": "2024-01-01T00:00:00.000Z",
+  "version": 1
 }
 ```
 
-Settings schema is flexible (JSONB). The response shows the actual settings object.
+**Fields:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `theme` | enum | UI theme: `light`, `dark`, `system` |
+| `profile.displayName` | string \| null | User's display name override |
+| `profile.useProviderImage` | boolean | Whether to use OAuth provider's profile image |
+| `profile.customImageUrl` | string \| null | Custom profile image URL |
+| `updatedAt` | string | ISO 8601 timestamp of last update |
+| `version` | number | Version number for optimistic concurrency control |
 
 ---
 
@@ -508,15 +548,27 @@ Settings schema is flexible (JSONB). The response shows the actual settings obje
 ```json
 {
   "theme": "dark",
-  "language": "en",
-  "notifications": {
-    "email": false,
-    "push": true
+  "profile": {
+    "displayName": "Jane Doe",
+    "useProviderImage": false,
+    "customImageUrl": "https://example.com/avatar.jpg"
   }
 }
 ```
 
-**Response:** Same as GET /user-settings
+**Response:**
+```json
+{
+  "theme": "dark",
+  "profile": {
+    "displayName": "Jane Doe",
+    "useProviderImage": false,
+    "customImageUrl": "https://example.com/avatar.jpg"
+  },
+  "updatedAt": "2024-01-01T12:00:00.000Z",
+  "version": 2
+}
+```
 
 **Note:** This replaces the entire settings object. Use PATCH for partial updates.
 
@@ -532,7 +584,29 @@ Settings schema is flexible (JSONB). The response shows the actual settings obje
 }
 ```
 
-**Response:** Complete updated settings object
+**Request Headers (Optional):**
+```
+If-Match: 1
+```
+
+**Response:**
+```json
+{
+  "theme": "dark",
+  "profile": {
+    "displayName": "John Doe",
+    "useProviderImage": true,
+    "customImageUrl": null
+  },
+  "updatedAt": "2024-01-01T12:00:00.000Z",
+  "version": 2
+}
+```
+
+**Optimistic Concurrency Control:**
+- Include `If-Match: <version>` header to ensure settings haven't been modified by another request
+- Returns **409 Conflict** if version mismatch detected
+- Prevents lost updates in concurrent scenarios
 
 **Note:** This performs a shallow merge with existing settings.
 
@@ -546,14 +620,33 @@ Get system-wide settings.
 **Response:**
 ```json
 {
-  "maintenanceMode": false,
-  "allowRegistration": true,
-  "features": {
-    "darkMode": true,
-    "betaFeatures": false
-  }
+  "ui": {
+    "allowUserThemeOverride": true
+  },
+  "security": {
+    "jwtAccessTtlMinutes": 15,
+    "refreshTtlDays": 14
+  },
+  "features": {},
+  "updatedAt": "2024-01-01T00:00:00.000Z",
+  "updatedBy": {
+    "id": "uuid",
+    "email": "admin@example.com"
+  },
+  "version": 1
 }
 ```
+
+**Fields:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `ui.allowUserThemeOverride` | boolean | Allow users to override system theme |
+| `security.jwtAccessTtlMinutes` | number | JWT access token TTL in minutes |
+| `security.refreshTtlDays` | number | Refresh token TTL in days |
+| `features` | object | Feature flags (extensible) |
+| `updatedAt` | string | ISO 8601 timestamp of last update |
+| `updatedBy` | object | User who last updated settings |
+| `version` | number | Version number for optimistic concurrency control |
 
 ---
 
@@ -565,16 +658,36 @@ Replace all system settings.
 **Request Body:**
 ```json
 {
-  "maintenanceMode": false,
-  "allowRegistration": true,
-  "features": {
-    "darkMode": true,
-    "betaFeatures": false
-  }
+  "ui": {
+    "allowUserThemeOverride": true
+  },
+  "security": {
+    "jwtAccessTtlMinutes": 15,
+    "refreshTtlDays": 14
+  },
+  "features": {}
 }
 ```
 
-**Response:** Same as GET /system-settings
+**Response:**
+```json
+{
+  "ui": {
+    "allowUserThemeOverride": true
+  },
+  "security": {
+    "jwtAccessTtlMinutes": 15,
+    "refreshTtlDays": 14
+  },
+  "features": {},
+  "updatedAt": "2024-01-01T12:00:00.000Z",
+  "updatedBy": {
+    "id": "uuid",
+    "email": "admin@example.com"
+  },
+  "version": 2
+}
+```
 
 ---
 
@@ -586,17 +699,66 @@ Partially update system settings.
 **Request Body:**
 ```json
 {
-  "maintenanceMode": true
+  "ui": {
+    "allowUserThemeOverride": false
+  }
 }
 ```
 
-**Response:** Complete updated settings object
+**Request Headers (Optional):**
+```
+If-Match: 1
+```
+
+**Response:**
+```json
+{
+  "ui": {
+    "allowUserThemeOverride": false
+  },
+  "security": {
+    "jwtAccessTtlMinutes": 15,
+    "refreshTtlDays": 14
+  },
+  "features": {},
+  "updatedAt": "2024-01-01T12:00:00.000Z",
+  "updatedBy": {
+    "id": "uuid",
+    "email": "admin@example.com"
+  },
+  "version": 2
+}
+```
+
+**Optimistic Concurrency Control:**
+- Include `If-Match: <version>` header to ensure settings haven't been modified by another request
+- Returns **409 Conflict** if version mismatch detected
+- Prevents lost updates when multiple admins modify settings concurrently
 
 ---
 
 ### Health
 
 **Public endpoints** - Used for Kubernetes liveness/readiness probes.
+
+#### GET /health
+Full health check - includes database connectivity test. Equivalent to GET /health/ready.
+
+**Response:**
+```json
+{
+  "status": "ok",
+  "timestamp": "2024-01-01T00:00:00.000Z",
+  "checks": {
+    "database": "ok"
+  }
+}
+```
+
+**Error Cases:**
+- 503 Service Unavailable - Database connection failed
+
+---
 
 #### GET /health/live
 Liveness check - always returns 200 if service is running.
@@ -641,7 +803,7 @@ Readiness check - includes database connectivity test.
 | 401 | Unauthorized - Missing or invalid authentication token |
 | 403 | Forbidden - Insufficient permissions or user disabled |
 | 404 | Not Found - Resource not found |
-| 409 | Conflict - Resource already exists |
+| 409 | Conflict - Resource already exists or version mismatch (optimistic concurrency) |
 | 500 | Internal Server Error - Server error occurred |
 | 503 | Service Unavailable - Service temporarily unavailable |
 
@@ -657,8 +819,9 @@ Readiness check - includes database connectivity test.
 | `USER_DISABLED` | 403 | User account is disabled |
 | `NOT_FOUND` | 404 | Requested resource not found |
 | `VALIDATION_ERROR` | 400 | Request validation failed |
-| `CONFLICT` | 409 | Resource already exists |
+| `CONFLICT` | 409 | Resource already exists or version mismatch |
 | `NOT_AUTHORIZED` | 403 | Email not in allowlist |
+| `VERSION_MISMATCH` | 409 | Optimistic concurrency conflict (If-Match header) |
 
 ---
 
