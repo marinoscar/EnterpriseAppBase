@@ -37,7 +37,7 @@ const COOKIE_OPTIONS = {
   secure: process.env.NODE_ENV === 'production',
   sameSite: 'lax' as const,
   path: '/api/auth',
-  maxAge: 14 * 24 * 60 * 60 * 1000, // 14 days in ms
+  maxAge: 14 * 24 * 60 * 60, // 14 days in seconds (cookie spec uses seconds)
 };
 
 @ApiTags('Authentication')
@@ -128,6 +128,7 @@ export class AuthController {
       const tokens = await this.authService.handleGoogleLogin(profile);
 
       // Set refresh token in HttpOnly cookie
+      this.logger.log(`Setting refresh token cookie with options: ${JSON.stringify(COOKIE_OPTIONS)}`);
       res.setCookie(REFRESH_TOKEN_COOKIE, tokens.refreshToken!, COOKIE_OPTIONS);
 
       // Redirect to frontend with access token only
@@ -136,6 +137,7 @@ export class AuthController {
       redirectUrl.searchParams.set('token', tokens.accessToken);
       redirectUrl.searchParams.set('expiresIn', tokens.expiresIn.toString());
 
+      this.logger.log(`Redirecting to: ${redirectUrl.toString()}`);
       return res.status(302).redirect(redirectUrl.toString());
     } catch (error) {
       this.logger.error('Error in Google OAuth callback', error);
