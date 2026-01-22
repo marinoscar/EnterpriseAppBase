@@ -166,6 +166,17 @@ Sets new refresh token in HttpOnly cookie (token rotation).
 
 ---
 
+#### POST /auth/logout-all
+**Requires Authentication** - Logout from all devices and revoke all refresh tokens.
+
+**Response:** HTTP 204 No Content
+- Clears refresh token cookie
+- Revokes ALL refresh tokens for the user across all devices
+
+**Use Case:** Security feature to force re-authentication on all sessions (e.g., after password change or suspected compromise).
+
+---
+
 ### Users
 
 **All user endpoints require Admin role (`users:read` or `users:write` permissions)**
@@ -250,7 +261,7 @@ Get user by ID.
 ---
 
 #### PATCH /users/:id
-Update user properties (activation status, roles).
+Update user properties (activation status, display name).
 
 **Requires:** `users:write` permission
 
@@ -261,7 +272,7 @@ Update user properties (activation status, roles).
 ```json
 {
   "isActive": false,
-  "roleIds": ["uuid1", "uuid2"]
+  "displayName": "New Name"
 }
 ```
 
@@ -269,14 +280,14 @@ Update user properties (activation status, roles).
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `isActive` | boolean | No | Activate or deactivate user |
-| `roleIds` | string[] | No | Array of role UUIDs to assign |
+| `displayName` | string | No | Update user's display name |
 
 **Response:**
 ```json
 {
   "id": "uuid",
   "email": "user@example.com",
-  "displayName": "John Doe",
+  "displayName": "New Name",
   "isActive": false,
   "roles": [
     {
@@ -289,7 +300,53 @@ Update user properties (activation status, roles).
 
 **Error Cases:**
 - 404 Not Found - User not found
-- 400 Bad Request - Invalid role IDs
+
+---
+
+#### PUT /users/:id/roles
+Update user roles (replaces all current roles).
+
+**Requires:** `rbac:manage` permission
+
+**Parameters:**
+- `id` (UUID) - User ID
+
+**Request Body:**
+```json
+{
+  "roles": ["admin", "contributor"]
+}
+```
+
+**Fields:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `roles` | string[] | Yes | Array of role names to assign |
+
+**Response:**
+```json
+{
+  "id": "uuid",
+  "email": "user@example.com",
+  "displayName": "John Doe",
+  "isActive": true,
+  "roles": [
+    {
+      "id": "uuid",
+      "name": "admin"
+    },
+    {
+      "id": "uuid",
+      "name": "contributor"
+    }
+  ]
+}
+```
+
+**Error Cases:**
+- 404 Not Found - User not found
+- 400 Bad Request - Invalid role names
+- 403 Forbidden - Cannot remove own admin role
 
 ---
 
@@ -607,21 +664,16 @@ Readiness check - includes database connectivity test.
 
 ## Rate Limits
 
-The API implements rate limiting on sensitive endpoints to prevent abuse:
+> **Note:** Rate limiting is recommended for production deployments but is not currently implemented in the application. Consider adding `@nestjs/throttler` or Nginx rate limiting before production deployment.
 
-| Endpoint Pattern | Limit | Window |
-|------------------|-------|--------|
+**Recommended limits:**
+
+| Endpoint Pattern | Recommended Limit | Window |
+|------------------|-------------------|--------|
 | `/api/auth/*` | 10 requests | 1 minute |
 | `/api/allowlist` (POST) | 30 requests | 1 minute |
 | `/api/system-settings` (PUT/PATCH) | 30 requests | 1 minute |
 | All other endpoints | 100 requests | 1 minute |
-
-Rate limit headers are included in responses:
-```
-X-RateLimit-Limit: 100
-X-RateLimit-Remaining: 95
-X-RateLimit-Reset: 1704067200
-```
 
 ---
 
