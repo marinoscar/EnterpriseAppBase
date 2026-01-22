@@ -6,10 +6,10 @@ interface RequestOptions extends RequestInit {
 
 class ApiService {
   private accessToken: string | null = null;
-  private isRefreshing = false;
   private refreshPromise: Promise<boolean> | null = null;
 
   setAccessToken(token: string | null) {
+    console.log(`[API] setAccessToken called, hasToken: ${!!token}`);
     this.accessToken = token;
   }
 
@@ -22,6 +22,8 @@ class ApiService {
     options: RequestOptions = {},
   ): Promise<T> {
     const { skipAuth = false, ...fetchOptions } = options;
+
+    console.log(`[API] Request to ${endpoint}, hasToken: ${!!this.accessToken}, skipAuth: ${skipAuth}`);
 
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
@@ -95,45 +97,56 @@ class ApiService {
   }
 
   async refreshToken(): Promise<boolean> {
-    // Prevent concurrent refresh attempts
-    if (this.isRefreshing && this.refreshPromise) {
+    // If a refresh is already in progress, wait for it
+    if (this.refreshPromise) {
+      console.log('[API] Refresh already in progress, waiting...');
       return this.refreshPromise;
     }
 
-    this.isRefreshing = true;
+    // Start a new refresh
     this.refreshPromise = this.doRefreshToken();
 
     try {
       return await this.refreshPromise;
     } finally {
-      this.isRefreshing = false;
       this.refreshPromise = null;
     }
   }
 
   private async doRefreshToken(): Promise<boolean> {
     try {
+      console.log('[API] Attempting token refresh...');
       const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
         method: 'POST',
         credentials: 'include',
       });
 
+      console.log('[API] Refresh response status:', response.status);
+
       if (!response.ok) {
+        const errorBody = await response.text().catch(() => 'no body');
+        console.error('[API] Refresh failed:', response.status, errorBody);
         this.accessToken = null;
         return false;
       }
 
-      const data = await response.json();
+      const responseData = await response.json();
+      // Unwrap the { data: { accessToken } } structure from TransformInterceptor
+      const tokenData = responseData.data ?? responseData;
+      console.log('[API] Refresh succeeded, got token:', !!tokenData.accessToken);
 
       // Validate that we actually got a token
-      if (!data.accessToken || typeof data.accessToken !== 'string') {
+      if (!tokenData.accessToken || typeof tokenData.accessToken !== 'string') {
+        console.error('[API] Invalid token in refresh response');
         this.accessToken = null;
         return false;
       }
 
-      this.accessToken = data.accessToken;
+      this.accessToken = tokenData.accessToken;
+      console.log('[API] Token stored successfully');
       return true;
-    } catch {
+    } catch (err) {
+      console.error('[API] Refresh error:', err);
       this.accessToken = null;
       return false;
     }
