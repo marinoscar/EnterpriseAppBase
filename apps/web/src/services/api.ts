@@ -9,7 +9,6 @@ class ApiService {
   private refreshPromise: Promise<boolean> | null = null;
 
   setAccessToken(token: string | null) {
-    console.log(`[API] setAccessToken called, hasToken: ${!!token}`);
     this.accessToken = token;
   }
 
@@ -22,8 +21,6 @@ class ApiService {
     options: RequestOptions = {},
   ): Promise<T> {
     const { skipAuth = false, ...fetchOptions } = options;
-
-    console.log(`[API] Request to ${endpoint}, hasToken: ${!!this.accessToken}, skipAuth: ${skipAuth}`);
 
     const headers: HeadersInit = {
       ...fetchOptions.headers,
