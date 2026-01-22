@@ -136,7 +136,7 @@ export class AuthController {
       redirectUrl.searchParams.set('token', tokens.accessToken);
       redirectUrl.searchParams.set('expiresIn', tokens.expiresIn.toString());
 
-      return res.redirect(302, redirectUrl.toString());
+      return res.status(302).redirect(redirectUrl.toString());
     } catch (error) {
       this.logger.error('Error in Google OAuth callback', error);
       const appUrl = this.configService.get<string>('appUrl');

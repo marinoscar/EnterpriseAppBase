@@ -9,5 +9,9 @@
     "web:dev": "npm -w apps/web run dev",
     "api:test": "npm -w apps/api test",
     "web:test": "npm -w apps/web test"
+  },
+  "overrides": {
+    "@nestjs/common": "^11.1.12",
+    "@nestjs/core": "^11.1.12"
   }
 }

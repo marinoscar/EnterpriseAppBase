@@ -1,5 +1,6 @@
 import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { APP_FILTER, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { ZodValidationPipe } from 'nestjs-zod';
 
@@ -26,6 +27,9 @@ import configuration from './config/configuration';
       isGlobal: true,
       load: [configuration],
     }),
+
+    // Scheduling (must be at root level for NestJS 11)
+    ScheduleModule.forRoot(),
 
     // Database
     PrismaModule,

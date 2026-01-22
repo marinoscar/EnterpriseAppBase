@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { PassportModule } from '@nestjs/passport';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { ScheduleModule } from '@nestjs/schedule';
 import { CommonModule } from '../common/common.module';
 import { AllowlistModule } from '../allowlist/allowlist.module';
 import { AuthController } from './auth.controller';
@@ -26,9 +25,6 @@ import { TokenCleanupTask } from './tasks/token-cleanup.task';
         },
       }),
     }),
-
-    // Schedule module for cron jobs
-    ScheduleModule.forRoot(),
 
     // Common module for AdminBootstrapService
     CommonModule,
