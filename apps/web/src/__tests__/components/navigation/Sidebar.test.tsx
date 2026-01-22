@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { render, mockUser, mockAdminUser } from '../../utils/test-utils';
 import { Sidebar } from '../../../components/navigation/Sidebar';
@@ -280,9 +280,13 @@ describe('Sidebar', () => {
       const settingsButton = buttons[1]; // User Settings is second button
       await user.click(settingsButton);
 
-      // Verify both were called
+      // onClose should be called immediately (synchronously)
       expect(trackingOnClose).toHaveBeenCalledTimes(1);
-      expect(mockNavigate).toHaveBeenCalledTimes(1);
+
+      // Wait for navigate to be called (it's in setTimeout(0))
+      await waitFor(() => {
+        expect(mockNavigate).toHaveBeenCalledTimes(1);
+      });
 
       // Verify order: onClose should be called BEFORE navigate
       expect(callOrder).toEqual(['onClose', 'navigate']);
@@ -308,7 +312,9 @@ describe('Sidebar', () => {
       const homeButton = buttons[0]; // Home is first button
       await user.click(homeButton);
 
-      expect(mockNavigate).toHaveBeenCalledWith('/');
+      await waitFor(() => {
+        expect(mockNavigate).toHaveBeenCalledWith('/');
+      });
     });
 
     it('should navigate to settings when User Settings menu item is clicked', async () => {
@@ -331,7 +337,9 @@ describe('Sidebar', () => {
       const settingsButton = buttons[1]; // User Settings is second button
       await user.click(settingsButton);
 
-      expect(mockNavigate).toHaveBeenCalledWith('/settings');
+      await waitFor(() => {
+        expect(mockNavigate).toHaveBeenCalledWith('/settings');
+      });
     });
 
     it('should navigate to admin/users when User Management is clicked', async () => {
@@ -356,7 +364,9 @@ describe('Sidebar', () => {
       const userMgmtButton = buttons[2]; // User Management is third button
       await user.click(userMgmtButton);
 
-      expect(mockNavigate).toHaveBeenCalledWith('/admin/users');
+      await waitFor(() => {
+        expect(mockNavigate).toHaveBeenCalledWith('/admin/users');
+      });
     });
 
     it('should navigate to admin/settings when System Settings is clicked', async () => {
@@ -381,7 +391,9 @@ describe('Sidebar', () => {
       const systemSettingsButton = buttons[3]; // System Settings is fourth button
       await user.click(systemSettingsButton);
 
-      expect(mockNavigate).toHaveBeenCalledWith('/admin/settings');
+      await waitFor(() => {
+        expect(mockNavigate).toHaveBeenCalledWith('/admin/settings');
+      });
     });
   });
 
@@ -660,12 +672,14 @@ describe('Sidebar', () => {
 
       const trackingOnClose = vi.fn(() => {
         drawerClosed = true;
-        expect(navigationOccurred).toBe(false); // Navigation should not have occurred yet
+        // At the moment onClose is called, navigation should not have occurred yet
+        expect(navigationOccurred).toBe(false);
       });
 
       mockNavigate.mockImplementation(() => {
         navigationOccurred = true;
-        expect(drawerClosed).toBe(true); // Drawer should be closed before navigation
+        // Drawer should already be closed when navigation occurs
+        expect(drawerClosed).toBe(true);
       });
 
       vi.mocked(usePermissions).mockReturnValue({
@@ -685,8 +699,13 @@ describe('Sidebar', () => {
       const homeButton = buttons[0];
       await user.click(homeButton);
 
+      // Drawer close should happen synchronously
       expect(drawerClosed).toBe(true);
-      expect(navigationOccurred).toBe(true);
+
+      // Wait for navigation to occur (it's in setTimeout(0))
+      await waitFor(() => {
+        expect(navigationOccurred).toBe(true);
+      });
     });
 
     it('should maintain ModalProps configuration for backdrop click handling', () => {
