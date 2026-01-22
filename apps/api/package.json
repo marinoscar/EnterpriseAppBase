@@ -54,7 +54,7 @@
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
     "passport-jwt": "^4.0.1",
-    "pino": "^9.14.0",
+    "pino": "^10.2.1",
     "reflect-metadata": "^0.2.x",
     "rxjs": "^7.x",
     "zod": "^3.25.76"
