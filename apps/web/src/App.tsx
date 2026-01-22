@@ -1,4 +1,5 @@
 import { ThemeProvider } from '@mui/material/styles';
+import CssBaseline from '@mui/material/CssBaseline';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { ThemeContextProvider, useThemeContext } from './contexts/ThemeContext';
@@ -22,6 +23,7 @@ function AppRoutes() {
 
   return (
     <ThemeProvider theme={theme}>
+      <CssBaseline />
       <ErrorBoundary>
         <Suspense fallback={<LoadingSpinner fullScreen />}>
           <Routes>
