@@ -361,4 +361,222 @@ describe('AuthService', () => {
       );
     });
   });
+
+  describe('refreshAccessToken', () => {
+    const mockUser = {
+      id: 'user-1',
+      email: 'test@example.com',
+      isActive: true,
+      userRoles: [{ role: { name: 'viewer' } }],
+    };
+
+    const mockRefreshToken = {
+      id: 'token-1',
+      userId: 'user-1',
+      tokenHash: 'hashed-token',
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days from now
+      revokedAt: null,
+      createdAt: new Date(),
+      user: mockUser,
+    };
+
+    it('should return new access and refresh tokens with valid refresh token', async () => {
+      mockPrisma.refreshToken.findUnique.mockResolvedValue(mockRefreshToken as any);
+      mockPrisma.refreshToken.update.mockResolvedValue({} as any);
+      mockPrisma.refreshToken.create.mockResolvedValue({} as any);
+
+      const result = await service.refreshAccessToken('valid-token');
+
+      expect(result).toHaveProperty('accessToken');
+      expect(result).toHaveProperty('expiresIn');
+      expect(result).toHaveProperty('refreshToken');
+      expect(mockJwtService.sign).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sub: 'user-1',
+          email: mockUser.email,
+        }),
+      );
+    });
+
+    it('should throw UnauthorizedException with expired refresh token', async () => {
+      const expiredToken = {
+        ...mockRefreshToken,
+        expiresAt: new Date(Date.now() - 24 * 60 * 60 * 1000), // 1 day ago
+      };
+
+      mockPrisma.refreshToken.findUnique.mockResolvedValue(expiredToken as any);
+
+      await expect(service.refreshAccessToken('expired-token')).rejects.toThrow(
+        UnauthorizedException,
+      );
+      await expect(service.refreshAccessToken('expired-token')).rejects.toThrow(
+        'Refresh token has expired',
+      );
+    });
+
+    it('should throw UnauthorizedException with revoked refresh token', async () => {
+      const revokedToken = {
+        ...mockRefreshToken,
+        revokedAt: new Date(),
+      };
+
+      mockPrisma.refreshToken.findUnique.mockResolvedValue(revokedToken as any);
+      mockPrisma.refreshToken.updateMany.mockResolvedValue({ count: 0 } as any);
+
+      await expect(service.refreshAccessToken('revoked-token')).rejects.toThrow(
+        UnauthorizedException,
+      );
+      await expect(service.refreshAccessToken('revoked-token')).rejects.toThrow(
+        'Refresh token has been revoked',
+      );
+
+      // Should revoke all user tokens (token reuse detection)
+      expect(mockPrisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: {
+          userId: mockUser.id,
+          revokedAt: null,
+        },
+        data: { revokedAt: expect.any(Date) },
+      });
+    });
+
+    it('should throw UnauthorizedException with non-existent token', async () => {
+      mockPrisma.refreshToken.findUnique.mockResolvedValue(null);
+
+      await expect(service.refreshAccessToken('non-existent-token')).rejects.toThrow(
+        UnauthorizedException,
+      );
+      await expect(service.refreshAccessToken('non-existent-token')).rejects.toThrow(
+        'Invalid refresh token',
+      );
+    });
+
+    it('should throw UnauthorizedException for inactive user', async () => {
+      const inactiveUserToken = {
+        ...mockRefreshToken,
+        user: { ...mockUser, isActive: false },
+      };
+
+      mockPrisma.refreshToken.findUnique.mockResolvedValue(inactiveUserToken as any);
+
+      await expect(service.refreshAccessToken('token')).rejects.toThrow(
+        UnauthorizedException,
+      );
+      await expect(service.refreshAccessToken('token')).rejects.toThrow(
+        'User account is deactivated',
+      );
+    });
+
+    it('should revoke old token and create new one (token rotation)', async () => {
+      mockPrisma.refreshToken.findUnique.mockResolvedValue(mockRefreshToken as any);
+      mockPrisma.refreshToken.update.mockResolvedValue({} as any);
+      mockPrisma.refreshToken.create.mockResolvedValue({} as any);
+
+      await service.refreshAccessToken('valid-token');
+
+      // Old token should be revoked
+      expect(mockPrisma.refreshToken.update).toHaveBeenCalledWith({
+        where: { id: 'token-1' },
+        data: { revokedAt: expect.any(Date) },
+      });
+
+      // New token should be created
+      expect(mockPrisma.refreshToken.create).toHaveBeenCalledWith({
+        data: {
+          userId: mockUser.id,
+          tokenHash: expect.any(String),
+          expiresAt: expect.any(Date),
+        },
+      });
+    });
+
+    it('should store token as hash (not plaintext)', async () => {
+      mockPrisma.refreshToken.findUnique.mockResolvedValue(mockRefreshToken as any);
+      mockPrisma.refreshToken.update.mockResolvedValue({} as any);
+      mockPrisma.refreshToken.create.mockResolvedValue({} as any);
+
+      const plainToken = 'plain-refresh-token';
+      await service.refreshAccessToken(plainToken);
+
+      // Verify token was hashed before looking it up
+      expect(mockPrisma.refreshToken.findUnique).toHaveBeenCalledWith({
+        where: {
+          tokenHash: expect.not.stringContaining(plainToken),
+        },
+        include: expect.any(Object),
+      });
+    });
+  });
+
+  describe('logout', () => {
+    it('should revoke specific refresh token when provided', async () => {
+      mockPrisma.refreshToken.updateMany.mockResolvedValue({ count: 1 } as any);
+
+      await service.logout('user-1', 'refresh-token');
+
+      expect(mockPrisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: {
+          tokenHash: expect.any(String),
+          userId: 'user-1',
+        },
+        data: { revokedAt: expect.any(Date) },
+      });
+    });
+
+    it('should revoke all tokens when no refresh token provided', async () => {
+      mockPrisma.refreshToken.updateMany.mockResolvedValue({ count: 3 } as any);
+
+      await service.logout('user-1');
+
+      expect(mockPrisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: {
+          userId: 'user-1',
+          revokedAt: null,
+        },
+        data: { revokedAt: expect.any(Date) },
+      });
+    });
+  });
+
+  describe('revokeAllUserTokens', () => {
+    it('should revoke all non-revoked tokens for a user', async () => {
+      mockPrisma.refreshToken.updateMany.mockResolvedValue({ count: 5 } as any);
+
+      await service.revokeAllUserTokens('user-1');
+
+      expect(mockPrisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: {
+          userId: 'user-1',
+          revokedAt: null,
+        },
+        data: { revokedAt: expect.any(Date) },
+      });
+    });
+  });
+
+  describe('cleanupExpiredTokens', () => {
+    it('should delete expired and revoked tokens', async () => {
+      mockPrisma.refreshToken.deleteMany.mockResolvedValue({ count: 10 } as any);
+
+      const result = await service.cleanupExpiredTokens();
+
+      expect(result).toBe(10);
+      expect(mockPrisma.refreshToken.deleteMany).toHaveBeenCalledWith({
+        where: {
+          OR: [
+            { expiresAt: { lt: expect.any(Date) } },
+            { revokedAt: { not: null } },
+          ],
+        },
+      });
+    });
+
+    it('should return 0 when no tokens to cleanup', async () => {
+      mockPrisma.refreshToken.deleteMany.mockResolvedValue({ count: 0 } as any);
+
+      const result = await service.cleanupExpiredTokens();
+
+      expect(result).toBe(0);
+    });
+  });
 });

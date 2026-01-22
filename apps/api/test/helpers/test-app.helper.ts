@@ -3,6 +3,7 @@ import {
   FastifyAdapter,
   NestFastifyApplication,
 } from '@nestjs/platform-fastify';
+import fastifyCookie from '@fastify/cookie';
 import { AppModule } from '../../src/app.module';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { ValidationPipe } from '@nestjs/common';
@@ -56,6 +57,11 @@ export async function createTestApp(
   const app = moduleFixture.createNestApplication<NestFastifyApplication>(
     new FastifyAdapter(),
   );
+
+  // Register cookie plugin for auth tests
+  await app.register(fastifyCookie, {
+    secret: 'test-secret',
+  });
 
   app.setGlobalPrefix('api');
   app.useGlobalPipes(
