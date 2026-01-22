@@ -32,11 +32,6 @@ export function Sidebar({ open, onClose }: SidebarProps) {
   const location = useLocation();
   const { isAdmin } = usePermissions();
 
-  // Don't render anything when closed to avoid any potential blocking issues
-  if (!open) {
-    return null;
-  }
-
   const menuItems = [
     {
       label: 'Home',
@@ -129,7 +124,10 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         },
       }}
       ModalProps={{
-        keepMounted: false, // Don't keep mounted to avoid blocking issues
+        keepMounted: false,
+        // Disable the portal so the Modal stays in the component tree
+        // This prevents backdrop click issues after navigation
+        disablePortal: true,
       }}
     >
       {drawerContent}
