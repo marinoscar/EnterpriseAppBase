@@ -26,9 +26,13 @@ class ApiService {
     console.log(`[API] Request to ${endpoint}, hasToken: ${!!this.accessToken}, skipAuth: ${skipAuth}`);
 
     const headers: HeadersInit = {
-      'Content-Type': 'application/json',
       ...fetchOptions.headers,
     };
+
+    // Only set Content-Type for requests with a body (Fastify 5 is strict about this)
+    if (fetchOptions.body) {
+      (headers as Record<string, string>)['Content-Type'] = 'application/json';
+    }
 
     if (!skipAuth && this.accessToken) {
       (headers as Record<string, string>)['Authorization'] = `Bearer ${this.accessToken}`;
