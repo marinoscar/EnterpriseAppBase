@@ -1,3 +1,4 @@
+import { useCallback } from 'react';
 import {
   Drawer,
   List,
@@ -59,10 +60,19 @@ export function Sidebar({ open, onClose }: SidebarProps) {
     },
   ];
 
-  const handleNavigate = (path: string) => {
-    onClose();
-    navigate(path);
-  };
+  const handleNavigate = useCallback(
+    (path: string) => {
+      // Close the drawer first, then navigate after a brief delay
+      // This ensures the drawer closes properly before route change
+      onClose();
+      // Use setTimeout to allow the drawer close state to propagate
+      // before triggering navigation which causes a re-render
+      setTimeout(() => {
+        navigate(path);
+      }, 0);
+    },
+    [onClose, navigate],
+  );
 
   const drawerContent = (
     <Box sx={{ overflow: 'auto' }}>
