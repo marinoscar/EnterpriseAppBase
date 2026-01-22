@@ -131,9 +131,9 @@ function Show-Help {
     Write-Host ""
     Write-Host "Prisma Options (runs in Docker):"
     Write-Host "  .\dev.ps1 prisma generate      # Generate Prisma client"
-    Write-Host "  .\dev.ps1 prisma migrate       # Push schema changes (dev)"
-    Write-Host "  .\dev.ps1 prisma migrate deploy # Apply migrations (production)"
-    Write-Host "  .\dev.ps1 prisma push          # Push schema changes to database"
+    Write-Host "  .\dev.ps1 prisma migrate       # Apply pending migrations"
+    Write-Host "  .\dev.ps1 prisma migrate status # Check migration status"
+    Write-Host "  .\dev.ps1 prisma push          # Push schema changes (dev, no migration file)"
     Write-Host "  .\dev.ps1 prisma studio        # Open Prisma Studio (local)"
     Write-Host "  .\dev.ps1 prisma seed          # Run database seed script"
     Write-Host "  .\dev.ps1 prisma reset         # Reset database (destroys data)"
@@ -507,13 +507,20 @@ function Invoke-Prisma {
             if ($ExtraArg.ToLower() -eq "deploy") {
                 Write-Info "Applying migrations (production mode)..."
                 Invoke-PrismaInDocker "node scripts/prisma-env.js migrate deploy"
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Success "Migrations applied!"
+                }
+            } elseif ($ExtraArg.ToLower() -eq "status") {
+                Write-Info "Checking migration status..."
+                Invoke-PrismaInDocker "node scripts/prisma-env.js migrate status"
             } else {
-                Write-Info "Running migrations (dev mode)..."
-                Write-Info "Note: Using 'db push' for development (interactive migrate not supported in container)"
-                Invoke-PrismaInDocker "node scripts/prisma-env.js db push"
-            }
-            if ($LASTEXITCODE -eq 0) {
-                Write-Success "Migrations complete!"
+                Write-Info "Applying pending migrations..."
+                Invoke-PrismaInDocker "node scripts/prisma-env.js migrate deploy"
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Success "Migrations applied!"
+                    Write-Host ""
+                    Write-Info "To seed the database, run: .\dev.ps1 prisma seed"
+                }
             }
         }
         "push" {
@@ -563,17 +570,21 @@ function Invoke-Prisma {
             Write-Host ""
             Write-Host "Commands:"
             Write-Host "  generate       Generate Prisma client after schema changes"
-            Write-Host "  migrate        Push schema changes to database (dev mode)"
-            Write-Host "  migrate deploy Apply migrations (non-interactive, production)"
-            Write-Host "  push           Push schema changes to database"
+            Write-Host "  migrate        Apply pending migrations to database"
+            Write-Host "  migrate status Check migration status"
+            Write-Host "  push           Push schema changes directly (dev, no migration file)"
             Write-Host "  studio         Open Prisma Studio GUI (runs locally)"
-            Write-Host "  reset          Reset database (destroys all data)"
             Write-Host "  seed           Run database seed script"
+            Write-Host "  reset          Reset database (destroys all data)"
+            Write-Host ""
+            Write-Host "Workflow:"
+            Write-Host "  1. .\dev.ps1 prisma migrate    # Apply migrations"
+            Write-Host "  2. .\dev.ps1 prisma seed       # Seed initial data"
             Write-Host ""
             Write-Host "Examples:"
-            Write-Host "  .\dev.ps1 prisma generate"
             Write-Host "  .\dev.ps1 prisma migrate"
-            Write-Host "  .\dev.ps1 prisma push"
+            Write-Host "  .\dev.ps1 prisma migrate status"
+            Write-Host "  .\dev.ps1 prisma seed"
             Write-Host "  .\dev.ps1 prisma studio"
             Write-Host ""
             Write-Host "Note: Commands run inside the Docker API container to ensure"
