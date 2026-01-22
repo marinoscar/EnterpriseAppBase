@@ -165,7 +165,7 @@ jobs:
       - name: Build API Docker image
         uses: docker/build-push-action@v5
         with:
-          context: .
+          context: ./apps/api
           file: apps/api/Dockerfile
           push: false
           tags: enterprise-app-api:${{ github.sha }}
@@ -175,7 +175,7 @@ jobs:
       - name: Build Web Docker image
         uses: docker/build-push-action@v5
         with:
-          context: .
+          context: ./apps/web
           file: apps/web/Dockerfile
           push: false
           tags: enterprise-app-web:${{ github.sha }}
