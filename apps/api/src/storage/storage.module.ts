@@ -4,6 +4,7 @@ import { ObjectProcessingModule } from './processing/object-processing.module';
 import { CommonModule } from '../common/common.module';
 import { ObjectsController } from './objects/objects.controller';
 import { ObjectsService } from './objects/objects.service';
+import { StorageCleanupTask } from './tasks/storage-cleanup.task';
 
 @Module({
   imports: [
@@ -12,7 +13,7 @@ import { ObjectsService } from './objects/objects.service';
     CommonModule,
   ],
   controllers: [ObjectsController],
-  providers: [ObjectsService],
+  providers: [ObjectsService, StorageCleanupTask],
   exports: [ObjectsService],
 })
 export class StorageModule {}
