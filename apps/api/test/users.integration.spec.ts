@@ -65,6 +65,7 @@ describe('Users (Integration)', () => {
       expect(response.body.data.items).toHaveLength(3);
     });
 
+    // Requires more complex mock setup for findMany with skip/take parameters
     it.skip('should return correct pagination with page and limit params', async () => {
       const admin = await createMockAdminUser(context);
 
@@ -83,6 +84,7 @@ describe('Users (Integration)', () => {
       expect(response.body.data.items).toHaveLength(2); // Limited by pageSize
     });
 
+    // Requires mock to properly filter by userRoles.some
     it.skip('should filter by role', async () => {
       const admin = await createMockAdminUser(context);
 
@@ -130,6 +132,7 @@ describe('Users (Integration)', () => {
         expect(emails).toContain('inactive2@example.com');
       });
 
+      // Requires mock to properly handle isActive filter
       it.skip('should filter active users when isActive=true', async () => {
         const admin = await createMockAdminUser(context);
 
@@ -148,6 +151,7 @@ describe('Users (Integration)', () => {
         expect(response.body.data.items.every((u: any) => u.isActive === true)).toBe(true);
       });
 
+      // Requires mock to properly handle isActive filter
       it.skip('should filter inactive users when isActive=false', async () => {
         const admin = await createMockAdminUser(context);
 
@@ -177,6 +181,7 @@ describe('Users (Integration)', () => {
       });
     });
 
+    // Requires mock to properly handle OR clause search
     it.skip('should search by email with search param', async () => {
       const admin = await createMockAdminUser(context);
 
@@ -195,6 +200,7 @@ describe('Users (Integration)', () => {
       expect(response.body.data.items[0].email).toBe('john.doe@example.com');
     });
 
+    // Requires mock to properly handle OR clause search
     it.skip('should search by displayName with search param', async () => {
       const admin = await createMockAdminUser(context);
 
@@ -213,6 +219,7 @@ describe('Users (Integration)', () => {
       expect(response.body.data.items[0].displayName).toBe('Jane Smith');
     });
 
+    // Requires mock to properly handle orderBy
     it.skip('should sort by email ascending', async () => {
       const admin = await createMockAdminUser(context);
 
@@ -230,6 +237,7 @@ describe('Users (Integration)', () => {
       expect(response.body.data.items[0].email).toBe('alice@example.com');
     });
 
+    // Requires mock to properly handle orderBy
     it.skip('should sort by createdAt descending', async () => {
       const admin = await createMockAdminUser(context);
 
@@ -344,6 +352,7 @@ describe('Users (Integration)', () => {
         .expect(403);
     });
 
+    // Requires user.update mock to handle include parameter properly
     it.skip('should update user for admin', async () => {
       const admin = await createMockAdminUser(context);
       const viewer = await createMockViewerUser(context, 'test@example.com');
@@ -358,6 +367,7 @@ describe('Users (Integration)', () => {
       expect(response.body.data.id).toBe(viewer.id);
     });
 
+    // Requires user.update mock to handle include parameter properly
     it.skip('should update isActive status', async () => {
       const admin = await createMockAdminUser(context);
       const viewer = await createMockViewerUser(context, 'test@example.com');
@@ -405,6 +415,7 @@ describe('Users (Integration)', () => {
         .expect(400);
     });
 
+    // Requires user.update mock to handle self-modification prevention
     it.skip('should return 403 when admin tries to deactivate themselves', async () => {
       const admin = await createMockAdminUser(context);
 
@@ -427,6 +438,7 @@ describe('Users (Integration)', () => {
     });
   });
 
+  // Role update tests require complex transaction mocking with role validation
   describe.skip('PUT /api/users/:id/roles', () => {
     it('should return 401 if not authenticated', async () => {
       await request(context.app.getHttpServer())

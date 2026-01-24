@@ -356,7 +356,10 @@ export const rolePermissionsMap = {
     mockPermissions.userSettingsRead,
     mockPermissions.userSettingsWrite,
   ],
-  viewer: [mockPermissions.userSettingsRead],
+  viewer: [
+    mockPermissions.userSettingsRead,
+    mockPermissions.userSettingsWrite,
+  ],
 };
 
 // ============================================================================

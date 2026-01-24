@@ -36,8 +36,17 @@ export function setupRoleMocks(): void {
   );
 
   // Mock role.findMany
-  (prismaMock.role.findMany as jest.Mock).mockResolvedValue(
-    Object.values(mockRoles),
+  (prismaMock.role.findMany as jest.Mock).mockImplementation(
+    async ({ where }: any) => {
+      // Handle filtering by name with 'in' operator
+      if (where?.name?.in && Array.isArray(where.name.in)) {
+        return Object.values(mockRoles).filter((r) =>
+          where.name.in.includes(r.name),
+        );
+      }
+      // Return all roles if no filter
+      return Object.values(mockRoles);
+    },
   );
 
   // Mock permission.findUnique
@@ -104,10 +113,18 @@ export function setupUserMocks(): void {
 
   // Mock user.update - updates user in registry
   (prismaMock.user.update as jest.Mock).mockImplementation(
-    async ({ where, data }: any) => {
+    async ({ where, data, include }: any) => {
       const user = mockUserRegistry.get(where.id);
       if (user) {
-        const updated = { ...user, ...data };
+        // Merge the data updates into the existing user
+        const updated = { ...user };
+        // Only update fields that are defined in data
+        if (data.displayName !== undefined) updated.displayName = data.displayName;
+        if (data.isActive !== undefined) updated.isActive = data.isActive;
+        if (data.profileImageUrl !== undefined) updated.profileImageUrl = data.profileImageUrl;
+        if (data.providerDisplayName !== undefined) updated.providerDisplayName = data.providerDisplayName;
+        if (data.providerProfileImageUrl !== undefined) updated.providerProfileImageUrl = data.providerProfileImageUrl;
+
         mockUserRegistry.set(where.id, updated);
         return updated;
       }
@@ -148,13 +165,37 @@ export function setupMockUser(
 
 /**
  * Setup multiple mock users for list queries
+ * Adds them to the user registry so they work with other mock user functions
+ * This does NOT clear existing users - it merges with them by replacing users with matching emails
  */
 export function setupMockUserList(
   users: Array<CreateMockUserOptions>,
 ): SetupMockUserResponse[] {
   const mockUsers = users.map((opts) => createMockUserWithRelations(opts));
 
-  // Mock user.findMany
+  // Replace or add users to the registry
+  // If a user with the same email exists, replace it with the new one
+  mockUsers.forEach((newUser) => {
+    // Find existing user with same email
+    let existingId: string | null = null;
+    for (const [id, existingUser] of mockUserRegistry.entries()) {
+      if (existingUser.email === newUser.email) {
+        existingId = id;
+        break;
+      }
+    }
+
+    if (existingId) {
+      // Replace existing user (keep same ID for JWT tokens to work)
+      newUser.id = existingId;
+      mockUserRegistry.set(existingId, newUser);
+    } else {
+      // Add new user
+      mockUserRegistry.set(newUser.id, newUser);
+    }
+  });
+
+  // Mock user.findMany to use the registry (all users)
   (prismaMock.user.findMany as jest.Mock).mockImplementation(
     async (args: any) => {
       const where = args?.where;
@@ -162,7 +203,9 @@ export function setupMockUserList(
       const skip = args?.skip || 0;
       const take = args?.take;
       const orderBy = args?.orderBy;
-      let filtered = mockUsers;
+
+      // Get all users from registry
+      let filtered = Array.from(mockUserRegistry.values());
 
       // Apply filters
       if (where) {
@@ -249,7 +292,9 @@ export function setupMockUserList(
   // Mock user.count
   (prismaMock.user.count as jest.Mock).mockImplementation(async (args: any) => {
     const where = args?.where;
-    let filtered = mockUsers;
+
+    // Get all users from registry
+    let filtered = Array.from(mockUserRegistry.values());
 
     if (where) {
       // Handle isActive filter
@@ -560,6 +605,9 @@ export function setupBaseMocks(): void {
   (prismaMock.userRole.create as jest.Mock).mockImplementation(async ({ data }: any) => ({
     userId: data.userId,
     roleId: data.roleId,
+  }));
+  (prismaMock.userRole.createMany as jest.Mock).mockImplementation(async ({ data }: any) => ({
+    count: Array.isArray(data) ? data.length : 1,
   }));
 
   // Mock $connect and $disconnect

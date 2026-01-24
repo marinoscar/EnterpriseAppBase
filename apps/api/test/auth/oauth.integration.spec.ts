@@ -54,12 +54,21 @@ describe('OAuth Callback Integration', () => {
 
   describe('GET /api/auth/google/callback', () => {
     /**
-     * NOTE: The following tests are commented out because they require actual OAuth flow simulation
-     * which is beyond the scope of integration tests. The underlying business logic is thoroughly
-     * tested in unit tests (auth.service.spec.ts). These would be better suited for E2E tests.
+     * NOTE: The following tests require actual OAuth guard flow simulation which cannot be
+     * properly mocked in integration tests without a real OAuth provider or E2E environment.
+     *
+     * The underlying business logic (user creation, token generation, allowlist checking) is
+     * thoroughly tested in unit tests (auth.service.spec.ts). These integration tests would
+     * require either:
+     * 1. A real OAuth provider (Google) - not feasible for CI/CD
+     * 2. More complex guard-level mocking - beyond integration test scope
+     * 3. E2E testing with a test OAuth server
+     *
+     * The non-skipped tests below (lines 387-500) verify what CAN be tested at the integration
+     * level: error handling, cookie settings, and redirect URL formatting.
      */
 
-    // Skip tests that require full OAuth flow - tested in unit tests instead
+    // Requires full OAuth guard flow - tested in unit tests instead
     it.skip('should create session and redirect to app with valid OAuth code', async () => {
       const mockProfile = createMockGoogleProfile({
         email: 'newuser@example.com',
