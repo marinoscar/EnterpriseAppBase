@@ -693,6 +693,11 @@ describe('useSystemSettings', () => {
         })
       ).rejects.toThrow();
 
+      // Wait for state updates from the finally block to propagate
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      });
+
       // isSaving should be false after error
       expect(result.current?.isSaving).toBe(false);
     });
