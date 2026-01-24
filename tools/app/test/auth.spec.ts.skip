@@ -1,0 +1,123 @@
+import { jest } from '@jest/globals';
+
+// Mock dependencies before importing auth
+const mockGetCurrentUser = jest.fn();
+const mockLoadTokens = jest.fn();
+
+jest.unstable_mockModule('../src/lib/api-client.js', () => ({
+  getCurrentUser: mockGetCurrentUser,
+}));
+
+jest.unstable_mockModule('../src/lib/auth-store.js', () => ({
+  loadTokens: mockLoadTokens,
+  clearTokens: jest.fn(),
+  getUserFromToken: jest.fn(),
+  isTokenExpired: jest.fn(),
+}));
+
+describe('auth commands', () => {
+  let auth: typeof import('../src/commands/auth.js');
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+
+    // Dynamically import after mocks are set up
+    auth = await import('../src/commands/auth.js');
+  });
+
+  describe('authWhoami', () => {
+    it('should throw error when API call fails', async () => {
+      const errorMessage = 'Failed to get user info';
+      (mockGetCurrentUser as any).mockRejectedValue(new Error(errorMessage));
+
+      await expect(auth.authWhoami()).rejects.toThrow(errorMessage);
+    });
+
+    it('should call getCurrentUser from api-client', async () => {
+      const mockUser = {
+        id: 'user-123',
+        email: 'test@example.com',
+        displayName: 'Test User',
+        roles: ['Viewer'],
+      };
+
+      (mockGetCurrentUser as any).mockResolvedValue(mockUser);
+
+      // Capture console.log output
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      await auth.authWhoami();
+
+      expect(mockGetCurrentUser).toHaveBeenCalledTimes(1);
+      expect(consoleSpy).toHaveBeenCalledWith(
+        JSON.stringify(mockUser, null, 2)
+      );
+
+      consoleSpy.mockRestore();
+    });
+
+    it('should throw error with network failure message', async () => {
+      (mockGetCurrentUser as any).mockRejectedValue(
+        new Error('Network request failed')
+      );
+
+      await expect(auth.authWhoami()).rejects.toThrow('Network request failed');
+    });
+  });
+
+  describe('authToken', () => {
+    it('should throw error when not authenticated', async () => {
+      (mockLoadTokens as any).mockReturnValue(null);
+
+      await expect(auth.authToken()).rejects.toThrow('Not authenticated.');
+    });
+
+    it('should print access token when authenticated', async () => {
+      const mockTokens = {
+        accessToken: 'mock-access-token-abc123',
+        refreshToken: 'mock-refresh-token-xyz789',
+        expiresAt: Date.now() + 3600000,
+      };
+
+      (mockLoadTokens as any).mockReturnValue(mockTokens);
+
+      // Capture console.log output
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      await auth.authToken();
+
+      expect(consoleSpy).toHaveBeenCalledWith('mock-access-token-abc123');
+      expect(mockLoadTokens).toHaveBeenCalledTimes(1);
+
+      consoleSpy.mockRestore();
+    });
+
+    it('should throw error immediately without checking expiration', async () => {
+      // When tokens are null, should throw before any other checks
+      (mockLoadTokens as any).mockReturnValue(null);
+
+      const error = await auth.authToken().catch((e) => e);
+
+      expect(error).toBeInstanceOf(Error);
+      expect(error.message).toBe('Not authenticated.');
+    });
+  });
+
+  describe('authLogout', () => {
+    it('should not throw when not logged in', async () => {
+      (mockLoadTokens as any).mockReturnValue(null);
+
+      // Should complete without throwing
+      await expect(auth.authLogout()).resolves.toBeUndefined();
+    });
+  });
+
+  describe('authStatus', () => {
+    it('should not throw when checking status without authentication', async () => {
+      (mockLoadTokens as any).mockReturnValue(null);
+
+      // Should complete without throwing
+      await expect(auth.authStatus()).resolves.toBeUndefined();
+    });
+  });
+});

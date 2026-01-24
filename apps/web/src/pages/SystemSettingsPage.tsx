@@ -15,7 +15,6 @@ import { useSystemSettings } from '../hooks/useSystemSettings';
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
 import { SystemSettingsEditor } from '../components/admin/SystemSettingsEditor';
 import { FeatureFlagsList } from '../components/admin/FeatureFlagsList';
-import { SecuritySettings } from '../components/admin/SecuritySettings';
 import { UISettings } from '../components/admin/UISettings';
 
 interface TabPanelProps {
@@ -99,7 +98,6 @@ export default function SystemSettingsPage() {
               sx={{ borderBottom: 1, borderColor: 'divider' }}
             >
               <Tab label="UI Settings" />
-              <Tab label="Security" />
               <Tab label="Feature Flags" />
               <Tab label="Advanced (JSON)" />
             </Tabs>
@@ -114,14 +112,6 @@ export default function SystemSettingsPage() {
               </TabPanel>
 
               <TabPanel value={tabIndex} index={1}>
-                <SecuritySettings
-                  settings={settings.security}
-                  onSave={(security) => handleSave('security', security)}
-                  disabled={!canWrite || isSaving}
-                />
-              </TabPanel>
-
-              <TabPanel value={tabIndex} index={2}>
                 <FeatureFlagsList
                   flags={settings.features}
                   onSave={(features) => handleSave('features', features)}
@@ -129,7 +119,7 @@ export default function SystemSettingsPage() {
                 />
               </TabPanel>
 
-              <TabPanel value={tabIndex} index={3}>
+              <TabPanel value={tabIndex} index={2}>
                 <SystemSettingsEditor
                   settings={settings}
                   onSave={updateSettings}

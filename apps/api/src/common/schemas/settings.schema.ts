@@ -26,10 +26,6 @@ export const systemSettingsSchema = z.object({
   ui: z.object({
     allowUserThemeOverride: z.boolean(),
   }),
-  security: z.object({
-    jwtAccessTtlMinutes: z.number().int().min(1).max(60),
-    refreshTtlDays: z.number().int().min(1).max(90),
-  }),
   features: z.record(z.string(), z.boolean()),
 });
 

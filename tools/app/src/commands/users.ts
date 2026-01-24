@@ -26,94 +26,84 @@ interface ErrorResponse {
 
 /**
  * List all users
+ * Throws on error - caller handles error display and exit
  */
 async function listUsers(options: {
   page?: number;
   limit?: number;
   json?: boolean;
 }): Promise<void> {
-  try {
-    const page = options.page || 1;
-    const limit = options.limit || 20;
+  const page = options.page || 1;
+  const limit = options.limit || 20;
 
-    const response = await apiRequest(
-      `/users?page=${page}&limit=${limit}`
-    );
+  const response = await apiRequest(`/users?page=${page}&limit=${limit}`);
 
-    if (!response.ok) {
-      const error = (await response.json()) as ErrorResponse;
-      throw new Error(error.message || 'Failed to list users');
-    }
-
-    const result = (await response.json()) as PaginatedResponse<User>;
-
-    if (options.json) {
-      console.log(JSON.stringify(result.data, null, 2));
-      return;
-    }
-
-    output.header('Users');
-    output.blank();
-
-    const widths = [38, 30, 20, 10];
-    output.tableHeader(['ID', 'EMAIL', 'ROLES', 'ACTIVE'], widths);
-
-    for (const user of result.data.items) {
-      output.tableRow(
-        [
-          user.id,
-          user.email,
-          user.roles.join(', '),
-          user.isActive ? 'Yes' : 'No',
-        ],
-        widths
-      );
-    }
-
-    output.blank();
-    output.dim(
-      `Showing ${result.data.items.length} of ${result.data.total} users (page ${result.data.page})`
-    );
-  } catch (error) {
-    output.error((error as Error).message);
-    process.exit(1);
+  if (!response.ok) {
+    const error = (await response.json()) as ErrorResponse;
+    throw new Error(error.message || 'Failed to list users');
   }
+
+  const result = (await response.json()) as PaginatedResponse<User>;
+
+  if (options.json) {
+    console.log(JSON.stringify(result.data, null, 2));
+    return;
+  }
+
+  output.header('Users');
+  output.blank();
+
+  const widths = [38, 30, 20, 10];
+  output.tableHeader(['ID', 'EMAIL', 'ROLES', 'ACTIVE'], widths);
+
+  for (const user of result.data.items) {
+    output.tableRow(
+      [
+        user.id,
+        user.email,
+        user.roles.join(', '),
+        user.isActive ? 'Yes' : 'No',
+      ],
+      widths
+    );
+  }
+
+  output.blank();
+  output.dim(
+    `Showing ${result.data.items.length} of ${result.data.total} users (page ${result.data.page})`
+  );
 }
 
 /**
  * Get a user by ID
+ * Throws on error - caller handles error display and exit
  */
 async function getUser(
   id: string,
   options: { json?: boolean }
 ): Promise<void> {
-  try {
-    const response = await apiRequest(`/users/${id}`);
+  const response = await apiRequest(`/users/${id}`);
 
-    if (!response.ok) {
-      const error = (await response.json()) as ErrorResponse;
-      throw new Error(error.message || 'Failed to get user');
-    }
-
-    const { data: user } = (await response.json()) as { data: User };
-
-    if (options.json) {
-      console.log(JSON.stringify(user, null, 2));
-      return;
-    }
-
-    output.header('User Details');
-    output.blank();
-    output.keyValue('ID', user.id);
-    output.keyValue('Email', user.email);
-    output.keyValue('Display Name', user.displayName);
-    output.keyValue('Roles', user.roles.join(', '));
-    output.keyValue('Active', user.isActive ? 'Yes' : 'No');
-    output.keyValue('Created', new Date(user.createdAt).toLocaleString());
-  } catch (error) {
-    output.error((error as Error).message);
-    process.exit(1);
+  if (!response.ok) {
+    const error = (await response.json()) as ErrorResponse;
+    throw new Error(error.message || 'Failed to get user');
   }
+
+  const { data: user } = (await response.json()) as { data: User };
+
+  if (options.json) {
+    console.log(JSON.stringify(user, null, 2));
+    return;
+  }
+
+  output.header('User Details');
+  output.blank();
+  output.keyValue('ID', user.id);
+  output.keyValue('Email', user.email);
+  output.keyValue('Display Name', user.displayName);
+  output.keyValue('Roles', user.roles.join(', '));
+  output.keyValue('Active', user.isActive ? 'Yes' : 'No');
+  output.keyValue('Created', new Date(user.createdAt).toLocaleString());
 }
 
 /**
@@ -131,11 +121,16 @@ export function registerUserCommands(program: Command): void {
     .option('-l, --limit <number>', 'Items per page', '20')
     .option('--json', 'Output as JSON')
     .action(async (options) => {
-      await listUsers({
-        page: parseInt(options.page, 10),
-        limit: parseInt(options.limit, 10),
-        json: options.json,
-      });
+      try {
+        await listUsers({
+          page: parseInt(options.page, 10),
+          limit: parseInt(options.limit, 10),
+          json: options.json,
+        });
+      } catch (error) {
+        output.error((error as Error).message);
+        process.exit(1);
+      }
     });
 
   usersCmd
@@ -144,7 +139,12 @@ export function registerUserCommands(program: Command): void {
     .argument('<id>', 'User ID')
     .option('--json', 'Output as JSON')
     .action(async (id: string, options) => {
-      await getUser(id, options);
+      try {
+        await getUser(id, options);
+      } catch (error) {
+        output.error((error as Error).message);
+        process.exit(1);
+      }
     });
 }
 

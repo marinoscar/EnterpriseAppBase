@@ -70,10 +70,6 @@ const DEFAULT_SYSTEM_SETTINGS = {
   ui: {
     allowUserThemeOverride: true,
   },
-  security: {
-    jwtAccessTtlMinutes: 15,
-    refreshTtlDays: 14,
-  },
   features: {},
 };
 

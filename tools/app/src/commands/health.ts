@@ -5,47 +5,42 @@ import { config } from '../utils/config.js';
 
 /**
  * Check API health
+ * Throws on error - caller handles error display and exit
  */
 async function healthCheck(options: { json?: boolean }): Promise<void> {
-  try {
-    const health = await checkHealth();
+  const health = await checkHealth();
 
-    if (options.json) {
-      console.log(JSON.stringify(health, null, 2));
-      return;
-    }
+  if (options.json) {
+    console.log(JSON.stringify(health, null, 2));
+    return;
+  }
 
-    output.header('API Health');
-    output.blank();
-    output.keyValue('API URL', config.apiUrl);
-    output.blank();
+  output.header('API Health');
+  output.blank();
+  output.keyValue('API URL', config.apiUrl);
+  output.blank();
 
-    if (health.live) {
-      output.success('Liveness:  OK');
-    } else {
-      output.error('Liveness:  FAILED');
-    }
+  if (health.live) {
+    output.success('Liveness:  OK');
+  } else {
+    output.error('Liveness:  FAILED');
+  }
 
-    if (health.ready) {
-      output.success('Readiness: OK');
-    } else {
-      output.error('Readiness: FAILED');
-    }
+  if (health.ready) {
+    output.success('Readiness: OK');
+  } else {
+    output.error('Readiness: FAILED');
+  }
 
-    output.blank();
+  output.blank();
 
-    if (health.live && health.ready) {
-      output.success('API is healthy and ready to accept requests.');
-    } else if (health.live) {
-      output.warn('API is running but not ready (database may be unavailable).');
-    } else {
-      output.error('API is not responding. Is the server running?');
-      output.info('Try: app start');
-    }
-  } catch (error) {
-    output.error('Failed to check health: API is not responding');
-    output.info('Make sure the services are running: app start');
-    process.exit(1);
+  if (health.live && health.ready) {
+    output.success('API is healthy and ready to accept requests.');
+  } else if (health.live) {
+    output.warn('API is running but not ready (database may be unavailable).');
+  } else {
+    output.error('API is not responding. Is the server running?');
+    output.info('Try: app start');
   }
 }
 
@@ -58,7 +53,13 @@ export function registerHealthCommands(program: Command): void {
     .description('Check API health status')
     .option('--json', 'Output as JSON')
     .action(async (options) => {
-      await healthCheck(options);
+      try {
+        await healthCheck(options);
+      } catch (error) {
+        output.error('Failed to check health: API is not responding');
+        output.info('Make sure the services are running: app start');
+        process.exit(1);
+      }
     });
 }
 

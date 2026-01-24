@@ -9,6 +9,7 @@ import { getUserSettings, getSystemSettings } from '../commands/settings.js';
 import { healthCheck } from '../commands/health.js';
 import * as output from '../utils/output.js';
 import { getIcon } from '../utils/config.js';
+import { showAuthMenu } from './auth-menu.js';
 
 /**
  * Show the API menu
@@ -103,7 +104,30 @@ export async function showApiMenu(): Promise<void> {
           break;
       }
     } catch (error) {
-      output.error((error as Error).message);
+      const errorMsg = (error as Error).message;
+      output.error(errorMsg);
+
+      // Check if this is an authentication error and offer to login
+      if (
+        errorMsg.includes('Session expired') ||
+        errorMsg.includes('Not authenticated') ||
+        errorMsg.includes('login')
+      ) {
+        output.blank();
+        const { loginNow } = await inquirer.prompt([
+          {
+            type: 'confirm',
+            name: 'loginNow',
+            message: 'Would you like to login now?',
+            default: true,
+          },
+        ]);
+
+        if (loginNow) {
+          await showAuthMenu();
+          continue; // Skip the "Press Enter" prompt and show API menu again
+        }
+      }
     }
 
     // Wait for user to press enter before showing menu again

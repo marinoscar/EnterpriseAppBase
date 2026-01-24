@@ -10,10 +10,6 @@ const mockSystemSettings: SystemSettings = {
   ui: {
     allowUserThemeOverride: true,
   },
-  security: {
-    jwtAccessTtlMinutes: 15,
-    refreshTtlDays: 14,
-  },
   features: {},
   updatedAt: new Date().toISOString(),
   updatedBy: null,
@@ -53,7 +49,6 @@ describe('useSystemSettings', () => {
       expect(result.current?.settings).not.toBeNull();
       expect(result.current.settings).toMatchObject({
         ui: { allowUserThemeOverride: true },
-        security: { jwtAccessTtlMinutes: 15, refreshTtlDays: 14 },
         features: {},
         updatedBy: null,
         version: 1,
@@ -69,7 +64,6 @@ describe('useSystemSettings', () => {
       });
 
       expect(result.current.settings).toHaveProperty('ui');
-      expect(result.current.settings).toHaveProperty('security');
       expect(result.current.settings).toHaveProperty('features');
       expect(result.current.settings).toHaveProperty('version');
       expect(result.current.settings).toHaveProperty('updatedAt');
@@ -299,7 +293,6 @@ describe('useSystemSettings', () => {
 
       const newSettings = {
         ui: { allowUserThemeOverride: false },
-        security: { jwtAccessTtlMinutes: 30, refreshTtlDays: 7 },
         features: { newFeature: true },
       };
 
@@ -308,7 +301,6 @@ describe('useSystemSettings', () => {
       });
 
       expect(result.current.settings?.ui.allowUserThemeOverride).toBe(false);
-      expect(result.current.settings?.security.jwtAccessTtlMinutes).toBe(30);
       expect(result.current.settings?.features).toEqual({ newFeature: true });
       expect(result.current.error).toBeNull();
     });
@@ -342,7 +334,6 @@ describe('useSystemSettings', () => {
 
       const newSettings = {
         ui: { allowUserThemeOverride: false },
-        security: { jwtAccessTtlMinutes: 30, refreshTtlDays: 7 },
         features: {},
       };
 
@@ -381,7 +372,6 @@ describe('useSystemSettings', () => {
 
       const newSettings = {
         ui: { allowUserThemeOverride: false },
-        security: { jwtAccessTtlMinutes: 30, refreshTtlDays: 7 },
         features: {},
       };
 
@@ -682,7 +672,6 @@ describe('useSystemSettings', () => {
 
       const newSettings = {
         ui: { allowUserThemeOverride: false },
-        security: { jwtAccessTtlMinutes: 30, refreshTtlDays: 7 },
         features: {},
       };
 
@@ -715,7 +704,7 @@ describe('useSystemSettings', () => {
       await act(async () => {
         await Promise.all([
           result.current.updateSettings({ ui: { allowUserThemeOverride: false } }),
-          result.current.updateSettings({ security: { jwtAccessTtlMinutes: 30, refreshTtlDays: 7 } }),
+          result.current.updateSettings({ features: { testFeature: true } }),
         ]);
       });
 

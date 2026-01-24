@@ -28,10 +28,6 @@ export interface SystemSettings {
   ui: {
     allowUserThemeOverride: boolean;
   };
-  security: {
-    jwtAccessTtlMinutes: number;
-    refreshTtlDays: number;
-  };
   features: Record<string, boolean>;
   updatedAt: string;
   updatedBy: { id: string; email: string } | null;

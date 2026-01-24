@@ -33,58 +33,52 @@ interface AllowlistAnswers {
 
 /**
  * List all allowlisted emails
+ * Throws on error - caller handles error display and exit
  */
 async function listAllowlist(options: {
   page?: number;
   limit?: number;
   json?: boolean;
 }): Promise<void> {
-  try {
-    const page = options.page || 1;
-    const limit = options.limit || 20;
+  const page = options.page || 1;
+  const limit = options.limit || 20;
 
-    const response = await apiRequest(
-      `/allowlist?page=${page}&limit=${limit}`
-    );
+  const response = await apiRequest(`/allowlist?page=${page}&limit=${limit}`);
 
-    if (!response.ok) {
-      const error = (await response.json()) as ErrorResponse;
-      throw new Error(error.message || 'Failed to list allowlist');
-    }
-
-    const result = (await response.json()) as PaginatedResponse<AllowlistEntry>;
-
-    if (options.json) {
-      console.log(JSON.stringify(result.data, null, 2));
-      return;
-    }
-
-    output.header('Allowlist');
-    output.blank();
-
-    const widths = [30, 10, 25, 20];
-    output.tableHeader(['EMAIL', 'STATUS', 'NOTES', 'ADDED'], widths);
-
-    for (const entry of result.data.items) {
-      output.tableRow(
-        [
-          entry.email,
-          entry.status,
-          entry.notes || '-',
-          new Date(entry.createdAt).toLocaleDateString(),
-        ],
-        widths
-      );
-    }
-
-    output.blank();
-    output.dim(
-      `Showing ${result.data.items.length} of ${result.data.total} entries (page ${result.data.page})`
-    );
-  } catch (error) {
-    output.error((error as Error).message);
-    process.exit(1);
+  if (!response.ok) {
+    const error = (await response.json()) as ErrorResponse;
+    throw new Error(error.message || 'Failed to list allowlist');
   }
+
+  const result = (await response.json()) as PaginatedResponse<AllowlistEntry>;
+
+  if (options.json) {
+    console.log(JSON.stringify(result.data, null, 2));
+    return;
+  }
+
+  output.header('Allowlist');
+  output.blank();
+
+  const widths = [30, 10, 25, 20];
+  output.tableHeader(['EMAIL', 'STATUS', 'NOTES', 'ADDED'], widths);
+
+  for (const entry of result.data.items) {
+    output.tableRow(
+      [
+        entry.email,
+        entry.status,
+        entry.notes || '-',
+        new Date(entry.createdAt).toLocaleDateString(),
+      ],
+      widths
+    );
+  }
+
+  output.blank();
+  output.dim(
+    `Showing ${result.data.items.length} of ${result.data.total} entries (page ${result.data.page})`
+  );
 }
 
 /**
@@ -124,58 +118,49 @@ async function addToAllowlistInteractive(): Promise<void> {
 
 /**
  * Add an email to the allowlist
+ * Throws on error - caller handles error display and exit
  */
 async function addToAllowlist(
   email: string,
   notes?: string
 ): Promise<void> {
-  try {
-    // Validate email
-    const validationResult = validateEmail(email);
-    if (validationResult !== true) {
-      output.error(validationResult as string);
-      process.exit(1);
-    }
-
-    const response = await apiRequest('/allowlist', {
-      method: 'POST',
-      body: JSON.stringify({
-        email: sanitizeEmail(email),
-        notes: notes || undefined,
-      }),
-    });
-
-    if (!response.ok) {
-      const error = (await response.json()) as ErrorResponse;
-      throw new Error(error.message || 'Failed to add to allowlist');
-    }
-
-    output.success(`Added ${email} to allowlist`);
-  } catch (error) {
-    output.error((error as Error).message);
-    process.exit(1);
+  // Validate email
+  const validationResult = validateEmail(email);
+  if (validationResult !== true) {
+    throw new Error(validationResult as string);
   }
+
+  const response = await apiRequest('/allowlist', {
+    method: 'POST',
+    body: JSON.stringify({
+      email: sanitizeEmail(email),
+      notes: notes || undefined,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = (await response.json()) as ErrorResponse;
+    throw new Error(error.message || 'Failed to add to allowlist');
+  }
+
+  output.success(`Added ${email} to allowlist`);
 }
 
 /**
  * Remove an email from the allowlist
+ * Throws on error - caller handles error display and exit
  */
 async function removeFromAllowlist(id: string): Promise<void> {
-  try {
-    const response = await apiRequest(`/allowlist/${id}`, {
-      method: 'DELETE',
-    });
+  const response = await apiRequest(`/allowlist/${id}`, {
+    method: 'DELETE',
+  });
 
-    if (!response.ok) {
-      const error = (await response.json()) as ErrorResponse;
-      throw new Error(error.message || 'Failed to remove from allowlist');
-    }
-
-    output.success('Removed from allowlist');
-  } catch (error) {
-    output.error((error as Error).message);
-    process.exit(1);
+  if (!response.ok) {
+    const error = (await response.json()) as ErrorResponse;
+    throw new Error(error.message || 'Failed to remove from allowlist');
   }
+
+  output.success('Removed from allowlist');
 }
 
 /**
@@ -193,11 +178,16 @@ export function registerAllowlistCommands(program: Command): void {
     .option('-l, --limit <number>', 'Items per page', '20')
     .option('--json', 'Output as JSON')
     .action(async (options) => {
-      await listAllowlist({
-        page: parseInt(options.page, 10),
-        limit: parseInt(options.limit, 10),
-        json: options.json,
-      });
+      try {
+        await listAllowlist({
+          page: parseInt(options.page, 10),
+          limit: parseInt(options.limit, 10),
+          json: options.json,
+        });
+      } catch (error) {
+        output.error((error as Error).message);
+        process.exit(1);
+      }
     });
 
   allowlistCmd
@@ -206,10 +196,15 @@ export function registerAllowlistCommands(program: Command): void {
     .argument('[email]', 'Email address to add')
     .option('-n, --notes <text>', 'Optional notes')
     .action(async (email: string | undefined, options) => {
-      if (email) {
-        await addToAllowlist(email, options.notes);
-      } else {
-        await addToAllowlistInteractive();
+      try {
+        if (email) {
+          await addToAllowlist(email, options.notes);
+        } else {
+          await addToAllowlistInteractive();
+        }
+      } catch (error) {
+        output.error((error as Error).message);
+        process.exit(1);
       }
     });
 
@@ -218,7 +213,12 @@ export function registerAllowlistCommands(program: Command): void {
     .description('Remove an email from the allowlist')
     .argument('<id>', 'Allowlist entry ID')
     .action(async (id: string) => {
-      await removeFromAllowlist(id);
+      try {
+        await removeFromAllowlist(id);
+      } catch (error) {
+        output.error((error as Error).message);
+        process.exit(1);
+      }
     });
 }
 

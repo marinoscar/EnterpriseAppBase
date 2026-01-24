@@ -41,10 +41,6 @@ describe('SystemSettingsPage', () => {
         ui: {
           allowUserThemeOverride: true,
         },
-        security: {
-          jwtAccessTtlMinutes: 15,
-          refreshTtlDays: 14,
-        },
         features: {},
         updatedAt: new Date().toISOString(),
         updatedBy: null,
@@ -179,7 +175,6 @@ describe('SystemSettingsPage', () => {
 
       await waitFor(() => {
         expect(screen.getByRole('tab', { name: /ui settings/i })).toBeInTheDocument();
-        expect(screen.getByRole('tab', { name: /security/i })).toBeInTheDocument();
         expect(screen.getByRole('tab', { name: /feature flags/i })).toBeInTheDocument();
         expect(screen.getByRole('tab', { name: /advanced.*json/i })).toBeInTheDocument();
       });
@@ -193,13 +188,13 @@ describe('SystemSettingsPage', () => {
       });
 
       await waitFor(() => {
-        expect(screen.getByRole('tab', { name: /security/i })).toBeInTheDocument();
+        expect(screen.getByRole('tab', { name: /feature flags/i })).toBeInTheDocument();
       });
 
-      const securityTab = screen.getByRole('tab', { name: /security/i });
-      await user.click(securityTab);
+      const featureFlagsTab = screen.getByRole('tab', { name: /feature flags/i });
+      await user.click(featureFlagsTab);
 
-      expect(securityTab).toHaveAttribute('aria-selected', 'true');
+      expect(featureFlagsTab).toHaveAttribute('aria-selected', 'true');
     });
   });
 
@@ -217,23 +212,6 @@ describe('SystemSettingsPage', () => {
     });
   });
 
-  describe('Security Settings Tab', () => {
-    it('should display security settings in security tab', async () => {
-      const user = userEvent.setup();
-
-      render(<SystemSettingsPage />, {
-        wrapperOptions: { user: mockAdminUser },
-      });
-
-      await waitFor(() => {
-        expect(screen.getByRole('tab', { name: /security/i })).toBeInTheDocument();
-      });
-
-      await user.click(screen.getByRole('tab', { name: /security/i }));
-
-      // Security settings should be visible
-    });
-  });
 
   describe('Feature Flags Tab', () => {
     it('should display feature flags', async () => {
@@ -242,7 +220,6 @@ describe('SystemSettingsPage', () => {
       mockUseSystemSettings.mockReturnValue({
         settings: {
           ui: { allowUserThemeOverride: true },
-          security: { jwtAccessTtlMinutes: 15, refreshTtlDays: 14 },
           features: {
             betaFeature: true,
             newDashboard: false,
@@ -280,7 +257,6 @@ describe('SystemSettingsPage', () => {
       mockUseSystemSettings.mockReturnValue({
         settings: {
           ui: { allowUserThemeOverride: true },
-          security: { jwtAccessTtlMinutes: 15, refreshTtlDays: 14 },
           features: {},
           updatedAt: updatedAt.toISOString(),
           updatedBy: {
@@ -326,7 +302,6 @@ describe('SystemSettingsPage', () => {
       mockUseSystemSettings.mockReturnValue({
         settings: {
           ui: { allowUserThemeOverride: true },
-          security: { jwtAccessTtlMinutes: 15, refreshTtlDays: 14 },
           features: {},
           updatedAt: new Date().toISOString(),
           updatedBy: null,
@@ -370,7 +345,6 @@ describe('SystemSettingsPage', () => {
       mockUseSystemSettings.mockReturnValue({
         settings: {
           ui: { allowUserThemeOverride: true },
-          security: { jwtAccessTtlMinutes: 15, refreshTtlDays: 14 },
           features: {},
           updatedAt: new Date().toISOString(),
           updatedBy: null,
@@ -399,7 +373,6 @@ describe('SystemSettingsPage', () => {
       mockUseSystemSettings.mockReturnValue({
         settings: {
           ui: { allowUserThemeOverride: true },
-          security: { jwtAccessTtlMinutes: 15, refreshTtlDays: 14 },
           features: {},
           updatedAt: new Date().toISOString(),
           updatedBy: null,

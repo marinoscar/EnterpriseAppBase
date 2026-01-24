@@ -21,10 +21,6 @@ export interface SystemSettingsValue {
   ui: {
     allowUserThemeOverride: boolean;
   };
-  security: {
-    jwtAccessTtlMinutes: number;
-    refreshTtlDays: number;
-  };
   features: {
     [key: string]: boolean;
   };
@@ -46,10 +42,6 @@ export const DEFAULT_USER_SETTINGS: UserSettingsValue = {
 export const DEFAULT_SYSTEM_SETTINGS: SystemSettingsValue = {
   ui: {
     allowUserThemeOverride: true,
-  },
-  security: {
-    jwtAccessTtlMinutes: 15,
-    refreshTtlDays: 14,
   },
   features: {},
 };

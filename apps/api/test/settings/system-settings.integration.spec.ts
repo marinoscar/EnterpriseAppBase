@@ -59,7 +59,6 @@ describe('System Settings Integration', () => {
 
       expect(response.body.data).toMatchObject({
         ui: DEFAULT_SYSTEM_SETTINGS.ui,
-        security: DEFAULT_SYSTEM_SETTINGS.security,
         features: DEFAULT_SYSTEM_SETTINGS.features,
         version: expect.any(Number),
       });
@@ -72,7 +71,6 @@ describe('System Settings Integration', () => {
   describe.skip('PUT /api/system-settings', () => {
     const newSettings: SystemSettingsValue = {
       ui: { allowUserThemeOverride: false },
-      security: { jwtAccessTtlMinutes: 30, refreshTtlDays: 7 },
       features: { newFeature: true },
     };
 
@@ -116,7 +114,6 @@ describe('System Settings Integration', () => {
 
       expect(response.body.data).toMatchObject({
         ui: newSettings.ui,
-        security: newSettings.security,
         features: newSettings.features,
         version: 2,
       });
@@ -129,7 +126,6 @@ describe('System Settings Integration', () => {
 
       const invalidSettings = {
         ui: { allowUserThemeOverride: 'not-a-boolean' },
-        security: { jwtAccessTtlMinutes: 30, refreshTtlDays: 7 },
         features: {},
       };
 
@@ -144,8 +140,7 @@ describe('System Settings Integration', () => {
       const admin = await createMockAdminUser(context);
 
       const incompleteSettings = {
-        ui: { allowUserThemeOverride: false },
-        // Missing security field
+        // Missing ui field
         features: {},
       };
 
@@ -153,22 +148,6 @@ describe('System Settings Integration', () => {
         .put('/api/system-settings')
         .set(authHeader(admin.accessToken))
         .send(incompleteSettings)
-        .expect(400);
-    });
-
-    it('should return 400 with out-of-range values', async () => {
-      const admin = await createMockAdminUser(context);
-
-      const invalidRangeSettings = {
-        ui: { allowUserThemeOverride: false },
-        security: { jwtAccessTtlMinutes: 100, refreshTtlDays: 7 }, // jwtAccessTtlMinutes max is 60
-        features: {},
-      };
-
-      await request(context.app.getHttpServer())
-        .put('/api/system-settings')
-        .set(authHeader(admin.accessToken))
-        .send(invalidRangeSettings)
         .expect(400);
     });
   });
