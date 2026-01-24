@@ -1,26 +1,42 @@
 <#
 .SYNOPSIS
-  Creates a Git worktree for a new feature using an OpenAI LLM to generate an optimal branch slug and folder name.
+  Git worktree helper:
+    - Creates a new worktree + branch using an OpenAI LLM to name things
+    - Lists existing worktrees
+    - Removes a worktree (optionally force)
+    - Shows help/usage
 
 .DESCRIPTION
-  - Prompts the user for a natural language description (e.g., "update my database schema for new users table")
-  - Uses OpenAI (model: gpt-5-nano) to return STRICT JSON:
-      { "branch_slug": "...", "folder_name": "..." }
-  - Validates that output is filesystem & git-safe (a-z, 0-9, hyphen only)
-  - Creates a branch (default prefix: "feature/")
-  - Creates a Git worktree under: <root>/worktrees/<folder_name>
-      Where <root> is inferred from this script location:
-        root/scripts/worktrees.ps1  -> worktrees go to root/worktrees
-  - CD's into the new folder (unless -NoCd)
-  - Echoes each step, includes exception handling
+  Default behavior (no -List / -Remove / -Help):
+    1) Prompts for a natural language description of the feature
+    2) Calls OpenAI (model: gpt-5-nano) to generate:
+         { "branch_slug": "...", "folder_name": "..." }
+    3) Creates a branch (prefix default: feature/)
+    4) Creates a worktree at: <root>/worktrees/<folder_name>
+    5) CD into the new worktree (unless -NoCd)
+
+  List behavior (-List):
+    - Prints a table of all worktrees for the current repo using:
+        git worktree list --porcelain
+
+  Remove behavior (-Remove <nameOrPath>):
+    - Removes a worktree by folder name under <root>/worktrees OR full path
+    - Uses:
+        git worktree remove <path>  (or --force)
+    - NOTE: If you are currently inside that folder, Windows may block deletion.
+            cd elsewhere first.
+
+  Help behavior (-Help):
+    - Prints usage examples and exits.
 
 .REQUIREMENTS
   - Git installed and on PATH
-  - Must be run from inside a Git repo work tree
-  - OpenAI API key must be available via OPENAI_API_KEY or provided interactively
+  - Run from inside a git repository working tree
+  - For create mode: OPENAI_API_KEY env var, or you will be prompted
 
 .NOTES
-  Save this file as: root/scripts/worktrees.ps1
+  Place this script at: root/scripts/worktrees.ps1
+  Worktrees will be created under: root/worktrees
 #>
 
 [CmdletBinding()]
@@ -35,7 +51,19 @@ param(
   [int]$MaxFolderNameLength = 40,
 
   # If set, do NOT cd into the created folder
-  [switch]$NoCd
+  [switch]$NoCd,
+
+  # List all worktrees and exit
+  [switch]$List,
+
+  # Remove a worktree by folder name (under WorktreesRoot) or full path, then exit
+  [string]$Remove,
+
+  # Force removal for worktree remove
+  [switch]$Force,
+
+  # Show help/usage and exit
+  [switch]$Help
 )
 
 Set-StrictMode -Version Latest
@@ -51,6 +79,39 @@ function Write-Step { param([string]$Message) Write-Host "==> $Message" -Foregro
 function Write-Info { param([string]$Message) Write-Host "    $Message" -ForegroundColor Gray }
 function Write-Warn { param([string]$Message) Write-Host "WARNING: $Message" -ForegroundColor Yellow }
 function Write-Fail { param([string]$Message) Write-Host "ERROR: $Message" -ForegroundColor Red }
+
+function Show-Help {
+  Write-Host ""
+  Write-Host "Git Worktree Helper (LLM-named) - Usage" -ForegroundColor Cyan
+  Write-Host "--------------------------------------"
+  Write-Host ""
+  Write-Host "Create a new worktree (default):" -ForegroundColor White
+  Write-Host "  .\root\scripts\worktrees.ps1"
+  Write-Host ""
+  Write-Host "List worktrees:" -ForegroundColor White
+  Write-Host "  .\root\scripts\worktrees.ps1 -List"
+  Write-Host ""
+  Write-Host "Remove a worktree by folder name (under root/worktrees):" -ForegroundColor White
+  Write-Host "  .\root\scripts\worktrees.ps1 -Remove update-db"
+  Write-Host ""
+  Write-Host "Remove a worktree by full path:" -ForegroundColor White
+  Write-Host '  .\root\scripts\worktrees.ps1 -Remove "C:\path\to\root\worktrees\update-db"'
+  Write-Host ""
+  Write-Host "Force remove (if needed):" -ForegroundColor White
+  Write-Host "  .\root\scripts\worktrees.ps1 -Remove update-db -Force"
+  Write-Host ""
+  Write-Host "Don't cd into newly created worktree:" -ForegroundColor White
+  Write-Host "  .\root\scripts\worktrees.ps1 -NoCd"
+  Write-Host ""
+  Write-Host "Show this help:" -ForegroundColor White
+  Write-Host "  .\root\scripts\worktrees.ps1 -Help"
+  Write-Host ""
+  Write-Host "Notes:" -ForegroundColor White
+  Write-Host "  - Worktrees are created under: root/worktrees (relative to script location)."
+  Write-Host "  - For create mode, OpenAI key is read from OPENAI_API_KEY; if missing you will be prompted."
+  Write-Host "  - If you are currently inside a worktree folder you want to remove, Windows may block deletion."
+  Write-Host ""
+}
 
 function Test-Command {
   param([Parameter(Mandatory)][string]$Name)
@@ -120,12 +181,6 @@ function ConvertTo-PlainTextFromSecureString {
 }
 
 function Get-OpenAiApiKey {
-  <#
-    .SYNOPSIS
-      Ensures we have an OpenAI API key. Reads OPENAI_API_KEY; if missing, prompts the user.
-    .OUTPUTS
-      string API key
-  #>
   $apiKey = $env:OPENAI_API_KEY
   if (-not [string]::IsNullOrWhiteSpace($apiKey)) {
     return $apiKey
@@ -141,13 +196,11 @@ function Get-OpenAiApiKey {
     throw "No API key provided. Cannot continue because LLM naming is required."
   }
 
-  # Set for current session so we can use it immediately
   $env:OPENAI_API_KEY = $apiKey
 
   $persist = Read-Host "Persist OPENAI_API_KEY for future sessions? (y/N)"
   if ($persist -match '^(y|yes)$') {
     Write-Info "Persisting OPENAI_API_KEY in user environment variables..."
-    # User-level persistence
     [Environment]::SetEnvironmentVariable("OPENAI_API_KEY", $apiKey, "User")
     Write-Info "Done. You may need a new terminal session for it to be available everywhere."
   } else {
@@ -158,10 +211,6 @@ function Get-OpenAiApiKey {
 }
 
 function Assert-SafeName {
-  <#
-    .SYNOPSIS
-      Validates name contains only: a-z, 0-9, hyphen, and is not empty.
-  #>
   param(
     [Parameter(Mandatory)][string]$Name,
     [Parameter(Mandatory)][string]$FieldName
@@ -171,17 +220,12 @@ function Assert-SafeName {
     throw "$FieldName is empty."
   }
 
-  # start/end must be alnum; internal hyphens allowed
   if ($Name -notmatch '^[a-z0-9]+(-[a-z0-9]+)*$') {
     throw "$FieldName contains invalid characters: '$Name' (allowed: a-z, 0-9, hyphen; cannot start/end with hyphen)."
   }
 }
 
 function Truncate-Name {
-  <#
-    .SYNOPSIS
-      Truncates a string to a max length with a small hash suffix for uniqueness.
-  #>
   param(
     [Parameter(Mandatory)][string]$Text,
     [Parameter(Mandatory)][int]$MaxLength
@@ -198,23 +242,74 @@ function Truncate-Name {
   return ($Text.Substring(0, $keep) + $suffix)
 }
 
-function Get-LlmWorktreeSuggestion {
-  <#
-    .SYNOPSIS
-      Calls OpenAI to generate branch_slug and folder_name from natural language.
+function Get-WorktreesPorcelain {
+  param([Parameter(Mandatory)][string]$RepoRootPath)
 
-    .OUTPUTS
-      PSCustomObject:
-        - BranchSlug
-        - FolderName
-  #>
+  $out = Invoke-Git -Args @("worktree","list","--porcelain") -WorkingDirectory $RepoRootPath
+  $lines = $out -split "`r?`n"
+
+  $items = @()
+  $current = @{}
+
+  foreach ($line in $lines) {
+    if ([string]::IsNullOrWhiteSpace($line)) {
+      if ($current.ContainsKey("worktree")) {
+        $items += [PSCustomObject]@{
+          Path     = $current["worktree"]
+          Head     = $current["HEAD"]
+          Branch   = $current["branch"]
+          Locked   = $current.ContainsKey("locked")
+          Prunable = $current.ContainsKey("prunable")
+        }
+      }
+      $current = @{}
+      continue
+    }
+
+    $parts = $line.Split(" ", 2)
+    $key = $parts[0]
+    $val = if ($parts.Count -gt 1) { $parts[1] } else { "" }
+    $current[$key] = $val
+  }
+
+  if ($current.ContainsKey("worktree")) {
+    $items += [PSCustomObject]@{
+      Path     = $current["worktree"]
+      Head     = $current["HEAD"]
+      Branch   = $current["branch"]
+      Locked   = $current.ContainsKey("locked")
+      Prunable = $current.ContainsKey("prunable")
+    }
+  }
+
+  return $items
+}
+
+function Resolve-WorktreePath {
+  param(
+    [Parameter(Mandatory)][string]$WorktreesRootPath,
+    [Parameter(Mandatory)][string]$NameOrPath
+  )
+
+  if (Test-Path $NameOrPath) {
+    return (Resolve-Path $NameOrPath).Path
+  }
+
+  $candidate = Join-Path $WorktreesRootPath $NameOrPath
+  if (Test-Path $candidate) {
+    return (Resolve-Path $candidate).Path
+  }
+
+  throw "Could not resolve worktree '$NameOrPath' as a path or as a folder under: $WorktreesRootPath"
+}
+
+function Get-LlmWorktreeSuggestion {
   param(
     [Parameter(Mandatory)][string]$NaturalLanguage,
     [Parameter(Mandatory)][string]$ApiKey,
     [Parameter(Mandatory)][string]$Model
   )
 
-  # Strong prompt: strict JSON, safe characters only
   $prompt = @"
 You generate git/worktree naming.
 
@@ -244,7 +339,6 @@ User request: "$NaturalLanguage"
         )
       }
     )
-    # Ask for a JSON object. Still validate.
     text = @{
       format = @{ type = "json_object" }
     }
@@ -255,6 +349,7 @@ User request: "$NaturalLanguage"
   Write-Step "Calling OpenAI for naming (model: $Model)"
   Write-Info "Endpoint: $OpenAiEndpoint"
 
+  $resp = $null
   try {
     $resp = Invoke-RestMethod -Method Post -Uri $OpenAiEndpoint -Headers @{
       Authorization = "Bearer $ApiKey"
@@ -265,7 +360,6 @@ User request: "$NaturalLanguage"
     throw "OpenAI call failed: $($_.Exception.Message)"
   }
 
-  # Extract output text from Responses API
   $text = $null
   if ($resp -and $resp.output) {
     foreach ($o in $resp.output) {
@@ -281,7 +375,7 @@ User request: "$NaturalLanguage"
     throw "OpenAI returned no usable output text."
   }
 
-  # Parse JSON
+  $json = $null
   try {
     $json = $text | ConvertFrom-Json
   }
@@ -292,7 +386,6 @@ User request: "$NaturalLanguage"
   $branchSlug = [string]$json.branch_slug
   $folderName = [string]$json.folder_name
 
-  # Validate
   Assert-SafeName -Name $branchSlug -FieldName "branch_slug"
   Assert-SafeName -Name $folderName -FieldName "folder_name"
 
@@ -303,6 +396,12 @@ User request: "$NaturalLanguage"
 }
 
 try {
+  # Help is purely local — do it first (no git required)
+  if ($Help) {
+    Show-Help
+    exit 0
+  }
+
   Write-Step "Validating environment"
 
   if (-not (Test-Command "git")) { throw "Git is not installed or not on PATH." }
@@ -338,19 +437,84 @@ try {
     New-Item -ItemType Directory -Path $WorktreesRoot | Out-Null
   }
 
-  # Ensure we have an API key (LLM is required)
+  # -------------------------
+  # -List mode
+  # -------------------------
+  if ($List) {
+    Write-Step "Listing worktrees"
+    $wts = Get-WorktreesPorcelain -RepoRootPath $repoRoot
+
+    if (-not $wts -or $wts.Count -eq 0) {
+      Write-Info "No worktrees found."
+      exit 0
+    }
+
+    $wts |
+      Select-Object @{
+        Name="Path"; Expression={$_.Path}
+      }, @{
+        Name="Branch"; Expression={
+          if ($_.Branch) { $_.Branch -replace '^refs/heads/','' } else { "" }
+        }
+      }, @{
+        Name="HEAD"; Expression={$_.Head}
+      }, @{
+        Name="Locked"; Expression={$_.Locked}
+      } |
+      Format-Table -AutoSize
+
+    exit 0
+  }
+
+  # -------------------------
+  # -Remove mode
+  # -------------------------
+  if (-not [string]::IsNullOrWhiteSpace($Remove)) {
+    Write-Step "Removing worktree"
+
+    $targetPath = Resolve-WorktreePath -WorktreesRootPath $WorktreesRoot -NameOrPath $Remove
+    Write-Info "Target worktree path: $targetPath"
+
+    $wts = Get-WorktreesPorcelain -RepoRootPath $repoRoot
+    $wt = $wts | Where-Object { $_.Path -eq $targetPath } | Select-Object -First 1
+
+    if (-not $wt) {
+      throw "No registered worktree found at: $targetPath"
+    }
+
+    # Safety: do not remove the main worktree (repo root)
+    $repoRootResolved = (Resolve-Path $repoRoot).Path
+    if ($targetPath -eq $repoRootResolved) {
+      throw "Refusing to remove the main working tree (repo root): $repoRootResolved"
+    }
+
+    $removeArgs = @("worktree","remove")
+    if ($Force) { $removeArgs += "--force" }
+    $removeArgs += $targetPath
+
+    Write-Step "Running git worktree remove"
+    Invoke-Git -Args $removeArgs -WorkingDirectory $repoRoot | Out-Null
+
+    Write-Step "Worktree removed"
+    Write-Step "Done"
+    exit 0
+  }
+
+  # -------------------------
+  # Create mode (default)
+  # -------------------------
+
+  # Ensure we have an API key (LLM naming is required for create mode)
   $apiKey = Get-OpenAiApiKey
 
   Write-Step "Gathering feature intent (natural language)"
   $featureRaw = Read-Host "Describe the feature (natural language)"
   if ([string]::IsNullOrWhiteSpace($featureRaw)) { throw "Input cannot be empty." }
 
-  # Ask LLM for naming
   $suggestion = Get-LlmWorktreeSuggestion -NaturalLanguage $featureRaw -ApiKey $apiKey -Model $OpenAiModel
 
   # Enforce folder length even if model gives longer
   $folderName = Truncate-Name -Text $suggestion.FolderName -MaxLength $MaxFolderNameLength
-  # Branch slug can remain full; still safe. (If you want to enforce length, truncate similarly.)
   $slug = $suggestion.BranchSlug
 
   $branchName = "$BranchPrefix$slug"
@@ -376,7 +540,6 @@ try {
   if ($branchExists) { throw "Branch already exists locally: $branchName" }
 
   Write-Step "Creating worktree and branch"
-  # Creates the folder and sets up the new branch in that folder
   Invoke-Git -Args @("worktree","add","-b",$branchName,$worktreePath) -WorkingDirectory $repoRoot | Out-Null
 
   Write-Step "Worktree created successfully"
@@ -398,6 +561,7 @@ try {
 }
 catch {
   Write-Fail $_.Exception.Message
-  Write-Info "Tip: run this from inside the repo you want to create a worktree for."
+  Write-Info "Tip: run -Help for usage:"
+  Write-Info "  .\root\scripts\worktrees.ps1 -Help"
   exit 1
 }
