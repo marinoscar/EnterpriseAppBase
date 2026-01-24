@@ -48,7 +48,9 @@ export function keyValue(key: string, value: string): void {
  * Print a table row
  */
 export function tableRow(columns: string[], widths: number[]): void {
-  const formatted = columns.map((col, i) => col.padEnd(widths[i] || 20));
+  const formatted = columns.map((col, i) =>
+    String(col ?? '').padEnd(widths[i] || 20)
+  );
   console.log(formatted.join('  '));
 }
 
