@@ -73,78 +73,105 @@ export async function loginWithDeviceFlow(): Promise<AuthTokens> {
   output.dim('If the browser does not open, visit the URL above and enter the code.');
   output.blank();
 
-  // Try to open browser
+  // Try to open browser - use dynamic import with better error handling
   try {
-    const open = await import('open');
-    await open.default(codeData.verificationUriComplete);
-  } catch {
+    const openModule = await import('open');
+    const openFn = openModule.default;
+    await openFn(codeData.verificationUriComplete);
+    output.dim('Browser opened.');
+  } catch (err) {
     output.warn('Could not open browser automatically.');
     output.info(`Please visit: ${codeData.verificationUriComplete}`);
   }
 
   // Step 3: Poll for authorization
-  output.info('Waiting for authorization...');
+  output.info('Waiting for authorization (this may take a few minutes)...');
 
-  let pollInterval = codeData.interval * 1000;
-  const deadline = Date.now() + codeData.expiresIn * 1000;
+  let pollInterval = (codeData.interval || 5) * 1000; // Default 5 seconds
+  const expiresIn = (codeData.expiresIn || 900) * 1000; // Default 15 minutes
+  const deadline = Date.now() + expiresIn;
 
   while (Date.now() < deadline) {
     await sleep(pollInterval);
 
-    const tokenResponse = await fetch(`${config.apiUrl}/auth/device/token`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        deviceCode: codeData.deviceCode,
-      }),
-    });
+    try {
+      const tokenResponse = await fetch(`${config.apiUrl}/auth/device/token`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          deviceCode: codeData.deviceCode,
+        }),
+      });
 
-    if (tokenResponse.ok) {
-      const { data: tokenData } = (await tokenResponse.json()) as TokenResponse;
+      if (tokenResponse.ok) {
+        const { data: tokenData } = (await tokenResponse.json()) as TokenResponse;
 
-      // Calculate expiration timestamp
-      const expiresAt = Date.now() + tokenData.expiresIn * 1000;
+        // Calculate expiration timestamp
+        const expiresAt = Date.now() + tokenData.expiresIn * 1000;
 
-      const tokens: AuthTokens = {
-        accessToken: tokenData.accessToken,
-        refreshToken: tokenData.refreshToken,
-        expiresAt,
-      };
+        const tokens: AuthTokens = {
+          accessToken: tokenData.accessToken,
+          refreshToken: tokenData.refreshToken,
+          expiresAt,
+        };
 
-      // Save tokens
-      saveTokens(tokens);
+        // Save tokens
+        saveTokens(tokens);
+        output.blank();
 
-      return tokens;
-    }
+        return tokens;
+      }
 
-    // Handle error responses
-    const errorData = (await tokenResponse.json()) as ErrorResponse;
-    const errorCode = errorData.error || '';
-
-    switch (errorCode) {
-      case 'authorization_pending':
-        // User hasn't approved yet, continue polling
+      // Handle error responses
+      let errorData: ErrorResponse;
+      try {
+        errorData = (await tokenResponse.json()) as ErrorResponse;
+      } catch {
+        // If we can't parse the error, continue polling
         process.stdout.write('.');
         continue;
+      }
 
-      case 'slow_down':
-        // Polling too fast, increase interval
-        pollInterval += 5000;
-        continue;
+      const errorCode = errorData.error || '';
 
-      case 'expired_token':
-        throw new Error('Authorization code expired. Please try again.');
+      switch (errorCode) {
+        case 'authorization_pending':
+          // User hasn't approved yet, continue polling
+          process.stdout.write('.');
+          continue;
 
-      case 'access_denied':
-        throw new Error('Authorization was denied.');
+        case 'slow_down':
+          // Polling too fast, increase interval
+          pollInterval += 5000;
+          process.stdout.write('s');
+          continue;
 
-      default:
-        throw new Error(errorData.message || 'Authorization failed');
+        case 'expired_token':
+          throw new Error('Authorization code expired. Please try again.');
+
+        case 'access_denied':
+          throw new Error('Authorization was denied.');
+
+        default:
+          // For unknown errors, continue polling instead of failing immediately
+          // The API might return different error formats
+          process.stdout.write('?');
+          continue;
+      }
+    } catch (err) {
+      // Network error or other issue - continue polling
+      const error = err as Error;
+      if (error.message.includes('expired') || error.message.includes('denied')) {
+        throw error;
+      }
+      process.stdout.write('!');
+      continue;
     }
   }
 
+  output.blank();
   throw new Error('Authorization timed out. Please try again.');
 }
 
