@@ -254,6 +254,18 @@ cd apps/api && npm run prisma:migrate
 - `POST /api/allowlist` - Add email to allowlist
 - `DELETE /api/allowlist/{id}` - Remove email from allowlist
 
+### Storage Objects
+- `POST /api/storage/objects/upload/init` - Initialize resumable upload
+- `GET /api/storage/objects/:id/upload/status` - Get upload progress
+- `POST /api/storage/objects/:id/upload/complete` - Complete multipart upload
+- `DELETE /api/storage/objects/:id/upload/abort` - Abort upload
+- `POST /api/storage/objects` - Simple file upload
+- `GET /api/storage/objects` - List objects (paginated)
+- `GET /api/storage/objects/:id` - Get object metadata
+- `GET /api/storage/objects/:id/download` - Get signed download URL
+- `DELETE /api/storage/objects/:id` - Delete object
+- `PATCH /api/storage/objects/:id/metadata` - Update metadata
+
 ### Health
 - `GET /api/health/live` - Liveness check
 - `GET /api/health/ready` - Readiness check (includes DB)
@@ -271,6 +283,8 @@ cd apps/api && npm run prisma:migrate
 - `users:read/write` - User management
 - `rbac:manage` - Role assignment
 - `allowlist:read/write` - Allowlist management (Admin only)
+- `storage:read/write/delete` - Storage object access (own objects)
+- `storage:read_any/write_any/delete_any` - Storage object access (all objects, Admin only)
 
 ## Database Tables
 
@@ -284,6 +298,8 @@ cd apps/api && npm run prisma:migrate
 - `refresh_tokens` - JWT refresh tokens (hashed)
 - `allowed_emails` - Allowlist for access control
 - `device_codes` - Device authorization codes (RFC 8628)
+- `storage_objects` - File metadata, status, storage references
+- `storage_object_chunks` - Multipart upload chunk tracking
 
 ## Access Control: Email Allowlist
 
