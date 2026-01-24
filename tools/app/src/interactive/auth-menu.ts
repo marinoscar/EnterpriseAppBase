@@ -71,19 +71,23 @@ export async function showAuthMenu(): Promise<void> {
       return;
     }
 
-    switch (action) {
-      case 'login':
-        await authLogin();
-        return; // Return to main menu after login
-      case 'logout':
-        await authLogout();
-        return; // Return to main menu after logout
-      case 'status':
-        await authStatus();
-        break;
-      case 'whoami':
-        await authWhoami();
-        break;
+    try {
+      switch (action) {
+        case 'login':
+          await authLogin();
+          return; // Return to main menu after login
+        case 'logout':
+          await authLogout();
+          return; // Return to main menu after logout
+        case 'status':
+          await authStatus();
+          break;
+        case 'whoami':
+          await authWhoami();
+          break;
+      }
+    } catch (error) {
+      output.error((error as Error).message);
     }
 
     // Wait for user to press enter before showing menu again

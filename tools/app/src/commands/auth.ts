@@ -78,7 +78,7 @@ async function authLogin(): Promise<void> {
     }
   } catch (error) {
     output.error(`Login failed: ${(error as Error).message}`);
-    process.exit(1);
+    throw error; // Re-throw for CLI handler to catch
   }
 }
 
@@ -134,15 +134,9 @@ async function authStatus(): Promise<void> {
  * Show current user info from API
  */
 async function authWhoami(): Promise<void> {
-  try {
-    const user = await getCurrentUser();
-
-    output.blank();
-    console.log(JSON.stringify(user, null, 2));
-  } catch (error) {
-    output.error((error as Error).message);
-    process.exit(1);
-  }
+  const user = await getCurrentUser();
+  output.blank();
+  console.log(JSON.stringify(user, null, 2));
 }
 
 /**
@@ -152,12 +146,25 @@ async function authToken(): Promise<void> {
   const tokens = loadTokens();
 
   if (!tokens) {
-    output.error('Not authenticated.');
-    process.exit(1);
+    throw new Error('Not authenticated.');
   }
 
   // Print just the token for easy piping
   console.log(tokens.accessToken);
+}
+
+/**
+ * Wrapper for CLI commands to handle errors and exit
+ */
+function cliAction(fn: () => Promise<void>): () => Promise<void> {
+  return async () => {
+    try {
+      await fn();
+    } catch (error) {
+      output.error((error as Error).message);
+      process.exit(1);
+    }
+  };
 }
 
 /**
@@ -171,37 +178,27 @@ export function registerAuthCommands(program: Command): void {
   authCmd
     .command('login')
     .description('Authenticate via device authorization flow')
-    .action(async () => {
-      await authLogin();
-    });
+    .action(cliAction(authLogin));
 
   authCmd
     .command('logout')
     .description('Clear stored credentials')
-    .action(async () => {
-      await authLogout();
-    });
+    .action(cliAction(authLogout));
 
   authCmd
     .command('status')
     .description('Show current authentication status')
-    .action(async () => {
-      await authStatus();
-    });
+    .action(cliAction(authStatus));
 
   authCmd
     .command('whoami')
     .description('Show current user info from API')
-    .action(async () => {
-      await authWhoami();
-    });
+    .action(cliAction(authWhoami));
 
   authCmd
     .command('token')
     .description('Print current access token (for debugging/scripts)')
-    .action(async () => {
-      await authToken();
-    });
+    .action(cliAction(authToken));
 }
 
 // Export for interactive mode
