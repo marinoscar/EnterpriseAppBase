@@ -70,7 +70,7 @@ export class DeviceAuthService {
     this.logger.log(`Generated device code with user code: ${userCode}`);
 
     // Build response
-    const verificationUri = `${appUrl}/device`;
+    const verificationUri = `${appUrl}/activate`;
     const verificationUriComplete = `${verificationUri}?code=${userCode}`;
 
     return {
@@ -207,7 +207,7 @@ export class DeviceAuthService {
    */
   async getActivationInfo(userCode?: string) {
     const appUrl = this.configService.get<string>('appUrl');
-    const verificationUri = `${appUrl}/device`;
+    const verificationUri = `${appUrl}/activate`;
 
     if (!userCode) {
       return { verificationUri };
