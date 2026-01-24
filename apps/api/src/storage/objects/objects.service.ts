@@ -26,6 +26,16 @@ import {
   ObjectResponseDto,
   UploadStatusResponseDto,
 } from './dto/object-response.dto';
+import {
+  ObjectListQueryDto,
+  ObjectListResponseDto,
+} from './dto/object-list-query.dto';
+import {
+  UpdateMetadataDto,
+} from './dto/update-metadata.dto';
+import {
+  DownloadUrlResponseDto,
+} from './dto/download-url-response.dto';
 
 export interface MultipartFile {
   filename: string;
@@ -338,6 +348,171 @@ export class ObjectsService {
     this.logger.log(`Simple upload completed: ${storageObject.id}`);
 
     return this.mapToResponseDto(storageObject);
+  }
+
+  /**
+   * List user's objects with pagination and filtering
+   */
+  async list(
+    query: ObjectListQueryDto,
+    userId: string,
+  ): Promise<ObjectListResponseDto> {
+    const { page, pageSize, status, sortBy, sortOrder } = query;
+
+    const skip = (page - 1) * pageSize;
+    const take = pageSize;
+
+    const where = {
+      uploadedById: userId,
+      ...(status && { status }),
+    };
+
+    // Build orderBy clause
+    const orderBy: any = {};
+    if (sortBy === 'createdAt') {
+      orderBy.createdAt = sortOrder;
+    } else if (sortBy === 'name') {
+      orderBy.name = sortOrder;
+    } else if (sortBy === 'size') {
+      orderBy.size = sortOrder;
+    }
+
+    const [items, totalItems] = await Promise.all([
+      this.prisma.storageObject.findMany({
+        where,
+        orderBy,
+        skip,
+        take,
+      }),
+      this.prisma.storageObject.count({ where }),
+    ]);
+
+    const totalPages = Math.ceil(totalItems / pageSize);
+
+    return {
+      items: items.map((item) => this.mapToResponseDto(item)),
+      meta: {
+        page,
+        pageSize,
+        totalItems,
+        totalPages,
+      },
+    };
+  }
+
+  /**
+   * Get object by ID with ownership check
+   */
+  async getById(id: string, userId: string): Promise<ObjectResponseDto> {
+    const object = await this.getObjectWithAuthCheck(id, userId);
+    return this.mapToResponseDto(object);
+  }
+
+  /**
+   * Get signed download URL for an object
+   */
+  async getDownloadUrl(
+    id: string,
+    userId: string,
+    expiresIn?: number,
+  ): Promise<DownloadUrlResponseDto> {
+    const object = await this.getObjectWithAuthCheck(id, userId);
+
+    // Verify status is ready
+    if (object.status !== 'ready') {
+      throw new BadRequestException(
+        `Object is not ready for download. Current status: ${object.status}`,
+      );
+    }
+
+    const defaultExpiry = this.config.get<number>(
+      'storage.signedUrlExpiry',
+      3600,
+    );
+    const expiry = expiresIn || defaultExpiry;
+
+    const url = await this.storageProvider.getSignedDownloadUrl(
+      object.storageKey,
+      { expiresIn: expiry },
+    );
+
+    this.logger.log(`Generated download URL for object ${id}, expires in ${expiry}s`);
+
+    return {
+      url,
+      expiresIn: expiry,
+    };
+  }
+
+  /**
+   * Delete object from storage and database
+   */
+  async delete(id: string, userId: string): Promise<void> {
+    const object = await this.getObjectWithAuthCheck(id, userId);
+
+    this.logger.log(`Deleting object ${id} from storage and database`);
+
+    // Delete from storage provider
+    await this.storageProvider.delete(object.storageKey);
+
+    // Delete from database (cascade deletes chunks)
+    await this.prisma.storageObject.delete({
+      where: { id },
+    });
+
+    this.logger.log(`Object deleted: ${id}`);
+  }
+
+  /**
+   * Update object metadata
+   */
+  async updateMetadata(
+    id: string,
+    dto: UpdateMetadataDto,
+    userId: string,
+  ): Promise<ObjectResponseDto> {
+    const object = await this.getObjectWithAuthCheck(id, userId);
+
+    // Merge new metadata with existing
+    const existingMetadata = (object.metadata as Record<string, unknown>) || {};
+    const mergedMetadata = {
+      ...existingMetadata,
+      ...dto.metadata,
+    };
+
+    // Update in database
+    const updated = await this.prisma.storageObject.update({
+      where: { id },
+      data: { metadata: mergedMetadata },
+    });
+
+    this.logger.log(`Updated metadata for object ${id}`);
+
+    return this.mapToResponseDto(updated);
+  }
+
+  /**
+   * Helper method to get object with ownership check
+   * @private
+   */
+  private async getObjectWithAuthCheck(
+    id: string,
+    userId: string,
+  ): Promise<any> {
+    const object = await this.prisma.storageObject.findUnique({
+      where: { id },
+    });
+
+    if (!object) {
+      throw new NotFoundException('Object not found');
+    }
+
+    // Check ownership
+    if (object.uploadedById !== userId) {
+      throw new ForbiddenException('You do not have access to this object');
+    }
+
+    return object;
   }
 
   /**
