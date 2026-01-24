@@ -694,7 +694,7 @@ describe('useSystemSettings', () => {
       ).rejects.toThrow();
 
       // isSaving should be false after error
-      expect(result.current.isSaving).toBe(false);
+      expect(result.current?.isSaving).toBe(false);
     });
   });
 
@@ -756,7 +756,7 @@ describe('useSystemSettings', () => {
       });
 
       // Error should be cleared by the successful update
-      expect(result.current.error).toBeNull();
+      expect(result.current?.error).toBeNull();
     });
   });
 });
