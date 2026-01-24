@@ -1,6 +1,6 @@
 import { Box, useTheme } from '@mui/material';
 import { Outlet } from 'react-router-dom';
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { AppBar } from '../navigation/AppBar';
 import { Sidebar } from '../navigation/Sidebar';
 
@@ -8,13 +8,13 @@ export function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const theme = useTheme();
 
-  const handleSidebarToggle = () => {
-    setSidebarOpen(!sidebarOpen);
-  };
+  const handleSidebarToggle = useCallback(() => {
+    setSidebarOpen((prev) => !prev);
+  }, []);
 
-  const handleSidebarClose = () => {
+  const handleSidebarClose = useCallback(() => {
     setSidebarOpen(false);
-  };
+  }, []);
 
   return (
     <Box
