@@ -33,6 +33,11 @@ export const PERMISSIONS = {
   // Allowlist
   ALLOWLIST_READ: 'allowlist:read',
   ALLOWLIST_WRITE: 'allowlist:write',
+
+  // Storage
+  STORAGE_READ: 'storage:read',
+  STORAGE_WRITE: 'storage:write',
+  STORAGE_DELETE_ANY: 'storage:delete_any',
 } as const;
 
 export type PermissionName = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
