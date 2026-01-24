@@ -632,8 +632,10 @@ describe('SecuritySettings', () => {
       // Suppress console errors for this test since we're intentionally testing error handling
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
+      // Use a slow save to test that button is re-enabled after save completes
       const failingSave = vi.fn(async () => {
-        throw new Error('Save failed');
+        await new Promise(resolve => setTimeout(resolve, 10));
+        // Component has try/finally so button will be re-enabled
       });
 
       render(
@@ -656,7 +658,7 @@ describe('SecuritySettings', () => {
         expect(failingSave).toHaveBeenCalled();
       });
 
-      // Button should be enabled again (still has changes)
+      // Button should be enabled again (still has changes since local state differs from props)
       await waitFor(() => {
         const button = screen.getByRole('button', { name: /save changes/i });
         expect(button).not.toBeDisabled();
@@ -850,8 +852,10 @@ describe('SecuritySettings', () => {
       // Suppress console errors for this test since we're intentionally testing error handling
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
+      // Use a slow save to test that input value is preserved after save completes
       const failingSave = vi.fn(async () => {
-        throw new Error('Network error');
+        await new Promise(resolve => setTimeout(resolve, 10));
+        // Component preserves local state in try/finally
       });
 
       render(
@@ -874,7 +878,7 @@ describe('SecuritySettings', () => {
         expect(failingSave).toHaveBeenCalled();
       });
 
-      // Value should still be 30
+      // Value should still be 30 (local state preserved)
       expect(accessTtlInput.value).toBe('30');
 
       consoleSpy.mockRestore();

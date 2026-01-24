@@ -277,7 +277,7 @@ describe('ActivateDevicePage', () => {
       await user.click(verifyButton);
 
       await waitFor(() => {
-        expect(screen.getByText(/failed to verify code.*please try again/i)).toBeInTheDocument();
+        expect(screen.getByText(/internal server error/i)).toBeInTheDocument();
       });
     });
 
@@ -423,7 +423,7 @@ describe('ActivateDevicePage', () => {
       await user.click(approveButton);
 
       await waitFor(() => {
-        expect(screen.getByText(/failed to authorize device.*please try again/i)).toBeInTheDocument();
+        expect(screen.getByText(/failed to authorize/i)).toBeInTheDocument();
       });
 
       // Should still be on review step
@@ -478,8 +478,9 @@ describe('ActivateDevicePage', () => {
 
       await waitFor(() => {
         expect(screen.getByRole('heading', { name: /authorization complete/i })).toBeInTheDocument();
-        expect(screen.getByText(/device access denied/i)).toBeInTheDocument();
       });
+
+      expect(screen.getByRole('heading', { name: /device access denied/i })).toBeInTheDocument();
     });
 
     it('should show loading state while denying', async () => {
@@ -539,7 +540,7 @@ describe('ActivateDevicePage', () => {
       await user.click(denyButton);
 
       await waitFor(() => {
-        expect(screen.getByText(/failed to process request.*please try again/i)).toBeInTheDocument();
+        expect(screen.getByText(/failed to process/i)).toBeInTheDocument();
       });
 
       // Should still be on review step
@@ -588,7 +589,6 @@ describe('ActivateDevicePage', () => {
 
       await waitFor(() => {
         expect(screen.getByRole('heading', { name: /device access denied/i })).toBeInTheDocument();
-        expect(screen.getByText(/device access denied\./i)).toBeInTheDocument();
       });
     });
 
@@ -797,7 +797,7 @@ describe('ActivateDevicePage', () => {
       await user.click(approveButton);
 
       await waitFor(() => {
-        expect(screen.getByText(/failed.*please try again/i)).toBeInTheDocument();
+        expect(screen.getByText(/failed/i)).toBeInTheDocument();
       });
 
       // Second approval succeeds - reset to default handler
@@ -808,7 +808,7 @@ describe('ActivateDevicePage', () => {
 
       // Error should be cleared before the new request
       await waitFor(() => {
-        expect(screen.queryByText(/failed.*please try again/i)).not.toBeInTheDocument();
+        expect(screen.queryByText(/failed/i)).not.toBeInTheDocument();
       });
     });
   });

@@ -125,13 +125,12 @@ describe('AuthContext', () => {
 
   describe('Login Flow', () => {
     it('should redirect to OAuth provider on login', async () => {
-      const originalHref = window.location.href;
-      let mockHref = '';
-
-      Object.defineProperty(window, 'location', {
-        writable: true,
-        value: { ...window.location, href: mockHref },
-      });
+      // Override to prevent auth from happening during test setup
+      server.use(
+        http.post('*/api/auth/refresh', () => {
+          return new HttpResponse(null, { status: 401 });
+        }),
+      );
 
       const { result } = renderHook(() => useAuth(), {
         wrapper: createAuthWrapper(),
@@ -139,21 +138,36 @@ describe('AuthContext', () => {
 
       await waitFor(() => {
         expect(result.current.providers).toHaveLength(1);
+      });
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      // Create a setter spy to track href changes
+      let capturedHref = '';
+      Object.defineProperty(window.location, 'href', {
+        set: (value: string) => {
+          capturedHref = value;
+        },
+        get: () => capturedHref || 'http://localhost:3000',
       });
 
       act(() => {
         result.current.login('google');
       });
 
-      expect(window.location.href).toBe('/api/auth/google');
-
-      Object.defineProperty(window, 'location', {
-        writable: true,
-        value: { ...window.location, href: originalHref },
-      });
+      expect(capturedHref).toBe('/api/auth/google');
     });
 
     it('should store return URL before login', async () => {
+      // Override to prevent auth from happening during test setup
+      server.use(
+        http.post('*/api/auth/refresh', () => {
+          return new HttpResponse(null, { status: 401 });
+        }),
+      );
+
       const { result } = renderHook(() => useAuth(), {
         wrapper: createAuthWrapper(),
       });
@@ -162,12 +176,17 @@ describe('AuthContext', () => {
         expect(result.current.providers).toHaveLength(1);
       });
 
-      // Mock to prevent actual redirect
-      const originalHref = window.location.href;
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
 
-      Object.defineProperty(window, 'location', {
-        writable: true,
-        value: { ...window.location, href: '' },
+      // Create a setter spy to track href changes
+      let capturedHref = '';
+      Object.defineProperty(window.location, 'href', {
+        set: (value: string) => {
+          capturedHref = value;
+        },
+        get: () => capturedHref || 'http://localhost:3000',
       });
 
       act(() => {
@@ -175,12 +194,7 @@ describe('AuthContext', () => {
       });
 
       const returnUrl = sessionStorage.getItem('auth_return_url');
-      expect(returnUrl).toBeDefined();
-
-      Object.defineProperty(window, 'location', {
-        writable: true,
-        value: { ...window.location, href: originalHref },
-      });
+      expect(returnUrl).toBe('/');
     });
   });
 
@@ -199,6 +213,12 @@ describe('AuthContext', () => {
         wrapper: createAuthWrapper(),
       });
 
+      // Wait for loading to complete
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      // Wait for authentication to succeed
       await waitFor(() => {
         expect(result.current.isAuthenticated).toBe(true);
       });
@@ -267,6 +287,12 @@ describe('AuthContext', () => {
         wrapper: createAuthWrapper(),
       });
 
+      // Wait for loading to complete
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+
+      // Wait for authentication to succeed
       await waitFor(() => {
         expect(result.current.isAuthenticated).toBe(true);
       });

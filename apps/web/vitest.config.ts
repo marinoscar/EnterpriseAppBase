@@ -11,7 +11,7 @@ export default defineConfig({
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
     exclude: ['node_modules', 'dist'],
     env: {
-      VITE_API_BASE_URL: '/api',
+      VITE_API_BASE_URL: 'http://localhost:3000/api',
     },
     coverage: {
       provider: 'v8',

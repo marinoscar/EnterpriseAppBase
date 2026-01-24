@@ -4,31 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { CssBaseline } from '@mui/material';
 import { vi } from 'vitest';
 
-// Mock the API module to prevent network calls
-vi.mock('../../services/api', () => ({
-  api: {
-    get: vi.fn(),
-    post: vi.fn(),
-    put: vi.fn(),
-    patch: vi.fn(),
-    delete: vi.fn(),
-    setAccessToken: vi.fn(),
-    refreshToken: vi.fn(),
-  },
-  ApiError: class ApiError extends Error {
-    status: number;
-    code?: string;
-    details?: any;
-    constructor(message: string, status: number, code?: string, details?: any) {
-      super(message);
-      this.status = status;
-      this.code = code;
-      this.details = details;
-    }
-  },
-}));
-
-// Import AuthContext and ThemeContextProvider after mocking
+// Import AuthContext and ThemeContextProvider
 import { AuthContext } from '../../contexts/AuthContext';
 import { ThemeContextProvider } from '../../contexts/ThemeContext';
 import type { AuthProvider as AuthProviderType } from '../../types';

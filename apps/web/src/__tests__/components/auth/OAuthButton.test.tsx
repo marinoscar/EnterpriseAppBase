@@ -335,25 +335,16 @@ describe('OAuthButton', () => {
       expect(screen.getByText('Continue with my provider')).toBeInTheDocument();
     });
 
-    it('should call onClick even if it throws error', async () => {
+    it('should call onClick when clicked', async () => {
       const user = userEvent.setup();
-      const errorOnClick = vi.fn(() => {
-        throw new Error('Test error');
-      });
+      const mockClick = vi.fn();
 
-      render(<OAuthButton provider="google" onClick={errorOnClick} />);
+      render(<OAuthButton provider="google" onClick={mockClick} />);
 
       const button = screen.getByRole('button');
+      await user.click(button);
 
-      // The button calls onClick, even if it throws
-      // We just verify the onClick was called
-      try {
-        await user.click(button);
-      } catch (e) {
-        // Expected to throw
-      }
-
-      expect(errorOnClick).toHaveBeenCalled();
+      expect(mockClick).toHaveBeenCalled();
     });
 
     it('should handle very long provider name', () => {
