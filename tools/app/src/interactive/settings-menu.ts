@@ -2,28 +2,29 @@ import inquirer from 'inquirer';
 import {
   getApiUrl,
   getAppUrl,
-  setApiUrl,
+  setAppUrl,
   clearConfig,
-  getApiUrlSource,
+  getAppUrlSource,
 } from '../lib/config-store.js';
-import { validateUrl, normalizeApiUrl } from '../lib/validators.js';
+import { validateUrl, normalizeUrl } from '../lib/validators.js';
 import * as output from '../utils/output.js';
 import { getIcon } from '../utils/config.js';
 
 /**
- * Configure API URL interactively
+ * Configure App URL interactively
  */
-async function configureApiUrl(): Promise<void> {
-  const currentUrl = getApiUrl();
-  const source = getApiUrlSource();
+async function configureAppUrl(): Promise<void> {
+  const currentUrl = getAppUrl();
+  const source = getAppUrlSource();
 
   output.blank();
-  output.keyValue('Current API URL', currentUrl);
+  output.keyValue('Current App URL', currentUrl);
+  output.keyValue('API URL (derived)', getApiUrl());
 
   switch (source) {
     case 'environment':
       output.dim('(from environment variable - cannot be changed here)');
-      output.info('To change, update the APP_API_URL environment variable.');
+      output.info('To change, update the APP_URL environment variable.');
       return;
     case 'config':
       output.dim('(from saved configuration)');
@@ -39,19 +40,19 @@ async function configureApiUrl(): Promise<void> {
     {
       type: 'input',
       name: 'url',
-      message: 'Enter new API URL:',
+      message: 'Enter App URL (e.g., https://myapp.com):',
       default: currentUrl,
       validate: validateUrl,
     },
   ]);
 
-  const normalized = normalizeApiUrl(url);
+  const normalized = normalizeUrl(url);
 
   // Test connection
-  output.info(`Testing connection to ${normalized}...`);
+  const testApiUrl = `${normalized}/api`;
+  output.info(`Testing connection to ${testApiUrl}...`);
   try {
-    const testUrl = normalized.endsWith('/api') ? normalized : `${normalized}/api`;
-    const response = await fetch(`${testUrl}/health/live`);
+    const response = await fetch(`${testApiUrl}/health/live`);
     if (response.ok) {
       output.success('Connection successful!');
     } else {
@@ -73,9 +74,9 @@ async function configureApiUrl(): Promise<void> {
   ]);
 
   if (confirm) {
-    const urlToSave = normalized.endsWith('/api') ? normalized : `${normalized}/api`;
-    setApiUrl(urlToSave);
-    output.success(`API URL saved: ${urlToSave}`);
+    setAppUrl(normalized);
+    output.success(`App URL saved: ${normalized}`);
+    output.dim(`API URL will be: ${normalized}/api`);
   } else {
     output.info('Cancelled.');
   }
@@ -88,12 +89,12 @@ async function showCurrentConfig(): Promise<void> {
   output.header('Current Configuration');
   output.blank();
 
-  const apiUrl = getApiUrl();
   const appUrl = getAppUrl();
-  const source = getApiUrlSource();
+  const apiUrl = getApiUrl();
+  const source = getAppUrlSource();
 
-  output.keyValue('API URL', apiUrl);
   output.keyValue('App URL', appUrl);
+  output.keyValue('API URL', `${apiUrl} (derived)`);
   output.blank();
 
   switch (source) {
@@ -126,6 +127,7 @@ async function resetConfig(): Promise<void> {
     clearConfig();
     output.success('Configuration reset to defaults.');
     output.blank();
+    output.keyValue('App URL', getAppUrl());
     output.keyValue('API URL', getApiUrl());
   } else {
     output.info('Cancelled.');
@@ -138,7 +140,7 @@ async function resetConfig(): Promise<void> {
 export async function showSettingsMenu(): Promise<void> {
   while (true) {
     output.blank();
-    output.dim(`API URL: ${getApiUrl()}`);
+    output.dim(`App URL: ${getAppUrl()}`);
 
     const { action } = await inquirer.prompt([
       {
@@ -147,7 +149,7 @@ export async function showSettingsMenu(): Promise<void> {
         message: 'Settings:',
         choices: [
           {
-            name: `${getIcon('🔗', '>')} Configure API URL`,
+            name: `${getIcon('🔗', '>')} Configure App URL`,
             value: 'config-url',
           },
           {
@@ -173,7 +175,7 @@ export async function showSettingsMenu(): Promise<void> {
 
     switch (action) {
       case 'config-url':
-        await configureApiUrl();
+        await configureAppUrl();
         break;
       case 'show':
         await showCurrentConfig();
@@ -195,4 +197,4 @@ export async function showSettingsMenu(): Promise<void> {
 }
 
 // Export for use in other menus
-export { configureApiUrl };
+export { configureAppUrl };

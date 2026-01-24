@@ -7,30 +7,31 @@ import {
   isTokenExpired,
 } from '../lib/auth-store.js';
 import {
-  isApiUrlConfigured,
+  isAppUrlConfigured,
+  getAppUrl,
   getApiUrl,
-  setApiUrl,
+  setAppUrl,
 } from '../lib/config-store.js';
 import { loginWithDeviceFlow } from '../lib/device-flow.js';
 import { getCurrentUser } from '../lib/api-client.js';
-import { validateUrl, normalizeApiUrl } from '../lib/validators.js';
+import { validateUrl, normalizeUrl } from '../lib/validators.js';
 import * as output from '../utils/output.js';
 
 /**
  * Login using device authorization flow
  */
 async function authLogin(): Promise<void> {
-  // Check if API URL is configured
-  if (!isApiUrlConfigured()) {
-    output.warn('No API URL configured.');
-    output.keyValue('Default URL', getApiUrl());
+  // Check if App URL is configured
+  if (!isAppUrlConfigured()) {
+    output.warn('No App URL configured.');
+    output.keyValue('Default URL', getAppUrl());
     output.blank();
 
     const { configure } = await inquirer.prompt([
       {
         type: 'confirm',
         name: 'configure',
-        message: 'Would you like to configure the API URL first?',
+        message: 'Would you like to configure the App URL first?',
         default: false,
       },
     ]);
@@ -40,18 +41,16 @@ async function authLogin(): Promise<void> {
         {
           type: 'input',
           name: 'url',
-          message: 'Enter API URL:',
-          default: getApiUrl(),
+          message: 'Enter App URL (e.g., https://myapp.com):',
+          default: getAppUrl(),
           validate: validateUrl,
         },
       ]);
 
-      const normalized = normalizeApiUrl(url);
-      const urlToSave = normalized.endsWith('/api')
-        ? normalized
-        : `${normalized}/api`;
-      setApiUrl(urlToSave);
-      output.success(`API URL set to: ${urlToSave}`);
+      const normalized = normalizeUrl(url);
+      setAppUrl(normalized);
+      output.success(`App URL set to: ${normalized}`);
+      output.dim(`API URL will be: ${normalized}/api`);
       output.blank();
     }
   }

@@ -4,13 +4,12 @@ import { homedir } from 'os';
 
 /**
  * Application configuration
+ * Only stores appUrl - apiUrl is derived by appending /api
  */
 export interface AppConfig {
-  apiUrl?: string;
   appUrl?: string;
 }
 
-const DEFAULT_API_URL = 'http://localhost:3535/api';
 const DEFAULT_APP_URL = 'http://localhost:3535';
 
 /**
@@ -63,25 +62,6 @@ export function saveConfig(config: AppConfig): void {
 }
 
 /**
- * Get the API URL with priority: env var > persisted config > default
- */
-export function getApiUrl(): string {
-  // Environment variable takes precedence
-  if (process.env.APP_API_URL) {
-    return process.env.APP_API_URL;
-  }
-
-  // Check persisted config
-  const config = loadConfig();
-  if (config.apiUrl) {
-    return config.apiUrl;
-  }
-
-  // Default
-  return DEFAULT_API_URL;
-}
-
-/**
  * Get the App URL with priority: env var > persisted config > default
  */
 export function getAppUrl(): string {
@@ -101,48 +81,59 @@ export function getAppUrl(): string {
 }
 
 /**
- * Set the API URL in config
+ * Get the API URL (derived from App URL by appending /api)
+ * Priority: env var APP_API_URL > derived from APP_URL > default
  */
-export function setApiUrl(url: string): void {
+export function getApiUrl(): string {
+  // Explicit API URL env var takes precedence
+  if (process.env.APP_API_URL) {
+    return process.env.APP_API_URL;
+  }
+
+  // Derive from app URL
+  return `${getAppUrl()}/api`;
+}
+
+/**
+ * Set the App URL in config
+ */
+export function setAppUrl(url: string): void {
   const config = loadConfig();
-  config.apiUrl = url;
-  // Also set appUrl to match (without /api suffix)
-  config.appUrl = url.replace(/\/api$/, '');
+  config.appUrl = url;
   saveConfig(config);
 }
 
 /**
- * Clear the API URL from config (revert to default)
+ * Clear the config (revert to default)
  */
 export function clearConfig(): void {
   const config = loadConfig();
-  delete config.apiUrl;
   delete config.appUrl;
   saveConfig(config);
 }
 
 /**
- * Check if API URL is configured (not using default)
+ * Check if App URL is configured (not using default)
  */
-export function isApiUrlConfigured(): boolean {
-  if (process.env.APP_API_URL) {
+export function isAppUrlConfigured(): boolean {
+  if (process.env.APP_URL) {
     return true;
   }
 
   const config = loadConfig();
-  return !!config.apiUrl;
+  return !!config.appUrl;
 }
 
 /**
- * Get the source of the current API URL configuration
+ * Get the source of the current App URL configuration
  */
-export function getApiUrlSource(): 'environment' | 'config' | 'default' {
-  if (process.env.APP_API_URL) {
+export function getAppUrlSource(): 'environment' | 'config' | 'default' {
+  if (process.env.APP_URL) {
     return 'environment';
   }
 
   const config = loadConfig();
-  if (config.apiUrl) {
+  if (config.appUrl) {
     return 'config';
   }
 

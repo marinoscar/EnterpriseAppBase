@@ -3,13 +3,11 @@ import inquirer from 'inquirer';
 import {
   getApiUrl,
   getAppUrl,
-  setApiUrl,
+  setAppUrl,
   clearConfig,
-  loadConfig,
-  getApiUrlSource,
+  getAppUrlSource,
 } from '../lib/config-store.js';
-import { validateUrl, normalizeApiUrl } from '../lib/validators.js';
-import { checkHealth } from '../lib/api-client.js';
+import { validateUrl, normalizeUrl } from '../lib/validators.js';
 import * as output from '../utils/output.js';
 
 /**
@@ -19,12 +17,12 @@ async function configShow(): Promise<void> {
   output.header('CLI Configuration');
   output.blank();
 
-  const apiUrl = getApiUrl();
   const appUrl = getAppUrl();
-  const source = getApiUrlSource();
+  const apiUrl = getApiUrl();
+  const source = getAppUrlSource();
 
-  output.keyValue('API URL', apiUrl);
   output.keyValue('App URL', appUrl);
+  output.keyValue('API URL', `${apiUrl} (derived)`);
   output.blank();
 
   switch (source) {
@@ -41,7 +39,7 @@ async function configShow(): Promise<void> {
 }
 
 /**
- * Set API URL interactively or from argument
+ * Set App URL interactively or from argument
  */
 async function configSetUrl(url?: string): Promise<void> {
   let targetUrl = url;
@@ -51,15 +49,15 @@ async function configSetUrl(url?: string): Promise<void> {
       {
         type: 'input',
         name: 'url',
-        message: 'Enter API URL:',
-        default: getApiUrl(),
+        message: 'Enter App URL (e.g., https://myapp.com):',
+        default: getAppUrl(),
         validate: validateUrl,
       },
     ]);
     targetUrl = answer.url;
   }
 
-  const normalized = normalizeApiUrl(targetUrl!);
+  const normalized = normalizeUrl(targetUrl!);
 
   // Validate format
   const validation = validateUrl(normalized);
@@ -69,11 +67,10 @@ async function configSetUrl(url?: string): Promise<void> {
   }
 
   // Test connection (optional, don't block on failure)
-  output.info(`Testing connection to ${normalized}...`);
+  const testApiUrl = `${normalized}/api`;
+  output.info(`Testing connection to ${testApiUrl}...`);
   try {
-    // Temporarily test with the new URL
-    const testUrl = normalized.endsWith('/api') ? normalized : `${normalized}/api`;
-    const response = await fetch(`${testUrl}/health/live`);
+    const response = await fetch(`${testApiUrl}/health/live`);
     if (response.ok) {
       output.success('Connection successful!');
     } else {
@@ -85,11 +82,11 @@ async function configSetUrl(url?: string): Promise<void> {
   }
 
   // Save the URL
-  const urlToSave = normalized.endsWith('/api') ? normalized : `${normalized}/api`;
-  setApiUrl(urlToSave);
+  setAppUrl(normalized);
 
   output.blank();
-  output.success(`API URL set to: ${urlToSave}`);
+  output.success(`App URL set to: ${normalized}`);
+  output.dim(`API URL will be: ${normalized}/api`);
 }
 
 /**
@@ -113,8 +110,8 @@ async function configReset(): Promise<void> {
   clearConfig();
   output.success('Configuration reset to defaults.');
   output.blank();
-  output.keyValue('API URL', getApiUrl());
   output.keyValue('App URL', getAppUrl());
+  output.keyValue('API URL', getApiUrl());
 }
 
 /**
@@ -134,7 +131,7 @@ export function registerConfigCommands(program: Command): void {
 
   configCmd
     .command('set-url [url]')
-    .description('Set the API URL')
+    .description('Set the App URL (API URL is derived automatically)')
     .action(async (url?: string) => {
       await configSetUrl(url);
     });

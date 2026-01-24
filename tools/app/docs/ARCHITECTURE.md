@@ -11,6 +11,7 @@ tools/app/
 ├── src/
 │   ├── index.ts            # Main entry - routes to interactive or command mode
 │   ├── commands/           # Command implementations (Commander.js)
+│   │   ├── config.ts       # Configuration commands (URL setup)
 │   │   ├── docker.ts       # Docker compose operations
 │   │   ├── test.ts         # Test running commands
 │   │   ├── prisma.ts       # Prisma database operations
@@ -25,10 +26,12 @@ tools/app/
 │   │   ├── test-menu.ts    # Testing menu
 │   │   ├── prisma-menu.ts  # Database menu
 │   │   ├── auth-menu.ts    # Authentication menu
-│   │   └── api-menu.ts     # API commands menu
+│   │   ├── api-menu.ts     # API commands menu
+│   │   └── settings-menu.ts # Settings/configuration menu
 │   ├── lib/                # Core libraries
 │   │   ├── api-client.ts   # HTTP client with auth
 │   │   ├── auth-store.ts   # Token persistence
+│   │   ├── config-store.ts # Configuration persistence (URL)
 │   │   ├── device-flow.ts  # RFC 8628 device auth
 │   │   └── validators.ts   # Input validation
 │   └── utils/              # Shared utilities
@@ -223,13 +226,61 @@ const data = await response.json();
 ```
 
 Features:
+- Uses configured API URL from config-store
 - Auto-injects Authorization header from stored token
 - Auto-refreshes expired tokens
 - Throws clear error if not authenticated
 
-## Token Storage
+The API client automatically uses the configured URL:
+- Calls `getApiUrl()` to determine the base URL
+- Respects URL priority: `APP_API_URL` env var > derived from `APP_URL` > default
 
-Tokens are stored in `~/.config/app/auth.json`:
+## Configuration Storage
+
+### Config Store (URL Configuration)
+
+Configuration is stored in `~/.config/app/config.json`:
+
+```json
+{
+  "appUrl": "https://myapp.company.com"
+}
+```
+
+Use the config-store module:
+
+```typescript
+import {
+  getAppUrl,
+  getApiUrl,
+  setAppUrl,
+  clearConfig,
+  isAppUrlConfigured,
+  getAppUrlSource
+} from '../lib/config-store.js';
+
+// Get URLs (respects priority: env var > config > default)
+const appUrl = getAppUrl();  // e.g., "https://myapp.com"
+const apiUrl = getApiUrl();  // e.g., "https://myapp.com/api"
+
+// Check configuration source
+const source = getAppUrlSource();  // 'environment' | 'config' | 'default'
+
+// Set URL (saves to config file)
+setAppUrl('https://myapp.com');
+
+// Clear config (reverts to default)
+clearConfig();
+
+// Check if configured (not using default)
+if (!isAppUrlConfigured()) {
+  // Prompt user to configure
+}
+```
+
+### Token Storage
+
+Authentication tokens are stored in `~/.config/app/auth.json`:
 
 ```json
 {
@@ -294,9 +345,15 @@ output.tableRow(['value1', 'value2'], [20, 30]);
 Use the validators module:
 
 ```typescript
-import { validateEmail, sanitizeEmail, validateRequired } from '../lib/validators.js';
+import {
+  validateEmail,
+  sanitizeEmail,
+  validateRequired,
+  validateUrl,
+  normalizeUrl
+} from '../lib/validators.js';
 
-// For Inquirer prompts
+// Email validation (for Inquirer prompts)
 {
   type: 'input',
   name: 'email',
@@ -304,10 +361,23 @@ import { validateEmail, sanitizeEmail, validateRequired } from '../lib/validator
   filter: sanitizeEmail,    // Lowercases and trims
 }
 
+// URL validation (for Inquirer prompts)
+{
+  type: 'input',
+  name: 'url',
+  validate: validateUrl,    // Validates http/https URLs
+  filter: normalizeUrl,     // Removes trailing slash
+}
+
 // Manual validation
-const result = validateEmail(input);
-if (result !== true) {
-  output.error(result);
+const emailResult = validateEmail(input);
+if (emailResult !== true) {
+  output.error(emailResult);
+}
+
+const urlResult = validateUrl(input);
+if (urlResult !== true) {
+  output.error(urlResult);
 }
 ```
 

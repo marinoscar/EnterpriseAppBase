@@ -12,6 +12,83 @@ Complete reference for all EnterpriseAppBase CLI commands.
 
 ---
 
+## Configuration Commands
+
+### app config show
+
+Show current CLI configuration (App URL, API URL, and source).
+
+```
+Usage: app config show
+```
+
+**Output:**
+- App URL (where the application is hosted)
+- API URL (derived from App URL)
+- Configuration source (environment, config file, or default)
+
+**Examples:**
+```bash
+app config show
+```
+
+**Sample Output:**
+```
+CLI Configuration
+
+App URL: https://myapp.company.com
+API URL: https://myapp.company.com/api (derived)
+
+(URL from saved configuration)
+```
+
+### app config set-url
+
+Configure the App URL. The API URL is automatically derived by appending `/api`.
+
+```
+Usage: app config set-url [url]
+
+Arguments:
+  url    App URL (optional, prompts if not provided)
+```
+
+**Interactive mode** (no url argument):
+- Prompts for URL with validation
+- Tests connection to the server
+- Confirms before saving
+
+**Features:**
+- URL validation and normalization
+- Automatic connection test to `/api/health/live`
+- Saves even if connection fails (useful for configuring before starting server)
+
+**Examples:**
+```bash
+app config set-url                          # Interactive with prompts
+app config set-url https://myapp.com        # Direct command
+app config set-url http://localhost:3535    # Set to default
+```
+
+### app config reset
+
+Reset configuration to defaults (localhost).
+
+```
+Usage: app config reset
+```
+
+Prompts for confirmation before proceeding. After reset:
+- App URL: `http://localhost:3535`
+- API URL: `http://localhost:3535/api`
+
+**Example:**
+```bash
+app config reset
+```
+
+---
+
 ## Development Commands
 
 ### app start
@@ -474,6 +551,7 @@ Usage: app
 - Database (prisma operations...)
 - Authentication (login, logout...)
 - API Commands (users, allowlist...)
+- Settings (API URL, config...)
 - Exit
 
 **Navigation:**
@@ -493,11 +571,71 @@ Usage: app
 
 ---
 
-## Environment Variables
+## Configuration Details
+
+### URL Configuration Priority
+
+The CLI determines which server to connect to using this priority order:
+
+1. **Environment variable** `APP_URL` (highest priority)
+2. **Saved configuration** in `~/.config/app/config.json`
+3. **Default** `http://localhost:3535` (lowest priority)
+
+### Configuration File
+
+Configuration is stored in `~/.config/app/config.json`:
+
+```json
+{
+  "appUrl": "https://myapp.company.com"
+}
+```
+
+The file has restricted permissions (owner read/write only, `0600`).
+
+### URL Derivation
+
+The CLI only stores the **App URL**. The **API URL** is automatically derived:
+
+- **App URL**: `https://myapp.com` (what you configure)
+- **API URL**: `https://myapp.com/api` (automatically derived)
+
+This matches the same-origin routing pattern where the web UI is served at `/` and the API at `/api`.
+
+### Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `APP_API_URL` | API base URL | `http://localhost:3535/api` |
-| `APP_URL` | Application URL | `http://localhost:3535` |
-| `APP_CONFIG_DIR` | Config directory | `~/.config/app` |
+| `APP_URL` | Application URL (takes precedence over saved config) | `http://localhost:3535` |
+| `APP_API_URL` | API base URL (overrides derived URL if set) | Derived from `APP_URL` |
+| `APP_CONFIG_DIR` | Config directory location | `~/.config/app` |
 | `APP_NO_EMOJI` | Disable emojis (set to `1`) | `0` |
+
+### Multi-Environment Setup
+
+You can use environment variables to quickly switch between environments:
+
+```bash
+# Local development (default)
+app auth login
+
+# Staging environment
+APP_URL=https://staging.myapp.com app auth login
+
+# Production environment
+APP_URL=https://myapp.com app users list
+```
+
+Or configure persistently for the environment you use most:
+
+```bash
+# Set to staging
+app config set-url https://staging.myapp.com
+
+# All commands now target staging by default
+app auth login
+app users list
+
+# Override temporarily with env var for production
+APP_URL=https://myapp.com app users list
+```

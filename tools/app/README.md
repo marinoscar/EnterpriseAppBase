@@ -4,6 +4,7 @@ A cross-platform CLI for managing the EnterpriseAppBase development environment 
 
 ## Features
 
+- **Configuration** - Configure target server URL (works with any deployed instance)
 - **Development Environment** - Start, stop, rebuild Docker services
 - **Testing** - Run API tests (Jest), Web tests (Vitest), E2E tests
 - **Database** - Prisma migrations, seeding, and Prisma Studio
@@ -73,6 +74,7 @@ $ app
   🗄️  Database (prisma operations...)
   🔐 Authentication (login, logout...)
   👥 API Commands (users, allowlist...)
+  ⚙️  Settings (API URL, config...)
   ──────────────
   ❌ Exit
 ```
@@ -90,6 +92,14 @@ app allowlist add      # Add email to allowlist
 ```
 
 ## Commands
+
+### Configuration
+
+| Command | Description |
+|---------|-------------|
+| `app config show` | Show current configuration |
+| `app config set-url [url]` | Set App URL (API URL derived automatically) |
+| `app config reset` | Reset configuration to defaults |
 
 ### Development
 
@@ -152,14 +162,73 @@ app allowlist add      # Add email to allowlist
 
 ## Configuration
 
+The CLI can be configured to work with any deployed instance of the application, not just localhost.
+
+### Configuring the Server URL
+
+The CLI needs to know where your application is deployed. You only need to provide the **App URL** - the API URL is automatically derived by appending `/api`.
+
+**Three ways to configure:**
+
+1. **Interactive mode** (Recommended for first-time setup):
+   ```bash
+   app config set-url
+   # Prompts for URL and tests the connection
+   ```
+
+2. **Command line**:
+   ```bash
+   app config set-url https://myapp.com
+   ```
+
+3. **Environment variable**:
+   ```bash
+   export APP_URL=https://myapp.com
+   app auth login
+   ```
+
+**URL Priority**: Environment variable (`APP_URL`) > Saved config > Default (`http://localhost:3535`)
+
+**Examples:**
+```bash
+# Configure for production server
+app config set-url https://myapp.company.com
+
+# View current configuration
+app config show
+
+# Reset to default (localhost)
+app config reset
+```
+
+### Login Flow URL Prompt
+
+If you try to login without configuring a URL, the CLI will automatically prompt you to enter one:
+```bash
+$ app auth login
+ℹ App URL not configured.
+
+? Enter App URL (e.g., https://myapp.com): https://myapp.company.com
+✓ App URL set to: https://myapp.company.com
+```
+
 ### Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `APP_API_URL` | API base URL | `http://localhost:3535/api` |
 | `APP_URL` | Application URL | `http://localhost:3535` |
+| `APP_API_URL` | API base URL (if different from APP_URL/api) | Derived from `APP_URL` |
 | `APP_CONFIG_DIR` | Config directory | `~/.config/app` |
 | `APP_NO_EMOJI` | Disable emojis | `0` |
+
+### Configuration Storage
+
+Configuration is stored in `~/.config/app/config.json`:
+```json
+{
+  "appUrl": "https://myapp.company.com"
+}
+```
 
 ### Token Storage
 
@@ -178,6 +247,23 @@ After running `app start`:
 | Uptrace (with --otel) | http://localhost:14318 |
 
 ## Examples
+
+### Working with Remote Servers
+
+```bash
+# Configure CLI to connect to staging environment
+app config set-url https://staging.myapp.com
+
+# Login to staging
+app auth login
+
+# Manage users on staging
+app users list
+app allowlist add newuser@company.com
+
+# Switch back to local development
+app config set-url http://localhost:3535
+```
 
 ### Complete Development Workflow
 

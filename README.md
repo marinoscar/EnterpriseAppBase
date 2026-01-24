@@ -157,6 +157,69 @@ Development mode (`dev.compose.yml`) includes hot reload for both frontend and b
 - Backend: Changes to `apps/api/src/**` trigger restart
 - Frontend: Vite HMR updates immediately
 
+## CLI Tool
+
+A cross-platform CLI (`app`) is available for managing development, testing, and API operations. The CLI can connect to any deployed instance, not just localhost.
+
+### Installation
+
+```bash
+# Build the CLI
+cd tools/app && npm run build
+
+# Link globally (recommended)
+npm link
+
+# Now you can use 'app' from anywhere
+app --help
+```
+
+### Quick CLI Commands
+
+```bash
+# Configure CLI to connect to a server
+app config set-url https://myapp.com
+
+# Start development environment
+app start
+
+# Login (opens browser for OAuth)
+app auth login
+
+# Run tests
+app test
+
+# Manage users (admin only)
+app users list
+app allowlist add newuser@company.com
+
+# Database operations
+app prisma migrate
+app prisma seed
+
+# Interactive mode (menu-driven)
+app
+```
+
+### Working with Remote Servers
+
+The CLI can manage any deployed instance:
+
+```bash
+# Configure for production
+app config set-url https://prod.myapp.com
+app auth login
+app users list
+
+# Switch to staging
+app config set-url https://staging.myapp.com
+
+# View current configuration
+app config show
+```
+
+For complete CLI documentation, see [tools/app/README.md](tools/app/README.md).
+
 ## Project Structure
 
 ```
@@ -180,6 +243,8 @@ EnterpriseAppBase/
 │       │   ├── pages/         # Page components
 │       │   └── services/      # API client
 │       └── src/__tests__/     # Component tests
+├── tools/
+│   └── app/                    # CLI tool for development and API management
 ├── docs/                       # Documentation
 │   ├── DEVELOPMENT.md         # Development guide (start here!)
 │   ├── SECURITY-ARCHITECTURE.md  # Security design
@@ -198,6 +263,7 @@ EnterpriseAppBase/
 
 ## Documentation
 
+- **[CLI Tool](tools/app/README.md)** - CLI for development, testing, and API management
 - **[DEVELOPMENT.md](docs/DEVELOPMENT.md)** - Development setup, common patterns, and troubleshooting
 - **[SECURITY-ARCHITECTURE.md](docs/SECURITY-ARCHITECTURE.md)** - Security design and implementation
 - **[TESTING.md](docs/TESTING.md)** - Testing strategy and best practices

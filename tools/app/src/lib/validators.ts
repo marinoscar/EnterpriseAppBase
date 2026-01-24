@@ -90,9 +90,9 @@ export function validateUrl(input: string): boolean | string {
 }
 
 /**
- * Normalize API URL (remove trailing slashes)
+ * Normalize URL (remove trailing slashes)
  */
-export function normalizeApiUrl(url: string): string {
+export function normalizeUrl(url: string): string {
   let normalized = url.trim();
   while (normalized.endsWith('/')) {
     normalized = normalized.slice(0, -1);
