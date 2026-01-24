@@ -9,6 +9,7 @@ import {
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { Logger } from '@nestjs/common';
 import fastifyCookie from '@fastify/cookie';
+import multipart from '@fastify/multipart';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -22,6 +23,14 @@ async function bootstrap() {
   // Register cookie plugin
   await app.register(fastifyCookie, {
     secret: process.env.COOKIE_SECRET || process.env.JWT_SECRET,
+  });
+
+  // Register multipart plugin for file uploads
+  await app.register(multipart, {
+    limits: {
+      fileSize: 100 * 1024 * 1024, // 100MB for simple upload
+      files: 1,
+    },
   });
 
   // Global prefix for all routes
