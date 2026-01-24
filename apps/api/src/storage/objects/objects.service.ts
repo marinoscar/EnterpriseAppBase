@@ -36,6 +36,10 @@ import {
 import {
   DownloadUrlResponseDto,
 } from './dto/download-url-response.dto';
+import {
+  OBJECT_UPLOADED_EVENT,
+  ObjectUploadedEvent,
+} from '../processing/events/object-uploaded.event';
 
 export interface MultipartFile {
   filename: string;
@@ -251,12 +255,10 @@ export class ObjectsService {
     });
 
     // Emit event for post-processing
-    this.eventEmitter.emit('storage.object.uploaded', {
-      objectId: updated.id,
-      userId,
-      storageKey: updated.storageKey,
-      mimeType: updated.mimeType,
-    });
+    this.eventEmitter.emit(
+      OBJECT_UPLOADED_EVENT,
+      new ObjectUploadedEvent(updated),
+    );
 
     this.logger.log(`Upload completed: ${objectId}`);
 
@@ -338,12 +340,10 @@ export class ObjectsService {
     });
 
     // Emit event for post-processing
-    this.eventEmitter.emit('storage.object.uploaded', {
-      objectId: storageObject.id,
-      userId,
-      storageKey: storageObject.storageKey,
-      mimeType: storageObject.mimeType,
-    });
+    this.eventEmitter.emit(
+      OBJECT_UPLOADED_EVENT,
+      new ObjectUploadedEvent(storageObject),
+    );
 
     this.logger.log(`Simple upload completed: ${storageObject.id}`);
 
