@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { exec, confirm } from '../utils/exec.js';
+import { exec, execInterruptible, confirm } from '../utils/exec.js';
 import { paths, verifyPaths } from '../utils/paths.js';
 import * as output from '../utils/output.js';
 
@@ -163,19 +163,24 @@ export async function rebuildServices(
 }
 
 /**
- * Show logs
+ * Show logs (interruptible - Ctrl+C returns to menu)
  */
 export async function showLogs(service?: string): Promise<void> {
-  output.info('Showing logs (Ctrl+C to exit)...');
+  output.info('Showing logs (Ctrl+C to return)...');
+  output.blank();
 
   const composeArgs = getComposeArgs();
-  const args = ['logs', '-f'];
+  const allArgs = [...composeArgs, 'logs', '-f'];
 
   if (service) {
-    args.push(service);
+    allArgs.push(service);
   }
 
-  await dockerCompose(composeArgs, args);
+  // Use execInterruptible so Ctrl+C returns to menu instead of exiting
+  await execInterruptible('docker', allArgs, { cwd: paths.composeDir });
+
+  output.blank();
+  output.info('Logs closed.');
 }
 
 /**

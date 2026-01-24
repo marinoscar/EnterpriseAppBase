@@ -64,6 +64,43 @@ export function execCapture(
 }
 
 /**
+ * Execute an interruptible command (Ctrl+C returns instead of exiting)
+ * Useful for commands like `docker compose logs -f`
+ */
+export function execInterruptible(
+  command: string,
+  args: string[] = [],
+  options: ExecOptions = {}
+): Promise<number> {
+  const { silent, ...spawnOptions } = options;
+
+  return new Promise((resolve) => {
+    const proc = spawn(command, args, {
+      stdio: silent ? 'pipe' : 'inherit',
+      shell: true,
+      ...spawnOptions,
+    });
+
+    // Handle Ctrl+C gracefully - kill the child process and return
+    const sigintHandler = () => {
+      proc.kill('SIGINT');
+    };
+
+    process.on('SIGINT', sigintHandler);
+
+    proc.on('close', (code) => {
+      process.removeListener('SIGINT', sigintHandler);
+      resolve(code ?? 0);
+    });
+
+    proc.on('error', () => {
+      process.removeListener('SIGINT', sigintHandler);
+      resolve(1);
+    });
+  });
+}
+
+/**
  * Sleep for specified milliseconds
  */
 export function sleep(ms: number): Promise<void> {
