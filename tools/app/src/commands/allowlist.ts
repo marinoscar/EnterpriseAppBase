@@ -9,7 +9,7 @@ interface AllowlistEntry {
   email: string;
   notes: string | null;
   status: 'pending' | 'claimed';
-  createdAt: string;
+  addedAt: string;
 }
 
 interface PaginatedResponse<T> {
@@ -69,7 +69,7 @@ async function listAllowlist(options: {
         entry.email,
         entry.status,
         entry.notes || '-',
-        new Date(entry.createdAt).toLocaleDateString(),
+        new Date(entry.addedAt).toLocaleDateString(),
       ],
       widths
     );

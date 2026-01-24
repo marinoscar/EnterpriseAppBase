@@ -132,7 +132,7 @@ describe('allowlist commands', () => {
                 email: 'test@example.com',
                 notes: 'Test user',
                 status: 'pending',
-                createdAt: '2024-01-01T00:00:00Z',
+                addedAt: '2024-01-01T00:00:00Z',
               },
             ],
             total: 1,
