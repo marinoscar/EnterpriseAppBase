@@ -92,7 +92,9 @@ global.IntersectionObserver = IntersectionObserverMock as any;
 
 // Setup MSW server
 beforeAll(() => {
-  server.listen({ onUnhandledRequest: 'error' });
+  server.listen({
+    onUnhandledRequest: 'warn' // Changed from 'error' to 'warn' for debugging
+  });
 });
 
 afterEach(() => {

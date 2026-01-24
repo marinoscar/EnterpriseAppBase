@@ -1,6 +1,6 @@
 import { http, HttpResponse } from 'msw';
 
-// Use wildcard matching for flexibility
+// Use wildcard pattern to match relative URLs
 const API_BASE = '*/api';
 
 // Mock data
@@ -211,6 +211,38 @@ export const handlers = [
         checks: {
           database: 'ok',
         },
+      },
+    });
+  }),
+
+  // Device Authorization endpoints
+  http.get(`${API_BASE}/auth/device/activate`, ({ request }) => {
+    const url = new URL(request.url);
+    const code = url.searchParams.get('code');
+
+    // Default success response
+    return HttpResponse.json({
+      data: {
+        userCode: code || 'ABCD-1234',
+        clientInfo: {
+          deviceName: 'My Smart TV',
+          userAgent: 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36',
+          ipAddress: '192.168.1.100',
+        },
+        expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+      },
+    });
+  }),
+
+  http.post(`${API_BASE}/auth/device/authorize`, async ({ request }) => {
+    const body = (await request.json()) as { userCode: string; approve: boolean };
+
+    return HttpResponse.json({
+      data: {
+        success: body.approve,
+        message: body.approve
+          ? 'Device authorized successfully!'
+          : 'Device access denied.',
       },
     });
   }),

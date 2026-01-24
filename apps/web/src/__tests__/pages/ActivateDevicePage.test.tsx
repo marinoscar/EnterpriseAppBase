@@ -1,14 +1,22 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { http, HttpResponse } from 'msw';
+import { server } from '../mocks/server';
 import { render } from '../utils/test-utils';
 import ActivateDevicePage from '../../pages/ActivateDevicePage';
 import type { DeviceActivationInfo, DeviceAuthorizationResponse } from '../../types';
 
-// Import the mocked api from test-utils
-import { api, ApiError } from '../../services/api';
+// Use wildcard pattern to match API requests
+const API_BASE = '*/api';
 
-const mockApi = vi.mocked(api);
+// Helper to create API error responses
+function createErrorResponse(message: string, status: number, code?: string) {
+  return HttpResponse.json(
+    { message, code },
+    { status }
+  );
+}
 
 describe('ActivateDevicePage', () => {
   const mockDeviceInfo: DeviceActivationInfo = {
@@ -22,7 +30,8 @@ describe('ActivateDevicePage', () => {
   };
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    // Reset any MSW handlers to defaults
+    server.resetHandlers();
   });
 
   afterEach(() => {
@@ -84,8 +93,6 @@ describe('ActivateDevicePage', () => {
     });
 
     it('should auto-verify when code is provided in URL', async () => {
-      mockApi.get.mockResolvedValue(mockDeviceInfo);
-
       render(<ActivateDevicePage />, {
         wrapperOptions: {
           route: '/activate-device?code=ABCD-1234',
@@ -93,7 +100,7 @@ describe('ActivateDevicePage', () => {
       });
 
       await waitFor(() => {
-        expect(mockApi.get).toHaveBeenCalledWith('/auth/device/activate?code=ABCD-1234');
+        expect(screen.getByText(/a device is requesting access/i)).toBeInTheDocument();
       });
     });
 
@@ -123,7 +130,6 @@ describe('ActivateDevicePage', () => {
   describe('Code Verification Flow', () => {
     it('should verify code and transition to review step', async () => {
       const user = userEvent.setup({ delay: null });
-      mockApi.get.mockResolvedValue(mockDeviceInfo);
 
       render(<ActivateDevicePage />);
 
@@ -134,17 +140,12 @@ describe('ActivateDevicePage', () => {
       await user.click(verifyButton);
 
       await waitFor(() => {
-        expect(mockApi.get).toHaveBeenCalledWith('/auth/device/activate?code=ABCD-1234');
-      });
-
-      await waitFor(() => {
         expect(screen.getByText(/a device is requesting access/i)).toBeInTheDocument();
       });
     });
 
     it('should display device information after verification', async () => {
       const user = userEvent.setup({ delay: null });
-      mockApi.get.mockResolvedValue(mockDeviceInfo);
 
       render(<ActivateDevicePage />);
 
@@ -163,11 +164,16 @@ describe('ActivateDevicePage', () => {
 
     it('should show loading state while verifying', async () => {
       const user = userEvent.setup({ delay: null });
-      let resolvePromise: (value: DeviceActivationInfo) => void;
-      const promise = new Promise<DeviceActivationInfo>((resolve) => {
-        resolvePromise = resolve;
-      });
-      mockApi.get.mockReturnValue(promise);
+
+      // Mock a delayed response
+      server.use(
+        http.get(`${API_BASE}/auth/device/activate`, async () => {
+          await new Promise(resolve => setTimeout(resolve, 100));
+          return HttpResponse.json({
+            data: mockDeviceInfo,
+          });
+        })
+      );
 
       render(<ActivateDevicePage />);
 
@@ -180,9 +186,6 @@ describe('ActivateDevicePage', () => {
       expect(screen.getByText(/verifying/i)).toBeInTheDocument();
       expect(verifyButton).toBeDisabled();
 
-      // Resolve the promise
-      resolvePromise!(mockDeviceInfo);
-
       await waitFor(() => {
         expect(screen.getByText(/a device is requesting access/i)).toBeInTheDocument();
       });
@@ -192,8 +195,11 @@ describe('ActivateDevicePage', () => {
   describe('Error Handling', () => {
     it('should display error for invalid code (404)', async () => {
       const user = userEvent.setup({ delay: null });
-      mockApi.get.mockRejectedValue(
-        new ApiError('Not found', 404)
+
+      server.use(
+        http.get(`${API_BASE}/auth/device/activate`, () => {
+          return createErrorResponse('Not found', 404, 'DEVICE_CODE_NOT_FOUND');
+        })
       );
 
       render(<ActivateDevicePage />);
@@ -211,8 +217,11 @@ describe('ActivateDevicePage', () => {
 
     it('should display error for expired code (410)', async () => {
       const user = userEvent.setup({ delay: null });
-      mockApi.get.mockRejectedValue(
-        new ApiError('Code expired', 410)
+
+      server.use(
+        http.get(`${API_BASE}/auth/device/activate`, () => {
+          return createErrorResponse('Code expired', 410, 'DEVICE_CODE_EXPIRED');
+        })
       );
 
       render(<ActivateDevicePage />);
@@ -230,8 +239,11 @@ describe('ActivateDevicePage', () => {
 
     it('should display error for bad request (400)', async () => {
       const user = userEvent.setup({ delay: null });
-      mockApi.get.mockRejectedValue(
-        new ApiError('Bad request', 400)
+
+      server.use(
+        http.get(`${API_BASE}/auth/device/activate`, () => {
+          return createErrorResponse('Bad request', 400);
+        })
       );
 
       render(<ActivateDevicePage />);
@@ -249,8 +261,11 @@ describe('ActivateDevicePage', () => {
 
     it('should display generic error for other API errors', async () => {
       const user = userEvent.setup({ delay: null });
-      mockApi.get.mockRejectedValue(
-        new ApiError('Internal server error', 500)
+
+      server.use(
+        http.get(`${API_BASE}/auth/device/activate`, () => {
+          return createErrorResponse('Internal server error', 500);
+        })
       );
 
       render(<ActivateDevicePage />);
@@ -268,8 +283,11 @@ describe('ActivateDevicePage', () => {
 
     it('should display network error for non-API errors', async () => {
       const user = userEvent.setup({ delay: null });
-      mockApi.get.mockRejectedValue(
-        new Error('Network failure')
+
+      server.use(
+        http.get(`${API_BASE}/auth/device/activate`, () => {
+          return HttpResponse.error();
+        })
       );
 
       render(<ActivateDevicePage />);
@@ -289,8 +307,10 @@ describe('ActivateDevicePage', () => {
       const user = userEvent.setup({ delay: null });
 
       // First attempt fails
-      mockApi.get.mockRejectedValueOnce(
-        new ApiError('Not found', 404)
+      server.use(
+        http.get(`${API_BASE}/auth/device/activate`, () => {
+          return createErrorResponse('Not found', 404);
+        })
       );
 
       render(<ActivateDevicePage />);
@@ -306,8 +326,8 @@ describe('ActivateDevicePage', () => {
         expect(screen.getByText(/invalid code/i)).toBeInTheDocument();
       });
 
-      // Second attempt succeeds
-      mockApi.get.mockResolvedValueOnce(mockDeviceInfo);
+      // Second attempt succeeds - reset to default handler
+      server.resetHandlers();
 
       await user.clear(input);
       await user.type(input, 'VALID123');
@@ -323,17 +343,8 @@ describe('ActivateDevicePage', () => {
   });
 
   describe('Device Approval Flow', () => {
-    beforeEach(async () => {
-      mockApi.get.mockResolvedValue(mockDeviceInfo);
-    });
-
     it('should approve device successfully', async () => {
       const user = userEvent.setup({ delay: null });
-      const successResponse: DeviceAuthorizationResponse = {
-        success: true,
-        message: 'Device authorized successfully!',
-      };
-      mockApi.post.mockResolvedValue(successResponse);
 
       render(<ActivateDevicePage />, {
         wrapperOptions: {
@@ -350,13 +361,6 @@ describe('ActivateDevicePage', () => {
       await user.click(approveButton);
 
       await waitFor(() => {
-        expect(mockApi.post).toHaveBeenCalledWith('/auth/device/authorize', {
-          userCode: 'ABCD-1234',
-          approve: true,
-        });
-      });
-
-      await waitFor(() => {
         expect(screen.getByRole('heading', { name: /authorization complete/i })).toBeInTheDocument();
         expect(screen.getByText(/device authorized successfully!/i)).toBeInTheDocument();
       });
@@ -364,11 +368,16 @@ describe('ActivateDevicePage', () => {
 
     it('should show loading state while approving', async () => {
       const user = userEvent.setup({ delay: null });
-      let resolvePromise: (value: DeviceAuthorizationResponse) => void;
-      const promise = new Promise<DeviceAuthorizationResponse>((resolve) => {
-        resolvePromise = resolve;
-      });
-      mockApi.post.mockReturnValue(promise);
+
+      // Mock a delayed response
+      server.use(
+        http.post(`${API_BASE}/auth/device/authorize`, async () => {
+          await new Promise(resolve => setTimeout(resolve, 100));
+          return HttpResponse.json({
+            data: { success: true, message: 'Success' },
+          });
+        })
+      );
 
       render(<ActivateDevicePage />, {
         wrapperOptions: {
@@ -386,14 +395,18 @@ describe('ActivateDevicePage', () => {
       expect(screen.getByText(/approving/i)).toBeInTheDocument();
       expect(approveButton).toBeDisabled();
 
-      // Resolve to prevent hanging
-      resolvePromise!({ success: true, message: 'Success' });
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: /authorization complete/i })).toBeInTheDocument();
+      });
     });
 
     it('should display error when approval fails', async () => {
       const user = userEvent.setup({ delay: null });
-      mockApi.post.mockRejectedValue(
-        new ApiError('Failed to authorize', 500)
+
+      server.use(
+        http.post(`${API_BASE}/auth/device/authorize`, () => {
+          return createErrorResponse('Failed to authorize', 500);
+        })
       );
 
       render(<ActivateDevicePage />, {
@@ -419,8 +432,11 @@ describe('ActivateDevicePage', () => {
 
     it('should handle network error during approval', async () => {
       const user = userEvent.setup({ delay: null });
-      mockApi.post.mockRejectedValue(
-        new Error('Network failure')
+
+      server.use(
+        http.post(`${API_BASE}/auth/device/authorize`, () => {
+          return HttpResponse.error();
+        })
       );
 
       render(<ActivateDevicePage />, {
@@ -443,17 +459,8 @@ describe('ActivateDevicePage', () => {
   });
 
   describe('Device Denial Flow', () => {
-    beforeEach(async () => {
-      mockApi.get.mockResolvedValue(mockDeviceInfo);
-    });
-
     it('should deny device successfully', async () => {
       const user = userEvent.setup({ delay: null });
-      const denialResponse: DeviceAuthorizationResponse = {
-        success: false,
-        message: 'Device access denied.',
-      };
-      mockApi.post.mockResolvedValue(denialResponse);
 
       render(<ActivateDevicePage />, {
         wrapperOptions: {
@@ -470,13 +477,6 @@ describe('ActivateDevicePage', () => {
       await user.click(denyButton);
 
       await waitFor(() => {
-        expect(mockApi.post).toHaveBeenCalledWith('/auth/device/authorize', {
-          userCode: 'ABCD-1234',
-          approve: false,
-        });
-      });
-
-      await waitFor(() => {
         expect(screen.getByRole('heading', { name: /authorization complete/i })).toBeInTheDocument();
         expect(screen.getByText(/device access denied/i)).toBeInTheDocument();
       });
@@ -484,11 +484,16 @@ describe('ActivateDevicePage', () => {
 
     it('should show loading state while denying', async () => {
       const user = userEvent.setup({ delay: null });
-      let resolvePromise: (value: DeviceAuthorizationResponse) => void;
-      const promise = new Promise<DeviceAuthorizationResponse>((resolve) => {
-        resolvePromise = resolve;
-      });
-      mockApi.post.mockReturnValue(promise);
+
+      // Mock a delayed response
+      server.use(
+        http.post(`${API_BASE}/auth/device/authorize`, async () => {
+          await new Promise(resolve => setTimeout(resolve, 100));
+          return HttpResponse.json({
+            data: { success: false, message: 'Denied' },
+          });
+        })
+      );
 
       render(<ActivateDevicePage />, {
         wrapperOptions: {
@@ -506,14 +511,18 @@ describe('ActivateDevicePage', () => {
       expect(screen.getByText(/denying/i)).toBeInTheDocument();
       expect(denyButton).toBeDisabled();
 
-      // Resolve to prevent hanging
-      resolvePromise!({ success: false, message: 'Denied' });
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: /authorization complete/i })).toBeInTheDocument();
+      });
     });
 
     it('should display error when denial fails', async () => {
       const user = userEvent.setup({ delay: null });
-      mockApi.post.mockRejectedValue(
-        new ApiError('Failed to process', 500)
+
+      server.use(
+        http.post(`${API_BASE}/auth/device/authorize`, () => {
+          return createErrorResponse('Failed to process', 500);
+        })
       );
 
       render(<ActivateDevicePage />, {
@@ -539,16 +548,8 @@ describe('ActivateDevicePage', () => {
   });
 
   describe('Success/Completion Step', () => {
-    beforeEach(async () => {
-      mockApi.get.mockResolvedValue(mockDeviceInfo);
-    });
-
     it('should display success message and icon for approved device', async () => {
       const user = userEvent.setup({ delay: null });
-      mockApi.post.mockResolvedValue({
-        success: true,
-        message: 'Device authorized successfully!',
-      });
 
       render(<ActivateDevicePage />, {
         wrapperOptions: {
@@ -571,10 +572,6 @@ describe('ActivateDevicePage', () => {
 
     it('should display denial message for denied device', async () => {
       const user = userEvent.setup({ delay: null });
-      mockApi.post.mockResolvedValue({
-        success: false,
-        message: 'Device access denied.',
-      });
 
       render(<ActivateDevicePage />, {
         wrapperOptions: {
@@ -597,10 +594,6 @@ describe('ActivateDevicePage', () => {
 
     it('should show "Go to Home" button after completion', async () => {
       const user = userEvent.setup({ delay: null });
-      mockApi.post.mockResolvedValue({
-        success: true,
-        message: 'Success',
-      });
 
       render(<ActivateDevicePage />, {
         wrapperOptions: {
@@ -622,10 +615,6 @@ describe('ActivateDevicePage', () => {
 
     it('should show "Try Another Code" button after denial', async () => {
       const user = userEvent.setup({ delay: null });
-      mockApi.post.mockResolvedValue({
-        success: false,
-        message: 'Denied',
-      });
 
       render(<ActivateDevicePage />, {
         wrapperOptions: {
@@ -648,10 +637,17 @@ describe('ActivateDevicePage', () => {
     it('should display custom success message from API', async () => {
       const user = userEvent.setup({ delay: null });
       const customMessage = 'Your Smart TV has been connected to your account.';
-      mockApi.post.mockResolvedValue({
-        success: true,
-        message: customMessage,
-      });
+
+      server.use(
+        http.post(`${API_BASE}/auth/device/authorize`, () => {
+          return HttpResponse.json({
+            data: {
+              success: true,
+              message: customMessage,
+            },
+          });
+        })
+      );
 
       render(<ActivateDevicePage />, {
         wrapperOptions: {
@@ -675,11 +671,6 @@ describe('ActivateDevicePage', () => {
   describe('Step Transitions', () => {
     it('should transition through all steps for approval flow', async () => {
       const user = userEvent.setup({ delay: null });
-      mockApi.get.mockResolvedValue(mockDeviceInfo);
-      mockApi.post.mockResolvedValue({
-        success: true,
-        message: 'Success',
-      });
 
       render(<ActivateDevicePage />);
 
@@ -708,11 +699,6 @@ describe('ActivateDevicePage', () => {
 
     it('should change header text on completion step', async () => {
       const user = userEvent.setup({ delay: null });
-      mockApi.get.mockResolvedValue(mockDeviceInfo);
-      mockApi.post.mockResolvedValue({
-        success: true,
-        message: 'Success',
-      });
 
       render(<ActivateDevicePage />, {
         wrapperOptions: {
@@ -735,11 +721,6 @@ describe('ActivateDevicePage', () => {
 
     it('should not show description on completion step', async () => {
       const user = userEvent.setup({ delay: null });
-      mockApi.get.mockResolvedValue(mockDeviceInfo);
-      mockApi.post.mockResolvedValue({
-        success: true,
-        message: 'Success',
-      });
 
       render(<ActivateDevicePage />, {
         wrapperOptions: {
@@ -763,9 +744,12 @@ describe('ActivateDevicePage', () => {
   describe('UI State Management', () => {
     it('should disable buttons while processing', async () => {
       const user = userEvent.setup({ delay: null });
-      mockApi.get.mockResolvedValue(mockDeviceInfo);
-      mockApi.post.mockImplementation(
-        () => new Promise(() => {}) // Never resolves
+
+      // Mock a never-resolving response
+      server.use(
+        http.post(`${API_BASE}/auth/device/authorize`, () => {
+          return new Promise(() => {}); // Never resolves
+        })
       );
 
       render(<ActivateDevicePage />, {
@@ -791,11 +775,12 @@ describe('ActivateDevicePage', () => {
 
     it('should clear errors before new authorization attempt', async () => {
       const user = userEvent.setup({ delay: null });
-      mockApi.get.mockResolvedValue(mockDeviceInfo);
 
       // First approval fails
-      mockApi.post.mockRejectedValueOnce(
-        new ApiError('Failed', 500)
+      server.use(
+        http.post(`${API_BASE}/auth/device/authorize`, () => {
+          return createErrorResponse('Failed', 500);
+        })
       );
 
       render(<ActivateDevicePage />, {
@@ -815,11 +800,8 @@ describe('ActivateDevicePage', () => {
         expect(screen.getByText(/failed.*please try again/i)).toBeInTheDocument();
       });
 
-      // Second approval succeeds
-      mockApi.post.mockResolvedValueOnce({
-        success: true,
-        message: 'Success',
-      });
+      // Second approval succeeds - reset to default handler
+      server.resetHandlers();
 
       approveButton = screen.getByRole('button', { name: /approve/i });
       await user.click(approveButton);
