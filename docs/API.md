@@ -1009,6 +1009,264 @@ If-Match: 1
 
 ---
 
+### Storage Objects
+
+The storage system provides file upload and management capabilities with support for large files (GB scale) through resumable multipart uploads.
+
+#### Initialize Resumable Upload
+
+`POST /api/storage/objects/upload/init`
+
+**Requires Authentication** - Initialize a multipart upload for large files. Returns presigned URLs for direct-to-S3 uploads.
+
+**Request Body:**
+```json
+{
+  "name": "document.pdf",
+  "size": 104857600,
+  "mimeType": "application/pdf"
+}
+```
+
+**Response:**
+```json
+{
+  "data": {
+    "objectId": "uuid",
+    "uploadId": "s3-upload-id",
+    "partSize": 10485760,
+    "totalParts": 10,
+    "presignedUrls": [
+      { "partNumber": 1, "url": "https://..." },
+      { "partNumber": 2, "url": "https://..." }
+    ]
+  }
+}
+```
+
+---
+
+#### Get Upload Status
+
+`GET /api/storage/objects/:id/upload/status`
+
+**Requires Authentication** - Check progress of an in-progress upload.
+
+**Response:**
+```json
+{
+  "data": {
+    "status": "uploading",
+    "uploadedParts": 5,
+    "totalParts": 10,
+    "progress": 50
+  }
+}
+```
+
+---
+
+#### Complete Upload
+
+`POST /api/storage/objects/:id/upload/complete`
+
+**Requires Authentication** - Finalize multipart upload after all parts are uploaded.
+
+**Request Body:**
+```json
+{
+  "parts": [
+    { "partNumber": 1, "eTag": "\"etag1\"" },
+    { "partNumber": 2, "eTag": "\"etag2\"" }
+  ]
+}
+```
+
+**Response:**
+```json
+{
+  "data": {
+    "id": "uuid",
+    "name": "document.pdf",
+    "size": 104857600,
+    "mimeType": "application/pdf",
+    "status": "processing"
+  }
+}
+```
+
+---
+
+#### Abort Upload
+
+`DELETE /api/storage/objects/:id/upload/abort`
+
+**Requires Authentication** - Cancel an in-progress upload and clean up resources.
+
+**Response:** HTTP 204 No Content
+
+---
+
+#### Simple Upload
+
+`POST /api/storage/objects`
+
+**Requires Authentication** - Direct upload for small files (< 100MB) using multipart/form-data.
+
+**Request:**
+- Content-Type: `multipart/form-data`
+- Body: File attached as form data with key `file`
+
+**Response:**
+```json
+{
+  "data": {
+    "id": "uuid",
+    "name": "document.pdf",
+    "size": 1048576,
+    "mimeType": "application/pdf",
+    "status": "uploading"
+  }
+}
+```
+
+---
+
+#### List Objects
+
+`GET /api/storage/objects`
+
+**Requires Authentication** - List storage objects with pagination and filtering.
+
+**Query Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `page` | number | 1 | Page number |
+| `pageSize` | number | 20 | Items per page (max 100) |
+| `status` | enum | - | Filter by status: `pending`, `uploading`, `processing`, `ready`, `failed` |
+| `sortBy` | enum | `createdAt` | Sort field: `createdAt`, `name`, `size` |
+| `sortOrder` | enum | `desc` | Sort order: `asc`, `desc` |
+
+**Response:**
+```json
+{
+  "data": [
+    {
+      "id": "uuid",
+      "name": "document.pdf",
+      "size": 104857600,
+      "mimeType": "application/pdf",
+      "status": "ready",
+      "createdAt": "2024-01-01T00:00:00.000Z"
+    }
+  ],
+  "meta": {
+    "total": 50,
+    "page": 1,
+    "pageSize": 20,
+    "totalPages": 3
+  }
+}
+```
+
+---
+
+#### Get Object
+
+`GET /api/storage/objects/:id`
+
+**Requires Authentication** - Get storage object metadata.
+
+**Response:**
+```json
+{
+  "data": {
+    "id": "uuid",
+    "name": "document.pdf",
+    "size": 104857600,
+    "mimeType": "application/pdf",
+    "status": "ready",
+    "metadata": {
+      "customField": "value"
+    },
+    "createdAt": "2024-01-01T00:00:00.000Z",
+    "updatedAt": "2024-01-01T00:00:00.000Z"
+  }
+}
+```
+
+---
+
+#### Get Download URL
+
+`GET /api/storage/objects/:id/download`
+
+**Requires Authentication** - Get a signed download URL for the object.
+
+**Query Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `expiresIn` | number | 3600 | URL expiration in seconds |
+
+**Response:**
+```json
+{
+  "data": {
+    "url": "https://s3.amazonaws.com/...",
+    "expiresAt": "2024-01-01T01:00:00.000Z"
+  }
+}
+```
+
+---
+
+#### Delete Object
+
+`DELETE /api/storage/objects/:id`
+
+**Requires Authentication** - Delete a storage object and its associated file.
+
+**Response:** HTTP 204 No Content
+
+**Error Cases:**
+- 404 Not Found - Object not found
+- 403 Forbidden - User does not own object (non-admin)
+
+---
+
+#### Update Metadata
+
+`PATCH /api/storage/objects/:id/metadata`
+
+**Requires Authentication** - Update custom metadata for an object.
+
+**Request Body:**
+```json
+{
+  "metadata": {
+    "customField": "value",
+    "tags": ["document", "important"]
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "data": {
+    "id": "uuid",
+    "name": "document.pdf",
+    "metadata": {
+      "customField": "value",
+      "tags": ["document", "important"]
+    },
+    "updatedAt": "2024-01-01T12:00:00.000Z"
+  }
+}
+```
+
+---
+
 ### Health
 
 **Public endpoints** - Used for Kubernetes liveness/readiness probes.
