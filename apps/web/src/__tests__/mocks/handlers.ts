@@ -112,16 +112,39 @@ export const handlers = [
     });
   }),
 
+  http.put(`${API_BASE}/system-settings`, async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    return HttpResponse.json({
+      data: {
+        ...body,
+        updatedAt: new Date().toISOString(),
+        updatedBy: null,
+        version: 1,
+      },
+    });
+  }),
+
   // Users endpoints
   http.get(`${API_BASE}/users`, () => {
     return HttpResponse.json({
-      data: [mockUser],
-      meta: {
-        total: 1,
-        page: 1,
-        limit: 10,
-        totalPages: 1,
-      },
+      items: [
+        {
+          id: mockUser.id,
+          email: mockUser.email,
+          displayName: mockUser.displayName,
+          providerDisplayName: 'Test User (Provider)',
+          profileImageUrl: mockUser.profileImageUrl,
+          providerProfileImageUrl: null,
+          isActive: mockUser.isActive,
+          roles: mockUser.roles.map((r) => r.name),
+          createdAt: mockUser.createdAt,
+          updatedAt: mockUser.createdAt,
+        },
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 10,
+      totalPages: 1,
     });
   }),
 
@@ -130,6 +153,44 @@ export const handlers = [
       return HttpResponse.json({ data: mockUser });
     }
     return new HttpResponse(null, { status: 404 });
+  }),
+
+  http.patch(`${API_BASE}/users/:id`, async ({ params, request }) => {
+    if (params.id === mockUser.id) {
+      const body = (await request.json()) as Record<string, unknown>;
+      return HttpResponse.json({
+        id: mockUser.id,
+        email: mockUser.email,
+        displayName: (body.displayName as string | null) ?? mockUser.displayName,
+        providerDisplayName: 'Test User (Provider)',
+        profileImageUrl: mockUser.profileImageUrl,
+        providerProfileImageUrl: null,
+        isActive: body.isActive !== undefined ? (body.isActive as boolean) : mockUser.isActive,
+        roles: mockUser.roles.map((r) => r.name),
+        createdAt: mockUser.createdAt,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    return HttpResponse.json({ message: 'Not found' }, { status: 404 });
+  }),
+
+  http.put(`${API_BASE}/users/:id/roles`, async ({ params, request }) => {
+    if (params.id === mockUser.id) {
+      const body = (await request.json()) as { roles: string[] };
+      return HttpResponse.json({
+        id: mockUser.id,
+        email: mockUser.email,
+        displayName: mockUser.displayName,
+        providerDisplayName: 'Test User (Provider)',
+        profileImageUrl: mockUser.profileImageUrl,
+        providerProfileImageUrl: null,
+        isActive: mockUser.isActive,
+        roles: body.roles,
+        createdAt: mockUser.createdAt,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    return HttpResponse.json({ message: 'Not found' }, { status: 404 });
   }),
 
   // Health endpoints

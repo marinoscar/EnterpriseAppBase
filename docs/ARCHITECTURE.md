@@ -21,9 +21,10 @@ This document provides a comprehensive architectural overview of the Enterprise 
 9. [Frontend Architecture](#9-frontend-architecture)
 10. [Infrastructure Architecture](#10-infrastructure-architecture)
 11. [Observability Architecture](#11-observability-architecture)
-12. [Agent-Based Development Model](#12-agent-based-development-model)
-13. [Development Workflows](#13-development-workflows)
-14. [Appendices](#14-appendices)
+12. [Testing Architecture](#12-testing-architecture)
+13. [Agent-Based Development Model](#13-agent-based-development-model)
+14. [Development Workflows](#14-development-workflows)
+15. [Appendices](#15-appendices)
 
 ---
 
@@ -237,11 +238,18 @@ All components served from the same base URL via Nginx reverse proxy:
 
 | Component | Technology | Purpose |
 |-----------|------------|---------|
-| **Backend Unit Tests** | Jest | Service/guard testing |
-| **Backend Integration** | Supertest | HTTP endpoint testing |
-| **Frontend Tests** | Vitest + RTL | Component testing |
-| **API Mocking** | MSW | Network request mocking |
+| **Backend Unit Tests** | Jest + jest-mock-extended | Service/guard testing with mocked Prisma |
+| **Backend Integration** | Jest + Supertest | HTTP endpoint testing with mocked database |
+| **Prisma Mocking** | jest-mock-extended (DeepMockProxy) | Type-safe database mocking |
+| **Frontend Tests** | Vitest + React Testing Library | Component and context testing |
+| **Frontend API Mocking** | MSW (Mock Service Worker) | Network request interception |
 | **E2E (Optional)** | Playwright | Full system testing |
+
+**Key Testing Characteristics:**
+- Backend tests use **mocked PrismaService** by default (no real database required)
+- Integration tests verify full HTTP request/response cycle with mocked data layer
+- Frontend tests run in jsdom environment with MSW intercepting API calls
+- Coverage thresholds: 70% minimum for frontend (enforced in vitest.config.ts)
 
 ---
 
@@ -925,9 +933,386 @@ Request → Nginx → API → Database
 
 ---
 
-## 12. Agent-Based Development Model
+## 12. Testing Architecture
 
-### 12.1 Specialized Agents
+### 12.1 Testing Strategy Overview
+
+The project uses a **mocked database approach** for all tests by default. This provides fast, isolated tests without requiring a running PostgreSQL instance.
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         TESTING ARCHITECTURE                            │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  BACKEND (apps/api/)                    FRONTEND (apps/web/)            │
+│  ┌─────────────────────────────┐       ┌─────────────────────────────┐  │
+│  │  Jest + Supertest           │       │  Vitest + RTL               │  │
+│  │                             │       │                             │  │
+│  │  Unit Tests (*.spec.ts)     │       │  Component Tests            │  │
+│  │  • Co-located with source   │       │  (*.test.tsx)               │  │
+│  │  • Mock all dependencies    │       │  • In __tests__/ folder     │  │
+│  │                             │       │  • MSW for API mocking      │  │
+│  │  Integration Tests          │       │                             │  │
+│  │  (*.integration.spec.ts)    │       │  Context Tests              │  │
+│  │  • In test/ directory       │       │  • AuthContext              │  │
+│  │  • Full HTTP cycle          │       │  • ThemeContext             │  │
+│  │  • Mocked PrismaService     │       │                             │  │
+│  │                             │       │                             │  │
+│  │  Mocking:                   │       │  Mocking:                   │  │
+│  │  • jest-mock-extended       │       │  • MSW (Mock Service Worker)│  │
+│  │  • DeepMockProxy<Prisma>    │       │  • vi.fn() for functions    │  │
+│  └─────────────────────────────┘       └─────────────────────────────┘  │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### 12.2 Backend Test Structure
+
+```
+apps/api/
+├── src/
+│   ├── auth/
+│   │   ├── auth.service.spec.ts          # Unit test (co-located)
+│   │   ├── auth.controller.spec.ts
+│   │   ├── guards/
+│   │   │   ├── jwt-auth.guard.spec.ts
+│   │   │   ├── roles.guard.spec.ts
+│   │   │   └── permissions.guard.spec.ts
+│   │   └── strategies/
+│   │       ├── jwt.strategy.spec.ts
+│   │       └── google.strategy.spec.ts
+│   ├── users/
+│   │   └── users.service.spec.ts
+│   ├── settings/
+│   │   ├── user-settings/
+│   │   │   └── user-settings.service.spec.ts
+│   │   └── system-settings/
+│   │       └── system-settings.service.spec.ts
+│   └── common/
+│       ├── filters/http-exception.filter.spec.ts
+│       └── interceptors/transform.interceptor.spec.ts
+│
+└── test/
+    ├── jest.config.js                    # Jest configuration
+    ├── setup.ts                          # Global test setup
+    ├── teardown.ts                       # Global cleanup
+    ├── helpers/
+    │   ├── test-app.helper.ts            # Creates test NestJS app
+    │   ├── auth-mock.helper.ts           # Creates mock users with JWTs
+    │   └── fixtures.helper.ts            # Test data utilities
+    ├── fixtures/
+    │   ├── users.fixture.ts              # User test data
+    │   ├── roles.fixture.ts              # Role test data
+    │   ├── settings.fixture.ts           # Settings test data
+    │   ├── test-data.factory.ts          # Factory functions
+    │   └── mock-setup.helper.ts          # Base mock configuration
+    ├── mocks/
+    │   ├── prisma.mock.ts                # Mocked PrismaService
+    │   └── google-oauth.mock.ts          # Mocked OAuth strategy
+    ├── auth/
+    │   ├── auth.integration.spec.ts      # Auth endpoint tests
+    │   ├── oauth.integration.spec.ts     # OAuth flow tests
+    │   └── allowlist-enforcement.integration.spec.ts
+    ├── rbac/
+    │   ├── rbac.integration.spec.ts
+    │   └── guard-integration.integration.spec.ts
+    ├── settings/
+    │   ├── user-settings.integration.spec.ts
+    │   └── system-settings.integration.spec.ts
+    ├── users.integration.spec.ts
+    ├── health/
+    │   └── health.integration.spec.ts
+    └── integration/
+        └── device-auth.integration.spec.ts
+```
+
+### 12.3 Backend Mocking Strategy
+
+#### Prisma Mocking with jest-mock-extended
+
+All backend tests use a **mocked PrismaService** via `jest-mock-extended`:
+
+```typescript
+// test/mocks/prisma.mock.ts
+import { DeepMockProxy, mockDeep, mockReset } from 'jest-mock-extended';
+import { PrismaClient } from '@prisma/client';
+
+export type MockPrismaClient = DeepMockProxy<PrismaClient>;
+export const prismaMock: MockPrismaClient = mockDeep<PrismaClient>();
+
+export function resetPrismaMock(): void {
+  mockReset(prismaMock);
+}
+```
+
+#### Test App Helper
+
+The `createTestApp()` helper creates a fully configured NestJS application with mocked database:
+
+```typescript
+// test/helpers/test-app.helper.ts
+export async function createTestApp(
+  options: { useMockDatabase?: boolean } = {}
+): Promise<TestContext> {
+  const shouldUseMock = options.useMockDatabase ?? true;  // Default: MOCKED
+
+  const moduleFixture = await Test.createTestingModule({
+    imports: [AppModule],
+  })
+    .overrideProvider(PrismaService)
+    .useValue(prismaMock)  // Inject mock instead of real Prisma
+    .compile();
+
+  // ... app configuration
+  return { app, prisma, prismaMock, module, isMocked: true };
+}
+```
+
+#### Integration Test Pattern
+
+```typescript
+// test/auth/auth.integration.spec.ts
+describe('Auth Controller (Integration)', () => {
+  let context: TestContext;
+
+  beforeAll(async () => {
+    context = await createTestApp({ useMockDatabase: true });
+  });
+
+  afterAll(async () => {
+    await closeTestApp(context);
+  });
+
+  beforeEach(async () => {
+    resetPrismaMock();      // Clear all mock calls
+    setupBaseMocks();        // Set up default mock responses
+  });
+
+  it('should return current user for authenticated request', async () => {
+    const user = await createMockTestUser(context);  // Creates user + JWT
+
+    const response = await request(context.app.getHttpServer())
+      .get('/api/auth/me')
+      .set(authHeader(user.accessToken))
+      .expect(200);
+
+    expect(response.body.data).toMatchObject({
+      id: user.id,
+      email: user.email,
+    });
+  });
+});
+```
+
+### 12.4 Frontend Test Structure
+
+```
+apps/web/src/
+└── __tests__/
+    ├── setup.ts                          # Vitest setup (MSW, mocks)
+    ├── mocks/
+    │   ├── server.ts                     # MSW server instance
+    │   ├── handlers.ts                   # API mock handlers
+    │   └── data.ts                       # Mock response data
+    ├── utils/
+    │   ├── test-utils.tsx                # Custom render with providers
+    │   ├── mock-providers.tsx            # Test provider wrappers
+    │   └── hook-utils.tsx                # Hook testing utilities
+    ├── components/
+    │   ├── common/
+    │   │   ├── LoadingSpinner.test.tsx
+    │   │   └── ProtectedRoute.test.tsx
+    │   ├── navigation/
+    │   │   ├── AppBar.test.tsx
+    │   │   ├── Sidebar.test.tsx
+    │   │   └── UserMenu.test.tsx
+    │   └── admin/
+    │       ├── UserList.test.tsx
+    │       ├── AllowlistTable.test.tsx
+    │       └── AddEmailDialog.test.tsx
+    ├── contexts/
+    │   ├── AuthContext.test.tsx
+    │   └── ThemeContext.test.tsx
+    ├── pages/
+    │   ├── LoginPage.test.tsx
+    │   ├── UserSettingsPage.test.tsx
+    │   └── SystemSettingsPage.test.tsx
+    └── services/
+        └── api.test.ts
+```
+
+### 12.5 Frontend Mocking Strategy
+
+#### MSW (Mock Service Worker)
+
+API calls are intercepted at the network level using MSW:
+
+```typescript
+// __tests__/mocks/handlers.ts
+import { http, HttpResponse } from 'msw';
+
+export const handlers = [
+  http.get('/api/auth/me', () => {
+    return HttpResponse.json({
+      data: {
+        id: 'user-1',
+        email: 'test@example.com',
+        roles: [{ name: 'viewer' }],
+        permissions: ['user_settings:read'],
+      },
+    });
+  }),
+
+  http.get('/api/auth/providers', () => {
+    return HttpResponse.json({
+      data: {
+        providers: [{ name: 'google', displayName: 'Google' }],
+      },
+    });
+  }),
+
+  http.post('/api/auth/logout', () => {
+    return new HttpResponse(null, { status: 204 });
+  }),
+];
+```
+
+#### Test Setup
+
+```typescript
+// __tests__/setup.ts
+import '@testing-library/jest-dom';
+import { cleanup } from '@testing-library/react';
+import { afterEach, beforeAll, afterAll, vi } from 'vitest';
+import { server } from './mocks/server';
+
+// Browser API mocks
+Object.defineProperty(window, 'matchMedia', { /* ... */ });
+global.ResizeObserver = class ResizeObserverMock { /* ... */ };
+
+// MSW lifecycle
+beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+afterEach(() => { cleanup(); server.resetHandlers(); });
+afterAll(() => server.close());
+```
+
+#### Custom Render with Providers
+
+```typescript
+// __tests__/utils/test-utils.tsx
+import { render } from '@testing-library/react';
+import { BrowserRouter } from 'react-router-dom';
+import { ThemeProvider } from '../../contexts/ThemeContext';
+import { AuthProvider } from '../../contexts/AuthContext';
+
+export function renderWithProviders(ui: React.ReactElement, options = {}) {
+  return render(ui, {
+    wrapper: ({ children }) => (
+      <BrowserRouter>
+        <ThemeProvider>
+          <AuthProvider>
+            {children}
+          </AuthProvider>
+        </ThemeProvider>
+      </BrowserRouter>
+    ),
+    ...options,
+  });
+}
+```
+
+### 12.6 Test Commands
+
+#### Backend
+
+```bash
+cd apps/api
+
+npm test                    # Run all tests (unit + integration)
+npm run test:unit           # Unit tests only (excludes e2e pattern)
+npm run test:watch          # Watch mode
+npm run test:cov            # With coverage report
+npm run test:debug          # Debug mode with inspector
+npm run test:ci             # CI mode (coverage + JUnit reporter)
+```
+
+#### Frontend
+
+```bash
+cd apps/web
+
+npm test                    # Run tests in watch mode
+npm run test:run            # Run once and exit
+npm run test:watch          # Interactive watch mode
+npm run test:coverage       # With coverage report
+npm run test:ui             # Open Vitest UI (browser-based)
+npm run test:ci             # CI mode (coverage + JUnit reporter)
+```
+
+### 12.7 Test Configuration
+
+#### Backend (Jest)
+
+```javascript
+// apps/api/test/jest.config.js
+module.exports = {
+  testRegex: '.*\\.spec\\.ts$',
+  roots: ['<rootDir>/src/', '<rootDir>/test/'],
+  setupFilesAfterEnv: ['<rootDir>/test/setup.ts'],
+  testTimeout: 30000,
+  moduleNameMapper: {
+    '^@/(.*)$': '<rootDir>/src/$1',
+  },
+};
+```
+
+#### Frontend (Vitest)
+
+```typescript
+// apps/web/vitest.config.ts
+export default defineConfig({
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: ['./src/__tests__/setup.ts'],
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
+    coverage: {
+      thresholds: {
+        lines: 70, branches: 70, functions: 70, statements: 70,
+      },
+    },
+    testTimeout: 10000,
+  },
+});
+```
+
+### 12.8 Key Testing Patterns
+
+| Pattern | Backend | Frontend |
+|---------|---------|----------|
+| **Database** | Mocked via jest-mock-extended | N/A |
+| **API Calls** | Direct HTTP via Supertest | MSW network interception |
+| **Authentication** | Mock JWT tokens generated | MSW handlers return user |
+| **Test Isolation** | `resetPrismaMock()` in beforeEach | `server.resetHandlers()` in afterEach |
+| **Async Handling** | `async/await` with Jest | `waitFor()` from RTL |
+| **User Interactions** | N/A | `userEvent` from @testing-library |
+
+### 12.9 Important Notes
+
+1. **No Real Database Required**: All tests run with mocked Prisma - no PostgreSQL needed
+2. **Test File Naming**:
+   - Backend unit: `*.spec.ts` (co-located with source)
+   - Backend integration: `*.integration.spec.ts` (in test/ directory)
+   - Frontend: `*.test.tsx` (in __tests__/ directory)
+3. **Coverage Thresholds**: Frontend enforces 70% minimum coverage
+4. **MSW Strict Mode**: Unhandled API requests fail tests (`onUnhandledRequest: 'error'`)
+5. **Type Safety**: Prisma mocks are fully typed via `DeepMockProxy<PrismaClient>`
+
+---
+
+## 13. Agent-Based Development Model
+
+### 13.1 Specialized Agents
 
 This project uses specialized AI coding agents for different domains:
 
@@ -936,10 +1321,10 @@ This project uses specialized AI coding agents for different domains:
 | `backend-dev` | `.claude/agents/backend-dev.md` | API Layer | NestJS controllers, services, guards, OAuth, JWT |
 | `frontend-dev` | `.claude/agents/frontend-dev.md` | UI Layer | React components, pages, hooks, MUI theming |
 | `database-dev` | `.claude/agents/database-dev.md` | Data Layer | Prisma schema, migrations, seeds, queries |
-| `testing-dev` | `.claude/agents/testing-dev.md` | Quality | Jest, Supertest, RTL, type checking |
+| `testing-dev` | `.claude/agents/testing-dev.md` | Quality | Jest, Supertest, Vitest, RTL, type checking |
 | `docs-dev` | `.claude/agents/docs-dev.md` | Documentation | Architecture, API, security docs |
 
-### 12.2 Agent Invocation Rules
+### 13.2 Agent Invocation Rules
 
 **MANDATORY**: All development tasks MUST be delegated to the appropriate agent.
 
@@ -951,7 +1336,7 @@ This project uses specialized AI coding agents for different domains:
 | Write tests | `testing-dev` | "Add integration tests for auth" |
 | Update docs | `docs-dev` | "Document new endpoint in API.md" |
 
-### 12.3 Multi-Agent Workflow
+### 13.3 Multi-Agent Workflow
 
 For features spanning multiple domains, invoke agents sequentially:
 
@@ -965,7 +1350,7 @@ Feature: "Add user notification preferences"
 5. docs-dev      → Update documentation
 ```
 
-### 12.4 Agent Context
+### 13.4 Agent Context
 
 Each agent has full context of:
 - System specification document
@@ -974,7 +1359,7 @@ Each agent has full context of:
 - Security requirements
 - Testing standards
 
-### 12.5 Orchestration Responsibilities
+### 13.5 Orchestration Responsibilities
 
 The orchestrating agent (Claude) handles:
 - Reading files to understand context
@@ -992,9 +1377,9 @@ The orchestrating agent (Claude) handles:
 
 ---
 
-## 13. Development Workflows
+## 14. Development Workflows
 
-### 13.1 Local Development Setup
+### 14.1 Local Development Setup
 
 ```bash
 # 1. Clone repository
@@ -1020,7 +1405,7 @@ exit
 # Swagger: http://localhost:3535/api/docs
 ```
 
-### 13.2 Database Changes
+### 14.2 Database Changes
 
 ```bash
 # 1. Modify schema
@@ -1037,7 +1422,7 @@ npm run prisma:generate
 # Edit apps/api/prisma/seed.ts
 ```
 
-### 13.3 Adding New Features
+### 14.3 Adding New Features
 
 1. **Plan**: Identify which agents are needed
 2. **Database**: Schema changes via `database-dev`
@@ -1046,30 +1431,34 @@ npm run prisma:generate
 5. **Testing**: Test coverage via `testing-dev`
 6. **Documentation**: Updates via `docs-dev`
 
-### 13.4 Testing
+### 14.4 Testing
+
+See [Section 12: Testing Architecture](#12-testing-architecture) for comprehensive testing documentation.
 
 ```bash
-# Backend tests
+# Backend tests (all use mocked database)
 cd apps/api
-npm test              # All tests
-npm run test:watch    # Watch mode
-npm run test:cov      # With coverage
+npm test                    # All tests (unit + integration)
+npm run test:watch          # Watch mode
+npm run test:cov            # With coverage
 
 # Frontend tests
 cd apps/web
-npm test              # All tests
-npm run test:coverage # With coverage
+npm test                    # Watch mode
+npm run test:run            # Run once
+npm run test:coverage       # With coverage
+npm run test:ui             # Visual Vitest UI
 
 # Type checking
-cd apps/api && npx tsc --noEmit
-cd apps/web && npx tsc --noEmit
+cd apps/api && npm run typecheck
+cd apps/web && npm run typecheck
 ```
 
 ---
 
-## 14. Appendices
+## 15. Appendices
 
-### 14.1 Quick Reference
+### 15.1 Quick Reference
 
 #### Service URLs (Development)
 
@@ -1100,7 +1489,7 @@ cd apps/api && npm test
 cd apps/web && npm test
 ```
 
-### 14.2 Related Documents
+### 15.2 Related Documents
 
 | Document | Purpose |
 |----------|---------|
@@ -1112,7 +1501,7 @@ cd apps/web && npm test
 | [DEVICE-AUTH.md](DEVICE-AUTH.md) | Device authorization guide |
 | [CLAUDE.md](../CLAUDE.md) | AI assistant guidance |
 
-### 14.3 Specification Index
+### 15.3 Specification Index
 
 Implementation specs in `docs/specs/`:
 
