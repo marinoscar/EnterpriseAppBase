@@ -1,0 +1,40 @@
+{
+  "name": "@enterprise/app-cli",
+  "version": "1.0.0",
+  "description": "CLI for managing EnterpriseAppBase development environment and API",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "app": "./bin/app.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node bin/app.js",
+    "clean": "rimraf dist"
+  },
+  "keywords": [
+    "cli",
+    "enterprise",
+    "development"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "commander": "^12.1.0",
+    "inquirer": "^9.2.23",
+    "open": "^10.1.0",
+    "validator": "^13.12.0"
+  },
+  "devDependencies": {
+    "@types/inquirer": "^9.0.7",
+    "@types/node": "^20.14.0",
+    "@types/validator": "^13.12.0",
+    "rimraf": "^5.0.7",
+    "typescript": "^5.4.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
