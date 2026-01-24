@@ -260,6 +260,14 @@ export class ObjectsService {
       new ObjectUploadedEvent(updated),
     );
 
+    // Create audit event
+    await this.createAuditEvent(userId, 'storage:upload:complete', objectId, {
+      name: updated.name,
+      size: updated.size.toString(),
+      mimeType: updated.mimeType,
+      partsCount: parts.length,
+    });
+
     this.logger.log(`Upload completed: ${objectId}`);
 
     return this.mapToResponseDto(updated);
@@ -297,6 +305,12 @@ export class ObjectsService {
     // Delete database records
     await this.prisma.storageObject.delete({
       where: { id: objectId },
+    });
+
+    // Create audit event
+    await this.createAuditEvent(userId, 'storage:upload:abort', objectId, {
+      name: storageObject.name,
+      status: storageObject.status,
     });
 
     this.logger.log(`Upload aborted: ${objectId}`);
@@ -344,6 +358,13 @@ export class ObjectsService {
       OBJECT_UPLOADED_EVENT,
       new ObjectUploadedEvent(storageObject),
     );
+
+    // Create audit event
+    await this.createAuditEvent(userId, 'storage:upload:complete', storageObject.id, {
+      name: storageObject.name,
+      mimeType: storageObject.mimeType,
+      uploadType: 'simple',
+    });
 
     this.logger.log(`Simple upload completed: ${storageObject.id}`);
 
@@ -460,6 +481,13 @@ export class ObjectsService {
       where: { id },
     });
 
+    // Create audit event
+    await this.createAuditEvent(userId, 'storage:object:delete', id, {
+      name: object.name,
+      size: object.size.toString(),
+      mimeType: object.mimeType,
+    });
+
     this.logger.log(`Object deleted: ${id}`);
   }
 
@@ -484,6 +512,12 @@ export class ObjectsService {
     const updated = await this.prisma.storageObject.update({
       where: { id },
       data: { metadata: mergedMetadata },
+    });
+
+    // Create audit event
+    await this.createAuditEvent(userId, 'storage:object:metadata:update', id, {
+      name: object.name,
+      metadataChanges: dto.metadata,
     });
 
     this.logger.log(`Updated metadata for object ${id}`);
@@ -529,5 +563,25 @@ export class ObjectsService {
       createdAt: obj.createdAt.toISOString(),
       updatedAt: obj.updatedAt.toISOString(),
     };
+  }
+
+  /**
+   * Create audit event for storage operations
+   */
+  private async createAuditEvent(
+    userId: string,
+    action: string,
+    objectId: string,
+    meta?: Record<string, unknown>,
+  ): Promise<void> {
+    await this.prisma.auditEvent.create({
+      data: {
+        actorUserId: userId,
+        action,
+        targetType: 'storage_object',
+        targetId: objectId,
+        meta: meta ?? undefined,
+      },
+    });
   }
 }
