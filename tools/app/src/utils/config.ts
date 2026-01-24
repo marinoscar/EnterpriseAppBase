@@ -1,5 +1,6 @@
 import { homedir } from 'os';
 import { join } from 'path';
+import { getApiUrl, getAppUrl } from '../lib/config-store.js';
 
 /**
  * CLI Configuration
@@ -7,16 +8,18 @@ import { join } from 'path';
 export const config = {
   /**
    * API base URL (without trailing slash)
+   * Priority: environment variable > persisted config > default
    */
   get apiUrl(): string {
-    return process.env.APP_API_URL || 'http://localhost:3535/api';
+    return getApiUrl();
   },
 
   /**
    * Application URL (for device auth redirect)
+   * Priority: environment variable > persisted config > default
    */
   get appUrl(): string {
-    return process.env.APP_URL || 'http://localhost:3535';
+    return getAppUrl();
   },
 
   /**
@@ -31,6 +34,13 @@ export const config = {
    */
   get authFile(): string {
     return join(this.configDir, 'auth.json');
+  },
+
+  /**
+   * Config file path (for persisted settings)
+   */
+  get configFile(): string {
+    return join(this.configDir, 'config.json');
   },
 
   /**

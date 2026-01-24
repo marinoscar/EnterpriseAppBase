@@ -4,6 +4,7 @@ import { showTestMenu } from './test-menu.js';
 import { showPrismaMenu } from './prisma-menu.js';
 import { showAuthMenu } from './auth-menu.js';
 import { showApiMenu } from './api-menu.js';
+import { showSettingsMenu } from './settings-menu.js';
 import * as output from '../utils/output.js';
 import { getIcon } from '../utils/config.js';
 
@@ -43,6 +44,10 @@ export async function showMainMenu(): Promise<void> {
             name: `${getIcon('👥', '>')} API Commands (users, allowlist...)`,
             value: 'api',
           },
+          {
+            name: `${getIcon('⚙️', '>')} Settings (API URL, config...)`,
+            value: 'settings',
+          },
           new inquirer.Separator(),
           {
             name: `${getIcon('❌', 'x')} Exit`,
@@ -67,6 +72,9 @@ export async function showMainMenu(): Promise<void> {
         break;
       case 'api':
         await showApiMenu();
+        break;
+      case 'settings':
+        await showSettingsMenu();
         break;
       case 'exit':
         output.info('Goodbye!');

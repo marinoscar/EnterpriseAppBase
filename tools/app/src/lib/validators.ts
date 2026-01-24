@@ -62,3 +62,40 @@ export function validateUuid(input: string): boolean | string {
 
   return true;
 }
+
+/**
+ * Validate a URL
+ */
+export function isValidUrl(url: string): boolean {
+  return validator.isURL(url, {
+    protocols: ['http', 'https'],
+    require_protocol: true,
+    require_tld: false, // Allow localhost
+  });
+}
+
+/**
+ * Validate URL for Inquirer prompt
+ */
+export function validateUrl(input: string): boolean | string {
+  if (!input.trim()) {
+    return 'URL is required';
+  }
+
+  if (!isValidUrl(input)) {
+    return 'Please enter a valid URL (http:// or https://)';
+  }
+
+  return true;
+}
+
+/**
+ * Normalize API URL (remove trailing slashes)
+ */
+export function normalizeApiUrl(url: string): string {
+  let normalized = url.trim();
+  while (normalized.endsWith('/')) {
+    normalized = normalized.slice(0, -1);
+  }
+  return normalized;
+}

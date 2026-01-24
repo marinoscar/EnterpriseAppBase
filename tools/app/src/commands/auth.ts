@@ -1,18 +1,61 @@
 import { Command } from 'commander';
+import inquirer from 'inquirer';
 import {
   loadTokens,
   clearTokens,
   getUserFromToken,
   isTokenExpired,
 } from '../lib/auth-store.js';
+import {
+  isApiUrlConfigured,
+  getApiUrl,
+  setApiUrl,
+} from '../lib/config-store.js';
 import { loginWithDeviceFlow } from '../lib/device-flow.js';
 import { getCurrentUser } from '../lib/api-client.js';
+import { validateUrl, normalizeApiUrl } from '../lib/validators.js';
 import * as output from '../utils/output.js';
 
 /**
  * Login using device authorization flow
  */
 async function authLogin(): Promise<void> {
+  // Check if API URL is configured
+  if (!isApiUrlConfigured()) {
+    output.warn('No API URL configured.');
+    output.keyValue('Default URL', getApiUrl());
+    output.blank();
+
+    const { configure } = await inquirer.prompt([
+      {
+        type: 'confirm',
+        name: 'configure',
+        message: 'Would you like to configure the API URL first?',
+        default: false,
+      },
+    ]);
+
+    if (configure) {
+      const { url } = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'url',
+          message: 'Enter API URL:',
+          default: getApiUrl(),
+          validate: validateUrl,
+        },
+      ]);
+
+      const normalized = normalizeApiUrl(url);
+      const urlToSave = normalized.endsWith('/api')
+        ? normalized
+        : `${normalized}/api`;
+      setApiUrl(urlToSave);
+      output.success(`API URL set to: ${urlToSave}`);
+      output.blank();
+    }
+  }
+
   // Check if already logged in
   const existingTokens = loadTokens();
   if (existingTokens && !isTokenExpired(existingTokens)) {
@@ -21,6 +64,8 @@ async function authLogin(): Promise<void> {
     output.info('Use "app auth logout" first to login with a different account.');
     return;
   }
+
+  output.dim(`Connecting to: ${getApiUrl()}`);
 
   try {
     const tokens = await loginWithDeviceFlow();

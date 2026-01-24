@@ -9,6 +9,7 @@ import { registerUserCommands } from './commands/users.js';
 import { registerAllowlistCommands } from './commands/allowlist.js';
 import { registerSettingsCommands } from './commands/settings.js';
 import { registerHealthCommands } from './commands/health.js';
+import { registerConfigCommands } from './commands/config.js';
 import { showMainMenu } from './interactive/main-menu.js';
 
 const program = new Command();
@@ -28,6 +29,7 @@ registerUserCommands(program);
 registerAllowlistCommands(program);
 registerSettingsCommands(program);
 registerHealthCommands(program);
+registerConfigCommands(program);
 
 // Add help examples
 program.addHelpText(
@@ -60,6 +62,11 @@ Examples:
     $ app health             # Check API health
     $ app users list         # List users
     $ app allowlist add      # Add to allowlist
+
+  Configuration:
+    $ app config show        # Show current config
+    $ app config set-url     # Set API URL
+    $ app config reset       # Reset to defaults
 
   Interactive:
     $ app                    # Launch interactive menu
