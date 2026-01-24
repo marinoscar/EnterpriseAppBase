@@ -47,10 +47,10 @@ describe('useSystemSettings', () => {
       const { result } = renderHook(() => useSystemSettings());
 
       await waitFor(() => {
-        expect(result.current.isLoading).toBe(false);
+        expect(result.current?.isLoading).toBe(false);
       });
 
-      expect(result.current.settings).not.toBeNull();
+      expect(result.current?.settings).not.toBeNull();
       expect(result.current.settings).toMatchObject({
         ui: { allowUserThemeOverride: true },
         security: { jwtAccessTtlMinutes: 15, refreshTtlDays: 14 },
@@ -65,7 +65,7 @@ describe('useSystemSettings', () => {
       const { result } = renderHook(() => useSystemSettings());
 
       await waitFor(() => {
-        expect(result.current.settings).not.toBeNull();
+        expect(result.current?.settings).not.toBeNull();
       });
 
       expect(result.current.settings).toHaveProperty('ui');
@@ -91,7 +91,7 @@ describe('useSystemSettings', () => {
       const { result } = renderHook(() => useSystemSettings());
 
       await waitFor(() => {
-        expect(result.current.isLoading).toBe(false);
+        expect(result.current?.isLoading).toBe(false);
       });
 
       expect(result.current.settings).toBeNull();
@@ -108,7 +108,7 @@ describe('useSystemSettings', () => {
       const { result } = renderHook(() => useSystemSettings());
 
       await waitFor(() => {
-        expect(result.current.isLoading).toBe(false);
+        expect(result.current?.isLoading).toBe(false);
       });
 
       expect(result.current.settings).toBeNull();
@@ -128,7 +128,7 @@ describe('useSystemSettings', () => {
       const { result } = renderHook(() => useSystemSettings());
 
       await waitFor(() => {
-        expect(result.current.isLoading).toBe(false);
+        expect(result.current?.isLoading).toBe(false);
       });
 
       expect(result.current.settings).toBeNull();
@@ -142,7 +142,7 @@ describe('useSystemSettings', () => {
 
       // Wait for initial load
       await waitFor(() => {
-        expect(result.current.settings).not.toBeNull();
+        expect(result.current?.settings).not.toBeNull();
       });
 
       const updates = {
@@ -162,7 +162,7 @@ describe('useSystemSettings', () => {
       const { result } = renderHook(() => useSystemSettings());
 
       await waitFor(() => {
-        expect(result.current.settings).not.toBeNull();
+        expect(result.current?.settings).not.toBeNull();
       });
 
       let resolveRequest: (value: unknown) => void;
@@ -191,7 +191,7 @@ describe('useSystemSettings', () => {
 
       // Should be saving
       await waitFor(() => {
-        expect(result.current.isSaving).toBe(true);
+        expect(result.current?.isSaving).toBe(true);
       });
 
       resolveRequest!(null);
@@ -207,7 +207,7 @@ describe('useSystemSettings', () => {
       const { result } = renderHook(() => useSystemSettings());
 
       await waitFor(() => {
-        expect(result.current.settings).not.toBeNull();
+        expect(result.current?.settings).not.toBeNull();
       });
 
       let requestHeaders: Headers | undefined;
@@ -247,7 +247,7 @@ describe('useSystemSettings', () => {
       const { result } = renderHook(() => useSystemSettings());
 
       await waitFor(() => {
-        expect(result.current.isLoading).toBe(false);
+        expect(result.current?.isLoading).toBe(false);
       });
 
       expect(result.current.settings).toBeNull();
@@ -265,7 +265,7 @@ describe('useSystemSettings', () => {
       const { result } = renderHook(() => useSystemSettings());
 
       await waitFor(() => {
-        expect(result.current.settings).not.toBeNull();
+        expect(result.current?.settings).not.toBeNull();
       });
 
       server.use(
@@ -294,7 +294,7 @@ describe('useSystemSettings', () => {
       const { result } = renderHook(() => useSystemSettings());
 
       await waitFor(() => {
-        expect(result.current.settings).not.toBeNull();
+        expect(result.current?.settings).not.toBeNull();
       });
 
       const newSettings = {
@@ -317,7 +317,7 @@ describe('useSystemSettings', () => {
       const { result } = renderHook(() => useSystemSettings());
 
       await waitFor(() => {
-        expect(result.current.settings).not.toBeNull();
+        expect(result.current?.settings).not.toBeNull();
       });
 
       let resolveRequest: (value: unknown) => void;
@@ -352,7 +352,7 @@ describe('useSystemSettings', () => {
       });
 
       await waitFor(() => {
-        expect(result.current.isSaving).toBe(true);
+        expect(result.current?.isSaving).toBe(true);
       });
 
       resolveRequest!(null);
@@ -367,7 +367,7 @@ describe('useSystemSettings', () => {
       const { result } = renderHook(() => useSystemSettings());
 
       await waitFor(() => {
-        expect(result.current.settings).not.toBeNull();
+        expect(result.current?.settings).not.toBeNull();
       });
 
       server.use(
@@ -402,7 +402,7 @@ describe('useSystemSettings', () => {
       const { result } = renderHook(() => useSystemSettings());
 
       await waitFor(() => {
-        expect(result.current.settings).not.toBeNull();
+        expect(result.current?.settings).not.toBeNull();
       });
 
       const initialSettings = result.current.settings;
@@ -432,7 +432,7 @@ describe('useSystemSettings', () => {
       const { result } = renderHook(() => useSystemSettings());
 
       await waitFor(() => {
-        expect(result.current.settings).not.toBeNull();
+        expect(result.current?.settings).not.toBeNull();
       });
 
       let resolveRequest: (value: unknown) => void;
@@ -453,7 +453,7 @@ describe('useSystemSettings', () => {
       });
 
       await waitFor(() => {
-        expect(result.current.isLoading).toBe(true);
+        expect(result.current?.isLoading).toBe(true);
       });
 
       resolveRequest!(null);
@@ -469,7 +469,7 @@ describe('useSystemSettings', () => {
 
       // Wait for successful initial load
       await waitFor(() => {
-        expect(result.current.settings).not.toBeNull();
+        expect(result.current?.settings).not.toBeNull();
       });
 
       // Make the first GET fail to set an error on initial load
@@ -490,7 +490,7 @@ describe('useSystemSettings', () => {
 
       // Should have an error now
       await waitFor(() => {
-        expect(result.current.error).not.toBeNull();
+        expect(result.current?.error).not.toBeNull();
       });
 
       // Now make the request succeed
@@ -511,7 +511,7 @@ describe('useSystemSettings', () => {
       const { result } = renderHook(() => useSystemSettings());
 
       await waitFor(() => {
-        expect(result.current.settings).not.toBeNull();
+        expect(result.current?.settings).not.toBeNull();
       });
 
       server.use(
@@ -531,7 +531,7 @@ describe('useSystemSettings', () => {
 
       // Should have refreshed settings after conflict
       await waitFor(() => {
-        expect(result.current.settings).not.toBeNull();
+        expect(result.current?.settings).not.toBeNull();
       });
     });
 
@@ -539,7 +539,7 @@ describe('useSystemSettings', () => {
       const { result } = renderHook(() => useSystemSettings());
 
       await waitFor(() => {
-        expect(result.current.settings).not.toBeNull();
+        expect(result.current?.settings).not.toBeNull();
       });
 
       let getCallCount = 0;
@@ -582,7 +582,7 @@ describe('useSystemSettings', () => {
       const { result } = renderHook(() => useSystemSettings());
 
       await waitFor(() => {
-        expect(result.current.settings).not.toBeNull();
+        expect(result.current?.settings).not.toBeNull();
       });
 
       await act(async () => {
@@ -598,7 +598,7 @@ describe('useSystemSettings', () => {
       const { result } = renderHook(() => useSystemSettings());
 
       await waitFor(() => {
-        expect(result.current.settings).not.toBeNull();
+        expect(result.current?.settings).not.toBeNull();
       });
 
       await act(async () => {
@@ -612,7 +612,7 @@ describe('useSystemSettings', () => {
       const { result } = renderHook(() => useSystemSettings());
 
       await waitFor(() => {
-        expect(result.current.settings).not.toBeNull();
+        expect(result.current?.settings).not.toBeNull();
       });
 
       server.use(
@@ -641,7 +641,7 @@ describe('useSystemSettings', () => {
       const { result } = renderHook(() => useSystemSettings());
 
       await waitFor(() => {
-        expect(result.current.settings).not.toBeNull();
+        expect(result.current?.settings).not.toBeNull();
       });
 
       server.use(
@@ -668,7 +668,7 @@ describe('useSystemSettings', () => {
       const { result } = renderHook(() => useSystemSettings());
 
       await waitFor(() => {
-        expect(result.current.settings).not.toBeNull();
+        expect(result.current?.settings).not.toBeNull();
       });
 
       server.use(
@@ -703,7 +703,7 @@ describe('useSystemSettings', () => {
       const { result } = renderHook(() => useSystemSettings());
 
       await waitFor(() => {
-        expect(result.current.settings).not.toBeNull();
+        expect(result.current?.settings).not.toBeNull();
       });
 
       const updates = [
@@ -725,7 +725,7 @@ describe('useSystemSettings', () => {
       const { result } = renderHook(() => useSystemSettings());
 
       await waitFor(() => {
-        expect(result.current.settings).not.toBeNull();
+        expect(result.current?.settings).not.toBeNull();
       });
 
       // Set an error by failing a fetch
@@ -745,7 +745,7 @@ describe('useSystemSettings', () => {
 
       // Should have an error
       await waitFor(() => {
-        expect(result.current.error).not.toBeNull();
+        expect(result.current?.error).not.toBeNull();
       });
 
       // Now reset and do a successful update
