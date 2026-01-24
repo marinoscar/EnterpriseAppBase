@@ -34,10 +34,6 @@ export const systemSettingsFixtures = {
     ui: {
       allowUserThemeOverride: true,
     },
-    security: {
-      jwtAccessTtlMinutes: 15,
-      refreshTtlDays: 14,
-    },
     features: {},
     updatedAt: new Date().toISOString(),
     updatedBy: null,
@@ -47,10 +43,6 @@ export const systemSettingsFixtures = {
   restrictive: {
     ui: {
       allowUserThemeOverride: false,
-    },
-    security: {
-      jwtAccessTtlMinutes: 5,
-      refreshTtlDays: 7,
     },
     features: {
       newFeature: false,

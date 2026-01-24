@@ -240,7 +240,6 @@ export function createMockSystemSettings(
     key = 'default',
     value = {
       ui: { allowUserThemeOverride: true },
-      security: { jwtAccessTtlMinutes: 15, refreshTtlDays: 14 },
       features: {},
     },
     version = 1,
