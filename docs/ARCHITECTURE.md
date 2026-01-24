@@ -369,6 +369,101 @@ pages/
 │   └── index.ts                  # Barrel export
 ```
 
+### 5.4 Storage Subsystem
+
+The storage system provides file upload and management capabilities with support for large files through resumable multipart uploads.
+
+#### Architecture Overview
+
+The storage system uses a provider abstraction pattern to support multiple cloud storage backends while maintaining a consistent API.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Storage Module                            │
+├─────────────────────────────────────────────────────────────┤
+│  Objects Controller                                          │
+│  └── Upload/Download/CRUD endpoints                          │
+├─────────────────────────────────────────────────────────────┤
+│  Objects Service                                             │
+│  └── Business logic, ownership validation                    │
+├─────────────────────────────────────────────────────────────┤
+│  Storage Provider Interface                                  │
+│  ├── S3StorageProvider (implemented)                         │
+│  └── AzureStorageProvider (future)                          │
+├─────────────────────────────────────────────────────────────┤
+│  Object Processing Pipeline                                  │
+│  └── Async post-upload processing with pluggable processors  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### Upload Flow
+
+**1. Resumable Upload (Large Files)**:
+   - Client calls `/api/storage/objects/upload/init` with file metadata
+   - Server creates DB record, initializes S3 multipart, returns presigned URLs
+   - Client uploads parts directly to S3 (bypasses application server)
+   - Client calls `/api/storage/objects/:id/upload/complete` with part ETags
+   - Server finalizes upload with S3, triggers processing pipeline
+
+**2. Simple Upload (Small Files < 100MB)**:
+   - Client sends file via multipart/form-data to `/api/storage/objects`
+   - Server streams directly to S3
+   - Processing pipeline triggered on completion
+
+#### Processing Pipeline
+
+Post-upload processing is handled asynchronously via NestJS EventEmitter:
+
+```
+ObjectUploadedEvent (emitted)
+         ↓
+ObjectProcessingService (orchestrator)
+         ↓
+Registered Processors (run in priority order)
+         ↓
+Results aggregated into object metadata
+         ↓
+Status updated: ready | failed
+```
+
+**Key Features:**
+- Pluggable processor architecture
+- Priority-based execution order
+- Processors run asynchronously (non-blocking)
+- Results stored in object metadata JSONB field
+- Extensible for future processing needs (virus scanning, image resizing, etc.)
+
+#### Database Schema
+
+**storage_objects**:
+- File metadata, status, storage key
+- Owner reference (user_id)
+- Processing results in JSONB metadata field
+
+**storage_object_chunks**:
+- Tracks multipart upload progress
+- Part number, ETag, upload status
+- Enables resume capability
+
+#### Module Structure
+
+```
+apps/api/src/storage/
+├── storage.module.ts                # Module definition
+├── objects/
+│   ├── objects.controller.ts        # HTTP endpoints
+│   ├── objects.service.ts           # Business logic
+│   ├── dto/                         # Data transfer objects
+│   └── interfaces/
+├── providers/
+│   ├── storage-provider.interface.ts
+│   └── s3-storage.provider.ts
+└── processing/
+    ├── object-processing.service.ts
+    └── processors/
+        └── base-processor.interface.ts
+```
+
 ---
 
 ## 6. Data Architecture
@@ -458,6 +553,23 @@ pages/
 │ target_id          │
 │ meta (JSONB)       │
 │ created_at         │
+└────────────────────┘
+
+┌────────────────────┐       ┌────────────────────────┐
+│  storage_objects   │       │ storage_object_chunks  │
+├────────────────────┤       ├────────────────────────┤
+│ id (PK, UUID)      │──┐    │ id (PK, UUID)          │
+│ owner_id (FK)      │  │    │ object_id (FK)         │──┘
+│ name               │  └───▶│ part_number            │
+│ size               │       │ e_tag                  │
+│ mime_type          │       │ size                   │
+│ storage_key        │       │ status                 │
+│ storage_provider   │       │ created_at             │
+│ upload_id          │       │ completed_at           │
+│ status             │       └────────────────────────┘
+│ metadata (JSONB)   │
+│ created_at         │
+│ updated_at         │
 └────────────────────┘
 ```
 
