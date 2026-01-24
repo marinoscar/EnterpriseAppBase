@@ -60,6 +60,24 @@ export default () => {
     serviceName: process.env.OTEL_SERVICE_NAME || 'enterprise-app-api',
   },
 
+  // Storage Configuration
+  storage: {
+    provider: process.env.STORAGE_PROVIDER || 's3',
+    s3: {
+      bucket: process.env.S3_BUCKET || '',
+      region: process.env.S3_REGION || 'us-east-1',
+      accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
+      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
+      endpoint: process.env.S3_ENDPOINT || undefined,
+    },
+    maxFileSize: parseInt(process.env.MAX_FILE_SIZE || '10737418240', 10), // 10GB default
+    allowedMimeTypes: (
+      process.env.ALLOWED_MIME_TYPES || 'image/*,application/pdf,video/*'
+    ).split(','),
+    signedUrlExpiry: parseInt(process.env.SIGNED_URL_EXPIRY || '3600', 10), // 1 hour default
+    partSize: parseInt(process.env.STORAGE_PART_SIZE || '10485760', 10), // 10MB default
+  },
+
   logLevel: process.env.LOG_LEVEL || 'info',
   };
 };
