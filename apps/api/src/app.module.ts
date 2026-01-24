@@ -1,6 +1,7 @@
 import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { APP_FILTER, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { ZodValidationPipe } from 'nestjs-zod';
 
@@ -12,6 +13,7 @@ import { SettingsModule } from './settings/settings.module';
 import { HealthModule } from './health/health.module';
 import { AllowlistModule } from './allowlist/allowlist.module';
 import { DeviceAuthModule } from './device-auth/device-auth.module';
+import { StorageModule } from './storage/storage.module';
 import { LoggerModule } from './common/logger/logger.module';
 
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
@@ -32,6 +34,9 @@ import configuration from './config/configuration';
     // Scheduling (must be at root level for NestJS 11)
     ScheduleModule.forRoot(),
 
+    // Event emitter for async events
+    EventEmitterModule.forRoot(),
+
     // Database
     PrismaModule,
 
@@ -46,6 +51,7 @@ import configuration from './config/configuration';
     HealthModule,
     AllowlistModule,
     DeviceAuthModule,
+    StorageModule,
   ],
   providers: [
     // Global validation pipe (Zod)
