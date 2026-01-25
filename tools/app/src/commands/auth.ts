@@ -5,6 +5,7 @@ import {
   clearTokens,
   getUserFromToken,
   isTokenExpired,
+  saveTokens,
 } from '../lib/auth-store.js';
 import {
   isAppUrlConfigured,
@@ -154,6 +155,71 @@ async function authToken(): Promise<void> {
 }
 
 /**
+ * Test login - authenticate without OAuth (development only)
+ * Calls POST /api/auth/test/login and saves tokens locally
+ */
+async function authTestLogin(email: string, options: { role?: string }): Promise<void> {
+  const role = options.role || 'viewer';
+
+  output.info(`Logging in as test user: ${email} (${role})`);
+
+  // Make request to test login endpoint
+  // Note: This endpoint returns a 302 redirect, so we need to handle it differently
+  const response = await fetch(`${getApiUrl()}/auth/test/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, role }),
+    redirect: 'manual', // Don't follow redirect, extract tokens from Location header
+  });
+
+  if (response.status === 403) {
+    throw new Error('Test login is only available in development/test environments');
+  }
+
+  if (response.status !== 302) {
+    throw new Error(`Unexpected response: ${response.status}`);
+  }
+
+  // Extract token from redirect Location header
+  // Location: /auth/callback?token=<accessToken>&expiresIn=<seconds>
+  const location = response.headers.get('location');
+  if (!location) {
+    throw new Error('No redirect location in response');
+  }
+
+  const url = new URL(location, getAppUrl());
+  const accessToken = url.searchParams.get('token');
+  const expiresIn = parseInt(url.searchParams.get('expiresIn') || '900', 10);
+
+  if (!accessToken) {
+    throw new Error('No access token in redirect URL');
+  }
+
+  // Extract refresh token from Set-Cookie header
+  const setCookie = response.headers.get('set-cookie');
+  let refreshToken = '';
+  if (setCookie) {
+    const match = setCookie.match(/refresh_token=([^;]+)/);
+    if (match) {
+      refreshToken = match[1];
+    }
+  }
+
+  // Save tokens using existing auth-store
+  const expiresAt = Date.now() + expiresIn * 1000;
+  await saveTokens({ accessToken, refreshToken, expiresAt });
+
+  output.success(`Logged in as ${email} with role: ${role}`);
+
+  // Show user info
+  const user = getUserFromToken({ accessToken, refreshToken, expiresAt });
+  if (user) {
+    output.keyValue('Email', user.email);
+    output.keyValue('Roles', user.roles.join(', '));
+  }
+}
+
+/**
  * Wrapper for CLI commands to handle errors and exit
  */
 function cliAction(fn: () => Promise<void>): () => Promise<void> {
@@ -199,7 +265,21 @@ export function registerAuthCommands(program: Command): void {
     .command('token')
     .description('Print current access token (for debugging/scripts)')
     .action(cliAction(authToken));
+
+  authCmd
+    .command('test-login')
+    .description('Test login without OAuth (development only)')
+    .argument('<email>', 'Email address for test user')
+    .option('-r, --role <role>', 'Role to assign (admin/contributor/viewer)', 'viewer')
+    .action(async (email: string, options: { role?: string }) => {
+      try {
+        await authTestLogin(email, options);
+      } catch (error) {
+        output.error((error as Error).message);
+        process.exit(1);
+      }
+    });
 }
 
 // Export for interactive mode
-export { authLogin, authLogout, authStatus, authWhoami, authToken };
+export { authLogin, authLogout, authStatus, authWhoami, authToken, authTestLogin };
