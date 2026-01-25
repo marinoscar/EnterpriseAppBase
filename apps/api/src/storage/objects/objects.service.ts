@@ -13,6 +13,7 @@ import { randomUUID } from 'crypto';
 import { extname } from 'path';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { Prisma } from '@prisma/client';
 import { STORAGE_PROVIDER } from '../providers/storage-provider.interface';
 import type { StorageProvider } from '../providers/storage-provider.interface';
 import {
@@ -511,7 +512,7 @@ export class ObjectsService {
     // Update in database
     const updated = await this.prisma.storageObject.update({
       where: { id },
-      data: { metadata: mergedMetadata },
+      data: { metadata: mergedMetadata as Prisma.InputJsonValue },
     });
 
     // Create audit event
@@ -580,7 +581,7 @@ export class ObjectsService {
         action,
         targetType: 'storage_object',
         targetId: objectId,
-        meta: meta ?? undefined,
+        meta: (meta ?? undefined) as Prisma.InputJsonValue | undefined,
       },
     });
   }
