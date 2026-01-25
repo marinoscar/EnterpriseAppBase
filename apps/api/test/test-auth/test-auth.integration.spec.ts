@@ -6,6 +6,59 @@ import {
 } from '../helpers/test-app.helper';
 import { resetPrismaMock } from '../mocks/prisma.mock';
 import { setupBaseMocks, setupMockUser } from '../fixtures/mock-setup.helper';
+import { mockRoles } from '../fixtures/test-data.factory';
+
+/**
+ * Helper to create a mock user.create implementation that properly
+ * registers the user in the mock registry for subsequent findUnique calls
+ */
+function createMockUserCreate(
+  context: TestContext,
+  userId: string,
+  email: string,
+  displayName: string,
+  roleName: string = 'viewer',
+) {
+  const role = mockRoles[roleName as keyof typeof mockRoles];
+  const user = {
+    id: userId,
+    email,
+    displayName,
+    providerDisplayName: null,
+    profileImageUrl: null,
+    providerProfileImageUrl: null,
+    isActive: true,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    userRoles: [], // Initially empty, transaction will add roles
+  };
+
+  // Mock user.create to return the user
+  context.prismaMock.user.create.mockResolvedValue(user);
+
+  // After transaction completes, the second findUnique should return user with roles
+  // We set this up by registering the user in the registry after create is called
+  const originalFindUnique = context.prismaMock.user.findUnique;
+  let createCalled = false;
+
+  context.prismaMock.user.create.mockImplementation(async () => {
+    createCalled = true;
+    return user;
+  });
+
+  // Override findUnique to return user with roles after create is called
+  context.prismaMock.user.findUnique.mockImplementation(async (args: any) => {
+    const where = args?.where;
+    if (createCalled && (where?.id === userId || where?.email === email)) {
+      return {
+        ...user,
+        userRoles: [{ role: { id: role.id, name: role.name } }],
+      };
+    }
+    // First call (before create) returns null
+    return null;
+  });
+}
 
 describe('Test Auth Integration', () => {
   let context: TestContext;
@@ -68,18 +121,8 @@ describe('Test Auth Integration', () => {
         createdAt: new Date(),
       });
 
-      // Mock user creation
-      context.prismaMock.user.create.mockResolvedValue({
-        id: 'new-user',
-        email: 'newuser@example.com',
-        displayName: 'newuser',
-        providerDisplayName: null,
-        profileImageUrl: null,
-        providerProfileImageUrl: null,
-        isActive: true,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
+      // Mock user creation with proper flow
+      createMockUserCreate(context, 'new-user', 'newuser@example.com', 'newuser', 'viewer');
 
       const response = await request(context.app.getHttpServer())
         .post('/api/auth/test/login')
@@ -104,18 +147,8 @@ describe('Test Auth Integration', () => {
         createdAt: new Date(),
       });
 
-      // Mock user creation
-      context.prismaMock.user.create.mockResolvedValue({
-        id: 'cookie-user',
-        email: 'cookie@example.com',
-        displayName: 'cookie',
-        providerDisplayName: null,
-        profileImageUrl: null,
-        providerProfileImageUrl: null,
-        isActive: true,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
+      // Mock user creation with proper flow
+      createMockUserCreate(context, 'cookie-user', 'cookie@example.com', 'cookie', 'viewer');
 
       const response = await request(context.app.getHttpServer())
         .post('/api/auth/test/login')
@@ -168,18 +201,8 @@ describe('Test Auth Integration', () => {
         createdAt: new Date(),
       });
 
-      // Mock user creation
-      context.prismaMock.user.create.mockResolvedValue({
-        id: 'default-user',
-        email: 'default@example.com',
-        displayName: 'default',
-        providerDisplayName: null,
-        profileImageUrl: null,
-        providerProfileImageUrl: null,
-        isActive: true,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
+      // Mock user creation with proper flow
+      createMockUserCreate(context, 'default-user', 'default@example.com', 'default', 'viewer');
 
       const response = await request(context.app.getHttpServer())
         .post('/api/auth/test/login')
@@ -193,6 +216,10 @@ describe('Test Auth Integration', () => {
       const roles = ['admin', 'contributor', 'viewer'];
 
       for (const role of roles) {
+        // Reset mocks for each iteration
+        resetPrismaMock();
+        setupBaseMocks();
+
         // Mock refresh token creation
         context.prismaMock.refreshToken.create.mockResolvedValue({
           id: `token-${role}`,
@@ -203,18 +230,8 @@ describe('Test Auth Integration', () => {
           createdAt: new Date(),
         });
 
-        // Mock user creation
-        context.prismaMock.user.create.mockResolvedValue({
-          id: `${role}-user`,
-          email: `${role}@example.com`,
-          displayName: role,
-          providerDisplayName: null,
-          profileImageUrl: null,
-          providerProfileImageUrl: null,
-          isActive: true,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        });
+        // Mock user creation with proper flow
+        createMockUserCreate(context, `${role}-user`, `${role}@example.com`, role, role);
 
         const response = await request(context.app.getHttpServer())
           .post('/api/auth/test/login')
@@ -236,18 +253,8 @@ describe('Test Auth Integration', () => {
         createdAt: new Date(),
       });
 
-      // Mock user creation
-      context.prismaMock.user.create.mockResolvedValue({
-        id: 'upper-user',
-        email: 'uppercase@example.com',
-        displayName: 'UPPERCASE',
-        providerDisplayName: null,
-        profileImageUrl: null,
-        providerProfileImageUrl: null,
-        isActive: true,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
+      // Mock user creation with proper flow (note: email is already lowercase in mock)
+      createMockUserCreate(context, 'upper-user', 'uppercase@example.com', 'UPPERCASE', 'viewer');
 
       await request(context.app.getHttpServer())
         .post('/api/auth/test/login')
@@ -273,18 +280,8 @@ describe('Test Auth Integration', () => {
         createdAt: new Date(),
       });
 
-      // Mock user creation
-      context.prismaMock.user.create.mockResolvedValue({
-        id: 'custom-user',
-        email: 'custom@example.com',
-        displayName: 'Custom Display Name',
-        providerDisplayName: null,
-        profileImageUrl: null,
-        providerProfileImageUrl: null,
-        isActive: true,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
+      // Mock user creation with proper flow
+      createMockUserCreate(context, 'custom-user', 'custom@example.com', 'Custom Display Name', 'viewer');
 
       await request(context.app.getHttpServer())
         .post('/api/auth/test/login')
@@ -316,18 +313,8 @@ describe('Test Auth Integration', () => {
         createdAt: new Date(),
       });
 
-      // Mock user creation
-      context.prismaMock.user.create.mockResolvedValue({
-        id: 'refresh-user',
-        email: 'refresh@example.com',
-        displayName: 'refresh',
-        providerDisplayName: null,
-        profileImageUrl: null,
-        providerProfileImageUrl: null,
-        isActive: true,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
+      // Mock user creation with proper flow
+      createMockUserCreate(context, 'refresh-user', 'refresh@example.com', 'refresh', 'viewer');
 
       await request(context.app.getHttpServer())
         .post('/api/auth/test/login')
