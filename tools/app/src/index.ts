@@ -11,6 +11,7 @@ import { registerSettingsCommands } from './commands/settings.js';
 import { registerHealthCommands } from './commands/health.js';
 import { registerConfigCommands } from './commands/config.js';
 import { registerStorageCommands } from './commands/storage.js';
+import { registerSyncCommands } from './commands/sync.js';
 import { showMainMenu } from './interactive/main-menu.js';
 
 const program = new Command();
@@ -32,6 +33,7 @@ registerSettingsCommands(program);
 registerHealthCommands(program);
 registerConfigCommands(program);
 registerStorageCommands(program);
+registerSyncCommands(program);
 
 // Add help examples
 program.addHelpText(
@@ -75,6 +77,12 @@ Examples:
     $ app storage upload     # Upload a file
     $ app storage download   # Get download URL
     $ app storage delete     # Delete an object
+
+  Sync:
+    $ app sync init ./folder # Initialize sync folder
+    $ app sync run ./folder  # Sync files to cloud
+    $ app sync status ./folder # Check sync status
+    $ app sync reset ./folder  # Reset sync state
 
   Interactive:
     $ app                    # Launch interactive menu
