@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { existsSync } from 'fs';
 import { join } from 'path';
 
 /**
@@ -386,7 +387,6 @@ interface StatsRow {
  * Check if a sync.db exists in a folder
  */
 export function syncDbExists(folderPath: string): boolean {
-  const { existsSync } = require('fs');
   return existsSync(join(folderPath, 'sync.db'));
 }
 
