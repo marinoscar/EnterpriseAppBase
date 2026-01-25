@@ -11,6 +11,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { DatabaseSeedException } from '../common/exceptions/database-seed.exception';
 import {
   ApiTags,
   ApiOperation,
@@ -140,11 +141,23 @@ export class AuthController {
       this.logger.log(`Redirecting to: ${redirectUrl.toString()}`);
       return res.status(302).redirect(redirectUrl.toString());
     } catch (error) {
-      this.logger.error('Error in Google OAuth callback', error);
+      // Log with full context for debugging
+      if (error instanceof DatabaseSeedException) {
+        this.logger.error(
+          'Database seed error during OAuth callback - seeds have not been run',
+          {
+            error: error.message,
+            stack: error.stack,
+          },
+        );
+      } else {
+        this.logger.error('Error in Google OAuth callback', error);
+      }
+
       const appUrl = this.configService.get<string>('appUrl');
       // Sanitize error message for URL - remove newlines and encode
       const errorMessage = error instanceof Error
-        ? encodeURIComponent(error.message.replace(/[\r\n]/g, ' ').substring(0, 100))
+        ? encodeURIComponent(error.message.replace(/[\r\n]/g, ' ').substring(0, 200))
         : 'authentication_failed';
       return res.redirect(
         `${appUrl}/auth/callback?error=${errorMessage}`,
