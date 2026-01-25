@@ -1,6 +1,7 @@
 import { Injectable, Logger, Inject, Optional } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
+import { Prisma } from '@prisma/client';
 import { STORAGE_PROVIDER, StorageProvider } from '../providers';
 import { OBJECT_UPLOADED_EVENT, ObjectUploadedEvent } from './events/object-uploaded.event';
 import { OBJECT_PROCESSOR, ObjectProcessor } from './object-processor.interface';
@@ -113,7 +114,7 @@ export class ObjectProcessingService {
       where: { id: objectId },
       data: {
         status: 'ready',
-        metadata: mergedMetadata,
+        metadata: mergedMetadata as Prisma.InputJsonValue,
       },
     });
 
@@ -140,7 +141,7 @@ export class ObjectProcessingService {
       where: { id: objectId },
       data: {
         status: 'failed',
-        metadata: mergedMetadata,
+        metadata: mergedMetadata as Prisma.InputJsonValue,
       },
     });
 
