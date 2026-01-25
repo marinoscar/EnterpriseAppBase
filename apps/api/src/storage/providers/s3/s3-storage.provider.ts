@@ -107,7 +107,9 @@ export class S3StorageProvider implements StorageProvider {
         eTag: result.ETag,
       };
     } catch (error) {
-      this.logger.error(`Upload failed for key ${key}: ${error.message}`, error.stack);
+      const message = error instanceof Error ? error.message : String(error);
+      const stack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(`Upload failed for key ${key}: ${message}`, stack);
       throw error;
     }
   }
@@ -142,9 +144,11 @@ export class S3StorageProvider implements StorageProvider {
         key,
       };
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const stack = error instanceof Error ? error.stack : undefined;
       this.logger.error(
-        `Failed to initiate multipart upload for key ${key}: ${error.message}`,
-        error.stack,
+        `Failed to initiate multipart upload for key ${key}: ${message}`,
+        stack,
       );
       throw error;
     }
@@ -177,9 +181,11 @@ export class S3StorageProvider implements StorageProvider {
 
       return signedUrl;
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const stack = error instanceof Error ? error.stack : undefined;
       this.logger.error(
-        `Failed to generate signed upload URL for key ${key}, part ${partNumber}: ${error.message}`,
-        error.stack,
+        `Failed to generate signed upload URL for key ${key}, part ${partNumber}: ${message}`,
+        stack,
       );
       throw error;
     }
@@ -221,9 +227,11 @@ export class S3StorageProvider implements StorageProvider {
         eTag: result.ETag,
       };
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const stack = error instanceof Error ? error.stack : undefined;
       this.logger.error(
-        `Failed to complete multipart upload for key ${key}: ${error.message}`,
-        error.stack,
+        `Failed to complete multipart upload for key ${key}: ${message}`,
+        stack,
       );
       throw error;
     }
@@ -246,9 +254,11 @@ export class S3StorageProvider implements StorageProvider {
 
       this.logger.log(`Multipart upload aborted for key: ${key}`);
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const stack = error instanceof Error ? error.stack : undefined;
       this.logger.error(
-        `Failed to abort multipart upload for key ${key}: ${error.message}`,
-        error.stack,
+        `Failed to abort multipart upload for key ${key}: ${message}`,
+        stack,
       );
       throw error;
     }
@@ -275,9 +285,11 @@ export class S3StorageProvider implements StorageProvider {
       // S3 returns a readable stream
       return result.Body as Readable;
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const stack = error instanceof Error ? error.stack : undefined;
       this.logger.error(
-        `Failed to download file for key ${key}: ${error.message}`,
-        error.stack,
+        `Failed to download file for key ${key}: ${message}`,
+        stack,
       );
       throw error;
     }
@@ -307,9 +319,11 @@ export class S3StorageProvider implements StorageProvider {
 
       return signedUrl;
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const stack = error instanceof Error ? error.stack : undefined;
       this.logger.error(
-        `Failed to generate signed download URL for key ${key}: ${error.message}`,
-        error.stack,
+        `Failed to generate signed download URL for key ${key}: ${message}`,
+        stack,
       );
       throw error;
     }
@@ -331,9 +345,11 @@ export class S3StorageProvider implements StorageProvider {
 
       this.logger.log(`File deleted for key: ${key}`);
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const stack = error instanceof Error ? error.stack : undefined;
       this.logger.error(
-        `Failed to delete file for key ${key}: ${error.message}`,
-        error.stack,
+        `Failed to delete file for key ${key}: ${message}`,
+        stack,
       );
       throw error;
     }
@@ -355,12 +371,14 @@ export class S3StorageProvider implements StorageProvider {
 
       return result.Metadata || {};
     } catch (error) {
-      if (error instanceof NotFound || error.name === 'NotFound') {
+      if (error instanceof NotFound || (error && typeof error === 'object' && 'name' in error && error.name === 'NotFound')) {
         return null;
       }
+      const message = error instanceof Error ? error.message : String(error);
+      const stack = error instanceof Error ? error.stack : undefined;
       this.logger.error(
-        `Failed to get metadata for key ${key}: ${error.message}`,
-        error.stack,
+        `Failed to get metadata for key ${key}: ${message}`,
+        stack,
       );
       throw error;
     }
@@ -389,9 +407,11 @@ export class S3StorageProvider implements StorageProvider {
 
       this.logger.log(`Metadata updated for key: ${key}`);
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const stack = error instanceof Error ? error.stack : undefined;
       this.logger.error(
-        `Failed to set metadata for key ${key}: ${error.message}`,
-        error.stack,
+        `Failed to set metadata for key ${key}: ${message}`,
+        stack,
       );
       throw error;
     }
@@ -410,12 +430,14 @@ export class S3StorageProvider implements StorageProvider {
       await this.s3Client.send(command);
       return true;
     } catch (error) {
-      if (error instanceof NotFound || error.name === 'NotFound') {
+      if (error instanceof NotFound || (error && typeof error === 'object' && 'name' in error && error.name === 'NotFound')) {
         return false;
       }
+      const message = error instanceof Error ? error.message : String(error);
+      const stack = error instanceof Error ? error.stack : undefined;
       this.logger.error(
-        `Error checking existence for key ${key}: ${error.message}`,
-        error.stack,
+        `Error checking existence for key ${key}: ${message}`,
+        stack,
       );
       throw error;
     }
