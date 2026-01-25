@@ -4,6 +4,7 @@ import { showTestMenu } from './test-menu.js';
 import { showPrismaMenu } from './prisma-menu.js';
 import { showAuthMenu } from './auth-menu.js';
 import { showApiMenu } from './api-menu.js';
+import { showStorageMenu } from './storage-menu.js';
 import { showSettingsMenu } from './settings-menu.js';
 import * as output from '../utils/output.js';
 import { getIcon } from '../utils/config.js';
@@ -45,6 +46,10 @@ export async function showMainMenu(): Promise<void> {
             value: 'api',
           },
           {
+            name: `${getIcon('📦', '>')} Storage (upload, download, list...)`,
+            value: 'storage',
+          },
+          {
             name: `${getIcon('⚙️', '>')} Settings (API URL, config...)`,
             value: 'settings',
           },
@@ -72,6 +77,9 @@ export async function showMainMenu(): Promise<void> {
         break;
       case 'api':
         await showApiMenu();
+        break;
+      case 'storage':
+        await showStorageMenu();
         break;
       case 'settings':
         await showSettingsMenu();
