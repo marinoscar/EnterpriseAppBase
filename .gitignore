@@ -37,6 +37,10 @@ coverage/
 apps/api/prisma/*.db
 apps/api/prisma/*.db-journal
 
+# SQLite sync databases
+sync.db
+sync.db-journal
+
 # Docker
 .docker/
 
