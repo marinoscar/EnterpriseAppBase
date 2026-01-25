@@ -112,7 +112,7 @@ describe('TestEnvironmentGuard', () => {
       try {
         guard.canActivate(context);
         fail('Should have thrown ForbiddenException');
-      } catch (error) {
+      } catch (error: any) {
         expect(error).toBeInstanceOf(ForbiddenException);
         expect(error.message).toBe(
           'Test authentication endpoints are not available in production',
