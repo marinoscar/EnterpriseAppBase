@@ -18,8 +18,10 @@ describe('Storage Integration', () => {
   let context: TestContext;
   let mockStorageProvider: ReturnType<typeof createMockStorageProvider>;
 
+  const mockStorageObjectId = '550e8400-e29b-41d4-a716-446655440000'; // Valid UUID
+
   const mockStorageObject = {
-    id: '550e8400-e29b-41d4-a716-446655440000', // Valid UUID
+    id: mockStorageObjectId,
     name: 'test-file.pdf',
     size: BigInt(1024000),
     mimeType: 'application/pdf',
@@ -138,12 +140,12 @@ describe('Storage Integration', () => {
       });
 
       const response = await request(context.app.getHttpServer())
-        .get(`/api/storage/objects/${mockStorageObject.id}/upload/status`)
+        .get(`/api/storage/objects/${mockStorageObjectId}/upload/status`)
         .set(authHeader(user.accessToken))
         .expect(200);
 
       expect(response.body.data).toMatchObject({
-        objectId: mockStorageObject.id,
+        objectId: mockStorageObjectId,
         status: 'pending',
         uploadedParts: expect.any(Array),
         totalParts: expect.any(Number),
@@ -172,7 +174,7 @@ describe('Storage Integration', () => {
       });
 
       await request(context.app.getHttpServer())
-        .get(`/api/storage/objects/${mockStorageObject.id}/upload/status`)
+        .get(`/api/storage/objects/${mockStorageObjectId}/upload/status`)
         .set(authHeader(user.accessToken))
         .expect(403);
     });
@@ -210,13 +212,13 @@ describe('Storage Integration', () => {
       context.prismaMock.auditEvent.create.mockResolvedValue({});
 
       const response = await request(context.app.getHttpServer())
-        .post(`/api/storage/objects/${mockStorageObject.id}/upload/complete`)
+        .post(`/api/storage/objects/${mockStorageObjectId}/upload/complete`)
         .set(authHeader(user.accessToken))
         .send(dto)
         .expect(201);
 
       expect(response.body.data).toMatchObject({
-        id: mockStorageObject.id,
+        id: mockStorageObjectId,
         status: 'processing',
       });
     });
@@ -239,7 +241,7 @@ describe('Storage Integration', () => {
       const user = await createMockTestUser(context);
 
       await request(context.app.getHttpServer())
-        .post(`/api/storage/objects/${mockStorageObject.id}/upload/complete`)
+        .post(`/api/storage/objects/${mockStorageObjectId}/upload/complete`)
         .set(authHeader(user.accessToken))
         .send({
           parts: 'invalid', // Should be array
@@ -262,7 +264,7 @@ describe('Storage Integration', () => {
       context.prismaMock.auditEvent.create.mockResolvedValue({});
 
       await request(context.app.getHttpServer())
-        .delete(`/api/storage/objects/${mockStorageObject.id}/upload/abort`)
+        .delete(`/api/storage/objects/${mockStorageObjectId}/upload/abort`)
         .set(authHeader(user.accessToken))
         .expect(200); // Note: Controller returns void but Fastify may default to 200
     });
@@ -351,12 +353,12 @@ describe('Storage Integration', () => {
       });
 
       const response = await request(context.app.getHttpServer())
-        .get(`/api/storage/objects/${mockStorageObject.id}`)
+        .get(`/api/storage/objects/${mockStorageObjectId}`)
         .set(authHeader(user.accessToken))
         .expect(200);
 
       expect(response.body.data).toMatchObject({
-        id: mockStorageObject.id,
+        id: mockStorageObjectId,
         name: mockStorageObject.name,
         mimeType: mockStorageObject.mimeType,
       });
@@ -388,7 +390,7 @@ describe('Storage Integration', () => {
       );
 
       const response = await request(context.app.getHttpServer())
-        .get(`/api/storage/objects/${mockStorageObject.id}/download`)
+        .get(`/api/storage/objects/${mockStorageObjectId}/download`)
         .set(authHeader(user.accessToken))
         .expect(200);
 
@@ -408,7 +410,7 @@ describe('Storage Integration', () => {
       });
 
       await request(context.app.getHttpServer())
-        .get(`/api/storage/objects/${mockStorageObject.id}/download`)
+        .get(`/api/storage/objects/${mockStorageObjectId}/download`)
         .set(authHeader(user.accessToken))
         .expect(400);
     });
@@ -427,7 +429,7 @@ describe('Storage Integration', () => {
       context.prismaMock.auditEvent.create.mockResolvedValue({});
 
       await request(context.app.getHttpServer())
-        .delete(`/api/storage/objects/${mockStorageObject.id}`)
+        .delete(`/api/storage/objects/${mockStorageObjectId}`)
         .set(authHeader(user.accessToken))
         .expect(204);
     });
@@ -466,7 +468,7 @@ describe('Storage Integration', () => {
       context.prismaMock.auditEvent.create.mockResolvedValue({});
 
       const response = await request(context.app.getHttpServer())
-        .patch(`/api/storage/objects/${mockStorageObject.id}/metadata`)
+        .patch(`/api/storage/objects/${mockStorageObjectId}/metadata`)
         .set(authHeader(user.accessToken))
         .send({ metadata: newMetadata })
         .expect(200);
@@ -493,7 +495,7 @@ describe('Storage Integration', () => {
       context.prismaMock.auditEvent.create.mockResolvedValue({});
 
       await request(context.app.getHttpServer())
-        .patch(`/api/storage/objects/${mockStorageObject.id}/metadata`)
+        .patch(`/api/storage/objects/${mockStorageObjectId}/metadata`)
         .set(authHeader(user.accessToken))
         .send({ metadata: { key2: 'value2' } })
         .expect(200);
@@ -517,11 +519,11 @@ describe('Storage Integration', () => {
         .expect(401);
 
       await request(context.app.getHttpServer())
-        .get(`/api/storage/objects/${mockStorageObject.id}`)
+        .get(`/api/storage/objects/${mockStorageObjectId}`)
         .expect(401);
 
       await request(context.app.getHttpServer())
-        .delete(`/api/storage/objects/${mockStorageObject.id}`)
+        .delete(`/api/storage/objects/${mockStorageObjectId}`)
         .expect(401);
     });
   });
@@ -541,22 +543,22 @@ describe('Storage Integration', () => {
 
       // Test various endpoints
       await request(context.app.getHttpServer())
-        .get(`/api/storage/objects/${mockStorageObject.id}`)
+        .get(`/api/storage/objects/${mockStorageObjectId}`)
         .set(authHeader(user.accessToken))
         .expect(403);
 
       await request(context.app.getHttpServer())
-        .get(`/api/storage/objects/${mockStorageObject.id}/download`)
+        .get(`/api/storage/objects/${mockStorageObjectId}/download`)
         .set(authHeader(user.accessToken))
         .expect(403);
 
       await request(context.app.getHttpServer())
-        .delete(`/api/storage/objects/${mockStorageObject.id}`)
+        .delete(`/api/storage/objects/${mockStorageObjectId}`)
         .set(authHeader(user.accessToken))
         .expect(403);
 
       await request(context.app.getHttpServer())
-        .patch(`/api/storage/objects/${mockStorageObject.id}/metadata`)
+        .patch(`/api/storage/objects/${mockStorageObjectId}/metadata`)
         .set(authHeader(user.accessToken))
         .send({ metadata: { key: 'value' } })
         .expect(403);

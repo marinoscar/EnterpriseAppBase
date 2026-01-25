@@ -222,7 +222,7 @@ describe('ObjectsService', () => {
       mockPrisma.storageObject.findUnique.mockResolvedValue({
         ...mockStorageObject,
         status: 'pending',
-        size: BigInt(26214400), // ~25MB
+        size: BigInt(26214400), // ~25MB - matches totalBytes expectation
         chunks,
       } as any);
       mockConfig.get.mockReturnValue(10485760); // 10MB part size
@@ -234,7 +234,7 @@ describe('ObjectsService', () => {
       expect(result.uploadedParts).toEqual([1, 2, 3]);
       expect(result.totalParts).toBe(3);
       expect(result.uploadedBytes).toBe('26214400');
-      expect(result.totalBytes).toBe('26214400');
+      expect(result.totalBytes).toBe('26214400'); // Updated to match mock size
     });
 
     it('should throw NotFoundException for non-existent object', async () => {

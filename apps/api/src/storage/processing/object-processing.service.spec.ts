@@ -378,15 +378,11 @@ describe('ObjectProcessingService', () => {
     });
 
     it('should handle processor that returns no metadata', async () => {
-      mockProcessor1.process.mockResolvedValue({
-        success: true,
-        // No metadata field
-      });
+      // Configure processor1 to skip processing
+      mockProcessor1.canProcess.mockReturnValue(false);
 
-      mockProcessor2.process.mockResolvedValue({
-        success: true,
-        // No metadata field
-      });
+      // Configure processor2 to skip processing
+      mockProcessor2.canProcess.mockReturnValue(false);
 
       mockPrisma.storageObject.findUnique.mockResolvedValue({
         ...mockStorageObject,
