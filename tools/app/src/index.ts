@@ -10,6 +10,7 @@ import { registerAllowlistCommands } from './commands/allowlist.js';
 import { registerSettingsCommands } from './commands/settings.js';
 import { registerHealthCommands } from './commands/health.js';
 import { registerConfigCommands } from './commands/config.js';
+import { registerStorageCommands } from './commands/storage.js';
 import { showMainMenu } from './interactive/main-menu.js';
 
 const program = new Command();
@@ -30,6 +31,7 @@ registerAllowlistCommands(program);
 registerSettingsCommands(program);
 registerHealthCommands(program);
 registerConfigCommands(program);
+registerStorageCommands(program);
 
 // Add help examples
 program.addHelpText(
@@ -67,6 +69,12 @@ Examples:
     $ app config show        # Show current config
     $ app config set-url     # Set API URL
     $ app config reset       # Reset to defaults
+
+  Storage:
+    $ app storage list       # List storage objects
+    $ app storage upload     # Upload a file
+    $ app storage download   # Get download URL
+    $ app storage delete     # Delete an object
 
   Interactive:
     $ app                    # Launch interactive menu
