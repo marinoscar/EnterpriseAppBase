@@ -52,7 +52,6 @@ describe('Test Auth Integration', () => {
         .mockResolvedValueOnce(null) // First check: user doesn't exist
         .mockResolvedValueOnce(mockUser); // Reload after role assignment
       context.prismaMock.role.findUnique.mockResolvedValue(mockRole);
-      context.prismaMock.$transaction.mockImplementation(async (callback: any) => callback(context.prismaMock));
       context.prismaMock.user.create.mockResolvedValue(mockUser);
       context.prismaMock.userRole.deleteMany.mockResolvedValue({ count: 0 });
       context.prismaMock.userRole.create.mockResolvedValue({});
@@ -96,7 +95,6 @@ describe('Test Auth Integration', () => {
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(mockUser);
       context.prismaMock.role.findUnique.mockResolvedValue(mockRole);
-      context.prismaMock.$transaction.mockImplementation(async (callback: any) => callback(context.prismaMock));
       context.prismaMock.user.create.mockResolvedValue(mockUser);
       context.prismaMock.userRole.deleteMany.mockResolvedValue({ count: 0 });
       context.prismaMock.userRole.create.mockResolvedValue({});
@@ -144,7 +142,6 @@ describe('Test Auth Integration', () => {
         .mockResolvedValueOnce(null) // User doesn't exist
         .mockResolvedValueOnce(mockUser); // Reload after creation
       context.prismaMock.role.findUnique.mockResolvedValue(mockRole);
-      context.prismaMock.$transaction.mockImplementation(async (callback: any) => callback(context.prismaMock));
       context.prismaMock.user.create.mockResolvedValue(mockUser);
       context.prismaMock.userRole.deleteMany.mockResolvedValue({ count: 0 });
       context.prismaMock.userRole.create.mockResolvedValue({});
@@ -194,7 +191,6 @@ describe('Test Auth Integration', () => {
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(mockUser);
       context.prismaMock.role.findUnique.mockResolvedValue(mockAdminRole);
-      context.prismaMock.$transaction.mockImplementation(async (callback: any) => callback(context.prismaMock));
       context.prismaMock.user.create.mockResolvedValue(mockUser);
       context.prismaMock.userRole.deleteMany.mockResolvedValue({ count: 0 });
       context.prismaMock.userRole.create.mockResolvedValue({});
@@ -238,7 +234,6 @@ describe('Test Auth Integration', () => {
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(mockUser);
       context.prismaMock.role.findUnique.mockResolvedValue(mockContributorRole);
-      context.prismaMock.$transaction.mockImplementation(async (callback: any) => callback(context.prismaMock));
       context.prismaMock.user.create.mockResolvedValue(mockUser);
       context.prismaMock.userRole.deleteMany.mockResolvedValue({ count: 0 });
       context.prismaMock.userRole.create.mockResolvedValue({});
@@ -282,7 +277,6 @@ describe('Test Auth Integration', () => {
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(mockUser);
       context.prismaMock.role.findUnique.mockResolvedValue(mockViewerRole);
-      context.prismaMock.$transaction.mockImplementation(async (callback: any) => callback(context.prismaMock));
       context.prismaMock.user.create.mockResolvedValue(mockUser);
       context.prismaMock.userRole.deleteMany.mockResolvedValue({ count: 0 });
       context.prismaMock.userRole.create.mockResolvedValue({});
@@ -359,7 +353,6 @@ describe('Test Auth Integration', () => {
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(mockUser);
       context.prismaMock.role.findUnique.mockResolvedValue(mockRole);
-      context.prismaMock.$transaction.mockImplementation(async (callback: any) => callback(context.prismaMock));
       context.prismaMock.user.create.mockResolvedValue(mockUser);
       context.prismaMock.userRole.deleteMany.mockResolvedValue({ count: 0 });
       context.prismaMock.userRole.create.mockResolvedValue({});
@@ -402,7 +395,6 @@ describe('Test Auth Integration', () => {
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(mockUser);
       context.prismaMock.role.findUnique.mockResolvedValue(mockRole);
-      context.prismaMock.$transaction.mockImplementation(async (callback: any) => callback(context.prismaMock));
       context.prismaMock.user.create.mockResolvedValue(mockUser);
       context.prismaMock.userRole.deleteMany.mockResolvedValue({ count: 0 });
       context.prismaMock.userRole.create.mockResolvedValue({});
@@ -449,7 +441,6 @@ describe('Test Auth Integration', () => {
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(mockUser);
       context.prismaMock.role.findUnique.mockResolvedValue(mockRole);
-      context.prismaMock.$transaction.mockImplementation(async (callback: any) => callback(context.prismaMock));
       context.prismaMock.user.create.mockResolvedValue(mockUser);
       context.prismaMock.userRole.deleteMany.mockResolvedValue({ count: 0 });
       context.prismaMock.userRole.create.mockResolvedValue({});
@@ -500,7 +491,6 @@ describe('Test Auth Integration', () => {
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(mockUser);
       context.prismaMock.role.findUnique.mockResolvedValue(mockRole);
-      context.prismaMock.$transaction.mockImplementation(async (callback: any) => callback(context.prismaMock));
       context.prismaMock.user.create.mockResolvedValue(mockUser);
       context.prismaMock.userRole.deleteMany.mockResolvedValue({ count: 0 });
       context.prismaMock.userRole.create.mockResolvedValue({});
@@ -545,7 +535,6 @@ describe('Test Auth Integration', () => {
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(mockUser);
       context.prismaMock.role.findUnique.mockResolvedValue(mockRole);
-      context.prismaMock.$transaction.mockImplementation(async (callback: any) => callback(context.prismaMock));
       context.prismaMock.user.create.mockResolvedValue(mockUser);
       context.prismaMock.userRole.deleteMany.mockResolvedValue({ count: 0 });
       context.prismaMock.userRole.create.mockResolvedValue({});

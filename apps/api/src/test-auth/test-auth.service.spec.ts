@@ -3,7 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { TestAuthService } from './test-auth.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { createMockPrismaService, MockPrismaService } from '../../test/mocks/prisma.mock';
+import { createMockPrismaService, MockPrismaService, mockPrismaTransaction } from '../../test/mocks/prisma.mock';
 import { TestLoginDto } from './dto/test-login.dto';
 
 describe('TestAuthService', () => {
@@ -41,6 +41,18 @@ describe('TestAuthService', () => {
 
   beforeEach(async () => {
     mockPrisma = createMockPrismaService();
+
+    // Setup transaction mock to handle both array and callback forms
+    mockPrismaTransaction.call({ $transaction: mockPrisma.$transaction });
+    (mockPrisma.$transaction as jest.Mock).mockImplementation(async (arg: any) => {
+      if (typeof arg === 'function') {
+        return arg(mockPrisma);
+      } else if (Array.isArray(arg)) {
+        return Promise.all(arg);
+      }
+      return arg;
+    });
+
     mockJwtService = {
       sign: jest.fn().mockReturnValue('mock-jwt-token'),
       signAsync: jest.fn().mockResolvedValue('mock-jwt-token'),
@@ -94,7 +106,6 @@ describe('TestAuthService', () => {
 
       mockPrisma.user.findUnique.mockResolvedValueOnce(null); // First check: user doesn't exist
       mockPrisma.role.findUnique.mockResolvedValue(mockViewerRole as any);
-      mockPrisma.$transaction.mockImplementation(async (callback: any) => callback(mockPrisma));
       mockPrisma.user.create.mockResolvedValue(mockUser as any);
       mockPrisma.userRole.deleteMany.mockResolvedValue({ count: 0 });
       mockPrisma.userRole.create.mockResolvedValue({} as any);
@@ -132,7 +143,6 @@ describe('TestAuthService', () => {
 
       mockPrisma.user.findUnique.mockResolvedValueOnce(existingUser as any);
       mockPrisma.role.findUnique.mockResolvedValue(mockViewerRole as any);
-      mockPrisma.$transaction.mockImplementation(async (callback: any) => callback(mockPrisma));
       mockPrisma.userRole.deleteMany.mockResolvedValue({ count: 1 });
       mockPrisma.userRole.create.mockResolvedValue({} as any);
       mockPrisma.user.findUnique.mockResolvedValueOnce(existingUser as any); // Reload after role assignment
@@ -168,7 +178,6 @@ describe('TestAuthService', () => {
         .mockResolvedValueOnce(null) // First check
         .mockResolvedValueOnce(mockUser as any); // Reload after role assignment
       mockPrisma.role.findUnique.mockResolvedValue(mockAdminRole as any);
-      mockPrisma.$transaction.mockImplementation(async (callback: any) => callback(mockPrisma));
       mockPrisma.user.create.mockResolvedValue(mockUser as any);
       mockPrisma.userRole.deleteMany.mockResolvedValue({ count: 0 });
       mockPrisma.userRole.create.mockResolvedValue({} as any);
@@ -205,7 +214,6 @@ describe('TestAuthService', () => {
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(mockUser as any);
       mockPrisma.role.findUnique.mockResolvedValue(mockViewerRole as any);
-      mockPrisma.$transaction.mockImplementation(async (callback: any) => callback(mockPrisma));
       mockPrisma.user.create.mockResolvedValue(mockUser as any);
       mockPrisma.userRole.deleteMany.mockResolvedValue({ count: 0 });
       mockPrisma.userRole.create.mockResolvedValue({} as any);
@@ -244,7 +252,6 @@ describe('TestAuthService', () => {
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(mockUser as any);
       mockPrisma.role.findUnique.mockResolvedValue(mockViewerRole as any);
-      mockPrisma.$transaction.mockImplementation(async (callback: any) => callback(mockPrisma));
       mockPrisma.user.create.mockResolvedValue(mockUser as any);
       mockPrisma.userRole.deleteMany.mockResolvedValue({ count: 0 });
       mockPrisma.userRole.create.mockResolvedValue({} as any);
@@ -286,7 +293,6 @@ describe('TestAuthService', () => {
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(mockUser as any);
       mockPrisma.role.findUnique.mockResolvedValue(mockViewerRole as any);
-      mockPrisma.$transaction.mockImplementation(async (callback: any) => callback(mockPrisma));
       mockPrisma.user.create.mockResolvedValue(mockUser as any);
       mockPrisma.userRole.deleteMany.mockResolvedValue({ count: 0 });
       mockPrisma.userRole.create.mockResolvedValue({} as any);
@@ -323,7 +329,6 @@ describe('TestAuthService', () => {
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(mockUser as any);
       mockPrisma.role.findUnique.mockResolvedValue(mockContributorRole as any);
-      mockPrisma.$transaction.mockImplementation(async (callback: any) => callback(mockPrisma));
       mockPrisma.user.create.mockResolvedValue(mockUser as any);
       mockPrisma.userRole.deleteMany.mockResolvedValue({ count: 0 });
       mockPrisma.userRole.create.mockResolvedValue({} as any);
@@ -357,7 +362,6 @@ describe('TestAuthService', () => {
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(mockUser as any);
       mockPrisma.role.findUnique.mockResolvedValue(mockViewerRole as any);
-      mockPrisma.$transaction.mockImplementation(async (callback: any) => callback(mockPrisma));
       mockPrisma.user.create.mockResolvedValue(mockUser as any);
       mockPrisma.userRole.deleteMany.mockResolvedValue({ count: 0 });
       mockPrisma.userRole.create.mockResolvedValue({} as any);
@@ -392,7 +396,6 @@ describe('TestAuthService', () => {
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(mockUser as any);
       mockPrisma.role.findUnique.mockResolvedValue(mockViewerRole as any);
-      mockPrisma.$transaction.mockImplementation(async (callback: any) => callback(mockPrisma));
       mockPrisma.user.create.mockResolvedValue(mockUser as any);
       mockPrisma.userRole.deleteMany.mockResolvedValue({ count: 0 });
       mockPrisma.userRole.create.mockResolvedValue({} as any);
@@ -426,7 +429,6 @@ describe('TestAuthService', () => {
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(mockUser as any);
       mockPrisma.role.findUnique.mockResolvedValue(mockViewerRole as any);
-      mockPrisma.$transaction.mockImplementation(async (callback: any) => callback(mockPrisma));
       mockPrisma.user.create.mockResolvedValue(mockUser as any);
       mockPrisma.userRole.deleteMany.mockResolvedValue({ count: 0 });
       mockPrisma.userRole.create.mockResolvedValue({} as any);
@@ -481,7 +483,6 @@ describe('TestAuthService', () => {
         .mockResolvedValueOnce(existingUser as any)
         .mockResolvedValueOnce(updatedUser as any);
       mockPrisma.role.findUnique.mockResolvedValue(mockAdminRole as any);
-      mockPrisma.$transaction.mockImplementation(async (callback: any) => callback(mockPrisma));
       mockPrisma.userRole.deleteMany.mockResolvedValue({ count: 1 });
       mockPrisma.userRole.create.mockResolvedValue({} as any);
       mockPrisma.refreshToken.create.mockResolvedValue({} as any);
@@ -523,7 +524,6 @@ describe('TestAuthService', () => {
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(mockUser as any);
       mockPrisma.role.findUnique.mockResolvedValue(mockViewerRole as any);
-      mockPrisma.$transaction.mockImplementation(async (callback: any) => callback(mockPrisma));
       mockPrisma.user.create.mockResolvedValue(mockUser as any);
       mockPrisma.userRole.deleteMany.mockResolvedValue({ count: 0 });
       mockPrisma.userRole.create.mockResolvedValue({} as any);
@@ -568,7 +568,6 @@ describe('TestAuthService', () => {
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(mockUser as any);
       mockPrisma.role.findUnique.mockResolvedValue(mockViewerRole as any);
-      mockPrisma.$transaction.mockImplementation(async (callback: any) => callback(mockPrisma));
       mockPrisma.user.create.mockResolvedValue(mockUser as any);
       mockPrisma.userRole.deleteMany.mockResolvedValue({ count: 0 });
       mockPrisma.userRole.create.mockResolvedValue({} as any);
