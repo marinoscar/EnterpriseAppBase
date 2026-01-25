@@ -1,3 +1,5 @@
+import { createReadStream, statSync } from 'fs';
+import { basename } from 'path';
 import { config } from '../utils/config.js';
 import {
   AuthTokens,
@@ -63,6 +65,59 @@ export async function apiRequest(
 
   // Handle 401 errors
   if (response.status === 401 && requireAuth) {
+    throw new Error('Session expired. Please login again: app auth login');
+  }
+
+  return response;
+}
+
+/**
+ * Upload options for file uploads
+ */
+export interface UploadOptions {
+  metadata?: Record<string, unknown>;
+  onProgress?: (loaded: number, total: number) => void;
+}
+
+/**
+ * Upload a file to the storage API
+ * Uses multipart/form-data for file uploads
+ */
+export async function apiUploadFile(
+  filePath: string,
+  options: UploadOptions = {}
+): Promise<Response> {
+  const tokens = await ensureValidTokens();
+  const fileName = basename(filePath);
+  const fileStats = statSync(filePath);
+
+  // Read file as blob
+  const { readFile } = await import('fs/promises');
+  const fileBuffer = await readFile(filePath);
+  const blob = new Blob([fileBuffer]);
+
+  // Create FormData with file
+  const formData = new FormData();
+  formData.append('file', blob, fileName);
+
+  // Add metadata if provided
+  if (options.metadata) {
+    formData.append('metadata', JSON.stringify(options.metadata));
+  }
+
+  const url = `${config.apiUrl}/storage/objects`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${tokens.accessToken}`,
+      // Don't set Content-Type - let fetch set it with boundary
+    },
+    body: formData,
+  });
+
+  // Handle 401 errors
+  if (response.status === 401) {
     throw new Error('Session expired. Please login again: app auth login');
   }
 

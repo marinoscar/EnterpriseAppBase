@@ -1,5 +1,7 @@
+import { existsSync, statSync } from 'fs';
+import { resolve } from 'path';
 import { Command } from 'commander';
-import { apiRequest } from '../lib/api-client.js';
+import { apiRequest, apiUploadFile } from '../lib/api-client.js';
 import * as output from '../utils/output.js';
 import type {
   StorageObject,
@@ -205,6 +207,52 @@ async function deleteObject(id: string, options: DeleteOptions): Promise<void> {
   output.success(`Object ${id} deleted`);
 }
 
+interface UploadOptions {
+  json?: boolean;
+}
+
+/**
+ * Upload a file to storage
+ */
+async function uploadFile(
+  filePath: string,
+  options: UploadOptions
+): Promise<void> {
+  const absolutePath = resolve(filePath);
+
+  if (!existsSync(absolutePath)) {
+    throw new Error(`File not found: ${absolutePath}`);
+  }
+
+  const stats = statSync(absolutePath);
+  if (!stats.isFile()) {
+    throw new Error(`Not a file: ${absolutePath}`);
+  }
+
+  output.info(`Uploading ${filePath} (${formatSize(stats.size)})...`);
+
+  const response = await apiUploadFile(absolutePath);
+
+  if (!response.ok) {
+    const error = (await response.json()) as ErrorResponse;
+    throw new Error(error.message || 'Failed to upload file');
+  }
+
+  const result = (await response.json()) as StorageObjectResponse;
+
+  if (options.json) {
+    console.log(JSON.stringify(result.data, null, 2));
+    return;
+  }
+
+  output.success('File uploaded successfully');
+  output.blank();
+  output.keyValue('ID', result.data.id);
+  output.keyValue('Name', result.data.name);
+  output.keyValue('Size', formatSize(result.data.size));
+  output.keyValue('Status', result.data.status);
+}
+
 /**
  * Register storage commands with Commander
  */
@@ -266,6 +314,20 @@ export function registerStorageCommands(program: Command): void {
     });
 
   storageCmd
+    .command('upload')
+    .description('Upload a file to storage')
+    .argument('<file>', 'File path to upload')
+    .option('--json', 'Output as JSON')
+    .action(async (file: string, options) => {
+      try {
+        await uploadFile(file, { json: options.json });
+      } catch (error) {
+        output.error((error as Error).message);
+        process.exit(1);
+      }
+    });
+
+  storageCmd
     .command('delete')
     .description('Delete a storage object')
     .argument('<id>', 'Object ID')
@@ -281,4 +343,4 @@ export function registerStorageCommands(program: Command): void {
 }
 
 // Export for interactive mode
-export { listObjects, getObject, downloadObject, deleteObject };
+export { listObjects, getObject, downloadObject, uploadFile, deleteObject };
