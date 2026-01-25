@@ -460,6 +460,43 @@ Authorization: Bearer <token>
 
 ---
 
+### Test Authentication (Development/Test Only)
+
+**Security Notice:** These endpoints are completely disabled in production. They exist solely to enable automated E2E testing without requiring real OAuth credentials.
+
+#### POST /auth/test/login
+**Development/Test Only** - Authenticate as a test user without OAuth.
+
+**Availability:** Only when `NODE_ENV !== 'production'`
+
+**Request Body:**
+```json
+{
+  "email": "test@test.local",
+  "role": "admin",
+  "displayName": "Test Admin"
+}
+```
+
+**Fields:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `email` | string | Yes | Email address for test user |
+| `role` | enum | No | Role to assign: `admin`, `contributor`, `viewer` (default: `viewer`) |
+| `displayName` | string | No | Display name for the user |
+
+**Response:** HTTP 302 redirect to `/auth/callback?token=<accessToken>&expiresIn=900`
+- Sets HttpOnly refresh token cookie (same as OAuth flow)
+- Creates user if not exists, assigns specified role
+
+**Error Cases:**
+- 403 Forbidden - Endpoint disabled (production environment)
+- 400 Bad Request - Invalid email or role
+
+**Use Case:** Playwright E2E tests use this endpoint to authenticate without Google OAuth.
+
+---
+
 ### Users
 
 **All user endpoints require Admin role (`users:read` or `users:write` permissions)**

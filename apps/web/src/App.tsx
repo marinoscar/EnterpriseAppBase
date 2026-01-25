@@ -19,6 +19,11 @@ const UserSettingsPage = lazy(() => import('./pages/UserSettingsPage'));
 const SystemSettingsPage = lazy(() => import('./pages/SystemSettingsPage'));
 const UserManagementPage = lazy(() => import('./pages/UserManagementPage'));
 
+// Test login page (development only)
+const TestLoginPage = import.meta.env.PROD
+  ? null
+  : lazy(() => import('./pages/TestLoginPage'));
+
 function AppRoutes() {
   const { theme } = useThemeContext();
 
@@ -31,6 +36,11 @@ function AppRoutes() {
             {/* Public routes */}
             <Route path="/login" element={<LoginPage />} />
             <Route path="/auth/callback" element={<AuthCallbackPage />} />
+
+            {/* Test login (development only) */}
+            {!import.meta.env.PROD && TestLoginPage && (
+              <Route path="/testing/login" element={<TestLoginPage />} />
+            )}
 
             {/* Protected routes */}
             <Route element={<ProtectedRoute />}>
