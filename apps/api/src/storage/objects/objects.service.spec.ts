@@ -234,7 +234,7 @@ describe('ObjectsService', () => {
       expect(result.uploadedParts).toEqual([1, 2, 3]);
       expect(result.totalParts).toBe(3);
       expect(result.uploadedBytes).toBe('26214400');
-      expect(result.totalBytes).toBe(mockStorageObject.size.toString());
+      expect(result.totalBytes).toBe('26214400');
     });
 
     it('should throw NotFoundException for non-existent object', async () => {

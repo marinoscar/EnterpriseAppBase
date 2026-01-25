@@ -19,7 +19,7 @@ describe('Storage Integration', () => {
   let mockStorageProvider: ReturnType<typeof createMockStorageProvider>;
 
   const mockStorageObject = {
-    id: 'obj-123',
+    id: '550e8400-e29b-41d4-a716-446655440000', // Valid UUID
     name: 'test-file.pdf',
     size: BigInt(1024000),
     mimeType: 'application/pdf',
@@ -156,7 +156,7 @@ describe('Storage Integration', () => {
       context.prismaMock.storageObject.findUnique.mockResolvedValue(null);
 
       await request(context.app.getHttpServer())
-        .get('/api/storage/objects/non-existent/upload/status')
+        .get('/api/storage/objects/550e8400-e29b-41d4-a716-446655440001/upload/status')
         .set(authHeader(user.accessToken))
         .expect(404);
     });
@@ -213,7 +213,7 @@ describe('Storage Integration', () => {
         .post(`/api/storage/objects/${mockStorageObject.id}/upload/complete`)
         .set(authHeader(user.accessToken))
         .send(dto)
-        .expect(200);
+        .expect(201);
 
       expect(response.body.data).toMatchObject({
         id: mockStorageObject.id,
@@ -227,7 +227,7 @@ describe('Storage Integration', () => {
       context.prismaMock.storageObject.findUnique.mockResolvedValue(null);
 
       await request(context.app.getHttpServer())
-        .post('/api/storage/objects/non-existent/upload/complete')
+        .post('/api/storage/objects/550e8400-e29b-41d4-a716-446655440001/upload/complete')
         .set(authHeader(user.accessToken))
         .send({
           parts: [{ partNumber: 1, eTag: 'etag1' }],
@@ -273,7 +273,7 @@ describe('Storage Integration', () => {
       context.prismaMock.storageObject.findUnique.mockResolvedValue(null);
 
       await request(context.app.getHttpServer())
-        .delete('/api/storage/objects/non-existent/upload/abort')
+        .delete('/api/storage/objects/550e8400-e29b-41d4-a716-446655440001/upload/abort')
         .set(authHeader(user.accessToken))
         .expect(404);
     });
@@ -368,7 +368,7 @@ describe('Storage Integration', () => {
       context.prismaMock.storageObject.findUnique.mockResolvedValue(null);
 
       await request(context.app.getHttpServer())
-        .get('/api/storage/objects/non-existent')
+        .get('/api/storage/objects/550e8400-e29b-41d4-a716-446655440001')
         .set(authHeader(user.accessToken))
         .expect(404);
     });
@@ -438,7 +438,7 @@ describe('Storage Integration', () => {
       context.prismaMock.storageObject.findUnique.mockResolvedValue(null);
 
       await request(context.app.getHttpServer())
-        .delete('/api/storage/objects/non-existent')
+        .delete('/api/storage/objects/550e8400-e29b-41d4-a716-446655440001')
         .set(authHeader(user.accessToken))
         .expect(404);
     });

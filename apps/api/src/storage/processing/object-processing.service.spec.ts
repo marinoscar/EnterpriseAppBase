@@ -383,6 +383,11 @@ describe('ObjectProcessingService', () => {
         // No metadata field
       });
 
+      mockProcessor2.process.mockResolvedValue({
+        success: true,
+        // No metadata field
+      });
+
       mockPrisma.storageObject.findUnique.mockResolvedValue({
         ...mockStorageObject,
         metadata: null,
