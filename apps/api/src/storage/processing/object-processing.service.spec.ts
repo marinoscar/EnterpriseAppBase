@@ -439,8 +439,8 @@ describe('ObjectProcessingService', () => {
       const metadata = updateCall.data.metadata as any;
 
       expect(metadata._processedAt).toBeDefined();
-      expect(metadata._processedAt).toBeGreaterThanOrEqual(beforeTime);
-      expect(metadata._processedAt).toBeLessThanOrEqual(afterTime);
+      expect(new Date(metadata._processedAt).getTime()).toBeGreaterThanOrEqual(new Date(beforeTime).getTime());
+      expect(new Date(metadata._processedAt).getTime()).toBeLessThanOrEqual(new Date(afterTime).getTime());
     });
   });
 
