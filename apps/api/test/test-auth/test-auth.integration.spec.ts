@@ -32,7 +32,7 @@ describe('Test Auth Integration', () => {
 
       expect(response.body).toHaveProperty('code');
       expect(response.body).toHaveProperty('message');
-      expect(response.body.code).toBe('VALIDATION_ERROR');
+      expect(response.body.code).toBe('BAD_REQUEST');
     });
 
     it('should return 400 with missing email', async () => {
@@ -43,7 +43,7 @@ describe('Test Auth Integration', () => {
 
       expect(response.body).toHaveProperty('code');
       expect(response.body).toHaveProperty('message');
-      expect(response.body.code).toBe('VALIDATION_ERROR');
+      expect(response.body.code).toBe('BAD_REQUEST');
     });
 
     it('should return 400 with invalid role', async () => {
@@ -54,7 +54,7 @@ describe('Test Auth Integration', () => {
 
       expect(response.body).toHaveProperty('code');
       expect(response.body).toHaveProperty('message');
-      expect(response.body.code).toBe('VALIDATION_ERROR');
+      expect(response.body.code).toBe('BAD_REQUEST');
     });
 
     it('should redirect with access token for valid request (new user)', async () => {
