@@ -5,6 +5,7 @@ import { showPrismaMenu } from './prisma-menu.js';
 import { showAuthMenu } from './auth-menu.js';
 import { showApiMenu } from './api-menu.js';
 import { showStorageMenu } from './storage-menu.js';
+import { showSyncMenu } from './sync-menu.js';
 import { showSettingsMenu } from './settings-menu.js';
 import * as output from '../utils/output.js';
 import { getIcon } from '../utils/config.js';
@@ -50,6 +51,10 @@ export async function showMainMenu(): Promise<void> {
             value: 'storage',
           },
           {
+            name: `${getIcon('🔄', '>')} Sync Folder (sync files to cloud)`,
+            value: 'sync',
+          },
+          {
             name: `${getIcon('⚙️', '>')} Settings (API URL, config...)`,
             value: 'settings',
           },
@@ -80,6 +85,9 @@ export async function showMainMenu(): Promise<void> {
         break;
       case 'storage':
         await showStorageMenu();
+        break;
+      case 'sync':
+        await showSyncMenu();
         break;
       case 'settings':
         await showSettingsMenu();
