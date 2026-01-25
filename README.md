@@ -1,5 +1,7 @@
 # Enterprise Application Foundation
 
+[![CI](https://github.com/marinoscar/EnterpriseAppBase/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/marinoscar/EnterpriseAppBase/actions/workflows/ci.yml)
+
 A production-grade full-stack application foundation built with React, NestJS, and PostgreSQL. Features OAuth authentication, role-based access control, and comprehensive observability.
 
 ## Features
@@ -100,7 +102,7 @@ exit
 
 The first user to login with email matching `INITIAL_ADMIN_EMAIL` (from `.env`) will automatically be granted the **admin** role. All subsequent users get **viewer** role by default.
 
-**Important:** Only email addresses in the **allowlist** can login. The `INITIAL_ADMIN_EMAIL` is automatically added to the allowlist during seeding. After your first login as admin, use the Admin interface (`/admin/users`, Allowlist tab) to add additional email addresses before other users can login.
+**Important:** Only email addresses in the **allowlist** can login. The `INITIAL_ADMIN_EMAIL` is automatically added to the allowlist during seeding. After your first login as admin, use the Admin Panel to manage the allowlist.
 
 ## Development
 
@@ -134,6 +136,17 @@ npm run test:watch    # Watch mode
 npm run test:coverage # With coverage
 ```
 
+**E2E Tests (Playwright):**
+```bash
+cd tests/e2e
+npm install              # First time setup
+npx playwright install   # Install browsers
+npm test                 # Run E2E tests
+npm run test:ui          # Run with visual UI
+```
+
+Note: E2E tests use a test authentication bypass (`/testing/login`) that is only available in development/test environments. See [TESTING.md](docs/TESTING.md#e2e-testing-with-playwright) for details.
+
 ### Database Migrations
 
 ```bash
@@ -154,6 +167,69 @@ npx prisma generate
 Development mode (`dev.compose.yml`) includes hot reload for both frontend and backend:
 - Backend: Changes to `apps/api/src/**` trigger restart
 - Frontend: Vite HMR updates immediately
+
+## CLI Tool
+
+A cross-platform CLI (`app`) is available for managing development, testing, and API operations. The CLI can connect to any deployed instance, not just localhost.
+
+### Installation
+
+```bash
+# Build the CLI
+cd tools/app && npm run build
+
+# Link globally (recommended)
+npm link
+
+# Now you can use 'app' from anywhere
+app --help
+```
+
+### Quick CLI Commands
+
+```bash
+# Configure CLI to connect to a server
+app config set-url https://myapp.com
+
+# Start development environment
+app start
+
+# Login (opens browser for OAuth)
+app auth login
+
+# Run tests
+app test
+
+# Manage users (admin only)
+app users list
+app allowlist add newuser@company.com
+
+# Database operations
+app prisma migrate
+app prisma seed
+
+# Interactive mode (menu-driven)
+app
+```
+
+### Working with Remote Servers
+
+The CLI can manage any deployed instance:
+
+```bash
+# Configure for production
+app config set-url https://prod.myapp.com
+app auth login
+app users list
+
+# Switch to staging
+app config set-url https://staging.myapp.com
+
+# View current configuration
+app config show
+```
+
+For complete CLI documentation, see [tools/app/README.md](tools/app/README.md).
 
 ## Project Structure
 
@@ -178,6 +254,8 @@ EnterpriseAppBase/
 │       │   ├── pages/         # Page components
 │       │   └── services/      # API client
 │       └── src/__tests__/     # Component tests
+├── tools/
+│   └── app/                    # CLI tool for development and API management
 ├── docs/                       # Documentation
 │   ├── DEVELOPMENT.md         # Development guide (start here!)
 │   ├── SECURITY-ARCHITECTURE.md  # Security design
@@ -196,6 +274,7 @@ EnterpriseAppBase/
 
 ## Documentation
 
+- **[CLI Tool](tools/app/README.md)** - CLI for development, testing, and API management
 - **[DEVELOPMENT.md](docs/DEVELOPMENT.md)** - Development setup, common patterns, and troubleshooting
 - **[SECURITY-ARCHITECTURE.md](docs/SECURITY-ARCHITECTURE.md)** - Security design and implementation
 - **[TESTING.md](docs/TESTING.md)** - Testing strategy and best practices
@@ -302,7 +381,7 @@ This creates roles, permissions, and default settings. Without seeding, OAuth lo
 
 ### OAuth with Fastify
 
-Passport OAuth strategies expect Express-style objects. The `GoogleOAuthGuard` handles compatibility by returning raw Node.js request/response objects to Passport. See [SECURITY-ARCHITECTURE.md](docs/SECURITY-ARCHITECTURE.md#9-implementation-notes-fastify--passport-oauth) for details.
+Passport OAuth strategies expect Express-style objects. The `GoogleOAuthGuard` handles compatibility by returning raw Node.js request/response objects to Passport. See [SECURITY-ARCHITECTURE.md](docs/SECURITY-ARCHITECTURE.md) for details.
 
 ## Troubleshooting
 

@@ -13,7 +13,10 @@ build/
 
 # IDE
 .idea/
-.vscode/
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/extensions.json
 *.swp
 *.swo
 
@@ -33,6 +36,10 @@ coverage/
 # Prisma
 apps/api/prisma/*.db
 apps/api/prisma/*.db-journal
+
+# SQLite sync databases
+sync.db
+sync.db-journal
 
 # Docker
 .docker/

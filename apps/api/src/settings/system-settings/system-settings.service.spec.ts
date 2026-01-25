@@ -58,7 +58,6 @@ describe('SystemSettingsService', () => {
 
       expect(result).toMatchObject({
         ui: DEFAULT_SYSTEM_SETTINGS.ui,
-        security: DEFAULT_SYSTEM_SETTINGS.security,
         features: DEFAULT_SYSTEM_SETTINGS.features,
         version: 1,
       });
@@ -86,7 +85,6 @@ describe('SystemSettingsService', () => {
 
       expect(result).toMatchObject({
         ui: DEFAULT_SYSTEM_SETTINGS.ui,
-        security: DEFAULT_SYSTEM_SETTINGS.security,
         features: DEFAULT_SYSTEM_SETTINGS.features,
         version: 1,
       });
@@ -108,7 +106,6 @@ describe('SystemSettingsService', () => {
     it('should replace entire settings', async () => {
       const newSettings: SystemSettingsValue = {
         ui: { allowUserThemeOverride: false },
-        security: { jwtAccessTtlMinutes: 30, refreshTtlDays: 7 },
         features: { newFeature: true },
       };
 
@@ -124,7 +121,6 @@ describe('SystemSettingsService', () => {
 
       expect(result).toMatchObject({
         ui: newSettings.ui,
-        security: newSettings.security,
         features: newSettings.features,
         version: 2,
       });
@@ -151,7 +147,6 @@ describe('SystemSettingsService', () => {
     it('should increment version on update', async () => {
       const newSettings: SystemSettingsValue = {
         ui: { allowUserThemeOverride: true },
-        security: { jwtAccessTtlMinutes: 20, refreshTtlDays: 14 },
         features: {},
       };
 
@@ -178,7 +173,6 @@ describe('SystemSettingsService', () => {
     it('should create audit event on replace', async () => {
       const newSettings: SystemSettingsValue = {
         ui: { allowUserThemeOverride: false },
-        security: { jwtAccessTtlMinutes: 15, refreshTtlDays: 14 },
         features: {},
       };
 
@@ -221,7 +215,6 @@ describe('SystemSettingsService', () => {
         ...mockSystemSettings,
         value: {
           ui: { allowUserThemeOverride: false },
-          security: DEFAULT_SYSTEM_SETTINGS.security,
           features: DEFAULT_SYSTEM_SETTINGS.features,
         } as any,
         version: 2,
@@ -232,36 +225,7 @@ describe('SystemSettingsService', () => {
       const result = await service.patchSettings(partialUpdate, mockUserId);
 
       expect(result.ui.allowUserThemeOverride).toBe(false);
-      expect(result.security).toEqual(DEFAULT_SYSTEM_SETTINGS.security);
       expect(result.features).toEqual(DEFAULT_SYSTEM_SETTINGS.features);
-    });
-
-    it('should handle nested object updates', async () => {
-      const partialUpdate = {
-        security: { jwtAccessTtlMinutes: 30 },
-      };
-
-      mockPrisma.systemSettings.update.mockResolvedValue({
-        ...mockSystemSettings,
-        value: {
-          ui: DEFAULT_SYSTEM_SETTINGS.ui,
-          security: {
-            jwtAccessTtlMinutes: 30,
-            refreshTtlDays: DEFAULT_SYSTEM_SETTINGS.security.refreshTtlDays,
-          },
-          features: DEFAULT_SYSTEM_SETTINGS.features,
-        } as any,
-        version: 2,
-      } as any);
-
-      mockPrisma.auditEvent.create.mockResolvedValue({} as any);
-
-      const result = await service.patchSettings(partialUpdate, mockUserId);
-
-      expect(result.security.jwtAccessTtlMinutes).toBe(30);
-      expect(result.security.refreshTtlDays).toBe(
-        DEFAULT_SYSTEM_SETTINGS.security.refreshTtlDays,
-      );
     });
 
     it('should handle features object merge', async () => {
@@ -285,7 +249,6 @@ describe('SystemSettingsService', () => {
         ...mockSystemSettings,
         value: {
           ui: DEFAULT_SYSTEM_SETTINGS.ui,
-          security: DEFAULT_SYSTEM_SETTINGS.security,
           features: { existingFeature: true, newFeature: true },
         } as any,
         version: 2,
@@ -330,7 +293,6 @@ describe('SystemSettingsService', () => {
         ...mockSystemSettings,
         value: {
           ui: { allowUserThemeOverride: false },
-          security: DEFAULT_SYSTEM_SETTINGS.security,
           features: DEFAULT_SYSTEM_SETTINGS.features,
         } as any,
         version: 2,
@@ -359,7 +321,6 @@ describe('SystemSettingsService', () => {
         ...mockSystemSettings,
         value: {
           ui: { allowUserThemeOverride: false },
-          security: DEFAULT_SYSTEM_SETTINGS.security,
           features: DEFAULT_SYSTEM_SETTINGS.features,
         } as any,
         version: 2,
@@ -388,7 +349,6 @@ describe('SystemSettingsService', () => {
         ...mockSystemSettings,
         value: {
           ui: { allowUserThemeOverride: false },
-          security: DEFAULT_SYSTEM_SETTINGS.security,
           features: DEFAULT_SYSTEM_SETTINGS.features,
         } as any,
         version: 2,

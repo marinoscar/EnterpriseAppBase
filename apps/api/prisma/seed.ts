@@ -40,6 +40,11 @@ const PERMISSIONS = [
   // Allowlist management
   { name: 'allowlist:read', description: 'View allowlisted emails' },
   { name: 'allowlist:write', description: 'Manage allowlisted emails' },
+
+  // Storage management
+  { name: 'storage:read', description: 'Read object metadata, get download URLs' },
+  { name: 'storage:write', description: 'Upload, update metadata' },
+  { name: 'storage:delete_any', description: 'Admin: delete any object' },
 ] as const;
 
 // Role to permissions mapping
@@ -54,14 +59,20 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     'rbac:manage',
     'allowlist:read',
     'allowlist:write',
+    'storage:read',
+    'storage:write',
+    'storage:delete_any',
   ],
   contributor: [
     'user_settings:read',
     'user_settings:write',
+    'storage:read',
+    'storage:write',
   ],
   viewer: [
     'user_settings:read',
     'user_settings:write',
+    'storage:read',
   ],
 };
 
@@ -69,10 +80,6 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
 const DEFAULT_SYSTEM_SETTINGS = {
   ui: {
     allowUserThemeOverride: true,
-  },
-  security: {
-    jwtAccessTtlMinutes: 15,
-    refreshTtlDays: 14,
   },
   features: {},
 };

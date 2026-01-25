@@ -1,6 +1,12 @@
 -- CreateExtension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- CreateEnum
+CREATE TYPE "DeviceCodeStatus" AS ENUM ('pending', 'approved', 'denied', 'expired');
+
+-- CreateEnum
+CREATE TYPE "StorageObjectStatus" AS ENUM ('pending', 'uploading', 'processing', 'ready', 'failed');
+
 -- CreateTable
 CREATE TABLE "users" (
     "id" UUID NOT NULL DEFAULT uuid_generate_v4(),
@@ -123,6 +129,53 @@ CREATE TABLE "allowed_emails" (
     CONSTRAINT "allowed_emails_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateTable
+CREATE TABLE "device_codes" (
+    "id" UUID NOT NULL DEFAULT uuid_generate_v4(),
+    "device_code" TEXT NOT NULL,
+    "user_code" TEXT NOT NULL,
+    "user_id" UUID,
+    "status" "DeviceCodeStatus" NOT NULL DEFAULT 'pending',
+    "client_info" JSONB,
+    "scopes" TEXT[],
+    "expires_at" TIMESTAMPTZ NOT NULL,
+    "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMPTZ NOT NULL,
+
+    CONSTRAINT "device_codes_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "storage_objects" (
+    "id" UUID NOT NULL DEFAULT uuid_generate_v4(),
+    "name" TEXT NOT NULL,
+    "size" BIGINT NOT NULL,
+    "mime_type" TEXT NOT NULL,
+    "storage_key" TEXT NOT NULL,
+    "storage_provider" TEXT NOT NULL DEFAULT 's3',
+    "bucket" TEXT,
+    "status" "StorageObjectStatus" NOT NULL DEFAULT 'pending',
+    "s3_upload_id" TEXT,
+    "metadata" JSONB,
+    "uploaded_by_id" UUID,
+    "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMPTZ NOT NULL,
+
+    CONSTRAINT "storage_objects_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "storage_object_chunks" (
+    "id" UUID NOT NULL DEFAULT uuid_generate_v4(),
+    "object_id" UUID NOT NULL,
+    "part_number" INTEGER NOT NULL,
+    "e_tag" TEXT NOT NULL,
+    "size" BIGINT NOT NULL,
+    "uploaded_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "storage_object_chunks_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "users_email_key" ON "users"("email");
 
@@ -165,6 +218,42 @@ CREATE UNIQUE INDEX "allowed_emails_email_key" ON "allowed_emails"("email");
 -- CreateIndex
 CREATE UNIQUE INDEX "allowed_emails_claimed_by_id_key" ON "allowed_emails"("claimed_by_id");
 
+-- CreateIndex
+CREATE UNIQUE INDEX "device_codes_device_code_key" ON "device_codes"("device_code");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "device_codes_user_code_key" ON "device_codes"("user_code");
+
+-- CreateIndex
+CREATE INDEX "device_codes_device_code_idx" ON "device_codes"("device_code");
+
+-- CreateIndex
+CREATE INDEX "device_codes_user_code_idx" ON "device_codes"("user_code");
+
+-- CreateIndex
+CREATE INDEX "device_codes_status_expires_at_idx" ON "device_codes"("status", "expires_at");
+
+-- CreateIndex
+CREATE INDEX "device_codes_user_id_idx" ON "device_codes"("user_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "storage_objects_storage_key_key" ON "storage_objects"("storage_key");
+
+-- CreateIndex
+CREATE INDEX "storage_objects_uploaded_by_id_idx" ON "storage_objects"("uploaded_by_id");
+
+-- CreateIndex
+CREATE INDEX "storage_objects_status_idx" ON "storage_objects"("status");
+
+-- CreateIndex
+CREATE INDEX "storage_objects_created_at_idx" ON "storage_objects"("created_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "storage_object_chunks_object_id_part_number_key" ON "storage_object_chunks"("object_id", "part_number");
+
+-- CreateIndex
+CREATE INDEX "storage_object_chunks_object_id_idx" ON "storage_object_chunks"("object_id");
+
 -- AddForeignKey
 ALTER TABLE "user_identities" ADD CONSTRAINT "user_identities_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
@@ -197,3 +286,12 @@ ALTER TABLE "allowed_emails" ADD CONSTRAINT "allowed_emails_added_by_id_fkey" FO
 
 -- AddForeignKey
 ALTER TABLE "allowed_emails" ADD CONSTRAINT "allowed_emails_claimed_by_id_fkey" FOREIGN KEY ("claimed_by_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "device_codes" ADD CONSTRAINT "device_codes_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "storage_objects" ADD CONSTRAINT "storage_objects_uploaded_by_id_fkey" FOREIGN KEY ("uploaded_by_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "storage_object_chunks" ADD CONSTRAINT "storage_object_chunks_object_id_fkey" FOREIGN KEY ("object_id") REFERENCES "storage_objects"("id") ON DELETE CASCADE ON UPDATE CASCADE;

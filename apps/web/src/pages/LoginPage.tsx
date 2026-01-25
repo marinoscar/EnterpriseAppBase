@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Box,
   Card,
@@ -13,17 +13,28 @@ import { useAuth } from '../contexts/AuthContext';
 import { OAuthButton } from '../components/auth/OAuthButton';
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
 
+interface LocationState {
+  from?: { pathname: string; search: string };
+}
+
 export default function LoginPage() {
   const { isAuthenticated, isLoading, providers, login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const theme = useTheme();
+
+  // Get the return URL from location state (set by ProtectedRoute)
+  const state = location.state as LocationState | null;
+  const returnUrl = state?.from
+    ? `${state.from.pathname}${state.from.search || ''}`
+    : '/';
 
   // Redirect if already authenticated
   useEffect(() => {
     if (isAuthenticated && !isLoading) {
-      navigate('/', { replace: true });
+      navigate(returnUrl, { replace: true });
     }
-  }, [isAuthenticated, isLoading, navigate]);
+  }, [isAuthenticated, isLoading, navigate, returnUrl]);
 
   if (isLoading) {
     return <LoadingSpinner fullScreen />;
@@ -36,9 +47,7 @@ export default function LoginPage() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: theme.palette.mode === 'dark'
-          ? 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)'
-          : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        backgroundColor: theme.palette.background.default,
         p: 2,
       }}
     >

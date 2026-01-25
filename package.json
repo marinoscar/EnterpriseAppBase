@@ -1,14 +1,16 @@
 {
   "name": "enterprise-app",
   "private": true,
-  "workspaces": ["apps/*"],
+  "workspaces": ["apps/*", "tools/*"],
   "scripts": {
     "api": "npm -w apps/api",
     "web": "npm -w apps/web",
     "api:dev": "npm -w apps/api run start:dev",
     "web:dev": "npm -w apps/web run dev",
     "api:test": "npm -w apps/api test",
-    "web:test": "npm -w apps/web test"
+    "web:test": "npm -w apps/web test",
+    "app": "node tools/app/bin/app.js",
+    "app:build": "npm -w tools/app run build"
   },
   "overrides": {
     "@nestjs/common": "^11.1.12",

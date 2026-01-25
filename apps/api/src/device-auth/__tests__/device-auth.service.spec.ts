@@ -98,7 +98,7 @@ describe('DeviceAuthService', () => {
 
       expect(result.deviceCode).toHaveLength(64); // 32 bytes hex = 64 chars
       expect(result.userCode).toMatch(/^[A-Z0-9]{4}-[A-Z0-9]{4}$/);
-      expect(result.verificationUri).toBe('http://localhost:3535/device');
+      expect(result.verificationUri).toBe('http://localhost:3535/activate');
       expect(result.verificationUriComplete).toContain(result.userCode);
       expect(result.expiresIn).toBe(900); // 15 minutes in seconds
       expect(result.interval).toBe(5);
@@ -320,7 +320,7 @@ describe('DeviceAuthService', () => {
       const result = await service.getActivationInfo();
 
       expect(result).toEqual({
-        verificationUri: 'http://localhost:3535/device',
+        verificationUri: 'http://localhost:3535/activate',
       });
     });
 
@@ -341,7 +341,7 @@ describe('DeviceAuthService', () => {
       const result = await service.getActivationInfo('abcd-1234');
 
       expect(result).toEqual({
-        verificationUri: 'http://localhost:3535/device',
+        verificationUri: 'http://localhost:3535/activate',
         userCode: 'ABCD-1234',
         clientInfo,
         expiresAt: expect.any(String),

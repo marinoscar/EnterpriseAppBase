@@ -65,7 +65,7 @@ enum DeviceCodeStatus {
 
 ## API Endpoints
 
-### 1. POST /api/auth/device/code (Public)
+### 1. POST /api/auth/activate/code (Public)
 
 Generates a new device code pair to initiate the authorization flow.
 
@@ -85,15 +85,15 @@ Generates a new device code pair to initiate the authorization flow.
   "data": {
     "deviceCode": "a4f3b8c9d2e1f5a6b7c8d9e0f1a2b3c4",
     "userCode": "ABCD-1234",
-    "verificationUri": "http://localhost:3535/device",
-    "verificationUriComplete": "http://localhost:3535/device?code=ABCD-1234",
+    "verificationUri": "http://localhost:3535/activate",
+    "verificationUriComplete": "http://localhost:3535/activate?code=ABCD-1234",
     "expiresIn": 900,
     "interval": 5
   }
 }
 ```
 
-### 2. POST /api/auth/device/token (Public)
+### 2. POST /api/auth/activate/token (Public)
 
 Device polls this endpoint to check authorization status.
 
@@ -136,7 +136,7 @@ Device polls this endpoint to check authorization status.
 - `expired_token` - The device code has expired
 - `access_denied` - User denied the authorization request
 
-### 3. GET /api/auth/device/activate (Authenticated)
+### 3. GET /api/auth/activate/activate (Authenticated)
 
 Returns information for the device activation page.
 
@@ -147,7 +147,7 @@ Returns information for the device activation page.
 ```json
 {
   "data": {
-    "verificationUri": "http://localhost:3535/device"
+    "verificationUri": "http://localhost:3535/activate"
   }
 }
 ```
@@ -156,7 +156,7 @@ Returns information for the device activation page.
 ```json
 {
   "data": {
-    "verificationUri": "http://localhost:3535/device",
+    "verificationUri": "http://localhost:3535/activate",
     "userCode": "ABCD-1234",
     "clientInfo": {
       "deviceName": "CLI Tool"
@@ -166,7 +166,7 @@ Returns information for the device activation page.
 }
 ```
 
-### 4. POST /api/auth/device/authorize (Authenticated)
+### 4. POST /api/auth/activate/authorize (Authenticated)
 
 User approves or denies a device authorization request.
 
@@ -188,7 +188,7 @@ User approves or denies a device authorization request.
 }
 ```
 
-### 5. GET /api/auth/device/sessions (Authenticated)
+### 5. GET /api/auth/activate/sessions (Authenticated)
 
 Lists the user's approved device sessions.
 
@@ -219,7 +219,7 @@ Lists the user's approved device sessions.
 }
 ```
 
-### 6. DELETE /api/auth/device/sessions/:id (Authenticated)
+### 6. DELETE /api/auth/activate/sessions/:id (Authenticated)
 
 Revokes a specific device session.
 
@@ -274,7 +274,7 @@ Runs daily at 2 AM to remove:
 ```typescript
 // 1. Request device code
 const { deviceCode, userCode, verificationUri, interval } =
-  await fetch('/api/auth/device/code', { method: 'POST' }).then(r => r.json());
+  await fetch('/api/auth/activate/code', { method: 'POST' }).then(r => r.json());
 
 console.log(`Please visit ${verificationUri}`);
 console.log(`Enter code: ${userCode}`);
@@ -284,7 +284,7 @@ while (true) {
   await sleep(interval * 1000);
 
   try {
-    const tokens = await fetch('/api/auth/device/token', {
+    const tokens = await fetch('/api/auth/activate/token', {
       method: 'POST',
       body: JSON.stringify({ deviceCode })
     }).then(r => r.json());
@@ -304,19 +304,19 @@ while (true) {
 ### Frontend Integration (Activation Page)
 
 ```typescript
-// Device activation page at /device
+// Device activation page at /activate
 const searchParams = new URLSearchParams(window.location.search);
 const code = searchParams.get('code');
 
 // Fetch device info
 const deviceInfo = await fetch(
-  `/api/auth/device/activate?code=${code}`,
+  `/api/auth/activate/activate?code=${code}`,
   { headers: { Authorization: `Bearer ${accessToken}` } }
 ).then(r => r.json());
 
 // Display device info and approval UI
 // On approve:
-await fetch('/api/auth/device/authorize', {
+await fetch('/api/auth/activate/authorize', {
   method: 'POST',
   headers: { Authorization: `Bearer ${accessToken}` },
   body: JSON.stringify({
@@ -344,7 +344,7 @@ The module follows RFC 8628 error codes for consistency:
 
 1. Generate a device code:
 ```bash
-curl -X POST http://localhost:3535/api/auth/device/code \
+curl -X POST http://localhost:3535/api/auth/activate/code \
   -H "Content-Type: application/json" \
   -d '{"clientInfo": {"deviceName": "Test CLI"}}'
 ```
@@ -353,7 +353,7 @@ curl -X POST http://localhost:3535/api/auth/device/code \
 
 3. Poll for tokens:
 ```bash
-curl -X POST http://localhost:3535/api/auth/device/token \
+curl -X POST http://localhost:3535/api/auth/activate/token \
   -H "Content-Type: application/json" \
   -d '{"deviceCode": "YOUR_DEVICE_CODE"}'
 ```

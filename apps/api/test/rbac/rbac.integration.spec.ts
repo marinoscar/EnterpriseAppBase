@@ -67,7 +67,6 @@ describe('RBAC System (Integration)', () => {
           key: 'default',
           value: {
             ui: { allowUserThemeOverride: false },
-            security: { jwtAccessTtlMinutes: 15, refreshTtlDays: 14 },
             features: {},
           },
           version: 2,

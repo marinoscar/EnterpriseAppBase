@@ -49,6 +49,126 @@ Web Application Foundation with React UI + Node API + PostgreSQL. Production-gra
   tests/e2e/                # Optional E2E tests
 ```
 
+## MANDATORY: Claude Commit-Only Git Rules
+
+Claude: these rules are **MANDATORY**. Follow them exactly.  
+Your job is **only** to create clean, frequent commits while implementing the requested work.  
+Assume the branch already exists and is checked out. Do **not** create branches or PRs.
+
+---
+
+### Core Commit Rules (MANDATORY)
+1. **Commit early, commit often.** Do not leave large uncommitted change sets.
+2. Each commit must be **small, coherent, and reviewable**.
+3. **One intent per commit** (no “misc fixes” bundles).
+4. **Do not include unrelated refactors** unless explicitly requested.
+5. If you change behavior, you must add/adjust tests in the same commit or the next immediate commit.
+
+---
+
+### Commit Message Standard (MANDATORY: Conventional Commits)
+Use this format:
+
+`<type>(<scope>): <short imperative summary>`
+
+Allowed types:
+- `feat:` new functionality
+- `fix:` bug fix
+- `refactor:` internal change, no behavior change
+- `test:` add/adjust tests only
+- `docs:` documentation only
+- `chore:` tooling, deps, formatting, build, CI
+
+Scopes (pick one relevant area):
+- `api`, `web`, `db`, `infra`, `auth`, `chat`, `ui`, `core`, `jobs`, `docs`, `tests`
+
+Examples:
+- `feat(chat): add permit search prompt builder`
+- `fix(api): handle missing location gracefully`
+- `test(api): cover permit filter edge cases`
+- `chore(web): run formatter`
+
+---
+
+### Commit Cadence (MANDATORY)
+Make commits at these checkpoints:
+
+1) **Scaffold / wiring**
+- New files, routes, handlers, basic plumbing (even if incomplete).
+- Example: `feat(api): scaffold permit lookup endpoint`
+
+2) **Core functionality**
+- Implement the smallest working slice end-to-end.
+- Example: `feat(core): implement permit filtering by location radius`
+
+3) **Edge cases + validation**
+- Input validation, error handling, fallback behavior.
+- Example: `fix(api): validate lat/lng inputs and return 400`
+
+4) **Tests**
+- Unit/integration tests for the new behavior and critical edge cases.
+- Example: `test(api): add coverage for location filter and empty results`
+
+5) **Cleanup**
+- Remove dead code, rename for clarity, small refactors strictly related to the change.
+- Example: `refactor(core): extract permit query builder`
+
+6) **Docs (if needed)**
+- Only if the task requires it.
+- Example: `docs(api): document permit endpoint parameters`
+
+---
+
+### What to Include / Exclude (MANDATORY)
+#### Include
+- Code + tests for the same feature area
+- Minimal config changes needed to run/build/test
+- Small, related refactors that reduce complexity for the feature
+
+#### Exclude
+- Repo-wide formatting changes unless required
+- Dependency upgrades unless required
+- Unrelated cleanup in neighboring modules
+
+---
+
+### Commit Command Sequence (MANDATORY)
+Before committing:
+1. `git status`
+2. `git diff`
+3. Stage intentionally:
+   - `git add -p` (preferred) or `git add <files>`
+
+Commit:
+- `git commit -m "<type>(<scope>): <summary>"`
+
+After commit:
+- `git status`
+
+Repeat until the next checkpoint is complete, then commit again.
+
+---
+
+### Handling Mixed Changes (MANDATORY)
+If you accidentally made unrelated edits:
+- Revert them before committing, or
+- Split into separate commits (preferred). Only keep the unrelated commit if explicitly requested.
+
+---
+
+### If Tests Cannot Be Run (MANDATORY)
+If you cannot run tests for a valid reason (missing env, tool not available):
+- Still commit, but include a clear note in the commit body.
+
+Example:
+- Subject: `feat(api): implement permit search by address`
+- Body: `Notes: tests not run (DB env not available).`
+
+---
+
+### Golden Rule (MANDATORY)
+If the diff feels “big,” you waited too long. **Split the work and commit sooner.**
+
 ## Architecture Principles
 
 1. **Separation of Concerns**: UI handles presentation only; API handles all business logic and authorization
@@ -134,6 +254,18 @@ cd apps/api && npm run prisma:migrate
 - `POST /api/allowlist` - Add email to allowlist
 - `DELETE /api/allowlist/{id}` - Remove email from allowlist
 
+### Storage Objects
+- `POST /api/storage/objects/upload/init` - Initialize resumable upload
+- `GET /api/storage/objects/:id/upload/status` - Get upload progress
+- `POST /api/storage/objects/:id/upload/complete` - Complete multipart upload
+- `DELETE /api/storage/objects/:id/upload/abort` - Abort upload
+- `POST /api/storage/objects` - Simple file upload
+- `GET /api/storage/objects` - List objects (paginated)
+- `GET /api/storage/objects/:id` - Get object metadata
+- `GET /api/storage/objects/:id/download` - Get signed download URL
+- `DELETE /api/storage/objects/:id` - Delete object
+- `PATCH /api/storage/objects/:id/metadata` - Update metadata
+
 ### Health
 - `GET /api/health/live` - Liveness check
 - `GET /api/health/ready` - Readiness check (includes DB)
@@ -151,6 +283,8 @@ cd apps/api && npm run prisma:migrate
 - `users:read/write` - User management
 - `rbac:manage` - Role assignment
 - `allowlist:read/write` - Allowlist management (Admin only)
+- `storage:read/write/delete` - Storage object access (own objects)
+- `storage:read_any/write_any/delete_any` - Storage object access (all objects, Admin only)
 
 ## Database Tables
 
@@ -164,6 +298,8 @@ cd apps/api && npm run prisma:migrate
 - `refresh_tokens` - JWT refresh tokens (hashed)
 - `allowed_emails` - Allowlist for access control
 - `device_codes` - Device authorization codes (RFC 8628)
+- `storage_objects` - File metadata, status, storage references
+- `storage_object_chunks` - Multipart upload chunk tracking
 
 ## Access Control: Email Allowlist
 

@@ -926,7 +926,258 @@ interface AuditEvent {
 
 ---
 
-## 7. Infrastructure Security
+## 7. File Storage Security
+
+The storage system implements multiple layers of security to protect uploaded files and prevent unauthorized access.
+
+### Upload Validation
+
+All file uploads are validated before acceptance:
+
+**MIME Type Validation:**
+- Configurable allowlist of permitted file types
+- Default: Common document and image formats
+- Server-side validation (client-declared MIME type verified)
+- Prevents upload of executable files and scripts
+
+**File Size Limits:**
+- Configurable maximum file size (default: 10GB)
+- Enforced at both simple upload and multipart initialization
+- Prevents storage abuse and DoS attacks
+- Size validation before S3 upload begins
+
+**Content Type Verification:**
+- Validates that file content matches declared MIME type
+- Uses magic number detection for common file types
+- Prevents MIME type spoofing attacks
+
+**Example Configuration:**
+```typescript
+STORAGE_MAX_FILE_SIZE=10737418240      // 10GB in bytes
+STORAGE_ALLOWED_MIME_TYPES=application/pdf,image/jpeg,image/png,application/zip
+```
+
+### Access Control
+
+The storage system enforces strict ownership and permission-based access:
+
+**Owner-Only Access (Default):**
+- Users can only access their own uploaded files
+- Object queries filtered by `owner_id = current_user.id`
+- Download URLs only generated for owned objects
+- Delete operations restricted to owner
+
+**Admin Override:**
+- Users with `storage:delete_any` permission can access all objects
+- Useful for moderation and content management
+- All admin operations logged to audit trail
+
+**Permission Model:**
+| Permission | Description | Granted To |
+|------------|-------------|------------|
+| `storage:read` | View own storage objects | All authenticated users |
+| `storage:write` | Upload and update own objects | All authenticated users |
+| `storage:delete` | Delete own storage objects | All authenticated users |
+| `storage:read_any` | View all storage objects | Admin |
+| `storage:write_any` | Update any storage object | Admin |
+| `storage:delete_any` | Delete any storage object | Admin |
+
+**Ownership Validation Example:**
+```typescript
+// Controller method enforces ownership
+async getObject(objectId: string, userId: string) {
+  const object = await this.objectsService.findById(objectId);
+
+  // Check ownership (or admin permission)
+  if (object.ownerId !== userId && !user.hasPermission('storage:read_any')) {
+    throw new ForbiddenException('Access denied');
+  }
+
+  return object;
+}
+```
+
+### Signed URLs
+
+The storage system uses time-limited presigned URLs for secure file access:
+
+**Download URLs:**
+- Generated via S3 presigned GET URLs
+- Default expiration: 1 hour (3600 seconds)
+- Configurable per-request via `expiresIn` parameter
+- URLs cannot be reused after expiration
+- No AWS credentials exposed to client
+
+**Upload URLs (Multipart):**
+- Generated via S3 presigned PUT URLs for each part
+- Short expiration: 15 minutes per part
+- One-time use: URL invalidated after part upload
+- Direct-to-S3 upload (bypasses application server for performance)
+
+**Security Properties:**
+- URLs cryptographically signed by AWS credentials
+- Tampering detected via signature validation
+- Time-based expiration prevents long-lived access
+- Scoped to specific S3 operation (GET or PUT)
+
+**Example Presigned URL Generation:**
+```typescript
+async generateDownloadUrl(objectId: string, expiresIn = 3600): Promise<string> {
+  const object = await this.findById(objectId);
+
+  return this.storageProvider.getSignedDownloadUrl(
+    object.storageKey,
+    expiresIn,
+  );
+}
+```
+
+### S3 Security Configuration
+
+**Recommended S3 Bucket Security Settings:**
+
+**IAM Roles (Production):**
+- Use EC2/ECS IAM roles instead of static credentials
+- Principle of least privilege: grant only required S3 permissions
+- Rotate credentials if using access keys
+
+**Server-Side Encryption:**
+```typescript
+// Enable SSE-S3 (AWS-managed keys)
+ServerSideEncryption: 'AES256'
+
+// Or SSE-KMS (customer-managed keys)
+ServerSideEncryption: 'aws:kms'
+KMSKeyId: 'arn:aws:kms:region:account:key/key-id'
+```
+
+**Block Public Access:**
+```json
+{
+  "BlockPublicAcls": true,
+  "IgnorePublicAcls": true,
+  "BlockPublicPolicy": true,
+  "RestrictPublicBuckets": true
+}
+```
+
+**Access Logging:**
+- Enable S3 access logs for audit trail
+- Log bucket: separate from application bucket
+- Review logs for suspicious access patterns
+
+**Versioning:**
+- Enable versioning for accidental deletion protection
+- Configure lifecycle policy to archive old versions
+
+**CORS Configuration:**
+```json
+{
+  "CORSRules": [
+    {
+      "AllowedOrigins": ["https://yourdomain.com"],
+      "AllowedMethods": ["PUT"],
+      "AllowedHeaders": ["*"],
+      "MaxAgeSeconds": 3000
+    }
+  ]
+}
+```
+
+**Bucket Policy Example:**
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "s3:*",
+      "Resource": "arn:aws:s3:::bucket-name/*",
+      "Condition": {
+        "Bool": { "aws:SecureTransport": "false" }
+      }
+    }
+  ]
+}
+```
+
+### Audit Logging
+
+All storage operations are logged to the `audit_events` table for security monitoring and compliance:
+
+**Logged Events:**
+
+| Event | Action | Description |
+|-------|--------|-------------|
+| Upload Started | `storage:upload:init` | Multipart upload initialized |
+| Upload Completed | `storage:upload:complete` | File upload finalized successfully |
+| Upload Aborted | `storage:upload:abort` | Upload cancelled by user or system |
+| Object Downloaded | `storage:object:download` | Download URL generated |
+| Object Deleted | `storage:object:delete` | Object and file removed |
+| Metadata Updated | `storage:object:metadata:update` | Custom metadata modified |
+
+**Audit Event Structure:**
+```typescript
+{
+  actorUserId: 'user-uuid',
+  action: 'storage:upload:complete',
+  targetType: 'storage_object',
+  targetId: 'object-uuid',
+  meta: {
+    objectName: 'document.pdf',
+    size: 1048576,
+    mimeType: 'application/pdf',
+    storageProvider: 's3',
+    ipAddress: '192.168.1.1',
+    userAgent: 'Mozilla/5.0...'
+  },
+  createdAt: '2024-01-01T12:00:00Z'
+}
+```
+
+**Monitoring Queries:**
+```sql
+-- Large file uploads
+SELECT * FROM audit_events
+WHERE action = 'storage:upload:complete'
+  AND (meta->>'size')::bigint > 1073741824  -- 1GB
+ORDER BY created_at DESC;
+
+-- Suspicious deletion patterns
+SELECT actor_user_id, COUNT(*) as delete_count
+FROM audit_events
+WHERE action = 'storage:object:delete'
+  AND created_at > NOW() - INTERVAL '1 hour'
+GROUP BY actor_user_id
+HAVING COUNT(*) > 10;
+```
+
+### Security Best Practices
+
+**Do's:**
+- ✅ Use IAM roles instead of access keys in production
+- ✅ Enable S3 server-side encryption
+- ✅ Set short expiration times on presigned URLs
+- ✅ Validate file types server-side (never trust client)
+- ✅ Enforce file size limits to prevent abuse
+- ✅ Monitor audit logs for suspicious patterns
+- ✅ Block public access on S3 buckets
+- ✅ Use HTTPS for all S3 operations
+- ✅ Implement virus scanning for user uploads (recommended)
+
+**Don'ts:**
+- ❌ Never commit AWS credentials to source control
+- ❌ Never allow unrestricted file uploads
+- ❌ Never rely on client-side MIME type validation
+- ❌ Never use long-lived presigned URLs (> 1 hour)
+- ❌ Never skip ownership validation on operations
+- ❌ Never expose S3 bucket names in error messages
+- ❌ Never allow executable file uploads (.exe, .sh, .bat)
+
+---
+
+## 8. Infrastructure Security
 
 ### Nginx Security Headers
 
@@ -1021,7 +1272,7 @@ cp .env.example .env
 
 ---
 
-## 8. Attack Mitigation Matrix
+## 9. Attack Mitigation Matrix
 
 | Attack Vector | Mitigation Strategy | Implementation |
 |--------------|---------------------|----------------|
@@ -1051,7 +1302,7 @@ cp .env.example .env
 
 ---
 
-## 9. Configuration Reference
+## 10. Configuration Reference
 
 ### Environment Variables
 
@@ -1126,7 +1377,7 @@ NODE_ENV=production
 
 ---
 
-## 10. Implementation Notes: Fastify + Passport OAuth
+## 11. Implementation Notes: Fastify + Passport OAuth
 
 ### Challenge: OAuth Strategy Compatibility
 
@@ -1265,7 +1516,60 @@ try {
 
 ---
 
-## 11. File Reference
+## 13. Test Authentication (Development Only)
+
+### Overview
+
+The application provides a test authentication bypass mechanism that enables automated E2E testing with tools like Playwright without requiring real Google OAuth credentials.
+
+**IMPORTANT:** This feature is completely disabled in production environments through multiple security layers.
+
+### Security Layers
+
+| Layer | Protection | Implementation |
+|-------|------------|----------------|
+| **Build-time** | Frontend route excluded from production bundle | `import.meta.env.PROD` check in App.tsx |
+| **Module-level** | Backend module not imported in production | Conditional import in `app.module.ts` |
+| **Runtime guard** | Request rejected in production | `TestEnvironmentGuard` validates `NODE_ENV` |
+| **Bootstrap validation** | App fails to start if misconfigured | Error thrown if `TEST_AUTH_ENABLED=true` in production |
+
+### How It Works
+
+1. Playwright navigates to `/testing/login` (frontend test page)
+2. Test fills email and selects role (admin/contributor/viewer)
+3. Form submits POST to `/api/auth/test/login`
+4. Backend finds/creates user with specified role
+5. Backend generates real JWT tokens (same as OAuth flow)
+6. Backend sets HttpOnly refresh cookie and redirects to `/auth/callback?token=X`
+7. Frontend handles callback (existing flow) and app is authenticated
+
+### Test Auth Endpoint
+
+**Endpoint:** `POST /api/auth/test/login` (Non-production only)
+
+**Request:**
+```json
+{
+  "email": "test@test.local",
+  "role": "admin",
+  "displayName": "Test Admin"
+}
+```
+
+**Response:** HTTP 302 redirect to `/auth/callback?token=<accessToken>&expiresIn=900`
+- Sets HttpOnly refresh token cookie (same as OAuth)
+
+### Security Considerations
+
+- Test auth creates **real users** with **real tokens** - it only bypasses OAuth, not authorization
+- Users created via test auth are fully functional in the system
+- All RBAC guards still apply after authentication
+- Audit logging still captures test auth events
+- Consider using a test email pattern (e.g., `*@test.local`) for easy identification
+
+---
+
+## 12. File Reference
 
 ### Key Security Files
 
@@ -1349,7 +1653,7 @@ apps/web/src/
 
 ---
 
-## 12. Security Best Practices Summary
+## 13. Security Best Practices Summary
 
 ### For Developers
 

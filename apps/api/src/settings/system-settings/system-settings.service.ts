@@ -55,7 +55,6 @@ export class SystemSettingsService {
 
     return {
       ui: value.ui,
-      security: value.security,
       features: value.features,
       updatedAt: settings.updatedAt,
       updatedBy: settings.updatedByUser,
@@ -100,7 +99,6 @@ export class SystemSettingsService {
 
     return {
       ui: value.ui,
-      security: value.security,
       features: value.features,
       updatedAt: settings.updatedAt,
       updatedBy: settings.updatedByUser,
@@ -131,12 +129,6 @@ export class SystemSettingsService {
       ui: {
         allowUserThemeOverride:
           dto.ui?.allowUserThemeOverride ?? current.ui.allowUserThemeOverride,
-      },
-      security: {
-        jwtAccessTtlMinutes:
-          dto.security?.jwtAccessTtlMinutes ?? current.security.jwtAccessTtlMinutes,
-        refreshTtlDays:
-          dto.security?.refreshTtlDays ?? current.security.refreshTtlDays,
       },
       features: {
         ...current.features,
@@ -173,7 +165,6 @@ export class SystemSettingsService {
 
     return {
       ui: value.ui,
-      security: value.security,
       features: value.features,
       updatedAt: settings.updatedAt,
       updatedBy: settings.updatedByUser,

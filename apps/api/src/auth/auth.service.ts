@@ -10,6 +10,7 @@ import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AdminBootstrapService } from '../common/services/admin-bootstrap.service';
 import { AllowlistService } from '../allowlist/allowlist.service';
+import { DatabaseSeedException } from '../common/exceptions/database-seed.exception';
 import { DEFAULT_ROLE } from '../common/constants/roles.constants';
 import { DEFAULT_USER_SETTINGS } from '../common/types/settings.types';
 import { GoogleProfile } from './strategies/google.strategy';
@@ -177,7 +178,14 @@ export class AuthService {
     });
 
     if (!defaultRole) {
-      throw new Error('Default role not found - run seeds first');
+      this.logger.error(
+        `CRITICAL: Default role "${DEFAULT_ROLE}" not found in database. ` +
+          'Database seeds have not been run. Cannot create new users.',
+      );
+      throw new DatabaseSeedException(
+        `Role "${DEFAULT_ROLE}"`,
+        'npm run prisma:seed',
+      );
     }
 
     // Create user with identity, role, and settings in transaction
@@ -234,22 +242,27 @@ export class AuthService {
           where: { name: 'admin' },
         });
 
-        if (adminRole) {
-          await tx.userRole.upsert({
-            where: {
-              userId_roleId: {
-                userId: newUser.id,
-                roleId: adminRole.id,
-              },
-            },
-            update: {},
-            create: {
+        if (!adminRole) {
+          this.logger.error(
+            'CRITICAL: Admin role not found in database. Database seeds have not been run.',
+          );
+          throw new DatabaseSeedException('Role "admin"', 'npm run prisma:seed');
+        }
+
+        await tx.userRole.upsert({
+          where: {
+            userId_roleId: {
               userId: newUser.id,
               roleId: adminRole.id,
             },
-          });
-          this.logger.log(`Admin role assigned to user: ${newUser.id}`);
-        }
+          },
+          update: {},
+          create: {
+            userId: newUser.id,
+            roleId: adminRole.id,
+          },
+        });
+        this.logger.log(`Admin role assigned to user: ${newUser.id}`);
 
         // Reload user with admin role included
         const userWithAdmin = await tx.user.findUnique({

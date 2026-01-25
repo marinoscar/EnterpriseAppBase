@@ -59,7 +59,6 @@ describe('System Settings Integration', () => {
 
       expect(response.body.data).toMatchObject({
         ui: DEFAULT_SYSTEM_SETTINGS.ui,
-        security: DEFAULT_SYSTEM_SETTINGS.security,
         features: DEFAULT_SYSTEM_SETTINGS.features,
         version: expect.any(Number),
       });
@@ -72,7 +71,6 @@ describe('System Settings Integration', () => {
   describe.skip('PUT /api/system-settings', () => {
     const newSettings: SystemSettingsValue = {
       ui: { allowUserThemeOverride: false },
-      security: { jwtAccessTtlMinutes: 30, refreshTtlDays: 7 },
       features: { newFeature: true },
     };
 
@@ -116,7 +114,6 @@ describe('System Settings Integration', () => {
 
       expect(response.body.data).toMatchObject({
         ui: newSettings.ui,
-        security: newSettings.security,
         features: newSettings.features,
         version: 2,
       });
@@ -129,7 +126,6 @@ describe('System Settings Integration', () => {
 
       const invalidSettings = {
         ui: { allowUserThemeOverride: 'not-a-boolean' },
-        security: { jwtAccessTtlMinutes: 30, refreshTtlDays: 7 },
         features: {},
       };
 
@@ -144,8 +140,7 @@ describe('System Settings Integration', () => {
       const admin = await createMockAdminUser(context);
 
       const incompleteSettings = {
-        ui: { allowUserThemeOverride: false },
-        // Missing security field
+        // Missing ui field
         features: {},
       };
 
@@ -153,22 +148,6 @@ describe('System Settings Integration', () => {
         .put('/api/system-settings')
         .set(authHeader(admin.accessToken))
         .send(incompleteSettings)
-        .expect(400);
-    });
-
-    it('should return 400 with out-of-range values', async () => {
-      const admin = await createMockAdminUser(context);
-
-      const invalidRangeSettings = {
-        ui: { allowUserThemeOverride: false },
-        security: { jwtAccessTtlMinutes: 100, refreshTtlDays: 7 }, // jwtAccessTtlMinutes max is 60
-        features: {},
-      };
-
-      await request(context.app.getHttpServer())
-        .put('/api/system-settings')
-        .set(authHeader(admin.accessToken))
-        .send(invalidRangeSettings)
         .expect(400);
     });
   });
@@ -213,7 +192,6 @@ describe('System Settings Integration', () => {
         key: 'global',
         value: {
           ui: { allowUserThemeOverride: false },
-          security: DEFAULT_SYSTEM_SETTINGS.security,
           features: DEFAULT_SYSTEM_SETTINGS.features,
         } as any,
         version: 2,
@@ -231,7 +209,6 @@ describe('System Settings Integration', () => {
         .expect(200);
 
       expect(response.body.data.ui.allowUserThemeOverride).toBe(false);
-      expect(response.body.data.security).toEqual(DEFAULT_SYSTEM_SETTINGS.security);
       expect(response.body.data.features).toEqual(DEFAULT_SYSTEM_SETTINGS.features);
       expect(response.body.data.version).toBe(2);
     });
@@ -262,7 +239,6 @@ describe('System Settings Integration', () => {
         key: 'global',
         value: {
           ui: { allowUserThemeOverride: false },
-          security: DEFAULT_SYSTEM_SETTINGS.security,
           features: DEFAULT_SYSTEM_SETTINGS.features,
         } as any,
         version: 2,
@@ -294,7 +270,6 @@ describe('System Settings Integration', () => {
         key: 'global',
         value: {
           ui: { allowUserThemeOverride: false },
-          security: DEFAULT_SYSTEM_SETTINGS.security,
           features: DEFAULT_SYSTEM_SETTINGS.features,
         } as any,
         version: 2,
@@ -314,42 +289,6 @@ describe('System Settings Integration', () => {
       expect(response.body.data.version).toBe(2);
     });
 
-    it('should handle partial security updates', async () => {
-      const admin = await createMockAdminUser(context);
-
-      const partialUpdate = { security: { jwtAccessTtlMinutes: 20 } };
-
-      context.prismaMock.systemSettings.update.mockResolvedValue({
-        id: 'settings-1',
-        key: 'global',
-        value: {
-          ui: DEFAULT_SYSTEM_SETTINGS.ui,
-          security: {
-            jwtAccessTtlMinutes: 20,
-            refreshTtlDays: DEFAULT_SYSTEM_SETTINGS.security.refreshTtlDays,
-          },
-          features: DEFAULT_SYSTEM_SETTINGS.features,
-        } as any,
-        version: 2,
-        updatedAt: new Date(),
-        updatedByUserId: admin.id,
-        updatedByUser: { id: admin.id, email: admin.email },
-      });
-
-      context.prismaMock.auditEvent.create.mockResolvedValue({} as any);
-
-      const response = await request(context.app.getHttpServer())
-        .patch('/api/system-settings')
-        .set(authHeader(admin.accessToken))
-        .send(partialUpdate)
-        .expect(200);
-
-      expect(response.body.data.security.jwtAccessTtlMinutes).toBe(20);
-      expect(response.body.data.security.refreshTtlDays).toBe(
-        DEFAULT_SYSTEM_SETTINGS.security.refreshTtlDays,
-      );
-    });
-
     it('should handle features object updates', async () => {
       const admin = await createMockAdminUser(context);
 
@@ -360,7 +299,6 @@ describe('System Settings Integration', () => {
         key: 'global',
         value: {
           ui: DEFAULT_SYSTEM_SETTINGS.ui,
-          security: DEFAULT_SYSTEM_SETTINGS.security,
           features: { betaFeature: true },
         } as any,
         version: 2,

@@ -90,9 +90,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, []);
 
   const login = useCallback((provider: string) => {
-    // Store return URL for redirect after login
-    const from = location.state?.from?.pathname || '/';
-    sessionStorage.setItem('auth_return_url', from);
+    // Store return URL for redirect after login (including query params)
+    const fromLocation = location.state?.from;
+    const returnUrl = fromLocation
+      ? `${fromLocation.pathname}${fromLocation.search || ''}`
+      : '/';
+    sessionStorage.setItem('auth_return_url', returnUrl);
 
     // Redirect to OAuth provider
     window.location.href = `/api/auth/${provider}`;

@@ -80,7 +80,7 @@ jobs:
       - name: Build and push API image
         uses: docker/build-push-action@v5
         with:
-          context: .
+          context: ./apps/api
           file: apps/api/Dockerfile
           push: true
           tags: ${{ steps.meta-api.outputs.tags }}
@@ -93,7 +93,7 @@ jobs:
       - name: Build and push Web image
         uses: docker/build-push-action@v5
         with:
-          context: .
+          context: ./apps/web
           file: apps/web/Dockerfile
           push: true
           tags: ${{ steps.meta-web.outputs.tags }}
