@@ -83,6 +83,7 @@ describe('Test Auth Integration', () => {
 
       const response = await request(context.app.getHttpServer())
         .post('/api/auth/test/login')
+        .type('application/json')
         .send({ email: 'newuser@example.com', role: 'viewer' })
         .expect(302);
 
