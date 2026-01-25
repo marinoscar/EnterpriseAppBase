@@ -10,6 +10,8 @@ A cross-platform CLI for managing the EnterpriseAppBase development environment 
 - **Database** - Prisma migrations, seeding, and Prisma Studio
 - **Authentication** - Login via device authorization flow (like GitHub CLI)
 - **API Commands** - Manage users, allowlist, and settings
+- **Storage** - Upload, download, and manage cloud storage objects
+- **Folder Sync** - Synchronize local folders to cloud storage with change detection
 - **Interactive Mode** - Menu-driven interface for easy navigation
 
 ## Installation
@@ -74,6 +76,8 @@ $ app
   🗄️  Database (prisma operations...)
   🔐 Authentication (login, logout...)
   👥 API Commands (users, allowlist...)
+  📦 Storage (list, upload, download...)
+  🔄 Sync Folder (init, run, status...)
   ⚙️  Settings (API URL, config...)
   ──────────────
   ❌ Exit
@@ -159,6 +163,40 @@ app allowlist add      # Add email to allowlist
 | `app settings get` | Get user settings |
 | `app settings set <key> <value>` | Update setting |
 | `app settings system` | Get system settings |
+
+### Storage
+
+| Command | Description |
+|---------|-------------|
+| `app storage list` | List storage objects (paginated) |
+| `app storage get <id>` | Get object metadata |
+| `app storage download <id>` | Get signed download URL |
+| `app storage upload <file>` | Upload file to storage |
+| `app storage delete <id>` | Delete object |
+
+**Options:**
+- `--page, -p` - Page number for list
+- `--limit, -l` - Items per page
+- `--status` - Filter by status (pending, uploading, processing, ready, failed)
+- `--json` - Output as JSON
+- `--open` - Open download URL in browser
+- `--force` - Delete without confirmation
+
+### Folder Sync
+
+| Command | Description |
+|---------|-------------|
+| `app sync init <folder>` | Initialize folder for sync |
+| `app sync run <folder>` | Synchronize files to cloud |
+| `app sync status <folder>` | Show sync status and stats |
+| `app sync reset <folder>` | Reset sync tracking |
+
+**Options:**
+- `--dry-run` - Preview changes without uploading
+- `--verbose` - Show detailed progress
+- `--force` - Reset without confirmation
+
+The sync feature uses a local SQLite database (sync.db) to track file state and detect changes.
 
 ## Configuration
 
@@ -318,6 +356,35 @@ $ app allowlist add
 ? Notes (optional): Added for Q1 onboarding
 ? Add newuser@company.com to allowlist? Yes
 ✓ Added newuser@company.com to allowlist
+```
+
+### Storage Examples
+
+```bash
+# Upload a file
+app storage upload ./document.pdf
+
+# List all ready files
+app storage list --status ready
+
+# Download a file (opens in browser)
+app storage download abc123 --open
+```
+
+### Folder Sync Examples
+
+```bash
+# Initialize a folder for syncing
+app sync init ./my-project
+
+# Preview what would be synced
+app sync run ./my-project --dry-run
+
+# Sync files to cloud
+app sync run ./my-project --verbose
+
+# Check sync status
+app sync status ./my-project
 ```
 
 ## Development
