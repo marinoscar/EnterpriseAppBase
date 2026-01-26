@@ -26,7 +26,7 @@
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.x",
-    "@testing-library/react": "^14.x",
+    "@testing-library/react": "^16.x",
     "@testing-library/user-event": "^14.x",
     "@types/react": "^18.x",
     "@types/react-dom": "^18.x",
