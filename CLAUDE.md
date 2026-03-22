@@ -49,6 +49,40 @@ Web Application Foundation with React UI + Node API + PostgreSQL. Production-gra
   tests/e2e/                # Optional E2E tests
 ```
 
+## MANDATORY: Worktree-Based Feature Development
+
+Every feature or fix MUST be developed in a Git worktree. The main checkout stays on `main` at all times.
+
+### Worktree Location & Naming
+- All worktrees live under `worktrees/` in the repo root (git-ignored, never committed)
+- Use **flat short names**: `worktrees/<short-name>` (e.g., `worktrees/add-export`, `worktrees/fix-auth-bug`)
+- The branch name follows conventional format: `feat/<short-name>`, `fix/<short-name>`, etc.
+
+### Workflow (Claude MUST follow)
+
+**Starting feature work:**
+1. From the main checkout, create the worktree:
+   ```bash
+   git worktree add worktrees/<short-name> -b <type>/<short-name>
+   ```
+   Example: `git worktree add worktrees/add-export -b feat/add-export`
+2. All development happens inside `worktrees/<short-name>/`
+3. Commits follow all existing commit rules (see below)
+
+**Finishing feature work:**
+1. Ensure all changes are committed inside the worktree
+2. Remove the worktree:
+   ```bash
+   git worktree remove worktrees/<short-name>
+   ```
+3. The branch remains for PR/merge
+
+### Rules
+- NEVER checkout feature branches in the main working directory
+- NEVER work on features directly in the main checkout
+- One worktree per feature branch (Git enforces this)
+- If the worktree already exists for the requested feature, work inside it (don't recreate)
+
 ## MANDATORY: Claude Commit-Only Git Rules
 
 Claude: these rules are **MANDATORY**. Follow them exactly.  
