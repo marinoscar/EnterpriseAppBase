@@ -5,22 +5,22 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
  */
 export class PatCreatedResponseDto {
   @ApiProperty({ description: 'The raw token value - shown only once, store securely' })
-  token: string;
+  token!: string;
 
   @ApiProperty({ description: 'Token ID (UUID)' })
-  id: string;
+  id!: string;
 
   @ApiProperty({ description: 'Human-readable name for this token' })
-  name: string;
+  name!: string;
 
   @ApiProperty({ description: 'Token prefix for identification (e.g. pat_xxxx)' })
-  tokenPrefix: string;
+  tokenPrefix!: string;
 
   @ApiProperty({ description: 'ISO 8601 expiry timestamp' })
-  expiresAt: string;
+  expiresAt!: string;
 
   @ApiProperty({ description: 'ISO 8601 creation timestamp' })
-  createdAt: string;
+  createdAt!: string;
 }
 
 /**
@@ -28,32 +28,32 @@ export class PatCreatedResponseDto {
  */
 export class PatListItemDto {
   @ApiProperty({ description: 'Token ID (UUID)' })
-  id: string;
+  id!: string;
 
   @ApiProperty({ description: 'Human-readable name for this token' })
-  name: string;
+  name!: string;
 
   @ApiProperty({ description: 'Token prefix for identification (e.g. pat_xxxx)' })
-  tokenPrefix: string;
+  tokenPrefix!: string;
 
   @ApiProperty({ description: 'Duration value used when creating the token' })
-  durationValue: number;
+  durationValue!: number;
 
   @ApiProperty({
     description: 'Duration unit used when creating the token',
     enum: ['minutes', 'days', 'months'],
   })
-  durationUnit: string;
+  durationUnit!: string;
 
   @ApiProperty({ description: 'ISO 8601 expiry timestamp' })
-  expiresAt: string;
+  expiresAt!: string;
 
   @ApiPropertyOptional({ description: 'ISO 8601 timestamp of last use, null if never used' })
-  lastUsedAt: string | null;
+  lastUsedAt!: string | null;
 
   @ApiProperty({ description: 'ISO 8601 creation timestamp' })
-  createdAt: string;
+  createdAt!: string;
 
   @ApiPropertyOptional({ description: 'ISO 8601 revocation timestamp, null if not revoked' })
-  revokedAt: string | null;
+  revokedAt!: string | null;
 }
