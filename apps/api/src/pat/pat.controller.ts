@@ -53,7 +53,7 @@ export class PatController {
   })
   async listTokens(@CurrentUser('id') userId: string): Promise<PatListItemDto[]> {
     const tokens = await this.patService.listTokens(userId);
-    return tokens.map((t) => ({
+    return tokens.map((t: typeof tokens[number]) => ({
       id: t.id,
       name: t.name,
       tokenPrefix: t.tokenPrefix,
