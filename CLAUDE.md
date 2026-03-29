@@ -36,7 +36,7 @@ Web Application Foundation with React UI + Node API + PostgreSQL. Production-gra
   docs/                     # Documentation
   infra/                    # Infrastructure configuration
     compose/
-      base.compose.yml       # Core services: api, web, db, nginx
+      base.compose.yml       # Core services: api, web, nginx
       dev.compose.yml        # Development overrides (hot reload, volumes)
       prod.compose.yml       # Production overrides (resource limits)
       otel.compose.yml       # Observability: uptrace, clickhouse, otel-collector
@@ -386,7 +386,7 @@ Key variables (see `infra/compose/.env.example` for full list):
 - `APP_URL` - Base URL (default: http://localhost:3535)
 
 **Database (individual connection parameters):**
-- `POSTGRES_HOST` - Database hostname (default: db in Docker, localhost otherwise)
+- `POSTGRES_HOST` - Database hostname (default: localhost)
 - `POSTGRES_PORT` - Database port (default: 5432)
 - `POSTGRES_USER` - Database user (default: postgres)
 - `POSTGRES_PASSWORD` - Database password (default: postgres)
