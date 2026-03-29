@@ -1,45 +1,17 @@
 import { Command } from 'commander';
-import { exec, execCapture, confirm } from '../utils/exec.js';
+import { exec, confirm } from '../utils/exec.js';
 import { paths } from '../utils/paths.js';
-import { config } from '../utils/config.js';
 import * as output from '../utils/output.js';
 
 /**
- * Check if API container is running
+ * Run a Prisma command locally using the prisma-env.js helper
  */
-async function isContainerRunning(): Promise<boolean> {
-  const result = await execCapture('docker', [
-    'ps',
-    '--filter',
-    `name=${config.containerName}`,
-    '--format',
-    '{{.Names}}',
-  ]);
+async function runPrismaLocal(command: string): Promise<number> {
+  output.info(`Running: node scripts/prisma-env.js ${command}`);
 
-  return result.stdout.trim().includes(config.containerName);
-}
-
-/**
- * Run a Prisma command inside the Docker container
- */
-async function runPrismaInDocker(command: string): Promise<number> {
-  const running = await isContainerRunning();
-
-  if (!running) {
-    output.error('ERROR: API container is not running.');
-    output.info('Start the services first with: app start');
-    return 1;
-  }
-
-  output.info(`Running in Docker container: ${command}`);
-
-  return exec('docker', [
-    'exec',
-    config.containerName,
-    'sh',
-    '-c',
-    command,
-  ]);
+  return exec('node', ['scripts/prisma-env.js', ...command.split(' ')], {
+    cwd: paths.apiDir,
+  });
 }
 
 /**
@@ -48,7 +20,7 @@ async function runPrismaInDocker(command: string): Promise<number> {
 async function prismaGenerate(): Promise<void> {
   output.info('Generating Prisma client...');
 
-  const code = await runPrismaInDocker('node scripts/prisma-env.js generate');
+  const code = await runPrismaLocal('generate');
 
   if (code === 0) {
     output.success('Prisma client generated!');
@@ -75,10 +47,10 @@ async function prismaMigrate(mode?: string): Promise<void> {
 
   const command =
     mode === 'status'
-      ? 'node scripts/prisma-env.js migrate status'
-      : 'node scripts/prisma-env.js migrate deploy';
+      ? 'migrate status'
+      : 'migrate deploy';
 
-  const code = await runPrismaInDocker(command);
+  const code = await runPrismaLocal(command);
 
   if (code === 0) {
     if (mode !== 'status') {
@@ -98,7 +70,7 @@ async function prismaMigrate(mode?: string): Promise<void> {
 async function prismaPush(): Promise<void> {
   output.info('Pushing schema changes to database...');
 
-  const code = await runPrismaInDocker('node scripts/prisma-env.js db push');
+  const code = await runPrismaLocal('db push');
 
   if (code === 0) {
     output.success('Schema pushed successfully!');
@@ -132,7 +104,7 @@ async function prismaStudio(): Promise<void> {
 async function prismaSeed(): Promise<void> {
   output.info('Seeding database...');
 
-  const code = await runPrismaInDocker('node scripts/prisma-env.js db seed');
+  const code = await runPrismaLocal('db seed');
 
   if (code === 0) {
     output.success('Database seeded!');
@@ -153,9 +125,7 @@ async function prismaReset(): Promise<void> {
   if (confirmed) {
     output.info('Resetting database...');
 
-    const code = await runPrismaInDocker(
-      'node scripts/prisma-env.js migrate reset --force'
-    );
+    const code = await runPrismaLocal('migrate reset --force');
 
     if (code === 0) {
       output.success('Database reset complete!');
@@ -173,7 +143,7 @@ async function prismaReset(): Promise<void> {
  */
 function showPrismaHelp(): void {
   output.blank();
-  output.header('Prisma Commands (runs inside Docker)');
+  output.header('Prisma Commands');
   output.blank();
   console.log('Usage: app prisma <command>');
   output.blank();
@@ -196,8 +166,7 @@ function showPrismaHelp(): void {
   console.log('  app prisma seed');
   console.log('  app prisma studio');
   output.blank();
-  console.log('Note: Commands run inside the Docker API container to ensure');
-  console.log('      proper database connectivity.');
+  console.log('Note: Commands run locally using env vars from infra/compose/.env');
   output.blank();
 }
 
@@ -251,5 +220,4 @@ export {
   prismaStudio,
   prismaSeed,
   prismaReset,
-  isContainerRunning,
 };
