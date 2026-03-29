@@ -92,3 +92,27 @@ export interface DeviceAuthorizationResponse {
   success: boolean;
   message: string;
 }
+
+// Personal Access Tokens
+export type PatDurationUnit = 'minutes' | 'days' | 'months';
+
+export interface PersonalAccessToken {
+  id: string;
+  name: string;
+  tokenPrefix: string;
+  durationValue: number;
+  durationUnit: PatDurationUnit;
+  expiresAt: string;
+  lastUsedAt: string | null;
+  createdAt: string;
+  revokedAt: string | null;
+}
+
+export interface PatCreatedResponse {
+  token: string;
+  id: string;
+  name: string;
+  tokenPrefix: string;
+  expiresAt: string;
+  createdAt: string;
+}

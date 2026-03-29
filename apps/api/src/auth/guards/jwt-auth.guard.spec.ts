@@ -1,20 +1,30 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ExecutionContext } from '@nestjs/common';
+import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import { PatService } from '../../pat/pat.service';
 
 describe('JwtAuthGuard', () => {
   let guard: JwtAuthGuard;
   let reflector: jest.Mocked<Reflector>;
+  let patService: jest.Mocked<PatService>;
 
   beforeEach(async () => {
     reflector = {
       getAllAndOverride: jest.fn(),
     } as any;
 
+    patService = {
+      validateToken: jest.fn(),
+    } as any;
+
     const module: TestingModule = await Test.createTestingModule({
-      providers: [JwtAuthGuard, { provide: Reflector, useValue: reflector }],
+      providers: [
+        JwtAuthGuard,
+        { provide: Reflector, useValue: reflector },
+        { provide: PatService, useValue: patService },
+      ],
     }).compile();
 
     guard = module.get<JwtAuthGuard>(JwtAuthGuard);
@@ -27,10 +37,14 @@ describe('JwtAuthGuard', () => {
     jest.restoreAllMocks();
   });
 
-  function createMockContext(): ExecutionContext {
+  function createMockContext(authorizationHeader?: string): ExecutionContext {
+    const request: any = {};
+    if (authorizationHeader !== undefined) {
+      request.headers = { authorization: authorizationHeader };
+    }
     return {
       switchToHttp: () => ({
-        getRequest: () => ({}),
+        getRequest: () => request,
         getResponse: () => ({
           code: jest.fn().mockReturnThis(),
           send: jest.fn(),
@@ -42,11 +56,11 @@ describe('JwtAuthGuard', () => {
   }
 
   describe('canActivate', () => {
-    it('should return true for routes marked with @Public() decorator', () => {
+    it('should return true for routes marked with @Public() decorator', async () => {
       reflector.getAllAndOverride.mockReturnValue(true);
       const context = createMockContext();
 
-      const result = guard.canActivate(context);
+      const result = await guard.canActivate(context);
 
       expect(result).toBe(true);
       expect(reflector.getAllAndOverride).toHaveBeenCalledWith(IS_PUBLIC_KEY, expect.any(Array));
@@ -63,12 +77,12 @@ describe('JwtAuthGuard', () => {
       expect(superSpy).toHaveBeenCalledWith(context);
     });
 
-    it('should skip JWT validation when isPublic is true', () => {
+    it('should skip JWT validation when isPublic is true', async () => {
       reflector.getAllAndOverride.mockReturnValue(true);
       const context = createMockContext();
       const superSpy = jest.spyOn(Object.getPrototypeOf(JwtAuthGuard.prototype), 'canActivate');
 
-      const result = guard.canActivate(context);
+      const result = await guard.canActivate(context);
 
       // Should return true without calling super.canActivate
       expect(result).toBe(true);
@@ -147,11 +161,125 @@ describe('JwtAuthGuard', () => {
     });
   });
 
+  // ============================================================================
+  // PAT handling: Bearer pat_... tokens
+  // ============================================================================
+
+  describe('PAT token handling', () => {
+    it('should route Bearer pat_... tokens to PatService.validateToken', async () => {
+      reflector.getAllAndOverride.mockReturnValue(false);
+
+      const mockUser = {
+        id: 'user-123',
+        email: 'test@example.com',
+        isActive: true,
+        userRoles: [],
+      };
+      patService.validateToken.mockResolvedValue(mockUser as any);
+
+      const context = createMockContext('Bearer pat_abc123def456');
+      const request = context.switchToHttp().getRequest();
+
+      const result = await guard.canActivate(context);
+
+      expect(patService.validateToken).toHaveBeenCalledWith('pat_abc123def456');
+      expect(result).toBe(true);
+      expect(request.user).toBe(mockUser);
+    });
+
+    it('should set request.user to the AuthenticatedUser returned by PatService', async () => {
+      reflector.getAllAndOverride.mockReturnValue(false);
+
+      const mockUser = {
+        id: 'user-456',
+        email: 'user@example.com',
+        isActive: true,
+        userRoles: [
+          {
+            role: {
+              name: 'contributor',
+              rolePermissions: [],
+            },
+          },
+        ],
+      };
+      patService.validateToken.mockResolvedValue(mockUser as any);
+
+      const context = createMockContext('Bearer pat_mytoken123');
+      const request = context.switchToHttp().getRequest();
+
+      await guard.canActivate(context);
+
+      expect(request.user).toEqual(mockUser);
+    });
+
+    it('should throw UnauthorizedException when PAT is invalid (validateToken returns null)', async () => {
+      reflector.getAllAndOverride.mockReturnValue(false);
+      patService.validateToken.mockResolvedValue(null);
+
+      const context = createMockContext('Bearer pat_invalidtoken');
+
+      await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
+      await expect(guard.canActivate(context)).rejects.toThrow(
+        'Invalid or expired personal access token',
+      );
+    });
+
+    it('should NOT route non-PAT Bearer tokens to PatService', async () => {
+      reflector.getAllAndOverride.mockReturnValue(false);
+      const superSpy = jest.spyOn(Object.getPrototypeOf(JwtAuthGuard.prototype), 'canActivate').mockReturnValue(true);
+
+      const context = createMockContext('Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9');
+
+      await guard.canActivate(context);
+
+      expect(patService.validateToken).not.toHaveBeenCalled();
+      expect(superSpy).toHaveBeenCalledWith(context);
+    });
+
+    it('should NOT route requests without Authorization header to PatService', async () => {
+      reflector.getAllAndOverride.mockReturnValue(false);
+      const superSpy = jest.spyOn(Object.getPrototypeOf(JwtAuthGuard.prototype), 'canActivate').mockReturnValue(true);
+
+      const context = createMockContext(undefined);
+
+      await guard.canActivate(context);
+
+      expect(patService.validateToken).not.toHaveBeenCalled();
+      expect(superSpy).toHaveBeenCalledWith(context);
+    });
+
+    it('should NOT invoke PatService for @Public() routes even with pat_ token', async () => {
+      reflector.getAllAndOverride.mockReturnValue(true); // route is public
+
+      const context = createMockContext('Bearer pat_sometoken');
+
+      const result = await guard.canActivate(context);
+
+      expect(patService.validateToken).not.toHaveBeenCalled();
+      expect(result).toBe(true);
+    });
+
+    it('should pass the full raw token (with pat_ prefix) to validateToken', async () => {
+      reflector.getAllAndOverride.mockReturnValue(false);
+
+      const mockUser = { id: 'user-789', email: 'x@x.com', isActive: true, userRoles: [] };
+      patService.validateToken.mockResolvedValue(mockUser as any);
+
+      const rawToken = 'pat_0011223344556677889900aabbccddeeff00112233445566778899aabbccddee';
+      const context = createMockContext(`Bearer ${rawToken}`);
+
+      await guard.canActivate(context);
+
+      expect(patService.validateToken).toHaveBeenCalledWith(rawToken);
+    });
+  });
+
   describe('Integration with Passport (tested via integration tests)', () => {
     it('should delegate JWT validation to Passport strategy', () => {
       // The actual JWT validation is done by Passport and the JwtStrategy
       // This is tested in integration tests with real HTTP requests
-      // Unit tests focus on the @Public() decorator logic
+      // Unit tests focus on the @Public() decorator logic and PAT handling
       expect(true).toBe(true);
     });
 
