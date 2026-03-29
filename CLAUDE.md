@@ -300,6 +300,11 @@ cd apps/api && npm run prisma:migrate
 - `DELETE /api/storage/objects/:id` - Delete object
 - `PATCH /api/storage/objects/:id/metadata` - Update metadata
 
+### Personal Access Tokens
+- `POST /api/pat` - Create a new personal access token
+- `GET /api/pat` - List current user's tokens
+- `DELETE /api/pat/{id}` - Revoke a token
+
 ### Health
 - `GET /api/health/live` - Liveness check
 - `GET /api/health/ready` - Readiness check (includes DB)
@@ -334,6 +339,7 @@ cd apps/api && npm run prisma:migrate
 - `device_codes` - Device authorization codes (RFC 8628)
 - `storage_objects` - File metadata, status, storage references
 - `storage_object_chunks` - Multipart upload chunk tracking
+- `personal_access_tokens` - User-created long-lived API tokens (hashed)
 
 ## Access Control: Email Allowlist
 
