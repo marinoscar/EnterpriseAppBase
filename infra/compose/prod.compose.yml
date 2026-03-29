@@ -35,17 +35,6 @@ services:
           memory: 128M
 
   # ---------------------------------------------------------------------------
-  # Database - Production settings
-  # ---------------------------------------------------------------------------
-  db:
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-    # Note: Port not exposed in production for security
-
-  # ---------------------------------------------------------------------------
   # Nginx - Production settings
   # ---------------------------------------------------------------------------
   nginx:

@@ -199,7 +199,7 @@ export async function showStatus(): Promise<void> {
  */
 export async function cleanServices(): Promise<void> {
   output.warn(
-    'WARNING: This will stop all services and DELETE all data (database, volumes)!'
+    'WARNING: This will stop all services and remove Docker volumes!'
   );
 
   const confirmed = await confirm('Are you sure?');
@@ -236,7 +236,7 @@ export function registerDockerCommands(program: Command): void {
   program
     .command('start')
     .description('Start all services (or specific service)')
-    .argument('[service]', 'Specific service to start (api, web, db, nginx)')
+    .argument('[service]', 'Specific service to start (api, web, nginx)')
     .option('--otel', 'Include OpenTelemetry observability stack')
     .action(async (service: string | undefined, options: DockerOptions) => {
       await startServices(service, options);
@@ -284,7 +284,7 @@ export function registerDockerCommands(program: Command): void {
 
   program
     .command('clean')
-    .description('Stop services and remove volumes (resets database)')
+    .description('Stop services and remove Docker volumes')
     .action(async () => {
       await cleanServices();
     });

@@ -66,9 +66,6 @@ services:
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT}
       - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-enterprise-app-api}
       - LOG_LEVEL=${LOG_LEVEL:-info}
-    depends_on:
-      db:
-        condition: service_healthy
     networks:
       - app-network
 
@@ -82,25 +79,6 @@ services:
     networks:
       - app-network
 
-  # ---------------------------------------------------------------------------
-  # Database - PostgreSQL
-  # ---------------------------------------------------------------------------
-  db:
-    image: postgres:15-alpine
-    environment:
-      - POSTGRES_USER=${POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
-      - POSTGRES_DB=${POSTGRES_DB:-appdb}
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    networks:
-      - app-network
-
 # =============================================================================
 # Networks
 # =============================================================================
@@ -108,8 +86,3 @@ networks:
   app-network:
     driver: bridge
 
-# =============================================================================
-# Volumes
-# =============================================================================
-volumes:
-  postgres-data:
