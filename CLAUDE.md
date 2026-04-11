@@ -409,6 +409,7 @@ Note: `DATABASE_URL` is constructed automatically from these variables at runtim
 - `INITIAL_ADMIN_EMAIL` - First user with this email becomes Admin
 - `DEVICE_CODE_EXPIRY_MINUTES` - Device code lifetime (default: 15)
 - `DEVICE_CODE_POLL_INTERVAL` - Device polling interval in seconds (default: 5)
+- `DEVICE_TOKEN_EXPIRY_DAYS` - Token lifetime for device sessions in days (default: 7)
 
 **Observability:**
 - `OTEL_ENABLED` - Enable OpenTelemetry (default: true)

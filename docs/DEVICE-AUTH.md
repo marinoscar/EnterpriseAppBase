@@ -741,6 +741,7 @@ Configure the device authorization flow in `infra/compose/.env`:
 # Device Authorization Flow (RFC 8628)
 DEVICE_CODE_EXPIRY_MINUTES=15
 DEVICE_CODE_POLL_INTERVAL=5
+DEVICE_TOKEN_EXPIRY_DAYS=7
 ```
 
 **Variables:**
@@ -749,6 +750,7 @@ DEVICE_CODE_POLL_INTERVAL=5
 |----------|------|---------|-------------|
 | `DEVICE_CODE_EXPIRY_MINUTES` | number | 15 | How long device codes remain valid (minutes) |
 | `DEVICE_CODE_POLL_INTERVAL` | number | 5 | Minimum time between polling requests (seconds) |
+| `DEVICE_TOKEN_EXPIRY_DAYS` | number | 7 | Token lifetime for device-authorized sessions (days) |
 
 ### Configuration Notes
 
@@ -770,6 +772,7 @@ Device auth configuration is loaded in `apps/api/src/config/configuration.ts`:
 deviceAuth: {
   expiryMinutes: parseInt(process.env.DEVICE_CODE_EXPIRY_MINUTES || '15', 10),
   pollInterval: parseInt(process.env.DEVICE_CODE_POLL_INTERVAL || '5', 10),
+  tokenExpiryDays: parseInt(process.env.DEVICE_TOKEN_EXPIRY_DAYS || '7', 10),
 }
 ```
 
@@ -814,6 +817,8 @@ Authorization: Bearer <token>
 4. **Expired**: Code expired before use or marked as used
 
 **Note:** After a device obtains tokens using an approved code, the code is marked as expired (used). The device then uses refresh tokens for subsequent authentications.
+
+**Token Lifetime:** Device-issued tokens default to a 7-day lifetime (both access and refresh), configurable via `DEVICE_TOKEN_EXPIRY_DAYS`. This overrides the standard JWT TTL settings (`JWT_ACCESS_TTL_MINUTES` and `JWT_REFRESH_TTL_DAYS`) for sessions established through the device authorization flow.
 
 ---
 
