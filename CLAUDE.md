@@ -36,7 +36,7 @@ Web Application Foundation with React UI + Node API + PostgreSQL. Production-gra
   docs/                     # Documentation
   infra/                    # Infrastructure configuration
     compose/
-      base.compose.yml       # Core services: api, web, db, nginx
+      base.compose.yml       # Core services: api, web, nginx
       dev.compose.yml        # Development overrides (hot reload, volumes)
       prod.compose.yml       # Production overrides (resource limits)
       otel.compose.yml       # Observability: uptrace, clickhouse, otel-collector
@@ -48,6 +48,40 @@ Web Application Foundation with React UI + Node API + PostgreSQL. Production-gra
       uptrace.yml            # Uptrace configuration
   tests/e2e/                # Optional E2E tests
 ```
+
+## MANDATORY: Worktree-Based Feature Development
+
+Every feature or fix MUST be developed in a Git worktree. The main checkout stays on `main` at all times.
+
+### Worktree Location & Naming
+- All worktrees live under `worktrees/` in the repo root (git-ignored, never committed)
+- Use **flat short names**: `worktrees/<short-name>` (e.g., `worktrees/add-export`, `worktrees/fix-auth-bug`)
+- The branch name follows conventional format: `feat/<short-name>`, `fix/<short-name>`, etc.
+
+### Workflow (Claude MUST follow)
+
+**Starting feature work:**
+1. From the main checkout, create the worktree:
+   ```bash
+   git worktree add worktrees/<short-name> -b <type>/<short-name>
+   ```
+   Example: `git worktree add worktrees/add-export -b feat/add-export`
+2. All development happens inside `worktrees/<short-name>/`
+3. Commits follow all existing commit rules (see below)
+
+**Finishing feature work:**
+1. Ensure all changes are committed inside the worktree
+2. Remove the worktree:
+   ```bash
+   git worktree remove worktrees/<short-name>
+   ```
+3. The branch remains for PR/merge
+
+### Rules
+- NEVER checkout feature branches in the main working directory
+- NEVER work on features directly in the main checkout
+- One worktree per feature branch (Git enforces this)
+- If the worktree already exists for the requested feature, work inside it (don't recreate)
 
 ## MANDATORY: Claude Commit-Only Git Rules
 
@@ -266,6 +300,11 @@ cd apps/api && npm run prisma:migrate
 - `DELETE /api/storage/objects/:id` - Delete object
 - `PATCH /api/storage/objects/:id/metadata` - Update metadata
 
+### Personal Access Tokens
+- `POST /api/pat` - Create a new personal access token
+- `GET /api/pat` - List current user's tokens
+- `DELETE /api/pat/{id}` - Revoke a token
+
 ### Health
 - `GET /api/health/live` - Liveness check
 - `GET /api/health/ready` - Readiness check (includes DB)
@@ -300,6 +339,7 @@ cd apps/api && npm run prisma:migrate
 - `device_codes` - Device authorization codes (RFC 8628)
 - `storage_objects` - File metadata, status, storage references
 - `storage_object_chunks` - Multipart upload chunk tracking
+- `personal_access_tokens` - User-created long-lived API tokens (hashed)
 
 ## Access Control: Email Allowlist
 
@@ -352,7 +392,7 @@ Key variables (see `infra/compose/.env.example` for full list):
 - `APP_URL` - Base URL (default: http://localhost:3535)
 
 **Database (individual connection parameters):**
-- `POSTGRES_HOST` - Database hostname (default: db in Docker, localhost otherwise)
+- `POSTGRES_HOST` - Database hostname (default: localhost)
 - `POSTGRES_PORT` - Database port (default: 5432)
 - `POSTGRES_USER` - Database user (default: postgres)
 - `POSTGRES_PASSWORD` - Database password (default: postgres)

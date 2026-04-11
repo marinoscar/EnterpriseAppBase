@@ -145,10 +145,31 @@ app allowlist add      # Add email to allowlist
 | Command | Description |
 |---------|-------------|
 | `app auth login` | Login via device flow |
+| `app auth test-login <email>` | Test login without OAuth (dev only) |
 | `app auth logout` | Clear credentials |
 | `app auth status` | Show auth status |
 | `app auth whoami` | Show current user |
 | `app auth token` | Print access token |
+
+#### Test Authentication (Development Only)
+
+For development and E2E testing, you can bypass OAuth using the test login command:
+
+```bash
+# Login as test user with default role (viewer)
+app auth test-login test@example.com
+
+# Login as admin
+app auth test-login admin@test.local --role admin
+
+# Login as contributor
+app auth test-login user@test.local -r contributor
+```
+
+**Options:**
+- `-r, --role <role>` - Role to assign: `admin`, `contributor`, or `viewer` (default: `viewer`)
+
+**Note:** This command only works when the API is running in development mode (`NODE_ENV !== 'production'`). It is designed for automated testing and local development workflows.
 
 ### API Commands
 
@@ -345,6 +366,25 @@ app allowlist add new@example.com --notes "New team member"
 
 # Logout
 app auth logout
+```
+
+### Test Authentication (Development)
+
+For automated testing or quick local development without OAuth:
+
+```bash
+# Quick admin login for testing
+app auth test-login admin@test.local --role admin
+# → ℹ Logging in as test user: admin@test.local (admin)
+# → ✓ Logged in as admin@test.local with role: admin
+# → Email:   admin@test.local
+# → Roles:   admin
+
+# Verify login
+app auth whoami
+
+# Now run commands as admin
+app users list
 ```
 
 ### Interactive Allowlist Management

@@ -776,6 +776,7 @@ Before OAuth authentication completes:
 | `POST` | `/api/auth/logout` | JWT | Single session logout |
 | `POST` | `/api/auth/logout-all` | JWT | All sessions logout |
 | `GET` | `/api/auth/me` | JWT | Current user info |
+| `POST` | `/api/auth/test/login` | Public | Test login bypass (dev only) |
 
 #### Device Authorization (RFC 8628)
 
@@ -871,6 +872,9 @@ Before OAuth authentication completes:
 | System Settings | `/admin/settings` | Required | Admin | App configuration |
 | User Management | `/admin/users` | Required | Admin | User/allowlist mgmt |
 | Device Activation | `/device` | Required | Any | Device auth approval |
+| Test Login | `/testing/login` | Public | - | Test auth bypass (dev only) |
+
+**Note:** The `/testing/login` route is excluded from production builds via `import.meta.env.PROD` check.
 
 ### 9.2 Context Providers
 

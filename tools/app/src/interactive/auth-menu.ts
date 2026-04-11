@@ -4,6 +4,7 @@ import {
   authLogout,
   authStatus,
   authWhoami,
+  authTestLogin,
 } from '../commands/auth.js';
 import { loadTokens } from '../lib/auth-store.js';
 import * as output from '../utils/output.js';
@@ -29,10 +30,16 @@ export async function showAuthMenu(): Promise<void> {
     const choices = [];
 
     if (!isLoggedIn) {
-      choices.push({
-        name: `${getIcon('🔐', '>')} Login`,
-        value: 'login',
-      });
+      choices.push(
+        {
+          name: `${getIcon('🔐', '>')} Login`,
+          value: 'login',
+        },
+        {
+          name: `${getIcon('🧪', '>')} Test Login (dev only)`,
+          value: 'test-login',
+        }
+      );
     } else {
       choices.push(
         {
@@ -76,6 +83,39 @@ export async function showAuthMenu(): Promise<void> {
         case 'login':
           await authLogin();
           return; // Return to main menu after login
+        case 'test-login': {
+          // Prompt for email and role
+          const { email } = await inquirer.prompt([
+            {
+              type: 'input',
+              name: 'email',
+              message: 'Enter email address for test user:',
+              validate: (input: string) => {
+                if (!input || !input.includes('@')) {
+                  return 'Please enter a valid email address';
+                }
+                return true;
+              },
+            },
+          ]);
+
+          const { role } = await inquirer.prompt([
+            {
+              type: 'list',
+              name: 'role',
+              message: 'Select role:',
+              choices: [
+                { name: 'Viewer (default)', value: 'viewer' },
+                { name: 'Contributor', value: 'contributor' },
+                { name: 'Admin', value: 'admin' },
+              ],
+              default: 'viewer',
+            },
+          ]);
+
+          await authTestLogin(email, { role });
+          return; // Return to main menu after login
+        }
         case 'logout':
           await authLogout();
           return; // Return to main menu after logout

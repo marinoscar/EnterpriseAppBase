@@ -1516,6 +1516,59 @@ try {
 
 ---
 
+## 13. Test Authentication (Development Only)
+
+### Overview
+
+The application provides a test authentication bypass mechanism that enables automated E2E testing with tools like Playwright without requiring real Google OAuth credentials.
+
+**IMPORTANT:** This feature is completely disabled in production environments through multiple security layers.
+
+### Security Layers
+
+| Layer | Protection | Implementation |
+|-------|------------|----------------|
+| **Build-time** | Frontend route excluded from production bundle | `import.meta.env.PROD` check in App.tsx |
+| **Module-level** | Backend module not imported in production | Conditional import in `app.module.ts` |
+| **Runtime guard** | Request rejected in production | `TestEnvironmentGuard` validates `NODE_ENV` |
+| **Bootstrap validation** | App fails to start if misconfigured | Error thrown if `TEST_AUTH_ENABLED=true` in production |
+
+### How It Works
+
+1. Playwright navigates to `/testing/login` (frontend test page)
+2. Test fills email and selects role (admin/contributor/viewer)
+3. Form submits POST to `/api/auth/test/login`
+4. Backend finds/creates user with specified role
+5. Backend generates real JWT tokens (same as OAuth flow)
+6. Backend sets HttpOnly refresh cookie and redirects to `/auth/callback?token=X`
+7. Frontend handles callback (existing flow) and app is authenticated
+
+### Test Auth Endpoint
+
+**Endpoint:** `POST /api/auth/test/login` (Non-production only)
+
+**Request:**
+```json
+{
+  "email": "test@test.local",
+  "role": "admin",
+  "displayName": "Test Admin"
+}
+```
+
+**Response:** HTTP 302 redirect to `/auth/callback?token=<accessToken>&expiresIn=900`
+- Sets HttpOnly refresh token cookie (same as OAuth)
+
+### Security Considerations
+
+- Test auth creates **real users** with **real tokens** - it only bypasses OAuth, not authorization
+- Users created via test auth are fully functional in the system
+- All RBAC guards still apply after authentication
+- Audit logging still captures test auth events
+- Consider using a test email pattern (e.g., `*@test.local`) for easy identification
+
+---
+
 ## 12. File Reference
 
 ### Key Security Files

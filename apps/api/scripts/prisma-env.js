@@ -20,10 +20,18 @@
 
 const { spawn } = require('child_process');
 
-// Load .env files if running outside Docker
+// Load .env files - try multiple locations
 if (process.env.NODE_ENV !== 'production') {
   try {
-    require('dotenv').config();
+    const path = require('path');
+    const dotenv = require('dotenv');
+
+    // Try local .env first (apps/api/.env)
+    dotenv.config();
+
+    // Also load from infra/compose/.env (canonical env location)
+    const composeEnv = path.resolve(__dirname, '..', '..', '..', 'infra', 'compose', '.env');
+    dotenv.config({ path: composeEnv });
   } catch (err) {
     // dotenv might not be available in production builds, that's OK
   }

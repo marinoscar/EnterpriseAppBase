@@ -822,6 +822,128 @@ npm run test:ui
 **Issue:** Async state not updating in tests
 - **Solution:** Use `await waitFor()` to wait for async updates
 
+## E2E Testing with Playwright
+
+### Overview
+
+The application supports end-to-end testing using Playwright with a dedicated test authentication mechanism that bypasses Google OAuth.
+
+### Test Authentication
+
+In development/test environments, a special login page at `/testing/login` allows Playwright tests to authenticate as any user with any role without going through Google OAuth.
+
+**How it works:**
+1. Backend provides `POST /api/auth/test/login` endpoint (disabled in production)
+2. Frontend provides `/testing/login` page (excluded from production builds)
+3. Tests can authenticate as admin, contributor, or viewer roles
+
+### Directory Structure
+
+```
+tests/e2e/
+├── playwright.config.ts       # Playwright configuration
+├── helpers/
+│   └── auth.helper.ts         # Login helper functions
+├── fixtures/
+│   └── auth.fixture.ts        # Pre-authenticated page fixtures
+└── specs/
+    ├── auth.spec.ts           # Authentication tests
+    └── example.spec.ts        # Example feature tests
+```
+
+### Auth Helper
+
+```typescript
+// tests/e2e/helpers/auth.helper.ts
+import { Page } from '@playwright/test';
+
+export async function loginAsTestUser(
+  page: Page,
+  options: { email: string; role?: 'admin' | 'contributor' | 'viewer' }
+): Promise<void> {
+  await page.goto('/testing/login');
+  await page.fill('[data-testid="test-email-input"]', options.email);
+  if (options.role) {
+    await page.click('[data-testid="test-role-select"]');
+    await page.click(`[data-value="${options.role}"]`);
+  }
+  await page.click('[data-testid="test-login-button"]');
+  await page.waitForURL('/');
+}
+```
+
+### Auth Fixtures
+
+```typescript
+// tests/e2e/fixtures/auth.fixture.ts
+import { test as base, Page } from '@playwright/test';
+import { loginAsAdmin, loginAsViewer } from '../helpers/auth.helper';
+
+export const test = base.extend<{
+  adminPage: Page;
+  viewerPage: Page;
+}>({
+  adminPage: async ({ page }, use) => {
+    await loginAsAdmin(page);
+    await use(page);
+  },
+  viewerPage: async ({ page }, use) => {
+    await loginAsViewer(page);
+    await use(page);
+  },
+});
+
+export { expect } from '@playwright/test';
+```
+
+### Example Test
+
+```typescript
+// tests/e2e/specs/admin.spec.ts
+import { test, expect } from '../fixtures/auth.fixture';
+
+test.describe('Admin functionality', () => {
+  test('can access user management', async ({ adminPage }) => {
+    await adminPage.goto('/admin/users');
+    await expect(adminPage).toHaveURL('/admin/users');
+  });
+
+  test('viewer cannot access admin pages', async ({ viewerPage }) => {
+    await viewerPage.goto('/admin/users');
+    await expect(viewerPage).not.toHaveURL('/admin/users');
+  });
+});
+```
+
+### Running E2E Tests
+
+```bash
+# Navigate to e2e test directory
+cd tests/e2e
+
+# Install dependencies (first time)
+npm install
+npx playwright install chromium
+
+# Run all E2E tests
+npm test
+
+# Run with UI mode (interactive)
+npm run test:ui
+
+# Run in headed mode (see browser)
+npm run test:headed
+
+# Run specific test file
+npx playwright test auth.spec.ts
+```
+
+### Security Note
+
+The test authentication endpoint (`/api/auth/test/login`) and the test login page (`/testing/login`) are **completely disabled in production** through multiple security layers. See [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md#13-test-authentication-development-only) for details.
+
+---
+
 ## Resources
 
 - [Jest Documentation](https://jestjs.io/docs/getting-started)
@@ -830,6 +952,7 @@ npm run test:ui
 - [MSW Documentation](https://mswjs.io/docs/)
 - [NestJS Testing](https://docs.nestjs.com/fundamentals/testing)
 - [Supertest Documentation](https://github.com/visionmedia/supertest)
+- [Playwright Documentation](https://playwright.dev/)
 
 ## Summary
 

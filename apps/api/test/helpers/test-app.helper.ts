@@ -6,7 +6,6 @@ import {
 import fastifyCookie from '@fastify/cookie';
 import { AppModule } from '../../src/app.module';
 import { PrismaService } from '../../src/prisma/prisma.service';
-import { ValidationPipe } from '@nestjs/common';
 import { prismaMock } from '../mocks/prisma.mock';
 
 export interface TestContext {
@@ -64,12 +63,8 @@ export async function createTestApp(
   });
 
   app.setGlobalPrefix('api');
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      transform: true,
-    }),
-  );
+  // Note: ZodValidationPipe is already registered globally via APP_PIPE in AppModule
+  // Do NOT add a standard ValidationPipe here as it conflicts with Zod DTOs
 
   await app.init();
   await app.getHttpAdapter().getInstance().ready();

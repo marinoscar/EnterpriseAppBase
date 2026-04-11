@@ -199,6 +199,9 @@ import type {
   UserListItem,
   DeviceActivationInfo,
   DeviceAuthorizationResponse,
+  PersonalAccessToken,
+  PatCreatedResponse,
+  PatDurationUnit,
 } from '../types';
 
 // Allowlist API
@@ -276,4 +279,21 @@ export async function authorizeDevice(
     userCode,
     approve,
   });
+}
+
+// Personal Access Tokens API
+export async function getPersonalAccessTokens(): Promise<PersonalAccessToken[]> {
+  return api.get<PersonalAccessToken[]>('/pat');
+}
+
+export async function createPersonalAccessToken(data: {
+  name: string;
+  durationValue: number;
+  durationUnit: PatDurationUnit;
+}): Promise<PatCreatedResponse> {
+  return api.post<PatCreatedResponse>('/pat', data);
+}
+
+export async function revokePersonalAccessToken(id: string): Promise<void> {
+  await api.delete<void>(`/pat/${id}`);
 }
