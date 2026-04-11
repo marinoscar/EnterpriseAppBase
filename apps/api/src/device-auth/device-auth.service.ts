@@ -171,8 +171,15 @@ export class DeviceAuthService {
           });
         }
 
-        // Generate tokens
-        const tokens = await this.authService.generateFullTokens(record.user);
+        // Generate tokens with device-specific expiry
+        const tokenExpiryDays = this.configService.get<number>(
+          'deviceAuth.tokenExpiryDays',
+          7,
+        );
+        const tokens = await this.authService.generateFullTokens(record.user, {
+          accessTtlMinutes: tokenExpiryDays * 24 * 60,
+          refreshTtlDays: tokenExpiryDays,
+        });
 
         // Mark as used (update status to expired to prevent reuse)
         await this.prisma.deviceCode.update({

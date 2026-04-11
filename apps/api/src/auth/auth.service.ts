@@ -328,13 +328,16 @@ export class AuthService {
   /**
    * Generate both access and refresh tokens
    */
-  async generateFullTokens(user: {
-    id: string;
-    email: string;
-    userRoles: Array<{ role: { name: string } }>;
-  }): Promise<FullTokenResponse> {
-    const accessToken = this.generateAccessToken(user);
-    const refreshToken = await this.createRefreshToken(user.id);
+  async generateFullTokens(
+    user: {
+      id: string;
+      email: string;
+      userRoles: Array<{ role: { name: string } }>;
+    },
+    options?: { accessTtlMinutes?: number; refreshTtlDays?: number },
+  ): Promise<FullTokenResponse> {
+    const accessToken = this.generateAccessToken(user, options?.accessTtlMinutes);
+    const refreshToken = await this.createRefreshToken(user.id, options?.refreshTtlDays);
 
     return {
       accessToken: accessToken.token,
@@ -346,11 +349,14 @@ export class AuthService {
   /**
    * Generate access token only
    */
-  private generateAccessToken(user: {
-    id: string;
-    email: string;
-    userRoles: Array<{ role: { name: string } }>;
-  }) {
+  private generateAccessToken(
+    user: {
+      id: string;
+      email: string;
+      userRoles: Array<{ role: { name: string } }>;
+    },
+    ttlMinutesOverride?: number,
+  ) {
     const roles = user.userRoles.map((ur) => ur.role.name);
 
     const payload: JwtPayload = {
@@ -359,13 +365,12 @@ export class AuthService {
       roles,
     };
 
-    const accessTtlMinutes = this.configService.get<number>(
-      'jwt.accessTtlMinutes',
-      15,
-    );
+    const accessTtlMinutes =
+      ttlMinutesOverride ??
+      this.configService.get<number>('jwt.accessTtlMinutes', 15);
 
     return {
-      token: this.jwtService.sign(payload),
+      token: this.jwtService.sign(payload, { expiresIn: `${accessTtlMinutes}m` }),
       expiresIn: accessTtlMinutes * 60,
     };
   }
@@ -373,11 +378,10 @@ export class AuthService {
   /**
    * Create a new refresh token
    */
-  private async createRefreshToken(userId: string): Promise<string> {
-    const refreshTtlDays = this.configService.get<number>(
-      'jwt.refreshTtlDays',
-      14,
-    );
+  private async createRefreshToken(userId: string, ttlDaysOverride?: number): Promise<string> {
+    const refreshTtlDays =
+      ttlDaysOverride ??
+      this.configService.get<number>('jwt.refreshTtlDays', 14);
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + refreshTtlDays);
 
