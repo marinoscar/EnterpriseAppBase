@@ -101,6 +101,7 @@ describe('AuthService', () => {
           email: mockGoogleProfile.email,
           roles: ['viewer'],
         }),
+        expect.objectContaining({ expiresIn: expect.any(String) }),
       );
     });
 
@@ -564,6 +565,7 @@ describe('AuthService', () => {
           sub: 'user-1',
           email: mockUser.email,
         }),
+        expect.objectContaining({ expiresIn: expect.any(String) }),
       );
     });
 
