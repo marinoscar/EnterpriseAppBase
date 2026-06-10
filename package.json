@@ -1,7 +1,7 @@
 {
   "name": "enterprise-app",
   "private": true,
-  "workspaces": ["apps/*", "tools/*"],
+  "workspaces": ["apps/*"],
   "scripts": {
     "api": "npm -w apps/api",
     "web": "npm -w apps/web",
@@ -9,8 +9,6 @@
     "web:dev": "npm -w apps/web run dev",
     "api:test": "npm -w apps/api test",
     "web:test": "npm -w apps/web test",
-    "app": "node tools/app/bin/app.js",
-    "app:build": "npm -w tools/app run build",
     "postinstall": "node scripts/patch-react-transition-group.js"
   },
   "overrides": {
