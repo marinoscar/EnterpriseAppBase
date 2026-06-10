@@ -75,7 +75,7 @@ Enterprise-grade instrumentation required from day one:
 **Auth:** Passport strategies (Google required; Microsoft optional)  
 **Testing:**
 - Backend: Jest + Supertest
-- Frontend: React Testing Library + Jest (or Vitest; pick one and standardize)
+- Frontend: Vitest + React Testing Library
 - Optional E2E: Playwright  
 **Observability:** OpenTelemetry Node SDK + auto-instrumentations  
 **Logging:** Pino structured JSON logs (recommended)
