@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { PatService } from '../pat/pat.service';
 
 describe('AuthController', () => {
   let controller: AuthController;
@@ -25,6 +26,7 @@ describe('AuthController', () => {
       providers: [
         { provide: AuthService, useValue: mockAuthService },
         { provide: ConfigService, useValue: mockConfigService },
+        { provide: PatService, useValue: { validateToken: jest.fn() } },
       ],
     }).compile();
 
