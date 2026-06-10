@@ -61,7 +61,7 @@ export default function LoginPage() {
         <CardContent sx={{ p: 4 }}>
           {/* Logo/Header */}
           <Box sx={{ textAlign: 'center', mb: 4 }}>
-            <Typography variant="h4" component="h1" fontWeight="bold">
+            <Typography variant="h4" component="h1" sx={{ fontWeight: 'bold' }}>
               Welcome
             </Typography>
             <Typography color="text.secondary" sx={{ mt: 1 }}>
@@ -86,7 +86,7 @@ export default function LoginPage() {
                 />
               ))
             ) : (
-              <Typography color="text.secondary" textAlign="center">
+              <Typography color="text.secondary" sx={{ textAlign: 'center' }}>
                 No authentication providers configured
               </Typography>
             )}

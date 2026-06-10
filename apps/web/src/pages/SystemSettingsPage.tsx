@@ -71,7 +71,7 @@ export default function SystemSettingsPage() {
         <Typography variant="h4" component="h1" gutterBottom>
           System Settings
         </Typography>
-        <Typography color="text.secondary" paragraph>
+        <Typography color="text.secondary" sx={{ mb: 2 }}>
           Configure application-wide settings
           {!canWrite && ' (read-only)'}
         </Typography>

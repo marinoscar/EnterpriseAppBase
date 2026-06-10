@@ -64,7 +64,7 @@ export function QuickActions() {
 
         <Grid container spacing={2}>
           {visibleActions.map((action) => (
-            <Grid item xs={12} sm={6} key={action.path}>
+            <Grid size={{ xs: 12, sm: 6 }} key={action.path}>
               <Button
                 fullWidth
                 variant="outlined"

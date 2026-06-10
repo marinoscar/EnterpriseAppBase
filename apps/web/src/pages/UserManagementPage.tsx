@@ -34,7 +34,7 @@ export default function UserManagementPage() {
         <Typography variant="h4" component="h1" gutterBottom>
           User Management
         </Typography>
-        <Typography color="text.secondary" paragraph>
+        <Typography color="text.secondary" sx={{ mb: 2 }}>
           Manage users and email allowlist
         </Typography>
 

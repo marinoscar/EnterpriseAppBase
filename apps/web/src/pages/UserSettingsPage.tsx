@@ -55,7 +55,7 @@ export default function UserSettingsPage() {
         <Typography variant="h4" component="h1" gutterBottom>
           Settings
         </Typography>
-        <Typography color="text.secondary" paragraph>
+        <Typography color="text.secondary" sx={{ mb: 2 }}>
           Manage your account preferences
         </Typography>
 

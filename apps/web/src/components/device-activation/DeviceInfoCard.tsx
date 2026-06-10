@@ -102,7 +102,7 @@ export function DeviceInfoCard({
                   <Typography variant="caption" color="text.secondary">
                     Device Name
                   </Typography>
-                  <Typography variant="body1" fontWeight="medium">
+                  <Typography variant="body1" sx={{ fontWeight: 'medium' }}>
                     {deviceInfo.clientInfo.deviceName}
                   </Typography>
                 </Box>

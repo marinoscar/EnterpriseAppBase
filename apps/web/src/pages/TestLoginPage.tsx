@@ -42,7 +42,7 @@ export default function TestLoginPage() {
 
           {/* Header */}
           <Box sx={{ textAlign: 'center', mb: 3 }}>
-            <Typography variant="h5" component="h1" fontWeight="bold">
+            <Typography variant="h5" component="h1" sx={{ fontWeight: 'bold' }}>
               Test Authentication
             </Typography>
             <Typography color="text.secondary" sx={{ mt: 1 }}>
@@ -59,7 +59,7 @@ export default function TestLoginPage() {
               required
               fullWidth
               margin="normal"
-              inputProps={{ 'data-testid': 'test-email-input' }}
+              slotProps={{ htmlInput: { 'data-testid': 'test-email-input' } }}
             />
 
             <FormControl fullWidth margin="normal">

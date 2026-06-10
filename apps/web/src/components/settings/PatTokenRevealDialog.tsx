@@ -52,18 +52,20 @@ export function PatTokenRevealDialog({ open, onClose, token }: PatTokenRevealDia
             label="Your Token"
             value={token || ''}
             fullWidth
-            InputProps={{
-              readOnly: true,
-              sx: { fontFamily: 'monospace' },
-              endAdornment: (
-                <InputAdornment position="end">
-                  <Tooltip title={copied ? 'Copied!' : 'Copy token'}>
-                    <IconButton onClick={handleCopy} edge="end" aria-label="copy token">
-                      {copied ? <CheckIcon color="success" /> : <ContentCopyIcon />}
-                    </IconButton>
-                  </Tooltip>
-                </InputAdornment>
-              ),
+            slotProps={{
+              input: {
+                readOnly: true,
+                sx: { fontFamily: 'monospace' },
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <Tooltip title={copied ? 'Copied!' : 'Copy token'}>
+                      <IconButton onClick={handleCopy} edge="end" aria-label="copy token">
+                        {copied ? <CheckIcon color="success" /> : <ContentCopyIcon />}
+                      </IconButton>
+                    </Tooltip>
+                  </InputAdornment>
+                ),
+              },
             }}
           />
           {copied && (

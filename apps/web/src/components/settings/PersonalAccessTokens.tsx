@@ -67,7 +67,7 @@ export function PersonalAccessTokens() {
               <Typography variant="h6" gutterBottom>
                 Personal Access Tokens
               </Typography>
-              <Typography variant="body2" color="text.secondary" paragraph>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                 Create tokens to authenticate API requests without OAuth.
               </Typography>
             </Box>

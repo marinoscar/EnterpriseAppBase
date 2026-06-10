@@ -130,7 +130,7 @@ export function CreatePatDialog({ open, onClose, onCreated, onCreate }: CreatePa
               value={name}
               onChange={(e) => setName(e.target.value)}
               disabled={isSubmitting}
-              inputProps={{ maxLength: 100 }}
+              slotProps={{ htmlInput: { maxLength: 100 } }}
               sx={{ mb: 2 }}
               autoFocus
               placeholder="e.g. CI/CD Pipeline, Local Dev"
@@ -142,7 +142,7 @@ export function CreatePatDialog({ open, onClose, onCreated, onCreate }: CreatePa
                 value={durationValue}
                 onChange={(e) => setDurationValue(e.target.value)}
                 disabled={isSubmitting}
-                inputProps={{ min: 1, max: 999, step: 1 }}
+                slotProps={{ htmlInput: { min: 1, max: 999, step: 1 } }}
                 sx={{ flex: 1 }}
               />
               <TextField

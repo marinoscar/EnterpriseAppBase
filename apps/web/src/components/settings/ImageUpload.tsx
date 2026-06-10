@@ -86,7 +86,7 @@ export function ImageUpload({ onUpload, disabled = false }: ImageUploadProps) {
         {isUploading ? 'Uploading...' : 'Upload Custom Image'}
       </Button>
       {error && (
-        <Typography variant="caption" color="error" display="block" sx={{ mt: 0.5 }}>
+        <Typography variant="caption" color="error" sx={{ display: 'block', mt: 0.5 }}>
           {error}
         </Typography>
       )}

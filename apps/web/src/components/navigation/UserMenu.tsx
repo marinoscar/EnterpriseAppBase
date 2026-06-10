@@ -80,8 +80,8 @@ export function UserMenu() {
         onClick={handleClose}
         transformOrigin={{ horizontal: 'right', vertical: 'top' }}
         anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
-        PaperProps={{
-          sx: { minWidth: 200, mt: 1 },
+        slotProps={{
+          paper: { sx: { minWidth: 200, mt: 1 } },
         }}
       >
         {/* User Info Header */}
