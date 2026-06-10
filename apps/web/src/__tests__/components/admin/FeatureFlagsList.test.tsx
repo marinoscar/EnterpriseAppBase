@@ -106,7 +106,7 @@ describe('FeatureFlagsList', () => {
         { wrapperOptions: { user: mockAdminUser } }
       );
 
-      const switches = screen.getAllByRole('checkbox');
+      const switches = screen.getAllByRole('switch');
       expect(switches).toHaveLength(3);
     });
 
@@ -129,7 +129,7 @@ describe('FeatureFlagsList', () => {
         { wrapperOptions: { user: mockAdminUser } }
       );
 
-      const switches = screen.getAllByRole('checkbox') as HTMLInputElement[];
+      const switches = screen.getAllByRole('switch') as HTMLInputElement[];
 
       // Sorted order: allow_beta_access (false), enable_new_feature (true), maintenance_mode (false)
       expect(switches[0].checked).toBe(false); // allow_beta_access
@@ -183,7 +183,7 @@ describe('FeatureFlagsList', () => {
       });
       expect(saveButton).toBeDisabled();
 
-      const switches = screen.getAllByRole('checkbox');
+      const switches = screen.getAllByRole('switch');
       await user.click(switches[0]);
 
       await waitFor(() => {
@@ -199,7 +199,7 @@ describe('FeatureFlagsList', () => {
         { wrapperOptions: { user: mockAdminUser } }
       );
 
-      const switches = screen.getAllByRole('checkbox') as HTMLInputElement[];
+      const switches = screen.getAllByRole('switch') as HTMLInputElement[];
       const enabledSwitch = switches.find((sw) => sw.checked);
 
       expect(enabledSwitch?.checked).toBe(true);
@@ -219,7 +219,7 @@ describe('FeatureFlagsList', () => {
         { wrapperOptions: { user: mockAdminUser } }
       );
 
-      const switches = screen.getAllByRole('checkbox') as HTMLInputElement[];
+      const switches = screen.getAllByRole('switch') as HTMLInputElement[];
       const disabledSwitch = switches.find((sw) => !sw.checked);
 
       expect(disabledSwitch?.checked).toBe(false);
@@ -239,7 +239,7 @@ describe('FeatureFlagsList', () => {
         { wrapperOptions: { user: mockAdminUser } }
       );
 
-      const switches = screen.getAllByRole('checkbox') as HTMLInputElement[];
+      const switches = screen.getAllByRole('switch') as HTMLInputElement[];
       const firstSwitch = switches[0]; // allow_beta_access - initially disabled
 
       await user.click(firstSwitch);
@@ -258,7 +258,7 @@ describe('FeatureFlagsList', () => {
         { wrapperOptions: { user: mockAdminUser } }
       );
 
-      const switches = screen.getAllByRole('checkbox');
+      const switches = screen.getAllByRole('switch');
 
       await user.click(switches[0]);
       await user.click(switches[1]);
@@ -413,7 +413,7 @@ describe('FeatureFlagsList', () => {
         expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
       });
 
-      const switches = screen.getAllByRole('checkbox') as HTMLInputElement[];
+      const switches = screen.getAllByRole('switch') as HTMLInputElement[];
       const newFlagSwitch = switches[0]; // Alphabetically first: aaa_new_flag
       expect(newFlagSwitch.checked).toBe(false);
     });
@@ -505,7 +505,7 @@ describe('FeatureFlagsList', () => {
       );
 
       // Initial count
-      const initialSwitches = screen.getAllByRole('checkbox');
+      const initialSwitches = screen.getAllByRole('switch');
       expect(initialSwitches).toHaveLength(3);
 
       const addButton = screen.getByRole('button', { name: /add flag/i });
@@ -531,7 +531,7 @@ describe('FeatureFlagsList', () => {
       });
 
       // Should still only have 3 flags
-      const finalSwitches = screen.getAllByRole('checkbox');
+      const finalSwitches = screen.getAllByRole('switch');
       expect(finalSwitches).toHaveLength(3);
     });
 
@@ -631,7 +631,7 @@ describe('FeatureFlagsList', () => {
       await user.click(deleteIconButtons[0]);
 
       await waitFor(() => {
-        const switches = screen.getAllByRole('checkbox');
+        const switches = screen.getAllByRole('switch');
         expect(switches).toHaveLength(2);
       });
     });
@@ -680,7 +680,7 @@ describe('FeatureFlagsList', () => {
         { wrapperOptions: { user: mockAdminUser } }
       );
 
-      const switches = screen.getAllByRole('checkbox');
+      const switches = screen.getAllByRole('switch');
       await user.click(switches[0]); // Toggle allow_beta_access
 
       const saveButton = screen.getByRole('button', {
@@ -705,7 +705,7 @@ describe('FeatureFlagsList', () => {
         { wrapperOptions: { user: mockAdminUser } }
       );
 
-      const switches = screen.getAllByRole('checkbox');
+      const switches = screen.getAllByRole('switch');
       await user.click(switches[0]);
 
       const saveButton = screen.getByRole('button', {
@@ -796,7 +796,7 @@ describe('FeatureFlagsList', () => {
         { wrapperOptions: { user: mockAdminUser } }
       );
 
-      const switches = screen.getAllByRole('checkbox');
+      const switches = screen.getAllByRole('switch');
       await user.click(switches[0]);
 
       const saveButton = screen.getByRole('button', {
@@ -820,7 +820,7 @@ describe('FeatureFlagsList', () => {
         { wrapperOptions: { user: mockAdminUser } }
       );
 
-      const switches = screen.getAllByRole('checkbox');
+      const switches = screen.getAllByRole('switch');
       await user.click(switches[0]);
 
       const saveButton = screen.getByRole('button', {
@@ -840,7 +840,7 @@ describe('FeatureFlagsList', () => {
         { wrapperOptions: { user: mockAdminUser } }
       );
 
-      const switches = screen.getAllByRole('checkbox');
+      const switches = screen.getAllByRole('switch');
       await user.click(switches[0]);
 
       const saveButton = screen.getByRole('button', {
@@ -886,7 +886,7 @@ describe('FeatureFlagsList', () => {
         { wrapperOptions: { user: mockAdminUser } }
       );
 
-      const switches = screen.getAllByRole('checkbox');
+      const switches = screen.getAllByRole('switch');
       await user.click(switches[0]);
 
       const saveButton = screen.getByRole('button', {
@@ -921,7 +921,7 @@ describe('FeatureFlagsList', () => {
         { wrapperOptions: { user: mockAdminUser } }
       );
 
-      const switches = screen.getAllByRole('checkbox');
+      const switches = screen.getAllByRole('switch');
       switches.forEach((sw) => {
         expect(sw).toBeDisabled();
       });
@@ -990,7 +990,7 @@ describe('FeatureFlagsList', () => {
       const addButton = screen.getByRole('button', { name: /add flag/i });
       expect(addButton).not.toBeDisabled();
 
-      const switches = screen.getAllByRole('checkbox');
+      const switches = screen.getAllByRole('switch');
       switches.forEach((sw) => {
         expect(sw).not.toBeDisabled();
       });
@@ -1005,7 +1005,7 @@ describe('FeatureFlagsList', () => {
       const addButton = screen.getByRole('button', { name: /add flag/i });
       expect(addButton).not.toBeDisabled();
 
-      const switches = screen.getAllByRole('checkbox');
+      const switches = screen.getAllByRole('switch');
       switches.forEach((sw) => {
         expect(sw).not.toBeDisabled();
       });
@@ -1033,7 +1033,7 @@ describe('FeatureFlagsList', () => {
         { wrapperOptions: { user: mockAdminUser } }
       );
 
-      const switches = screen.getAllByRole('checkbox');
+      const switches = screen.getAllByRole('switch');
       await user.click(switches[0]); // Toggle first switch
 
       const saveButton = screen.getByRole('button', {
@@ -1048,8 +1048,9 @@ describe('FeatureFlagsList', () => {
       });
 
       // Switch should still be toggled (local state preserved)
+      // In MUI 9, Switch uses role="switch" instead of role="checkbox"
       const updatedSwitches = screen.getAllByRole(
-        'checkbox'
+        'switch'
       ) as HTMLInputElement[];
       expect(updatedSwitches[0].checked).toBe(true);
 

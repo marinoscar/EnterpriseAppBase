@@ -74,8 +74,9 @@ describe('QuickActions', () => {
     it('should render buttons in a grid layout', () => {
       const { container } = render(<QuickActions />);
 
-      const gridItems = container.querySelectorAll('.MuiGrid-item');
-      expect(gridItems.length).toBeGreaterThan(0);
+      // In MUI 9 Grid v2, items no longer use MuiGrid-item; use MuiGrid-container instead
+      const gridContainer = container.querySelector('.MuiGrid-container');
+      expect(gridContainer).toBeInTheDocument();
     });
   });
 
@@ -455,9 +456,12 @@ describe('QuickActions', () => {
     it('should render each action in a Grid item', () => {
       const { container } = render(<QuickActions />);
 
-      const gridItems = container.querySelectorAll('.MuiGrid-item');
+      // In MUI 9 Grid v2, items use size-based classes instead of MuiGrid-item.
+      // Check the grid container has the expected number of direct children.
+      const gridContainer = container.querySelector('.MuiGrid-container');
+      expect(gridContainer).toBeInTheDocument();
       // At minimum: User Settings + Theme (2 items for non-admin)
-      expect(gridItems.length).toBeGreaterThanOrEqual(2);
+      expect(gridContainer?.children.length).toBeGreaterThanOrEqual(2);
     });
 
     it('should render three grid items for admin users', () => {
@@ -476,9 +480,11 @@ describe('QuickActions', () => {
         wrapperOptions: { user: mockAdminUser },
       });
 
-      const gridItems = container.querySelectorAll('.MuiGrid-item');
+      // In MUI 9 Grid v2, items use size-based classes instead of MuiGrid-item.
+      const gridContainer = container.querySelector('.MuiGrid-container');
+      expect(gridContainer).toBeInTheDocument();
       // User Settings + Theme + System Settings = 3 items
-      expect(gridItems.length).toBe(3);
+      expect(gridContainer?.children.length).toBe(3);
     });
   });
 

@@ -174,23 +174,25 @@ describe('Layout', () => {
     it('should pass onMenuClick handler to AppBar', () => {
       render(<Layout />);
 
+      // React 19 passes (props, undefined) — legacy context replaced by undefined
       expect(vi.mocked(AppBar)).toHaveBeenCalledWith(
         expect.objectContaining({
           onMenuClick: expect.any(Function),
         }),
-        expect.anything()
+        undefined,
       );
     });
 
     it('should pass open state to Sidebar', () => {
       render(<Layout />);
 
+      // React 19 passes (props, undefined) — legacy context replaced by undefined
       expect(vi.mocked(Sidebar)).toHaveBeenCalledWith(
         expect.objectContaining({
           open: false,
           onClose: expect.any(Function),
         }),
-        expect.anything()
+        undefined,
       );
     });
 
@@ -199,10 +201,10 @@ describe('Layout', () => {
 
       render(<Layout />);
 
-      // Initially closed
+      // Initially closed — React 19 passes (props, undefined)
       expect(vi.mocked(Sidebar)).toHaveBeenCalledWith(
         expect.objectContaining({ open: false }),
-        expect.anything()
+        undefined,
       );
 
       const menuButton = screen.getByTestId('menu-toggle-button');
@@ -212,7 +214,7 @@ describe('Layout', () => {
       await waitFor(() => {
         expect(vi.mocked(Sidebar)).toHaveBeenCalledWith(
           expect.objectContaining({ open: true }),
-          expect.anything()
+          undefined,
         );
       });
     });
@@ -364,7 +366,9 @@ describe('Layout', () => {
     it('should render Outlet without props', () => {
       render(<Layout />);
 
-      expect(vi.mocked(Outlet)).toHaveBeenCalledWith({}, expect.anything());
+      // React 19 passes (props, undefined) — legacy context replaced by undefined.
+      // Outlet is called with empty props and undefined as second arg.
+      expect(vi.mocked(Outlet)).toHaveBeenCalledWith({}, undefined);
     });
   });
 

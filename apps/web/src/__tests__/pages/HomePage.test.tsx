@@ -289,8 +289,11 @@ describe('HomePage', () => {
 
       // Profile card should be xs=12, md=4
       // Quick actions should be xs=12, md=8
-      const gridItems = container.querySelectorAll('.MuiGrid-item');
-      expect(gridItems.length).toBeGreaterThanOrEqual(2);
+      // In MUI 9 Grid v2, items use size-based classes (MuiGrid-grid-xs-12) instead of MuiGrid-item
+      const gridContainer = container.querySelector('.MuiGrid-container');
+      expect(gridContainer).toBeInTheDocument();
+      const gridChildren = gridContainer ? Array.from(gridContainer.children) : [];
+      expect(gridChildren.length).toBeGreaterThanOrEqual(2);
     });
   });
 

@@ -420,7 +420,8 @@ describe('UserManagementPage', () => {
         wrapperOptions: { user: mockAdminUser },
       });
 
-      expect(mockUserList).toHaveBeenCalledWith({}, {});
+      // React 19 passes (props, undefined) — legacy context replaced by undefined
+      expect(mockUserList).toHaveBeenCalledWith({}, undefined);
     });
 
     it('should not pass any props to AllowlistTable', async () => {
@@ -435,7 +436,8 @@ describe('UserManagementPage', () => {
       await user.click(allowlistTab);
 
       await waitFor(() => {
-        expect(mockAllowlistTable).toHaveBeenCalledWith({}, {});
+        // React 19 passes (props, undefined) — legacy context replaced by undefined
+        expect(mockAllowlistTable).toHaveBeenCalledWith({}, undefined);
       });
     });
   });
