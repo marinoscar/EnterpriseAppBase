@@ -9,7 +9,7 @@ export const createPatSchema = z.object({
     .min(1, 'Duration value must be at least 1')
     .max(999, 'Duration value must be at most 999'),
   durationUnit: z.enum(['minutes', 'days', 'months'], {
-    errorMap: () => ({ message: 'Duration unit must be one of: minutes, days, months' }),
+    error: 'Duration unit must be one of: minutes, days, months',
   }),
 });
 
