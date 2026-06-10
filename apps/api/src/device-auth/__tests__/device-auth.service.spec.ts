@@ -246,7 +246,13 @@ describe('DeviceAuthService', () => {
         expiresIn: 900,
       });
 
-      expect(mockAuthService.generateFullTokens).toHaveBeenCalledWith(mockUser);
+      expect(mockAuthService.generateFullTokens).toHaveBeenCalledWith(
+        mockUser,
+        expect.objectContaining({
+          accessTtlMinutes: expect.any(Number),
+          refreshTtlDays: expect.any(Number),
+        }),
+      );
 
       // Should mark as expired to prevent reuse
       expect(mockPrisma.deviceCode.update).toHaveBeenCalledWith({
