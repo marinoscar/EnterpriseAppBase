@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, BadRequestException } from '@nestjs/common';
 import { UserSettingsService } from './user-settings.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
@@ -464,6 +464,224 @@ describe('UserSettingsService', () => {
           }),
         }),
       );
+    });
+  });
+
+  // ===========================================================================
+  // dataTables / navigation namespace merge logic (JSON Merge Patch semantics)
+  // ===========================================================================
+  //
+  // mergeDataTables, mergeNavigation and assertDataTableLimit are private -
+  // reached here via `(service as any)` rather than by adding a public export,
+  // since their contract is an internal implementation detail of PATCH
+  // semantics, not part of the service's public surface.
+
+  describe('mergeDataTables (private)', () => {
+    const mergeDataTables = (current: unknown, patch: unknown) =>
+      (service as any).mergeDataTables(current, patch);
+
+    it('patch absent leaves the namespace untouched', () => {
+      const current = { jobs: { density: 'compact' as const } };
+
+      expect(mergeDataTables(current, undefined)).toEqual(current);
+    });
+
+    it('a non-null entry REPLACES the stored entry wholesale, leaving other entries untouched', () => {
+      const current = {
+        jobs: { density: 'compact' as const, pageSize: 10 },
+        users: { pageSize: 50 },
+      };
+
+      const result = mergeDataTables(current, { jobs: { pageSize: 25 } });
+
+      // The previously stored `density` for jobs is gone - not deep-merged.
+      expect(result.jobs).toEqual({ pageSize: 25 });
+      expect(result.jobs).not.toHaveProperty('density');
+      // The `users` entry was never touched.
+      expect(result.users).toEqual({ pageSize: 50 });
+    });
+
+    it('{ jobs: null } deletes only the jobs entry, leaving other entries untouched', () => {
+      const current = {
+        jobs: { pageSize: 10 },
+        users: { pageSize: 50 },
+      };
+
+      const result = mergeDataTables(current, { jobs: null });
+
+      expect(result).toEqual({ users: { pageSize: 50 } });
+    });
+
+    it('dataTables: null clears the whole namespace', () => {
+      const current = {
+        jobs: { pageSize: 10 },
+        users: { pageSize: 50 },
+      };
+
+      expect(mergeDataTables(current, null)).toBeUndefined();
+    });
+
+    it('emptying the last entry collapses the namespace back to absent (undefined), not {}', () => {
+      const current = { jobs: { pageSize: 10 } };
+
+      const result = mergeDataTables(current, { jobs: null });
+
+      expect(result).toBeUndefined();
+    });
+  });
+
+  describe('mergeNavigation (private)', () => {
+    const mergeNavigation = (current: unknown, patch: unknown) =>
+      (service as any).mergeNavigation(current, patch);
+
+    it('patch absent leaves the namespace untouched', () => {
+      const current = { railCollapsed: true };
+
+      expect(mergeNavigation(current, undefined)).toEqual(current);
+    });
+
+    it('an omitted field is left untouched', () => {
+      const current = { railCollapsed: true };
+
+      expect(mergeNavigation(current, {})).toEqual({ railCollapsed: true });
+    });
+
+    it('a listed field is replaced', () => {
+      const current = { railCollapsed: true };
+
+      expect(mergeNavigation(current, { railCollapsed: false })).toEqual({
+        railCollapsed: false,
+      });
+    });
+
+    it('railCollapsed: null deletes the field', () => {
+      const current = { railCollapsed: true };
+
+      expect(
+        mergeNavigation(current, { railCollapsed: null }),
+      ).toBeUndefined();
+    });
+
+    it('navigation: null clears the whole namespace', () => {
+      const current = { railCollapsed: true };
+
+      expect(mergeNavigation(current, null)).toBeUndefined();
+    });
+
+    it('emptying the namespace collapses it back to absent (undefined), not {}', () => {
+      const result = mergeNavigation(undefined, { railCollapsed: null });
+
+      expect(result).toBeUndefined();
+    });
+  });
+
+  describe('assertDataTableLimit (private)', () => {
+    const assertDataTableLimit = (dataTables: unknown) =>
+      (service as any).assertDataTableLimit(dataTables);
+
+    function buildTables(count: number): Record<string, {}> {
+      return Object.fromEntries(
+        Array.from({ length: count }, (_, i) => [`table${i}`, {}]),
+      );
+    }
+
+    it('does not throw at exactly the cap (40 entries)', () => {
+      expect(() => assertDataTableLimit(buildTables(40))).not.toThrow();
+    });
+
+    it('does not throw when dataTables is undefined', () => {
+      expect(() => assertDataTableLimit(undefined)).not.toThrow();
+    });
+
+    it('throws BadRequestException (400) - not a ZodError/500 - when the cap is exceeded', () => {
+      let caught: unknown;
+      try {
+        assertDataTableLimit(buildTables(41));
+      } catch (e) {
+        caught = e;
+      }
+
+      expect(caught).toBeInstanceOf(BadRequestException);
+    });
+
+    // This is the scenario the cap actually exists for: the REQUEST BODY
+    // alone is under the cap, but merging it on top of what is already
+    // stored pushes the total over. The check therefore has to run on the
+    // service's merged result, not on the incoming DTO.
+    it('fires on the PATCH path: a 3-entry patch on top of 39 stored entries exceeds the cap', async () => {
+      mockPrisma.userSettings.findUnique.mockResolvedValue({
+        ...mockUserSettings,
+        value: {
+          theme: 'system',
+          profile: { useProviderImage: true },
+          dataTables: buildTables(39),
+        } as any,
+      } as any);
+
+      const patch = {
+        dataTables: {
+          newtable0: {},
+          newtable1: {},
+          newtable2: {},
+        },
+      };
+
+      await expect(
+        service.patchSettings(mockUserId, patch as any),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      // The 400 must be raised before any write is attempted.
+      expect(mockPrisma.userSettings.update).not.toHaveBeenCalled();
+    });
+
+    it('fires on the PUT path too', async () => {
+      const newSettings: UserSettingsValue = {
+        theme: 'light',
+        profile: { useProviderImage: true },
+        dataTables: buildTables(41),
+      };
+
+      await expect(
+        service.replaceSettings(mockUserId, newSettings),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(mockPrisma.userSettings.upsert).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('toResponse (private, exercised via getSettings)', () => {
+    it('omits dataTables and navigation from the response body when absent, rather than emitting them as undefined', async () => {
+      mockPrisma.userSettings.findUnique.mockResolvedValue(
+        mockUserSettings as any, // DEFAULT_USER_SETTINGS has neither namespace
+      );
+
+      const result = await service.getSettings(mockUserId);
+
+      expect(Object.prototype.hasOwnProperty.call(result, 'dataTables')).toBe(
+        false,
+      );
+      expect(Object.prototype.hasOwnProperty.call(result, 'navigation')).toBe(
+        false,
+      );
+    });
+
+    it('includes dataTables and navigation in the response body when present', async () => {
+      mockPrisma.userSettings.findUnique.mockResolvedValue({
+        ...mockUserSettings,
+        value: {
+          theme: 'system',
+          profile: { useProviderImage: true },
+          dataTables: { jobs: { pageSize: 25 } },
+          navigation: { railCollapsed: true },
+        } as any,
+      } as any);
+
+      const result = await service.getSettings(mockUserId);
+
+      expect(result).toMatchObject({
+        dataTables: { jobs: { pageSize: 25 } },
+        navigation: { railCollapsed: true },
+      });
     });
   });
 });
