@@ -57,6 +57,26 @@ Specs are organized by implementation order and domain. Follow the dependencies 
 | [23](23-web-test-framework.md) | Web Test Framework | Testing | 13 | Medium |
 | [24](24-web-component-tests.md) | Web Component Tests | Testing | 14, 15, 16, 17, 18, 23 | High |
 
+### System Documentation (Decision Records)
+
+Specs 01–24 above are *implementation* specs: instructions sized for an agent to build a
+feature from scratch, in dependency order. The three below are a different kind of document —
+**decision records** for systems that were built elsewhere first (in a sibling project) and
+then ported into this repo wholesale under epic
+[#51](https://github.com/marinoscar/EnterpriseAppBase/issues/51). They describe what was
+wrong with what existed before the port, what was decided instead, and *why* each decision is
+load-bearing, so the reasoning isn't re-litigated the next time someone touches this code.
+They have no "Depends On" / "Complexity" columns because they aren't build instructions, and
+they're **named, not numbered** — a `25-`, `26-`, `27-` prefix would misleadingly imply they
+slot into the build sequence above, when in fact all three describe systems layered on top of
+an already-complete MVP.
+
+| Spec | Title | Domain | Ported under |
+|------|-------|--------|---------------|
+| [api-documentation](api-documentation.md) | API Documentation | Backend | #53 |
+| [datatable](datatable.md) | DataTable — Shared Column Contract & Renderers | Frontend | #54 |
+| [navigation-ia](navigation-ia.md) | Navigation Information Architecture | Frontend | #55 |
+
 ## Dependency Graph
 
 ```

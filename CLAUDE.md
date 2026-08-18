@@ -218,7 +218,7 @@ If the diff feels “big,” you waited too long. **Split the work and commit so
 ## Architecture Principles
 
 1. **Separation of Concerns**: UI handles presentation only; API handles all business logic and authorization
-2. **Same-Origin Hosting**: UI at `/`, API at `/api`, Swagger at `/api/docs`
+2. **Same-Origin Hosting**: UI at `/`, API at `/api`, API reference at `/api/docs`
 3. **Security by Default**: All API endpoints require authentication unless explicitly public
 4. **API-First**: All business logic resides in the API layer
 
@@ -259,7 +259,7 @@ cd apps/api && npm run prisma:migrate
 ## Service URLs (Development)
 
 - **Application**: http://localhost:3535 (via Nginx)
-- **Swagger UI**: http://localhost:3535/api/docs
+- **API Reference (Scalar)**: http://localhost:3535/api/docs
 - **Uptrace**: http://localhost:14318 (when otel stack running)
 
 ## API Endpoints (MVP)
