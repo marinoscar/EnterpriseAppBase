@@ -1,5 +1,5 @@
 import { StorageObject } from '@prisma/client';
-import { Readable } from 'stream';
+import { Readable } from 'node:stream';
 
 export const OBJECT_PROCESSOR = Symbol('OBJECT_PROCESSOR');
 

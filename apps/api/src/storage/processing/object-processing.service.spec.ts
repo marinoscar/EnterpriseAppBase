@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { Readable } from 'stream';
+import { Readable } from 'node:stream';
 
 import { ObjectProcessingService } from './object-processing.service';
 import { PrismaService } from '../../prisma/prisma.service';
