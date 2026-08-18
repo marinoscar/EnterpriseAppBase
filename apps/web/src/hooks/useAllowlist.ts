@@ -6,6 +6,7 @@ import {
   addToAllowlist as addToAllowlistApi,
   removeFromAllowlist as removeFromAllowlistApi,
 } from '../services/api';
+import { useIsMounted } from './useIsMounted';
 
 /** The query `GET /api/allowlist` accepts. See `services/api.ts`. */
 export interface AllowlistParams {
@@ -38,6 +39,10 @@ export function useAllowlist(): UseAllowlistResult {
   const [totalPages, setTotalPages] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Every `setState` past an `await` is guarded: a request that settles after
+  // the component is gone must not schedule an update on it. Only the state
+  // write is skipped — what these functions return or throw is unchanged.
+  const isMounted = useIsMounted();
 
   const fetchAllowlist = useCallback(
     async (params?: AllowlistParams) => {
@@ -45,20 +50,24 @@ export function useAllowlist(): UseAllowlistResult {
       setError(null);
       try {
         const response: AllowlistResponse = await fetchAllowlistApi(params);
-        setEntries(response.items);
-        setTotal(response.total);
-        setPage(response.page);
-        setPageSize(response.pageSize);
-        setTotalPages(response.totalPages);
+        if (isMounted()) {
+          setEntries(response.items);
+          setTotal(response.total);
+          setPage(response.page);
+          setPageSize(response.pageSize);
+          setTotalPages(response.totalPages);
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to fetch allowlist';
-        setError(message);
-        setEntries([]);
+        if (isMounted()) {
+          setError(message);
+          setEntries([]);
+        }
       } finally {
-        setIsLoading(false);
+        if (isMounted()) setIsLoading(false);
       }
     },
-    [],
+    [isMounted],
   );
 
   const addEmail = useCallback(
@@ -70,11 +79,11 @@ export function useAllowlist(): UseAllowlistResult {
         await fetchAllowlist({ page, pageSize });
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to add email';
-        setError(message);
+        if (isMounted()) setError(message);
         throw err;
       }
     },
-    [fetchAllowlist, page, pageSize],
+    [fetchAllowlist, page, pageSize, isMounted],
   );
 
   const removeEmail = useCallback(
@@ -86,11 +95,11 @@ export function useAllowlist(): UseAllowlistResult {
         await fetchAllowlist({ page, pageSize });
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to remove email';
-        setError(message);
+        if (isMounted()) setError(message);
         throw err;
       }
     },
-    [fetchAllowlist, page, pageSize],
+    [fetchAllowlist, page, pageSize, isMounted],
   );
 
   return {
