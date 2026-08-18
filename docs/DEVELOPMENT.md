@@ -38,7 +38,7 @@ This application uses **Fastify** as the HTTP adapter, not Express. This has imp
 ## Development Setup
 
 ### Prerequisites
-- Node.js 18+
+- Node.js 24+ (see `.nvmrc`; enforced by the `engines` field)
 - Docker Desktop
 - PostgreSQL (via Docker)
 - Google OAuth credentials (from Google Cloud Console)
@@ -75,7 +75,7 @@ This application uses **Fastify** as the HTTP adapter, not Express. This has imp
 
    # Run the seed script
    cd /app/apps/api
-   npx tsx prisma/seed.ts
+   npx prisma db seed
 
    # Exit the container
    exit
@@ -91,6 +91,23 @@ This application uses **Fastify** as the HTTP adapter, not Express. This has imp
    - Frontend: http://localhost:3535
    - API: http://localhost:3535/api
    - Swagger: http://localhost:3535/api/docs
+
+### Building images directly
+
+The `docker compose` commands above are unchanged. If you invoke `docker build`
+yourself, note that **both images build from the repository root, not from the
+app directory**:
+
+```bash
+# From the repository root
+docker build -f apps/api/Dockerfile .
+docker build -f apps/web/Dockerfile .
+```
+
+`apps/api` and `apps/web` are npm workspace members with no lockfile of their
+own — the only `package-lock.json` is at the repository root. Building from the
+root is what makes it reachable, so the images install with `npm ci` and match
+what CI tested. Building from inside `apps/api` will fail.
 
 ### First Login
 
@@ -532,8 +549,12 @@ const response = await request(app.getHttpServer())
    ```
 
 2. **Inspect Database:**
+
+   The compose stack does not bundle a `db` service — PostgreSQL runs
+   separately and is reached via the `POSTGRES_HOST`/`POSTGRES_PORT` values
+   in `.env`. Connect to it directly:
    ```bash
-   docker compose exec db psql -U postgres -d appdb
+   psql -h $POSTGRES_HOST -p $POSTGRES_PORT -U postgres -d appdb
    \dt              # List tables
    SELECT * FROM roles;
    SELECT * FROM permissions;

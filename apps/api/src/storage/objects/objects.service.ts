@@ -8,9 +8,9 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Inject } from '@nestjs/common';
-import { Readable } from 'stream';
-import { randomUUID } from 'crypto';
-import { extname } from 'path';
+import { Readable } from 'node:stream';
+import { randomUUID } from 'node:crypto';
+import { extname } from 'node:path';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';

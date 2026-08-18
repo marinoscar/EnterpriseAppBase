@@ -28,10 +28,12 @@ services:
   # OpenTelemetry Collector
   # ---------------------------------------------------------------------------
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:latest
+    image: otel/opentelemetry-collector-contrib:0.145.0
     command: ["--config=/etc/otel-collector-config.yaml"]
     volumes:
       - ../otel/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    environment:
+      - UPTRACE_PROJECT1_TOKEN=${UPTRACE_PROJECT1_TOKEN:-project1_secret_token}
     ports:
       - "4327:4317"   # OTLP gRPC receiver (remapped to avoid conflict)
       - "4328:4318"   # OTLP HTTP receiver (remapped to avoid conflict)
@@ -54,8 +56,11 @@ services:
     environment:
       - UPTRACE_PGHOST=uptrace-pg
       - UPTRACE_PGUSER=uptrace
-      - UPTRACE_PGPASSWORD=uptrace
+      - UPTRACE_PGPASSWORD=${UPTRACE_PGPASSWORD:-uptrace}
       - UPTRACE_PGDATABASE=uptrace
+      - UPTRACE_SECRET_KEY=${UPTRACE_SECRET_KEY:-change-me-in-production-1234567890abcdef}
+      - UPTRACE_PROJECT1_TOKEN=${UPTRACE_PROJECT1_TOKEN:-project1_secret_token}
+      - UPTRACE_ADMIN_PASSWORD=${UPTRACE_ADMIN_PASSWORD:-admin}
     depends_on:
       clickhouse:
         condition: service_healthy
@@ -89,7 +94,7 @@ services:
     image: postgres:15-alpine
     environment:
       - POSTGRES_USER=uptrace
-      - POSTGRES_PASSWORD=uptrace
+      - POSTGRES_PASSWORD=${UPTRACE_PGPASSWORD:-uptrace}
       - POSTGRES_DB=uptrace
     volumes:
       - uptrace-pg-data:/var/lib/postgresql/data

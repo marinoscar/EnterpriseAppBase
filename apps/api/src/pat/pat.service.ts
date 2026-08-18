@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { createHash, randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { CreatePatDto } from './dto/create-pat.dto';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
 

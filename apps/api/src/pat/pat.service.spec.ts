@@ -4,7 +4,7 @@ import { PatService } from './pat.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { createMockPrismaService, MockPrismaService } from '../../test/mocks/prisma.mock';
 import { CreatePatDto } from './dto/create-pat.dto';
-import { createHash } from 'crypto';
+import { createHash } from 'node:crypto';
 
 describe('PatService', () => {
   let service: PatService;
