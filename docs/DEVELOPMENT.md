@@ -21,7 +21,7 @@ This document provides essential information for developers working on this proj
 - **ORM**: Prisma with PostgreSQL
 - **Authentication**: Passport.js (Google OAuth)
 - **Validation**: Zod schemas with nestjs-zod
-- **Documentation**: Swagger/OpenAPI
+- **Documentation**: OpenAPI 3.1, served as a Scalar reference at `/api/docs`
 
 ### Key Difference: Fastify vs Express
 
@@ -90,7 +90,7 @@ This application uses **Fastify** as the HTTP adapter, not Express. This has imp
 5. **Access the application**
    - Frontend: http://localhost:3535
    - API: http://localhost:3535/api
-   - Swagger: http://localhost:3535/api/docs
+   - API reference: http://localhost:3535/api/docs
 
 ### Building images directly
 
@@ -620,7 +620,7 @@ const response = await request(app.getHttpServer())
 1. Create DTO with Zod schema
 2. Add controller method with guards
 3. Implement service method with business logic
-4. Add Swagger decorators for documentation
+4. Add OpenAPI decorators for documentation (see [`docs/specs/api-documentation.md`](specs/api-documentation.md))
 5. Write tests (unit + integration)
 6. Update API.md documentation
 

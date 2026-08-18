@@ -1212,7 +1212,7 @@ The application uses same-origin architecture (frontend and API served from same
 
 - Frontend: `http://localhost:3535/`
 - API: `http://localhost:3535/api`
-- Swagger: `http://localhost:3535/api/docs`
+- API reference: `http://localhost:3535/api/docs`
 
 **Benefits of Same-Origin:**
 - No CORS configuration needed
