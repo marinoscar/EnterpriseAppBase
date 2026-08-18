@@ -46,9 +46,10 @@ services:
   # Uptrace - Observability Platform
   # ---------------------------------------------------------------------------
   uptrace:
-    image: uptrace/uptrace:1.7.2
+    image: uptrace/uptrace:2.0.1
     volumes:
-      - ../otel/uptrace.yml:/etc/uptrace/uptrace.yml:ro
+      # 2.x reads config.yml, not uptrace.yml
+      - ../otel/uptrace.yml:/etc/uptrace/config.yml:ro
       - uptrace-data:/var/lib/uptrace
     ports:
       - "14317:14317"  # OTLP gRPC
@@ -61,10 +62,14 @@ services:
       - UPTRACE_SECRET_KEY=${UPTRACE_SECRET_KEY:-change-me-in-production-1234567890abcdef}
       - UPTRACE_PROJECT1_TOKEN=${UPTRACE_PROJECT1_TOKEN:-project1_secret_token}
       - UPTRACE_ADMIN_PASSWORD=${UPTRACE_ADMIN_PASSWORD:-admin}
+      - UPTRACE_ADMIN_EMAIL=${UPTRACE_ADMIN_EMAIL:-admin@localhost}
+      - UPTRACE_SITE_URL=${UPTRACE_SITE_URL:-http://localhost:14318}
     depends_on:
       clickhouse:
         condition: service_healthy
       uptrace-pg:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - app-network
@@ -73,7 +78,7 @@ services:
   # ClickHouse - Storage Backend for Uptrace (traces/metrics)
   # ---------------------------------------------------------------------------
   clickhouse:
-    image: clickhouse/clickhouse-server:23.8
+    image: clickhouse/clickhouse-server:25.8
     environment:
       - CLICKHOUSE_DB=uptrace
       - ALLOW_EMPTY_PASSWORD=yes
@@ -91,7 +96,7 @@ services:
   # PostgreSQL - Storage Backend for Uptrace (metadata)
   # ---------------------------------------------------------------------------
   uptrace-pg:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
     environment:
       - POSTGRES_USER=uptrace
       - POSTGRES_PASSWORD=${UPTRACE_PGPASSWORD:-uptrace}
@@ -106,10 +111,29 @@ services:
     networks:
       - app-network
 
+  # ---------------------------------------------------------------------------
+  # Redis - task queue and cache for Uptrace
+  # ---------------------------------------------------------------------------
+  # New requirement in Uptrace 2.x; 1.7.2 needed none. Without it the UI still
+  # serves, but the background scheduler logs "redis: all ring shards are down"
+  # continuously and queued work never runs.
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - uptrace-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+
 # =============================================================================
 # Volumes
 # =============================================================================
 volumes:
   uptrace-data:
+  uptrace-redis-data:
   clickhouse-data:
   uptrace-pg-data:
