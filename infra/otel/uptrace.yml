@@ -12,13 +12,13 @@ ch:
 pg:
   addr: uptrace-pg:5432
   user: uptrace
-  password: uptrace
+  password: "${UPTRACE_PGPASSWORD}"
   database: uptrace
 
 projects:
   - id: 1
     name: Enterprise App
-    token: project1_secret_token
+    token: "${UPTRACE_PROJECT1_TOKEN}"
     pinned_attrs:
       - service.name
       - host.name
@@ -29,11 +29,12 @@ listen:
   http:
     addr: ":14318"
 
-# Disable authentication for local development
+# Local-development credentials come from infra/compose/.env, which is
+# git-ignored. See .env.example for the defaults.
 auth:
   users:
     - email: admin@localhost
-      password: admin
+      password: "${UPTRACE_ADMIN_PASSWORD}"
       notify_by_email: false
 
-secret_key: "change-me-in-production-1234567890abcdef"
+secret_key: "${UPTRACE_SECRET_KEY}"
