@@ -16,7 +16,7 @@ export const userSettingsResponseSchema = z.object({
   // absent namespace means "client should apply its built-in defaults".
   dataTables: dataTablesSchema.optional(),
   navigation: navigationSchema.optional(),
-  updatedAt: z.date(),
+  updatedAt: z.iso.datetime(),
   version: z.number(),
 });
 
