@@ -205,14 +205,14 @@ All components served from the same base URL via Nginx reverse proxy:
 
 | Component | Technology | Version | Purpose |
 |-----------|------------|---------|---------|
-| **Runtime** | Node.js | 18+ | Server runtime |
-| **Language** | TypeScript | 5.x | Type safety |
-| **Backend Framework** | NestJS | 10.x | API structure |
-| **HTTP Adapter** | Fastify | 4.x | High-performance HTTP |
-| **Frontend Framework** | React | 18.x | UI rendering |
-| **UI Library** | Material UI (MUI) | 5.x | Component library |
-| **Database** | PostgreSQL | 14+ | Data persistence |
-| **ORM** | Prisma | 5.x | Database access |
+| **Runtime** | Node.js | 24+ (LTS) | Server runtime |
+| **Language** | TypeScript | 6.x | Type safety |
+| **Backend Framework** | NestJS | 11.x | API structure |
+| **HTTP Adapter** | Fastify | 5.x | High-performance HTTP |
+| **Frontend Framework** | React | 19.x | UI rendering |
+| **UI Library** | Material UI (MUI) | 9.x | Component library |
+| **Database** | PostgreSQL | 16+ | Data persistence |
+| **ORM** | Prisma | 7.x | Database access |
 
 ### 4.2 Authentication & Security
 
@@ -930,7 +930,9 @@ services:
   nginx:        # Reverse proxy (port 3535)
   api:          # NestJS backend (port 3000)
   web:          # React frontend (port 5173)
-  db:           # PostgreSQL (port 5432)
+
+# PostgreSQL is not bundled in base.compose.yml - it runs as a separate
+# instance reached via POSTGRES_HOST/POSTGRES_PORT (see infra/compose/.env.example)
 
 # Observability (otel.compose.yml)
 services:
@@ -945,30 +947,32 @@ services:
 ┌─────────────────────────────────────────────────────────────┐
 │                    Docker Network                           │
 │                                                             │
-│  ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐  │
-│  │  nginx  │    │   api   │    │   web   │    │   db    │  │
-│  │  :3535  │───▶│  :3000  │    │  :5173  │    │  :5432  │  │
-│  │         │    └─────────┘    └─────────┘    └─────────┘  │
-│  │         │         │                            ▲        │
-│  │         │─────────┼────────────────────────────┘        │
-│  └─────────┘         │                                     │
-│       │              ▼                                     │
-│       │         ┌─────────┐                                │
-│       │         │  otel   │                                │
-│       │         │collector│                                │
-│       │         └─────────┘                                │
-│       │              │                                     │
-│       │              ▼                                     │
-│       │         ┌─────────┐    ┌─────────┐                 │
-│       │         │ uptrace │───▶│clickhse │                 │
-│       │         │ :14318  │    │         │                 │
-│       │         └─────────┘    └─────────┘                 │
+│  ┌─────────┐    ┌─────────┐    ┌─────────┐                  │
+│  │  nginx  │───▶│   api   │    │   web   │                  │
+│  │  :3535  │    │  :3000  │    │  :5173  │                  │
+│  │         │────┼─────────┼───▶│         │                  │
+│  └────┬────┘    └────┬────┘    └─────────┘                  │
+│       │              │                                      │
+│       │              ▼                                      │
+│       │         ┌─────────┐                                 │
+│       │         │  otel   │   (only with otel.compose.yml)  │
+│       │         │collector│                                 │
+│       │         └────┬────┘                                 │
+│       │              ▼                                      │
+│       │         ┌─────────┐    ┌──────────┐                 │
+│       │         │ uptrace │───▶│clickhouse│                 │
+│       │         │ :14318  │    │          │                 │
+│       │         └─────────┘    └──────────┘                 │
 └───────┼─────────────────────────────────────────────────────┘
-        │
-        ▼
-   External Access
-   http://localhost:3535
+        │                              │
+        ▼                              ▼
+   External Access              External PostgreSQL
+   http://localhost:3535        (POSTGRES_HOST / POSTGRES_PORT)
 ```
+
+**PostgreSQL is not part of the Compose stack.** The `api` service connects out
+to a database you provide via the `POSTGRES_*` variables; only
+`infra/compose/test.compose.yml` starts a Postgres container, for tests.
 
 ### 10.3 Environment Configuration
 
@@ -981,7 +985,7 @@ PORT=3000
 APP_URL=http://localhost:3535
 
 # Database
-POSTGRES_HOST=db
+POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=postgres

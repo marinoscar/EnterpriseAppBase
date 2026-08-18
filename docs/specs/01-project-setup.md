@@ -125,23 +125,23 @@ apps/web/
     "test:cov": "jest --coverage"
   },
   "dependencies": {
-    "@nestjs/common": "^10.x",
-    "@nestjs/core": "^10.x",
-    "@nestjs/platform-fastify": "^10.x",
-    "@prisma/client": "^5.x",
+    "@nestjs/common": "^11.x",
+    "@nestjs/core": "^11.x",
+    "@nestjs/platform-fastify": "^11.x",
+    "@prisma/client": "^7.x",
     "reflect-metadata": "^0.2.x",
     "rxjs": "^7.x"
   },
   "devDependencies": {
-    "@nestjs/cli": "^10.x",
-    "@nestjs/schematics": "^10.x",
-    "@nestjs/testing": "^10.x",
-    "@types/jest": "^29.x",
-    "@types/node": "^20.x",
-    "jest": "^29.x",
-    "prisma": "^5.x",
+    "@nestjs/cli": "^11.x",
+    "@nestjs/schematics": "^11.x",
+    "@nestjs/testing": "^11.x",
+    "@types/jest": "^30.x",
+    "@types/node": "^22.x",
+    "jest": "^30.x",
+    "prisma": "^7.x",
     "ts-jest": "^29.x",
-    "typescript": "^5.x"
+    "typescript": "^6.x"
   }
 }
 ```
@@ -163,22 +163,22 @@ apps/web/
   "dependencies": {
     "@emotion/react": "^11.x",
     "@emotion/styled": "^11.x",
-    "@mui/material": "^5.x",
-    "@mui/icons-material": "^5.x",
-    "react": "^18.x",
-    "react-dom": "^18.x",
-    "react-router-dom": "^6.x"
+    "@mui/material": "^9.x",
+    "@mui/icons-material": "^9.x",
+    "react": "^19.x",
+    "react-dom": "^19.x",
+    "react-router-dom": "^7.x"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.x",
-    "@testing-library/react": "^14.x",
-    "@types/react": "^18.x",
-    "@types/react-dom": "^18.x",
-    "@vitejs/plugin-react": "^4.x",
-    "typescript": "^5.x",
-    "vite": "^5.x",
-    "vitest": "^1.x",
-    "jsdom": "^24.x"
+    "@testing-library/react": "^16.x",
+    "@types/react": "^19.x",
+    "@types/react-dom": "^19.x",
+    "@vitejs/plugin-react": "^6.x",
+    "typescript": "^6.x",
+    "vite": "^8.x",
+    "vitest": "^4.x",
+    "jsdom": "^29.x"
   }
 }
 ```
@@ -193,7 +193,7 @@ apps/web/
 # -----------------------------------------------------------------------------
 # Base stage
 # -----------------------------------------------------------------------------
-FROM node:20-alpine AS base
+FROM node:24-alpine AS base
 WORKDIR /app
 RUN corepack enable
 
@@ -244,7 +244,7 @@ CMD ["npm", "run", "start:prod"]
 # -----------------------------------------------------------------------------
 # Base stage
 # -----------------------------------------------------------------------------
-FROM node:20-alpine AS base
+FROM node:24-alpine AS base
 WORKDIR /app
 
 # -----------------------------------------------------------------------------
