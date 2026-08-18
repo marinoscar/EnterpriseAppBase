@@ -40,13 +40,9 @@
 // Environment knobs: SMOKE_PORT (default 3001), SMOKE_STARTUP_TIMEOUT_MS
 // (default 90000), SMOKE_SHUTDOWN_TIMEOUT_MS (default 15000).
 //
-// LOCAL GOTCHA: `nest build` sets `deleteOutDir: true` while tsconfig.json sets
-// `incremental: true`, so a build that runs after a FAILED build wipes dist/
-// and then emits only the files tsc thinks changed. The result is a dist/ that
-// contains main.js but not its imports, and this script fails with
-// `Cannot find module './instrumentation'`. If you see that, run
-// `rm -rf dist tsconfig.build.tsbuildinfo` and build again. CI is unaffected —
-// a fresh checkout has no .tsbuildinfo to go stale.
+// (The incomplete-dist trap this header used to warn about is fixed: the build
+// config now sets `incremental: false`, so `deleteOutDir: true` and incremental
+// emit no longer disagree. See tsconfig.build.json.)
 // =============================================================================
 
 import { spawn } from 'node:child_process';
