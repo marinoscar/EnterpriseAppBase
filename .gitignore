@@ -48,6 +48,9 @@ sync.db-journal
 # Worktrees
 worktrees/
 
+# OpenAPI dump — a CI artifact regenerated from the running app, never committed
+openapi.json
+
 # Misc
 *.tgz
 .cache/

@@ -34,3 +34,33 @@ jobs:
 
       - run: npm test --workspace=api
       - run: npm run test:run --workspace=web
+
+  openapi:
+    name: OpenAPI
+    runs-on: ubuntu-latest
+    # No `needs:` — this reads decorator metadata only and shares nothing with
+    # the build job, so it runs concurrently rather than queueing behind it.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci
+
+      # The dump imports AppModule, which imports @prisma/client. Preview mode
+      # never instantiates PrismaService, but the generated client still has to
+      # exist for the import to resolve.
+      - run: npx prisma generate
+        working-directory: apps/api
+
+      - run: npm run openapi:typecheck --workspace=api
+
+      # Boots the app in Nest preview mode: every module loaded and every
+      # controller's metadata read, no provider instantiated — so no database,
+      # no object storage and no credentials are needed here.
+      - run: npm run openapi:dump
+
+      - run: npm run openapi:lint
