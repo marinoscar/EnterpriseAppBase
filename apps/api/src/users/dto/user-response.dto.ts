@@ -10,8 +10,8 @@ export const userResponseSchema = z.object({
   providerProfileImageUrl: z.string().url().nullable(),
   isActive: z.boolean(),
   roles: z.array(z.string()),
-  createdAt: z.date(),
-  updatedAt: z.date(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
 });
 
 export class UserResponseDto extends createZodDto(userResponseSchema) {}

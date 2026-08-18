@@ -10,7 +10,7 @@ export const systemSettingsResponseSchema = z.object({
     refreshTtlDays: z.number(),
   }),
   features: z.record(z.string(), z.boolean()),
-  updatedAt: z.date(),
+  updatedAt: z.iso.datetime(),
   updatedBy: z
     .object({
       id: z.string().uuid(),
