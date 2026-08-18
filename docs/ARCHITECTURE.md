@@ -171,7 +171,7 @@ All components served from the same base URL via Nginx reverse proxy:
 |------|-----------|---------|
 | `/` | Frontend (React) | User interface |
 | `/api/*` | Backend (NestJS) | REST API |
-| `/api/docs` | Swagger UI | API documentation |
+| `/api/docs` | Scalar API reference | Interactive API documentation |
 | `/api/openapi.json` | OpenAPI spec | Machine-readable API schema |
 
 **Benefits**: No CORS complexity, simplified cookie handling, unified deployment.
@@ -188,7 +188,9 @@ All components served from the same base URL via Nginx reverse proxy:
 - **Contract-Driven**: OpenAPI specification generated from code annotations
 - **Versioned**: API paths support future versioning (`/api/v1/`)
 - **Consistent**: Standardized response format for success and errors
-- **Documented**: Every endpoint documented with Swagger decorators
+- **Documented**: Every endpoint documented with OpenAPI decorators; the published
+  document is assembled in `apps/api/src/openapi/` and linted by Spectral in CI
+  (see [`docs/specs/api-documentation.md`](specs/api-documentation.md))
 
 ### 3.5 Observable by Design
 
@@ -1522,7 +1524,7 @@ exit
 # 5. Access application
 # UI: http://localhost:3535
 # API: http://localhost:3535/api
-# Swagger: http://localhost:3535/api/docs
+# API reference: http://localhost:3535/api/docs
 ```
 
 ### 14.2 Database Changes
@@ -1585,7 +1587,7 @@ cd apps/web && npm run typecheck
 | Service | URL |
 |---------|-----|
 | Application | http://localhost:3535 |
-| Swagger UI | http://localhost:3535/api/docs |
+| API Reference (Scalar) | http://localhost:3535/api/docs |
 | Uptrace | http://localhost:14318 |
 | PostgreSQL | localhost:5432 |
 

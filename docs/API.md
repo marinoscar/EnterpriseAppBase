@@ -1407,17 +1407,21 @@ Readiness check - includes database connectivity test.
 
 ---
 
-## Swagger/OpenAPI Documentation
+## OpenAPI Documentation
 
 Interactive API documentation with request/response examples is available at:
 
 **Development:** http://localhost:3535/api/docs
 
-The Swagger UI allows you to:
-- Explore all endpoints
-- View request/response schemas
+This serves a [Scalar](https://scalar.com) reference page (not Swagger UI) generated from the
+OpenAPI 3.1 document at `/api/openapi.json`. It allows you to:
+- Explore all endpoints, grouped into sections via `x-tagGroups`
+- View request/response schemas, including the generated **Requires:** RBAC line per operation
 - Test API calls directly from the browser
-- Authenticate with JWT tokens
+- Authenticate with one click via "Authorize with my session" (exchanges your existing browser
+  session for an access token), a personal access token, or a device authorization grant
+
+See [`docs/specs/api-documentation.md`](specs/api-documentation.md) for how the document is built.
 
 ---
 
