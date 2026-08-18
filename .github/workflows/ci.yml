@@ -10,6 +10,21 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# =============================================================================
+# Deliberately ONE job for build/test, not several concurrent ones.
+#
+# Splitting the web suite into its own job was tried and measured, and it is
+# slower. The suite runs ~71s here but ~118-130s in a fresh job, because in
+# this job it inherits a filesystem page cache already warmed by npm ci, the
+# typechecks and the API tests — `import` alone goes 54s -> 100s once that is
+# lost. The cold-start penalty exceeds anything parallelism buys: overall wall
+# clock went 144s -> 152-159s across four measured runs.
+#
+# Ruled out along the way: the scoped install is not the cause (a full install
+# in a separate job is still 118s), and it is not job contention (three jobs
+# behaved the same as four).
+# =============================================================================
+
 jobs:
   build:
     name: Build & Test
@@ -41,11 +56,11 @@ jobs:
     # No `needs:` — this reads decorator metadata only and shares nothing with
     # the build job, so it runs concurrently rather than queueing behind it.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version: '24'
           cache: 'npm'
 
       - run: npm ci
