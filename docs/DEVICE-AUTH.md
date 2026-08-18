@@ -48,10 +48,13 @@ Waiting for authorization...
 ✓ Authorized successfully!
 ```
 
-### Swagger UI / API Documentation
-Interactive API documentation tools that need authenticated requests.
+### API Reference (Scalar)
+Obtaining a token to use against the interactive [API reference](API.md#openapi-documentation) at `/api/docs`.
 
-**Example:** Testing protected endpoints in Swagger UI without complex OAuth redirects.
+**Example:** If you're already signed in to the deployment in your browser, the reference
+authorizes itself automatically on load — no token handling needed. Use the device flow instead
+when that shortcut doesn't apply: a signed-out browser, a different device, or a non-browser
+client that just needs a token to paste into the reference's Authentication panel.
 
 ### Mobile Applications
 Native mobile apps that want to provide a web-based authorization flow without handling OAuth redirects directly.
@@ -626,18 +629,30 @@ if __name__ == '__main__':
 
 ---
 
-### Swagger UI Integration
+### API Reference (Scalar) Integration
 
-To enable device flow authentication in Swagger UI:
+`/api/docs` serves a [Scalar](https://scalar.com) reference, not Swagger UI. Landing on it while
+already signed in authorizes it automatically — it exchanges your browser session for an access
+token before the page mounts, so there's no manual token step in that case. See
+[`docs/specs/api-documentation.md`](specs/api-documentation.md#72-one-click-session-auth) for how
+that exchange works.
 
-1. **Request Device Code:** Call `POST /api/auth/device/code` from Swagger UI
+To authorize the reference with the device flow instead — e.g. from a signed-out browser or a
+separate device:
+
+1. **Request Device Code:** Call `POST /api/auth/device/code` (from the reference's built-in
+   request client, curl, or any HTTP client)
 2. **Copy User Code:** Note the `userCode` from the response
-3. **Authorize in Browser:** Open the `verificationUriComplete` URL
-4. **Enter Code:** Input the user code on the activation page
+3. **Authorize in Browser:** Open the `verificationUriComplete` URL and sign in if prompted
+4. **Enter Code:** Confirm the user code on the activation page
 5. **Poll for Token:** Call `POST /api/auth/device/token` with the `deviceCode`
-6. **Use Token:** Click "Authorize" button in Swagger UI and paste the `accessToken`
+6. **Use Token:** Authorize the reference with the `accessToken` under the `JWT-auth` scheme
+   (Scalar exposes a per-scheme token field; the document declares `JWT-auth` for session tokens
+   and `PAT-auth` for personal access tokens)
 
-**Alternative:** Use the existing OAuth flow in Swagger UI if you prefer browser-based authentication.
+**Alternative:** A personal access token (`POST /api/pat`) needs no polling loop and is accepted
+on every authenticated route (`PAT-auth`) — mint one while signed in normally and skip the device
+flow for this use case.
 
 ---
 
