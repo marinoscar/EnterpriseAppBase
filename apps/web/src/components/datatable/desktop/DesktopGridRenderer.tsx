@@ -40,13 +40,81 @@ import {
   type GridSortModel,
   type GridValidRowModel,
 } from '@mui/x-data-grid';
-import { GRID_CHECKBOX_SELECTION_FIELD } from '@mui/x-data-grid';
+import {
+  GRID_CHECKBOX_SELECTION_FIELD,
+  gridRowSelectionManagerSelector,
+  useGridApiContext,
+  useGridSelector,
+} from '@mui/x-data-grid';
 import { Alert, Box, Checkbox, IconButton, useMediaQuery, useTheme } from '@mui/material';
 import visuallyHidden from '@mui/utils/visuallyHidden';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
 import type { DataTableRendererProps } from '../types';
 import { buildColumnVisibilityModel, rowAccessibleName, toGridColumns } from './columnAdapter';
+
+/**
+ * The per-row selection checkbox.
+ *
+ * ## Why this is a COMPONENT, and why it subscribes
+ *
+ * It overrides DataGrid's own checkbox cell, whose built-in locale text names
+ * every row's checkbox "Select row" — indistinguishable to a screen reader
+ * with twenty rows on screen (issue #257). `checkboxColDef` is DataGrid's
+ * public seam for that.
+ *
+ * What the first version got wrong, and what this fixes (issue #67): it was an
+ * inline `<Checkbox checked={Boolean(params.value)} />` rendered straight from
+ * `renderCell`. `params.value` is a SNAPSHOT — a custom cell renderer only
+ * sees a fresh one when DataGrid happens to re-render that cell, and a
+ * selection change on its own does not cause that. MUI's built-in checkbox
+ * cell does not have the problem because it subscribes to the grid's selection
+ * state internally; ours did not.
+ *
+ * The result was invisible in the component's own test suite (which asserts
+ * the emitted id set, with a STATIC `selectedIds`) and invisible to any page
+ * that rebuilt `columns` or `rowActions` on every render — the fresh column
+ * identity forced the repaint by accident. It appeared the moment a page
+ * memoized both, which is exactly what the migration guidance asks pages to
+ * do: the bulk bar counted "1 of 2 selected" while the checkbox stayed
+ * visually unchecked.
+ *
+ * Subscribing through `useGridSelector` is what MUI's own cell does, so the
+ * checkbox now repaints on every selection change from any source — a click, a
+ * select-all, or a controlled `selectedIds` set by the page.
+ */
+function SelectionCheckboxCell({
+  id,
+  label,
+  tabIndex,
+  size,
+}: {
+  id: GridRowId;
+  label: string;
+  tabIndex: 0 | -1 | null;
+  size: 'small' | 'medium';
+}) {
+  const apiRef = useGridApiContext();
+  const selectionManager = useGridSelector(apiRef, gridRowSelectionManagerSelector);
+
+  return (
+    <Checkbox
+      size={size}
+      checked={selectionManager.has(id)}
+      tabIndex={tabIndex ?? undefined}
+      onClick={(event) => event.stopPropagation()}
+      // Mirrors the built-in renderer: without this a Space press bubbles to
+      // the grid's own cell keydown handler and can trigger a second toggle.
+      onKeyDown={(event) => {
+        if (event.key === ' ') event.stopPropagation();
+      }}
+      onChange={(event) => {
+        apiRef.current.selectRow(id, event.target.checked, false);
+      }}
+      slotProps={{ input: { 'aria-label': `Select ${label}`, name: 'select_row' } }}
+    />
+  );
+}
 import { DataTableEmptyOverlay, DataTableLoadingOverlay } from './cells';
 import { RowActionsCell } from './RowActionsCell';
 import { BulkActionBar } from '../BulkActionBar';
@@ -435,18 +503,11 @@ export function DesktopGridRenderer<Row>({
               const row = params.row as Row;
               const label = rowAccessibleName(columns, row, String(params.id), visibleColumnIds);
               return (
-                <Checkbox
-                  size={density === 'compact' ? 'small' : 'medium'}
-                  checked={Boolean(params.value)}
+                <SelectionCheckboxCell
+                  id={params.id}
+                  label={label}
                   tabIndex={params.tabIndex}
-                  onClick={(event) => event.stopPropagation()}
-                  onKeyDown={(event) => {
-                    if (event.key === ' ') event.stopPropagation();
-                  }}
-                  onChange={(event) => {
-                    params.api.selectRow(params.id, event.target.checked, false);
-                  }}
-                  slotProps={{ input: { 'aria-label': `Select ${label}`, name: 'select_row' } }}
+                  size={density === 'compact' ? 'small' : 'medium'}
                 />
               );
             },
