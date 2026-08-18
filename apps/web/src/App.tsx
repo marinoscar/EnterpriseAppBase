@@ -4,6 +4,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { ThemeContextProvider, useThemeContext } from './contexts/ThemeContext';
 import { ProtectedRoute } from './components/common/ProtectedRoute';
+import { RequirePermission } from './components/common/RequirePermission';
 import { Layout } from './components/common/Layout';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 
@@ -50,8 +51,41 @@ function AppRoutes() {
               <Route element={<Layout />}>
                 <Route path="/" element={<HomePage />} />
                 <Route path="/settings" element={<UserSettingsPage />} />
-                <Route path="/admin/users" element={<UserManagementPage />} />
-                <Route path="/admin/settings" element={<SystemSettingsPage />} />
+                {/* Route-level AUTHORIZATION, not just authentication.
+                    `ProtectedRoute` above only establishes that someone is
+                    logged in — before this, a Viewer typing `/admin/settings`
+                    reached the page and only then watched every API call 403.
+                    `RequirePermission` was already in the codebase but had zero
+                    usages; wrapping these two routes is what turns it into the
+                    enforcement point.
+
+                    The permission on each route is the SAME string its
+                    destination declares in `config/destinations.ts`, which is
+                    the same string the API's controller enforces — so the rail
+                    row, the menu entry, the quick action, and the route can no
+                    longer disagree about who may go where. */}
+                <Route
+                  path="/admin/users"
+                  element={
+                    <RequirePermission
+                      permission="users:read"
+                      fallback={<Navigate to="/" replace />}
+                    >
+                      <UserManagementPage />
+                    </RequirePermission>
+                  }
+                />
+                <Route
+                  path="/admin/settings"
+                  element={
+                    <RequirePermission
+                      permission="system_settings:read"
+                      fallback={<Navigate to="/" replace />}
+                    >
+                      <SystemSettingsPage />
+                    </RequirePermission>
+                  }
+                />
               </Route>
             </Route>
 

@@ -34,12 +34,23 @@ describe('UserManagementPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    // Default permission mock - user with users:read permission
+    // Default permission mock - a full admin. `allowlist:read` is part of the
+    // seeded admin role and is what the Allowlist TAB gates on; the page itself
+    // gates on `users:read`. The two are separate on purpose — see the
+    // 'Tab-level authorization' block below.
     mockUsePermissions.mockReturnValue({
-      permissions: new Set(['users:read', 'users:write', 'rbac:manage']),
+      permissions: new Set([
+        'users:read',
+        'users:write',
+        'rbac:manage',
+        'allowlist:read',
+        'allowlist:write',
+      ]),
       roles: new Set(['admin']),
       hasPermission: (perm: string) =>
-        ['users:read', 'users:write', 'rbac:manage'].includes(perm),
+        ['users:read', 'users:write', 'rbac:manage', 'allowlist:read', 'allowlist:write'].includes(
+          perm,
+        ),
       hasAnyPermission: vi.fn(),
       hasAllPermissions: vi.fn(),
       hasRole: vi.fn(),
@@ -55,6 +66,60 @@ describe('UserManagementPage', () => {
     mockAllowlistTable.mockImplementation(() => (
       <div data-testid="allowlist-table">AllowlistTable Component</div>
     ));
+  });
+
+  describe('Tab-level authorization', () => {
+    /**
+     * The page and its Allowlist tab gate on DIFFERENT permissions, matching
+     * the two controllers behind them: `users.controller.ts` enforces
+     * `users:read`, `allowlist.controller.ts` enforces `allowlist:read`.
+     *
+     * A destination gate is about REACHABILITY and a tab gate is about
+     * CONTENT. Collapsing them either hides the whole page from someone
+     * entitled to the Users tab, or renders a table that can only 403.
+     */
+    function setPermissions(granted: string[]) {
+      mockUsePermissions.mockReturnValue({
+        permissions: new Set(granted),
+        roles: new Set(['admin']),
+        hasPermission: (perm: string) => granted.includes(perm),
+        hasAnyPermission: vi.fn(),
+        hasAllPermissions: vi.fn(),
+        hasRole: vi.fn(),
+        hasAnyRole: vi.fn(),
+        isAdmin: true,
+      });
+    }
+
+    it('renders the Allowlist table for a user holding allowlist:read', async () => {
+      const user = userEvent.setup();
+      setPermissions(['users:read', 'allowlist:read']);
+
+      render(<UserManagementPage />, { wrapperOptions: { user: mockAdminUser } });
+      await user.click(screen.getByRole('tab', { name: /allowlist/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('allowlist-table')).toBeInTheDocument();
+      });
+    });
+
+    it('keeps the page reachable on users:read alone, but withholds the Allowlist table', async () => {
+      const user = userEvent.setup();
+      setPermissions(['users:read']);
+
+      render(<UserManagementPage />, { wrapperOptions: { user: mockAdminUser } });
+
+      // Reachable: the Users tab is the reason the page exists for this user.
+      expect(screen.getByTestId('user-list')).toBeInTheDocument();
+
+      await user.click(screen.getByRole('tab', { name: /allowlist/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/do not have permission to view the email allowlist/i))
+          .toBeInTheDocument();
+      });
+      expect(screen.queryByTestId('allowlist-table')).not.toBeInTheDocument();
+    });
   });
 
   describe('Authorization', () => {
