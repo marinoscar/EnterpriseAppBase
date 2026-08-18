@@ -1,10 +1,26 @@
 import { useState, useCallback } from 'react';
 import type { UserListItem, UsersResponse } from '../types';
+import type { UserSortField } from '../services/api';
 import {
   getUsers as getUsersApi,
   updateUser as updateUserApi,
   updateUserRoles as updateUserRolesApi,
 } from '../services/api';
+
+/**
+ * The query `GET /api/users` accepts. `sortBy` is the endpoint's own enum
+ * (see `services/api.ts`), so a table column that declares itself sortable
+ * against an unsupported field will not compile.
+ */
+export interface UserListParams {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  role?: string;
+  isActive?: boolean;
+  sortBy?: UserSortField;
+  sortOrder?: 'asc' | 'desc';
+}
 
 interface UseUsersResult {
   users: UserListItem[];
@@ -14,13 +30,7 @@ interface UseUsersResult {
   totalPages: number;
   isLoading: boolean;
   error: string | null;
-  fetchUsers: (params?: {
-    page?: number;
-    pageSize?: number;
-    search?: string;
-    role?: string;
-    isActive?: boolean;
-  }) => Promise<void>;
+  fetchUsers: (params?: UserListParams) => Promise<void>;
   updateUser: (
     id: string,
     data: { displayName?: string; isActive?: boolean },
@@ -38,13 +48,7 @@ export function useUsers(): UseUsersResult {
   const [error, setError] = useState<string | null>(null);
 
   const fetchUsers = useCallback(
-    async (params?: {
-      page?: number;
-      pageSize?: number;
-      search?: string;
-      role?: string;
-      isActive?: boolean;
-    }) => {
+    async (params?: UserListParams) => {
       setIsLoading(true);
       setError(null);
       try {

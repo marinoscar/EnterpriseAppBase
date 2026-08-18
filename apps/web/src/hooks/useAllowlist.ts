@@ -1,10 +1,21 @@
 import { useState, useCallback } from 'react';
 import type { AllowedEmailEntry, AllowlistResponse } from '../types';
+import type { AllowlistSortField } from '../services/api';
 import {
   getAllowlist as fetchAllowlistApi,
   addToAllowlist as addToAllowlistApi,
   removeFromAllowlist as removeFromAllowlistApi,
 } from '../services/api';
+
+/** The query `GET /api/allowlist` accepts. See `services/api.ts`. */
+export interface AllowlistParams {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  status?: 'all' | 'pending' | 'claimed';
+  sortBy?: AllowlistSortField;
+  sortOrder?: 'asc' | 'desc';
+}
 
 interface UseAllowlistResult {
   entries: AllowedEmailEntry[];
@@ -14,12 +25,7 @@ interface UseAllowlistResult {
   totalPages: number;
   isLoading: boolean;
   error: string | null;
-  fetchAllowlist: (params?: {
-    page?: number;
-    pageSize?: number;
-    search?: string;
-    status?: 'all' | 'pending' | 'claimed';
-  }) => Promise<void>;
+  fetchAllowlist: (params?: AllowlistParams) => Promise<void>;
   addEmail: (email: string, notes?: string) => Promise<void>;
   removeEmail: (id: string) => Promise<void>;
 }
@@ -34,12 +40,7 @@ export function useAllowlist(): UseAllowlistResult {
   const [error, setError] = useState<string | null>(null);
 
   const fetchAllowlist = useCallback(
-    async (params?: {
-      page?: number;
-      pageSize?: number;
-      search?: string;
-      status?: 'all' | 'pending' | 'claimed';
-    }) => {
+    async (params?: AllowlistParams) => {
       setIsLoading(true);
       setError(null);
       try {
