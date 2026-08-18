@@ -26,14 +26,17 @@ import { FastifyRequest } from 'fastify';
 import { ZodValidationPipe } from 'nestjs-zod';
 
 import { Auth } from '../../auth/decorators/auth.decorator';
+import { ApiDataResponse } from '../../common/decorators/api-data-response.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { ObjectsService } from './objects.service';
 import {
+  InitUploadBodyDto,
   InitUploadDto,
   InitUploadResponseDto,
   initUploadSchema,
 } from './dto/init-upload.dto';
 import {
+  CompleteUploadBodyDto,
   CompleteUploadDto,
   completeUploadSchema,
 } from './dto/complete-upload.dto';
@@ -47,6 +50,7 @@ import {
   objectListQuerySchema,
 } from './dto/object-list-query.dto';
 import {
+  UpdateMetadataBodyDto,
   UpdateMetadataDto,
   updateMetadataSchema,
 } from './dto/update-metadata.dto';
@@ -73,8 +77,8 @@ export class ObjectsController {
   @ApiQuery({ name: 'status', required: false, enum: ['pending', 'uploading', 'processing', 'ready', 'failed'], description: 'Filter by status' })
   @ApiQuery({ name: 'sortBy', required: false, enum: ['createdAt', 'name', 'size'], description: 'Sort field (default: createdAt)' })
   @ApiQuery({ name: 'sortOrder', required: false, enum: ['asc', 'desc'], description: 'Sort order (default: desc)' })
-  @ApiResponse({
-    status: 200,
+  @ApiDataResponse(ObjectResponseDto, {
+    pagination: 'nested',
     description: 'List retrieved successfully',
   })
   async list(
@@ -94,11 +98,7 @@ export class ObjectsController {
     description: 'Get metadata for a specific storage object',
   })
   @ApiParam({ name: 'id', type: String, format: 'uuid', description: 'Object ID' })
-  @ApiResponse({
-    status: 200,
-    description: 'Object retrieved successfully',
-    type: Object,
-  })
+  @ApiDataResponse(ObjectResponseDto, { description: 'Object retrieved successfully' })
   @ApiResponse({
     status: 404,
     description: 'Object not found',
@@ -125,8 +125,7 @@ export class ObjectsController {
   })
   @ApiParam({ name: 'id', type: String, format: 'uuid', description: 'Object ID' })
   @ApiQuery({ name: 'expiresIn', required: false, type: Number, description: 'URL expiration in seconds (default: 3600)' })
-  @ApiResponse({
-    status: 200,
+  @ApiDataResponse(DownloadUrlResponseDto, {
     description: 'Download URL generated successfully',
   })
   @ApiResponse({
@@ -188,11 +187,8 @@ export class ObjectsController {
     description: 'Update metadata for a storage object (merges with existing metadata)',
   })
   @ApiParam({ name: 'id', type: String, format: 'uuid', description: 'Object ID' })
-  @ApiResponse({
-    status: 200,
-    description: 'Metadata updated successfully',
-    type: Object,
-  })
+  @ApiBody({ type: UpdateMetadataBodyDto })
+  @ApiDataResponse(ObjectResponseDto, { description: 'Metadata updated successfully' })
   @ApiResponse({
     status: 404,
     description: 'Object not found',
@@ -218,10 +214,10 @@ export class ObjectsController {
     summary: 'Initialize resumable upload',
     description: 'Start a multipart upload for large files',
   })
-  @ApiResponse({
+  @ApiBody({ type: InitUploadBodyDto })
+  @ApiDataResponse(InitUploadResponseDto, {
     status: 201,
     description: 'Upload initialized successfully',
-    type: Object,
   })
   async initUpload(
     @Body(new ZodValidationPipe(initUploadSchema)) dto: InitUploadDto,
@@ -239,11 +235,8 @@ export class ObjectsController {
     summary: 'Get upload status',
     description: 'Check progress of a resumable upload',
   })
-  @ApiResponse({
-    status: 200,
-    description: 'Upload status retrieved',
-    type: Object,
-  })
+  @ApiParam({ name: 'id', type: String, format: 'uuid', description: 'Object ID' })
+  @ApiDataResponse(UploadStatusResponseDto, { description: 'Upload status retrieved' })
   async getUploadStatus(
     @Param('id') objectId: string,
     @CurrentUser('id') userId: string,
@@ -260,11 +253,9 @@ export class ObjectsController {
     summary: 'Complete resumable upload',
     description: 'Finalize a multipart upload after all parts are uploaded',
   })
-  @ApiResponse({
-    status: 200,
-    description: 'Upload completed successfully',
-    type: Object,
-  })
+  @ApiParam({ name: 'id', type: String, format: 'uuid', description: 'Object ID' })
+  @ApiBody({ type: CompleteUploadBodyDto })
+  @ApiDataResponse(ObjectResponseDto, { description: 'Upload completed successfully' })
   async completeUpload(
     @Param('id') objectId: string,
     @Body(new ZodValidationPipe(completeUploadSchema)) dto: CompleteUploadDto,
@@ -286,6 +277,7 @@ export class ObjectsController {
     summary: 'Abort resumable upload',
     description: 'Cancel an in-progress multipart upload',
   })
+  @ApiParam({ name: 'id', type: String, format: 'uuid', description: 'Object ID' })
   @ApiResponse({
     status: 204,
     description: 'Upload aborted successfully',
@@ -318,10 +310,9 @@ export class ObjectsController {
       },
     },
   })
-  @ApiResponse({
+  @ApiDataResponse(ObjectResponseDto, {
     status: 201,
     description: 'File uploaded successfully',
-    type: Object,
   })
   async simpleUpload(
     @Req() req: FastifyRequest,

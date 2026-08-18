@@ -6,11 +6,12 @@ import {
   FastifyAdapter,
   NestFastifyApplication,
 } from '@nestjs/platform-fastify';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { Logger } from '@nestjs/common';
 import fastifyCookie from '@fastify/cookie';
 import multipart from '@fastify/multipart';
 import { AppModule } from './app.module';
+import { createOpenApiDocument } from './openapi/document';
+import { registerDocsRoutes } from './openapi/register-docs-routes';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
@@ -47,32 +48,21 @@ async function bootstrap() {
     credentials: true,
   });
 
-  // Swagger/OpenAPI setup
-  const config = new DocumentBuilder()
-    .setTitle('Enterprise App API')
-    .setDescription('API documentation for the Enterprise App Foundation')
-    .setVersion('1.0')
-    .addBearerAuth(
-      {
-        type: 'http',
-        scheme: 'bearer',
-        bearerFormat: 'JWT',
-        description: 'Enter JWT token',
-      },
-      'JWT-auth',
-    )
-    .build();
-
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document, {
-    jsonDocumentUrl: 'api/openapi.json',
-  });
+  // OpenAPI: the document and the two routes that serve it. Everything that
+  // shapes them lives in `src/openapi/` rather than here, so the same pure
+  // functions are callable from the test suite and from `scripts/dump-openapi.ts`
+  // — which is what makes the document CI lints the document users get.
+  //
+  // Registered AFTER `setGlobalPrefix('api')` above, because the introspection
+  // reads the prefix off the application; the dump script sets the same prefix
+  // for the same reason.
+  registerDocsRoutes(app, createOpenApiDocument(app));
 
   const port = process.env.PORT || 3000;
   await app.listen(port, '0.0.0.0');
 
   logger.log(`Application running on port ${port}`);
-  logger.log(`Swagger UI available at /api/docs`);
+  logger.log(`API reference available at /api/docs`);
 }
 
 bootstrap();
