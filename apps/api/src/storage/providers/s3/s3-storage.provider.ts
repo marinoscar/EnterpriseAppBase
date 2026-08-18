@@ -14,7 +14,7 @@ import {
 } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { Readable } from 'stream';
+import { Readable } from 'node:stream';
 import { StorageProvider } from '../storage-provider.interface';
 import {
   StorageUploadOptions,

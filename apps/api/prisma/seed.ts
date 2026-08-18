@@ -1,6 +1,25 @@
 import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
 
-const prisma = new PrismaClient();
+// Prisma 7 requires a driver adapter — PrismaClient can no longer be
+// instantiated with no options. The seed script is invoked as a standalone
+// ts-node process (see prisma.config.ts: migrations.seed), not through
+// Nest's DI container, so it can't reuse PrismaService's buildConnectionString()
+// without also pulling in @nestjs/common. Every Prisma CLI invocation in this
+// project (npm run prisma:*, or `npx prisma db seed` per the README) already
+// guarantees DATABASE_URL is set before the CLI — and therefore this seed
+// script — runs, either via scripts/prisma-env.js or an explicit export, so
+// reading it directly here is sufficient and keeps the script framework-free.
+const databaseUrl = process.env.DATABASE_URL;
+if (!databaseUrl) {
+  throw new Error(
+    'DATABASE_URL is not set. Run this script via `npm run prisma:seed` ' +
+      '(or export DATABASE_URL) so Prisma can connect to the database.',
+  );
+}
+
+const adapter = new PrismaPg(databaseUrl);
+const prisma = new PrismaClient({ adapter });
 
 // =============================================================================
 // Seed Data Definitions

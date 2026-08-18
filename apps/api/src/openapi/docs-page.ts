@@ -37,6 +37,13 @@ export interface DocsPageOptions {
   cdn?: string;
 }
 
+export interface DocsUnavailablePageOptions {
+  /** Operator-facing explanation of why the reference is missing. */
+  message: string;
+  /** Path of the machine-readable spec, which is down for the same reason. */
+  specUrl: string;
+}
+
 /**
  * A 🧱 favicon as a data URI.
  *
@@ -117,6 +124,71 @@ export function renderDocsPage(options: DocsPageOptions): string {
     <script>
 ${buildDocsAuthScript(scalarConfig, SESSION_SECURITY_SCHEME)}
     </script>
+  </body>
+</html>
+`;
+}
+
+/**
+ * The page served at `/api/docs` when document generation failed at startup.
+ *
+ * Deliberately self-contained: no CDN bundle, no spec fetch, no script. The one
+ * thing that failed is the document, so a page that needs the document to
+ * render would fail the same way — and this page's whole job is to be the thing
+ * that still works.
+ *
+ * It names the failure and points at the logs rather than reproducing the
+ * error. The stack is in the process log, at `error` level, where an operator
+ * can already read it; putting it on an unauthenticated page would leak
+ * internals to anyone who can reach `/api/docs`.
+ */
+export function renderDocsUnavailablePage(
+  options: DocsUnavailablePageOptions,
+): string {
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>API Reference Unavailable</title>
+    <link rel="icon" href="${FAVICON}" />
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #f7f7f8;
+        color: #1a1a1a;
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        line-height: 1.6;
+      }
+      main { max-width: 34rem; padding: 2rem; }
+      h1 { font-size: 1.5rem; margin: 0 0 1rem; }
+      p { margin: 0 0 1rem; }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        background: #ececf0;
+        border-radius: 3px;
+        padding: 0.1em 0.35em;
+      }
+      @media (prefers-color-scheme: dark) {
+        body { background: #131316; color: #e8e8ea; }
+        code { background: #26262b; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>API reference unavailable</h1>
+      <p>${escapeHtml(options.message)}</p>
+      <p>
+        The API itself is unaffected — only this reference and
+        <code>${escapeHtml(options.specUrl)}</code> are down. They return again
+        once the document builds on a restart.
+      </p>
+    </main>
   </body>
 </html>
 `;

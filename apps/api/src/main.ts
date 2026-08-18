@@ -11,7 +11,7 @@ import fastifyCookie from '@fastify/cookie';
 import multipart from '@fastify/multipart';
 import { AppModule } from './app.module';
 import { createOpenApiDocument } from './openapi/document';
-import { registerDocsRoutes } from './openapi/register-docs-routes';
+import { registerDocsRoutesOrDegrade } from './openapi/register-docs-routes';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
@@ -56,13 +56,28 @@ async function bootstrap() {
   // Registered AFTER `setGlobalPrefix('api')` above, because the introspection
   // reads the prefix off the application; the dump script sets the same prefix
   // for the same reason.
-  registerDocsRoutes(app, createOpenApiDocument(app));
+  //
+  // `…OrDegrade` rather than a bare call: generation is the widest failure
+  // surface in this function, and it runs before the port is bound, so an
+  // unguarded throw makes a documentation defect a total outage. It logs at
+  // `error` and serves 503s on both docs paths instead. See the function's own
+  // comment for why that is not gated on NODE_ENV, and note that `openapi:dump`
+  // in CI still fails the build on a document that cannot be generated.
+  const docsReady = registerDocsRoutesOrDegrade(
+    app,
+    () => createOpenApiDocument(app),
+    logger,
+  );
 
   const port = process.env.PORT || 3000;
   await app.listen(port, '0.0.0.0');
 
   logger.log(`Application running on port ${port}`);
-  logger.log(`API reference available at /api/docs`);
+  logger.log(
+    docsReady
+      ? 'API reference available at /api/docs'
+      : 'API reference DEGRADED: /api/docs and /api/openapi.json return 503 (see error above)',
+  );
 }
 
 bootstrap();

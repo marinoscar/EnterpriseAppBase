@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { StorageObject } from '@prisma/client';
-import { Readable } from 'stream';
+import { Readable } from 'node:stream';
 import {
   ObjectProcessor,
   ObjectProcessorResult,
