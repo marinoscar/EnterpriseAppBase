@@ -1,4 +1,10 @@
 import { z } from 'zod';
+import {
+  dataTablesSchema,
+  dataTablesPatchSchema,
+  navigationSchema,
+  navigationPatchSchema,
+} from './user-settings-namespaces.schema';
 
 // =============================================================================
 // User Settings Schema
@@ -11,6 +17,10 @@ export const userSettingsSchema = z.object({
     useProviderImage: z.boolean(),
     customImageUrl: z.string().url().nullable().optional(),
   }),
+  // Optional namespaces. Absent means "use built-in defaults" — see
+  // user-settings-namespaces.schema.ts for why these must never get `.default()`.
+  dataTables: dataTablesSchema.optional(),
+  navigation: navigationSchema.optional(),
 });
 
 export type UserSettingsDto = z.infer<typeof userSettingsSchema>;
@@ -23,6 +33,11 @@ export const userSettingsPatchSchema = z.object({
     useProviderImage: z.boolean().optional(),
     customImageUrl: z.string().url().nullable().optional(),
   }).optional(),
+  // The outer `.nullable()` is what lets `{ "dataTables": null }` clear the
+  // whole namespace; the inner nullability (in dataTablesPatchSchema) is what
+  // lets `{ "dataTables": { "jobs": null } }` delete a single entry.
+  dataTables: dataTablesPatchSchema.nullable().optional(),
+  navigation: navigationPatchSchema.nullable().optional(),
 });
 
 // =============================================================================
