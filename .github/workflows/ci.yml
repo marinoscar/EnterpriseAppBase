@@ -14,11 +14,12 @@ concurrency:
 # Deliberately ONE job for build/test, not several concurrent ones.
 #
 # Splitting the web suite into its own job was tried and measured, and it is
-# slower. The suite runs ~71s here but ~118-130s in a fresh job, because in
-# this job it inherits a filesystem page cache already warmed by npm ci, the
-# typechecks and the API tests — `import` alone goes 54s -> 100s once that is
-# lost. The cold-start penalty exceeds anything parallelism buys: overall wall
-# clock went 144s -> 152-159s across four measured runs.
+# slower. Across measured runs the suite takes 71-95s inside this job but
+# 118-131s in a fresh one — the ranges do not overlap, though runner variance
+# is real and the point estimates should not be trusted too precisely. The
+# likely cause is that here it inherits a filesystem page cache already warmed
+# by npm ci, the typechecks and the API tests; `import` is the metric that
+# inflates most (54s -> 100s). Overall wall clock went 144s -> 152-159s.
 #
 # Ruled out along the way: the scoped install is not the cause (a full install
 # in a separate job is still 118s), and it is not job contention (three jobs
