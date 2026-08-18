@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { screen } from '@testing-library/react';
+import { act, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { render } from '../../utils/test-utils';
+import { setViewportWidth } from '../../setup';
 import { AppBar } from '../../../components/navigation/AppBar';
 
 describe('AppBar', () => {
@@ -17,6 +18,42 @@ describe('AppBar', () => {
 
       const appBar = screen.getByRole('banner');
       expect(appBar).toBeInTheDocument();
+    });
+  });
+
+  describe('No drawer affordance', () => {
+    /**
+     * NEGATIVE assertions, and deliberately so. The hamburger and the
+     * `onMenuClick` prop it called were deleted with the temporary drawer in
+     * issue #55; navigation is the bottom bar below `sm` and the permanent rail
+     * at `sm` and up. Nothing else in the suite would notice a hamburger coming
+     * back — it would simply be an extra button — so these tests are the only
+     * thing standing between a stray re-add and a dead affordance shipping.
+     */
+    it('renders no drawer toggle', () => {
+      render(<AppBar />);
+
+      expect(screen.queryByRole('button', { name: /toggle drawer/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /menu/i })).not.toBeInTheDocument();
+      expect(screen.queryByTestId('MenuIcon')).not.toBeInTheDocument();
+    });
+
+    it('renders exactly two buttons: the theme toggle and the user menu', () => {
+      render(<AppBar />);
+
+      expect(screen.getAllByRole('button')).toHaveLength(2);
+    });
+
+    it('renders no hamburger at a phone width either', async () => {
+      // The drawer used to be `variant="temporary"` at EVERY breakpoint, so the
+      // hamburger was unconditional. Checking only the desktop width would miss
+      // a re-add gated on `down('sm')`.
+      render(<AppBar />);
+
+      await act(async () => setViewportWidth(375));
+
+      expect(screen.queryByRole('button', { name: /menu/i })).not.toBeInTheDocument();
+      expect(screen.getAllByRole('button')).toHaveLength(2);
     });
   });
 

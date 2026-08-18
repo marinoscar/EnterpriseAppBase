@@ -3,6 +3,7 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { render, mockUser, mockAdminUser } from '../../utils/test-utils';
 import { QuickActions } from '../../../components/home/QuickActions';
+import { DESTINATIONS } from '../../../config/destinations';
 
 // Mock useNavigate from react-router-dom
 const mockNavigate = vi.fn();
@@ -653,6 +654,87 @@ describe('QuickActions', () => {
 
       // Button should still be in the document after navigation
       expect(userSettingsButton).toBeInTheDocument();
+    });
+  });
+
+  describe('Sourced from the destination table', () => {
+    /**
+     * Issue #55. These actions used to carry their own copy of `/settings` and
+     * `/admin/settings`, plus a hybrid gate: a `permission` field beside a dead
+     * `adminOnly` field no entry ever set. That was one of three inconsistent
+     * gating idioms in the app, and their disagreement is the bug this closes.
+     *
+     * Everything except the description prose now comes from
+     * `config/destinations.ts`, so these tests check the WIRING rather than
+     * restating the table's contents.
+     */
+    function setPermissions(granted: string[], isAdmin = false) {
+      mockUsePermissions.mockReturnValue({
+        permissions: new Set(granted),
+        roles: new Set(isAdmin ? ['admin'] : ['viewer']),
+        hasPermission: (perm: string) => granted.includes(perm),
+        hasAnyPermission: vi.fn(),
+        hasAllPermissions: vi.fn(),
+        hasRole: vi.fn(),
+        hasAnyRole: vi.fn(),
+        isAdmin,
+      });
+    }
+
+    it('shows User Management to a user holding users:read', () => {
+      // Previously impossible: this surface had no User Management entry at all,
+      // so the page was reachable only by typing the URL.
+      setPermissions(['users:read'], true);
+
+      render(<QuickActions />, { wrapperOptions: { user: mockAdminUser } });
+
+      expect(screen.getByRole('button', { name: /user management/i })).toBeInTheDocument();
+    });
+
+    it('hides User Management from a user without users:read', () => {
+      setPermissions(['system_settings:read'], true);
+
+      render(<QuickActions />, { wrapperOptions: { user: mockAdminUser } });
+
+      expect(screen.queryByRole('button', { name: /user management/i })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /system settings/i })).toBeInTheDocument();
+    });
+
+    it('gates on permission alone — the admin role grants nothing by itself', () => {
+      // The dead `adminOnly` field is gone. A user with the `admin` role and no
+      // permissions sees exactly what a viewer sees.
+      setPermissions([], true);
+
+      render(<QuickActions />, { wrapperOptions: { user: mockAdminUser } });
+
+      expect(screen.queryByRole('button', { name: /user management/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /system settings/i })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /user settings/i })).toBeInTheDocument();
+    });
+
+    it('takes each action path from the destination table, not a local copy', () => {
+      setPermissions(['users:read', 'system_settings:read'], true);
+
+      render(<QuickActions />, { wrapperOptions: { user: mockAdminUser } });
+
+      for (const destination of DESTINATIONS) {
+        if (destination.key === 'home') continue;
+        expect(
+          screen.getByRole('button', { name: new RegExp(destination.label, 'i') }),
+          `${destination.label} missing from Quick Actions`,
+        ).toBeInTheDocument();
+      }
+    });
+
+    it('keeps Theme as a deep link that rides on User Settings visibility', () => {
+      // Theme is not a destination — it has no rail row and no bottom-bar tab —
+      // so it lives here and inherits its parent's visibility.
+      setPermissions([]);
+
+      render(<QuickActions />);
+
+      expect(screen.getByRole('button', { name: /theme/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /user settings/i })).toBeInTheDocument();
     });
   });
 });

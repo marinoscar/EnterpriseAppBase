@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Container, Typography, Box, Tabs, Tab, Paper } from '@mui/material';
 import { Navigate } from 'react-router-dom';
 import { usePermissions } from '../hooks/usePermissions';
+import { RequirePermission } from '../components/common/RequirePermission';
 import { UserList } from '../components/admin/UserList';
 import { AllowlistTable } from '../components/admin/AllowlistTable';
 
@@ -54,7 +55,25 @@ export default function UserManagementPage() {
             </TabPanel>
 
             <TabPanel value={tabIndex} index={1}>
-              <AllowlistTable />
+              {/* The DESTINATION gates on `users:read` (see
+                  `config/destinations.ts`) because that is what makes this page
+                  worth reaching. This TAB gates separately on `allowlist:read`,
+                  because its data comes from a different controller
+                  (`allowlist.controller.ts`) that enforces exactly that. A
+                  destination gate is about reachability; a tab gate is about
+                  content — collapsing the two would either hide the whole page
+                  from someone entitled to the Users tab, or render a table that
+                  can only 403. */}
+              <RequirePermission
+                permission="allowlist:read"
+                fallback={
+                  <Typography color="text.secondary">
+                    You do not have permission to view the email allowlist.
+                  </Typography>
+                }
+              >
+                <AllowlistTable />
+              </RequirePermission>
             </TabPanel>
           </Box>
         </Paper>

@@ -1,59 +1,64 @@
-import {
-  Card,
-  CardContent,
-  Typography,
-  Grid,
-  Button,
-  Box,
-} from '@mui/material';
-import {
-  AdminPanelSettings as AdminIcon,
-  Person as PersonIcon,
-  Palette as ThemeIcon,
-} from '@mui/icons-material';
+import { Card, CardContent, Typography, Grid, Button, Box } from '@mui/material';
+import { Palette as ThemeIcon } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { usePermissions } from '../../hooks/usePermissions';
+import { DESTINATIONS } from '../../config/destinations';
+import type { DestinationKey } from '../../config/destinations';
 
-interface QuickAction {
-  title: string;
-  description: string;
-  icon: React.ReactNode;
-  path: string;
-  permission?: string;
-  adminOnly?: boolean;
-}
+/**
+ * Home-page shortcuts.
+ *
+ * PATHS, LABELS, ICONS AND GATES COME FROM `config/destinations.ts`. This file
+ * used to carry its own copy of `/settings` and `/admin/settings` plus a hybrid
+ * gate — a `permission` field alongside a dead `adminOnly` field that no entry
+ * ever set. The `adminOnly` field is gone: it was one of three inconsistent
+ * gating idioms (role here, role in the sidebar, permission in the user menu)
+ * whose disagreement is the bug this epic closes.
+ *
+ * The DESCRIPTION prose stays local. It is the one thing genuinely specific to
+ * this surface — a rail row and a bottom-bar tab have no room for a sentence,
+ * so pushing it into the shared table would give every other surface a field it
+ * cannot use.
+ */
 
-const quickActions: QuickAction[] = [
-  {
-    title: 'User Settings',
-    description: 'Manage your profile and preferences',
-    icon: <PersonIcon />,
-    path: '/settings',
-  },
-  {
-    title: 'Theme',
-    description: 'Customize your display preferences',
-    icon: <ThemeIcon />,
-    path: '/settings#theme',
-  },
-  {
-    title: 'System Settings',
-    description: 'Configure application settings',
-    icon: <AdminIcon />,
-    path: '/admin/settings',
-    permission: 'system_settings:read',
-  },
-];
+/** Prose keyed by destination. A destination with no entry is not shown here. */
+const ACTION_DESCRIPTIONS: Partial<Record<DestinationKey, string>> = {
+  settings: 'Manage your profile and preferences',
+  users: 'Manage users and email allowlist',
+  system: 'Configure application settings',
+};
 
 export function QuickActions() {
   const navigate = useNavigate();
-  const { hasPermission, isAdmin } = usePermissions();
+  const { hasPermission } = usePermissions();
 
-  const visibleActions = quickActions.filter((action) => {
-    if (action.adminOnly && !isAdmin) return false;
-    if (action.permission && !hasPermission(action.permission)) return false;
-    return true;
-  });
+  const visibleActions = DESTINATIONS.filter(
+    (destination) =>
+      ACTION_DESCRIPTIONS[destination.key] !== undefined &&
+      (!destination.permission || hasPermission(destination.permission)),
+  ).flatMap((destination) => [
+    {
+      title: destination.label,
+      description: ACTION_DESCRIPTIONS[destination.key]!,
+      icon: <destination.Icon />,
+      path: destination.path,
+    },
+    // Theme is NOT a destination — it is a deep link INTO one, with no rail row
+    // and no bottom-bar tab, so it has no place in the destination table. It is
+    // emitted right behind its parent so the two stay adjacent, and it inherits
+    // that parent's visibility for free: a user who cannot see User Settings has
+    // nothing to deep-link into.
+    ...(destination.key === 'settings'
+      ? [
+          {
+            title: 'Theme',
+            description: 'Customize your display preferences',
+            icon: <ThemeIcon />,
+            path: '/settings#theme',
+          },
+        ]
+      : []),
+  ]);
 
   return (
     <Card>
@@ -80,9 +85,7 @@ export function QuickActions() {
                   {action.icon}
                 </Box>
                 <Box>
-                  <Typography variant="subtitle2">
-                    {action.title}
-                  </Typography>
+                  <Typography variant="subtitle2">{action.title}</Typography>
                   <Typography variant="caption" color="text.secondary">
                     {action.description}
                   </Typography>

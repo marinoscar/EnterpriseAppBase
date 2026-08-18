@@ -54,6 +54,11 @@ export const mockAdminUser: MockUser = {
     'users:read',
     'users:write',
     'rbac:manage',
+    // Present because the seeded `admin` role grants them
+    // (apps/api/prisma/seed.ts). The Allowlist tab gates on `allowlist:read`,
+    // so an admin fixture missing it would test a user that cannot exist.
+    'allowlist:read',
+    'allowlist:write',
   ],
   isActive: true,
   createdAt: new Date().toISOString(),
