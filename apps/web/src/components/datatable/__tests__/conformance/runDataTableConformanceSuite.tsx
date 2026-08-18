@@ -76,6 +76,7 @@ import { axe } from 'vitest-axe';
 import 'vitest-axe/extend-expect';
 
 import { DataTable } from '../../DataTable';
+import { rowAccessibleName } from '../../desktop/columnAdapter';
 import type {
   DataTableColumn,
   DataTableFilterModel,
@@ -232,6 +233,59 @@ export function runDataTableConformanceSuite<Row = ConformanceRow>(
   const rows = (options.rows ?? conformanceFixtureRows) as unknown as Row[];
   const rowId = (options.rowId ?? conformanceFixtureRowId) as (row: Row) => string;
 
+  // -------------------------------------------------------------------------
+  // Fixture-INDEPENDENT probes
+  //
+  // Everything below derives the identifiers the assertions need (a row's
+  // accessible name, a sortable column, an enum filter, a hideable column)
+  // from the column set the suite was HANDED, rather than naming the built-in
+  // fixture's fields. Against the default fixture each one resolves to exactly
+  // the value the suite used to hard-code, so the component's own run is
+  // unchanged; against a page's real columns (issue #67) they resolve to that
+  // page's equivalents, which is what makes `options.columns` mean anything.
+  //
+  // Three assertions cannot be derived this way — they need rows the suite
+  // fabricates itself, or a specific interactive element inside a `render`.
+  // Those are `runIf(usingDefaultFixture)` rather than silently weakened: a
+  // mechanic is asserted once, and once is against the fixture built for it.
+  // -------------------------------------------------------------------------
+
+  /** `true` when running against the built-in fixture rather than a page's columns. */
+  const usingDefaultFixture = !options.columns && !options.rows;
+
+  /** The columns that are actually drawn — `filterOnly` ones have no cell. */
+  const drawable = columns.filter((column) => !column.filterOnly);
+
+  /** A row's accessible name: the first `primary` column's scalar. */
+  const rowLabel = (row: Row): string => rowAccessibleName(drawable, row, rowId(row));
+
+  const sortableColumns = drawable.filter((column) => column.sortable);
+  /** The column whose header a "clicking sorts" assertion uses. */
+  const primarySortColumn = sortableColumns[0];
+  /** A second one, so "reflects the controlled state" is not the same column. */
+  const secondarySortColumn = sortableColumns[1] ?? sortableColumns[0];
+
+  /** An enum filter to stand in for "a filter is active". */
+  const enumFilterColumn = drawable.find(
+    (column) => column.filterable && column.filterType === 'enum' && column.enumValues?.length,
+  );
+  const sampleFilter: DataTableFilterModel[number] = enumFilterColumn?.enumValues?.[0]
+    ? {
+        columnId: enumFilterColumn.id,
+        operator: 'is',
+        value: enumFilterColumn.enumValues[0].value,
+      }
+    : { columnId: drawable[0].id, operator: 'contains', value: '\u0000no-match' };
+
+  /**
+   * The column the picker test hides. A non-`primary` one where possible: the
+   * primary column supplies every row's accessible name, so hiding it would
+   * rename half the controls the other assertions look for.
+   */
+  const hideableColumn =
+    drawable.find((column) => column.hideable !== false && column.priority !== 'primary') ??
+    drawable.find((column) => column.hideable !== false);
+
   type TableProps = React.ComponentProps<typeof DataTable<Row>>;
 
   function renderTable(
@@ -295,12 +349,10 @@ export function runDataTableConformanceSuite<Row = ConformanceRow>(
         );
         const [page, setPage] = useState(0);
         const [sort, setSort] = useState<DataTableSortState | null>({
-          field: 'score',
+          field: primarySortColumn.id,
           direction: 'desc',
         });
-        const [filters, setFilters] = useState<DataTableFilterModel>([
-          { columnId: 'status', operator: 'is', value: 'active' },
-        ]);
+        const [filters, setFilters] = useState<DataTableFilterModel>([sampleFilter]);
 
         return (
           <>
@@ -332,19 +384,25 @@ export function runDataTableConformanceSuite<Row = ConformanceRow>(
       renderWithTheme(<Stateful />);
 
       expect(screen.getByTestId('probe-selection')).toHaveTextContent(rowId(rows[0]));
-      expect(screen.getByTestId('probe-sort')).toHaveTextContent('score:desc');
+      expect(screen.getByTestId('probe-sort')).toHaveTextContent(
+        `${primarySortColumn.id}:desc`,
+      );
       expect(screen.getByTestId('probe-filters')).toHaveTextContent('1');
 
       setContainerWidth(400);
       expect(layoutOf()).toBe('mobile');
       expect(screen.getByTestId('probe-selection')).toHaveTextContent(rowId(rows[0]));
-      expect(screen.getByTestId('probe-sort')).toHaveTextContent('score:desc');
+      expect(screen.getByTestId('probe-sort')).toHaveTextContent(
+        `${primarySortColumn.id}:desc`,
+      );
       expect(screen.getByTestId('probe-filters')).toHaveTextContent('1');
 
       setContainerWidth(1400);
       expect(layoutOf()).toBe('desktop');
       expect(screen.getByTestId('probe-selection')).toHaveTextContent(rowId(rows[0]));
-      expect(screen.getByTestId('probe-sort')).toHaveTextContent('score:desc');
+      expect(screen.getByTestId('probe-sort')).toHaveTextContent(
+        `${primarySortColumn.id}:desc`,
+      );
       expect(screen.getByTestId('probe-filters')).toHaveTextContent('1');
     });
   });
@@ -360,10 +418,10 @@ export function runDataTableConformanceSuite<Row = ConformanceRow>(
         pagination: { page: 0, pageSize: 2, total: 137, onPaginationChange },
       });
 
-      // All 5 fixture rows are drawn even though pageSize is 2 — the table
-      // trusts the caller's `rows`, it never re-paginates them.
-      for (const row of rows as unknown as ConformanceRow[]) {
-        expect(screen.getByText(row.name)).toBeInTheDocument();
+      // Every row is drawn even though pageSize is 2 — the table trusts the
+      // caller's `rows`, it never re-paginates them.
+      for (const row of rows) {
+        expect(screen.getByText(rowLabel(row))).toBeInTheDocument();
       }
       expect(screen.getByText(/of 137/)).toBeInTheDocument();
 
@@ -375,28 +433,41 @@ export function runDataTableConformanceSuite<Row = ConformanceRow>(
       const onSortChange = vi.fn();
       renderTable({ sort: { sort: null, onSortChange } });
 
-      fireEvent.click(screen.getByRole('columnheader', { name: /^name$/i }));
-      expect(onSortChange).toHaveBeenCalledWith({ field: 'name', direction: 'asc' });
+      fireEvent.click(
+        screen.getByRole('columnheader', {
+          name: new RegExp(`^${primarySortColumn.label}`, 'i'),
+        }),
+      );
+      expect(onSortChange).toHaveBeenCalledWith({
+        field: primarySortColumn.id,
+        direction: 'asc',
+      });
 
       cleanup();
-      renderTable({ sort: { sort: { field: 'score', direction: 'desc' }, onSortChange: vi.fn() } });
-      expect(screen.getByRole('columnheader', { name: /score/i })).toHaveAttribute(
-        'aria-sort',
-        'descending',
-      );
+      renderTable({
+        sort: {
+          sort: { field: secondarySortColumn.id, direction: 'desc' },
+          onSortChange: vi.fn(),
+        },
+      });
+      expect(
+        screen.getByRole('columnheader', {
+          name: new RegExp(`^${secondarySortColumn.label}`, 'i'),
+        }),
+      ).toHaveAttribute('aria-sort', 'descending');
     });
 
     it('emits a filter model and NEVER filters `rows` locally (negative test)', () => {
       const onFiltersChange = vi.fn();
       renderTable({
-        filters: [{ columnId: 'status', operator: 'is', value: 'archived' }],
+        filters: [sampleFilter],
         onFiltersChange,
       });
 
       // Every row is still on screen: the table trusts the caller already
       // filtered `rows` server-side, and never re-filters what it is handed.
-      for (const row of rows as unknown as ConformanceRow[]) {
-        expect(screen.getByText(row.name)).toBeInTheDocument();
+      for (const row of rows) {
+        expect(screen.getByText(rowLabel(row))).toBeInTheDocument();
       }
 
       fireEvent.click(screen.getByTestId('datatable-filter-chip-remove'));
@@ -413,12 +484,19 @@ export function runDataTableConformanceSuite<Row = ConformanceRow>(
       const onSelectionChange = vi.fn();
       renderTable({ selection: { selectedIds: new Set<string>(), onSelectionChange } });
 
-      const first = rows[0] as unknown as ConformanceRow;
-      fireEvent.click(screen.getByRole('checkbox', { name: `Select ${first.name}` }));
-      expect(Array.from(onSelectionChange.mock.calls[0][0] as Set<string>)).toEqual([first.id]);
+      const first = rows[0];
+      fireEvent.click(screen.getByRole('checkbox', { name: `Select ${rowLabel(first)}` }));
+      expect(Array.from(onSelectionChange.mock.calls[0][0] as Set<string>)).toEqual([
+        rowId(first),
+      ]);
     });
 
-    it('select-all reports every loaded row id, even past the virtualization threshold', () => {
+    // Fabricates 60 rows of the fixture's own shape, which the suite cannot do
+    // for an arbitrary `Row`. The mechanic is table-wide, so asserting it once
+    // against the fixture is the whole coverage.
+    it.runIf(usingDefaultFixture)(
+      'select-all reports every loaded row id, even past the virtualization threshold',
+      () => {
       // 60 rows crosses `GRID_VIRTUALIZATION_ROW_THRESHOLD` (50) — select-all
       // must still resolve to every id, not just what happens to be mounted.
       const manyRows = Array.from({ length: 60 }, (_, i) => ({
@@ -446,7 +524,8 @@ export function runDataTableConformanceSuite<Row = ConformanceRow>(
       const emitted = onSelectionChange.mock.calls[0][0] as Set<string>;
       expect(emitted.size).toBe(60);
       expect(Array.from(emitted).sort()).toEqual([...manyRowIds].sort());
-    });
+      },
+    );
 
     it('mirrors select-all on the card layout, page-scoped', () => {
       const onSelectionChange = vi.fn();
@@ -479,8 +558,7 @@ export function runDataTableConformanceSuite<Row = ConformanceRow>(
       it(`renders the error alert on ${name} while keeping the table beneath it readable`, () => {
         renderAtWidth(width, { error: 'Failed to load' });
         expect(screen.getByTestId('datatable-error')).toHaveTextContent('Failed to load');
-        const first = rows[0] as unknown as ConformanceRow;
-        expect(screen.getByText(first.name)).toBeInTheDocument();
+        expect(screen.getByText(rowLabel(rows[0]))).toBeInTheDocument();
       });
     }
   });
@@ -501,9 +579,13 @@ export function runDataTableConformanceSuite<Row = ConformanceRow>(
     it('hides a column via the picker and keeps it out of a CSV export', () => {
       renderTable({ csvExport: {} });
       fireEvent.click(screen.getByTestId('datatable-columns-button'));
-      fireEvent.click(screen.getByTestId(`datatable-column-toggle-owner`));
+      fireEvent.click(screen.getByTestId(`datatable-column-toggle-${hideableColumn!.id}`));
       // Menu stays open (multi-toggle is one trip, not one per column).
-      expect(screen.queryByRole('columnheader', { name: /^owner$/i })).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('columnheader', {
+          name: new RegExp(`^${hideableColumn!.label}$`, 'i'),
+        }),
+      ).not.toBeInTheDocument();
     });
 
     it('maps density onto BOTH renderers — grid row height and card padding', () => {
@@ -540,7 +622,12 @@ export function runDataTableConformanceSuite<Row = ConformanceRow>(
       clickSpy.mockRestore();
     });
 
-    it('writes the `value` scalar for a `render`-only column, quotes/escapes as RFC 4180 requires', async () => {
+    // Fabricates rows carrying quotes, commas and a negative number — the
+    // fixture's own shape, and not something the suite can synthesize for an
+    // arbitrary `Row`. Escaping is table-wide; once is enough.
+    it.runIf(usingDefaultFixture)(
+      'writes the `value` scalar for a `render`-only column, quotes/escapes as RFC 4180 requires',
+      async () => {
       const quirky = [
         { id: 'q1', name: 'has "quotes"', status: 'active', owner: 'a,b', score: -5, notes: null },
       ] as unknown as Row[];
@@ -557,7 +644,8 @@ export function runDataTableConformanceSuite<Row = ConformanceRow>(
       expect(text).toMatch(/(?<!')-5/);
       // The Chip-rendered `status` column still exports its scalar, not "[object Object]".
       expect(text).toContain('active');
-    });
+      },
+    );
   });
 
   // =========================================================================
@@ -570,7 +658,7 @@ export function runDataTableConformanceSuite<Row = ConformanceRow>(
         selection: { selectedIds: new Set([rowId(rows[0])]), onSelectionChange: vi.fn() },
         bulkActions: [{ id: 'archive', label: 'Archive', onClick: vi.fn() }],
         rowActions: [{ id: 'retry', label: 'Retry', onClick: vi.fn() }],
-        sort: { sort: { field: 'score', direction: 'asc' }, onSortChange: vi.fn() },
+        sort: { sort: { field: primarySortColumn.id, direction: 'asc' }, onSortChange: vi.fn() },
         csvExport: {},
       });
       assertNoInvisibleHitTargets(wrapper());
@@ -661,7 +749,7 @@ export function runDataTableConformanceSuite<Row = ConformanceRow>(
             bulkActions: [{ id: 'archive', label: 'Archive', onClick: vi.fn() }],
             rowActions: [{ id: 'retry', label: 'Retry', onClick: vi.fn() }],
             sort: { sort: { field: 'score', direction: 'desc' }, onSortChange: vi.fn() },
-            filters: [{ columnId: 'status', operator: 'is', value: 'active' }],
+            filters: [sampleFilter],
             onFiltersChange: vi.fn(),
             csvExport: {},
           },
@@ -705,8 +793,7 @@ export function runDataTableConformanceSuite<Row = ConformanceRow>(
       // Each item's accessible name is its row's primary-column value — never
       // generic, never identical across rows.
       const names = items.map((item) => item.getAttribute('aria-label'));
-      const expectedNames = (rows as unknown as ConformanceRow[]).map((row) => row.name);
-      expect(names).toEqual(expectedNames);
+      expect(names).toEqual(rows.map(rowLabel));
       expect(new Set(names).size).toBe(names.length);
     });
   });
@@ -717,9 +804,9 @@ export function runDataTableConformanceSuite<Row = ConformanceRow>(
 
   describe(`${label} conformance — live-region announcements`, () => {
     it('announces "N of M selected" from a live region, on both renderers', () => {
-      const first = rows[0] as unknown as ConformanceRow;
+      const first = rows[0];
       renderTable({
-        selection: { selectedIds: new Set([first.id]), onSelectionChange: vi.fn() },
+        selection: { selectedIds: new Set([rowId(first)]), onSelectionChange: vi.fn() },
       });
       const status = within(screen.getByTestId('datatable-bulk-action-bar')).getByRole('status');
       expect(status).toHaveAttribute('aria-live', 'polite');
@@ -727,7 +814,7 @@ export function runDataTableConformanceSuite<Row = ConformanceRow>(
       cleanup();
 
       renderAtWidth(400, {
-        selection: { selectedIds: new Set([first.id]), onSelectionChange: vi.fn() },
+        selection: { selectedIds: new Set([rowId(first)]), onSelectionChange: vi.fn() },
       });
       expect(
         within(screen.getByTestId('datatable-bulk-action-bar')).getByRole('status'),
@@ -736,7 +823,7 @@ export function runDataTableConformanceSuite<Row = ConformanceRow>(
 
     it('announces "Filtered to N results" once a filter is active and the page reports a total', () => {
       renderTable({
-        filters: [{ columnId: 'status', operator: 'is', value: 'active' }],
+        filters: [sampleFilter],
         onFiltersChange: vi.fn(),
         pagination: { page: 0, pageSize: 25, total: 12, onPaginationChange: vi.fn() },
       });
@@ -756,7 +843,7 @@ export function runDataTableConformanceSuite<Row = ConformanceRow>(
 
     it('singularizes "1 result"', () => {
       renderTable({
-        filters: [{ columnId: 'status', operator: 'is', value: 'active' }],
+        filters: [sampleFilter],
         onFiltersChange: vi.fn(),
         pagination: { page: 0, pageSize: 25, total: 1, onPaginationChange: vi.fn() },
       });
@@ -819,8 +906,10 @@ export function runDataTableConformanceSuite<Row = ConformanceRow>(
         ],
       });
 
-      const first = rows[0] as unknown as ConformanceRow;
-      const trigger = screen.getByRole('button', { name: `Row actions for ${first.name}` });
+      const first = rows[0];
+      const trigger = screen.getByRole('button', {
+        name: `Row actions for ${rowLabel(first)}`,
+      });
       trigger.focus();
       await user.click(trigger);
 
@@ -838,22 +927,28 @@ export function runDataTableConformanceSuite<Row = ConformanceRow>(
   // =========================================================================
 
   describe(`${label} conformance — keyboard model`, () => {
-    it('the interactive content of a custom `render` cell is reachable by Tab and activatable', () => {
-      renderTable();
+    // Targets the fixture's own `<a data-testid="owner-link-…">` inside a
+    // `render` cell. A page's columns may contain no interactive cell at all,
+    // so this one stays pinned to the fixture that guarantees one.
+    it.runIf(usingDefaultFixture)(
+      'the interactive content of a custom `render` cell is reachable by Tab and activatable',
+      () => {
+        renderTable();
 
-      const first = rows[0] as unknown as ConformanceRow;
-      const link = screen.getByTestId(`owner-link-${first.id}`);
-      // Not sitting inertly off the tab order: a real DOM tab walk reaches it.
-      link.focus();
-      expect(document.activeElement).toBe(link);
-    });
+        const first = rows[0] as unknown as ConformanceRow;
+        const link = screen.getByTestId(`owner-link-${first.id}`);
+        // Not sitting inertly off the tab order: a real DOM tab walk reaches it.
+        link.focus();
+        expect(document.activeElement).toBe(link);
+      },
+    );
 
     it('every row-checkbox is independently reachable and toggleable by keyboard', async () => {
       const onSelectionChange = vi.fn();
       renderTable({ selection: { selectedIds: new Set<string>(), onSelectionChange } });
 
-      const first = rows[0] as unknown as ConformanceRow;
-      const checkbox = screen.getByRole('checkbox', { name: `Select ${first.name}` });
+      const first = rows[0];
+      const checkbox = screen.getByRole('checkbox', { name: `Select ${rowLabel(first)}` });
       checkbox.focus();
       expect(document.activeElement).toBe(checkbox);
       fireEvent.keyDown(checkbox, { key: ' ' });
@@ -880,8 +975,11 @@ export function runDataTableConformanceSuite<Row = ConformanceRow>(
       });
 
       await user.click(within(screen.getByTestId('datatable-card-sort')).getByRole('combobox'));
-      await user.click(screen.getByRole('option', { name: 'Score' }));
-      expect(onSortChange).toHaveBeenCalledWith({ field: 'score', direction: 'asc' });
+      await user.click(screen.getByRole('option', { name: primarySortColumn.label }));
+      expect(onSortChange).toHaveBeenCalledWith({
+        field: primarySortColumn.id,
+        direction: 'asc',
+      });
 
       const nextPage = screen.getByRole('button', { name: /go to next page/i });
       nextPage.focus();

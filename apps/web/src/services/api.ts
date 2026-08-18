@@ -205,17 +205,27 @@ import type {
 } from '../types';
 
 // Allowlist API
+/**
+ * Sort keys `GET /api/allowlist` accepts, mirroring
+ * `allowlistQuerySchema.sortBy` (`apps/api/src/allowlist/dto/allowlist-query.dto.ts`).
+ */
+export type AllowlistSortField = 'email' | 'addedAt' | 'claimedAt';
+
 export async function getAllowlist(params?: {
   page?: number;
   pageSize?: number;
   search?: string;
   status?: 'all' | 'pending' | 'claimed';
+  sortBy?: AllowlistSortField;
+  sortOrder?: 'asc' | 'desc';
 }): Promise<AllowlistResponse> {
   const searchParams = new URLSearchParams();
   if (params?.page) searchParams.set('page', String(params.page));
   if (params?.pageSize) searchParams.set('pageSize', String(params.pageSize));
   if (params?.search) searchParams.set('search', params.search);
   if (params?.status) searchParams.set('status', params.status);
+  if (params?.sortBy) searchParams.set('sortBy', params.sortBy);
+  if (params?.sortOrder) searchParams.set('sortOrder', params.sortOrder);
 
   return api.get<AllowlistResponse>(`/allowlist?${searchParams}`);
 }
@@ -232,12 +242,22 @@ export async function removeFromAllowlist(id: string): Promise<void> {
 }
 
 // Users API
+/**
+ * Sort keys `GET /api/users` accepts, mirroring `userListQuerySchema.sortBy`
+ * (`apps/api/src/users/dto/user-list-query.dto.ts`). Typed rather than
+ * `string` so a DataTable column declaring `sortable` against a field the
+ * endpoint would reject is a compile error, not a 400 at runtime.
+ */
+export type UserSortField = 'email' | 'createdAt' | 'updatedAt';
+
 export async function getUsers(params?: {
   page?: number;
   pageSize?: number;
   search?: string;
   role?: string;
   isActive?: boolean;
+  sortBy?: UserSortField;
+  sortOrder?: 'asc' | 'desc';
 }): Promise<UsersResponse> {
   const searchParams = new URLSearchParams();
   if (params?.page) searchParams.set('page', String(params.page));
@@ -246,6 +266,8 @@ export async function getUsers(params?: {
   if (params?.role) searchParams.set('role', params.role);
   if (params?.isActive !== undefined)
     searchParams.set('isActive', String(params.isActive));
+  if (params?.sortBy) searchParams.set('sortBy', params.sortBy);
+  if (params?.sortOrder) searchParams.set('sortOrder', params.sortOrder);
 
   return api.get<UsersResponse>(`/users?${searchParams}`);
 }
