@@ -4,6 +4,9 @@
   "workspaces": [
     "apps/*"
   ],
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "api": "npm -w apps/api",
     "web": "npm -w apps/web",
