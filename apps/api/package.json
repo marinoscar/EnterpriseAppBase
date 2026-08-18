@@ -2,7 +2,7 @@
   "name": "api",
   "version": "1.0.0",
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "scripts": {
     "build": "nest build",
