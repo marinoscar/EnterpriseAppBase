@@ -1,3 +1,4 @@
+import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
 export const completeUploadSchema = z.object({
@@ -8,3 +9,5 @@ export const completeUploadSchema = z.object({
 });
 
 export type CompleteUploadDto = z.infer<typeof completeUploadSchema>;
+
+export class CompleteUploadBodyDto extends createZodDto(completeUploadSchema) {}
