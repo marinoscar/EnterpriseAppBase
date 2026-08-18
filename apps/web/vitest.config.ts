@@ -30,8 +30,15 @@ export default defineConfig({
         statements: 70,
       },
     },
-    testTimeout: 10000,
-    hookTimeout: 10000,
+    // Raised from 10s for the DataTable suites. Their slowest cases legitimately
+    // take ~5.5s locally: each renders a full MUI X DataGrid (or card list)
+    // under the jsdom layout stubs, and the conformance suite additionally runs
+    // an axe-core pass across two renderers x two themes. 10s left under 2x
+    // headroom, which is the shape of a suite that is green locally and flakes
+    // on a loaded CI runner. The cost of the higher ceiling is only that a
+    // genuinely hung test takes longer to be declared dead.
+    testTimeout: 20000,
+    hookTimeout: 20000,
   },
   resolve: {
     alias: {
