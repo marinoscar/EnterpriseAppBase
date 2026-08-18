@@ -80,3 +80,119 @@ jobs:
       - run: npm run openapi:dump
 
       - run: npm run openapi:lint
+
+  smoke:
+    name: Smoke (boot compiled API)
+    runs-on: ubuntu-latest
+    # No `needs:` — runs concurrently with `build`, like `openapi` does.
+    #
+    # WHY THIS IS A SEPARATE JOB, given the note at the top of this file
+    # -------------------------------------------------------------------------
+    # That note records a measured result: moving the *web test suite* into its
+    # own job made it slower (71-95s -> 118-131s), plausibly from losing a page
+    # cache the earlier steps had warmed. It is a real finding, and the default
+    # here should be one job. This job is the deliberate exception, because the
+    # measurement does not transfer:
+    #
+    #   - That split duplicated `npm ci` to run *the same* work somewhere else,
+    #     so its cost was pure overhead. This job runs work that exists nowhere
+    #     in CI today — `nest build`, `migrate deploy`, `db seed`, and booting
+    #     the artifact — so the comparison is not "same work, colder cache".
+    #   - Running concurrently, its cost to total wall clock is
+    #     max(build, smoke), not build + smoke. Appending these steps to
+    #     `Build & Test` would instead extend the longest job on the critical
+    #     path by the full build-plus-boot time.
+    #   - The dominant costs here are compilation and waiting on Postgres and
+    #     on bootstrap. Only the first is filesystem-bound, so the specific
+    #     effect the note measured has much less to bite on.
+    #
+    # There is also a correctness reason not to fold this into `Build & Test`:
+    # that job sets `NODE_ENV: test` for the whole job, while this one must run
+    # the artifact with `NODE_ENV=production` — the mode that actually deploys,
+    # and the only one in which `app.module.ts` leaves `TestAuthModule` out.
+    # A service container is job-scoped too, so folding it in would start
+    # Postgres for every unit-test run that has no use for it.
+    #
+    # If the assumption above turns out to be wrong, the thing to measure is
+    # total workflow wall clock, not this job's own duration.
+    services:
+      postgres:
+        # Matches infra/compose/test.compose.yml, which is the only Postgres
+        # version this repo pins (base.compose.yml expects an external database
+        # and declares no `db` service).
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: appdb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      # The API never reads DATABASE_URL from the environment — it builds the
+      # connection string from these at runtime (src/config/configuration.ts,
+      # src/prisma/prisma.service.ts) and the Prisma CLI does the same via
+      # scripts/prisma-env.js. Setting the POSTGRES_* variables is therefore
+      # what exercises the contract the application actually has.
+      POSTGRES_HOST: 127.0.0.1
+      POSTGRES_PORT: '5432'
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: appdb
+      POSTGRES_SSL: 'false'
+      # Obviously-fake values. GOOGLE_CLIENT_ID is the one that is genuinely
+      # mandatory: GoogleStrategy passes it straight to passport-google-oauth20,
+      # which throws `OAuth2Strategy requires a clientID option` on an empty
+      # string and takes bootstrap down with it. The rest are supplied because a
+      # real deployment has them, not because bootstrap fails without them.
+      JWT_SECRET: smoke-test-jwt-secret-not-a-real-secret-0000
+      COOKIE_SECRET: smoke-test-cookie-secret-not-a-real-secret
+      GOOGLE_CLIENT_ID: smoke-test-google-client-id
+      GOOGLE_CLIENT_SECRET: smoke-test-google-client-secret
+      GOOGLE_CALLBACK_URL: http://127.0.0.1:3001/api/auth/google/callback
+      INITIAL_ADMIN_EMAIL: smoke-admin@example.test
+      OTEL_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      # NODE_ENV is deliberately left unset for the install and build steps:
+      # `npm ci` skips devDependencies under NODE_ENV=production, which would
+      # remove @nestjs/cli (the build), the Prisma CLI (migrations) and ts-node
+      # (the seed). Only the final step runs as production.
+      - run: npm ci
+
+      - run: npx prisma generate
+        working-directory: apps/api
+
+      # The point of this job: the smoke test runs `dist/main.js`, the same
+      # artifact the Dockerfile runs, rather than a Test.createTestingModule
+      # stand-in that never executes main.ts.
+      - run: npm run build --workspace=api
+
+      # First time migrations and seeding run against a real database in CI.
+      # Both were previously exercised only by hand, which is how #56 (broken
+      # seeding) stayed hidden. These two steps — not the smoke test's readiness
+      # check — are what actually verify the schema: the readiness indicator
+      # issues a `SELECT 1`, which passes against an empty database, whereas the
+      # seed writes real rows and fails on a schema that does not match.
+      - run: npm run prisma:migrate --workspace=api
+      - run: npm run prisma:seed --workspace=api
+
+      # Boots the compiled app and asserts it serves /api/health/live,
+      # /api/health/ready and a valid /api/openapi.json. See the header of
+      # apps/api/scripts/smoke-test.mjs for what each assertion is protecting —
+      # in particular why a 200 on the OpenAPI document, and not merely a
+      # successful boot, is the assertion that matters.
+      - run: npm run smoke --workspace=api
+        env:
+          NODE_ENV: production
+          SMOKE_PORT: '3001'
