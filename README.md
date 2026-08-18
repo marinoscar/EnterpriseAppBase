@@ -26,7 +26,7 @@ A production-grade full-stack application foundation built with React, NestJS, a
 - **Testing**: Jest + Supertest
 
 ### Frontend
-- **Framework**: React 18 with TypeScript
+- **Framework**: React 19 with TypeScript
 - **UI Library**: Material-UI (MUI)
 - **State Management**: React Context API
 - **Testing**: Vitest + React Testing Library
@@ -39,7 +39,7 @@ A production-grade full-stack application foundation built with React, NestJS, a
 
 ## Prerequisites
 
-- Node.js 22+
+- Node.js 24+ (see `.nvmrc`; enforced by the `engines` field)
 - Docker Desktop
 - Google OAuth credentials (from [Google Cloud Console](https://console.cloud.google.com))
 
@@ -266,8 +266,12 @@ NODE_ENV=development
 PORT=3000
 APP_URL=http://localhost:3535
 
-# Database
-DATABASE_URL=postgresql://postgres:postgres@db:5432/appdb
+# Database (DATABASE_URL is constructed from these at runtime)
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
+POSTGRES_DB=appdb
 
 # JWT
 JWT_SECRET=your-secret-min-32-chars
@@ -285,6 +289,14 @@ INITIAL_ADMIN_EMAIL=admin@example.com
 # Observability
 OTEL_ENABLED=true
 OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+
+# Uptrace (when using otel.compose.yml) - the values below are
+# development-only defaults from .env.example. Change them before running
+# the observability stack anywhere other than local development.
+UPTRACE_SECRET_KEY=change-me-in-production-1234567890abcdef
+UPTRACE_PROJECT1_TOKEN=project1_secret_token
+UPTRACE_ADMIN_PASSWORD=admin
+UPTRACE_PGPASSWORD=uptrace
 ```
 
 ## Important Notes for Developers
@@ -338,8 +350,8 @@ If you're not the first admin, ask an existing admin to add your email to the al
 ### Database connection error
 **Solution:**
 1. Ensure containers are running: `docker compose ps`
-2. Check `DATABASE_URL` in `.env`
-3. Restart: `docker compose restart db`
+2. Verify the `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` values in `.env` point to a reachable PostgreSQL instance (the compose stack no longer bundles a `db` service, so PostgreSQL must be running separately)
+3. Restart the API container: `docker compose restart api`
 
 ### Port already in use
 **Solution:** Change `PORT` in `.env` or stop conflicting service
