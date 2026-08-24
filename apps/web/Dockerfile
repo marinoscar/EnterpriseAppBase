@@ -56,7 +56,7 @@ RUN npm run build
 # -----------------------------------------------------------------------------
 # Production stage (nginx to serve static files)
 # -----------------------------------------------------------------------------
-FROM nginx:1.30-alpine AS production
+FROM nginx:1.31-alpine AS production
 COPY --from=build /app/apps/web/dist /usr/share/nginx/html
 COPY apps/web/nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
