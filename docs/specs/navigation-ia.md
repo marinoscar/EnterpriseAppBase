@@ -16,6 +16,19 @@ and why the fix had to happen in four places that all used to disagree.
 > [#51](https://github.com/marinoscar/EnterpriseAppBase/issues/51) and issue
 > [#55](https://github.com/marinoscar/EnterpriseAppBase/issues/55).
 
+> **This file is a historical record of epic #51/#55's decisions, and part of
+> it has since been superseded.** §2's four-destination model
+> (`DestinationKey = 'home' | 'settings' | 'users' | 'system'`) and §6's
+> "Console mode — not ported" both describe the state of the code as of this
+> epic, not the state of the code today. Epic #90 (issues #91–#96) later
+> collapsed `users` and `system` into a single `console` destination
+> (`config/destinations.ts` now declares `DestinationKey = 'home' | 'settings'
+> | 'console'`) and **did** port a Console mode into `NavigationRail.tsx` —
+> the very feature §6 lists as deliberately not ported. The numbered rules
+> below were correct for issues #51/#55 at the time; for the current registry
+> and the current Console mode, see
+> [`docs/specs/settings-ui.md`](settings-ui.md).
+
 ---
 
 ## 1. The problem
@@ -51,6 +64,12 @@ because no such route existed yet.
 ---
 
 ## 2. Target information architecture
+
+> **Historical.** This section documents the four-destination model as issue
+> #55 shipped it. Epic #90 later collapsed `users` and `system` into one
+> `console` destination — `apps/web/src/config/destinations.ts` today declares
+> `DestinationKey = 'home' | 'settings' | 'console'`, not the four keys below.
+> See [`docs/specs/settings-ui.md`](settings-ui.md) for the current registry.
 
 This repo ships **four flat destinations** — Home, User Settings, User
 Management, System Settings — declared once in
@@ -405,7 +424,10 @@ things MemoriaHub's navigation carries that this repo's port does not, by
 deliberate decision rather than oversight:
 
 - **Console mode.** A secondary navigation mode for a class of destination
-  this app does not have.
+  this app does not have. **Superseded:** epic #90 (issue #94) later added
+  Console mode to `NavigationRail.tsx` after all, once the admin surface grew
+  enough registry-driven pages to need it. See
+  [`docs/specs/settings-ui.md`](settings-ui.md).
 - **A context pane.** A persistent side panel tied to hub-style destinations
   this app does not have.
 - **Destination pinning.** Per-user reordering or pinning of destinations.
