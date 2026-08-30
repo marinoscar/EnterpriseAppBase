@@ -16,7 +16,15 @@ const LoginPage = lazy(() => import('./pages/LoginPage'));
 const AuthCallbackPage = lazy(() => import('./pages/AuthCallbackPage'));
 const ActivateDevicePage = lazy(() => import('./pages/ActivateDevicePage'));
 const HomePage = lazy(() => import('./pages/HomePage'));
-const UserSettingsPage = lazy(() => import('./pages/UserSettingsPage'));
+// User settings — the hub (#96) plus one route per card in
+// `config/userSettingsSections.tsx` (#91, epic #90). These replace the single
+// stacked `UserSettingsPage`, which is deleted rather than left unrouted.
+const UserSettingsHubPage = lazy(() => import('./pages/UserSettingsHubPage'));
+const UserProfilePage = lazy(() => import('./pages/UserProfilePage'));
+// `User`-prefixed to keep it distinct from `Admin/AppearanceSettingsPage`
+// below: one is the user's own theme, the other the deployment's default.
+const UserAppearancePage = lazy(() => import('./pages/UserAppearancePage'));
+const UserTokensPage = lazy(() => import('./pages/UserTokensPage'));
 
 // Console — the hub (#93) plus one route per card in
 // `config/adminSections.tsx` (#92, epic #90).
@@ -57,7 +65,27 @@ function AppRoutes() {
 
               <Route element={<Layout />}>
                 <Route path="/" element={<HomePage />} />
-                <Route path="/settings" element={<UserSettingsPage />} />
+                {/* The per-user settings surface (#96, epic #90) — the same
+                    hub component `/admin/settings` renders, over
+                    `USER_SETTINGS_SECTIONS`, plus one route per card.
+
+                    NONE OF THESE IS WRAPPED IN `RequirePermission`, and that is
+                    the deliberate difference from the `/admin/settings/*` block
+                    below rather than an oversight. `ProtectedRoute` above
+                    establishes that someone is signed in, and that is the only
+                    question these routes have: they edit the caller's OWN
+                    settings, which the API grants to all three roles, and
+                    `config/userSettingsSections.tsx` correspondingly declares no
+                    `permission` on any card. A gate here would deny a Viewer
+                    their own display name.
+
+                    As above, declaration order does not matter — React Router
+                    v6 ranks by specificity, so `/settings/profile` beats
+                    `/settings` wherever each is written. */}
+                <Route path="/settings" element={<UserSettingsHubPage />} />
+                <Route path="/settings/profile" element={<UserProfilePage />} />
+                <Route path="/settings/appearance" element={<UserAppearancePage />} />
+                <Route path="/settings/tokens" element={<UserTokensPage />} />
                 {/* Route-level AUTHORIZATION, not just authentication.
                     `ProtectedRoute` above only establishes that someone is
                     logged in — before this, a Viewer typing `/admin/settings`
