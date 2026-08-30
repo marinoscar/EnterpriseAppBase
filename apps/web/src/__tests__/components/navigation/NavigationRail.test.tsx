@@ -164,7 +164,13 @@ describe('NavigationRail', () => {
         .getAllByRole('link')
         .filter((link) => link.getAttribute('aria-current') === 'page');
       expect(current).toHaveLength(1);
-      expect(current[0]).toHaveAccessibleName('Console');
+      // Not 'Console' any more (#94): at >= lg this route is Console mode, so
+      // the `Console` destination row is absent entirely and the active row is
+      // the longest-prefix-matching admin card — `Users & Allowlist`
+      // (`/admin/settings/users`) — rather than the library destination that
+      // used to own the whole `/admin` subtree. The one-`aria-current`
+      // invariant above is what this test actually guards and is unchanged.
+      expect(current[0]).toHaveAccessibleName('Users & Allowlist');
     });
 
     it('marks nothing active on a route no destination owns', () => {
@@ -272,6 +278,201 @@ describe('NavigationRail', () => {
         '/settings',
         '/admin/settings',
       ]);
+    });
+  });
+
+  describe('Console mode (#94)', () => {
+    // A user holding every admin permission, so a section is never dropped by
+    // `visibleSettingsSections` — the gating tests below flip permissions off
+    // one at a time instead.
+    const FULL_ADMIN_PERMISSIONS = [
+      'system_settings:read',
+      'system_settings:write',
+      'users:read',
+    ];
+
+    describe('renders', () => {
+      beforeEach(() => {
+        setPermissions(FULL_ADMIN_PERMISSIONS, true);
+      });
+
+      it('renders both group headers', () => {
+        render(<NavigationRail />, {
+          wrapperOptions: { route: '/admin/settings/users', user: mockAdminUser },
+        });
+
+        expect(screen.getByText('General')).toBeInTheDocument();
+        expect(screen.getByText('Access')).toBeInTheDocument();
+      });
+
+      it('renders the card rows with their titles', () => {
+        render(<NavigationRail />, {
+          wrapperOptions: { route: '/admin/settings/users', user: mockAdminUser },
+        });
+
+        expect(screen.getByRole('link', { name: 'System' })).toBeInTheDocument();
+        expect(screen.getByRole('link', { name: 'Appearance' })).toBeInTheDocument();
+        expect(screen.getByRole('link', { name: 'Feature Flags' })).toBeInTheDocument();
+        expect(screen.getByRole('link', { name: 'Advanced (JSON)' })).toBeInTheDocument();
+        expect(screen.getByRole('link', { name: 'Users & Allowlist' })).toBeInTheDocument();
+      });
+
+      it('renders a permanent Back to library row linking to /', () => {
+        render(<NavigationRail />, {
+          wrapperOptions: { route: '/admin/settings/users', user: mockAdminUser },
+        });
+
+        expect(screen.getByRole('link', { name: 'Back to library' })).toHaveAttribute(
+          'href',
+          '/',
+        );
+      });
+
+      it('hides the Console destination row — Back to library is the way out instead', () => {
+        render(<NavigationRail />, {
+          wrapperOptions: { route: '/admin/settings/users', user: mockAdminUser },
+        });
+
+        expect(screen.queryByRole('link', { name: 'Console' })).not.toBeInTheDocument();
+      });
+
+      it('names the nav landmark "Console navigation"', () => {
+        render(<NavigationRail />, {
+          wrapperOptions: { route: '/admin/settings/users', user: mockAdminUser },
+        });
+
+        expect(
+          screen.getByRole('navigation', { name: 'Console navigation' }),
+        ).toBeInTheDocument();
+      });
+    });
+
+    describe('does not engage outside expanded desktop', () => {
+      it('stays library navigation at sm-lg on the same /admin/* path — the expanded-only rule', async () => {
+        // The rule most likely to be "fixed" into always-on later: Console mode
+        // is `isConsole && expanded`, never `isConsole` alone. A 56px column
+        // cannot host labelled group headers (see the file header), so the
+        // medium tier keeps library destinations even under `/admin`.
+        setPermissions(FULL_ADMIN_PERMISSIONS, true);
+        render(<NavigationRail />, {
+          wrapperOptions: { route: '/admin/settings/users', user: mockAdminUser },
+        });
+
+        await act(async () => setViewportWidth(800));
+
+        expect(screen.getByRole('navigation', { name: 'Main navigation' })).toBeInTheDocument();
+        expect(screen.getByRole('link', { name: 'Console' })).toBeInTheDocument();
+        expect(
+          screen.queryByRole('link', { name: 'Users & Allowlist' }),
+        ).not.toBeInTheDocument();
+      });
+
+      it('stays library navigation when a desktop user has collapsed the rail, on the same /admin/* path', () => {
+        setPermissions(FULL_ADMIN_PERMISSIONS, true);
+        setPrefs(true);
+        render(<NavigationRail />, {
+          wrapperOptions: { route: '/admin/settings/users', user: mockAdminUser },
+        });
+
+        expect(screen.getByRole('navigation', { name: 'Main navigation' })).toBeInTheDocument();
+        expect(screen.getByRole('link', { name: 'Console' })).toBeInTheDocument();
+        expect(
+          screen.queryByRole('link', { name: 'Users & Allowlist' }),
+        ).not.toBeInTheDocument();
+      });
+
+      it.each(['/', '/settings'])(
+        'stays library navigation on the non-admin route %s at >= lg',
+        (route) => {
+          setPermissions(FULL_ADMIN_PERMISSIONS, true);
+          render(<NavigationRail />, { wrapperOptions: { route, user: mockAdminUser } });
+
+          expect(
+            screen.getByRole('navigation', { name: 'Main navigation' }),
+          ).toBeInTheDocument();
+          expect(screen.getByRole('link', { name: 'Console' })).toBeInTheDocument();
+        },
+      );
+    });
+
+    describe('active state', () => {
+      beforeEach(() => {
+        setPermissions(FULL_ADMIN_PERMISSIONS, true);
+      });
+
+      it('marks exactly one row active on /admin/settings/users, and it is Users & Allowlist', () => {
+        // A plain `owns()` per card would light up more than one row here —
+        // see the `longest prefix wins` comment on `consoleActivePath`.
+        render(<NavigationRail />, {
+          wrapperOptions: { route: '/admin/settings/users', user: mockAdminUser },
+        });
+
+        const current = screen
+          .getAllByRole('link')
+          .filter((link) => link.getAttribute('aria-current') === 'page');
+        expect(current).toHaveLength(1);
+        expect(current[0]).toHaveAccessibleName('Users & Allowlist');
+      });
+
+      it('marks nothing active on the hub path /admin/settings itself', () => {
+        // No card's own path matches the hub path, and `Back to library` is
+        // explicitly `active={false}` — so nothing should carry aria-current.
+        render(<NavigationRail />, {
+          wrapperOptions: { route: '/admin/settings', user: mockAdminUser },
+        });
+
+        const current = screen
+          .getAllByRole('link')
+          .filter((link) => link.getAttribute('aria-current') === 'page');
+        expect(current).toHaveLength(0);
+      });
+
+      it('keeps Users & Allowlist active on a nested child route', () => {
+        render(<NavigationRail />, {
+          wrapperOptions: { route: '/admin/settings/users/123', user: mockAdminUser },
+        });
+
+        const current = screen
+          .getAllByRole('link')
+          .filter((link) => link.getAttribute('aria-current') === 'page');
+        expect(current).toHaveLength(1);
+        expect(current[0]).toHaveAccessibleName('Users & Allowlist');
+      });
+    });
+
+    describe('permission gating', () => {
+      it('shows ACCESS and Users & Allowlist, and hides GENERAL entirely, for users:read alone', () => {
+        // Not just "the General cards are absent" — the emptied `General`
+        // header must be gone too, since a bare header above nothing reads as
+        // a loading failure rather than "you may see none of these"
+        // (`visibleSettingsSections` drops empty sections).
+        setPermissions(['users:read'], false);
+
+        render(<NavigationRail />, { wrapperOptions: { route: '/admin/settings/users' } });
+
+        expect(screen.getByText('Access')).toBeInTheDocument();
+        expect(screen.getByRole('link', { name: 'Users & Allowlist' })).toBeInTheDocument();
+
+        expect(screen.queryByText('General')).not.toBeInTheDocument();
+        expect(screen.queryByRole('link', { name: 'System' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('link', { name: 'Appearance' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('link', { name: 'Feature Flags' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('link', { name: 'Advanced (JSON)' })).not.toBeInTheDocument();
+      });
+
+      it('hides Advanced (JSON) for system_settings:read without :write', () => {
+        // `Advanced (JSON)` gates on WRITE deliberately, unlike its three
+        // General siblings — a raw editor is meaningless to a user who cannot
+        // save.
+        setPermissions(['system_settings:read'], false);
+
+        render(<NavigationRail />, { wrapperOptions: { route: '/admin/settings/users' } });
+
+        expect(screen.getByRole('link', { name: 'System' })).toBeInTheDocument();
+        expect(screen.getByRole('link', { name: 'Appearance' })).toBeInTheDocument();
+        expect(screen.getByRole('link', { name: 'Feature Flags' })).toBeInTheDocument();
+        expect(screen.queryByRole('link', { name: 'Advanced (JSON)' })).not.toBeInTheDocument();
+      });
     });
   });
 });
