@@ -12,7 +12,7 @@ Web Application Foundation with React UI + Node API + PostgreSQL. Production-gra
 - **Frontend**: React + TypeScript, Material UI (MUI)
 - **Database**: PostgreSQL with Prisma ORM
 - **Auth**: Passport strategies (Google OAuth required)
-- **Testing**: Jest + Supertest (backend), React Testing Library + Jest (frontend)
+- **Testing**: Jest + Supertest (backend), React Testing Library + Vitest (frontend)
 - **Observability**: OpenTelemetry, Uptrace, Pino structured logging
 - **Containerization**: Docker + Docker Compose
 - **Reverse Proxy**: Nginx (same-origin routing)
@@ -215,6 +215,71 @@ Example:
 ### Golden Rule (MANDATORY)
 If the diff feels “big,” you waited too long. **Split the work and commit sooner.**
 
+## MANDATORY: Settings UI Pattern
+
+Every settings surface in this app — admin or per-user — is a **registry-driven
+hub**, not a tab strip and not an ungoverned route. This was established by
+epic #90 (issues #91–#96) and is documented in full, with rationale and
+rejected alternatives, in [`docs/specs/settings-ui.md`](docs/specs/settings-ui.md).
+This section states the rules; that file explains why.
+
+### Core Rules (MANDATORY)
+
+1. **Every new settings page MUST be declared in a section registry.**
+   Admin cards go in `apps/web/src/config/adminSections.tsx`
+   (`ADMIN_SECTIONS`); per-user cards go in
+   `apps/web/src/config/userSettingsSections.tsx` (`USER_SETTINGS_SECTIONS`).
+   A route added without a registry entry is not acceptable — it is a route
+   the hub, the Console rail, and the AppBar title resolver all disagree
+   about, because none of the three has any way to know it exists.
+
+2. **A settings page MUST NOT be added as a new tab on an existing settings
+   page.** Tabs remain legitimate **inside** a single destination, but only
+   for genuinely **parallel** content — two views of the same question. The
+   live example is `apps/web/src/pages/Admin/UsersPage.tsx`, which keeps its
+   two tabs (Users, Allowlist) on purpose: they are two views of one question
+   ("who may use this application"), backed by two controllers, not a
+   hierarchy. State the distinction precisely:
+   - A **destination** gate (which registry card, which route) is about
+     **reachability**.
+   - A **tab** gate (inside one page) is about **content**.
+   Conflating the two is the exact mistake epic #90 fixed:
+   `SystemSettingsPage`'s three tabs (UI Settings, Feature Flags, Advanced
+   JSON) were hierarchical content wearing a tab strip, not parallel content.
+
+3. **The card's `permission` field MUST be the exact string the API
+   controller enforces** — never invented, never approximated. Follow the
+   real, verified mapping as the model:
+   - `system_settings:read` / `system_settings:write` →
+     `system-settings.controller.ts`
+   - `users:read` → `users.controller.ts`
+   - `allowlist:read` → `allowlist.controller.ts` (gates content **inside**
+     the Users & Allowlist page, not the route — see rule 2's
+     reachability-vs-content distinction)
+
+4. **New settings surfaces MUST reuse the shared
+   `apps/web/src/components/settings/SettingsHub.tsx` component.** Do not
+   fork it, do not copy it. The worked example is `/settings`
+   (`apps/web/src/pages/UserSettingsHubPage.tsx`): it is a 4-prop binding
+   (`sections`, `hubKey`, `title`, `subtitle`) over the exact same component
+   `/admin/settings` uses — nothing more.
+
+5. **The five coupled breakpoint gates move together or not at all.** Never
+   change one without checking all five:
+   1. `Layout.tsx`'s `showRail` (`up('sm')`) — mounts/unmounts `NavigationRail`
+   2. `BottomNav`'s own `down('sm')` self-gate
+   3. `<main>`'s `pb: { xs: 10, sm: 3 }` in `Layout.tsx`
+   4. `SettingsHub.tsx`'s `isCompactWindow` (`down('sm')`)
+   5. `AppBar.tsx`'s `isCompactWindow` (`down('sm')`)
+
+   The boundary is `sm` (600px), never `md` (900px) — gating at 900px hands
+   the phone treatment to 600–899px tablets, foldables, and landscape
+   phones. There is deliberately no shared constant binding these five: see
+   `docs/specs/settings-ui.md` §5 for why.
+
+See [`docs/specs/settings-ui.md`](docs/specs/settings-ui.md) for the full
+rationale, the rejected alternatives, and the accessibility requirements.
+
 ## Architecture Principles
 
 1. **Separation of Concerns**: UI handles presentation only; API handles all business logic and authorization
@@ -368,7 +433,7 @@ The application uses an **email allowlist** to restrict access to pre-authorized
 - This email is automatically added to the allowlist during database seeding
 
 ### Admin Management
-- Access allowlist management at `/admin/users` (Allowlist tab)
+- Access allowlist management at `/admin/settings/users` (Allowlist tab; `/admin/users` still redirects here)
 - Two tabs available:
   - **Users**: Manage existing registered users
   - **Allowlist**: Pre-authorize email addresses for future logins
@@ -460,7 +525,7 @@ Note: `DATABASE_URL` is constructed automatically from these variables at runtim
 | `backend-dev` | NestJS API, Fastify, auth, RBAC | **ANY** backend code: endpoints, services, guards, middleware, JWT, OAuth |
 | `frontend-dev` | React, MUI, TypeScript | **ANY** frontend code: components, pages, hooks, theming, responsive design |
 | `database-dev` | PostgreSQL, Prisma | **ANY** database work: schema changes, migrations, seeds, queries |
-| `testing-dev` | Jest, Supertest, RTL | **ANY** testing: unit tests, integration tests, typecheck, test fixtures |
+| `testing-dev` | Jest/Supertest (API), Vitest/RTL (web) | **ANY** testing: unit tests, integration tests, typecheck, test fixtures |
 | `docs-dev` | Technical documentation | **ANY** documentation: ARCHITECTURE.md, SECURITY.md, API.md, README updates |
 | `ops-dev` | Routine operations (Haiku) | Rebuilding/restarting containers, running Prisma migrations, running typecheck. NEVER for state-changing git operations |
 
@@ -509,7 +574,7 @@ For tasks spanning multiple domains, you MUST invoke multiple agents sequentiall
 - Do NOT write NestJS controllers, services, or guards without `backend-dev`
 - Do NOT create React components or pages without `frontend-dev`
 - Do NOT modify Prisma schema or create migrations without `database-dev`
-- Do NOT write Jest/RTL tests without `testing-dev`
+- Do NOT write Jest/Vitest/RTL tests without `testing-dev`
 - Do NOT update documentation files without `docs-dev`
 
 The only exceptions are:
