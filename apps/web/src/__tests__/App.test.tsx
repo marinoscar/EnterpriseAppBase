@@ -47,6 +47,30 @@ vi.mock('../pages/Admin/UsersPage', () => ({
   default: () => <h1>Admin Users</h1>,
 }));
 
+/**
+ * The four `/settings/*` routes from issue #96, epic #90. Same rationale as
+ * the admin stand-ins above: the real pages already render correctly (their
+ * own suites cover that), so replacing them with distinctly-headed stand-ins
+ * makes these assertions about `App.tsx`'s route wiring specifically —
+ * nothing here passes because a page's own internal check happened to
+ * produce the same outcome.
+ */
+vi.mock('../pages/UserSettingsHubPage', () => ({
+  default: () => <h1>User Settings Hub</h1>,
+}));
+
+vi.mock('../pages/UserProfilePage', () => ({
+  default: () => <h1>User Profile Page</h1>,
+}));
+
+vi.mock('../pages/UserAppearancePage', () => ({
+  default: () => <h1>User Appearance Page</h1>,
+}));
+
+vi.mock('../pages/UserTokensPage', () => ({
+  default: () => <h1>User Tokens Page</h1>,
+}));
+
 const API_BASE = '*/api';
 
 /** Overrides `GET /auth/me` for one test, so the route tree sees this user. */
@@ -211,6 +235,73 @@ describe('App', () => {
 
       await waitFor(
         () => expect(screen.getByRole('heading', { name: 'Admin Users' })).toBeInTheDocument(),
+        { timeout: 5000 },
+      );
+    });
+  });
+
+  /**
+   * Issue #96, epic #90. The per-user settings hub plus one route per card in
+   * `config/userSettingsSections.tsx`. This file (and only this file) had no
+   * assertions at all for `/settings/*` before this change — the split pages'
+   * own suites (`UserSettingsPages.test.tsx`, `SettingsHub.test.tsx`) proved
+   * each page renders correctly in isolation, but nothing proved `App.tsx`
+   * wires each PATH to the right one, and nothing proved these routes are
+   * reachable without the `RequirePermission` gate the `/admin/settings/*`
+   * block above carries.
+   */
+  describe('User settings routes', () => {
+    it.each([
+      ['/settings', 'User Settings Hub'],
+      ['/settings/profile', 'User Profile Page'],
+      ['/settings/appearance', 'User Appearance Page'],
+      ['/settings/tokens', 'User Tokens Page'],
+    ])('renders %s as %s for a user holding only user_settings:read', async (path, heading) => {
+      signInAs(['user_settings:read']);
+
+      render(
+        <MemoryRouter initialEntries={[path]}>
+          <App />
+        </MemoryRouter>,
+      );
+
+      await waitFor(() => expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument(), {
+        timeout: 5000,
+      });
+
+      // Isolation: reaching one of the four routes must render exactly that
+      // page's stand-in, never a sibling's.
+      const allHeadings = [
+        'User Settings Hub',
+        'User Profile Page',
+        'User Appearance Page',
+        'User Tokens Page',
+      ];
+      for (const other of allHeadings.filter((h) => h !== heading)) {
+        expect(screen.queryByRole('heading', { name: other })).not.toBeInTheDocument();
+      }
+    });
+
+    it('reaches /settings/profile with an empty permission set — contrast with /admin/settings, which redirects', async () => {
+      // The strongest version of "not gated": no permissions at all, not even
+      // `user_settings:read`. `/admin/settings` above redirects a user
+      // lacking BOTH `system_settings:read` and `users:read`; these routes
+      // have no such check to fail, because `ProtectedRoute` (authentication)
+      // is the only thing standing between a signed-in user and their own
+      // settings.
+      signInAs([]);
+
+      render(
+        <MemoryRouter initialEntries={['/settings/profile']}>
+          <App />
+        </MemoryRouter>,
+      );
+
+      await waitFor(
+        () =>
+          expect(
+            screen.getByRole('heading', { name: 'User Profile Page' }),
+          ).toBeInTheDocument(),
         { timeout: 5000 },
       );
     });

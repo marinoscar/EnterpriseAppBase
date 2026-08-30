@@ -18,7 +18,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import { render } from '../utils/test-utils';
 
 vi.mock('../../hooks/useUserSettings', () => ({
@@ -47,9 +47,19 @@ vi.mock('../../components/settings/ProfileSettings', () => ({
   )),
 }));
 
+// `PersonalAccessTokens` owns its own hook and API calls (`/api/pat`), none
+// of which this file's mocked `useUserSettings` should ever gate — see
+// `UserTokensPage` below. Stubbed for the same reason `ThemeSettings` and
+// `ProfileSettings` are: it has its own test file, and the page under test
+// here is thin wiring.
+vi.mock('../../components/settings/PersonalAccessTokens', () => ({
+  PersonalAccessTokens: vi.fn(() => <div data-testid="personal-access-tokens" />),
+}));
+
 import { useUserSettings } from '../../hooks/useUserSettings';
 import UserProfilePage from '../../pages/UserProfilePage';
 import UserAppearancePage from '../../pages/UserAppearancePage';
+import UserTokensPage from '../../pages/UserTokensPage';
 
 const mockUseUserSettings = vi.mocked(useUserSettings);
 
@@ -148,5 +158,193 @@ describe('UserProfilePage', () => {
 
     expect(screen.getByTestId('profile-settings')).toBeInTheDocument();
     expect(screen.queryByTestId('theme-settings')).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * The behaviour issue #96 changed and the one most likely to regress: on the
+ * old stacked `UserSettingsPage` there was ONE snackbar shared by Theme,
+ * Profile and Tokens, so a successful theme save raised a toast that sat
+ * beside the Profile card too. Each split page now owns its own
+ * `UserSettingsSection`, hence its own `useState` for the success/error
+ * message — so these are exercised through the real `save()` in
+ * `UserSettingsSection`, not the mocked `ThemeSettings`/`ProfileSettings`
+ * stubs' own state.
+ */
+describe('Per-page save snackbars (issue #96)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  describe('UserProfilePage', () => {
+    it('shows "Profile updated" on a successful save', async () => {
+      const updateSettings = vi.fn().mockResolvedValue(undefined);
+      mockSettings({ updateSettings });
+
+      render(<UserProfilePage />);
+      screen.getByText('save-profile').click();
+
+      await waitFor(() => {
+        expect(screen.getByText('Profile updated')).toBeInTheDocument();
+      });
+      expect(updateSettings).toHaveBeenCalledWith({
+        profile: { displayName: 'New', useProviderImage: true },
+      });
+    });
+
+    it('shows the rejection message, not the success message, on a failed save', async () => {
+      const updateSettings = vi.fn().mockRejectedValue(new Error('Network error'));
+      mockSettings({ updateSettings });
+
+      render(<UserProfilePage />);
+      screen.getByText('save-profile').click();
+
+      await waitFor(() => {
+        expect(screen.getByText('Network error')).toBeInTheDocument();
+      });
+      expect(screen.queryByText('Profile updated')).not.toBeInTheDocument();
+    });
+
+    it('falls back to "Failed to update profile" when the rejection carries no message', async () => {
+      const updateSettings = vi.fn().mockRejectedValue('not an Error instance');
+      mockSettings({ updateSettings });
+
+      render(<UserProfilePage />);
+      screen.getByText('save-profile').click();
+
+      await waitFor(() => {
+        expect(screen.getByText('Failed to update profile')).toBeInTheDocument();
+      });
+      expect(screen.queryByText('Profile updated')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('UserAppearancePage', () => {
+    it('shows "Theme updated" on a successful theme change', async () => {
+      const updateSettings = vi.fn().mockResolvedValue(undefined);
+      mockSettings({ updateSettings });
+
+      render(<UserAppearancePage />);
+      screen.getByText('save-theme').click();
+
+      await waitFor(() => {
+        expect(screen.getByText('Theme updated')).toBeInTheDocument();
+      });
+      expect(updateSettings).toHaveBeenCalledWith({ theme: 'dark' });
+    });
+
+    it('shows the rejection message, not the success message, on a failed theme change', async () => {
+      const updateSettings = vi.fn().mockRejectedValue(new Error('Network error'));
+      mockSettings({ updateSettings });
+
+      render(<UserAppearancePage />);
+      screen.getByText('save-theme').click();
+
+      await waitFor(() => {
+        expect(screen.getByText('Network error')).toBeInTheDocument();
+      });
+      expect(screen.queryByText('Theme updated')).not.toBeInTheDocument();
+    });
+
+    it('falls back to "Failed to update theme" when the rejection carries no message', async () => {
+      const updateSettings = vi.fn().mockRejectedValue('not an Error instance');
+      mockSettings({ updateSettings });
+
+      render(<UserAppearancePage />);
+      screen.getByText('save-theme').click();
+
+      await waitFor(() => {
+        expect(screen.getByText('Failed to update theme')).toBeInTheDocument();
+      });
+      expect(screen.queryByText('Theme updated')).not.toBeInTheDocument();
+    });
+  });
+
+  /**
+   * The regression these pin: collapsing the two pages' `UserSettingsSection`
+   * mounts back into one shared instance (the way the deleted stacked page
+   * had exactly one). Both pages are mounted TOGETHER here — something that
+   * never happens through routing, but is the only way to prove their
+   * snackbar state doesn't secretly live in one shared place. Each page keeps
+   * its own local `useState`, so triggering a save on one must never surface
+   * a message anywhere near the other.
+   */
+  describe('Isolation: a snackbar raised on one page does not appear on another', () => {
+    it('a Profile save shows its snackbar only on the Profile page, not the Appearance page', async () => {
+      mockSettings();
+      render(
+        <>
+          <UserProfilePage />
+          <UserAppearancePage />
+        </>,
+      );
+
+      screen.getByText('save-profile').click();
+
+      await waitFor(() => {
+        expect(screen.getByText('Profile updated')).toBeInTheDocument();
+      });
+      expect(screen.queryByText('Theme updated')).not.toBeInTheDocument();
+    });
+
+    it('a theme change shows its snackbar only on the Appearance page, not the Profile page', async () => {
+      mockSettings();
+      render(
+        <>
+          <UserProfilePage />
+          <UserAppearancePage />
+        </>,
+      );
+
+      screen.getByText('save-theme').click();
+
+      await waitFor(() => {
+        expect(screen.getByText('Theme updated')).toBeInTheDocument();
+      });
+      expect(screen.queryByText('Profile updated')).not.toBeInTheDocument();
+    });
+  });
+});
+
+/**
+ * Issue #96. `UserTokensPage` is the one `/settings/*` page that does NOT
+ * wrap its content in `UserSettingsSection` — personal access tokens are not
+ * part of the user settings document, and `PersonalAccessTokens` already owns
+ * its own loading/error state behind `/api/pat`. These pin that it stays that
+ * way: the page must render without ever touching `useUserSettings`.
+ */
+describe('UserTokensPage', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('displays its title and description', () => {
+    render(<UserTokensPage />);
+
+    expect(screen.getByRole('heading', { name: /access tokens/i })).toBeInTheDocument();
+    expect(
+      screen.getByText(/create and revoke personal access tokens/i),
+    ).toBeInTheDocument();
+  });
+
+  it('renders PersonalAccessTokens, and not the profile or appearance sections', () => {
+    render(<UserTokensPage />);
+
+    expect(screen.getByTestId('personal-access-tokens')).toBeInTheDocument();
+    expect(screen.queryByTestId('profile-settings')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('theme-settings')).not.toBeInTheDocument();
+  });
+
+  it('never calls useUserSettings — it is not wrapped in UserSettingsSection', () => {
+    // Mocked to be perpetually loading, so that if this page were ever
+    // (re)wrapped in `UserSettingsSection` it would render a spinner instead
+    // of the page — the failure this test exists to catch.
+    mockSettings({ settings: null, isLoading: true });
+
+    render(<UserTokensPage />);
+
+    expect(mockUseUserSettings).not.toHaveBeenCalled();
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /access tokens/i })).toBeInTheDocument();
   });
 });
