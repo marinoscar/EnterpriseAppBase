@@ -76,6 +76,7 @@ an already-complete MVP.
 | [api-documentation](api-documentation.md) | API Documentation | Backend | #53 |
 | [datatable](datatable.md) | DataTable — Shared Column Contract & Renderers | Frontend | #54 |
 | [navigation-ia](navigation-ia.md) | Navigation Information Architecture | Frontend | #55 |
+| [settings-ui](settings-ui.md) | Settings UI Pattern | Frontend | #90 |
 
 ## Dependency Graph
 

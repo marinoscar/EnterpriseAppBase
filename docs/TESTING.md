@@ -903,14 +903,17 @@ export { expect } from '@playwright/test';
 import { test, expect } from '../fixtures/auth.fixture';
 
 test.describe('Admin functionality', () => {
-  test('can access user management', async ({ adminPage }) => {
+  test('can access users & allowlist', async ({ adminPage }) => {
+    // /admin/users is a real redirect route (epic #90) — it resolves to
+    // /admin/settings/users, the Users & Allowlist card's route within the
+    // Console settings hub. See docs/specs/settings-ui.md.
     await adminPage.goto('/admin/users');
-    await expect(adminPage).toHaveURL('/admin/users');
+    await expect(adminPage).toHaveURL('/admin/settings/users');
   });
 
   test('viewer cannot access admin pages', async ({ viewerPage }) => {
     await viewerPage.goto('/admin/users');
-    await expect(viewerPage).not.toHaveURL('/admin/users');
+    await expect(viewerPage).not.toHaveURL('/admin/settings/users');
   });
 });
 ```

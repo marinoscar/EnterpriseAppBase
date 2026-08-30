@@ -865,18 +865,39 @@ Before OAuth authentication completes:
 
 ### 9.1 Page Structure
 
-| Page | Route | Auth | Role | Purpose |
-|------|-------|------|------|---------|
+As of epic #90, the admin console and the per-user settings surface are each
+a single registry-driven **hub** with one route per card, rather than a
+tab-strip page per area. See
+[`docs/specs/settings-ui.md`](specs/settings-ui.md) for the full pattern —
+the registry, the shared `SettingsHub` component, and why tabs are reserved
+for genuinely parallel content only.
+
+| Page | Route | Auth | Permission | Purpose |
+|------|-------|------|------------|---------|
 | Login | `/login` | Public | - | OAuth provider selection |
 | Auth Callback | `/auth/callback` | Public | - | Token handling |
 | Home | `/` | Required | Any | Dashboard |
-| User Settings | `/settings` | Required | Any | User preferences |
-| System Settings | `/admin/settings` | Required | Admin | App configuration |
-| User Management | `/admin/users` | Required | Admin | User/allowlist mgmt |
-| Device Activation | `/device` | Required | Any | Device auth approval |
+| User Settings hub | `/settings` | Required | Any (authenticated) | Searchable hub over the user's own settings |
+| — Profile | `/settings/profile` | Required | Any (authenticated) | Display name, avatar, email |
+| — Appearance | `/settings/appearance` | Required | Any (authenticated) | Personal theme preference |
+| — Access Tokens | `/settings/tokens` | Required | Any (authenticated) | Personal access token management |
+| Console / Settings hub | `/admin/settings` | Required | `system_settings:read` OR `users:read` | Searchable hub over admin settings |
+| — System | `/admin/settings/general` | Required | `system_settings:read` | Core system settings |
+| — Appearance | `/admin/settings/appearance` | Required | `system_settings:read` | Default theme for new users |
+| — Feature Flags | `/admin/settings/feature-flags` | Required | `system_settings:read` | Toggle optional features |
+| — Advanced (JSON) | `/admin/settings/advanced` | Required | `system_settings:write` | Raw settings document editor |
+| — Users & Allowlist | `/admin/settings/users` | Required | `users:read` | User accounts, roles, and allowlist |
+| `/admin` (redirect) | `/admin` | Required | — | `<Navigate replace>` to `/admin/settings` |
+| `/admin/users` (redirect) | `/admin/users` | Required | — | `<Navigate replace>` to `/admin/settings/users` |
+| Device Activation | `/activate` | Required | Any | Device auth approval |
 | Test Login | `/testing/login` | Public | - | Test auth bypass (dev only) |
 
 **Note:** The `/testing/login` route is excluded from production builds via `import.meta.env.PROD` check.
+
+**Note:** The two redirect routes are real `<Route>` entries in `App.tsx`, not
+catch-all fallout — a bookmarked `/admin/users` resolves via `<Navigate
+replace>` rather than falling through to the `*` fallback and landing
+silently on `/`.
 
 ### 9.2 Context Providers
 
@@ -912,13 +933,36 @@ interface AuthContext {
 
 ### 9.4 Protected Routes
 
+Route-level **authorization**, not just authentication, is enforced with
+`RequirePermission` (`apps/web/src/components/common/RequirePermission.tsx`),
+wrapped around the page element inside the `<Route>`. `ProtectedRoute` above
+it in the tree only establishes that someone is signed in; `RequirePermission`
+is what denies the page itself to a signed-in user who lacks the permission,
+rather than letting them land on the page and watch every API call return
+`403`.
+
+`RequirePermission` accepts `permission` (single string), `permissions`
+(array, OR'd unless `requireAll` is set), `role`, `roles`, and a `fallback`
+to render when the check fails. The real pattern, taken directly from
+`apps/web/src/App.tsx`'s `/admin/settings/users` route:
+
 ```tsx
-<Route path="/admin/*" element={
-  <ProtectedRoute requiredRole="admin">
-    <AdminLayout />
-  </ProtectedRoute>
-} />
+<Route
+  path="/admin/settings/users"
+  element={
+    <RequirePermission permission="users:read" fallback={<Navigate to="/" replace />}>
+      <AdminUsersPage />
+    </RequirePermission>
+  }
+/>
 ```
+
+The permission named here is the same string the card declares in
+`config/adminSections.tsx` and the same string `users.controller.ts`
+enforces — so the hub card, the Console rail row, and the route itself
+cannot disagree about who may go where. See
+[`docs/specs/settings-ui.md`](specs/settings-ui.md) for the full registry
+pattern this route belongs to.
 
 ---
 
