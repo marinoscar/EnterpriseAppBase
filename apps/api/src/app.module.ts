@@ -15,6 +15,7 @@ import { AllowlistModule } from './allowlist/allowlist.module';
 import { DeviceAuthModule } from './device-auth/device-auth.module';
 import { StorageModule } from './storage/storage.module';
 import { PatModule } from './pat/pat.module';
+import { CredentialsModule } from './credentials/credentials.module';
 import { LoggerModule } from './common/logger/logger.module';
 import { TestAuthModule } from './test-auth/test-auth.module';
 
@@ -55,6 +56,10 @@ import configuration from './config/configuration';
     DeviceAuthModule,
     StorageModule,
     PatModule,
+    // Encrypted credential store (#115). Registered here so it is part of the
+    // module graph; consumers still import CredentialsModule explicitly (it is
+    // not @Global) so every user of a plaintext-returning service is visible.
+    CredentialsModule,
 
     // Test modules (non-production only)
     ...(process.env.NODE_ENV !== 'production' ? [TestAuthModule] : []),

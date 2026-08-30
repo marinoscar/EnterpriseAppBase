@@ -37,6 +37,7 @@ model User {
   deviceCodes               DeviceCode[]     @relation("UserDeviceCodes")
   storageObjects            StorageObject[]  @relation("UserStorageObjects")
   personalAccessTokens      PersonalAccessToken[] @relation("UserPersonalAccessTokens")
+  credentialUpdates         Credential[]     @relation("CredentialUpdatedBy")
 
   @@map("users")
 }
@@ -315,4 +316,60 @@ model StorageObjectChunk {
   @@unique([objectId, partNumber])
   @@index([objectId])
   @@map("storage_object_chunks")
+}
+
+// =============================================================================
+// Encrypted Credential Store  (issue #115, epic #108)
+// =============================================================================
+//
+// Runtime-configured secrets (an SMTP password, an OAuth client secret, a
+// second bucket's S3 key, ...) addressed by (purpose, name) rather than one
+// column per consumer, so every future secret reuses this table instead of
+// inventing its own column, its own encrypt call, and its own chance to leak.
+//
+// `secret` holds ONLY the opaque base64 ciphertext produced by
+// `encryptSecret()` in `common/crypto/secret-cipher.ts`, encrypted under
+// `purpose` as the sub-key derivation label — a ciphertext lifted from one
+// row cannot be decrypted under a different purpose. This model stores
+// ciphertext and non-secret metadata only; it never sees plaintext, and
+// Prisma performs no encryption of its own.
+//
+// NEVER select `secret` into anything that reaches an API response or a log
+// line. `CredentialsService` is the sole reader/writer and is what actually
+// enforces that split (a plaintext-returning method for server-side
+// consumers, a metadata-only method for presentation) — this comment is the
+// signpost, not the guarantee.
+model Credential {
+  id              String   @id @default(uuid()) @db.Uuid
+  purpose         String
+  name            String
+  // Opaque [iv][authTag][ciphertext] payload, base64-encoded by
+  // encryptSecret(). @db.Text (not the default `varchar`) because a base64
+  // AES-GCM payload has no meaningful bound: encrypted key material,
+  // passwords, or tokens of arbitrary length must never be truncated.
+  secret          String   @db.Text
+  // Non-secret display aid for the admin UI (e.g. last 4 chars, or a fixed
+  // mask like '••••'). Nullable: a credential can exist before anyone has
+  // decided how to hint it, and some secrets have no meaningful suffix to show.
+  hint            String?
+  // Human-readable description for the admin UI. Nullable for the same reason.
+  label           String?
+  updatedByUserId String?  @map("updated_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  //
+  // onDelete: SetNull — deliberately NOT Cascade. A credential is
+  // infrastructure shared by whatever consumer looks it up by (purpose,
+  // name); the admin who last set it is provenance, not an owner the
+  // credential's lifetime should depend on. Offboarding the user who last
+  // typed in the SMTP password must not silently delete a working SMTP
+  // configuration — that failure mode (email breaks because someone left
+  // the company) is exactly what this FK behaviour avoids. The credential
+  // outliving its last editor is correct; losing it is not.
+  updatedByUser User? @relation("CredentialUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([purpose, name])
+  @@map("credentials")
 }
