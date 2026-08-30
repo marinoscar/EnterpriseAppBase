@@ -2,10 +2,11 @@
 // Email -- public surface (issue #122, epic #109)
 // =============================================================================
 //
-// #122 ships the transports and their configuration only: no templates (#123),
-// no settings endpoint (#124), no dispatcher (#125). Consumers import from
-// `../email`, so those can appear behind this barrel without every call site
-// changing its import path -- the same arrangement `../notifications` uses.
+// #122 shipped the transports and their configuration; #123 adds the template
+// layer behind the same barrel, exactly as that arrangement anticipated -- no
+// call site changed its import path to get it. Still absent: the settings
+// endpoint (#124), the dispatcher (#125), the three real event templates
+// (#128).
 //
 // `BaseEmailProvider` is exported for the same reason it exists: a new
 // transport extends it and inherits the never-throw guarantee. Implementing
@@ -26,6 +27,27 @@ export {
   emailSettingsSchema,
 } from './email-settings.schema';
 export { SesEmailProvider } from './providers/ses-email.provider';
+
+// Templates (#123). The registry is the dispatch surface #125 renders through;
+// `SafeHtml`/`html` are the escaping mechanism every template is built on --
+// see ./templates/safe-html.ts for why escaping is the default path here and
+// not a call each template has to remember.
+export {
+  APP_NAME,
+  EMAIL_TEMPLATES,
+  EMAIL_TEMPLATE_NAMES,
+  SafeHtml,
+  TRANSACTIONAL_EMAIL_HEADERS,
+  escapeHtml,
+  findEmailTemplate,
+  html,
+  isEmailTemplateName,
+  plainText,
+  renderEmailTemplate,
+  renderLayout,
+  safeUrl,
+  testEmail,
+} from './templates';
 export {
   SmtpEmailProvider,
   SMTP_CREDENTIAL_NAME,
@@ -33,6 +55,15 @@ export {
 } from './providers/smtp-email.provider';
 
 export type { EmailMessage, EmailSendResult } from './email.types';
+export type {
+  EmailTemplate,
+  EmailTemplateDataMap,
+  EmailTemplateName,
+  PlainTextOptions,
+  RenderLayoutOptions,
+  RenderedEmail,
+  TestEmailData,
+} from './templates';
 export type { EmailProvider } from './providers/email-provider.interface';
 export type {
   EmailProviderKind,
