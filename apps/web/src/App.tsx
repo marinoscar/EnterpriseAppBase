@@ -17,9 +17,10 @@ const AuthCallbackPage = lazy(() => import('./pages/AuthCallbackPage'));
 const ActivateDevicePage = lazy(() => import('./pages/ActivateDevicePage'));
 const HomePage = lazy(() => import('./pages/HomePage'));
 const UserSettingsPage = lazy(() => import('./pages/UserSettingsPage'));
-const SystemSettingsPage = lazy(() => import('./pages/SystemSettingsPage'));
 
-// Console — one route per card in `config/adminSections.tsx` (#92, epic #90).
+// Console — the hub (#93) plus one route per card in
+// `config/adminSections.tsx` (#92, epic #90).
+const SettingsHubPage = lazy(() => import('./pages/Admin/SettingsHubPage'));
 const GeneralSettingsPage = lazy(() => import('./pages/Admin/GeneralSettingsPage'));
 const AppearanceSettingsPage = lazy(() => import('./pages/Admin/AppearanceSettingsPage'));
 const FeatureFlagsPage = lazy(() => import('./pages/Admin/FeatureFlagsPage'));
@@ -94,13 +95,12 @@ function AppRoutes() {
                   element={<Navigate to="/admin/settings/users" replace />}
                 />
 
-                {/* TODO(#93): `/admin/settings` becomes `SettingsHubPage` — the
-                    searchable, grouped card grid that reads `ADMIN_SECTIONS`.
-                    Until then it keeps rendering the old three-tab
-                    `SystemSettingsPage` so the hub path does not 404 and the
-                    Console destination has somewhere to land. The tabs it shows
-                    now duplicate the four routes below; that duplication is
-                    temporary and ends when #93 replaces this element. */}
+                {/* The Console hub (#93, epic #90) — the searchable, grouped
+                    card grid that reads `ADMIN_SECTIONS`. It replaces the
+                    three-tab placeholder that answered this route through #92,
+                    whose tabs duplicated the four routes below. That
+                    duplication is now gone: the hub NAVIGATES to those routes
+                    instead of re-hosting them. */}
                 {/* ANY-OF, and the one route here that is not a single
                     permission. This gate MUST STAY IN SYNC WITH `console`'s
                     `anyPermission` in `config/destinations.ts` — the two lists
@@ -117,15 +117,15 @@ function AppRoutes() {
                     here — matching `anyPermission`'s semantics, not
                     `hasAllPermissions`'.
 
-                    A `users:read`-only user consequently reaches this route and
-                    meets `SystemSettingsPage`'s OWN access-denied state, since
-                    that placeholder checks `system_settings:read` internally.
-                    That is accepted for now — landing on a denial inside the
-                    admin surface beats being ejected from it — and it
-                    disappears with #93, when `SettingsHubPage` renders whatever
-                    cards the user can actually see. The five child routes below
-                    keep their single-permission gates: each is one specific
-                    page with one specific permission. */}
+                    A `users:read`-only user consequently reaches this route
+                    and — since #93 — sees a hub containing exactly the one card
+                    that permission unlocks, instead of the placeholder page's
+                    blanket access-denied state. The hub's own gate
+                    (`visibleSettingsSections`) does that per CARD, which is why
+                    this route only answers the coarser question "may this user
+                    reach the admin surface at all?". The five child routes
+                    below keep their single-permission gates: each is one
+                    specific page with one specific permission. */}
                 <Route
                   path="/admin/settings"
                   element={
@@ -133,7 +133,7 @@ function AppRoutes() {
                       permissions={['system_settings:read', 'users:read']}
                       fallback={<Navigate to="/" replace />}
                     >
-                      <SystemSettingsPage />
+                      <SettingsHubPage />
                     </RequirePermission>
                   }
                 />

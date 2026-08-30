@@ -23,8 +23,8 @@ import App from '../App';
  * `/admin/settings/*`, a shared heading would let a mis-wired route pass by
  * rendering a sibling — which is precisely the failure a route split invites.
  */
-vi.mock('../pages/SystemSettingsPage', () => ({
-  default: () => <h1>System Settings</h1>,
+vi.mock('../pages/Admin/SettingsHubPage', () => ({
+  default: () => <h1>Admin Settings Hub</h1>,
 }));
 
 vi.mock('../pages/Admin/GeneralSettingsPage', () => ({
@@ -147,7 +147,9 @@ describe('App', () => {
 
       await waitFor(
         () =>
-          expect(screen.getByRole('heading', { name: /system settings/i })).toBeInTheDocument(),
+          expect(
+            screen.getByRole('heading', { name: /admin settings hub/i }),
+          ).toBeInTheDocument(),
         { timeout: 5000 },
       );
     });
@@ -166,7 +168,9 @@ describe('App', () => {
 
       await waitFor(
         () =>
-          expect(screen.getByRole('heading', { name: /system settings/i })).toBeInTheDocument(),
+          expect(
+            screen.getByRole('heading', { name: /admin settings hub/i }),
+          ).toBeInTheDocument(),
         { timeout: 5000 },
       );
     });
@@ -189,7 +193,9 @@ describe('App', () => {
 
       await waitFor(
         () =>
-          expect(screen.getByRole('heading', { name: /system settings/i })).toBeInTheDocument(),
+          expect(
+            screen.getByRole('heading', { name: /admin settings hub/i }),
+          ).toBeInTheDocument(),
         { timeout: 5000 },
       );
     });
@@ -322,9 +328,11 @@ describe('App', () => {
         </MemoryRouter>,
       );
 
-      // TODO(#93): this stand-in is `SystemSettingsPage` until the hub exists.
       await waitFor(
-        () => expect(screen.getByRole('heading', { name: 'System Settings' })).toBeInTheDocument(),
+        () =>
+          expect(
+            screen.getByRole('heading', { name: 'Admin Settings Hub' }),
+          ).toBeInTheDocument(),
         { timeout: 5000 },
       );
     });

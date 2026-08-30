@@ -32,16 +32,29 @@ export function Layout() {
   // in portrait (iPad 768px, iPad Pro 11" 834px), foldables unfolded, and
   // phones in landscape.
   //
-  // ⚠️ THREE GATES ARE COUPLED AND MUST MOVE TOGETHER. Moving the rail alone
+  // ⚠️ FIVE GATES ARE COUPLED AND MUST MOVE TOGETHER. Moving the rail alone
   // renders two navigation surfaces, or none, in the gap:
   //   1. this `showRail`                    — the rail itself
   //   2. `BottomNav`'s `down('sm')`         — the EXACT complement
   //   3. `<main>`'s `pb` below              — clears the fixed bottom bar, and
   //                                           so is only needed where the bar
   //                                           exists
+  // Epic #90 adds two more members to the set, both `down('sm')` and both
+  // about the SETTINGS surface rather than the shell's own chrome:
+  //   4. `settings/SettingsHub`'s           — drill-down list below it, card
+  //      `isCompactWindow` (#93)              grid at and above it
+  //   5. the AppBar's compact treatment     — back arrow + resolved page title
+  //      (#95)                                on `/admin/*` and `/settings/*`
+  // (4) and (5) are coupled to EACH OTHER as tightly as (1)–(3) are: the hub is
+  // the page body and the AppBar is the header directly above it, so a
+  // disagreement between them puts a back-arrow drill-down header over a card
+  // grid, or a full toolbar over a list with no way back up. They are tied to
+  // (1)–(3) as well, because "there is no rail here" is exactly what makes the
+  // hub itself the navigation below `sm`.
+  //
   // This comment is the invariant's only enforcement; there is deliberately no
   // shared constant, because a constant would let (3) drift while still
-  // compiling. If you change one number here, change all three.
+  // compiling. If you change one number here, change all five.
   const showRail = useMediaQuery(theme.breakpoints.up('sm'));
 
   return (
