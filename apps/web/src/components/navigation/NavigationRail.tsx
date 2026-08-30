@@ -1,5 +1,5 @@
 /**
- * The navigation rail — tablet and desktop chrome for the four destinations.
+ * The navigation rail — tablet and desktop chrome for the app's destinations.
  *
  * Issue #55, epic #51. This REPLACES `Sidebar`'s temporary drawer at `sm` and
  * up. The drawer it replaces was `variant="temporary"` at EVERY breakpoint,
@@ -20,8 +20,33 @@
  * The medium tier is ALWAYS collapsed regardless of that preference. Honouring
  * a stale `railCollapsed: false` below `lg` would render a 220px rail on a
  * 600px screen — a third of the viewport spent on chrome.
+ *
+ * CONSOLE MODE — and where it deliberately stops
+ * ----------------------------------------------
+ * Issue #94, epic #90. On any `/admin/*` route the rail swaps its CONTENTS for
+ * the admin sections declared in `config/adminSections.tsx`, promoting
+ * `SettingsHubPage`'s permission-gated cards from a page into navigation. Every
+ * settings-to-settings move used to have to route back through the hub landing
+ * page and pick another card, while 220px of chrome showed three rows that were
+ * not the ones the user needed.
+ *
+ * It swaps ONLY WHEN EXPANDED, and that asymmetry is deliberate — do not
+ * "fix" it. A 56px column cannot host labelled group headers, and a stack of
+ * near-identical unlabelled admin icons is worse than no swap at all. So at the
+ * medium tier, and whenever a desktop user has collapsed the rail, the rail
+ * keeps LIBRARY navigation with `Console` marked active and `SettingsHubPage`
+ * IS the admin navigation. That is exactly the reasoning epic #90 applies to
+ * the phone (no rail at all, so the hub is a drill-down), applied to the other
+ * size class that has no room for group headers either — and it preserves the
+ * guarantee that the user is always one click out of the admin surface.
+ *
+ * Console mode also invents no admin IA of its own: it reads the same
+ * `ADMIN_SECTIONS` array through the same `visibleSettingsSections` gate as the
+ * hub and the AppBar title resolver, so the three cannot disagree about what
+ * exists or who may see it.
  */
 
+import { useMemo } from 'react';
 import {
   Box,
   Divider,
@@ -31,12 +56,14 @@ import {
   ListItemButton,
   ListItemIcon,
   ListItemText,
+  ListSubheader,
   Tooltip,
   Typography,
   useMediaQuery,
   useTheme,
 } from '@mui/material';
 import type { SvgIconComponent } from '@mui/icons-material';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import { Link as RouterLink, useLocation } from 'react-router-dom';
@@ -45,8 +72,10 @@ import { useNavigationPrefs } from '../../hooks/useNavigationPrefs';
 import {
   DESTINATIONS,
   isDestinationVisible,
+  owns,
   resolveActiveDestination,
 } from '../../config/destinations';
+import { ADMIN_SECTIONS, visibleSettingsSections } from '../../config/adminSections';
 
 /**
  * 56px so a 24px icon clears 16px of horizontal padding without the caption
@@ -68,15 +97,38 @@ interface RailRowProps {
   label: string;
   /**
    * Shown when collapsed, where 56px will not hold "System Settings". The
-   * visible text is `aria-hidden` and the FULL label travels in `aria-label`,
-   * so the label reaches assistive technology in both treatments.
+   * visible text is `aria-hidden` and the FULL name travels in
+   * `accessibleName`, so the label reaches assistive technology in both
+   * treatments. Optional because Console-mode rows are expanded-only and so
+   * never render a caption at all.
    */
-  compactLabel: string;
+  compactLabel?: string;
+  /**
+   * The row's accessible name, stated EXPLICITLY rather than derived from
+   * `label` (#94).
+   *
+   * The two callers want different things from it and a single derived value
+   * cannot serve both: a destination's `label` is a navigation noun ("User
+   * Settings") that reads correctly as a name, while a Console card's title is
+   * already the page's full text ("Advanced (JSON)") and must be passed through
+   * verbatim. Making the caller name the row means neither site is guessing,
+   * and a future row that needs a name unlike its label — a count, a state —
+   * has somewhere to put it instead of overloading `label`.
+   */
+  accessibleName: string;
   active: boolean;
   expanded: boolean;
 }
 
-function RailRow({ to, Icon, label, compactLabel, active, expanded }: RailRowProps) {
+function RailRow({
+  to,
+  Icon,
+  label,
+  compactLabel,
+  accessibleName,
+  active,
+  expanded,
+}: RailRowProps) {
   const theme = useTheme();
 
   const button = (
@@ -90,7 +142,7 @@ function RailRow({ to, Icon, label, compactLabel, active, expanded }: RailRowPro
       // `selected` is a VISUAL state only; assistive technology needs the
       // explicit landmark.
       aria-current={active ? 'page' : undefined}
-      aria-label={label}
+      aria-label={accessibleName}
       sx={{
         borderRadius: 1,
         mx: 0.5,
@@ -144,7 +196,7 @@ function RailRow({ to, Icon, label, compactLabel, active, expanded }: RailRowPro
             color: active ? theme.palette.primary.main : theme.palette.text.secondary,
           }}
         >
-          {compactLabel}
+          {compactLabel ?? label}
         </Typography>
       )}
     </ListItemButton>
@@ -173,6 +225,15 @@ export function NavigationRail() {
 
   const expanded = isDesktop && !railCollapsed;
 
+  // `owns`, never `pathname.startsWith('/admin')`: a bare prefix test would
+  // put the rail into Console mode on a future `/administration` route.
+  const isConsole = owns('/admin', pathname);
+
+  // EXPANDED-ONLY, deliberately — see the file header. `expanded` already folds
+  // in both ways a rail can be narrow (the medium tier, and a desktop user who
+  // collapsed it), so one flag covers both and they cannot drift apart.
+  const consoleMode = isConsole && expanded;
+
   // Active state comes from the destination model, never from a path prefix
   // compared against the row's own `path` — see `config/destinations.ts`.
   const activeDestination = resolveActiveDestination(pathname);
@@ -186,15 +247,66 @@ export function NavigationRail() {
     isDestinationVisible(destination, hasPermission),
   );
 
+  // No `query` argument: the RAIL is not searchable, the HUB is (#93). A search
+  // field cannot live in 220px beside the rows it filters, and the rail is
+  // persistent chrome — filtering it would leave the user staring at navigation
+  // that no longer lists where they are.
+  const consoleSections = useMemo(
+    () => (consoleMode ? visibleSettingsSections(ADMIN_SECTIONS, hasPermission) : []),
+    [consoleMode, hasPermission],
+  );
+
+  // LONGEST PREFIX WINS, not `owns` alone. Admin paths genuinely nest
+  // (`/admin/settings/users` vs a future `/admin/settings/users/:id`), so a
+  // plain `owns` test per card lights up TWO rows and emits `aria-current="page"`
+  // twice — which tells a screen reader the user is on two pages at once.
+  //
+  // `resolveActiveDestination` cannot answer this: it resolves DESTINATIONS,
+  // and inside Console every one of these rows belongs to the single `console`
+  // destination, so it would mark all of them or none.
+  const consoleActivePath = useMemo(() => {
+    if (!consoleMode) return null;
+    return consoleSections
+      .flatMap((section) => section.cards)
+      .reduce<string | null>((best, card) => {
+        // Cards without a route, and inert ones, are not navigable and so are
+        // never the active row — the same two skips the render below makes.
+        if (!card.path || card.disabled) return best;
+        if (!owns(card.path, pathname)) return best;
+        return best === null || card.path.length > best.length ? card.path : best;
+      }, null);
+  }, [consoleMode, consoleSections, pathname]);
+
+  // `disableSticky`: the rail is its own scroll container, and a sticky
+  // subheader inside it would pin a group header over the rows of the NEXT
+  // group as the user scrolls a long admin list. `backgroundColor: transparent`
+  // for the same reason — MUI paints an opaque background precisely so a sticky
+  // header can cover what scrolls under it, and it is a visible seam otherwise.
+  const subheaderSx = {
+    fontSize: '0.65rem',
+    fontWeight: 700,
+    letterSpacing: '0.08em',
+    textTransform: 'uppercase' as const,
+    color: theme.palette.text.disabled,
+    lineHeight: '2rem',
+    backgroundColor: 'transparent',
+  };
+
   return (
     <Box
       component="nav"
-      aria-label="Main navigation"
+      // The landmark's name says WHICH MODE it is in (#94). In Console mode its
+      // contents are entirely different, and a screen-reader user landing on
+      // "Main navigation" full of admin pages has no way to tell which one they
+      // are in — or that there is a way back out.
+      aria-label={consoleMode ? 'Console navigation' : 'Main navigation'}
       sx={{
         width: expanded ? RAIL_WIDTH_EXPANDED : RAIL_WIDTH_COLLAPSED,
         flexShrink: 0,
         // Load-bearing, not cosmetic: without it a long label inside the rail
         // sets a min-content floor that widens the shell past the viewport.
+        // Console mode raises the stakes — "Advanced (JSON)" and "Users &
+        // Allowlist" are longer than any destination label.
         minWidth: 0,
         display: 'flex',
         flexDirection: 'column',
@@ -223,26 +335,94 @@ export function NavigationRail() {
         },
       }}
     >
-      <Box sx={{ flexGrow: 1, py: 1, minWidth: 0 }}>
-        <List dense disablePadding>
-          {visibleDestinations.map((destination) => (
+      {consoleMode ? (
+        <Box sx={{ flexGrow: 1, py: 1, minWidth: 0 }}>
+          {/* Console is a MODE, so the way out is PERMANENT and at the top —
+              never a route the user has to guess at, and never something that
+              scrolls off behind a long section list. It also replaces the
+              `Console` destination row, which is why that row is absent here:
+              a row pointing at the surface you are already inside is dead
+              chrome, and it would compete with the real active card for
+              `aria-current`. `active={false}` for the same reason — "/" is the
+              destination you are leaving for, not the page you are on. */}
+          <List dense disablePadding>
             <RailRow
-              key={destination.key}
-              to={destination.path}
-              Icon={destination.Icon}
-              label={destination.label}
-              compactLabel={destination.compactLabel}
-              active={activeDestination === destination.key}
-              expanded={expanded}
+              to="/"
+              Icon={ArrowBackIcon}
+              label="Back to library"
+              accessibleName="Back to library"
+              active={false}
+              expanded
             />
+          </List>
+          <Divider sx={{ my: 1 }} />
+
+          {consoleSections.map((section) => (
+            <List
+              key={section.label}
+              dense
+              disablePadding
+              // A real `ListSubheader` rather than a styled `Typography`: it
+              // gives the group an accessible heading tied to the list it
+              // labels, so the rail reads as grouped navigation rather than one
+              // undifferentiated run of links.
+              subheader={
+                <ListSubheader disableSticky sx={subheaderSx}>
+                  {section.label}
+                </ListSubheader>
+              }
+            >
+              {section.cards.map((card) =>
+                // Skipped, not rendered inert: a card with no `path` has nowhere
+                // to send the user, and a `disabled` one is declared-but-unusable
+                // (see `SettingsCardDef`). Either as a rail row would be a link
+                // that goes nowhere.
+                !card.path || card.disabled ? null : (
+                  <RailRow
+                    key={card.path}
+                    to={card.path}
+                    Icon={card.Icon}
+                    label={card.title}
+                    // The card title IS the full text — nothing to abbreviate
+                    // and nothing to expand, so the name is the title verbatim.
+                    accessibleName={card.title}
+                    active={card.path === consoleActivePath}
+                    // Console mode only exists when the rail is expanded, so
+                    // this is a constant rather than a read of `expanded`.
+                    expanded
+                  />
+                ),
+              )}
+            </List>
           ))}
-        </List>
-      </Box>
+        </Box>
+      ) : (
+        <Box sx={{ flexGrow: 1, py: 1, minWidth: 0 }}>
+          <List dense disablePadding>
+            {visibleDestinations.map((destination) => (
+              <RailRow
+                key={destination.key}
+                to={destination.path}
+                Icon={destination.Icon}
+                label={destination.label}
+                compactLabel={destination.compactLabel}
+                accessibleName={destination.label}
+                active={activeDestination === destination.key}
+                expanded={expanded}
+              />
+            ))}
+          </List>
+        </Box>
+      )}
 
       {/* The collapse toggle is DESKTOP-ONLY: the medium tier is forced
           collapsed, so a toggle there would either do nothing or produce a
           220px rail on a 600px screen. A real <button> with `aria-expanded` —
-          not an icon-shaped div, and not a link. */}
+          not an icon-shaped div, and not a link.
+
+          It stays in Console mode on purpose: collapsing from there is how a
+          desktop user gets the library rail back without leaving the admin
+          surface, and it is the same control in the same place either way. */}
       {isDesktop && (
         <>
           <Divider />
