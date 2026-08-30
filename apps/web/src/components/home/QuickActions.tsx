@@ -2,7 +2,7 @@ import { Card, CardContent, Typography, Grid, Button, Box } from '@mui/material'
 import { Palette as ThemeIcon } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { usePermissions } from '../../hooks/usePermissions';
-import { DESTINATIONS } from '../../config/destinations';
+import { DESTINATIONS, isDestinationVisible } from '../../config/destinations';
 import type { DestinationKey } from '../../config/destinations';
 
 /**
@@ -24,8 +24,11 @@ import type { DestinationKey } from '../../config/destinations';
 /** Prose keyed by destination. A destination with no entry is not shown here. */
 const ACTION_DESCRIPTIONS: Partial<Record<DestinationKey, string>> = {
   settings: 'Manage your profile and preferences',
-  users: 'Manage users and email allowlist',
-  system: 'Configure application settings',
+  // One line for one surface. `users` and `system` were two entries here until
+  // #92 merged the two admin destinations into `console`; two shortcuts to what
+  // is now the same hub would have been the home page's version of the
+  // duplicate rail row that merge exists to remove.
+  console: 'Manage users and application settings',
 };
 
 export function QuickActions() {
@@ -35,7 +38,7 @@ export function QuickActions() {
   const visibleActions = DESTINATIONS.filter(
     (destination) =>
       ACTION_DESCRIPTIONS[destination.key] !== undefined &&
-      (!destination.permission || hasPermission(destination.permission)),
+      isDestinationVisible(destination, hasPermission),
   ).flatMap((destination) => [
     {
       title: destination.label,

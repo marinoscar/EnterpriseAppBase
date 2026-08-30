@@ -22,15 +22,26 @@
  * `Icon` is declared as a COMPONENT, never as a rendered element. The rail
  * draws it at `small` when collapsed and `medium` when expanded, and the
  * bottom bar draws it at its own size — so the size cannot be baked in here.
+ *
+ * ONE ADMIN DESTINATION, NOT TWO (issue #92, epic #90)
+ * ----------------------------------------------------
+ * `users` (`/admin/users`) and `system` (`/admin/settings`) used to be two
+ * separate rows for what is, to the user, one surface. Issue #92 splits the
+ * admin tab strips into one route per settings page under `/admin/settings/*`,
+ * and #94 gives the rail a Console mode that swaps its contents to those pages
+ * on any `/admin/*` path. Console mode is only coherent if the admin surface is
+ * ONE destination: two rows both matching `/admin/*` means two `aria-current`
+ * candidates and an ambiguous active state on every admin route. So the two are
+ * replaced by a single `console` destination that owns the whole `/admin`
+ * subtree.
  */
 
 import type { SvgIconComponent } from '@mui/icons-material';
 import HomeIcon from '@mui/icons-material/Home';
 import SettingsIcon from '@mui/icons-material/Settings';
-import PeopleIcon from '@mui/icons-material/People';
 import AdminIcon from '@mui/icons-material/AdminPanelSettings';
 
-export type DestinationKey = 'home' | 'settings' | 'users' | 'system';
+export type DestinationKey = 'home' | 'settings' | 'console';
 
 /**
  * Does `prefix` own `path`? True when the path equals the prefix or continues
@@ -44,14 +55,21 @@ export function owns(prefix: string, path: string): boolean {
 
 /**
  * Route prefixes each destination owns. Child routes are covered by their
- * parent prefix (`/admin/users/:id`, `/settings/profile`, …) and do not need
- * their own entries.
+ * parent prefix (`/admin/settings/users`, `/settings/profile`, …) and do not
+ * need their own entries.
+ *
+ * `console` owns the bare `/admin` rather than `/admin/settings`, even though
+ * `/admin/settings` is where it NAVIGATES. The two are different questions:
+ * `path` is where the row sends you, `DESTINATION_ROUTES` is what makes the row
+ * light up. `/admin/users` still exists as a redirect route (#92) and a
+ * bookmark still lands on it for one render — with only `/admin/settings` in
+ * this list that render would highlight nothing, and the route-ownership test
+ * would fail it as "neither owned nor deliberately unowned".
  */
 export const DESTINATION_ROUTES: Record<DestinationKey, readonly string[]> = {
   home: ['/'],
   settings: ['/settings'],
-  users: ['/admin/users'],
-  system: ['/admin/settings'],
+  console: ['/admin'],
 };
 
 /**
@@ -76,8 +94,8 @@ export const UNOWNED_ROUTES: readonly string[] = [
  *
  * `permission` is the API permission that makes the destination REACHABLE, and
  * it is deliberately the same string the corresponding controller enforces —
- * see the comments on each entry. A destination with no `permission` is
- * available to every authenticated user.
+ * see the comments on each entry. A destination with no `permission` and no
+ * `anyPermission` is available to every authenticated user.
  */
 export interface Destination {
   key: DestinationKey;
@@ -89,23 +107,67 @@ export interface Destination {
   path: string;
   /** API permission required to reach it; absent means "any authenticated user". */
   permission?: string;
+  /**
+   * Reachable when the user holds ANY ONE of these permissions.
+   *
+   * Added by #92 for `console`, which fronts pages from two different
+   * controllers: someone with `users:read` alone must reach the Users &
+   * Allowlist page, and someone with `system_settings:read` alone must reach
+   * the settings pages. Neither may be dropped, and the single-string
+   * `permission` field cannot express "or".
+   *
+   * Widening `permission` to `string | string[]` was the alternative and was
+   * rejected: an array there reads as ALL by every convention in this codebase
+   * (`hasAllPermissions`), so the same field would have meant "and" at one call
+   * site and "or" at another. A separate field names the semantics.
+   *
+   * The two fields AND together when both are set — `permission` must be held
+   * AND at least one of `anyPermission`. No destination sets both today; the
+   * rule is stated so the day one does, `isDestinationVisible` is the only
+   * place that has to know.
+   */
+  anyPermission?: readonly string[];
 }
 
 /**
- * The four destinations, in navigation order.
+ * Is `destination` visible to a user with this `hasPermission` predicate?
+ *
+ * EVERY surface calls this rather than testing `destination.permission`
+ * inline. Four surfaces (rail, bottom bar, user menu, quick actions) each ran
+ * their own `!destination.permission || hasPermission(...)` expression, and
+ * every one of them silently ignored `anyPermission` the moment it was added —
+ * the `console` row would have appeared for everyone. One function is the same
+ * fix this file's header describes for the paths themselves.
+ */
+export function isDestinationVisible(
+  destination: Destination,
+  hasPermission: (permission: string) => boolean,
+): boolean {
+  if (destination.permission && !hasPermission(destination.permission)) return false;
+  if (destination.anyPermission && !destination.anyPermission.some(hasPermission)) return false;
+  return true;
+}
+
+/**
+ * The three destinations, in navigation order.
  *
  * GATING IS BY PERMISSION, NOT BY ROLE, and the permission is the one the API
  * actually enforces — verified against the controllers rather than assumed:
  *
- *   - `/admin/users`    → `users:read`          (`users.controller.ts`)
- *   - `/admin/settings` → `system_settings:read` (`system-settings.controller.ts`)
+ *   - `users.controller.ts`           → `users:read`
+ *   - `system-settings.controller.ts` → `system_settings:read`
  *
- * `/admin/users` hosts two tabs whose data comes from two different
- * controllers: Users (`users:read`) and Allowlist (`allowlist:read`). The
- * DESTINATION gates on `users:read` only — a destination gate is about
- * REACHABILITY, and the page is worth reaching for its Users tab alone. The
- * Allowlist tab gates itself on `allowlist:read` inside the page, because a
- * tab gate is about CONTENT.
+ * `console` is reachable on EITHER of those (see `anyPermission`), because
+ * `/admin/settings` fronts pages from both controllers and a user entitled to
+ * only one half must still reach the surface. The per-page gates inside
+ * `/admin/settings/*` are what decide which cards and routes that user actually
+ * gets — `config/adminSections.tsx` declares them, and `App.tsx` wraps each
+ * route in the matching `RequirePermission`.
+ *
+ * That is the same REACHABILITY-vs-CONTENT split this file has always drawn:
+ * the Users & Allowlist page gates on `users:read` to be reached, while its
+ * Allowlist half gates itself on `allowlist:read` inside the page, because its
+ * data comes from `allowlist.controller.ts`.
  *
  * `isAdmin` is no longer a navigation gate anywhere. It still exists (and
  * `AdminOnly` with it) for non-navigation uses, but a role check here is what
@@ -127,30 +189,22 @@ export const DESTINATIONS: readonly Destination[] = [
     path: '/settings',
   },
   {
-    key: 'users',
-    label: 'User Management',
-    compactLabel: 'Users',
-    Icon: PeopleIcon,
-    path: '/admin/users',
-    permission: 'users:read',
-  },
-  {
-    key: 'system',
-    label: 'System Settings',
-    compactLabel: 'System',
+    key: 'console',
+    label: 'Console',
+    compactLabel: 'Console',
     Icon: AdminIcon,
     path: '/admin/settings',
-    permission: 'system_settings:read',
+    anyPermission: ['system_settings:read', 'users:read'],
   },
 ];
 
 /**
  * Which destination, if any, owns `pathname`.
  *
- * Longest prefix wins where prefixes overlap. That rule earns its keep
- * immediately here: `/admin/users` and `/admin/settings` are siblings under a
- * common `/admin`, so the day anything claims the bare `/admin` prefix, the
- * more specific sibling must still win on its own route.
+ * Longest prefix wins where prefixes overlap. `/admin` is a single prefix
+ * today, so nothing under it competes — but the rule is what keeps `/` from
+ * winning everything (it is handled by `owns`' exact-match case) and what will
+ * keep a future sibling prefix correct without touching this function.
  */
 export function resolveActiveDestination(pathname: string): DestinationKey | null {
   let best: { key: DestinationKey; length: number } | null = null;

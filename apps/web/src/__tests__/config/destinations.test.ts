@@ -7,10 +7,12 @@ import {
   DESTINATIONS,
   DESTINATION_ROUTES,
   UNOWNED_ROUTES,
+  isDestinationVisible,
   owns,
   resolveActiveDestination,
 } from '../../config/destinations';
-import type { DestinationKey } from '../../config/destinations';
+import type { Destination, DestinationKey } from '../../config/destinations';
+import { ADMIN_SECTIONS } from '../../config/adminSections';
 
 /**
  * The route-ownership table is the one piece of this navigation that manual
@@ -33,11 +35,29 @@ function declaredRoutePaths(): string[] {
 }
 
 describe('destinations — route ownership', () => {
-  it('finds at least the four destination routes plus the public ones in App.tsx', () => {
+  it('finds the destination routes, the admin pages and the public ones in App.tsx', () => {
     // Guards the regex above: if it silently stopped matching, every assertion
     // below would pass vacuously over an empty list.
+    //
+    // `/admin/users` is still in this list after #92 — as a redirect route to
+    // `/admin/settings/users` rather than a page. That is the point of the
+    // redirect: the path is DECLARED, so a bookmark reaches it instead of
+    // falling through `*` to `/`.
     const paths = declaredRoutePaths();
-    expect(paths).toEqual(expect.arrayContaining(['/', '/settings', '/admin/users', '/admin/settings']));
+    expect(paths).toEqual(
+      expect.arrayContaining([
+        '/',
+        '/settings',
+        '/admin',
+        '/admin/users',
+        '/admin/settings',
+        '/admin/settings/general',
+        '/admin/settings/appearance',
+        '/admin/settings/feature-flags',
+        '/admin/settings/advanced',
+        '/admin/settings/users',
+      ]),
+    );
     expect(paths.length).toBeGreaterThanOrEqual(8);
   });
 
@@ -103,8 +123,14 @@ describe('destinations — segment-boundary matching', () => {
     expect(resolveActiveDestination('/settingsfoo')).toBeNull();
   });
 
-  it('does not let /admin/users-archive activate User Management', () => {
-    expect(resolveActiveDestination('/admin/users-archive')).toBeNull();
+  it('does not let /adminfoo activate Console', () => {
+    // `/admin/users-archive` used to be this assertion's example, back when
+    // `users` owned `/admin/users`. Since #92 `console` owns the whole `/admin`
+    // subtree, so that path legitimately activates Console — the boundary that
+    // still matters is the one at the end of `/admin` itself.
+    expect(resolveActiveDestination('/adminfoo')).toBeNull();
+    expect(resolveActiveDestination('/admin-archive')).toBeNull();
+    expect(resolveActiveDestination('/admin/users-archive')).toBe('console');
   });
 
   it('activates Home on / only, never on any other path', () => {
@@ -118,16 +144,20 @@ describe('destinations — segment-boundary matching', () => {
 
   it('activates a destination for its child routes', () => {
     expect(resolveActiveDestination('/settings/profile')).toBe('settings');
-    expect(resolveActiveDestination('/admin/users/abc-123')).toBe('users');
+    expect(resolveActiveDestination('/admin/settings/users')).toBe('console');
+    expect(resolveActiveDestination('/admin/settings/users/abc-123')).toBe('console');
   });
 
-  it('gives the longest matching prefix the win', () => {
-    // `/admin/users` and `/admin/settings` are siblings under a common `/admin`.
-    // Nothing claims the bare `/admin` today, but the rule is what keeps the
-    // siblings correct the day something does.
-    expect(resolveActiveDestination('/admin/settings')).toBe('system');
-    expect(resolveActiveDestination('/admin/users')).toBe('users');
-    expect(resolveActiveDestination('/admin')).toBeNull();
+  it('gives Console the whole /admin subtree, bare path included', () => {
+    // #92: one admin destination, not two. `console` owns `/admin` rather than
+    // `/admin/settings`, so the bare `/admin` redirect route and the
+    // `/admin/users` redirect route both highlight it for the frame they
+    // render — with `/admin/settings` as the prefix they would have
+    // highlighted nothing.
+    expect(resolveActiveDestination('/admin')).toBe('console');
+    expect(resolveActiveDestination('/admin/users')).toBe('console');
+    expect(resolveActiveDestination('/admin/settings')).toBe('console');
+    expect(resolveActiveDestination('/admin/settings/advanced')).toBe('console');
   });
 });
 
@@ -145,21 +175,60 @@ describe('destinations — reachability regression', () => {
     }
   });
 
-  it('still offers every old Sidebar path as a destination', () => {
-    expect(DESTINATIONS.map((destination) => destination.path).sort()).toEqual(
-      [...OLD_SIDEBAR_PATHS].sort(),
-    );
+  it('offers three destinations, with the two admin rows merged into Console', () => {
+    // NOT four any more (#92). `/admin/users` stops being a destination PATH
+    // while staying a resolvable route — it redirects to
+    // `/admin/settings/users`, and the assertion above is what proves the
+    // merge cost no reachability.
+    expect(DESTINATIONS.map((destination) => destination.path).sort()).toEqual([
+      '/',
+      '/admin/settings',
+      '/settings',
+    ]);
   });
 });
 
 describe('destinations — the table itself', () => {
-  it('gates the admin destinations on the permission the API enforces', () => {
+  it('gates Console on either permission the API enforces, never on one alone', () => {
     // Verified against the controllers, not assumed:
     //   users.controller.ts           → PERMISSIONS.USERS_READ
     //   system-settings.controller.ts → PERMISSIONS.SYSTEM_SETTINGS_READ
+    //
+    // Both, because `/admin/settings` fronts pages from both. The obvious way
+    // to get this wrong while merging two destinations into one is to keep
+    // whichever permission was typed first and silently strip the other, which
+    // would lock a users-only admin out of the surface entirely.
     const byKey = Object.fromEntries(DESTINATIONS.map((d) => [d.key, d]));
-    expect(byKey.users.permission).toBe('users:read');
-    expect(byKey.system.permission).toBe('system_settings:read');
+    expect(byKey.console.permission).toBeUndefined();
+    expect([...(byKey.console.anyPermission ?? [])].sort()).toEqual([
+      'system_settings:read',
+      'users:read',
+    ]);
+  });
+
+  it('reads anyPermission as OR, and permission as a hard requirement', () => {
+    const [consoleDestination] = DESTINATIONS.filter((d) => d.key === 'console');
+    const holding = (granted: string[]) => (permission: string) =>
+      granted.includes(permission);
+
+    expect(isDestinationVisible(consoleDestination, holding(['users:read']))).toBe(true);
+    expect(
+      isDestinationVisible(consoleDestination, holding(['system_settings:read'])),
+    ).toBe(true);
+    expect(isDestinationVisible(consoleDestination, holding([]))).toBe(false);
+    // The admin ROLE grants nothing here; only permissions do.
+    expect(isDestinationVisible(consoleDestination, holding(['rbac:manage']))).toBe(false);
+
+    // The two fields AND together when both are set — stated in the type's
+    // comment, asserted here so the rule is not just prose.
+    const both: Destination = {
+      ...consoleDestination,
+      permission: 'users:write',
+      anyPermission: ['users:read'],
+    };
+    expect(isDestinationVisible(both, holding(['users:read']))).toBe(false);
+    expect(isDestinationVisible(both, holding(['users:write']))).toBe(false);
+    expect(isDestinationVisible(both, holding(['users:write', 'users:read']))).toBe(true);
   });
 
   it('leaves the non-admin destinations open to any authenticated user', () => {
@@ -191,5 +260,133 @@ describe('destinations — the table itself', () => {
 
   it('caps the destination set at four — the bottom bar ceiling', () => {
     expect(DESTINATIONS.length).toBeLessThanOrEqual(4);
+  });
+});
+
+/**
+ * The registry and the router are two lists of the same admin pages, and epic
+ * #90's whole premise is that they cannot be allowed to disagree. A card whose
+ * `path` has no route is a hub tile leading to the catch-all; a card whose
+ * permission differs from its route's is the split-brain in miniature — the
+ * card appears, the click 403s or redirects.
+ */
+describe('admin sections — registry against the live routes', () => {
+  /** Every `<Route>` element in `App.tsx`, as `path` → the `permission` it wraps. */
+  function declaredRouteGates(): Map<string, string | null> {
+    const source = readFileSync(APP_TSX, 'utf8');
+    const gates = new Map<string, string | null>();
+    // Split on the element opener so each chunk holds exactly one route, and
+    // the first `permission=` inside it is that route's own guard. Chunks that
+    // do not start with a `path` — `<Routes>`, the layout and guard routes —
+    // fall out on their own. Parsing the file rather than importing the tree
+    // keeps this honest about what a reviewer actually reads.
+    for (const chunk of source.split('<Route').slice(1)) {
+      const path = /^\s*path="([^"]+)"/.exec(chunk)?.[1];
+      if (!path) continue;
+      gates.set(path, /permission="([^"]+)"/.exec(chunk)?.[1] ?? null);
+    }
+    return gates;
+  }
+
+  it('routes every card path, under the exact permission the card declares', () => {
+    const gates = declaredRouteGates();
+    const cards = ADMIN_SECTIONS.flatMap((section) => section.cards);
+    expect(cards.length).toBeGreaterThan(0);
+
+    for (const card of cards) {
+      if (!card.path) continue;
+      expect(gates.has(card.path), `${card.title} → ${card.path} has no route`).toBe(true);
+      expect(gates.get(card.path), `${card.title} route gate`).toBe(card.permission);
+    }
+  });
+
+  it('keeps Advanced (JSON) on write, so read-only access cannot reach it', () => {
+    const gates = declaredRouteGates();
+    expect(gates.get('/admin/settings/advanced')).toBe('system_settings:write');
+    expect(gates.get('/admin/settings/general')).toBe('system_settings:read');
+  });
+
+  it('leaves the old admin URLs as declared redirect routes, not catch-all fallout', () => {
+    const gates = declaredRouteGates();
+    // Declared with no permission of their own: they redirect, and the target
+    // route is what gates. A missing entry here means a bookmark lands on `/`.
+    expect(gates.has('/admin/users')).toBe(true);
+    expect(gates.get('/admin/users')).toBeNull();
+    expect(gates.has('/admin')).toBe(true);
+    expect(gates.get('/admin')).toBeNull();
+  });
+
+  it('puts every card inside the Console destination', () => {
+    for (const card of ADMIN_SECTIONS.flatMap((section) => section.cards)) {
+      if (!card.path) continue;
+      expect(resolveActiveDestination(card.path), `${card.path} activates`).toBe('console');
+    }
+  });
+});
+
+/**
+ * Issue #92 regression. The `console` destination becomes VISIBLE (a rail row,
+ * a menu entry, a quick action) whenever the user holds either permission in
+ * `anyPermission` — but the `/admin/settings` route itself once kept only
+ * `system_settings:read`. A user holding `users:read` alone saw the row,
+ * clicked it, and was bounced straight back to `/`: the destination said "you
+ * can go here" and the route said "no you can't", and nothing but a manual
+ * click-through would ever have caught the disagreement.
+ *
+ * This suite reads BOTH sides live rather than restating either as a hardcoded
+ * list — `declaredRoutePermissions` parses the actual `<Route path="/admin/settings">`
+ * element out of `App.tsx`, and `DESTINATIONS` is the same import every other
+ * suite in this file uses — so the two can never silently drift again: change
+ * either one without the other and this test is the one that fires.
+ */
+describe('destinations — route gate matches the console anyPermission (#92)', () => {
+  /**
+   * The permission(s) that gate the exact route `targetPath`, read straight out
+   * of `App.tsx`. Handles both shapes `RequirePermission` accepts: a single
+   * `permission="x"` string, and a `permissions={['a', 'b']}` array (ANY, since
+   * `requireAll` defaults to false — see `RequirePermission.tsx`). Deliberately
+   * separate from `declaredRouteGates()` above, which only ever reads the
+   * single-string form used by every OTHER route in this file.
+   */
+  function declaredRoutePermissions(targetPath: string): string[] {
+    const source = readFileSync(APP_TSX, 'utf8');
+    for (const chunk of source.split('<Route').slice(1)) {
+      const path = /^\s*path="([^"]+)"/.exec(chunk)?.[1];
+      if (path !== targetPath) continue;
+
+      const arrayMatch = /permissions=\{\s*\[([^\]]*)\]\s*\}/.exec(chunk);
+      if (arrayMatch) {
+        return arrayMatch[1]
+          .split(',')
+          .map((entry) => entry.trim().replace(/^['"]|['"]$/g, ''))
+          .filter(Boolean);
+      }
+
+      const singleMatch = /(?<!s)permission="([^"]+)"/.exec(chunk);
+      return singleMatch ? [singleMatch[1]] : [];
+    }
+    // Not found is a real failure, not "no gate" — surfaced as an empty array
+    // that the assertion below rejects via the length check.
+    return [];
+  }
+
+  it('gates /admin/settings on exactly the permissions the console destination allows', () => {
+    const routePermissions = declaredRoutePermissions('/admin/settings');
+    const byKey = Object.fromEntries(DESTINATIONS.map((d) => [d.key, d]));
+    const destinationPermissions = [...(byKey.console.anyPermission ?? [])];
+
+    // Guards the parser itself: if it silently stopped matching (or the route
+    // were ever found ungated), the set-equality check below would pass
+    // vacuously by comparing two empty arrays.
+    expect(
+      routePermissions.length,
+      '/admin/settings has no parsed permission gate — either the route lost its guard or the parser regex stopped matching',
+    ).toBeGreaterThan(0);
+    expect(destinationPermissions.length).toBeGreaterThan(0);
+
+    expect(
+      [...routePermissions].sort(),
+      'the /admin/settings route permissions and the console destination anyPermission set must be identical',
+    ).toEqual([...destinationPermissions].sort());
   });
 });

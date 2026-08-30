@@ -1,3 +1,18 @@
+/**
+ * The old three-tab admin settings page, still mounted at `/admin/settings`.
+ *
+ * TODO(#93): replace this with `SettingsHubPage` — the searchable, grouped card
+ * grid driven by `config/adminSections.tsx`. Issue #92 split its three tabs
+ * into four routed pages under `pages/Admin/`, but deliberately did NOT build
+ * the hub, so this page stays as the placeholder at the hub path: deleting it
+ * in #92 would have 404'd `/admin/settings`, which is where the Console
+ * destination, the `/admin` redirect and every existing bookmark land.
+ *
+ * Nothing new should be added here. The tabs below duplicate
+ * `/admin/settings/appearance`, `/admin/settings/feature-flags` and
+ * `/admin/settings/advanced`; that duplication is temporary and ends with #93.
+ */
+
 import {
   Container,
   Typography,

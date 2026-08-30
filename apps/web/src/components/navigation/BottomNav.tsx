@@ -25,7 +25,11 @@ import {
 } from '@mui/material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { usePermissions } from '../../hooks/usePermissions';
-import { DESTINATIONS, resolveActiveDestination } from '../../config/destinations';
+import {
+  DESTINATIONS,
+  isDestinationVisible,
+  resolveActiveDestination,
+} from '../../config/destinations';
 import type { DestinationKey } from '../../config/destinations';
 
 export function BottomNav() {
@@ -41,8 +45,8 @@ export function BottomNav() {
 
   if (!isCompactWindow) return null;
 
-  const visibleDestinations = DESTINATIONS.filter(
-    (destination) => !destination.permission || hasPermission(destination.permission),
+  const visibleDestinations = DESTINATIONS.filter((destination) =>
+    isDestinationVisible(destination, hasPermission),
   );
 
   const resolved = resolveActiveDestination(location.pathname);

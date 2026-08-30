@@ -79,27 +79,30 @@ describe('BottomNav', () => {
   });
 
   describe('Destinations', () => {
-    it('renders all four destinations for a fully permitted user', () => {
+    it('renders all three destinations for a fully permitted user', () => {
+      // THREE since #92 merged the two admin rows into `Console`. The bar's
+      // four-action ceiling is unchanged and asserted below; this is simply one
+      // row further from it.
       renderPhone();
 
       expect(screen.getByRole('button', { name: 'Home' })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'User Settings' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'User Management' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'System Settings' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Console' })).toBeInTheDocument();
     });
 
     it('shows the compact label as visible text but the full label as the accessible name', () => {
-      // A 4-up bar at 375px gives each tab ~90px; "User Management" does not fit.
+      // A 4-up bar at 375px gives each tab ~90px; "User Settings" does not fit.
       renderPhone();
 
-      expect(screen.getByText('Users')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'User Management' })).toBeInTheDocument();
+      expect(screen.getByText('Settings')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'User Settings' })).toBeInTheDocument();
     });
 
     it('never renders more than four actions — showLabels depends on it', () => {
       renderPhone();
 
-      expect(screen.getAllByRole('button')).toHaveLength(4);
+      expect(screen.getAllByRole('button')).toHaveLength(3);
+      expect(screen.getAllByRole('button').length).toBeLessThanOrEqual(4);
     });
 
     it('hides destinations the user lacks permission for', () => {
@@ -107,16 +110,23 @@ describe('BottomNav', () => {
       renderPhone();
 
       expect(screen.getAllByRole('button')).toHaveLength(2);
-      expect(screen.queryByRole('button', { name: 'User Management' })).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: 'System Settings' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Console' })).not.toBeInTheDocument();
     });
 
     it('gates on permission rather than the admin role', () => {
       setPermissions(['system_settings:read'], false);
       renderPhone();
 
-      expect(screen.getByRole('button', { name: 'System Settings' })).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: 'User Management' })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Console' })).toBeInTheDocument();
+    });
+
+    it('shows Console on users:read alone', () => {
+      // `console` is gated on EITHER admin permission (`anyPermission`), and a
+      // user holding only this one must still get the row.
+      setPermissions(['users:read'], false);
+      renderPhone();
+
+      expect(screen.getByRole('button', { name: 'Console' })).toBeInTheDocument();
     });
   });
 
@@ -129,9 +139,19 @@ describe('BottomNav', () => {
     });
 
     it('resolves a child route to its parent destination', () => {
+      renderPhone('/admin/settings/users');
+
+      expect(screen.getByRole('button', { name: 'Console' })).toHaveClass('Mui-selected');
+    });
+
+    it('still selects Console on the redirected /admin/users path', () => {
+      // `/admin/users` redirects to `/admin/settings/users` (#92), but the bar
+      // renders for the one frame before the redirect commits. `console` owns
+      // `/admin`, not `/admin/settings`, precisely so that frame highlights the
+      // right row instead of nothing.
       renderPhone('/admin/users/abc-123');
 
-      expect(screen.getByRole('button', { name: 'User Management' })).toHaveClass('Mui-selected');
+      expect(screen.getByRole('button', { name: 'Console' })).toHaveClass('Mui-selected');
     });
 
     it('selects NOTHING on a route no destination owns', () => {
@@ -170,7 +190,7 @@ describe('BottomNav', () => {
       const user = userEvent.setup();
       renderPhone('/');
 
-      for (const name of ['User Settings', 'User Management', 'System Settings', 'Home']) {
+      for (const name of ['User Settings', 'Console', 'Home']) {
         await user.click(screen.getByRole('button', { name }));
         await waitFor(() => {
           expect(screen.getByRole('button', { name })).toHaveClass('Mui-selected');
