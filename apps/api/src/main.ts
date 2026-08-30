@@ -10,6 +10,8 @@ import { Logger } from '@nestjs/common';
 import fastifyCookie from '@fastify/cookie';
 import multipart from '@fastify/multipart';
 import { AppModule } from './app.module';
+import { PrismaService } from './prisma/prisma.service';
+import { verifyEncryptionKeyAtStartup } from './common/crypto/encryption-key-startup-check';
 import { createOpenApiDocument } from './openapi/document';
 import { registerDocsRoutesOrDegrade } from './openapi/register-docs-routes';
 
@@ -25,6 +27,31 @@ async function bootstrap() {
     AppModule,
     new FastifyAdapter({ logger: true }),
   );
+
+  // SECRETS_ENCRYPTION_KEY validation (#116, epic #108).
+  //
+  // HERE, and not later: this runs before the Fastify plugins and before
+  // `app.listen`, so a deployment that cannot read its own stored credentials
+  // never binds the port and never serves a request. The whole point of the
+  // issue is that this failure belongs in the deploy log rather than in a 500
+  // handed to the first administrator who opens a settings page.
+  //
+  // AFTER `NestFactory.create`, and not before, because the check is not a pure
+  // environment check: it asks the database whether any credential is actually
+  // stored, and PrismaService only exists (and is only connected, via its
+  // onModuleInit) once the container is up. That question is what lets this be
+  // strict about the state that matters without breaking every deployment and
+  // the `Smoke (boot compiled API)` CI job, neither of which sets the variable.
+  // The full reasoning — including why there is no development fallback key and
+  // no NODE_ENV branch — is in the header of encryption-key-startup-check.ts.
+  //
+  // Throwing rather than exiting explicitly, matching the TEST_AUTH_ENABLED
+  // guard above: `bootstrap()` is called unhandled at the bottom of this file,
+  // so a rejection is an uncaught exception and Node exits non-zero with the
+  // message on stderr. Not calling `app.close()` first is deliberate — the
+  // process is about to die and the OS reclaims the connection, so closing
+  // would only add a way for a shutdown hang to swallow the diagnosis.
+  await verifyEncryptionKeyAtStartup(app.get(PrismaService), logger);
 
   // Register cookie plugin
   await app.register(fastifyCookie, {
