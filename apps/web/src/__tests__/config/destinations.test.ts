@@ -237,6 +237,17 @@ describe('destinations — the table itself', () => {
     expect(byKey.settings.permission).toBeUndefined();
   });
 
+  it('marks Console pinned and leaves Home and Settings as ordinary list rows (#105)', () => {
+    // The rail's foot section is driven entirely by this flag — see
+    // `NavigationRail`'s `listDestinations`/`pinnedDestinations` split — so a
+    // console row that stops being flagged `pinned` silently falls back to
+    // rendering inline as a third library destination, with no other signal.
+    const byKey = Object.fromEntries(DESTINATIONS.map((d) => [d.key, d]));
+    expect(byKey.console.pinned).toBe(true);
+    expect(byKey.home.pinned).toBeFalsy();
+    expect(byKey.settings.pinned).toBeFalsy();
+  });
+
   it('declares Icon as a component, never as a rendered element', () => {
     // Surfaces draw the icon at different sizes — the rail at `small` when
     // collapsed and `medium` when expanded — so a pre-rendered element here

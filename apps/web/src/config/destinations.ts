@@ -127,6 +127,25 @@ export interface Destination {
    * place that has to know.
    */
   anyPermission?: readonly string[];
+  /**
+   * Render this destination pinned at the FOOT of the navigation rail, below a
+   * divider, rather than inline in the destination list (#105).
+   *
+   * `console` is the only one today, and the flag exists so the rail never has
+   * to spell `key === 'console'` in its render. A magic key there would be a
+   * second, invisible answer to "what is the admin surface" — the exact
+   * split-brain this file's header describes — and it would silently stop
+   * being true the day the admin destination is renamed or a second mode is
+   * added. Declaring it here keeps ONE place that knows Console is a MODE and
+   * not a peer of the library destinations, which is what its position at the
+   * foot communicates.
+   *
+   * RAIL-ONLY, deliberately. The bottom bar has no foot to pin to (it IS the
+   * foot) and the user menu is a flat list, so both keep reading `DESTINATIONS`
+   * in declaration order and ignore this flag. Ordering here therefore still
+   * has to be the correct order for those surfaces.
+   */
+  pinned?: boolean;
 }
 
 /**
@@ -150,6 +169,10 @@ export function isDestinationVisible(
 
 /**
  * The three destinations, in navigation order.
+ *
+ * Declaration order IS navigation order on every surface. The rail is the one
+ * exception, and only for the tail of the list: it lifts `pinned` destinations
+ * out to its foot (#105) while leaving the rest in this order.
  *
  * GATING IS BY PERMISSION, NOT BY ROLE, and the permission is the one the API
  * actually enforces — verified against the controllers rather than assumed:
@@ -195,6 +218,10 @@ export const DESTINATIONS: readonly Destination[] = [
     Icon: AdminIcon,
     path: '/admin/settings',
     anyPermission: ['system_settings:read', 'users:read'],
+    // Pinned at the rail's foot (#105) — a mode, not a third library
+    // destination. The permission gate above still runs first: a user who
+    // cannot reach Console gets no pinned row AND no stray divider.
+    pinned: true,
   },
 ];
 

@@ -14,6 +14,11 @@
  *   medium  (sm–lg)  →  collapsed, 56px, icon over a short caption
  *   expanded (≥ lg)  →  expanded, 220px, labelled rows + a collapse toggle
  *
+ * Both treatments share one FOOT: the destinations the model marks `pinned`
+ * (Console today) sit below a divider at the bottom of the rail, above the
+ * collapse toggle, rather than inline with the library destinations — see the
+ * render and `config/destinations.ts` (#105).
+ *
  * A desktop user may collapse the rail to the tablet treatment; the choice
  * persists in `user_settings.navigation.railCollapsed`.
  *
@@ -78,8 +83,14 @@ import {
 import { ADMIN_SECTIONS, visibleSettingsSections } from '../../config/adminSections';
 
 /**
- * 56px so a 24px icon clears 16px of horizontal padding without the caption
- * below it wrapping.
+ * 56px — Material 3's collapsed-rail width, and a 24px icon centred in it still
+ * leaves room for a caption below.
+ *
+ * DELIBERATELY UNCHANGED BY #105. The truncated captions that issue reports are
+ * a padding problem, not a width one: 56px minus the row's old 16px of margin
+ * and padding left a 40px text box, and the fix reclaims 8px of that chrome
+ * (see the collapsed branch of `RailRow`'s `sx`) rather than spending shell
+ * width on every screen from `sm` up to fit two words.
  */
 export const RAIL_WIDTH_COLLAPSED = 56;
 export const RAIL_WIDTH_EXPANDED = 220;
@@ -156,7 +167,28 @@ function RailRow({
               flexDirection: 'column',
               alignItems: 'center',
               gap: 0.25,
-              px: 0.5,
+              // HORIZONTAL SPACE IS THE SCARCE RESOURCE AT 56px (#105), so the
+              // collapsed row reclaims it from its own chrome rather than from
+              // the caption. `mx: 0.5` + `px: 0.5` above left a 40px text box,
+              // and the captions this app actually ships do not fit in it: at
+              // the 0.625rem below, "Settings" measures 41.2px and "Console"
+              // 41.1px in Inter (39.2 / 38.7 in Roboto, 43.7 / 42.0 in the
+              // widest sans fallback), all including `caption`'s 0.03333em
+              // letter-spacing. So both ellipsised — `Setti…`, `Cons…`.
+              //
+              // Halving both to 0.25 (2px each) reclaims 8px for a 48px box,
+              // which clears the widest of those by 4px. The alternatives were
+              // both worse: widening `RAIL_WIDTH_COLLAPSED` past 56 spends
+              // shell width on every screen to fix a caption, and shortening
+              // the `compactLabel`s throws away the words that make the row
+              // legible at a glance. Nothing is lost here — the row's visual
+              // inset is set by its CENTRED contents, not by this padding,
+              // which only ever acted as a clip boundary.
+              //
+              // `mx` is not zeroed: those 2px keep the selected row's rounded
+              // highlight off the rail's right border.
+              mx: 0.25,
+              px: 0.25,
               py: 0.75,
             }),
         // Keyboard focus must be visible on every navigation control. Stated
@@ -246,6 +278,20 @@ export function NavigationRail() {
   const visibleDestinations = DESTINATIONS.filter((destination) =>
     isDestinationVisible(destination, hasPermission),
   );
+
+  // TWO GROUPS, ONE MODEL (#105). Console is a MODE, not a peer of the library
+  // destinations, and its POSITION at the rail's foot is what says so — inline
+  // as the last row it read as a third library destination. The split is driven
+  // by `destination.pinned`, never by `key === 'console'`: see the flag's
+  // comment in `config/destinations.ts` for why the render must not hold its
+  // own opinion about which destination is the admin one.
+  //
+  // Both lists are derived from `visibleDestinations`, so the permission gate
+  // has already run. A user who cannot reach Console gets an EMPTY pinned list,
+  // and the foot section below renders nothing at all — no row, and no orphan
+  // divider hanging above the collapse toggle.
+  const listDestinations = visibleDestinations.filter((destination) => !destination.pinned);
+  const pinnedDestinations = visibleDestinations.filter((destination) => destination.pinned);
 
   // No `query` argument: the RAIL is not searchable, the HUB is (#93). A search
   // field cannot live in 220px beside the rows it filters, and the rail is
@@ -340,11 +386,12 @@ export function NavigationRail() {
           {/* Console is a MODE, so the way out is PERMANENT and at the top —
               never a route the user has to guess at, and never something that
               scrolls off behind a long section list. It also replaces the
-              `Console` destination row, which is why that row is absent here:
-              a row pointing at the surface you are already inside is dead
-              chrome, and it would compete with the real active card for
-              `aria-current`. `active={false}` for the same reason — "/" is the
-              destination you are leaving for, not the page you are on. */}
+              pinned `Console` row at the foot, which is why that row is
+              suppressed here (#105): a row pointing at the surface you are
+              already inside is dead chrome, and it would compete with the real
+              active card for `aria-current`. `active={false}` for the same
+              reason — "/" is the destination you are leaving for, not the page
+              you are on. */}
           <List dense disablePadding>
             <RailRow
               to="/"
@@ -399,7 +446,7 @@ export function NavigationRail() {
       ) : (
         <Box sx={{ flexGrow: 1, py: 1, minWidth: 0 }}>
           <List dense disablePadding>
-            {visibleDestinations.map((destination) => (
+            {listDestinations.map((destination) => (
               <RailRow
                 key={destination.key}
                 to={destination.path}
@@ -413,6 +460,48 @@ export function NavigationRail() {
             ))}
           </List>
         </Box>
+      )}
+
+      {/* PINNED AT THE FOOT (#105) — Console, and anything else the model marks
+          `pinned`. It sits BELOW the flex-grow region above and above the
+          collapse toggle, separated by its own divider, because that position
+          is the whole point: a mode you switch into, not a third library
+          destination you page between.
+
+          It renders in BOTH library treatments — the collapsed medium tier and
+          the expanded rail on a non-admin route — which is why it lives out
+          here beside the branch rather than inside either arm of it. Only
+          `expanded` differs between the two, and `RailRow` already takes that
+          as a prop.
+
+          `!consoleMode` is load-bearing and must not be relaxed to "always"
+          (#94): inside Console mode the `Back to library` row at the top IS the
+          affordance, and a row pointing at the surface you are already inside
+          would be dead chrome competing with the real active card for
+          `aria-current`. `pinnedDestinations` is already permission-filtered,
+          so the length check also covers "this user cannot reach Console" —
+          without it an empty list would still draw a divider. */}
+      {!consoleMode && pinnedDestinations.length > 0 && (
+        <>
+          <Divider />
+          <List dense disablePadding sx={{ py: 0.5 }}>
+            {pinnedDestinations.map((destination) => (
+              <RailRow
+                key={destination.key}
+                to={destination.path}
+                Icon={destination.Icon}
+                label={destination.label}
+                compactLabel={destination.compactLabel}
+                accessibleName={destination.label}
+                // Still the destination model's answer, not a path test — a
+                // pinned row is a relocated destination row, not a shortcut, so
+                // it keeps carrying `aria-current` on the routes it owns.
+                active={activeDestination === destination.key}
+                expanded={expanded}
+              />
+            ))}
+          </List>
+        </>
       )}
 
       {/* The collapse toggle is DESKTOP-ONLY: the medium tier is forced

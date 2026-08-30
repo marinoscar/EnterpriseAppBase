@@ -3,7 +3,7 @@ import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { render, mockAdminUser } from '../../utils/test-utils';
 import { setViewportWidth } from '../../setup';
-import { NavigationRail } from '../../../components/navigation/NavigationRail';
+import { NavigationRail, RAIL_WIDTH_COLLAPSED } from '../../../components/navigation/NavigationRail';
 
 /**
  * Coverage migrated from the deleted `Sidebar.test.tsx` — four items, admin
@@ -473,6 +473,173 @@ describe('NavigationRail', () => {
         expect(screen.getByRole('link', { name: 'Feature Flags' })).toBeInTheDocument();
         expect(screen.queryByRole('link', { name: 'Advanced (JSON)' })).not.toBeInTheDocument();
       });
+    });
+  });
+
+  describe('Pinned foot section (#105)', () => {
+    // Console is a MODE, not a third library destination, and its position at
+    // the rail's foot is what says so. The old inline render — Console folded
+    // into `visibleDestinations.map(...)` as the third row — put all three
+    // links in ONE <ul>, which a naive "all three links exist" assertion
+    // cannot tell apart from the fix. Every test below asserts the STRUCTURE
+    // (a separate list, preceded by its own divider) rather than mere
+    // presence, so it fails against that inline render.
+    function pinnedList(nav: HTMLElement): HTMLElement {
+      const consoleLink = within(nav).getByRole('link', { name: 'Console' });
+      const list = consoleLink.closest('ul');
+      if (!list) throw new Error('Console link is not inside a <ul>');
+      return list as HTMLElement;
+    }
+
+    it('renders Console in a different list than Home and Settings, preceded by a divider', () => {
+      setPermissions(ADMIN_PERMISSIONS, true);
+      render(<NavigationRail />, { wrapperOptions: { user: mockAdminUser } });
+
+      const nav = screen.getByRole('navigation', { name: /main navigation/i });
+      const homeList = within(nav).getByRole('link', { name: 'Home' }).closest('ul');
+      const footList = pinnedList(nav);
+
+      expect(homeList).not.toBeNull();
+      expect(footList).not.toBe(homeList);
+      // A divider sits immediately above the foot list specifically — not
+      // just somewhere on the page. The collapse toggle below the foot
+      // section has its own divider too, so "a divider exists" alone would
+      // not catch one in the wrong place.
+      expect(footList.previousElementSibling?.tagName).toBe('HR');
+      // `<hr>` carries the "separator" role implicitly (no explicit `role`
+      // attribute), so confirm it via the accessibility tree rather than the
+      // DOM attribute — this is the same element `getAllByRole` below counts.
+      expect(within(nav).getAllByRole('separator')).toContain(footList.previousElementSibling);
+    });
+
+    it('keeps the pinned row last in DOM order, matching visual order', () => {
+      setPermissions(ADMIN_PERMISSIONS, true);
+      render(<NavigationRail />, { wrapperOptions: { user: mockAdminUser } });
+
+      expect(screen.getAllByRole('link').map((link) => link.getAttribute('href'))).toEqual([
+        '/',
+        '/settings',
+        '/admin/settings',
+      ]);
+    });
+
+    it('pins Console at the foot in the collapsed tier (sm–lg)', async () => {
+      setPermissions(ADMIN_PERMISSIONS, true);
+      render(<NavigationRail />, { wrapperOptions: { user: mockAdminUser } });
+
+      await act(async () => setViewportWidth(800));
+
+      const nav = screen.getByRole('navigation', { name: /main navigation/i });
+      const homeList = within(nav).getByRole('link', { name: 'Home' }).closest('ul');
+      const footList = pinnedList(nav);
+
+      expect(footList).not.toBe(homeList);
+      expect(footList.previousElementSibling?.tagName).toBe('HR');
+    });
+
+    it('pins Console at the foot in the expanded rail on a non-admin route', () => {
+      setPermissions(ADMIN_PERMISSIONS, true);
+      render(<NavigationRail />, { wrapperOptions: { route: '/', user: mockAdminUser } });
+
+      const nav = screen.getByRole('navigation', { name: /main navigation/i });
+      expect(pinnedList(nav).previousElementSibling?.tagName).toBe('HR');
+    });
+
+    it('stays absent inside Console mode — Back to library is the affordance instead (#94)', () => {
+      setPermissions(ADMIN_PERMISSIONS, true);
+      render(<NavigationRail />, {
+        wrapperOptions: { route: '/admin/settings/users', user: mockAdminUser },
+      });
+
+      expect(screen.queryByRole('link', { name: 'Console' })).not.toBeInTheDocument();
+      // The pinned row links to /admin/settings specifically; Console mode's
+      // own cards link to their own card paths, never the bare hub path, so
+      // this is the one href a resurrected pinned row would introduce.
+      const links = screen.getAllByRole('link').map((link) => link.getAttribute('href'));
+      expect(links).not.toContain('/admin/settings');
+    });
+
+    it('adds no orphan divider for a user holding neither system_settings:read nor users:read', () => {
+      setPermissions([], false);
+      render(<NavigationRail />);
+
+      const nav = screen.getByRole('navigation', { name: /main navigation/i });
+      // Only the collapse toggle's own divider remains — no pinned foot
+      // section, so no divider hanging above an empty list. This is the edge
+      // the `pinnedDestinations.length > 0` guard exists for.
+      expect(within(nav).getAllByRole('separator')).toHaveLength(1);
+      expect(screen.queryByRole('link', { name: 'Console' })).not.toBeInTheDocument();
+    });
+
+    it('keeps aria-current="page" on the pinned row at the collapsed tier — a relocated destination, not a shortcut', async () => {
+      setPermissions(ADMIN_PERMISSIONS, true);
+      render(<NavigationRail />, {
+        wrapperOptions: { route: '/admin/settings/users', user: mockAdminUser },
+      });
+
+      // Collapsed tier: Console mode is expanded-only, so this route still
+      // renders the library rail with Console pinned at the foot, and it must
+      // still carry the active-state landmark its inline predecessor did.
+      await act(async () => setViewportWidth(800));
+
+      expect(screen.getByRole('link', { name: 'Console' })).toHaveAttribute(
+        'aria-current',
+        'page',
+      );
+    });
+  });
+
+  describe('Collapsed caption chrome (#105)', () => {
+    // The bug: `mx: 0.5` + `px: 0.5` (16px of horizontal margin+padding) left
+    // a ~40px caption box inside the 56px collapsed rail, and "Settings" /
+    // "Console" both measure ~41px at the caption's 0.625rem — so both
+    // ellipsised. The fix halves each to 0.25 (8px total), leaving a 48px
+    // box. jsdom performs no layout, so a textContent check alone cannot see
+    // an ellipsis — only the underlying chrome, asserted here via
+    // getComputedStyle, can catch a regression back to the old spacing.
+    function horizontalChrome(el: Element): number {
+      const style = getComputedStyle(el);
+      return (
+        parseFloat(style.marginLeft) +
+        parseFloat(style.marginRight) +
+        parseFloat(style.paddingLeft) +
+        parseFloat(style.paddingRight)
+      );
+    }
+
+    it('keeps RAIL_WIDTH_COLLAPSED at 56 — the fix reclaims chrome, not rail width', () => {
+      expect(RAIL_WIDTH_COLLAPSED).toBe(56);
+    });
+
+    it('reclaims the collapsed row chrome to 8px total, leaving a 48px caption box', async () => {
+      setPermissions(ADMIN_PERMISSIONS, true);
+      render(<NavigationRail />, { wrapperOptions: { user: mockAdminUser } });
+
+      await act(async () => setViewportWidth(800));
+
+      // Queried by the row's accessible name (the full label) — the visible
+      // caption is aria-hidden, so it cannot be found by accessible name.
+      const settingsRow = screen.getByRole('link', { name: 'User Settings' });
+      const consoleRow = screen.getByRole('link', { name: 'Console' });
+
+      expect(horizontalChrome(settingsRow)).toBeCloseTo(8, 5);
+      expect(horizontalChrome(consoleRow)).toBeCloseTo(8, 5);
+      // RAIL_WIDTH_COLLAPSED (56) minus that chrome is the 48px box the fix's
+      // comment measures the captions against.
+      expect(RAIL_WIDTH_COLLAPSED - horizontalChrome(settingsRow)).toBe(48);
+    });
+
+    it('renders the collapsed captions as full text content, not an abbreviation', async () => {
+      setPermissions(ADMIN_PERMISSIONS, true);
+      render(<NavigationRail />, { wrapperOptions: { user: mockAdminUser } });
+
+      await act(async () => setViewportWidth(800));
+
+      // The caption is aria-hidden; query by literal text rather than by
+      // accessible name, which stays the full label either way and would not
+      // distinguish a full caption from a shortened one.
+      expect(screen.getByText('Settings')).toBeInTheDocument();
+      expect(screen.getByText('Console')).toBeInTheDocument();
     });
   });
 });
