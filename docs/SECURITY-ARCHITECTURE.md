@@ -1317,6 +1317,17 @@ JWT_REFRESH_TTL_DAYS=14            # Refresh token lifetime (default: 14 days)
 COOKIE_SECRET=your-cookie-secret-key-min-32-characters-long
 ```
 
+**Credential Encryption:**
+```bash
+# Base64-encoded 32-byte AES-256 key. Encrypts secrets an administrator
+# configures at runtime (e.g. an SMTP password) before they are stored in the
+# `credentials` table. Does NOT apply to deploy-time secrets such as
+# JWT_SECRET or GOOGLE_CLIENT_SECRET, which stay in the environment.
+# Optional until a credential is stored; see section 14 below.
+# Generate with: openssl rand -base64 32
+SECRETS_ENCRYPTION_KEY=
+```
+
 **OAuth Providers:**
 ```bash
 # Google OAuth (Required)
@@ -1629,6 +1640,16 @@ apps/api/src/
         └── admin-bootstrap.service.ts  # Initial admin setup
 ```
 
+**Credential Encryption (see section 14):**
+```
+apps/api/src/
+├── common/crypto/
+│   ├── secret-cipher.ts                    # AES-256-GCM cipher, purpose-bound key derivation
+│   └── encryption-key-startup-check.ts     # Boot-time SECRETS_ENCRYPTION_KEY validation
+└── credentials/
+    └── credentials.service.ts              # Encrypted credential store (no HTTP controller)
+```
+
 **Infrastructure:**
 ```
 infra/
@@ -1693,6 +1714,7 @@ apps/web/src/
 - [ ] OAuth credentials from production Google project
 - [ ] Audit logging verified and monitored
 - [ ] Error handler sanitizes responses (no stack traces)
+- [ ] `SECRETS_ENCRYPTION_KEY` set before any credential-store consumer (e.g. SMTP settings) goes live
 
 **Monitoring:**
 - [ ] Set up alerts for `refresh token reuse detected` logs
@@ -1702,6 +1724,81 @@ apps/web/src/
 - [ ] Watch for unusual role assignment changes
 - [ ] Monitor allowlist additions/removals for unauthorized changes
 - [ ] Track "email not authorized" login failures
+
+---
+
+## 14. Encrypted Credential Storage (Runtime-Configured Secrets)
+
+### Overview
+
+Deploy-time secrets (`JWT_SECRET`, `GOOGLE_CLIENT_SECRET`, `AWS_SECRET_ACCESS_KEY`, etc.) live in the environment and are covered by the configuration reference above. This section covers a different category: secrets an **administrator configures at runtime through the application** — an SMTP password is the first, forthcoming, consumer (issue #109) — which cannot come from an environment variable because changing an env var requires a redeploy.
+
+These are stored in the `credentials` table (Prisma model `Credential`), encrypted at rest, and managed exclusively by `CredentialsService` (`apps/api/src/credentials/credentials.service.ts`). **This module has no HTTP controller today** — it is consumed directly by backend code, not exposed to any admin UI yet. A future consumer adds its own controller when it needs one.
+
+### The Cipher
+
+Implemented in `apps/api/src/common/crypto/secret-cipher.ts`.
+
+- **Algorithm**: AES-256-GCM.
+- **Key**: `SECRETS_ENCRYPTION_KEY` — a base64-encoded 32-byte key. Generate with:
+  ```bash
+  openssl rand -base64 32
+  ```
+- **Payload layout** — concatenated, then base64-encoded into the single opaque string stored in the `credentials.secret` text column:
+  ```
+  [iv: 12 bytes][authTag: 16 bytes][ciphertext: variable]
+  ```
+  This is self-describing on purpose: because the whole payload lives in one column, the IV and the auth tag can never drift into separate columns from the ciphertext they authenticate.
+- **IV**: a fresh `randomBytes(12)` on every encrypt call, never reused and never derived from the plaintext. Reusing a GCM IV under the same key exposes the GHASH subkey and lets an attacker forge auth tags for that key; a fresh IV per call is also what keeps the store from leaking equality (two credentials with the same secret must not produce the same ciphertext).
+- **Auth tag**: the full 16 bytes (128 bits), always.
+- **Decrypt failure**: any tampering (a flipped bit in the IV, tag, or ciphertext) or a purpose mismatch (see below) fails authentication and throws a flat error rather than returning corrupted plaintext:
+  > `Failed to decrypt secret: the payload is corrupt, was encrypted under a different purpose, or the encryption key has changed.`
+
+### Purpose-Bound Key Derivation
+
+The master key (`SECRETS_ENCRYPTION_KEY`) is never used directly to encrypt or decrypt. Every encrypt/decrypt call goes through a purpose-bound sub-key:
+
+```
+derivedKey = HMAC-SHA256(masterKey, "enterpriseappbase:secret-cipher:v1:" + purpose)
+```
+
+`purpose` is a required, non-empty string (e.g. `'smtp'`, `'oauth'`) — never optional, never defaulted.
+
+**Why this matters — the specific attack it stops**: without domain separation, a ciphertext lifted out of one purpose's row — by a SQL write with access to the table but not the key, or by a bug that copies a row across tables or purposes — would decrypt successfully wherever it landed, meaning nothing more than "some bytes that happen to authenticate." With purpose-bound derivation, that same ciphertext, pasted into a different purpose's context, fails GCM authentication instead of decrypting into a context where it means something else. This is domain separation used as a lateral-movement control: a stolen or misrouted ciphertext cannot cross purposes.
+
+In `CredentialsService`, the store's address (`purpose`, `name`) and the cipher's sub-key domain are the same string by construction, not by convention — a row under purpose `'smtp'` can only ever be decrypted with the `'smtp'` sub-key.
+
+HMAC-SHA256 is used rather than a password KDF (scrypt/argon2/PBKDF2) because the input is already 32 bytes of full-entropy `openssl rand` output, not a low-entropy password — there is nothing to brute-force, so a slow KDF would add latency without adding security. This is HKDF's extract step, the standard construction for deriving multiple independent keys from one high-entropy secret.
+
+### Startup Validation
+
+`apps/api/src/common/crypto/encryption-key-startup-check.ts` exports `verifyEncryptionKeyAtStartup(prisma, logger)`, called from `apps/api/src/main.ts` after `NestFactory.create` (so `PrismaService` is connected) but before `app.listen` and before Fastify plugins are registered — so a deployment that cannot read its own stored credentials never binds the port or serves a request.
+
+The decision table is deliberately not a simple "fails if missing" check — strictness is gated on whether the credential store is actually in use:
+
+| Key state | Rows in `credentials` table | Behaviour |
+|---|---|---|
+| Present, malformed (bad base64 / wrong decoded length) | n/a | **Throws** — boot fails, in every environment |
+| Present, well-formed | n/a | Logs that encrypted credential storage is available, and boots |
+| Absent (unset or empty string) | ≥ 1 row | **Throws** — boot fails, in every environment, including development |
+| Absent | 0 rows | **Warns** and boots normally |
+| (any) | DB unreachable / `credentials` table not yet migrated (the row-count probe itself throws) | **Warns** (naming the possibility of an unmigrated table or unreachable DB) and boots normally — this is deliberately not reported as an encryption-key problem |
+
+Notable properties of this behaviour:
+
+- **`NODE_ENV` plays no role anywhere in this check.** There is no development-mode fallback key and no relaxed behaviour for non-production. A fixed fallback key would itself be a key sitting in this public repository, and whether that branch is safe would depend on `NODE_ENV` being set correctly on every deployment — which it is not guaranteed to be (Node leaves it unset by default). A deployment that forgot to set `NODE_ENV=production` would otherwise silently encrypt real secrets under a constant anyone could read off GitHub.
+- **"Absent, rows exist" is fatal in every environment on purpose.** Rows can only exist because `CredentialsService.setSecret` successfully called `encryptSecret`, which itself throws without a valid key — so rows existing is proof a key was working at some point, and its current absence is a regression, not first-time setup.
+- **"Absent, zero rows" warns and boots** because that is the state every deployment of this repository is in today — no compose file, `.env.example`, or CI job sets `SECRETS_ENCRYPTION_KEY` yet, and the credential store has no consumer yet either.
+- **The check does not attempt to decrypt any row.** It only counts rows via `prisma.credential.count()`. A key that is present and well-formed but is the *wrong* key for existing rows (e.g. a partially completed rotation) still passes startup validation cleanly — the failure only surfaces later, when `CredentialsService.getSecret` actually tries to decrypt that row. See the rotation runbook, [`docs/runbooks/rotate-secrets-encryption-key.md`](runbooks/rotate-secrets-encryption-key.md), for the operational implications.
+- An empty string (`SECRETS_ENCRYPTION_KEY=` with nothing after it — exactly what an uncommented but unfilled `.env.example` line produces) is treated as **absent**, not malformed.
+
+### The Key Must Never Live in the Database or the Repository
+
+`SECRETS_ENCRYPTION_KEY` protects every row in the `credentials` table. Storing it anywhere the ciphertext it protects also lives — the database, a config table, a committed file in this repository — would defeat encryption at rest entirely: anyone with read access to the data would also have the key that unlocks it. The **only** correct location for this key is the deployment's environment (a secret manager, an orchestrator secret, or an `.env` file that is never committed), matching every other secret in this application. It must never be committed to Git, never be embedded in application code, and never be written to the database.
+
+### Read Paths Never Touch the Ciphertext
+
+`CredentialsService.describe(purpose, name)` and `.list(purpose)` — the presentation reads used to show what credentials exist — select only `{ purpose, name, hint, label, updatedByUserId, createdAt, updatedAt }` and never select the `secret` column at all. Consequently they work correctly with no encryption key configured, and would keep working even if the configured key could never decrypt a single row, because the ciphertext is never fetched. Only `getSecret(purpose, name)` — server-side only, never called from a controller — returns plaintext, and on a decrypt failure it throws rather than silently returning `null`, so a key change or corruption cannot silently disable a feature.
 
 ---
 
