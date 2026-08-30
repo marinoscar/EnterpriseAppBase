@@ -59,26 +59,27 @@ describe('NavigationRail', () => {
   });
 
   describe('Destinations', () => {
-    it('renders all four destinations for a fully permitted user', () => {
+    it('renders all three destinations for a fully permitted user', () => {
+      // THREE, not four: issue #92 merged `User Management` and `System
+      // Settings` into one `Console` row, because two rows both matching
+      // `/admin/*` give the rail two active candidates on every admin route.
       setPermissions(ADMIN_PERMISSIONS, true);
 
       render(<NavigationRail />, { wrapperOptions: { user: mockAdminUser } });
 
       const nav = screen.getByRole('navigation', { name: /main navigation/i });
-      expect(within(nav).getAllByRole('link')).toHaveLength(4);
+      expect(within(nav).getAllByRole('link')).toHaveLength(3);
       expect(screen.getByRole('link', { name: 'Home' })).toBeInTheDocument();
       expect(screen.getByRole('link', { name: 'User Settings' })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: 'User Management' })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: 'System Settings' })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Console' })).toBeInTheDocument();
     });
 
-    it('hides the admin destinations from a user without the permissions', () => {
+    it('hides Console from a user holding neither admin permission', () => {
       render(<NavigationRail />);
 
       expect(screen.getByRole('link', { name: 'Home' })).toBeInTheDocument();
       expect(screen.getByRole('link', { name: 'User Settings' })).toBeInTheDocument();
-      expect(screen.queryByRole('link', { name: 'User Management' })).not.toBeInTheDocument();
-      expect(screen.queryByRole('link', { name: 'System Settings' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: 'Console' })).not.toBeInTheDocument();
     });
 
     it('gates on PERMISSION, not on the admin role', () => {
@@ -89,17 +90,18 @@ describe('NavigationRail', () => {
 
       render(<NavigationRail />);
 
-      expect(screen.getByRole('link', { name: 'System Settings' })).toBeInTheDocument();
-      expect(screen.queryByRole('link', { name: 'User Management' })).not.toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Console' })).toBeInTheDocument();
     });
 
-    it('shows User Management on users:read alone', () => {
+    it('shows Console on users:read alone', () => {
+      // The half of `anyPermission` that a single-string gate would have
+      // dropped: this user can administer users but not system settings, and
+      // the surface is still worth reaching for the Users & Allowlist page.
       setPermissions(['users:read'], false);
 
       render(<NavigationRail />);
 
-      expect(screen.getByRole('link', { name: 'User Management' })).toBeInTheDocument();
-      expect(screen.queryByRole('link', { name: 'System Settings' })).not.toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Console' })).toBeInTheDocument();
     });
   });
 
@@ -116,11 +118,7 @@ describe('NavigationRail', () => {
         'href',
         '/settings',
       );
-      expect(screen.getByRole('link', { name: 'User Management' })).toHaveAttribute(
-        'href',
-        '/admin/users',
-      );
-      expect(screen.getByRole('link', { name: 'System Settings' })).toHaveAttribute(
+      expect(screen.getByRole('link', { name: 'Console' })).toHaveAttribute(
         'href',
         '/admin/settings',
       );
@@ -155,15 +153,18 @@ describe('NavigationRail', () => {
     it('marks exactly one row active on a nested admin route', () => {
       setPermissions(ADMIN_PERMISSIONS, true);
 
+      // A genuinely nested settings route (#92), not just `/admin/settings`:
+      // Console owns the whole `/admin` subtree, so this is where two admin
+      // rows would have produced two `aria-current` attributes.
       render(<NavigationRail />, {
-        wrapperOptions: { route: '/admin/settings', user: mockAdminUser },
+        wrapperOptions: { route: '/admin/settings/users', user: mockAdminUser },
       });
 
       const current = screen
         .getAllByRole('link')
         .filter((link) => link.getAttribute('aria-current') === 'page');
       expect(current).toHaveLength(1);
-      expect(current[0]).toHaveAccessibleName('System Settings');
+      expect(current[0]).toHaveAccessibleName('Console');
     });
 
     it('marks nothing active on a route no destination owns', () => {
@@ -269,7 +270,6 @@ describe('NavigationRail', () => {
       expect(screen.getAllByRole('link').map((link) => link.getAttribute('href'))).toEqual([
         '/',
         '/settings',
-        '/admin/users',
         '/admin/settings',
       ]);
     });

@@ -1,36 +1,49 @@
+/**
+ * `pages/Admin/UsersPage` — the former `pages/UserManagementPage`, moved under
+ * the Console route tree by issue #92 and reached at
+ * `/admin/settings/users`.
+ *
+ * The suite MOVED WITH THE PAGE rather than being rewritten: the behaviour it
+ * covers — the page-level `users:read` gate, the two tabs, and the Allowlist
+ * tab's separate `allowlist:read` gate — is exactly the behaviour #92 promised
+ * to preserve while changing only the route that reaches it. Only the import
+ * path and the page's own title and subtitle differ; a rewritten suite could
+ * not have made that claim.
+ */
+
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { render, mockAdminUser } from '../utils/test-utils';
-import UserManagementPage from '../../pages/UserManagementPage';
+import { render, mockAdminUser } from '../../utils/test-utils';
+import UsersPage from '../../../pages/Admin/UsersPage';
 
 // Mock the hooks
-vi.mock('../../hooks/usePermissions', () => ({
+vi.mock('../../../hooks/usePermissions', () => ({
   usePermissions: vi.fn(),
 }));
 
 // Mock the child components
-vi.mock('../../components/admin/UserList', () => ({
+vi.mock('../../../components/admin/UserList', () => ({
   UserList: vi.fn(() => (
     <div data-testid="user-list">UserList Component</div>
   )),
 }));
 
-vi.mock('../../components/admin/AllowlistTable', () => ({
+vi.mock('../../../components/admin/AllowlistTable', () => ({
   AllowlistTable: vi.fn(() => (
     <div data-testid="allowlist-table">AllowlistTable Component</div>
   )),
 }));
 
-import { usePermissions } from '../../hooks/usePermissions';
-import { UserList } from '../../components/admin/UserList';
-import { AllowlistTable } from '../../components/admin/AllowlistTable';
+import { usePermissions } from '../../../hooks/usePermissions';
+import { UserList } from '../../../components/admin/UserList';
+import { AllowlistTable } from '../../../components/admin/AllowlistTable';
 
 const mockUsePermissions = vi.mocked(usePermissions);
 const mockUserList = vi.mocked(UserList);
 const mockAllowlistTable = vi.mocked(AllowlistTable);
 
-describe('UserManagementPage', () => {
+describe('UsersPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
@@ -95,7 +108,7 @@ describe('UserManagementPage', () => {
       const user = userEvent.setup();
       setPermissions(['users:read', 'allowlist:read']);
 
-      render(<UserManagementPage />, { wrapperOptions: { user: mockAdminUser } });
+      render(<UsersPage />, { wrapperOptions: { user: mockAdminUser } });
       await user.click(screen.getByRole('tab', { name: /allowlist/i }));
 
       await waitFor(() => {
@@ -107,7 +120,7 @@ describe('UserManagementPage', () => {
       const user = userEvent.setup();
       setPermissions(['users:read']);
 
-      render(<UserManagementPage />, { wrapperOptions: { user: mockAdminUser } });
+      render(<UsersPage />, { wrapperOptions: { user: mockAdminUser } });
 
       // Reachable: the Users tab is the reason the page exists for this user.
       expect(screen.getByTestId('user-list')).toBeInTheDocument();
@@ -135,7 +148,7 @@ describe('UserManagementPage', () => {
         isAdmin: false,
       });
 
-      render(<UserManagementPage />, {
+      render(<UsersPage />, {
         wrapperOptions: {
           user: {
             id: 'viewer-id',
@@ -151,16 +164,16 @@ describe('UserManagementPage', () => {
       });
 
       // Should redirect - page content should not render
-      expect(screen.queryByText(/user management/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/users & allowlist/i)).not.toBeInTheDocument();
       expect(screen.queryByRole('tab')).not.toBeInTheDocument();
     });
 
     it('should render page for users with users:read permission', () => {
-      render(<UserManagementPage />, {
+      render(<UsersPage />, {
         wrapperOptions: { user: mockAdminUser },
       });
 
-      expect(screen.getByText(/user management/i)).toBeInTheDocument();
+      expect(screen.getByText(/users & allowlist/i)).toBeInTheDocument();
     });
 
     it('should check users:read permission', () => {
@@ -176,7 +189,7 @@ describe('UserManagementPage', () => {
         isAdmin: true,
       });
 
-      render(<UserManagementPage />, {
+      render(<UsersPage />, {
         wrapperOptions: { user: mockAdminUser },
       });
 
@@ -186,27 +199,27 @@ describe('UserManagementPage', () => {
 
   describe('Page Content', () => {
     it('should display page title', () => {
-      render(<UserManagementPage />, {
+      render(<UsersPage />, {
         wrapperOptions: { user: mockAdminUser },
       });
 
       expect(
-        screen.getByRole('heading', { name: /user management/i })
+        screen.getByRole('heading', { name: /users & allowlist/i })
       ).toBeInTheDocument();
     });
 
     it('should display page description', () => {
-      render(<UserManagementPage />, {
+      render(<UsersPage />, {
         wrapperOptions: { user: mockAdminUser },
       });
 
       expect(
-        screen.getByText(/manage users and email allowlist/i)
+        screen.getByText(/manage user accounts and roles/i)
       ).toBeInTheDocument();
     });
 
     it('should render within a container', () => {
-      const { container } = render(<UserManagementPage />, {
+      const { container } = render(<UsersPage />, {
         wrapperOptions: { user: mockAdminUser },
       });
 
@@ -216,7 +229,7 @@ describe('UserManagementPage', () => {
     });
 
     it('should render content within a Paper component', () => {
-      const { container } = render(<UserManagementPage />, {
+      const { container } = render(<UsersPage />, {
         wrapperOptions: { user: mockAdminUser },
       });
 
@@ -227,7 +240,7 @@ describe('UserManagementPage', () => {
 
   describe('Tabs', () => {
     it('should display Users and Allowlist tabs', () => {
-      render(<UserManagementPage />, {
+      render(<UsersPage />, {
         wrapperOptions: { user: mockAdminUser },
       });
 
@@ -238,7 +251,7 @@ describe('UserManagementPage', () => {
     });
 
     it('should have Users tab selected by default', () => {
-      render(<UserManagementPage />, {
+      render(<UsersPage />, {
         wrapperOptions: { user: mockAdminUser },
       });
 
@@ -252,7 +265,7 @@ describe('UserManagementPage', () => {
     it('should switch to Allowlist tab when clicked', async () => {
       const user = userEvent.setup();
 
-      render(<UserManagementPage />, {
+      render(<UsersPage />, {
         wrapperOptions: { user: mockAdminUser },
       });
 
@@ -268,7 +281,7 @@ describe('UserManagementPage', () => {
     it('should switch back to Users tab when clicked', async () => {
       const user = userEvent.setup();
 
-      render(<UserManagementPage />, {
+      render(<UsersPage />, {
         wrapperOptions: { user: mockAdminUser },
       });
 
@@ -291,7 +304,7 @@ describe('UserManagementPage', () => {
     });
 
     it('should render tabs with correct order', () => {
-      render(<UserManagementPage />, {
+      render(<UsersPage />, {
         wrapperOptions: { user: mockAdminUser },
       });
 
@@ -304,7 +317,7 @@ describe('UserManagementPage', () => {
 
   describe('Tab Panels', () => {
     it('should display UserList component in Users tab by default', () => {
-      render(<UserManagementPage />, {
+      render(<UsersPage />, {
         wrapperOptions: { user: mockAdminUser },
       });
 
@@ -314,7 +327,7 @@ describe('UserManagementPage', () => {
     });
 
     it('should hide AllowlistTable in Users tab', () => {
-      const { container } = render(<UserManagementPage />, {
+      const { container } = render(<UsersPage />, {
         wrapperOptions: { user: mockAdminUser },
       });
 
@@ -328,7 +341,7 @@ describe('UserManagementPage', () => {
     it('should display AllowlistTable when Allowlist tab is active', async () => {
       const user = userEvent.setup();
 
-      render(<UserManagementPage />, {
+      render(<UsersPage />, {
         wrapperOptions: { user: mockAdminUser },
       });
 
@@ -344,7 +357,7 @@ describe('UserManagementPage', () => {
     it('should hide UserList when Allowlist tab is active', async () => {
       const user = userEvent.setup();
 
-      const { container } = render(<UserManagementPage />, {
+      const { container } = render(<UsersPage />, {
         wrapperOptions: { user: mockAdminUser },
       });
 
@@ -358,7 +371,7 @@ describe('UserManagementPage', () => {
     });
 
     it('should render both tab panels in DOM regardless of active tab', () => {
-      const { container } = render(<UserManagementPage />, {
+      const { container } = render(<UsersPage />, {
         wrapperOptions: { user: mockAdminUser },
       });
 
@@ -369,7 +382,7 @@ describe('UserManagementPage', () => {
     });
 
     it('should use correct role for tab panels', () => {
-      const { container } = render(<UserManagementPage />, {
+      const { container } = render(<UsersPage />, {
         wrapperOptions: { user: mockAdminUser },
       });
 
@@ -378,7 +391,7 @@ describe('UserManagementPage', () => {
     });
 
     it('should hide tab panels using hidden attribute', () => {
-      const { container } = render(<UserManagementPage />, {
+      const { container } = render(<UsersPage />, {
         wrapperOptions: { user: mockAdminUser },
       });
 
@@ -394,7 +407,7 @@ describe('UserManagementPage', () => {
 
   describe('Tab Index State Management', () => {
     it('should initialize with tab index 0', () => {
-      render(<UserManagementPage />, {
+      render(<UsersPage />, {
         wrapperOptions: { user: mockAdminUser },
       });
 
@@ -405,7 +418,7 @@ describe('UserManagementPage', () => {
     it('should update tab index when switching tabs', async () => {
       const user = userEvent.setup();
 
-      render(<UserManagementPage />, {
+      render(<UsersPage />, {
         wrapperOptions: { user: mockAdminUser },
       });
 
@@ -428,7 +441,7 @@ describe('UserManagementPage', () => {
     it('should maintain tab index during component lifecycle', async () => {
       const user = userEvent.setup();
 
-      render(<UserManagementPage />, {
+      render(<UsersPage />, {
         wrapperOptions: { user: mockAdminUser },
       });
 
@@ -457,7 +470,7 @@ describe('UserManagementPage', () => {
 
   describe('Component Integration', () => {
     it('should render UserList component', () => {
-      render(<UserManagementPage />, {
+      render(<UsersPage />, {
         wrapperOptions: { user: mockAdminUser },
       });
 
@@ -468,7 +481,7 @@ describe('UserManagementPage', () => {
     it('should render AllowlistTable component when tab is switched', async () => {
       const user = userEvent.setup();
 
-      render(<UserManagementPage />, {
+      render(<UsersPage />, {
         wrapperOptions: { user: mockAdminUser },
       });
 
@@ -481,7 +494,7 @@ describe('UserManagementPage', () => {
     });
 
     it('should not pass any props to UserList', () => {
-      render(<UserManagementPage />, {
+      render(<UsersPage />, {
         wrapperOptions: { user: mockAdminUser },
       });
 
@@ -492,7 +505,7 @@ describe('UserManagementPage', () => {
     it('should not pass any props to AllowlistTable', async () => {
       const user = userEvent.setup();
 
-      render(<UserManagementPage />, {
+      render(<UsersPage />, {
         wrapperOptions: { user: mockAdminUser },
       });
 
@@ -509,7 +522,7 @@ describe('UserManagementPage', () => {
 
   describe('Layout Structure', () => {
     it('should use correct Container maxWidth', () => {
-      const { container } = render(<UserManagementPage />, {
+      const { container } = render(<UsersPage />, {
         wrapperOptions: { user: mockAdminUser },
       });
 
@@ -518,7 +531,7 @@ describe('UserManagementPage', () => {
     });
 
     it('should apply correct spacing to container', () => {
-      const { container } = render(<UserManagementPage />, {
+      const { container } = render(<UsersPage />, {
         wrapperOptions: { user: mockAdminUser },
       });
 
@@ -527,7 +540,7 @@ describe('UserManagementPage', () => {
     });
 
     it('should render tabs with divider', () => {
-      const { container } = render(<UserManagementPage />, {
+      const { container } = render(<UsersPage />, {
         wrapperOptions: { user: mockAdminUser },
       });
 
@@ -536,7 +549,7 @@ describe('UserManagementPage', () => {
     });
 
     it('should have proper padding on tab panel container', () => {
-      const { container } = render(<UserManagementPage />, {
+      const { container } = render(<UsersPage />, {
         wrapperOptions: { user: mockAdminUser },
       });
 
@@ -547,16 +560,16 @@ describe('UserManagementPage', () => {
 
   describe('Accessibility', () => {
     it('should have proper heading hierarchy', () => {
-      render(<UserManagementPage />, {
+      render(<UsersPage />, {
         wrapperOptions: { user: mockAdminUser },
       });
 
-      const heading = screen.getByRole('heading', { name: /user management/i });
+      const heading = screen.getByRole('heading', { name: /users & allowlist/i });
       expect(heading.tagName).toBe('H1');
     });
 
     it('should have accessible tab labels', () => {
-      render(<UserManagementPage />, {
+      render(<UsersPage />, {
         wrapperOptions: { user: mockAdminUser },
       });
 
@@ -568,7 +581,7 @@ describe('UserManagementPage', () => {
     });
 
     it('should have proper ARIA attributes on tabs', () => {
-      render(<UserManagementPage />, {
+      render(<UsersPage />, {
         wrapperOptions: { user: mockAdminUser },
       });
 
@@ -580,7 +593,7 @@ describe('UserManagementPage', () => {
     });
 
     it('should have proper role attributes on tab panels', () => {
-      const { container } = render(<UserManagementPage />, {
+      const { container } = render(<UsersPage />, {
         wrapperOptions: { user: mockAdminUser },
       });
 
@@ -593,7 +606,7 @@ describe('UserManagementPage', () => {
     it('should handle rapid tab switching', async () => {
       const user = userEvent.setup();
 
-      render(<UserManagementPage />, {
+      render(<UsersPage />, {
         wrapperOptions: { user: mockAdminUser },
       });
 
@@ -612,16 +625,16 @@ describe('UserManagementPage', () => {
     });
 
     it('should maintain page state when components render', () => {
-      const { rerender } = render(<UserManagementPage />, {
+      const { rerender } = render(<UsersPage />, {
         wrapperOptions: { user: mockAdminUser },
       });
 
-      expect(screen.getByText(/user management/i)).toBeInTheDocument();
+      expect(screen.getByText(/users & allowlist/i)).toBeInTheDocument();
 
       // Force a rerender
-      rerender(<UserManagementPage />);
+      rerender(<UsersPage />);
 
-      expect(screen.getByText(/user management/i)).toBeInTheDocument();
+      expect(screen.getByText(/users & allowlist/i)).toBeInTheDocument();
       expect(screen.getByRole('tab', { name: /users/i })).toHaveAttribute(
         'aria-selected',
         'true'
@@ -629,11 +642,11 @@ describe('UserManagementPage', () => {
     });
 
     it('should handle component mount and unmount cleanly', () => {
-      const { unmount } = render(<UserManagementPage />, {
+      const { unmount } = render(<UsersPage />, {
         wrapperOptions: { user: mockAdminUser },
       });
 
-      expect(screen.getByText(/user management/i)).toBeInTheDocument();
+      expect(screen.getByText(/users & allowlist/i)).toBeInTheDocument();
 
       // Unmount should not throw
       expect(() => unmount()).not.toThrow();
@@ -653,9 +666,9 @@ describe('UserManagementPage', () => {
         isAdmin: false,
       });
 
-      render(<UserManagementPage />, {
+      render(<UsersPage />, {
         wrapperOptions: {
-          route: '/admin/users',
+          route: '/admin/settings/users',
           user: {
             id: 'viewer-id',
             email: 'viewer@example.com',
@@ -670,7 +683,7 @@ describe('UserManagementPage', () => {
       });
 
       // Should not render page content
-      expect(screen.queryByText(/user management/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/users & allowlist/i)).not.toBeInTheDocument();
     });
 
     it('should use replace navigation for redirect', () => {
@@ -685,15 +698,15 @@ describe('UserManagementPage', () => {
         isAdmin: false,
       });
 
-      render(<UserManagementPage />, {
+      render(<UsersPage />, {
         wrapperOptions: {
-          route: '/admin/users',
+          route: '/admin/settings/users',
           user: null,
         },
       });
 
       // Navigate component uses replace prop
-      expect(screen.queryByText(/user management/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/users & allowlist/i)).not.toBeInTheDocument();
     });
   });
 });

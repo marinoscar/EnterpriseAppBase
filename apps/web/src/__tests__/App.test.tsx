@@ -7,9 +7,9 @@ import { server } from './mocks/server';
 import App from '../App';
 
 /**
- * The two admin pages are replaced with UNGUARDED stand-ins.
+ * Every admin page is replaced with an UNGUARDED stand-in.
  *
- * Both real pages already self-guard on the same permission and redirect to
+ * The real pages already self-guard on the same permission and redirect to
  * `/`, so with them in place a route-guard test passes whether or not the route
  * guard exists — the page's own check produces an identical redirect. Mocking
  * them away is what makes these assertions actually about `App.tsx`'s wiring:
@@ -18,13 +18,33 @@ import App from '../App';
  *
  * The page-level checks stay in the app as defence for a page mounted from
  * anywhere else; they are covered by those pages' own suites.
+ *
+ * The stand-ins carry DISTINCT headings (#92). With five routes under
+ * `/admin/settings/*`, a shared heading would let a mis-wired route pass by
+ * rendering a sibling — which is precisely the failure a route split invites.
  */
 vi.mock('../pages/SystemSettingsPage', () => ({
   default: () => <h1>System Settings</h1>,
 }));
 
-vi.mock('../pages/UserManagementPage', () => ({
-  default: () => <h1>User Management</h1>,
+vi.mock('../pages/Admin/GeneralSettingsPage', () => ({
+  default: () => <h1>Admin General</h1>,
+}));
+
+vi.mock('../pages/Admin/AppearanceSettingsPage', () => ({
+  default: () => <h1>Admin Appearance</h1>,
+}));
+
+vi.mock('../pages/Admin/FeatureFlagsPage', () => ({
+  default: () => <h1>Admin Feature Flags</h1>,
+}));
+
+vi.mock('../pages/Admin/AdvancedSettingsPage', () => ({
+  default: () => <h1>Admin Advanced</h1>,
+}));
+
+vi.mock('../pages/Admin/UsersPage', () => ({
+  default: () => <h1>Admin Users</h1>,
 }));
 
 const API_BASE = '*/api';
@@ -82,6 +102,11 @@ describe('App', () => {
      * that file and nothing else.
      */
     it('redirects a user without system_settings:read away from /admin/settings', async () => {
+      // Holds neither half of the console gate's OR (no system_settings:read,
+      // no users:read either) — the case a widened-but-still-single-permission
+      // gate would still get right, which is why it alone can't distinguish a
+      // correct fix from an incomplete one. See the users:read-only test below
+      // for the half that actually would have failed pre-fix.
       signInAs(['user_settings:read']);
 
       render(
@@ -96,11 +121,11 @@ describe('App', () => {
       expect(screen.queryByRole('heading', { name: /system settings/i })).not.toBeInTheDocument();
     });
 
-    it('redirects a user without users:read away from /admin/users', async () => {
+    it('redirects a user without users:read away from /admin/settings/users', async () => {
       signInAs(['user_settings:read']);
 
       render(
-        <MemoryRouter initialEntries={['/admin/users']}>
+        <MemoryRouter initialEntries={['/admin/settings/users']}>
           <App />
         </MemoryRouter>,
       );
@@ -108,7 +133,7 @@ describe('App', () => {
       await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), {
         timeout: 5000,
       });
-      expect(screen.queryByRole('heading', { name: /user management/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: 'Admin Users' })).not.toBeInTheDocument();
     });
 
     it('lets a user holding system_settings:read reach /admin/settings', async () => {
@@ -146,7 +171,134 @@ describe('App', () => {
       );
     });
 
-    it('admits an admin holding users:read to /admin/users', async () => {
+    it('admits a user holding ONLY users:read to /admin/settings', async () => {
+      // Issue #92 regression. The `console` destination is reachable on
+      // `anyPermission: ['system_settings:read', 'users:read']` — an OR — but
+      // the route itself used to keep only `system_settings:read`, so a
+      // users:read-only admin saw the Console row everywhere, clicked it, and
+      // was bounced straight back to `/`. This is the half of the OR the two
+      // tests above never exercised: neither holds users:read without also
+      // holding system_settings:read.
+      signInAs(['user_settings:read', 'users:read'], ['contributor']);
+
+      render(
+        <MemoryRouter initialEntries={['/admin/settings']}>
+          <App />
+        </MemoryRouter>,
+      );
+
+      await waitFor(
+        () =>
+          expect(screen.getByRole('heading', { name: /system settings/i })).toBeInTheDocument(),
+        { timeout: 5000 },
+      );
+    });
+
+    it('admits an admin holding users:read to /admin/settings/users', async () => {
+      signInAs(['user_settings:read', 'users:read', 'allowlist:read'], ['admin']);
+
+      render(
+        <MemoryRouter initialEntries={['/admin/settings/users']}>
+          <App />
+        </MemoryRouter>,
+      );
+
+      await waitFor(
+        () => expect(screen.getByRole('heading', { name: 'Admin Users' })).toBeInTheDocument(),
+        { timeout: 5000 },
+      );
+    });
+  });
+
+  /**
+   * Issue #92, epic #90. The admin tab strips became one route per settings
+   * page. These assert the two things a split can silently get wrong: a route
+   * that renders the WRONG page (hence the distinct stand-in headings above),
+   * and a route that carries the wrong permission.
+   */
+  describe('Console settings routes', () => {
+    const READER = ['user_settings:read', 'system_settings:read'];
+
+    it.each([
+      ['/admin/settings/general', 'Admin General'],
+      ['/admin/settings/appearance', 'Admin Appearance'],
+      ['/admin/settings/feature-flags', 'Admin Feature Flags'],
+    ])('renders %s for a user holding system_settings:read', async (path, heading) => {
+      signInAs(READER, ['contributor']);
+
+      render(
+        <MemoryRouter initialEntries={[path]}>
+          <App />
+        </MemoryRouter>,
+      );
+
+      await waitFor(() => expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument(), {
+        timeout: 5000,
+      });
+    });
+
+    it.each([
+      '/admin/settings/general',
+      '/admin/settings/appearance',
+      '/admin/settings/feature-flags',
+      '/admin/settings/advanced',
+    ])('redirects a user without system_settings:read away from %s', async (path) => {
+      signInAs(['user_settings:read']);
+
+      render(
+        <MemoryRouter initialEntries={[path]}>
+          <App />
+        </MemoryRouter>,
+      );
+
+      await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), {
+        timeout: 5000,
+      });
+    });
+
+    it('keeps Advanced (JSON) out of reach on system_settings:read alone', async () => {
+      // The one route whose permission differs from its siblings'. A raw editor
+      // over the whole document has no read-only meaning, so `read` is NOT
+      // enough — and a copy-pasted route block is exactly how that gate gets
+      // silently widened to match its neighbours.
+      signInAs(READER, ['contributor']);
+
+      render(
+        <MemoryRouter initialEntries={['/admin/settings/advanced']}>
+          <App />
+        </MemoryRouter>,
+      );
+
+      await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), {
+        timeout: 5000,
+      });
+      expect(screen.queryByRole('heading', { name: 'Admin Advanced' })).not.toBeInTheDocument();
+    });
+
+    it('admits system_settings:write to Advanced (JSON)', async () => {
+      signInAs([...READER, 'system_settings:write'], ['admin']);
+
+      render(
+        <MemoryRouter initialEntries={['/admin/settings/advanced']}>
+          <App />
+        </MemoryRouter>,
+      );
+
+      await waitFor(
+        () => expect(screen.getByRole('heading', { name: 'Admin Advanced' })).toBeInTheDocument(),
+        { timeout: 5000 },
+      );
+    });
+  });
+
+  /**
+   * The redirects are REAL routes, not catch-all fallout. Before #92 a
+   * bookmarked `/admin/users` matched only `*` and landed silently on `/`, so
+   * "did the user reach the right page" and "did the user reach home" were the
+   * same observation. Asserting the destination page is what separates them.
+   */
+  describe('Legacy admin URL redirects', () => {
+    it('sends /admin/users to the Users & Allowlist page', async () => {
       signInAs(['user_settings:read', 'users:read', 'allowlist:read'], ['admin']);
 
       render(
@@ -156,10 +308,42 @@ describe('App', () => {
       );
 
       await waitFor(
-        () =>
-          expect(screen.getByRole('heading', { name: /user management/i })).toBeInTheDocument(),
+        () => expect(screen.getByRole('heading', { name: 'Admin Users' })).toBeInTheDocument(),
         { timeout: 5000 },
       );
+    });
+
+    it('sends the bare /admin to the settings hub', async () => {
+      signInAs(['user_settings:read', 'system_settings:read'], ['admin']);
+
+      render(
+        <MemoryRouter initialEntries={['/admin']}>
+          <App />
+        </MemoryRouter>,
+      );
+
+      // TODO(#93): this stand-in is `SystemSettingsPage` until the hub exists.
+      await waitFor(
+        () => expect(screen.getByRole('heading', { name: 'System Settings' })).toBeInTheDocument(),
+        { timeout: 5000 },
+      );
+    });
+
+    it('still refuses a redirected route the user may not reach', async () => {
+      // The redirect itself is ungated — it is the TARGET route that gates, and
+      // this is what proves the redirect did not become a way around it.
+      signInAs(['user_settings:read']);
+
+      render(
+        <MemoryRouter initialEntries={['/admin/users']}>
+          <App />
+        </MemoryRouter>,
+      );
+
+      await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), {
+        timeout: 5000,
+      });
+      expect(screen.queryByRole('heading', { name: 'Admin Users' })).not.toBeInTheDocument();
     });
   });
 });
