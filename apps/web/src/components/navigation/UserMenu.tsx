@@ -14,7 +14,7 @@ import { Logout as LogoutIcon } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePermissions } from '../../hooks/usePermissions';
-import { DESTINATIONS } from '../../config/destinations';
+import { DESTINATIONS, isDestinationVisible } from '../../config/destinations';
 
 export function UserMenu() {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
@@ -54,8 +54,7 @@ export function UserMenu() {
   // row duplicating on-screen chrome is the exact bloat this epic removes.
   const menuDestinations = DESTINATIONS.filter(
     (destination) =>
-      destination.key !== 'home' &&
-      (!destination.permission || hasPermission(destination.permission)),
+      destination.key !== 'home' && isDestinationVisible(destination, hasPermission),
   );
 
   const initials = user.displayName

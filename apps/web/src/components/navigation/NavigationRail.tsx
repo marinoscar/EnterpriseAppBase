@@ -42,7 +42,11 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import { Link as RouterLink, useLocation } from 'react-router-dom';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useNavigationPrefs } from '../../hooks/useNavigationPrefs';
-import { DESTINATIONS, resolveActiveDestination } from '../../config/destinations';
+import {
+  DESTINATIONS,
+  isDestinationVisible,
+  resolveActiveDestination,
+} from '../../config/destinations';
 
 /**
  * 56px so a 24px icon clears 16px of horizontal padding without the caption
@@ -175,8 +179,11 @@ export function NavigationRail() {
 
   // `usePermissions`' predicates are memoized, so keying on `hasPermission` is
   // safe: this recomputes when the user's permission set changes, not per render.
-  const visibleDestinations = DESTINATIONS.filter(
-    (destination) => !destination.permission || hasPermission(destination.permission),
+  // `isDestinationVisible`, never an inline `destination.permission` check:
+  // `console` is gated on EITHER `system_settings:read` OR `users:read` (#92),
+  // and an inline check would have shown that row to everyone.
+  const visibleDestinations = DESTINATIONS.filter((destination) =>
+    isDestinationVisible(destination, hasPermission),
   );
 
   return (
