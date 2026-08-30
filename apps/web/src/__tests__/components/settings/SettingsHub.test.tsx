@@ -43,6 +43,7 @@ vi.mock('../../../hooks/usePermissions', () => ({
 
 import { usePermissions } from '../../../hooks/usePermissions';
 import SettingsHubPage from '../../../pages/Admin/SettingsHubPage';
+import UserSettingsHubPage from '../../../pages/UserSettingsHubPage';
 
 const mockUsePermissions = vi.mocked(usePermissions);
 
@@ -478,5 +479,169 @@ describe('SettingsHubPage — the real admin registry', () => {
         expect(window.sessionStorage.getItem('eab:scroll:admin-settings-hub')).toBe('42');
       });
     });
+  });
+});
+
+/**
+ * The real user binding (issue #96), the twin of the admin pass above and for
+ * the same reason: generic `SettingsHub` behaviour (search, both width
+ * treatments, click-to-navigate, the empty state) is already proven against
+ * the fixture registry, so this section only has to prove the WIRING —
+ * `USER_SETTINGS_SECTIONS`, `USER_HUB_TITLE`, and the `user-settings-hub`
+ * scroll key — plus the one thing that makes this hub different from the
+ * admin one: no card here declares a `permission`, so a user holding nothing
+ * but `user_settings:read` must still see every card. A `RequirePermission`
+ * (or an accidental `permission` string) added to any of these cards would
+ * fail that test without touching anything checked above.
+ */
+describe('UserSettingsHubPage — the real user registry', () => {
+  // Deliberately NOT `users:read` or `system_settings:read` — those are what
+  // the admin hub gates on, and this suite exists to prove the user hub does
+  // not borrow that gate.
+  const SETTINGS_OWNER = ['user_settings:read'];
+
+  it('renders the hub title, both groups, and all three cards for a user_settings:read-only user', () => {
+    setViewportWidth(DESKTOP);
+    setPermissions(SETTINGS_OWNER);
+    render(<UserSettingsHubPage />);
+
+    expect(screen.getByRole('heading', { level: 4, name: 'Settings' })).toBeInTheDocument();
+    expect(screen.getByText('Account')).toBeInTheDocument();
+    expect(screen.getByText('Security')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 6, name: 'Profile' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 6, name: 'Appearance' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 6, name: 'Access Tokens' })).toBeInTheDocument();
+  });
+
+  it('holds no card behind a permission: an empty permission set still sees all three cards', () => {
+    // The strongest version of "no permission is required" — not merely
+    // "the permission this user happens to hold is enough", but "there is no
+    // gate to satisfy at all".
+    setViewportWidth(DESKTOP);
+    setPermissions([]);
+    render(<UserSettingsHubPage />);
+
+    expect(screen.getByRole('heading', { level: 6, name: 'Profile' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 6, name: 'Appearance' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 6, name: 'Access Tokens' })).toBeInTheDocument();
+  });
+
+  it("navigates to a real card's route on click", async () => {
+    setViewportWidth(DESKTOP);
+    setPermissions(SETTINGS_OWNER);
+    const user = userEvent.setup();
+    render(<UserSettingsHubPage />);
+
+    await user.click(screen.getByRole('heading', { level: 6, name: 'Appearance' }));
+
+    expect(mockNavigate).toHaveBeenCalledWith('/settings/appearance');
+  });
+
+  it('filters cards by title, and clearing restores the full set', async () => {
+    setViewportWidth(DESKTOP);
+    setPermissions(SETTINGS_OWNER);
+    const user = userEvent.setup();
+    render(<UserSettingsHubPage />);
+
+    const search = screen.getByRole('textbox', { name: 'Search settings' });
+    await user.type(search, 'Access');
+
+    // "Access" matches only "Access Tokens" — the whole Account group (which
+    // has no matching card) must disappear, header included.
+    expect(screen.getByRole('heading', { level: 6, name: 'Access Tokens' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 6, name: 'Profile' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 6, name: 'Appearance' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Account')).not.toBeInTheDocument();
+    expect(screen.getByText('Security')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Clear settings search' }));
+
+    expect(search).toHaveValue('');
+    expect(screen.getByRole('heading', { level: 6, name: 'Profile' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 6, name: 'Appearance' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 6, name: 'Access Tokens' })).toBeInTheDocument();
+    expect(screen.getByText('Account')).toBeInTheDocument();
+  });
+
+  it('renders the card grid with descriptions at sm and above', () => {
+    setViewportWidth(DESKTOP);
+    setPermissions(SETTINGS_OWNER);
+    render(<UserSettingsHubPage />);
+
+    expect(screen.getByRole('heading', { level: 6, name: 'Profile' })).toBeInTheDocument();
+    expect(
+      screen.getByText(/your display name and profile image/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('list')).not.toBeInTheDocument();
+  });
+
+  it('renders the drill-down list — rows with a chevron, no descriptions — below sm', () => {
+    setViewportWidth(PHONE);
+    setPermissions(SETTINGS_OWNER);
+    render(<UserSettingsHubPage />);
+
+    expect(screen.getByText('Profile')).toBeInTheDocument();
+    expect(
+      screen.queryByText(/your display name and profile image/i),
+    ).not.toBeInTheDocument();
+    // No card headings at this width — titles are plain row text, not `h6`s.
+    expect(screen.queryByRole('heading', { level: 6 })).not.toBeInTheDocument();
+
+    const profileRow = screen.getByRole('button', { name: /Profile/ });
+    // Leading icon + trailing chevron — an enabled row carries exactly two.
+    expect(profileRow.querySelectorAll('svg')).toHaveLength(2);
+  });
+
+  describe('Scroll restoration wiring', () => {
+    it('writes a scroll offset under the user-settings-hub key', async () => {
+      setViewportWidth(DESKTOP);
+      setPermissions(SETTINGS_OWNER);
+      render(<UserSettingsHubPage />);
+
+      Object.defineProperty(window, 'scrollY', { value: 84, configurable: true });
+      window.dispatchEvent(new Event('scroll'));
+
+      await waitFor(() => {
+        expect(window.sessionStorage.getItem('eab:scroll:user-settings-hub')).toBe('84');
+      });
+    });
+  });
+});
+
+/**
+ * The point of parameterising `SettingsHub` over `hubKey` in the first place:
+ * the admin hub and the user hub must never restore each other's scroll
+ * offset. Issue #96's own description calls this out by name. Proving it
+ * requires both hubs in the same test — writing to one key and then asserting
+ * the OTHER key is untouched is the only way to catch a hub that silently
+ * fell back to a shared or hardcoded key.
+ */
+describe('Admin hub and user hub keep separate scroll offsets', () => {
+  it('writes distinct sessionStorage keys, and one hub never clobbers the other', async () => {
+    setViewportWidth(DESKTOP);
+    setPermissions(['system_settings:read', 'system_settings:write', 'users:read']);
+
+    const { unmount } = render(<SettingsHubPage />);
+    Object.defineProperty(window, 'scrollY', { value: 111, configurable: true });
+    window.dispatchEvent(new Event('scroll'));
+    await waitFor(() => {
+      expect(window.sessionStorage.getItem('eab:scroll:admin-settings-hub')).toBe('111');
+    });
+    unmount();
+
+    // No user_settings-specific permission granted — proves the user hub
+    // needs none of the above to mount and restore its own offset.
+    setPermissions([]);
+    render(<UserSettingsHubPage />);
+    Object.defineProperty(window, 'scrollY', { value: 222, configurable: true });
+    window.dispatchEvent(new Event('scroll'));
+    await waitFor(() => {
+      expect(window.sessionStorage.getItem('eab:scroll:user-settings-hub')).toBe('222');
+    });
+
+    // The admin hub's offset survived the user hub's write untouched — the
+    // two keys are genuinely independent, not the same key overwritten twice.
+    expect(window.sessionStorage.getItem('eab:scroll:admin-settings-hub')).toBe('111');
+    expect(window.sessionStorage.getItem('eab:scroll:user-settings-hub')).toBe('222');
   });
 });

@@ -157,7 +157,7 @@ describe('QuickActions', () => {
       expect(mockNavigate).toHaveBeenCalledWith('/settings');
     });
 
-    it('should navigate to /settings#theme when Theme is clicked', async () => {
+    it('should navigate to /settings/appearance when Theme is clicked', async () => {
       const user = userEvent.setup();
 
       render(<QuickActions />);
@@ -167,7 +167,7 @@ describe('QuickActions', () => {
       });
       await user.click(themeButton);
 
-      expect(mockNavigate).toHaveBeenCalledWith('/settings#theme');
+      expect(mockNavigate).toHaveBeenCalledWith('/settings/appearance');
     });
 
     it('should navigate to /admin/settings when Console is clicked (admin)', async () => {
@@ -547,7 +547,7 @@ describe('QuickActions', () => {
 
       // Click Theme
       await user.click(screen.getByRole('button', { name: /theme/i }));
-      expect(mockNavigate).toHaveBeenLastCalledWith('/settings#theme');
+      expect(mockNavigate).toHaveBeenLastCalledWith('/settings/appearance');
 
       // Click Console
       await user.click(screen.getByRole('button', { name: /console/i }));

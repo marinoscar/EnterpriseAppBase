@@ -51,13 +51,22 @@ export function QuickActions() {
     // emitted right behind its parent so the two stay adjacent, and it inherits
     // that parent's visibility for free: a user who cannot see User Settings has
     // nothing to deep-link into.
+    //
+    // A ROUTE, NOT AN ANCHOR, as of issue #96. This was `/settings#theme`, which
+    // worked only because the stacked `UserSettingsPage` rendered every section
+    // on one document and `ThemeSettings` carried an `id="theme"`. Epic #90
+    // replaced that page with a hub whose sections are separate routes, so the
+    // fragment now names an element that is not on the page: the button would
+    // silently land on the hub with the theme control one more click away, and
+    // nothing would report it as broken. Deep links into a split surface must
+    // address the ROUTE the section moved to.
     ...(destination.key === 'settings'
       ? [
           {
             title: 'Theme',
             description: 'Customize your display preferences',
             icon: <ThemeIcon />,
-            path: '/settings#theme',
+            path: '/settings/appearance',
           },
         ]
       : []),
