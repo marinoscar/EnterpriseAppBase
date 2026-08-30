@@ -1063,14 +1063,20 @@ npx playwright test --config=tests/visual/playwright.config.ts
 To generate or verify baselines, run the suite inside the exact pinned container instead — the point of the container is that the pixels it produces are the same pixels CI will produce. From the repo root:
 
 ```bash
+REPO=$(git rev-parse --show-toplevel)
 docker run --rm \
-  -v /home/marinoscar/git/EnterpriseAppBase:/home/marinoscar/git/EnterpriseAppBase \
-  -w /home/marinoscar/git/EnterpriseAppBase/worktrees/visual-tests \
+  --user "$(id -u):$(id -g)" \
+  -v "$REPO:$REPO" \
+  -w "$REPO" \
   mcr.microsoft.com/playwright:v1.62.1-noble \
   tests/visual/node_modules/.bin/playwright test --config=tests/visual/playwright.config.ts
 ```
 
-The mounted path and `-w` working directory above are specific to this worktree checkout; a different checkout should substitute its own path in both places. The part that matters is not the path — it's running inside the pinned `v1.62.1-noble` container, from the repo root, invoking the Playwright binary directly rather than through `npx`.
+Three details in that command are load-bearing:
+
+- **`--user "$(id -u):$(id -g)"`.** The image's default user is root, and Playwright writes `test-results/` and `playwright-report/` into the mount. Without this flag those directories come back owned by root: they are gitignored so they never reach a commit, but they are enough to make `git worktree remove` and `rm -rf` fail with *Permission denied* until you delete them from inside a container. Run as yourself and the problem does not arise.
+- **The mount path equals the host path.** `node_modules` inside a worktree is a symlink into the main checkout, so mounting the repo root at its own absolute path is what keeps those symlinks resolvable inside the container. Mounting at `/app` instead leaves them dangling.
+- **Invoking the pinned binary directly** rather than through `npx`. `npx` resolves the first Playwright it finds walking up from the working directory, which in this repo is the unpinned copy at the root — and a version mismatch against the container's browsers throws a module-duplication error rather than anything self-explanatory.
 
 ### Updating Baselines Deliberately
 
