@@ -91,6 +91,40 @@ export class UsageError extends CliError {
   readonly exitCode = EXIT.USAGE;
 }
 
+/**
+ * There is no credential to use, so the request was never attempted (#143).
+ *
+ * EXIT.AUTH, the same code a 401 produces, ON PURPOSE: from a script's point
+ * of view "the stored token was revoked" and "there was never a stored token"
+ * have the identical remedy — run `login` — and a script that branches on the
+ * exit code should not have to know which of the two happened. What must
+ * differ is the MESSAGE, and that is the whole reason this class exists: the
+ * naive implementation sends `Authorization: Bearer undefined`, gets a 401,
+ * and tells the user their credentials were rejected. They were not; there
+ * were none. That misdirection sends people to revoke and re-issue tokens
+ * that were never the problem.
+ */
+export class AuthRequiredError extends CliError {
+  readonly exitCode = EXIT.AUTH;
+
+  constructor(message = `Not logged in. Run \`${CLI_NAME} login\` first.`) {
+    super(message);
+  }
+}
+
+/**
+ * The config file exists but cannot be used (#143).
+ *
+ * NOT EXIT.AUTH: "your config is corrupt" is not fixed by logging in against
+ * whatever server the corrupt file names, and a script retrying `login` on
+ * an AUTH code would loop. FAILURE is honest — something is wrong that the
+ * CLI cannot resolve on its own — and the message always names the path so
+ * the fix (delete it, or fix the JSON) needs no further investigation.
+ */
+export class ConfigError extends CliError {
+  readonly exitCode = EXIT.FAILURE;
+}
+
 /** Everything the server may have told us about a failed request. */
 export interface ApiErrorFields {
   /** HTTP status. 0 is never used here — that is NetworkError's territory. */
@@ -111,6 +145,34 @@ export interface ApiErrorFields {
    * page, an empty body, a proxy's HTML.
    */
   readonly structured: boolean;
+  /**
+   * The response body EXACTLY as it arrived, before this module distilled a
+   * message out of it. OPTIONAL, so adding it did not change the shape every
+   * existing caller of this constructor already passes.
+   *
+   * WHY KEEP IT, given that `serverMessage`, `code` and `details` are meant to
+   * BE the useful distillation: because a caller can need a field this module
+   * deliberately does not model. The concrete case is #142's RFC 8628 polling.
+   * `POST /api/auth/device/token` signals four COMPLETELY DIFFERENT outcomes —
+   * keep waiting, back off, the code expired, the user pressed Deny — in an
+   * `error` field that is neither `message` nor `code` nor `details`. So
+   * `extractServerMessage` throws it away, and the client is left unable to
+   * tell "still waiting" from "denied". Rather than teach this generic error
+   * model one endpoint's vocabulary, the raw body is kept and the device-flow
+   * classifier reads it.
+   *
+   * SAFE TO KEEP, NOT SAFE TO PRINT. It is an ERROR body, so it can never
+   * contain an issued token — a credential only ever appears in a 2xx — but it
+   * CAN carry a stack trace when the API runs with NODE_ENV !== 'production'
+   * (see the filter's `details` handling). `formatError` prints `message` and
+   * nothing else; nothing else should either.
+   */
+  // `| undefined` alongside the `?` is required by this package's
+  // `exactOptionalPropertyTypes`: without it, the field could be omitted but
+  // not explicitly passed as undefined, and the class below — which must
+  // declare it as `string | undefined` to implement the interface — would not
+  // satisfy it.
+  readonly rawBody?: string | undefined;
 }
 
 /**
@@ -127,6 +189,7 @@ export class ApiError extends CliError implements ApiErrorFields {
   readonly method: string;
   readonly url: string;
   readonly structured: boolean;
+  readonly rawBody: string | undefined;
 
   constructor(fields: ApiErrorFields) {
     super(`${fields.status}: ${fields.serverMessage}`);
@@ -137,6 +200,7 @@ export class ApiError extends CliError implements ApiErrorFields {
     this.method = fields.method;
     this.url = fields.url;
     this.structured = fields.structured;
+    this.rawBody = fields.rawBody;
   }
 
   get exitCode(): ExitCode {
@@ -170,6 +234,7 @@ export class ApiError extends CliError implements ApiErrorFields {
       method: args.method,
       url: args.url,
       structured: extracted.structured,
+      rawBody: args.rawBody,
     });
   }
 }
