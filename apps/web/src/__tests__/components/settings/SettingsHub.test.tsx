@@ -500,7 +500,7 @@ describe('UserSettingsHubPage — the real user registry', () => {
   // not borrow that gate.
   const SETTINGS_OWNER = ['user_settings:read'];
 
-  it('renders the hub title, both groups, and all three cards for a user_settings:read-only user', () => {
+  it('renders the hub title, both groups, and all four cards for a user_settings:read-only user', () => {
     setViewportWidth(DESKTOP);
     setPermissions(SETTINGS_OWNER);
     render(<UserSettingsHubPage />);
@@ -510,10 +510,12 @@ describe('UserSettingsHubPage — the real user registry', () => {
     expect(screen.getByText('Security')).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 6, name: 'Profile' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 6, name: 'Appearance' })).toBeInTheDocument();
+    // Issue #126, epic #109. Same Account group as Profile/Appearance.
+    expect(screen.getByRole('heading', { level: 6, name: 'Notifications' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 6, name: 'Access Tokens' })).toBeInTheDocument();
   });
 
-  it('holds no card behind a permission: an empty permission set still sees all three cards', () => {
+  it('holds no card behind a permission: an empty permission set still sees all four cards', () => {
     // The strongest version of "no permission is required" — not merely
     // "the permission this user happens to hold is enough", but "there is no
     // gate to satisfy at all".
@@ -523,7 +525,44 @@ describe('UserSettingsHubPage — the real user registry', () => {
 
     expect(screen.getByRole('heading', { level: 6, name: 'Profile' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 6, name: 'Appearance' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 6, name: 'Notifications' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 6, name: 'Access Tokens' })).toBeInTheDocument();
+  });
+
+  // Issue #126, epic #109. The registry-driven promise this hub makes: a card
+  // declared in `USER_SETTINGS_SECTIONS` with no `permission` appears in BOTH
+  // width treatments with no further wiring, and clicking it navigates to its
+  // declared path — exactly the "appears in the hub's grid and drill-down"
+  // behaviour the issue calls out.
+  it('shows the Notifications card in the desktop grid, in the phone drill-down list, and navigates to its route', async () => {
+    setViewportWidth(DESKTOP);
+    setPermissions(SETTINGS_OWNER);
+    const user = userEvent.setup();
+    const { unmount } = render(<UserSettingsHubPage />);
+
+    expect(screen.getByRole('heading', { level: 6, name: 'Notifications' })).toBeInTheDocument();
+    expect(
+      screen.getByText(/choose which events notify you, and whether they arrive by email or in your browser/i),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole('heading', { level: 6, name: 'Notifications' }));
+    expect(mockNavigate).toHaveBeenCalledWith('/settings/notifications');
+
+    unmount();
+    mockNavigate.mockClear();
+
+    setViewportWidth(PHONE);
+    render(<UserSettingsHubPage />);
+
+    // Drill-down rows are plain text, not `h6` headings (see the phone test
+    // below) - a row and a leading-icon + trailing-chevron pair is the whole
+    // contract at this width.
+    expect(screen.getByText('Notifications')).toBeInTheDocument();
+    const notificationsRow = screen.getByRole('button', { name: /Notifications/ });
+    expect(notificationsRow.querySelectorAll('svg')).toHaveLength(2);
+
+    await user.click(notificationsRow);
+    expect(mockNavigate).toHaveBeenCalledWith('/settings/notifications');
   });
 
   it("navigates to a real card's route on click", async () => {

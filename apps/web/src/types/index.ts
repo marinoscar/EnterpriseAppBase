@@ -36,6 +36,123 @@ export interface DataTableSettings {
   pageSize?: number;
 }
 
+// =============================================================================
+// Notifications — the registry (#124) and the stored preferences (#126, epic #109)
+// =============================================================================
+//
+// TWO DIFFERENT SHAPES THAT ARE EASY TO CONFUSE, so they are named apart here:
+//
+//   * `NotificationEventDef`  — what events EXIST. Static, identical for every
+//     caller, served by `GET /api/notifications/events`. The server owns it;
+//     the web app never declares its own copy (see the long argument in
+//     `apps/api/src/notifications/notification-events.ts`).
+//   * `NotificationPreferences` — what THIS user chose, stored inside the
+//     user-settings document under `notifications`.
+//
+// A definition is not a preference: an account with no stored preferences is
+// not "no events", it is every event at its registry default.
+// =============================================================================
+
+/**
+ * A delivery channel.
+ *
+ * Mirrors the API's `NOTIFICATION_CHANNELS`. This union is the ONE piece of the
+ * registry the web app restates, and only because it is the key type of the
+ * patch documents below — an open `string` there would let a typo compile.
+ * It is a closed set server-side too (the PATCH schema validates the outer key
+ * against the same enum and 400s on anything else), so a channel this union
+ * lacks is a channel this app could not write anyway.
+ *
+ * Rendering is nonetheless written to survive a NEWER server that declares a
+ * channel this build has never heard of — see `CHANNEL_META` in
+ * `components/settings/NotificationSettings.tsx`, which falls back to the raw
+ * key rather than rendering a blank label.
+ */
+export type NotificationChannel = 'email' | 'browser';
+
+/**
+ * One entry of the event registry, as served by `GET /api/notifications/events`.
+ *
+ * Field for field the API's `notificationEventSchema`. Note `mandatory` is a
+ * plain `boolean` here, not `boolean | undefined`: the API normalises it on the
+ * way out precisely so no client has to know that absent means "the user is in
+ * charge".
+ */
+export interface NotificationEventDef {
+  /** Stable key. What a preference is stored against; renaming one server-side is a migration. */
+  key: string;
+  /** Short human label — the row heading on the preferences page. */
+  label: string;
+  /** One sentence on what actually triggers this, in the user's terms. */
+  description: string;
+  /**
+   * Channels this event CAN be delivered over — a capability of the event, not
+   * a statement about which transports are implemented yet. A cell is rendered
+   * only for a channel listed here, so `allowlist.invitation` (email only, its
+   * recipient has no session by definition) never offers a browser toggle.
+   */
+  channels: NotificationChannel[];
+  /** What an account that has expressed no preference receives. */
+  defaultEnabled: boolean;
+  /**
+   * The user may not opt out, on ANY channel.
+   *
+   * A UI HINT ONLY — the gate is server-side in preference resolution, because
+   * a client-side check is bypassed by any request that never went near the
+   * client. Render the controls disabled WITH the reason rather than hiding
+   * them: a dead toggle teaches nothing (epic #109, success criterion 5).
+   */
+  mandatory: boolean;
+}
+
+/**
+ * One channel's stored preferences: event key -> the user's explicit choice.
+ *
+ * SPARSE. A key is present only where the user deliberately chose something. An
+ * absent key is NOT `false` and must never be normalised into one — absent
+ * means "use the registry's `defaultEnabled`", resolved at read time.
+ */
+export type NotificationChannelPreferences = Record<string, boolean>;
+
+/**
+ * The `notifications` namespace of the user-settings document, as stored.
+ *
+ * CHANNEL-OUTER, EVENT-INNER — `{ email: { 'user.welcome': false } }`. Not a
+ * choice this file makes: it is the shape the API's
+ * `readNotificationPreferences` parses and `isChannelEnabled` resolves, and a
+ * document written event-outer would be silently ignored by the dispatcher,
+ * i.e. a mute that never takes effect.
+ *
+ * Every level is optional, all the way down. There is deliberately no shape of
+ * this value that asserts "the user has an opinion about every event".
+ */
+export type NotificationPreferences = Partial<
+  Record<NotificationChannel, NotificationChannelPreferences>
+>;
+
+/**
+ * PATCH form of one channel's preferences.
+ *
+ * The value is nullable because JSON Merge Patch uses `null` to mean DELETE:
+ * `{ email: { 'user.welcome': null } }` removes that one event key, restoring
+ * the absent (= registry default) state. That is what the preferences page
+ * sends when a control returns to its default — writing the default value
+ * explicitly works today and pins the user to today's default forever.
+ */
+export type NotificationChannelPreferencesPatch = Record<string, boolean | null>;
+
+/**
+ * PATCH form of the `notifications` namespace. Three levels of delete, each
+ * meaning something different (see `UserSettingsUpdate`).
+ *
+ * Unlike `dataTables`, a non-null channel object is DEEP-merged per event
+ * rather than replacing the channel wholesale — which is exactly what lets the
+ * page send one key per toggle and leave every other preference absent.
+ */
+export type NotificationPreferencesPatch = Partial<
+  Record<NotificationChannel, NotificationChannelPreferencesPatch | null>
+>;
+
 export interface UserSettings {
   theme: 'light' | 'dark' | 'system';
   profile: {
@@ -45,6 +162,15 @@ export interface UserSettings {
   };
   navigation?: NavigationSettings;
   dataTables?: Record<string, DataTableSettings>;
+  /**
+   * Per-channel, per-event notification preferences (#126, epic #109).
+   *
+   * OPTIONAL, AND ABSENT IS THE NORMAL CASE — not a loading state and not
+   * "notifications off". No account has this key until it deliberately changes
+   * a preference, so `settings.notifications ?? {}` resolves every event to its
+   * registry default. Never backfill it with a materialised object.
+   */
+  notifications?: NotificationPreferences;
   updatedAt: string;
   version: number;
 }
@@ -75,6 +201,10 @@ export type DataTablesPatch = Record<string, DataTableSettings | null>;
  *   - `{ navigation: { railCollapsed: null } }` deletes just that field
  *   - `{ dataTables: null }`                    clears the whole namespace
  *   - `{ dataTables: { [id]: null } }`          deletes just that table's entry
+ *   - `{ notifications: null }`                 clears the whole namespace
+ *   - `{ notifications: { email: null } }`      clears one channel
+ *   - `{ notifications: { email: { k: null } }}` deletes ONE event key, restoring
+ *                                               the registry default for it
  * Omitting a key leaves the stored value untouched. Server-owned fields
  * (`updatedAt`, `version`) are not patchable and so are absent here.
  */
@@ -83,6 +213,12 @@ export interface UserSettingsUpdate {
   profile?: Partial<UserSettings['profile']>;
   navigation?: NavigationSettingsPatch | null;
   dataTables?: DataTablesPatch | null;
+  /**
+   * Notification preferences (#126). The channel object is DEEP-merged per
+   * event key server-side, which is what allows the preferences page to send
+   * exactly the one key it changed and leave every other preference absent.
+   */
+  notifications?: NotificationPreferencesPatch | null;
 }
 
 export interface SystemSettings {

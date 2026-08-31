@@ -71,6 +71,14 @@ vi.mock('../pages/UserTokensPage', () => ({
   default: () => <h1>User Tokens Page</h1>,
 }));
 
+// Issue #126, epic #109. Same rationale as the four stand-ins above: the real
+// page's own suite (`UserNotificationsPage.test.tsx`) already proves it
+// renders correctly, so this stand-in makes the assertions below about
+// `App.tsx`'s route wiring specifically.
+vi.mock('../pages/UserNotificationsPage', () => ({
+  default: () => <h1>User Notifications Page</h1>,
+}));
+
 const API_BASE = '*/api';
 
 /** Overrides `GET /auth/me` for one test, so the route tree sees this user. */
@@ -249,12 +257,20 @@ describe('App', () => {
    * wires each PATH to the right one, and nothing proved these routes are
    * reachable without the `RequirePermission` gate the `/admin/settings/*`
    * block above carries.
+   *
+   * `/settings/notifications` (issue #126, epic #109) joined this set later:
+   * `config/userSettingsSections.tsx` declares no `permission` on its card for
+   * the same reason every other card here doesn't (see that file's own
+   * header), and `UserNotificationsPage.test.tsx` covers the page's own
+   * behaviour — this file only proves `App.tsx` wires the path to it and
+   * carries no gate.
    */
   describe('User settings routes', () => {
     it.each([
       ['/settings', 'User Settings Hub'],
       ['/settings/profile', 'User Profile Page'],
       ['/settings/appearance', 'User Appearance Page'],
+      ['/settings/notifications', 'User Notifications Page'],
       ['/settings/tokens', 'User Tokens Page'],
     ])('renders %s as %s for a user holding only user_settings:read', async (path, heading) => {
       signInAs(['user_settings:read']);
@@ -269,12 +285,13 @@ describe('App', () => {
         timeout: 5000,
       });
 
-      // Isolation: reaching one of the four routes must render exactly that
+      // Isolation: reaching one of these routes must render exactly that
       // page's stand-in, never a sibling's.
       const allHeadings = [
         'User Settings Hub',
         'User Profile Page',
         'User Appearance Page',
+        'User Notifications Page',
         'User Tokens Page',
       ];
       for (const other of allHeadings.filter((h) => h !== heading)) {
@@ -301,6 +318,24 @@ describe('App', () => {
         () =>
           expect(
             screen.getByRole('heading', { name: 'User Profile Page' }),
+          ).toBeInTheDocument(),
+        { timeout: 5000 },
+      );
+    });
+
+    it('reaches /settings/notifications with an empty permission set - it renders every user\'s own preferences, not an admin-only surface', async () => {
+      signInAs([]);
+
+      render(
+        <MemoryRouter initialEntries={['/settings/notifications']}>
+          <App />
+        </MemoryRouter>,
+      );
+
+      await waitFor(
+        () =>
+          expect(
+            screen.getByRole('heading', { name: 'User Notifications Page' }),
           ).toBeInTheDocument(),
         { timeout: 5000 },
       );

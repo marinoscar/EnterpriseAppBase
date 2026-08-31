@@ -1,6 +1,7 @@
 import type {
   DataTablesValue,
   NavigationValue,
+  NotificationsValue,
 } from '../schemas/user-settings-namespaces.schema';
 
 // =============================================================================
@@ -29,6 +30,18 @@ export interface UserSettingsValue {
    * Navigation chrome preferences. Absent means "use built-in defaults".
    */
   navigation?: NavigationValue;
+  /**
+   * Per-channel, per-event notification preferences (#126), channel-outer:
+   * `{ email: { 'user.welcome': false } }`.
+   *
+   * SPARSE AND OPTIONAL AT EVERY LEVEL. Absent namespace, absent channel and
+   * absent event key all mean the same thing — "use the event's
+   * `defaultEnabled` from the registry" — which is what lets this feature ship
+   * with no migration and no backfill, and is why an untouched account is not
+   * muted. The dispatcher resolves it; see
+   * notifications/notification-preferences.ts.
+   */
+  notifications?: NotificationsValue;
 }
 
 /**
@@ -46,10 +59,12 @@ export interface SystemSettingsValue {
 /**
  * Default user settings
  */
-// NOTE: `dataTables` and `navigation` are intentionally NOT listed here.
+// NOTE: `dataTables`, `navigation` and `notifications` are intentionally NOT
+// listed here.
 // Seeding them would turn "absent" into "explicitly empty", which is exactly
 // the failure mode the namespaces are designed to avoid (a frozen column set
-// that silently hides every column added later).
+// that silently hides every column added later, or a notification preference
+// map that freezes a user at the defaults of the day they first saved).
 export const DEFAULT_USER_SETTINGS: UserSettingsValue = {
   theme: 'system',
   profile: {

@@ -575,6 +575,183 @@ describe('UserSettingsService', () => {
     });
   });
 
+  // ===========================================================================
+  // notifications namespace merge logic (issue #126, epic #109)
+  // ===========================================================================
+  //
+  // mergeNotifications is private for the same reason mergeDataTables and
+  // mergeNavigation are - reached here via `(service as any)` rather than a
+  // public export, since PATCH merge semantics are an implementation detail,
+  // not part of the service's public surface.
+  //
+  // The load-bearing difference from mergeDataTables: a channel's preferences
+  // are DEEP-MERGED per event key, not replaced wholesale. See the extensive
+  // comment on mergeNotifications itself for why a wholesale replace here
+  // would be a regression (it would silently re-enable mail a user had
+  // already turned off on every unrelated toggle).
+
+  describe('mergeNotifications (private)', () => {
+    const mergeNotifications = (current: unknown, patch: unknown) =>
+      (service as any).mergeNotifications(current, patch);
+
+    it('patch absent leaves the namespace untouched', () => {
+      const current = { email: { 'user.welcome': false } };
+
+      expect(mergeNotifications(current, undefined)).toEqual(current);
+    });
+
+    it('setting one key writes only that key - other channels and events remain absent', () => {
+      const result = mergeNotifications(undefined, {
+        email: { 'user.welcome': false },
+      });
+
+      expect(result).toEqual({ email: { 'user.welcome': false } });
+      expect(result).not.toHaveProperty('browser');
+    });
+
+    it("{ email: { 'user.welcome': null } } deletes that key, leaving sibling event keys on the same channel untouched", () => {
+      const current = {
+        email: { 'user.welcome': false, 'security.role_changed': true },
+      };
+
+      const result = mergeNotifications(current, {
+        email: { 'user.welcome': null },
+      });
+
+      expect(result).toEqual({ email: { 'security.role_changed': true } });
+    });
+
+    it('deleting the last key in a channel removes the channel entirely, not {}', () => {
+      const current = {
+        email: { 'user.welcome': false },
+        browser: { 'security.role_changed': true },
+      };
+
+      const result = mergeNotifications(current, {
+        email: { 'user.welcome': null },
+      });
+
+      expect(result).toEqual({ browser: { 'security.role_changed': true } });
+      expect(result).not.toHaveProperty('email');
+    });
+
+    it('deleting the last key in the whole namespace collapses the result to undefined, not {}', () => {
+      const current = { email: { 'user.welcome': false } };
+
+      const result = mergeNotifications(current, {
+        email: { 'user.welcome': null },
+      });
+
+      expect(result).toBeUndefined();
+    });
+
+    it('{ email: null } clears one channel, leaving other channels untouched', () => {
+      const current = {
+        email: { 'user.welcome': false },
+        browser: { 'security.role_changed': true },
+      };
+
+      const result = mergeNotifications(current, { email: null });
+
+      expect(result).toEqual({ browser: { 'security.role_changed': true } });
+    });
+
+    it('notifications: null clears the whole namespace', () => {
+      const current = { email: { 'user.welcome': false } };
+
+      expect(mergeNotifications(current, null)).toBeUndefined();
+    });
+
+    // THE DIVERGENCE FROM mergeDataTables. A data table entry is replaced
+    // wholesale because it is one coherent view state; a channel's
+    // preferences are the opposite - a row of INDEPENDENT per-event choices -
+    // so setting one key must never disturb another already stored on the
+    // same channel. Modelled as two separate PATCHes through the full
+    // patchSettings flow (not two arguments to one merge call) because that
+    // is the actual shape #126's UI produces: one PATCH per toggle.
+    it('a channel is deep-merged per event across two separate PATCHes, not replaced wholesale', async () => {
+      mockPrisma.userSettings.findUnique.mockResolvedValueOnce({
+        ...mockUserSettings,
+        value: {
+          theme: 'system',
+          profile: { useProviderImage: true },
+        } as any,
+      } as any);
+
+      let storedValue: any;
+      (mockPrisma.userSettings.update as any).mockImplementationOnce(async ({ data }: any) => {
+        storedValue = data.value;
+        return { ...mockUserSettings, value: data.value, version: 2 };
+      });
+      mockPrisma.user.update.mockResolvedValue({} as any);
+
+      await service.patchSettings(mockUserId, {
+        notifications: { email: { 'user.welcome': false } },
+      } as any);
+
+      expect(storedValue.notifications).toEqual({
+        email: { 'user.welcome': false },
+      });
+
+      // Second, independent PATCH - a different key on the SAME channel.
+      mockPrisma.userSettings.findUnique.mockResolvedValueOnce({
+        ...mockUserSettings,
+        value: storedValue,
+      } as any);
+      (mockPrisma.userSettings.update as any).mockImplementationOnce(async ({ data }: any) => {
+        storedValue = data.value;
+        return { ...mockUserSettings, value: data.value, version: 3 };
+      });
+
+      await service.patchSettings(mockUserId, {
+        notifications: { email: { 'security.role_changed': false } },
+      } as any);
+
+      // Both keys survive - a wholesale replace would have dropped the first.
+      expect(storedValue.notifications).toEqual({
+        email: { 'user.welcome': false, 'security.role_changed': false },
+      });
+    });
+
+    // The implementation copies the stored namespace ONE LEVEL DEEP before
+    // mutating, precisely because a shallow `{ ...current }` would still
+    // share each per-channel object by reference, and `delete` on the copy
+    // would then mutate the caller's `current` in place.
+    it('does not mutate the current value it read - the per-channel object is copied before delete', () => {
+      const current = {
+        email: { 'user.welcome': false, 'security.role_changed': true },
+      };
+      const originalEmailRef = current.email;
+
+      const result = mergeNotifications(current, {
+        email: { 'user.welcome': null },
+      });
+
+      // `current` itself, and specifically the object reference for its
+      // `email` channel, must be exactly what was passed in.
+      expect(current.email).toBe(originalEmailRef);
+      expect(current.email).toEqual({
+        'user.welcome': false,
+        'security.role_changed': true,
+      });
+      // The result's `email` is a DIFFERENT object from the one that was read.
+      expect(result.email).not.toBe(originalEmailRef);
+      expect(result).toEqual({ email: { 'security.role_changed': true } });
+    });
+
+    // A stored preference disabling a mandatory event is accepted by the
+    // merge without complaint - `mandatory` is enforced only at read time by
+    // the dispatcher's resolver (#125), never here. See the extensive comment
+    // on mergeNotifications ("`mandatory` IS NOT ENFORCED HERE, DELIBERATELY").
+    it('merges a false preference for a mandatory event key without throwing - it is simply never consulted here', () => {
+      const result = mergeNotifications(undefined, {
+        email: { 'security.role_changed': false },
+      });
+
+      expect(result).toEqual({ email: { 'security.role_changed': false } });
+    });
+  });
+
   describe('assertDataTableLimit (private)', () => {
     const assertDataTableLimit = (dataTables: unknown) =>
       (service as any).assertDataTableLimit(dataTables);
@@ -649,6 +826,99 @@ describe('UserSettingsService', () => {
     });
   });
 
+  // ===========================================================================
+  // notifications namespace cap enforcement (issue #126, epic #109)
+  // ===========================================================================
+  //
+  // Same rationale as assertDataTableLimit above: the event key level of
+  // `notifications` is an OPEN map (see the schema file's header on why event
+  // keys are not validated against the registry), so without a cap a user can
+  // inflate their own row without limit. Enforced PER CHANNEL, since the
+  // channel level is closed by the enum and therefore already bounded.
+
+  describe('assertNotificationLimit (private)', () => {
+    const assertNotificationLimit = (notifications: unknown) =>
+      (service as any).assertNotificationLimit(notifications);
+
+    function buildEvents(count: number): Record<string, boolean> {
+      return Object.fromEntries(
+        Array.from({ length: count }, (_, i) => [`area.event${i}`, true]),
+      );
+    }
+
+    it('does not throw at exactly the cap (100 events for one channel)', () => {
+      expect(() =>
+        assertNotificationLimit({ email: buildEvents(100) }),
+      ).not.toThrow();
+    });
+
+    it('does not throw when notifications is undefined', () => {
+      expect(() => assertNotificationLimit(undefined)).not.toThrow();
+    });
+
+    it('throws BadRequestException (400) - not a ZodError/500 - when one channel exceeds the cap', () => {
+      let caught: unknown;
+      try {
+        assertNotificationLimit({ email: buildEvents(101) });
+      } catch (e) {
+        caught = e;
+      }
+
+      expect(caught).toBeInstanceOf(BadRequestException);
+    });
+
+    it('checks each channel independently - one channel over the cap throws even while another stays small', () => {
+      expect(() =>
+        assertNotificationLimit({
+          email: buildEvents(101),
+          browser: buildEvents(1),
+        }),
+      ).toThrow(BadRequestException);
+    });
+
+    // Same scenario as assertDataTableLimit's PATCH test: the REQUEST BODY
+    // alone is under the cap, but merging it on top of what is already stored
+    // pushes the channel's total over, so the check has to run on the
+    // service's MERGED result rather than the incoming DTO.
+    it('fires on the PATCH path: a 2-key patch on top of 99 stored email preferences exceeds the cap', async () => {
+      mockPrisma.userSettings.findUnique.mockResolvedValue({
+        ...mockUserSettings,
+        value: {
+          theme: 'system',
+          profile: { useProviderImage: true },
+          notifications: { email: buildEvents(99) },
+        } as any,
+      } as any);
+
+      const patch = {
+        notifications: {
+          email: { 'new.event1': true, 'new.event2': true },
+        },
+      };
+
+      await expect(
+        service.patchSettings(mockUserId, patch as any),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      // The 400 must be raised before any write is attempted.
+      expect(mockPrisma.userSettings.update).not.toHaveBeenCalled();
+    });
+
+    it('fires on the PUT path too', async () => {
+      const newSettings: UserSettingsValue = {
+        theme: 'light',
+        profile: { useProviderImage: true },
+        notifications: { email: buildEvents(101) },
+      };
+
+      await expect(
+        service.replaceSettings(mockUserId, newSettings),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(mockPrisma.userSettings.upsert).not.toHaveBeenCalled();
+    });
+  });
+
   describe('toResponse (private, exercised via getSettings)', () => {
     it('omits dataTables and navigation from the response body when absent, rather than emitting them as undefined', async () => {
       mockPrisma.userSettings.findUnique.mockResolvedValue(
@@ -663,9 +933,14 @@ describe('UserSettingsService', () => {
       expect(Object.prototype.hasOwnProperty.call(result, 'navigation')).toBe(
         false,
       );
+      // `'notifications' in result`, not a truthiness check on
+      // `result.notifications` - `{}` and absent are two different states
+      // (see mergeNotifications), so the assertion has to distinguish them
+      // too, not just accept `undefined` either way.
+      expect('notifications' in result).toBe(false);
     });
 
-    it('includes dataTables and navigation in the response body when present', async () => {
+    it('includes dataTables, navigation and notifications in the response body when present', async () => {
       mockPrisma.userSettings.findUnique.mockResolvedValue({
         ...mockUserSettings,
         value: {
@@ -673,6 +948,7 @@ describe('UserSettingsService', () => {
           profile: { useProviderImage: true },
           dataTables: { jobs: { pageSize: 25 } },
           navigation: { railCollapsed: true },
+          notifications: { email: { 'user.welcome': false } },
         } as any,
       } as any);
 
@@ -681,7 +957,45 @@ describe('UserSettingsService', () => {
       expect(result).toMatchObject({
         dataTables: { jobs: { pageSize: 25 } },
         navigation: { railCollapsed: true },
+        notifications: { email: { 'user.welcome': false } },
       });
+    });
+  });
+
+  // ===========================================================================
+  // Full PATCH round trip through the namespace-collapse rule (issue #126)
+  // ===========================================================================
+  //
+  // The unit-level `mergeNotifications` tests above prove the private method
+  // returns `undefined` when the last key is deleted. This test proves that
+  // result actually reaches the PERSISTED value: `patchSettings` only assigns
+  // `merged.notifications` when the merge produced something (see the
+  // `if (mergedNotifications !== undefined)` guard), so an emptied namespace
+  // must be genuinely ABSENT from what is written to Prisma - not merely
+  // falsy, and not `{}`, which the read path treats as a different state.
+  describe('notifications: full-object collapse on the PATCH path (issue #126)', () => {
+    it("deleting the last key in the namespace removes 'notifications' entirely from the stored value", async () => {
+      mockPrisma.userSettings.findUnique.mockResolvedValue({
+        ...mockUserSettings,
+        value: {
+          theme: 'system',
+          profile: { useProviderImage: true },
+          notifications: { email: { 'user.welcome': false } },
+        } as any,
+      } as any);
+
+      let storedValue: any;
+      (mockPrisma.userSettings.update as any).mockImplementation(async ({ data }: any) => {
+        storedValue = data.value;
+        return { ...mockUserSettings, value: data.value, version: 2 };
+      });
+      mockPrisma.user.update.mockResolvedValue({} as any);
+
+      await service.patchSettings(mockUserId, {
+        notifications: { email: { 'user.welcome': null } },
+      } as any);
+
+      expect('notifications' in storedValue).toBe(false);
     });
   });
 });
