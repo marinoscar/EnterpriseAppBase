@@ -38,6 +38,7 @@ model User {
   storageObjects            StorageObject[]  @relation("UserStorageObjects")
   personalAccessTokens      PersonalAccessToken[] @relation("UserPersonalAccessTokens")
   credentialUpdates         Credential[]     @relation("CredentialUpdatedBy")
+  notificationDeliveries    NotificationDelivery[] @relation("UserNotificationDeliveries")
 
   @@map("users")
 }
@@ -372,4 +373,113 @@ model Credential {
 
   @@unique([purpose, name])
   @@map("credentials")
+}
+
+// =============================================================================
+// Notification Deliveries (issue #125, epic #109)
+// =============================================================================
+//
+// One row per delivery ATTEMPT of an event (#121, `notification-events.ts`)
+// over a channel, to a recipient. This is the answer to "did the user
+// actually get it?" — the first question asked when something goes wrong,
+// and epic #109's own success criterion 7: a delivery record exists for
+// every attempt, with the provider's message id or error.
+//
+// -----------------------------------------------------------------------------
+// eventKey — plain string, NOT a foreign key
+// -----------------------------------------------------------------------------
+// Events are declared in code (`notification-events.ts`, #121), not in a
+// database table — `findEvent()` there returns `undefined` rather than
+// throwing for a key it doesn't recognize, precisely because callers may be
+// holding a key that came from persisted data written before the event was
+// renamed or removed. An FK into an "events" table would force a migration
+// (and a backfill, or a placeholder row) every time the registry changes,
+// which is exactly the coupling #121 built the registry to avoid. A delivery
+// record must outlive the event definition that produced it.
+//
+// -----------------------------------------------------------------------------
+// channel — ALSO a plain string, not a Prisma enum (deliberately asymmetric
+// with `status` below)
+// -----------------------------------------------------------------------------
+// `NotificationChannel` in `notification-events.ts` is explicitly derived
+// from a plain array (`NOTIFICATION_CHANNELS`) so that adding `'push'` later
+// (epic #109 reserves it) costs one edit to that array, not a migration. A
+// Postgres enum on this column would quietly reintroduce that migration: the
+// set of valid channels would live in two places — the code registry and
+// this column's type — and adding one would require updating both. The
+// registry is the single source of truth for what channels exist; this
+// column just records which one a given attempt used.
+//
+// -----------------------------------------------------------------------------
+// status — IS a Prisma enum
+// -----------------------------------------------------------------------------
+// Unlike eventKey/channel, `status` is not registry data — it is this
+// table's own delivery state machine, owned entirely by the dispatcher, and
+// nothing outside this table grows it. It follows the convention this schema
+// already uses for exactly this shape of field (`DeviceCodeStatus`,
+// `StorageObjectStatus`): a small, closed, code-owned set of states is a
+// Postgres enum here, so the database itself rejects a delivery row written
+// with anything other than queued/sent/failed.
+//
+// -----------------------------------------------------------------------------
+// userId — nullable; recipient — the actual destination used
+// -----------------------------------------------------------------------------
+// `allowlist.invitation` (#121) is sent to an email address with no user
+// account yet (#128) — there is no user row to point to, so `userId` must be
+// nullable. `recipient` is what makes that case complete: it is the actual
+// destination address used for THIS delivery, captured independently of the
+// user relation, so the record stands on its own with `userId` null, and
+// stays historically accurate even if the user's email later changes.
+//
+// -----------------------------------------------------------------------------
+// onDelete: SetNull on the user relation
+// -----------------------------------------------------------------------------
+// Matches the audit-trail precedent this schema already sets for
+// `AuditEvent.actorUserId` and `Credential.updatedByUser`: a delivery record
+// is a history of what the application sent, and deleting a user account
+// should not retroactively erase the evidence of what was sent to them —
+// particularly for `security.*` events (#121), which are exactly the ones an
+// incident review is most likely to need after the account in question no
+// longer exists. Nothing is lost by nulling the FK: `recipient` already
+// carries the actual destination independently of it. A GDPR-style request
+// to purge one user's PII is a deliberate, targeted scrub of these rows (and
+// `recipient` specifically) — not something an ON DELETE clause should do
+// silently and irreversibly as a side effect of an unrelated user-deletion
+// path elsewhere in the app.
+//
+// -----------------------------------------------------------------------------
+// Indexes — exactly the two queries this table is known to serve
+// -----------------------------------------------------------------------------
+// Every index is a write cost on a table that grows with every notification
+// sent, so nothing speculative is added beyond what #125 itself names:
+//   - [userId, eventKey]: "did this user get this event?" — an equality
+//     filter on both columns, from an account's delivery history view.
+//   - [status, createdAt]: "what failed recently?" — status = 'failed'
+//     filtered and ordered by recency, for on-call triage.
+model NotificationDelivery {
+  id                String                     @id @default(uuid()) @db.Uuid
+  eventKey          String                     @map("event_key")
+  userId            String?                    @map("user_id") @db.Uuid
+  recipient         String
+  channel           String
+  status            NotificationDeliveryStatus @default(queued)
+  providerMessageId String?                    @map("provider_message_id")
+  // Provider errors (SMTP rejections, SES API errors, ...) have no useful
+  // length bound — @db.Text, same reasoning as Credential.secret above.
+  error             String?                    @db.Text
+  createdAt         DateTime                   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime                   @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  user User? @relation("UserNotificationDeliveries", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, eventKey])
+  @@index([status, createdAt])
+  @@map("notification_deliveries")
+}
+
+enum NotificationDeliveryStatus {
+  queued
+  sent
+  failed
 }
