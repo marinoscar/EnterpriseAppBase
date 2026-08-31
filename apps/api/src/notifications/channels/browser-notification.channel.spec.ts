@@ -30,6 +30,24 @@ const recipient: NotificationRecipient = {
   preferences: {},
 };
 
+/**
+ * A payload each event's registered browser template can actually render.
+ *
+ * #128 registered one template (`security.role_changed`), and it reads fields
+ * off the payload. Feeding it `{}` would exercise the render-throw branch
+ * rather than the happy path, so the loops below say what a real dispatch
+ * would carry. An event with no template ignores this entirely — the fallback
+ * renders from the registry's own label and description.
+ */
+const SAMPLE_PAYLOADS: Record<string, unknown> = {
+  'security.role_changed': {
+    recipientEmail: 'user@example.com',
+    previousRoles: ['admin'],
+    currentRoles: ['viewer'],
+    changedAt: new Date('2026-01-01T00:00:00.000Z'),
+  },
+};
+
 function contextFor(eventKey: string, data: unknown = {}): NotificationDispatchContext {
   const event = NOTIFICATION_EVENTS.find((e) => e.key === eventKey);
   if (!event) {
@@ -72,9 +90,37 @@ describe('BrowserNotificationChannel', () => {
   // EVENT_BROWSER_TEMPLATES is empty until #128
   // ==========================================================================
 
-  describe('EVENT_BROWSER_TEMPLATES is deliberately empty until #128', () => {
-    it('has no entries registered', () => {
-      expect(Object.keys(EVENT_BROWSER_TEMPLATES)).toEqual([]);
+  describe('EVENT_BROWSER_TEMPLATES agrees with the registry (#128)', () => {
+    it('registers no template for an event that does not declare the browser channel', () => {
+      // The registry's per-event `channels` list is the source of truth. A
+      // renderer for an event that never offers this channel is dead code
+      // that reads as a live feature — `user.welcome` and
+      // `allowlist.invitation` are email-only, the latter because its
+      // recipient has no account and therefore no inbox row to write.
+      const nonBrowserEvents = NOTIFICATION_EVENTS.filter(
+        (event) => !event.channels.includes('browser'),
+      ).map((event) => event.key);
+
+      expect(nonBrowserEvents.length).toBeGreaterThan(0);
+
+      for (const key of nonBrowserEvents) {
+        expect(EVENT_BROWSER_TEMPLATES[key]).toBeUndefined();
+      }
+    });
+
+    it('a browser-channel event without a template still delivers, via the fallback', () => {
+      // Deliberately NOT "every browser event has a template". Unlike the
+      // email channel, a miss here is not a failed delivery — it falls back to
+      // the registry's label and description, which is truthful if generic.
+      // See the source file's `render()` for why the two channels differ.
+      for (const event of NOTIFICATION_EVENTS.filter((e) =>
+        e.channels.includes('browser'),
+      )) {
+        expect(typeof event.label).toBe('string');
+        expect(event.label.length).toBeGreaterThan(0);
+        expect(typeof event.description).toBe('string');
+        expect(event.description.length).toBeGreaterThan(0);
+      }
     });
   });
 
@@ -131,7 +177,7 @@ describe('BrowserNotificationChannel', () => {
       );
     });
 
-    it('does not throw, for every currently-registered event', async () => {
+    it('delivers successfully for every registered event, template or fallback', async () => {
       mockPrisma.notification.create.mockResolvedValue({
         id: 'notif-x',
         createdAt: new Date(),
@@ -139,11 +185,37 @@ describe('BrowserNotificationChannel', () => {
       mockStream.publish.mockReturnValue(0);
 
       for (const event of NOTIFICATION_EVENTS) {
-        const context = contextFor(event.key);
+        const context = contextFor(event.key, SAMPLE_PAYLOADS[event.key] ?? {});
         await expect(channel.deliver(context, 'user-1')).resolves.toMatchObject({
           success: true,
         });
       }
+    });
+
+    it('the #128 role-change template renders the before/after delta, not just the new state', async () => {
+      // The one registered template, asserted on directly: "you are now a
+      // Viewer" cannot tell the reader whether they gained access or lost it,
+      // which is why the delta is the alertable fact (see
+      // role-changed.email.ts for the same argument on the email side).
+      mockPrisma.notification.create.mockResolvedValue({
+        id: 'notif-role',
+        createdAt: new Date(),
+      });
+      mockStream.publish.mockReturnValue(0);
+
+      const context = contextFor(
+        'security.role_changed',
+        SAMPLE_PAYLOADS['security.role_changed'],
+      );
+
+      await channel.deliver(context, 'user-1');
+
+      const written = mockPrisma.notification.create.mock.calls[0]![0].data;
+      expect(written.title).toBe('Your roles changed');
+      expect(written.body).toContain('Admin');
+      expect(written.body).toContain('Viewer');
+      // No link: this application has no page showing a user their own roles.
+      expect(written.link).toBeNull();
     });
   });
 
