@@ -47,9 +47,19 @@ jobs:
 
       - run: npm run typecheck --workspace=api
       - run: npm run typecheck --workspace=web
+      - run: npm run typecheck --workspace=cli
 
       - run: npm test --workspace=api
       - run: npm run test:run --workspace=web
+      - run: npm run test:run --workspace=cli
+
+      # The CLI is the one workspace whose BUILD is the deliverable — the `bin`
+      # points at dist/, so a package that typechecks but does not emit is
+      # broken for every user while looking green here. Cheap (tsc only) and it
+      # catches the ESM footguns this package is exposed to: a missing `.js`
+      # import extension, or a rootDir slip that emits dist/src/cli.js and
+      # leaves the `bin` path dangling. (issue #140, epic #110)
+      - run: npm run build --workspace=cli
 
   openapi:
     name: OpenAPI
