@@ -7,6 +7,7 @@ import {
   emailSettingsSchema,
 } from './email-settings.schema';
 import { PrismaService } from '../prisma/prisma.service';
+import { CredentialsService } from '../credentials/credentials.service';
 import {
   createMockPrismaService,
   MockPrismaService,
@@ -30,14 +31,34 @@ import {
 describe('EmailSettingsService', () => {
   let service: EmailSettingsService;
   let mockPrisma: MockPrismaService;
+  let mockCredentials: {
+    describe: jest.Mock;
+    setSecret: jest.Mock;
+    getSecret: jest.Mock;
+  };
 
   beforeEach(async () => {
     mockPrisma = createMockPrismaService();
+    mockCredentials = {
+      describe: jest.fn().mockResolvedValue(null),
+      setSecret: jest.fn().mockResolvedValue(undefined),
+      // NEVER legitimate on a settings path: `getSecret` is the only method
+      // that returns plaintext. Throwing makes an accidental call a failed
+      // test rather than a silent widening of where the password can travel.
+      getSecret: jest.fn(() => {
+        throw new Error('EmailSettingsService must never read the SMTP plaintext');
+      }),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         EmailSettingsService,
         { provide: PrismaService, useValue: mockPrisma },
+        // #124 gave the service its write path, which routes the SMTP password
+        // to the credential store. `get` -- everything this suite exercises --
+        // never touches it, so a stub that fails loudly if it ever is called
+        // keeps that separation asserted rather than assumed.
+        { provide: CredentialsService, useValue: mockCredentials },
       ],
     }).compile();
 

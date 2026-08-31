@@ -99,6 +99,21 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
           'Deployment-wide configuration, stored as a JSON document. Readable by any signed-in user; ' +
           'writable only with `system_settings:write`.',
       },
+      {
+        name: 'Email Settings',
+        description:
+          'Mail transport configuration (SES or SMTP), the sender identity, and a test send that ' +
+          'reports the provider\'s actual error so a misconfiguration can be diagnosed. Gated on ' +
+          '`system_settings:read`/`:write`. The SMTP password is write-only: it is held in the ' +
+          'encrypted credential store, is never returned, and submitting it empty preserves it.',
+      },
+      {
+        name: 'Notifications',
+        description:
+          'The registry of events this application can raise, and which channels each supports. ' +
+          'Readable by any signed-in user, because every user renders their own notification ' +
+          'preferences against it.',
+      },
     ],
   },
   {

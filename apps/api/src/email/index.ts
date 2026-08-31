@@ -2,11 +2,16 @@
 // Email -- public surface (issue #122, epic #109)
 // =============================================================================
 //
-// #122 shipped the transports and their configuration; #123 adds the template
-// layer behind the same barrel, exactly as that arrangement anticipated -- no
-// call site changed its import path to get it. Still absent: the settings
-// endpoint (#124), the dispatcher (#125), the three real event templates
-// (#128).
+// #122 shipped the transports and their configuration; #123 added the template
+// layer and #124 the admin settings endpoints, each behind the same barrel,
+// exactly as that arrangement anticipated -- no call site changed its import
+// path to get them. Still absent: the dispatcher (#125) and the three real
+// event templates (#128).
+//
+// NOTHING EXPORTED FROM HERE CAN CARRY THE SMTP PASSWORD. The write DTO's
+// `smtpPassword` is request-only and is stripped before persistence; the
+// response DTO and `EmailSettingsAdminView` both carry compile-time proofs
+// that they have no secret-bearing field.
 //
 // `BaseEmailProvider` is exported for the same reason it exists: a new
 // transport extends it and inherits the never-throw guarantee. Implementing
@@ -19,6 +24,17 @@ export {
   EmailSettingsService,
   EMAIL_SETTINGS_KEY,
 } from './email-settings.service';
+export { EmailSettingsController } from './email-settings.controller';
+export {
+  EmailTestSendService,
+  formatFromHeader,
+} from './email-test-send.service';
+export {
+  SMTP_CREDENTIAL_LABEL,
+} from './smtp-credential.constants';
+export { updateEmailSettingsSchema } from './dto/update-email-settings.dto';
+export { emailSettingsResponseSchema } from './dto/email-settings-response.dto';
+export { testEmailResultSchema } from './dto/test-email-result.dto';
 export {
   DEFAULT_EMAIL_SETTINGS,
   DEFAULT_SMTP_PORT,
@@ -69,3 +85,11 @@ export type {
   EmailProviderKind,
   EmailSettings,
 } from './email-settings.schema';
+export type {
+  EmailSettingsAdminView,
+  SmtpPasswordStatus,
+} from './email-settings.service';
+export type { TestSendActor } from './email-test-send.service';
+export type { UpdateEmailSettingsInput } from './dto/update-email-settings.dto';
+export type { EmailSettingsResponse } from './dto/email-settings-response.dto';
+export type { TestEmailResult } from './dto/test-email-result.dto';
