@@ -57,10 +57,32 @@ export default () => {
   initialAdminEmail: process.env.INITIAL_ADMIN_EMAIL,
 
   // Device Authorization Flow (RFC 8628)
+  //
+  // Two independent lifetimes live here, and conflating them is the mistake to
+  // avoid (#141, epic #110):
+  //
+  //   tokenExpiryDays (DEVICE_TOKEN_EXPIRY_DAYS) — the SESSION credential the
+  //     browser-driven activation page has always produced. Short by design;
+  //     it is a JWT, so it cannot be revoked before it expires. Raising it to
+  //     CLI-friendly lengths would weaken every device session in the app to
+  //     serve one client, which is exactly the alternative epic #110 rejected.
+  //
+  //   patExpiryDays (DEVICE_PAT_EXPIRY_DAYS) — the lifetime of the personal
+  //     access token minted when a device asks for `clientInfo.tokenType:
+  //     'pat'`. It can be far longer precisely BECAUSE a PAT is revocable
+  //     server-side: a stolen laptop is handled by deleting one row in the
+  //     Access Tokens page, with nothing else to rotate. 90 days matches the
+  //     epic's suggestion and MemoriaHub's reference CLI.
+  //
+  // NOTE FOR OPS: `DEVICE_PAT_EXPIRY_DAYS` is new and still needs an entry in
+  // `infra/compose/.env.example`. The default below means an existing
+  // deployment keeps working untouched, so this is documentation debt, not an
+  // outage.
   deviceAuth: {
     expiryMinutes: parseInt(process.env.DEVICE_CODE_EXPIRY_MINUTES || '15', 10),
     pollInterval: parseInt(process.env.DEVICE_CODE_POLL_INTERVAL || '5', 10),
     tokenExpiryDays: parseInt(process.env.DEVICE_TOKEN_EXPIRY_DAYS || '7', 10),
+    patExpiryDays: parseInt(process.env.DEVICE_PAT_EXPIRY_DAYS || '90', 10),
   },
 
   // Observability
