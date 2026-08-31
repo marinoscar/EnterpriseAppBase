@@ -37,6 +37,20 @@ export type {
 
 export { buildProgram, run } from './program.js';
 
+// The generic `api` command (#144). The two parsers are exported because they
+// are the local-validation half of the command — a bad method, a path without
+// a leading slash, a malformed --query — and they are pure functions, so they
+// are exercised directly rather than through a spawned process.
+export { parseQueryPair, parseRequestPath, registerApiCommand } from './commands/api.js';
+
+// Rendering, kept separate from the command so #145's TUI can reuse the JSON
+// formatter and the colour decision without inheriting the stdout writes.
+export { createSpinner, formatJson, formatStatusLine, shouldUseColour } from './output.js';
+export type { ColourDecisionInput, FormatJsonOptions } from './output.js';
+
+export { resolveRequestBody } from './request-body.js';
+export type { BodyResolutionContext, BodySourceKind, ResolvedBody } from './request-body.js';
+
 export {
   SERVER_URL_ENV_VAR,
   TOKEN_ENV_VAR,
