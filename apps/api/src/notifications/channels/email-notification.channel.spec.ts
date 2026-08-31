@@ -3,6 +3,7 @@ import {
   EmailNotificationChannel,
 } from './email-notification.channel';
 import { NOTIFICATION_EVENTS } from '../notification-events';
+import type { NotificationEventDef } from '../notification-events';
 import type {
   NotificationDispatchContext,
   NotificationRecipient,
@@ -12,11 +13,17 @@ import type {
 // EmailNotificationChannel — tests (issue #125, epic #109)
 // =============================================================================
 //
-// #128 wires real templates for the three seeded events; until it does,
-// `EVENT_EMAIL_TEMPLATES` is deliberately empty (see that file's header). This
-// suite locks in the ONE thing that matters about that state: dispatching an
-// event with no registered template must record a failed delivery with a
-// clear, specific reason — not throw, and not silently succeed.
+// #128 wired real templates for the three seeded events, so the interesting
+// state is no longer "the map is empty" but "the map and the registry agree".
+// This suite locks in two things:
+//
+//   1. EVERY event declaring the `email` channel has a template. A missing one
+//      is an event that can never be sent, and this is the only place that is
+//      caught before an operator finds it in `notification_deliveries`.
+//   2. An event with NO registered template still records a failed delivery
+//      with a clear, specific reason — not a throw, and not a silent success.
+//      That path is no longer reachable through the seeded registry, so it is
+//      exercised with a synthetic event def instead of a real key.
 //
 // `EmailSettingsService`/`SesEmailProvider`/`SmtpEmailProvider` are injected
 // as bare `{ get: jest.fn() }`/`{ send: jest.fn() }` stand-ins, following
@@ -29,14 +36,6 @@ const recipient: NotificationRecipient = {
   email: 'user@example.com',
   preferences: {},
 };
-
-function contextFor(eventKey: string, data: unknown = {}): NotificationDispatchContext {
-  const event = NOTIFICATION_EVENTS.find((e) => e.key === eventKey);
-  if (!event) {
-    throw new Error(`Test fixture error: no such event '${eventKey}' in the registry.`);
-  }
-  return { event, recipient, data };
-}
 
 describe('EmailNotificationChannel', () => {
   let channel: EmailNotificationChannel;
@@ -60,21 +59,59 @@ describe('EmailNotificationChannel', () => {
     jest.clearAllMocks();
   });
 
-  describe('EVENT_EMAIL_TEMPLATES is deliberately empty until #128', () => {
-    it('has no entries registered', () => {
-      expect(Object.keys(EVENT_EMAIL_TEMPLATES)).toEqual([]);
+  describe('EVENT_EMAIL_TEMPLATES agrees with the registry (#128)', () => {
+    it('registers a template for every event that declares the email channel', () => {
+      const emailEvents = NOTIFICATION_EVENTS.filter((event) =>
+        event.channels.includes('email'),
+      ).map((event) => event.key);
+
+      expect(emailEvents.length).toBeGreaterThan(0);
+
+      for (const key of emailEvents) {
+        expect(EVENT_EMAIL_TEMPLATES[key]).toBeDefined();
+      }
+    });
+
+    it('registers no template for an event that does not declare the email channel', () => {
+      // Dead entries are not harmless: they read as a live delivery path for
+      // a channel the registry never offers.
+      const nonEmailEvents = NOTIFICATION_EVENTS.filter(
+        (event) => !event.channels.includes('email'),
+      ).map((event) => event.key);
+
+      for (const key of nonEmailEvents) {
+        expect(EVENT_EMAIL_TEMPLATES[key]).toBeUndefined();
+      }
     });
   });
 
   describe('deliver() with no registered template', () => {
-    it('records a failed result with a clear reason, rather than throwing', async () => {
-      const context = contextFor('user.welcome');
+    // Synthetic, because since #128 every SEEDED event has a template. The
+    // reachable route to this branch is a rolling deploy in which one build
+    // declares an event the other has no template for.
+    const unregistered: NotificationEventDef = {
+      key: 'test.unregistered',
+      label: 'Unregistered',
+      description: 'An event with no template, for this suite only.',
+      channels: ['email'],
+      defaultEnabled: true,
+    };
 
-      const result = await channel.deliver(context, recipient.email as string);
+    const unregisteredContext: NotificationDispatchContext = {
+      event: unregistered,
+      recipient,
+      data: {},
+    };
+
+    it('records a failed result with a clear reason, rather than throwing', async () => {
+      const result = await channel.deliver(
+        unregisteredContext,
+        recipient.email as string,
+      );
 
       expect(result.success).toBe(false);
       expect(result.error).toBe(
-        "No email template is registered for event 'user.welcome'.",
+        "No email template is registered for event 'test.unregistered'.",
       );
     });
 
@@ -82,31 +119,16 @@ describe('EmailNotificationChannel', () => {
       // The template check happens first, before any I/O — a missing
       // template is a code-level omission and should not cost a settings
       // query to discover.
-      const context = contextFor('user.welcome');
-
-      await channel.deliver(context, recipient.email as string);
+      await channel.deliver(unregisteredContext, recipient.email as string);
 
       expect(mockEmailSettings.get).not.toHaveBeenCalled();
       expect(mockSes.send).not.toHaveBeenCalled();
       expect(mockSmtp.send).not.toHaveBeenCalled();
     });
 
-    it('fails the same way for every currently-registered event, since the template map is empty for all of them', async () => {
-      for (const event of NOTIFICATION_EVENTS) {
-        const context = contextFor(event.key);
-        const result = await channel.deliver(context, 'someone@example.com');
-
-        expect(result.success).toBe(false);
-        expect(result.error).toBe(
-          `No email template is registered for event '${event.key}'.`,
-        );
-      }
-    });
-
     it('never throws, even though deliver() is awaited directly here (not through the dispatcher\'s try/catch)', async () => {
-      const context = contextFor('user.welcome');
       await expect(
-        channel.deliver(context, recipient.email as string),
+        channel.deliver(unregisteredContext, recipient.email as string),
       ).resolves.toMatchObject({ success: false });
     });
   });

@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { NotificationsService } from '../notifications/notifications.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { UnauthorizedException, ForbiddenException } from '@nestjs/common';
@@ -16,6 +17,7 @@ describe('AuthService', () => {
   let mockConfigService: jest.Mocked<ConfigService>;
   let mockAdminBootstrap: jest.Mocked<AdminBootstrapService>;
   let mockAllowlistService: jest.Mocked<AllowlistService>;
+  let mockNotifications: { notify: jest.Mock; notifyAddress: jest.Mock };
 
   const mockGoogleProfile: GoogleProfile = {
     id: 'google-123',
@@ -60,6 +62,21 @@ describe('AuthService', () => {
         { provide: ConfigService, useValue: mockConfigService },
         { provide: AdminBootstrapService, useValue: mockAdminBootstrap },
         { provide: AllowlistService, useValue: mockAllowlistService },
+        // #128 wired real notification triggers into this service. The
+        // dispatcher is mocked here because these tests are about the
+        // service's own behaviour, not about delivery — and because `notify`
+        // is contracted never to throw, a stub that resolves is a faithful
+        // stand-in. The containment property itself (a send failure does not
+        // roll back the triggering action) is asserted with a REAL dispatcher
+        // and a failing provider in
+        // notifications/notification-failure-containment.spec.ts.
+        {
+          provide: NotificationsService,
+          useValue: (mockNotifications = {
+            notify: jest.fn().mockResolvedValue(undefined),
+            notifyAddress: jest.fn().mockResolvedValue(undefined),
+          }),
+        },
       ],
     }).compile();
 
@@ -384,6 +401,122 @@ describe('AuthService', () => {
         mockGoogleProfile.email.toLowerCase(),
         mockUser.id,
       );
+    });
+
+    // =========================================================================
+    // `user.welcome` notification (#128, epic #109)
+    // =========================================================================
+    //
+    // The dispatcher itself is mocked here (see the provider comment above),
+    // so these tests are about ONE thing: whether `AuthService` calls
+    // `notify('user.welcome', ...)` on the right branch and nowhere else. The
+    // fire-once guarantee is structural — `userWasCreated` is set on exactly
+    // the branch that inserts a new user row — so each scenario below drives a
+    // different branch of `handleGoogleLogin` and asserts on the mock.
+    // =========================================================================
+    describe('user.welcome notification', () => {
+      it('fires exactly once when a new user is created', async () => {
+        const mockRole = { id: 'role-1', name: 'viewer', rolePermissions: [] };
+        const mockUser = {
+          id: 'new-user-welcome',
+          email: mockGoogleProfile.email,
+          isActive: true,
+          userRoles: [{ role: mockRole }],
+        };
+
+        mockPrisma.userIdentity.findUnique.mockResolvedValue(null);
+        mockPrisma.user.findUnique.mockResolvedValue(null);
+        mockPrisma.role.findUnique.mockResolvedValue(mockRole as any);
+        mockPrisma.$transaction.mockImplementation(async (callback) => callback(mockPrisma));
+        mockPrisma.user.create.mockResolvedValue(mockUser as any);
+        mockPrisma.user.update.mockResolvedValue(mockUser as any);
+        mockPrisma.refreshToken.create.mockResolvedValue({} as any);
+
+        await service.handleGoogleLogin(mockGoogleProfile);
+
+        expect(mockNotifications.notify).toHaveBeenCalledTimes(1);
+        expect(mockNotifications.notify).toHaveBeenCalledWith(
+          'user.welcome',
+          mockUser.id,
+          expect.objectContaining({ recipientEmail: mockUser.email }),
+        );
+      });
+
+      it('does NOT fire on a subsequent login, where the identity resolves to an existing user', async () => {
+        const existingIdentity = {
+          user: {
+            id: 'existing-user',
+            email: mockGoogleProfile.email,
+            isActive: true,
+            userRoles: [{ role: { name: 'admin', rolePermissions: [] } }],
+          },
+        };
+
+        mockPrisma.userIdentity.findUnique.mockResolvedValue(existingIdentity as any);
+        mockPrisma.user.update.mockResolvedValue(existingIdentity.user as any);
+        mockPrisma.refreshToken.create.mockResolvedValue({} as any);
+
+        await service.handleGoogleLogin(mockGoogleProfile);
+
+        expect(mockPrisma.user.create).not.toHaveBeenCalled();
+        expect(mockNotifications.notify).not.toHaveBeenCalled();
+      });
+
+      it('does NOT fire when an existing account links a second provider (identity-linking branch)', async () => {
+        const existingUser = {
+          id: 'existing-user',
+          email: mockGoogleProfile.email,
+          isActive: true,
+          userRoles: [{ role: { name: 'contributor', rolePermissions: [] } }],
+        };
+
+        mockPrisma.userIdentity.findUnique.mockResolvedValue(null);
+        mockPrisma.user.findUnique.mockResolvedValue(existingUser as any);
+        mockPrisma.userIdentity.create.mockResolvedValue({} as any);
+        mockPrisma.user.update.mockResolvedValue(existingUser as any);
+        mockPrisma.refreshToken.create.mockResolvedValue({} as any);
+
+        await service.handleGoogleLogin(mockGoogleProfile);
+
+        // The identity WAS created (the linking itself happened)...
+        expect(mockPrisma.userIdentity.create).toHaveBeenCalled();
+        // ...but no new user row was inserted, so `userWasCreated` stays false
+        // and the welcome notification must not fire for an account that
+        // already exists and was welcomed when it was made.
+        expect(mockPrisma.user.create).not.toHaveBeenCalled();
+        expect(mockNotifications.notify).not.toHaveBeenCalled();
+      });
+
+      it('does NOT fire when the login is refused after creation (the isActive check)', async () => {
+        // A user just inserted by THIS call, but reported inactive — the race
+        // the ordering comment in auth.service.ts describes: welcoming
+        // somebody to an application they were just refused entry to is a
+        // worse message than none. `createNewUser` never produces an inactive
+        // row today (it hardcodes `isActive: true`), so this scenario is
+        // exercised by constructing it directly: it proves the GATE (the
+        // notification is raised only after the isActive check, not inside
+        // the creation branch) rather than a naturally-reachable data state.
+        const mockRole = { id: 'role-1', name: 'viewer', rolePermissions: [] };
+        const inactiveNewUser = {
+          id: 'refused-new-user',
+          email: mockGoogleProfile.email,
+          isActive: false,
+          userRoles: [{ role: mockRole }],
+        };
+
+        mockPrisma.userIdentity.findUnique.mockResolvedValue(null);
+        mockPrisma.user.findUnique.mockResolvedValue(null);
+        mockPrisma.role.findUnique.mockResolvedValue(mockRole as any);
+        mockPrisma.$transaction.mockImplementation(async (callback) => callback(mockPrisma));
+        mockPrisma.user.create.mockResolvedValue(inactiveNewUser as any);
+        mockPrisma.user.update.mockResolvedValue(inactiveNewUser as any);
+
+        await expect(service.handleGoogleLogin(mockGoogleProfile)).rejects.toThrow(
+          ForbiddenException,
+        );
+
+        expect(mockNotifications.notify).not.toHaveBeenCalled();
+      });
     });
   });
 

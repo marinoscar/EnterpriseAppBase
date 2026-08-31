@@ -60,26 +60,37 @@ import type {
  * Notification event key -> the email template that renders it.
  *
  * -----------------------------------------------------------------------------
- * EMPTY ON PURPOSE. #128 FILLS IT.
+ * FILLED BY #128. THESE THREE LINES ARE HALF OF "WIRING AN EVENT".
  * -----------------------------------------------------------------------------
  *
- * #125 is the dispatcher; wiring real events is #128, which adds the three
- * templates (`user.welcome`, `allowlist.invitation`, `security.role_changed`)
- * and the three lines here that point at them. Inventing a template now to
- * make this map non-empty would ship a message nobody has written the copy
- * for, and #123 shipped only `test-email` for the same reason.
+ * #125 shipped this empty because inventing a template before anybody had
+ * written the copy would ship a message nobody had reviewed. #128 adds the
+ * three templates and the three lines here that point at them.
+ *
+ * EVERY EVENT DECLARING THE `email` CHANNEL MUST APPEAR HERE. A missing entry
+ * is not a silent skip: `deliver` below records a FAILED delivery saying no
+ * template is registered, so "declared but unsendable" shows up in
+ * `notification_deliveries` rather than being invisible.
  *
  * A MAP AND NOT A NAMING CONVENTION. Event keys are dotted (`user.welcome`);
- * template names are kebab-case and match their file (`test-email` ->
- * `test-email.email.ts`). Deriving one from the other would couple two
+ * template names are kebab-case and match their file (`user-welcome` ->
+ * `user-welcome.email.ts`). Deriving one from the other would couple two
  * independently-owned naming schemes and turn a rename into a silent
- * "template not found" at send time.
+ * "template not found" at send time — the map is three lines and it is
+ * greppable from either side.
  *
  * `Partial<Record<...>>` so a lookup is typed `EmailTemplateName | undefined`
- * and the missing case has to be handled rather than trusted.
+ * and the missing case has to be handled rather than trusted. The VALUES are
+ * `EmailTemplateName`, so a typo on the right-hand side is a compile error;
+ * only the event keys on the left are unchecked strings, and an unknown one is
+ * dead weight rather than a runtime fault (the dispatcher never looks it up).
  */
 export const EVENT_EMAIL_TEMPLATES: Partial<Record<string, EmailTemplateName>> =
-  {};
+  {
+    'user.welcome': 'user-welcome',
+    'allowlist.invitation': 'allowlist-invitation',
+    'security.role_changed': 'role-changed',
+  };
 
 @Injectable()
 export class EmailNotificationChannel implements NotificationChannelSender {

@@ -342,4 +342,109 @@ describe('NotificationsService', () => {
       expect(emailSender.deliver).toHaveBeenCalledTimes(1);
     });
   });
+
+  // ==========================================================================
+  // notifyAddress() — the account-less recipient (issue #128)
+  // ==========================================================================
+  //
+  // `allowlist.invitation` is the worked example: the recipient has no user id
+  // to pass, so this is a second way of BUILDING a `NotificationRecipient`
+  // rather than a second gate. `dispatchToAddress` always looks the address up
+  // first (`prisma.user.findFirst`) before deciding whether to delegate to the
+  // ordinary user path, so every test below asserts on that lookup as much as
+  // on the outcome.
+  // ==========================================================================
+
+  describe('notifyAddress()', () => {
+    const ADDRESS = 'invitee@example.com';
+
+    beforeEach(() => {
+      // Distinct from `mockPrisma.user.findUnique`'s default in the outer
+      // `beforeEach`: `findFirst` is the case-insensitive account lookup
+      // `dispatchToAddress` performs before anything else. Each test below
+      // overrides it for its own scenario; the default here is "no account",
+      // the most common case for a brand-new invitation.
+      mockPrisma.user.findFirst.mockResolvedValue(null as never);
+    });
+
+    it('an address with no user account is dispatched anonymously: the delivery row has userId null and recipient set to the address', async () => {
+      await service.notifyAddress('allowlist.invitation', ADDRESS, {});
+      await service.flush();
+
+      expect(mockPrisma.user.findFirst).toHaveBeenCalledTimes(1);
+      // The ordinary user path is never entered for a genuinely account-less
+      // address — no preferences to read, so no reason to touch `user.findUnique`.
+      expect(mockPrisma.user.findUnique).not.toHaveBeenCalled();
+
+      expect(mockPrisma.notificationDelivery.create).toHaveBeenCalledTimes(1);
+      const [[createArgs]] = mockPrisma.notificationDelivery.create.mock
+        .calls as unknown as [[{ data: Record<string, unknown> }]];
+      expect(createArgs.data).toMatchObject({
+        eventKey: 'allowlist.invitation',
+        userId: null,
+        recipient: ADDRESS,
+        channel: 'email',
+      });
+      expect(emailSender.deliver).toHaveBeenCalledTimes(1);
+    });
+
+    it('the account lookup is case-insensitive: users.email keeps provider casing, the allowlist entry is lower-cased', async () => {
+      await service.notifyAddress('allowlist.invitation', 'Invitee@Example.com', {});
+      await service.flush();
+
+      expect(mockPrisma.user.findFirst).toHaveBeenCalledWith({
+        where: { email: { equals: 'Invitee@Example.com', mode: 'insensitive' } },
+        select: { id: true },
+      });
+    });
+
+    it('an address that DOES belong to an account delegates to the user path, and that account\'s stored preferences are honoured — a stored false actually suppresses it', async () => {
+      mockPrisma.user.findFirst.mockResolvedValue({ id: USER_ID } as never);
+      mockPrisma.user.findUnique.mockResolvedValue(
+        userRow({
+          userSettingsValue: {
+            notifications: { email: { 'allowlist.invitation': false } },
+          },
+        }) as never,
+      );
+
+      await service.notifyAddress('allowlist.invitation', USER_EMAIL, {});
+      await service.flush();
+
+      // Delegated: the ordinary per-user read ran.
+      expect(mockPrisma.user.findUnique).toHaveBeenCalledTimes(1);
+      // And its stored `false` actually suppressed the send — the property
+      // that keeps `notifyAddress` from being a preference bypass. If this
+      // recipient had been dispatched anonymously instead, `preferences: {}`
+      // would resolve to the registry default (`true`) and the assertions
+      // below would fail.
+      expect(emailSender.deliver).not.toHaveBeenCalled();
+      expect(mockPrisma.notificationDelivery.create).not.toHaveBeenCalled();
+    });
+
+    it('if the account lookup fails, the dispatch aborts rather than falling through to the anonymous path (fails closed)', async () => {
+      mockPrisma.user.findFirst.mockRejectedValue(
+        new Error('connection lost') as never,
+      );
+
+      await expect(
+        service.notifyAddress('allowlist.invitation', ADDRESS, {}),
+      ).resolves.toBeUndefined();
+      await expect(service.flush()).resolves.toBeUndefined();
+
+      // No fallback to the account-less path: nothing was queued and nothing
+      // was sent. A gate that fails open here would silently downgrade a
+      // preference-checked send into an unchecked one.
+      expect(mockPrisma.notificationDelivery.create).not.toHaveBeenCalled();
+      expect(emailSender.deliver).not.toHaveBeenCalled();
+    });
+
+    it('for an unknown event key, is a no-op that never even performs the account lookup', async () => {
+      await service.notifyAddress('no.such.event', ADDRESS, {});
+      await service.flush();
+
+      expect(mockPrisma.user.findFirst).not.toHaveBeenCalled();
+      expect(mockPrisma.notificationDelivery.create).not.toHaveBeenCalled();
+    });
+  });
 });

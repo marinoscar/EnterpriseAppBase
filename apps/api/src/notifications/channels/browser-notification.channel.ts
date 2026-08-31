@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 
+import type { RoleChangedEmailData } from '../../email';
 import { PrismaService } from '../../prisma/prisma.service';
 import { describeThrown } from '../describe-thrown';
 import type { NotificationChannel } from '../notification-events';
@@ -80,22 +81,86 @@ export type BrowserNotificationTemplate = (
 ) => BrowserNotificationContent;
 
 /**
+ * Role names as the bell row should show them, or an explicit word for none.
+ *
+ * A SECOND, SMALLER COPY of the formatter in `role-changed.email.ts`, and not
+ * an import from it. The two surfaces have different budgets — an email
+ * paragraph versus a two-line toast — and sharing the formatter is how a
+ * wording change made for one silently rewrites the other. What IS shared is
+ * the payload type, which is the part where a divergence would be a bug.
+ *
+ * The empty case gets a word for the same reason it does in the email: an
+ * account left with no roles at all is the most alarming outcome this event
+ * reports, and rendering it as a blank reads as a formatting fault rather than
+ * as a loss of access.
+ */
+function formatRoles(roles: string[]): string {
+  if (roles.length === 0) return 'none';
+
+  return roles
+    .map((role) => role.charAt(0).toUpperCase() + role.slice(1))
+    .join(', ');
+}
+
+/**
  * Notification event key -> its browser renderer.
  *
  * -----------------------------------------------------------------------------
- * EMPTY ON PURPOSE, EXACTLY LIKE `EVENT_EMAIL_TEMPLATES`. #128 FILLS IT.
+ * FILLED BY #128 — AND ONLY FOR THE ONE EVENT THAT DECLARES THE `browser`
+ * CHANNEL.
  * -----------------------------------------------------------------------------
  *
- * #127 builds the transport and the store; wiring real events with real copy
- * is #128. Inventing a template here to make the map non-empty would ship a
- * message nobody has written the words for.
+ * `security.role_changed` is the sole entry, and the two absences are
+ * deliberate rather than unfinished work:
+ *
+ *   * `user.welcome` is email-only. It would fire while the user is looking at
+ *     the very page that welcomes them — a toast with no reader.
+ *   * `allowlist.invitation` is email-only because its recipient HAS NO
+ *     ACCOUNT and therefore no inbox row to write and no tab to push to. See
+ *     `resolveTo` below, which returns `null` for that recipient, and the
+ *     registry entry, which never offers the channel in the first place.
+ *
+ * A renderer here for either of them would be dead code that reads as a live
+ * feature. The registry's per-event `channels` list is the source of truth;
+ * this map follows it.
  *
  * The difference from the email channel is what happens on a MISS, and it is
  * deliberate — see {@link BrowserNotificationChannel.render}.
  */
 export const EVENT_BROWSER_TEMPLATES: Partial<
   Record<string, BrowserNotificationTemplate>
-> = {};
+> = {
+  // The payload is the SAME OBJECT the email template renders — one `notify()`
+  // call, one payload, two channels — so the type is imported rather than
+  // restated. A per-channel payload type would let the two drift and would put
+  // the burden of building both on every call site.
+  //
+  // The parameter is typed `never` by `BrowserNotificationTemplate` (the map is
+  // reached with an unchecked `data: unknown`), so the cast here is the same
+  // boundary the channel's `render` describes at length. It is inside the
+  // channel's try/catch, so a payload that does not match is a recorded
+  // delivery failure, never a thrown role change.
+  'security.role_changed': (data: never): BrowserNotificationContent => {
+    const { previousRoles, currentRoles } = data as RoleChangedEmailData;
+
+    return {
+      title: 'Your roles changed',
+      // Before AND after, for the reason spelled out in the email template:
+      // the delta is the alertable fact, and "you are now a Viewer" cannot
+      // tell the reader whether they gained access or lost it.
+      body:
+        `An administrator changed your access: ${formatRoles(previousRoles)} ` +
+        `\u2192 ${formatRoles(currentRoles)}. If you were not expecting this, ` +
+        `contact an administrator.`,
+      // NO LINK, DELIBERATELY. `link` would make the bell row clickable, and
+      // there is no page in this application that shows a user their own roles
+      // — `/settings/profile` does not. Sending the reader somewhere that does
+      // not answer the question the notification just raised is worse than
+      // leaving the row inert, and `sanitizeLink` would happily accept the
+      // useless path.
+    };
+  },
+};
 
 /** Length caps applied before the row is written. See {@link truncate}. */
 const MAX_TITLE_LENGTH = 200;

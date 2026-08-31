@@ -5,8 +5,8 @@
 // #122 shipped the transports and their configuration; #123 added the template
 // layer and #124 the admin settings endpoints, each behind the same barrel,
 // exactly as that arrangement anticipated -- no call site changed its import
-// path to get them. Still absent: the dispatcher (#125) and the three real
-// event templates (#128).
+// path to get them. #128 added the three real event templates and their
+// payload types behind the same barrel, and again nothing moved.
 //
 // NOTHING EXPORTED FROM HERE CAN CARRY THE SMTP PASSWORD. The write DTO's
 // `smtpPassword` is request-only and is stripped before persistence; the
@@ -63,6 +63,10 @@ export {
   renderLayout,
   safeUrl,
   testEmail,
+  // The three real event templates (#128).
+  userWelcomeEmail,
+  allowlistInvitationEmail,
+  roleChangedEmail,
 } from './templates';
 export {
   SmtpEmailProvider,
@@ -79,6 +83,12 @@ export type {
   RenderLayoutOptions,
   RenderedEmail,
   TestEmailData,
+  // Event payload types (#128). A `notify()` call site annotates its payload
+  // with one of these; it is the only place the shape is checked, because
+  // `notify` takes `data: unknown` by design.
+  UserWelcomeEmailData,
+  AllowlistInvitationEmailData,
+  RoleChangedEmailData,
 } from './templates';
 export type { EmailProvider } from './providers/email-provider.interface';
 export type {
