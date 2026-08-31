@@ -86,6 +86,59 @@ import type { AppNotification } from '../types';
  */
 export const RECENT_NOTIFICATION_COUNT = 20;
 
+/**
+ * How many notification ids the centre remembers for de-duplication.
+ *
+ * ⚠️ ISSUE #127 — DELIBERATELY LARGER THAN `RECENT_NOTIFICATION_COUNT`, and the
+ * gap between the two numbers is the whole point. The visible list is truncated
+ * to 20 because a popover is not an archive; the question "have I already
+ * counted this one?" must NOT be truncated with it, because the two have
+ * different failure modes. A row pushed off the end of the list by truncation
+ * and then re-delivered by the stream is still the SAME notification the server
+ * counted exactly once — counting it again is the #127 double-count wearing a
+ * different hat, and it would be invisible in testing because it needs 20
+ * arrivals before it can happen at all.
+ *
+ * 10× the visible list makes that unreachable in practice: every duplicate race
+ * this defends against — multi-tab fan-out, the reconnect refetch racing a live
+ * frame, StrictMode's double connect in development — delivers its copies
+ * within seconds of one another, never 200 notifications apart.
+ *
+ * Bounded rather than unbounded because this provider lives in the app shell of
+ * a tab that stays open all day; an unbounded set is a leak nothing ever
+ * empties. At the cap the oldest id is dropped, so a re-delivery of something
+ * that stale over-counts by one until the next `refresh()` — the same
+ * self-healing tolerance every other local count adjustment in this file
+ * already relies on.
+ */
+const SEEN_NOTIFICATION_ID_MEMORY = 200;
+
+/**
+ * Record an id as seen — most-recently-seen LAST — and prune back to the cap.
+ *
+ * The `delete` before the `add` is not redundant. `Set` preserves INSERTION
+ * order and re-adding an existing key does not move it, so without the delete a
+ * notification that is still on screen could still hold an ancient position and
+ * be the one the cap evicts — reopening the #127 double-count for a row the
+ * user can literally see. With it, the ids backing the rendered list are always
+ * among the most recent entries, and eviction can only ever reach ids that
+ * scrolled out of the centre long ago.
+ *
+ * MUTATES A `Set` HELD IN A REF, and is therefore only ever called from event
+ * callbacks and async code — NEVER from inside a `setState` updater. See
+ * `handleNotification` below for why that rule exists.
+ */
+function rememberNotificationId(seen: Set<string>, id: string): void {
+  seen.delete(id);
+  seen.add(id);
+
+  while (seen.size > SEEN_NOTIFICATION_ID_MEMORY) {
+    const oldest = seen.values().next();
+    if (oldest.done) break;
+    seen.delete(oldest.value);
+  }
+}
+
 export interface NotificationContextValue {
   /** The recent list, newest first. Never `null` — an empty list is a real answer. */
   notifications: AppNotification[];
@@ -139,6 +192,24 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
    */
   const inFlight = useRef<Promise<void> | null>(null);
 
+  /**
+   * ⚠️ #127 — THE IDS THIS TAB HAS ALREADY ACCOUNTED FOR IN `unreadCount`.
+   *
+   * A REF, not state, for two independent reasons:
+   *
+   *   1. Nothing renders it. Turning it into state would re-render the whole
+   *      shell on every arrival for no visible change.
+   *   2. It must be readable and writable SYNCHRONOUSLY, outside React's
+   *      update machinery, so the "is this new?" decision can be made once per
+   *      stream frame rather than once per updater invocation — see
+   *      `handleNotification`.
+   *
+   * Fed from BOTH sources of truth: every page `refresh()` returns, and every
+   * live arrival. Cleared on logout with the rest of the state, so the next
+   * user does not inherit the previous one's memory.
+   */
+  const seenNotificationIds = useRef<Set<string>>(new Set());
+
   const refresh = useCallback((): Promise<void> => {
     if (inFlight.current) return inFlight.current;
 
@@ -155,6 +226,18 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         setNotifications(page.items);
         setUnreadCount(count.unreadCount);
         setError(null);
+
+        // #127: seed the de-dupe memory from the authoritative page, OLDEST
+        // FIRST so the newest row ends up most-recently-seen (see
+        // `rememberNotificationId`). This closes the reconnect race described
+        // in the header: `handleStreamOpen` refetches on EVERY connect, so a
+        // live frame for a row this refetch already returned — and already
+        // counted, since `count.unreadCount` includes it — must not be counted
+        // a second time when it lands. Safe here because we are in async
+        // callback code, not a state updater.
+        for (let i = page.items.length - 1; i >= 0; i--) {
+          rememberNotificationId(seenNotificationIds.current, page.items[i].id);
+        }
       } catch (err) {
         if (!isMounted()) return;
         // A 401 is left to `AuthContext` — `ApiService` has already tried to
@@ -235,21 +318,71 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     (notification: AppNotification) => {
       if (!isMounted()) return;
 
+      // =======================================================================
+      // ⚠️ #127: DECIDE NEWNESS HERE, ONCE, BEFORE ANY STATE UPDATER RUNS
+      // =======================================================================
+      //
+      // The bug this replaces incremented `unreadCount` unconditionally while
+      // the list deduped by id, so a duplicate frame left ONE row and TWO on
+      // the badge — and duplicates are routine, not exotic: multi-tab fan-out,
+      // and the reconnect refetch racing the live frame that follows it. The
+      // count self-corrected on the next `refresh()`, but until then the badge
+      // lied, and the badge is the entire product.
+      //
+      // The obvious repair — increment from inside the `setNotifications`
+      // updater, where the dedupe decision is already made — IS NOT SAFE AND
+      // MUST NOT BE REINTRODUCED. A state updater must be PURE: React is free
+      // to call it more than once for a single update, and StrictMode
+      // double-invokes it on purpose in development precisely to surface code
+      // that assumes otherwise. `setUnreadCount` in there would fire twice per
+      // arrival and re-create the exact bug under a new cause, visible only in
+      // development, which is a worse bug than the one being fixed.
+      //
+      // So the decision is made against a REF, in plain event-callback code:
+      //
+      //   * This callback runs EXACTLY ONCE per stream frame. React neither
+      //     replays nor double-invokes SSE handlers — only render, effects, and
+      //     state updaters get that treatment.
+      //   * The updater below stays pure: it reads `current`, returns a value,
+      //     touches nothing else. Invoke it once or a hundred times and the
+      //     result is identical and the count is untouched.
+      //   * The ref survives StrictMode's double mount, so the second
+      //     connection's re-delivery of an event in development is recognised
+      //     as the duplicate it is instead of counted twice.
+      const isNew = !seenNotificationIds.current.has(notification.id);
+      rememberNotificationId(seenNotificationIds.current, notification.id);
+
       setNotifications((current) => {
         // DEDUPE BY ID. The same notification legitimately arrives twice: once
         // live, and again in the refetch that follows a reconnect. Without this
         // the list shows it twice and the two copies disagree about `readAt`
         // the moment one is clicked.
+        //
+        // KEPT even though `isNew` above already answers the same question, and
+        // deliberately not replaced by `if (!isNew) return current`. This is the
+        // list's own invariant — no duplicate rows, whatever the id memory says
+        // — and it must hold even for an id the cap has evicted. Being a pure
+        // function of `current` is also what makes it re-invocation-safe.
         if (current.some((existing) => existing.id === notification.id)) return current;
         return [notification, ...current].slice(0, RECENT_NOTIFICATION_COUNT);
       });
 
-      // Incremented locally rather than refetched: the API told us this is a
-      // new, unread notification, and spending a round trip to be told
-      // "one more" is waste. Every other path through this file takes the count
-      // from the server, so a drift here is corrected by the next refresh at
-      // the latest.
-      setUnreadCount((current) => current + 1);
+      // ONLY WHEN GENUINELY NEW (#127). Incremented locally rather than
+      // refetched: the API told us this is a new, unread notification, and
+      // spending a round trip to be told "one more" is waste. Every other path
+      // through this file takes the count from the server, so any residual
+      // drift is corrected by the next refresh at the latest.
+      //
+      // The updater form is still required — two arrivals in one batch must
+      // stack, not overwrite each other — and it remains pure: `current + 1` is
+      // the same answer however many times React asks for it, because the
+      // decision to ask at all was already made above.
+      if (isNew) setUnreadCount((current) => current + 1);
+
+      // A DUPLICATE RAISES NO SECOND TOAST either — same reasoning as the
+      // count. The user has already been interrupted about this notification;
+      // a second OS-level popup for one event is the badge lie in audible form.
+      if (!isNew) return;
 
       // THIRD IN THE ORDERING, and deliberately last: the centre is already
       // correct by this point, so everything below is free to fail.
@@ -297,6 +430,10 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       setUnreadCount(0);
       setIsLoading(true);
       setError(null);
+      // #127: the id memory is per-session state like everything above it. A
+      // stale set would let the next user's first arrivals be mistaken for
+      // duplicates on an id collision and silently not counted.
+      seenNotificationIds.current.clear();
       return;
     }
 
