@@ -6,16 +6,17 @@ import { registerConfigCommand } from './commands/config.js';
 import { registerLoginCommand } from './commands/login.js';
 import { EXIT, exitCodeFor, formatError } from './errors.js';
 import { CLI_VERSION } from './package-info.js';
+import { evaluateTuiGate, type TtyContext } from './tui/tty.js';
 
 // =============================================================================
 // Command wiring  (issue #140, epic #110)
 // =============================================================================
 //
-// Commands so far: `login` (#142/#143), `config` (#143) and `api` (#144).
-// Still to come: the ink TUI (#145). `--help` and `--version` remain the proof
-// that the bin resolves, that the ESM build runs, and — the part that is easy
-// to get wrong and expensive to discover later — that a failed invocation
-// exits non-zero.
+// Commands: `login` (#142/#143), `config` (#143) and `api` (#144), plus the
+// no-argument ink TUI (#145). `--help` and `--version` remain the proof that
+// the bin resolves, that the ESM build runs, and — the part that is easy to get
+// wrong and expensive to discover later — that a failed invocation exits
+// non-zero.
 //
 // SEPARATE FROM cli.ts, which is the executable. This module only ever RETURNS
 // an exit code; it never calls `process.exit`, and it runs nothing on import.
@@ -70,20 +71,66 @@ export function buildProgram(): Command {
 }
 
 /**
+ * Injection seams for `run`. Both default to the real process.
+ *
+ * `startTui` exists so a test can assert THE PROPERTY THAT MATTERS — that the
+ * TUI does not mount — without ink ever being loaded, let alone rendered into
+ * the test runner's own stdout. Asserting "it did not mount" by mounting it is
+ * not an option.
+ */
+export interface RunOptions {
+  /** Streams and environment the TTY gate reads. */
+  tty?: TtyContext | undefined;
+  /** Replaces the dynamic import of the ink app. */
+  startTui?: (() => Promise<number>) | undefined;
+}
+
+/**
  * Parse `argv` (arguments only — no node binary, no script path) and return
  * the exit code the process should use.
  */
-export async function run(argv: string[]): Promise<number> {
+export async function run(argv: string[], options?: RunOptions): Promise<number> {
   const program = buildProgram();
 
-  // No arguments is not yet the interactive experience — #145 adds the ink TUI
-  // here, gated on stdout being a TTY. Until then, and PERMANENTLY for the
-  // non-TTY case (epic #110, success criterion 7), bare invocation is a usage
-  // error: it printed help, it did not do what was asked, so it must not
-  // report success.
+  // ---------------------------------------------------------------------------
+  // NO ARGUMENTS: the ONLY invocation that can open the ink TUI (#145).
+  // ---------------------------------------------------------------------------
+  // The check is HERE, before `parseAsync`, and that placement is the whole
+  // guarantee: an explicit subcommand never reaches this branch, so `appctl api
+  // GET /api/auth/me` behaves identically in a terminal, in cron and in a
+  // pipeline. The TUI is the no-argument experience, not a mode that could
+  // capture a scripted invocation (epic #110, success criterion 7).
+  //
+  // Refusing prints help AND a sentence naming the reason, then exits NON-ZERO.
+  // Non-zero because nothing was done: help was displayed, the requested action
+  // was not performed, and a CLI that exits 0 having done nothing turns a broken
+  // pipeline step into a green one. Both go to STDERR — help the user asked for
+  // goes to stdout, a usage dump caused by a mistake does not, or `--raw | jq`
+  // breaks for every consumer.
   if (argv.length === 0) {
-    program.outputHelp({ error: true });
-    return EXIT.USAGE;
+    const gate = evaluateTuiGate(options?.tty);
+
+    if (!gate.engage) {
+      program.outputHelp({ error: true });
+      process.stderr.write(`\n${gate.reason}\n`);
+      return EXIT.USAGE;
+    }
+
+    try {
+      // DYNAMIC, not a top-level import. ink, React, the reconciler and yoga's
+      // WASM are loaded only once the gate has said yes — so the CI and pipeline
+      // paths, and every subcommand, never pay for them and can never
+      // accidentally start them. Making this a static import would silently undo
+      // the containment `tui/tty.ts` exists to provide.
+      const start = options?.startTui ?? (await import('./tui/index.js')).startTui;
+      return await start();
+    } catch (error) {
+      // A failure to LOAD or MOUNT the UI, not a failure inside it —
+      // `startTui` handles its own. Most likely a broken install (ink absent
+      // from node_modules), which must not look like a successful run.
+      process.stderr.write(`${formatError(error)}\n`);
+      return exitCodeFor(error);
+    }
   }
 
   try {
