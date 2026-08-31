@@ -202,6 +202,9 @@ import type {
   PersonalAccessToken,
   PatCreatedResponse,
   PatDurationUnit,
+  EmailSettings,
+  EmailSettingsInput,
+  EmailTestResult,
 } from '../types';
 
 // Allowlist API
@@ -318,4 +321,72 @@ export async function createPersonalAccessToken(data: {
 
 export async function revokePersonalAccessToken(id: string): Promise<void> {
   await api.delete<void>(`/pat/${id}`);
+}
+
+// Email settings API — issue #124, epic #109.
+//
+// Three calls, one controller (`system_settings:read` to read,
+// `system_settings:write` to save or test), and the ONLY place in the web app
+// that names these endpoints. The page and its hook speak in `EmailSettings`
+// terms; if the API's routes or field names move, this block plus the types in
+// `types/index.ts` are the entire reconciliation surface.
+//
+// The payloads are FLAT — `sesRegion`, `smtpHost`, `smtpPort` and friends are
+// siblings, not members of `ses: {…}` / `smtp: {…}` sub-objects. See the note
+// in `types/index.ts`; getting this wrong compiles cleanly and fails only at
+// runtime, which is why it is written down in both places.
+
+export async function getEmailSettings(): Promise<EmailSettings> {
+  return api.get<EmailSettings>('/email-settings');
+}
+
+/**
+ * Replace the stored email settings.
+ *
+ * PUT rather than PATCH because this is one small document edited on one
+ * screen: a per-field merge would let a half-saved provider switch (SMTP host
+ * written, SES region not) exist as a state nothing in the UI can show. The
+ * one field with merge semantics is `smtpPassword`, and those semantics live
+ * in the API (blank preserves — see `EmailSettingsInput`), not in a patch
+ * document.
+ *
+ * `expectedVersion` becomes `If-Match`, the same optimistic-concurrency
+ * mechanism `useSystemSettings` uses against `/system-settings`, because the
+ * API offers it here too and a settings row with a version counter and no
+ * caller checking it is a lost-update waiting to happen: two admins on this
+ * page, and the second save silently discards the first with nothing on either
+ * screen to show it. A mismatch is a 409, which the hook turns into a reload
+ * plus a message rather than an overwrite.
+ *
+ * PASSED THROUGH AS-IS, INCLUDING ZERO. `0` is the API's way of asserting "I
+ * believe nothing is stored yet", so the check is `=== undefined` and never a
+ * truthiness test — `if (expectedVersion)` would drop the guard on exactly the
+ * first save, where two admins configuring a fresh deployment collide.
+ */
+export async function updateEmailSettings(
+  input: EmailSettingsInput,
+  expectedVersion?: number,
+): Promise<EmailSettings> {
+  return api.put<EmailSettings>('/email-settings', input, {
+    headers:
+      expectedVersion === undefined
+        ? undefined
+        : { 'If-Match': String(expectedVersion) },
+  });
+}
+
+/**
+ * Send a test message to the CALLER'S OWN address, using the SAVED settings.
+ *
+ * No recipient parameter, deliberately: a free-text "send to" box on an
+ * authenticated admin form is a send-arbitrary-mail endpoint wearing a
+ * diagnostic hat (#124's own rejected alternative). The caller's identity is
+ * already on the request, so the API resolves the recipient itself.
+ *
+ * RESOLVES ON FAILURE. A provider that refuses the message still produces a
+ * 200 carrying `{ success: false, error }`; only a transport or authorization
+ * failure rejects. Callers MUST branch on `result.success`.
+ */
+export async function sendTestEmail(): Promise<EmailTestResult> {
+  return api.post<EmailTestResult>('/email-settings/test');
 }

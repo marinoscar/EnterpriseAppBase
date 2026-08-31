@@ -2,7 +2,9 @@ import { Module } from '@nestjs/common';
 
 import { PrismaModule } from '../prisma/prisma.module';
 import { CredentialsModule } from '../credentials/credentials.module';
+import { EmailSettingsController } from './email-settings.controller';
 import { EmailSettingsService } from './email-settings.service';
+import { EmailTestSendService } from './email-test-send.service';
 import { SesEmailProvider } from './providers/ses-email.provider';
 import { SmtpEmailProvider } from './providers/smtp-email.provider';
 
@@ -10,15 +12,24 @@ import { SmtpEmailProvider } from './providers/smtp-email.provider';
 // EmailModule (issue #122, epic #109)
 // =============================================================================
 //
-// The transport layer, and only the transport layer. #123 adds templates,
-// #124 the admin settings page and its test-send endpoint, #125 the dispatcher
-// that decides which provider to use for which event. Those land in this
-// module as they arrive; #122 ships what they all sit on.
+// The transport layer, plus (as of #124) the admin surface over it. #123
+// added templates; #125 adds the dispatcher that decides which provider to use
+// for which event.
 //
-// NO CONTROLLER. There is no HTTP surface here yet, and adding one before
-// there is something to expose would mean a route to review in infrastructure
-// rather than in the diff that needs it -- the same reasoning CredentialsModule
-// gives for having none.
+// #122 SHIPPED NO CONTROLLER, on the grounds that adding an HTTP surface
+// before there is something to expose puts a route to review in
+// infrastructure rather than in the diff that needs it. #124 is that diff:
+// `EmailSettingsController` is the admin settings page's three operations, all
+// gated on `system_settings:read`/`:write`, reviewed here where they are the
+// point rather than buried in shared plumbing.
+//
+// THAT CONTROLLER RETURNS NO SECRET. The SMTP password reaches this module
+// only as a write -- request body -> `EmailSettingsService.update` ->
+// `CredentialsService.setSecret` -- and the read side uses `describe`, whose
+// return type carries a compile-time proof that it has no field able to hold
+// secret material. `CredentialsService.getSecret`, the plaintext one, is
+// called from exactly one place in this module: `SmtpEmailProvider`, at the
+// moment it opens a connection.
 //
 // BOTH PROVIDERS ARE REGISTERED UNCONDITIONALLY, not chosen here from the
 // configured `provider` setting. Provider selection is a per-send, runtime
@@ -44,7 +55,20 @@ import { SmtpEmailProvider } from './providers/smtp-email.provider';
     // returning service is visible right here.
     CredentialsModule,
   ],
-  providers: [EmailSettingsService, SesEmailProvider, SmtpEmailProvider],
+  controllers: [EmailSettingsController],
+  providers: [
+    EmailSettingsService,
+    // The test-send path (#124). Registered here rather than in a module of
+    // its own because it is one method over the transports this module
+    // already owns.
+    EmailTestSendService,
+    SesEmailProvider,
+    SmtpEmailProvider,
+  ],
+  // EmailTestSendService is deliberately NOT exported: sending a test message
+  // is an admin action reached through this module's controller, not a service
+  // other features should be able to invoke. #125's dispatcher is the export
+  // that real notifications will use.
   exports: [EmailSettingsService, SesEmailProvider, SmtpEmailProvider],
 })
 export class EmailModule {}

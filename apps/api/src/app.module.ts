@@ -17,6 +17,7 @@ import { StorageModule } from './storage/storage.module';
 import { PatModule } from './pat/pat.module';
 import { CredentialsModule } from './credentials/credentials.module';
 import { EmailModule } from './email/email.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { LoggerModule } from './common/logger/logger.module';
 import { TestAuthModule } from './test-auth/test-auth.module';
 
@@ -61,12 +62,18 @@ import configuration from './config/configuration';
     // module graph; consumers still import CredentialsModule explicitly (it is
     // not @Global) so every user of a plaintext-returning service is visible.
     CredentialsModule,
-    // Email transports (#122, epic #109). Registered here even though nothing
-    // sends mail yet: it makes a broken provider graph fail at boot, in this
-    // issue, rather than surfacing as a DI error in #125. It costs nothing at
-    // runtime -- neither transport touches the network or reads a credential
-    // until its first send.
+    // Email transports (#122, epic #109) and, since #124, the admin email
+    // settings endpoints. Registered here even though nothing sends mail
+    // automatically yet: it makes a broken provider graph fail at boot rather
+    // than surfacing as a DI error in #125. It costs nothing at runtime --
+    // neither transport touches the network or reads a credential until its
+    // first send.
     EmailModule,
+    // Notification event registry endpoint (#124, epic #109). One route,
+    // readable by any authenticated user, because #126 renders every user's
+    // own preferences against the list. The dispatcher and delivery records
+    // arrive in this module with #125.
+    NotificationsModule,
 
     // Test modules (non-production only)
     ...(process.env.NODE_ENV !== 'production' ? [TestAuthModule] : []),

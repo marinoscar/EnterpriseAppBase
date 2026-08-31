@@ -10,6 +10,10 @@ import {
   DEFAULT_SMTP_PORT,
   IMPLICIT_TLS_SMTP_PORT,
 } from '../email-settings.schema';
+import {
+  SMTP_CREDENTIAL_NAME,
+  SMTP_CREDENTIAL_PURPOSE,
+} from '../smtp-credential.constants';
 import type { EmailMessage, EmailSendResult } from '../email.types';
 
 // =============================================================================
@@ -40,23 +44,20 @@ import type { EmailMessage, EmailSendResult } from '../email.types';
 // prevent the API from starting.
 // =============================================================================
 
-/**
- * Credential store address for the SMTP password.
- *
- * `purpose` is also the cipher's sub-key domain (see CredentialsService), so
- * this exact string is what makes the stored ciphertext readable. Exported so
- * #124's write path addresses the same row by the same constant -- a typo in a
- * second literal would produce a credential that saves fine and can never be
- * read back by this provider.
- */
-export const SMTP_CREDENTIAL_PURPOSE = 'smtp';
-
-/**
- * Discriminator within the purpose. 'default' because this app has one mail
- * transport; a future multi-relay setup keys additional rows by relay id
- * without touching anything above.
- */
-export const SMTP_CREDENTIAL_NAME = 'default';
+// The credential store address moved to ../smtp-credential.constants.ts when
+// #124 added the WRITE side of the SMTP password to `EmailSettingsService`.
+// This provider injects that service, so importing the constants back out of
+// this file would make the two modules import each other — and under
+// `emitDecoratorMetadata` a cycle leaves `design:paramtypes` holding
+// `undefined`, which Nest reports as an unresolvable dependency at boot.
+//
+// Re-exported here so every existing import path (and the ../index.ts barrel)
+// keeps working, and so the address still reads as belonging to the transport
+// that consumes it.
+export {
+  SMTP_CREDENTIAL_NAME,
+  SMTP_CREDENTIAL_PURPOSE,
+} from '../smtp-credential.constants';
 
 /**
  * Socket-level timeouts, in milliseconds.

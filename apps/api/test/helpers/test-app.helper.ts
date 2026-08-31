@@ -34,6 +34,21 @@ export interface TestAppOptions {
    * them after `createTestApp` returns.
    */
   registerRoutes?: (app: NestFastifyApplication) => void;
+
+  /**
+   * Additional provider substitutions applied on top of the mandatory
+   * `PrismaService` mock, e.g. `{ provide: CredentialsService, useValue: stub }`.
+   *
+   * Exists so a full-`AppModule` integration spec (issue #124's email-settings
+   * suite is the first user) can control a narrow slice of the app — a
+   * transport it does not want to hit the network, a service it wants to drive
+   * with a controllable stub — while every other provider stays the REAL one
+   * wired by `AppModule`. Only `PrismaService` gets a mock unconditionally;
+   * everything else opts in here, one entry per provider, so a spec's fixture
+   * list is a visible, reviewable diff rather than a growing pile of module
+   * overrides only that spec knows about.
+   */
+  overrideProviders?: Array<{ provide: unknown; useValue: unknown }>;
 }
 
 /**
@@ -50,12 +65,17 @@ export async function createTestApp(
 
   if (shouldUseMock) {
     // Create test module with mocked PrismaService
-    moduleFixture = await Test.createTestingModule({
+    let builder = Test.createTestingModule({
       imports: [AppModule],
     })
       .overrideProvider(PrismaService)
-      .useValue(prismaMock)
-      .compile();
+      .useValue(prismaMock);
+
+    for (const { provide, useValue } of options.overrideProviders ?? []) {
+      builder = builder.overrideProvider(provide).useValue(useValue);
+    }
+
+    moduleFixture = await builder.compile();
   } else {
     // Create test module with real database (for true E2E tests)
     moduleFixture = await Test.createTestingModule({

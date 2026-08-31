@@ -35,6 +35,7 @@ import type { SvgIconComponent } from '@mui/icons-material';
 import TuneIcon from '@mui/icons-material/Tune';
 import PaletteIcon from '@mui/icons-material/Palette';
 import FlagIcon from '@mui/icons-material/Flag';
+import EmailOutlinedIcon from '@mui/icons-material/EmailOutlined';
 import DataObjectIcon from '@mui/icons-material/DataObject';
 import PeopleIcon from '@mui/icons-material/People';
 
@@ -120,6 +121,21 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
         description: 'Turn optional application features on or off for everyone.',
         Icon: FlagIcon,
         path: '/admin/settings/feature-flags',
+        permission: 'system_settings:read',
+      },
+      {
+        // Issue #124, epic #109. `system_settings:read` is the string
+        // `email-settings.controller.ts` enforces on its GET, exactly as the
+        // three cards above mirror `system-settings.controller.ts` — the
+        // registry never invents a permission. Saving and test-sending need
+        // `system_settings:write`, which the PAGE gates internally: the card
+        // gate is about REACHABILITY, and a read-only admin diagnosing "why is
+        // mail broken" is worth letting in to look.
+        title: 'Email',
+        description:
+          'Choose how the application sends email, and send a test message to prove it works.',
+        Icon: EmailOutlinedIcon,
+        path: '/admin/settings/email',
         permission: 'system_settings:read',
       },
       {
