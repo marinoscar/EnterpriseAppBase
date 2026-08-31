@@ -317,6 +317,23 @@ describe('admin sections — registry against the live routes', () => {
     expect(gates.get('/admin/settings/general')).toBe('system_settings:read');
   });
 
+  it('gives Email (#124) its own card, routed and gated on system_settings:read like its three siblings', () => {
+    // Saving and test-sending need `system_settings:write`, but that is the
+    // PAGE's own internal gate — see `EmailSettingsPage`'s `canWrite` — not
+    // the card's reachability gate, which mirrors the read-only siblings so a
+    // read-only admin can still open the page to diagnose "why is mail
+    // broken".
+    const gates = declaredRouteGates();
+    const emailCard = ADMIN_SECTIONS.flatMap((section) => section.cards).find(
+      (card) => card.title === 'Email',
+    );
+
+    expect(emailCard).toBeDefined();
+    expect(emailCard?.path).toBe('/admin/settings/email');
+    expect(emailCard?.permission).toBe('system_settings:read');
+    expect(gates.get('/admin/settings/email')).toBe('system_settings:read');
+  });
+
   it('leaves the old admin URLs as declared redirect routes, not catch-all fallout', () => {
     const gates = declaredRouteGates();
     // Declared with no permission of their own: they redirect, and the target
