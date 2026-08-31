@@ -17,6 +17,13 @@
 // That call cannot throw, cannot join your transaction, and returns before
 // anything is sent. Nothing else here is needed at a call site.
 //
+// FOR A RECIPIENT WITH NO ACCOUNT (#128's `allowlist.invitation`), the entry
+// point is `notifyAddress(eventKey, email, data)`. It is not a bypass: it
+// resolves the address to an account when there is one — so a real user's
+// preferences are never skipped — and otherwise dispatches through the same
+// gate with empty preferences, which the sparse absent-key contract already
+// defines as "use the event's default".
+//
 // WHAT IS DELIBERATELY NOT EXPORTED: `NotificationDeliveryService`, the two
 // channel classes, `NotificationStoreService` and `NotificationStreamService`.
 // The preference gate and the `mandatory` override live in
@@ -28,8 +35,11 @@
 // unscoped consumer of it is an IDOR. The module does not export any of them
 // either; this barrel and the module agree on purpose.
 //
-// Still absent: the real event templates and triggers (#128), which fill both
-// `EVENT_EMAIL_TEMPLATES` and `EVENT_BROWSER_TEMPLATES`.
+// #128 filled `EVENT_EMAIL_TEMPLATES` and `EVENT_BROWSER_TEMPLATES` and wired
+// the three real triggers — user creation in `AuthService.handleGoogleLogin`,
+// `AllowlistService.addEmail`, and `UsersService.updateUserRoles` — which
+// closes epic #109. Adding the next notification is three steps and is written
+// up under "Adding a notification" in the repository's CLAUDE.md.
 // =============================================================================
 
 export {

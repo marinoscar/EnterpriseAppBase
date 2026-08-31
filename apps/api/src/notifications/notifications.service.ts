@@ -200,6 +200,83 @@ export class NotificationsService implements OnModuleDestroy {
   }
 
   /**
+   * Raise a notification for an EMAIL ADDRESS THAT MAY HAVE NO ACCOUNT.
+   *
+   * ---------------------------------------------------------------------------
+   * WHY THIS EXISTS AT ALL (#128, and the design problem of that issue)
+   * ---------------------------------------------------------------------------
+   *
+   * `allowlist.invitation` is sent to somebody an administrator has just
+   * authorised to sign in. By definition they have no user row, no
+   * `user_settings` row and no open tab — that is what being newly allowlisted
+   * MEANS — so `notify(eventKey, userId, data)` has nothing to pass as
+   * `userId`, and there are no stored preferences to resolve.
+   *
+   * Two ways to handle that were on the table:
+   *
+   *   1. **REJECTED — let the event bypass preference resolution.** A flag on
+   *      the registry entry, or a branch in `dispatch`, saying "this one skips
+   *      the gate". That puts a documented hole in the ONE place the
+   *      `mandatory` override and the sparse absent-key contract are enforced,
+   *      and the hole is selected by a string. Every future event is then one
+   *      copied line away from silently opting out of preferences for
+   *      recipients who DO have them. The gate is only a gate if there is no
+   *      way around it.
+   *
+   *   2. **CHOSEN — a second way to BUILD a recipient, feeding the same gate.**
+   *      This method resolves a `NotificationRecipient` and hands it to the
+   *      identical `dispatch`. Nothing about resolution changes: preferences
+   *      are still read, `resolveChannels` still runs, `mandatory` still
+   *      overrides. For a recipient with no account the preferences are simply
+   *      empty — and empty resolves to the registry's `defaultEnabled`, which
+   *      is the correct answer for somebody who has never had a settings row
+   *      to express an opinion in. That is not a bypass; it is the sparse
+   *      contract's own definition of "absent".
+   *
+   * ---------------------------------------------------------------------------
+   * AND IT LOOKS THE ADDRESS UP FIRST, WHICH IS THE PART THAT MATTERS
+   * ---------------------------------------------------------------------------
+   *
+   * The danger in (2) is not the no-account case, which has no preferences to
+   * ignore. It is the case where the address TURNS OUT to belong to an
+   * account: an admin re-adds an address that already has a user (the initial
+   * admin bypasses the allowlist entirely and can be allowlisted afterwards;
+   * an entry can be removed and added again). Dispatching that as an
+   * account-less recipient would deliver to a real user while ignoring the
+   * preferences they actually set — exactly the weakening #128 forbids.
+   *
+   * So this looks the address up, and if it resolves to an account it hands
+   * off to the ordinary user path. Preference resolution is therefore never
+   * skipped for anybody who has preferences. The cost is one indexed query on
+   * a path that is already detached from the caller.
+   *
+   * NEVER REJECTS, and never joins the caller's transaction — same guarantees
+   * as {@link notify}, by the same mechanism (`schedule`).
+   *
+   * @param eventKey a key from `NOTIFICATION_EVENTS`. Unknown is a no-op.
+   * @param email the recipient's address. Matched case-insensitively, because
+   *        the allowlist stores addresses lower-cased while `users.email`
+   *        holds whatever the OAuth provider returned.
+   * @param data the event's payload, passed to the template untouched.
+   */
+  async notifyAddress(
+    eventKey: string,
+    email: string,
+    data: unknown,
+  ): Promise<void> {
+    const event = findEvent(eventKey);
+
+    if (!event) {
+      this.logger.debug(
+        `Ignoring notification for unknown event '${eventKey}'.`,
+      );
+      return;
+    }
+
+    this.schedule(() => this.dispatchToAddress(event, email, data));
+  }
+
+  /**
    * Wait for every scheduled dispatch to finish.
    *
    * The shutdown drain, and the seam tests use to assert on what a
@@ -327,6 +404,65 @@ export class NotificationsService implements OnModuleDestroy {
     }
 
     await this.dispatch(event, user, data);
+  }
+
+  /**
+   * Resolve an email address to a recipient, preferring the account behind it.
+   *
+   * THE ORDER IS THE SECURITY PROPERTY. The account lookup happens FIRST, and
+   * an address with an account is dispatched as that account — with its stored
+   * preferences — rather than as an anonymous address. See {@link
+   * notifyAddress} for why the reverse would be a hole in the preference gate.
+   */
+  private async dispatchToAddress(
+    event: NotificationEventDef,
+    email: string,
+    data: unknown,
+  ): Promise<void> {
+    let existing: { id: string } | null;
+
+    try {
+      // `findFirst` with a case-insensitive `equals` rather than `findUnique`:
+      // `users.email` is unique but stored with the provider's casing, while
+      // the caller's address (an allowlist entry) is lower-cased. A
+      // case-sensitive miss here would silently produce the anonymous path for
+      // a user who does have preferences, which is the one outcome this lookup
+      // exists to prevent.
+      existing = await this.prisma.user.findFirst({
+        where: { email: { equals: email, mode: 'insensitive' } },
+        select: { id: true },
+      });
+    } catch (err) {
+      // ABORT, DO NOT FALL BACK. Falling through to the anonymous path here
+      // would mean a transient database error downgrades a preference-checked
+      // send into an unchecked one — a gate that fails OPEN. Failing closed
+      // costs at most one undelivered notification, and the database is also
+      // where the delivery record would have gone, so nothing is being
+      // silently lost that would otherwise have been recorded.
+      this.logger.error(
+        `Cannot dispatch '${event.key}': resolving the recipient address ` +
+          `failed: ${describeThrown(err)}`,
+      );
+      return;
+    }
+
+    if (existing) {
+      // A real account. Ordinary path, ordinary preference resolution.
+      await this.dispatchToUser(event, existing.id, data);
+      return;
+    }
+
+    // Genuinely no account. `preferences: {}` is not a bypass: under the
+    // sparse absent-key contract an absent preference resolves to the event's
+    // `defaultEnabled`, which is precisely the right answer for somebody who
+    // has never had a settings row. `mandatory` still applies, and a channel
+    // that cannot reach an account-less recipient — the browser channel, whose
+    // `resolveTo` returns the user id — skips itself.
+    await this.dispatch(
+      event,
+      { userId: null, email, preferences: {} },
+      data,
+    );
   }
 
   /**

@@ -1,5 +1,11 @@
 import type { EmailTemplate, RenderedEmail } from './email-template.types';
+import {
+  type AllowlistInvitationEmailData,
+  allowlistInvitationEmail,
+} from './allowlist-invitation.email';
+import { type RoleChangedEmailData, roleChangedEmail } from './role-changed.email';
 import { type TestEmailData, testEmail } from './test-email.email';
+import { type UserWelcomeEmailData, userWelcomeEmail } from './user-welcome.email';
 
 // =============================================================================
 // Email template registry (issue #123, epic #109)
@@ -47,13 +53,19 @@ import { type TestEmailData, testEmail } from './test-email.email';
  *
  * The source of truth for {@link EmailTemplateName}. Add the entry here first.
  *
- * Currently one entry. #128 adds the three real event templates
- * (`user.welcome`, `allowlist.invitation`, `security.role_changed`) — this
- * ships with only the test message on purpose, so that #124's button has
- * something to send and nothing else is invented before it has a caller.
+ * #128 added the three real event templates. NAMES ARE KEBAB-CASE AND MATCH
+ * THE FILE, while the notification event keys that select them are dotted
+ * (`user.welcome` -> `user-welcome`): the mapping between the two lives in
+ * `EVENT_EMAIL_TEMPLATES` (notifications/channels/email-notification.channel.ts)
+ * and is deliberately explicit rather than derived, so a rename on either side
+ * is a compile error or a reviewed edit instead of a silent "template not
+ * found" at send time.
  */
 export interface EmailTemplateDataMap {
   'test-email': TestEmailData;
+  'user-welcome': UserWelcomeEmailData;
+  'allowlist-invitation': AllowlistInvitationEmailData;
+  'role-changed': RoleChangedEmailData;
 }
 
 /**
@@ -82,6 +94,9 @@ export const EMAIL_TEMPLATES: {
   [K in EmailTemplateName]: EmailTemplate<EmailTemplateDataMap[K]>;
 } = {
   'test-email': testEmail,
+  'user-welcome': userWelcomeEmail,
+  'allowlist-invitation': allowlistInvitationEmail,
+  'role-changed': roleChangedEmail,
 };
 
 /**
@@ -179,6 +194,22 @@ export {
 
 export { testEmail } from './test-email.email';
 
+// The three real event templates (#128). Exported individually as well as
+// through the registry, so a caller that knows statically which message it is
+// building gets its payload type checked by name.
+export { userWelcomeEmail } from './user-welcome.email';
+export { allowlistInvitationEmail } from './allowlist-invitation.email';
+export { roleChangedEmail } from './role-changed.email';
+
 export type { PlainTextOptions, RenderLayoutOptions } from './layout';
 export type { EmailTemplate, RenderedEmail } from './email-template.types';
 export type { TestEmailData } from './test-email.email';
+
+// The event payload types (#128). These are the CONTRACT between a `notify()`
+// call site and the template that renders it: `notify` takes `data: unknown`
+// by design, so a call site that annotates its payload with one of these is
+// the only place the shape gets checked at all. Every trigger point added by
+// #128 does exactly that.
+export type { UserWelcomeEmailData } from './user-welcome.email';
+export type { AllowlistInvitationEmailData } from './allowlist-invitation.email';
+export type { RoleChangedEmailData } from './role-changed.email';

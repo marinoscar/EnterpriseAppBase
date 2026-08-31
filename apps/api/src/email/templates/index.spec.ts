@@ -37,6 +37,29 @@ const SAMPLE_DATA: { [K in EmailTemplateName]: EmailTemplateDataMap[K] } = {
     triggeredBy: '"><img src=x onerror=alert(1)>',
     settingsUrl: 'https://app.example.com/admin/settings/email',
   },
+  // #128's three real event templates. Each payload places the hostile
+  // `<script>` fragment in a field the template renders into BOTH parts, and
+  // the `onerror` fragment in a second escaped field, so the contract loop
+  // below exercises escaping on every one of them rather than only on the
+  // first field a template happens to interpolate.
+  'user-welcome': {
+    recipientEmail: '<script>alert(document.cookie)</script>@example.com',
+    recipientName: '"><img src=x onerror=alert(1)>',
+    roles: ['viewer'],
+    appUrl: 'https://app.example.com',
+  },
+  'allowlist-invitation': {
+    recipientEmail: '<script>alert(document.cookie)</script>@example.com',
+    invitedBy: '"><img src=x onerror=alert(1)>',
+    signInUrl: 'https://app.example.com/login',
+  },
+  'role-changed': {
+    recipientEmail: '<script>alert(document.cookie)</script>@example.com',
+    previousRoles: ['admin'],
+    currentRoles: ['"><img src=x onerror=alert(1)>'],
+    changedAt: new Date('2026-01-01T00:00:00.000Z'),
+    appUrl: 'https://app.example.com',
+  },
 };
 
 function render(name: EmailTemplateName): RenderedEmail {
