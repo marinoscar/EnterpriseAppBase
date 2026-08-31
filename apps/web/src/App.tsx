@@ -2,6 +2,7 @@ import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
+import { NotificationProvider } from './contexts/NotificationContext';
 import { ThemeContextProvider, useThemeContext } from './contexts/ThemeContext';
 import { ProtectedRoute } from './components/common/ProtectedRoute';
 import { RequirePermission } from './components/common/RequirePermission';
@@ -67,7 +68,31 @@ function AppRoutes() {
               {/* Device activation page - without layout for full-screen experience */}
               <Route path="/activate" element={<ActivateDevicePage />} />
 
-              <Route element={<Layout />}>
+              {/* The notification centre (#127, epic #109) wraps the SHELL,
+                  not the whole app, and that scoping is the point:
+
+                    * It is INSIDE `ProtectedRoute`, so it only ever mounts for
+                      an authenticated user. Every endpoint it calls is
+                      `@Auth()`-guarded and every one resolves the recipient from
+                      the JWT, so mounting it on `/login` would buy a burst of
+                      401s and a stream that cannot connect.
+                    * It is around `Layout` specifically, because `Layout`'s
+                      `AppBar` is where the bell lives. `/activate` above sits
+                      outside the shell on purpose (full-screen device flow) and
+                      correspondingly gets no bell and opens no stream.
+
+                  ONE MOUNT POINT, so there is exactly one SSE connection per
+                  tab. A provider mounted per-page would open and close a stream
+                  on every navigation, which the server sees as a connection
+                  storm from a single user and the client experiences as a bell
+                  that resets its state every time the route changes. */}
+              <Route
+                element={
+                  <NotificationProvider>
+                    <Layout />
+                  </NotificationProvider>
+                }
+              >
                 <Route path="/" element={<HomePage />} />
                 {/* The per-user settings surface (#96, epic #90) — the same
                     hub component `/admin/settings` renders, over

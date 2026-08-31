@@ -15,6 +15,7 @@ import {
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useThemeContext } from '../../contexts/ThemeContext';
 import { UserMenu } from './UserMenu';
+import { NotificationBell } from './NotificationBell';
 import {
   ADMIN_SECTIONS,
   ADMIN_HUB_PATH,
@@ -221,6 +222,29 @@ export function AppBar() {
             It is the only growable item here, which is also what guarantees the
             toolbar can never push the app shell sideways. */}
         <Box aria-hidden sx={{ flexGrow: 1, minWidth: 0 }} />
+
+        {/* The notification centre (#127, epic #109) — MOUNTED IN BOTH
+            TREATMENTS, including the compact drill-down, and deliberately not
+            given the theme toggle's exemption below.
+
+            The toggle is dropped in the drill-down because it is REDUNDANT
+            there: the same setting lives on the Appearance page, two taps
+            inside the very surface the bar is heading into. The bell is
+            redundant nowhere — it is the only entry point to the notification
+            centre anywhere in the app, and a user who cannot see that something
+            arrived while they happen to be on a settings screen has simply lost
+            the feature for the duration.
+
+            The width still works out. The drill-down carries [back][title][bell]
+            [avatar] — three icon buttons, the same count as the wordmark
+            treatment's [wordmark][bell][toggle][avatar] — and the title already
+            has `noWrap` with `minWidth: 0`, so it ellipsizes into whatever the
+            icons leave rather than pushing them off the edge.
+
+            Renders NOTHING when no `NotificationProvider` is mounted, which is
+            how every existing standalone `AppBar` test keeps its exact button
+            count. See the note on `useNotifications`. */}
+        <NotificationBell />
 
         {/* Theme Toggle — DROPPED in the drill-down, and only there. Three
             controls plus a title do not fit the ~360px the treatment is

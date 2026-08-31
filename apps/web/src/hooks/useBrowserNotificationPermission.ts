@@ -18,9 +18,17 @@
  *     user who never asked for notifications, and the cost of losing that coin
  *     flip is that the feature is dead for that person forever.
  *
- * The prompt therefore belongs to a deliberate click, and that click is #127's
- * (see the seam in `components/settings/NotificationSettings.tsx`). Until then
- * this page states the permission honestly and nothing more.
+ * The prompt therefore belongs to a deliberate click, and #127 has now wired
+ * one: the "Allow notifications" button in the `default`-state banner of
+ * `components/settings/NotificationSettings.tsx`, whose handler lives in
+ * `pages/UserNotificationsPage.tsx` and calls
+ * `services/browserNotifications.ts`'s `requestBrowserNotificationPermission`.
+ *
+ * THAT DOES NOT CHANGE THIS FILE'S RULE. The request lives in a click handler
+ * three modules away precisely so that nothing on the mount path can reach it;
+ * this hook still only ever OBSERVES, and it must stay that way. If a
+ * `requestPermission` call ever appears in this file, the separation that makes
+ * "does anything prompt on load?" answerable by reading one file is gone.
  *
  * WHY A HOOK RATHER THAN READING `Notification.permission` INLINE
  * ---------------------------------------------------------------
@@ -85,9 +93,14 @@ export interface UseBrowserNotificationPermissionResult {
   /**
    * Force a re-read.
    *
-   * Exposed for the #127 seam: whatever eventually calls
-   * `Notification.requestPermission()` must be able to push the new answer into
-   * this page without a reload. Nothing calls it today.
+   * CALLED BY #127's PROMPT HANDLER (`UserNotificationsPage`), in a `finally`,
+   * after `Notification.requestPermission()` settles — so the banner moves to
+   * its `granted` or `denied` treatment without a reload.
+   *
+   * Unconditional there rather than driven by the request's return value: the
+   * user can dismiss the prompt without choosing (permission stays `default`)
+   * and some browsers resolve with nothing useful at all. Re-reading
+   * `Notification.permission` is the only answer that is right in every case.
    */
   refresh: () => void;
 }
