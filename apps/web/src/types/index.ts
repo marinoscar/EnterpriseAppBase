@@ -379,12 +379,34 @@ export interface UsersResponse {
   totalPages: number;
 }
 
+/**
+ * What `GET /api/auth/device/activate?code=…` returns for a pending code.
+ *
+ * EVERY FIELD UNDER `clientInfo` IS ATTACKER-CHOSEN. `POST /auth/device/code`
+ * is `@Public()`, its body is stored verbatim in the `device_codes.client_info`
+ * JSONB column, and this endpoint hands that column back wholesale. The types
+ * below describe what a WELL-BEHAVED client sends, not what will arrive — see
+ * `components/device-activation/credential.ts`, which is the only place this
+ * object is allowed to be interpreted.
+ */
 export interface DeviceActivationInfo {
   userCode: string;
-  clientInfo: {
+  // Optional because the API declares it optional (`clientInfo?` on
+  // DeviceActivateResponseDto) and because a row written by hand or by an older
+  // build can carry `null`. It was typed as required, which let call sites do
+  // `deviceInfo.clientInfo.deviceName` and crash the whole activation page on a
+  // shape the server is allowed to send.
+  clientInfo?: {
     deviceName?: string;
     userAgent?: string;
     ipAddress?: string;
+    // `string`, NOT the `'session' | 'pat'` union (#141). Two reasons, both
+    // load-bearing: rows created before #141 have no `tokenType` at all, and
+    // the column is not re-validated on read, so an unexpected value is a
+    // shape we must be able to represent in order to defend against it. Typing
+    // it as the union here would make `readCredentialKind`'s unknown-value
+    // branch look like dead code and invite someone to delete it.
+    tokenType?: string;
   };
   expiresAt: string;
 }
