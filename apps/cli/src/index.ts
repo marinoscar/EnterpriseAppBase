@@ -36,14 +36,40 @@ export type {
 } from './api-client.js';
 
 export { buildProgram, run } from './program.js';
+export type { RunOptions } from './program.js';
+
+// The TTY GATE ONLY — never `startTui`, and never anything else from
+// `src/tui/`. Re-exporting the ink app here would put a reconciler on the
+// import graph of every consumer of this module, including `program.ts`, which
+// is precisely the coupling #145's gate exists to prevent. The gate itself is
+// a pure predicate over two streams and an environment, imports neither react
+// nor ink, and is the piece worth testing exhaustively — so it is the piece
+// exported. Reach the app through `await import('./tui/index.js')`, as
+// `program.ts` does.
+export { NO_TUI_ENV_VAR, evaluateTuiGate } from './tui/tty.js';
+export type { TtyContext, TuiGateDecision, TuiRefusal } from './tui/tty.js';
+
+// The terminal-restore safety net, for the same reason: it is plain Node stream
+// handling with no ink import, and "Ctrl-C leaves the terminal usable" is one
+// of #145's stated acceptance properties, so it has to be reachable from a test.
+export { installTerminalRestore, restoreTerminal } from './tui/terminal.js';
+export type { TerminalRestoreContext } from './tui/terminal.js';
 
 // The generic `api` command (#144). The two parsers are exported because they
 // are the local-validation half of the command — a bad method, a path without
 // a leading slash, a malformed --query — and they are pure functions, so they
 // are exercised directly rather than through a spawned process.
-export { parseQueryPair, parseRequestPath, registerApiCommand } from './commands/api.js';
+export {
+  ALLOWED_METHODS,
+  BODYLESS_METHODS,
+  parseMethod,
+  parseQueryPair,
+  parseRequestPath,
+  registerApiCommand,
+} from './commands/api.js';
+export type { AllowedMethod } from './commands/api.js';
 
-// Rendering, kept separate from the command so #145's TUI can reuse the JSON
+// Rendering, kept separate from the command so #145's TUI reuses the JSON
 // formatter and the colour decision without inheriting the stdout writes.
 export { createSpinner, formatJson, formatStatusLine, shouldUseColour } from './output.js';
 export type { ColourDecisionInput, FormatJsonOptions } from './output.js';

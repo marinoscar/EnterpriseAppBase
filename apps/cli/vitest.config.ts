@@ -19,14 +19,17 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     environment: 'node',
-    include: ['src/**/*.test.ts'],
+    // `.tsx` too: the ink screens (#145) are components, and a test file
+    // for one is a .tsx. Without the glob covering it the suite would run
+    // green while testing none of them.
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
     // Real tests arrive with the rest of epic #110; until then the suite must
     // not fail CI for being empty. The npm scripts pass --passWithNoTests.
     globals: false,
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],
-      exclude: ['src/**/*.test.ts'],
+      exclude: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
     },
   },
 });

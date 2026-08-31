@@ -18,6 +18,22 @@
     // the reason apps/web/src/services/api.ts could not be reused here (#140).
     "types": ["node"],
 
+    // The ink TUI (#145) is React, so this package compiles JSX. `react-jsx`
+    // — the automatic runtime — rather than the classic `"react"` transform,
+    // because the classic one emits `React.createElement` and therefore
+    // requires `import React from 'react'` in every .tsx file purely to
+    // satisfy a name the source never mentions. React 19 ships
+    // `react/jsx-runtime` and the automatic runtime imports it itself; under
+    // NodeNext that import is emitted with the correct specifier, so no
+    // `jsxImportSource` override is needed.
+    //
+    // This setting is INERT for every non-TUI file: the .ts modules compile
+    // exactly as before, and nothing outside src/tui/ imports React. The
+    // non-TTY path in program.ts must never load the reconciler at all — see
+    // the dynamic import there — which is why the TUI is .tsx files behind one
+    // `await import()` rather than a top-level import anywhere.
+    "jsx": "react-jsx",
+
     // Stricter than the API's config on purpose. This package has no framework
     // doing dependency injection for it and no test server to catch a stray
     // unused parameter, and its output goes to somebody's shell.

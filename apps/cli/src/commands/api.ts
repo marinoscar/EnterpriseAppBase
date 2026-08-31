@@ -60,10 +60,24 @@ import { resolveRequestBody, type BodyResolutionContext } from '../request-body.
  * thing to do with a generic client, and excluding them would push someone to
  * curl. TRACE and CONNECT are excluded — no application server should honour
  * them and both are proxy-level operations.
+ *
+ * EXPORTED FOR THE INK TUI (#145), which offers these as a pick-list on its
+ * endpoint-invoker screen rather than making the user type one. A second
+ * hard-coded list there would be the classic way for the two interfaces to
+ * drift — the TUI would keep offering a method the command had stopped
+ * accepting, and the mismatch would only ever be noticed by a user.
  */
-const ALLOWED_METHODS = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'] as const;
+export const ALLOWED_METHODS = [
+  'GET',
+  'HEAD',
+  'POST',
+  'PUT',
+  'PATCH',
+  'DELETE',
+  'OPTIONS',
+] as const;
 
-type AllowedMethod = (typeof ALLOWED_METHODS)[number];
+export type AllowedMethod = (typeof ALLOWED_METHODS)[number];
 
 /**
  * Methods for which a request body is not merely unusual but IMPOSSIBLE.
@@ -79,8 +93,14 @@ type AllowedMethod = (typeof ALLOWED_METHODS)[number];
  * Checked HERE, before the client is ever called, so the diagnosis is the real
  * one. DELETE is deliberately absent: a DELETE with a body is legal, some APIs
  * use it, and fetch permits it.
+ *
+ * Exported for the TUI, which uses it to decide whether to ask for a body at
+ * all rather than offering a field that could only produce this error.
  */
-const BODYLESS_METHODS = new Set<AllowedMethod>(['GET', 'HEAD']);
+export const BODYLESS_METHODS: ReadonlySet<AllowedMethod> = new Set<AllowedMethod>([
+  'GET',
+  'HEAD',
+]);
 
 interface ApiCommandOptions {
   /** Absent when `--query` was never passed; see the registration below. */
@@ -324,7 +344,7 @@ function collectQuery(value: string, previous: string[] | undefined): string[] {
   return [...(previous ?? []), value];
 }
 
-function parseMethod(raw: string): AllowedMethod {
+export function parseMethod(raw: string): AllowedMethod {
   const method = raw.trim().toUpperCase();
 
   if ((ALLOWED_METHODS as readonly string[]).includes(method)) {
