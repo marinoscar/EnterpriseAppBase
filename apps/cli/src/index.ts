@@ -38,8 +38,78 @@ export type {
 export { buildProgram, run } from './program.js';
 
 export {
+  SERVER_URL_ENV_VAR,
+  TOKEN_ENV_VAR,
+  configDirPath,
+  configFilePath,
+  deleteConfigFile,
+  describeConfig,
+  isExpired,
+  maskToken,
+  readConfigFile,
+  requireCredentials,
+  resolveConfig,
+  saveCredentials,
+  writeConfigFile,
+} from './config.js';
+export type {
+  ConfigContext,
+  ConfigSource,
+  ConfigSummary,
+  Credentials,
+  ResolvedConfig,
+  StoredConfig,
+} from './config.js';
+
+export {
+  DEVICE_POLL_ERROR_CODES,
+  DeviceLoginError,
+  MAX_POLL_INTERVAL_SECONDS,
+  POLL_MARGIN_MS,
+  SLOW_DOWN_INCREMENT_SECONDS,
+  UNCLASSIFIED_POLL_POLICY,
+  classifyPollFailure,
+  pollForDeviceToken,
+  pollOnce,
+  requestDeviceCode,
+} from './device-auth.js';
+export type {
+  DeviceCodeGrant,
+  DeviceCredential,
+  DeviceLoginFailureReason,
+  DevicePollErrorCode,
+  DevicePollSignal,
+  DevicePollState,
+  PollForTokenOptions,
+} from './device-auth.js';
+
+// The reusable half of `login`, which #145's TUI drives directly.
+export {
+  completeLogin,
+  defaultDeviceName,
+  runDeviceLogin,
+  validateToken,
+} from './device-login.js';
+export type {
+  CompleteLoginInput,
+  CompleteLoginResult,
+  CurrentUser,
+  DeviceLoginHooks,
+  DeviceLoginOptions,
+  DeviceLoginResult,
+} from './device-login.js';
+
+export { openInBrowser } from './browser.js';
+export type { BrowserOpenResult } from './browser.js';
+
+export { canPrompt, prompt, promptForServerUrl } from './prompt.js';
+export type { PromptContext } from './prompt.js';
+
+export {
   ApiError,
+  AuthRequiredError,
   CliError,
+  ConfigError,
   EXIT,
   NetworkError,
   UsageError,

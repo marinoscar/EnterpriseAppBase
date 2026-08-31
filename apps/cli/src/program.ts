@@ -1,6 +1,8 @@
 import { Command, CommanderError } from 'commander';
 
 import { CLI_DISPLAY_NAME, CLI_NAME } from './branding.js';
+import { registerConfigCommand } from './commands/config.js';
+import { registerLoginCommand } from './commands/login.js';
 import { EXIT, exitCodeFor, formatError } from './errors.js';
 import { CLI_VERSION } from './package-info.js';
 
@@ -8,11 +10,11 @@ import { CLI_VERSION } from './package-info.js';
 // Command wiring  (issue #140, epic #110)
 // =============================================================================
 //
-// SCAFFOLD ONLY. There are no commands yet: `--help` and `--version` are here
-// to prove that the bin resolves, that the ESM build runs, and — the part that
-// is easy to get wrong and expensive to discover later — that a failed
-// invocation exits non-zero. Commands arrive in #142 (login), #144 (api) and
-// #145 (the TUI).
+// Commands so far: `login` (#142/#143) and `config` (#143). Still to come:
+// `api` (#144) and the ink TUI (#145). `--help` and `--version` remain the
+// proof that the bin resolves, that the ESM build runs, and — the part that is
+// easy to get wrong and expensive to discover later — that a failed invocation
+// exits non-zero.
 //
 // SEPARATE FROM cli.ts, which is the executable. This module only ever RETURNS
 // an exit code; it never calls `process.exit`, and it runs nothing on import.
@@ -54,6 +56,12 @@ export function buildProgram(): Command {
       writeErr: (str) => process.stderr.write(str),
       writeOut: (str) => process.stdout.write(str),
     });
+
+  // Registered here rather than in each command's own module so there is one
+  // list of what this CLI can do, in the order it is shown in `--help`.
+  // `login` first: it is the only command that works before you have run it.
+  registerLoginCommand(program);
+  registerConfigCommand(program);
 
   return program;
 }

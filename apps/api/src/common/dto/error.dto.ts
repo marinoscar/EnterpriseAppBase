@@ -1,14 +1,25 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 /**
- * The one error body this API ever returns.
+ * The error body this API returns for every endpoint but one.
  *
- * `HttpExceptionFilter` rebuilds every error response from a fixed key
- * allowlist — `statusCode`, `code`, `message`, `details`, `timestamp`, `path`
- * and nothing else — so this class is not an approximation of the wire format,
- * it is the complete set of keys that can appear. In particular a custom
- * top-level field on a thrown `HttpException` payload is silently dropped;
- * endpoint-specific data belongs under {@link details}.
+ * `HttpExceptionFilter` rebuilds error responses from a fixed key allowlist —
+ * `statusCode`, `code`, `message`, `details`, `timestamp`, `path` and nothing
+ * else — so this class is not an approximation of the wire format, it is the
+ * complete set of keys that can appear. In particular a custom top-level field
+ * on a thrown `HttpException` payload is silently dropped; endpoint-specific
+ * data belongs under {@link details}.
+ *
+ * THE ONE EXCEPTION (#153): an endpoint whose error body is fixed by an
+ * external standard can opt out of this envelope entirely, by branding its
+ * exception with `withVerbatimErrorBody`
+ * (`common/exceptions/verbatim-error-body.exception.ts`). Its body is then sent
+ * exactly as thrown, with none of the keys below. Today the only user is
+ * `POST /auth/device/token`, which RFC 8628 §3.5 requires to answer with
+ * `{ error, error_description }` — see `DeviceTokenErrorDto`, which the
+ * operation declares for its 400 and 401 responses. That opt-out is deliberately
+ * hard to reach and rare; assume this envelope unless an operation documents
+ * otherwise.
  *
  * Kept as an `@ApiProperty` class rather than a zod DTO because nothing
  * validates it — it is documentation-only, produced by the filter and never
