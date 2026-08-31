@@ -87,10 +87,28 @@ export class DeviceAuthController {
     description: 'Device authorized - returns access and refresh tokens',
     type: DeviceTokenResponseDto,
   })
+  // The two error responses below are the ONLY ones in this API that are not
+  // the shared `ErrorDto` envelope. RFC 8628 §3.5 fixes the token endpoint's
+  // error body as `{ error, error_description }` at the top level, and the
+  // `error` value is the whole protocol — the client polls on
+  // `authorization_pending`, backs off on `slow_down`, restarts on
+  // `expired_token` and gives up on `access_denied`. `DeviceAuthService` throws
+  // these through `deviceTokenError()`, which brands them so
+  // `HttpExceptionFilter` passes the body through instead of flattening it
+  // (#153). Documented here on both statuses so the published spec matches what
+  // the endpoint actually sends.
   @ApiResponse({
     status: 400,
     description:
-      'Authorization pending, slow down, expired, or denied (see error field)',
+      'Authorization pending, slow down, expired, or denied (see error field). ' +
+      'RFC 8628 body, NOT the shared error envelope.',
+    type: DeviceTokenErrorDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description:
+      'The device code is unknown or has already been redeemed (`invalid_grant`). ' +
+      'RFC 8628 body, NOT the shared error envelope.',
     type: DeviceTokenErrorDto,
   })
   async pollToken(

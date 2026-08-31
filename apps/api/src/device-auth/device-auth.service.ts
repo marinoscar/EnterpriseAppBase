@@ -3,7 +3,6 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
-  UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomBytes, createHash } from 'node:crypto';
@@ -13,6 +12,12 @@ import { PatService } from '../pat/pat.service';
 import { DeviceCodeStatus, Prisma } from '@prisma/client';
 import { DeviceTokenType } from './dto/device-code-request.dto';
 import { DeviceTokenResponseDto } from './dto/device-token-response.dto';
+// Every failure of the token endpoint goes through this factory, never through
+// a bare `new BadRequestException({ error: … })`. Thrown directly, that body is
+// flattened by the global exception filter into a generic 400 and the RFC code
+// is destroyed — which is exactly what #153 was. The factory brands the
+// exception so the filter sends `{ error, error_description }` verbatim.
+import { deviceTokenError } from './exceptions/device-token-error.exception';
 
 /**
  * Service for handling Device Authorization Flow (RFC 8628)
@@ -125,10 +130,10 @@ export class DeviceAuthService {
     const now = Date.now();
 
     if (lastPoll && now - lastPoll < pollInterval * 1000) {
-      throw new BadRequestException({
-        error: 'slow_down',
-        error_description: 'Polling too frequently. Please slow down.',
-      });
+      throw deviceTokenError(
+        'slow_down',
+        'Polling too frequently. Please slow down.',
+      );
     }
 
     // Update last poll timestamp
@@ -151,10 +156,7 @@ export class DeviceAuthService {
     });
 
     if (!record) {
-      throw new UnauthorizedException({
-        error: 'invalid_grant',
-        error_description: 'Invalid device code',
-      });
+      throw deviceTokenError('invalid_grant', 'Invalid device code');
     }
 
     // Check if expired
@@ -164,38 +166,32 @@ export class DeviceAuthService {
         data: { status: DeviceCodeStatus.expired },
       });
 
-      throw new BadRequestException({
-        error: 'expired_token',
-        error_description: 'The device code has expired',
-      });
+      throw deviceTokenError('expired_token', 'The device code has expired');
     }
 
     // Check status
     switch (record.status) {
       case DeviceCodeStatus.pending:
-        throw new BadRequestException({
-          error: 'authorization_pending',
-          error_description: 'User has not yet authorized this device',
-        });
+        throw deviceTokenError(
+          'authorization_pending',
+          'User has not yet authorized this device',
+        );
 
       case DeviceCodeStatus.denied:
-        throw new BadRequestException({
-          error: 'access_denied',
-          error_description: 'User denied the authorization request',
-        });
+        throw deviceTokenError(
+          'access_denied',
+          'User denied the authorization request',
+        );
 
       case DeviceCodeStatus.expired:
-        throw new BadRequestException({
-          error: 'expired_token',
-          error_description: 'The device code has expired',
-        });
+        throw deviceTokenError('expired_token', 'The device code has expired');
 
       case DeviceCodeStatus.approved: {
         if (!record.user) {
-          throw new UnauthorizedException({
-            error: 'invalid_grant',
-            error_description: 'User information not found',
-          });
+          throw deviceTokenError(
+            'invalid_grant',
+            'User information not found',
+          );
         }
 
         // A device that asked for a PAT gets one MINTED RIGHT HERE, at poll
@@ -250,10 +246,10 @@ export class DeviceAuthService {
       }
 
       default:
-        throw new BadRequestException({
-          error: 'invalid_request',
-          error_description: 'Unknown device code status',
-        });
+        throw deviceTokenError(
+          'invalid_request',
+          'Unknown device code status',
+        );
     }
   }
 
@@ -546,10 +542,10 @@ export class DeviceAuthService {
     });
 
     if (claim.count !== 1) {
-      throw new UnauthorizedException({
-        error: 'invalid_grant',
-        error_description: 'This device code has already been used',
-      });
+      throw deviceTokenError(
+        'invalid_grant',
+        'This device code has already been used',
+      );
     }
 
     // Note the ordering: the code is consumed BEFORE the token is minted, so if
