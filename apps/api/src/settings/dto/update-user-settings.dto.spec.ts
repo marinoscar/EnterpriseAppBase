@@ -7,6 +7,8 @@ import {
   DATA_TABLE_MAX_VISIBLE_COLUMNS,
   DATA_TABLE_MAX_PAGE_SIZE,
   DATA_TABLE_MAX_TABLES,
+  NOTIFICATION_MAX_EVENT_KEY_LENGTH,
+  NOTIFICATION_MAX_EVENTS_PER_CHANNEL,
 } from '../../common/schemas/user-settings-namespaces.schema';
 
 describe('UpdateUserSettingsDto (PUT)', () => {
@@ -898,4 +900,329 @@ describe('navigation namespace (PATCH)', () => {
       }),
     ).toThrow();
   });
+});
+
+// =============================================================================
+// notifications namespace (issue #126, epic #109)
+// =============================================================================
+//
+// Channel-outer, event-inner, and — unlike dataTables/navigation above — the
+// CHANNEL level is closed (an enum) while the EVENT level is deliberately
+// open. See the header of user-settings-namespaces.schema.ts for the full
+// argument; the short version is repeated at each relevant test below.
+
+describe('notifications namespace (PUT)', () => {
+  const baseValid = {
+    theme: 'light' as const,
+    profile: { useProviderImage: true },
+  };
+
+  it('is optional - absent when not provided', () => {
+    const result = updateUserSettingsSchema.parse(baseValid);
+    expect(result.notifications).toBeUndefined();
+  });
+
+  it('accepts an empty namespace', () => {
+    const result = updateUserSettingsSchema.parse({
+      ...baseValid,
+      notifications: {},
+    });
+    expect(result.notifications).toEqual({});
+  });
+
+  it('accepts a populated channel with a boolean per event key', () => {
+    const result = updateUserSettingsSchema.parse({
+      ...baseValid,
+      notifications: {
+        email: { 'user.welcome': false, 'security.role_changed': true },
+      },
+    });
+    expect(result.notifications).toEqual({
+      email: { 'user.welcome': false, 'security.role_changed': true },
+    });
+  });
+
+  it('accepts every declared channel, independently', () => {
+    const result = updateUserSettingsSchema.parse({
+      ...baseValid,
+      notifications: {
+        email: { 'user.welcome': true },
+        browser: { 'security.role_changed': false },
+      },
+    });
+    expect(result.notifications).toEqual({
+      email: { 'user.welcome': true },
+      browser: { 'security.role_changed': false },
+    });
+  });
+
+  it('rejects an unknown channel - the outer level is closed, unlike the event level below', () => {
+    expect(() =>
+      updateUserSettingsSchema.parse({
+        ...baseValid,
+        notifications: { push: { 'user.welcome': true } },
+      }),
+    ).toThrow();
+  });
+
+  // THE DELIBERATE ASYMMETRY (see the schema file's header). The write path
+  // must accept everything the read path can emit:
+  //   * a rolling deploy can serve `GET /api/notifications/events` from a
+  //     newer pod's registry while a resulting write lands on an older one;
+  //   * `PUT` is a read-modify-write, so a client PUTs back a key the server
+  //     just served it;
+  //   * deleting a stale preference is a PATCH that NAMES the key, so
+  //     validating event keys against the registry would make the very
+  //     request that cleans one up impossible.
+  // A typo'd key is stored and is harmless: `isChannelEnabled` only ever asks
+  // about REGISTERED events, so a preference under an unknown key can never
+  // affect a delivery decision.
+  it('ACCEPTS an unknown event key - unlike the channel level, the event level is deliberately open', () => {
+    const result = updateUserSettingsSchema.parse({
+      ...baseValid,
+      notifications: { email: { 'totally.unregistered.typo': true } },
+    });
+    expect(result.notifications).toEqual({
+      email: { 'totally.unregistered.typo': true },
+    });
+  });
+
+  // `mandatory` is a property of NOTIFICATION_EVENTS at runtime, not a schema
+  // constraint - this schema has no registry to check against, and does not
+  // try to. A stored `false` here is inert: the resolver in
+  // notification-preferences.ts (#125) tests `event.mandatory` BEFORE it ever
+  // looks at a stored preference, so this value is never consulted. See
+  // "`mandatory` IS NOT ENFORCED HERE, DELIBERATELY" in the schema file.
+  it('accepts a false preference for a mandatory event key - it is inert, not rejected', () => {
+    const result = updateUserSettingsSchema.parse({
+      ...baseValid,
+      notifications: { email: { 'security.role_changed': false } },
+    });
+    expect(result.notifications).toEqual({
+      email: { 'security.role_changed': false },
+    });
+  });
+
+  describe('event key format', () => {
+    it.each([
+      ['uppercase letters', 'User.Welcome'],
+      ['leading dot', '.user.welcome'],
+      ['punctuation', 'user.welcome!'],
+      ['empty string', ''],
+    ])('rejects an event key with %s (%j)', (_label, key) => {
+      expect(() =>
+        updateUserSettingsSchema.parse({
+          ...baseValid,
+          notifications: { email: { [key]: true } },
+        }),
+      ).toThrow();
+    });
+
+    it('accepts the <area>.<event> convention with digits, hyphens, and underscores', () => {
+      const result = updateUserSettingsSchema.parse({
+        ...baseValid,
+        notifications: { email: { 'area_1.some-event_2': true } },
+      });
+      expect(result.notifications).toEqual({
+        email: { 'area_1.some-event_2': true },
+      });
+    });
+
+    it(`rejects an event key longer than ${NOTIFICATION_MAX_EVENT_KEY_LENGTH} characters`, () => {
+      const tooLong = 'a'.repeat(NOTIFICATION_MAX_EVENT_KEY_LENGTH + 1);
+      expect(() =>
+        updateUserSettingsSchema.parse({
+          ...baseValid,
+          notifications: { email: { [tooLong]: true } },
+        }),
+      ).toThrow();
+    });
+
+    it(`accepts an event key at exactly ${NOTIFICATION_MAX_EVENT_KEY_LENGTH} characters`, () => {
+      const maxLength = 'a'.repeat(NOTIFICATION_MAX_EVENT_KEY_LENGTH);
+      const result = updateUserSettingsSchema.parse({
+        ...baseValid,
+        notifications: { email: { [maxLength]: true } },
+      });
+      expect(result.notifications).toEqual({ email: { [maxLength]: true } });
+    });
+  });
+
+  it('rejects a non-boolean preference value', () => {
+    expect(() =>
+      updateUserSettingsSchema.parse({
+        ...baseValid,
+        notifications: { email: { 'user.welcome': 'yes' } },
+      }),
+    ).toThrow();
+  });
+
+  it('rejects notifications: null on PUT - PUT states the settings in full, so null has no "delete" meaning here', () => {
+    expect(() =>
+      updateUserSettingsSchema.parse({ ...baseValid, notifications: null }),
+    ).toThrow();
+  });
+
+  it('rejects a null channel value ({ email: null }) - the nullable-channel form is PATCH-only', () => {
+    expect(() =>
+      updateUserSettingsSchema.parse({
+        ...baseValid,
+        notifications: { email: null },
+      }),
+    ).toThrow();
+  });
+
+  it('rejects a null event value ({ email: { key: null } }) on PUT - the nullable-value form is PATCH-only', () => {
+    expect(() =>
+      updateUserSettingsSchema.parse({
+        ...baseValid,
+        notifications: { email: { 'user.welcome': null } },
+      }),
+    ).toThrow();
+  });
+
+  it(
+    `does NOT enforce the ${NOTIFICATION_MAX_EVENTS_PER_CHANNEL}-events-per-channel cap by itself - ` +
+      'z.record() cannot express a max key count, so this is deliberately accepted here. The cap is ' +
+      'enforced in UserSettingsService.assertNotificationLimit (see user-settings.service.spec.ts), ' +
+      'against the MERGED result, so an over-cap request surfaces as a 400 rather than escaping as an ' +
+      'uncaught ZodError.',
+    () => {
+      const tooMany = Object.fromEntries(
+        Array.from({ length: NOTIFICATION_MAX_EVENTS_PER_CHANNEL + 1 }, (_, i) => [
+          `area.event${i}`,
+          true,
+        ]),
+      );
+      const result = updateUserSettingsSchema.parse({
+        ...baseValid,
+        notifications: { email: tooMany },
+      });
+      expect(Object.keys(result.notifications?.email ?? {})).toHaveLength(
+        NOTIFICATION_MAX_EVENTS_PER_CHANNEL + 1,
+      );
+    },
+  );
+});
+
+describe('notifications namespace (PATCH)', () => {
+  it('is optional - absent when not provided', () => {
+    const result = patchUserSettingsSchema.parse({});
+    expect(result.notifications).toBeUndefined();
+  });
+
+  it('accepts notifications: null to clear the whole namespace', () => {
+    const result = patchUserSettingsSchema.parse({ notifications: null });
+    expect(result.notifications).toBeNull();
+  });
+
+  it('accepts { email: null } to clear a single channel, leaving other channels unaddressed', () => {
+    const result = patchUserSettingsSchema.parse({
+      notifications: { email: null },
+    });
+    expect(result.notifications).toEqual({ email: null });
+  });
+
+  it("accepts { email: { 'user.welcome': null } } to delete a single event key", () => {
+    const result = patchUserSettingsSchema.parse({
+      notifications: { email: { 'user.welcome': null } },
+    });
+    expect(result.notifications).toEqual({ email: { 'user.welcome': null } });
+  });
+
+  it('accepts { email: { key: true } } naming exactly one event key and nothing else', () => {
+    const result = patchUserSettingsSchema.parse({
+      notifications: { email: { 'user.welcome': true } },
+    });
+    expect(result.notifications).toEqual({ email: { 'user.welcome': true } });
+  });
+
+  it('rejects an unknown channel', () => {
+    expect(() =>
+      patchUserSettingsSchema.parse({
+        notifications: { push: { 'user.welcome': true } },
+      }),
+    ).toThrow();
+  });
+
+  // Same deliberate asymmetry as the PUT-side test above, exercised through
+  // PATCH - including the null-delete form, since a request that deletes a
+  // stale preference necessarily NAMES the key it is deleting. Rejecting
+  // unknown event keys here would make a stale preference permanently
+  // un-cleanable.
+  it('ACCEPTS an unknown event key, both as a set and as a null-delete', () => {
+    const set = patchUserSettingsSchema.parse({
+      notifications: { email: { 'totally.unregistered.typo': true } },
+    });
+    expect(set.notifications).toEqual({
+      email: { 'totally.unregistered.typo': true },
+    });
+
+    const del = patchUserSettingsSchema.parse({
+      notifications: { email: { 'totally.unregistered.typo': null } },
+    });
+    expect(del.notifications).toEqual({
+      email: { 'totally.unregistered.typo': null },
+    });
+  });
+
+  it('accepts a false preference for a mandatory event key - inert, not rejected (see the PUT-side test)', () => {
+    const result = patchUserSettingsSchema.parse({
+      notifications: { email: { 'security.role_changed': false } },
+    });
+    expect(result.notifications).toEqual({
+      email: { 'security.role_changed': false },
+    });
+  });
+
+  describe('event key format', () => {
+    it.each([
+      ['uppercase letters', 'User.Welcome'],
+      ['leading dot', '.user.welcome'],
+      ['punctuation', 'user.welcome!'],
+    ])('rejects an event key with %s (%j)', (_label, key) => {
+      expect(() =>
+        patchUserSettingsSchema.parse({
+          notifications: { email: { [key]: true } },
+        }),
+      ).toThrow();
+    });
+
+    it(`rejects an event key longer than ${NOTIFICATION_MAX_EVENT_KEY_LENGTH} characters`, () => {
+      const tooLong = 'a'.repeat(NOTIFICATION_MAX_EVENT_KEY_LENGTH + 1);
+      expect(() =>
+        patchUserSettingsSchema.parse({
+          notifications: { email: { [tooLong]: true } },
+        }),
+      ).toThrow();
+    });
+  });
+
+  it('rejects a non-boolean, non-null preference value', () => {
+    expect(() =>
+      patchUserSettingsSchema.parse({
+        notifications: { email: { 'user.welcome': 'yes' } },
+      }),
+    ).toThrow();
+  });
+
+  it(
+    `does NOT enforce the ${NOTIFICATION_MAX_EVENTS_PER_CHANNEL}-events-per-channel cap by itself - ` +
+      'enforced post-merge in UserSettingsService.assertNotificationLimit instead, against the ' +
+      'MERGED result (see user-settings.service.spec.ts).',
+    () => {
+      const tooMany = Object.fromEntries(
+        Array.from({ length: NOTIFICATION_MAX_EVENTS_PER_CHANNEL + 1 }, (_, i) => [
+          `area.event${i}`,
+          true,
+        ]),
+      );
+      const result = patchUserSettingsSchema.parse({
+        notifications: { email: tooMany },
+      });
+      expect(
+        Object.keys((result.notifications as Record<string, unknown>)?.email ?? {}),
+      ).toHaveLength(NOTIFICATION_MAX_EVENTS_PER_CHANNEL + 1);
+    },
+  );
 });
