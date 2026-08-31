@@ -205,6 +205,7 @@ import type {
   EmailSettings,
   EmailSettingsInput,
   EmailTestResult,
+  NotificationEventDef,
 } from '../types';
 
 // Allowlist API
@@ -389,4 +390,26 @@ export async function updateEmailSettings(
  */
 export async function sendTestEmail(): Promise<EmailTestResult> {
   return api.post<EmailTestResult>('/email-settings/test');
+}
+
+/**
+ * The notification event registry — `GET /api/notifications/events` (#124).
+ *
+ * AUTHENTICATED, NOT ADMIN-GATED. Every signed-in user reads this; it is what
+ * `/settings/notifications` renders its matrix against, and that page belongs
+ * to every role. A `system_settings:read` reflex here would leave a Viewer with
+ * a preferences page and no rows in it.
+ *
+ * THE WEB APP DOES NOT KEEP A COPY OF THIS LIST, deliberately. `mandatory` is a
+ * security flag, and a second declaration of a security flag is a second place
+ * for it to be wrong; a duplicated registry would also break epic #109's
+ * headline promise that adding a notification costs ONE registry entry. The
+ * consequence is that the preferences page renders whatever the server serves,
+ * including events added after this build shipped.
+ *
+ * The response is ORDERED and the order is meaningful — it is the order the
+ * preferences UI should render. Do not sort it.
+ */
+export async function getNotificationEvents(): Promise<NotificationEventDef[]> {
+  return api.get<NotificationEventDef[]>('/notifications/events');
 }

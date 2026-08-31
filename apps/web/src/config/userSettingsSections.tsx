@@ -21,6 +21,7 @@
 
 import PersonIcon from '@mui/icons-material/Person';
 import PaletteIcon from '@mui/icons-material/Palette';
+import NotificationsIcon from '@mui/icons-material/Notifications';
 import VpnKeyIcon from '@mui/icons-material/VpnKey';
 import type { SettingsSectionDef } from './adminSections';
 
@@ -57,6 +58,24 @@ export const USER_SETTINGS_SECTIONS: SettingsSectionDef[] = [
         description: 'Choose a light, dark, or system-matched theme for this account.',
         Icon: PaletteIcon,
         path: '/settings/appearance',
+      },
+      {
+        // Issue #126, epic #109. NO `permission`, like every card here: the
+        // page edits the caller's OWN preferences through
+        // `PATCH /api/user-settings`, which the API grants to all three roles,
+        // and the registry it renders (`GET /api/notifications/events`) is
+        // `@Auth()` with no permissions for exactly that reason — gating this
+        // card would leave a Viewer unable to say how they are contacted.
+        //
+        // Under `Account` rather than `Security`, even though one of the events
+        // it lists is a security alert: the card is about how this account is
+        // contacted, not about credentials. `Security` holds long-lived
+        // credentials (see the group's own note below).
+        title: 'Notifications',
+        description:
+          'Choose which events notify you, and whether they arrive by email or in your browser.',
+        Icon: NotificationsIcon,
+        path: '/settings/notifications',
       },
     ],
   },

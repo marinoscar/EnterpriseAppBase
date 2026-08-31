@@ -24,6 +24,8 @@ const UserProfilePage = lazy(() => import('./pages/UserProfilePage'));
 // `User`-prefixed to keep it distinct from `Admin/AppearanceSettingsPage`
 // below: one is the user's own theme, the other the deployment's default.
 const UserAppearancePage = lazy(() => import('./pages/UserAppearancePage'));
+// Issue #126, epic #109 — the per-user event x channel notification matrix.
+const UserNotificationsPage = lazy(() => import('./pages/UserNotificationsPage'));
 const UserTokensPage = lazy(() => import('./pages/UserTokensPage'));
 
 // Console — the hub (#93) plus one route per card in
@@ -87,6 +89,10 @@ function AppRoutes() {
                 <Route path="/settings" element={<UserSettingsHubPage />} />
                 <Route path="/settings/profile" element={<UserProfilePage />} />
                 <Route path="/settings/appearance" element={<UserAppearancePage />} />
+                {/* Ungated like its siblings (#126): these are the caller's own
+                    preferences, and the registry endpoint the page renders is
+                    itself `@Auth()` with no permission for the same reason. */}
+                <Route path="/settings/notifications" element={<UserNotificationsPage />} />
                 <Route path="/settings/tokens" element={<UserTokensPage />} />
                 {/* Route-level AUTHORIZATION, not just authentication.
                     `ProtectedRoute` above only establishes that someone is
