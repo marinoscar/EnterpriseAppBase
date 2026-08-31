@@ -32,6 +32,8 @@ const SettingsHubPage = lazy(() => import('./pages/Admin/SettingsHubPage'));
 const GeneralSettingsPage = lazy(() => import('./pages/Admin/GeneralSettingsPage'));
 const AppearanceSettingsPage = lazy(() => import('./pages/Admin/AppearanceSettingsPage'));
 const FeatureFlagsPage = lazy(() => import('./pages/Admin/FeatureFlagsPage'));
+// Issue #124, epic #109 — the admin email configuration and its test send.
+const EmailSettingsPage = lazy(() => import('./pages/Admin/EmailSettingsPage'));
 const AdvancedSettingsPage = lazy(() => import('./pages/Admin/AdvancedSettingsPage'));
 const AdminUsersPage = lazy(() => import('./pages/Admin/UsersPage'));
 
@@ -195,6 +197,25 @@ function AppRoutes() {
                       fallback={<Navigate to="/" replace />}
                     >
                       <FeatureFlagsPage />
+                    </RequirePermission>
+                  }
+                />
+                {/* Issue #124, epic #109. Same permission string the `Email`
+                    card declares in `config/adminSections.tsx`, which is the
+                    same string the API's email-settings controller enforces on
+                    its GET — the invariant `destinations.test.ts` asserts for
+                    every card. `system_settings:read` and not `:write`: saving
+                    and test-sending need write, and the page disables both
+                    without it, but the configuration is worth READING for
+                    anyone diagnosing why mail is not arriving. */}
+                <Route
+                  path="/admin/settings/email"
+                  element={
+                    <RequirePermission
+                      permission="system_settings:read"
+                      fallback={<Navigate to="/" replace />}
+                    >
+                      <EmailSettingsPage />
                     </RequirePermission>
                   }
                 />
