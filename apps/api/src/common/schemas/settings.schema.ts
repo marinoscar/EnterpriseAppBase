@@ -4,6 +4,8 @@ import {
   dataTablesPatchSchema,
   navigationSchema,
   navigationPatchSchema,
+  notificationsSchema,
+  notificationsPatchSchema,
 } from './user-settings-namespaces.schema';
 
 // =============================================================================
@@ -21,6 +23,12 @@ export const userSettingsSchema = z.object({
   // user-settings-namespaces.schema.ts for why these must never get `.default()`.
   dataTables: dataTablesSchema.optional(),
   navigation: navigationSchema.optional(),
+  // `notifications` (#126) is optional for the reason the other two are, only
+  // more so: absent means "use each event's registry default", and every
+  // existing account is absent. Making it required — or defaulting it — would
+  // materialise a preference blob for the whole user base at the first PUT
+  // and freeze them at today's defaults. See notification-preferences.ts.
+  notifications: notificationsSchema.optional(),
 });
 
 export type UserSettingsDto = z.infer<typeof userSettingsSchema>;
@@ -38,6 +46,9 @@ export const userSettingsPatchSchema = z.object({
   // lets `{ "dataTables": { "jobs": null } }` delete a single entry.
   dataTables: dataTablesPatchSchema.nullable().optional(),
   navigation: navigationPatchSchema.nullable().optional(),
+  // Three nullable levels, three different deletes: the namespace, one
+  // channel, one event key. See notificationsPatchSchema.
+  notifications: notificationsPatchSchema.nullable().optional(),
 });
 
 // =============================================================================

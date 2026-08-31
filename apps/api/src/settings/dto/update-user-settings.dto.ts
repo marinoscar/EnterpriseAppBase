@@ -5,6 +5,8 @@ import {
   dataTablesPatchSchema,
   navigationSchema,
   navigationPatchSchema,
+  notificationsSchema,
+  notificationsPatchSchema,
 } from '../../common/schemas/user-settings-namespaces.schema';
 
 // Full replacement (PUT)
@@ -19,6 +21,7 @@ export const updateUserSettingsSchema = z.object({
   // "delete" meaning here — omit the namespace to store nothing for it.
   dataTables: dataTablesSchema.optional(),
   navigation: navigationSchema.optional(),
+  notifications: notificationsSchema.optional(),
 });
 
 export class UpdateUserSettingsDto extends createZodDto(
@@ -39,6 +42,14 @@ export const patchUserSettingsSchema = z.object({
   // deletes just that entry. Same pattern for `navigation`.
   dataTables: dataTablesPatchSchema.nullable().optional(),
   navigation: navigationPatchSchema.nullable().optional(),
+  // `notifications` deletes at three levels (#126):
+  //   `notifications: null`                        -> clear the namespace
+  //   `notifications: { email: null }`             -> clear one channel
+  //   `notifications: { email: { 'k': null } }`    -> delete one event key,
+  //      restoring the absent (= registry default) state. This is what the
+  //      preferences page sends when a toggle returns to its default; writing
+  //      the default value instead would pin the user to it forever.
+  notifications: notificationsPatchSchema.nullable().optional(),
 });
 
 export class PatchUserSettingsDto extends createZodDto(

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   dataTablesSchema,
   navigationSchema,
+  notificationsSchema,
 } from '../../common/schemas/user-settings-namespaces.schema';
 
 export const userSettingsResponseSchema = z.object({
@@ -16,6 +17,10 @@ export const userSettingsResponseSchema = z.object({
   // absent namespace means "client should apply its built-in defaults".
   dataTables: dataTablesSchema.optional(),
   navigation: navigationSchema.optional(),
+  // Absent here is INFORMATION, not an omission: it tells the preferences page
+  // the user has expressed no opinion, so every control derives its state from
+  // the registry default rather than from a defaulted local object (#126).
+  notifications: notificationsSchema.optional(),
   updatedAt: z.iso.datetime(),
   version: z.number(),
 });
