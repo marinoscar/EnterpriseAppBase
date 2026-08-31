@@ -136,14 +136,27 @@ export function evaluateTuiGate(ctx?: TtyContext): TuiGateDecision {
   //    addressing — Emacs' shell-mode, some editors' embedded terminals, a few
   //    CI shells. It IS a TTY, so checks 2 and 3 pass, and every redraw would
   //    append instead of overwriting: the same unbounded-scrollback failure as
-  //    a pipe, on a device that reports itself as interactive. An EMPTY TERM is
-  //    treated the same way — it means no terminfo entry was resolved, so no
-  //    capability can be assumed.
+  //    a pipe, on a device that reports itself as interactive.
+  //
+  //    An ABSENT or EMPTY TERM is treated the same way, and absent is the case
+  //    that actually occurs: `env.TERM` is `undefined` when nothing exported
+  //    it, so this must test falsiness, NOT `=== ''`. (`undefined === ''` is
+  //    false — an earlier version of this check compared against the empty
+  //    string alone and let every no-TERM process straight through.) Some
+  //    service managers and minimal init systems hand a process two real
+  //    pseudo-terminals and no TERM at all; with no terminfo resolved there is
+  //    no capability to assume, so we decline rather than guess. Declining is
+  //    the recoverable direction — the user still gets usage and every
+  //    subcommand, and the message below names TERM as the thing to set.
   const term = env.TERM?.trim().toLowerCase();
-  if (term === 'dumb' || term === '') {
+  if (term === 'dumb' || !term) {
+    const cause =
+      term === 'dumb'
+        ? `TERM is "${env.TERM}", which cannot redraw a full-screen interface`
+        : `TERM is ${env.TERM === undefined ? 'not set' : 'empty'}, so this terminal's capabilities are unknown`;
     return refuse(
       'dumb-terminal',
-      `TERM is "${env.TERM ?? ''}", which cannot redraw a full-screen interface. Run \`${CLI_NAME} --help\` to see the commands.`,
+      `${cause}. Run \`${CLI_NAME} --help\` to see the commands, or set TERM if this terminal can redraw.`,
     );
   }
 
