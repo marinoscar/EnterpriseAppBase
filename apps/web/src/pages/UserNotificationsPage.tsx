@@ -55,11 +55,14 @@
  * indistinguishable from "this application notifies you about nothing".
  */
 
+import { useCallback, useState } from 'react';
 import { Alert } from '@mui/material';
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
 import { NotificationSettings } from '../components/settings/NotificationSettings';
 import { useBrowserNotificationPermission } from '../hooks/useBrowserNotificationPermission';
+import { useIsMounted } from '../hooks/useIsMounted';
 import { useNotificationEvents } from '../hooks/useNotificationEvents';
+import { requestBrowserNotificationPermission } from '../services/browserNotifications';
 import type { NotificationPreferencesPatch } from '../types';
 import { UserSettingsSection } from './UserSettingsSection';
 
@@ -75,10 +78,51 @@ export default function UserNotificationsPage() {
   // the render prop is only invoked once the settings document has loaded.
   const { events, isLoading, error } = useNotificationEvents();
 
-  // OBSERVED, NEVER REQUESTED. Nothing on this page calls
-  // `Notification.requestPermission()`; the prompt belongs to a deliberate
-  // click and is #127's, from the seam marked in `NotificationSettings.tsx`.
-  const { permission } = useBrowserNotificationPermission();
+  // OBSERVED here, REQUESTED only from the click handler below. The hook itself
+  // still never prompts — it runs on mount, and a prompt on mount is the exact
+  // mistake its own header documents at length.
+  const { permission, refresh: refreshPermission } = useBrowserNotificationPermission();
+
+  const isMounted = useIsMounted();
+  const [isRequestingPermission, setIsRequestingPermission] = useState(false);
+
+  /**
+   * The permission prompt (#127), filling the seam #126 left in
+   * `NotificationSettings.tsx`.
+   *
+   * =========================================================================
+   * REACHABLE ONLY FROM A CLICK. THAT IS THE WHOLE DESIGN.
+   * =========================================================================
+   *
+   * Nothing on this page — no effect, no route transition, no timer — calls
+   * this. It is passed to the matrix as `onRequestPermission` and invoked by
+   * the "Allow notifications" button inside the banner that explains what it
+   * does. Browsers suppress or auto-deny gestureless prompts, and a denial is
+   * effectively permanent: the app cannot re-ask, so a prompt spent on somebody
+   * who never wanted notifications kills the feature for them for good.
+   *
+   * THE REFRESH IS IN A `finally`, and that matters more than it looks.
+   * `requestBrowserNotificationPermission` resolves `null` on an unsupported or
+   * throwing browser and can resolve with the permission unchanged when the
+   * user dismisses the prompt without choosing. Refreshing unconditionally
+   * re-reads `Notification.permission` — the single source of truth for what
+   * this page renders — instead of trusting one call's return value, so the
+   * banner lands on the honest state in every one of those cases, including
+   * "nothing happened, the button stays".
+   */
+  const handleRequestPermission = useCallback(async () => {
+    setIsRequestingPermission(true);
+    try {
+      await requestBrowserNotificationPermission();
+    } finally {
+      // Guarded: the prompt is modal and the user can navigate away from this
+      // page while it is open, so both of these can land after unmount.
+      if (isMounted()) {
+        setIsRequestingPermission(false);
+        refreshPermission();
+      }
+    }
+  }, [isMounted, refreshPermission]);
 
   return (
     <UserSettingsSection title={PAGE_TITLE} description={PAGE_DESCRIPTION}>
@@ -108,6 +152,12 @@ export default function UserNotificationsPage() {
             preferences={settings.notifications}
             isSaving={isSaving}
             browserPermission={permission}
+            // The promise is dropped deliberately: `handleRequestPermission`
+            // handles its own failure (there is nothing to report — the banner
+            // already says what the state is) and the button's own spinner is
+            // driven by `isRequestingPermission`.
+            onRequestPermission={() => void handleRequestPermission()}
+            isRequestingPermission={isRequestingPermission}
             onToggle={(channel, event, value) => {
               // The single-key patch. Built with a computed key so the channel
               // comes from the control that was clicked rather than from a

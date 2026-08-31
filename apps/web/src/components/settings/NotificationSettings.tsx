@@ -79,9 +79,11 @@ import {
   Alert,
   AlertTitle,
   Box,
+  Button,
   Card,
   CardContent,
   Chip,
+  CircularProgress,
   Divider,
   FormControlLabel,
   Switch,
@@ -304,6 +306,25 @@ export interface NotificationSettingsProps {
   isSaving?: boolean;
   /** Live `Notification.permission`, from `useBrowserNotificationPermission`. */
   browserPermission: BrowserNotificationPermission;
+  /**
+   * Ask the browser for notification permission (#127).
+   *
+   * FILLS THE SEAM #126 LEFT in the `default`-state banner below. The component
+   * does NOT call `Notification.requestPermission()` itself — it raises this
+   * callback from a click, and the page owns the call plus the `refresh()` that
+   * follows it. That split is what keeps the prompt out of this component's
+   * render path entirely: there is no code here that COULD fire it on mount,
+   * because the API call is not in this file.
+   *
+   * Optional, and the button is only rendered when it is supplied. A promptless
+   * host renders the same honest banner #126 shipped.
+   */
+  onRequestPermission?: () => void;
+  /**
+   * The permission prompt is open. Disables the button so a second click cannot
+   * stack a second request behind the browser's modal.
+   */
+  isRequestingPermission?: boolean;
 }
 
 export function NotificationSettings({
@@ -312,6 +333,8 @@ export function NotificationSettings({
   onToggle,
   isSaving = false,
   browserPermission,
+  onRequestPermission,
+  isRequestingPermission = false,
 }: NotificationSettingsProps) {
   // `useId` rather than interpolating `event.key`: two instances of this
   // component (or a future second matrix on the page) would otherwise emit
@@ -353,24 +376,58 @@ export function NotificationSettings({
             {browser.alert.body}
             {/*
               ===================================================================
-              SEAM FOR #127 — THE PERMISSION PROMPT GOES HERE, AND ONLY HERE
+              THE PERMISSION PROMPT (#127) — FILLING THE SEAM #126 MARKED HERE
               ===================================================================
-              When `browserPermission === 'default'`, this alert is where an
-              "Allow notifications" button belongs: a deliberate click, inside
-              the explanation of what it does, on a page the user navigated to
-              on purpose.
+              Rendered ONLY in the `default` state: `granted` has nothing to ask
+              for, and in `denied` / `unsupported` a button would be a lie —
+              neither is recoverable from inside this application, which is why
+              `browserChannelState` gives those two an explanatory alert and no
+              action.
 
-              It must call `Notification.requestPermission()` from that click
-              handler and then `refresh()` on `useBrowserNotificationPermission`
-              so this banner updates without a reload.
+              THE CLICK IS THE WHOLE MECHANISM. `Notification.requestPermission()`
+              runs from this handler and NOWHERE ELSE in the app:
 
-              DO NOT MOVE THE CALL TO MOUNT, an effect, or a route transition.
-              Browsers suppress or auto-deny prompts with no user gesture, and a
-              denial is effectively permanent — the app cannot re-ask, so a
-              prompt spent on someone who never asked for notifications kills
-              the feature for them for good. See the header of
-              `hooks/useBrowserNotificationPermission.ts`.
+                * A DENIAL IS EFFECTIVELY PERMANENT. Nothing this application
+                  does can undo it — only the user, in browser site settings. The
+                  prompt is a ONE-SHOT RESOURCE, so spending it on somebody who
+                  never asked for notifications kills the feature for them for
+                  good.
+                * Browsers actively penalise gestureless prompts: Chrome demotes
+                  them to a quiet UI, Firefox requires the gesture outright, and
+                  Safari throws. A prompt on mount frequently never reaches the
+                  user while still burning the coin.
+
+              DO NOT MOVE THIS CALL TO MOUNT, AN EFFECT, A TIMER, OR A ROUTE
+              TRANSITION. The button sits inside the banner that explains what it
+              does, on a page the user navigated to deliberately, which is the
+              only context in which asking is fair.
+
+              The state afterwards is re-read through
+              `useBrowserNotificationPermission().refresh()` in
+              `UserNotificationsPage`, so this banner becomes the `granted` or
+              `denied` treatment without a reload — including the case where the
+              user dismisses the prompt without choosing, which leaves the
+              permission at `default` and correctly leaves this button in place.
             */}
+            {browserPermission === 'default' && onRequestPermission && (
+              <Box sx={{ mt: 1.5 }}>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={onRequestPermission}
+                  disabled={isRequestingPermission}
+                  startIcon={
+                    isRequestingPermission ? <CircularProgress size={16} /> : undefined
+                  }
+                >
+                  {/* The label names the ACTION and its consequence. "Enable" or
+                      "Turn on" would over-promise: this button opens the
+                      browser's own prompt, and the browser — not this app —
+                      decides what happens next. */}
+                  {isRequestingPermission ? 'Waiting for your browser…' : 'Allow notifications'}
+                </Button>
+              </Box>
+            )}
           </Alert>
         )}
 

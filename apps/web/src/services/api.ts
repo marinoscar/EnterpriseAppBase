@@ -1,4 +1,14 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+/**
+ * Where the API lives.
+ *
+ * EXPORTED as of #127. The notification SSE client (`services/sse.ts`) opens a
+ * raw `fetch` outside `ApiService.request` — it has to, because that method
+ * buffers a JSON body and an event stream never ends — and it must resolve its
+ * URL against exactly the same base. A second literal `'/api'` there would be
+ * a same-origin assumption that silently breaks the day `VITE_API_BASE_URL` is
+ * set, in the one code path that fails by going quiet rather than by erroring.
+ */
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
 interface RequestOptions extends RequestInit {
   skipAuth?: boolean;
@@ -206,6 +216,9 @@ import type {
   EmailSettingsInput,
   EmailTestResult,
   NotificationEventDef,
+  AppNotification,
+  NotificationListResponse,
+  UnreadCountResponse,
 } from '../types';
 
 // Allowlist API
@@ -413,3 +426,93 @@ export async function sendTestEmail(): Promise<EmailTestResult> {
 export async function getNotificationEvents(): Promise<NotificationEventDef[]> {
   return api.get<NotificationEventDef[]>('/notifications/events');
 }
+
+// Notification centre API — issue #127, epic #109.
+//
+// The four REST calls behind the bell. The fifth endpoint of this controller —
+// `GET /api/notifications/stream` — is deliberately NOT here: it is an
+// unbounded `text/event-stream` and `ApiService.request` awaits `response.json()`,
+// which on a stream that never ends never resolves. It lives in
+// `services/notificationStream.ts` on top of the fetch-based SSE client.
+//
+// NOT ONE OF THESE CALLS NAMES A USER, in a path, a query or a body. Every one
+// operates on the authenticated caller's own rows, resolved server-side from
+// the JWT (`@CurrentUser('id')`). There is no `?userId=` to add here, and
+// adding one would not work: the API has no parameter for it, by design — see
+// the header of `apps/api/src/notifications/notifications.controller.ts`.
+
+/**
+ * A page of the caller's notifications, newest first.
+ *
+ * THE DURABLE SURFACE. This is correct whether or not the user ever granted
+ * browser-notification permission and whether or not the SSE stream was
+ * connected when a notification was raised, which is why the centre is built on
+ * it and the native toast is decoration on top.
+ *
+ * `unreadOnly` is sent as the STRING `'true'`/`'false'`, matching the API's
+ * schema exactly. It is an explicit enum there rather than a coerced boolean
+ * because `z.coerce.boolean()` follows JS truthiness and would turn the string
+ * `'false'` into `true`, inverting the filter — so the spelling here is
+ * load-bearing rather than stylistic.
+ */
+export async function getNotifications(params?: {
+  page?: number;
+  pageSize?: number;
+  unreadOnly?: boolean;
+}): Promise<NotificationListResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.page) searchParams.set('page', String(params.page));
+  if (params?.pageSize) searchParams.set('pageSize', String(params.pageSize));
+  // `!== undefined`, not truthiness: `false` is a meaningful value to send.
+  if (params?.unreadOnly !== undefined) {
+    searchParams.set('unreadOnly', params.unreadOnly ? 'true' : 'false');
+  }
+
+  return api.get<NotificationListResponse>(`/notifications?${searchParams}`);
+}
+
+/**
+ * The badge number.
+ *
+ * A DEDICATED ENDPOINT, not something counted out of a page of
+ * `getNotifications`: a count taken from a page silently caps at `pageSize`, so
+ * a user with 30 unread would see "20" and never learn otherwise. Call it on
+ * mount and again on every SSE (re)connect.
+ */
+export async function getUnreadNotificationCount(): Promise<UnreadCountResponse> {
+  return api.get<UnreadCountResponse>('/notifications/unread-count');
+}
+
+/**
+ * Mark one notification read.
+ *
+ * RETURNS THE NEW UNREAD COUNT, which is the whole reason this is worth a round
+ * trip: the caller already holds the row it just marked, so the count is the
+ * only thing it cannot compute for itself. DO NOT follow this with a call to
+ * `getUnreadNotificationCount` — that is the two-round-trip shape the API was
+ * built to avoid.
+ *
+ * Idempotent server-side; marking an already-read notification succeeds and
+ * leaves the original `readAt` alone. A 404 means "no such notification FOR
+ * THIS USER" — an id belonging to somebody else is indistinguishable from one
+ * that does not exist, deliberately, so the endpoint cannot be used to probe
+ * for valid ids.
+ */
+export async function markNotificationRead(id: string): Promise<UnreadCountResponse> {
+  return api.post<UnreadCountResponse>(`/notifications/${id}/read`);
+}
+
+/**
+ * Clear the badge in one call, returning the resulting count.
+ *
+ * The count is REPORTED, not assumed to be zero: a notification arriving
+ * between the update and the count is reflected honestly rather than hidden
+ * behind a hardcoded `0`. Callers must use the returned number and never
+ * `setUnreadCount(0)`.
+ */
+export async function markAllNotificationsRead(): Promise<UnreadCountResponse> {
+  return api.post<UnreadCountResponse>('/notifications/read-all');
+}
+
+/** Re-exported for consumers that only import from this module. */
+export type { AppNotification };

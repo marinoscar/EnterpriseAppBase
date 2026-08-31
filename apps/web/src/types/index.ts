@@ -153,6 +153,110 @@ export type NotificationPreferencesPatch = Partial<
   Record<NotificationChannel, NotificationChannelPreferencesPatch | null>
 >;
 
+// =============================================================================
+// The notification centre — delivered notifications (#127, epic #109)
+// =============================================================================
+//
+// A THIRD notification shape, and the one most easily confused with the two
+// above, so: `NotificationEventDef` is what CAN happen, `NotificationPreferences`
+// is what the user WANTS, and `AppNotification` below is something that
+// ACTUALLY HAPPENED — one row of the `notifications` table, addressed to this
+// user, with its own read state.
+//
+// NAMED `AppNotification`, NOT `Notification`. The DOM declares a global
+// `Notification` (the constructor behind the native toast), and this file's
+// types are imported into modules that use BOTH — `services/browserNotifications.ts`
+// raises a real `new Notification(...)` from one of these rows. A local
+// interface called `Notification` would shadow the global inside every one of
+// those modules, so the toast would silently be constructed from the wrong
+// thing or fail to compile in a confusing place. The prefix costs one word and
+// removes the collision entirely.
+// =============================================================================
+
+/**
+ * One delivered notification, field for field the API's `notificationSchema`
+ * (`apps/api/src/notifications/dto/notification.dto.ts`).
+ *
+ * THE SAME SHAPE ARRIVES TWO WAYS — fetched from `GET /api/notifications`, or
+ * pushed over SSE — and that is deliberate on the API's side: a streamed event
+ * is this object minus `readAt`, so both go into the same list with no second
+ * mapping. See `streamEventToNotification` in `services/notificationStream.ts`,
+ * which is the only place the missing field is filled in.
+ */
+export interface AppNotification {
+  id: string;
+  /**
+   * The registry key that raised this (`security.role_changed`).
+   *
+   * For grouping, icons or filtering. NOT what is rendered — `title` and `body`
+   * were rendered server-side at write time, so editing a template never
+   * rewrites what a user was already told.
+   */
+  eventKey: string;
+  /** One short line. Already length-capped by the API. Render as TEXT. */
+  title: string;
+  /** The detail. Plain text, never markup. */
+  body: string;
+  /**
+   * Root-relative path to open, or `null`.
+   *
+   * GUARANTEED INTERNAL by the API — `sanitizeLink` validated it before the row
+   * was written, so it is always a single leading `/` with no scheme and no
+   * protocol-relative `//`. That is what makes it safe to hand to
+   * `navigate()`. The client still refuses anything that does not start with a
+   * single `/` (see `isInternalLink` in `NotificationBell.tsx`): the guarantee
+   * is the server's to keep, and a client that also checks costs one comparison
+   * and survives the day it is broken.
+   */
+  link: string | null;
+  /** ISO-8601. When the user marked it read; `null` while unread. */
+  readAt: string | null;
+  /** ISO-8601. */
+  createdAt: string;
+}
+
+/**
+ * A page of `GET /api/notifications`.
+ *
+ * FLAT pagination (`items`/`total`/`page`/`pageSize`/`totalPages`), matching
+ * `/users` and `/allowlist` rather than storage's nested `pagination` object —
+ * the API deliberately picked the more common of its two existing list shapes.
+ */
+export interface NotificationListResponse {
+  items: AppNotification[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+/**
+ * The badge number.
+ *
+ * Returned by `GET /api/notifications/unread-count` AND by BOTH mark-read
+ * endpoints — which is why marking one read costs a single round trip: the
+ * client already holds the row it marked, and the count is the only thing it
+ * cannot compute for itself. Do not follow a mark-read with a count fetch.
+ */
+export interface UnreadCountResponse {
+  unreadCount: number;
+}
+
+/**
+ * One `event: notification` frame's payload, as `NotificationStreamService`
+ * publishes it.
+ *
+ * `AppNotification` WITHOUT `readAt` — not an oversight and not a different
+ * model: a notification is unread by definition at the instant it is
+ * published, so the field would carry no information. Everything else is
+ * identical, which is the property that lets a streamed event be pushed
+ * straight into the fetched list.
+ *
+ * Carries NO user id. The recipient is implicit in which stream it arrived on;
+ * the API omits it specifically so no client is ever tempted to filter on it.
+ */
+export type NotificationStreamEvent = Omit<AppNotification, 'readAt'>;
+
 export interface UserSettings {
   theme: 'light' | 'dark' | 'system';
   profile: {
