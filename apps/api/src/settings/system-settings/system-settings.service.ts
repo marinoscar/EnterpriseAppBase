@@ -72,6 +72,16 @@ const SETTINGS_KEY = 'global';
 // allowed to see" — which is the bug, restated. `ui` and `features` are
 // replaced wholesale exactly as before; only the invisible remainder survives.
 //
+// A MALFORMED STORED VALUE MUST NOT MAKE SETTINGS UNSAVABLE, EITHER. Same
+// argument as above, one step further: if the row holds `null`, a string, or
+// `{ ui: 42 }`, refusing the write strands the admin with a row only a manual
+// JSONB edit can repair — the identical trap "fail loudly" would have set. So
+// every read of the column goes through `readKnownSettings`, which degrades
+// field by field to `DEFAULT_SYSTEM_SETTINGS`, and this file contains no
+// `as unknown as SystemSettingsValue` casts: a cast asserts a shape nobody
+// checked, and one of them is precisely how PATCH kept throwing a TypeError
+// after the rest of #130 was fixed.
+//
 // WHY NOT `.passthrough()` ON THE SCHEMA (the other half of the obvious fix).
 // Passthrough would let unknown keys in from the REQUEST as well, turning an
 // admin-authenticated endpoint into an arbitrary JSONB writer with no cap and
@@ -173,30 +183,108 @@ export class SystemSettingsService {
   }
 
   /**
+   * The ONE place this file is allowed to turn a JSONB value into an object.
+   *
+   * `system_settings.value` is a JSONB column: at runtime it can be a string,
+   * a number, a boolean, an array, SQL NULL or JSON `null`, no matter what
+   * Prisma's generated type or a hand-written cast claims. Every read below
+   * funnels through here so that "is this actually a plain object?" is asked
+   * once, in one way, instead of being assumed in some paths and checked in
+   * others — which is exactly the split that let #130's follow-up bug through
+   * (PUT checked, PATCH cast and dereferenced).
+   *
+   * Arrays are rejected along with primitives: an array IS an object to
+   * `typeof`, but treating one as a settings map would spread its indices in
+   * as keys, and `['a']` becoming `{ '0': 'a' }` in the row is data corruption
+   * dressed up as tolerance.
+   */
+  private asPlainObject(value: unknown): Record<string, unknown> | undefined {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+      return undefined;
+    }
+
+    return value as Record<string, unknown>;
+  }
+
+  /**
+   * Project a raw stored value down to the shape this code models, falling
+   * back to the seeded defaults for anything missing or of the wrong type.
+   *
+   * WHY THIS EXISTS (#130 follow-up). The rule the issue settled on is that a
+   * malformed stored value must not make settings unsavable: an admin whose
+   * row is `null`, or a string, or `{ ui: 42 }`, must still be able to repair
+   * it through the API. `mergePreservingUnknown` and `collectUnknownKeys` were
+   * written to honour that and do; `patchSettings` never reached them, because
+   * it first did `row.value as unknown as SystemSettingsValue` and then read
+   * `currentValue.ui.allowUserThemeOverride` straight off it. A cast is not a
+   * check — it asserts a shape nobody verified — so a `null` row threw
+   * `TypeError: Cannot read properties of null (reading 'ui')` before a single
+   * defensive line ran. PUT was unaffected only because it happens never to
+   * touch the stored value except through the guarded helper.
+   *
+   * So there are no `as unknown as SystemSettingsValue` casts left in this
+   * file. Every read of the column goes through here, which means the type
+   * annotation is now earned rather than asserted.
+   *
+   * FIELD BY FIELD, NOT ALL-OR-NOTHING. A row where only `features` is
+   * corrupt keeps its good `ui` value; a row that is wholly unusable yields
+   * `DEFAULT_SYSTEM_SETTINGS`. Degrading per field means a partially damaged
+   * row loses only the damaged part, and a PATCH over it writes the caller's
+   * changes on top of sane defaults — the same outcome PUT already produces.
+   *
+   * NON-BOOLEAN FEATURE VALUES ARE DROPPED, and that is not in tension with
+   * preserving unknown keys. `features` is a KNOWN key whose schema is
+   * `z.record(z.string(), z.boolean())`; a non-boolean value in it cannot
+   * survive `systemSettingsSchema.parse` under any code path, so carrying it
+   * into `merged` would only convert the old TypeError into a ZodError and
+   * leave the row just as unrepairable. Genuinely unknown keys — top level or
+   * inside `ui` — are untouched here and still carried forward verbatim by
+   * `mergePreservingUnknown`, which reads the RAW value, not this projection.
+   */
+  private readKnownSettings(stored: unknown): SystemSettingsValue {
+    const root = this.asPlainObject(stored);
+    const storedUi = this.asPlainObject(root?.ui);
+    const storedFeatures = this.asPlainObject(root?.features);
+
+    const features: Record<string, boolean> = {};
+    if (storedFeatures) {
+      for (const [key, value] of Object.entries(storedFeatures)) {
+        if (typeof value === 'boolean') {
+          features[key] = value;
+        }
+      }
+    }
+
+    return {
+      ui: {
+        allowUserThemeOverride:
+          typeof storedUi?.allowUserThemeOverride === 'boolean'
+            ? storedUi.allowUserThemeOverride
+            : DEFAULT_SYSTEM_SETTINGS.ui.allowUserThemeOverride,
+      },
+      features,
+    };
+  }
+
+  /**
    * Collect the entries of `stored` whose keys are not in `knownKeys`.
    *
-   * Defensive about the input type on purpose: `stored` is a JSONB column, so
-   * at runtime it can be a string, a number, an array or null no matter what
-   * the TypeScript type says. Anything that is not a plain object contributes
-   * no keys rather than throwing — a malformed row must not make settings
-   * unsavable, which is the failure mode this whole change exists to avoid.
+   * Defensive about the input type on purpose, via `asPlainObject`: anything
+   * that is not a plain object contributes no keys rather than throwing — a
+   * malformed row must not make settings unsavable, which is the failure mode
+   * this whole change exists to avoid.
    */
   private collectUnknownKeys(
     stored: unknown,
     knownKeys: readonly string[],
   ): Record<string, unknown> {
-    if (
-      stored === null ||
-      typeof stored !== 'object' ||
-      Array.isArray(stored)
-    ) {
+    const source = this.asPlainObject(stored);
+    if (!source) {
       return {};
     }
 
     const unknown: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(
-      stored as Record<string, unknown>,
-    )) {
+    for (const [key, value] of Object.entries(source)) {
       if (!knownKeys.includes(key)) {
         unknown[key] = value;
       }
@@ -231,13 +319,10 @@ export class SystemSettingsService {
       KNOWN_TOP_LEVEL_KEYS,
     );
 
-    const storedUi =
-      storedValue !== null &&
-      typeof storedValue === 'object' &&
-      !Array.isArray(storedValue)
-        ? (storedValue as Record<string, unknown>).ui
-        : undefined;
-    const unknownUi = this.collectUnknownKeys(storedUi, KNOWN_UI_KEYS);
+    const unknownUi = this.collectUnknownKeys(
+      this.asPlainObject(storedValue)?.ui,
+      KNOWN_UI_KEYS,
+    );
 
     const value: Record<string, unknown> = {
       ...unknownTopLevel,
@@ -283,7 +368,10 @@ export class SystemSettingsService {
   async getSettings() {
     const settings = await this.loadOrCreateRow();
 
-    const value = settings.value as unknown as SystemSettingsValue;
+    // Guarded, not cast: a row that is `null` or otherwise malformed reads as
+    // the defaults instead of throwing, so the settings page still renders and
+    // the admin can save a repair through PUT/PATCH (#130).
+    const value = this.readKnownSettings(settings.value);
 
     return {
       ui: value.ui,
@@ -349,7 +437,7 @@ export class SystemSettingsService {
     this.reportPreserved('replace', preservedPaths);
     this.logger.log(`System settings replaced by user: ${userId}`);
 
-    const stored = settings.value as unknown as SystemSettingsValue;
+    const stored = this.readKnownSettings(settings.value);
 
     return {
       ui: stored.ui,
@@ -371,7 +459,22 @@ export class SystemSettingsService {
     // Get the current ROW, not the projection: the merge below needs the raw
     // stored value to carry unknown keys forward (#130).
     const row = await this.loadOrCreateRow();
-    const currentValue = row.value as unknown as SystemSettingsValue;
+
+    // Normalise ONCE, through the guarded accessor, before anything is
+    // dereferenced. This line used to be `row.value as unknown as
+    // SystemSettingsValue` — a cast, not a check — and the hand-built `merged`
+    // below then read `.ui.allowUserThemeOverride` and spread `.features`
+    // straight off it, so a `null` (or string, or array) row threw a TypeError
+    // before `mergePreservingUnknown`'s guards could run. PATCH is now exactly
+    // as tolerant as PUT already was: unusable stored fields become defaults,
+    // the caller's changes land on top, and the row becomes repairable through
+    // the API rather than by hand-editing JSONB in production (#130).
+    //
+    // Note this is a PROJECTION for the merge only. The write below still
+    // passes `row.value` — the raw stored value — to `mergePreservingUnknown`,
+    // so unknown keys are recovered from the original, not from this narrowed
+    // copy.
+    const currentValue = this.readKnownSettings(row.value);
 
     // Optimistic concurrency check. Unchanged, and still reads its version
     // from the same row the merge is built from — so the version that was
@@ -434,7 +537,7 @@ export class SystemSettingsService {
     this.reportPreserved('patch', preservedPaths);
     this.logger.log(`System settings patched by user: ${userId}`);
 
-    const stored = settings.value as unknown as SystemSettingsValue;
+    const stored = this.readKnownSettings(settings.value);
 
     return {
       ui: stored.ui,
