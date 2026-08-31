@@ -5,17 +5,24 @@ import {
   BadRequestException,
   ForbiddenException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { UserListQueryDto } from './dto/user-list-query.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UpdateUserRolesDto } from './dto/update-user-roles.dto';
 import { ROLES } from '../common/constants/roles.constants';
+import { NotificationsService } from '../notifications/notifications.service';
+import type { RoleChangedEmailData } from '../email';
 
 @Injectable()
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+    private readonly config: ConfigService,
+  ) {}
 
   /**
    * List users with pagination and filtering
@@ -191,11 +198,26 @@ export class UsersService {
       throw new ForbiddenException('Cannot remove admin role from yourself');
     }
 
-    const user = await this.prisma.user.findUnique({ where: { id } });
+    // The roles held BEFORE the change are read here, in the lookup that was
+    // already happening, because they are gone the moment the transaction
+    // below runs — `deleteMany` then `createMany` replaces the set wholesale.
+    // `security.role_changed` reports a DELTA (see role-changed.email.ts: "you
+    // are now a Viewer" cannot tell the reader whether they gained access or
+    // lost it), so the before-state has to be captured on this side of it.
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      include: {
+        userRoles: {
+          include: { role: true },
+        },
+      },
+    });
 
     if (!user) {
       throw new NotFoundException(`User with ID ${id} not found`);
     }
+
+    const previousRoles = user.userRoles.map((ur) => ur.role.name);
 
     // Validate all roles exist
     const roles = await this.prisma.role.findMany({
@@ -231,7 +253,65 @@ export class UsersService {
       `User ${id} roles updated to [${dto.roleNames.join(', ')}] by admin ${adminUserId}`,
     );
 
+    // -------------------------------------------------------------------------
+    // Trigger: `security.role_changed` (#128, epic #109)
+    // -------------------------------------------------------------------------
+    //
+    // AFTER THE TRANSACTION, NOT INSIDE IT. Two independent reasons, and the
+    // first is the property the whole epic exists to prove:
+    //
+    //   1. A send failure MUST NOT roll back the role change. `notify` is
+    //      detached — it schedules the dispatch on a later microtask and
+    //      returns before anything is rendered or sent — so the dispatch does
+    //      not run inside the `$transaction` above (which has already
+    //      committed), does not share a Prisma transaction client with it, and
+    //      cannot fail it. It also never rejects: every failure below it
+    //      becomes a `notification_deliveries` row with an `error`, never an
+    //      exception reaching here.
+    //
+    //   2. It must not delay this request. `notify` returns immediately; the
+    //      admin's PATCH does not wait on a mail server. Awaiting it is still
+    //      correct and cheap — it means "scheduled", not "delivered" — and it
+    //      is awaited here only so a `no-floating-promises` rule has nothing to
+    //      complain about.
+    //
+    // MANDATORY EVENT: `security.role_changed` is `mandatory: true` in the
+    // registry, so the recipient's stored preferences are ignored by
+    // `resolveChannels` and both declared channels (email and the in-app bell)
+    // are always attempted. A privilege change nobody can see is the failure
+    // this event exists to prevent.
+    //
+    // NO SELF-SUPPRESSION. An admin who changes their OWN roles still gets the
+    // notification. Suppressing it would be a rule with no security value —
+    // the alerting case is precisely the one where the actor and the account
+    // owner are believed to be the same person and are not.
+    const payload: RoleChangedEmailData = {
+      recipientEmail: user.email,
+      previousRoles,
+      currentRoles: dto.roleNames,
+      changedAt: new Date(),
+      appUrl: this.appUrl(),
+    };
+
+    // The ACTOR IS NOT IN THE PAYLOAD, deliberately — see the long note in
+    // role-changed.email.ts. `audit_events` above records who made the change,
+    // which is the controlled place for it.
+    await this.notifications.notify('security.role_changed', id, payload);
+
     return this.getUserById(id);
+  }
+
+  /**
+   * Absolute URL of the application root, for a notification's CTA.
+   *
+   * Built here rather than in the template, which is a pure function of its
+   * input and has no business reading configuration. `undefined` when
+   * `APP_URL` is unset: the layout then omits the button rather than rendering
+   * one that goes nowhere.
+   */
+  private appUrl(): string | undefined {
+    const appUrl = this.config.get<string>('appUrl');
+    return appUrl ? appUrl.replace(/\/+$/, '') : undefined;
   }
 
   /**
