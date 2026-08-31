@@ -12,6 +12,7 @@ import { ROLES } from '../common/constants/roles.constants';
 describe('UsersService', () => {
   let service: UsersService;
   let mockPrisma: MockPrismaService;
+  let mockNotifications: { notify: jest.Mock; notifyAddress: jest.Mock };
 
   const mockAdminUser = {
     id: 'admin-user-id',
@@ -94,10 +95,10 @@ describe('UsersService', () => {
         // notifications/notification-failure-containment.spec.ts.
         {
           provide: NotificationsService,
-          useValue: {
+          useValue: (mockNotifications = {
             notify: jest.fn().mockResolvedValue(undefined),
             notifyAddress: jest.fn().mockResolvedValue(undefined),
-          },
+          }),
         },
         {
           provide: ConfigService,
@@ -750,6 +751,87 @@ describe('UsersService', () => {
         );
 
         expect(result.roles).toEqual(['contributor']);
+      });
+    });
+
+    // ===========================================================================
+    // `security.role_changed` notification (#128, epic #109)
+    // ===========================================================================
+    //
+    // `NotificationsService` is mocked here (see the provider comment above),
+    // so this is a CALL SITE test: does `updateUserRoles` call `notify` with the
+    // right event key, the right user, and — the property specific to this
+    // event — a payload that carries the roles BEFORE the change as well as
+    // after? The mandatory-overrides-preferences and both-channels properties
+    // are dispatcher behaviour and are proven with a real dispatcher wired to
+    // the real `UsersService` trigger in
+    // notifications/security-role-changed-wiring.spec.ts, alongside the
+    // failure-containment suite this file already references.
+    // ===========================================================================
+    describe('security.role_changed notification', () => {
+      it('fires on a real role update and carries the before state as well as the after', async () => {
+        const dto: UpdateUserRolesDto = {
+          roleNames: ['contributor'],
+        };
+
+        const updatedUser = {
+          ...mockOtherUser,
+          userRoles: [
+            {
+              userId: mockOtherUser.id,
+              roleId: 'contributor-role-id',
+              role: mockRoles.contributor,
+            },
+          ],
+          identities: [],
+        };
+
+        // `mockOtherUser` (the validation-lookup return) starts as `viewer` —
+        // that is the BEFORE state the transaction is about to destroy.
+        mockPrisma.user.findUnique
+          .mockResolvedValueOnce(mockOtherUser as any)
+          .mockResolvedValueOnce(updatedUser as any);
+        mockPrisma.role.findMany.mockResolvedValue([mockRoles.contributor] as any);
+        mockPrisma.$transaction.mockImplementation(async (callback) => {
+          return callback(mockPrisma);
+        });
+        mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+
+        await service.updateUserRoles(mockOtherUser.id, dto, mockAdminUser.id);
+
+        expect(mockNotifications.notify).toHaveBeenCalledTimes(1);
+        expect(mockNotifications.notify).toHaveBeenCalledWith(
+          'security.role_changed',
+          mockOtherUser.id,
+          expect.objectContaining({
+            recipientEmail: mockOtherUser.email,
+            previousRoles: ['viewer'],
+            currentRoles: ['contributor'],
+          }),
+        );
+      });
+
+      it('does NOT fire when the role update is rejected before the transaction runs', async () => {
+        // Self-removal of the admin's own admin role — rejected up front, no
+        // database write, no notification.
+        const dto: UpdateUserRolesDto = { roleNames: ['viewer'] };
+
+        await expect(
+          service.updateUserRoles(mockAdminUser.id, dto, mockAdminUser.id),
+        ).rejects.toThrow(ForbiddenException);
+
+        expect(mockNotifications.notify).not.toHaveBeenCalled();
+      });
+
+      it('does NOT fire when the target user does not exist', async () => {
+        const dto: UpdateUserRolesDto = { roleNames: ['viewer'] };
+        mockPrisma.user.findUnique.mockResolvedValue(null);
+
+        await expect(
+          service.updateUserRoles('non-existent-id', dto, mockAdminUser.id),
+        ).rejects.toThrow(NotFoundException);
+
+        expect(mockNotifications.notify).not.toHaveBeenCalled();
       });
     });
 

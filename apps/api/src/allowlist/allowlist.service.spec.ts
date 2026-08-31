@@ -18,6 +18,7 @@ import { AllowlistQueryDto } from './dto/allowlist-query.dto';
 describe('AllowlistService', () => {
   let service: AllowlistService;
   let mockPrisma: MockPrismaService;
+  let mockNotifications: { notify: jest.Mock; notifyAddress: jest.Mock };
 
   const mockAddedBy = {
     id: 'admin-id',
@@ -70,10 +71,10 @@ describe('AllowlistService', () => {
         // notifications/notification-failure-containment.spec.ts.
         {
           provide: NotificationsService,
-          useValue: {
+          useValue: (mockNotifications = {
             notify: jest.fn().mockResolvedValue(undefined),
             notifyAddress: jest.fn().mockResolvedValue(undefined),
-          },
+          }),
         },
         {
           provide: ConfigService,
@@ -420,6 +421,94 @@ describe('AllowlistService', () => {
 
       expect(result.claimedById).toBeNull();
       expect(result.claimedAt).toBeNull();
+    });
+
+    // =========================================================================
+    // `allowlist.invitation` notification (#128, epic #109)
+    // =========================================================================
+    //
+    // `NotificationsService` is mocked here (see the provider comment above),
+    // so these tests are about the CALL SITE contract only: `addEmail` must
+    // use `notifyAddress` — never `notify` — because this recipient has no
+    // user id to pass, and it must do so only after the entry (and its audit
+    // row) have actually committed. The account-less delivery mechanics
+    // themselves (delivery row shape, case-insensitive lookup, preference
+    // honouring, fail-closed lookup) belong to `NotificationsService` and are
+    // covered in notifications/notifications.service.spec.ts's
+    // `notifyAddress()` suite.
+    // =========================================================================
+    it('fires allowlist.invitation via notifyAddress (never notify) after the entry and its audit row are committed', async () => {
+      const dto: AddEmailDto = {
+        email: 'newuser@example.com',
+        notes: 'Test note',
+      };
+
+      mockPrisma.allowedEmail.findUnique.mockResolvedValue(null);
+      mockPrisma.allowedEmail.create.mockResolvedValue(
+        mockPendingEntry as any,
+      );
+      mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+
+      await service.addEmail(dto, mockAddedBy.id);
+
+      // The account-less recipient path — never `notify`, which needs a user id.
+      expect(mockNotifications.notifyAddress).toHaveBeenCalledTimes(1);
+      expect(mockNotifications.notify).not.toHaveBeenCalled();
+
+      expect(mockNotifications.notifyAddress).toHaveBeenCalledWith(
+        'allowlist.invitation',
+        'newuser@example.com',
+        expect.objectContaining({
+          recipientEmail: 'newuser@example.com',
+          invitedBy: mockAddedBy.email,
+        }),
+      );
+
+      // Called after both writes above, not before — sending an invitation
+      // for an address the database does not yet allow would leave the
+      // recipient unable to explain a subsequent login refusal.
+      const createOrder = mockPrisma.allowedEmail.create.mock.invocationCallOrder[0];
+      const auditOrder = mockPrisma.auditEvent.create.mock.invocationCallOrder[0];
+      const notifyOrder =
+        mockNotifications.notifyAddress.mock.invocationCallOrder[0];
+      expect(notifyOrder).toBeGreaterThan(createOrder);
+      expect(notifyOrder).toBeGreaterThan(auditOrder);
+    });
+
+    it('does not put the admin note (dto.notes) into the invitation payload', async () => {
+      const dto: AddEmailDto = {
+        email: 'newuser@example.com',
+        notes: 'contractor, ends in March',
+      };
+
+      mockPrisma.allowedEmail.findUnique.mockResolvedValue(null);
+      mockPrisma.allowedEmail.create.mockResolvedValue(
+        mockPendingEntry as any,
+      );
+      mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+
+      await service.addEmail(dto, mockAddedBy.id);
+
+      const [, , payload] = mockNotifications.notifyAddress.mock.calls[0];
+      expect(payload).not.toHaveProperty('notes');
+      expect(JSON.stringify(payload)).not.toContain('contractor');
+    });
+
+    it('omits invitedBy when the entry has no addedBy relation, rather than sending undefined', async () => {
+      const dto: AddEmailDto = { email: 'orphaned@example.com' };
+
+      mockPrisma.allowedEmail.findUnique.mockResolvedValue(null);
+      mockPrisma.allowedEmail.create.mockResolvedValue({
+        ...mockPendingEntry,
+        email: 'orphaned@example.com',
+        addedBy: null,
+      } as any);
+      mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+
+      await service.addEmail(dto, mockAddedBy.id);
+
+      const [, , payload] = mockNotifications.notifyAddress.mock.calls[0];
+      expect(payload).not.toHaveProperty('invitedBy');
     });
   });
 
