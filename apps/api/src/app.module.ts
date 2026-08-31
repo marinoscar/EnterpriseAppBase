@@ -69,10 +69,11 @@ import configuration from './config/configuration';
     // neither transport touches the network or reads a credential until its
     // first send.
     EmailModule,
-    // Notification event registry endpoint (#124, epic #109). One route,
-    // readable by any authenticated user, because #126 renders every user's
-    // own preferences against the list. The dispatcher and delivery records
-    // arrive in this module with #125.
+    // Notifications (#121/#124/#125, epic #109): the event registry endpoint,
+    // and since #125 the dispatcher, preference resolution and delivery
+    // records. Registered here even though no real event is wired yet (#128)
+    // so a broken channel graph — a duplicate channel registration, a missing
+    // transport — fails at boot rather than at the first notification.
     NotificationsModule,
 
     // Test modules (non-production only)
