@@ -39,6 +39,7 @@ model User {
   personalAccessTokens      PersonalAccessToken[] @relation("UserPersonalAccessTokens")
   credentialUpdates         Credential[]     @relation("CredentialUpdatedBy")
   notificationDeliveries    NotificationDelivery[] @relation("UserNotificationDeliveries")
+  notifications             Notification[]   @relation("UserNotifications")
 
   @@map("users")
 }
@@ -482,4 +483,126 @@ enum NotificationDeliveryStatus {
   queued
   sent
   failed
+}
+
+// =============================================================================
+// Notifications — the in-app notification centre store (issue #127, epic #109)
+// =============================================================================
+//
+// THE PRIMARY SURFACE OF THE BROWSER CHANNEL, NOT A CACHE OF WHAT SSE SENT.
+//
+// That ordering is the whole reason this table exists. `Notification`
+// permission is denied by a large share of users, and once denied it is
+// effectively permanent — the page cannot re-prompt. A browser channel that
+// existed only as an OS toast would therefore not exist at all for those
+// accounts. So the durable, per-user list is the feature; the SSE stream
+// (`notification-stream.service.ts`) makes it live, and the native toast is a
+// decoration on top that degrades to nothing.
+//
+// Read the second consequence too: SSE IS NOT A DELIVERY GUARANTEE. Events
+// published while a tab is disconnected are lost — `EventSource` reconnects
+// but replays nothing, and the per-process subscriber registry does not fan
+// out across replicas. Because rows land here first and the stream is
+// published second, a client that refetches this table on (re)connect sees
+// everything regardless. That is the designed recovery path, and it is why
+// there is no event-replay machinery anywhere in #127.
+//
+// -----------------------------------------------------------------------------
+// HOW THIS DIFFERS FROM `notification_deliveries` (#125), WHICH IS NOT THE SAME
+// TABLE WITH A DIFFERENT NAME
+// -----------------------------------------------------------------------------
+//
+// `notification_deliveries` is the OPERATOR's record: one row per ATTEMPT, per
+// channel, answering "did we try, and what did the provider say?". It records
+// email attempts too, it keeps rows for recipients with no account, and it is
+// never shown to the user it is about.
+//
+// `notifications` is the USER's inbox: one row per thing they should see, only
+// for the browser channel, only for real accounts, with read state they own.
+// An email send writes a delivery row and no row here — there is nothing for
+// the bell to show about a message that went to their mailbox.
+//
+// Merging the two would mean either showing users provider error strings, or
+// filtering an operator table by channel on every bell render. They answer
+// different questions for different audiences and are kept apart.
+// =============================================================================
+
+model Notification {
+  id     String @id @default(uuid()) @db.Uuid
+  // NOT NULL, unlike NotificationDelivery.userId. An inbox belongs to an
+  // account by definition; there is no "notification centre" for a recipient
+  // with no login (#128's `allowlist.invitation` case), which is exactly why
+  // the browser channel's resolveTo returns null for them.
+  userId String @map("user_id") @db.Uuid
+
+  // Plain string, NOT a foreign key — the same reasoning written out at length
+  // on NotificationDelivery.eventKey. Events are declared in code
+  // (`notification-events.ts`, #121) and `findEvent` returns undefined rather
+  // than throwing precisely because persisted rows outlive their definitions.
+  // An FK would force a migration every time the registry changed.
+  eventKey String @map("event_key")
+
+  // RENDERED AT WRITE TIME, not at read time. The alternative — store the
+  // event payload as JSONB and render in the bell — means an old row renders
+  // through today's template, so editing copy silently rewrites history and a
+  // removed event's rows become unrenderable. What the user was told is a
+  // fact; it is frozen here.
+  title String
+  // @db.Text for the same reason as Credential.secret and
+  // NotificationDelivery.error: a rendered body has no meaningful length
+  // bound, and silently truncating what a user was told is worse than storing
+  // a long string. (Postgres `text` has no performance penalty over `varchar`.)
+  body String @db.Text
+
+  // Where the bell should send the user, as a ROOT-RELATIVE PATH ("/settings",
+  // "/admin/users?id=…"), never an absolute URL.
+  //
+  // THIS IS A SECURITY BOUNDARY, ENFORCED IN CODE AT WRITE TIME
+  // (`browser-notification.channel.ts`). The web client will put this value in
+  // an href or a router navigation; an absolute URL makes every notification a
+  // potential open redirect, and a `javascript:` scheme makes it script
+  // execution in the app's own origin. The column cannot express that
+  // constraint, so the writer enforces it and drops a link it cannot vouch
+  // for rather than storing it and hoping the client is careful.
+  //
+  // Nullable: most notifications have nowhere specific to go.
+  link String?
+
+  // A TIMESTAMP, NOT A BOOLEAN. `readAt IS NULL` answers "is it unread?" just
+  // as well as `read = false` does, and additionally answers "when did they
+  // see it?" — which is the question asked when someone reports acting late on
+  // a security alert. A boolean would have to grow this column later anyway.
+  readAt DateTime? @map("read_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  // NO `updatedAt`. The only mutation this row ever undergoes is being marked
+  // read, and `readAt` already timestamps that with more precision than an
+  // `updatedAt` would carry. A second, redundant answer to "when did this
+  // change?" is a second thing to keep consistent for no reader.
+
+  // Relations
+  //
+  // onDelete: Cascade — deliberately the OPPOSITE of
+  // NotificationDelivery.user's SetNull, and the contrast is the point. A
+  // delivery record is an audit trail that must outlive the account it
+  // describes ("did we email this person before they were offboarded?"). An
+  // inbox is personal data with no reader once the account is gone: keeping
+  // orphaned rows would retain rendered titles and bodies about a deleted user
+  // forever, and `userId` is NOT NULL here so SetNull is not even expressible.
+  user User @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
+
+  // The two queries this table actually serves, and nothing speculative.
+  //
+  // 1. THE UNREAD BADGE: `where { userId, readAt: null }`, run on every bell
+  //    render and on every SSE (re)connect — by far the hottest query here.
+  //    (Ideally a partial index `WHERE read_at IS NULL`, which Prisma cannot
+  //    express declaratively; the composite covers the same predicate and
+  //    stays in one place the schema owns.)
+  @@index([userId, readAt])
+  // 2. THE RECENT LIST: `where { userId } orderBy { createdAt: desc }`.
+  //    `sort: Desc` matters — a plain ascending index makes Postgres walk it
+  //    backwards for the newest page, which is the only page anyone loads.
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("notifications")
 }
