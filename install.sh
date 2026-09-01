@@ -411,13 +411,51 @@ fi
 mkdir -p "$APP_DIR"
 
 # Copy only the built artifacts + package manifest (not the full repo).
-# apps/cli's runtime deps (commander, ink, react, ...) are all ordinary
-# public npm packages — unlike some other monorepos there is no internal
-# workspace package to vendor here.
+# Most of apps/cli's runtime deps (commander, ink, react, ...) are ordinary
+# public npm packages. @app/shared is not: it is an internal workspace package
+# (epic #161) that is `private: true` and never published, so the `npm install`
+# below — which runs OUTSIDE the monorepo, with no workspace to link against —
+# would go looking for it on the public registry and fail the whole install.
+#
+# So vendor it next to the app and rewrite the dependency to a `file:`
+# specifier npm can resolve locally. The whole packages/ tree is copied rather
+# than the one directory by name, so adding a second shared package later
+# cannot silently reintroduce this failure.
 cp -r "$TMP_DIR/apps/cli/dist"        "$APP_DIR/dist"
 cp    "$TMP_DIR/apps/cli/package.json" "$APP_DIR/package.json"
 if [[ -f "$TMP_DIR/apps/cli/README.md" ]]; then
   cp "$TMP_DIR/apps/cli/README.md" "$APP_DIR/README.md"
+fi
+
+if [[ -d "$TMP_DIR/packages" ]]; then
+  info "Vendoring internal workspace packages …"
+  mkdir -p "$APP_DIR/vendor"
+  cp -r "$TMP_DIR/packages/." "$APP_DIR/vendor/"
+  node -e '
+    const fs = require("node:fs");
+    const path = require("node:path");
+    const manifest = process.argv[1];
+    const pkg = JSON.parse(fs.readFileSync(manifest, "utf8"));
+    const vendor = path.join(path.dirname(manifest), "vendor");
+    let count = 0;
+    for (const field of ["dependencies", "optionalDependencies"]) {
+      for (const name of Object.keys(pkg[field] || {})) {
+        if (!name.startsWith("@app/")) continue;
+        const dir = name.slice("@app/".length);
+        if (!fs.existsSync(path.join(vendor, dir))) {
+          console.error("no vendored copy of " + name + " at vendor/" + dir);
+          process.exit(1);
+        }
+        pkg[field][name] = "file:./vendor/" + dir;
+        count++;
+      }
+    }
+    fs.writeFileSync(manifest, JSON.stringify(pkg, null, 2) + "\n");
+    console.log("rewrote " + count + " workspace dependency specifier(s)");
+  ' "$APP_DIR/package.json" || {
+    err "Failed to vendor internal workspace packages"
+    exit 1
+  }
 fi
 
 ok "Copied dist + package.json to $APP_DIR"
