@@ -950,8 +950,8 @@ Get system-wide settings.
 | Field | Type | Description |
 |-------|------|-------------|
 | `ui.allowUserThemeOverride` | boolean | Allow users to override system theme |
-| `security.jwtAccessTtlMinutes` | number | JWT access token TTL in minutes |
-| `security.refreshTtlDays` | number | Refresh token TTL in days |
+| `security.jwtAccessTtlMinutes` | number | **Read-only.** JWT access token TTL in minutes, read from the `JWT_ACCESS_TTL_MINUTES` deploy-time environment variable — not stored settings, and not writable through this API |
+| `security.refreshTtlDays` | number | **Read-only.** Refresh token TTL in days, read from the `JWT_REFRESH_TTL_DAYS` deploy-time environment variable — not stored settings, and not writable through this API |
 | `features` | object | Feature flags (extensible) |
 | `updatedAt` | string | ISO 8601 timestamp of last update |
 | `updatedBy` | object | User who last updated settings |
@@ -970,13 +970,13 @@ Replace all system settings.
   "ui": {
     "allowUserThemeOverride": true
   },
-  "security": {
-    "jwtAccessTtlMinutes": 15,
-    "refreshTtlDays": 14
-  },
   "features": {}
 }
 ```
+
+`security` is not part of the request body — it is a read-only, server-derived
+block (see the GET fields table above). Sending it is not an error; the global
+`ZodValidationPipe` silently strips unknown keys, so it has no effect.
 
 **Response:**
 ```json

@@ -592,6 +592,23 @@ apps/api/src/storage/
 
 #### System Settings Shape
 
+`system_settings.value` — the JSONB column itself — holds only `ui` and
+`features`:
+
+```json
+{
+  "ui": {
+    "allowUserThemeOverride": true
+  },
+  "features": {
+    "exampleFlag": false
+  }
+}
+```
+
+`GET/PUT/PATCH /api/system-settings` project this stored row into
+`SystemSettingsResponseDto`, which adds a `security` block on the way out:
+
 ```json
 {
   "ui": {
@@ -603,9 +620,20 @@ apps/api/src/storage/
   },
   "features": {
     "exampleFlag": false
-  }
+  },
+  "updatedAt": "...",
+  "updatedBy": { "id": "...", "email": "..." },
+  "version": 1
 }
 ```
+
+`security` is derived, read-only configuration — `jwtAccessTtlMinutes` and
+`refreshTtlDays` are read from the `JWT_ACCESS_TTL_MINUTES` /
+`JWT_REFRESH_TTL_DAYS` environment variables via `ConfigService`, not from the
+database. It is never written to `system_settings.value`: the write schemas
+(`updateSystemSettingsSchema` / `patchSystemSettingsSchema`) don't declare it,
+so a client that sends it has the key silently stripped by the global
+`ZodValidationPipe` before the request reaches the settings service.
 
 ### 6.3 Database Design Principles
 

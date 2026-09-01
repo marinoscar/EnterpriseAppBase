@@ -1,4 +1,5 @@
 import { Injectable, Logger, ConflictException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UpdateSystemSettingsDto } from '../dto/update-system-settings.dto';
 import { PatchSystemSettingsDto } from '../dto/update-system-settings.dto';
@@ -140,7 +141,12 @@ const KNOWN_UI_KEYS: readonly string[] = Object.keys(
 export class SystemSettingsService {
   private readonly logger = new Logger(SystemSettingsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // ConfigService needs no module import: ConfigModule is registered with
+    // `isGlobal: true` in app.module.ts, so SettingsModule already has it.
+    private readonly configService: ConfigService,
+  ) {}
 
   /**
    * Load the 'global' row, creating it with defaults if it is missing.
@@ -356,6 +362,81 @@ export class SystemSettingsService {
   }
 
   /**
+   * The `security` block of the response: DERIVED CONFIGURATION, never stored.
+   *
+   * `systemSettingsResponseSchema` has always declared `security`, and both
+   * `docs/API.md` and `docs/ARCHITECTURE.md` document it — but nothing ever
+   * populated it, so the OpenAPI document at /api/docs advertised a key every
+   * response omitted and a generated client got a field that is permanently
+   * `undefined` (#148). Deleting the declaration was the smaller diff; it would
+   * also have shrunk a surface three places consistently promise, to match an
+   * omission. And the session policy is worth showing an admin: it is not a
+   * secret — any authenticated user can already read the `exp` claim of their
+   * own access token.
+   *
+   * IT IS NOT PART OF THE STORED VALUE, in any sense. `security` is absent from
+   * `systemSettingsSchema`, therefore from `SystemSettingsValue` and from
+   * `KNOWN_TOP_LEVEL_KEYS`, and it plays no part in the machinery above: it
+   * never enters `system_settings.value`, never reaches `mergePreservingUnknown`
+   * and can be neither preserved nor clobbered. `version` and `If-Match` go on
+   * describing the stored row alone.
+   *
+   * IT IS READ-ONLY BY CONSTRUCTION AND NEEDS NO NEW GUARD. Both values are
+   * deploy-time configuration (`JWT_ACCESS_TTL_MINUTES`,
+   * `JWT_REFRESH_TTL_DAYS`), so ConfigService is the only honest source —
+   * reading them from the row would let a saved number disagree with the TTL
+   * the token signer actually uses, which is worse than not showing them.
+   * Nothing makes them look writable: neither `updateSystemSettingsSchema` (PUT)
+   * nor `patchSystemSettingsSchema` (PATCH) declares `security`, both are plain
+   * `z.object`s, and the global `ZodValidationPipe` strips unknown request keys
+   * — so a client that PUTs a `security` block has it discarded before this
+   * service is called.
+   *
+   * The defaults are `configuration.ts`'s own (15 and 14) deliberately: the
+   * response field is typed `z.number()`, and a config lookup that missed would
+   * otherwise put `undefined` where the contract promises a number — trading
+   * one broken promise for a subtler one.
+   */
+  private readSecurityPolicy() {
+    return {
+      jwtAccessTtlMinutes: this.configService.get<number>(
+        'jwt.accessTtlMinutes',
+        15,
+      ),
+      refreshTtlDays: this.configService.get<number>('jwt.refreshTtlDays', 14),
+    };
+  }
+
+  /**
+   * The ONE projection from a settings row to `SystemSettingsResponseDto`.
+   *
+   * GET, PUT and PATCH all return this DTO and had each built the object by
+   * hand, which is how `security` could be declared in the response schema and
+   * missing from all three at once. Projecting through one helper means a field
+   * added here cannot be added to one path and forgotten in the other two.
+   */
+  private toResponse(row: {
+    value: unknown;
+    updatedAt: Date;
+    updatedByUser: { id: string; email: string } | null;
+    version: number;
+  }) {
+    // Guarded, not cast: a row that is `null` or otherwise malformed reads as
+    // the defaults instead of throwing, so the settings page still renders and
+    // the admin can save a repair through PUT/PATCH (#130).
+    const value = this.readKnownSettings(row.value);
+
+    return {
+      ui: value.ui,
+      features: value.features,
+      security: this.readSecurityPolicy(),
+      updatedAt: row.updatedAt,
+      updatedBy: row.updatedByUser,
+      version: row.version,
+    };
+  }
+
+  /**
    * Get system settings
    * Creates default if not found (should exist from seed)
    *
@@ -368,18 +449,7 @@ export class SystemSettingsService {
   async getSettings() {
     const settings = await this.loadOrCreateRow();
 
-    // Guarded, not cast: a row that is `null` or otherwise malformed reads as
-    // the defaults instead of throwing, so the settings page still renders and
-    // the admin can save a repair through PUT/PATCH (#130).
-    const value = this.readKnownSettings(settings.value);
-
-    return {
-      ui: value.ui,
-      features: value.features,
-      updatedAt: settings.updatedAt,
-      updatedBy: settings.updatedByUser,
-      version: settings.version,
-    };
+    return this.toResponse(settings);
   }
 
   /**
@@ -437,15 +507,7 @@ export class SystemSettingsService {
     this.reportPreserved('replace', preservedPaths);
     this.logger.log(`System settings replaced by user: ${userId}`);
 
-    const stored = this.readKnownSettings(settings.value);
-
-    return {
-      ui: stored.ui,
-      features: stored.features,
-      updatedAt: settings.updatedAt,
-      updatedBy: settings.updatedByUser,
-      version: settings.version,
-    };
+    return this.toResponse(settings);
   }
 
   /**
@@ -537,15 +599,7 @@ export class SystemSettingsService {
     this.reportPreserved('patch', preservedPaths);
     this.logger.log(`System settings patched by user: ${userId}`);
 
-    const stored = this.readKnownSettings(settings.value);
-
-    return {
-      ui: stored.ui,
-      features: stored.features,
-      updatedAt: settings.updatedAt,
-      updatedBy: settings.updatedByUser,
-      version: settings.version,
-    };
+    return this.toResponse(settings);
   }
 
   /**
