@@ -2,6 +2,13 @@
 
 This module implements the OAuth 2.0 Device Authorization Grant (RFC 8628), enabling secure authentication for devices with limited input capabilities such as CLI tools, Swagger UI, smart TVs, and IoT devices.
 
+> **This flow has two documents.** This README is the authoritative reference —
+> exact request/response schema, field names, and the security rationale for
+> the code in this directory — and is kept in sync with it. For a narrative
+> walkthrough, use-case framing, and integration examples (Node.js, Python,
+> React Native, Scalar), see
+> [`docs/DEVICE-AUTH.md`](../../../../docs/DEVICE-AUTH.md).
+
 ## Overview
 
 The Device Authorization Flow allows users to authorize devices on a separate device with better input/display capabilities (like a phone or computer). The flow works as follows:

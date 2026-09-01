@@ -2,6 +2,14 @@
 
 This guide covers the Device Authorization Flow implementation in the Enterprise Application Foundation.
 
+> **This flow has two documents.** This one is the narrative guide — concepts,
+> a walkthrough, and copy-pasteable integration examples (Node.js, Python,
+> React Native, Scalar). For the authoritative request/response schema, exact
+> field names, and the security rationale behind the PAT-minting design, see
+> [`apps/api/src/device-auth/README.md`](../apps/api/src/device-auth/README.md),
+> which lives next to the code and is the source of truth when the two
+> disagree.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -42,7 +50,7 @@ Command-line tools that need user authentication without opening a local web bro
 **Example:** A deployment CLI that needs access to your organization's API:
 ```bash
 $ deploy-cli login
-Please visit: http://localhost:3535/device
+Please visit: http://localhost:3535/activate
 Enter code: ABCD-1234
 Waiting for authorization...
 ✓ Authorized successfully!
@@ -84,14 +92,14 @@ External services that need to access your API on behalf of users.
        │                                        │        │
        │  deviceCode: "abc123..."               │        │
        │  userCode: "ABCD-1234"                │        │
-       │  verificationUri: "/device"            │        │
+       │  verificationUri: "/activate"            │        │
        │◄──────────────────────────────────────         │
        │                                                 │
        │  2. Display code to user                       │
-       │  "Visit /device and enter: ABCD-1234"          │
+       │  "Visit /activate and enter: ABCD-1234"          │
        │                                                 │
        │                                          3. Navigate to
-       │                                             /device page
+       │                                             /activate page
        │                                                 │
        │                                          4. Enter code
        │                                             "ABCD-1234"
@@ -128,12 +136,16 @@ Content-Type: application/json
 
 {
   "clientInfo": {
-    "name": "My CLI Tool",
-    "version": "1.0.0",
-    "platform": "linux"
+    "deviceName": "My CLI Tool",
+    "userAgent": "my-cli/1.0.0"
   }
 }
 ```
+
+`clientInfo` is entirely optional, and so is every field on it. Omitting
+`tokenType` (as above) defaults to `session`, which is what this walkthrough
+shows; see [Credential Kinds](#credential-kinds-session-vs-pat) below for the
+`pat` alternative and how the response differs.
 
 #### 2. Server Returns Codes
 The API responds with device and user codes:
@@ -143,8 +155,8 @@ The API responds with device and user codes:
   "data": {
     "deviceCode": "a4f3b8c9d2e1f5a6b7c8d9e0f1a2b3c4",
     "userCode": "ABCD-1234",
-    "verificationUri": "http://localhost:3535/device",
-    "verificationUriComplete": "http://localhost:3535/device?code=ABCD-1234",
+    "verificationUri": "http://localhost:3535/activate",
+    "verificationUriComplete": "http://localhost:3535/activate?code=ABCD-1234",
     "expiresIn": 900,
     "interval": 5
   }
@@ -192,7 +204,7 @@ Content-Type: application/json
 }
 ```
 
-**After Approval:**
+**After Approval (`session` credential — the default shown here):**
 ```json
 {
   "data": {
@@ -203,6 +215,11 @@ Content-Type: application/json
   }
 }
 ```
+
+If the device had instead requested `clientInfo.tokenType: "pat"` in step 1,
+this response has a different shape (a `pat_...` token, no `refreshToken`, and
+a `credentialType: "pat"` discriminator) — see
+[Credential Kinds](#credential-kinds-session-vs-pat) below.
 
 #### 7. Device Uses Tokens
 The device can now use the access token for authenticated API requests.
@@ -220,9 +237,9 @@ Generate a new device code pair to initiate the device authorization flow.
 ```json
 {
   "clientInfo": {
-    "name": "My Application",
-    "version": "1.0.0",
-    "platform": "linux"
+    "deviceName": "My Application",
+    "userAgent": "my-app/1.0.0",
+    "tokenType": "pat"
   }
 }
 ```
@@ -231,9 +248,20 @@ Generate a new device code pair to initiate the device authorization flow.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `clientInfo` | object | No | Optional metadata about the client device |
-| `clientInfo.name` | string | No | Application name |
-| `clientInfo.version` | string | No | Application version |
-| `clientInfo.platform` | string | No | Platform (linux, windows, macos, etc.) |
+| `clientInfo.deviceName` | string | No | Human-readable device/app name. Reaches the activation page, the sessions list and, for a `pat` credential, the name of the token row in the Access Tokens page (prefixed `Device: `) — treat it as untrusted, since `POST /api/auth/device/code` is unauthenticated |
+| `clientInfo.userAgent` | string | No | Free-form client identifier (e.g. `my-cli/1.0.0`) |
+| `clientInfo.tokenType` | `"session"` \| `"pat"` | No | Credential kind to mint when the device polls after approval (see the mint-on-poll note below). Defaults to `session` (a short-lived JWT + refresh token, the same behavior as before this field existed). `"pat"` mints a long-lived, revocable personal access token instead — see [Credential Kinds](#credential-kinds-session-vs-pat). An unrecognized value is rejected with `400`, not silently defaulted |
+
+> **These are the only three fields the schema accepts** (`ClientInfoSchema` in
+> `apps/api/src/device-auth/dto/device-code-request.dto.ts`). This document
+> previously documented `clientInfo.name`, `clientInfo.version` and
+> `clientInfo.platform`, none of which exist. That mistake was easy to miss in
+> practice: the global `ZodValidationPipe` combined with zod's default
+> unknown-key-stripping means a client sending those fields still gets a `200`
+> — the unrecognized keys are silently discarded before anything is persisted,
+> so nothing reaches `device_codes.client_info` and no error is ever raised.
+> Double-check field names against the schema file above rather than this
+> document's prose if the two ever disagree again.
 
 **Response (200 OK):**
 ```json
@@ -241,8 +269,8 @@ Generate a new device code pair to initiate the device authorization flow.
   "data": {
     "deviceCode": "a4f3b8c9d2e1f5a6b7c8d9e0f1a2b3c4",
     "userCode": "ABCD-1234",
-    "verificationUri": "http://localhost:3535/device",
-    "verificationUriComplete": "http://localhost:3535/device?code=ABCD-1234",
+    "verificationUri": "http://localhost:3535/activate",
+    "verificationUriComplete": "http://localhost:3535/activate?code=ABCD-1234",
     "expiresIn": 900,
     "interval": 5
   }
@@ -276,7 +304,7 @@ Poll for authorization status and obtain tokens when approved.
 |-------|------|----------|-------------|
 | `deviceCode` | string | Yes | Device code from /auth/device/code |
 
-**Response (200 OK - Authorized):**
+**Response (200 OK - Authorized, `session` credential — no `clientInfo.tokenType` was sent, or it was `"session"`):**
 ```json
 {
   "data": {
@@ -288,13 +316,47 @@ Poll for authorization status and obtain tokens when approved.
 }
 ```
 
-**Response Fields (Success):**
+**Response (200 OK - Authorized, `pat` credential — `clientInfo.tokenType: "pat"` was sent):**
+```json
+{
+  "data": {
+    "accessToken": "pat_a1b2c3d4...",
+    "tokenType": "Bearer",
+    "expiresIn": 7776000,
+    "credentialType": "pat",
+    "expiresAt": "2026-11-28T12:00:00.000Z",
+    "tokenId": "123e4567-e89b-12d3-a456-426614174000",
+    "tokenName": "Device: My Application"
+  }
+}
+```
+
+Both shapes are the same `DeviceTokenResponseDto`; they differ only in which
+optional fields are populated. See
+[Credential Kinds](#credential-kinds-session-vs-pat) below for the full
+discussion, but in short:
+
+- **`tokenType` is always the literal `"Bearer"`, on both branches.** It
+  describes how to present the credential (`Authorization: Bearer <token>`),
+  not which kind it is.
+- **`credentialType` is the discriminator.** It is present and equal to
+  `"pat"` on the PAT branch, and absent on the session branch — never branch
+  on `refreshToken === undefined` instead.
+- **`refreshToken` exists only on the session branch.** A PAT has no refresh
+  token by design.
+- **`expiresAt`, `tokenId` and `tokenName` exist only on the PAT branch.**
+
+**Response Fields:**
 | Field | Type | Description |
 |-------|------|-------------|
-| `accessToken` | string | JWT access token for API requests |
-| `refreshToken` | string | Refresh token for obtaining new access tokens |
-| `tokenType` | string | Token type (always "Bearer") |
-| `expiresIn` | number | Access token lifetime in seconds |
+| `accessToken` | string | The credential to present as `Authorization: Bearer <token>` — a signed JWT for `session`, an opaque `pat_...` string for `pat` |
+| `refreshToken` | string | Refresh token for obtaining new access tokens. **Session only** |
+| `tokenType` | string | Always `"Bearer"`, for both credential kinds |
+| `expiresIn` | number | Token lifetime in seconds, relative to issuance |
+| `credentialType` | `"pat"` | Present and equal to `"pat"` only when a personal access token was issued. **Absent** for the default session credential |
+| `expiresAt` | string | Absolute (ISO-8601) expiry. **PAT only** |
+| `tokenId` | string | Id of the issued PAT, for `DELETE /api/pat/{id}`. **PAT only** |
+| `tokenName` | string | Display name of the issued PAT (`Device: <deviceName>`), as shown in the web UI's Access Tokens page. **PAT only** |
 
 **Error Responses:**
 
@@ -327,7 +389,7 @@ Authorization: Bearer <token>
 ```json
 {
   "data": {
-    "verificationUri": "http://localhost:3535/device"
+    "verificationUri": "http://localhost:3535/activate"
   }
 }
 ```
@@ -342,12 +404,11 @@ Authorization: Bearer <token>
 ```json
 {
   "data": {
-    "verificationUri": "http://localhost:3535/device",
+    "verificationUri": "http://localhost:3535/activate",
     "userCode": "ABCD-1234",
     "clientInfo": {
-      "name": "My CLI Tool",
-      "version": "1.0.0",
-      "platform": "linux"
+      "deviceName": "My CLI Tool",
+      "userAgent": "my-cli/1.0.0"
     },
     "expiresAt": "2024-01-01T12:15:00.000Z"
   }
@@ -418,9 +479,8 @@ Authorization: Bearer <token>
         "userCode": "ABCD-1234",
         "status": "approved",
         "clientInfo": {
-          "name": "My CLI Tool",
-          "version": "1.0.0",
-          "platform": "linux"
+          "deviceName": "My CLI Tool",
+          "userAgent": "my-cli/1.0.0"
         },
         "createdAt": "2024-01-01T12:00:00.000Z",
         "expiresAt": "2024-01-01T12:15:00.000Z"
@@ -462,6 +522,49 @@ Authorization: Bearer <token>
 
 ---
 
+### Credential Kinds: Session vs. PAT
+
+A device chooses what kind of credential it wants when it requests the code, via
+`clientInfo.tokenType`:
+
+| | `session` (default) | `pat` |
+|---|---|---|
+| What it is | Signed JWT access token + refresh token | Opaque personal access token (`pat_...`) |
+| Default lifetime | `DEVICE_TOKEN_EXPIRY_DAYS` (7 days) | `DEVICE_PAT_EXPIRY_DAYS` (90 days, clamped 1-999) |
+| Refresh token | Yes | No |
+| Revocable before expiry | No — a JWT is valid until it expires | Yes — `DELETE /api/pat/{id}`, or the Access Tokens page in the web UI |
+| Used by | The browser-driven activation page (sends no `tokenType`) | CLI and other headless clients — see `apps/cli` |
+
+The PAT lifetime can be much longer than the session lifetime precisely *because*
+it is revocable server-side: a lost laptop is handled by deleting one row, with
+nothing else to rotate. An out-of-range or non-numeric `DEVICE_PAT_EXPIRY_DAYS`
+(outside 1-999) is rejected: the server logs a warning and falls back to the
+90-day default rather than minting a token with an unpredictable or absurdly
+long expiry.
+
+**The PAT is minted on the poll (`POST /api/auth/device/token`), not on
+approval (`POST /api/auth/device/authorize`).** Approval only records intent —
+`status = approved` plus the approving user's id. This is deliberate: minting
+at approval time would require stashing the raw token somewhere until the
+device's next poll collects it, and a personal access token is designed to be
+returned exactly once and stored only as a hash — writing it into another
+column, even briefly, reintroduces a plaintext-credential-at-rest problem on a
+table anyone can write a row into (`POST /auth/device/code` is public). Minting
+on the poll means the raw token exists only in the API process's memory and in
+the HTTPS response body, and it matches how the `session` credential has always
+worked (tokens generated at poll time as well). See
+[`apps/api/src/device-auth/README.md`](../apps/api/src/device-auth/README.md#why-the-pat-is-minted-on-the-poll-not-at-approval)
+for the full security rationale, including why the PAT branch claims the
+device code atomically before minting.
+
+A device-issued PAT is named `Device: <deviceName>` so it's identifiable in the
+Access Tokens list as device-flow-issued. `deviceName` arrives from an
+unauthenticated caller, so it's sanitized (control characters, zero-width and
+bidi-override characters stripped, truncated to 100 characters) before that
+prefix is applied.
+
+---
+
 ## Integration Guides
 
 ### CLI Application (Node.js)
@@ -475,9 +578,12 @@ async function loginWithDeviceFlow() {
   // Step 1: Request device code
   const codeResponse = await axios.post(`${API_BASE}/auth/device/code`, {
     clientInfo: {
-      name: 'My CLI Tool',
-      version: '1.0.0',
-      platform: process.platform,
+      deviceName: 'My CLI Tool',
+      userAgent: `my-cli/1.0.0 (${process.platform})`,
+      // A real CLI would typically add `tokenType: 'pat'` here to get a
+      // long-lived, revocable credential instead of a short session — see
+      // Credential Kinds below and this repo's own `apps/cli` for the worked
+      // example. Omitted here to keep this walkthrough on the session path.
     },
   });
 
@@ -559,9 +665,10 @@ def login_with_device_flow():
     # Step 1: Request device code
     response = requests.post(f'{API_BASE}/auth/device/code', json={
         'clientInfo': {
-            'name': 'My Python CLI',
-            'version': '1.0.0',
-            'platform': sys.platform,
+            'deviceName': 'My Python CLI',
+            'userAgent': f'my-python-cli/1.0.0 ({sys.platform})',
+            # Add 'tokenType': 'pat' for a long-lived, revocable credential
+            # instead of a short session — see Credential Kinds below.
         }
     })
 
@@ -650,9 +757,14 @@ separate device:
    (Scalar exposes a per-scheme token field; the document declares `JWT-auth` for session tokens
    and `PAT-auth` for personal access tokens)
 
-**Alternative:** A personal access token (`POST /api/pat`) needs no polling loop and is accepted
-on every authenticated route (`PAT-auth`) — mint one while signed in normally and skip the device
-flow for this use case.
+**Alternative:** If you're already signed in through the browser, hand-creating a personal access
+token (`POST /api/pat`) skips the polling loop entirely and is accepted on every authenticated
+route (`PAT-auth`) — a reasonable shortcut for this one use case. That is different from what the
+device flow itself can now do: a device that is *not* already browser-authenticated (a CLI, a
+signed-out browser, a separate device) can ask the device flow to mint a PAT on its behalf by
+sending `clientInfo.tokenType: "pat"` in step 1 — see [Credential Kinds](#credential-kinds-session-vs-pat)
+below. `POST /api/pat` and the device flow's `pat` credential both end up as rows in the same
+Access Tokens list; they differ only in how the token gets minted.
 
 ---
 
@@ -678,9 +790,8 @@ function DeviceAuthScreen() {
   async function initiateDeviceAuth() {
     const response = await axios.post('http://localhost:3535/api/auth/device/code', {
       clientInfo: {
-        name: 'My Mobile App',
-        version: '1.0.0',
-        platform: Platform.OS,
+        deviceName: 'My Mobile App',
+        userAgent: `my-mobile-app/1.0.0 (${Platform.OS})`,
       },
     });
 
@@ -757,6 +868,7 @@ Configure the device authorization flow in `infra/compose/.env`:
 DEVICE_CODE_EXPIRY_MINUTES=15
 DEVICE_CODE_POLL_INTERVAL=5
 DEVICE_TOKEN_EXPIRY_DAYS=7
+DEVICE_PAT_EXPIRY_DAYS=90
 ```
 
 **Variables:**
@@ -765,7 +877,8 @@ DEVICE_TOKEN_EXPIRY_DAYS=7
 |----------|------|---------|-------------|
 | `DEVICE_CODE_EXPIRY_MINUTES` | number | 15 | How long device codes remain valid (minutes) |
 | `DEVICE_CODE_POLL_INTERVAL` | number | 5 | Minimum time between polling requests (seconds) |
-| `DEVICE_TOKEN_EXPIRY_DAYS` | number | 7 | Token lifetime for device-authorized sessions (days) |
+| `DEVICE_TOKEN_EXPIRY_DAYS` | number | 7 | Token lifetime for the `session` credential (both access and refresh tokens) |
+| `DEVICE_PAT_EXPIRY_DAYS` | number | 90 | Lifetime of the `pat` credential minted when a device requests `clientInfo.tokenType: "pat"`. Clamped to 1-999; an out-of-range or non-numeric value logs a warning and falls back to 90 — see [Credential Kinds](#credential-kinds-session-vs-pat) |
 
 ### Configuration Notes
 
@@ -788,8 +901,13 @@ deviceAuth: {
   expiryMinutes: parseInt(process.env.DEVICE_CODE_EXPIRY_MINUTES || '15', 10),
   pollInterval: parseInt(process.env.DEVICE_CODE_POLL_INTERVAL || '5', 10),
   tokenExpiryDays: parseInt(process.env.DEVICE_TOKEN_EXPIRY_DAYS || '7', 10),
+  patExpiryDays: parseInt(process.env.DEVICE_PAT_EXPIRY_DAYS || '90', 10),
 }
 ```
+
+`patExpiryDays` is read and clamped by
+`DeviceAuthService.resolvePatExpiryDays()`, not by the `configuration.ts`
+loader itself — see [Credential Kinds](#credential-kinds-session-vs-pat) above.
 
 ---
 
@@ -833,7 +951,7 @@ Authorization: Bearer <token>
 
 **Note:** After a device obtains tokens using an approved code, the code is marked as expired (used). The device then uses refresh tokens for subsequent authentications.
 
-**Token Lifetime:** Device-issued tokens default to a 7-day lifetime (both access and refresh), configurable via `DEVICE_TOKEN_EXPIRY_DAYS`. This overrides the standard JWT TTL settings (`JWT_ACCESS_TTL_MINUTES` and `JWT_REFRESH_TTL_DAYS`) for sessions established through the device authorization flow.
+**Token Lifetime:** This section describes the default `session` credential. It defaults to a 7-day lifetime (both access and refresh), configurable via `DEVICE_TOKEN_EXPIRY_DAYS`. This overrides the standard JWT TTL settings (`JWT_ACCESS_TTL_MINUTES` and `JWT_REFRESH_TTL_DAYS`) for sessions established through the device authorization flow. A device that instead requested a `pat` credential (`clientInfo.tokenType: "pat"`) gets a `DEVICE_PAT_EXPIRY_DAYS`-lifetime personal access token instead, which is revocable at any time via `DELETE /api/pat/{id}` rather than expiring on a fixed clock — see [Credential Kinds](#credential-kinds-session-vs-pat).
 
 ---
 
@@ -1081,6 +1199,8 @@ async function pollForToken(deviceCode, interval) {
 - **API Documentation:** http://localhost:3535/api/docs
 - **Security Architecture:** [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md)
 - **API Reference:** [API.md](API.md)
+- **Authoritative schema & security rationale:** [`apps/api/src/device-auth/README.md`](../apps/api/src/device-auth/README.md)
+- **Reference PAT-flow consumer:** [`apps/cli/README.md`](../apps/cli/README.md) — the first-party CLI (`appctl`), which logs in through this exact flow requesting a `pat` credential
 
 ---
 
