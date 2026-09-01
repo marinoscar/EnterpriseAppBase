@@ -54,9 +54,13 @@ export const DeviceCodeRequestSchema = z.object({
 export class DeviceCodeRequestDto extends createZodDto(DeviceCodeRequestSchema) {
   @ApiProperty({
     description:
-      'Optional client information. `tokenType` selects the credential minted ' +
-      'on approval: `session` (default) returns a short-lived JWT plus a refresh ' +
-      'token, `pat` returns a long-lived, revocable personal access token for CLI use.',
+      'Optional client information. `tokenType` selects the credential this flow will mint ' +
+      'when the device polls `POST /auth/device/token` after the user approves (it is minted ' +
+      'on the poll, not at approval): `session` (default) returns a short-lived JWT plus a ' +
+      'refresh token, `pat` returns a long-lived, revocable personal access token for CLI ' +
+      'use, tagged `credentialType: "pat"` in the poll response. An unrecognised `tokenType` ' +
+      'is rejected with a 400. `deviceName` is echoed to the approving user on the activation ' +
+      'page and, for `pat`, becomes the token name in the Access Tokens list.',
     required: false,
   })
   // Typed as the schema's OUTPUT rather than re-declared by hand: after
