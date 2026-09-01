@@ -65,5 +65,8 @@ RUN npm run build
 FROM nginx:1.30-alpine AS production
 COPY --from=build /app/apps/web/dist /usr/share/nginx/html
 COPY apps/web/nginx.conf /etc/nginx/conf.d/default.conf
-EXPOSE 80
+# 5173, not 80, and deliberately the same port the development stage exposes:
+# infra/nginx/nginx.conf reaches this container as `web:5173` in BOTH modes, so
+# one proxy config serves both. See the header of apps/web/nginx.conf.
+EXPOSE 5173
 CMD ["nginx", "-g", "daemon off;"]
