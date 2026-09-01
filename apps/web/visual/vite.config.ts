@@ -40,6 +40,18 @@ export default defineConfig({
   // nothing under `visual/` can reach the production output.
   publicDir: path.resolve(here, '..', 'public'),
   plugins: [react()],
+  // Required for the same reason as in `apps/web/vite.config.ts`, and this is
+  // the config where its absence actually shows: `@app/shared` is CommonJS
+  // arriving as a workspace symlink, which Vite treats as source and therefore
+  // does not pre-bundle, so the browser gets `exports.APP_NAME = ...` as raw
+  // ESM and every component importing it dies with "does not provide an export
+  // named 'APP_NAME'".
+  //
+  // The AppBar's wordmark reads that constant (issue #164), so without this
+  // line the harness renders a blank page and all eleven pixel specs fail on a
+  // missing element rather than on a diff — which is what makes the real cause
+  // easy to misread as a baseline problem.
+  optimizeDeps: { include: ['@app/shared'] },
   server: {
     port: 5183,
     strictPort: true,
