@@ -21,6 +21,8 @@ import {
   type ProbeResult,
 } from '../deploy/health.js';
 import { readState } from '../deploy/state.js';
+import { runInstall, type InstallOptions } from '../deploy/install.js';
+import type { EnvGroup } from '../deploy/env-metadata.js';
 import { runCommand } from '../deploy/executor.js';
 import { CliError, EXIT, PreconditionError, UsageError, type ExitCode } from '../errors.js';
 import { shouldUseColour } from '../output.js';
@@ -103,6 +105,50 @@ export function registerDeployCommand(
     )
     .action(async (options: DoctorCommandOptions) => {
       await runDoctorCommand(options, ctx);
+    });
+
+  deploy
+    .command('install')
+    .description('Install this application on this server')
+    .option('--root <path>', 'Deployment directory', DEFAULT_DEPLOY_ROOT)
+    .option('--domain <domain>', 'Public domain to publish under')
+    .option('--proxy-root <path>', 'Shared reverse proxy directory', DEFAULT_PROXY_ROOT)
+    .option('--port <port>', 'Loopback port the proxy forwards to', String(DEFAULT_BIND_PORT))
+    .option('--repo <url>', 'Repository to deploy (default: this checkout\'s origin)')
+    .option('--ref <ref>', 'Branch, tag or commit (default: the remote default branch)')
+    .option('--email <email>', 'Certificate registration address')
+    .option('--group <name>', 'Optional feature group; repeat for more', collectGroup, [])
+    .option('--all', 'Review every environment variable, not only the essential ones')
+    .option('--non-interactive', 'Never prompt; fail listing anything unresolved')
+    .option('--reinstall', 'Install over an existing deployment')
+    .option('--resume', 'Continue from the step that failed')
+    .option('--skip-doctor', 'Skip the prerequisite checks')
+    .option('--skip-proxy', 'Do not touch the reverse proxy or request a certificate')
+    .option('--skip-seed', 'Do not run the database seed')
+    .option('--no-cache', 'Rebuild images without the layer cache')
+    .option('--force', 'Discard uncommitted changes in the checkout')
+    .option('--staging', "Use Let's Encrypt staging while working out the setup")
+    .option('--json', 'Print a machine-readable result on stdout')
+    .addHelpText(
+      'after',
+      [
+        '',
+        'Examples:',
+        `  ${CLI_NAME} deploy install --domain app.example.com`,
+        `  ${CLI_NAME} deploy install --domain app.example.com --staging`,
+        `  ${CLI_NAME} deploy install --non-interactive --domain app.example.com`,
+        '',
+        'What it does, in order: checks prerequisites, clones the repository,',
+        'collects the environment, validates the database, builds the images,',
+        'migrates, seeds, starts the stack, waits for health, issues the',
+        'certificate and publishes the vhost, then verifies the result.',
+        '',
+        'The repository and branch come from THIS checkout\'s git remote unless',
+        'you pass --repo/--ref, so a fork deploys itself with no configuration.',
+      ].join('\n'),
+    )
+    .action(async (options: InstallCommandOptions) => {
+      await runInstallCommand(options, ctx);
     });
 
   deploy
@@ -437,4 +483,104 @@ export function renderHealth(
   lines.push(`\n  ${painted}\n\n`);
 
   return lines.join('');
+}
+
+
+// ---------------------------------------------------------------------------
+// `appctl deploy install`  (issue #180)
+// ---------------------------------------------------------------------------
+
+function collectGroup(value: string, previous: string[]): string[] {
+  return [...previous, value];
+}
+
+export interface InstallCommandOptions {
+  root: string;
+  domain?: string | undefined;
+  proxyRoot: string;
+  port: string;
+  repo?: string | undefined;
+  ref?: string | undefined;
+  email?: string | undefined;
+  group: string[];
+  all?: boolean | undefined;
+  nonInteractive?: boolean | undefined;
+  reinstall?: boolean | undefined;
+  resume?: boolean | undefined;
+  skipDoctor?: boolean | undefined;
+  skipProxy?: boolean | undefined;
+  skipSeed?: boolean | undefined;
+  cache: boolean;
+  force?: boolean | undefined;
+  staging?: boolean | undefined;
+  json?: boolean | undefined;
+}
+
+export async function runInstallCommand(
+  options: InstallCommandOptions,
+  ctx?: DeployContext,
+): Promise<void> {
+  const stdout = ctx?.stdout ?? process.stdout;
+  const stderr = ctx?.stderr ?? process.stderr;
+  const json = options.json === true;
+
+  const installOptions: InstallOptions = {
+    deployRoot: options.root,
+    bindPort: Number(options.port),
+    proxyRoot: options.proxyRoot,
+    groups: options.group as EnvGroup[],
+    ...(options.domain === undefined ? {} : { domain: options.domain }),
+    ...(options.repo === undefined ? {} : { repo: options.repo }),
+    ...(options.ref === undefined ? {} : { ref: options.ref }),
+    ...(options.email === undefined ? {} : { email: options.email }),
+    ...(options.all === undefined ? {} : { all: options.all }),
+    ...(options.nonInteractive === undefined ? {} : { nonInteractive: options.nonInteractive }),
+    ...(options.reinstall === undefined ? {} : { reinstall: options.reinstall }),
+    ...(options.resume === undefined ? {} : { resume: options.resume }),
+    ...(options.skipDoctor === undefined ? {} : { skipDoctor: options.skipDoctor }),
+    ...(options.skipProxy === undefined ? {} : { skipProxy: options.skipProxy }),
+    ...(options.skipSeed === undefined ? {} : { skipSeed: options.skipSeed }),
+    ...(options.cache === false ? { noCache: true } : {}),
+    ...(options.force === undefined ? {} : { force: options.force }),
+    ...(options.staging === undefined ? {} : { staging: options.staging }),
+    ...(ctx?.runCommand === undefined ? {} : { runCommand: ctx.runCommand }),
+    // Rendered as lines on stderr here; #184's screen renders the identical
+    // callbacks as React state. One implementation, two renderers.
+    ...(json
+      ? {}
+      : {
+          hooks: {
+            onStepStart: ({ title, index, total }) =>
+              void stderr.write(`\n  [${index + 1}/${total}] ${title}\n`),
+            onStepResult: (result) =>
+              void stderr.write(
+                result.outcome === 'ok'
+                  ? `  done (${result.durationMs}ms)\n`
+                  : `  ${result.outcome}: ${result.detail ?? ''}\n`,
+              ),
+            onProgress: (message) => void stderr.write(`  ${message}\n`),
+            onLog: (line) => void stderr.write(`    ${line}\n`),
+          },
+        }),
+  };
+
+  const result = await runInstall(installOptions);
+
+  if (json) {
+    stdout.write(`${JSON.stringify(result)}\n`);
+    return;
+  }
+
+  stderr.write(
+    [
+      '',
+      '  Installed.',
+      '',
+      `  Revision   ${result.commitSha.slice(0, 12)}`,
+      `  Log        ${result.journalPath}`,
+      '',
+      `  ${result.nextStep}`,
+      '',
+    ].join('\n'),
+  );
 }

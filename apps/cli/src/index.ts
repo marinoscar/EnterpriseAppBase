@@ -319,3 +319,18 @@ export type {
 
 export { registerDeployCommand, renderHealth, renderResult, renderSummary } from './commands/deploy.js';
 export type { DeployContext, DoctorReport } from './commands/deploy.js';
+
+// The install pipeline (#180). Steps are DATA so the --skip flags, --resume,
+// and the TUI's progress view all read one sequence.
+export { runPipeline } from './deploy/steps/pipeline.js';
+export type { DeployStep, PipelineResult, StepContext } from './deploy/steps/pipeline.js';
+
+export {
+  buildInstallSteps,
+  composeArgv,
+  composeCwd,
+  defaultRootFor,
+  runInstall,
+  secretsFrom,
+} from './deploy/install.js';
+export type { InstallOptions, InstallResult } from './deploy/install.js';
