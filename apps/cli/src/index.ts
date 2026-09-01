@@ -232,3 +232,26 @@ export type {
   WizardResult,
   WizardSummaryRow,
 } from './deploy/env-wizard.js';
+
+// The doctor check registry (#176). One ordered list: `doctor` renders it and
+// install/update run its `required` subset as preflight, rather than each
+// keeping a second list that drifts.
+export {
+  ALL_CHECKS,
+  HOST_CHECKS,
+  checksPassed,
+  isLoopbackPortFree,
+  isPortListening,
+  requiredChecks,
+  runChecks,
+  summarise,
+} from './deploy/checks/index.js';
+export type {
+  Check,
+  CheckContext,
+  CheckFs,
+  CheckResult,
+  CheckStatus,
+  CheckSummary,
+  CompletedCheck,
+} from './deploy/checks/index.js';
