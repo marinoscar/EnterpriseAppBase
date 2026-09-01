@@ -10,9 +10,10 @@ Web Application Foundation with React UI + Node API + PostgreSQL. Production-gra
 
 - **Backend**: Node.js + TypeScript, NestJS with Fastify adapter
 - **Frontend**: React + TypeScript, Material UI (MUI)
+- **CLI**: TypeScript, Commander (subcommands) + ink (interactive menu)
 - **Database**: PostgreSQL with Prisma ORM
 - **Auth**: Passport strategies (Google OAuth required)
-- **Testing**: Jest + Supertest (backend), React Testing Library + Vitest (frontend)
+- **Testing**: Jest + Supertest (backend), React Testing Library + Vitest (frontend), Vitest (CLI)
 - **Observability**: OpenTelemetry, Uptrace, Pino structured logging
 - **Containerization**: Docker + Docker Compose
 - **Reverse Proxy**: Nginx (same-origin routing)
@@ -33,6 +34,11 @@ Web Application Foundation with React UI + Node API + PostgreSQL. Production-gra
       src/
       src/__tests__/
       Dockerfile            # Web container (near its code)
+    cli/                    # First-party command-line client (`appctl`)
+      src/
+        commands/           # `login`, `api`, `config` subcommands
+        tui/                # Interactive ink menu (real terminals only)
+      README.md             # CLI usage, install, CI setup
   docs/                     # Documentation
   infra/                    # Infrastructure configuration
     compose/
@@ -327,6 +333,18 @@ cd apps/api && npm run prisma:migrate
 - **API Reference (Scalar)**: http://localhost:3535/api/docs
 - **Uptrace**: http://localhost:14318 (when otel stack running)
 
+## Command-Line Client (`appctl`)
+
+`apps/cli` is the first-party CLI for this API (epic #110). It is a workspace
+package (`--workspace=cli`) that is built from this monorepo and not published;
+it logs in through the device authorization flow below, stores the resulting
+personal access token, and exposes a single generic `api <method> <path>`
+command so it does not go stale as endpoints are added or renamed.
+
+Usage, install, flags, environment variables and CI setup are documented in
+[`apps/cli/README.md`](apps/cli/README.md) — that file is the source of truth;
+do not restate it here.
+
 ## API Endpoints (MVP)
 
 ### Authentication
@@ -487,6 +505,7 @@ Note: `DATABASE_URL` is constructed automatically from these variables at runtim
 - `DEVICE_CODE_EXPIRY_MINUTES` - Device code lifetime (default: 15)
 - `DEVICE_CODE_POLL_INTERVAL` - Device polling interval in seconds (default: 5)
 - `DEVICE_TOKEN_EXPIRY_DAYS` - Token lifetime for device sessions in days (default: 7)
+- `DEVICE_PAT_EXPIRY_DAYS` - Lifetime of the PAT minted when a device (e.g. the CLI) requests `clientInfo.tokenType: "pat"`, in days; clamped to 1-999 (default: 90)
 - `SECRETS_ENCRYPTION_KEY` - Base64-encoded 32-byte AES-256 key (generate with `openssl rand -base64 32`) that encrypts runtime-configured credentials (e.g. an SMTP password an admin enters through the app) before they are stored in the `credentials` table. Optional until a credential is stored; see `docs/runbooks/rotate-secrets-encryption-key.md`. Note: credentials configured at runtime through the UI/API live encrypted in the database, not in the environment — unlike every other secret in this section.
 
 **Observability:**
