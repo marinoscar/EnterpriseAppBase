@@ -15,37 +15,114 @@ menu (login, call an endpoint, view config, logout) built with
 also a plain subcommand, and the subcommands are what this document covers —
 they're what you'd script or run in CI.
 
-## Install and build
+## Install
 
-There's no published package; you build it from this monorepo and run the
-built file directly.
-
-```bash
-# from the repo root, after the workspace's node_modules are installed
-npm run build --workspace=cli
-```
-
-This runs `tsc` against `apps/cli/tsconfig.build.json`, emitting
-`apps/cli/dist/`, and marks `dist/cli.js` executable. From there you can run
-it straight from the workspace without installing or publishing anything:
+There's no published package; the installer builds `appctl` from this repo
+and deploys a standalone copy — you don't need a local clone to end up with
+a working `appctl` on your PATH.
 
 ```bash
-node apps/cli/dist/cli.js --help
+curl -fsSL https://raw.githubusercontent.com/marinoscar/EnterpriseAppBase/main/install.sh | bash
 ```
 
-or, from inside `apps/cli`:
+It's safe to re-run: the installer detects an existing install at
+`~/.appctl/app`, shows the old → new version transition, and updates it in
+place — the same command is also how you update.
+
+### Install from a local clone
+
+If you already have the repo checked out (or want to test the installer
+itself without a network round-trip), point it at that directory with
+`APPCTL_SRC` instead of letting it `git clone`:
 
 ```bash
-node dist/cli.js --help
+APPCTL_SRC=/path/to/repo bash /path/to/repo/install.sh
 ```
 
-If you want the bare `appctl` command on your PATH without publishing, `npm
-link` from `apps/cli` (`package.json`'s `bin` field maps `appctl` to
-`./dist/cli.js`) does that using the standard npm mechanism.
+### Update
 
-For iterating on the CLI's own source without rebuilding on every change,
-`npm run dev --workspace=cli` runs `tsx src/cli.ts` directly — same behavior,
-no build step.
+Re-run the same command you installed with — the curl one-liner above, or
+the `APPCTL_SRC` form for a local clone. Either way the installer detects
+the existing install and updates it in place.
+
+### Uninstall
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/marinoscar/EnterpriseAppBase/main/install.sh | bash -s -- --uninstall
+```
+
+or, from a local clone:
+
+```bash
+bash install.sh --uninstall
+```
+
+This removes the installed app directory (`~/.appctl/app`) and the `appctl`
+shim (`~/.local/bin/appctl` by default). It leaves
+`~/.appctl/config.json` — your stored server URL and credentials — untouched;
+uninstalling doesn't log you out.
+
+### Requirements
+
+The installer checks for these before doing anything else:
+
+| Tool | Version | Notes |
+| --- | --- | --- |
+| `node` | >= 20 | apps/cli's own `engines.node` floor |
+| `npm` | any | ships with Node.js |
+| `git` | any | only needed unless you use `APPCTL_SRC` |
+| `curl` | any | only needed for the piped one-liner |
+
+apps/cli has no native modules, so there's no C-compiler / build-toolchain
+requirement — just these four.
+
+### What the installer does
+
+1. Checks dependencies (`node`, `npm`, `git`, `curl`; warns, but doesn't
+   fail, on low disk space).
+2. Gets the source — either `git clone --depth 1` of `APPCTL_REPO` at
+   `APPCTL_REF`, or a copy of `APPCTL_SRC` if set — into a temp directory
+   that's cleaned up on exit.
+3. Builds the CLI workspace: `npm install --workspace=cli` then
+   `npm run build --workspace=cli`, from that temp checkout.
+4. Deploys the standalone app: copies `apps/cli/dist`, `package.json` and
+   `README.md` into `~/.appctl/app` (replacing any previous install), then
+   runs `npm install --omit=dev` there to pull in just the runtime
+   dependencies (commander, ink, ink-select-input, ink-spinner,
+   ink-text-input, react).
+5. Writes the `appctl` shim to `~/.local/bin/appctl` — a small script that
+   `exec`s `node ~/.appctl/app/dist/cli.js "$@"` — and makes it executable.
+6. Checks whether the shim's directory is on `$PATH` and, if not, prints the
+   `export` line to add to your shell config (see below).
+7. Verifies the install by running the new shim's `--version` and printing
+   an install summary (version, install size, paths).
+
+If `~/.local/bin` (or your custom `APPCTL_BIN_DIR`) isn't on `$PATH`, add
+this to `~/.bashrc` or `~/.zshrc` and reload your shell:
+
+```bash
+export PATH="$PATH:$HOME/.local/bin"
+```
+
+(On WSL specifically, the installer prints a dedicated box with the exact
+two commands to run, since `~/.local/bin` is rarely on `$PATH` there by
+default.)
+
+### Installer environment variables
+
+Set these before running the installer to override its defaults:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `APPCTL_REPO` | `https://github.com/marinoscar/EnterpriseAppBase.git` | Git clone URL |
+| `APPCTL_REF` | `main` | Branch/tag/commit to install |
+| `APPCTL_HOME` | `$HOME/.appctl` | App install root (same directory the CLI stores `config.json` in) |
+| `APPCTL_BIN_DIR` | `$HOME/.local/bin` | Directory for the `appctl` shim |
+| `GITHUB_TOKEN` | (unset) | Optional GitHub PAT, for cloning a private repo |
+| `APPCTL_SRC` | (unset) | Local directory to install from instead of cloning |
+
+`NO_COLOR` and the installer's own `--no-color` flag both disable ANSI
+colour in its output.
 
 ## Logging in
 
@@ -199,6 +276,46 @@ so the prefix is derived from the (longer, more specific) binary name
 instead. If you've seen `APP_SERVER_URL` / `APP_TOKEN` mentioned elsewhere,
 that's what it would have been under a shorter, collision-prone prefix;
 `APPCTL_SERVER_URL` / `APPCTL_TOKEN` is what the code actually reads.
+
+`install.sh`'s default `APPCTL_REPO` (the git URL it clones when
+`APPCTL_SRC` isn't set) is a second place a fork has to edit by hand,
+alongside the `bin` key above. It's a standalone shell script that runs
+*before* any of this repo's own code executes — `git clone`s the source
+first — so it has no way to read `CLI_NAME` out of `branding.ts` and derive
+the clone URL itself; the URL is hard-coded near the top of `install.sh`
+under its own "Defaults" comment block and has to be changed there directly.
+
+## Building from source (development)
+
+The install path above is for end users. If you're developing the CLI
+itself inside this monorepo, build and run it from the workspace instead:
+
+```bash
+# from the repo root, after the workspace's node_modules are installed
+npm run build --workspace=cli
+```
+
+This runs `tsc` against `apps/cli/tsconfig.build.json`, emitting
+`apps/cli/dist/`, and marks `dist/cli.js` executable. From there you can run
+it straight from the workspace without installing or publishing anything:
+
+```bash
+node apps/cli/dist/cli.js --help
+```
+
+or, from inside `apps/cli`:
+
+```bash
+node dist/cli.js --help
+```
+
+If you want the bare `appctl` command on your PATH without publishing, `npm
+link` from `apps/cli` (`package.json`'s `bin` field maps `appctl` to
+`./dist/cli.js`) does that using the standard npm mechanism.
+
+For iterating on the CLI's own source without rebuilding on every change,
+`npm run dev --workspace=cli` runs `tsx src/cli.ts` directly — same behavior,
+no build step.
 
 ## Running tests
 
