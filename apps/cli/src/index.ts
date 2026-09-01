@@ -272,3 +272,27 @@ export type {
   RepoTarget,
   ResolveRepoOptions,
 } from './deploy/repo.js';
+
+// Publishing the app through the shared host proxy (#181). The rollback in
+// installVhost is the reason this is a module and not a writeFileSync at the
+// call site: the proxy is shared, so a bad vhost breaks every site on the box.
+export {
+  assertValidDomain,
+  certificateStatus,
+  installVhost,
+  issueCertificate,
+  livePath,
+  reloadProxy,
+  removeVhost,
+  renderVhost,
+  validateProxy,
+  vhostPath,
+} from './deploy/proxy.js';
+export type {
+  CertInfo,
+  CertificateOptions,
+  InstallVhostResult,
+  ProxyOptions,
+  ProxyTarget,
+  ValidationResult,
+} from './deploy/proxy.js';
