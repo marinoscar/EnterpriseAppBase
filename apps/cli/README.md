@@ -252,14 +252,30 @@ explicit subcommand ignores this gate entirely and is unaffected by it.
 
 ## Renaming this for a fork
 
-Every user-visible identity string this CLI has — the executable name shown
-in `--help` and errors, the config directory (`~/.appctl/`), and the
-`APPCTL_` environment-variable prefix — is derived from a single constant:
+There are two identities here, and they are deliberately independent.
+
+**The product name** — the "Enterprise App" half of the `Enterprise App CLI`
+banner in `--help` and the interactive UI — is not set in this package at all.
+It comes from the shared constant every app renders, so renaming the product
+renames the CLI banner, the browser wordmark and the email templates together:
+
+```js
+// packages/shared/index.js
+exports.APP_NAME = 'Enterprise App';
+```
+
+**The executable's own identity** — the command name shown in `--help` and
+errors, the config directory (`~/.appctl/`), and the `APPCTL_`
+environment-variable prefix — is derived from a separate constant:
 
 ```ts
 // apps/cli/src/branding.ts
 export const CLI_NAME = 'appctl';
 ```
+
+The split is intentional: a product called "Acme" may perfectly well still
+ship a command called `appctl`, and renaming the binary moves a filesystem
+path and an environment-variable prefix, which renaming the product must not.
 
 Change that one line (see the comment above it in `branding.ts` for the
 naming constraints — lowercase ASCII letters, digits and hyphens only, since
