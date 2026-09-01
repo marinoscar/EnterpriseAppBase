@@ -1,5 +1,8 @@
 import type { Check } from './types.js';
+import { DATABASE_CHECKS } from './database.js';
+import { DNS_CHECKS } from './dns.js';
 import { HOST_CHECKS } from './host.js';
+import { TLS_CHECKS } from './tls.js';
 
 // =============================================================================
 // The check registry  (issue #176, epic #168)
@@ -11,7 +14,14 @@ import { HOST_CHECKS } from './host.js';
 // by one command and not the other.
 // =============================================================================
 
-export const ALL_CHECKS: readonly Check[] = [...HOST_CHECKS];
+// Host first: everything else depends on docker being usable, and a server
+// with no docker should say so before it starts probing databases.
+export const ALL_CHECKS: readonly Check[] = [
+  ...HOST_CHECKS,
+  ...DATABASE_CHECKS,
+  ...DNS_CHECKS,
+  ...TLS_CHECKS,
+];
 
 /** The subset install and update must pass before they touch anything. */
 export function requiredChecks(checks: readonly Check[] = ALL_CHECKS): Check[] {
@@ -19,4 +29,7 @@ export function requiredChecks(checks: readonly Check[] = ALL_CHECKS): Check[] {
 }
 
 export * from './types.js';
-export { HOST_CHECKS } from './host.js';
+export { HOST_CHECKS, evaluateDf } from './host.js';
+export { DATABASE_CHECKS, databaseSettings, probeTcp } from './database.js';
+export { DNS_CHECKS } from './dns.js';
+export { TLS_CHECKS, parseNotAfter } from './tls.js';
