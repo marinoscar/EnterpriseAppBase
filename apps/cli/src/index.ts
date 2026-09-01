@@ -334,3 +334,8 @@ export {
   secretsFrom,
 } from './deploy/install.js';
 export type { InstallOptions, InstallResult } from './deploy/install.js';
+
+// The update pipeline (#182). Its preconditions are the opposite of install's,
+// which is why it is its own command rather than a flag.
+export { buildUpdateSteps, runUpdate } from './deploy/update.js';
+export type { UpdateOptions, UpdateResult } from './deploy/update.js';

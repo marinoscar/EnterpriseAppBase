@@ -44,6 +44,8 @@ export interface DeployState {
   lastCommand: 'install' | 'update';
   /** Which appctl wrote this, for diagnosing a state file from the future. */
   appctlVersion: string;
+  /** The revision this replaced, for a manual roll-back. */
+  previousSha?: string | undefined;
   /**
    * Step ids that completed, so `--resume` can skip them.
    *
