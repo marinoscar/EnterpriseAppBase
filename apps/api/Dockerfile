@@ -87,6 +87,16 @@ COPY --from=deps /app ./
 COPY --from=build /app/apps/api/dist ./apps/api/dist
 COPY apps/api/prisma ./apps/api/prisma/
 COPY apps/api/prisma.config.ts ./apps/api/
+# The migration entry points are npm scripts that shell into this directory:
+# `prisma:migrate` is `node scripts/prisma-env.js migrate deploy`, resolved
+# from the WORKDIR below. Without it the image starts perfectly - CMD runs
+# `node dist/main` and never touches these - and then cannot migrate, which
+# is only discovered by whatever tries to deploy it.
+#
+# NOT the same as `COPY scripts ./scripts` below, which copies the
+# REPOSITORY-ROOT scripts/ directory. The similar name is most likely why
+# this one was missed.
+COPY apps/api/scripts ./apps/api/scripts/
 COPY scripts ./scripts
 WORKDIR /app/apps/api
 EXPOSE 3000
