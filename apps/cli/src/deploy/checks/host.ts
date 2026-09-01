@@ -29,6 +29,11 @@ const MIN_MEMORY_BYTES = 2 * 1024 * 1024 * 1024;
 /** apps/cli's own floor. The build runs on this host. */
 const MIN_NODE_MAJOR = 20;
 
+/** Keeps a one-line detail scannable; the journal keeps the whole thing. */
+function truncate(text: string, limit: number): string {
+  return text.length <= limit ? text : `${text.slice(0, limit - 1)}...`;
+}
+
 function formatBytes(bytes: number): string {
   const gigabytes = bytes / (1024 * 1024 * 1024);
   return `${gigabytes.toFixed(1)} GB`;
@@ -93,16 +98,26 @@ const dockerDaemon: Check = {
         remedy: `Run as root, or add this user to the docker group: usermod -aG docker $USER (then log in again)`,
       };
     }
-    if (/cannot connect|is the docker daemon running/i.test(stderr)) {
+    // Docker has worded this several ways across versions ("Cannot connect to
+    // the Docker daemon", "failed to connect to the docker API"); match the
+    // socket instead, which every wording mentions and which is the actual
+    // symptom.
+    if (
+      /cannot connect|failed to connect|is the docker daemon running|docker\.sock/i.test(
+        stderr,
+      )
+    ) {
       return {
         status: 'fail',
-        detail: 'daemon is not running',
+        detail: 'daemon is not running or the socket is unreachable',
         remedy: 'Start it: systemctl start docker (or start Docker Desktop)',
       };
     }
     return {
       status: 'fail',
-      detail: stderr.split('\n')[0] ?? 'unreachable',
+      // Truncated: some of these run to several hundred characters and the
+      // checklist is meant to be scannable. The full text is in the journal.
+      detail: truncate(stderr.split('\n')[0] ?? 'unreachable', 90),
       remedy: 'Check the daemon with: docker info',
     };
   },

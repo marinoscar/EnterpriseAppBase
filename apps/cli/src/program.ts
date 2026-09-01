@@ -3,6 +3,7 @@ import { Command, CommanderError } from 'commander';
 import { CLI_DISPLAY_NAME, CLI_NAME } from './branding.js';
 import { registerApiCommand } from './commands/api.js';
 import { registerConfigCommand } from './commands/config.js';
+import { registerDeployCommand } from './commands/deploy.js';
 import { registerLoginCommand } from './commands/login.js';
 import { EXIT, exitCodeFor, formatError } from './errors.js';
 import { CLI_VERSION } from './package-info.js';
@@ -66,6 +67,9 @@ export function buildProgram(): Command {
   registerLoginCommand(program);
   registerApiCommand(program);
   registerConfigCommand(program);
+  // `deploy` last: it is the only group that acts on a SERVER rather than on
+  // this machine's session, and it reads as a separate concern in --help.
+  registerDeployCommand(program);
 
   return program;
 }

@@ -58,6 +58,15 @@ export const EXIT = {
    * sends them round a loop.
    */
   AUTH: 5,
+  /**
+   * A prerequisite is not met, so nothing was attempted (#178, epic #168).
+   *
+   * SPLIT OUT FROM FAILURE because it is the one a script can act on:
+   * `appctl deploy doctor || provision-the-box` is the intended shape, and
+   * "this server is not ready" has to be distinguishable from "appctl itself
+   * broke". Additive, like every code above it - never renumber.
+   */
+  PRECONDITION: 6,
 } as const;
 
 export type ExitCode = (typeof EXIT)[keyof typeof EXIT];
@@ -110,6 +119,16 @@ export class AuthRequiredError extends CliError {
   constructor(message = `Not logged in. Run \`${CLI_NAME} login\` first.`) {
     super(message);
   }
+}
+
+/**
+ * A required prerequisite failed, so the command did not proceed (#178).
+ *
+ * The message names what failed; the remedy belongs to the check that
+ * produced it and is rendered beside it, not folded in here.
+ */
+export class PreconditionError extends CliError {
+  readonly exitCode = EXIT.PRECONDITION;
 }
 
 /**
