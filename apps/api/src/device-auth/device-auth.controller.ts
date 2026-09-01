@@ -52,7 +52,14 @@ export class DeviceAuthController {
     summary: 'Generate device code',
     description:
       'Initiates the device authorization flow by generating a device code and user code pair. ' +
-      'The device should poll /auth/device/token while the user authorizes via /device page.',
+      'The device displays the returned `userCode` and sends the user to the returned ' +
+      '`verificationUri` (or `verificationUriComplete`, which has the code pre-filled); in this ' +
+      'application that URI resolves to the `/activate` page. Use the returned field rather than ' +
+      'hardcoding the path. Meanwhile the device polls `POST /auth/device/token` until the user ' +
+      'approves or the code expires. ' +
+      'Set `clientInfo.tokenType` to `pat` to be issued a long-lived, revocable personal access ' +
+      'token instead of the default `session` credential (short-lived access token + refresh ' +
+      'token); an unrecognised value is rejected with a 400 rather than falling back.',
   })
   @ApiResponse({
     status: 200,
@@ -80,11 +87,19 @@ export class DeviceAuthController {
     summary: 'Poll for device authorization',
     description:
       'Device polls this endpoint to check if the user has authorized the device. ' +
-      'Returns tokens when approved, or appropriate error codes while pending/denied/expired.',
+      'Returns the credential when approved, or an RFC 8628 error code while ' +
+      'pending/denied/expired. The credential is minted HERE, on the poll — approval records ' +
+      'intent only — so a device that is approved but never polls is never issued one, and the ' +
+      'device code is consumed by the poll that succeeds.',
   })
   @ApiResponse({
     status: 200,
-    description: 'Device authorized - returns access and refresh tokens',
+    description:
+      'Device authorized. Returns the credential kind requested at `POST /auth/device/code`: ' +
+      'the default `session` credential (access token plus `refreshToken`), or a personal ' +
+      'access token when `clientInfo.tokenType` was `pat`, which carries `credentialType: ' +
+      '"pat"`, `expiresAt`, `tokenId`, `tokenName` and NO refresh token. Branch on ' +
+      '`credentialType`, never on the absence of `refreshToken`.',
     type: DeviceTokenResponseDto,
   })
   // The two error responses below are the ONLY ones in this API that are not
@@ -129,8 +144,11 @@ export class DeviceAuthController {
   @ApiOperation({
     summary: 'Get device activation info',
     description:
-      'Returns information for the device activation page. ' +
-      'If a code is provided, validates it and returns details.',
+      'Returns information for the device activation page — the `verificationUri` this ' +
+      'deployment hands out (the `/activate` page) and, when a `code` is supplied, the ' +
+      'pending request it identifies: its `userCode`, the `clientInfo` the device sent, and ' +
+      'when the code expires. `clientInfo` is supplied by an unauthenticated caller, so treat ' +
+      'it as untrusted when displaying it.',
   })
   @ApiQuery({
     name: 'code',
@@ -145,11 +163,11 @@ export class DeviceAuthController {
   })
   @ApiResponse({
     status: 400,
-    description: 'Invalid or expired code',
+    description: 'The code has expired, or has already been approved or denied',
   })
   @ApiResponse({
     status: 404,
-    description: 'Code not found',
+    description: 'No device code matches this user code',
   })
   async getActivationInfo(
     @Query('code') code?: string,
@@ -170,7 +188,10 @@ export class DeviceAuthController {
   @ApiOperation({
     summary: 'Authorize or deny device',
     description:
-      'User authorizes or denies a device using the user code from the activation page.',
+      'User authorizes or denies a device using the user code from the activation page. ' +
+      'Approval records INTENT ONLY (the request is marked approved and bound to this user); ' +
+      'no credential is created here. The device receives its credential — session token or ' +
+      'personal access token — on its next poll of `POST /auth/device/token`.',
   })
   @ApiResponse({
     status: 200,
@@ -179,11 +200,11 @@ export class DeviceAuthController {
   })
   @ApiResponse({
     status: 400,
-    description: 'Invalid or expired code',
+    description: 'The code has expired, or has already been approved or denied',
   })
   @ApiResponse({
     status: 404,
-    description: 'Code not found',
+    description: 'No device code matches this user code',
   })
   async authorizeDevice(
     @CurrentUser() user: RequestUser,
@@ -207,7 +228,11 @@ export class DeviceAuthController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: 'List device sessions',
-    description: "Returns a paginated list of the current user's approved device sessions.",
+    description:
+      "Returns a paginated list of the current user's device authorizations that are still " +
+      'in the `approved` state — that is, approved but not yet redeemed. A request leaves ' +
+      'this list once the device collects its credential on `POST /auth/device/token`, so ' +
+      'this is not a list of live credentials.',
   })
   @ApiQuery({
     name: 'page',
@@ -255,7 +280,12 @@ export class DeviceAuthController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: 'Revoke device session',
-    description: 'Revokes a specific device session for the current user.',
+    description:
+      'Revokes one of the current user\'s device authorizations, so the device can no longer ' +
+      'redeem it on the token endpoint. It does NOT invalidate a credential the device has ' +
+      'already collected: revoke a personal access token with `DELETE /api/pat/{id}`; for a ' +
+      'session credential `POST /auth/logout-all` revokes the refresh tokens, while the ' +
+      'issued access token stays valid until it expires.',
   })
   @ApiResponse({
     status: 200,

@@ -70,8 +70,12 @@ export class DeviceTokenResponseDto {
   tokenType!: string;
 
   @ApiProperty({
-    description: 'Token lifetime in seconds.',
-    example: 900,
+    description:
+      'Token lifetime in seconds. For the session credential this is ' +
+      '`DEVICE_TOKEN_EXPIRY_DAYS` (7 days = 604800 seconds by default), not the ordinary ' +
+      '15-minute web access-token TTL. For a PAT it is the remaining time until `expiresAt` ' +
+      '(`DEVICE_PAT_EXPIRY_DAYS`, 90 days by default); prefer the absolute `expiresAt` there.',
+    example: 604800,
   })
   expiresIn!: number;
 
