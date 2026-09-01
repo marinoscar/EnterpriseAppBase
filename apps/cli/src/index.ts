@@ -255,3 +255,20 @@ export type {
   CheckSummary,
   CompletedCheck,
 } from './deploy/checks/index.js';
+
+// Working out what to deploy without naming a repository (#179) - the other
+// half of the template-safety property, alongside the env spec.
+export {
+  displayRepoUrl,
+  ensureCheckout,
+  findGitRoot,
+  hasEmbeddedCredentials,
+  normaliseRepoUrl,
+  resolveRepoTarget,
+} from './deploy/repo.js';
+export type {
+  CheckoutOptions,
+  CheckoutResult,
+  RepoTarget,
+  ResolveRepoOptions,
+} from './deploy/repo.js';
