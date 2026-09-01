@@ -1,5 +1,5 @@
 import { Box, Text, useInput } from 'ink';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { useTerminalSize } from './layout.js';
 
@@ -38,17 +38,36 @@ export interface ScrollBoxProps {
   reservedRows?: number | undefined;
   /** Arrow keys are ignored while false, so two screens cannot both scroll. */
   isActive?: boolean | undefined;
+  /**
+   * Stick to the bottom as lines are appended (#184).
+   *
+   * A live deploy log that does NOT follow the tail shows the operator the
+   * first twenty lines of a four-minute build and nothing else - the one thing
+   * they are not waiting to see. Following disengages the moment they scroll
+   * up, so reading back through an error is not fought over, and re-engages
+   * when they return to the bottom. That is the behaviour every log viewer has
+   * and the only one that is not annoying.
+   */
+  followTail?: boolean | undefined;
 }
 
 /** Never show fewer than this, even in a very short terminal. */
 const MIN_VIEWPORT_ROWS = 3;
 
-export function ScrollBox({ lines, reservedRows, isActive }: ScrollBoxProps): ReactNode {
+export function ScrollBox({
+  lines,
+  reservedRows,
+  isActive,
+  followTail,
+}: ScrollBoxProps): ReactNode {
   const { rows } = useTerminalSize();
   const [offset, setOffset] = useState(0);
 
   const viewportRows = Math.max(MIN_VIEWPORT_ROWS, rows - (reservedRows ?? 12));
   const maxOffset = Math.max(0, lines.length - viewportRows);
+  // The previous maximum, so "is the user at the bottom?" can be answered
+  // before this render's content changed what the bottom is.
+  const maxOffsetBefore = useRef(0);
 
   // Clamped as a state EFFECT rather than only at render, because the terminal
   // can be made taller while scrolled to the bottom: the viewport grows, the
@@ -57,8 +76,20 @@ export function ScrollBox({ lines, reservedRows, isActive }: ScrollBoxProps): Re
   // when the content itself changes is the other half — a new response must not
   // open already scrolled to where the previous one was being read.
   useEffect(() => {
-    setOffset((current) => Math.min(current, Math.max(0, lines.length - viewportRows)));
-  }, [lines, viewportRows]);
+    const limit = Math.max(0, lines.length - viewportRows);
+
+    setOffset((current) => {
+      // Following is expressed as "was already at the bottom", not as a
+      // separate flag: it means scrolling up disengages and returning
+      // re-engages with no extra state to keep in sync.
+      if (followTail === true && current >= maxOffsetBefore.current) {
+        maxOffsetBefore.current = limit;
+        return limit;
+      }
+      maxOffsetBefore.current = limit;
+      return Math.min(current, limit);
+    });
+  }, [lines, viewportRows, followTail]);
 
   useInput(
     (input, key) => {

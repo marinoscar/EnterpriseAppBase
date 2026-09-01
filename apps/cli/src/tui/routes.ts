@@ -15,4 +15,4 @@
 // where they will land.
 // =============================================================================
 
-export type Route = 'menu' | 'login' | 'invoke' | 'status' | 'logout';
+export type Route = 'menu' | 'login' | 'invoke' | 'status' | 'deploy' | 'logout';

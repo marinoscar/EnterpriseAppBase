@@ -70,6 +70,14 @@ export interface InstallOptions {
   hooks?: DeployHooks | undefined;
   promptContext?: PromptContext | undefined;
   cwd?: string | undefined;
+  /**
+   * Values collected elsewhere, merged in ahead of the wizard.
+   *
+   * The ink screen (#184) needs this: readline cannot ask a question while
+   * ink holds stdin in raw mode, so the TUI collects the fields with its own
+   * text input and hands them over, then runs the wizard non-interactively.
+   */
+  answers?: ReadonlyMap<string, string> | undefined;
 }
 
 interface InstallContext extends StepContext {
@@ -196,9 +204,14 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
         const specs = parseEnvExample(readFileSync(templatePath, 'utf8'));
 
         const path = envFilePath(context.options.deployRoot);
-        const existing = existsSync(path)
-          ? parseEnvFile(readFileSync(path, 'utf8'))
-          : undefined;
+        const onDisk = existsSync(path) ? parseEnvFile(readFileSync(path, 'utf8')) : undefined;
+
+        // Answers supplied by a caller win over what is on disk: they are the
+        // more recent statement of intent.
+        const existing =
+          context.options.answers === undefined
+            ? onDisk
+            : new Map([...(onDisk ?? new Map()), ...context.options.answers]);
 
         const domain = context.options.domain;
         if (domain === undefined) {

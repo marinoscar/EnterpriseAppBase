@@ -54,6 +54,13 @@ export function MenuScreen({ onSelect, onQuit }: MenuScreenProps): ReactNode {
         value: 'invoke',
       },
       { key: 'status', label: 'Status', value: 'status' },
+      {
+        key: 'deploy',
+        // Not gated on being logged in: deploying acts on THIS SERVER, not on
+        // the API, so a stored token is irrelevant to it.
+        label: 'Deploy  (this server)',
+        value: 'deploy',
+      },
       { key: 'logout', label: loggedIn ? 'Logout' : 'Logout  (nothing stored)', value: 'logout' },
       { key: 'quit', label: 'Quit', value: 'quit' },
     ],
