@@ -1,6 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+// The wordmark assertions below derive the expected text from `@app/shared`
+// rather than restating it (issue #164, epic #161): the point of the shared
+// constant is that renaming the product is a one-line change, and a suite that
+// hardcoded the old name would turn that rename into ~10 unrelated failures.
+//
+// `getByText(APP_NAME)` is an exact, case-SENSITIVE match on the element's own
+// text, which is deliberately stricter than the `/enterprise app/i` regex it
+// replaces — that one would have passed on "ENTERPRISE APP" or on a wordmark
+// buried in a longer sentence. The negative drill-down assertions keep using
+// the same matcher via `queryByText`, so they still assert the wordmark is
+// absent and not merely that some looser pattern failed to match.
+import { APP_NAME } from '@app/shared';
 import { render, mockAdminUser } from '../../utils/test-utils';
 import { setViewportWidth } from '../../setup';
 import { AppBar } from '../../../components/navigation/AppBar';
@@ -25,7 +37,7 @@ describe('AppBar', () => {
     it('should render app title', () => {
       render(<AppBar />);
 
-      expect(screen.getByText(/enterprise app/i)).toBeInTheDocument();
+      expect(screen.getByText(APP_NAME)).toBeInTheDocument();
     });
 
     it('should render as banner landmark', () => {
@@ -139,7 +151,7 @@ describe('AppBar', () => {
 
       render(<AppBar />);
 
-      const title = screen.getByText(/enterprise app/i);
+      const title = screen.getByText(APP_NAME);
       await user.click(title);
 
       // Navigation should be triggered
@@ -149,7 +161,7 @@ describe('AppBar', () => {
     it('should have clickable title', () => {
       render(<AppBar />);
 
-      const title = screen.getByText(/enterprise app/i);
+      const title = screen.getByText(APP_NAME);
       expect(title).toHaveStyle({ cursor: 'pointer' });
     });
   });
@@ -175,7 +187,7 @@ describe('AppBar', () => {
     it('should render all elements on desktop', () => {
       render(<AppBar />);
 
-      expect(screen.getByText(/enterprise app/i)).toBeInTheDocument();
+      expect(screen.getByText(APP_NAME)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /toggle theme/i })).toBeInTheDocument();
     });
   });
@@ -202,7 +214,7 @@ describe('AppBar', () => {
 
       expect(screen.getByRole('button', { name: 'Back' })).toBeInTheDocument();
       expect(screen.getByText('Settings')).toBeInTheDocument();
-      expect(screen.queryByText(/enterprise app/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(APP_NAME)).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /toggle theme/i })).not.toBeInTheDocument();
     });
 
@@ -294,7 +306,7 @@ describe('AppBar', () => {
       setViewportWidth(600);
       render(<AppBar />, { wrapperOptions: { route: '/admin/settings' } });
 
-      expect(screen.getByText(/enterprise app/i)).toBeInTheDocument();
+      expect(screen.getByText(APP_NAME)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /toggle theme/i })).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument();
     });
@@ -303,7 +315,7 @@ describe('AppBar', () => {
       setViewportWidth(375);
       render(<AppBar />, { wrapperOptions: { route: '/' } });
 
-      expect(screen.getByText(/enterprise app/i)).toBeInTheDocument();
+      expect(screen.getByText(APP_NAME)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /toggle theme/i })).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument();
     });
@@ -314,7 +326,7 @@ describe('AppBar', () => {
       setViewportWidth(375);
       render(<AppBar />, { wrapperOptions: { route: '/admin/settings-archive' } });
 
-      expect(screen.getByText(/enterprise app/i)).toBeInTheDocument();
+      expect(screen.getByText(APP_NAME)).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument();
     });
   });
@@ -351,7 +363,7 @@ describe('AppBar', () => {
 
       // AppBar: compact drill-down treatment.
       expect(screen.getByRole('button', { name: 'Back' })).toBeInTheDocument();
-      expect(screen.queryByText(/enterprise app/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(APP_NAME)).not.toBeInTheDocument();
 
       // SettingsHub: compact list treatment.
       expect(screen.getAllByRole('list').length).toBeGreaterThan(0);
@@ -375,7 +387,7 @@ describe('AppBar', () => {
       );
 
       // AppBar: normal wordmark treatment.
-      expect(screen.getByText(/enterprise app/i)).toBeInTheDocument();
+      expect(screen.getByText(APP_NAME)).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument();
 
       // SettingsHub: wide grid treatment.

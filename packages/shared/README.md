@@ -58,6 +58,27 @@ Keep this list current when you add one.
 | Email wordmark, footer, and subject lines | `apps/api/src/email/templates/layout.ts` (re-exported to the five templates) | `APP_NAME` |
 | CLI banner, `--help`, device name | `apps/cli/src/branding.ts` (`CLI_DISPLAY_NAME`) | `${APP_NAME} CLI` |
 
+## If you consume this from a Vite app
+
+Add the package to `optimizeDeps.include` in that app's Vite config:
+
+```ts
+optimizeDeps: { include: ['@app/shared'] },
+```
+
+This is **not** optional and it is not a performance tweak. The package is
+CommonJS and arrives as an npm workspace symlink; Vite treats a linked package
+as project source rather than as a dependency, so it skips dep pre-bundling and
+serves `exports.APP_NAME = ...` to the browser as raw ESM. Every importer then
+fails with `does not provide an export named 'APP_NAME'` and the page renders
+blank.
+
+The trap is what stays green while that is broken: `tsc --noEmit`, the whole
+Vitest suite, and `vite build` all pass, because Rollup's commonjs plugin and
+Vitest's interop each handle the file unaided. **Only the dev server breaks.**
+`apps/web/vite.config.ts` and `apps/web/visual/vite.config.ts` both carry the
+line for this reason — see #164.
+
 ## Why this package looks the way it does
 
 It ships committed JavaScript and a hand-written `.d.ts`, with **no build
