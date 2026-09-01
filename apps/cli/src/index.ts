@@ -158,3 +158,40 @@ export {
   formatError,
 } from './errors.js';
 export type { ApiErrorFields, ExitCode, NetworkFailureKind } from './errors.js';
+
+// ---------------------------------------------------------------------------
+// Deployment (epic #168)
+// ---------------------------------------------------------------------------
+// The foundations the deploy pipelines are built from (#173). Exported because
+// they are the parts with behaviour worth exercising directly: the executor's
+// line assembly and exit-code handling, the journal's redaction, and the state
+// file's read/write contract. `DeployHooks` is exported because it is the seam
+// the subcommands and the ink screens both render.
+export {
+  CommandFailedError,
+  describeFailure,
+  runCommand,
+  stripAnsi,
+} from './deploy/executor.js';
+export type {
+  CommandResult,
+  OutputStream,
+  RunCommandOptions,
+} from './deploy/executor.js';
+
+export { createRedactor, openJournal, pruneOldRuns, timestampSlug } from './deploy/journal.js';
+export type { Journal, OpenJournalOptions, Redactor, SecretEntry } from './deploy/journal.js';
+
+export {
+  DEPLOY_STATE_FILENAME,
+  DEPLOY_STATE_VERSION,
+  DeployStateError,
+  NotInstalledError,
+  deployStatePath,
+  readState,
+  requireState,
+  writeState,
+} from './deploy/state.js';
+export type { DeployState } from './deploy/state.js';
+
+export type { DeployHooks, StepOutcome, StepResult } from './deploy/hooks.js';
