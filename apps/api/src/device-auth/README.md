@@ -10,7 +10,12 @@ The Device Authorization Flow allows users to authorize devices on a separate de
 2. Device displays the user code and verification URL to the user
 3. User navigates to the verification URL on another device and enters the user code
 4. User authenticates (if not already) and approves the device
-5. Device polls the token endpoint and receives access tokens once approved
+5. Device polls the token endpoint and receives its credential once approved
+
+The flow can mint **two different kinds of credential**, selected by the
+device when it requests the code (`clientInfo.tokenType`). See
+[Credential kinds](#credential-kinds) below — a CLI wants the `pat` kind, and
+the browser-driven activation page uses the default `session` kind.
 
 ## Architecture
 
@@ -22,15 +27,19 @@ device-auth/
 │   ├── device-code-request.dto.ts        # Request for generating device codes
 │   ├── device-code-response.dto.ts       # Response with device/user codes
 │   ├── device-token-request.dto.ts       # Request for polling authorization
-│   ├── device-token-response.dto.ts      # Response with JWT tokens
+│   ├── device-token-response.dto.ts      # Response with the issued credential
 │   ├── device-token-error.dto.ts         # RFC 8628 error responses
 │   ├── device-authorize-request.dto.ts   # Request to approve/deny device
 │   ├── device-authorize-response.dto.ts  # Response for authorization action
 │   ├── device-activate-response.dto.ts   # Response for activation page info
 │   ├── device-session.dto.ts             # Device session management DTOs
 │   └── index.ts
+├── exceptions/
+│   └── device-token-error.exception.ts   # Throws RFC 8628 error bodies verbatim
 ├── tasks/
 │   └── device-code-cleanup.task.ts       # Scheduled cleanup of expired codes
+├── __tests__/
+│   └── device-auth.service.spec.ts       # Service unit tests
 ├── device-auth.controller.ts             # REST API endpoints
 ├── device-auth.service.ts                # Business logic
 ├── device-auth.module.ts                 # NestJS module definition
@@ -65,7 +74,7 @@ enum DeviceCodeStatus {
 
 ## API Endpoints
 
-### 1. POST /api/auth/activate/code (Public)
+### 1. POST /api/auth/device/code (Public)
 
 Generates a new device code pair to initiate the authorization flow.
 
@@ -74,10 +83,17 @@ Generates a new device code pair to initiate the authorization flow.
 {
   "clientInfo": {
     "deviceName": "CLI Tool",
-    "userAgent": "MyApp/1.0"
+    "userAgent": "MyApp/1.0",
+    "tokenType": "pat"
   }
 }
 ```
+
+`clientInfo.tokenType` is `"session"` or `"pat"` and defaults to `"session"`
+when omitted, which is what the web activation page sends. An unrecognised
+value is rejected with a `400` by the validation pipe rather than falling back
+— a device that asked for something the server does not understand is not
+handed a credential of the server's choosing.
 
 **Response:**
 ```json
@@ -93,7 +109,7 @@ Generates a new device code pair to initiate the authorization flow.
 }
 ```
 
-### 2. POST /api/auth/activate/token (Public)
+### 2. POST /api/auth/device/token (Public)
 
 Device polls this endpoint to check authorization status.
 
@@ -104,7 +120,7 @@ Device polls this endpoint to check authorization status.
 }
 ```
 
-**Response (Success):**
+**Response (Success — `session` credential):**
 ```json
 {
   "data": {
@@ -115,6 +131,43 @@ Device polls this endpoint to check authorization status.
   }
 }
 ```
+
+**Response (Success — `pat` credential):**
+```json
+{
+  "data": {
+    "accessToken": "pat_a1b2c3d4...",
+    "tokenType": "Bearer",
+    "expiresIn": 7776000,
+    "credentialType": "pat",
+    "expiresAt": "2026-11-28T12:00:00.000Z",
+    "tokenId": "123e4567-e89b-12d3-a456-426614174000",
+    "tokenName": "Device: CLI Tool"
+  }
+}
+```
+
+Both shapes come from the same `DeviceTokenResponseDto`; they differ only in
+which optional fields are populated. Note in particular:
+
+- `tokenType` is the literal `"Bearer"` for **both** kinds. It describes how to
+  present the credential, not which kind it is — a PAT is sent as
+  `Authorization: Bearer pat_...` and `JwtAuthGuard` accepts it on that header.
+- `credentialType` is the discriminator: present and equal to `"pat"` on the
+  PAT branch, **absent** on the session branch. This mirrors the request side,
+  where an absent `clientInfo.tokenType` also means session. Do not
+  discriminate on `refreshToken === undefined`.
+- `refreshToken` is present for the session credential only. A PAT has no
+  refresh token by design: re-running the device login is its renewal path, and
+  the refresh flow relies on an HttpOnly cookie a CLI does not have.
+- `expiresAt`, `tokenId` and `tokenName` are PAT-only. `expiresAt` is absolute
+  because a CLI writes its token to a config file and re-reads it days later,
+  where a relative `expiresIn` captured at issue time is useless on its own.
+  `tokenId` is the id to pass to `DELETE /api/pat/{id}` to revoke the token,
+  and `tokenName` is the row a user will see in the web UI's Access Tokens page.
+
+The session response is byte-for-byte what it has always been — no field was
+added, removed, renamed or re-typed on that branch.
 
 **Response (Pending - 400):**
 ```json
@@ -136,7 +189,7 @@ Device polls this endpoint to check authorization status.
 - `expired_token` - The device code has expired
 - `access_denied` - User denied the authorization request
 
-### 3. GET /api/auth/activate/activate (Authenticated)
+### 3. GET /api/auth/device/activate (Authenticated)
 
 Returns information for the device activation page.
 
@@ -166,7 +219,7 @@ Returns information for the device activation page.
 }
 ```
 
-### 4. POST /api/auth/activate/authorize (Authenticated)
+### 4. POST /api/auth/device/authorize (Authenticated)
 
 User approves or denies a device authorization request.
 
@@ -188,7 +241,7 @@ User approves or denies a device authorization request.
 }
 ```
 
-### 5. GET /api/auth/activate/sessions (Authenticated)
+### 5. GET /api/auth/device/sessions (Authenticated)
 
 Lists the user's approved device sessions.
 
@@ -219,7 +272,7 @@ Lists the user's approved device sessions.
 }
 ```
 
-### 6. DELETE /api/auth/activate/sessions/:id (Authenticated)
+### 6. DELETE /api/auth/device/sessions/:id (Authenticated)
 
 Revokes a specific device session.
 
@@ -233,14 +286,89 @@ Revokes a specific device session.
 }
 ```
 
+## Credential kinds
+
+A device chooses what it wants when it requests the code, via
+`clientInfo.tokenType`:
+
+| | `session` (default) | `pat` |
+|---|---|---|
+| What it is | Signed JWT access token + refresh token | Opaque personal access token (`pat_...`) |
+| Default lifetime | `DEVICE_TOKEN_EXPIRY_DAYS` (7 days) | `DEVICE_PAT_EXPIRY_DAYS` (90 days) |
+| Refresh token | Yes | No |
+| Revocable before expiry | No — a JWT is valid until it expires | Yes — `DELETE /api/pat/{id}`, or the Access Tokens page in the web UI |
+| Used by | The browser-driven activation page (sends no `tokenType`) | CLI and other headless clients |
+
+The PAT lifetime can be much longer than the session lifetime precisely
+*because* it is revocable server-side: a lost laptop is handled by deleting one
+row, with nothing else to rotate. Raising `DEVICE_TOKEN_EXPIRY_DAYS` to
+CLI-friendly lengths instead would weaken every device session in the app to
+serve one client.
+
+A device-issued PAT is named `Device: <deviceName>`, so it is identifiable in
+the Access Tokens list as device-flow-issued rather than hand-created. The
+`deviceName` reaching that list arrives from an **unauthenticated** caller
+(`POST /auth/device/code` is public), so it is sanitised before use —
+normalised, stripped of control, zero-width and bidi-override characters, and
+truncated to the same 100-character ceiling the PAT UI enforces, with the
+`Device: ` prefix applied afterwards so it can never be displaced. See
+`DeviceAuthService.buildPatName()`.
+
+`DEVICE_PAT_EXPIRY_DAYS` is clamped to 1–999 days (the same ceiling
+`createPatSchema` enforces on a hand-created PAT); anything outside that range,
+or non-numeric, logs a warning and falls back to 90 days. The device flow calls
+`PatService` directly and therefore bypasses that zod schema, so the clamp is
+applied in `DeviceAuthService.resolvePatExpiryDays()`.
+
+### Why the PAT is minted on the poll, not at approval
+
+Approval records **intent only** — `status = approved` plus `userId`. The PAT
+itself is created in the poll request that returns it, in
+`DeviceAuthService.issuePatCredential()`.
+
+The alternative — mint at approval, stash the raw token on the `device_codes`
+row until the device's next poll collects it — would be a real regression.
+`PatService.createToken` returns the raw token exactly once and stores only a
+SHA-256 hash, so that a database backup, a replica, a `SELECT *` in a support
+tool, a query log or an SQL-injection read yields no usable credential. Writing
+the raw token into another table, even briefly, reintroduces the
+plaintext-credential-at-rest problem the PAT design already solved — in a table
+that is publicly writable at one end (anyone can `POST /auth/device/code`) and
+swept by a cleanup task rather than by careful deletion. And the window is not
+short: RFC 8628 polling is best-effort, so the plaintext would sit there for the
+full device-code lifetime if the CLI is slow, backgrounded or killed after the
+user approves.
+
+Minting on the poll means the raw token exists only in the API process's memory
+and in the HTTPS response body. It also matches what the session path has always
+done (tokens generated at poll time, not at approve time), so there is one rule
+for both credential kinds. Two consequences are accepted deliberately:
+
+- **Approve-then-never-poll creates no token.** No orphaned long-lived
+  credential exists for a CLI that died, and nothing needs reaping.
+- **The token cannot be re-fetched.** A device that loses the response must
+  re-run the flow. That is correct for a write-once secret.
+
+The PAT branch also **claims the device code atomically before minting**: a
+single conditional `UPDATE` (`WHERE status = approved`) means exactly one
+concurrent poll proceeds and the rest are refused with `invalid_grant`. Two
+concurrent polls must never leave two independently valid months-long
+credentials on the account, where revoking the visible one would not revoke the
+other. The in-memory poll rate limiter cannot prevent that — it is per-process,
+so it does nothing across replicas. Note the ordering: the code is consumed
+*before* the token is minted, so if minting fails the device must re-authorize.
+Failing closed is the right direction.
+
 ## Configuration
 
-Environment variables (added to `infra/compose/.env.example`):
+Environment variables (see `infra/compose/.env.example`):
 
 ```bash
 # Device Authorization Flow (RFC 8628)
 DEVICE_CODE_EXPIRY_MINUTES=15    # How long device codes are valid
 DEVICE_CODE_POLL_INTERVAL=5      # Minimum seconds between polls
+DEVICE_TOKEN_EXPIRY_DAYS=7       # Lifetime of the `session` credential
+DEVICE_PAT_EXPIRY_DAYS=90        # Lifetime of the `pat` credential (clamped to 1-999)
 ```
 
 ## Security Features
@@ -249,8 +377,13 @@ DEVICE_CODE_POLL_INTERVAL=5      # Minimum seconds between polls
 2. **User Code Format**: Human-friendly codes use unambiguous characters (no 0/O, 1/I/l)
 3. **Rate Limiting**: Built-in polling rate limiting to prevent abuse
 4. **Expiration**: Codes automatically expire after configured time
-5. **One-time Use**: Approved codes are marked as expired after token generation
+5. **One-time Use**: Approved codes are marked as expired once redeemed. The
+   PAT path claims the code atomically *before* minting, so concurrent polls
+   cannot produce two long-lived credentials
 6. **User Verification**: Only authenticated users can approve devices
+7. **No Plaintext Credential at Rest**: PATs are stored as SHA-256 hashes and
+   returned exactly once, on the poll that mints them — the raw token is never
+   written to the database
 
 ## User Code Generation
 
@@ -271,10 +404,21 @@ Runs daily at 2 AM to remove:
 
 ### CLI Tool Example
 
+The repository's own CLI (`apps/cli`, documented in
+[`apps/cli/README.md`](../../../cli/README.md)) is the reference consumer of
+this flow. A minimal client looks like this:
+
 ```typescript
-// 1. Request device code
-const { deviceCode, userCode, verificationUri, interval } =
-  await fetch('/api/auth/activate/code', { method: 'POST' }).then(r => r.json());
+// 1. Request device code, asking for a PAT rather than a session credential.
+//    Every response below is wrapped in the API's `{ data, meta }` envelope.
+const { data: { deviceCode, userCode, verificationUri, interval } } =
+  await fetch('/api/auth/device/code', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      clientInfo: { deviceName: 'my-laptop', tokenType: 'pat' },
+    }),
+  }).then(r => r.json());
 
 console.log(`Please visit ${verificationUri}`);
 console.log(`Enter code: ${userCode}`);
@@ -284,12 +428,15 @@ while (true) {
   await sleep(interval * 1000);
 
   try {
-    const tokens = await fetch('/api/auth/activate/token', {
+    const { data: tokens } = await fetch('/api/auth/device/token', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ deviceCode })
     }).then(r => r.json());
 
-    // Success! Store tokens
+    // Success! `tokens.accessToken` is a `pat_...` string here, because we
+    // asked for `tokenType: 'pat'`. Persist it (and `expiresAt`) and send it
+    // as `Authorization: Bearer <token>` on every later request.
     console.log('Authorized!');
     break;
   } catch (error) {
@@ -309,16 +456,19 @@ const searchParams = new URLSearchParams(window.location.search);
 const code = searchParams.get('code');
 
 // Fetch device info
-const deviceInfo = await fetch(
-  `/api/auth/activate/activate?code=${code}`,
+const { data: deviceInfo } = await fetch(
+  `/api/auth/device/activate?code=${code}`,
   { headers: { Authorization: `Bearer ${accessToken}` } }
 ).then(r => r.json());
 
 // Display device info and approval UI
 // On approve:
-await fetch('/api/auth/activate/authorize', {
+await fetch('/api/auth/device/authorize', {
   method: 'POST',
-  headers: { Authorization: `Bearer ${accessToken}` },
+  headers: {
+    Authorization: `Bearer ${accessToken}`,
+    'Content-Type': 'application/json',
+  },
   body: JSON.stringify({
     userCode: code,
     approve: true
@@ -344,7 +494,7 @@ The module follows RFC 8628 error codes for consistency:
 
 1. Generate a device code:
 ```bash
-curl -X POST http://localhost:3535/api/auth/activate/code \
+curl -X POST http://localhost:3535/api/auth/device/code \
   -H "Content-Type: application/json" \
   -d '{"clientInfo": {"deviceName": "Test CLI"}}'
 ```
@@ -353,7 +503,7 @@ curl -X POST http://localhost:3535/api/auth/activate/code \
 
 3. Poll for tokens:
 ```bash
-curl -X POST http://localhost:3535/api/auth/activate/token \
+curl -X POST http://localhost:3535/api/auth/device/token \
   -H "Content-Type: application/json" \
   -d '{"deviceCode": "YOUR_DEVICE_CODE"}'
 ```
