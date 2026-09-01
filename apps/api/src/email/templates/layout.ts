@@ -1,3 +1,4 @@
+import { APP_NAME } from '@app/shared';
 import { SafeHtml, html, safeUrl } from './safe-html';
 
 // =============================================================================
@@ -51,11 +52,17 @@ import { SafeHtml, html, safeUrl } from './safe-html';
 /**
  * Wordmark. Text, not an image — see the header note on blocked assets.
  *
- * Exported because templates need the same string in their SUBJECT lines, and
- * a subject is not rendered by the layout. Two copies of the product name is
- * how a rename ships half-applied.
+ * NOT DEFINED HERE ANY MORE (issue #163, epic #161): the product name has one
+ * source of truth, `packages/shared`, which the web app, the CLI and the
+ * OpenAPI document read as well. This module re-exports it rather than
+ * importing it privately because templates need the same string in their
+ * SUBJECT lines, and a subject is not rendered by the layout — so every
+ * template already imports `APP_NAME` from here (directly or through
+ * `templates/index.ts`), and rerouting the constant instead of the call sites
+ * keeps that unchanged. Two copies of the product name is how a rename ships
+ * half-applied; so is two import paths for the same constant.
  */
-export const APP_NAME = 'Enterprise App Foundation';
+export { APP_NAME };
 
 // Palette. Chosen for contrast at the extremes so forced inversion preserves
 // legibility; see the dark-mode note above before changing any of these to
@@ -82,9 +89,9 @@ const FONT_STACK = 'Arial, Helvetica, sans-serif';
  *
  * Clients fill the inbox snippet to a fixed length: they take the preheader
  * and then KEEP GOING into the visible body, so a short preheader previews as
- * "Your roles changed Enterprise App Foundation Hello, Oscar..." with the
- * layout's chrome bleeding in behind it. These are zero-width non-joiners
- * interleaved with word joiners — invisible in every client, but consumed by
+ * "Your roles changed <app name> Hello, Oscar..." — the wordmark and the
+ * greeting are the layout's chrome bleeding in behind it. These are zero-width
+ * non-joiners interleaved with word joiners — invisible in every client, but consumed by
  * the snippet's character budget, so the scrape runs out before it reaches the
  * body. The interleaving matters: a run of identical characters gets collapsed
  * by some clients, and the pair does not.
