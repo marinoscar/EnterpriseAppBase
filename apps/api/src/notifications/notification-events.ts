@@ -61,6 +61,22 @@
 //    below imports from Nest, Prisma, or anything Node-only, precisely so
 //    that move stays a `git mv`.
 //
+//    UPDATE (epic #161): that package now exists — `packages/shared`,
+//    published to the workspace as `@app/shared` — and it landed exactly as
+//    the paragraph above asks: as its own filed, reviewed change rather than
+//    as a side effect of a feature. Two things it says are now out of date:
+//    `workspaces` reads `["apps/*", "packages/*"]`, and there IS a cross-app
+//    import. The rest still holds, and **this registry deliberately did not
+//    move**. `@app/shared` carries rebrandable CONSTANTS — today a single
+//    display-name string that all three apps render — and it is plain
+//    CommonJS with a hand-written `.d.ts` and no build step, which is what
+//    lets it satisfy Nest's `rootDir`, ts-jest's transform rules and Vite at
+//    once. A 100-line registry of security-relevant contract is a different
+//    kind of thing on both counts, and option 1 above still beats a shared
+//    copy for it: the web gets the server's answer, not a second declaration
+//    that a build could skew. Moving it remains available, and remains a
+//    call for whoever has a reason to make it.
+//
 // This file is intentionally NOT a Nest provider. It is pure data and pure
 // functions, so tests, the future endpoint, and a shared package later can all
 // consume it without standing up DI for a constant.
