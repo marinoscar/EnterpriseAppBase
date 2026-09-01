@@ -3,8 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Enterprise App" />
-    <title>Enterprise App</title>
+    <!--
+      `%APP_NAME%` is substituted at build/serve time by the `appName()` plugin
+      in `vite.config.ts`, which reads the value from `@app/shared`. Static HTML
+      cannot import TypeScript, and neither of the two obvious alternatives is
+      acceptable here — see that plugin's comment for why not.
+    -->
+    <meta name="description" content="%APP_NAME%" />
+    <title>%APP_NAME%</title>
     <!--
       Issue #111: `src/theme/index.ts` declares Inter as the first family in
       `typography.fontFamily`, so the app has to actually LOAD it — before this

@@ -13,6 +13,7 @@ import {
   Brightness7 as LightModeIcon,
 } from '@mui/icons-material';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { APP_NAME } from '@app/shared';
 import { useThemeContext } from '../../contexts/ThemeContext';
 import { UserMenu } from './UserMenu';
 import { NotificationBell } from './NotificationBell';
@@ -211,7 +212,7 @@ export function AppBar() {
             }}
             onClick={() => navigate('/')}
           >
-            Enterprise App
+            {APP_NAME}
           </Typography>
         )}
 
