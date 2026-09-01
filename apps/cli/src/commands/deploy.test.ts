@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { Check, CompletedCheck } from '../deploy/checks/index.js';
 import { DEPLOY_STATE_VERSION, deployStatePath, type DeployState } from '../deploy/state.js';
-import { CommandFailedError, type CommandResult, type RunCommandOptions } from '../deploy/executor.js';
+import type { CommandResult, RunCommandOptions } from '../deploy/executor.js';
 import { EXIT, exitCodeFor } from '../errors.js';
 import {
   buildReport,
