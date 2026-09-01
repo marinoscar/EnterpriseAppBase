@@ -214,6 +214,7 @@ EnterpriseAppBase/
 - **[TESTING.md](docs/TESTING.md)** - Testing strategy and best practices
 - **[DEVICE-AUTH.md](docs/DEVICE-AUTH.md)** - Device Authorization Flow guide and integration examples
 - **[API.md](docs/API.md)** - Complete API reference
+- **[Deploying to a VPS](docs/deployment/vps.md)** - Operator runbook for `appctl deploy` (install, update, status on a real server); command reference in [`apps/cli/README.md`](apps/cli/README.md#deploying-to-a-server)
 - **[System Specification](docs/System_Specification_Document.md)** - Complete project specification
 - **[Feature Specs](docs/specs/)** - Individual feature specifications
 

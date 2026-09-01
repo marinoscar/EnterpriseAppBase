@@ -10,10 +10,10 @@ that talks to the API (`api <method> <path>`), so it stays correct against
 endpoints that don't exist yet.
 
 Run with no arguments in an interactive terminal and it opens a full-screen
-menu (login, call an endpoint, view config, logout) built with
-[ink](https://github.com/vadimdemedes/ink). Everything that menu can do is
-also a plain subcommand, and the subcommands are what this document covers —
-they're what you'd script or run in CI.
+menu (login, call an endpoint, view config, deploy this server, logout) built
+with [ink](https://github.com/vadimdemedes/ink). Everything that menu can do
+is also a plain subcommand, and the subcommands are what this document
+covers — they're what you'd script or run in CI.
 
 ## Install
 
@@ -220,6 +220,241 @@ just relying on `set -e`) works the way you'd expect in a script. The `/api`
 prefix is optional — `appctl api GET /api/auth/me` and `appctl api GET
 /auth/me` request the same thing, since the client's base URL already ends
 in `/api`.
+
+## Deploying to a server
+
+```bash
+appctl deploy doctor
+```
+
+Four subcommands (`doctor`, `install`, `update`, `status`) take this
+repository — or, far more likely, your fork of it — from an empty VPS to
+running, migrated, seeded, and served over HTTPS at a real domain, and back
+to the latest revision on every subsequent deploy. They run **on the VPS
+itself**: SSH in with your own credentials, build `appctl` from a checkout
+there (see [Building from source](#building-from-source-development) below),
+and run these from inside it. There's no SSH client in `appctl` and no
+laptop-driven orchestration — it never dials out to a server on your behalf.
+
+For the full walkthrough — prerequisites, the manual step after install,
+troubleshooting — see [`docs/deployment/vps.md`](../../docs/deployment/vps.md).
+For why it's built this way, see
+[`docs/specs/vps-deploy.md`](../../docs/specs/vps-deploy.md).
+
+### Checking prerequisites
+
+```bash
+appctl deploy doctor
+appctl deploy doctor --domain app.example.com
+```
+
+Nothing is installed, written or started — it's read-only, so it's safe to
+run against a production server at any time, not just before a first
+install. It runs around 27 checks: Docker and its daemon, the Compose v2
+plugin, git, node, disk and memory headroom, the loopback port, the shared
+reverse proxy's directory and its `conf.d`/webroot being writable, certbot,
+ports 80 and 443, the proxy's current config, the external PostgreSQL
+database (reachable, credentials valid, database exists, can create tables,
+TLS), and — once `--domain` turns them on — DNS and the certificate.
+
+```bash
+appctl deploy doctor --json | jq '.checks[] | select(.status=="fail")'
+```
+
+Exits `6` (`EXIT.PRECONDITION`) when a required check fails, `0` when only
+recommended checks fail — warnings never fail the run. `--json` prints a
+machine-readable report on stdout and nothing on stderr.
+
+Other flags, from `appctl deploy doctor --help`:
+
+```
+Options:
+  --root <path>        Deployment directory (default: "/opt/infra/apps")
+  --proxy-root <path>  Shared reverse proxy directory (default:
+                       "/opt/infra/proxy")
+  --port <port>        Loopback port the proxy forwards to (default: "3535")
+  --domain <domain>    Public domain; enables the DNS and TLS checks
+  --json               Print a machine-readable report on stdout
+  --no-color           Disable colour even on a terminal
+```
+
+`install` and `update` both run the same required checks as their own
+preflight step, so nothing they do is skipped by running `doctor` first —
+but running it on its own first means you find out about a bad DNS record or
+an unreachable database before you're mid-pipeline, not partway through one.
+
+### Installing
+
+```bash
+appctl deploy install --domain app.example.com
+```
+
+Runs preflight → checkout → environment → validate-environment → build →
+migrate → seed → start → health → publish → verify, in that order, printing
+each step's result as it completes. `--domain` is the one required flag.
+
+The repository and ref come from **this checkout's own git remote**, not a
+value hardcoded in the CLI — a fork deploys itself with no configuration
+change; see "Deploying a fork" below.
+
+```bash
+appctl deploy install --domain app.example.com --staging
+appctl deploy install --non-interactive --domain app.example.com
+```
+
+Use `--staging` while you're still working out the setup — it requests a
+Let's Encrypt **staging** certificate instead of a production one. Worth
+doing before a first real attempt, because a failed production issuance
+spends real rate-limit budget: five failures per hostname per hour, and 50
+certificates per registered domain per week, shared with every subdomain on
+that server. `--non-interactive` skips every prompt and fails, listing
+what's unresolved, rather than asking; pair it with `--all` to review every
+environment variable instead of only the essential dozen.
+
+`install` is idempotent — if it fails partway through, fix whatever it
+reported and run the same command again, or add `--resume` to continue from
+the step that failed rather than re-running everything before it.
+`--reinstall` installs over an existing deployment on purpose; `--force`
+discards uncommitted changes in the checkout it manages; `--skip-doctor`,
+`--skip-proxy` and `--skip-seed` each skip exactly the one stage they name.
+
+Other flags, from `appctl deploy install --help`:
+
+```
+Options:
+  --root <path>        Deployment directory (default: "/opt/infra/apps")
+  --domain <domain>    Public domain to publish under
+  --proxy-root <path>  Shared reverse proxy directory (default:
+                       "/opt/infra/proxy")
+  --port <port>        Loopback port the proxy forwards to (default: "3535")
+  --repo <url>         Repository to deploy (default: this checkout's origin)
+  --ref <ref>          Branch, tag or commit (default: the remote default
+                       branch)
+  --email <email>      Certificate registration address
+  --group <name>       Optional feature group; repeat for more (default: [])
+  --all                Review every environment variable, not only the essential
+                       ones
+  --non-interactive    Never prompt; fail listing anything unresolved
+  --reinstall          Install over an existing deployment
+  --resume             Continue from the step that failed
+  --skip-doctor        Skip the prerequisite checks
+  --skip-proxy         Do not touch the reverse proxy or request a certificate
+  --skip-seed          Do not run the database seed
+  --no-cache           Rebuild images without the layer cache
+  --force              Discard uncommitted changes in the checkout
+  --staging            Use Let's Encrypt staging while working out the setup
+  --json               Print a machine-readable result on stdout
+```
+
+**`install` does not create an admin user.** The seed writes the allowlist
+row for `INITIAL_ADMIN_EMAIL`, not a user account — nobody has access until
+that address logs in through Google OAuth at `https://<domain>`. See "After
+install: the first login" in the runbook linked above.
+
+### Deploying a fork
+
+You don't need to change anything in this CLI to deploy a fork. The
+repository URL and ref are read from your own checkout's git remote (a fork
+using `master` or `develop` as its default branch works with no `--ref`
+needed — nothing here assumes `main`), and the environment wizard's
+questions are parsed structurally from *your fork's own*
+`infra/compose/.env.example`, not a list of field names hardcoded into the
+CLI. Rename the app, add a new secret to your `.env.example`, remove a
+feature block: `appctl deploy install` follows all of it with no flag
+changes, for the same reason `api <method> <path>` (above) doesn't go stale
+as endpoints change — nothing about a specific repository's shape is baked
+into the tool.
+
+### Updating
+
+```bash
+appctl deploy update
+```
+
+Brings an already-installed server up to the latest revision (or, with
+`--ref`, to a specific one): fetch, build, migrate, seed, restart, verify.
+It refuses to run at all if nothing is installed at `--root` yet.
+
+```bash
+appctl deploy update --ref v1.4.0
+```
+
+If the resolved ref's commit hasn't moved since the last successful run,
+`update` exits `0` **without doing anything** — no rebuild, no restart —
+which is what makes it safe to run unattended, e.g. from cron. `--force`
+rebuilds anyway even when the revision is unchanged.
+
+The database seed **re-runs by default** on every `update`. The seed is
+entirely upserts, and re-running it is the only way a permission or role a
+newer release adds actually reaches an already-installed server — skip it
+and the feature ships, the permission doesn't exist, and it shows up later
+as a confusing 403 with nothing in the logs to explain it. This is a
+deliberate divergence from the shell scripts this replaces, which never
+re-seeded; pass `--skip-seed` if you've hand-edited seeded rows and don't
+want them upserted back.
+
+There's no automatic rollback. A partly-applied database migration can't be
+undone by checking out the old code, so on failure `update` prints the
+previous revision and the exact command to redeploy it —
+`appctl deploy update --ref <sha> --force` — and leaves that decision to you.
+
+Other flags, from `appctl deploy update --help`:
+
+```
+Options:
+  --root <path>      Deployment directory (default: "/opt/infra/apps")
+  --ref <ref>        Branch, tag or commit to move to
+  --force            Rebuild even when the revision has not changed
+  --no-cache         Rebuild images without the layer cache
+  --non-interactive  Never prompt; fail listing anything unresolved
+  --skip-seed        Do not re-run the database seed
+  --skip-proxy       Do not touch the reverse proxy
+  --json             Print a machine-readable result on stdout
+```
+
+### Checking status
+
+```bash
+appctl deploy status
+```
+
+Reports whether the deployment at `--root` is healthy: container state, an
+immediate `/api/health/ready` poll, migration state, and — with `--domain` —
+an external HTTPS check.
+
+```bash
+appctl deploy status --domain app.example.com
+appctl deploy status --json || alert 'deployment unhealthy'
+```
+
+`/api/health/ready` returning 200 only proves the app can run `SELECT 1`
+against the database — it passes against a completely empty, unmigrated one
+just as readily as a fully migrated one. That's why `status` reports
+migration state as its own fact rather than inferring it from the health
+probe.
+
+Exits `0` when serving and the schema is current, `1` when installed but
+unhealthy, `2` when nothing is installed at `--root`.
+
+Other flags, from `appctl deploy status --help`:
+
+```
+Options:
+  --root <path>      Deployment directory (default: "/opt/infra/apps")
+  --port <port>      Loopback port the proxy forwards to (default: "3535")
+  --domain <domain>  Public domain; adds an external HTTPS check
+  --json             Print a machine-readable report on stdout
+  --no-color         Disable colour even on a terminal
+```
+
+### Logs
+
+Every `doctor`, `install` and `update` run writes a human-readable `.log`
+and a matching machine-readable `.jsonl` under `<deployRoot>/logs/`, mode
+`0600`, newest ten runs kept. Every value the CLI knows to be a secret —
+whether you typed it or the wizard generated it — is redacted from both
+files before a single byte reaches disk, so they're safe to attach to an
+issue or hand to someone else for help.
 
 ## CI usage
 
