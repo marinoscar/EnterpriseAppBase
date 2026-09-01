@@ -1,3 +1,4 @@
+import { APP_NAME } from '@app/shared';
 import { SECURITY_SCHEMES } from './document';
 import {
   DEFAULT_SCALAR_CDN,
@@ -6,7 +7,7 @@ import {
 } from './docs-page';
 
 const options = {
-  title: 'Enterprise App Foundation API Reference',
+  title: `${APP_NAME} API Reference`,
   version: '1.2.3',
   specUrl: '/api/openapi.json',
 };

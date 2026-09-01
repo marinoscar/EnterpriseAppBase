@@ -1,3 +1,4 @@
+import { APP_NAME } from '@app/shared';
 import { createTestApp, closeTestApp, TestContext } from '../helpers/test-app.helper';
 import {
   createOpenApiDocument,
@@ -44,8 +45,12 @@ describe('OpenAPI document', () => {
   describe('branding and metadata', () => {
     it('is titled after this product', () => {
       const info = document.info as { title: string; version: string; description: string };
-      expect(info.title).toBe('Enterprise App Foundation API');
-      expect(info.description).toContain('Enterprise App Foundation');
+      // Asserted against the shared constant, not a literal: the point of
+      // `@app/shared` is that a fork renames the product in one place, and a
+      // test holding its own copy of the old name would turn that one-line
+      // rename back into a multi-file one.
+      expect(info.title).toBe(`${APP_NAME} API`);
+      expect(info.description).toContain(APP_NAME);
     });
 
     it('reports a real version rather than the hardcoded 1.0', () => {
