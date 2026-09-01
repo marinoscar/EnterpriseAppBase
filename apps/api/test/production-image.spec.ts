@@ -81,3 +81,37 @@ describe('the api production image', () => {
     expect(stage).toContain('COPY apps/api/scripts ./apps/api/scripts/');
   });
 });
+
+
+describe('the api image installs no build-only packages', () => {
+  const dockerfile = read('Dockerfile');
+
+  it('does not install any -dev package', () => {
+    // A `-dev` package is headers and static libraries, for COMPILING against
+    // a library. Nothing in this image compiles: `npm ci` runs with
+    // --ignore-scripts so no postinstall or node-gyp step can run, and no
+    // build toolchain (make, g++, python3) is installed - so anything that
+    // genuinely needed compiling would already fail.
+    //
+    // openssl-dev was carried here for years for "Prisma compatibility".
+    // Prisma needs the OpenSSL RUNTIME to select its musl query engine, not
+    // its headers, so it was ~2 MB of build-only files inherited by every
+    // stage including production - and it is what the apk add in #203 failed
+    // on.
+    const installs = [...dockerfile.matchAll(/apk add[^\n]*/g)].map((match) => match[0]);
+    const devPackages = installs.filter((line) => /\b[\w.+-]+-dev\b/.test(line));
+
+    expect(devPackages).toEqual([]);
+  });
+
+  it('still installs the OpenSSL runtime Prisma needs', () => {
+    // Removing this would break Prisma's engine selection on musl, which is a
+    // runtime failure rather than a build one - much later, and much harder to
+    // trace back here.
+    expect(dockerfile).toMatch(/apk add --no-cache[^\n]*\bopenssl\b/);
+  });
+
+  it('keeps --ignore-scripts, which is what makes the above true', () => {
+    expect(dockerfile).toContain('--ignore-scripts');
+  });
+});

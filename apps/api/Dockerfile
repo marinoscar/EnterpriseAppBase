@@ -18,8 +18,16 @@
 # -----------------------------------------------------------------------------
 FROM node:24-alpine AS base
 WORKDIR /app
-# Install OpenSSL for Prisma compatibility
-RUN apk add --no-cache openssl openssl-dev
+# Prisma needs the OpenSSL RUNTIME to pick its query-engine binary on musl.
+#
+# NOT `openssl-dev`. That package is headers and static libraries, for
+# compiling against OpenSSL - and nothing in this image compiles anything.
+# Every stage below installs prebuilt npm packages and runs `tsc`; there is no
+# node-gyp step, no native addon built from source. It was pulling roughly two
+# megabytes of build-only files into the base stage that every later stage
+# inherits, including production, and it is what the failing `apk add` in #203
+# choked on.
+RUN apk add --no-cache openssl
 
 # -----------------------------------------------------------------------------
 # Dependencies stage
