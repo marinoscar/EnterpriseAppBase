@@ -14,6 +14,8 @@
 // that is missing.
 // =============================================================================
 
+import { APP_NAME } from '@app/shared';
+
 /**
  * Builds the Markdown intro.
  *
@@ -22,7 +24,7 @@
  */
 export function buildApiDescription(version: string): string {
   return `
-The HTTP API behind the **Enterprise App Foundation** — a production-grade application
+The HTTP API behind the **${APP_NAME}** — a production-grade application
 base with Google OAuth sign-in, role- and permission-based authorization, per-user and
 system settings, object storage, and an email allowlist gating who may sign in at all.
 

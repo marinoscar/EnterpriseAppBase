@@ -10,6 +10,7 @@
 // alike, so the document CI lints is the document users get.
 // =============================================================================
 
+import { APP_NAME } from '@app/shared';
 import type { INestApplication } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import type { OpenAPIObject } from '@nestjs/swagger';
@@ -45,7 +46,7 @@ export const SECURITY_SCHEMES = {
  */
 export function buildOpenApiConfig(version: string = resolveApiVersion()) {
   const builder = new DocumentBuilder()
-    .setTitle('Enterprise App Foundation API')
+    .setTitle(`${APP_NAME} API`)
     .setDescription(buildApiDescription(version))
     .setVersion(version)
     // OpenAPI 3.1, not the 3.0 default. This is required, not a preference:
@@ -55,8 +56,12 @@ export function buildOpenApiConfig(version: string = resolveApiVersion()) {
     // so a schema-validating consumer (and Spectral) rightly fails on them.
     // Scalar renders 3.1 natively.
     .setOpenAPIVersion('3.1.0')
+    // The name is the product's and follows `APP_NAME`; the URL is this
+    // repository's and deliberately does not — a fork renames its product long
+    // before (or without ever) moving its source, so deriving the URL from the
+    // name would point readers at a repository that does not exist.
     .setContact(
-      'Enterprise App Foundation',
+      APP_NAME,
       'https://github.com/marinoscar/EnterpriseAppBase',
       '',
     )
