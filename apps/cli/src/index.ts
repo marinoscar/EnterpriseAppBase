@@ -195,3 +195,27 @@ export {
 export type { DeployState } from './deploy/state.js';
 
 export type { DeployHooks, StepOutcome, StepResult } from './deploy/hooks.js';
+
+// The wizard's questions come from infra/compose/.env.example rather than a
+// hardcoded list (#174) - the property that keeps this CLI correct in a fork
+// that adds, removes or renames variables. Exported because the parsers and
+// validators are pure and are exercised directly.
+export {
+  diffEnv,
+  parseEnvExample,
+  parseEnvFile,
+  serializeEnvFile,
+  stripInlineComment,
+  unquote,
+} from './deploy/env-spec.js';
+export type { EnvDiff, EnvVarSpec } from './deploy/env-spec.js';
+
+export {
+  ENV_METADATA,
+  generateBase64Key,
+  metadataFor,
+  validateBase64Key32,
+  validateEmail,
+  validatePort,
+} from './deploy/env-metadata.js';
+export type { DeriveContext, EnvGroup, EnvVarMetadata } from './deploy/env-metadata.js';
