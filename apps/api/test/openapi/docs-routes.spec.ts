@@ -1,3 +1,4 @@
+import { APP_NAME } from '@app/shared';
 import { createTestApp, closeTestApp, TestContext } from '../helpers/test-app.helper';
 import { createOpenApiDocument } from '../../src/openapi/document';
 import {
@@ -38,7 +39,7 @@ describe('documentation routes', () => {
 
       const body = response.json();
       expect(body.openapi).toBe('3.1.0');
-      expect(body.info.title).toBe('Enterprise App Foundation API');
+      expect(body.info.title).toBe(`${APP_NAME} API`);
       expect(Object.keys(body.paths).length).toBeGreaterThan(20);
     });
   });
@@ -50,7 +51,7 @@ describe('documentation routes', () => {
       expect(response.statusCode).toBe(200);
       expect(response.headers['content-type']).toContain('text/html');
       expect(response.body).toContain(
-        '<title>Enterprise App Foundation API Reference</title>',
+        `<title>${APP_NAME} API Reference</title>`,
       );
       expect(response.body).toContain('createApiReference');
     });

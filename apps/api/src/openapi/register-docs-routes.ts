@@ -1,3 +1,4 @@
+import { APP_NAME } from '@app/shared';
 import { Logger } from '@nestjs/common';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import type { OpenAPIObject } from '@nestjs/swagger';
@@ -144,7 +145,7 @@ function buildDocsHandlers(
   version: string,
 ): DocsHandlers {
   const page = renderDocsPage({
-    title: 'Enterprise App Foundation API Reference',
+    title: `${APP_NAME} API Reference`,
     version,
     specUrl: OPENAPI_JSON_PATH,
   });

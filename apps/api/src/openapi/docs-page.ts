@@ -23,6 +23,8 @@
 // deployment that wants to self-host the bundle behind its own nginx.
 // =============================================================================
 
+import { APP_NAME } from '@app/shared';
+
 /** Where the standalone Scalar bundle is loaded from. */
 export const DEFAULT_SCALAR_CDN = 'https://cdn.jsdelivr.net/npm/@scalar/api-reference';
 
@@ -112,7 +114,7 @@ export function renderDocsPage(options: DocsPageOptions): string {
   </head>
   <body>
     <div id="eaf-authbar">
-      <strong>Enterprise App Foundation API</strong>
+      <strong>${escapeHtml(`${APP_NAME} API`)}</strong>
       <span class="eaf-version">${escapeHtml(options.version)}</span>
       <span class="eaf-spacer"></span>
       <span id="eaf-status" class="eaf-pending">Checking your session…</span>
