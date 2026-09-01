@@ -1,7 +1,13 @@
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { Command } from 'commander';
 import { describe, expect, it } from 'vitest';
 
 import type { Check, CompletedCheck } from '../deploy/checks/index.js';
+import { DEPLOY_STATE_VERSION, deployStatePath, type DeployState } from '../deploy/state.js';
+import { CommandFailedError, type CommandResult, type RunCommandOptions } from '../deploy/executor.js';
 import { EXIT, exitCodeFor } from '../errors.js';
 import {
   buildReport,
@@ -250,5 +256,170 @@ describe('the deploy group', () => {
     // A CLI that exits 0 having done nothing turns a broken pipeline step
     // into a green one.
     await expect(program.parseAsync(['deploy'], { from: 'user' })).rejects.toBeDefined();
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// `appctl deploy status`  (issue #183)
+// ---------------------------------------------------------------------------
+
+function installedRoot(): string {
+  const root = mkdtempSync(join(tmpdir(), 'appctl-status-'));
+  const state: DeployState = {
+    version: DEPLOY_STATE_VERSION,
+    repoUrl: 'https://example.test/o/r',
+    ref: 'main',
+    commitSha: 'abcdef0123456789abcdef0123456789abcdef01',
+    bindPort: 3535,
+    deployRoot: root,
+    installedAt: '2026-01-01T00:00:00.000Z',
+    lastDeployedAt: '2026-01-02T00:00:00.000Z',
+    lastCommand: 'install',
+    appctlVersion: '1.0.0',
+  };
+  writeFileSync(deployStatePath(root), JSON.stringify(state));
+  return root;
+}
+
+function composeRunCommand(psJson: string, migrateOutput: string) {
+  return (async (argv: readonly string[], options: RunCommandOptions): Promise<CommandResult> => {
+    const line = argv.join(' ');
+    const stdout = line.includes(' ps ') ? psJson : migrateOutput;
+    const result: CommandResult = {
+      argv: [...argv],
+      cwd: options.cwd,
+      exitCode: 0,
+      stdout,
+      stderr: '',
+      durationMs: 1,
+      timedOut: false,
+    };
+    return result;
+  }) as typeof import('../deploy/executor.js').runCommand;
+}
+
+const ALL_RUNNING = JSON.stringify([
+  { Name: 'demo-api-1', Service: 'api', State: 'running', Image: 'i' },
+  { Name: 'demo-web-1', Service: 'web', State: 'running', Image: 'i' },
+]);
+
+const WEB_DOWN = JSON.stringify([
+  { Name: 'demo-api-1', Service: 'api', State: 'running', Image: 'i' },
+  { Name: 'demo-web-1', Service: 'web', State: 'exited', Image: 'i' },
+]);
+
+async function runStatus(
+  argv: readonly string[],
+  extra: Partial<DeployContext>,
+): Promise<RunResult> {
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+
+  const program = new Command();
+  program.exitOverride();
+  registerDeployCommand(program, {
+    stdout: { write: (chunk: string) => stdout.push(chunk) },
+    stderr: { write: (chunk: string) => stderr.push(chunk) },
+    isTty: false,
+    ...extra,
+  });
+
+  let error: unknown;
+  try {
+    await program.parseAsync(['deploy', 'status', ...argv], { from: 'user' });
+  } catch (caught) {
+    error = caught;
+  }
+
+  return { stdout: stdout.join(''), stderr: stderr.join(''), error };
+}
+
+describe('appctl deploy status', () => {
+  it('exits 0 and reports every section when healthy', async () => {
+    const root = installedRoot();
+
+    const result = await runStatus(['--root', root], {
+      runCommand: composeRunCommand(ALL_RUNNING, 'Database schema is up to date!'),
+      fetch: (async () => new Response('', { status: 200 })) as typeof globalThis.fetch,
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(result.stderr).toContain('Revision');
+    expect(result.stderr).toContain('Containers');
+    expect(result.stderr).toContain('up to date');
+    expect(result.stderr).toContain('healthy');
+  });
+
+  it('is unhealthy when the web container is down, even with the API green', async () => {
+    const root = installedRoot();
+
+    const result = await runStatus(['--root', root], {
+      runCommand: composeRunCommand(WEB_DOWN, 'Database schema is up to date!'),
+      fetch: (async () => new Response('', { status: 200 })) as typeof globalThis.fetch,
+    });
+
+    expect(exitCodeFor(result.error)).toBe(EXIT.FAILURE);
+    expect(result.stderr).toContain('NOT healthy');
+  });
+
+  it('is unhealthy with pending migrations despite a green readiness probe', async () => {
+    const root = installedRoot();
+
+    const result = await runStatus(['--root', root], {
+      runCommand: composeRunCommand(
+        ALL_RUNNING,
+        'Following migrations have not yet been applied:\n20260101000000_add_thing\n',
+      ),
+      fetch: (async () => new Response('', { status: 200 })) as typeof globalThis.fetch,
+    });
+
+    // /api/health/ready only proves SELECT 1 succeeded.
+    expect(exitCodeFor(result.error)).toBe(EXIT.FAILURE);
+    expect(result.stderr).toContain('1 pending');
+    expect(result.stderr).toContain('20260101000000_add_thing');
+  });
+
+  it('distinguishes "nothing installed" from "installed and unhealthy"', async () => {
+    const empty = mkdtempSync(join(tmpdir(), 'appctl-empty-'));
+
+    const result = await runStatus(['--root', empty], {
+      runCommand: composeRunCommand(ALL_RUNNING, 'Database schema is up to date!'),
+      fetch: (async () => new Response('', { status: 200 })) as typeof globalThis.fetch,
+    });
+
+    // A monitoring script has to be able to tell these apart.
+    expect(exitCodeFor(result.error)).toBe(EXIT.USAGE);
+    expect((result.error as Error).message).toContain('deploy install');
+  });
+
+  it('writes the report as JSON on stdout and nothing on stderr', async () => {
+    const root = installedRoot();
+
+    const result = await runStatus(['--root', root, '--json'], {
+      runCommand: composeRunCommand(ALL_RUNNING, 'Database schema is up to date!'),
+      fetch: (async () => new Response('', { status: 200 })) as typeof globalThis.fetch,
+    });
+
+    expect(result.stderr).toBe('');
+    const report = JSON.parse(result.stdout) as { healthy: boolean };
+    expect(report.healthy).toBe(true);
+  });
+
+  it('reports a failing external check', async () => {
+    const root = installedRoot();
+
+    const result = await runStatus(['--root', root, '--domain', 'app.example.test'], {
+      runCommand: composeRunCommand(ALL_RUNNING, 'Database schema is up to date!'),
+      fetch: (async (url: string | URL) =>
+        String(url).startsWith('https://')
+          ? Promise.reject(
+              Object.assign(new Error('fetch failed'), { cause: { code: 'CERT_HAS_EXPIRED' } }),
+            )
+          : new Response('', { status: 200 })) as typeof globalThis.fetch,
+    });
+
+    expect(result.stderr).toContain('certificate has expired');
+    expect(exitCodeFor(result.error)).toBe(EXIT.FAILURE);
   });
 });

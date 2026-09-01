@@ -296,3 +296,26 @@ export type {
   ProxyTarget,
   ValidationResult,
 } from './deploy/proxy.js';
+
+// Health and the `status` command (#183). waitForHealthy is shared by install
+// and update rather than reimplemented in each.
+export {
+  collectHealth,
+  containerStates,
+  describeFetchFailure,
+  isHealthy,
+  migrationState,
+  probe,
+  waitForHealthy,
+} from './deploy/health.js';
+export type {
+  ContainerState,
+  HealthOptions,
+  HealthReport,
+  MigrationState,
+  ProbeResult,
+  WaitOptions,
+} from './deploy/health.js';
+
+export { registerDeployCommand, renderHealth, renderResult, renderSummary } from './commands/deploy.js';
+export type { DeployContext, DoctorReport } from './commands/deploy.js';
