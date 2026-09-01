@@ -219,3 +219,16 @@ export {
   validatePort,
 } from './deploy/env-metadata.js';
 export type { DeriveContext, EnvGroup, EnvVarMetadata } from './deploy/env-metadata.js';
+
+// The wizard, and the three prompt primitives it needed (#175). `confirm`,
+// `promptSecret` and `select` live in prompt.ts beside the one-question helper
+// the login flow already used.
+export { confirm, promptSecret, select } from './prompt.js';
+export type { SelectChoice } from './prompt.js';
+
+export { runEnvWizard } from './deploy/env-wizard.js';
+export type {
+  WizardOptions,
+  WizardResult,
+  WizardSummaryRow,
+} from './deploy/env-wizard.js';
