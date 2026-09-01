@@ -31,6 +31,21 @@ FROM base AS deps
 COPY package.json package-lock.json ./
 COPY apps/api/package.json ./apps/api/
 COPY apps/web/package.json ./apps/web/
+# `@app/shared` is a real runtime dependency of this app, so `npm ci` has to
+# resolve it — and the workspace symlink it creates (node_modules/@app/shared)
+# has to point at a directory that actually contains files.
+#
+# The WHOLE package is copied here, not just its manifest, precisely so that
+# every later stage inherits it through `COPY --from=deps /app ./`. That
+# includes the production stage, which otherwise copies only `dist/` and would
+# ship a symlink pointing at an empty directory — an image that builds clean
+# and then dies at boot with ERR_MODULE_NOT_FOUND. Nothing in CI would catch
+# it: no PR job builds images, and `smoke` boots from the workspace checkout.
+#
+# The cost is that editing the package busts this layer's npm ci cache. It
+# holds one string that changes only when the product is renamed, so that is a
+# trade worth making to remove the failure mode entirely.
+COPY packages/shared ./packages/shared/
 # Prisma schema and config are needed by `prisma generate` below
 COPY apps/api/prisma ./apps/api/prisma/
 COPY apps/api/prisma.config.ts ./apps/api/

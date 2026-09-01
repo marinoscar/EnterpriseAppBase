@@ -2,7 +2,8 @@
   "name": "enterprise-app",
   "private": true,
   "workspaces": [
-    "apps/*"
+    "apps/*",
+    "packages/*"
   ],
   "engines": {
     "node": ">=24"

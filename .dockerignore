@@ -6,7 +6,9 @@
 # repo, so trimming it here matters for build speed.
 #
 # Do NOT exclude: package.json, package-lock.json, apps/*/package.json,
-# scripts/, tsconfig*.json, or apps/api/prisma/ — the builds need all of them.
+# packages/ (the api and web images both install @app/shared as a workspace
+# dependency and copy the package itself), scripts/, tsconfig*.json, or
+# apps/api/prisma/ — the builds need all of them.
 # =============================================================================
 
 # Dependencies - always installed inside the image via npm ci
