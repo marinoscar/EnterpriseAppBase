@@ -7,6 +7,7 @@ import { InvokeScreen } from './screens/invoke.js';
 import { LoginScreen } from './screens/login.js';
 import { LogoutScreen } from './screens/logout.js';
 import { MenuScreen } from './screens/menu.js';
+import { DeployScreen } from './screens/deploy.js';
 import { StatusScreen } from './screens/status.js';
 
 // =============================================================================
@@ -89,6 +90,8 @@ export function App(): ReactNode {
       return <InvokeScreen onDone={toMenu} />;
     case 'status':
       return <StatusScreen onDone={toMenu} />;
+    case 'deploy':
+      return <DeployScreen onDone={toMenu} />;
     case 'logout':
       return <LogoutScreen onDone={toMenu} />;
     default:

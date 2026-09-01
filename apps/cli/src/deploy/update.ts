@@ -58,6 +58,8 @@ export interface UpdateOptions {
   hooks?: DeployHooks | undefined;
   promptContext?: PromptContext | undefined;
   cwd?: string | undefined;
+  /** Values collected elsewhere; see InstallOptions.answers. */
+  answers?: ReadonlyMap<string, string> | undefined;
 }
 
 interface UpdateContext extends StepContext {
@@ -239,7 +241,10 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
         const { values } = await runEnvWizard({
           specs,
           domain,
-          existing: current,
+          existing:
+            context.options.answers === undefined
+              ? current
+              : new Map([...current, ...context.options.answers]),
           ...(context.options.nonInteractive === undefined
             ? {}
             : { nonInteractive: context.options.nonInteractive }),
