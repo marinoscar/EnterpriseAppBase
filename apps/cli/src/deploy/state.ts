@@ -44,6 +44,12 @@ export interface DeployState {
   lastCommand: 'install' | 'update';
   /** Which appctl wrote this, for diagnosing a state file from the future. */
   appctlVersion: string;
+  /**
+   * Step ids that completed, so `--resume` can skip them.
+   *
+   * A rerun after a fixed database password should not rebuild images.
+   */
+  completedSteps?: string[] | undefined;
 }
 
 /**
