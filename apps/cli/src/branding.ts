@@ -1,3 +1,5 @@
+import { APP_NAME } from '@app/shared';
+
 // =============================================================================
 // CLI identity — the one constant a fork renames  (issue #140, epic #110)
 // =============================================================================
@@ -15,6 +17,15 @@
 // If those three were three literals, a rename would leave a binary called
 // `acmectl` reading `~/.appctl/config.json` and answering to `APPCTL_TOKEN` —
 // and nothing would fail, which is what makes that class of bug expensive.
+//
+// TWO IDENTITIES, NOT ONE (issue #165, epic #161). The three things above are
+// the BINARY's identity and are still seeded by `CLI_NAME` right here. The
+// PRODUCT's display name is a different fact with a different blast radius —
+// it appears in the browser wordmark and in email templates too — so it now
+// comes from `@app/shared`, and `CLI_DISPLAY_NAME` is derived from it. A fork
+// renaming its product edits that one constant and the CLI banner follows;
+// renaming the executable is still an edit here, and the two are deliberately
+// independent.
 //
 // THE ONE PLACE THIS CONSTANT CANNOT REACH is the `bin` key in package.json.
 // npm reads that file before any code runs, so the name is necessarily written
@@ -48,9 +59,19 @@ export const CLI_NAME = 'appctl';
  * Human-readable product name for banners and `--help` output.
  *
  * Separate from `CLI_NAME` because the two genuinely differ: you type `git`
- * and the docs say "Git". Kept here so a fork changes both in one file.
+ * and the docs say "Git". `CLI_NAME` is this executable's own identity and is
+ * still set right here; the PRODUCT half now comes from `@app/shared`, which
+ * the web app and the API render too (issue #165, epic #161).
+ *
+ * That split is the point rather than an inconsistency. Renaming the product
+ * should rename the CLI's banner along with the browser wordmark and the email
+ * templates — one edit, everything follows. Renaming the BINARY should not: a
+ * product called "Acme" may perfectly well still ship a command called
+ * `appctl`, and `CLI_NAME` additionally seeds a filesystem path and an
+ * environment-variable prefix, which is why it keeps its own constraints and
+ * its own constant.
  */
-export const CLI_DISPLAY_NAME = 'Enterprise App CLI';
+export const CLI_DISPLAY_NAME = `${APP_NAME} CLI`;
 
 /**
  * The per-user config directory NAME (not the path — resolving `~` needs
