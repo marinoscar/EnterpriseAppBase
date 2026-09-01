@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConflictException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { SystemSettingsService } from './system-settings.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
@@ -10,10 +11,12 @@ import {
   DEFAULT_SYSTEM_SETTINGS,
   SystemSettingsValue,
 } from '../../common/types/settings.types';
+import { systemSettingsResponseSchema } from '../dto/system-settings-response.dto';
 
 describe('SystemSettingsService', () => {
   let service: SystemSettingsService;
   let mockPrisma: MockPrismaService;
+  let mockConfigService: { get: jest.Mock };
 
   const mockUserId = 'user-123';
   const mockUser = {
@@ -33,11 +36,19 @@ describe('SystemSettingsService', () => {
 
   beforeEach(async () => {
     mockPrisma = createMockPrismaService();
+    // Pass-through by default: `get(key, defaultValue)` returns `defaultValue`,
+    // which mirrors ConfigService's real behaviour when nothing overrides the
+    // key. Individual #148 tests below replace this with a table of real
+    // values to prove the security block is read FROM config, not hardcoded.
+    mockConfigService = {
+      get: jest.fn((_key: string, defaultValue?: unknown) => defaultValue),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SystemSettingsService,
         { provide: PrismaService, useValue: mockPrisma },
+        { provide: ConfigService, useValue: mockConfigService },
       ],
     }).compile();
 
@@ -929,6 +940,259 @@ describe('SystemSettingsService', () => {
     });
   });
 
+  // ===========================================================================
+  // #148 — `systemSettingsResponseSchema` has always declared `security`, and
+  // nothing ever populated it: GET, PUT and PATCH all omitted the key the
+  // published OpenAPI contract promised. Fixed by `toResponse`, the one
+  // projection now shared by all three methods, and `readSecurityPolicy`,
+  // which reads `jwt.accessTtlMinutes` / `jwt.refreshTtlDays` off
+  // ConfigService rather than the stored row.
+  //
+  // Covered on all three methods on purpose, per the bug: one hand-built
+  // response shape wrong in three places at once means a test that only
+  // covers GET cannot tell you PUT and PATCH are fixed too.
+  // ===========================================================================
+  describe('security block (#148)', () => {
+    async function callGetSettings() {
+      mockPrisma.systemSettings.findUnique.mockResolvedValue(
+        mockSystemSettings as any,
+      );
+      return service.getSettings();
+    }
+
+    async function callReplaceSettings() {
+      const newSettings: SystemSettingsValue = {
+        ui: { allowUserThemeOverride: true },
+        features: {},
+      };
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        value: DEFAULT_SYSTEM_SETTINGS,
+      } as any);
+      mockPrisma.systemSettings.upsert.mockResolvedValue({
+        ...mockSystemSettings,
+        value: newSettings as any,
+        version: 2,
+      } as any);
+      mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+      return service.replaceSettings(newSettings, mockUserId);
+    }
+
+    async function callPatchSettings() {
+      mockPrisma.systemSettings.findUnique.mockResolvedValue(
+        mockSystemSettings as any,
+      );
+      mockPrisma.systemSettings.update.mockResolvedValue({
+        ...mockSystemSettings,
+        value: DEFAULT_SYSTEM_SETTINGS as any,
+        version: 2,
+      } as any);
+      mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+      return service.patchSettings({}, mockUserId);
+    }
+
+    const methods: Array<
+      [string, () => ReturnType<typeof callGetSettings>]
+    > = [
+      ['getSettings', callGetSettings],
+      ['replaceSettings (PUT)', callReplaceSettings],
+      ['patchSettings (PATCH)', callPatchSettings],
+    ];
+
+    describe('the values are read from ConfigService, not hardcoded', () => {
+      it.each(methods)(
+        '%s surfaces the exact non-default numbers ConfigService returns',
+        async (_name, call) => {
+          mockConfigService.get.mockImplementation(
+            (key: string, defaultValue?: unknown) => {
+              if (key === 'jwt.accessTtlMinutes') return 45;
+              if (key === 'jwt.refreshTtlDays') return 30;
+              return defaultValue;
+            },
+          );
+
+          const result = await call();
+
+          expect(result.security).toEqual({
+            jwtAccessTtlMinutes: 45,
+            refreshTtlDays: 30,
+          });
+        },
+      );
+
+      it.each(methods)(
+        '%s asks ConfigService for the exact keys jwt.accessTtlMinutes and jwt.refreshTtlDays',
+        async (_name, call) => {
+          mockConfigService.get.mockImplementation(
+            (_key: string, defaultValue?: unknown) => defaultValue,
+          );
+
+          await call();
+
+          expect(mockConfigService.get).toHaveBeenCalledWith(
+            'jwt.accessTtlMinutes',
+            15,
+          );
+          expect(mockConfigService.get).toHaveBeenCalledWith(
+            'jwt.refreshTtlDays',
+            14,
+          );
+        },
+      );
+    });
+
+    describe('the documented defaults (15/14) are used when ConfigService has nothing configured', () => {
+      it.each(methods)(
+        '%s still returns numbers, never undefined, for a response field typed z.number()',
+        async (_name, call) => {
+          mockConfigService.get.mockImplementation(
+            (_key: string, defaultValue?: unknown) => defaultValue,
+          );
+
+          const result = await call();
+
+          expect(result.security).toEqual({
+            jwtAccessTtlMinutes: 15,
+            refreshTtlDays: 14,
+          });
+          expect(result.security.jwtAccessTtlMinutes).not.toBeUndefined();
+          expect(result.security.refreshTtlDays).not.toBeUndefined();
+        },
+      );
+    });
+
+    describe('it is read-only: a security block in the request body is discarded, not persisted', () => {
+      it('replaceSettings (PUT): a submitted security block never reaches the persisted value, and the response still reflects config', async () => {
+        mockConfigService.get.mockImplementation(
+          (key: string, defaultValue?: unknown) => {
+            if (key === 'jwt.accessTtlMinutes') return 45;
+            if (key === 'jwt.refreshTtlDays') return 30;
+            return defaultValue;
+          },
+        );
+        mockPrisma.systemSettings.findUnique.mockResolvedValue({
+          value: DEFAULT_SYSTEM_SETTINGS,
+        } as any);
+
+        // The malicious/naive body: a client that read the OpenAPI contract
+        // and assumed `security` was writable because the DTO declares it.
+        const dtoWithSecurity = {
+          ui: { allowUserThemeOverride: true },
+          features: {},
+          security: { jwtAccessTtlMinutes: 9999, refreshTtlDays: 9999 },
+        };
+
+        mockPrisma.systemSettings.upsert.mockResolvedValue({
+          ...mockSystemSettings,
+          value: {
+            ui: { allowUserThemeOverride: true },
+            features: {},
+          } as any,
+          version: 2,
+        } as any);
+        mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+
+        // Goes through the REAL validation path: systemSettingsSchema.parse
+        // inside replaceSettings, exercised exactly as it is in production —
+        // not a standalone assertion about what we assume zod does.
+        const result = await service.replaceSettings(
+          dtoWithSecurity as any,
+          mockUserId,
+        );
+
+        const upsertArgs = mockPrisma.systemSettings.upsert.mock
+          .calls[0][0] as any;
+        expect(upsertArgs.update.value).not.toHaveProperty('security');
+        expect(upsertArgs.create.value).not.toHaveProperty('security');
+
+        // The response carries config's numbers, not the submitted 9999s.
+        expect(result.security).toEqual({
+          jwtAccessTtlMinutes: 45,
+          refreshTtlDays: 30,
+        });
+      });
+
+      it('patchSettings (PATCH): a submitted security block never reaches the persisted value, and the response still reflects config', async () => {
+        mockConfigService.get.mockImplementation(
+          (key: string, defaultValue?: unknown) => {
+            if (key === 'jwt.accessTtlMinutes') return 45;
+            if (key === 'jwt.refreshTtlDays') return 30;
+            return defaultValue;
+          },
+        );
+        mockPrisma.systemSettings.findUnique.mockResolvedValue(
+          mockSystemSettings as any,
+        );
+
+        const dtoWithSecurity = {
+          features: { flag: true },
+          security: { jwtAccessTtlMinutes: 9999, refreshTtlDays: 9999 },
+        };
+
+        mockPrisma.systemSettings.update.mockResolvedValue({
+          ...mockSystemSettings,
+          value: {
+            ui: DEFAULT_SYSTEM_SETTINGS.ui,
+            features: { flag: true },
+          } as any,
+          version: 2,
+        } as any);
+        mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+
+        const result = await service.patchSettings(
+          dtoWithSecurity as any,
+          mockUserId,
+        );
+
+        const updateArgs = mockPrisma.systemSettings.update.mock
+          .calls[0][0] as any;
+        expect(updateArgs.data.value).not.toHaveProperty('security');
+
+        expect(result.security).toEqual({
+          jwtAccessTtlMinutes: 45,
+          refreshTtlDays: 30,
+        });
+      });
+    });
+
+    describe('the response satisfies systemSettingsResponseSchema', () => {
+      it.each(methods)(
+        '%s output parses cleanly through the response schema the OpenAPI contract publishes',
+        async (_name, call) => {
+          mockConfigService.get.mockImplementation(
+            (_key: string, defaultValue?: unknown) => defaultValue,
+          );
+
+          const result = await call();
+
+          // Mirror the one normalisation a real HTTP response performs that
+          // a plain object does not: `updatedAt` travels the wire as JSON,
+          // which turns the Date into the ISO string
+          // `systemSettingsResponseSchema` (z.iso.datetime()) declares.
+          //
+          // `updatedBy.id` is swapped for a real UUID for the same reason:
+          // `mockUserId` ('user-123') is a fixture convenience used
+          // throughout this file for equality checks, not a value meant to
+          // satisfy `z.string().uuid()`. Substituting it here tests the
+          // shape this change is responsible for — the security block and
+          // the rest of the response — without this fixture's id format
+          // being what's under test.
+          const serialized = {
+            ...result,
+            updatedAt: result.updatedAt.toISOString(),
+            updatedBy: result.updatedBy && {
+              ...result.updatedBy,
+              id: '11111111-1111-4111-8111-111111111111',
+            },
+          };
+
+          expect(() =>
+            systemSettingsResponseSchema.parse(serialized),
+          ).not.toThrow();
+        },
+      );
+    });
+  });
+
   describe('getSettingValue', () => {
     beforeEach(() => {
       mockPrisma.systemSettings.findUnique.mockResolvedValue(
@@ -948,6 +1212,37 @@ describe('SystemSettingsService', () => {
       const value = await service.getSettingValue<any>('ui.nonExistent');
 
       expect(value).toBeUndefined();
+    });
+
+    // #148 — new reach introduced by this change: `security` is now part of
+    // the `getSettings()` projection this helper walks, so its fields become
+    // addressable even though they were never part of `SystemSettingsValue`
+    // or the stored row. Pinned here as a decision on record, not an
+    // accident.
+    it('addresses security.jwtAccessTtlMinutes through the config-backed security block', async () => {
+      mockConfigService.get.mockImplementation(
+        (key: string, defaultValue?: unknown) =>
+          key === 'jwt.accessTtlMinutes' ? 45 : defaultValue,
+      );
+
+      const value = await service.getSettingValue<number>(
+        'security.jwtAccessTtlMinutes',
+      );
+
+      expect(value).toBe(45);
+    });
+
+    it('addresses security.refreshTtlDays through the config-backed security block', async () => {
+      mockConfigService.get.mockImplementation(
+        (key: string, defaultValue?: unknown) =>
+          key === 'jwt.refreshTtlDays' ? 30 : defaultValue,
+      );
+
+      const value = await service.getSettingValue<number>(
+        'security.refreshTtlDays',
+      );
+
+      expect(value).toBe(30);
     });
   });
 
