@@ -22,6 +22,7 @@ import {
 } from '../deploy/health.js';
 import { readState } from '../deploy/state.js';
 import { runInstall, type InstallOptions } from '../deploy/install.js';
+import { runUpdate, type UpdateOptions } from '../deploy/update.js';
 import type { EnvGroup } from '../deploy/env-metadata.js';
 import { runCommand } from '../deploy/executor.js';
 import { CliError, EXIT, PreconditionError, UsageError, type ExitCode } from '../errors.js';
@@ -149,6 +150,42 @@ export function registerDeployCommand(
     )
     .action(async (options: InstallCommandOptions) => {
       await runInstallCommand(options, ctx);
+    });
+
+  deploy
+    .command('update')
+    .description('Bring this server up to the latest revision')
+    .option('--root <path>', 'Deployment directory', DEFAULT_DEPLOY_ROOT)
+    .option('--ref <ref>', 'Branch, tag or commit to move to')
+    .option('--force', 'Rebuild even when the revision has not changed')
+    .option('--no-cache', 'Rebuild images without the layer cache')
+    .option('--non-interactive', 'Never prompt; fail listing anything unresolved')
+    .option('--skip-seed', 'Do not re-run the database seed')
+    .option('--skip-proxy', 'Do not touch the reverse proxy')
+    .option('--json', 'Print a machine-readable result on stdout')
+    .addHelpText(
+      'after',
+      [
+        '',
+        'Examples:',
+        `  ${CLI_NAME} deploy update`,
+        `  ${CLI_NAME} deploy update --ref v1.4.0`,
+        '',
+        'Exits 0 without doing anything when the revision has not moved, so it',
+        'is safe to run from cron.',
+        '',
+        'The seed RE-RUNS by default. It is idempotent, and it is the only way',
+        'permissions added by a new release reach an existing deployment —',
+        'without it the feature ships and the permission does not exist, which',
+        'surfaces as a confusing 403. Pass --skip-seed to opt out.',
+        '',
+        'There is no automatic roll-back: a partly-applied migration cannot be',
+        'undone by checking out the old code. On failure the previous revision',
+        'and the command to redeploy it are printed.',
+      ].join('\n'),
+    )
+    .action(async (options: UpdateCommandOptions) => {
+      await runUpdateCommand(options, ctx);
     });
 
   deploy
@@ -580,6 +617,82 @@ export async function runInstallCommand(
       `  Log        ${result.journalPath}`,
       '',
       `  ${result.nextStep}`,
+      '',
+    ].join('\n'),
+  );
+}
+
+
+// ---------------------------------------------------------------------------
+// `appctl deploy update`  (issue #182)
+// ---------------------------------------------------------------------------
+
+export interface UpdateCommandOptions {
+  root: string;
+  ref?: string | undefined;
+  force?: boolean | undefined;
+  cache: boolean;
+  nonInteractive?: boolean | undefined;
+  skipSeed?: boolean | undefined;
+  skipProxy?: boolean | undefined;
+  json?: boolean | undefined;
+}
+
+export async function runUpdateCommand(
+  options: UpdateCommandOptions,
+  ctx?: DeployContext,
+): Promise<void> {
+  const stdout = ctx?.stdout ?? process.stdout;
+  const stderr = ctx?.stderr ?? process.stderr;
+  const json = options.json === true;
+
+  const updateOptions: UpdateOptions = {
+    deployRoot: options.root,
+    ...(options.ref === undefined ? {} : { ref: options.ref }),
+    ...(options.force === undefined ? {} : { force: options.force }),
+    ...(options.cache === false ? { noCache: true } : {}),
+    ...(options.nonInteractive === undefined ? {} : { nonInteractive: options.nonInteractive }),
+    ...(options.skipSeed === undefined ? {} : { skipSeed: options.skipSeed }),
+    ...(options.skipProxy === undefined ? {} : { skipProxy: options.skipProxy }),
+    ...(ctx?.runCommand === undefined ? {} : { runCommand: ctx.runCommand }),
+    ...(json
+      ? {}
+      : {
+          hooks: {
+            onStepStart: ({ title, index, total }) =>
+              void stderr.write(`\n  [${index + 1}/${total}] ${title}\n`),
+            onStepResult: (result) =>
+              void stderr.write(
+                result.outcome === 'ok'
+                  ? `  done (${result.durationMs}ms)\n`
+                  : `  ${result.outcome}: ${result.detail ?? ''}\n`,
+              ),
+            onProgress: (message) => void stderr.write(`  ${message}\n`),
+            onLog: (line) => void stderr.write(`    ${line}\n`),
+          },
+        }),
+  };
+
+  const result = await runUpdate(updateOptions);
+
+  if (json) {
+    stdout.write(`${JSON.stringify(result)}\n`);
+    return;
+  }
+
+  if (!result.changed) {
+    stderr.write(`\n  Already at ${result.commitSha.slice(0, 12)}. Nothing to do.\n\n`);
+    return;
+  }
+
+  stderr.write(
+    [
+      '',
+      '  Updated.',
+      '',
+      `  ${(result.previousSha ?? 'unknown').slice(0, 12)} -> ${result.commitSha.slice(0, 12)}`,
+      `  Took       ${Math.round(result.durationMs / 1000)}s`,
+      `  Log        ${result.journalPath}`,
       '',
     ].join('\n'),
   );
