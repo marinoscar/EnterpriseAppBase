@@ -73,11 +73,6 @@ export default () => {
   //     server-side: a stolen laptop is handled by deleting one row in the
   //     Access Tokens page, with nothing else to rotate. 90 days matches the
   //     epic's suggestion and MemoriaHub's reference CLI.
-  //
-  // NOTE FOR OPS: `DEVICE_PAT_EXPIRY_DAYS` is new and still needs an entry in
-  // `infra/compose/.env.example`. The default below means an existing
-  // deployment keeps working untouched, so this is documentation debt, not an
-  // outage.
   deviceAuth: {
     expiryMinutes: parseInt(process.env.DEVICE_CODE_EXPIRY_MINUTES || '15', 10),
     pollInterval: parseInt(process.env.DEVICE_CODE_POLL_INTERVAL || '5', 10),
