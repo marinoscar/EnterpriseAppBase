@@ -2,31 +2,9 @@ import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/commo
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 
-/**
- * Builds a PostgreSQL connection string from individual environment variables,
- * falling back to DATABASE_URL when already provided.
- *
- * Mirrors the logic in src/config/configuration.ts and scripts/prisma-env.js
- * so PrismaService works regardless of NestJS module initialization order.
- */
-function buildConnectionString(): string {
-  if (process.env.DATABASE_URL) {
-    return process.env.DATABASE_URL;
-  }
-
-  const host = process.env.POSTGRES_HOST ?? 'localhost';
-  const port = process.env.POSTGRES_PORT ?? '5432';
-  const user = process.env.POSTGRES_USER ?? 'postgres';
-  const password = process.env.POSTGRES_PASSWORD ?? 'postgres';
-  const dbName = process.env.POSTGRES_DB ?? 'appdb';
-  const ssl = process.env.POSTGRES_SSL === 'true';
-  const sslParam = ssl ? '?sslmode=require' : '';
-
-  // URL-encode the password to handle special characters
-  const encodedPassword = encodeURIComponent(password);
-
-  return `postgresql://${user}:${encodedPassword}@${host}:${port}/${dbName}${sslParam}`;
-}
+// One shared builder rather than a third private copy of the formula; the
+// header of that module explains what the three copies did to each other.
+import { buildDatabaseUrl } from '../common/database-url';
 
 @Injectable()
 export class PrismaService
@@ -36,7 +14,7 @@ export class PrismaService
   private readonly logger = new Logger(PrismaService.name);
 
   constructor() {
-    const adapter = new PrismaPg(buildConnectionString());
+    const adapter = new PrismaPg(buildDatabaseUrl());
     super({
       adapter,
       log: [

@@ -4,7 +4,13 @@ module.exports = {
   rootDir: '..',
   testRegex: '.*\\.spec\\.ts$',
   transform: {
-    '^.+\\.(t|j)s$': [
+    // .ts only. Matching .js too made ts-jest warn whenever a test requires a
+    // plain CommonJS script (src/common/database-url.spec.ts requires
+    // scripts/prisma-env.js to hold the two connection-string builders
+    // together), and `allowJs` cannot be turned on to satisfy it because this
+    // project sets `declaration: true`, which conflicts with it. Those scripts
+    // are already CommonJS and need no transform.
+    '^.+\\.ts$': [
       'ts-jest',
       {
         tsconfig: '<rootDir>/tsconfig.json',

@@ -1,16 +1,22 @@
+import { buildDatabaseUrl } from '../common/database-url';
+
 export default () => {
-  // Construct DATABASE_URL from individual PostgreSQL variables
   const host = process.env.POSTGRES_HOST || 'localhost';
   const port = process.env.POSTGRES_PORT || '5432';
   const user = process.env.POSTGRES_USER || 'postgres';
   const password = process.env.POSTGRES_PASSWORD || 'postgres';
   const dbName = process.env.POSTGRES_DB || 'appdb';
   const ssl = process.env.POSTGRES_SSL === 'true';
-  const sslParam = ssl ? '?sslmode=require' : '';
 
-  const databaseUrl = `postgresql://${user}:${password}@${host}:${port}/${dbName}${sslParam}`;
+  // Built by the shared helper, NOT interpolated here. This module used to do
+  // its own interpolation without percent-encoding, and because the line below
+  // assigns the result to process.env.DATABASE_URL — which PrismaService then
+  // trusts — that unencoded string overwrote the encoded one the service had
+  // been careful to build. See src/common/database-url.ts.
+  const databaseUrl = buildDatabaseUrl();
 
-  // Set DATABASE_URL for Prisma
+  // Prisma reads DATABASE_URL (prisma.config.ts, and the generated client),
+  // so publish the derived value for it.
   process.env.DATABASE_URL = databaseUrl;
 
   return {
