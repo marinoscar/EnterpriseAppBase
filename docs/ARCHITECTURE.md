@@ -1,8 +1,8 @@
 # System Architecture
 
 **Enterprise Application Foundation**
-**Version:** 1.0
-**Last Updated:** January 2026
+**Version:** 1.1
+**Last Updated:** September 2026
 
 This document provides a comprehensive architectural overview of the Enterprise Application Foundation designed for AI-assisted development with specialized coding agents.
 
@@ -273,32 +273,59 @@ EnterpriseAppBase/
 │   │   │   ├── users/                # User management module
 │   │   │   ├── settings/             # Settings module (user + system)
 │   │   │   ├── allowlist/            # Email allowlist module
+│   │   │   ├── device-auth/          # Device authorization (RFC 8628)
+│   │   │   ├── storage/              # File storage subsystem (§5.4)
+│   │   │   ├── pat/                  # Personal access tokens
+│   │   │   ├── notifications/        # Notification dispatcher + SSE (§5.5)
+│   │   │   ├── email/                # Email providers + templates (§5.6)
+│   │   │   ├── credentials/          # Encrypted runtime credential store (§5.6)
+│   │   │   ├── openapi/              # /api/docs, /api/openapi.json
+│   │   │   ├── test-auth/            # Test-only auth bypass (non-production)
 │   │   │   ├── health/               # Health check module
 │   │   │   ├── prisma/               # Prisma service
 │   │   │   ├── common/               # Shared utilities
 │   │   │   │   ├── constants/
+│   │   │   │   ├── crypto/           # AES-256-GCM secret cipher
+│   │   │   │   ├── schemas/          # Shared Zod namespace schemas
 │   │   │   │   ├── filters/
 │   │   │   │   └── interceptors/
 │   │   │   ├── config/               # Configuration module
+│   │   │   ├── instrumentation.ts    # OpenTelemetry bootstrap (loaded before Nest)
 │   │   │   └── main.ts               # Application entry
 │   │   ├── prisma/
 │   │   │   ├── schema.prisma         # Database schema
 │   │   │   ├── migrations/           # Migration history
 │   │   │   └── seed.ts               # Database seeding
+│   │   ├── scripts/                  # dump-openapi.ts, smoke-test.mjs, etc.
 │   │   ├── test/                     # Integration tests
 │   │   └── Dockerfile
 │   │
-│   └── web/                          # Frontend (React + MUI)
+│   ├── web/                          # Frontend (React + MUI)
+│   │   ├── src/
+│   │   │   ├── components/           # Reusable UI components
+│   │   │   ├── pages/                # Page components
+│   │   │   ├── contexts/             # React context providers
+│   │   │   ├── hooks/                # Custom hooks
+│   │   │   ├── services/             # API client
+│   │   │   ├── config/               # Section registries (§ Settings UI Pattern)
+│   │   │   ├── theme/                # MUI theme configuration
+│   │   │   ├── types/                # TypeScript types
+│   │   │   ├── utils/                # Small stateless helpers
+│   │   │   └── __tests__/            # Component/page/context tests (mirrors src/)
+│   │   └── Dockerfile
+│   │
+│   └── cli/                          # First-party CLI (`appctl`, epic #110/#168)
 │       ├── src/
-│       │   ├── components/           # Reusable UI components
-│       │   ├── pages/                # Page components
-│       │   ├── contexts/             # React context providers
-│       │   ├── hooks/                # Custom hooks
-│       │   ├── services/             # API client
-│       │   ├── theme/                # MUI theme configuration
-│       │   ├── types/                # TypeScript types
-│       │   └── __tests__/            # Component tests
-│       └── Dockerfile
+│       │   ├── commands/             # login, api, config, deploy
+│       │   ├── deploy/               # `appctl deploy` pipelines
+│       │   │   ├── checks/           # doctor checks (host, dns, tls, database)
+│       │   │   └── steps/            # install/update step pipeline
+│       │   └── tui/                  # Interactive ink menu (real terminals only)
+│       │       └── screens/
+│       └── README.md                 # CLI usage, install, deploy command reference
+│
+├── packages/
+│   └── shared/                       # `@app/shared` — cross-app constants (§5.8)
 │
 ├── docs/                             # Documentation
 │   ├── ARCHITECTURE.md               # This document
@@ -307,17 +334,25 @@ EnterpriseAppBase/
 │   ├── DEVELOPMENT.md                # Development guide
 │   ├── TESTING.md                    # Testing guide
 │   ├── DEVICE-AUTH.md                # Device auth guide
-│   ├── System_Specification_Document.md  # Full specification
-│   └── specs/                        # Implementation specifications
-│       ├── 01-project-setup.md
-│       ├── 02-database-schema.md
-│       └── ... (24 specs total)
+│   ├── personal-access-tokens.md     # PAT guide
+│   ├── deployment/
+│   │   └── vps.md                    # VPS deploy runbook
+│   ├── runbooks/
+│   │   └── rotate-secrets-encryption-key.md
+│   └── specs/                        # Living design records (5 total)
+│       ├── settings-ui.md
+│       ├── navigation-ia.md
+│       ├── datatable.md
+│       ├── api-documentation.md
+│       └── vps-deploy.md
 │
 ├── infra/                            # Infrastructure configuration
 │   ├── compose/
 │   │   ├── base.compose.yml          # Core services
 │   │   ├── dev.compose.yml           # Development overrides
 │   │   ├── prod.compose.yml          # Production overrides
+│   │   ├── test.compose.yml          # Ephemeral Postgres for tests
+│   │   ├── vps.compose.yml           # Loopback-only overrides for a shared host proxy (§10)
 │   │   ├── otel.compose.yml          # Observability stack
 │   │   └── .env.example              # Environment template
 │   ├── nginx/
@@ -326,14 +361,22 @@ EnterpriseAppBase/
 │       ├── otel-collector-config.yaml
 │       └── uptrace.yml
 │
+├── tests/                            # Cross-app test suites (own package.json each)
+│   ├── e2e/                          # Full-stack Playwright E2E against Compose
+│   └── visual/                       # Pixel visual regression (pinned container)
+│
 ├── .claude/                          # AI agent configuration
 │   └── agents/
 │       ├── backend-dev.md            # Backend specialist
 │       ├── frontend-dev.md           # Frontend specialist
 │       ├── database-dev.md           # Database specialist
 │       ├── testing-dev.md            # Testing specialist
-│       └── docs-dev.md               # Documentation specialist
+│       ├── docs-dev.md               # Documentation specialist
+│       └── ops-dev.md                # Routine operations specialist
 │
+├── scripts/                          # Repo-level dev/worktree helper scripts
+├── install.sh                        # `appctl` installer (curl | bash)
+├── openapi.json                      # Generated OpenAPI dump (gitignored; `npm run openapi:dump`)
 ├── CLAUDE.md                         # AI assistant guidance
 └── README.md                         # Project overview
 ```
@@ -357,18 +400,42 @@ module-name/
 
 ### 5.3 Frontend Component Structure
 
+Components and pages are **flat files grouped by topic directory**, not one
+folder per component. There is no per-component barrel `index.ts` (the sole
+exception is `components/datatable/index.ts`, which re-exports a small public
+surface for a genuinely multi-file subsystem) and no test file co-located next
+to the component it covers — every test lives under `src/__tests__/`, in a
+directory tree that mirrors `src/` file-for-file:
+
 ```
 components/
-├── ComponentName/
-│   ├── ComponentName.tsx         # Component implementation
-│   ├── ComponentName.test.tsx    # Component tests
-│   └── index.ts                  # Barrel export
+├── admin/
+│   ├── UserList.tsx
+│   └── AllowlistTable.tsx
+├── navigation/
+│   ├── AppBar.tsx
+│   ├── NavigationRail.tsx
+│   ├── BottomNav.tsx
+│   └── NotificationBell.tsx
+├── settings/
+│   └── SettingsHub.tsx           # Shared by every settings surface (CLAUDE.md rule 4)
+└── common/
+    └── RequirePermission.tsx
 
 pages/
-├── PageName/
-│   ├── PageName.tsx              # Page component
-│   ├── PageName.test.tsx         # Page tests
-│   └── index.ts                  # Barrel export
+├── HomePage.tsx
+├── UserSettingsHubPage.tsx
+└── Admin/
+    ├── SettingsHubPage.tsx
+    ├── EmailSettingsPage.tsx
+    └── UsersPage.tsx
+
+__tests__/
+├── components/
+│   ├── admin/UserList.test.tsx
+│   └── navigation/AppBar.test.tsx
+└── pages/
+    └── Admin/EmailSettingsPage.test.tsx
 ```
 
 ### 5.4 Storage Subsystem
@@ -466,6 +533,243 @@ apps/api/src/storage/
         └── base-processor.interface.ts
 ```
 
+### 5.5 Notifications Subsystem
+
+Epic #109. One registry declares every notification event; a single
+dispatcher fans it out over per-event, per-channel-capable transports; a
+durable per-user inbox and an ephemeral live stream sit side by side as two
+different answers to two different questions.
+
+#### Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                  NOTIFICATION_EVENTS registry                │
+│  notifications/notification-events.ts — key, label,          │
+│  description, channels[], defaultEnabled, mandatory?         │
+├─────────────────────────────────────────────────────────────┤
+│  NotificationsService.notify(eventKey, userId, data)         │
+│  NotificationsService.notifyAddress(eventKey, email, data)   │
+│  └── resolves preferences → resolveChannels() → dispatch     │
+├───────────────────────────┬───────────────────────────────────┤
+│  EmailNotificationChannel  │  BrowserNotificationChannel       │
+│  → EVENT_EMAIL_TEMPLATES   │  → EVENT_BROWSER_TEMPLATES        │
+│  → EmailSettingsService    │  → writes `notifications` row     │
+│                             │  → publishes to NotificationStream│
+├───────────────────────────┴───────────────────────────────────┤
+│  NotificationDeliveryService → notification_deliveries table  │
+│  (one row per attempt, per channel — the operator's record)   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### The registry is the single declaration point
+
+`NOTIFICATION_EVENTS` (`apps/api/src/notifications/notification-events.ts`) is
+plain data, not a Nest provider, read by three consumers that would otherwise
+drift: the dispatcher (what to send, over what, to whom), the
+`/settings/notifications` preferences matrix (`GET /api/notifications/events`),
+and the docs/admin surfaces. Each entry declares:
+
+- `key` — a stable, namespaced (`<area>.<event>`) string persisted in
+  preferences and delivery records; never renamed in place.
+- `channels` — which of `NOTIFICATION_CHANNELS` (`'email' | 'browser'`) this
+  event is *capable* of using (`allowlist.invitation` is email-only because
+  its recipient has no account and no open tab by definition).
+- `defaultEnabled` — what an untouched account gets.
+- `mandatory?: true` — the user cannot opt out on any declared channel; the
+  resolver ignores stored preferences entirely for these. Only
+  `security.role_changed` is mandatory today.
+
+The **sparse-preference contract**: no preference row is materialised until a
+user changes something. Absent means "the registry default applies," resolved
+at read time by `readNotificationPreferences` / `resolveChannels`
+(`notification-preferences.ts`) — never stored as a default. The write side of
+the same contract is the `dataTables`/`navigation`/`notifications` namespaces
+in `user_settings.value` (see §6.2).
+
+#### The dispatcher: `notify()` / `notifyAddress()`
+
+`NotificationsService` (`notifications.service.ts`) is the one entry point.
+Both methods:
+
+- Fire **after** the triggering write has committed, called **outside** any
+  `$transaction` — the notification is not part of the business transaction.
+- Are **detached**: the work is scheduled on a later microtask and the
+  returned promise resolves as soon as scheduling succeeds, not once anything
+  is rendered or sent. There is deliberately no queue (no Redis, no worker,
+  no `jobs` table) — the trade-off accepted is no durability and no retry
+  across a process crash, in exchange for zero new ops surface.
+- **Never reject** — not for a DB failure, a mail server, a template bug, or
+  an unknown event key (which is a silent no-op, since a stale key raised by
+  an un-updated caller must not fail the action that raised it).
+- Record every attempt in `notification_deliveries`, so "did the user get
+  it?" is answered by a query, never by log-diving.
+
+`notifyAddress(eventKey, email, data)` exists for a recipient with **no user
+account** (an allowlist invitation): it looks the address up first — an
+address that resolves to a real account is routed through the ordinary
+preference-resolving path, never bypassed — and only falls back to an
+account-less recipient (empty preferences, resolving to the registry default)
+when truly no account exists.
+
+`NotificationsService.flush()` / `onModuleDestroy()` drain in-flight
+dispatches on shutdown, within a bound, so a rolling deploy does not routinely
+drop notifications the way a hard crash would.
+
+#### Durable inbox vs. lossy live stream
+
+Two tables answer two different questions, and are not the same data twice:
+
+| | `notification_deliveries` | `notifications` |
+|---|---|---|
+| Unit | One row per delivery **attempt**, per channel | One row per thing a user should see |
+| Audience | Operators ("did we try, what did the provider say?") | The user's own inbox (bell) |
+| Covers | Email **and** browser, incl. account-less recipients | Browser channel only, real accounts only |
+| On user delete | `SetNull` (audit trail outlives the account) | `Cascade` (personal data, no reader once gone) |
+
+`NotificationStreamService` (`notification-stream.service.ts`) is the SSE
+layer on top of the `notifications` table, exposed at `GET
+/api/notifications/stream` via Nest's `@Sse()` decorator (confirmed to work
+under the Fastify adapter — it unwraps to the raw Node `ServerResponse`). It
+is explicitly **not a delivery guarantee**: there is no buffer, no
+`Last-Event-ID`, no cross-replica fan-out, and anything published while a
+connection is down is lost. The client is expected to refetch `GET
+/api/notifications/unread-count` and `GET /api/notifications` on every
+(re)connect, which is what makes a gap harmless — the `notifications` table,
+not the stream, is the source of truth. Nginx needs a dedicated
+`proxy_buffering off` location for this route (see §10.2).
+
+#### Module structure
+
+```
+apps/api/src/notifications/
+├── notification-events.ts              # The registry
+├── notification-preferences.ts         # Sparse-contract resolution
+├── notifications.service.ts            # notify() / notifyAddress() dispatcher
+├── notification-delivery.service.ts    # notification_deliveries writer
+├── notification-store.service.ts       # notifications table CRUD (per-user scoped)
+├── notification-stream.service.ts      # SSE subscriber registry
+├── notifications.controller.ts         # events / stream / list / unread-count / read
+└── channels/
+    ├── email-notification.channel.ts   # EVENT_EMAIL_TEMPLATES map
+    └── browser-notification.channel.ts # EVENT_BROWSER_TEMPLATES map + inbox write
+```
+
+### 5.6 Email & Credentials Subsystem
+
+Two closely related pieces: how outbound mail is sent and templated, and how
+the SMTP password (and future runtime secrets) that make it possible are
+stored safely.
+
+#### Email provider abstraction and templates
+
+`apps/api/src/email/` defines an `EmailProvider` interface
+(`providers/email-provider.interface.ts`) with two implementations —
+`SmtpEmailProvider` and `SesEmailProvider` — selected and configured by
+`EmailSettingsService` from the admin-configured `email-settings` (`GET/PUT
+/api/email-settings`, `system_settings:read`/`:write`) plus the encrypted SMTP
+password from `CredentialsService`.
+
+Templates are a **three-way-locked registry** (`templates/index.ts`), the same
+"one declaration point" idea as `notification-events.ts` on a different axis:
+adding a template means adding both an entry to `EmailTemplateDataMap` (the
+data type) and to `EMAIL_TEMPLATES` (the render function) — `EmailTemplateName`
+is *derived* from the data map, so a half-registered template is a compile
+error in either direction. A notification event is connected to its template
+by an explicit, separate map, `EVENT_EMAIL_TEMPLATES`
+(`notifications/channels/email-notification.channel.ts`) — kept explicit
+rather than derived so a rename on either side fails loudly instead of
+silently matching the wrong template.
+
+Every template builds its HTML body with the `html` **tagged template
+literal** (`templates/safe-html.ts`): every interpolation is escaped by
+construction, so writing a template the natural way is writing it safely, and
+emitting deliberately unescaped markup requires reaching for
+`SafeHtml.unsafeFromTrustedString` — longer to type, and it greps out of the
+tree in one command. There is deliberately **no HTML-to-text conversion
+helper** — every template hand-writes its plain-text part alongside the HTML
+one. `renderLayout` (`templates/layout.ts`) wraps every template and passes
+any CTA URL through `safeUrl`. Live templates: `user-welcome.email.ts`,
+`allowlist-invitation.email.ts`, `role-changed.email.ts`,
+`test-email.email.ts`.
+
+#### The encrypted credential store
+
+`credentials` (Prisma model `Credential`) holds **runtime-configured**
+secrets — an SMTP password typed into the admin UI today, an OAuth client
+secret or a second bucket's S3 key potentially tomorrow — addressed by
+`(purpose, name)` rather than one bespoke column per consumer. This is
+distinct from every *deploy-time* secret in this document's Environment
+Variables section (`JWT_SECRET`, `GOOGLE_CLIENT_SECRET`, `AWS_SECRET_ACCESS_KEY`),
+which correctly stay in the environment and never touch this table.
+
+`CredentialsService` (`apps/api/src/credentials/`) is the sole reader/writer
+and holds two invariants: **no plaintext egress** — `getSecret()` (plaintext,
+server-side only) and `describe()`/`list()` (presentation, e.g. a masked
+`hint`) are different methods returning different types, and neither this
+service nor `common/crypto/secret-cipher.ts` may interpolate a secret value
+into a log line or error message; and **blank preserves** — an admin form
+renders the password field empty (the stored value is unreadable through the
+API) and an empty submission on `PUT /api/email-settings` keeps the stored
+password rather than erasing it.
+
+The cipher (`apps/api/src/common/crypto/secret-cipher.ts`) is **AES-256-GCM**,
+keyed by `SECRETS_ENCRYPTION_KEY` (base64-encoded 32 bytes). Each row's
+`secret` column is a self-describing, base64-encoded payload of
+`[iv: 12 bytes][authTag: 16 bytes][ciphertext]`, so the IV and auth tag can
+never drift into separate columns from the ciphertext they authenticate. A
+per-`purpose` sub-key is derived from the master key via **HMAC-SHA256**
+(not a password KDF like scrypt/argon2 — the master key is already
+high-entropy, so a KDF's deliberate slowness buys nothing and only costs
+CPU), so a ciphertext lifted from one row cannot be decrypted under a
+different purpose. `SECRETS_ENCRYPTION_KEY` is optional until the first
+credential is stored, then mandatory at boot; see
+[`docs/runbooks/rotate-secrets-encryption-key.md`](runbooks/rotate-secrets-encryption-key.md)
+for rotation.
+
+### 5.7 The CLI and VPS Deployment
+
+`apps/cli` (`appctl`, epic #110) is the first-party command-line client for
+this API: it authenticates via the device authorization flow (§ Device
+Authorization), stores a personal access token, and exposes one generic `api
+<method> <path>` command plus an interactive ink TUI (`src/tui/`) so it never
+goes stale as endpoints are added or renamed. It is an npm workspace package,
+built from this monorepo and installed standalone via `install.sh`, not
+published to a registry.
+
+`appctl deploy doctor|install|update|status` (epic #168, `apps/cli/src/deploy/`)
+is the *entire* VPS deployment story for this application — there is no
+separate deploy script, Ansible playbook, or SSH-driving code anywhere else in
+the repo, and there shouldn't be. It runs **on** the target VPS (the CLI
+itself never dials out over SSH), git-clones/pulls, runs `docker compose
+build`/`up` against `infra/compose/vps.compose.yml` (§10.1), migrates and seeds
+the database, and hands TLS to a shared host-level reverse proxy rather than
+terminating it per-app.
+
+This document does not restate that design — it lives in full, with the
+rejected alternatives, in:
+
+- [`docs/specs/vps-deploy.md`](specs/vps-deploy.md) — the design: why it runs
+  on the VPS, why TLS is a shared host proxy, why there is no `db` service.
+- [`docs/deployment/vps.md`](deployment/vps.md) — the operator runbook:
+  prerequisites, first login, troubleshooting.
+- [`apps/cli/README.md`](../apps/cli/README.md#deploying-to-a-server) — the
+  command reference: flags and exit codes.
+
+### 5.8 `@app/shared`
+
+`packages/shared` (published to the workspace as `@app/shared`, epic #161) is
+the single rebranding point for this template: today it exports exactly one
+constant, `APP_NAME`, from a hand-written, build-step-free CommonJS module.
+Every surface that renders the product's name — the web AppBar and page
+title, the OpenAPI document and API reference page, email templates, and the
+CLI's banner/`--help`/device name — derives from this one constant rather than
+restating it. Full rationale (why CommonJS with no build step, why it isn't
+also where `notification-events.ts` lives, the Vite `optimizeDeps.include`
+trap) and the current consumer list are maintained in
+[`packages/shared/README.md`](../packages/shared/README.md) — see that file
+before adding a second constant or a second consumer.
+
 ---
 
 ## 6. Data Architecture
@@ -561,23 +865,67 @@ apps/api/src/storage/
 │  storage_objects   │       │ storage_object_chunks  │
 ├────────────────────┤       ├────────────────────────┤
 │ id (PK, UUID)      │──┐    │ id (PK, UUID)          │
-│ owner_id (FK)      │  │    │ object_id (FK)         │──┘
+│ uploaded_by_id (FK)│  │    │ object_id (FK)         │──┘
 │ name               │  └───▶│ part_number            │
-│ size               │       │ e_tag                  │
-│ mime_type          │       │ size                   │
-│ storage_key        │       │ status                 │
-│ storage_provider   │       │ created_at             │
-│ upload_id          │       │ completed_at           │
-│ status             │       └────────────────────────┘
+│ size (BigInt)      │       │ e_tag                  │
+│ mime_type          │       │ size (BigInt)          │
+│ storage_key        │       │ uploaded_at            │
+│ storage_provider   │       └────────────────────────┘
+│ bucket             │
+│ s3_upload_id       │
+│ status             │
 │ metadata (JSONB)   │
 │ created_at         │
 │ updated_at         │
 └────────────────────┘
+
+┌──────────────────────┐     ┌────────────────────────┐
+│ personal_access_tokens│     │      credentials       │
+├──────────────────────┤     ├────────────────────────┤
+│ id (PK, UUID)        │     │ id (PK, UUID)          │
+│ user_id (FK)         │     │ purpose                │
+│ name                 │     │ name                   │
+│ token_hash (UNIQUE)  │     │ secret (opaque, AES-GCM)│
+│ token_prefix         │     │ hint                   │
+│ duration_value       │     │ label                  │
+│ duration_unit        │     │ updated_by_user_id (FK)│
+│ expires_at           │     │ created_at             │
+│ last_used_at         │     │ updated_at             │
+│ created_at           │     └────────────────────────┘
+│ revoked_at           │     UNIQUE (purpose, name)
+└──────────────────────┘
+
+┌─────────────────────────┐   ┌────────────────────┐
+│ notification_deliveries │   │    notifications    │
+├─────────────────────────┤   ├────────────────────┤
+│ id (PK, UUID)           │   │ id (PK, UUID)      │
+│ event_key (plain string)│   │ user_id (FK)       │
+│ user_id (FK, nullable)  │   │ event_key          │
+│ recipient               │   │ title              │
+│ channel (plain string)  │   │ body               │
+│ status (enum)           │   │ link               │
+│ provider_message_id     │   │ read_at            │
+│ error                   │   │ created_at         │
+│ created_at              │   └────────────────────┘
+│ updated_at              │   user_id FK: ON DELETE CASCADE
+└─────────────────────────┘   (personal inbox — dies with the account)
+user_id FK: ON DELETE SET NULL
+(operator audit trail — outlives the account)
 ```
 
 ### 6.2 JSONB Schema Definitions
 
 #### User Settings Shape
+
+`theme` and `profile` are always present; `dataTables`, `navigation`, and
+`notifications` are **sparse namespaces** — each is emitted only when the
+user has actually stored something for it, and an absent namespace means
+"apply the client's built-in default," never a materialised default value.
+None of the three ever carries a `.default()` in its Zod schema
+(`apps/api/src/common/schemas/user-settings-namespaces.schema.ts`): defaulting
+`visibleColumns` to today's column list, for example, would freeze that list
+into the row the first time a user touched an unrelated preference, silently
+hiding every column added afterward.
 
 ```json
 {
@@ -586,9 +934,34 @@ apps/api/src/storage/
     "displayName": "string | null",
     "useProviderImage": true,
     "customImageUrl": "string | null"
+  },
+  "dataTables": {
+    "<tableId>": {
+      "visibleColumns": ["col1", "col2"],
+      "density": "compact | standard | comfortable",
+      "sort": { "field": "string", "direction": "asc | desc" },
+      "pageSize": 25
+    }
+  },
+  "navigation": {
+    "railCollapsed": false
+  },
+  "notifications": {
+    "email": { "user.welcome": false },
+    "browser": { "security.role_changed": true }
   }
 }
 ```
+
+`dataTables` is keyed by table id (max 40 tables/user); a `PATCH` replaces a
+named table's entry wholesale rather than deep-merging it, and `null` deletes
+that table's entry. `notifications` is **channel-outer, event-inner** — the
+shape `readNotificationPreferences` parses — and a `PATCH` deep-merges per
+event key, where `null` at any of the three levels (namespace / channel /
+event) deletes that level and falls back to the registry default. A stored
+`false` for a `mandatory: true` event (§5.5) is accepted by the write schema
+but is never consulted by the dispatcher — the `mandatory` gate lives solely
+in preference *resolution*, not in validation.
 
 #### System Settings Shape
 
@@ -792,6 +1165,10 @@ Before OAuth authentication completes:
 | **Settings** | `/api/user-settings/*` | Yes | User preferences |
 | **System Settings** | `/api/system-settings/*` | Yes (Admin) | App configuration |
 | **Allowlist** | `/api/allowlist/*` | Yes (Admin) | Access control |
+| **Storage** | `/api/storage/objects/*` | Yes | File upload/download/CRUD |
+| **Personal Access Tokens** | `/api/pat/*` | Yes | Manage own long-lived tokens |
+| **Notifications** | `/api/notifications/*` | Yes | Event registry, SSE stream, inbox |
+| **Email Settings** | `/api/email-settings/*` | Yes (Admin) | SMTP/SES configuration |
 
 ### 8.2 Complete Endpoint Reference
 
@@ -846,6 +1223,59 @@ Before OAuth authentication completes:
 | `GET` | `/api/allowlist` | `allowlist:read` | List allowlisted emails |
 | `POST` | `/api/allowlist` | `allowlist:write` | Add email |
 | `DELETE` | `/api/allowlist/:id` | `allowlist:write` | Remove email (if pending) |
+
+#### Storage Objects
+
+Every route below is scoped to the caller's own objects via `storage:read` /
+`storage:write` / `storage:delete`, enforced (with ownership checks) inside
+`ObjectsService`; the `storage:*_any` permissions (Admin) additionally reach
+every user's objects. See §5.4 for the upload flow.
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/api/storage/objects` | List objects (paginated) |
+| `GET` | `/api/storage/objects/:id` | Get object metadata |
+| `GET` | `/api/storage/objects/:id/download` | Get signed download URL |
+| `POST` | `/api/storage/objects` | Simple upload (multipart/form-data) |
+| `POST` | `/api/storage/objects/upload/init` | Initialize resumable upload |
+| `GET` | `/api/storage/objects/:id/upload/status` | Get upload progress |
+| `POST` | `/api/storage/objects/:id/upload/complete` | Complete multipart upload |
+| `DELETE` | `/api/storage/objects/:id/upload/abort` | Abort upload |
+| `PATCH` | `/api/storage/objects/:id/metadata` | Update metadata |
+| `DELETE` | `/api/storage/objects/:id` | Delete object |
+
+#### Personal Access Tokens
+
+All three routes act on the caller's own tokens only — there is no admin
+variant that names another user.
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| `POST` | `/api/pat` | JWT | Create a token (raw value shown once) |
+| `GET` | `/api/pat` | JWT | List own tokens (no raw values) |
+| `DELETE` | `/api/pat/:id` | JWT | Revoke a token |
+
+#### Notifications (epic #109)
+
+`GET /api/notifications/stream` cannot be used from Swagger "Try it out" or a
+plain `EventSource` (it needs an `Authorization` header); see §5.5.
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| `GET` | `/api/notifications/events` | JWT | The event registry, in preferences-UI order |
+| `GET` | `/api/notifications/stream` | JWT | SSE stream of the caller's own notifications |
+| `GET` | `/api/notifications` | JWT | List caller's notifications (paginated, `unreadOnly`) |
+| `GET` | `/api/notifications/unread-count` | JWT | Unread count for the bell badge |
+| `POST` | `/api/notifications/:id/read` | JWT | Mark one notification read (idempotent) |
+| `POST` | `/api/notifications/read-all` | JWT | Mark all of the caller's notifications read |
+
+#### Email Settings (Admin)
+
+| Method | Path | Permission | Purpose |
+|--------|------|------------|---------|
+| `GET` | `/api/email-settings` | `system_settings:read` | Get config + masked `smtpPasswordStatus` |
+| `PUT` | `/api/email-settings` | `system_settings:write` | Replace config (`If-Match` for optimistic concurrency) |
+| `POST` | `/api/email-settings/test` | `system_settings:write` | Send a test email with the current/pending config |
 
 #### Health
 
@@ -908,11 +1338,13 @@ for genuinely parallel content only.
 | User Settings hub | `/settings` | Required | Any (authenticated) | Searchable hub over the user's own settings |
 | — Profile | `/settings/profile` | Required | Any (authenticated) | Display name, avatar, email |
 | — Appearance | `/settings/appearance` | Required | Any (authenticated) | Personal theme preference |
+| — Notifications | `/settings/notifications` | Required | Any (authenticated) | Per-event, per-channel notification preferences |
 | — Access Tokens | `/settings/tokens` | Required | Any (authenticated) | Personal access token management |
 | Console / Settings hub | `/admin/settings` | Required | `system_settings:read` OR `users:read` | Searchable hub over admin settings |
 | — System | `/admin/settings/general` | Required | `system_settings:read` | Core system settings |
 | — Appearance | `/admin/settings/appearance` | Required | `system_settings:read` | Default theme for new users |
 | — Feature Flags | `/admin/settings/feature-flags` | Required | `system_settings:read` | Toggle optional features |
+| — Email | `/admin/settings/email` | Required | `system_settings:read` | SMTP/SES configuration, test send |
 | — Advanced (JSON) | `/admin/settings/advanced` | Required | `system_settings:write` | Raw settings document editor |
 | — Users & Allowlist | `/admin/settings/users` | Required | `users:read` | User accounts, roles, and allowlist |
 | `/admin` (redirect) | `/admin` | Required | — | `<Navigate replace>` to `/admin/settings` |
@@ -1013,6 +1445,15 @@ services:
   otel-collector:  # OpenTelemetry Collector
   uptrace:         # Trace/metric visualization (port 14318)
   clickhouse:      # Uptrace storage backend
+
+# Test database only (test.compose.yml) — the one overlay that DOES start a
+# Postgres container, ephemeral, for CI/local integration tests.
+services:
+  db-test:
+
+# VPS overrides (vps.compose.yml) — applied AFTER prod.compose.yml when the
+# stack sits behind a shared host-level reverse proxy. See §10.2 and
+# docs/specs/vps-deploy.md.
 ```
 
 ### 10.2 Network Topology
@@ -1048,6 +1489,21 @@ services:
 to a database you provide via the `POSTGRES_*` variables; only
 `infra/compose/test.compose.yml` starts a Postgres container, for tests.
 
+**Nginx routes the SSE stream separately from the rest of `/api`.** The
+notification stream (§5.5, `GET /api/notifications/stream`) needs its own
+`location /api/notifications/stream` block in `infra/nginx/nginx.conf` with
+`proxy_buffering off`, `proxy_cache off`, and a long `proxy_read_timeout` —
+the ordinary `/api` location buffers responses, which would hold every SSE
+frame until the connection closed. The API also sets the response header
+`X-Accel-Buffering: no`; neither half is relied on alone.
+
+**A VPS deployment adds a fourth topology, applied via `vps.compose.yml`
+after `prod.compose.yml`:** nginx's published port is overridden (not merged)
+to `127.0.0.1:${APP_BIND_PORT}` only — nothing in the stack is reachable on a
+public interface — and a shared, host-level reverse proxy (outside this
+Compose project entirely) terminates TLS and forwards to that loopback port.
+See §5.7 and [`docs/specs/vps-deploy.md`](specs/vps-deploy.md) for why.
+
 ### 10.3 Environment Configuration
 
 Key environment variables (see `infra/compose/.env.example`):
@@ -1057,6 +1513,8 @@ Key environment variables (see `infra/compose/.env.example`):
 NODE_ENV=development
 PORT=3000
 APP_URL=http://localhost:3535
+# Loopback port bound when deployed behind a shared host proxy (vps.compose.yml)
+APP_BIND_PORT=3535
 
 # Database
 POSTGRES_HOST=localhost
@@ -1064,11 +1522,16 @@ POSTGRES_PORT=5432
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=postgres
 POSTGRES_DB=appdb
+POSTGRES_SSL=false
 
-# JWT
+# JWT / Session
 JWT_SECRET=<min-32-character-secret>
 JWT_ACCESS_TTL_MINUTES=15
 JWT_REFRESH_TTL_DAYS=14
+COOKIE_SECRET=<min-32-character-secret>
+
+# Credential encryption (§5.6) — optional until a credential is stored, then mandatory
+SECRETS_ENCRYPTION_KEY=<base64 32 bytes; openssl rand -base64 32>
 
 # OAuth
 GOOGLE_CLIENT_ID=<from-google-console>
@@ -1078,10 +1541,46 @@ GOOGLE_CALLBACK_URL=http://localhost:3535/api/auth/google/callback
 # Admin Bootstrap
 INITIAL_ADMIN_EMAIL=admin@example.com
 
+# Device Authorization Flow (RFC 8628)
+DEVICE_CODE_EXPIRY_MINUTES=15
+DEVICE_CODE_POLL_INTERVAL=5
+DEVICE_TOKEN_EXPIRY_DAYS=7
+# PAT lifetime minted for CLI-style device logins (1-999, default 90)
+DEVICE_PAT_EXPIRY_DAYS=90
+
 # Observability
 OTEL_ENABLED=true
 OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+OTEL_SERVICE_NAME=enterprise-app-api
+LOG_LEVEL=info
+
+# Uptrace (otel.compose.yml) / ClickHouse (Uptrace's storage backend)
+UPTRACE_DSN=http://project1_secret_token@localhost:14317/1
+UPTRACE_PROJECT1_TOKEN=project1_secret_token
+UPTRACE_SECRET_KEY=<change-in-production>
+UPTRACE_ADMIN_EMAIL=admin@localhost
+UPTRACE_ADMIN_PASSWORD=admin
+UPTRACE_PGPASSWORD=uptrace
+UPTRACE_SITE_URL=http://localhost:14318
+CLICKHOUSE_USER=default
+CLICKHOUSE_PASSWORD=
+
+# Storage (§5.4)
+STORAGE_PROVIDER=s3
+S3_BUCKET=<bucket-name>
+S3_REGION=us-east-1
+AWS_ACCESS_KEY_ID=
+AWS_SECRET_ACCESS_KEY=
+# S3_ENDPOINT=<for MinIO/LocalStack>
+MAX_FILE_SIZE=10737418240
+ALLOWED_MIME_TYPES=image/*,application/pdf,video/*
+SIGNED_URL_EXPIRY=3600
+STORAGE_PART_SIZE=10485760
 ```
+
+See [`infra/compose/.env.example`](../infra/compose/.env.example) for the
+authoritative, fully-commented list — including the optional Microsoft OAuth
+block and test-auth toggle.
 
 ---
 
@@ -1129,378 +1628,27 @@ Request → Nginx → API → Database
 
 ## 12. Testing Architecture
 
-### 12.1 Testing Strategy Overview
+Full detail — test structure, mocking strategy (Prisma via `jest-mock-extended`
+for the API, MSW for the web), commands, configuration, and the visual
+regression suite — lives in [`docs/TESTING.md`](TESTING.md); this section is
+a one-screen orientation, not a second copy.
 
-The project uses a **mocked database approach** for all tests by default. This provides fast, isolated tests without requiring a running PostgreSQL instance.
+| App | Frameworks | Layout |
+|-----|-----------|--------|
+| `apps/api` | Jest + Supertest, mocked `PrismaService` by default | `*.spec.ts` co-located; `test/*.integration.spec.ts` |
+| `apps/web` | Vitest + React Testing Library + MSW | `src/__tests__/`, mirroring `src/` |
+| `apps/cli` | Vitest | `*.test.ts` co-located with source |
+| `tests/e2e` | Playwright, full stack against Docker Compose | `tests/e2e/specs/` |
+| `tests/visual` | Playwright, pixel regression, **pinned container only** | `tests/visual/specs/` |
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         TESTING ARCHITECTURE                            │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  BACKEND (apps/api/)                    FRONTEND (apps/web/)            │
-│  ┌─────────────────────────────┐       ┌─────────────────────────────┐  │
-│  │  Jest + Supertest           │       │  Vitest + RTL               │  │
-│  │                             │       │                             │  │
-│  │  Unit Tests (*.spec.ts)     │       │  Component Tests            │  │
-│  │  • Co-located with source   │       │  (*.test.tsx)               │  │
-│  │  • Mock all dependencies    │       │  • In __tests__/ folder     │  │
-│  │                             │       │  • MSW for API mocking      │  │
-│  │  Integration Tests          │       │                             │  │
-│  │  (*.integration.spec.ts)    │       │  Context Tests              │  │
-│  │  • In test/ directory       │       │  • AuthContext              │  │
-│  │  • Full HTTP cycle          │       │  • ThemeContext             │  │
-│  │  • Mocked PrismaService     │       │                             │  │
-│  │                             │       │                             │  │
-│  │  Mocking:                   │       │  Mocking:                   │  │
-│  │  • jest-mock-extended       │       │  • MSW (Mock Service Worker)│  │
-│  │  • DeepMockProxy<Prisma>    │       │  • vi.fn() for functions    │  │
-│  └─────────────────────────────┘       └─────────────────────────────┘  │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
-```
-
-### 12.2 Backend Test Structure
-
-```
-apps/api/
-├── src/
-│   ├── auth/
-│   │   ├── auth.service.spec.ts          # Unit test (co-located)
-│   │   ├── auth.controller.spec.ts
-│   │   ├── guards/
-│   │   │   ├── jwt-auth.guard.spec.ts
-│   │   │   ├── roles.guard.spec.ts
-│   │   │   └── permissions.guard.spec.ts
-│   │   └── strategies/
-│   │       ├── jwt.strategy.spec.ts
-│   │       └── google.strategy.spec.ts
-│   ├── users/
-│   │   └── users.service.spec.ts
-│   ├── settings/
-│   │   ├── user-settings/
-│   │   │   └── user-settings.service.spec.ts
-│   │   └── system-settings/
-│   │       └── system-settings.service.spec.ts
-│   └── common/
-│       ├── filters/http-exception.filter.spec.ts
-│       └── interceptors/transform.interceptor.spec.ts
-│
-└── test/
-    ├── jest.config.js                    # Jest configuration
-    ├── setup.ts                          # Global test setup
-    ├── teardown.ts                       # Global cleanup
-    ├── helpers/
-    │   ├── test-app.helper.ts            # Creates test NestJS app
-    │   ├── auth-mock.helper.ts           # Creates mock users with JWTs
-    │   └── fixtures.helper.ts            # Test data utilities
-    ├── fixtures/
-    │   ├── users.fixture.ts              # User test data
-    │   ├── roles.fixture.ts              # Role test data
-    │   ├── settings.fixture.ts           # Settings test data
-    │   ├── test-data.factory.ts          # Factory functions
-    │   └── mock-setup.helper.ts          # Base mock configuration
-    ├── mocks/
-    │   ├── prisma.mock.ts                # Mocked PrismaService
-    │   └── google-oauth.mock.ts          # Mocked OAuth strategy
-    ├── auth/
-    │   ├── auth.integration.spec.ts      # Auth endpoint tests
-    │   ├── oauth.integration.spec.ts     # OAuth flow tests
-    │   └── allowlist-enforcement.integration.spec.ts
-    ├── rbac/
-    │   ├── rbac.integration.spec.ts
-    │   └── guard-integration.integration.spec.ts
-    ├── settings/
-    │   ├── user-settings.integration.spec.ts
-    │   └── system-settings.integration.spec.ts
-    ├── users.integration.spec.ts
-    ├── health/
-    │   └── health.integration.spec.ts
-    └── integration/
-        └── device-auth.integration.spec.ts
-```
-
-### 12.3 Backend Mocking Strategy
-
-#### Prisma Mocking with jest-mock-extended
-
-All backend tests use a **mocked PrismaService** via `jest-mock-extended`:
-
-```typescript
-// test/mocks/prisma.mock.ts
-import { DeepMockProxy, mockDeep, mockReset } from 'jest-mock-extended';
-import { PrismaClient } from '@prisma/client';
-
-export type MockPrismaClient = DeepMockProxy<PrismaClient>;
-export const prismaMock: MockPrismaClient = mockDeep<PrismaClient>();
-
-export function resetPrismaMock(): void {
-  mockReset(prismaMock);
-}
-```
-
-#### Test App Helper
-
-The `createTestApp()` helper creates a fully configured NestJS application with mocked database:
-
-```typescript
-// test/helpers/test-app.helper.ts
-export async function createTestApp(
-  options: { useMockDatabase?: boolean } = {}
-): Promise<TestContext> {
-  const shouldUseMock = options.useMockDatabase ?? true;  // Default: MOCKED
-
-  const moduleFixture = await Test.createTestingModule({
-    imports: [AppModule],
-  })
-    .overrideProvider(PrismaService)
-    .useValue(prismaMock)  // Inject mock instead of real Prisma
-    .compile();
-
-  // ... app configuration
-  return { app, prisma, prismaMock, module, isMocked: true };
-}
-```
-
-#### Integration Test Pattern
-
-```typescript
-// test/auth/auth.integration.spec.ts
-describe('Auth Controller (Integration)', () => {
-  let context: TestContext;
-
-  beforeAll(async () => {
-    context = await createTestApp({ useMockDatabase: true });
-  });
-
-  afterAll(async () => {
-    await closeTestApp(context);
-  });
-
-  beforeEach(async () => {
-    resetPrismaMock();      // Clear all mock calls
-    setupBaseMocks();        // Set up default mock responses
-  });
-
-  it('should return current user for authenticated request', async () => {
-    const user = await createMockTestUser(context);  // Creates user + JWT
-
-    const response = await request(context.app.getHttpServer())
-      .get('/api/auth/me')
-      .set(authHeader(user.accessToken))
-      .expect(200);
-
-    expect(response.body.data).toMatchObject({
-      id: user.id,
-      email: user.email,
-    });
-  });
-});
-```
-
-### 12.4 Frontend Test Structure
-
-```
-apps/web/src/
-└── __tests__/
-    ├── setup.ts                          # Vitest setup (MSW, mocks)
-    ├── mocks/
-    │   ├── server.ts                     # MSW server instance
-    │   ├── handlers.ts                   # API mock handlers
-    │   └── data.ts                       # Mock response data
-    ├── utils/
-    │   ├── test-utils.tsx                # Custom render with providers
-    │   ├── mock-providers.tsx            # Test provider wrappers
-    │   └── hook-utils.tsx                # Hook testing utilities
-    ├── components/
-    │   ├── common/
-    │   │   ├── LoadingSpinner.test.tsx
-    │   │   └── ProtectedRoute.test.tsx
-    │   ├── navigation/
-    │   │   ├── AppBar.test.tsx
-    │   │   ├── Sidebar.test.tsx
-    │   │   └── UserMenu.test.tsx
-    │   └── admin/
-    │       ├── UserList.test.tsx
-    │       ├── AllowlistTable.test.tsx
-    │       └── AddEmailDialog.test.tsx
-    ├── contexts/
-    │   ├── AuthContext.test.tsx
-    │   └── ThemeContext.test.tsx
-    ├── pages/
-    │   ├── LoginPage.test.tsx
-    │   ├── UserSettingsPage.test.tsx
-    │   └── SystemSettingsPage.test.tsx
-    └── services/
-        └── api.test.ts
-```
-
-### 12.5 Frontend Mocking Strategy
-
-#### MSW (Mock Service Worker)
-
-API calls are intercepted at the network level using MSW:
-
-```typescript
-// __tests__/mocks/handlers.ts
-import { http, HttpResponse } from 'msw';
-
-export const handlers = [
-  http.get('/api/auth/me', () => {
-    return HttpResponse.json({
-      data: {
-        id: 'user-1',
-        email: 'test@example.com',
-        roles: [{ name: 'viewer' }],
-        permissions: ['user_settings:read'],
-      },
-    });
-  }),
-
-  http.get('/api/auth/providers', () => {
-    return HttpResponse.json({
-      data: {
-        providers: [{ name: 'google', displayName: 'Google' }],
-      },
-    });
-  }),
-
-  http.post('/api/auth/logout', () => {
-    return new HttpResponse(null, { status: 204 });
-  }),
-];
-```
-
-#### Test Setup
-
-```typescript
-// __tests__/setup.ts
-import '@testing-library/jest-dom';
-import { cleanup } from '@testing-library/react';
-import { afterEach, beforeAll, afterAll, vi } from 'vitest';
-import { server } from './mocks/server';
-
-// Browser API mocks
-Object.defineProperty(window, 'matchMedia', { /* ... */ });
-global.ResizeObserver = class ResizeObserverMock { /* ... */ };
-
-// MSW lifecycle
-beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
-afterEach(() => { cleanup(); server.resetHandlers(); });
-afterAll(() => server.close());
-```
-
-#### Custom Render with Providers
-
-```typescript
-// __tests__/utils/test-utils.tsx
-import { render } from '@testing-library/react';
-import { BrowserRouter } from 'react-router-dom';
-import { ThemeProvider } from '../../contexts/ThemeContext';
-import { AuthProvider } from '../../contexts/AuthContext';
-
-export function renderWithProviders(ui: React.ReactElement, options = {}) {
-  return render(ui, {
-    wrapper: ({ children }) => (
-      <BrowserRouter>
-        <ThemeProvider>
-          <AuthProvider>
-            {children}
-          </AuthProvider>
-        </ThemeProvider>
-      </BrowserRouter>
-    ),
-    ...options,
-  });
-}
-```
-
-### 12.6 Test Commands
-
-#### Backend
-
-```bash
-cd apps/api
-
-npm test                    # Run all tests (unit + integration)
-npm run test:unit           # Unit tests only (excludes e2e pattern)
-npm run test:watch          # Watch mode
-npm run test:cov            # With coverage report
-npm run test:debug          # Debug mode with inspector
-npm run test:ci             # CI mode (coverage + JUnit reporter)
-```
-
-#### Frontend
-
-```bash
-cd apps/web
-
-npm test                    # Run tests in watch mode
-npm run test:run            # Run once and exit
-npm run test:watch          # Interactive watch mode
-npm run test:coverage       # With coverage report
-npm run test:ui             # Open Vitest UI (browser-based)
-npm run test:ci             # CI mode (coverage + JUnit reporter)
-```
-
-### 12.7 Test Configuration
-
-#### Backend (Jest)
-
-```javascript
-// apps/api/test/jest.config.js
-module.exports = {
-  testRegex: '.*\\.spec\\.ts$',
-  roots: ['<rootDir>/src/', '<rootDir>/test/'],
-  setupFilesAfterEnv: ['<rootDir>/test/setup.ts'],
-  testTimeout: 30000,
-  moduleNameMapper: {
-    '^@/(.*)$': '<rootDir>/src/$1',
-  },
-};
-```
-
-#### Frontend (Vitest)
-
-```typescript
-// apps/web/vitest.config.ts
-export default defineConfig({
-  test: {
-    environment: 'jsdom',
-    globals: true,
-    setupFiles: ['./src/__tests__/setup.ts'],
-    include: ['src/**/*.{test,spec}.{ts,tsx}'],
-    coverage: {
-      thresholds: {
-        lines: 70, branches: 70, functions: 70, statements: 70,
-      },
-    },
-    testTimeout: 10000,
-  },
-});
-```
-
-### 12.8 Key Testing Patterns
-
-| Pattern | Backend | Frontend |
-|---------|---------|----------|
-| **Database** | Mocked via jest-mock-extended | N/A |
-| **API Calls** | Direct HTTP via Supertest | MSW network interception |
-| **Authentication** | Mock JWT tokens generated | MSW handlers return user |
-| **Test Isolation** | `resetPrismaMock()` in beforeEach | `server.resetHandlers()` in afterEach |
-| **Async Handling** | `async/await` with Jest | `waitFor()` from RTL |
-| **User Interactions** | N/A | `userEvent` from @testing-library |
-
-### 12.9 Important Notes
-
-1. **No Real Database Required**: All tests run with mocked Prisma - no PostgreSQL needed
-2. **Test File Naming**:
-   - Backend unit: `*.spec.ts` (co-located with source)
-   - Backend integration: `*.integration.spec.ts` (in test/ directory)
-   - Frontend: `*.test.tsx` (in __tests__/ directory)
-3. **Coverage Thresholds**: Frontend enforces 70% minimum coverage
-4. **MSW Strict Mode**: Unhandled API requests fail tests (`onUnhandledRequest: 'error'`)
-5. **Type Safety**: Prisma mocks are fully typed via `DeepMockProxy<PrismaClient>`
+The visual regression suite (issue #107) intentionally does not run against a
+locally installed browser: baselines are captured and compared inside a
+pinned `mcr.microsoft.com/playwright` container so font rendering and
+anti-aliasing stay identical across machines and CI, at `maxDiffPixels: 4`.
+See `tests/visual/playwright.config.ts` and
+[`packages/shared/README.md`](../packages/shared/README.md) for why
+rebranding `APP_NAME` requires regenerating these baselines inside that same
+container.
 
 ---
 
@@ -1687,25 +1835,36 @@ cd apps/web && npm test
 
 | Document | Purpose |
 |----------|---------|
-| [System_Specification_Document.md](System_Specification_Document.md) | Full system requirements |
 | [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md) | Detailed security documentation |
 | [API.md](API.md) | API endpoint reference |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Development guide |
 | [TESTING.md](TESTING.md) | Testing framework guide |
 | [DEVICE-AUTH.md](DEVICE-AUTH.md) | Device authorization guide |
+| [personal-access-tokens.md](personal-access-tokens.md) | Personal access token guide |
+| [deployment/vps.md](deployment/vps.md) | VPS deployment operator runbook |
+| [runbooks/rotate-secrets-encryption-key.md](runbooks/rotate-secrets-encryption-key.md) | Rotating `SECRETS_ENCRYPTION_KEY` |
+| [../apps/cli/README.md](../apps/cli/README.md) | CLI (`appctl`) usage, install, deploy command reference |
+| [../packages/shared/README.md](../packages/shared/README.md) | `@app/shared` rebranding guide |
 | [CLAUDE.md](../CLAUDE.md) | AI assistant guidance |
 
 ### 15.3 Specification Index
 
-Implementation specs in `docs/specs/`:
+`docs/specs/` holds the living design records for subsystems whose rationale
+doesn't fit in this document — five today, each linked from the section above
+that owns its topic:
 
-| Phase | Specs | Description |
-|-------|-------|-------------|
-| Foundation | 01-03 | Project setup, database schema, seeds |
-| API Core | 04-07 | NestJS setup, OAuth, JWT, RBAC |
-| API Features | 08-12 | Users, settings, health, observability |
-| Frontend | 13-18 | React setup, pages, components |
-| Testing | 19-24 | Test frameworks, unit/integration tests |
+| Spec | Owning section here | Covers |
+|------|---------------------|--------|
+| [settings-ui.md](specs/settings-ui.md) | §9.1, CLAUDE.md's Settings UI Pattern | The registry-driven hub pattern, `SettingsHub`, the five breakpoint gates |
+| [navigation-ia.md](specs/navigation-ia.md) | §9 | Navigation rail / bottom nav information architecture |
+| [datatable.md](specs/datatable.md) | §6.2 (`dataTables` namespace) | The shared data table component and its persisted preferences |
+| [api-documentation.md](specs/api-documentation.md) | §3.2, §8 | `/api/docs` and `/api/openapi.json`, the Scalar reference page |
+| [vps-deploy.md](specs/vps-deploy.md) | §5.7, §10 | `appctl deploy`, the shared host proxy, why there's no `db` service |
+
+The 24 numbered build specs (`01-project-setup.md` … `24-*.md`) that
+previously lived here were deliberately deleted once the features they
+tracked shipped; there is no `System_Specification_Document.md` in this
+repository.
 
 ---
 
@@ -1714,3 +1873,4 @@ Implementation specs in `docs/specs/`:
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 1.0 | January 2026 | AI Assistant | Initial comprehensive architecture document |
+| 1.1 | September 2026 | docs-dev (AI Assistant) | Synced §5 repository structure and conventions with the real tree; added Notifications, Email & Credentials, CLI/VPS Deployment, and `@app/shared` subsystem sections; filled in `personal_access_tokens`, `credentials`, `notification_deliveries`, `notifications` in the ERD and corrected the `storage_objects`/`storage_object_chunks` boxes; documented the `dataTables`/`navigation`/`notifications` user-settings namespaces; added Storage, PAT, Notifications, and Email Settings to the API reference; added `/settings/notifications` and `/admin/settings/email` to the page table; documented `test.compose.yml`/`vps.compose.yml` and the full `.env.example` variable set; shortened Testing Architecture to delegate to `docs/TESTING.md`; rebuilt the Appendices to point at the five current `docs/specs/` files and removed references to the deleted System Specification Document and the 24 numbered build specs |
