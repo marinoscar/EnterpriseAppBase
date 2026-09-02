@@ -260,6 +260,65 @@ async handleCron() {
 - Removes sensitive data from database
 - Improves query performance
 
+### Device-Flow-Minted Personal Access Tokens
+
+The Device Authorization Flow (RFC 8628; `POST /api/auth/device/code`,
+`POST /api/auth/device/token`, etc., implemented in
+`apps/api/src/device-auth/device-auth.service.ts`) is how the `appctl` CLI
+(and any other headless/non-browser client) authenticates. By default an
+approved device receives the same short-lived JWT + rotating-refresh-token
+session pair described above. But a client that sets
+`clientInfo.tokenType: 'pat'` when it requests the device code
+(`readTokenType`, #141) instead receives a **Personal Access Token**, minted
+through the same `PatService.createToken` used by `POST /api/pat` — see
+[`personal-access-tokens.md`](personal-access-tokens.md) for the token
+format, storage (SHA-256 hash, never the raw value), and revocation model.
+
+**Why a PAT rather than a session, for a CLI:** a JWT/refresh-token session
+implies an interactive re-authentication loop — the CLI would have to persist
+a refresh token, silently rotate it, and re-run the OAuth-adjacent device
+flow the moment the user's laptop is offline past the refresh token's TTL.
+A PAT is a single, revocable, long-lived Bearer credential the CLI can hold
+in its own credential store: it shows up under **Settings → Security →
+Access Tokens** (`/settings/tokens`) exactly like a manually-created token,
+and revoking it there kills the CLI session immediately, with no separate
+"device sessions" revocation path to know about.
+
+**Lifetime**: `DEVICE_PAT_EXPIRY_DAYS` (default 90), read once at startup
+into `config.get('deviceAuth.patExpiryDays')` and clamped to **1–999 days**
+in `resolvePatExpiryDays()` — the same bound `CreatePatDto` enforces for a
+token created through `POST /api/pat` directly, so a misconfigured
+`DEVICE_PAT_EXPIRY_DAYS=9000` cannot mint a credential the ordinary API would
+have rejected as invalid.
+
+**Issuance is claim-then-mint, not mint-then-claim.** The device code's
+`status` is flipped from `approved` to `expired` with a single conditional
+`updateMany` (`WHERE status = 'approved'`) *before* `PatService.createToken`
+is called, so two concurrent polls on the same approved device code cannot
+both succeed — only the caller that wins the atomic status transition mints
+a token; the loser is refused with `invalid_grant`. This matters more for a
+PAT than for a session: a duplicated session JWT expires on its own in
+minutes, but a duplicated PAT would be a second, months-long credential that
+revoking the one visible in the Settings UI would not revoke.
+
+**The raw token is never persisted outside the response.** Approval records
+intent only (`status = approved`, `userId`); the PAT itself is created
+inside the same request that returns it to the polling device, so the raw
+secret exists only in process memory and the HTTPS response body — never
+written to the `device_codes` row (whose `client_info` JSONB column would
+otherwise be a tempting, but publicly-writable-at-one-end, place to stage
+it).
+
+**Device-flow error bodies are RFC 8628-shaped, not this API's usual
+envelope.** `POST /api/auth/device/token` returns `{ error,
+error_description }` — the exact top-level shape §3.5 of RFC 8628
+specifies — for `authorization_pending`, `slow_down`, `expired_token`,
+`access_denied`, and `invalid_grant`, **not** the application's normal
+`{ statusCode, code, message, timestamp, path }` error envelope used
+everywhere else in this API. A generic API client that only understands this
+API's usual envelope will not parse a device-flow error correctly; `appctl`
+is written against RFC 8628 specifically for this endpoint.
+
 ---
 
 ## 3. Authorization & RBAC
@@ -967,30 +1026,49 @@ The storage system enforces strict ownership and permission-based access:
 - Download URLs only generated for owned objects
 - Delete operations restricted to owner
 
-**Admin Override:**
-- Users with `storage:delete_any` permission can access all objects
-- Useful for moderation and content management
-- All admin operations logged to audit trail
-
 **Permission Model:**
+
+The only storage permissions the system actually defines are the three in
+`apps/api/src/common/constants/roles.constants.ts` (`PERMISSIONS.STORAGE_*`)
+and seeded in `apps/api/prisma/seed.ts`:
+
 | Permission | Description | Granted To |
 |------------|-------------|------------|
-| `storage:read` | View own storage objects | All authenticated users |
-| `storage:write` | Upload and update own objects | All authenticated users |
-| `storage:delete` | Delete own storage objects | All authenticated users |
-| `storage:read_any` | View all storage objects | Admin |
-| `storage:write_any` | Update any storage object | Admin |
-| `storage:delete_any` | Delete any storage object | Admin |
+| `storage:read` | Granted alongside read access; not currently checked by a guard on any storage route | Admin, Contributor, Viewer |
+| `storage:write` | Granted alongside write access; not currently checked by a guard on any storage route | Admin, Contributor |
+| `storage:delete_any` | Reserved for an admin override on cross-user object access | Admin only |
 
-**Ownership Validation Example:**
+There is **no** `storage:delete`, `storage:read_any`, or `storage:write_any`
+permission — those do not exist in this codebase.
+
+**Ownership Is the Actual Access Control, Not a Permission Check:**
+
+`ObjectsController` is gated only by `@Auth()` (any authenticated user) —
+none of its methods carry a `@Permissions()` decorator. The real
+per-object access control lives in
+`ObjectsService.getObjectWithAuthCheck(id, userId)`, called by every read,
+download, delete, and metadata-update path: it loads the object and throws
+`ForbiddenException` unless `object.uploadedById === userId`. There is
+**currently no code path that consults `storage:delete_any` (or any other
+storage permission) to grant an admin access to another user's object** —
+the permission is seeded onto the `admin` role but not read by
+`getObjectWithAuthCheck` or anywhere else in `apps/api/src/storage/`. Treat
+"Admin Override" as a permission that exists in the RBAC table but is not
+yet wired into the storage authorization path, not as an implemented
+control.
+
+**Ownership Validation (actual code, `objects.service.ts`):**
 ```typescript
-// Controller method enforces ownership
-async getObject(objectId: string, userId: string) {
-  const object = await this.objectsService.findById(objectId);
+private async getObjectWithAuthCheck(id: string, userId: string) {
+  const object = await this.prisma.storageObject.findUnique({ where: { id } });
 
-  // Check ownership (or admin permission)
-  if (object.ownerId !== userId && !user.hasPermission('storage:read_any')) {
-    throw new ForbiddenException('Access denied');
+  if (!object) {
+    throw new NotFoundException('Object not found');
+  }
+
+  // Check ownership
+  if (object.uploadedById !== userId) {
+    throw new ForbiddenException('You do not have access to this object');
   }
 
   return object;
@@ -1799,6 +1877,117 @@ Notable properties of this behaviour:
 ### Read Paths Never Touch the Ciphertext
 
 `CredentialsService.describe(purpose, name)` and `.list(purpose)` — the presentation reads used to show what credentials exist — select only `{ purpose, name, hint, label, updatedByUserId, createdAt, updatedAt }` and never select the `secret` column at all. Consequently they work correctly with no encryption key configured, and would keep working even if the configured key could never decrypt a single row, because the ciphertext is never fetched. Only `getSecret(purpose, name)` — server-side only, never called from a controller — returns plaintext, and on a decrypt failure it throws rather than silently returning `null`, so a key change or corruption cannot silently disable a feature.
+
+---
+
+## 15. Notifications (Epic #109)
+
+### Overview
+
+The notification system (`apps/api/src/notifications/`) delivers events over
+two channels — email and an in-app browser stream — driven by a single
+declarative registry, `NOTIFICATION_EVENTS`
+(`apps/api/src/notifications/notification-events.ts`). See
+[CLAUDE.md's "Adding a Notification"](../CLAUDE.md#adding-a-notification) for
+the registry/template/trigger mechanics; this section covers only the
+security-relevant properties.
+
+### The SSE Stream Is Scoped to the Token Bearer, With No User-Selecting Parameter
+
+`GET /api/notifications/stream` (`NotificationsController.stream`, `@Sse()`)
+is guarded by the ordinary `@Auth()` and takes the recipient's `userId` from
+`@CurrentUser('id')` — i.e. from the verified JWT/PAT — and from nowhere
+else. **There is no route or query parameter that selects which user's
+notifications a connection receives.** `NotificationStreamService.subscribe`
+registers each connection under exactly that `userId`, so isolation is
+structural rather than a filter that could be built wrong: a connection
+authenticated as user A is never written to by a publish for user B.
+
+### No Query-String Token, By Design
+
+The browser's native `EventSource` cannot send an `Authorization` header, and
+the tempting workaround — `GET /api/notifications/stream?token=<jwt>` — was
+deliberately **rejected and must stay rejected**: a bearer token in a URL is
+written to the nginx access log, retained in browser history, and forwarded
+in the `Referer` header, turning a short-lived credential into something
+replayable out of a log file long after the token would otherwise have
+expired. The supported client is a **fetch-based SSE client** — `connectSse` in
+`apps/web/src/services/sse.ts`, consumed by
+`apps/web/src/services/notificationStream.ts` — that calls `fetch()` with a
+real `Authorization` header and parses the `text/event-stream` framing
+itself, rather than constructing a native `EventSource`. This is a
+hard constraint on any future client of this endpoint, not an implementation
+detail: do not add a `?token=` fallback later to accommodate a client that
+can't set headers.
+
+The stream is also explicitly **not a delivery guarantee** — nothing published
+while a connection is down is buffered or replayed — so the client refetches
+`GET /api/notifications/unread-count` and `GET /api/notifications` on every
+(re)connect. That is a reliability property, not a security one, but it
+means the durable source of truth for "what notifications exist" is always
+the `notifications` table via the authenticated REST endpoints, never the
+stream itself.
+
+### `mandatory: true` Events Cannot Be Silenced, Enforced Server-Side
+
+An event declared with `mandatory: true` in the registry — currently only
+`security.role_changed` — is delivered over **every** channel it declares
+regardless of any stored user preference. The enforcement lives in
+`isChannelEnabled` (`apps/api/src/notifications/notification-preferences.ts`):
+the `mandatory` check runs **before** any stored preference is read, so there
+is no arrangement of preference data — however written, including through a
+crafted `PATCH` that never went near the `/settings/notifications` UI — that
+can reach the opt-out branch for a mandatory event. This is deliberately
+all-or-nothing per `NotificationEventDef.mandatory`: a user who kept only
+"browser" enabled for a security alert is unreachable the moment no tab is
+open, so per-channel opt-out on a mandatory event would reopen the hole the
+flag exists to close. `NOTIFICATION_EVENTS` enforces the companion invariant
+that a `mandatory: true` event must also be `defaultEnabled: true` — a
+mandatory-but-off-by-default event would be self-contradictory.
+
+### Email Templates Escape By Construction
+
+Every email template (`apps/api/src/email/templates/*.email.ts`) builds its
+HTML body with the `html` tagged template literal exported from
+`apps/api/src/email/index.ts`, which escapes every interpolated value —
+there is no template in this codebase that concatenates raw strings into an
+HTML email body. Any call-to-action URL passed to `renderLayout` is run
+through `safeUrl`, which rejects unsafe schemes (e.g. `javascript:`) before
+the link is emitted. There is deliberately no HTML-to-text conversion
+helper — the plain-text part of each template is hand-written — so a
+template author cannot accidentally leak unescaped HTML into the text part
+by deriving one from the other.
+
+---
+
+## 16. VPS Deployment Security Posture
+
+Deploying to a VPS (`appctl deploy doctor|install|update|status`, epic #168)
+made several real security decisions that live in
+[`docs/specs/vps-deploy.md`](specs/vps-deploy.md) (design rationale, rejected
+alternatives) and [`docs/deployment/vps.md`](deployment/vps.md) (operator
+runbook) — this section only summarizes the posture and links outward rather
+than restating either:
+
+- **TLS is terminated by a shared host proxy, not per-application.** The
+  stack itself never holds a certificate or listens on a public interface for
+  TLS; `infra/compose/vps.compose.yml` exists specifically to enforce this —
+  see below.
+- **The stack is bound to loopback only.** `infra/compose/vps.compose.yml`
+  overrides Nginx's port mapping with `ports: !override` to
+  `127.0.0.1:${APP_BIND_PORT:-3535}:80`. The `!override` (rather than a plain
+  `ports:` key, which Compose would *merge* with `base.compose.yml`'s
+  `"3535:80"`, publishing the app on every interface anyway) is the one line
+  in the file that fails silently when written wrong — verify with `docker
+  compose ... config` that there is exactly one `ports` entry and it carries
+  `host_ip 127.0.0.1`. Traffic reaches the application only through the host
+  proxy, which is outside this repository's compose stack entirely.
+- **There is no bundled `db` service, on a VPS or anywhere else.**
+  `infra/compose/base.compose.yml` has never included Postgres — the API
+  connects out to a database reachable via `POSTGRES_HOST`/`POSTGRES_PORT` —
+  so a VPS deployment is not exposing a database container that needs its own
+  network isolation decision; that decision is made once, for every
+  environment, by not bundling a database service at all.
 
 ---
 
