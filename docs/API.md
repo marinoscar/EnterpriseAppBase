@@ -31,22 +31,46 @@ Access tokens are short-lived (15 minutes by default). Use the refresh token flo
 
 ### Error Response
 
+Every endpoint but one (see the note below) returns errors through `HttpExceptionFilter`,
+which rebuilds the body from a fixed key allowlist — `statusCode`, `code`, `message`,
+`details`, `timestamp`, `path` and nothing else. A custom field on a thrown exception's
+payload that isn't one of these is silently dropped; endpoint-specific data belongs in
+`details`.
+
 ```json
 {
-  "statusCode": 400,
-  "message": "Human readable error message",
-  "error": "BadRequest"
+  "statusCode": 409,
+  "code": "CONFLICT",
+  "message": "Email already in allowlist",
+  "timestamp": "2026-08-17T04:37:58.000Z",
+  "path": "/api/allowlist"
 }
 ```
 
-For validation errors:
-```json
-{
-  "statusCode": 400,
-  "message": ["Field validation error 1", "Field validation error 2"],
-  "error": "BadRequest"
-}
-```
+`code` is a stable, machine-readable value **derived from the HTTP status** — the filter
+overwrites any `code` a thrown exception supplied, so branch on it rather than on `message`
+(prose, may change). It is always one of:
+
+| HTTP Status | `code` |
+|-------------|--------|
+| 400 | `BAD_REQUEST` |
+| 401 | `UNAUTHORIZED` |
+| 403 | `FORBIDDEN` |
+| 404 | `NOT_FOUND` |
+| 409 | `CONFLICT` |
+| 422 | `UNPROCESSABLE_ENTITY` |
+| 429 | `TOO_MANY_REQUESTS` |
+| 500 | `INTERNAL_ERROR` |
+| any other status | `ERROR` |
+
+`details` is optional and endpoint-specific (e.g. `{ "field": "email" }`); it is omitted
+when the failure carried none. Validation errors from the global Zod pipe surface their
+per-field messages through `message`/`details` in the same envelope, not as a separate
+shape.
+
+**The one exception:** `POST /auth/device/token` opts out of this envelope entirely,
+because RFC 8628 §3.5 fixes its error body as `{ error, error_description }`. See the
+Device Authorization section below.
 
 ## Pagination
 
@@ -57,11 +81,19 @@ Endpoints returning lists support pagination with the following query parameters
 | `page` | number | 1 | - | Page number (1-indexed) |
 | `pageSize` | number | 20 | 100 | Items per page |
 
-**Paginated Response Format:**
+**Paginated Response Format:** `data` is always an **object** carrying `items` alongside
+the pagination counts — never the bare array. This API has two slightly different shapes
+for those counts, both documented on their own endpoints below:
+
+- **Flat** (`GET /users`, `GET /allowlist`, `GET /notifications`):
+  `data: { items, total, page, pageSize, totalPages }`
+- **Nested** (`GET /storage/objects`):
+  `data: { items, meta: { page, pageSize, totalItems, totalPages } }`
+
 ```json
 {
-  "data": [...],
-  "meta": {
+  "data": {
+    "items": [ ... ],
     "total": 150,
     "page": 1,
     "pageSize": 20,
@@ -69,6 +101,9 @@ Endpoints returning lists support pagination with the following query parameters
   }
 }
 ```
+
+Note the envelope's own `meta` (see Response Format above) carries only the server
+timestamp and is a sibling of `data`, not the same object as a nested list's `data.meta`.
 
 ---
 
@@ -199,9 +234,9 @@ The Device Authorization Flow enables input-constrained devices (CLI tools, IoT 
 ```json
 {
   "clientInfo": {
-    "name": "My CLI Tool",
-    "version": "1.0.0",
-    "platform": "linux"
+    "deviceName": "oscar-laptop",
+    "userAgent": "MyCliTool/1.0.0 (linux)",
+    "tokenType": "pat"
   }
 }
 ```
@@ -209,10 +244,10 @@ The Device Authorization Flow enables input-constrained devices (CLI tools, IoT 
 **Fields:**
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `clientInfo` | object | No | Optional metadata about client device |
-| `clientInfo.name` | string | No | Application name |
-| `clientInfo.version` | string | No | Application version |
-| `clientInfo.platform` | string | No | Platform identifier |
+| `clientInfo` | object | No | Optional metadata about the client device. Arrives from an unauthenticated caller and is persisted verbatim — treat it as untrusted when rendering it back |
+| `clientInfo.deviceName` | string | No | Human-readable device/client name, echoed to the approving user on the activation page and, for `tokenType: "pat"`, used to build the token's display name |
+| `clientInfo.userAgent` | string | No | Client user agent string |
+| `clientInfo.tokenType` | enum | No | `session` (default) or `pat`. Selects which credential the flow mints on approval — see `POST /auth/device/token` below. An unrecognised value is rejected with a 400 rather than falling back to `session` |
 
 **Response:**
 ```json
@@ -251,16 +286,49 @@ The Device Authorization Flow enables input-constrained devices (CLI tools, IoT 
 ```
 
 **Response (200 OK - Authorized):**
+
+The credential kind returned matches what was requested at `POST /auth/device/code` via
+`clientInfo.tokenType`. It is minted on THIS poll, not at approval time — a device that is
+approved but never polls again is never issued a credential.
+
+Default `session` credential (`clientInfo.tokenType` was absent or `"session"`):
 ```json
 {
   "data": {
     "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
     "refreshToken": "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6",
     "tokenType": "Bearer",
-    "expiresIn": 900
+    "expiresIn": 604800
   }
 }
 ```
+
+Personal access token (`clientInfo.tokenType` was `"pat"`):
+```json
+{
+  "data": {
+    "accessToken": "pat_a1b2c3d4e5f6...",
+    "tokenType": "Bearer",
+    "expiresIn": 7776000,
+    "credentialType": "pat",
+    "expiresAt": "2026-11-28T12:00:00.000Z",
+    "tokenId": "123e4567-e89b-12d3-a456-426614174000",
+    "tokenName": "Device: oscar-laptop"
+  }
+}
+```
+
+**Fields:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `accessToken` | string | Present for both credential kinds. Present as-is in `Authorization: Bearer <token>` |
+| `refreshToken` | string | **Session credential only.** Absent for a PAT — re-running the device flow is a PAT's renewal path, not this API's cookie-based refresh flow |
+| `tokenType` | string | Always the literal `"Bearer"`, for both credential kinds — it describes how to present the token, not which kind it is |
+| `expiresIn` | number | Session: `DEVICE_TOKEN_EXPIRY_DAYS` in seconds (7 days = 604800 by default), not the ordinary 15-minute web access-token TTL. PAT: remaining seconds until `expiresAt` (`DEVICE_PAT_EXPIRY_DAYS`, 90 days by default) — prefer the absolute `expiresAt` for a PAT |
+| `credentialType` | `"pat"` | **PAT only.** Absent for a session credential, mirroring the request side. Branch on this field, never on the absence of `refreshToken` |
+| `expiresAt` | string | **PAT only.** Absolute ISO-8601 expiry |
+| `tokenId` | string | **PAT only.** The token's id — the same value `GET /api/pat` returns — for revoking it via `DELETE /api/pat/{id}` |
+| `tokenName` | string | **PAT only.** The display name given to the token, so a client can tell the user which row to look for in the Access Tokens page |
 
 **Error Responses (400 Bad Request):**
 
@@ -295,6 +363,18 @@ User denied authorization:
   "error_description": "User denied the authorization request"
 }
 ```
+
+An unrecognised internal device code status (defensive; should not occur in practice):
+```json
+{
+  "error": "invalid_request",
+  "error_description": "Unknown device code status"
+}
+```
+
+**Note:** these RFC 8628 bodies are sent verbatim and are NOT the shared error envelope
+described under Error Response above — no `statusCode`, `code`, `timestamp` or `path`.
+Branch on `error`, never on HTTP status or `error_description` (prose, may change).
 
 **Error Response (401 Unauthorized):**
 
@@ -456,7 +536,105 @@ Authorization: Bearer <token>
 **Error Cases:**
 - 404 Not Found - Session not found or doesn't belong to current user
 
-**Use Case:** Revoke access for lost or compromised devices.
+**Use Case:** Revoke access for lost or compromised devices. This revokes the device
+*authorization request* so it can no longer be redeemed on `POST /auth/device/token` — it
+does **not** invalidate a credential the device already collected. To revoke an already-issued
+personal access token, use `DELETE /api/pat/{id}`; for an already-issued session credential,
+use `POST /auth/logout-all` (which revokes refresh tokens — the issued access token itself
+stays valid until its short TTL expires).
+
+---
+
+### Personal Access Tokens
+
+Long-lived, revocable API tokens that authenticate as the user who created them, for
+CI/CD, CLI tools and scripts that cannot do interactive OAuth. All endpoints operate
+only on the **authenticated caller's own** tokens — there is no admin listing of another
+user's tokens and no id parameter that could name one. See
+[`docs/personal-access-tokens.md`](personal-access-tokens.md) for the concepts (use
+cases, duration options, how a PAT is presented, security considerations); this section
+documents only the wire format. A PAT can also be minted directly through the Device
+Authorization flow (`clientInfo.tokenType: "pat"` — see above), which is what the CLI uses.
+
+#### POST /pat
+**Requires Authentication** - Create a new personal access token for the current user.
+
+**Request Body:**
+```json
+{
+  "name": "CI Pipeline",
+  "durationValue": 90,
+  "durationUnit": "days"
+}
+```
+
+**Fields:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | Yes | Human-readable name, 1-100 characters |
+| `durationValue` | number | Yes | Integer, 1-999 |
+| `durationUnit` | enum | Yes | `minutes`, `days`, or `months` |
+
+**Response (201 Created):**
+```json
+{
+  "token": "pat_9f8e7d6c5b4a3928170695867503a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8",
+  "id": "uuid",
+  "name": "CI Pipeline",
+  "tokenPrefix": "pat_9f8e",
+  "expiresAt": "2026-11-30T12:00:00.000Z",
+  "createdAt": "2026-09-01T12:00:00.000Z"
+}
+```
+
+**The raw `token` is shown exactly once, in this response.** It is never returned again —
+not by `GET /pat`, not anywhere else. Store it securely at creation time. Present it as
+`Authorization: Bearer pat_...`; `JwtAuthGuard` recognises the `pat_` prefix and routes it
+to PAT validation instead of JWT verification.
+
+---
+
+#### GET /pat
+**Requires Authentication** - List the current user's personal access tokens, newest
+first. The raw token value is never included.
+
+**Response:**
+```json
+[
+  {
+    "id": "uuid",
+    "name": "CI Pipeline",
+    "tokenPrefix": "pat_9f8e",
+    "durationValue": 90,
+    "durationUnit": "days",
+    "expiresAt": "2026-11-30T12:00:00.000Z",
+    "lastUsedAt": "2026-09-05T08:12:00.000Z",
+    "createdAt": "2026-09-01T12:00:00.000Z",
+    "revokedAt": null
+  }
+]
+```
+
+**Fields:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `tokenPrefix` | string | Display-only identifying prefix (e.g. `pat_9f8e`) — not a secret, not enough to authenticate with |
+| `lastUsedAt` | string \| null | ISO 8601 timestamp of last use, updated fire-and-forget on each successful validation; `null` if never used |
+| `revokedAt` | string \| null | ISO 8601 timestamp the token was revoked, `null` if still active |
+
+---
+
+#### DELETE /pat/:id
+**Requires Authentication** - Revoke one of the current user's personal access tokens.
+
+**Parameters:**
+- `id` (UUID) - Token ID
+
+**Response:** HTTP 204 No Content
+
+**Error Cases:**
+- 404 Not Found - Token not found, does not belong to the current user, or already revoked
+  (these are indistinguishable on purpose)
 
 ---
 
@@ -518,25 +696,21 @@ List all users with pagination and filtering.
 **Response:**
 ```json
 {
-  "data": [
-    {
-      "id": "uuid",
-      "email": "user@example.com",
-      "displayName": "John Doe",
-      "profileImageUrl": "https://...",
-      "providerDisplayName": "John Doe",
-      "providerProfileImageUrl": "https://lh3.googleusercontent.com/...",
-      "isActive": true,
-      "createdAt": "2024-01-01T00:00:00.000Z",
-      "roles": [
-        {
-          "id": "uuid",
-          "name": "contributor"
-        }
-      ]
-    }
-  ],
-  "meta": {
+  "data": {
+    "items": [
+      {
+        "id": "uuid",
+        "email": "user@example.com",
+        "displayName": "John Doe",
+        "profileImageUrl": "https://...",
+        "providerDisplayName": "John Doe",
+        "providerProfileImageUrl": "https://lh3.googleusercontent.com/...",
+        "isActive": true,
+        "roles": ["contributor"],
+        "createdAt": "2024-01-01T00:00:00.000Z",
+        "updatedAt": "2024-01-01T00:00:00.000Z"
+      }
+    ],
     "total": 50,
     "page": 1,
     "pageSize": 20,
@@ -545,7 +719,11 @@ List all users with pagination and filtering.
 }
 ```
 
-**Note:** `providerDisplayName` and `providerProfileImageUrl` may be null if not available from OAuth provider.
+**Note:** `providerDisplayName` and `providerProfileImageUrl` may be null if not available
+from OAuth provider. `roles` here is a flat array of role names (unlike `GET /users/:id`,
+which returns full role objects). This is the "flat" list shape shared with
+`GET /allowlist` and `GET /notifications` — `data` is an object with `items` alongside
+the pagination counts, not the array itself; see Pagination above.
 
 ---
 
@@ -565,25 +743,22 @@ Get user by ID.
   "providerDisplayName": "John Doe",
   "providerProfileImageUrl": "https://lh3.googleusercontent.com/...",
   "isActive": true,
-  "createdAt": "2024-01-01T00:00:00.000Z",
-  "updatedAt": "2024-01-01T00:00:00.000Z",
-  "roles": [
-    {
-      "id": "uuid",
-      "name": "contributor",
-      "description": "Standard user capabilities"
-    }
-  ],
+  "roles": ["contributor"],
   "identities": [
     {
       "provider": "google",
-      "providerEmail": "user@example.com"
+      "providerEmail": "user@example.com",
+      "createdAt": "2024-01-01T00:00:00.000Z"
     }
-  ]
+  ],
+  "createdAt": "2024-01-01T00:00:00.000Z",
+  "updatedAt": "2024-01-01T00:00:00.000Z"
 }
 ```
 
-**Note:** `providerDisplayName` and `providerProfileImageUrl` may be null if not available from OAuth provider.
+**Note:** `providerDisplayName` and `providerProfileImageUrl` may be null if not available
+from OAuth provider. `roles` is a flat array of role names here too — this endpoint does
+not return role `id`/`description`; look those up via the RBAC model if needed.
 
 **Error Cases:**
 - 404 Not Found - User not found
@@ -593,7 +768,8 @@ Get user by ID.
 #### PATCH /users/:id
 Update user properties (activation status, display name).
 
-**Requires:** `users:write` permission
+**Requires:** `users:read` AND `users:write` permissions (the `@Auth()` guard requires
+*all* listed permissions, not any one of them)
 
 **Parameters:**
 - `id` (UUID) - User ID
@@ -618,18 +794,19 @@ Update user properties (activation status, display name).
   "id": "uuid",
   "email": "user@example.com",
   "displayName": "New Name",
+  "providerDisplayName": "John Doe",
+  "profileImageUrl": "https://...",
+  "providerProfileImageUrl": "https://lh3.googleusercontent.com/...",
   "isActive": false,
-  "roles": [
-    {
-      "id": "uuid",
-      "name": "viewer"
-    }
-  ]
+  "roles": ["viewer"],
+  "createdAt": "2024-01-01T00:00:00.000Z",
+  "updatedAt": "2024-01-01T12:00:00.000Z"
 }
 ```
 
 **Error Cases:**
 - 404 Not Found - User not found
+- 403 Forbidden - Admin attempting to deactivate their own account (`isActive: false` on self)
 
 ---
 
@@ -653,25 +830,20 @@ Update user roles (replaces all current roles).
 |-------|------|----------|-------------|
 | `roleNames` | string[] | Yes | Array of role names to assign (min: 1) |
 
-**Response:**
+**Response:** Same shape as `GET /users/:id` — the updated user with its new `roles` (flat
+array of role names).
 ```json
 {
   "id": "uuid",
   "email": "user@example.com",
   "displayName": "John Doe",
   "isActive": true,
-  "roles": [
-    {
-      "id": "uuid",
-      "name": "admin",
-      "description": "Administrator with full access"
-    },
-    {
-      "id": "uuid",
-      "name": "contributor",
-      "description": "Standard user capabilities"
-    }
-  ]
+  "roles": ["admin", "contributor"],
+  "identities": [
+    { "provider": "google", "providerEmail": "user@example.com", "createdAt": "2024-01-01T00:00:00.000Z" }
+  ],
+  "createdAt": "2024-01-01T00:00:00.000Z",
+  "updatedAt": "2024-01-01T12:00:00.000Z"
 }
 ```
 
@@ -685,6 +857,11 @@ Update user roles (replaces all current roles).
 - 401 Unauthorized - Not authenticated
 - 403 Forbidden - Missing `rbac:manage` permission
 - 404 Not Found - User not found
+
+**Side effect:** dispatches the `security.role_changed` notification (email + in-app bell)
+to the affected user, reporting the delta between their previous and new roles. This is a
+`mandatory: true` event — the recipient's notification preferences cannot suppress it, even
+when the actor changes their own roles. See the Notifications section below.
 
 ---
 
@@ -710,37 +887,37 @@ List allowlisted emails with pagination, filtering, and sorting.
 **Response:**
 ```json
 {
-  "data": [
-    {
-      "id": "uuid",
-      "email": "user@example.com",
-      "addedBy": {
-        "id": "uuid",
-        "email": "admin@example.com"
-      },
-      "addedAt": "2024-01-01T00:00:00.000Z",
-      "claimedBy": {
+  "data": {
+    "items": [
+      {
         "id": "uuid",
         "email": "user@example.com",
-        "displayName": "John Doe"
+        "addedBy": {
+          "id": "uuid",
+          "email": "admin@example.com"
+        },
+        "addedAt": "2024-01-01T00:00:00.000Z",
+        "claimedBy": {
+          "id": "uuid",
+          "email": "user@example.com",
+          "displayName": "John Doe"
+        },
+        "claimedAt": "2024-01-02T00:00:00.000Z",
+        "notes": "New team member"
       },
-      "claimedAt": "2024-01-02T00:00:00.000Z",
-      "notes": "New team member"
-    },
-    {
-      "id": "uuid",
-      "email": "pending@example.com",
-      "addedBy": {
+      {
         "id": "uuid",
-        "email": "admin@example.com"
-      },
-      "addedAt": "2024-01-03T00:00:00.000Z",
-      "claimedBy": null,
-      "claimedAt": null,
-      "notes": null
-    }
-  ],
-  "meta": {
+        "email": "pending@example.com",
+        "addedBy": {
+          "id": "uuid",
+          "email": "admin@example.com"
+        },
+        "addedAt": "2024-01-03T00:00:00.000Z",
+        "claimedBy": null,
+        "claimedAt": null,
+        "notes": null
+      }
+    ],
     "total": 100,
     "page": 1,
     "pageSize": 20,
@@ -749,7 +926,9 @@ List allowlisted emails with pagination, filtering, and sorting.
 }
 ```
 
-**Note:** `addedBy` object contains only `id` and `email` (no `displayName`). `claimedBy` object contains `id`, `email`, and `displayName` when not null.
+**Note:** `addedBy` object contains only `id` and `email` (no `displayName`). `claimedBy`
+object contains `id`, `email`, and `displayName` when not null. `data` is an object with
+`items` alongside the pagination counts (the "flat" list shape) — not the array itself.
 
 **Status Filters:**
 - `all` - All allowlist entries
@@ -821,8 +1000,17 @@ Remove email from allowlist.
 
 ### Settings
 
+User settings have two always-present fields (`theme`, `profile`) plus three **optional
+namespaces** — `dataTables`, `navigation`, `notifications` — each of which is emitted only
+when the user has actually stored something for it. An absent namespace is a signal, not an
+omission: it means "apply the built-in default," computed at read time, rather than a stale
+value that was frozen in at some point in the past. None of the three has a server-side
+default value stored on creation — this is deliberate (see `PATCH` below).
+
 #### GET /user-settings
-**Requires Authentication** - Get current user's settings.
+**Requires:** `user_settings:read` permission (every user has this)
+
+Get current user's settings.
 
 **Response:**
 ```json
@@ -832,6 +1020,20 @@ Remove email from allowlist.
     "displayName": "John Doe",
     "useProviderImage": true,
     "customImageUrl": null
+  },
+  "dataTables": {
+    "jobs": {
+      "visibleColumns": ["name", "status", "createdAt"],
+      "density": "compact",
+      "pageSize": 50
+    }
+  },
+  "navigation": {
+    "railCollapsed": false
+  },
+  "notifications": {
+    "email": { "user.welcome": false },
+    "browser": { "security.role_changed": true }
   },
   "updatedAt": "2024-01-01T00:00:00.000Z",
   "version": 1
@@ -845,13 +1047,20 @@ Remove email from allowlist.
 | `profile.displayName` | string \| null | User's display name override |
 | `profile.useProviderImage` | boolean | Whether to use OAuth provider's profile image |
 | `profile.customImageUrl` | string \| null | Custom profile image URL |
+| `dataTables` | object, optional | Per-table view preferences, keyed by table id (lowercase slug, max 64 chars). Up to 40 table entries. Each entry: `visibleColumns` (string[], max 60), `density` (`compact`\|`standard`\|`comfortable`), `sort` (`{ field, direction }`), `pageSize` (1-500) — every key optional, none defaulted |
+| `navigation` | object, optional | `railCollapsed` (boolean, optional) — whether the navigation rail is collapsed |
+| `notifications` | object, optional | Per-channel, per-event preference overrides. Keyed `channel -> eventKey -> boolean` where `channel` is `email` or `browser`. **Absence of an event key means "use the registry default"** — see `GET /notifications/events` below. Up to 100 event entries per channel |
 | `updatedAt` | string | ISO 8601 timestamp of last update |
 | `version` | number | Version number for optimistic concurrency control |
 
 ---
 
 #### PUT /user-settings
-**Requires Authentication** - Replace all user settings.
+**Requires:** `user_settings:write` permission
+
+Replace all user settings. A PUT states the settings **in full**: any of the three optional
+namespaces that is omitted from the request body is simply not stored (there is no `null`
+"delete" meaning on PUT the way there is on PATCH — see below).
 
 **Request Body:**
 ```json
@@ -861,63 +1070,110 @@ Remove email from allowlist.
     "displayName": "Jane Doe",
     "useProviderImage": false,
     "customImageUrl": "https://example.com/avatar.jpg"
+  },
+  "dataTables": {
+    "jobs": { "density": "compact" }
+  },
+  "navigation": {
+    "railCollapsed": true
   }
 }
 ```
 
-**Response:**
-```json
-{
-  "theme": "dark",
-  "profile": {
-    "displayName": "Jane Doe",
-    "useProviderImage": false,
-    "customImageUrl": "https://example.com/avatar.jpg"
-  },
-  "updatedAt": "2024-01-01T12:00:00.000Z",
-  "version": 2
-}
-```
+**Response:** Same shape as `GET /user-settings`, reflecting exactly what was submitted
+(here `notifications` would be absent, since it was omitted from the request).
 
 **Note:** This replaces the entire settings object. Use PATCH for partial updates.
 
 ---
 
 #### PATCH /user-settings
-**Requires Authentication** - Partially update user settings.
+**Requires:** `user_settings:write` permission
 
-**Request Body:**
-```json
-{
-  "theme": "dark"
-}
-```
+Partially update user settings, using **JSON Merge Patch** semantics — but the deletion
+rules differ by namespace, so read this section before writing a client against it.
 
 **Request Headers (Optional):**
 ```
 If-Match: 1
 ```
 
-**Response:**
+**`theme` / `profile`:** a shallow merge. Omitted fields keep their stored value.
+
+**`dataTables` — per-table id, whole-entry replacement:**
+| Patch | Effect |
+|-------|--------|
+| `dataTables` absent | namespace untouched |
+| `dataTables: null` | clear the whole namespace |
+| `dataTables: { "jobs": null }` | delete the `jobs` entry only |
+| `dataTables: { "jobs": { "pageSize": 100 } }` | **replace** the `jobs` entry wholesale (not deep-merged) — any previously stored `density`/`visibleColumns`/`sort` for `jobs` is discarded, because a table's view state is one coherent object, not independent fields |
+
+**`navigation` — field-wise:**
+| Patch | Effect |
+|-------|--------|
+| `navigation` absent | namespace untouched |
+| `navigation: null` | clear the whole namespace |
+| `navigation: { "railCollapsed": null }` | delete that one field, falling back to the built-in default |
+| `navigation: { "railCollapsed": true }` | set that one field |
+
+**`notifications` — deletes at THREE levels, and deep-merges per event key:**
+| Patch | Effect |
+|-------|--------|
+| `notifications` absent | namespace untouched |
+| `notifications: null` | clear the **whole namespace** |
+| `notifications: { "email": null }` | clear the **`email` channel only**, leaving `browser` (and any other channel) untouched |
+| `notifications: { "email": { "user.welcome": null } }` | delete **one event key**, restoring the absent (= registry default) state for that event/channel pair |
+| `notifications: { "email": { "user.welcome": false } }` | set that one event key, touching nothing else on the channel |
+
+Unlike `dataTables`, a non-null channel object is **deep-merged per event key**, not
+replaced wholesale — a channel is a row of independent per-event toggles, and the
+preferences UI PATCHes exactly the one key a user just flipped. Replacing the channel
+wholesale would silently re-enable every other notification on that channel with each
+toggle, which is the worst possible failure mode for a notifications feature.
+
+**Why deleting a key (not writing the default value) matters:** `notifications: { "email":
+{ "user.welcome": null } }` is what the preferences page sends when a control is returned
+to its default — and it is *not* the same operation as sending `{ "user.welcome": true }`
+even if `true` happens to be today's registry default for that event. Writing the literal
+default value would **pin that user to today's default forever**: if the event's
+`defaultEnabled` is later changed in the registry, a user who explicitly stored `true`
+keeps receiving it (or not) while everyone else's behavior moves — silently diverging from
+what "no opinion" is supposed to mean. Deleting the key keeps the user on "use whatever the
+registry currently says," which is the sparse-absent-key contract this whole namespace
+depends on.
+
+An emptied namespace or channel — the last key of a channel deleted, or the last channel of
+`notifications` deleted — collapses back to **absent** rather than being stored as `{}`.
+Absent and `{}` would otherwise be two different spellings of "no opinion" for the read
+path and the UI to disagree about.
+
+**Request Body (example — delete one event preference):**
 ```json
 {
-  "theme": "dark",
-  "profile": {
-    "displayName": "John Doe",
-    "useProviderImage": true,
-    "customImageUrl": null
-  },
-  "updatedAt": "2024-01-01T12:00:00.000Z",
-  "version": 2
+  "notifications": {
+    "email": {
+      "user.welcome": null
+    }
+  }
 }
 ```
+
+**Response:** Same shape as `GET /user-settings`, reflecting the merged result.
 
 **Optimistic Concurrency Control:**
 - Include `If-Match: <version>` header to ensure settings haven't been modified by another request
 - Returns **409 Conflict** if version mismatch detected
 - Prevents lost updates in concurrent scenarios
 
-**Note:** This performs a shallow merge with existing settings.
+**Error Cases:**
+- 400 Bad Request - Validation error, or a per-user limit exceeded:
+  `Too many data table preferences: N exceeds the maximum of 40. Remove entries for tables
+  you no longer use (send them as null) before adding new ones.` (checked against the
+  **merged** result, not just the request body — the caps exist because both namespaces
+  are open, user-controlled maps and are a storage-exhaustion control, not a product limit)
+  or the equivalent `Too many notification preferences for channel "<channel>": N exceeds
+  the maximum of 100...` message
+- 409 Conflict - `If-Match` version mismatch
 
 ---
 
@@ -956,6 +1212,18 @@ Get system-wide settings.
 | `updatedAt` | string | ISO 8601 timestamp of last update |
 | `updatedBy` | object | User who last updated settings |
 | `version` | number | Version number for optimistic concurrency control |
+
+**Unknown stored keys are preserved, never destroyed, by PUT or PATCH.** The request body
+is still strictly validated and unknown-key-stripping on the way *in* — neither PUT nor
+PATCH lets a caller smuggle an arbitrary key into `system_settings`. But if the stored row
+already contains a key this version of the code does not model (written by a newer build,
+a manual migration, or a future downstream extension), both PUT and PATCH carry it forward
+untouched rather than silently dropping it on the next save. This key is not surfaced by
+`GET /api/system-settings` — preserved is not the same as supported — but a save can never
+destroy configuration a different, unrelated save was never meant to touch. A malformed
+stored value (e.g. `null`, or `{ "ui": 42 }`) degrades field-by-field to the defaults
+instead of making the row unsavable, so an admin can always repair it through PUT/PATCH
+rather than needing a manual JSONB edit.
 
 ---
 
@@ -1043,6 +1311,365 @@ If-Match: 1
 - Include `If-Match: <version>` header to ensure settings haven't been modified by another request
 - Returns **409 Conflict** if version mismatch detected
 - Prevents lost updates when multiple admins modify settings concurrently
+
+---
+
+### Email Settings
+
+The admin-configurable outbound mail transport (SES or SMTP), plus the write-only SMTP
+password. Deliberately a **separate controller and a separate `system_settings` row**
+(`key = 'email'`) from `system-settings.controller.ts`, so the two surfaces cannot clobber
+each other and SMTP host/username stay out of `GET /api/system-settings`'s response.
+
+**The SMTP password is never readable through this or any other endpoint.** It is stored
+encrypted in the `credentials` table (via `CredentialsService`, `purpose: 'smtp'`,
+`name: 'default'`) — not in the settings JSONB blob, not in plaintext, not as a masked copy
+of the real characters. `GET` and the response to `PUT` return `smtpPasswordStatus`
+instead: whether a password is stored, the store's own mask (`hint`, e.g. `••••x9fQ`), and
+when/by whom it was last written.
+
+#### GET /email-settings
+**Requires:** `system_settings:read` permission (Admin only)
+
+Get email settings (Admin only).
+
+**Response:**
+```json
+{
+  "provider": "smtp",
+  "enabled": true,
+  "smtpHost": "smtp.example.com",
+  "smtpPort": 587,
+  "smtpUseTls": true,
+  "smtpUsername": "no-reply@example.com",
+  "fromAddress": "no-reply@example.com",
+  "fromName": "Acme",
+  "smtpPasswordStatus": {
+    "configured": true,
+    "hint": "••••x9fQ",
+    "updatedAt": "2024-01-01T00:00:00.000Z",
+    "updatedByUserId": "uuid"
+  },
+  "settingsError": null,
+  "version": 1,
+  "updatedAt": "2024-01-01T00:00:00.000Z",
+  "updatedBy": {
+    "id": "uuid",
+    "email": "admin@example.com"
+  }
+}
+```
+
+**Fields:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `provider` | `"ses"` \| `"smtp"` \| `null` | `null` means no transport has been chosen yet (a fresh install) |
+| `enabled` | boolean | Master switch. Nothing is sent while `false`, even with a provider configured |
+| `sesRegion` | string, optional | SES region override; absent means "use `S3_REGION` from the environment" |
+| `smtpHost`, `smtpPort`, `smtpUseTls`, `smtpUsername` | — | SMTP transport configuration. All optional (`smtpUseTls` absent is treated as `true`) |
+| `fromAddress`, `fromName` | string, optional | Envelope/header sender |
+| `smtpPasswordStatus.configured` | boolean | Is a password stored? |
+| `smtpPasswordStatus.hint` | string \| null | The store's non-secret mask; `null` if nothing is stored |
+| `smtpPasswordStatus.updatedAt` / `updatedByUserId` | — | Provenance of the stored password; `null` if nothing is stored |
+| `settingsError` | string \| null | Set (instead of a 500) when the stored row exists but fails validation, so the page that repairs it can still render. Contains only field paths, never stored values |
+| `version` | number | Optimistic-concurrency token for `If-Match` on `PUT` |
+
+---
+
+#### PUT /email-settings
+**Requires:** `system_settings:write` permission (Admin only)
+
+Replace email settings (Admin only).
+
+**Request Body:**
+```json
+{
+  "provider": "smtp",
+  "enabled": true,
+  "smtpHost": "smtp.example.com",
+  "smtpPort": 587,
+  "smtpUseTls": true,
+  "smtpUsername": "no-reply@example.com",
+  "smtpPassword": "the-new-password",
+  "fromAddress": "no-reply@example.com",
+  "fromName": "Acme"
+}
+```
+
+**`smtpPassword` is write-only, and blank preserves the stored value.** Send it to set or
+rotate the password. **Omit it, send `null`, or send `""` to keep whatever is currently
+stored** — an admin editing the from-address does not have to retype a secret they cannot
+see. There is no way to *erase* a stored password through this endpoint (a distinct,
+separate control does that). The password is **never trimmed** — a passphrase whose
+surrounding whitespace is significant is a real password, and silently altering it would
+break authentication with no visible cause.
+
+Every other optional field also accepts `""` or `null` as "leave this field empty" (an
+HTML form has no way to submit "absent") — except `provider`, where `null` is a real,
+persisted state ("no transport chosen") rather than an empty box.
+
+**Request Headers (Optional):**
+```
+If-Match: 1
+```
+Use `If-Match: 0` to assert that nothing is stored yet.
+
+**Response:** Same shape as `GET /email-settings` (never includes the password).
+
+**Error Cases:**
+- 400 Bad Request - Validation error
+- 409 Conflict - `If-Match` version mismatch
+
+---
+
+#### POST /email-settings/test
+**Requires:** `system_settings:write` permission (Admin only) — gated on *write*, not
+*read*, because it is a side-effecting operation that originates real mail.
+
+Send a test email to yourself (Admin only). The recipient is **always the authenticated
+caller's own address** — there is no recipient parameter; a free-text recipient would turn
+an admin settings form into a send-arbitrary-mail endpoint.
+
+**Request:** No body.
+
+**Response (200 OK, even on failure — see below):**
+```json
+{
+  "success": false,
+  "sentTo": "admin@example.com",
+  "providerKind": "smtp",
+  "messageId": null,
+  "error": "535 Authentication failed",
+  "attemptedAt": "2024-01-01T12:00:00.000Z"
+}
+```
+
+**This endpoint answers HTTP 200 even when the send failed.** Diagnosing a mail
+misconfiguration is its entire purpose, and a refused send is a *successful diagnosis* —
+read the `success` field. On failure, `error` carries the mail provider's actual message
+(`MessageRejected: Email address is not verified`, `535 Authentication failed`, `connection
+timeout`), redacted of any credential and length-capped, never a generic "failed to send."
+A client that treats HTTP 200 as "email works" will report success for every
+misconfiguration there is.
+
+**Fields:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `success` | boolean | Did the provider accept the message? Never inferred — copied verbatim from the provider result |
+| `sentTo` | string | The caller's own address (read-back, not request input) |
+| `providerKind` | `"ses"` \| `"smtp"` \| `null` | `null` only when no provider was configured, i.e. nothing was attempted |
+| `messageId` | string \| null | The transport's message id on success; `null` on failure |
+| `error` | string \| null | The provider's verbatim (redacted) error message; `null` on success |
+| `attemptedAt` | string | ISO 8601 timestamp of the attempt |
+
+---
+
+### Notifications
+
+The read surface behind the notification bell and the `/settings/notifications`
+preferences matrix. Every endpoint here is scoped to the **authenticated caller only** —
+there is no `userId` parameter anywhere in this controller, on any endpoint, in either
+direction. The recipient is always the bearer of the token; see `PATCH /user-settings`
+above for how a user's own per-event preferences are written.
+
+#### GET /notifications/events
+**Requires Authentication** - List the registry of events this application can raise, in
+the order the preferences UI should render them. Any authenticated user may read it —
+everyone renders their own preferences page against the same registry.
+
+**Response:**
+```json
+{
+  "data": [
+    {
+      "key": "security.role_changed",
+      "label": "Your roles changed",
+      "description": "Sent when an administrator changes your roles.",
+      "channels": ["email", "browser"],
+      "defaultEnabled": true,
+      "mandatory": true
+    },
+    {
+      "key": "user.welcome",
+      "label": "Welcome email",
+      "description": "Sent once, when you first sign in.",
+      "channels": ["email"],
+      "defaultEnabled": true,
+      "mandatory": false
+    }
+  ]
+}
+```
+
+**Fields:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `key` | string | Stable dotted identifier (`security.role_changed`) — what a client stores its preference against |
+| `channels` | string[] | Channels this event **can** be delivered over (`email`, `browser`) — a capability of the event, not which the user has chosen. Render a preference cell only for a channel listed here |
+| `defaultEnabled` | boolean | What an account with no stored preference receives |
+| `mandatory` | boolean | The user may not opt out, on any channel, for this event. This is a UI hint — render the control disabled with the reason — not the enforcement point: the actual gate is server-side, in preference resolution, so a crafted request that never touches the UI still cannot silence a mandatory event |
+
+This describes what events *exist*, not what the caller has chosen. See `GET
+/user-settings` above for the caller's own preferences (the `notifications` namespace),
+which is sparse: no preference row exists until a user deliberately changes something, so
+an account with no stored preferences receives *every* event, enabled.
+
+---
+
+#### GET /notifications/stream
+**Requires Authentication** - Server-Sent Events (`text/event-stream`) carrying only the
+authenticated caller's notifications, live.
+
+**Frames:**
+- `event: notification` with a JSON `data` payload matching one notification (same shape
+  as `GET /notifications` items, minus `readAt` — it is unread by definition at the instant
+  it is streamed)
+- `: heartbeat` comment lines roughly every 25 seconds, so proxies do not reap an idle
+  connection. `EventSource` swallows comment lines without surfacing them.
+
+```
+: connected
+
+event: notification
+data: {"id":"…","eventKey":"security.role_changed","title":"Your roles changed","body":"…","link":"/settings","createdAt":"…"}
+
+: heartbeat
+
+```
+
+**This is NOT a delivery guarantee.** There is no buffer, no `Last-Event-ID` support and no
+replay — anything published while the connection is down is simply gone. `EventSource`
+reconnects on its own, but reconnecting alone does not recover a gap: **the client must
+refetch `GET /notifications/unread-count` and `GET /notifications` on every (re)connect**.
+This is not a shortcoming to fix later; it is the design — the `notifications` table is the
+source of truth, and one indexed query after a reconnect is strictly more reliable than any
+replay mechanism built on top of a stream. The same refetch also covers the multi-replica
+case (a connection on replica A does not see a notification published while the user was
+connected to replica B).
+
+**Client requirement — a fetch-based SSE client, not the native `EventSource`.** This route
+requires the ordinary `Authorization: Bearer <token>` header like every other endpoint, and
+the native `EventSource` constructor cannot send custom headers. The web client must
+therefore connect with a fetch-based SSE client (e.g. `@microsoft/fetch-event-source`) that
+supports headers and reconnection. **A `?token=` query parameter is deliberately not
+supported and should stay that way** — a bearer credential in a URL is written to the nginx
+access log, kept in browser history, and forwarded in `Referer`, turning a short-lived
+token into something replayable from a log file retained for months.
+
+---
+
+#### GET /notifications
+**Requires Authentication** - List the caller's own notifications, newest first. This is
+the durable surface of the browser channel: correct regardless of whether the user ever
+granted browser-notification permission, and regardless of whether the SSE stream was
+connected when the notification was raised.
+
+**Query Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `page` | number | 1 | Page number |
+| `pageSize` | number | 20 | Items per page (max 100) |
+| `unreadOnly` | enum `"true"` \| `"false"` | `"false"` | Return only unread notifications |
+
+**Response:**
+```json
+{
+  "data": {
+    "items": [
+      {
+        "id": "uuid",
+        "eventKey": "security.role_changed",
+        "title": "Your roles changed",
+        "body": "An administrator changed your roles to: Admin, Contributor.",
+        "link": "/settings",
+        "readAt": null,
+        "createdAt": "2024-01-01T00:00:00.000Z"
+      }
+    ],
+    "total": 12,
+    "page": 1,
+    "pageSize": 20,
+    "totalPages": 1
+  }
+}
+```
+
+**Fields:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `eventKey` | string | The registry key that produced this. Not what the client renders — `title`/`body` were rendered server-side at write time, so editing a template later never rewrites what a user was already told |
+| `link` | string \| null | Root-relative path to open, or `null`. Guaranteed internal — validated before the row was written, so it is always a single leading `/` with no scheme |
+| `readAt` | string \| null | When the user marked it read, `null` while unread |
+
+This is the "flat" list shape (`data.items` alongside `total`/`page`/`pageSize`/
+`totalPages`) — see Pagination above.
+
+---
+
+#### GET /notifications/unread-count
+**Requires Authentication** - The number behind the bell badge, for the caller only.
+
+A dedicated endpoint rather than something derived from a page of `GET /notifications`,
+because a count taken from one page silently caps at `pageSize` and under-reports. Call
+this on load and again on every SSE (re)connect — that is how a gap in the stream is
+recovered from.
+
+**Response:**
+```json
+{
+  "data": {
+    "unreadCount": 3
+  }
+}
+```
+
+---
+
+#### POST /notifications/:id/read
+**Requires Authentication** - Mark one notification read. Returns the caller's resulting
+unread count, so a click costs one round trip rather than two.
+
+`POST`, not `PATCH`, and `/read` rather than a body flag: marking read is an action with
+one possible outcome, not a client-chosen partial replacement of `readAt`.
+
+**Parameters:**
+- `id` (UUID) - Notification ID
+
+**Response:**
+```json
+{
+  "data": {
+    "unreadCount": 2
+  }
+}
+```
+
+**Idempotent** — marking an already-read notification succeeds and leaves the original
+`readAt` untouched.
+
+**Error Cases:**
+- 404 Not Found - No such notification for this user. An id belonging to another user
+  returns the identical 404 (rather than 403), deliberately indistinguishable from an id
+  that does not exist at all, so this endpoint cannot be used to probe for valid ids
+
+---
+
+#### POST /notifications/read-all
+**Requires Authentication** - Mark all of the caller's notifications read in one call.
+
+**Response (200, not 204 — the count is the reason to call this rather than marking rows
+one at a time):**
+```json
+{
+  "data": {
+    "unreadCount": 0
+  }
+}
+```
+
+Affects only the caller's own rows. Notifications already read keep their original
+`readAt`. The returned count is not assumed to be `0` — a notification arriving between the
+update and the count is reported honestly rather than hidden behind a hardcoded zero.
 
 ---
 
@@ -1187,24 +1814,34 @@ The storage system provides file upload and management capabilities with support
 **Response:**
 ```json
 {
-  "data": [
-    {
-      "id": "uuid",
-      "name": "document.pdf",
-      "size": 104857600,
-      "mimeType": "application/pdf",
-      "status": "ready",
-      "createdAt": "2024-01-01T00:00:00.000Z"
+  "data": {
+    "items": [
+      {
+        "id": "uuid",
+        "name": "document.pdf",
+        "size": 104857600,
+        "mimeType": "application/pdf",
+        "status": "ready",
+        "createdAt": "2024-01-01T00:00:00.000Z"
+      }
+    ],
+    "meta": {
+      "page": 1,
+      "pageSize": 20,
+      "totalItems": 50,
+      "totalPages": 3
     }
-  ],
-  "meta": {
-    "total": 50,
-    "page": 1,
-    "pageSize": 20,
-    "totalPages": 3
   }
 }
 ```
+
+**Note:** this is the "nested" list shape — `data.items` plus a `data.meta` object whose
+total is named `totalItems`. It differs from the "flat" shape used by `GET /users`,
+`GET /allowlist` and `GET /notifications` (`data.items` plus `total`/`page`/`pageSize`/
+`totalPages` directly on `data`, no nested `meta`). Two shapes for the same concept across
+this API is a known inconsistency, not a design choice — described here rather than
+smoothed over, because a client written against this document has to handle what the
+server actually sends.
 
 ---
 
@@ -1309,53 +1946,75 @@ The storage system provides file upload and management capabilities with support
 **Public endpoints** - Used for Kubernetes liveness/readiness probes.
 
 #### GET /health
-Full health check - includes database connectivity test. Equivalent to GET /health/ready.
+Full health check - includes database connectivity test (currently the only indicator
+registered; equivalent to `GET /health/ready` today). Built on `@nestjs/terminus`, so the
+response body is Terminus's own shape, not a custom `{ status, checks }` summary.
 
 **Response:**
 ```json
 {
-  "status": "ok",
-  "timestamp": "2024-01-01T00:00:00.000Z",
-  "checks": {
-    "database": "ok"
+  "data": {
+    "status": "ok",
+    "info": {
+      "database": { "status": "up", "responseTime": "3ms" }
+    },
+    "error": {},
+    "details": {
+      "database": { "status": "up", "responseTime": "3ms" }
+    },
+    "timestamp": "2024-01-01T00:00:00.000Z"
   }
 }
 ```
 
-**Error Cases:**
-- 503 Service Unavailable - Database connection failed
+**Error Cases:** on failure the whole request throws and is rendered through the shared
+error envelope (see Error Response above), **not** through the shape above — Terminus's
+`error`/`details` keys never reach the client on a failing check:
+- 503 Service Unavailable — `{ "statusCode": 503, "code": "ERROR", "message": "...",
+  "timestamp": "...", "path": "/api/health" }`, with `message` naming the failed indicator
 
 ---
 
 #### GET /health/live
-Liveness check - always returns 200 if service is running.
+Liveness check - always returns 200 if service is running. Does no I/O (no database
+query), so it stays cheap even when the database is down — that is what distinguishes it
+from `/health/ready`.
 
 **Response:**
 ```json
 {
-  "status": "ok",
-  "timestamp": "2024-01-01T00:00:00.000Z"
+  "data": {
+    "status": "ok",
+    "timestamp": "2024-01-01T00:00:00.000Z"
+  }
 }
 ```
 
 ---
 
 #### GET /health/ready
-Readiness check - includes database connectivity test.
+Readiness check - includes database connectivity test. Same Terminus response shape as
+`GET /health`.
 
 **Response:**
 ```json
 {
-  "status": "ok",
-  "timestamp": "2024-01-01T00:00:00.000Z",
-  "checks": {
-    "database": "ok"
+  "data": {
+    "status": "ok",
+    "info": {
+      "database": { "status": "up", "responseTime": "3ms" }
+    },
+    "error": {},
+    "details": {
+      "database": { "status": "up", "responseTime": "3ms" }
+    },
+    "timestamp": "2024-01-01T00:00:00.000Z"
   }
 }
 ```
 
 **Error Cases:**
-- 503 Service Unavailable - Database connection failed
+- 503 Service Unavailable — same error-envelope shape as `GET /health` above
 
 ---
 
@@ -1378,17 +2037,26 @@ Readiness check - includes database connectivity test.
 
 ## Error Codes
 
+`code` in the shared error envelope (see Error Response above) is derived **entirely from
+the HTTP status** by `HttpExceptionFilter` — it is a closed, nine-value enum, and any
+`code` a thrown exception supplied is overwritten rather than honored:
+
 | Code | HTTP Status | Description |
 |------|-------------|-------------|
-| `AUTH_REQUIRED` | 401 | No valid authentication token provided |
-| `INVALID_TOKEN` | 401 | JWT token is invalid or expired |
-| `FORBIDDEN` | 403 | User does not have required permissions |
-| `USER_DISABLED` | 403 | User account is disabled |
+| `BAD_REQUEST` | 400 | Invalid request format or validation error |
+| `UNAUTHORIZED` | 401 | Missing, invalid, or expired authentication token |
+| `FORBIDDEN` | 403 | Insufficient permissions, or another authorization failure (e.g. email not in allowlist, disabled user) |
 | `NOT_FOUND` | 404 | Requested resource not found |
-| `VALIDATION_ERROR` | 400 | Request validation failed |
-| `CONFLICT` | 409 | Resource already exists or version mismatch |
-| `NOT_AUTHORIZED` | 403 | Email not in allowlist |
-| `VERSION_MISMATCH` | 409 | Optimistic concurrency conflict (If-Match header) |
+| `CONFLICT` | 409 | Resource already exists, or an optimistic-concurrency (`If-Match`) version mismatch |
+| `UNPROCESSABLE_ENTITY` | 422 | — |
+| `TOO_MANY_REQUESTS` | 429 | — |
+| `INTERNAL_ERROR` | 500 | Unexpected server error |
+| `ERROR` | any other status | Fallback for a status not in this table |
+
+**The one exception:** `POST /auth/device/token` does not use this envelope at all — its
+error body is `{ error, error_description }` per RFC 8628 §3.5, with values like
+`authorization_pending`, `slow_down`, `expired_token`, `access_denied`, `invalid_grant`,
+`invalid_request`. See the Device Authorization section above.
 
 ---
 
@@ -1438,14 +2106,28 @@ This eliminates CORS complexity and improves security. No cross-origin requests 
 
 ## Security Headers
 
-All API responses include security headers:
+Set by Nginx (`infra/nginx/nginx.conf`) on every response — API and frontend alike, since
+both are served from the same host — not by the API process itself:
 
 ```
+X-Frame-Options: SAMEORIGIN
 X-Content-Type-Options: nosniff
-X-Frame-Options: DENY
 X-XSS-Protection: 1; mode=block
+Referrer-Policy: strict-origin-when-cross-origin
+Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()
 Strict-Transport-Security: max-age=31536000; includeSubDomains
+Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'
 ```
+
+Notes:
+- `X-Frame-Options` is `SAMEORIGIN`, not `DENY` — the application is allowed to frame
+  itself.
+- `Strict-Transport-Security` is inert over plain HTTP (browsers ignore it), so it has no
+  effect on local development and only takes effect once the app is served over TLS.
+- `style-src` allows `'unsafe-inline'` because MUI/emotion injects styles at runtime.
+- `img-src` allows `https:` because avatars come from Google
+  (`lh3.googleusercontent.com`) and uploaded images are served from a configurable S3
+  endpoint (AWS or MinIO).
 
 ---
 
