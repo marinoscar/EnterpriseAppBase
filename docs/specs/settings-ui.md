@@ -220,6 +220,7 @@ whose click then bounces straight back to `/`.
 | General | System | `/admin/settings/general` | `system_settings:read` |
 | General | Appearance | `/admin/settings/appearance` | `system_settings:read` |
 | General | Feature Flags | `/admin/settings/feature-flags` | `system_settings:read` |
+| General | Email | `/admin/settings/email` | `system_settings:read` |
 | General | Advanced (JSON) | `/admin/settings/advanced` | `system_settings:write` |
 | Access | Users & Allowlist | `/admin/settings/users` | `users:read` |
 
@@ -227,6 +228,15 @@ whose click then bounces straight back to `/`.
 editor over the whole settings blob, so read-only access has no meaning: a
 user who cannot save has nothing to do there that the typed pages do not do
 better.
+
+**Email gates on `system_settings:read`, the same as its three siblings above
+it, not on write** (issue #124, epic #109). `email-settings.controller.ts`
+enforces `system_settings:read` on its `GET` and `system_settings:write` on
+save and test-send; the card gate mirrors the `GET`, so a read-only admin can
+still open the page to see how mail is configured and diagnose a delivery
+problem, while the write actions stay gated inside the page itself. This is
+the same reachability-vs-content split Advanced (JSON) and Users & Allowlist
+each draw in their own direction.
 
 **Users & Allowlist gates on `users:read` alone**, even though the page also
 hosts allowlist data from `allowlist.controller.ts` (permission
@@ -254,7 +264,18 @@ display name.
 |---|---|---|
 | Account | Profile | `/settings/profile` |
 | Account | Appearance | `/settings/appearance` |
+| Account | Notifications | `/settings/notifications` |
 | Security | Access Tokens | `/settings/tokens` |
+
+**Notifications carries no `permission`, like every card in this registry**
+(issue #126, epic #109): the page edits the caller's own preferences through
+`PATCH /api/user-settings`, which the API grants to all three roles, and the
+event registry it renders (`GET /api/notifications/events`) is `@Auth()` with
+no permissions, for the same reason — gating this card would leave a Viewer
+unable to say how they are contacted. **It sits under "Account," not
+"Security,"** even though one of the events it lists is a security alert: the
+card is about how this account is contacted, not about credentials — the
+opposite axis from the reason Access Tokens sits under "Security" below.
 
 **Access Tokens sits under its own "Security" group**, not "Account,"
 because a personal access token is a long-lived credential. Grouping it with

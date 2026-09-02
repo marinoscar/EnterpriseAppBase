@@ -27,7 +27,13 @@ and why the fix had to happen in four places that all used to disagree.
 > the very feature §6 lists as deliberately not ported. The numbered rules
 > below were correct for issues #51/#55 at the time; for the current registry
 > and the current Console mode, see
-> [`docs/specs/settings-ui.md`](settings-ui.md).
+> [`docs/specs/settings-ui.md`](settings-ui.md). Separately, epic #109 (issue
+> #127) added a `NotificationBell` to `AppBar.tsx`, mounted in both the
+> expanded and the compact drill-down treatments described in §3 below — it
+> is not a destination and does not touch the registry or gating model this
+> file describes, so nothing below is superseded by it, but a reader
+> comparing this file's account of the AppBar against the code should know
+> the bell is there.
 
 ---
 
@@ -320,7 +326,7 @@ highlighted tab for a route that is not even in the visible set.
 
 Stored under `user_settings.navigation`, a namespace declared once alongside
 `dataTables` in `apps/api/src/common/schemas/user-settings-namespaces.schema.ts`
-(see `docs/specs/datatable.md` §11 for the sibling `dataTables` namespace
+(see `docs/specs/datatable.md` §14 for the sibling `dataTables` namespace
 declared in the same file):
 
 ```ts
@@ -341,7 +347,7 @@ namespace through the exact same `GET`/`PATCH /api/user-settings` and the same
 
 `railCollapsed` carries no `.default()`, deliberately — the schema's own
 comment states it as directly as the equivalent rule for `dataTables` (see
-`docs/specs/datatable.md` §11.4): an absent namespace or an absent field means
+`docs/specs/datatable.md` §14.3): an absent namespace or an absent field means
 "rail expanded," and that is never materialized into the user's stored blob
 just because they happened to read it. If a future release changes the
 built-in default rail state, every user who never expressed a preference
@@ -356,7 +362,7 @@ correctly mean expanded.
 
 `UserSettingsService.mergeNavigation` merges this namespace **field-wise**
 (distinct from `dataTables`'s per-table entry-replace — see
-`docs/specs/datatable.md` §11.6 for why
+`docs/specs/datatable.md` §14.5 for why
 the two namespaces intentionally use different merge granularities): setting
 `railCollapsed` leaves every other field in the namespace — there being only
 one today — untouched, and only the changed field goes on the wire from
