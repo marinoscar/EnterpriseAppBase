@@ -109,6 +109,48 @@ own — the only `package-lock.json` is at the repository root. Building from th
 root is what makes it reachable, so the images install with `npm ci` and match
 what CI tested. Building from inside `apps/api` will fail.
 
+### Workspaces
+
+The repository is an npm-workspaces monorepo (`package.json`'s `workspaces:
+["apps/*", "packages/*"]`), with four members: `apps/api`, `apps/web`,
+`apps/cli`, and `packages/shared`. There is one `package-lock.json`, at the
+repo root — install once from there (`npm install`), not per package.
+
+Run any workspace's own script with `--workspace=<name>` from the repo root,
+e.g. `npm run test --workspace=api`. A couple of the most common ones also
+have root-level convenience aliases (`npm run api:dev`, `npm run web:dev` —
+see the root `package.json`), but there is no such alias for the CLI; use
+`--workspace=cli` directly.
+
+**Building and running `appctl` locally:**
+
+```bash
+# from the repo root, after `npm install`
+npm run build --workspace=cli        # tsc -> apps/cli/dist/
+node apps/cli/dist/cli.js --help     # run the built CLI directly
+
+# or, to iterate without a build step:
+npm run dev --workspace=cli          # tsx src/cli.ts
+```
+
+See [`apps/cli/README.md`](../apps/cli/README.md#building-from-source-development)
+for `npm link`-ing a bare `appctl` command and running the CLI's own test
+suite.
+
+**`packages/shared`** (`@app/shared`) is deliberately committed plain
+JavaScript plus a hand-written `.d.ts`, with **no build step**, and it is
+CommonJS. In short: a build here would have to satisfy `apps/api`'s
+`rootDir`-constrained `tsc` compile, its Jest config's default
+`transformIgnorePatterns`, and CI's typecheck-only jobs — all without a
+fourth workspace ever being compiled — and CommonJS is the one module format
+`apps/api` (NodeNext/CJS under ts-jest), `apps/cli` (real ESM, via
+`cjs-module-lexer`), and `apps/web` (Vite, which pre-bundles CJS deps) can
+each resolve without extra configuration. The full rationale is in the header
+comment of [`packages/shared/index.js`](../packages/shared/index.js); read it
+before changing the packaging. [`packages/shared/README.md`](../packages/shared/README.md)
+has the current consumer list and the one-line rebranding change (see
+[Rebranding a fork](#rebranding-a-fork) below).
+
 ### First Login
 
 The first user to login with the email matching `INITIAL_ADMIN_EMAIL` (from .env) will automatically be granted the **admin** role. All subsequent users get the **viewer** role by default.
@@ -545,8 +587,12 @@ const response = await request(app.getHttpServer())
 1. **Check Prisma Connection:**
    ```bash
    cd apps/api
-   npx prisma db push --preview-feature
+   npm run prisma:push
    ```
+   (`--preview-feature` is not needed on the pinned Prisma 7 — use the
+   `prisma:push` npm script rather than a bare `npx prisma db push`, since
+   it's the script that constructs `DATABASE_URL` from the individual
+   `POSTGRES_*` variables.)
 
 2. **Inspect Database:**
 
@@ -630,7 +676,62 @@ const response = await request(app.getHttpServer())
 2. Implement `canActivate()` method
 3. Register in module if not global
 4. Add tests for guard logic
-5. Document usage in SECURITY.md
+5. Document usage in [SECURITY-ARCHITECTURE.md](./SECURITY-ARCHITECTURE.md)
+
+### Adding a Settings Page
+
+Every settings surface — admin or per-user — is a registry-driven card in
+`SettingsHub`, never a new tab bolted onto an existing settings page and
+never a route the hub doesn't know about. The rules (registry entries in
+`apps/web/src/config/adminSections.tsx` / `userSettingsSections.tsx`, the
+destination-vs-tab distinction, matching the card's `permission` string to
+the real controller guard, reusing `SettingsHub.tsx`, and the five coupled
+responsive breakpoint gates) are stated in full in `CLAUDE.md`'s "MANDATORY:
+Settings UI Pattern" section, with the rationale and rejected alternatives in
+[`docs/specs/settings-ui.md`](specs/settings-ui.md). Read that spec before
+adding one.
+
+### Adding a Notification
+
+Adding a notification costs one registry entry and a template — no
+migration. In brief, three steps:
+
+1. Declare the event in `apps/api/src/notifications/notification-events.ts`'s
+   `NOTIFICATION_EVENTS`.
+2. Write the per-channel template(s) and register them: email templates go
+   in `templates/index.ts`'s `EmailTemplateDataMap` + `EMAIL_TEMPLATES`, then
+   get mapped to the event key in `EVENT_EMAIL_TEMPLATES`
+   (`notifications/channels/email-notification.channel.ts`); browser
+   templates go in `EVENT_BROWSER_TEMPLATES`
+   (`notifications/channels/browser-notification.channel.ts`).
+3. Call the detached `notify(eventKey, userId, payload)` — or
+   `notifyAddress(eventKey, email, payload)` for a recipient with no user
+   account yet, e.g. an allowlist invitation — after the triggering write
+   commits and outside any `$transaction`.
+
+The full procedure, with the reasoning behind each step, is documented in
+`CLAUDE.md`'s "Adding a Notification" section — this file doesn't restate
+it.
+
+Worked examples to read alongside it: `AuthService.handleGoogleLogin`
+(`apps/api/src/auth/auth.service.ts`, event `user.welcome`),
+`AllowlistService.addEmail` (`apps/api/src/allowlist/allowlist.service.ts`,
+event `allowlist.invitation`, uses `notifyAddress`), and
+`UsersService.updateUserRoles` (`apps/api/src/users/users.service.ts`, event
+`security.role_changed`, `mandatory: true`).
+
+### Rebranding a Fork
+
+This repository is a template; the one thing a fork needs to change is its
+display name. Edit `APP_NAME` in [`packages/shared/index.js`](../packages/shared/index.js)
+— every surface (web wordmark, page title, OpenAPI document, email
+templates, CLI banner) derives from that one constant. Then regenerate the
+visual-regression baselines in the pinned Playwright container, since the
+name is rendered into pixel snapshots under `tests/visual/specs/`. The exact
+command, and the two identity strings that are deliberately *not* derived
+from `APP_NAME` (the `appctl` binary name, the repository URLs in the OpenAPI
+docs), are in [`packages/shared/README.md`](../packages/shared/README.md) —
+don't restate them here.
 
 ---
 
