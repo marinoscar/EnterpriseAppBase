@@ -12,6 +12,11 @@ A production-grade full-stack application foundation built with React, NestJS, a
 - **Access Control**: Email allowlist restricts application access to pre-authorized users
 - **User Management**: Admin interface for managing users, role assignments, and allowlist
 - **Settings Framework**: System-wide and per-user settings with type-safe schemas
+- **Notifications**: In-app (live SSE stream + notification centre) and email delivery, driven by a single event registry
+- **Personal Access Tokens**: Long-lived, revocable tokens for headless/API access
+- **Storage**: Resumable multipart and simple file uploads, backed by S3-compatible storage
+- **Email/SMTP Configuration**: Admin-managed email settings with an encrypted credential store
+- **`appctl` CLI**: First-party command-line client (login, generic API calls, and VPS deployment) — see [`apps/cli/README.md`](apps/cli/README.md)
 - **Observability**: OpenTelemetry instrumentation with traces, metrics, and structured logging
 - **API Documentation**: Swagger/OpenAPI documentation at `/api/docs`
 - **Same-Origin Architecture**: Frontend and API served from same host via Nginx reverse proxy
@@ -184,39 +189,58 @@ EnterpriseAppBase/
 │   │   │   ├── seed.ts        # Database seeds
 │   │   │   └── migrations/    # Migration history
 │   │   └── test/              # Integration tests
-│   └── web/                    # Frontend (React + MUI)
+│   ├── web/                    # Frontend (React + MUI)
+│   │   ├── src/
+│   │   │   ├── components/    # Reusable components
+│   │   │   ├── contexts/      # React contexts (Auth, Theme)
+│   │   │   ├── pages/         # Page components
+│   │   │   └── services/      # API client
+│   │   └── src/__tests__/     # Component tests
+│   └── cli/                    # `appctl` CLI (Commander + ink)
 │       ├── src/
-│       │   ├── components/    # Reusable components
-│       │   ├── contexts/      # React contexts (Auth, Theme)
-│       │   ├── pages/         # Page components
-│       │   └── services/      # API client
-│       └── src/__tests__/     # Component tests
+│       │   ├── commands/      # `login`, `api`, `config`, `deploy` subcommands
+│       │   └── tui/           # Interactive ink menu (real terminals only)
+│       └── README.md          # CLI usage, install, CI setup, VPS deploy
+├── packages/
+│   └── shared/                 # `@app/shared` — cross-app constants (e.g. APP_NAME); see its README to rebrand a fork
 ├── docs/                       # Documentation
 │   ├── DEVELOPMENT.md         # Development guide (start here!)
+│   ├── ARCHITECTURE.md        # System architecture
 │   ├── SECURITY-ARCHITECTURE.md  # Security design
 │   ├── TESTING.md             # Testing guide
-│   └── specs/                 # Feature specifications
+│   ├── deployment/            # Operator runbooks (e.g. VPS deploy)
+│   ├── runbooks/              # Operational runbooks (e.g. secrets key rotation)
+│   └── specs/                 # Living design decision records
 ├── infra/
 │   ├── compose/               # Docker Compose configs
 │   │   ├── base.compose.yml   # Core services
 │   │   ├── dev.compose.yml    # Development overrides
 │   │   ├── prod.compose.yml   # Production overrides
+│   │   ├── test.compose.yml   # Test database for CI/local test runs
+│   │   ├── vps.compose.yml    # VPS overrides (shared host reverse proxy)
 │   │   └── otel.compose.yml   # Observability stack
 │   ├── nginx/                 # Nginx config
 │   └── otel/                  # OpenTelemetry config
+├── tests/                      # E2E (Playwright) and visual regression suites
+├── scripts/                     # Repo-level dev scripts
+├── install.sh                  # `appctl` installer (curl | bash)
 └── CLAUDE.md                  # AI assistant guidance
 ```
 
 ## Documentation
 
 - **[DEVELOPMENT.md](docs/DEVELOPMENT.md)** - Development setup, common patterns, and troubleshooting
+- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** - System architecture and design
 - **[SECURITY-ARCHITECTURE.md](docs/SECURITY-ARCHITECTURE.md)** - Security design and implementation
 - **[TESTING.md](docs/TESTING.md)** - Testing strategy and best practices
 - **[DEVICE-AUTH.md](docs/DEVICE-AUTH.md)** - Device Authorization Flow guide and integration examples
+- **[personal-access-tokens.md](docs/personal-access-tokens.md)** - Personal access tokens: creation, use, and revocation
 - **[API.md](docs/API.md)** - Complete API reference
+- **[appctl CLI](apps/cli/README.md)** - The first-party command-line client: install, login, generic API calls, and CI usage
 - **[Deploying to a VPS](docs/deployment/vps.md)** - Operator runbook for `appctl deploy` (install, update, status on a real server); command reference in [`apps/cli/README.md`](apps/cli/README.md#deploying-to-a-server)
-- **[System Specification](docs/System_Specification_Document.md)** - Complete project specification
-- **[Feature Specs](docs/specs/)** - Individual feature specifications
+- **[Rotating the secrets encryption key](docs/runbooks/rotate-secrets-encryption-key.md)** - Runbook for rotating `SECRETS_ENCRYPTION_KEY`
+- **[Rebranding a fork](packages/shared/README.md)** - How to rename the app for a fork by editing one constant
+- **[Design Decision Records](docs/specs/)** - Living records of specific design decisions (settings UI, navigation IA, the shared DataTable, API documentation, VPS deploy) — what was chosen, what was rejected, and why
 
 ## API Documentation
 
@@ -253,6 +277,30 @@ Interactive API documentation is available at `/api/docs` when running the appli
 - `GET /api/system-settings` - Get system settings (Admin)
 - `PUT /api/system-settings` - Update system settings (Admin)
 
+**Personal Access Tokens:**
+- `POST /api/pat` - Create a personal access token
+- `GET /api/pat` - List current user's tokens
+- `DELETE /api/pat/:id` - Revoke a token
+
+**Notifications:**
+- `GET /api/notifications/events` - List the notification event registry
+- `GET /api/notifications/stream` - Live notification stream (SSE)
+- `GET /api/notifications` - List current user's notifications
+- `GET /api/notifications/unread-count` - Unread notification count
+- `POST /api/notifications/:id/read` - Mark a notification read
+
+**Email Settings (Admin):**
+- `GET /api/email-settings` - Get SMTP/email configuration
+- `PUT /api/email-settings` - Update SMTP/email configuration
+- `POST /api/email-settings/test` - Send a test email
+
+**Storage Objects:**
+- `POST /api/storage/objects` - Upload a file
+- `GET /api/storage/objects` - List objects
+- `GET /api/storage/objects/:id` - Get object metadata
+- `GET /api/storage/objects/:id/download` - Get a signed download URL
+- `DELETE /api/storage/objects/:id` - Delete an object
+
 **Health:**
 - `GET /api/health/live` - Liveness probe
 - `GET /api/health/ready` - Readiness probe
@@ -266,6 +314,8 @@ Key configuration (see `infra/compose/.env.example` for full list):
 NODE_ENV=development
 PORT=3000
 APP_URL=http://localhost:3535
+# Loopback port bound behind a shared host proxy (infra/compose/vps.compose.yml only)
+APP_BIND_PORT=3535
 
 # Database (DATABASE_URL is constructed from these at runtime)
 POSTGRES_HOST=localhost
@@ -273,11 +323,16 @@ POSTGRES_PORT=5432
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=postgres
 POSTGRES_DB=appdb
+POSTGRES_SSL=false
 
-# JWT
+# JWT / Session
 JWT_SECRET=your-secret-min-32-chars
 JWT_ACCESS_TTL_MINUTES=15
 JWT_REFRESH_TTL_DAYS=14
+COOKIE_SECRET=your-cookie-secret-min-32-chars
+
+# Credential encryption (runtime-configured secrets, e.g. SMTP password)
+SECRETS_ENCRYPTION_KEY=
 
 # Google OAuth
 GOOGLE_CLIENT_ID=your-client-id
@@ -287,9 +342,26 @@ GOOGLE_CALLBACK_URL=http://localhost:3535/api/auth/google/callback
 # Admin Bootstrap
 INITIAL_ADMIN_EMAIL=admin@example.com
 
+# Device Authorization Flow (RFC 8628)
+DEVICE_CODE_EXPIRY_MINUTES=15
+DEVICE_CODE_POLL_INTERVAL=5
+DEVICE_TOKEN_EXPIRY_DAYS=7
+DEVICE_PAT_EXPIRY_DAYS=90
+
+# Storage (S3-compatible)
+STORAGE_PROVIDER=s3
+AWS_ACCESS_KEY_ID=
+AWS_SECRET_ACCESS_KEY=
+MAX_FILE_SIZE=10737418240
+ALLOWED_MIME_TYPES=image/*,application/pdf,video/*
+SIGNED_URL_EXPIRY=3600
+STORAGE_PART_SIZE=10485760
+
 # Observability
 OTEL_ENABLED=true
 OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+OTEL_SERVICE_NAME=enterprise-app-api
+LOG_LEVEL=info
 
 # Uptrace (when using otel.compose.yml) - the values below are
 # development-only defaults from .env.example. Change them before running
@@ -361,18 +433,15 @@ For more troubleshooting, see [DEVELOPMENT.md](docs/DEVELOPMENT.md#debugging-tip
 
 ## Production Deployment
 
-For production deployment:
+Deploying to a real VPS is handled entirely by the `appctl` CLI —
+`appctl deploy doctor|install|update|status` — run on the server itself.
+There is no separate deploy script or playbook. See
+[docs/deployment/vps.md](docs/deployment/vps.md) for the operator runbook
+(prerequisites, first login, troubleshooting) and
+[`apps/cli/README.md`](apps/cli/README.md#deploying-to-a-server) for the
+command reference (flags, exit codes).
 
-1. Use `prod.compose.yml` overrides
-2. Set `NODE_ENV=production`
-3. Use strong secrets (generate with `openssl rand -base64 32`)
-4. Enable HTTPS with valid certificates
-5. Set `secure: true` on cookies
-6. Configure proper OAuth callback URLs
-7. Set up database backups
-8. Configure monitoring and alerting
-
-See [SECURITY-ARCHITECTURE.md](docs/SECURITY-ARCHITECTURE.md) for production security checklist.
+See [SECURITY-ARCHITECTURE.md](docs/SECURITY-ARCHITECTURE.md) for the production security checklist.
 
 ## Contributing
 
