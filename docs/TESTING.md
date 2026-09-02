@@ -13,6 +13,8 @@ This document describes the testing strategy, frameworks, and conventions used i
 7. [Test Configuration](#test-configuration)
 8. [Best Practices](#best-practices)
 9. [Visual Regression Testing](#visual-regression-testing)
+10. [CLI (`appctl`) Testing](#cli-appctl-testing)
+11. [Notification & Real-Time Testing](#notification--real-time-testing)
 
 ## Testing Framework Overview
 
@@ -46,6 +48,20 @@ This document describes the testing strategy, frameworks, and conventions used i
 - API calls are mocked with MSW handlers
 - User interactions tested with user-event library
 - Context providers (Auth, Theme) tested in isolation
+
+### CLI (`appctl`)
+
+**Framework:** Vitest
+
+**Why This Framework:**
+- **Vitest**: Same runner as the frontend, run standalone here (no jsdom, no React) since the CLI is a Node process, not a browser client
+
+**Key Features:**
+- Every unit is a pure function or an injectable-clock/injectable-sleep async function, so no real network call, real terminal, or real timer is ever exercised
+- Tests are co-located with source as `*.test.ts`, mirroring the backend's `*.spec.ts` convention but with Vitest's own suffix
+- Covers the error ladder and exit codes, RFC 8628 device-flow polling, request construction and output formatting, TUI layout/terminal/TTY detection, and the `deploy` command group
+
+See [CLI Testing](#cli-appctl-testing) below for the full breakdown.
 
 ## Test Structure
 
@@ -100,6 +116,30 @@ apps/web/
 - **Page tests**: Test entire pages with routing and context
 - **Context tests**: Test React contexts and custom hooks
 - **Integration tests**: Test multiple components working together
+
+### CLI Test Organization
+
+```
+apps/cli/
+├── src/
+│   ├── *.test.ts                  # Unit tests co-located with source
+│   │                               #   (errors, device-auth, output, request-body,
+│   │                               #    program, config, api-client, branding, ...)
+│   ├── commands/
+│   │   └── *.test.ts              # `api` and `deploy` command tests
+│   ├── deploy/
+│   │   ├── *.test.ts              # env spec/wizard, executor, health, install,
+│   │   │                           #   journal, proxy, repo, state, update
+│   │   ├── checks/*.test.ts       # doctor's host/external precondition checks
+│   │   └── steps/pipeline.test.ts
+│   └── tui/
+│       ├── *.test.ts              # layout breakpoints, terminal restore, TTY gate,
+│       │                           #   scroll-box-follow
+│       └── screens/*.test.ts      # deploy and status screen behaviour
+```
+
+**Test Types:**
+- **Unit tests** (`*.test.ts`): Co-located with source, mirroring Vitest's convention on the web side; there is no separate `*.e2e.test.ts` tier — the CLI has no server to boot, so every test injects its dependencies (clock, sleep, `ApiClient`, filesystem) rather than standing up a real process
 
 ## Running Tests
 
@@ -156,17 +196,63 @@ npm run test:ui
 npm run test:ci
 ```
 
-### Environment Variables
-
-Backend tests require a test database. Create `apps/api/.env.test`:
+### CLI Tests
 
 ```bash
-DATABASE_URL="postgresql://user:password@localhost:5432/app_test"
-JWT_SECRET="test-secret-key-min-32-characters"
-NODE_ENV="test"
+# Navigate to CLI directory
+cd apps/cli
+
+# Run tests in watch mode (interactive)
+npm test
+
+# Run tests once (CI mode; passes even if a subtree has no tests yet)
+npm run test:run
+
+# Run with coverage
+npm run test:coverage
+
+# CI mode (coverage + junit reporter)
+npm run test:ci
 ```
 
-**Important:** The test database should be separate from development database. Tests will truncate all data between runs.
+Or from the repo root, using the npm workspace flag directly (there is no
+`cli:test` alias in the root `package.json`, unlike `api:test`/`web:test`):
+
+```bash
+npm run test:run --workspace=cli
+```
+
+### Environment Variables
+
+Backend tests require a test database. `apps/api/.env.test` (already checked
+into the repo, loaded by `apps/api/test/setup.ts` via `dotenv`) points at the
+dedicated test Postgres container started by `infra/compose/test.compose.yml`:
+
+```bash
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5433
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
+POSTGRES_DB=enterprise_app_test
+DATABASE_URL=postgresql://postgres:postgres@localhost:5433/enterprise_app_test
+JWT_SECRET=test-secret-key-minimum-32-characters-long
+NODE_ENV=test
+```
+
+Start that container before running backend tests:
+
+```bash
+docker compose -f infra/compose/test.compose.yml up -d
+```
+
+It publishes Postgres on host port **5433** — deliberately not 5432 — so a
+developer's normal dev-stack database (`infra/compose/base.compose.yml` +
+`dev.compose.yml`, which connects to an external Postgres via `POSTGRES_*`)
+is never at risk of being pointed at by a test run through leftover
+environment state.
+
+**Important:** The test database should be separate from the development
+database. Tests will truncate all data between runs.
 
 ## Test Patterns & Conventions
 
@@ -975,6 +1061,8 @@ The harness takes its starting state entirely from query parameters on its own U
 
 There is no backend, no database, and no OAuth behind the harness. Calls the app's real hooks make under the hood (e.g. `useUserSettings`, used internally by `useNavigationPrefs`) are deliberately left unproxied, so they fail fast and the app's existing error handling degrades to a deterministic default state — that determinism is what makes the resulting screenshots stable enough to diff against a checked-in baseline.
 
+Because the harness mounts the real `AppBar`, and the `AppBar`'s wordmark reads `APP_NAME` from `packages/shared` (issue #164), `APP_NAME` is itself pixel input to every baseline that shows the `AppBar`. Changing it — see [`apps/cli/README.md`'s "Renaming this for a fork"](../apps/cli/README.md#renaming-this-for-a-fork) for the supported way to do that — changes rendered text width and therefore changes real pixels; it is not a cosmetic no-op the suite can ignore. Treat an `APP_NAME` change like any other intentional visual change: regenerate baselines inside the pinned container (see "Updating Baselines Deliberately" below) and confirm the diff is exactly the wordmark text before blessing it.
+
 ### Fonts: The Harness Loads the App's, Not Its Own
 
 Typography is load-bearing for this suite. The caption-truncation half of #105 is a bug about whether a word fits a fixed-width box, which is a question about *glyph metrics* — so the font the harness renders in has to be the font the application renders in, or the baselines describe a layout no user ever sees.
@@ -1083,6 +1171,175 @@ Three details in that command are load-bearing:
 To regenerate baselines after an intentional visual change, run the suite with `--update-snapshots` inside the same pinned container — `tests/visual/package.json` provides `npm run test:update` for this. As with the run command above, this must happen inside `mcr.microsoft.com/playwright:v1.62.1-noble`, not on a host machine.
 
 This is the most important paragraph in this section: **blessing a diff without opening the image and confirming the new pixels are the intended change is the standard failure mode of every snapshot-testing suite, and it would defeat the entire purpose of this one.** A rubber-stamped `--update-snapshots` run after a CI failure silently readmits the exact class of regression — #105 — that this suite exists to catch. Before running `test:update`, open the failing run's HTML report, look at the diff image for each failing spec, and understand specifically what changed and why. Only update the baseline once that change is confirmed intentional. If it isn't, the fix is to fix the code, not the baseline.
+
+---
+
+## CLI (`appctl`) Testing
+
+### Overview
+
+`apps/cli` — the first-party CLI (epic #110) — runs its own Vitest suite,
+independent of both the backend Jest suite and the frontend Vitest suite (it
+shares the runner with `apps/web` but not the config, environment, or test
+files). Every test file is co-located with its source as `*.test.ts`. As of
+this writing there are 31 test files spanning `src/`, `src/commands/`,
+`src/deploy/` (and `src/deploy/checks/`, `src/deploy/steps/`), and `src/tui/`
+(and `src/tui/screens/`).
+
+Nothing here talks to a real network, a real terminal, or a real clock: HTTP
+is exercised through a stubbed global `fetch`, terminal/TTY state is passed
+in as an explicit `TtyContext` object rather than by mutating
+`process.stdout`/`process.stdin`, and the device-flow poll loop takes `sleep`
+and `now` as injected functions. That is what makes the suite fast and
+order-independent — no test depends on another test's terminal or timer
+state.
+
+### Running the Suite
+
+```bash
+cd apps/cli
+npm test              # watch mode
+npm run test:run      # single run, passes even if a subtree has no tests yet
+npm run test:coverage # with coverage
+npm run test:ci       # coverage + junit reporter, matches CI
+```
+
+Or from the repo root: `npm run test:run --workspace=cli`.
+
+### What's Covered
+
+**The error ladder and exit codes** (`src/errors.test.ts`, issue #140) —
+the two questions a failed request answers separately: what MESSAGE a person
+sees, and what EXIT CODE a script sees.
+- `extractServerMessage` is tested against the API's structured envelope, an
+  array `message` (joined, never rendered as `[object Object]`), an HTML
+  error body (an nginx 502 — parsed for a readable snippet, never thrown),
+  an empty body, and malformed/unexpected JSON shapes.
+- `ApiError.exitCode` pins the exit-code ladder: `EXIT.OK` (0) only on 2xx,
+  `EXIT.USAGE` (2) for a malformed invocation, `EXIT.API` (3) for a
+  non-2xx response, `EXIT.NETWORK` (4) for a transport failure (DNS,
+  refused, TLS, timeout), and `EXIT.AUTH` (5) specifically for 401 — with a
+  dedicated test asserting 403 deliberately stays `EXIT.API` rather than
+  `EXIT.AUTH`, since a permission the account lacks isn't fixed by logging in
+  again. `EXIT.PRECONDITION` (6) — "a prerequisite is not met, so nothing was
+  attempted" (issue #178, epic #168) — is asserted in
+  `src/commands/deploy.test.ts` rather than `errors.test.ts`, since it's the
+  code `appctl deploy doctor` returns.
+
+**Device-flow polling and RFC 8628 error bodies**
+(`src/device-auth.test.ts`, issue #142) — `classifyPollFailure` against every
+RFC 8628 `{ error, error_description }` body the token endpoint can return:
+`authorization_pending` (keep polling), `slow_down` (widen the interval),
+`expired_token` and `access_denied` (stop). Errors are built through
+`ApiError.fromBody`, exercising the same body-parsing path a live poll
+against the API produces.
+
+**Request construction and output formatting**
+(`src/commands/api.test.ts`) — the generic `api <method> <path>` command:
+- Output discipline: `--raw` puts valid JSON and nothing else on stdout (no
+  ANSI escape byte even with colour forced on); default mode is
+  pretty-printed and byte-identical to `JSON.stringify(body, null, 2)`
+  uncoloured; both modes print `response.body` (never the unwrapped `data`,
+  which would silently discard a `pagination` envelope); the status line and
+  everything else goes to stderr, suppressible with `--quiet`; a 204 prints
+  nothing on stdout under either mode.
+- Request construction: `--data '<json>'` actually reaching the request body
+  — the regression this suite was written to catch — plus `@file` and stdin
+  bodies, and local validation (bad method/path rejected with `EXIT.USAGE`
+  before any request is sent).
+
+**TUI layout and terminal/TTY detection** (`src/tui/*.test.ts`, issue #145):
+- `evaluateTuiGate` (`tty.test.ts`) pins every case in the decision, in
+  most-actionable-first precedence order: the explicit `APPCTL_NO_TUI`
+  escape hatch, stdout not a TTY, stdin not a TTY while stdout is, `TERM`
+  reporting no cursor addressing, and running under CI even with a real pty
+  on both descriptors. Each case is built from an explicit `TtyContext`, not
+  by mutating the real `process.stdout`/`process.stdin` the test runner
+  itself reads.
+- `layout.test.ts` pins the narrow/tiny breakpoint ordering
+  (`TINY_COLUMNS < NARROW_COLUMNS`) that the three-tier layout depends on.
+- `terminal.test.ts` covers `restoreTerminal`/`installTerminalRestore` — the
+  cleanup that must run even when the process exits mid-render.
+- `screens/deploy.test.ts` and `screens/status.test.ts` cover the deploy and
+  status screens' rendering logic.
+
+**The deploy command** (`src/commands/deploy.test.ts` plus `src/deploy/**`)
+— `appctl deploy doctor|install|update|status`: the doctor's precondition
+checks (`deploy/checks/host.test.ts`, `deploy/checks/external.test.ts`) and
+`buildReport`/rendering including `--json` output, the install/update
+pipeline (`deploy/steps/pipeline.test.ts`, `deploy/executor.test.ts`,
+`deploy/install.test.ts`, `deploy/update.test.ts`), env spec/wizard
+(`deploy/env-spec.test.ts`, `deploy/env-wizard.test.ts`), the shared host
+proxy integration (`deploy/proxy.test.ts`), health checks
+(`deploy/health.test.ts`), state/journal persistence
+(`deploy/state.test.ts`, `deploy/journal.test.ts`), and repo operations
+(`deploy/repo.test.ts`). See
+[`docs/specs/vps-deploy.md`](specs/vps-deploy.md) and
+[`docs/deployment/vps.md`](deployment/vps.md) for what these commands do;
+this suite only covers correctness, not the deploy design.
+
+---
+
+## Notification & Real-Time Testing
+
+Epic #109 (browser/email notifications) and #128 (wiring) shipped several
+test suites that each encode one specific contract about detached dispatch
+or the live SSE stream — contracts that are easy to silently break by
+"simplifying" the code around them, which is exactly why each has a
+dedicated, narrowly-scoped spec rather than being folded into a general
+service test.
+
+### Fire-and-Forget Dispatch Never Rolls Back Its Trigger
+
+`apps/api/src/notifications/notification-failure-containment.spec.ts`
+(`describe('a notification send failure never fails or rolls back its
+trigger')`) pins the property described in
+[Adding a Notification](../CLAUDE.md#adding-a-notification): `notify()` is
+detached, so a channel failure must never propagate back into the caller.
+Tests include a role change that commits and returns normally while **every**
+delivery channel fails, and a channel provider that throws being contained
+just as well as one that merely reports failure. A regression here would mean
+a flaky email provider could fail an unrelated write.
+
+### SSE Stream Isolation and Framing
+
+`apps/api/src/notifications/notification-stream.service.spec.ts` covers
+`NotificationStreamService` directly: the initial `{ comment: "connected" }`
+frame, periodic heartbeat comments (`EventSource` swallows `:` comment
+lines), that `publish(userA, event)` never reaches `userB`'s stream, that a
+user with multiple open tabs receives the same publish on every one of their
+own connections, subscriber-count bookkeeping (0 for a never-connected user,
+correct after opens/closes, bucket deleted once the last subscriber for a
+user unsubscribes), and that publishing to a torn-down or nonexistent bucket
+never throws — including when an individual subscriber's write itself
+throws.
+
+### `mandatory` Event Wiring
+
+`apps/api/src/notifications/security-role-changed-wiring.spec.ts`
+(`describe('security.role_changed: mandatory, both channels, and the
+before/after delta')`) verifies the mandatory-event guarantee end to end for
+the one real mandatory event in the registry: delivery over **both**
+channels despite an explicit stored `false` preference on both, the payload
+carrying the before/after role delta, and — a case worth calling out — that
+an admin who changes their **own** roles still receives the notification
+(no self-suppression).
+
+### Web-Side Unread-Count Contract
+
+`apps/web/src/__tests__/contexts/NotificationContext.test.tsx` encodes the
+client-side half of the same contract: exactly one `refresh()` call (one
+list fetch, one unread-count fetch) on initial mount; a live SSE arrival
+prepends to the list and increments `unreadCount` by exactly 1 without
+refetching; the same notification id arriving twice does not double-count;
+and logging out resets both the list and `unreadCount` to empty/0. Related
+coverage lives in
+`apps/web/src/__tests__/services/notificationStream.test.ts` (the
+fetch-based SSE client — see
+[SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md#15-notifications-epic-109)
+for why it's fetch-based rather than a native `EventSource`),
+`apps/web/src/__tests__/components/navigation/NotificationBell.test.tsx`,
+and `apps/web/src/__tests__/components/settings/NotificationSettings.test.tsx`.
 
 ---
 
