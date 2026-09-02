@@ -44,15 +44,21 @@ stacked layout at any width, no column-hiding story, no priority metadata, and
 
 This document describes the `DataTable` component **as shipped** by issue #54: the contract,
 the three layouts, filtering, persistence, virtualization, export, and the accessibility
-suite. It does **not** describe any consuming page, because **none exists yet**. Migrating
-`UserList`, `AllowlistTable`, `PersonalAccessTokens` and a fourth table onto `DataTable` was
-scoped out of #54 into a separate follow-up,
+suite. As of this port, it did **not** describe any consuming page, because **none existed
+yet**. Migrating `UserList`, `AllowlistTable`, `PersonalAccessTokens` and a fourth table onto
+`DataTable` was scoped out of #54 into a separate follow-up,
 [#67](https://github.com/marinoscar/EnterpriseAppBase/issues/67), specifically so the
 component itself could land as one reviewable, well-tested unit rather than being bundled
 with four page rewrites. Every example column/row type below is therefore drawn from the
-component's own type contract and test fixtures, not from a real page in this repo — when
-#67 lands, this document should gain a worked example against this repo's own tables, the
-way the origin project's version has one against its own.
+component's own type contract and test fixtures, not from a real page in this repo.
+
+**#67 has since shipped and closed.** `UserList`, `AllowlistTable` and `PersonalAccessTokens`
+now render through `DataTable` (`apps/web/src/components/admin/userListColumns.tsx`,
+`apps/web/src/components/admin/allowlistColumns.tsx`,
+`apps/web/src/components/settings/patColumns.tsx`), and the fourth table alluded to above is
+`FeatureFlagsList` (`apps/web/src/components/admin/featureFlagColumns.tsx`). This document has
+not yet been updated with a worked example against any of those real pages — that gap, named
+above when #67 was still open, is still open.
 
 ---
 
@@ -132,7 +138,7 @@ Defined in `types.ts`. `render` and `value` are intentionally separate concerns:
 produces the *visual* cell (chips, links, avatars); `value` produces the *scalar* behind it —
 the thing sorting, filtering, and CSV export operate on. A column with only `value` renders
 that value as text (via `formatColumnValue`, which turns `null`/`''` into an em dash — `—`,
-never written into a CSV, see §13). A column with only `render` has no scalar and therefore
+never written into a CSV, see §16). A column with only `render` has no scalar and therefore
 cannot be sorted or exported meaningfully.
 
 | Field | Default | Notes |
@@ -210,9 +216,9 @@ Key props, beyond `columns` / `rows` / `rowId`:
 - **`rowActions?`/`bulkActions?`** — per-row and per-selection actions, each optionally
   `confirm`-gated through one shared dialog per table (`shared/rowActionConfirm.tsx`), not
   one dialog instantiated per row.
-- **`csvExport?: DataTableExportConfig<Row>`** / **`disableExport?`** — §13.
+- **`csvExport?: DataTableExportConfig<Row>`** / **`disableExport?`** — §16.
 - **`tableId?: string`** — opts into per-user persistence of visibility/density/sort/page
-  size under `user_settings.dataTables[tableId]` (§11). Omitting it keeps every control
+  size under `user_settings.dataTables[tableId]` (§14). Omitting it keeps every control
   working, session-scoped only. Chosen by the page, never derived from a route or label,
   because it *is* the storage key and must survive a rename.
 - **`density?`** — the page's *default*; a user's own persisted choice overrides it.
@@ -239,7 +245,7 @@ same rule for the reverse reason: it's what a `DataTable` embedded in that flex 
 *requires of its host*). Wide content is meant to scroll inside its own `overflow-x: auto`
 container, never on `<body>` — `DesktopGridRenderer`'s `data-testid="datatable-scroll-container"`
 box is that container on desktop/tablet, and it also carries `data-virtualized`, published as
-a test hook for §12.
+a test hook for §15.
 
 ---
 
@@ -311,7 +317,7 @@ tree without losing a single selected id, the current page, the active sort, or 
 filter.
 
 For the same reason, the filter bar (§10) and the view bar — column visibility, density,
-export (§11, §13) — are drawn once, by `DataTable` itself, *above* whichever renderer is
+export (§14, §16) — are drawn once, by `DataTable` itself, *above* whichever renderer is
 active, rather than owned by a renderer: their *shape* is a layout decision (a row / a
 collapsed panel / a full-screen sheet), not a row-presentation one, and a renderer that owned
 either bar's open state would discard it on every resize.
@@ -336,7 +342,7 @@ container:
 - **Body** — `secondary` columns as stacked label/value pairs (`CardField`), separated from
   the header by a `Divider`.
 - **Detail** — `detail` columns, behind a "More details" toggle, **closed by default**
-  (`Collapse`, `unmountOnExit`). Opening it suspends the card's own render-skipping (§12.2):
+  (`Collapse`, `unmountOnExit`). Opening it suspends the card's own render-skipping (§15.2):
   a card whose height is actively changing under the user's finger must stay fully rendered.
 
 `column.align` is a **grid** concern (§4) and does not cross into a card: a card's label sits
@@ -494,7 +500,7 @@ make the page refetch against a meaningless parameter.
 The phone case is a sheet rather than a squeezed-down inline row for the same reason the card
 list exists at all: a multi-control filter form at 360px is either unusable or pushes the
 page sideways. A `Dialog fullScreen` sheet gets the full width, a stacked form, and a real
-focus trap (§14.4) for free.
+focus trap (§17.4) for free.
 
 ### 10.4 Quick search — the debounce is on the *emission*, not the input
 
@@ -529,21 +535,19 @@ hand-edited filter segment decodes to `null` and is silently dropped, never thro
 
 ---
 
-## 11. Column visibility, density and per-user persistence
+## 14. Column visibility, density and per-user persistence
 
 Namespace: `user_settings.dataTables`, a map keyed by `tableId`
 (`apps/api/src/common/schemas/user-settings-namespaces.schema.ts`). Round-trips through the
 existing `GET`/`PATCH /api/user-settings` endpoints — no new endpoint, no new client layer,
 no new permission.
 
-### 11.1 `tableId` — the whole opt-in
-
 Supplying `tableId` on `DataTable` turns on persistence; omitting it keeps every visibility/
 density/sort/page-size control fully working, just session-scoped. The id is the storage key
 and is chosen by the page rather than derived from a route or a label, so it survives a
 rename or a URL restructuring.
 
-### 11.2 Stored shape
+### 14.1 Stored shape
 
 ```ts
 interface DataTableEntry {   // one table's persisted layout
@@ -561,7 +565,7 @@ max-key-count refinement that survives the record type), at most 60 column ids p
 at most 64 characters per id. The zod schema is `.strict()` — an unknown key in an entry is a
 400. **No field anywhere in this namespace carries `.default()`.**
 
-### 11.3 The `-`-prefix encoding, and why it exists
+### 14.2 The `-`-prefix encoding, and why it exists
 
 A `string[]` can express "these ids are visible," but not "…and these other ids existed and
 were deliberately unchecked" — without that second bit, a column added to a table *after* a
@@ -575,7 +579,7 @@ This degrades correctly for any naive consumer reading the field as a plain list
 ids — `-lastError` simply matches no real column id and is ignored, leaving the bare ids as
 exactly the visible set.
 
-### 11.4 The absent-key rule — and why it is load-bearing
+### 14.3 The absent-key rule — and why it is load-bearing
 
 **Absent means "use the application's built-in default," computed at read time, and a
 default is never written back.** This governs `visibleColumns`, `density`, `pageSize`,
@@ -592,14 +596,14 @@ no stored entry, or a column the stored entry never mentions, both resolve to "v
 the same answer, reached by the same code path, whether the user has customized nothing yet
 or the table has simply grown a column since they last touched the picker.
 
-### 11.5 Bounds
+### 14.4 Bounds
 
 `encodeVisibility` never writes more than `DATA_TABLE_MAX_VISIBLE_COLUMNS` (60) entries or an
 id longer than `DATA_TABLE_MAX_ID_LENGTH` (64) characters — visible ids are packed first,
 since losing a hidden marker only costs the new-column protection for that one column, while
 losing a visible id would actively hide something the user chose to see.
 
-### 11.6 PATCH semantics — entry-replace, not deep-merge
+### 14.5 PATCH semantics — entry-replace, not deep-merge
 
 `PATCH /api/user-settings` merges the `dataTables` **namespace** per table id, but replaces
 each **entry** wholesale: `{ dataTables: { jobs: { pageSize: 100 } } }` drops that entry's
@@ -609,9 +613,9 @@ is cheap because the hook already holds the fully resolved layout in React state
 defaults" is expressed as the merge-patch delete, `{ dataTables: { [tableId]: null } }` —
 removing the entry entirely and freeing its slot against the 40-table cap — rather than
 storing `{}`, which would be a second way to spell "absent" and reintroduce the same ambiguity
-§11.4 exists to close.
+§14.3 exists to close.
 
-### 11.7 Write discipline: debounced, fire-and-forget, in-session authoritative
+### 14.6 Write discipline: debounced, fire-and-forget, in-session authoritative
 
 Three properties, all following from one framing: a layout preference is UI state that
 happens to be backed up, not domain data being submitted.
@@ -639,7 +643,7 @@ concurrent writers of the *same* table entry is just one user racing themselves.
 A pending debounced write is flushed (not cancelled) on unmount, so a route change immediately
 after the last click still lands it.
 
-### 11.8 Resolving a stored layout against the CURRENT columns
+### 14.7 Resolving a stored layout against the CURRENT columns
 
 Two composed rules, both in `layoutModel.ts`:
 
@@ -659,9 +663,9 @@ back on the next `PATCH` and taking that write down with a 400.
 
 ---
 
-## 12. Row virtualization
+## 15. Row virtualization
 
-### 12.1 Desktop/tablet: DataGrid's own virtualizer, actually turned on
+### 15.1 Desktop/tablet: DataGrid's own virtualizer, actually turned on
 
 MUI X virtualizes rows for free — with one precondition easy to miss:
 `enabledForRows: !disableVirtualization && !autoHeight && HAS_LAYOUT` (from the package's own
@@ -685,7 +689,7 @@ strategy** — the performance strategy is server-side pagination itself. `disab
 stays at its own default (`false`) throughout; this module only decides whether the grid is
 *allowed* to use its own windowing.
 
-### 12.2 Mobile: render-skipping, and explicitly NOT a virtualizer
+### 15.2 Mobile: render-skipping, and explicitly NOT a virtualizer
 
 Cards are variable-height — a card's body grows with its `secondary` column count and its
 detail region expands in place. A windowing virtualizer needs a height estimate per item, and
@@ -712,20 +716,20 @@ image on the page at once — unless the author explicitly set `loading` already
 
 ---
 
-## 13. CSV export
+## 16. CSV export
 
 Built entirely against the **column contract**, never against DataGrid — `GridToolbarExport`
 would serialize the grid's own rows, which exist in one renderer out of two and would
 silently produce a different file on a phone than on desktop. One code path serves all three
 layouts.
 
-### 13.1 The surface, per layout
+### 16.1 The surface, per layout
 
 Everything routes through `export/exportModel.ts` and `export/csv.ts`. Every table can
 export its current page with no configuration; supplying `csvExport.fetchAllRows` adds an
 "export all matching rows" option that replays the page's *own* fetch callback page by page.
 
-### 13.2 Escaping rules
+### 16.2 Escaping rules
 
 `export/csv.ts` is intentionally pure — no React, no DOM — so its rules are testable as
 arithmetic:
@@ -749,7 +753,7 @@ arithmetic:
 reading a rendered table, and writing it into a CSV would turn "no value" into a literal
 three-byte string every downstream import would then have to special-case.
 
-### 13.3 What's on a row: `value`, never `render`
+### 16.3 What's on a row: `value`, never `render`
 
 A column whose cell is a `<Chip>` exports the **scalar** behind the chip. Serializing a
 `ReactNode` is either impossible or, worse, silently lossy (`[object Object]`, or a chip's
@@ -758,9 +762,9 @@ separate fields in the contract (§4). A column with only `render` and no scalar
 empty cell; declare `value`, or set `exportable: false` for a column that must never leave
 the app at all (a share token, PAT material).
 
-### 13.4 Column scope: what's on screen, and nothing the API didn't already return
+### 16.4 Column scope: what's on screen, and nothing the API didn't already return
 
-Exported columns are exactly the ones the user currently has *visible* (§11), minus any
+Exported columns are exactly the ones the user currently has *visible* (§14), minus any
 declaring `exportable: false` — never every declared column, and never the grid's own
 column-menu concept, which doesn't exist here (§4). "All matching rows" replays the page's
 *own* fetch callback rather than issuing a new, elevated query: the export is subject to
@@ -780,23 +784,23 @@ a render down with it.
 
 ---
 
-## 14. The accessibility contract
+## 17. The accessibility contract
 
 Enforced by a shared conformance battery
 (`__tests__/conformance/runDataTableConformanceSuite.tsx`, run against *both* renderers by
 `DataTableConformance.test.tsx`) rather than left to per-page review, so every table this
 component ever serves gets the same guarantees for free.
 
-### 14.1 Renderer semantics
+### 17.1 Renderer semantics
 
 - The desktop/tablet grid announces as a **grid**, named via `ariaLabel`, with real row/column
   context (DataGrid's own semantics).
 - The card list announces as a **list** (`role="list"`, `<Stack component="ul">`), and each
   card is labelled by its own `primary` headline (`rowAccessibleName`, shared with the grid's
-  row-disambiguation, §14.6) so a screen-reader user can navigate by item name rather than by
+  row-disambiguation, §17.6) so a screen-reader user can navigate by item name rather than by
   reading every field of every card to tell them apart.
 
-### 14.2 Live-region announcements
+### 17.2 Live-region announcements
 
 - Selection: `"N of M selected"` (`BulkActionBar`), on both renderers, with `M` always the
   *page's own* loaded row count — never `pagination.total` — since selection itself is
@@ -806,13 +810,13 @@ component ever serves gets the same guarantees for free.
   truthful to say about a query the page never reports a count for. Singularizes to
   `"1 result"`.
 
-### 14.3 Focus management
+### 17.3 Focus management
 
 The phone filter sheet, the desktop column-picker menu, and a row's overflow action menu all
 trap focus while open and restore it to the triggering control on close — standard modal
 focus discipline, asserted per-surface rather than assumed from the underlying MUI component.
 
-### 14.4 Keyboard model
+### 17.4 Keyboard model
 
 - Interactive content inside a custom `render` cell is reachable by Tab and activatable, on
   both renderers.
@@ -824,7 +828,7 @@ focus discipline, asserted per-surface rather than assumed from the underlying M
   affordance exists in the mobile layout.
 - Bulk select-all is reachable and toggleable by keyboard on both renderers.
 
-### 14.5 The issue #243 guard (touch-target invisibility), swept everywhere
+### 17.5 The issue #243 guard (touch-target invisibility), swept everywhere
 
 `assertNoInvisibleHitTargets` (`testUtils/a11yGuards.ts`) is the one shared implementation of
 a check that was, before this component's own issue #257 (origin numbering), copy-pasted with
@@ -837,7 +841,7 @@ with the visible affordance there — the opposite of the bug), and MUI X's own 
 column-header chrome, which this component doesn't own and which is reachable by keyboard
 regardless.
 
-### 14.6 Disambiguated control names
+### 17.6 Disambiguated control names
 
 Every control whose bare label would otherwise repeat identically across every row — "Select
 row," "Retry," "Show details" — is disambiguated with the row's own accessible name:
@@ -847,7 +851,7 @@ selection checkbox, the row-actions button/menu, the tablet expander button, and
 own headline-as-aria-label — so "Retry for auto_tagging" replaces a bare "Retry" repeated
 identically on every row, whichever renderer is active.
 
-### 14.7 Automated checks (axe)
+### 17.7 Automated checks (axe)
 
 The conformance suite runs `axe`/`vitest-axe` against both renderers, in both light and dark
 theme, plus the tablet grid variant specifically with a row expanded — including two real
@@ -860,7 +864,7 @@ replacing the built-in column).
 
 ---
 
-## 15. Testing notes
+## 18. Testing notes
 
 - **jsdom performs no layout.** MUI X's virtualizer measures 0×0 and renders zero rows, and
   the project-wide no-op `ResizeObserver` mock is not sufficient for this component's tests —
@@ -877,13 +881,14 @@ replacing the built-in column).
 
 ---
 
-## 16. Out of scope
+## 19. Out of scope
 
 - **Migrating `UserList`, `AllowlistTable`, `PersonalAccessTokens` and a fourth table onto
   `DataTable`.** Deliberately split out into
   [#67](https://github.com/marinoscar/EnterpriseAppBase/issues/67) so the component itself
-  could land as one reviewable unit (§1). This document has no worked example against a real
-  page of this repo's until that lands.
+  could land as one reviewable unit (§1). **#67 has since shipped and closed** (see §1) — this
+  document still has no worked example against those real pages, which remains a gap rather
+  than a scope decision now that the migration itself is done.
 - **A fully custom table with no DataGrid dependency.** Rebuilding virtualization, the
   keyboard model and accessibility from scratch would be a permanent maintenance commitment
   for no gain on the two-thirds of the problem DataGrid already solves for free.
