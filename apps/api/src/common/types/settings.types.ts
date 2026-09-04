@@ -3,6 +3,7 @@ import type {
   NavigationValue,
   NotificationsValue,
 } from '../schemas/user-settings-namespaces.schema';
+import type { SystemNotificationsValue } from '../schemas/settings.schema';
 
 // =============================================================================
 // Settings Type Definitions
@@ -54,6 +55,20 @@ export interface SystemSettingsValue {
   features: {
     [key: string]: boolean;
   };
+  /**
+   * Deployment-wide browser-notification policy (#225, epic #215).
+   *
+   * REQUIRED, not optional, and modelled rather than a `features` key — see
+   * `systemNotificationsSchema` in schemas/settings.schema.ts for the full
+   * argument. Required is what makes a PUT that omits the block a loud 400
+   * instead of a silent reset: the value being reset would be an operator's
+   * decision to turn a delivery channel OFF, and silently turning it back on is
+   * the one failure mode a security-adjacent gate must not have.
+   *
+   * Derived from the zod schema so the two cannot drift, exactly as the user
+   * settings namespaces above are.
+   */
+  notifications: SystemNotificationsValue;
 }
 
 /**
@@ -80,4 +95,12 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettingsValue = {
     allowUserThemeOverride: true,
   },
   features: {},
+  // ON by default, suppressing nothing. The opposite default would mean a fresh
+  // deployment ships with a delivery channel silently off and no indication
+  // anywhere that it was ever available — an operator opts OUT of browser
+  // notifications, never into them.
+  notifications: {
+    browserEnabled: true,
+    disabledEvents: [],
+  },
 };

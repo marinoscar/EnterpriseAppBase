@@ -10,6 +10,8 @@ import {
 import {
   SystemSettingsDto,
   systemSettingsSchema,
+  systemNotificationsSchema,
+  MAX_DISABLED_NOTIFICATION_EVENTS,
 } from '../../common/schemas/settings.schema';
 
 const SETTINGS_KEY = 'global';
@@ -137,6 +139,20 @@ const KNOWN_UI_KEYS: readonly string[] = Object.keys(
   systemSettingsSchema.shape.ui.shape,
 );
 
+/**
+ * The keys of the nested `notifications` object (#225), derived for exactly the
+ * reason `KNOWN_UI_KEYS` is.
+ *
+ * `notifications` is the SECOND closed nested object in the value, so it needs
+ * the same treatment as the first: without a list of its own, an unknown key
+ * inside it (a `notifications.emailEnabled` left behind by a rolled-back deploy)
+ * is destroyed by the same mechanism that used to destroy unknown top-level
+ * keys. `features` still needs no list because a `z.record` is already open.
+ */
+const KNOWN_NOTIFICATIONS_KEYS: readonly string[] = Object.keys(
+  systemSettingsSchema.shape.notifications.shape,
+);
+
 @Injectable()
 export class SystemSettingsService {
   private readonly logger = new Logger(SystemSettingsService.name);
@@ -251,6 +267,7 @@ export class SystemSettingsService {
     const root = this.asPlainObject(stored);
     const storedUi = this.asPlainObject(root?.ui);
     const storedFeatures = this.asPlainObject(root?.features);
+    const storedNotifications = this.asPlainObject(root?.notifications);
 
     const features: Record<string, boolean> = {};
     if (storedFeatures) {
@@ -269,7 +286,48 @@ export class SystemSettingsService {
             : DEFAULT_SYSTEM_SETTINGS.ui.allowUserThemeOverride,
       },
       features,
+      notifications: {
+        browserEnabled:
+          typeof storedNotifications?.browserEnabled === 'boolean'
+            ? storedNotifications.browserEnabled
+            : DEFAULT_SYSTEM_SETTINGS.notifications.browserEnabled,
+        disabledEvents: this.readDisabledEvents(
+          storedNotifications?.disabledEvents,
+        ),
+      },
     };
+  }
+
+  /**
+   * Project a stored `notifications.disabledEvents` down to something
+   * `systemSettingsSchema` will accept (#225).
+   *
+   * Same argument as "NON-BOOLEAN FEATURE VALUES ARE DROPPED" above, one level
+   * deeper. `notifications` is a KNOWN key, so whatever this returns is handed
+   * straight to `systemSettingsSchema.parse` — an entry that fails the event-key
+   * pattern, or an array longer than the cap, would convert a repairable row
+   * into a ZodError and leave the admin unable to save anything at all. Dropping
+   * the unusable entries keeps the row repairable through the API, which is the
+   * whole point of `readKnownSettings`.
+   *
+   * A fresh array every call, never `DEFAULT_SYSTEM_SETTINGS.notifications
+   * .disabledEvents` itself: that constant is module-level and shared, and
+   * handing out the same array reference to be merged into and persisted is a
+   * mutation bug waiting on the first caller that pushes to it.
+   */
+  private readDisabledEvents(stored: unknown): string[] {
+    if (!Array.isArray(stored)) {
+      return [];
+    }
+
+    return stored
+      .filter(
+        (entry): entry is string =>
+          typeof entry === 'string' &&
+          systemNotificationsSchema.shape.disabledEvents.element.safeParse(entry)
+            .success,
+      )
+      .slice(0, MAX_DISABLED_NOTIFICATION_EVENTS);
   }
 
   /**
@@ -330,15 +388,24 @@ export class SystemSettingsService {
       KNOWN_UI_KEYS,
     );
 
+    const unknownNotifications = this.collectUnknownKeys(
+      this.asPlainObject(storedValue)?.notifications,
+      KNOWN_NOTIFICATIONS_KEYS,
+    );
+
     const value: Record<string, unknown> = {
       ...unknownTopLevel,
       ...validated,
       ui: { ...unknownUi, ...validated.ui },
+      notifications: { ...unknownNotifications, ...validated.notifications },
     };
 
     const preservedPaths = [
       ...Object.keys(unknownTopLevel),
       ...Object.keys(unknownUi).map((key) => `ui.${key}`),
+      ...Object.keys(unknownNotifications).map(
+        (key) => `notifications.${key}`,
+      ),
     ];
 
     return { value, preservedPaths };
@@ -429,6 +496,7 @@ export class SystemSettingsService {
     return {
       ui: value.ui,
       features: value.features,
+      notifications: value.notifications,
       security: this.readSecurityPolicy(),
       updatedAt: row.updatedAt,
       updatedBy: row.updatedByUser,
@@ -560,6 +628,19 @@ export class SystemSettingsService {
       features: {
         ...currentValue.features,
         ...(dto.features || {}),
+      },
+      // Field by field like `ui`, NOT by spread like `features` — and
+      // `disabledEvents` is therefore REPLACED wholesale when the caller sends
+      // one. That is RFC 7396's rule for arrays and the only usable semantics
+      // here: a merged list could only ever grow, so the admin page's "stop
+      // suppressing this event" would have no way to say so.
+      notifications: {
+        browserEnabled:
+          dto.notifications?.browserEnabled ??
+          currentValue.notifications.browserEnabled,
+        disabledEvents:
+          dto.notifications?.disabledEvents ??
+          currentValue.notifications.disabledEvents,
       },
     };
 

@@ -96,11 +96,22 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
 };
 
 // Default system settings
+// Must stay in step with `DEFAULT_SYSTEM_SETTINGS` in
+// `src/common/types/settings.types.ts` — the seed cannot import it (this script
+// runs outside the Nest build), so the two are a deliberate duplicate. A seeded
+// row missing a modelled block is not fatal (`readKnownSettings` degrades it to
+// the same defaults), but it does mean the first PATCH is what materialises it.
 const DEFAULT_SYSTEM_SETTINGS = {
   ui: {
     allowUserThemeOverride: true,
   },
   features: {},
+  // #225, epic #215. Browser notifications on, nothing suppressed: an operator
+  // opts OUT of the channel, never into it.
+  notifications: {
+    browserEnabled: true,
+    disabledEvents: [] as string[],
+  },
 };
 
 // =============================================================================
