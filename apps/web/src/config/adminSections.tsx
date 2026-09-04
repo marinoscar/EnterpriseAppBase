@@ -36,6 +36,7 @@ import TuneIcon from '@mui/icons-material/Tune';
 import PaletteIcon from '@mui/icons-material/Palette';
 import FlagIcon from '@mui/icons-material/Flag';
 import EmailOutlinedIcon from '@mui/icons-material/EmailOutlined';
+import NotificationsActiveOutlinedIcon from '@mui/icons-material/NotificationsActiveOutlined';
 import DataObjectIcon from '@mui/icons-material/DataObject';
 import PeopleIcon from '@mui/icons-material/People';
 
@@ -136,6 +137,22 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
           'Choose how the application sends email, and send a test message to prove it works.',
         Icon: EmailOutlinedIcon,
         path: '/admin/settings/email',
+        permission: 'system_settings:read',
+      },
+      {
+        // Issue #225, epic #215. `system_settings:read` is the string
+        // `system-settings.controller.ts` enforces on its GET — the same
+        // controller the three cards above mirror, because this setting lives
+        // in the same document. Saving needs `system_settings:write`, which the
+        // PAGE gates internally: the card gate is about REACHABILITY, and "are
+        // browser notifications on for this deployment, and which events are
+        // suppressed" is worth reading for anyone answering "why did nobody get
+        // notified".
+        title: 'Notifications',
+        description:
+          'Turn browser notifications on or off for everyone, and suppress individual events.',
+        Icon: NotificationsActiveOutlinedIcon,
+        path: '/admin/settings/notifications',
         permission: 'system_settings:read',
       },
       {

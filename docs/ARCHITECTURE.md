@@ -592,8 +592,8 @@ apps/api/src/storage/
 
 #### System Settings Shape
 
-`system_settings.value` — the JSONB column itself — holds only `ui` and
-`features`:
+`system_settings.value` — the JSONB column itself — holds `ui`, `features`,
+and `notifications`:
 
 ```json
 {
@@ -602,6 +602,10 @@ apps/api/src/storage/
   },
   "features": {
     "exampleFlag": false
+  },
+  "notifications": {
+    "browserEnabled": true,
+    "disabledEvents": []
   }
 }
 ```
@@ -621,6 +625,10 @@ apps/api/src/storage/
   "features": {
     "exampleFlag": false
   },
+  "notifications": {
+    "browserEnabled": true,
+    "disabledEvents": []
+  },
   "updatedAt": "...",
   "updatedBy": { "id": "...", "email": "..." },
   "version": 1
@@ -634,6 +642,16 @@ database. It is never written to `system_settings.value`: the write schemas
 (`updateSystemSettingsSchema` / `patchSystemSettingsSchema`) don't declare it,
 so a client that sends it has the key silently stripped by the global
 `ZodValidationPipe` before the request reaches the settings service.
+
+`notifications` (issue #225, epic #215) is a modelled block rather than a key
+inside `features` — `features` is a `z.record(z.string(), z.boolean())` with
+no shape, no default, and no place to document semantics, and is deliberately
+owned by downstream forks for their own operational flags; a framework-level,
+security-adjacent gate like this one needs a real type, a real default, and
+somewhere for its semantics to live. It is stored and editable as of #225, but
+**not yet enforced by any delivery path** — no channel consults
+`browserEnabled` or `disabledEvents` yet — which is tracked separately as
+issue #226.
 
 ### 6.3 Database Design Principles
 
@@ -913,6 +931,7 @@ for genuinely parallel content only.
 | — System | `/admin/settings/general` | Required | `system_settings:read` | Core system settings |
 | — Appearance | `/admin/settings/appearance` | Required | `system_settings:read` | Default theme for new users |
 | — Feature Flags | `/admin/settings/feature-flags` | Required | `system_settings:read` | Toggle optional features |
+| — Notifications | `/admin/settings/notifications` | Required | `system_settings:read` | Turn browser notifications on/off deployment-wide and suppress individual events |
 | — Advanced (JSON) | `/admin/settings/advanced` | Required | `system_settings:write` | Raw settings document editor |
 | — Users & Allowlist | `/admin/settings/users` | Required | `users:read` | User accounts, roles, and allowlist |
 | `/admin` (redirect) | `/admin` | Required | — | `<Navigate replace>` to `/admin/settings` |

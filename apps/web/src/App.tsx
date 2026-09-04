@@ -37,6 +37,10 @@ const AppearanceSettingsPage = lazy(() => import('./pages/Admin/AppearanceSettin
 const FeatureFlagsPage = lazy(() => import('./pages/Admin/FeatureFlagsPage'));
 // Issue #124, epic #109 — the admin email configuration and its test send.
 const EmailSettingsPage = lazy(() => import('./pages/Admin/EmailSettingsPage'));
+// Issue #225, epic #215 — the deployment-wide browser-notification policy.
+const NotificationSettingsPage = lazy(
+  () => import('./pages/Admin/NotificationSettingsPage'),
+);
 const AdvancedSettingsPage = lazy(() => import('./pages/Admin/AdvancedSettingsPage'));
 const AdminUsersPage = lazy(() => import('./pages/Admin/UsersPage'));
 
@@ -247,6 +251,23 @@ function AppRoutes() {
                       fallback={<Navigate to="/" replace />}
                     >
                       <EmailSettingsPage />
+                    </RequirePermission>
+                  }
+                />
+                {/* Issue #225, epic #215. `system_settings:read`, the same
+                    string the `Notifications` card declares and the same one
+                    `system-settings.controller.ts` enforces on its GET — the
+                    invariant `destinations.test.ts` asserts for every card.
+                    Saving needs `system_settings:write`, which the page gates
+                    internally by disabling its controls. */}
+                <Route
+                  path="/admin/settings/notifications"
+                  element={
+                    <RequirePermission
+                      permission="system_settings:read"
+                      fallback={<Navigate to="/" replace />}
+                    >
+                      <NotificationSettingsPage />
                     </RequirePermission>
                   }
                 />

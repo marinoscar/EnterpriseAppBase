@@ -118,6 +118,7 @@ describe('SystemSettingsService', () => {
       const newSettings: SystemSettingsValue = {
         ui: { allowUserThemeOverride: false },
         features: { newFeature: true },
+        notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
       };
 
       mockPrisma.systemSettings.upsert.mockResolvedValue({
@@ -159,6 +160,7 @@ describe('SystemSettingsService', () => {
       const newSettings: SystemSettingsValue = {
         ui: { allowUserThemeOverride: true },
         features: {},
+        notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
       };
 
       mockPrisma.systemSettings.upsert.mockResolvedValue({
@@ -185,6 +187,7 @@ describe('SystemSettingsService', () => {
       const newSettings: SystemSettingsValue = {
         ui: { allowUserThemeOverride: false },
         features: {},
+        notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
       };
 
       mockPrisma.systemSettings.upsert.mockResolvedValue({
@@ -424,6 +427,7 @@ describe('SystemSettingsService', () => {
               value: {
                 ui: { allowUserThemeOverride: true },
                 features: { newFlag: true },
+                notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
                 branding: { logoUrl: 'https://example.com/logo.png' },
               },
             }),
@@ -473,6 +477,7 @@ describe('SystemSettingsService', () => {
               value: {
                 ui: { allowUserThemeOverride: false, density: 'compact' },
                 features: {},
+                notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
               },
             }),
           }),
@@ -503,6 +508,7 @@ describe('SystemSettingsService', () => {
         const newSettings: SystemSettingsValue = {
           ui: { allowUserThemeOverride: false },
           features: { newFlag: true },
+          notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
         };
 
         mockPrisma.systemSettings.upsert.mockResolvedValue({
@@ -521,6 +527,7 @@ describe('SystemSettingsService', () => {
           branding: { logoUrl: 'https://example.com/logo.png' },
           ui: { allowUserThemeOverride: false },
           features: { newFlag: true },
+          notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
         };
 
         expect(mockPrisma.systemSettings.upsert).toHaveBeenCalledWith(
@@ -555,6 +562,7 @@ describe('SystemSettingsService', () => {
         const newSettings: SystemSettingsValue = {
           ui: { allowUserThemeOverride: false },
           features: { freshFlag: true },
+          notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
         };
 
         mockPrisma.systemSettings.upsert.mockResolvedValue({
@@ -584,6 +592,7 @@ describe('SystemSettingsService', () => {
         const newSettings: SystemSettingsValue = {
           ui: { allowUserThemeOverride: true },
           features: { onlyFlag: true },
+          notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
         };
 
         mockPrisma.systemSettings.upsert.mockResolvedValue({
@@ -627,6 +636,7 @@ describe('SystemSettingsService', () => {
           const newSettings: SystemSettingsValue = {
             ui: { allowUserThemeOverride: true },
             features: {},
+            notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
           };
 
           mockPrisma.systemSettings.upsert.mockResolvedValue({
@@ -802,6 +812,7 @@ describe('SystemSettingsService', () => {
               value: {
                 ui: { allowUserThemeOverride: true, density: 'compact' },
                 features: { newFlag: true },
+                notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
                 branding: { logoUrl: 'https://example.com/logo.png' },
               },
             }),
@@ -864,6 +875,7 @@ describe('SystemSettingsService', () => {
         const dtoWithUnknownKey = {
           ui: { allowUserThemeOverride: false },
           features: { flag: true },
+          notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
           evilKey: 'should not be stored',
         };
 
@@ -932,6 +944,7 @@ describe('SystemSettingsService', () => {
               resultingValue: {
                 ui: DEFAULT_SYSTEM_SETTINGS.ui,
                 features: { newFlag: true },
+                notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
               },
             } as any,
           },
@@ -964,6 +977,7 @@ describe('SystemSettingsService', () => {
       const newSettings: SystemSettingsValue = {
         ui: { allowUserThemeOverride: true },
         features: {},
+        notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
       };
       mockPrisma.systemSettings.findUnique.mockResolvedValue({
         value: DEFAULT_SYSTEM_SETTINGS,
@@ -1078,6 +1092,7 @@ describe('SystemSettingsService', () => {
         const dtoWithSecurity = {
           ui: { allowUserThemeOverride: true },
           features: {},
+          notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
           security: { jwtAccessTtlMinutes: 9999, refreshTtlDays: 9999 },
         };
 
@@ -1243,6 +1258,221 @@ describe('SystemSettingsService', () => {
       );
 
       expect(value).toBe(30);
+    });
+  });
+
+  // ===========================================================================
+  // #225, epic #215 — the `notifications` block: a MODELLED gate rather than a
+  // key in the open `features` record, so it must survive the same treatment
+  // `ui` and `features` already get. Nothing consumes these values yet (#226
+  // adds the enforcement); what is under test here is purely that the row can
+  // hold them, degrade gracefully, and stay repairable through the API.
+  // ===========================================================================
+  describe('notifications block (#225)', () => {
+    it('defaults to browser notifications ON with nothing suppressed', async () => {
+      mockPrisma.systemSettings.findUnique.mockResolvedValue(
+        mockSystemSettings as any,
+      );
+
+      const result = await service.getSettings();
+
+      expect(result.notifications).toEqual({
+        browserEnabled: true,
+        disabledEvents: [],
+      });
+    });
+
+    it('is part of the documented response shape, not just the stored value', async () => {
+      // The published contract is what a generated client sees. Asserted
+      // against the schema itself rather than a live response because
+      // `getSettings` returns a `Date` for `updatedAt` that only becomes the
+      // ISO string the schema demands once it is serialised — the end-to-end
+      // conformance check lives in the integration suite, over real HTTP.
+      expect(systemSettingsResponseSchema.shape.notifications).toBeDefined();
+
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        ...mockSystemSettings,
+        updatedByUser: null,
+      } as any);
+
+      const result = await service.getSettings();
+
+      expect(() =>
+        systemSettingsResponseSchema.parse({
+          ...result,
+          updatedAt: result.updatedAt.toISOString(),
+        }),
+      ).not.toThrow();
+    });
+
+    it('PATCH merges the two halves independently: sending one leaves the other stored value alone', async () => {
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        ...mockSystemSettings,
+        value: {
+          ...DEFAULT_SYSTEM_SETTINGS,
+          notifications: {
+            browserEnabled: true,
+            disabledEvents: ['security.role_changed'],
+          },
+        } as any,
+      } as any);
+      mockPrisma.systemSettings.update.mockResolvedValue({
+        ...mockSystemSettings,
+        version: 2,
+      } as any);
+      mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+
+      await service.patchSettings(
+        { notifications: { browserEnabled: false } },
+        mockUserId,
+      );
+
+      const updateArgs = mockPrisma.systemSettings.update.mock
+        .calls[0][0] as any;
+      expect(updateArgs.data.value.notifications).toEqual({
+        browserEnabled: false,
+        disabledEvents: ['security.role_changed'],
+      });
+    });
+
+    it('PATCH REPLACES disabledEvents rather than merging, so a suppression can actually be lifted', async () => {
+      // A merging list could only ever grow. Unchecking the last box on the
+      // admin page sends `[]`, and `[]` must mean "suppress nothing".
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        ...mockSystemSettings,
+        value: {
+          ...DEFAULT_SYSTEM_SETTINGS,
+          notifications: {
+            browserEnabled: true,
+            disabledEvents: ['security.role_changed', 'user.welcome'],
+          },
+        } as any,
+      } as any);
+      mockPrisma.systemSettings.update.mockResolvedValue({
+        ...mockSystemSettings,
+        version: 2,
+      } as any);
+      mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+
+      await service.patchSettings(
+        { notifications: { disabledEvents: [] } },
+        mockUserId,
+      );
+
+      const updateArgs = mockPrisma.systemSettings.update.mock
+        .calls[0][0] as any;
+      expect(updateArgs.data.value.notifications.disabledEvents).toEqual([]);
+      // The half that was not sent is still the stored one.
+      expect(updateArgs.data.value.notifications.browserEnabled).toBe(true);
+    });
+
+    it.each([
+      ['missing entirely', undefined],
+      ['a string', 'nope'],
+      ['null', null],
+      ['an array', ['security.role_changed']],
+    ])(
+      'degrades a stored notifications block that is %s to the defaults instead of throwing',
+      async (_label, malformed) => {
+        mockPrisma.systemSettings.findUnique.mockResolvedValue({
+          ...mockSystemSettings,
+          value: {
+            ui: DEFAULT_SYSTEM_SETTINGS.ui,
+            features: {},
+            ...(malformed === undefined ? {} : { notifications: malformed }),
+          } as any,
+        } as any);
+
+        const result = await service.getSettings();
+
+        expect(result.notifications).toEqual({
+          browserEnabled: true,
+          disabledEvents: [],
+        });
+      },
+    );
+
+    it('drops stored disabledEvents entries the schema would reject, keeping the row repairable', async () => {
+      // Same rule as "non-boolean feature values are dropped": carrying an
+      // unparseable entry into the merge would turn a damaged row into a
+      // ZodError on every save, and only a hand-edit of JSONB could fix it.
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        ...mockSystemSettings,
+        value: {
+          ...DEFAULT_SYSTEM_SETTINGS,
+          notifications: {
+            browserEnabled: false,
+            disabledEvents: [
+              'security.role_changed',
+              'NOT A KEY',
+              42,
+              null,
+              'user.welcome',
+            ],
+          },
+        } as any,
+      } as any);
+
+      const result = await service.getSettings();
+
+      expect(result.notifications).toEqual({
+        browserEnabled: false,
+        disabledEvents: ['security.role_changed', 'user.welcome'],
+      });
+    });
+
+    it('does not hand out the shared DEFAULT_SYSTEM_SETTINGS array, which a caller could mutate', async () => {
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        ...mockSystemSettings,
+        value: { ui: DEFAULT_SYSTEM_SETTINGS.ui, features: {} } as any,
+      } as any);
+
+      const result = await service.getSettings();
+
+      expect(result.notifications.disabledEvents).not.toBe(
+        DEFAULT_SYSTEM_SETTINGS.notifications.disabledEvents,
+      );
+    });
+
+    it('preserves an unknown key nested under notifications, the second closed nested object', async () => {
+      // Exactly the #130 guarantee `ui.density` pins, on the block this issue
+      // adds: a rollback across the addition of a sibling key must not destroy
+      // it. `notifications` is closed (unlike `features`), so without its own
+      // known-key list it would be narrowed on every write.
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        ...mockSystemSettings,
+        value: {
+          ui: DEFAULT_SYSTEM_SETTINGS.ui,
+          features: {},
+          notifications: {
+            browserEnabled: false,
+            disabledEvents: [],
+            pushEnabled: true,
+          },
+        } as any,
+      } as any);
+      mockPrisma.systemSettings.update.mockResolvedValue({
+        ...mockSystemSettings,
+        version: 2,
+      } as any);
+      mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+
+      await service.patchSettings({ features: { flag: true } }, mockUserId);
+
+      const updateArgs = mockPrisma.systemSettings.update.mock
+        .calls[0][0] as any;
+      expect(updateArgs.data.value.notifications.pushEnabled).toBe(true);
+      expect(updateArgs.data.value.notifications.browserEnabled).toBe(false);
+
+      expect(mockPrisma.auditEvent.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            meta: expect.objectContaining({
+              preservedKeys: ['notifications.pushEnabled'],
+            }),
+          }),
+        }),
+      );
     });
   });
 

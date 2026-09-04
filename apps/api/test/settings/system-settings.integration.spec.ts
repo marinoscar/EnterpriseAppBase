@@ -76,6 +76,16 @@ describe('System Settings Integration', () => {
         version: expect.any(Number),
       });
       expect(response.body.data.updatedAt).toBeDefined();
+
+      // #225, epic #215. The defaults are asserted as LITERALS rather than
+      // against `DEFAULT_SYSTEM_SETTINGS.notifications`, which would pass
+      // even if someone flipped the constant: the acceptance criterion is
+      // specifically `true` and `[]`, because an operator opts OUT of the
+      // browser channel and never into it.
+      expect(response.body.data.notifications).toEqual({
+        browserEnabled: true,
+        disabledEvents: [],
+      });
     });
 
     // Note: ETag header not currently implemented in controller
@@ -85,6 +95,7 @@ describe('System Settings Integration', () => {
     const newSettings: SystemSettingsValue = {
       ui: { allowUserThemeOverride: false },
       features: { newFeature: true },
+      notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
     };
 
     it('should return 401 without auth', async () => {
@@ -330,6 +341,115 @@ describe('System Settings Integration', () => {
         .expect(200);
 
       expect(response.body.data.features).toEqual({ betaFeature: true });
+    });
+
+    /**
+     * Issue #225, epic #215 — the acceptance criterion "PATCH persists both
+     * the global toggle and the per-event list", over real HTTP.
+     *
+     * Asserted on the PERSISTED value as well as the response, because the two
+     * can disagree: the response is a projection of whatever the mocked
+     * `update` returns, so a merge that dropped the block would still echo a
+     * healthy-looking payload back. What the service asked Prisma to write is
+     * the only honest evidence.
+     */
+    it('persists both halves of the notifications block (#225)', async () => {
+      const admin = await createMockAdminUser(context);
+
+      const partialUpdate = {
+        notifications: {
+          browserEnabled: false,
+          disabledEvents: ['security.role_changed'],
+        },
+      };
+
+      context.prismaMock.systemSettings.update.mockResolvedValue({
+        id: 'settings-1',
+        key: 'global',
+        value: {
+          ui: DEFAULT_SYSTEM_SETTINGS.ui,
+          features: DEFAULT_SYSTEM_SETTINGS.features,
+          notifications: partialUpdate.notifications,
+        } as any,
+        version: 2,
+        updatedAt: new Date(),
+        updatedByUserId: admin.id,
+        updatedByUser: { id: admin.id, email: admin.email },
+      });
+      context.prismaMock.auditEvent.create.mockResolvedValue({} as any);
+
+      const response = await request(context.app.getHttpServer())
+        .patch('/api/system-settings')
+        .set(authHeader(admin.accessToken))
+        .send(partialUpdate)
+        .expect(200);
+
+      expect(response.body.data.notifications).toEqual(
+        partialUpdate.notifications,
+      );
+
+      const updateArgs = context.prismaMock.systemSettings.update.mock
+        .calls[0][0] as any;
+      expect(updateArgs.data.value.notifications).toEqual(
+        partialUpdate.notifications,
+      );
+    });
+
+    it('leaves the untouched half of notifications alone when only one is sent (#225)', async () => {
+      const admin = await createMockAdminUser(context);
+
+      // The stored row already suppresses an event; the admin only moves the
+      // global switch. The list must survive — `browserEnabled` and
+      // `disabledEvents` are merged field by field, not as one blob.
+      context.prismaMock.systemSettings.findUnique.mockResolvedValue({
+        id: 'settings-1',
+        key: 'global',
+        value: {
+          ...DEFAULT_SYSTEM_SETTINGS,
+          notifications: {
+            browserEnabled: true,
+            disabledEvents: ['security.role_changed'],
+          },
+        } as any,
+        version: 1,
+        updatedAt: new Date(),
+        updatedByUserId: null,
+        updatedByUser: null,
+      });
+
+      context.prismaMock.systemSettings.update.mockResolvedValue({
+        id: 'settings-1',
+        key: 'global',
+        value: DEFAULT_SYSTEM_SETTINGS as any,
+        version: 2,
+        updatedAt: new Date(),
+        updatedByUserId: admin.id,
+        updatedByUser: { id: admin.id, email: admin.email },
+      });
+      context.prismaMock.auditEvent.create.mockResolvedValue({} as any);
+
+      await request(context.app.getHttpServer())
+        .patch('/api/system-settings')
+        .set(authHeader(admin.accessToken))
+        .send({ notifications: { browserEnabled: false } })
+        .expect(200);
+
+      const updateArgs = context.prismaMock.systemSettings.update.mock
+        .calls[0][0] as any;
+      expect(updateArgs.data.value.notifications).toEqual({
+        browserEnabled: false,
+        disabledEvents: ['security.role_changed'],
+      });
+    });
+
+    it('rejects a malformed event key rather than storing it (#225)', async () => {
+      const admin = await createMockAdminUser(context);
+
+      await request(context.app.getHttpServer())
+        .patch('/api/system-settings')
+        .set(authHeader(admin.accessToken))
+        .send({ notifications: { disabledEvents: ['NOT A KEY'] } })
+        .expect(400);
     });
 
     it('should return 400 with invalid partial update', async () => {
