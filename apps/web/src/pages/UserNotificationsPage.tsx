@@ -59,8 +59,8 @@ import { useCallback, useState } from 'react';
 import { Alert } from '@mui/material';
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
 import { NotificationSettings } from '../components/settings/NotificationSettings';
-import { useBrowserNotificationPermission } from '../hooks/useBrowserNotificationPermission';
 import { useIsMounted } from '../hooks/useIsMounted';
+import { useNotificationCapability } from '../hooks/useNotificationCapability';
 import { useNotificationEvents } from '../hooks/useNotificationEvents';
 import { requestBrowserNotificationPermission } from '../services/browserNotifications';
 import type { NotificationPreferencesPatch } from '../types';
@@ -81,7 +81,20 @@ export default function UserNotificationsPage() {
   // OBSERVED here, REQUESTED only from the click handler below. The hook itself
   // still never prompts — it runs on mount, and a prompt on mount is the exact
   // mistake its own header documents at length.
-  const { permission, refresh: refreshPermission } = useBrowserNotificationPermission();
+  //
+  // #221 moved this from `useBrowserNotificationPermission` to the CAPABILITY
+  // hook layered over it. Same observation, wider answer: the four permission
+  // states could not distinguish an iOS Safari tab (fix: Add to Home Screen)
+  // from an ancient browser (no fix), or a plain-HTTP origin (fix: HTTPS) from
+  // either — so the page could only ever offer one remedy for four problems.
+  // The raw permission is still available on this hook's result; nothing on
+  // this page needs it, because every decision here is about what the user can
+  // DO, which is exactly what `capability` names.
+  //
+  // `adminDisabled` is intentionally not passed yet: it defaults to "not
+  // disabled", and #227 wires the real value from `GET /api/notifications/config`
+  // in as a prop here. No other line of this page changes when it does.
+  const { capability, refresh: refreshPermission } = useNotificationCapability();
 
   const isMounted = useIsMounted();
   const [isRequestingPermission, setIsRequestingPermission] = useState(false);
@@ -151,7 +164,7 @@ export default function UserNotificationsPage() {
             // and the one thing that must never exist is a filled-in local copy.
             preferences={settings.notifications}
             isSaving={isSaving}
-            browserPermission={permission}
+            browserCapability={capability}
             // The promise is dropped deliberately: `handleRequestPermission`
             // handles its own failure (there is nothing to report — the banner
             // already says what the state is) and the button's own spinner is
