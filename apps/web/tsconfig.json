@@ -25,6 +25,11 @@
     "types": ["vite/client", "vitest/globals", "@testing-library/jest-dom"]
   },
   "include": ["src"],
-  "exclude": ["src/__tests__", "src/**/*.test.ts", "src/**/*.test.tsx", "src/**/*.spec.ts", "src/**/*.spec.tsx"],
+  // `src/sw.ts` is excluded because it is not DOM code (issue #218). It runs in
+  // a ServiceWorkerGlobalScope, where `self` is a different type than the one
+  // `lib: [... "DOM"]` above declares — so checking it here does not just fail
+  // to find `skipWaiting()`, it checks the file against the wrong global.
+  // `tsconfig.worker.json` owns it instead, and `npm run typecheck` runs both.
+  "exclude": ["src/sw.ts", "src/__tests__", "src/**/*.test.ts", "src/**/*.test.tsx", "src/**/*.spec.ts", "src/**/*.spec.tsx"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

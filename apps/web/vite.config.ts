@@ -1,7 +1,8 @@
-import { defineConfig, type Plugin } from 'vite';
+import { defineConfig, type Plugin, type PluginOption } from 'vite';
 import react from '@vitejs/plugin-react';
+import { VitePWA } from 'vite-plugin-pwa';
 import { APP_NAME, THEME_COLOR } from '@app/shared';
-import { buildManifest } from './pwa/manifest';
+import { buildServiceWorkerOptions } from './pwa/service-worker';
 
 /**
  * Substitutes `%APP_NAME%` and `%THEME_COLOR%` in `index.html` with the
@@ -51,65 +52,27 @@ function appName(): Plugin {
 }
 
 /**
- * Emits `manifest.webmanifest` from `buildManifest()` (issue #217, epic #215).
+ * The service worker and the web app manifest (issue #218, epic #215).
  *
- * Without a manifest the application cannot be installed, and on iOS/iPadOS
- * that is not a missing nicety — Safari grants the Notifications API only to a
- * web app that has been added to the Home Screen, so every phone and tablet in
- * that family is locked out of epic #215 entirely until this file exists and
- * declares `display: 'standalone'`.
+ * The options live in `pwa/service-worker.ts`, next to `pwa/manifest.ts` and
+ * for the same two reasons that file gives: they are config-side code the
+ * React tree must never import, and a function is something the test suite can
+ * call. Read that file for why this build uses `injectManifest` rather than
+ * `generateSW` (short version: `generateSW` has nowhere to put the `push` and
+ * `notificationclick` handlers that are the ONLY way to show a notification on
+ * Android Chrome), and why `injectRegister: 'auto'` is a placeholder that
+ * issue #219 removes.
  *
- * The manifest is BUILT, not committed, for exactly the reason the `appName()`
- * plugin above gives for the HTML. A static `public/manifest.webmanifest`
- * would hold its own copies of the name and both brand colours, so a fork that
- * renamed the product in `@app/shared` would ship an installed app whose OS
- * task-switcher label and splash screen still said the old thing — the drift
- * `@app/shared` was created to end. And the alternative bridge is the same one
- * rejected there: an env var (`VITE_APP_NAME` and friends) interpolated into a
- * committed file makes the deployment environment a second source of truth,
- * which is worse than no bridge at all because it fails silently.
- *
- * It is served in DEV as well as emitted into the build. `appName()`'s comment
- * makes the point that the placeholder must never be observable anywhere; a
- * manifest that only exists in `dist/` fails the same standard from the other
- * direction — `npm run dev` would 404 the `<link rel="manifest">`, so Chrome
- * DevTools' Application > Manifest panel (the only practical way to check
- * installability, icon rendering and maskable-icon safe zones) would be blank
- * against the server anyone actually develops on.
- *
- * NOTE FOR THE REVIEWER: issue #218 adds `vite-plugin-pwa`, at which point
- * this plugin is deleted and `buildManifest()` is passed straight to
- * `VitePWA({ manifest })` — which does both jobs. `buildManifest()` is the
- * durable half of this change and does not change then; this emitter is the
- * scaffold that keeps #217 useful on its own. Deliberately no service worker
- * and no `vite-plugin-pwa` dependency in this change.
+ * This replaced the hand-rolled `webManifest()` emitter #217 shipped as
+ * scaffolding — `VitePWA({ manifest })` both emits `manifest.webmanifest` into
+ * `dist/` and serves it in dev, which were that plugin's only two jobs.
  */
-function webManifest(): Plugin {
-  const FILE_NAME = 'manifest.webmanifest';
-  const render = () => JSON.stringify(buildManifest(), null, 2);
-
-  return {
-    name: 'web-manifest',
-    generateBundle() {
-      this.emitFile({ type: 'asset', fileName: FILE_NAME, source: render() });
-    },
-    configureServer(server) {
-      server.middlewares.use((req, res, next) => {
-        // Compare the path only: the browser may append a query string, and a
-        // strict `req.url === '/manifest.webmanifest'` would miss it.
-        if ((req.url ?? '').split('?')[0] !== `/${FILE_NAME}`) return next();
-        // `application/manifest+json` is the registered type. Chrome tolerates
-        // `application/json`, but Safari — the one browser this whole epic
-        // depends on — is the stricter reader, so serve the correct one.
-        res.setHeader('Content-Type', 'application/manifest+json');
-        res.end(render());
-      });
-    },
-  };
+function pwa(): PluginOption {
+  return VitePWA(buildServiceWorkerOptions());
 }
 
 export default defineConfig({
-  plugins: [react(), appName(), webManifest()],
+  plugins: [react(), appName(), pwa()],
   // `@app/shared` is CommonJS, and it reaches us as an npm WORKSPACE SYMLINK.
   // Vite treats a linked package as project source rather than as a dependency,
   // so it skips dep pre-bundling for it and serves `index.js` to the browser as

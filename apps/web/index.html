@@ -15,10 +15,14 @@
       Installability and app icons (issue #217, epic #215).
 
       `manifest.webmanifest` is not a file in `public/` — it is generated from
-      `@app/shared` by the `webManifest()` plugin in `vite.config.ts`, which
-      both emits it into `dist/` and serves it from the dev server. A committed
+      `@app/shared` by `buildManifest()` (`pwa/manifest.ts`) and emitted into
+      `dist/` and served in dev by the `VitePWA` plugin in `vite.config.ts`
+      (issue #218; before that, by a small hand-rolled emitter). A committed
       copy would restate the app name and both brand colours, and a renamed
       fork would then ship an installed app labelled with the old product.
+
+      That same plugin injects the <script> that registers the service worker,
+      so there is no registration tag written by hand here.
 
       The theme-color token below is substituted by the same `appName()`
       plugin that handles the name, for the same reason: a literal hex here

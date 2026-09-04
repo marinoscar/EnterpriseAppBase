@@ -22,6 +22,15 @@ export default defineConfig({
         '**/*.d.ts',
         '**/*.config.*',
         'src/main.tsx',
+        // `src/sw.ts` (issue #218) is a ServiceWorkerGlobalScope module: it
+        // calls `clientsClaim()` and registers fetch routes at import time, so
+        // jsdom cannot even load it, let alone execute it. Left in, `all`
+        // coverage would report it as permanently 0% and drag the thresholds
+        // down for a file no test can legitimately reach. What IS checkable
+        // about it — that the build emits `sw.js` at root scope and precaches
+        // nothing under `/api` — is asserted in
+        // `src/__tests__/pwa/service-worker.test.ts` against build output.
+        'src/sw.ts',
       ],
       thresholds: {
         lines: 70,
