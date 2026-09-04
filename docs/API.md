@@ -937,6 +937,10 @@ Get system-wide settings.
     "refreshTtlDays": 14
   },
   "features": {},
+  "notifications": {
+    "browserEnabled": true,
+    "disabledEvents": []
+  },
   "updatedAt": "2024-01-01T00:00:00.000Z",
   "updatedBy": {
     "id": "uuid",
@@ -953,6 +957,8 @@ Get system-wide settings.
 | `security.jwtAccessTtlMinutes` | number | **Read-only.** JWT access token TTL in minutes, read from the `JWT_ACCESS_TTL_MINUTES` deploy-time environment variable — not stored settings, and not writable through this API |
 | `security.refreshTtlDays` | number | **Read-only.** Refresh token TTL in days, read from the `JWT_REFRESH_TTL_DAYS` deploy-time environment variable — not stored settings, and not writable through this API |
 | `features` | object | Feature flags (extensible) |
+| `notifications.browserEnabled` | boolean | Whether browser notifications are enabled deployment-wide. **Not yet enforced** — the browser notification channel does not consult this value yet (issue #226) |
+| `notifications.disabledEvents` | string[] | Notification event keys (e.g. `security.role_changed`, from the notification event registry) suppressed deployment-wide, regardless of per-user preference. Max 100 entries. **Not yet enforced** (issue #226) |
 | `updatedAt` | string | ISO 8601 timestamp of last update |
 | `updatedBy` | object | User who last updated settings |
 | `version` | number | Version number for optimistic concurrency control |
@@ -970,13 +976,21 @@ Replace all system settings.
   "ui": {
     "allowUserThemeOverride": true
   },
-  "features": {}
+  "features": {},
+  "notifications": {
+    "browserEnabled": true,
+    "disabledEvents": []
+  }
 }
 ```
 
 `security` is not part of the request body — it is a read-only, server-derived
 block (see the GET fields table above). Sending it is not an error; the global
 `ZodValidationPipe` silently strips unknown keys, so it has no effect.
+`notifications`, by contrast, IS required in the PUT body, exactly like `ui`
+and `features` — omitting it returns **400 VALIDATION_ERROR** rather than
+resetting it, because the value that would be reset is an operator's decision
+to turn a delivery channel off for everyone.
 
 **Response:**
 ```json
@@ -989,6 +1003,10 @@ block (see the GET fields table above). Sending it is not an error; the global
     "refreshTtlDays": 14
   },
   "features": {},
+  "notifications": {
+    "browserEnabled": true,
+    "disabledEvents": []
+  },
   "updatedAt": "2024-01-01T12:00:00.000Z",
   "updatedBy": {
     "id": "uuid",
@@ -1014,6 +1032,21 @@ Partially update system settings.
 }
 ```
 
+Or, to suppress one notification event without touching anything else:
+```json
+{
+  "notifications": {
+    "disabledEvents": ["security.role_changed"]
+  }
+}
+```
+
+`notifications` is optional in PATCH, and its two fields
+(`browserEnabled`, `disabledEvents`) merge independently — sending one leaves
+the other at its stored value. `disabledEvents`, when sent, REPLACES the
+stored array wholesale rather than merging entries; send `disabledEvents: []`
+to lift every suppression.
+
 **Request Headers (Optional):**
 ```
 If-Match: 1
@@ -1030,6 +1063,10 @@ If-Match: 1
     "refreshTtlDays": 14
   },
   "features": {},
+  "notifications": {
+    "browserEnabled": true,
+    "disabledEvents": ["security.role_changed"]
+  },
   "updatedAt": "2024-01-01T12:00:00.000Z",
   "updatedBy": {
     "id": "uuid",
