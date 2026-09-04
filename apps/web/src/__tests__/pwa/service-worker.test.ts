@@ -123,13 +123,25 @@ describe('service worker build output', () => {
     expect(manifest.display).toBe('standalone');
   });
 
-  it('registers the worker from index.html', () => {
-    // `injectRegister: 'auto'`. Issue #219 replaces this with `useRegisterSW`,
-    // at which point the registration moves into the React tree and this
-    // assertion should be rewritten rather than deleted — an app that never
-    // registers its worker has no notifications on Android at all.
+  it('registers the worker from the React tree, not from index.html', () => {
+    // Rewritten by issue #219, as the assertion it replaces said it should be.
+    // Registration moved into `components/pwa/UpdatePrompt.tsx`
+    // (`useRegisterSW`), so `injectRegister` is now `null` and the injected
+    // `registerSW.js` is gone. Both halves are asserted: an app that never
+    // registers its worker has no notifications on Android at all, and one that
+    // registers TWICE has a hook whose state does not describe the registration
+    // the user is on.
     const html = readFileSync(join(outDir, 'index.html'), 'utf-8');
-    expect(html).toMatch(/registerSW\.js/);
+    expect(html).not.toMatch(/registerSW\.js/);
+
+    const bundled = readdirSync(join(outDir, 'assets'))
+      .filter((file) => file.endsWith('.js'))
+      .map((file) => readFileSync(join(outDir, 'assets', file), 'utf-8'));
+
+    expect(
+      bundled.some((source) => source.includes('serviceWorker.register')),
+      'no emitted chunk registers a service worker — the PWA is inert',
+    ).toBe(true);
   });
 });
 
@@ -151,8 +163,18 @@ describe('buildServiceWorkerOptions', () => {
 
   it('waits for the page rather than activating under a live session', () => {
     // `prompt`, not `autoUpdate`: an activation mid-session leaves the loaded
-    // page requesting asset filenames the new revision has rotated away.
+    // page requesting asset filenames the new revision has rotated away, and
+    // `autoUpdate`'s reload discards every unsaved form in the app. The UI half
+    // that makes `prompt` reach the user is `components/pwa/UpdatePrompt.tsx`.
     expect(buildServiceWorkerOptions().registerType).toBe('prompt');
+  });
+
+  it('leaves registration to the React tree', () => {
+    // `null`, not `'auto'` (issue #219). With `'auto'` the plugin injects its
+    // own `registerSW.js`, so the worker is registered a second time from a
+    // script `useRegisterSW` cannot observe — and the update prompt then
+    // reports on a registration that is not the live one.
+    expect(buildServiceWorkerOptions().injectRegister).toBeNull();
   });
 
   it('serves the manifest and the worker from the dev server too', () => {
