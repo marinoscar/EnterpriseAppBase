@@ -325,11 +325,42 @@ export interface UserSettingsUpdate {
   notifications?: NotificationPreferencesPatch | null;
 }
 
+/**
+ * Deployment-wide browser-notification policy (#225, epic #215).
+ *
+ * A MODELLED block on the settings document, mirroring the API's
+ * `systemNotificationsSchema` — deliberately NOT a key in the open `features`
+ * record, which has no shape and is owned by downstream forks for their own
+ * operational flags.
+ *
+ * NOTHING READS THESE VALUES YET, on either side. Issue #225 adds the setting,
+ * its persistence and the admin page at `/admin/settings/notifications`; the
+ * enforcement (the browser channel consulting them, and the non-admin read
+ * endpoint that lets this app skip asking for OS permission when the capability
+ * is off) is issue #226. An editable control with no observable effect is the
+ * expected state until then, not a bug.
+ */
+export interface SystemNotificationSettings {
+  /** The whole browser channel, for everyone. */
+  browserEnabled: boolean;
+  /**
+   * `NotificationEventDef` keys whose OS notification is suppressed for
+   * everyone, independently of any user's own preference.
+   *
+   * A plain `string[]` and not a union: the registry is served by the API, so a
+   * key this build has never heard of is a key an operator may still legitimately
+   * have suppressed — the admin page renders what the registry returns and
+   * leaves unknown stored keys alone.
+   */
+  disabledEvents: string[];
+}
+
 export interface SystemSettings {
   ui: {
     allowUserThemeOverride: boolean;
   };
   features: Record<string, boolean>;
+  notifications: SystemNotificationSettings;
   updatedAt: string;
   updatedBy: { id: string; email: string } | null;
   version: number;
