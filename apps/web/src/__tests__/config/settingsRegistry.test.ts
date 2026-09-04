@@ -169,6 +169,73 @@ describe('visibleSettingsSections — works identically against USER_SETTINGS_SE
   });
 });
 
+/**
+ * Issue #225, epic #215. The `Notifications` page is a registry CARD, never a
+ * fourth tab on an existing settings page — `CLAUDE.md`'s mandatory settings-UI
+ * rule 1, stated as an assertion: a route with no registry entry is one the hub,
+ * the Console rail and the AppBar title resolver all disagree about, because
+ * none of the three has any way to learn it exists.
+ *
+ * The route/permission agreement with `App.tsx` is asserted generically for
+ * every card in `destinations.test.ts`; what is pinned here is this card's own
+ * identity, and that the gate genuinely denies.
+ */
+describe('the Notifications card (#225)', () => {
+  const card = ADMIN_SECTIONS.flatMap((section) => section.cards).find(
+    (entry) => entry.title === 'Notifications',
+  );
+
+  it('is declared in ADMIN_SECTIONS', () => {
+    expect(card).toBeDefined();
+  });
+
+  it('routes to /admin/settings/notifications', () => {
+    expect(card?.path).toBe('/admin/settings/notifications');
+  });
+
+  it('declares the exact permission the API enforces on GET /api/system-settings', () => {
+    // `system-settings.controller.ts` — the same document this page edits, and
+    // the same string its three sibling cards mirror. The registry never
+    // invents a permission.
+    expect(card?.permission).toBe('system_settings:read');
+  });
+
+  it('is not an alwaysShow escape hatch — the gate must be able to deny it', () => {
+    expect(card?.alwaysShow).toBeUndefined();
+  });
+
+  it('appears for an admin holding system_settings:read', () => {
+    const result = visibleSettingsSections(
+      ADMIN_SECTIONS,
+      (permission) => permission === 'system_settings:read',
+    );
+
+    expect(titlesOf(result)).toContain('Notifications');
+  });
+
+  it('appears in none of the three surfaces for a viewer', () => {
+    // A viewer holds `user_settings:*` only. One assertion covers the hub, the
+    // rail and the title resolver because all three run this same function.
+    const viewerPermissions = ['user_settings:read', 'user_settings:write'];
+    const result = visibleSettingsSections(ADMIN_SECTIONS, (permission) =>
+      viewerPermissions.includes(permission),
+    );
+
+    expect(titlesOf(result)).not.toContain('Notifications');
+  });
+
+  it('resolves its route to its own title, not the hub title', () => {
+    expect(
+      settingsPageTitle(
+        ADMIN_SECTIONS,
+        ADMIN_HUB_PATH,
+        ADMIN_HUB_TITLE,
+        '/admin/settings/notifications',
+      ),
+    ).toBe('Notifications');
+  });
+});
+
 describe('settingsPageTitle', () => {
   it('resolves an exact card path to its title', () => {
     expect(settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, '/admin/settings/users')).toBe(
