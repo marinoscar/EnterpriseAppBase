@@ -12,6 +12,36 @@
     <meta name="description" content="%APP_NAME%" />
     <title>%APP_NAME%</title>
     <!--
+      Installability and app icons (issue #217, epic #215).
+
+      `manifest.webmanifest` is not a file in `public/` — it is generated from
+      `@app/shared` by the `webManifest()` plugin in `vite.config.ts`, which
+      both emits it into `dist/` and serves it from the dev server. A committed
+      copy would restate the app name and both brand colours, and a renamed
+      fork would then ship an installed app labelled with the old product.
+
+      The theme-color token below is substituted by the same `appName()`
+      plugin that handles the name, for the same reason: a literal hex here
+      would be a third copy of the brand colour, visibly wrong in the browser
+      chrome drawn directly above an app painted in the new one. (Tokens are
+      spelled out only in the attributes, never in prose here — this comment
+      survives into `dist/`, and a token named inside it would be rewritten
+      too, which is why the note above this one reads oddly.)
+
+      The two `apple-mobile-web-app-*` metas are for iOS. Safari grants the
+      Notifications API only to a web app added to the Home Screen, so these
+      are load-bearing for this epic rather than decorative: `-title` names the
+      Home Screen icon, and `-capable` is the pre-16.4 spelling of the
+      standalone request that the manifest's `display` makes on newer versions.
+    -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon-180.png" />
+    <meta name="theme-color" content="%THEME_COLOR%" />
+    <meta name="apple-mobile-web-app-title" content="%APP_NAME%" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <!--
       Issue #111: `src/theme/index.ts` declares Inter as the first family in
       `typography.fontFamily`, so the app has to actually LOAD it — before this
       link existed it did not, and every user saw the Arial/Helvetica/DejaVu
