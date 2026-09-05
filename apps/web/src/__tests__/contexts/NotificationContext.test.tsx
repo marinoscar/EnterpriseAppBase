@@ -55,9 +55,9 @@ vi.mock('../../services/notificationStream', () => ({
     connectNotificationStreamMock(handlers),
 }));
 
-const showNativeNotificationMock = vi.fn();
+const showAppNotificationMock = vi.fn(() => Promise.resolve('page'));
 vi.mock('../../services/browserNotifications', () => ({
-  showNativeNotification: (...args: unknown[]) => showNativeNotificationMock(...args),
+  showAppNotification: (...args: unknown[]) => showAppNotificationMock(...args),
 }));
 
 const getNotificationsMock = vi.fn();
@@ -279,7 +279,7 @@ describe('NotificationContext', () => {
       act(() => {
         capturedHandlers!.onNotification(notification);
       });
-      expect(showNativeNotificationMock).toHaveBeenCalledTimes(1);
+      expect(showAppNotificationMock).toHaveBeenCalledTimes(1);
 
       act(() => {
         capturedHandlers!.onNotification(notification);
@@ -288,7 +288,7 @@ describe('NotificationContext', () => {
       // Same reasoning as the count: the user has already been interrupted
       // once about this notification, so a duplicate frame must raise no
       // second OS-level toast.
-      expect(showNativeNotificationMock).toHaveBeenCalledTimes(1);
+      expect(showAppNotificationMock).toHaveBeenCalledTimes(1);
     });
 
     it('logout clears the id memory, so the same id arriving again after a re-login counts as new', async () => {

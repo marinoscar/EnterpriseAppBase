@@ -70,7 +70,7 @@ import {
   markNotificationRead,
 } from '../services/api';
 import { connectNotificationStream, type SseState } from '../services/notificationStream';
-import { showNativeNotification } from '../services/browserNotifications';
+import { showAppNotification } from '../services/browserNotifications';
 import { isInternalLink } from '../utils/internalLink';
 import type { AppNotification } from '../types';
 
@@ -385,8 +385,11 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       if (!isNew) return;
 
       // THIRD IN THE ORDERING, and deliberately last: the centre is already
-      // correct by this point, so everything below is free to fail.
-      showNativeNotification(notification, (clicked) => {
+      // correct by this point, so everything below is free to fail. Fired
+      // and forgotten — `showAppNotification` resolves with which path (if
+      // any) raised the toast, purely for tests/diagnostics, and nothing here
+      // is waiting on that answer.
+      void showAppNotification(notification, (clicked) => {
         // Marking read on activation matches clicking the row in the bell —
         // the user has demonstrably seen it.
         void markRead(clicked.id);
