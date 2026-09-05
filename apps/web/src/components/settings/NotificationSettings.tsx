@@ -96,6 +96,7 @@ import type {
   NotificationPreferences,
 } from '../../types';
 import type { NotificationCapability } from '../../hooks/useNotificationCapability';
+import { AddToHomeScreenPanel } from './AddToHomeScreenPanel';
 
 // =============================================================================
 // Derivation — the pure half, exported so it can be reasoned about and tested
@@ -500,7 +501,22 @@ export function NotificationSettings({
           Choose what reaches you, and how. Changes are saved as you make them.
         </Typography>
 
-        {showsBrowserChannel && browser.alert && (
+        {/*
+          `ios-needs-install` GETS THE ILLUSTRATED PANEL, NOT THE GENERIC ALERT
+          BELOW — #231. `browserChannelState` still carries a short `alert` for
+          this capability (its `note` and `disabled` are still used by every
+          switch row below), but its `body` was deliberately written as a
+          one-line placeholder for exactly this panel; rendering both here
+          would say the same thing twice in two shapes. Every other capability
+          continues straight to the generic `browser.alert` banner beneath.
+        */}
+        {showsBrowserChannel && browserCapability === 'ios-needs-install' && (
+          <Box sx={{ mb: 2 }}>
+            <AddToHomeScreenPanel />
+          </Box>
+        )}
+
+        {showsBrowserChannel && browserCapability !== 'ios-needs-install' && browser.alert && (
           <Alert severity={browser.alert.severity} sx={{ mb: 2 }}>
             <AlertTitle>{browser.alert.title}</AlertTitle>
             {/*

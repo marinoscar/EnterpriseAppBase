@@ -534,6 +534,101 @@ describe('NotificationSettings component', () => {
       ).not.toBeInTheDocument();
     });
 
+    // =========================================================================
+    // Issue #231: `ios-needs-install` gets the illustrated `AddToHomeScreenPanel`
+    // INSTEAD OF the generic `browser.alert` banner - see the render branch in
+    // `NotificationSettings.tsx` just above the matrix. NOTE: the panel's own
+    // `AlertTitle` reuses the exact string "Add this app to your Home Screen"
+    // that `browserChannelState('ios-needs-install')` also uses as its (now
+    // unrendered) generic title, so that title alone cannot distinguish the two
+    // - these tests key off content that exists on only one side.
+    // =========================================================================
+
+    it('ios-needs-install renders the illustrated panel, not the generic alert body, and no permission button', () => {
+      render(
+        <NotificationSettings
+          events={[ROLE_CHANGED]}
+          preferences={undefined}
+          onToggle={onToggle}
+          browserCapability="ios-needs-install"
+          onRequestPermission={vi.fn()}
+        />,
+      );
+
+      // The panel's distinguishing content (`AddToHomeScreenPanel.tsx`).
+      expect(screen.getByText(/Tap the Share button/i)).toBeInTheDocument();
+      expect(screen.getByText(/Choose "Add to Home Screen"/i)).toBeInTheDocument();
+
+      // The generic alert's own body - a short placeholder superseded by the
+      // panel per #231 - must NOT also render; its distinguishing closing
+      // sentence is unique to it (the panel's closing sentence is worded
+      // differently).
+      expect(
+        screen.queryByText(/then open the app from there and allow notifications/i),
+      ).not.toBeInTheDocument();
+
+      // No permission to grant until the app is installed - see
+      // `browserChannelState`'s header for why `ios-needs-install` never gets
+      // the "Allow notifications" button.
+      expect(
+        screen.queryByRole('button', { name: /allow notifications/i }),
+      ).not.toBeInTheDocument();
+    });
+
+    it.each([
+      ['denied'],
+      ['unsupported'],
+      ['admin-disabled'],
+      ['insecure-context'],
+      ['sw-unavailable'],
+    ] as const)(
+      '%s still renders its generic alert, and never the iOS panel (regression check for the #231 branch split)',
+      (capability) => {
+        render(
+          <NotificationSettings
+            events={[ROLE_CHANGED]}
+            preferences={undefined}
+            onToggle={onToggle}
+            browserCapability={capability}
+          />,
+        );
+
+        // The alert this capability has always rendered is unchanged.
+        const expected = browserChannelState(capability);
+        expect(screen.getByText(expected.alert!.title)).toBeInTheDocument();
+
+        // The panel must never render outside `ios-needs-install`.
+        expect(screen.queryByText(/Tap the Share button/i)).not.toBeInTheDocument();
+        expect(
+          screen.queryByText(/Choose "Add to Home Screen"/i),
+        ).not.toBeInTheDocument();
+      },
+    );
+
+    it('granted and default render neither the generic alert body\'s Home Screen banner nor the iOS panel', () => {
+      // `default` keeps its own pre-existing "Browser notifications need your
+      // permission" banner and "Allow notifications" button flow (#127),
+      // already covered above - this only confirms the #231 panel is not one
+      // of the things it (or `granted`) renders.
+      for (const capability of ['granted', 'default'] as const) {
+        const { unmount } = render(
+          <NotificationSettings
+            events={[ROLE_CHANGED]}
+            preferences={undefined}
+            onToggle={onToggle}
+            browserCapability={capability}
+          />,
+        );
+
+        expect(screen.queryByText(/Tap the Share button/i)).not.toBeInTheDocument();
+        expect(
+          screen.queryByText(/Choose "Add to Home Screen"/i),
+        ).not.toBeInTheDocument();
+
+        unmount();
+      }
+    });
+
     it('sw-unavailable warns but leaves the browser switch usable - degraded, not blocked', () => {
       render(
         <NotificationSettings
