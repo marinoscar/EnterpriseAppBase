@@ -8,6 +8,13 @@ import { ProtectedRoute } from './components/common/ProtectedRoute';
 import { RequirePermission } from './components/common/RequirePermission';
 import { Layout } from './components/common/Layout';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
+// PWA prompts (#219, epic #215). Eagerly imported, not lazy: `UpdatePrompt` is
+// what REGISTERS the service worker, and a registration deferred behind a
+// dynamic import would not happen until React had already decided it was
+// needed. Both render `null` in their default state, so the cost is a few
+// hundred bytes in the entry chunk.
+import { UpdatePrompt } from './components/pwa/UpdatePrompt';
+import { InstallPrompt } from './components/pwa/InstallPrompt';
 
 // Pages (lazy loaded)
 import { Suspense, lazy } from 'react';
@@ -309,6 +316,28 @@ function AppRoutes() {
           </Routes>
         </Suspense>
       </ErrorBoundary>
+      {/* The PWA prompts (#219, epic #215) sit here — inside `ThemeProvider`
+          so they are themed, OUTSIDE both `ErrorBoundary` and `Routes`, and
+          outside `Layout`.
+
+          Outside `Routes` because they belong to the DOCUMENT, not to any
+          page: `UpdatePrompt` owns the service-worker registration, which must
+          happen on `/login` and `/activate` too (those sessions run on the same
+          precached shell, and the worker is also what makes notifications
+          possible on Android at all). Mounting them inside `Layout` would tie
+          both to the authenticated shell and re-run registration on every
+          route change into and out of it.
+
+          Outside `ErrorBoundary` because a page that has crashed is precisely
+          when "a new version is available" is most likely to be the fix — a
+          prompt inside the boundary would be replaced by the fallback along
+          with the page.
+
+          NEITHER RENDERS ANYTHING in its default state (no waiting worker, no
+          captured install event), so a normal page load is pixel-identical to
+          one before this change. */}
+      <UpdatePrompt />
+      <InstallPrompt />
     </ThemeProvider>
   );
 }
