@@ -30,10 +30,17 @@ import {
 // Global stubbing. Everything defined here is torn down in afterEach.
 // ---------------------------------------------------------------------------
 
-const originalNotification = (window as any).Notification;
+// `Notification` and `navigator.serviceWorker` are no longer captured/restored
+// here - `setup.ts` installs a fresh neutral default for both before every
+// test (issue #232), so this file's `setNotification`/`setServiceWorker`
+// overrides below simply reassign over that default per test, and the next
+// test starts clean without this file having to remember or restore
+// anything. `platform`/`userAgent`/`maxTouchPoints`/`standalone` have no such
+// global default, so they still need their own capture-free teardown
+// (`delete` is correct for all four: jsdom's real `navigator` never defines
+// any of them, so there is no "original" value to restore).
 const originalMatchMedia = window.matchMedia;
 const OVERRIDDEN_NAVIGATOR_KEYS = [
-  'serviceWorker',
   'platform',
   'userAgent',
   'maxTouchPoints',
@@ -157,12 +164,6 @@ function setIpadClaimingToBeAMac() {
 }
 
 afterEach(() => {
-  if (originalNotification === undefined) {
-    delete (window as any).Notification;
-  } else {
-    (window as any).Notification = originalNotification;
-  }
-
   for (const key of OVERRIDDEN_NAVIGATOR_KEYS) {
     delete (window.navigator as any)[key];
   }

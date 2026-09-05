@@ -21,8 +21,12 @@ import type { AppNotification } from '../../types';
  * with a fake supplying only what each test needs, restored afterward.
  */
 
-const originalNotification = (window as any).Notification;
-const originalServiceWorker = (window.navigator as any).serviceWorker;
+// `window.Notification` and `navigator.serviceWorker` are no longer captured
+// or restored here - `setup.ts` installs a fresh neutral default for both
+// before every test (issue #232), so `setNotification`/`setServiceWorker`
+// below just reassign over that default per test, exactly as they always
+// have, and the next test starts from a clean baseline without this file
+// needing to remember what was here before it ran.
 
 interface FakeNotificationInstance {
   onclick: (() => void) | null;
@@ -154,20 +158,6 @@ const baseNotification: AppNotification = {
 
 describe('browserNotifications', () => {
   afterEach(() => {
-    if (originalNotification === undefined) {
-      delete (window as any).Notification;
-    } else {
-      (window as any).Notification = originalNotification;
-    }
-    if (originalServiceWorker === undefined) {
-      delete (window.navigator as any).serviceWorker;
-    } else {
-      Object.defineProperty(window.navigator, 'serviceWorker', {
-        value: originalServiceWorker,
-        configurable: true,
-        writable: true,
-      });
-    }
     vi.restoreAllMocks();
   });
 
