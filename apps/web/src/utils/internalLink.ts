@@ -1,9 +1,11 @@
 /**
  * Is this string safe to hand to the router as an in-app destination?
  *
- * Issue #127, epic #109. Used by both places a notification's `link` turns into
- * navigation: the row click in `components/navigation/NotificationBell.tsx` and
- * the native toast click in `contexts/NotificationContext.tsx`.
+ * Issue #127, epic #109. Used everywhere a notification's `link` turns into
+ * navigation: the row click in `components/navigation/NotificationBell.tsx`,
+ * the native toast click in `contexts/NotificationContext.tsx`, and — since
+ * issue #223 — the `notificationclick` handler in `sw.ts`, which re-validates
+ * the SAME value the service worker will hand to `clients.openWindow()`.
  *
  * =============================================================================
  * THE SERVER ALREADY GUARANTEES THIS. CHECKING AGAIN IS THE POINT.

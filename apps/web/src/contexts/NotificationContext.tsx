@@ -59,7 +59,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 import { useIsMounted } from '../hooks/useIsMounted';
 import {
@@ -173,6 +173,7 @@ export const NotificationContext = createContext<NotificationContextValue | null
 export function NotificationProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const isMounted = useIsMounted();
 
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
@@ -525,6 +526,86 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     // which matters under StrictMode's double-mount in development.
     return () => connection.close();
   }, [isAuthenticated, isMounted]);
+
+  // ---------------------------------------------------------------------------
+  // The service-worker click bridge — issue #223, epic #215
+  // ---------------------------------------------------------------------------
+  //
+  // `sw.ts`'s `notificationclick` handler is the ONLY place a click on a
+  // worker-shown notification (Android's SW-only toast path, or any toast that
+  // fires with no page in view — see `showAppNotification` in
+  // `services/browserNotifications.ts`, issue #222) can be caught, and that
+  // handler has no token to mark anything read with — see the "never call the
+  // API" constraint documented at the top of `sw.ts`. So when a page IS open,
+  // the worker `postMessage`s the click here instead of acting on it, and this
+  // listener finishes the job with the token this page already holds.
+  //
+  // REUSES `markRead` AND `isInternalLink`/`navigate` RATHER THAN DUPLICATING
+  // THEM. This is deliberately the SAME pair of calls `handleNotification`
+  // above makes from the in-page toast's `onClick` — a worker-delivered click
+  // and a page-delivered click are the same user action wearing two different
+  // delivery mechanisms, and a notification clicked via the worker must be
+  // indistinguishable in its effect from one clicked via `new Notification()`.
+  //
+  // `navigator.serviceWorker` can be undefined (no SW support, or a context
+  // where `self.serviceWorker` never registers) — guarded rather than asserted,
+  // the same posture `browserNotifications.ts` takes everywhere it touches
+  // this API.
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+
+    const handleMessage = (event: MessageEvent) => {
+      const data = event.data as { type?: unknown; id?: unknown; link?: unknown } | null;
+      if (!data || data.type !== 'notification-click') return;
+
+      // Matches the toast's `onClick` in `handleNotification` above: mark read
+      // first (the click itself is the "seen" signal), then navigate only if
+      // the link is a validated in-app destination.
+      const link = typeof data.link === 'string' ? data.link : null;
+      if (typeof data.id === 'string') void markRead(data.id);
+      if (isInternalLink(link)) navigate(link);
+    };
+
+    navigator.serviceWorker.addEventListener('message', handleMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', handleMessage);
+  }, [markRead, navigate]);
+
+  // ---------------------------------------------------------------------------
+  // The cold-open `?n=` handler — issue #223, epic #215
+  // ---------------------------------------------------------------------------
+  //
+  // The other half of `sw.ts`'s `notificationclick` handler: when NO page is
+  // open to `postMessage`, the worker cannot deliver the click at all — there
+  // is nothing listening yet — so it `clients.openWindow()`s the link with the
+  // notification id encoded as `?n=<id>` instead, and this effect is what
+  // reads that back once the app has booted and (if the user is signed in) a
+  // token exists to mark it read with.
+  //
+  // GUARDED ON `isAuthenticated`, not just presence of `n`: a cold-opened
+  // window loads `/login` first for a signed-out user, and this provider
+  // itself only mounts inside the authenticated shell (see `App.tsx`) — but
+  // `searchParams` is still readable at that point via the router, and calling
+  // `markRead` before a session exists would just spend a request on a 401
+  // that `markRead` already swallows. Waiting for `isAuthenticated` means the
+  // mark-read fires once, right after the shell mounts for real.
+  //
+  // STRIPPED WITH `replace: true` AFTER CONSUMING IT, not left in the URL: a
+  // page refresh must not re-fire the same mark-read (harmless, since
+  // `markRead` is idempotent server-side, but noisy) and must not leave `n` in
+  // a bookmarked or shared URL. `replace` keeps the strip out of the history
+  // stack, so Back does not resurrect the param.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const notificationId = searchParams.get('n');
+    if (!notificationId) return;
+
+    void markRead(notificationId);
+
+    const next = new URLSearchParams(searchParams);
+    next.delete('n');
+    setSearchParams(next, { replace: true });
+  }, [isAuthenticated, searchParams, markRead, setSearchParams]);
 
   // ---------------------------------------------------------------------------
   // Writes, continued — `markRead` sits above the live-arrival handler that
