@@ -86,10 +86,19 @@
  * Every channel the framework knows about, as a value.
  *
  * The type is DERIVED from this array rather than declared alongside it, so
- * the two cannot disagree — adding `'push'` here (which epic #109 explicitly
- * reserves, and #127 adds `'browser'` for) widens the type in the same edit,
- * and every `switch` over a channel that lacks the new arm fails typecheck
- * instead of silently dropping deliveries.
+ * the two cannot disagree — widening this array widens the type in the same
+ * edit, and every `switch` over a channel that lacks the new arm fails
+ * typecheck instead of silently dropping deliveries. `'browser'` arrived this
+ * way in #127; `'push'` arrives the same way in #228 (epic #215) — epic #109
+ * reserved the name in this comment long before #228 filed the sweep that
+ * actually widens the array, and this is that sweep. Adding the string here is
+ * ONLY a capability declaration: no `NOTIFICATION_EVENTS` entry declares
+ * `'push'` yet (no event has anything to send over it), no sender implements
+ * `NotificationChannelSender` for it, and `notification-policy.ts` explains
+ * deliberately, in its own comment, why `policyChannels` gives it no
+ * deployment-wide gate yet either — that gate is #230's job. Every
+ * non-exhaustive `switch`/if-chain over `NotificationChannel` in this tree was
+ * swept in the same change that added `'push'` here, per #228.
  *
  * CHANNEL IS AN ENUM FROM THE START, even though #122 delivers only email.
  * Preferences are persisted per event AND per channel from day one. Storing a
@@ -97,7 +106,7 @@
  * live user preferences, which is the one shape of change this registry
  * exists to avoid.
  */
-export const NOTIFICATION_CHANNELS = ['email', 'browser'] as const;
+export const NOTIFICATION_CHANNELS = ['email', 'browser', 'push'] as const;
 
 /** A delivery channel. See {@link NOTIFICATION_CHANNELS}. */
 export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
