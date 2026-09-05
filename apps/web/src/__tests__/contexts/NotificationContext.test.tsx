@@ -55,7 +55,7 @@ vi.mock('../../contexts/AuthContext', () => ({
 }));
 
 interface CapturedHandlers {
-  onNotification: (notification: AppNotification) => void;
+  onNotification: (notification: AppNotification, toast: boolean) => void;
   onOpen: () => void;
   onStateChange?: (state: string) => void;
 }
@@ -277,7 +277,7 @@ describe('NotificationContext', () => {
 
       const notification = makeAppNotification({ id: 'live-1', title: 'New arrival' });
       act(() => {
-        capturedHandlers!.onNotification(notification);
+        capturedHandlers!.onNotification(notification, true);
       });
 
       expect(result.current?.notifications[0]).toEqual(notification);
@@ -293,10 +293,10 @@ describe('NotificationContext', () => {
 
       const notification = makeAppNotification({ id: 'dup-1' });
       act(() => {
-        capturedHandlers!.onNotification(notification);
+        capturedHandlers!.onNotification(notification, true);
       });
       act(() => {
-        capturedHandlers!.onNotification(notification);
+        capturedHandlers!.onNotification(notification, true);
       });
 
       const matching = result.current?.notifications.filter((n) => n.id === 'dup-1');
@@ -317,7 +317,7 @@ describe('NotificationContext', () => {
       // pushed off the end of `notifications` by truncation.
       act(() => {
         for (let i = 0; i < RECENT_NOTIFICATION_COUNT + 1; i++) {
-          capturedHandlers!.onNotification(makeAppNotification({ id: `evict-${i}` }));
+          capturedHandlers!.onNotification(makeAppNotification({ id: `evict-${i}` }), true);
         }
       });
 
@@ -331,7 +331,7 @@ describe('NotificationContext', () => {
       // server counted it exactly once, and a re-delivery must not count it
       // again just because it scrolled off screen.
       act(() => {
-        capturedHandlers!.onNotification(makeAppNotification({ id: 'evict-0' }));
+        capturedHandlers!.onNotification(makeAppNotification({ id: 'evict-0' }), true);
       });
 
       expect(result.current?.unreadCount).toBe(RECENT_NOTIFICATION_COUNT + 1);
@@ -362,7 +362,7 @@ describe('NotificationContext', () => {
       // from the page it returned, so this must be recognised as already
       // counted rather than pushing the badge to 6.
       act(() => {
-        capturedHandlers!.onNotification(raceNotification);
+        capturedHandlers!.onNotification(raceNotification, true);
       });
 
       expect(result.current?.unreadCount).toBe(5);
@@ -375,12 +375,12 @@ describe('NotificationContext', () => {
 
       const notification = makeAppNotification({ id: 'toast-1' });
       act(() => {
-        capturedHandlers!.onNotification(notification);
+        capturedHandlers!.onNotification(notification, true);
       });
       expect(showAppNotificationMock).toHaveBeenCalledTimes(1);
 
       act(() => {
-        capturedHandlers!.onNotification(notification);
+        capturedHandlers!.onNotification(notification, true);
       });
 
       // Same reasoning as the count: the user has already been interrupted
@@ -427,7 +427,7 @@ describe('NotificationContext', () => {
         await waitFor(() => expect(result.current?.isLoading).toBe(false));
 
         act(() => {
-          capturedHandlers!.onNotification(makeAppNotification({ id: 'fg-visible-focused' }));
+          capturedHandlers!.onNotification(makeAppNotification({ id: 'fg-visible-focused' }), true);
         });
 
         expect(showAppNotificationMock).not.toHaveBeenCalled();
@@ -441,7 +441,7 @@ describe('NotificationContext', () => {
         await waitFor(() => expect(result.current?.isLoading).toBe(false));
 
         act(() => {
-          capturedHandlers!.onNotification(makeAppNotification({ id: 'fg-hidden' }));
+          capturedHandlers!.onNotification(makeAppNotification({ id: 'fg-hidden' }), true);
         });
 
         expect(showAppNotificationMock).toHaveBeenCalledTimes(1);
@@ -455,7 +455,7 @@ describe('NotificationContext', () => {
         await waitFor(() => expect(result.current?.isLoading).toBe(false));
 
         act(() => {
-          capturedHandlers!.onNotification(makeAppNotification({ id: 'fg-unfocused' }));
+          capturedHandlers!.onNotification(makeAppNotification({ id: 'fg-unfocused' }), true);
         });
 
         expect(showAppNotificationMock).toHaveBeenCalledTimes(1);
@@ -469,7 +469,7 @@ describe('NotificationContext', () => {
         await waitFor(() => expect(result.current?.isLoading).toBe(false));
 
         act(() => {
-          capturedHandlers!.onNotification(makeAppNotification({ id: 'fg-hidden-unfocused' }));
+          capturedHandlers!.onNotification(makeAppNotification({ id: 'fg-hidden-unfocused' }), true);
         });
 
         expect(showAppNotificationMock).toHaveBeenCalledTimes(1);
@@ -484,7 +484,7 @@ describe('NotificationContext', () => {
 
         const notification = makeAppNotification({ id: 'fg-badge-still-updates' });
         act(() => {
-          capturedHandlers!.onNotification(notification);
+          capturedHandlers!.onNotification(notification, true);
         });
 
         // The most important regression per #224's acceptance criteria: "The
@@ -505,12 +505,12 @@ describe('NotificationContext', () => {
 
         const notification = makeAppNotification({ id: 'fg-dup-hidden' });
         act(() => {
-          capturedHandlers!.onNotification(notification);
+          capturedHandlers!.onNotification(notification, true);
         });
         expect(showAppNotificationMock).toHaveBeenCalledTimes(1);
 
         act(() => {
-          capturedHandlers!.onNotification(notification);
+          capturedHandlers!.onNotification(notification, true);
         });
         expect(showAppNotificationMock).toHaveBeenCalledTimes(1);
       });
@@ -524,7 +524,7 @@ describe('NotificationContext', () => {
 
       const notification = makeAppNotification({ id: 'relogin-1' });
       act(() => {
-        capturedHandlers!.onNotification(notification);
+        capturedHandlers!.onNotification(notification, true);
       });
       expect(result.current?.unreadCount).toBe(1);
 
@@ -547,7 +547,7 @@ describe('NotificationContext', () => {
       // still-remembered duplicate from the previous session and silently
       // not counted - a real under-count, not just a stale badge.
       act(() => {
-        capturedHandlers!.onNotification(makeAppNotification({ id: 'relogin-1' }));
+        capturedHandlers!.onNotification(makeAppNotification({ id: 'relogin-1' }), true);
       });
 
       expect(result.current?.unreadCount).toBe(1);
@@ -559,12 +559,46 @@ describe('NotificationContext', () => {
 
       act(() => {
         for (let i = 0; i < RECENT_NOTIFICATION_COUNT + 5; i++) {
-          capturedHandlers!.onNotification(makeAppNotification({ id: `cap-${i}` }));
+          capturedHandlers!.onNotification(makeAppNotification({ id: `cap-${i}` }), true);
         }
       });
 
       expect(result.current?.notifications).toHaveLength(RECENT_NOTIFICATION_COUNT);
       expect(result.current?.notifications[0].id).toBe(`cap-${RECENT_NOTIFICATION_COUNT + 4}`);
+    });
+  });
+
+  describe('the server-authoritative toast gate (#227)', () => {
+    it('toast: false still updates the bell, list and unread count, but raises no native notification', async () => {
+      const { result } = renderHook(() => useNotifications(), { wrapper: createWrapper() });
+      await waitFor(() => expect(result.current?.isLoading).toBe(false));
+
+      getNotificationsMock.mockClear();
+      getUnreadNotificationCountMock.mockClear();
+
+      const notification = makeAppNotification({ id: 'muted-1' });
+      act(() => {
+        capturedHandlers!.onNotification(notification, false);
+      });
+
+      // The centre is unaffected by the gate: `setNotifications` and
+      // `setUnreadCount` already ran before `if (!toast) return;` is reached.
+      expect(result.current?.notifications[0]).toEqual(notification);
+      expect(result.current?.unreadCount).toBe(1);
+      // Only the OS-level bubble is withheld.
+      expect(showAppNotificationMock).not.toHaveBeenCalled();
+    });
+
+    it('toast: true (the normal case) still raises the native notification', async () => {
+      const { result } = renderHook(() => useNotifications(), { wrapper: createWrapper() });
+      await waitFor(() => expect(result.current?.isLoading).toBe(false));
+
+      const notification = makeAppNotification({ id: 'toasted-1' });
+      act(() => {
+        capturedHandlers!.onNotification(notification, true);
+      });
+
+      expect(showAppNotificationMock).toHaveBeenCalledTimes(1);
     });
   });
 

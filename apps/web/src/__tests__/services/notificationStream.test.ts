@@ -217,7 +217,7 @@ describe('connectNotificationStream', () => {
     expect(onNotification).not.toHaveBeenCalled();
   });
 
-  it('onFrame calls onNotification with a well-formed notification frame', () => {
+  it('onFrame calls onNotification with a well-formed notification frame, passing toast through as the second argument', () => {
     const onNotification = vi.fn();
     connectNotificationStream({ onNotification, onOpen: vi.fn() });
 
@@ -241,7 +241,39 @@ describe('connectNotificationStream', () => {
     const { toast: _toast, ...row } = payload;
 
     expect(onNotification).toHaveBeenCalledTimes(1);
-    expect(onNotification).toHaveBeenCalledWith({ ...row, readAt: null });
+    expect(onNotification).toHaveBeenCalledWith({ ...row, readAt: null }, true);
+  });
+
+  // #227: `toast` is the live-delivery instruction, and it must reach
+  // `onNotification` UNCHANGED from the frame's own value - a `false` here is
+  // an administrator's mute reaching this specific arrival, and folding it
+  // into a default (or dropping it) would silently re-enable a bubble the
+  // server just said not to show.
+  it('onFrame passes toast: false through unchanged, as the second argument', () => {
+    const onNotification = vi.fn();
+    connectNotificationStream({ onNotification, onOpen: vi.fn() });
+
+    const options = connectSseMock.mock.calls[0][0] as SseOptions;
+    const payload = {
+      id: 'n2',
+      eventKey: 'security.role_changed',
+      title: 'Title',
+      body: 'Body',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      link: '/settings',
+      toast: false,
+    };
+    const frame: SseFrame = {
+      event: NOTIFICATION_SSE_EVENT,
+      data: JSON.stringify(payload),
+      id: null,
+    };
+    options.onFrame(frame);
+
+    const { toast: _toast, ...row } = payload;
+
+    expect(onNotification).toHaveBeenCalledTimes(1);
+    expect(onNotification).toHaveBeenCalledWith({ ...row, readAt: null }, false);
   });
 
   it('onFrame silently drops a notification-event frame with malformed JSON - no throw, onNotification not called', () => {
