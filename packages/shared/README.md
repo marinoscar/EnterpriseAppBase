@@ -39,6 +39,17 @@ Three caveats, all real:
    restyles the application and leaves every icon on the old colour. Re-run the
    generator — see [Brand icons](#brand-icons) below.
 
+   This now reaches further than the installed-app icon. Since epic #215,
+   `icon-192.png` and `badge-96.png` are also the icon and badge shown on
+   every OS-level notification — hardcoded as literal paths (`PUSH_ICON` /
+   `PUSH_BADGE` in `apps/web/src/sw.ts`, and the matching literals in
+   `apps/web/src/services/browserNotifications.ts`'s `showAppNotification`),
+   not read from the manifest's `icons` array at notification time. Skipping
+   the regeneration step after a rebrand therefore leaves the *old* brand
+   mark on every push notification and every Android/desktop OS toast, not
+   just on the Home Screen icon — a more visible miss than it looks, since a
+   notification is the one surface a user sees without the app open at all.
+
 3. **The name is not the only identity string.** These are deliberately
    separate and are *not* derived from `APP_NAME`:
    - `CLI_NAME` (`appctl`) in `apps/cli/src/branding.ts` — the executable name,
@@ -66,9 +77,12 @@ Keep this list current when you add one.
 | CLI banner, `--help`, device name | `apps/cli/src/branding.ts` (`CLI_DISPLAY_NAME`) | `${APP_NAME} CLI` |
 | Web theme, `palette.primary.main` (light) | `apps/web/src/theme/light.ts` | `THEME_COLOR` |
 | Brand icons and favicon — generated pixels, not read at runtime | `apps/web/public/icons/*.png`, `apps/web/public/favicon.ico` via `apps/web/scripts/generate-icons.py` | `THEME_COLOR`, `BACKGROUND_COLOR` |
+| Web app manifest (`name`, `short_name`, `description`, `theme_color`, `background_color`) | `apps/web/pwa/manifest.ts` | `APP_NAME`, `THEME_COLOR`, `BACKGROUND_COLOR` |
 
-`BACKGROUND_COLOR` has no runtime consumer yet; it exists for the web app
-manifest's `background_color`, which issue #217 adds.
+`background_color` above is `BACKGROUND_COLOR`'s only runtime consumer (issue
+#217, epic #215) — it is read directly at build time, so unlike the icon
+pixels below it needs no regeneration step: editing the constant and
+rebuilding is the whole change for this one field.
 
 ## Brand icons
 
@@ -80,11 +94,11 @@ the app to the Home Screen.
 | File | Size | What reads it |
 |---|---|---|
 | `icons/source.svg` | vector | Nobody at runtime — the human-editable master |
-| `icons/icon-192.png` | 192 | Manifest, `purpose: any` |
+| `icons/icon-192.png` | 192 | Manifest, `purpose: any`; also hardcoded as the `icon` on every push and service-worker notification (`sw.ts`, `browserNotifications.ts`) |
 | `icons/icon-512.png` | 512 | Manifest, `purpose: any` |
 | `icons/icon-maskable-192.png` | 192 | Manifest, `purpose: maskable` |
 | `icons/icon-maskable-512.png` | 512 | Manifest, `purpose: maskable` |
-| `icons/badge-96.png` | 96 | Android notification badge, `purpose: monochrome` |
+| `icons/badge-96.png` | 96 | Android notification badge, `purpose: monochrome`; also hardcoded as the `badge` on every push and service-worker notification (`sw.ts`, `browserNotifications.ts`) |
 | `icons/apple-touch-icon-180.png` | 180 | iOS Home Screen |
 | `favicon.svg` | vector | Browser tab, modern browsers |
 | `favicon.ico` | 16/32/48 | Browser tab, taskbar, Windows shortcut — fallback |

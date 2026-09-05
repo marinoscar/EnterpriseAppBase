@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom';
 import { cleanup } from '@testing-library/react';
-import { afterEach, beforeAll, afterAll, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, afterAll, vi } from 'vitest';
 import { server } from './mocks/server';
 
 // Set base URL for fetch
@@ -163,6 +163,106 @@ export function resetViewportWidth(): void {
   setViewportWidth(DEFAULT_VIEWPORT_WIDTH);
 }
 
+// ---------------------------------------------------------------------------
+// Notification / navigator.permissions / navigator.serviceWorker mocks
+// (issue #232, epic #215)
+//
+// Every notification test file used to hand-roll its own fake `Notification`
+// and `navigator.serviceWorker`, capture whatever jsdom had before it (almost
+// always `undefined` - jsdom implements neither API), and restore that in its
+// own `afterEach`. That idiom still works and is deliberately left in place
+// below - a test asserting a SPECIFIC state (a rejecting `getRegistration()`,
+// a constructor that throws, `permission: 'denied'`) still reaches for it
+// directly, exactly as before, by reassigning the properties this block
+// installs (all three are `configurable: true, writable: true`, so a plain
+// `(window as any).Notification = ...` or
+// `Object.defineProperty(window.navigator, 'serviceWorker', {...})` keeps
+// working unchanged).
+//
+// What this adds is a NEUTRAL BASELINE so a test that does not care about
+// these APIs is not left with jsdom's bare "not implemented at all" shape,
+// and so per-file capture/restore boilerplate whose only job was recreating
+// that baseline is no longer needed. Mirrors matchMedia's approach above:
+// installed as plain objects/functions (not a stateful registry, since
+// nothing here needs live cross-instance notification the way viewport width
+// does), and reinstalled FRESH before every test in the `beforeEach` below so
+// a test's mutation (or deletion) of any of the three never leaks into the
+// next one - the equivalent of matchMedia's own `resetViewportWidth()` call
+// in `afterEach`, just run on the other side of the test for the same
+// isolation guarantee (beforeEach hooks run outer-to-inner, so this global
+// one always finishes before a test file's own `beforeEach` starts).
+//
+// Defaults, chosen to be the least eventful thing each API can report:
+//   - `Notification.permission` is `'default'` (not yet asked), and
+//     `requestPermission()` resolves `'default'` without prompting anything.
+//   - `navigator.permissions.query()` REJECTS, matching real Safari for an
+//     unsupported permission name - every current caller already treats that
+//     as "fall back to visibilitychange" via a `.catch(() => {})`, so this
+//     produces no extra async state update for a test that never awaits one.
+//   - `navigator.serviceWorker.getRegistration()` resolves `undefined` (no
+//     worker registered yet - the real shape of "not installed"), `.ready`
+//     resolves a registration (nothing in this codebase reads `.ready` today,
+//     but the mock is provided for completeness), and the registration's
+//     `showNotification`/`getNotifications` are harmless resolving spies.
+// ---------------------------------------------------------------------------
+
+function createDefaultNotificationMock() {
+  const ctor = vi.fn(function (
+    this: { onclick: (() => void) | null; close: () => void },
+    _title: string,
+    _options?: unknown,
+  ) {
+    this.onclick = null;
+    this.close = vi.fn();
+  });
+  Object.assign(ctor, {
+    permission: 'default' as NotificationPermission,
+    requestPermission: vi.fn().mockResolvedValue('default' as NotificationPermission),
+  });
+  return ctor;
+}
+
+function createDefaultServiceWorkerRegistrationMock() {
+  return {
+    showNotification: vi.fn().mockResolvedValue(undefined),
+    getNotifications: vi.fn().mockResolvedValue([]),
+  };
+}
+
+function createDefaultServiceWorkerMock() {
+  return {
+    controller: null,
+    getRegistration: vi.fn().mockResolvedValue(undefined),
+    ready: Promise.resolve(createDefaultServiceWorkerRegistrationMock()),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  };
+}
+
+function createDefaultPermissionsMock() {
+  return {
+    query: vi.fn().mockRejectedValue(new Error('permission name not supported')),
+  };
+}
+
+function installNotificationMocks(): void {
+  Object.defineProperty(window, 'Notification', {
+    configurable: true,
+    writable: true,
+    value: createDefaultNotificationMock(),
+  });
+  Object.defineProperty(window.navigator, 'permissions', {
+    configurable: true,
+    writable: true,
+    value: createDefaultPermissionsMock(),
+  });
+  Object.defineProperty(window.navigator, 'serviceWorker', {
+    configurable: true,
+    writable: true,
+    value: createDefaultServiceWorkerMock(),
+  });
+}
+
 // Mock window.scrollTo
 Object.defineProperty(window, 'scrollTo', {
   writable: true,
@@ -215,6 +315,10 @@ beforeAll(() => {
   server.listen({
     onUnhandledRequest: 'warn' // Changed from 'error' to 'warn' for debugging
   });
+});
+
+beforeEach(() => {
+  installNotificationMocks();
 });
 
 afterEach(() => {
