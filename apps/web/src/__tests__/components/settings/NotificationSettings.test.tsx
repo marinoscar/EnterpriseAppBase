@@ -9,6 +9,35 @@ import {
   browserChannelState,
 } from '../../../components/settings/NotificationSettings';
 import type { NotificationEventDef, NotificationPreferences } from '../../../types';
+import type { NotificationCapability } from '../../../hooks/useNotificationCapability';
+
+/**
+ * Every state of the #221 union, written as a `Record` KEYED BY THE UNION and
+ * only then flattened to an array.
+ *
+ * That indirection is the point: a plain array of literals stays valid when a
+ * ninth capability is added and forgotten, so the "distinct remedy" sweep below
+ * would silently stop covering it — the exact failure mode where a new state
+ * quietly inherits the `default` arm's copy and nobody notices. An exhaustive
+ * `Record` makes the omission a COMPILE error instead. The values are the
+ * documented precedence positions, which is also where a reader can check that
+ * the order in the hook and the order here still agree - note that 5 to 8 are
+ * not a continuation of the chain but the four PERMISSION-SHAPED states, which
+ * the hook decides together (`sw-unavailable` is reached only with permission
+ * already granted).
+ */
+const CAPABILITY_PRECEDENCE: Record<NotificationCapability, number> = {
+  'admin-disabled': 1,
+  'insecure-context': 2,
+  unsupported: 3,
+  'ios-needs-install': 4,
+  denied: 5,
+  default: 6,
+  'sw-unavailable': 7,
+  granted: 8,
+};
+
+const ALL_CAPABILITIES = Object.keys(CAPABILITY_PRECEDENCE) as NotificationCapability[];
 
 /**
  * Issue #126, epic #109. Covers the pure derivation helpers this component
@@ -152,16 +181,115 @@ describe('browserChannelState', () => {
     expect(denied.alert?.body).not.toBe(unsupported.alert?.body);
   });
 
-  it('denied names the browser-settings remedy, which this app cannot perform itself', () => {
+  // #221 replaced the generic "allow it in your browser settings" with the
+  // real per-platform route, because the control is in a different place in
+  // every browser and is nowhere near anything labelled "settings" in two of
+  // the three - so the old copy named a remedy nobody could actually follow.
+  it('denied names the per-platform remedy, which this app cannot perform itself', () => {
     const state = browserChannelState('denied');
     expect(state.alert?.severity).toBe('warning');
-    expect(state.alert?.body.toLowerCase()).toContain('browser settings');
+
+    const body = state.alert!.body.toLowerCase();
+    expect(body).toContain('chrome');
+    expect(body).toContain('firefox');
+    expect(body).toContain('safari');
+    expect(body).toContain('address bar');
   });
 
   it('unsupported does not claim the user blocked anything - there is nothing to allow', () => {
     const state = browserChannelState('unsupported');
     expect(state.alert?.severity).toBe('info');
     expect(state.alert?.body.toLowerCase()).not.toContain('block');
+  });
+
+  // ===========================================================================
+  // Issue #221: the four states the 4-state permission could not express
+  // ===========================================================================
+
+  it('every one of the eight states resolves to a shape - no state falls off the switch', () => {
+    for (const capability of ALL_CAPABILITIES) {
+      const state = browserChannelState(capability);
+      expect(typeof state.disabled).toBe('boolean');
+      if (capability === 'granted') {
+        expect(state.alert).toBeNull();
+        expect(state.note).toBeNull();
+      } else {
+        expect(state.alert).not.toBeNull();
+        expect(state.note).not.toBeNull();
+      }
+    }
+  });
+
+  // THE POINT OF THE WHOLE 8-STATE UNION. Before #221 an iOS Safari tab, a
+  // plain-HTTP origin and a genuinely incapable browser rendered the IDENTICAL
+  // "not supported by this browser" copy - one of which is a lie and none of
+  // which names the fix. If two arms could be swapped without anyone noticing,
+  // the extra state is buying nothing.
+  it('each state yields a DISTINCT remedy - no two arms share a title, body, or note', () => {
+    const nonGranted = ALL_CAPABILITIES.filter((c) => c !== 'granted');
+
+    const titles = nonGranted.map((c) => browserChannelState(c).alert!.title);
+    const bodies = nonGranted.map((c) => browserChannelState(c).alert!.body);
+    const notes = nonGranted.map((c) => browserChannelState(c).note!);
+
+    expect(new Set(titles).size).toBe(nonGranted.length);
+    expect(new Set(bodies).size).toBe(nonGranted.length);
+    expect(new Set(notes).size).toBe(nonGranted.length);
+  });
+
+  it('ios-needs-install names Add to Home Screen and never claims the browser is incapable', () => {
+    const state = browserChannelState('ios-needs-install');
+
+    expect(state.disabled).toBe(true);
+    expect(state.alert!.body.toLowerCase()).toContain('home screen');
+    // The exact wrong-remedy failure #221 exists to delete: iOS DOES support
+    // notifications, just only for an installed web app.
+    expect(state.alert!.body.toLowerCase()).not.toContain('not support');
+    expect(state.alert!.title.toLowerCase()).not.toContain('cannot');
+  });
+
+  it('insecure-context blames HTTPS, not the browser, and says localhost counts as secure', () => {
+    const state = browserChannelState('insecure-context');
+
+    expect(state.disabled).toBe(true);
+    expect(state.alert!.body.toLowerCase()).toContain('https');
+    // A developer on plain HTTP is the most likely person to see this, and
+    // "use HTTPS" alone reads as "impossible locally" when it is not.
+    expect(state.alert!.body.toLowerCase()).toContain('localhost');
+  });
+
+  it('sw-unavailable is DEGRADED, not blocked - the control stays live', () => {
+    const state = browserChannelState('sw-unavailable');
+
+    // The single assertion that separates this state from the other five
+    // problem states: the page-level Notification fallback may still work and
+    // a stored preference is still meaningful, so disabling the control would
+    // overstate the failure.
+    expect(state.disabled).toBe(false);
+    expect(state.alert!.severity).toBe('warning');
+    expect(state.alert!.body.toLowerCase()).toContain('service worker');
+  });
+
+  // This state is reached ONLY with permission already granted (see the
+  // precedence in `useNotificationCapability`), so copy that told the user to
+  // enable or allow something would be asking for a step they have taken - the
+  // remaining problem is the app's, not theirs.
+  it('sw-unavailable acknowledges that permission was already granted', () => {
+    const body = browserChannelState('sw-unavailable').alert!.body.toLowerCase();
+
+    expect(body).toContain('you have allowed');
+    expect(body).not.toContain('allow notifications for this site');
+    expect(body).not.toContain('cannot take effect');
+  });
+
+  it('admin-disabled says no user action will help, and does not blame the browser', () => {
+    const state = browserChannelState('admin-disabled');
+
+    expect(state.disabled).toBe(true);
+    expect(state.alert!.body.toLowerCase()).toContain('administrator');
+    // Nothing is broken and nothing is at risk - it is a deliberate setting.
+    expect(state.alert!.severity).toBe('info');
+    expect(state.alert!.body.toLowerCase()).not.toContain('your browser is blocking');
   });
 });
 
@@ -178,7 +306,7 @@ describe('NotificationSettings component', () => {
         events={[]}
         preferences={undefined}
         onToggle={onToggle}
-        browserPermission="granted"
+        browserCapability="granted"
       />,
     );
 
@@ -193,7 +321,7 @@ describe('NotificationSettings component', () => {
         events={[WELCOME, WEEKLY_DIGEST]}
         preferences={undefined}
         onToggle={onToggle}
-        browserPermission="granted"
+        browserCapability="granted"
       />,
     );
 
@@ -212,7 +340,7 @@ describe('NotificationSettings component', () => {
         events={[WELCOME]}
         preferences={{ email: { 'user.welcome': false } }}
         onToggle={onToggle}
-        browserPermission="granted"
+        browserCapability="granted"
       />,
     );
 
@@ -232,7 +360,7 @@ describe('NotificationSettings component', () => {
         events={[WELCOME]}
         preferences={undefined}
         onToggle={onToggle}
-        browserPermission="granted"
+        browserCapability="granted"
       />,
     );
 
@@ -251,7 +379,7 @@ describe('NotificationSettings component', () => {
           events={[ROLE_CHANGED]}
           preferences={undefined}
           onToggle={onToggle}
-          browserPermission="granted"
+          browserCapability="granted"
         />,
       );
 
@@ -267,7 +395,7 @@ describe('NotificationSettings component', () => {
           events={[ROLE_CHANGED]}
           preferences={undefined}
           onToggle={onToggle}
-          browserPermission="granted"
+          browserCapability="granted"
         />,
       );
 
@@ -288,7 +416,7 @@ describe('NotificationSettings component', () => {
             browser: { 'security.role_changed': false },
           }}
           onToggle={onToggle}
-          browserPermission="granted"
+          browserCapability="granted"
         />,
       );
 
@@ -316,7 +444,7 @@ describe('NotificationSettings component', () => {
           events={[ROLE_CHANGED]}
           preferences={undefined}
           onToggle={onToggle}
-          browserPermission="granted"
+          browserCapability="granted"
         />,
       );
 
@@ -338,7 +466,7 @@ describe('NotificationSettings component', () => {
           events={[ROLE_CHANGED]}
           preferences={undefined}
           onToggle={onToggle}
-          browserPermission="denied"
+          browserCapability="denied"
         />,
       );
 
@@ -355,7 +483,7 @@ describe('NotificationSettings component', () => {
           events={[emailOnly, ROLE_CHANGED]}
           preferences={undefined}
           onToggle={onToggle}
-          browserPermission="denied"
+          browserCapability="denied"
         />,
       );
 
@@ -374,7 +502,7 @@ describe('NotificationSettings component', () => {
           events={[ROLE_CHANGED]}
           preferences={undefined}
           onToggle={onToggle}
-          browserPermission="default"
+          browserCapability="default"
         />,
       );
 
@@ -385,6 +513,90 @@ describe('NotificationSettings component', () => {
 
       (window as any).Notification = originalNotification;
     });
+
+    // =========================================================================
+    // Issue #221: the capability states, rendered
+    // =========================================================================
+
+    it('an iOS tab is told to add the app to the Home Screen, NOT that its browser is incapable', () => {
+      render(
+        <NotificationSettings
+          events={[ROLE_CHANGED]}
+          preferences={undefined}
+          onToggle={onToggle}
+          browserCapability="ios-needs-install"
+        />,
+      );
+
+      expect(screen.getByText('Add this app to your Home Screen')).toBeInTheDocument();
+      expect(
+        screen.queryByText('This browser cannot show notifications'),
+      ).not.toBeInTheDocument();
+    });
+
+    it('sw-unavailable warns but leaves the browser switch usable - degraded, not blocked', () => {
+      render(
+        <NotificationSettings
+          events={[WELCOME, { ...ROLE_CHANGED, mandatory: false }]}
+          preferences={undefined}
+          onToggle={onToggle}
+          browserCapability="sw-unavailable"
+        />,
+      );
+
+      expect(
+        screen.getByText('Notifications are on, but may not always arrive'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole('switch', { name: /browser notifications for your roles changed/i }),
+      ).not.toBeDisabled();
+    });
+
+    it('admin-disabled disables the browser switch and leaves email alone', () => {
+      render(
+        <NotificationSettings
+          events={[WELCOME, { ...ROLE_CHANGED, mandatory: false }]}
+          preferences={undefined}
+          onToggle={onToggle}
+          browserCapability="admin-disabled"
+        />,
+      );
+
+      expect(
+        screen.getByRole('switch', { name: /browser notifications for your roles changed/i }),
+      ).toBeDisabled();
+      expect(
+        screen.getByRole('switch', { name: /email notifications for welcome/i }),
+      ).not.toBeDisabled();
+    });
+
+    // THE ONE-SHOT PROMPT GUARD, restated over eight states. Asking is only
+    // ever right where the browser has not been asked yet AND the answer could
+    // actually be used - `sw-unavailable` and `ios-needs-install` in particular
+    // would burn the (effectively permanent) prompt on a page that could not
+    // display the result.
+    it('renders the "Allow notifications" button in the default state and in NO other', () => {
+      for (const capability of ALL_CAPABILITIES) {
+        const { unmount } = render(
+          <NotificationSettings
+            events={[ROLE_CHANGED]}
+            preferences={undefined}
+            onToggle={onToggle}
+            browserCapability={capability}
+            onRequestPermission={vi.fn()}
+          />,
+        );
+
+        const button = screen.queryByRole('button', { name: /allow notifications/i });
+        if (capability === 'default') {
+          expect(button).toBeInTheDocument();
+        } else {
+          expect(button).not.toBeInTheDocument();
+        }
+
+        unmount();
+      }
+    });
   });
 
   it('isSaving disables every switch, not just the one that changed', () => {
@@ -394,7 +606,7 @@ describe('NotificationSettings component', () => {
         preferences={undefined}
         onToggle={onToggle}
         isSaving
-        browserPermission="granted"
+        browserCapability="granted"
       />,
     );
 
