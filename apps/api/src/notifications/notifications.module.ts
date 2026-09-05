@@ -5,6 +5,7 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { SettingsModule } from '../settings/settings.module';
 import { BrowserNotificationChannel } from './channels/browser-notification.channel';
 import { EmailNotificationChannel } from './channels/email-notification.channel';
+import { PushNotificationChannel } from './channels/push-notification.channel';
 import { NotificationDeliveryService } from './notification-delivery.service';
 import { NotificationPolicyService } from './notification-policy.service';
 import { NotificationStoreService } from './notification-store.service';
@@ -54,6 +55,40 @@ import {
 // `BrowserNotificationChannel` below is the entire wiring change. Nothing in
 // `NotificationsService` was touched to add a second transport, which is what
 // the array-under-a-token indirection above was for.
+//
+// -----------------------------------------------------------------------------
+// #230's `PushNotificationChannel` IS ALWAYS CONSTRUCTIBLE, BUT ONLY
+// SOMETIMES REGISTERED — CONDITIONAL, NOT CONSTANT, MEMBERSHIP IN THE ARRAY
+// -----------------------------------------------------------------------------
+//
+// Every other entry in the factory below is unconditional: if the class
+// exists, it is in the array. Push breaks that pattern on purpose. Web Push
+// requires a VAPID key pair this deployment may never have generated
+// (`PushSubscriptionService.isEnabled()`, reused here rather than
+// re-deriving a second predicate for the exact same question), and a
+// deployment with no keys has, by construction, no rows in
+// `push_subscriptions` either — nobody's browser could have completed a
+// subscribe call without them.
+//
+// Registering the channel anyway in that state would not merely be a no-op:
+// `NotificationsService.resolveChannels` would see `push` as an available
+// sender for any event that later declares it, resolve it as "enabled" per
+// the user's (nonexistent, defaulted) preference, and write a `queued`
+// `notification_deliveries` row — which `deliver` would then fail on every
+// single attempt, forever, for every user, on a deployment that simply never
+// turned Web Push on. That is a permanently red delivery record for a
+// feature that was never supposed to be live, which is worse than the
+// channel not existing: `notification.types.ts`'s "NO BROWSER STUB SHIPS"
+// note describes exactly this failure shape for #125's original single
+// channel, and the fix is the same one applied here — an unregistered
+// channel is a silent, debug-logged skip in `deliverOne`, with no delivery
+// row at all, not a channel that exists only to fail.
+//
+// So `PushNotificationChannel` is declared as an ordinary provider (Nest DI
+// must be able to construct it regardless, the same as any other class in
+// this file) but the FACTORY decides, at the moment the array is built,
+// whether to include it — by asking the one service that already knows the
+// answer.
 //
 // -----------------------------------------------------------------------------
 // WHY `NotificationStreamService` IS A PROVIDER AND NOT EXPORTED (#127)
@@ -109,17 +144,49 @@ import {
     // unsubscribe endpoints are the only legitimate way to write or remove a
     // `push_subscriptions` row, and #230's sender reaches these rows through
     // Prisma directly (it reads, it does not subscribe/unsubscribe on anyone's
-    // behalf) rather than through this service.
+    // behalf) rather than through this service. `isEnabled()` is ALSO the
+    // predicate the factory below asks, below, to decide whether that sender
+    // is even registered — one method answers both "may a browser subscribe"
+    // and "should the dispatcher ever try to push", because they are the same
+    // underlying fact (this deployment has, or has not, generated VAPID keys).
     PushSubscriptionService,
     EmailNotificationChannel,
     BrowserNotificationChannel,
+    // Always a provider — see the file header block on why Nest must be able
+    // to construct this regardless of configuration — but see the factory
+    // immediately below for why it is not unconditionally in the array it
+    // feeds.
+    PushNotificationChannel,
     {
       provide: NOTIFICATION_CHANNEL_SENDERS,
       useFactory: (
         email: EmailNotificationChannel,
         browser: BrowserNotificationChannel,
-      ): NotificationChannelSender[] => [email, browser],
-      inject: [EmailNotificationChannel, BrowserNotificationChannel],
+        push: PushNotificationChannel,
+        pushSubscriptions: PushSubscriptionService,
+      ): NotificationChannelSender[] => {
+        const senders: NotificationChannelSender[] = [email, browser];
+
+        // The one conditional line in this factory, and the entire effect of
+        // #230's feature gate: no VAPID keys (or the operator has otherwise
+        // never enabled Web Push) means `push` never enters the array, which
+        // means `NotificationsService.resolveChannels` never sees it as
+        // available, which means no `notification_deliveries` row with
+        // `channel: 'push'` is EVER written on this deployment — not a queued
+        // row that immediately fails, nothing. See the block comment above
+        // for why that distinction is the whole point.
+        if (pushSubscriptions.isEnabled()) {
+          senders.push(push);
+        }
+
+        return senders;
+      },
+      inject: [
+        EmailNotificationChannel,
+        BrowserNotificationChannel,
+        PushNotificationChannel,
+        PushSubscriptionService,
+      ],
     },
   ],
   // ONLY the dispatcher is exported. `NotificationDeliveryService`, the store,

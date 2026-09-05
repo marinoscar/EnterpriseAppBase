@@ -6,19 +6,32 @@ import { build } from 'vite';
 import { buildServiceWorkerOptions } from '../../../pwa/service-worker';
 
 // -----------------------------------------------------------------------------
-// `notificationclick` (issue #223, epic #215) — the one part of `sw.ts` that
-// CAN be executed under jsdom, with its two side-effecting dependencies
-// (workbox, and the real `self.clients`) replaced.
+// notificationclick, push and pushsubscriptionchange (issues #223 and #230,
+// epic #215) — the parts of `sw.ts` that CAN be executed under jsdom, with
+// their side-effecting dependencies (workbox, and the real
+// `self.clients`/`self.registration`) replaced.
 //
-// The suite above cannot import `src/sw.ts` at all: unmocked, it calls
-// `clientsClaim()` and registers routes against workbox internals that assume
-// a real `ServiceWorkerGlobalScope`, which jsdom does not provide. Mocking
+// The suite below (`describe('service worker build output', ...)`) cannot
+// import `src/sw.ts` at all: unmocked, it calls `clientsClaim()` and registers
+// routes against workbox internals that assume a real
+// `ServiceWorkerGlobalScope`, which jsdom does not provide. Mocking
 // `workbox-core`/`workbox-precaching`/`workbox-routing` to no-ops removes
 // every one of those calls' real side effects, which is enough for the module
-// to load — the two handlers it registers with `self.addEventListener` are
+// to load — the three handlers it registers with `self.addEventListener` are
 // then just plain functions, captured below by spying on `addEventListener`
-// and invoked directly with a hand-built fake event, bypassing jsdom's lack of
-// a real `NotificationEvent` entirely.
+// and invoked directly with hand-built fake events, bypassing jsdom's lack of
+// real `NotificationEvent`/`PushEvent`/`PushSubscriptionChangeEvent` types
+// entirely.
+//
+// ONE shared import, ONE shared spy —
+//
+// ES module imports are cached, so a SECOND `await import('../../sw')` in a
+// later `beforeAll` would resolve without re-running the module body, and
+// that block's own `addEventListenerSpy.mock.calls` would come back empty —
+// its "did not register a listener" checks would throw not because `sw.ts` is
+// broken, but because the test harness never gave it a second chance to
+// register anything. That is why every handler exercised in this file is
+// captured from the SAME import, in the SAME `beforeAll`, off the SAME spy.
 // -----------------------------------------------------------------------------
 
 vi.mock('workbox-core', () => ({ clientsClaim: vi.fn() }));
@@ -252,39 +265,85 @@ describe('src/sw.ts', () => {
   });
 });
 
-describe('sw.ts notificationclick handler', () => {
+describe('sw.ts message handlers (notificationclick, push, pushsubscriptionchange)', () => {
   let notificationClickHandler: (event: {
     notification: { close: () => void; data: unknown };
     waitUntil: (promise: Promise<unknown>) => void;
   }) => void;
+  type FakePushEvent = {
+    data: { json: () => unknown } | undefined;
+    waitUntil: (promise: Promise<unknown>) => void;
+  };
+  type FakePushSubscriptionChangeEvent = {
+    oldSubscription: { options?: { applicationServerKey?: unknown } } | null;
+    waitUntil: (promise: Promise<unknown>) => void;
+  };
+  let pushHandler: (event: FakePushEvent) => void;
+  let pushSubscriptionChangeHandler: (event: FakePushSubscriptionChangeEvent) => void;
+
   let clientsMatchAll: ReturnType<typeof vi.fn>;
   let clientsOpenWindow: ReturnType<typeof vi.fn>;
+  let showNotification: ReturnType<typeof vi.fn>;
+  let pushManagerSubscribe: ReturnType<typeof vi.fn>;
+
+  const PAYLOAD = {
+    id: 'notif-1',
+    eventKey: 'user.welcome',
+    title: 'Hello',
+    body: 'World',
+    link: '/settings',
+  };
 
   beforeAll(async () => {
     clientsMatchAll = vi.fn();
     clientsOpenWindow = vi.fn();
+    showNotification = vi.fn().mockResolvedValue(undefined);
+    pushManagerSubscribe = vi.fn().mockResolvedValue(undefined);
 
-    // `self` in jsdom IS `window`/`globalThis` — these are the two properties
+    // `self` in jsdom IS `window`/`globalThis` — these are the properties
     // `sw.ts` reaches for beyond what workbox already covers (mocked above).
     (self as unknown as { __WB_MANIFEST: unknown }).__WB_MANIFEST = [];
     (self as unknown as { clients: unknown }).clients = {
       matchAll: clientsMatchAll,
       openWindow: clientsOpenWindow,
     };
+    (self as unknown as { registration: unknown }).registration = {
+      showNotification,
+      pushManager: { subscribe: pushManagerSubscribe },
+    };
 
     // Captures the real listener functions `sw.ts` registers at import time,
-    // rather than trying to `dispatchEvent` a `notificationclick` — jsdom has
-    // no such event, and the handler needs `.notification`/`.waitUntil`,
-    // neither of which a real Event carries.
+    // rather than trying to `dispatchEvent` a `notificationclick`/`PushEvent`/
+    // `PushSubscriptionChangeEvent` — jsdom has none of these, and the
+    // handlers need properties (`.notification`/`.data`/`.oldSubscription`/
+    // `.waitUntil`) that a real `Event` doesn't carry. One import captures ALL
+    // THREE handlers — see the file header for why this must stay a single
+    // shared `beforeAll`.
     const addEventListenerSpy = vi.spyOn(self, 'addEventListener');
 
     await import('../../sw');
 
-    const call = addEventListenerSpy.mock.calls.find(([type]) => type === 'notificationclick');
-    if (!call) {
+    const notificationClickCall = addEventListenerSpy.mock.calls.find(
+      ([type]) => type === 'notificationclick',
+    );
+    if (!notificationClickCall) {
       throw new Error('sw.ts did not register a notificationclick listener');
     }
-    notificationClickHandler = call[1] as typeof notificationClickHandler;
+    notificationClickHandler = notificationClickCall[1] as typeof notificationClickHandler;
+
+    const pushCall = addEventListenerSpy.mock.calls.find(([type]) => type === 'push');
+    if (!pushCall) {
+      throw new Error('sw.ts did not register a push listener');
+    }
+    pushHandler = pushCall[1] as typeof pushHandler;
+
+    const changeCall = addEventListenerSpy.mock.calls.find(
+      ([type]) => type === 'pushsubscriptionchange',
+    );
+    if (!changeCall) {
+      throw new Error('sw.ts did not register a pushsubscriptionchange listener');
+    }
+    pushSubscriptionChangeHandler = changeCall[1] as typeof pushSubscriptionChangeHandler;
 
     addEventListenerSpy.mockRestore();
   });
@@ -292,6 +351,8 @@ describe('sw.ts notificationclick handler', () => {
   beforeEach(() => {
     clientsMatchAll.mockReset();
     clientsOpenWindow.mockReset();
+    showNotification.mockReset().mockResolvedValue(undefined);
+    pushManagerSubscribe.mockReset().mockResolvedValue(undefined);
   });
 
   function fireAndAwait(data: unknown) {
@@ -308,146 +369,327 @@ describe('sw.ts notificationclick handler', () => {
     return { close, settled: waited.catch(() => undefined) };
   }
 
-  it('focuses a matching open window client and postMessages the click, without opening a new window', async () => {
-    const matching = {
-      url: 'http://localhost:3000/notifications',
-      focus: vi.fn().mockResolvedValue(undefined),
-      postMessage: vi.fn(),
+  function firePush(data: { json: () => unknown } | undefined) {
+    let waited: Promise<unknown> = Promise.resolve();
+    const event: FakePushEvent = {
+      data,
+      waitUntil: (promise) => {
+        waited = promise;
+      },
     };
-    const other = {
-      url: 'http://localhost:3000/settings',
-      focus: vi.fn().mockResolvedValue(undefined),
-      postMessage: vi.fn(),
+    pushHandler(event);
+    return waited.catch(() => undefined);
+  }
+
+  function fireChange(oldSubscription: FakePushSubscriptionChangeEvent['oldSubscription']) {
+    let waited: Promise<unknown> = Promise.resolve();
+    const event: FakePushSubscriptionChangeEvent = {
+      oldSubscription,
+      waitUntil: (promise) => {
+        waited = promise;
+      },
     };
-    clientsMatchAll.mockResolvedValue([other, matching]);
+    pushSubscriptionChangeHandler(event);
+    return waited.catch(() => undefined);
+  }
 
-    const { close, settled } = fireAndAwait({ id: 'notif-1', link: '/notifications' });
-    await settled;
+  describe('notificationclick', () => {
+    it('focuses a matching open window client and postMessages the click, without opening a new window', async () => {
+      const matching = {
+        url: 'http://localhost:3000/notifications',
+        focus: vi.fn().mockResolvedValue(undefined),
+        postMessage: vi.fn(),
+      };
+      const other = {
+        url: 'http://localhost:3000/settings',
+        focus: vi.fn().mockResolvedValue(undefined),
+        postMessage: vi.fn(),
+      };
+      clientsMatchAll.mockResolvedValue([other, matching]);
 
-    expect(close).toHaveBeenCalledTimes(1);
-    expect(clientsMatchAll).toHaveBeenCalledWith({ type: 'window', includeUncontrolled: true });
-    expect(matching.focus).toHaveBeenCalledTimes(1);
-    expect(matching.postMessage).toHaveBeenCalledWith({
-      type: 'notification-click',
-      id: 'notif-1',
-      link: '/notifications',
+      const { close, settled } = fireAndAwait({ id: 'notif-1', link: '/notifications' });
+      await settled;
+
+      expect(close).toHaveBeenCalledTimes(1);
+      expect(clientsMatchAll).toHaveBeenCalledWith({ type: 'window', includeUncontrolled: true });
+      expect(matching.focus).toHaveBeenCalledTimes(1);
+      expect(matching.postMessage).toHaveBeenCalledWith({
+        type: 'notification-click',
+        id: 'notif-1',
+        link: '/notifications',
+      });
+      expect(other.focus).not.toHaveBeenCalled();
+      expect(other.postMessage).not.toHaveBeenCalled();
+      expect(clientsOpenWindow).not.toHaveBeenCalled();
     });
-    expect(other.focus).not.toHaveBeenCalled();
-    expect(other.postMessage).not.toHaveBeenCalled();
-    expect(clientsOpenWindow).not.toHaveBeenCalled();
-  });
 
-  it('falls back to the first open client when none matches the link path', async () => {
-    const first = {
-      url: 'http://localhost:3000/settings',
-      focus: vi.fn().mockResolvedValue(undefined),
-      postMessage: vi.fn(),
-    };
-    const second = {
-      url: 'http://localhost:3000/admin',
-      focus: vi.fn().mockResolvedValue(undefined),
-      postMessage: vi.fn(),
-    };
-    clientsMatchAll.mockResolvedValue([first, second]);
+    it('falls back to the first open client when none matches the link path', async () => {
+      const first = {
+        url: 'http://localhost:3000/settings',
+        focus: vi.fn().mockResolvedValue(undefined),
+        postMessage: vi.fn(),
+      };
+      const second = {
+        url: 'http://localhost:3000/admin',
+        focus: vi.fn().mockResolvedValue(undefined),
+        postMessage: vi.fn(),
+      };
+      clientsMatchAll.mockResolvedValue([first, second]);
 
-    const { settled } = fireAndAwait({ id: 'notif-2', link: '/notifications' });
-    await settled;
+      const { settled } = fireAndAwait({ id: 'notif-2', link: '/notifications' });
+      await settled;
 
-    expect(first.focus).toHaveBeenCalledTimes(1);
-    expect(first.postMessage).toHaveBeenCalledWith({
-      type: 'notification-click',
-      id: 'notif-2',
-      link: '/notifications',
+      expect(first.focus).toHaveBeenCalledTimes(1);
+      expect(first.postMessage).toHaveBeenCalledWith({
+        type: 'notification-click',
+        id: 'notif-2',
+        link: '/notifications',
+      });
+      expect(second.focus).not.toHaveBeenCalled();
+      expect(clientsOpenWindow).not.toHaveBeenCalled();
     });
-    expect(second.focus).not.toHaveBeenCalled();
-    expect(clientsOpenWindow).not.toHaveBeenCalled();
-  });
 
-  it('opens a new window with ?n=<id> appended when no window client is open (link has no query)', async () => {
-    clientsMatchAll.mockResolvedValue([]);
+    it('opens a new window with ?n=<id> appended when no window client is open (link has no query)', async () => {
+      clientsMatchAll.mockResolvedValue([]);
 
-    const { close, settled } = fireAndAwait({ id: 'notif-3', link: '/notifications' });
-    await settled;
+      const { close, settled } = fireAndAwait({ id: 'notif-3', link: '/notifications' });
+      await settled;
 
-    expect(close).toHaveBeenCalledTimes(1);
-    expect(clientsOpenWindow).toHaveBeenCalledWith('/notifications?n=notif-3');
-  });
+      expect(close).toHaveBeenCalledTimes(1);
+      expect(clientsOpenWindow).toHaveBeenCalledWith('/notifications?n=notif-3');
+    });
 
-  it('opens a new window with &n=<id> appended when the link already carries a query string', async () => {
-    clientsMatchAll.mockResolvedValue([]);
+    it('opens a new window with &n=<id> appended when the link already carries a query string', async () => {
+      clientsMatchAll.mockResolvedValue([]);
 
-    const { settled } = fireAndAwait({ id: 'notif-4', link: '/notifications?tab=unread' });
-    await settled;
+      const { settled } = fireAndAwait({ id: 'notif-4', link: '/notifications?tab=unread' });
+      await settled;
 
-    expect(clientsOpenWindow).toHaveBeenCalledWith('/notifications?tab=unread&n=notif-4');
-  });
+      expect(clientsOpenWindow).toHaveBeenCalledWith('/notifications?tab=unread&n=notif-4');
+    });
 
-  it('URL-encodes the id in the cold-open query string', async () => {
-    clientsMatchAll.mockResolvedValue([]);
+    it('URL-encodes the id in the cold-open query string', async () => {
+      clientsMatchAll.mockResolvedValue([]);
 
-    const { settled } = fireAndAwait({ id: 'id with spaces', link: '/notifications' });
-    await settled;
+      const { settled } = fireAndAwait({ id: 'id with spaces', link: '/notifications' });
+      await settled;
 
-    expect(clientsOpenWindow).toHaveBeenCalledWith(
-      `/notifications?n=${encodeURIComponent('id with spaces')}`,
-    );
-  });
+      expect(clientsOpenWindow).toHaveBeenCalledWith(
+        `/notifications?n=${encodeURIComponent('id with spaces')}`,
+      );
+    });
 
-  it('rejects an off-origin link (absolute URL) and falls back to "/" rather than trusting it', async () => {
-    clientsMatchAll.mockResolvedValue([]);
+    it('rejects an off-origin link (absolute URL) and falls back to "/" rather than trusting it', async () => {
+      clientsMatchAll.mockResolvedValue([]);
 
-    const { settled } = fireAndAwait({ id: 'notif-5', link: 'https://evil.example.com/phish' });
-    await settled;
+      const { settled } = fireAndAwait({ id: 'notif-5', link: 'https://evil.example.com/phish' });
+      await settled;
 
-    expect(clientsOpenWindow).toHaveBeenCalledWith('/?n=notif-5');
-    expect(clientsOpenWindow).not.toHaveBeenCalledWith(
-      expect.stringContaining('evil.example.com'),
-    );
-  });
+      expect(clientsOpenWindow).toHaveBeenCalledWith('/?n=notif-5');
+      expect(clientsOpenWindow).not.toHaveBeenCalledWith(
+        expect.stringContaining('evil.example.com'),
+      );
+    });
 
-  it('rejects a protocol-relative link ("//host") and falls back to "/" rather than trusting it', async () => {
-    const client = {
-      url: 'http://localhost:3000/',
-      focus: vi.fn().mockResolvedValue(undefined),
-      postMessage: vi.fn(),
-    };
-    clientsMatchAll.mockResolvedValue([client]);
+    it('rejects a protocol-relative link ("//host") and falls back to "/" rather than trusting it', async () => {
+      const client = {
+        url: 'http://localhost:3000/',
+        focus: vi.fn().mockResolvedValue(undefined),
+        postMessage: vi.fn(),
+      };
+      clientsMatchAll.mockResolvedValue([client]);
 
-    const { settled } = fireAndAwait({ id: 'notif-6', link: '//evil.example.com' });
-    await settled;
+      const { settled } = fireAndAwait({ id: 'notif-6', link: '//evil.example.com' });
+      await settled;
 
-    expect(client.postMessage).toHaveBeenCalledWith({
-      type: 'notification-click',
-      id: 'notif-6',
-      link: '/',
+      expect(client.postMessage).toHaveBeenCalledWith({
+        type: 'notification-click',
+        id: 'notif-6',
+        link: '/',
+      });
+    });
+
+    it('does not throw when notification.data is missing', async () => {
+      clientsMatchAll.mockResolvedValue([]);
+
+      const { close, settled } = fireAndAwait(undefined);
+      await expect(settled).resolves.toBeUndefined();
+      expect(close).toHaveBeenCalledTimes(1);
+      expect(clientsOpenWindow).toHaveBeenCalledWith('/?n=');
+    });
+
+    it('does not throw when notification.data is malformed (wrong shape)', async () => {
+      clientsMatchAll.mockResolvedValue([]);
+
+      const { close, settled } = fireAndAwait({ id: 42, link: { not: 'a string' } });
+      await expect(settled).resolves.toBeUndefined();
+      expect(close).toHaveBeenCalledTimes(1);
+      // Non-string `id`/`link` are defensively coerced away rather than passed
+      // through: id becomes '', link falls back to '/'.
+      expect(clientsOpenWindow).toHaveBeenCalledWith('/?n=');
+    });
+
+    it('does not throw when notification.data is null', async () => {
+      clientsMatchAll.mockResolvedValue([]);
+
+      const { close, settled } = fireAndAwait(null);
+      await expect(settled).resolves.toBeUndefined();
+      expect(close).toHaveBeenCalledTimes(1);
     });
   });
 
-  it('does not throw when notification.data is missing', async () => {
-    clientsMatchAll.mockResolvedValue([]);
+  // ==========================================================================
+  // push: well-formed payload
+  // ==========================================================================
 
-    const { close, settled } = fireAndAwait(undefined);
-    await expect(settled).resolves.toBeUndefined();
-    expect(close).toHaveBeenCalledTimes(1);
-    expect(clientsOpenWindow).toHaveBeenCalledWith('/?n=');
+  describe('push: well-formed JSON payload', () => {
+    it('shows a notification with the right title/body/tag/icon/badge/data when no window client is visible+focused', async () => {
+      clientsMatchAll.mockResolvedValue([]);
+
+      await firePush({ json: () => PAYLOAD });
+
+      expect(clientsMatchAll).toHaveBeenCalledWith({ type: 'window' });
+      expect(showNotification).toHaveBeenCalledWith('Hello', {
+        body: 'World',
+        tag: 'notif-1',
+        icon: '/icons/icon-192.png',
+        badge: '/icons/badge-96.png',
+        data: { id: 'notif-1', link: '/settings' },
+      });
+    });
+
+    it('postMessages a visible AND focused client instead of showing a notification', async () => {
+      const client = { visibilityState: 'visible', focused: true, postMessage: vi.fn() };
+      clientsMatchAll.mockResolvedValue([client]);
+
+      await firePush({ json: () => PAYLOAD });
+
+      expect(client.postMessage).toHaveBeenCalledWith({
+        type: 'push-notification',
+        id: 'notif-1',
+        eventKey: 'user.welcome',
+        title: 'Hello',
+        body: 'World',
+        link: '/settings',
+      });
+      expect(showNotification).not.toHaveBeenCalled();
+    });
+
+    it('falls through to showNotification for a client that is visible but NOT focused', async () => {
+      const client = { visibilityState: 'visible', focused: false, postMessage: vi.fn() };
+      clientsMatchAll.mockResolvedValue([client]);
+
+      await firePush({ json: () => PAYLOAD });
+
+      expect(client.postMessage).not.toHaveBeenCalled();
+      expect(showNotification).toHaveBeenCalledTimes(1);
+    });
+
+    it('falls through to showNotification for a client that is focused but NOT visible — both conditions must hold', async () => {
+      const client = { visibilityState: 'hidden', focused: true, postMessage: vi.fn() };
+      clientsMatchAll.mockResolvedValue([client]);
+
+      await firePush({ json: () => PAYLOAD });
+
+      expect(client.postMessage).not.toHaveBeenCalled();
+      expect(showNotification).toHaveBeenCalledTimes(1);
+    });
+
+    it('picks a visible+focused client among several, ignoring ones that only satisfy one condition', async () => {
+      const visibleOnly = { visibilityState: 'visible', focused: false, postMessage: vi.fn() };
+      const focusedOnly = { visibilityState: 'hidden', focused: true, postMessage: vi.fn() };
+      const both = { visibilityState: 'visible', focused: true, postMessage: vi.fn() };
+      clientsMatchAll.mockResolvedValue([visibleOnly, focusedOnly, both]);
+
+      await firePush({ json: () => PAYLOAD });
+
+      expect(both.postMessage).toHaveBeenCalledTimes(1);
+      expect(visibleOnly.postMessage).not.toHaveBeenCalled();
+      expect(focusedOnly.postMessage).not.toHaveBeenCalled();
+      expect(showNotification).not.toHaveBeenCalled();
+    });
   });
 
-  it('does not throw when notification.data is malformed (wrong shape)', async () => {
-    clientsMatchAll.mockResolvedValue([]);
+  // ==========================================================================
+  // push: malformed / missing payload — THE central acceptance criterion
+  // ==========================================================================
 
-    const { close, settled } = fireAndAwait({ id: 42, link: { not: 'a string' } });
-    await expect(settled).resolves.toBeUndefined();
-    expect(close).toHaveBeenCalledTimes(1);
-    // Non-string `id`/`link` are defensively coerced away rather than passed
-    // through: id becomes '', link falls back to '/'.
-    expect(clientsOpenWindow).toHaveBeenCalledWith('/?n=');
+  describe('push: malformed or missing payload — never silently skipped', () => {
+    it('shows the generic fallback notification when event.data.json() throws', async () => {
+      await firePush({
+        json: () => {
+          throw new Error('not json');
+        },
+      });
+
+      expect(showNotification).toHaveBeenCalledWith('New notification', {
+        body: 'You have a new notification',
+        icon: '/icons/icon-192.png',
+        badge: '/icons/badge-96.png',
+        tag: 'push-fallback',
+      });
+      // No id to key a client postMessage on, so the client list is never
+      // even consulted for this path.
+      expect(clientsMatchAll).not.toHaveBeenCalled();
+    });
+
+    it('shows the same generic fallback when event.data is missing entirely', async () => {
+      await firePush(undefined);
+
+      expect(showNotification).toHaveBeenCalledWith('New notification', {
+        body: 'You have a new notification',
+        icon: '/icons/icon-192.png',
+        badge: '/icons/badge-96.png',
+        tag: 'push-fallback',
+      });
+    });
+
+    it('never resolves without calling showNotification or postMessage — the critical rule', async () => {
+      // Belt-and-braces on the rule stated in `sw.ts`'s own header: leaving
+      // `waitUntil`'s promise to resolve without EITHER action is what makes
+      // Chrome substitute its own generic "site updated in background"
+      // notification.
+      await firePush({
+        json: () => {
+          throw new Error('boom');
+        },
+      });
+
+      expect(showNotification).toHaveBeenCalledTimes(1);
+    });
   });
 
-  it('does not throw when notification.data is null', async () => {
-    clientsMatchAll.mockResolvedValue([]);
+  // ==========================================================================
+  // pushsubscriptionchange
+  // ==========================================================================
 
-    const { close, settled } = fireAndAwait(null);
-    await expect(settled).resolves.toBeUndefined();
-    expect(close).toHaveBeenCalledTimes(1);
+  describe('pushsubscriptionchange', () => {
+    it('re-subscribes with the old applicationServerKey when present', async () => {
+      const applicationServerKey = new Uint8Array([1, 2, 3]);
+      await fireChange({ options: { applicationServerKey } });
+
+      expect(pushManagerSubscribe).toHaveBeenCalledWith({
+        applicationServerKey,
+        userVisibleOnly: true,
+      });
+    });
+
+    it('is a no-op, without throwing, when there is no oldSubscription at all', async () => {
+      await expect(fireChange(null)).resolves.toBeUndefined();
+      expect(pushManagerSubscribe).not.toHaveBeenCalled();
+    });
+
+    it('is a no-op, without throwing, when oldSubscription has no applicationServerKey', async () => {
+      await expect(fireChange({ options: {} })).resolves.toBeUndefined();
+      expect(pushManagerSubscribe).not.toHaveBeenCalled();
+    });
+
+    it('does not throw when pushManager.subscribe rejects — best-effort, the page resyncs on next load', async () => {
+      pushManagerSubscribe.mockRejectedValue(new Error('permission revoked'));
+
+      await expect(
+        fireChange({ options: { applicationServerKey: new Uint8Array([1]) } }),
+      ).resolves.toBeUndefined();
+    });
   });
 });

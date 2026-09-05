@@ -126,8 +126,11 @@ self.addEventListener('message', (event) => {
 });
 
 // -----------------------------------------------------------------------------
-// notificationclick — issue #223, epic #215
+// notificationclick, push and pushsubscriptionchange — issues #223 and #230,
+// epic #215
 // -----------------------------------------------------------------------------
+//
+// notificationclick —
 //
 // The ONLY place a click on a worker-shown notification can be handled. A
 // toast raised by `showPageNotification` (`services/browserNotifications.ts`)
@@ -229,15 +232,167 @@ self.addEventListener('notificationclick', (event) => {
   );
 });
 
-// -----------------------------------------------------------------------------
-// Push notifications  —  PARTIALLY IMPLEMENTED
-// -----------------------------------------------------------------------------
-// `push` and `pushsubscriptionchange` are not yet wired — the former has no
-// filed issue yet, the latter is issue #230. They belong HERE, in this file,
-// and not in a script pulled in with `importScripts()` — that split is
-// precisely why this build uses `injectManifest` rather than `generateSW`;
-// see `vite.config.ts`.
+// push and pushsubscriptionchange —
 //
-// Whatever `push` ends up doing, it must respect the "never call the API"
-// constraint at the top of this file: it renders the payload it was given
-// (from the push message itself), it does not fetch anything to render it.
+// Both live HERE, in this file, and not in a script pulled in with
+// `importScripts()` — that split is precisely why this build uses
+// `injectManifest` rather than `generateSW`; see `vite.config.ts`. Both must
+// respect the "never call the API" constraint at the top of this file: `push`
+// renders the payload it was given rather than fetching anything to render it,
+// and `pushsubscriptionchange` never tries to notify the server (see its own
+// doc comment).
+
+/**
+ * The payload shape the API's `PushNotificationChannel` sends as the Web Push
+ * message body (JSON, comfortably under the 4KB push payload limit). `id` and
+ * `link` are carried through into `notification.data` so a future
+ * `notificationclick` handler (issue #223) can mark the notification read and
+ * navigate without any further lookup.
+ */
+interface PushNotificationPayload {
+  id: string;
+  eventKey: string;
+  title: string;
+  body: string;
+  link: string;
+}
+
+const PUSH_ICON = '/icons/icon-192.png';
+const PUSH_BADGE = '/icons/badge-96.png';
+
+/**
+ * =============================================================================
+ * THE CRITICAL RULE
+ * =============================================================================
+ * If a push event's `waitUntil` promise resolves WITHOUT `showNotification`
+ * having been called, Chrome silently substitutes its own generic "This site
+ * has been updated in the background" notification — worse than anything this
+ * handler could show on purpose, and confusing to a user who has no idea what
+ * it means. So every code path below — including the JSON-parse-failure path
+ * — ends in exactly one of two actions: an awaited `showNotification`, or the
+ * `postMessage` branch (which substitutes for it deliberately; see below).
+ * There must be no third path that just returns.
+ */
+async function handlePush(event: PushEvent): Promise<void> {
+  let payload: PushNotificationPayload;
+  try {
+    if (!event.data) throw new Error('push event carried no data');
+    payload = event.data.json() as PushNotificationPayload;
+  } catch {
+    // Malformed or missing payload: there is no title/body/link to work with,
+    // and no `id` to key a client `postMessage` on. Per the critical rule
+    // above, doing nothing here is strictly worse than showing something —
+    // it would surface Chrome's own generic substitute instead, which looks
+    // identical to the user but tells them nothing this app can control. A
+    // plain, generic notification is the more honest failure mode, so show
+    // one rather than silently no-op.
+    await self.registration.showNotification('New notification', {
+      body: 'You have a new notification',
+      icon: PUSH_ICON,
+      badge: PUSH_BADGE,
+      tag: 'push-fallback',
+    });
+    return;
+  }
+
+  // `Clients.matchAll<T extends ClientQueryOptions>` infers `WindowClient[]`
+  // from the literal `type: 'window'` in the options object itself — passing
+  // an explicit `<WindowClient>` type argument instead breaks that inference
+  // (it makes `T` the `WindowClient` type, so the options parameter would
+  // have to satisfy `WindowClient`, not `ClientQueryOptions`) and fails to
+  // compile. Let TS infer it.
+  const windowClients = await self.clients.matchAll({ type: 'window' });
+  const visibleFocusedClient = windowClients.find(
+    (client) => client.visibilityState === 'visible' && client.focused,
+  );
+
+  if (visibleFocusedClient) {
+    // A visible, focused tab has already received this event over SSE and run
+    // it through `NotificationContext` (table update, unread count, its own
+    // native-toast de-dup) by the time a push physically arrives — see
+    // `notify()`'s dispatch order in the root CLAUDE.md. Calling
+    // `showNotification` here would just be a redundant OS-level toast on top
+    // of what the page already showed, so this branch informs the page
+    // instead of the OS. `postMessage` itself satisfies the critical rule in
+    // place of `showNotification`.
+    visibleFocusedClient.postMessage({
+      type: 'push-notification',
+      id: payload.id,
+      eventKey: payload.eventKey,
+      title: payload.title,
+      body: payload.body,
+      link: payload.link,
+    });
+    return;
+  }
+
+  // No visible+focused tab — including the app being fully closed. This is
+  // the only way the user finds out at all, so show the real OS notification.
+  await self.registration.showNotification(payload.title, {
+    body: payload.body,
+    // Keyed by the notification's own id, mirroring the `tag` de-dup
+    // convention `showNativeNotification` uses for the page-side toast (see
+    // `services/browserNotifications.ts`): multiple pushes for the same
+    // notification collapse into one OS entry instead of stacking.
+    tag: payload.id,
+    icon: PUSH_ICON,
+    badge: PUSH_BADGE,
+    // Consumed by the `notificationclick` handler above to mark the
+    // notification read and navigate. Passed through unmodified — validating
+    // or sanitising `link` is that handler's job at the point it navigates,
+    // not this one's.
+    data: { id: payload.id, link: payload.link },
+  });
+}
+
+self.addEventListener('push', (event) => {
+  event.waitUntil(handlePush(event));
+});
+
+/**
+ * A local extension of `PushSubscriptionChangeEvent`. `oldSubscription` is
+ * part of the Push API spec, but it is missing from this project's `lib`
+ * (`ESNext`+`WebWorker`) — a real gap in `lib.webworker.d.ts`'s event typing,
+ * not a mistake in this code. This augments the shape locally rather than
+ * suppressing the checker with `@ts-expect-error`, so a future lib update
+ * that adds the real property is a visible, honest type error here (an
+ * unnecessary augmentation) instead of a silently-stale suppression comment.
+ */
+interface PushSubscriptionChangeEventWithOldSubscription extends ExtendableEvent {
+  readonly oldSubscription: PushSubscription | null;
+}
+
+/**
+ * Best-effort resubscription, per the issue's own Alternatives Considered
+ * section: "The page re-syncs idempotently on every boot, which is the real
+ * mechanism; the worker handler is a best-effort optimisation." So there is
+ * deliberately no attempt here to POST the new subscription to
+ * `/api/notifications/push/subscriptions` — this worker has no token to
+ * authenticate that call with (see the "NEVER CALL THE API" header rule), and
+ * a silent failure here is fully recovered by the page's own resync on next
+ * load.
+ */
+async function handlePushSubscriptionChange(
+  event: PushSubscriptionChangeEvent,
+): Promise<void> {
+  const applicationServerKey = (event as PushSubscriptionChangeEventWithOldSubscription)
+    .oldSubscription?.options?.applicationServerKey;
+
+  if (!applicationServerKey) return;
+
+  try {
+    await self.registration.pushManager.subscribe({
+      applicationServerKey,
+      userVisibleOnly: true,
+    });
+  } catch (error) {
+    // Expected/tolerated, not a bug — the page's own resync is the real
+    // mechanism (see the doc comment above). Low-key `warn`, not `error`,
+    // since nothing here needs anyone paged.
+    console.warn('Service worker push resubscription failed; page will resync on next load.', error);
+  }
+}
+
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil(handlePushSubscriptionChange(event));
+});
