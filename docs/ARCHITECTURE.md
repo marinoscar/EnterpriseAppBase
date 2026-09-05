@@ -648,10 +648,18 @@ inside `features` — `features` is a `z.record(z.string(), z.boolean())` with
 no shape, no default, and no place to document semantics, and is deliberately
 owned by downstream forks for their own operational flags; a framework-level,
 security-adjacent gate like this one needs a real type, a real default, and
-somewhere for its semantics to live. It is stored and editable as of #225, but
-**not yet enforced by any delivery path** — no channel consults
-`browserEnabled` or `disabledEvents` yet — which is tracked separately as
-issue #226.
+somewhere for its semantics to live. It is stored and editable as of #225, and
+as of #226 it is enforced: `browserEnabled` and `disabledEvents` are read once
+per dispatch by a new `NotificationPolicyService` and applied through
+`notification-policy.ts`'s `policyChannels` and `isBrowserToastAllowed`
+functions, consulted at three call sites — the dispatcher's channel
+resolution, `GET /api/notifications/events`'s advertised channels, and the
+SSE stream's `toast` field — so the matrix, the dispatch decision, and the
+delivered toast can never disagree. Mandatory events (e.g.
+`security.role_changed`) are the deliberate exception: their `notifications`
+row is always written regardless of policy, since the row itself is the
+record of a privilege or security change the user must not be able to make
+disappear; only the browser toast is suppressed for them.
 
 ### 6.3 Database Design Principles
 
