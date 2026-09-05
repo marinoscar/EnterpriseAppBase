@@ -138,6 +138,26 @@ export interface NotificationEventDef {
    * transports actually registered, so declaring a channel before its
    * implementation lands is safe — it simply has nowhere to go until then.
    *
+   * ---------------------------------------------------------------------------
+   * WHAT `channels` MEANS ON THE WIRE IS NOW CAPABILITY ∩ POLICY (#226)
+   * ---------------------------------------------------------------------------
+   *
+   * The array declared BELOW is still pure capability, and this is still the
+   * only place it is stated. But `GET /api/notifications/events` no longer
+   * serves it verbatim: since #226 both that endpoint and the dispatcher run it
+   * through `policyChannels` (notification-policy.ts), which drops `browser`
+   * when an operator has switched browser notifications off deployment-wide or
+   * suppressed this event specifically in system settings.
+   *
+   * So an event that declares `browser` here and shows no `browser` over the
+   * API is CONFIGURATION, not a bug in this registry — check
+   * `system_settings.value.notifications` before concluding otherwise. The one
+   * exception is a `mandatory` event, whose channels survive the policy filter
+   * because its `notifications` row is the delivery and muting a toast must not
+   * mute an audit-relevant inbox entry; for those the policy shows up as
+   * `toast: false` on the stream instead. notification-policy.ts carries the
+   * full argument.
+   *
    * Must be non-empty: an event with no channels can never be delivered, which
    * is a declaration bug rather than a configuration.
    */

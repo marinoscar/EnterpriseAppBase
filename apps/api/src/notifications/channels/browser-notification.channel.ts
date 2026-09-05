@@ -4,6 +4,7 @@ import type { RoleChangedEmailData } from '../../email';
 import { PrismaService } from '../../prisma/prisma.service';
 import { describeThrown } from '../describe-thrown';
 import type { NotificationChannel } from '../notification-events';
+import { isBrowserToastAllowed } from '../notification-policy';
 import { NotificationStreamService } from '../notification-stream.service';
 import type {
   ChannelDeliveryResult,
@@ -48,6 +49,15 @@ import type {
 // `mandatory: true` precisely so a privilege change is never silent. The
 // server's obligation ends at a durable row the user can find; the toast is a
 // decoration on top of it.
+//
+// #226 IS THAT DISTINCTION MADE ENFORCEABLE. An operator can now switch browser
+// notifications off deployment-wide, or suppress one event, from system
+// settings — and what that switch reaches is the `toast` flag on the published
+// event, NOT the INSERT above it. For an event the policy allows to be dropped
+// entirely, the dispatcher never calls this channel at all (`resolveChannels`
+// filters it out upstream); for a `mandatory` event the channel still runs, the
+// row is still written, the frame is still published, and only `toast` goes
+// false. See notification-policy.ts.
 // =============================================================================
 
 /**
@@ -266,6 +276,21 @@ export class BrowserNotificationChannel implements NotificationChannelSender {
       body,
       link,
       createdAt: notification.createdAt.toISOString(),
+      // THE ADMIN POLICY, APPLIED TO THE TOAST AND ONLY TO THE TOAST (#226).
+      //
+      // Note where this sits: AFTER the row was written, and on an event that
+      // is published regardless of its value. That is the invariant of #226 in
+      // one line of code — an operator who mutes browser notifications mutes
+      // the OS bubble, never the durable record. `security.role_changed` is
+      // `mandatory: true` precisely so a privilege change is never silent, and
+      // a policy that could suppress its inbox row would defeat the flag from
+      // the admin page.
+      //
+      // Read from the dispatch context rather than re-queried, so this flag and
+      // the channel decision that produced the row come from one snapshot of
+      // the policy. Absent policy resolves to the permissive default; see
+      // notification-policy.ts.
+      toast: isBrowserToastAllowed(eventKey, context.policy),
     });
 
     // Event key and connection count only — no title, no body, no link. The

@@ -83,7 +83,10 @@ import { Observable, type Subscriber } from 'rxjs';
  * (`dto/notification.dto.ts`), so a client can push a streamed event straight
  * into the list it fetched without a second mapping. A divergent "live" shape
  * is how a bell ends up rendering two different objects depending on how the
- * notification arrived.
+ * notification arrived. The two deltas are `readAt` (absent — a notification is
+ * unread by definition at the instant it is published) and `toast` (present —
+ * see the field, it is an instruction about THIS delivery rather than a
+ * property of the stored row).
  *
  * Carries no user id. The recipient is implicit in WHICH stream this was
  * written to, and echoing it back would invite a client — or a future refactor
@@ -96,6 +99,33 @@ export interface NotificationStreamEvent {
   body: string;
   link: string | null;
   createdAt: string;
+
+  /**
+   * MAY THE CLIENT RAISE AN OS TOAST FOR THIS? (#226, epic #215)
+   *
+   * The one field that is NOT on the stored row, and the one that makes this
+   * shape not quite "a notification minus `readAt`". It is a per-event
+   * instruction from the server, computed at publish time from the deployment's
+   * admin policy (`isBrowserToastAllowed` in notification-policy.ts):
+   * `browserEnabled && !disabledEvents.includes(eventKey)`.
+   *
+   * COMPUTED SERVER-SIDE ON PURPOSE. The client also fetches
+   * `GET /api/notifications/config` to decide whether to ask for OS permission
+   * at all, and that answer is cached in a long-lived tab. This flag travels
+   * WITH the event, so an admin turning toasts off takes effect on the next
+   * notification rather than on the next reload — the server stays
+   * authoritative even when a client's cached config is stale.
+   *
+   * FALSE DOES NOT MEAN "SUPPRESSED". The row was still written and this frame
+   * was still sent; the bell, the unread count and the notification centre are
+   * unaffected. Only the OS bubble is withheld. That distinction is the whole
+   * point of the flag: `security.role_changed` is `mandatory: true` and must
+   * reach the user's inbox no matter what an operator has muted.
+   *
+   * #227 is what acts on it. Until then it is published and ignored, which is
+   * the harmless direction.
+   */
+  toast: boolean;
 }
 
 /**

@@ -3,6 +3,11 @@ import {
   type NotificationChannel,
   type NotificationEventDef,
 } from './notification-events';
+import {
+  DEFAULT_NOTIFICATION_POLICY,
+  policyChannels,
+  type NotificationPolicy,
+} from './notification-policy';
 
 // =============================================================================
 // Preference resolution (issue #125, epic #109)
@@ -262,21 +267,41 @@ export function isChannelEnabled(
 /**
  * The channels `event` should actually be delivered over for this user.
  *
- * The intersection the dispatcher needs: the event's DECLARED channels
- * (a capability of the event) filtered by the user's preferences. It is
- * deliberately NOT filtered by which transports are implemented — that is the
- * dispatcher's business and depends on runtime wiring, whereas this file is
- * pure. `security.role_changed` declares `browser` today with nothing to
- * carry it; that channel is enabled here and has nowhere to go, which is
- * exactly what notification-events.ts says should happen.
+ * TWO NARROWINGS, IN THIS ORDER, and the order is not arbitrary:
+ *
+ *   1. ADMIN POLICY (#226) — `policyChannels`, the deployment-wide gate an
+ *      operator sets in system settings. It answers "is this deployment willing
+ *      to send this at all?", so it comes first: a user preference about a
+ *      channel the operator has switched off is not a question worth asking.
+ *   2. THE USER'S PREFERENCES — `isChannelEnabled`, with the sparse absent-key
+ *      contract and the `mandatory` override this file exists for.
+ *
+ * It is deliberately NOT filtered by which transports are implemented — that is
+ * the dispatcher's business and depends on runtime wiring, whereas this file is
+ * pure.
+ *
+ * THE POLICY FILTER IS SHARED WITH `GET /api/notifications/events`, which calls
+ * `policyChannels` directly. That is the whole point of it living in one
+ * function: the dispatcher and the preferences matrix cannot end up with two
+ * opinions about which channels an admin has left available. See
+ * notification-policy.ts, including why a MANDATORY event's channels survive
+ * the policy filter (its `notifications` row is the delivery, and muting a
+ * toast must not mute an audit-relevant inbox entry).
+ *
+ * @param policy the stored admin policy. Defaults to the permissive
+ *        {@link DEFAULT_NOTIFICATION_POLICY} — the honest answer for a caller
+ *        that has none, since that is also what a deployment that has never
+ *        touched the setting has. Failing closed here would let an unread
+ *        setting silence notifications with nothing to show for it.
  *
  * Returns a fresh array; nothing here hands out a reference into the registry.
  */
 export function resolveChannels(
   event: NotificationEventDef,
   preferences: NotificationPreferences,
+  policy: NotificationPolicy = DEFAULT_NOTIFICATION_POLICY,
 ): NotificationChannel[] {
-  return event.channels.filter((channel) =>
+  return policyChannels(event, policy).filter((channel) =>
     isChannelEnabled(event, channel, preferences),
   );
 }
