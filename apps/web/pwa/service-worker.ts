@@ -73,12 +73,19 @@ import { buildManifest } from './manifest';
  * The handover is a `SKIP_WAITING` message the page posts once the user agrees;
  * `src/sw.ts` already listens for it.
  *
- * `injectRegister: 'auto'` is explicitly a PLACEHOLDER. It injects a plain
- * `registerSW.js` into `index.html`, which registers the worker but has no way
- * to tell the user that an update is waiting — so under `prompt` the update sits
- * there unnoticed. Issue #219 replaces it with `useRegisterSW` from
- * `virtual:pwa-register/react` plus the update-prompt UI, at which point this
- * becomes `injectRegister: null`.
+ * `injectRegister: null` because THE REACT TREE NOW OWNS REGISTRATION (issue
+ * #219). `src/components/pwa/UpdatePrompt.tsx` calls `useRegisterSW` from
+ * `virtual:pwa-register/react`, which registers the worker and exposes its
+ * `needRefresh` state to the UI that acts on it. The previous
+ * `injectRegister: 'auto'` was the placeholder that issue replaced: it injected
+ * a plain `registerSW.js` into `index.html`, which registered the worker but
+ * had no way to tell anyone an update was waiting — so under `prompt` the
+ * update sat there unnoticed until every tab of the origin closed.
+ *
+ * It must stay `null` rather than reverting to `'auto'`: with both, the worker
+ * is registered twice — once from a script tag the React tree cannot observe —
+ * and the hook's state no longer describes the registration the user is
+ * actually on.
  */
 export function buildServiceWorkerOptions(): Partial<VitePWAOptions> {
   return {
@@ -86,8 +93,8 @@ export function buildServiceWorkerOptions(): Partial<VitePWAOptions> {
     srcDir: 'src',
     filename: 'sw.ts',
     registerType: 'prompt',
-    // Replaced by the `useRegisterSW` hook in issue #219 — see above.
-    injectRegister: 'auto',
+    // Registration lives in `src/components/pwa/UpdatePrompt.tsx` — see above.
+    injectRegister: null,
     manifest: buildManifest(),
     injectManifest: {
       // The app shell, and only the app shell.
