@@ -7,6 +7,7 @@ import {
   isEventChannelEnabled,
   preferenceWriteFor,
   browserChannelState,
+  pushChannelState,
 } from '../../../components/settings/NotificationSettings';
 import type { NotificationEventDef, NotificationPreferences } from '../../../types';
 
@@ -16,6 +17,12 @@ import type { NotificationEventDef, NotificationPreferences } from '../../../typ
  * and the component's rendering of the sparse absent-key contract those
  * helpers encode. See the extensive header of
  * `components/settings/NotificationSettings.tsx` for the rules under test.
+ *
+ * `pushChannelState` and the push column's rendering are covered here too
+ * (issue #228, epic #215): `NOTIFICATION_CHANNELS` was widened to include
+ * `'push'`, but no `NOTIFICATION_EVENTS` entry declares it yet, so this file
+ * uses a synthetic fixture (`PUSH_CAPABLE` below) to exercise the column
+ * ahead of #229/#230 wiring a real event to it.
  */
 
 const WELCOME: NotificationEventDef = {
@@ -46,6 +53,19 @@ const ROLE_CHANGED: NotificationEventDef = {
   channels: ['email', 'browser'],
   defaultEnabled: true,
   mandatory: true,
+};
+
+// Synthetic only: as of #228 (epic #215), no real NOTIFICATION_EVENTS entry
+// declares 'push' in its `channels` yet - that is #229/#230's job, not this
+// one's. This fixture exercises the push column, and the email/browser
+// columns sitting alongside it on the SAME event, before any real event can.
+const PUSH_CAPABLE: NotificationEventDef = {
+  key: 'synthetic.push_capable',
+  label: 'Synthetic push event',
+  description: 'A synthetic event for exercising the push column before any real event declares it.',
+  channels: ['email', 'browser', 'push'],
+  defaultEnabled: true,
+  mandatory: false,
 };
 
 describe('isEventChannelEnabled', () => {
@@ -161,6 +181,33 @@ describe('browserChannelState', () => {
   it('unsupported does not claim the user blocked anything - there is nothing to allow', () => {
     const state = browserChannelState('unsupported');
     expect(state.alert?.severity).toBe('info');
+    expect(state.alert?.body.toLowerCase()).not.toContain('block');
+  });
+});
+
+describe('pushChannelState', () => {
+  it('pushEnabled: false - disabled, with a non-null note and an informational alert', () => {
+    const state = pushChannelState(false);
+    expect(state.disabled).toBe(true);
+    expect(state.note).not.toBeNull();
+    expect(state.alert).not.toBeNull();
+    expect(state.alert?.severity).toBe('info');
+  });
+
+  it('pushEnabled: true - nothing disabled, nothing to say, mirroring browserChannelState("granted")', () => {
+    expect(pushChannelState(true)).toEqual({
+      disabled: false,
+      note: null,
+      alert: null,
+    });
+  });
+
+  it('the false-state copy blames an unimplemented feature, not the user\'s browser', () => {
+    // Unlike browserChannelState's denied/unsupported copy, this must not
+    // read like a browser permission problem the user could fix themselves -
+    // there is nothing to allow or configure yet.
+    const state = pushChannelState(false);
+    expect(state.alert?.body.toLowerCase()).not.toContain('browser settings');
     expect(state.alert?.body.toLowerCase()).not.toContain('block');
   });
 });
@@ -384,6 +431,131 @@ describe('NotificationSettings component', () => {
       ).toBeInTheDocument();
 
       (window as any).Notification = originalNotification;
+    });
+  });
+
+  describe('push channel (issue #228; synthetic event, since no registry event declares push yet)', () => {
+    it('renders the push column disabled, with the "not available yet" note, when pushEnabled is not passed (defaults to false)', () => {
+      render(
+        <NotificationSettings
+          events={[PUSH_CAPABLE]}
+          preferences={undefined}
+          onToggle={onToggle}
+          browserPermission="granted"
+        />,
+      );
+
+      const pushSwitch = screen.getByRole('switch', {
+        name: /push notifications for synthetic push event/i,
+      });
+      expect(pushSwitch).toBeDisabled();
+      expect(screen.getByText('Not available yet')).toBeInTheDocument();
+    });
+
+    it('shows the informational push banner when a passed-in event declares push', () => {
+      render(
+        <NotificationSettings
+          events={[PUSH_CAPABLE]}
+          preferences={undefined}
+          onToggle={onToggle}
+          browserPermission="granted"
+        />,
+      );
+
+      expect(
+        screen.getByText('Push notifications are not available yet'),
+      ).toBeInTheDocument();
+    });
+
+    it('renders the push column disabled even when pushEnabled is explicitly false', () => {
+      render(
+        <NotificationSettings
+          events={[PUSH_CAPABLE]}
+          preferences={undefined}
+          onToggle={onToggle}
+          browserPermission="granted"
+          pushEnabled={false}
+        />,
+      );
+
+      expect(
+        screen.getByRole('switch', { name: /push notifications for synthetic push event/i }),
+      ).toBeDisabled();
+    });
+
+    it('does not disable the email or browser columns on the same event when push is present alongside them', () => {
+      render(
+        <NotificationSettings
+          events={[PUSH_CAPABLE]}
+          preferences={undefined}
+          onToggle={onToggle}
+          browserPermission="granted"
+        />,
+      );
+
+      expect(
+        screen.getByRole('switch', { name: /email notifications for synthetic push event/i }),
+      ).not.toBeDisabled();
+      expect(
+        screen.getByRole('switch', { name: /browser notifications for synthetic push event/i }),
+      ).not.toBeDisabled();
+    });
+
+    it('clicking the disabled push switch never calls onToggle', async () => {
+      // Same rationale as the mandatory-switch test above: userEvent (not
+      // fireEvent) is what actually exercises the native `disabled` attribute
+      // the way a real pointer interaction would.
+      const user = userEvent.setup({ pointerEventsCheck: 0 });
+      render(
+        <NotificationSettings
+          events={[PUSH_CAPABLE]}
+          preferences={undefined}
+          onToggle={onToggle}
+          browserPermission="granted"
+        />,
+      );
+
+      const pushSwitch = screen.getByRole('switch', {
+        name: /push notifications for synthetic push event/i,
+      });
+      await user.click(pushSwitch);
+
+      expect(onToggle).not.toHaveBeenCalled();
+    });
+
+    it('pushEnabled: true enables the push switch (once #229/#230 land and a caller passes it)', () => {
+      render(
+        <NotificationSettings
+          events={[PUSH_CAPABLE]}
+          preferences={undefined}
+          onToggle={onToggle}
+          browserPermission="granted"
+          pushEnabled
+        />,
+      );
+
+      expect(
+        screen.getByRole('switch', { name: /push notifications for synthetic push event/i }),
+      ).not.toBeDisabled();
+      expect(
+        screen.queryByText('Push notifications are not available yet'),
+      ).not.toBeInTheDocument();
+    });
+
+    it('showsPushChannel gates the banner off when no passed-in event declares push - the common/default case today', () => {
+      render(
+        <NotificationSettings
+          events={[WELCOME, WEEKLY_DIGEST, ROLE_CHANGED]}
+          preferences={undefined}
+          onToggle={onToggle}
+          browserPermission="granted"
+        />,
+      );
+
+      expect(
+        screen.queryByText('Push notifications are not available yet'),
+      ).not.toBeInTheDocument();
+      expect(screen.queryByText('Not available yet')).not.toBeInTheDocument();
     });
   });
 
