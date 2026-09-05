@@ -11,6 +11,7 @@ import { NotificationStoreService } from './notification-store.service';
 import { NotificationStreamService } from './notification-stream.service';
 import { NotificationsController } from './notifications.controller';
 import { NotificationsService } from './notifications.service';
+import { PushSubscriptionService } from './push-subscription.service';
 import {
   NOTIFICATION_CHANNEL_SENDERS,
   type NotificationChannelSender,
@@ -104,6 +105,12 @@ import {
     NotificationPolicyService,
     NotificationStoreService,
     NotificationStreamService,
+    // NOT EXPORTED, same reasoning as the three above: #229's subscribe/
+    // unsubscribe endpoints are the only legitimate way to write or remove a
+    // `push_subscriptions` row, and #230's sender reaches these rows through
+    // Prisma directly (it reads, it does not subscribe/unsubscribe on anyone's
+    // behalf) rather than through this service.
+    PushSubscriptionService,
     EmailNotificationChannel,
     BrowserNotificationChannel,
     {

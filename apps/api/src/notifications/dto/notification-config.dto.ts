@@ -57,22 +57,30 @@ export const notificationConfigSchema = z.object({
   /**
    * May this client subscribe to Web Push?
    *
-   * ALWAYS `false` TODAY. Web Push is #229 (the subscription store and the
-   * VAPID keys) and #230 (the delivery channel and its own policy gate); this
-   * field ships now so the client contract does not change shape when they
-   * land, and so a client written against this endpoint has one place to look
-   * for "what can this deployment do?" rather than two.
+   * `true` exactly when THIS DEPLOYMENT'S environment carries a VAPID key
+   * pair (`VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` both set — see
+   * `PushSubscriptionService.isEnabled`, #229). It says nothing about whether
+   * the CALLER has subscribed; a client asks the browser for permission and
+   * calls `pushManager.subscribe` only when this is `true`, then posts the
+   * result to `POST /api/notifications/push/subscriptions`.
+   *
+   * STILL NOT #230. This deployment can accept and store a subscription the
+   * moment this is `true` (#229); whether anything is ever actually pushed TO
+   * that subscription is #230 (the delivery channel), a separate, later
+   * change. A `true` here is "you may subscribe", not "you will be sent
+   * anything".
    */
   pushEnabled: z.boolean(),
 
   /**
    * The VAPID application server key a client needs to call
-   * `pushManager.subscribe`, or `null` when push is unavailable.
+   * `pushManager.subscribe`, or `null` when `pushEnabled` is `false`.
    *
-   * ALWAYS `null` TODAY, for the same reason `pushEnabled` is always `false`
-   * (#229/#230). It is a PUBLIC key by definition — it is handed to every
-   * browser that subscribes — so publishing it here to any authenticated user
-   * gives nothing away; the private half never leaves the server.
+   * Mirrors `pushEnabled`: non-null exactly when `VAPID_PUBLIC_KEY` is
+   * configured. It is a PUBLIC key by definition — it is handed to every
+   * browser that subscribes — so returning it here to any authenticated user
+   * gives nothing away; the private half never leaves the server (it lives in
+   * `VAPID_PRIVATE_KEY`, read only by the server-side sender #230 adds).
    */
   vapidPublicKey: z.string().nullable(),
 });
