@@ -55,6 +55,19 @@ const emailOnlyEvent: NotificationEventDef = {
   defaultEnabled: true,
 };
 
+// SYNTHETIC, same reason as the browser fixtures above: #228 (epic #215)
+// widened NOTIFICATION_CHANNELS to include 'push', but no NOTIFICATION_EVENTS
+// entry declares it yet (that is #229/#230's job), so a test against the
+// registry alone could not exercise `policyChannels` for a push-capable
+// event at all.
+const pushCapableEvent: NotificationEventDef = {
+  key: 'synthetic.push_capable',
+  label: 'Push-capable event',
+  description: 'A synthetic event for exercising the push channel before any real event declares it.',
+  channels: ['email', 'browser', 'push'],
+  defaultEnabled: true,
+};
+
 const KILL_SWITCH_OFF: NotificationPolicy = {
   browserEnabled: false,
   disabledEvents: [],
@@ -152,6 +165,24 @@ describe('policyChannels', () => {
     returned.length = 0;
 
     expect(event.channels.length).toBeGreaterThan(0);
+  });
+
+  it('never touches push either - #228 widened the type only, and #230 owns its eventual gate', () => {
+    // Mirrors the 'never touches email' test above: push falls through the
+    // `channel === 'browser' ? isBrowserToastAllowed(...) : true` branch
+    // exactly like email does today. The browser kill switch still drops
+    // *browser* (that gate is real and unrelated to this widening) but must
+    // leave both email and push untouched.
+    expect(policyChannels(pushCapableEvent, KILL_SWITCH_OFF)).toEqual([
+      'email',
+      'push',
+    ]);
+    expect(
+      policyChannels(pushCapableEvent, {
+        browserEnabled: true,
+        disabledEvents: [pushCapableEvent.key],
+      }),
+    ).toEqual(['email', 'push']);
   });
 
   it('an unknown key in disabledEvents matches nothing and breaks nothing', () => {

@@ -960,7 +960,10 @@ describe('notifications namespace (PUT)', () => {
     expect(() =>
       updateUserSettingsSchema.parse({
         ...baseValid,
-        notifications: { push: { 'user.welcome': true } },
+        // 'sms' rather than 'push': #228 (epic #215) widened
+        // NOTIFICATION_CHANNELS to include 'push', so 'push' is no longer a
+        // usable stand-in for "a channel the registry does not declare".
+        notifications: { sms: { 'user.welcome': true } },
       }),
     ).toThrow();
   });
@@ -1140,7 +1143,10 @@ describe('notifications namespace (PATCH)', () => {
   it('rejects an unknown channel', () => {
     expect(() =>
       patchUserSettingsSchema.parse({
-        notifications: { push: { 'user.welcome': true } },
+        // 'sms' rather than 'push': #228 (epic #215) widened
+        // NOTIFICATION_CHANNELS to include 'push', so 'push' is no longer a
+        // usable stand-in for "a channel the registry does not declare".
+        notifications: { sms: { 'user.welcome': true } },
       }),
     ).toThrow();
   });
