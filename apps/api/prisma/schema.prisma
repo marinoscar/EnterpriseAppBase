@@ -40,6 +40,7 @@ model User {
   credentialUpdates         Credential[]     @relation("CredentialUpdatedBy")
   notificationDeliveries    NotificationDelivery[] @relation("UserNotificationDeliveries")
   notifications             Notification[]   @relation("UserNotifications")
+  pushSubscriptions         PushSubscription[] @relation("UserPushSubscriptions")
 
   @@map("users")
 }
@@ -605,4 +606,119 @@ model Notification {
   //    backwards for the newest page, which is the only page anyone loads.
   @@index([userId, createdAt(sort: Desc)])
   @@map("notifications")
+}
+
+// =============================================================================
+// Push Subscriptions (issue #229, epic #215)
+// =============================================================================
+//
+// Storage for the browser's `PushSubscription` object — the endpoint URL plus
+// the two keys (`p256dh`, `auth`) needed to encrypt a Web Push payload to that
+// specific device — so the server has something to sign and send to when a
+// notification's `browser` channel wants to reach a tab that isn't open.
+//
+// THIS SHIPS DISABLED BY DEFAULT (per #215). This table, and the endpoints the
+// next pass builds on top of it, exist regardless; what makes push actually
+// fire is a downstream deployment setting `VAPID_PUBLIC_KEY` /
+// `VAPID_PRIVATE_KEY` in its own environment. A repo that never sets those
+// vars has this table sitting empty and unused — generating keys, not writing
+// code, is the enable step. Nothing here should ever require a schema change
+// to turn push on.
+//
+// -----------------------------------------------------------------------------
+// endpoint — @unique, not part of a composite key with userId
+// -----------------------------------------------------------------------------
+// The endpoint URL (assigned by the browser's push service — FCM, Mozilla's
+// autopush, ...) already uniquely identifies one subscribed device/browser
+// instance; it cannot simultaneously be valid for two different users. Making
+// it @unique on its own, rather than @@unique([userId, endpoint]), is what
+// lets the service layer `upsert` on `endpoint` alone (#229's acceptance
+// criterion: "Re-subscribing the same endpoint upserts instead of creating a
+// duplicate row") — including the case where the same browser subscription
+// re-registers under a different signed-in user, which should move the row,
+// not fork it.
+//
+// -----------------------------------------------------------------------------
+// userId — onDelete: Cascade, the OPPOSITE of NotificationDelivery.user's
+// SetNull right above, and deliberately so
+// -----------------------------------------------------------------------------
+// NotificationDelivery keeps its user relation nullable-with-SetNull because a
+// delivery row is an audit trail with standalone value ("did we send this
+// before the account was offboarded?") even once the account is gone — it
+// carries its own `recipient` and stands on its own. A push subscription has
+// no such standalone meaning: it is nothing but a live credential for pushing
+// to one specific person's device. Once that person's account is deleted
+// there is no one left to authorize a push, no one left to act on it, and no
+// audit value in keeping an endpoint + key material around — it is simply
+// dead. Cascade is correct here for the same reason `Notification.user` above
+// is Cascade rather than SetNull: this is live, personal state with no reader
+// once the account is gone, not history.
+//
+// -----------------------------------------------------------------------------
+// failureCount / lastSuccessAt — written by #230, columns exist now
+// -----------------------------------------------------------------------------
+// Web Push endpoints go stale silently (uninstalled browser, revoked
+// permission, expired subscription) and the push service reports this as a
+// 404/410 (gone) or persistent 429/5xx on send, never as an explicit
+// unsubscribe call. `failureCount` is incremented by the not-yet-built sender
+// (#230) on each such failure so a pruning job can drop subscriptions that
+// have stopped working, and `lastSuccessAt` is its complement — updated on
+// every successful send — so "why did this stop working" has an answer
+// (compare `failureCount`'s growth against how long ago `lastSuccessAt` was)
+// without needing delivery-log archaeology. Neither column is written by
+// anything in this migration; they exist now so #230 needs no schema change.
+model PushSubscription {
+  id String @id @default(uuid()) @db.Uuid
+
+  userId String @map("user_id") @db.Uuid
+
+  // The push service URL the browser gave us (e.g.
+  // `https://fcm.googleapis.com/fcm/send/...`). @unique — see block comment
+  // above for why this, not a composite key, is what the upsert relies on.
+  endpoint String @unique
+
+  // The two halves of the browser's subscription keys
+  // (`PushSubscription.getKey('p256dh'|'auth')`, base64url-encoded), together
+  // sufficient to encrypt a payload to this device per the Web Push
+  // encryption spec (RFC 8291). Neither is secret in the same sense as
+  // `Credential.secret` — they are meaningless without also knowing the
+  // corresponding endpoint and the server's VAPID private key — so they are
+  // stored plain, matching how every Web Push library (including `web-push`,
+  // which the next pass will use) expects to read them back out.
+  p256dh String
+  auth   String
+
+  // From the browser's `PushSubscription.expirationTime`, when the push
+  // service supplies one (most don't). Nullable because absence is the
+  // common case, not an error.
+  expirationTime DateTime? @map("expiration_time") @db.Timestamptz
+
+  // For diagnosing "why did this stop working" alongside failureCount/
+  // lastSuccessAt below. Nullable: not always available, and never required.
+  userAgent String? @map("user_agent")
+
+  // Incremented by #230's sender on delivery failure (429/5xx from the push
+  // service); read by its not-yet-built pruning logic to drop dead
+  // subscriptions. Starts at 0 and is reset to 0 on the next successful send.
+  failureCount Int @default(0) @map("failure_count")
+
+  // Updated on every successful send by #230. Nullable: a freshly created
+  // subscription has never had one.
+  lastSuccessAt DateTime? @map("last_success_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  //
+  // onDelete: Cascade — see block comment above for why this reverses the
+  // SetNull precedent set by NotificationDelivery.user just above.
+  user User @relation("UserPushSubscriptions", fields: [userId], references: [id], onDelete: Cascade)
+
+  // The one query this table is known to serve: "give me this user's
+  // subscriptions to push to" (#229's subscribe/unsubscribe endpoints and
+  // #230's send fan-out both key off userId; endpoint's own @unique index
+  // already covers lookup/upsert by endpoint).
+  @@index([userId])
+  @@map("push_subscriptions")
 }
