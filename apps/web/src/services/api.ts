@@ -216,6 +216,7 @@ import type {
   EmailSettingsInput,
   EmailTestResult,
   NotificationEventDef,
+  NotificationConfigResponse,
   AppNotification,
   NotificationListResponse,
   UnreadCountResponse,
@@ -425,6 +426,31 @@ export async function sendTestEmail(): Promise<EmailTestResult> {
  */
 export async function getNotificationEvents(): Promise<NotificationEventDef[]> {
   return api.get<NotificationEventDef[]>('/notifications/events');
+}
+
+/**
+ * This deployment's client-facing notification capabilities —
+ * `GET /api/notifications/config` (#226, epic #215).
+ *
+ * AUTHENTICATED, NOT ADMIN-GATED — like `getNotificationEvents` above, and for
+ * an analogous reason. `GET /api/system-settings` requires `system_settings:read`,
+ * which the seeded `viewer` and `contributor` roles do not hold, so it cannot be
+ * the source for a toggle those very roles need to render correctly. This
+ * endpoint is a narrow, purpose-built projection — three booleans-worth of
+ * capability, no policy detail (`disabledEvents` in particular never appears
+ * here; the per-event answer arrives with the event, as the stream's `toast`
+ * flag) — readable by any authenticated user. See the DTO's own header
+ * (`apps/api/src/notifications/dto/notification-config.dto.ts`) for the full
+ * argument, including why widening `system_settings:read` instead was rejected.
+ *
+ * Consumed by `useNotificationCapability`'s `adminDisabled` option (#227), as
+ * `!browserEnabled`, so a client can withhold the "Allow notifications" prompt
+ * on a deployment that has turned browser notifications off entirely rather
+ * than spend a user's one-shot permission decision on a feature this
+ * deployment does not offer.
+ */
+export async function getNotificationConfig(): Promise<NotificationConfigResponse> {
+  return api.get<NotificationConfigResponse>('/notifications/config');
 }
 
 // Notification centre API — issue #127, epic #109.

@@ -155,8 +155,19 @@ export interface NotificationStreamHandlers {
    * Called only for well-formed `event: notification` frames. Heartbeat
    * comments never reach here — they are consumed by the parser, which is what
    * they are for.
+   *
+   * TWO ARGUMENTS, DELIBERATELY NOT ONE OBJECT (#227). `notification` is the
+   * stored-row shape — `toast`-free, per `streamEventToNotification`'s own
+   * documented boundary above — and `toast` is the raw frame's live-delivery
+   * instruction, passed alongside rather than folded back in. Re-attaching
+   * `toast` to `notification` here would undo the exact separation
+   * `streamEventToNotification` exists to make: the STORED shape must stay
+   * `toast`-free (it is not a property of the row, and a caller that persists
+   * or compares `notification` objects must never see a field that varies by
+   * delivery), while the LIVE delivery decision — may the OS bubble fire for
+   * THIS arrival? — still needs the flag. Two arguments keep both true at once.
    */
-  onNotification: (notification: AppNotification) => void;
+  onNotification: (notification: AppNotification, toast: boolean) => void;
   /**
    * ⚠️ THE REFETCH SIGNAL. Fires on the first connect and on EVERY reconnect.
    *
@@ -212,7 +223,7 @@ export function connectNotificationStream(
       // more.
       if (!event) return;
 
-      handlers.onNotification(streamEventToNotification(event));
+      handlers.onNotification(streamEventToNotification(event), event.toast);
     },
   });
 }

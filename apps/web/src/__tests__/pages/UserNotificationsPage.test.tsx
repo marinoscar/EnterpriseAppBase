@@ -36,16 +36,22 @@ vi.mock('../../hooks/useNotificationCapability', () => ({
   useNotificationCapability: vi.fn(),
 }));
 
+vi.mock('../../hooks/useNotificationConfig', () => ({
+  useNotificationConfig: vi.fn(),
+}));
+
 import { useUserSettings } from '../../hooks/useUserSettings';
 import { useNotificationEvents } from '../../hooks/useNotificationEvents';
 import { useNotificationCapability } from '../../hooks/useNotificationCapability';
+import { useNotificationConfig } from '../../hooks/useNotificationConfig';
 import UserNotificationsPage from '../../pages/UserNotificationsPage';
-import type { NotificationEventDef } from '../../types';
+import type { NotificationEventDef, NotificationConfigResponse } from '../../types';
 import type { NotificationCapability } from '../../hooks/useNotificationCapability';
 
 const mockUseUserSettings = vi.mocked(useUserSettings);
 const mockUseNotificationEvents = vi.mocked(useNotificationEvents);
 const mockUseNotificationCapability = vi.mocked(useNotificationCapability);
+const mockUseNotificationConfig = vi.mocked(useNotificationConfig);
 
 const WELCOME: NotificationEventDef = {
   key: 'user.welcome',
@@ -121,12 +127,26 @@ function mockCapability(capability: NotificationCapability = 'granted') {
   });
 }
 
+// #227. `config: null` is the "first read has not resolved yet" state - NOT
+// the same as `browserEnabled: false` - so the default here is a resolved,
+// enabled config, and the loading window is exercised as its own explicit
+// case below.
+function mockConfig(config: NotificationConfigResponse | null = { browserEnabled: true, pushEnabled: false, vapidPublicKey: null }) {
+  mockUseNotificationConfig.mockReturnValue({
+    config,
+    isLoading: config === null,
+    error: null,
+    refresh: vi.fn().mockResolvedValue(undefined),
+  });
+}
+
 describe('UserNotificationsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSettings();
     mockEvents([WELCOME, WEEKLY_DIGEST, ROLE_CHANGED]);
     mockCapability('granted');
+    mockConfig();
   });
 
   it('displays its title and description', () => {
@@ -317,6 +337,45 @@ describe('UserNotificationsPage', () => {
     render(<UserNotificationsPage />);
 
     expect(screen.getByText(/failed to load notification events/i)).toBeInTheDocument();
+  });
+
+  // #227. The page's job here is to translate `GET /notifications/config`
+  // into `useNotificationCapability`'s `adminDisabled` option - and,
+  // critically, to get the loading window right: `config` is `null` until the
+  // first read resolves, and `config?.browserEnabled === false` (not
+  // `!config?.browserEnabled`) is what keeps that window from being
+  // mis-reported as "disabled". See `useNotificationConfig`'s own header and
+  // the call site in `UserNotificationsPage.tsx`.
+  describe('wiring GET /notifications/config into adminDisabled (#227)', () => {
+    it('passes adminDisabled: true when the fetched config says browserEnabled: false', () => {
+      mockConfig({ browserEnabled: false, pushEnabled: false, vapidPublicKey: null });
+
+      render(<UserNotificationsPage />);
+
+      expect(mockUseNotificationCapability).toHaveBeenCalledWith(
+        expect.objectContaining({ adminDisabled: true }),
+      );
+    });
+
+    it('passes adminDisabled: false while the config is still loading (config: null)', () => {
+      mockConfig(null);
+
+      render(<UserNotificationsPage />);
+
+      expect(mockUseNotificationCapability).toHaveBeenCalledWith(
+        expect.objectContaining({ adminDisabled: false }),
+      );
+    });
+
+    it('passes adminDisabled: false when the fetched config says browserEnabled: true', () => {
+      mockConfig({ browserEnabled: true, pushEnabled: false, vapidPublicKey: null });
+
+      render(<UserNotificationsPage />);
+
+      expect(mockUseNotificationCapability).toHaveBeenCalledWith(
+        expect.objectContaining({ adminDisabled: false }),
+      );
+    });
   });
 
   // #221. The page's ONLY job here is to hand the capability down; this is

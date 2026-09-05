@@ -61,6 +61,7 @@ import { LoadingSpinner } from '../components/common/LoadingSpinner';
 import { NotificationSettings } from '../components/settings/NotificationSettings';
 import { useIsMounted } from '../hooks/useIsMounted';
 import { useNotificationCapability } from '../hooks/useNotificationCapability';
+import { useNotificationConfig } from '../hooks/useNotificationConfig';
 import { useNotificationEvents } from '../hooks/useNotificationEvents';
 import { requestBrowserNotificationPermission } from '../services/browserNotifications';
 import type { NotificationPreferencesPatch } from '../types';
@@ -91,10 +92,16 @@ export default function UserNotificationsPage() {
   // this page needs it, because every decision here is about what the user can
   // DO, which is exactly what `capability` names.
   //
-  // `adminDisabled` is intentionally not passed yet: it defaults to "not
-  // disabled", and #227 wires the real value from `GET /api/notifications/config`
-  // in as a prop here. No other line of this page changes when it does.
-  const { capability, refresh: refreshPermission } = useNotificationCapability();
+  // #227: `adminDisabled` is now wired from `GET /api/notifications/config`,
+  // via `useNotificationConfig` below. `config` is `null` until that first read
+  // resolves, and `config?.browserEnabled === false` — rather than
+  // `!config?.browserEnabled` — is what keeps that window from reading as
+  // "disabled": see `useNotificationConfig`'s own header for why the two reads
+  // disagree during loading and why only one of them is correct.
+  const { config: notificationConfig } = useNotificationConfig();
+  const { capability, refresh: refreshPermission } = useNotificationCapability({
+    adminDisabled: notificationConfig?.browserEnabled === false,
+  });
 
   const isMounted = useIsMounted();
   const [isRequestingPermission, setIsRequestingPermission] = useState(false);
