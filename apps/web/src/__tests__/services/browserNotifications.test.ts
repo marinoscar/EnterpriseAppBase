@@ -86,9 +86,23 @@ function setNotification(
  * - `'rejects'` rejects `getRegistration()` itself.
  * - `'showThrows'` resolves a registration whose `showNotification()` rejects
  *   - a SW that exists but refuses the call (mid-update, browser bug).
+ * - `'registeredNoGetNotifications'` is `'registered'` but with no
+ *   `getNotifications` method at all - the shape of an embedded WebView whose
+ *   registration object has gaps (#224's defensive `typeof` guard).
+ *
+ * `registered` and `registeredNoGetNotifications` accept a `getNotificationsResult`
+ * (#224) - the array `registration.getNotifications({ tag })` resolves with,
+ * defaulting to empty (no existing toast with this tag).
  */
 function setServiceWorker(
-  state: 'absent' | 'unregistered' | 'registered' | 'rejects' | 'showThrows',
+  state:
+    | 'absent'
+    | 'unregistered'
+    | 'registered'
+    | 'rejects'
+    | 'showThrows'
+    | 'registeredNoGetNotifications',
+  opts: { getNotificationsResult?: unknown[] } = {},
 ) {
   if (state === 'absent') {
     delete (window.navigator as any).serviceWorker;
@@ -101,10 +115,17 @@ function setServiceWorker(
       : Promise.resolve(undefined),
   );
 
-  const registration =
-    state === 'registered' || state === 'showThrows'
-      ? ({ showNotification } as unknown as ServiceWorkerRegistration)
-      : undefined;
+  const getNotifications = vi.fn(() => Promise.resolve(opts.getNotificationsResult ?? []));
+
+  let registration: ServiceWorkerRegistration | undefined;
+  if (state === 'registered' || state === 'showThrows') {
+    registration = { showNotification, getNotifications } as unknown as ServiceWorkerRegistration;
+  } else if (state === 'registeredNoGetNotifications') {
+    // No `getNotifications` key at all, not merely one that returns undefined
+    // - this is what the `typeof registration.getNotifications === 'function'`
+    // guard in `showAppNotification` exists to survive.
+    registration = { showNotification } as unknown as ServiceWorkerRegistration;
+  }
 
   const getRegistration = vi.fn(() =>
     state === 'rejects'
@@ -118,7 +139,7 @@ function setServiceWorker(
     writable: true,
   });
 
-  return { getRegistration, showNotification };
+  return { getRegistration, showNotification, getNotifications };
 }
 
 const baseNotification: AppNotification = {
@@ -244,6 +265,51 @@ describe('browserNotifications', () => {
         await showAppNotification(baseNotification);
 
         expect(ctor).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('cross-tab dedup via getNotifications (#224)', () => {
+      it('resolves "none" and never calls showNotification when a toast with this tag already exists', async () => {
+        setNotification('granted');
+        const sw = setServiceWorker('registered', {
+          getNotificationsResult: [{ tag: baseNotification.id }],
+        });
+
+        const result = await showAppNotification(baseNotification);
+
+        expect(result).toBe('none');
+        expect(sw!.getNotifications).toHaveBeenCalledWith({ tag: baseNotification.id });
+        expect(sw!.showNotification).not.toHaveBeenCalled();
+      });
+
+      it('does not fall back to the page path either when a duplicate is found - the notification is already in the centre', async () => {
+        const { ctor } = setNotification('granted');
+        setServiceWorker('registered', { getNotificationsResult: [{ tag: baseNotification.id }] });
+
+        await showAppNotification(baseNotification);
+
+        expect(ctor).not.toHaveBeenCalled();
+      });
+
+      it('calls showNotification normally when getNotifications resolves empty - the existing happy path is unbroken', async () => {
+        setNotification('granted');
+        const sw = setServiceWorker('registered', { getNotificationsResult: [] });
+
+        const result = await showAppNotification(baseNotification);
+
+        expect(result).toBe('sw');
+        expect(sw!.getNotifications).toHaveBeenCalledWith({ tag: baseNotification.id });
+        expect(sw!.showNotification).toHaveBeenCalledTimes(1);
+      });
+
+      it('falls through to showNotification when getNotifications is not a function on the registration - the typeof guard degrades safely', async () => {
+        setNotification('granted');
+        const sw = setServiceWorker('registeredNoGetNotifications');
+
+        const result = await showAppNotification(baseNotification);
+
+        expect(result).toBe('sw');
+        expect(sw!.showNotification).toHaveBeenCalledTimes(1);
       });
     });
 
