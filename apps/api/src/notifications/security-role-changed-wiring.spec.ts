@@ -16,6 +16,8 @@ import {
 import { UsersService } from '../users/users.service';
 import { EmailNotificationChannel } from './channels/email-notification.channel';
 import { NotificationDeliveryService } from './notification-delivery.service';
+import { DEFAULT_NOTIFICATION_POLICY } from './notification-policy';
+import { NotificationPolicyService } from './notification-policy.service';
 import { NotificationsService } from './notifications.service';
 import {
   NOTIFICATION_CHANNEL_SENDERS,
@@ -151,6 +153,15 @@ describe('security.role_changed: mandatory, both channels, and the before/after 
         NotificationDeliveryService,
         EmailNotificationChannel,
         { provide: PrismaService, useValue: prisma },
+        // #226. The dispatcher now reads the deployment-wide notification
+        // policy; this suite is not about that policy, so it gets the
+        // permissive default every untouched deployment has.
+        {
+          provide: NotificationPolicyService,
+          useValue: {
+            getPolicy: jest.fn().mockResolvedValue(DEFAULT_NOTIFICATION_POLICY),
+          },
+        },
         {
           provide: ConfigService,
           useValue: { get: jest.fn().mockReturnValue('https://app.example.com') },
