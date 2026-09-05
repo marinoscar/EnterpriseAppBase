@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
@@ -289,6 +289,133 @@ describe('NotificationContext', () => {
       // once about this notification, so a duplicate frame must raise no
       // second OS-level toast.
       expect(showAppNotificationMock).toHaveBeenCalledTimes(1);
+    });
+
+    describe('foreground suppression (#224)', () => {
+      // These mutate `document.visibilityState` (normally a read-only getter)
+      // and `document.hasFocus`, so both are restored after every test rather
+      // than only within this block - a leak here would silently change
+      // `document.hasFocus()`'s behaviour for every later test file that
+      // shares this jsdom instance.
+      const originalVisibilityState = Object.getOwnPropertyDescriptor(
+        Document.prototype,
+        'visibilityState',
+      );
+      const originalHasFocus = document.hasFocus;
+
+      function setVisibility(state: 'visible' | 'hidden') {
+        Object.defineProperty(document, 'visibilityState', {
+          value: state,
+          configurable: true,
+        });
+      }
+
+      function setFocused(focused: boolean) {
+        vi.spyOn(document, 'hasFocus').mockReturnValue(focused);
+      }
+
+      afterEach(() => {
+        if (originalVisibilityState) {
+          Object.defineProperty(Document.prototype, 'visibilityState', originalVisibilityState);
+        }
+        document.hasFocus = originalHasFocus;
+      });
+
+      it('does not raise a toast for a new arrival when the tab is visible and focused', async () => {
+        setVisibility('visible');
+        setFocused(true);
+
+        const { result } = renderHook(() => useNotifications(), { wrapper: createWrapper() });
+        await waitFor(() => expect(result.current?.isLoading).toBe(false));
+
+        act(() => {
+          capturedHandlers!.onNotification(makeAppNotification({ id: 'fg-visible-focused' }));
+        });
+
+        expect(showAppNotificationMock).not.toHaveBeenCalled();
+      });
+
+      it('raises a toast for a new arrival when the tab is hidden, even if focused', async () => {
+        setVisibility('hidden');
+        setFocused(true);
+
+        const { result } = renderHook(() => useNotifications(), { wrapper: createWrapper() });
+        await waitFor(() => expect(result.current?.isLoading).toBe(false));
+
+        act(() => {
+          capturedHandlers!.onNotification(makeAppNotification({ id: 'fg-hidden' }));
+        });
+
+        expect(showAppNotificationMock).toHaveBeenCalledTimes(1);
+      });
+
+      it('raises a toast for a new arrival when the tab is visible but unfocused', async () => {
+        setVisibility('visible');
+        setFocused(false);
+
+        const { result } = renderHook(() => useNotifications(), { wrapper: createWrapper() });
+        await waitFor(() => expect(result.current?.isLoading).toBe(false));
+
+        act(() => {
+          capturedHandlers!.onNotification(makeAppNotification({ id: 'fg-unfocused' }));
+        });
+
+        expect(showAppNotificationMock).toHaveBeenCalledTimes(1);
+      });
+
+      it('raises a toast when both hidden and unfocused', async () => {
+        setVisibility('hidden');
+        setFocused(false);
+
+        const { result } = renderHook(() => useNotifications(), { wrapper: createWrapper() });
+        await waitFor(() => expect(result.current?.isLoading).toBe(false));
+
+        act(() => {
+          capturedHandlers!.onNotification(makeAppNotification({ id: 'fg-hidden-unfocused' }));
+        });
+
+        expect(showAppNotificationMock).toHaveBeenCalledTimes(1);
+      });
+
+      it('still updates the bell list and unread count when the toast is suppressed - the gate is toast-only', async () => {
+        setVisibility('visible');
+        setFocused(true);
+
+        const { result } = renderHook(() => useNotifications(), { wrapper: createWrapper() });
+        await waitFor(() => expect(result.current?.isLoading).toBe(false));
+
+        const notification = makeAppNotification({ id: 'fg-badge-still-updates' });
+        act(() => {
+          capturedHandlers!.onNotification(notification);
+        });
+
+        // The most important regression per #224's acceptance criteria: "The
+        // bell badge and notification centre update normally in all three
+        // cases" - suppressing the OS toast must never suppress the list or
+        // the count.
+        expect(result.current?.notifications[0]).toEqual(notification);
+        expect(result.current?.unreadCount).toBe(1);
+        expect(showAppNotificationMock).not.toHaveBeenCalled();
+      });
+
+      it('does not raise a toast for a duplicate frame even when hidden - the isNew gate still wins first', async () => {
+        setVisibility('hidden');
+        setFocused(false);
+
+        const { result } = renderHook(() => useNotifications(), { wrapper: createWrapper() });
+        await waitFor(() => expect(result.current?.isLoading).toBe(false));
+
+        const notification = makeAppNotification({ id: 'fg-dup-hidden' });
+        act(() => {
+          capturedHandlers!.onNotification(notification);
+        });
+        expect(showAppNotificationMock).toHaveBeenCalledTimes(1);
+
+        act(() => {
+          capturedHandlers!.onNotification(notification);
+        });
+        expect(showAppNotificationMock).toHaveBeenCalledTimes(1);
+      });
     });
 
     it('logout clears the id memory, so the same id arriving again after a re-login counts as new', async () => {
