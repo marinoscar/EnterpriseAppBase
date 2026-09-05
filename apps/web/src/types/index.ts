@@ -291,6 +291,39 @@ export type NotificationStreamEvent = Omit<AppNotification, 'readAt'> & {
   toast: boolean;
 };
 
+/**
+ * `GET /api/notifications/config` — this deployment's client-facing
+ * notification capabilities (#226, epic #215). Field for field the API's
+ * `notificationConfigSchema` (`apps/api/src/notifications/dto/notification-config.dto.ts`),
+ * which carries the full argument for why this is its own narrow, unauthenticated-
+ * by-permission endpoint rather than a widening of `system_settings:read` — cited
+ * here rather than re-derived: a viewer holds no `system_settings:read`, so this
+ * is the one place that lets a non-admin learn the toggle without exposing the
+ * whole settings blob (the open `features` map included).
+ */
+export interface NotificationConfigResponse {
+  /**
+   * May this client raise browser notifications at all? THE PERMISSION-PROMPT
+   * GATE — see the DTO's own doc comment. `false` does not stop delivery; rows
+   * are still written and the centre still fills, it only means the OS bubble
+   * is off. Consumed by #227 as `useNotificationCapability`'s `adminDisabled`
+   * input (`!browserEnabled`).
+   */
+  browserEnabled: boolean;
+  /**
+   * May this client subscribe to Web Push? ALWAYS `false` TODAY — Web Push is
+   * #229/#230. Not consumed anywhere in the web app yet; #228's push column
+   * takes it as its own prop with its own placeholder value.
+   */
+  pushEnabled: boolean;
+  /**
+   * The VAPID application server key for `pushManager.subscribe`, or `null`
+   * when push is unavailable. ALWAYS `null` TODAY, for the same reason
+   * `pushEnabled` is. Unused until #229/#230.
+   */
+  vapidPublicKey: string | null;
+}
+
 export interface UserSettings {
   theme: 'light' | 'dark' | 'system';
   profile: {
