@@ -92,12 +92,22 @@ export function parseNotificationEvent(data: string): NotificationStreamEvent | 
   // `string | null` specifically — `undefined` is not acceptable, because the
   // API always sends the key and its absence means the payload is not what this
   // client thinks it is.
+  //
+  // `toast` (#226) is held to the same standard rather than defaulted, and the
+  // choice is deliberate. Defaulting a missing flag to `true` would let a frame
+  // this client cannot fully understand re-enable a notification an
+  // administrator switched off; defaulting it to `false` would silently drop
+  // toasts against a server that is sending them. Requiring it makes the
+  // contract explicit — the API always sends the key — and a frame that lacks
+  // it is treated like any other malformed frame: dropped here, still present
+  // in the table, picked up by the next refetch.
   if (
     typeof value.id !== 'string' ||
     typeof value.eventKey !== 'string' ||
     typeof value.title !== 'string' ||
     typeof value.body !== 'string' ||
     typeof value.createdAt !== 'string' ||
+    typeof value.toast !== 'boolean' ||
     !(typeof value.link === 'string' || value.link === null)
   ) {
     return null;
@@ -110,22 +120,32 @@ export function parseNotificationEvent(data: string): NotificationStreamEvent | 
     body: value.body,
     link: value.link,
     createdAt: value.createdAt,
+    toast: value.toast,
   };
 }
 
 /**
  * Widen a streamed event into a full notification row.
  *
- * THE ONLY DIFFERENCE IS `readAt`, and `null` is not a guess: the API omits the
- * field from the stream because a notification is unread BY DEFINITION at the
- * instant it is published. This is the single place that fills it in, so a
- * streamed notification and a fetched one are the same object everywhere else
- * in the app and the centre never has to know which way one arrived.
+ * TWO DIFFERENCES, AND BOTH ARE RECONCILED HERE. `readAt: null` is not a guess:
+ * the API omits the field from the stream because a notification is unread BY
+ * DEFINITION at the instant it is published. And `toast` is DROPPED: it is an
+ * instruction about this one live delivery ("may the OS bubble be raised?"),
+ * not a property of the stored row, and the same notification fetched from
+ * `GET /api/notifications` has no such field.
+ *
+ * Keeping it would make a streamed notification and a fetched one two subtly
+ * different objects in the same list — precisely the divergence the API avoided
+ * by giving the stream the row's shape in the first place. A caller that needs
+ * the flag reads it off the stream event, before this conversion; `onFrame`
+ * below holds both.
  */
 export function streamEventToNotification(
   event: NotificationStreamEvent,
 ): AppNotification {
-  return { ...event, readAt: null };
+  const { toast: _toast, ...notification } = event;
+
+  return { ...notification, readAt: null };
 }
 
 export interface NotificationStreamHandlers {
