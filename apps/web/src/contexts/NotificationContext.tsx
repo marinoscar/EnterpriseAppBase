@@ -384,6 +384,55 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       // a second OS-level popup for one event is the badge lie in audible form.
       if (!isNew) return;
 
+      // =======================================================================
+      // ⚠️ #224: SUPPRESS THE TOAST WHEN THIS WINDOW IS ALREADY WHAT THE USER
+      // IS LOOKING AT — A SECOND, INDEPENDENT GATE ON TOP OF `isNew` ABOVE
+      // =======================================================================
+      //
+      // NOT a replacement for the `isNew` return above, and not merged with it.
+      // `isNew` answers "has this notification been accounted for yet" — a
+      // question about the EVENT, decided once, from a ref, because a duplicate
+      // stream frame must never double-count or double-toast regardless of
+      // anything about the window. This answers a completely different
+      // question — "is anyone about to miss it if we don't pop a toast" — which
+      // is about the TAB'S CURRENT STATE and must be re-evaluated on every
+      // genuinely-new arrival, not cached anywhere.
+      //
+      // The rule (per #224): show an OS notification only when NO window of
+      // this registration is both visible and focused. When the tab the user
+      // is actually looking at just gained a row in the bell and bumped the
+      // badge, an OS popup on top of that is a second, redundant interruption
+      // for something already on screen — the badge already IS the feedback.
+      // `document.hasFocus()` alone is not enough: a fully covered-but-focused
+      // window (alt-tabbed to another app while this browser window still has
+      // OS input focus) reports `visibilityState === 'hidden'`, and a visible
+      // background tab in the same window is not focused — BOTH conditions are
+      // required together for "the user is plausibly looking at this right
+      // now", which is exactly why the check is a `&&`, not an `||`.
+      //
+      // These are DOM globals (`document`, not anything from
+      // `browserNotifications.ts`), so the check lives here rather than inside
+      // `showAppNotification` — that module's job is "how do I raise a toast
+      // given permission and a registration", not "should one be raised at
+      // all", and it has no business reaching for `document` to answer a
+      // question this file already has the context to ask first.
+      //
+      // Placed AFTER every state update above (`setNotifications`,
+      // `setUnreadCount`) and BEFORE the toast call ONLY — the bell and unread
+      // count must update identically whether or not the tab is focused; only
+      // the OS-level popup is conditional. Do not move this earlier in the
+      // function.
+      //
+      // A hidden or unfocused tab still gets exactly one toast — this check
+      // does nothing there, on purpose. Cross-tab collapsing to ONE toast when
+      // several backgrounded tabs are all eligible to show one is a SEPARATE
+      // mechanism: the `getNotifications({ tag })` registration-wide guard in
+      // `showAppNotification` (`services/browserNotifications.ts`). That one
+      // works by reading what the browser has already displayed; this one
+      // works by reading what the user is currently looking at. Neither
+      // subsumes the other.
+      if (document.visibilityState === 'visible' && document.hasFocus()) return;
+
       // THIRD IN THE ORDERING, and deliberately last: the centre is already
       // correct by this point, so everything below is free to fail. Fired
       // and forgotten — `showAppNotification` resolves with which path (if

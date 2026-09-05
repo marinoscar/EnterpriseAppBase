@@ -228,7 +228,9 @@ function showPageNotification(
  *        `showPageNotification` above for why this ONLY fires on the page
  *        path, never on the SW path.
  * @returns which path actually raised the toast (`'sw'` or `'page'`), or
- *          `'none'` if neither did. For tests and diagnostics; no caller
+ *          `'none'` if neither did — including when the SW path found this
+ *          exact tag already showing (#224's cross-tab dedup) and deliberately
+ *          skipped raising a second one. For tests and diagnostics; no caller
  *          makes a decision from it, because there is no fallback to fall
  *          back to — the notification is already in the centre.
  */
@@ -253,6 +255,45 @@ export async function showAppNotification(
         // trusting the type, is the same posture `isSupported()` above takes
         // with `Notification.permission`.
         if (registration && typeof registration.showNotification === 'function') {
+          // =====================================================================
+          // #224 — CROSS-TAB DEDUP, REGISTRATION-WIDE
+          // =====================================================================
+          //
+          // The API publishes to every open connection, so a user with four tabs
+          // on this origin receives four `notification` stream frames for the
+          // same event — one per tab — and without this check each tab would
+          // independently reach this line and raise its own OS toast: four
+          // popups for one notification.
+          //
+          // `getNotifications({ tag })` reads the OS notification tray through
+          // the SERVICE WORKER REGISTRATION, which is shared by every tab of
+          // this origin, not the calling tab's own state. So this is not "have
+          // I shown this before" (which would need per-tab memory this module
+          // deliberately doesn't keep) — it's "does a toast with this tag exist
+          // anywhere right now, raised by any tab, including one that is racing
+          // this one this very instant". `tag` is already the notification's id
+          // (set below, and on the page path in `showPageNotification`), so an
+          // existing entry can ONLY be this exact notification.
+          //
+          // This is why it beats the alternative the issue's write-up considered
+          // and rejected — cross-tab leader election: that needs a coordination
+          // protocol (BroadcastChannel, localStorage locks, a chosen leader tab)
+          // that itself has failure modes (the leader tab closes mid-election,
+          // two tabs both think they won a race). Reading the registration's own
+          // notification list has none of that: there is nothing to coordinate,
+          // because the browser already maintains one shared list per
+          // registration and `tag` already collapses entries within it.
+          //
+          // Defensive `typeof` check for the same reason `showNotification`
+          // above gets one: some embedded WebViews expose a registration-shaped
+          // object with gaps in its method set. A missing `getNotifications`
+          // degrades to "no dedup this call", not a thrown error — silent
+          // degradation is this file's whole contract (see the header comment).
+          if (typeof registration.getNotifications === 'function') {
+            const existing = await registration.getNotifications({ tag: notification.id });
+            if (existing.length > 0) return 'none';
+          }
+
           await registration.showNotification(notification.title, {
             body: notification.body,
             tag: notification.id,
