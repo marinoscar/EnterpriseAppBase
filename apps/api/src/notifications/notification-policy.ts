@@ -158,10 +158,20 @@ export function isBrowserToastAllowed(
  * MANDATORY EVENTS ARE EXEMPT — see this file's header. Their row IS the
  * delivery, and removing the channel would stop it being written.
  *
- * Only `browser` is subject to policy today; `email` has no deployment-wide
- * gate (#225 declared none) and `push` gets its own in #230. Filtering by a
- * per-channel rule rather than by a hardcoded `!== 'browser'` is what keeps
- * that addition a change to one predicate.
+ * Only `browser` is subject to policy today. `email` has no deployment-wide
+ * gate (#225 declared none), and `push` — widened into `NOTIFICATION_CHANNELS`
+ * by #228 — gets NONE EITHER, DELIBERATELY, for now: #228 is a structural
+ * widening only (the type grows; no `NOTIFICATION_EVENTS` entry declares
+ * `push` in its `channels` yet, so nothing dispatches over it), and a
+ * deployment-wide policy gate for it is explicitly #230's job, not this one's.
+ * This mirrors how `email` shipped in #122 with no gate of its own — a channel
+ * may exist here, structurally, for a while before it earns an admin-facing
+ * kill switch. So the `: true` fallback below is unchanged and intentional: it
+ * does not mean "every channel but browser is safe to assume ungated
+ * forever", it means "no channel but browser has EARNED a gate yet". Filtering
+ * by a per-channel rule rather than a hardcoded `!== 'browser'` is what keeps
+ * #230's eventual addition a change to one predicate rather than a rewrite of
+ * this function.
  *
  * Returns a fresh array; nothing here hands out a reference into the registry.
  */
