@@ -59,6 +59,27 @@ export default () => {
     callbackUrl: process.env.GOOGLE_CALLBACK_URL,
   },
 
+  // Web Push (issue #229, epic #215) — deploy-time VAPID key pair.
+  //
+  // Read exactly like `google` above: plain `process.env`, no default, no
+  // validation at this layer. `undefined` is the correct value for a
+  // deployment that has not generated keys — `PushSubscriptionService.isEnabled`
+  // is what turns "these are unset" into "Web Push is off", not this file.
+  //
+  // Deliberately NOT run through `common/crypto/secret-cipher.ts` /
+  // `SECRETS_ENCRYPTION_KEY`, for the same reason `google.clientSecret` isn't:
+  // that machinery encrypts credentials an ADMIN ENTERS AT RUNTIME through the
+  // app before they land in the `credentials` table. A VAPID key pair is
+  // generated once at deploy time (`npx web-push generate-vapid-keys`) and
+  // supplied as an environment variable, exactly like `GOOGLE_CLIENT_SECRET` —
+  // there is no runtime entry path for it, so there is nothing for that cipher
+  // to do here.
+  push: {
+    vapidPublicKey: process.env.VAPID_PUBLIC_KEY,
+    vapidPrivateKey: process.env.VAPID_PRIVATE_KEY,
+    vapidSubject: process.env.VAPID_SUBJECT,
+  },
+
   // Admin bootstrap
   initialAdminEmail: process.env.INITIAL_ADMIN_EMAIL,
 

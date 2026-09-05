@@ -1,6 +1,9 @@
 import {
+  Body,
   Controller,
+  Delete,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
   Param,
@@ -31,6 +34,7 @@ import {
   type SseMessage,
 } from './notification-stream.service';
 import { NotificationStoreService } from './notification-store.service';
+import { PushSubscriptionService } from './push-subscription.service';
 import {
   NotificationConfigDto,
   type NotificationConfigResponse,
@@ -46,6 +50,12 @@ import {
   type NotificationListResponse,
   type UnreadCountResponse,
 } from './dto/notification.dto';
+import {
+  PushSubscribeDto,
+  PushSubscriptionResponseDto,
+  PushUnsubscribeDto,
+  type PushSubscriptionResponse,
+} from './dto/push-subscription.dto';
 
 // =============================================================================
 // NotificationsController (issues #124/#127, epic #109)
@@ -83,6 +93,9 @@ export class NotificationsController {
     // The admin policy (#226), for `GET /events` and `GET /config`. Same
     // reader the dispatcher uses, so the two cannot disagree.
     private readonly policy: NotificationPolicyService,
+    // Push subscription storage (#229), for `GET /config` and the two
+    // `push/subscriptions` endpoints below.
+    private readonly pushSubscriptions: PushSubscriptionService,
   ) {}
 
   @Get('events')
@@ -174,8 +187,13 @@ export class NotificationsController {
       'the OS toast. Per-event suppression is deliberately not listed here — it travels with ' +
       'each notification as `toast` on the SSE stream, so a long-lived tab holding a cached ' +
       'copy of this response can never re-enable something an administrator has muted.\n\n' +
-      '`pushEnabled` is always `false` and `vapidPublicKey` always `null` in this release; ' +
-      'Web Push is not implemented yet.',
+      '`pushEnabled` reflects whether THIS DEPLOYMENT has a VAPID key pair configured ' +
+      '(`VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY`) — it says nothing about this user’s own ' +
+      'subscription state. When `true`, `vapidPublicKey` carries the public key a client needs ' +
+      'to call `pushManager.subscribe`; a client should not attempt that call while `pushEnabled` ' +
+      'is `false`. Still not a delivery switch in the #230 sense: #229 (this) is the subscription ' +
+      'store; #230 is the (separate, future) channel that actually sends a push to a stored ' +
+      'subscription.',
   })
   @ApiDataResponse(NotificationConfigDto, {
     description: 'This deployment’s notification capabilities',
@@ -185,13 +203,11 @@ export class NotificationsController {
 
     return {
       browserEnabled: policy.browserEnabled,
-      // CONSTANTS, NOT PLACEHOLDERS. Web Push arrives in #229 (subscriptions
-      // and VAPID keys) and #230 (the delivery channel); until then this
-      // deployment genuinely cannot do push, and saying so plainly is the
-      // honest answer. The fields exist now so the client contract does not
-      // change shape when they land.
-      pushEnabled: false,
-      vapidPublicKey: null,
+      // Real values as of #229: true/non-null exactly when this deployment's
+      // environment carries a VAPID key pair. #230 (the delivery channel) is
+      // what makes a stored subscription actually receive anything.
+      pushEnabled: this.pushSubscriptions.isEnabled(),
+      vapidPublicKey: this.pushSubscriptions.getVapidPublicKey(),
     };
   }
 
@@ -430,5 +446,85 @@ export class NotificationsController {
     @CurrentUser('id') userId: string,
   ): Promise<UnreadCountResponse> {
     return { unreadCount: await this.store.markAllRead(userId) };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Push subscriptions (#229)
+  // ---------------------------------------------------------------------------
+
+  @Post('push/subscriptions')
+  @Auth()
+  @ApiOperation({
+    summary: 'Register a browser push subscription',
+    description:
+      'Stores (or refreshes) the caller’s `PushSubscription`, so #230’s sender has something to ' +
+      'push to. Body matches the browser’s `PushSubscription.toJSON()` shape exactly, so the ' +
+      'client can pass that object through unmodified.\n\n' +
+      '**Upserted by `endpoint`, not created unconditionally.** Re-subscribing the same endpoint ' +
+      '(the same browser instance) updates the existing row in place — including moving it to a ' +
+      'different `userId` when the same browser subscribes while signed in as someone else — ' +
+      'rather than creating a duplicate. See `PushSubscriptionService.subscribe`.\n\n' +
+      '`User-Agent` is read from the request header, not a body field, since the browser already ' +
+      'sends it on every request with zero client code required and a client-supplied value could ' +
+      'be spoofed to no benefit.\n\n' +
+      '**`409 Conflict`** when this deployment has no VAPID key pair configured — check ' +
+      '`GET /api/notifications/config`’s `pushEnabled` before ever calling `pushManager.subscribe` ' +
+      'in the first place.',
+  })
+  @ApiDataResponse(PushSubscriptionResponseDto, {
+    status: 201,
+    description: 'The subscription was stored',
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Web Push is not enabled on this deployment (no VAPID keys configured)',
+  })
+  @HttpCode(HttpStatus.CREATED)
+  async subscribePush(
+    @CurrentUser('id') userId: string,
+    @Body() dto: PushSubscribeDto,
+    @Headers('user-agent') userAgent: string | undefined,
+  ): Promise<PushSubscriptionResponse> {
+    const subscription = await this.pushSubscriptions.subscribe(
+      userId,
+      dto,
+      userAgent,
+    );
+
+    return {
+      id: subscription.id,
+      endpoint: subscription.endpoint,
+      createdAt: subscription.createdAt.toISOString(),
+    };
+  }
+
+  /**
+   * `DELETE` with a JSON body — unusual in this codebase's other `DELETE`
+   * endpoints (`allowlist`, `pat`), which identify their target by an `:id`
+   * path segment, but there is no surrogate id here: the client's only handle
+   * on a subscription is the (long, `/`-containing) endpoint URL the browser
+   * gave it, and a body avoids re-encoding that into a path or query segment.
+   * Both Fastify and Nest support a body on `DELETE`; nothing here relies on
+   * `DELETE` being body-less.
+   */
+  @Delete('push/subscriptions')
+  @Auth()
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Remove a browser push subscription',
+    description:
+      'Deletes the caller’s own push subscription for the given `endpoint`. Ownership-scoped: ' +
+      'an endpoint that does not exist and one that belongs to a different user return the same ' +
+      '`404`, matching this API’s existing precedent for ownership checks (e.g. ' +
+      '`POST /api/notifications/:id/read`) — the two are deliberately indistinguishable so this ' +
+      'cannot be used to probe which endpoints exist.',
+  })
+  @ApiResponse({ status: 204, description: 'Subscription removed' })
+  @ApiResponse({ status: 404, description: 'No such subscription for this user' })
+  async unsubscribePush(
+    @CurrentUser('id') userId: string,
+    @Body() dto: PushUnsubscribeDto,
+  ): Promise<void> {
+    await this.pushSubscriptions.unsubscribe(userId, dto.endpoint);
   }
 }
