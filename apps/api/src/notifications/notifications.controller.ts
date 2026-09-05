@@ -24,11 +24,17 @@ import { ApiDataResponse } from '../common/decorators/api-data-response.decorato
 import { Auth } from '../auth/decorators/auth.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { NOTIFICATION_EVENTS } from './notification-events';
+import { policyChannels } from './notification-policy';
+import { NotificationPolicyService } from './notification-policy.service';
 import {
   NotificationStreamService,
   type SseMessage,
 } from './notification-stream.service';
 import { NotificationStoreService } from './notification-store.service';
+import {
+  NotificationConfigDto,
+  type NotificationConfigResponse,
+} from './dto/notification-config.dto';
 import {
   NotificationEventDto,
   type NotificationEventResponse,
@@ -74,6 +80,9 @@ export class NotificationsController {
     // `streams`, plural, and not `stream`: the handler below is named `stream`
     // and a field of the same name shadows it on the class.
     private readonly streams: NotificationStreamService,
+    // The admin policy (#226), for `GET /events` and `GET /config`. Same
+    // reader the dispatcher uses, so the two cannot disagree.
+    private readonly policy: NotificationPolicyService,
   ) {}
 
   @Get('events')
@@ -87,22 +96,36 @@ export class NotificationsController {
       'This describes what events *exist*, not what the caller has chosen. An event ' +
       'with `mandatory: true` cannot be switched off; that is enforced server-side ' +
       'during delivery, and the flag is here so the UI can show the control disabled ' +
-      'with a reason rather than hiding it.',
+      'with a reason rather than hiding it.\n\n' +
+      '**`channels` is capability ∩ administrator policy.** An event that can be ' +
+      'delivered over `browser` does not list it while an administrator has browser ' +
+      'notifications switched off deployment-wide, or has suppressed that event, in ' +
+      'system settings — the delivery path applies the identical filter, so a channel ' +
+      'listed here is a channel that will be used and one omitted is one that will not. ' +
+      'A `mandatory` event is the exception: its channels are never filtered, because ' +
+      'its stored notification is the delivery. For those, the policy shows up as ' +
+      '`toast: false` on the SSE stream instead.',
   })
   @ApiDataResponse(NotificationEventDto, {
     isArray: true,
     description: 'The notification event registry',
   })
-  listEvents(): NotificationEventResponse[] {
+  async listEvents(): Promise<NotificationEventResponse[]> {
+    // THE SAME POLICY THE DISPATCHER WILL APPLY, from the same function (#226).
+    // `resolveChannels` calls `policyChannels` too, which is what makes it
+    // impossible for this matrix to offer a channel delivery would refuse — or
+    // to hide one it would use. See notification-policy.ts.
+    const policy = await this.policy.getPolicy();
+
     // Mapped field by field rather than returned directly, for three reasons:
     //
     //   1. `mandatory` is normalised from `boolean | undefined` to `boolean`,
     //      so no client has to know that absent means "the user is in charge".
-    //   2. `channels` is COPIED. The arrays in `NOTIFICATION_EVENTS` are the
-    //      registry's own state and this is a module-level constant living for
-    //      the process lifetime; handing out the live array would let a
-    //      serialiser or an interceptor that sorts in place reconfigure
-    //      delivery for every later dispatch.
+    //   2. `channels` is a FRESH ARRAY out of `policyChannels`. The arrays in
+    //      `NOTIFICATION_EVENTS` are the registry's own state and this is a
+    //      module-level constant living for the process lifetime; handing out
+    //      the live array would let a serialiser or an interceptor that sorts
+    //      in place reconfigure delivery for every later dispatch.
     //   3. The response shape is decided here, in code that is about the
     //      response shape. A spread would make it a consequence of whatever
     //      the registry happens to hold, so a field added for the dispatcher's
@@ -111,10 +134,65 @@ export class NotificationsController {
       key: event.key,
       label: event.label,
       description: event.description,
-      channels: [...event.channels],
+      channels: policyChannels(event, policy),
       defaultEnabled: event.defaultEnabled,
       mandatory: event.mandatory === true,
     }));
+  }
+
+  /**
+   * What this deployment can do, for the client that has to decide whether to
+   * ask the browser for notification permission.
+   *
+   * ---------------------------------------------------------------------------
+   * `@Auth()` WITH NO PERMISSION, EXACTLY LIKE `GET /events` ABOVE
+   * ---------------------------------------------------------------------------
+   *
+   * Deliberately the same gate, and for the same reason: this is information
+   * every signed-in account needs about its own notifications. A `viewer` holds
+   * `user_settings:read|write` and `storage:read` and nothing else — so gating
+   * this on `system_settings:read` would lock the policy away from precisely the
+   * users it governs, and widening THAT permission to reach it would publish the
+   * entire settings blob (including the open `features` map downstream forks
+   * fill with operational flags) to every account. See the DTO, which carries
+   * the full argument and the rejected alternative.
+   */
+  @Get('config')
+  @Auth()
+  @ApiOperation({
+    summary: 'Notification capabilities of this deployment',
+    description:
+      'What this deployment can deliver, for a client deciding whether to ask the browser ' +
+      'for notification permission. Readable by **any authenticated user** — the policy ' +
+      'governs every account, so every account can read it.\n\n' +
+      '`browserEnabled` is the administrator’s deployment-wide switch (system settings). ' +
+      'A client should not prompt for OS notification permission when it is `false`: browser ' +
+      'permission, once denied, cannot be re-prompted, so prompting for a capability this ' +
+      'deployment has switched off spends a one-shot decision for nothing.\n\n' +
+      '**This is not a delivery switch.** Notifications are still recorded and the ' +
+      'notification centre still fills when `browserEnabled` is `false`; what is withheld is ' +
+      'the OS toast. Per-event suppression is deliberately not listed here — it travels with ' +
+      'each notification as `toast` on the SSE stream, so a long-lived tab holding a cached ' +
+      'copy of this response can never re-enable something an administrator has muted.\n\n' +
+      '`pushEnabled` is always `false` and `vapidPublicKey` always `null` in this release; ' +
+      'Web Push is not implemented yet.',
+  })
+  @ApiDataResponse(NotificationConfigDto, {
+    description: 'This deployment’s notification capabilities',
+  })
+  async config(): Promise<NotificationConfigResponse> {
+    const policy = await this.policy.getPolicy();
+
+    return {
+      browserEnabled: policy.browserEnabled,
+      // CONSTANTS, NOT PLACEHOLDERS. Web Push arrives in #229 (subscriptions
+      // and VAPID keys) and #230 (the delivery channel); until then this
+      // deployment genuinely cannot do push, and saying so plainly is the
+      // honest answer. The fields exist now so the client contract does not
+      // change shape when they land.
+      pushEnabled: false,
+      vapidPublicKey: null,
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -202,8 +280,14 @@ export class NotificationsController {
       'A `text/event-stream` carrying **only the authenticated caller’s** notifications. ' +
       'There is no parameter that selects a user; the recipient is the bearer of the token.\n\n' +
       '**Frames.** `event: notification` with a JSON `data` payload matching `Notification` ' +
-      '(without `readAt`), plus `: heartbeat` comment lines roughly every 25 seconds so ' +
-      'proxies do not reap an idle connection.\n\n' +
+      '(without `readAt`, plus `toast`), plus `: heartbeat` comment lines roughly every 25 ' +
+      'seconds so proxies do not reap an idle connection.\n\n' +
+      '**`toast`** is the server’s answer to “may this client raise an OS notification for ' +
+      'this event?”, computed from the administrator’s policy at publish time. `false` means ' +
+      'the bubble is withheld — the notification itself was still recorded and this frame was ' +
+      'still sent, so the bell and the unread count are unaffected. Because it travels with ' +
+      'each event, a tab holding a stale copy of `GET /api/notifications/config` still ' +
+      'honours the current policy.\n\n' +
       '**This is not a delivery guarantee.** Events published while the connection is down are ' +
       'lost — there is no replay and no `Last-Event-ID` support. `EventSource` reconnects by ' +
       'itself; the client must then refetch `GET /api/notifications/unread-count` and ' +
@@ -221,7 +305,8 @@ export class NotificationsController {
           type: 'string',
           example:
             ': connected\n\nevent: notification\ndata: {"id":"…","eventKey":"security.role_changed",' +
-            '"title":"Your roles changed","body":"…","link":"/settings","createdAt":"…"}\n\n: heartbeat\n\n',
+            '"title":"Your roles changed","body":"…","link":"/settings","createdAt":"…","toast":true}' +
+            '\n\n: heartbeat\n\n',
         },
       },
     },

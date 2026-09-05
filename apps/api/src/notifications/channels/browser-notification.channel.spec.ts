@@ -150,6 +150,78 @@ describe('BrowserNotificationChannel', () => {
   });
 
   // ==========================================================================
+  // The `toast` flag (#226): admin policy reaches the bubble, not the row
+  // ==========================================================================
+
+  describe('the published event carries a server-computed `toast` flag', () => {
+    beforeEach(() => {
+      mockPrisma.notification.create.mockResolvedValue({
+        id: 'notif-toast',
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      });
+      mockStream.publish.mockReturnValue(1);
+    });
+
+    it('is true when the context carries no policy at all', async () => {
+      await channel.deliver(contextFor('user.welcome'), 'user-1');
+
+      expect(mockStream.publish).toHaveBeenCalledWith(
+        'user-1',
+        expect.objectContaining({ toast: true }),
+      );
+    });
+
+    it('is false when the deployment-wide switch is off — and the row is STILL written', async () => {
+      // The invariant of #226, at the level of the one class that could break
+      // it: the INSERT happens above the flag, not because of it.
+      const context = {
+        ...contextFor(
+          'security.role_changed',
+          SAMPLE_PAYLOADS['security.role_changed'],
+        ),
+        policy: { browserEnabled: false, disabledEvents: [] },
+      };
+
+      const result = await channel.deliver(context, 'user-1');
+
+      expect(result.success).toBe(true);
+      expect(mockPrisma.notification.create).toHaveBeenCalledTimes(1);
+      expect(mockStream.publish).toHaveBeenCalledWith(
+        'user-1',
+        expect.objectContaining({
+          eventKey: 'security.role_changed',
+          toast: false,
+        }),
+      );
+    });
+
+    it('is false for a specifically suppressed event and true for its neighbour', async () => {
+      const policy = {
+        browserEnabled: true,
+        disabledEvents: ['security.role_changed'],
+      };
+
+      await channel.deliver(
+        {
+          ...contextFor(
+            'security.role_changed',
+            SAMPLE_PAYLOADS['security.role_changed'],
+          ),
+          policy,
+        },
+        'user-1',
+      );
+      await channel.deliver(
+        { ...contextFor('user.welcome'), policy },
+        'user-1',
+      );
+
+      expect(mockStream.publish.mock.calls[0]![1].toast).toBe(false);
+      expect(mockStream.publish.mock.calls[1]![1].toast).toBe(true);
+    });
+  });
+
+  // ==========================================================================
   // Render fallback: a miss falls back to the registry's label/description
   // ==========================================================================
 

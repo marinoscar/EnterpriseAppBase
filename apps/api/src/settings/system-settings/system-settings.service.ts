@@ -12,6 +12,7 @@ import {
   systemSettingsSchema,
   systemNotificationsSchema,
   MAX_DISABLED_NOTIFICATION_EVENTS,
+  type SystemNotificationsValue,
 } from '../../common/schemas/settings.schema';
 
 const SETTINGS_KEY = 'global';
@@ -518,6 +519,42 @@ export class SystemSettingsService {
     const settings = await this.loadOrCreateRow();
 
     return this.toResponse(settings);
+  }
+
+  /**
+   * The deployment-wide browser-notification policy, read only (#226).
+   *
+   * A NARROW ACCESSOR RATHER THAN `getSettings()`, for two reasons that both
+   * matter on the path that calls it (the notification dispatcher, on every
+   * event, plus two endpoints any authenticated user can reach):
+   *
+   *   1. IT DOES NOT CREATE THE ROW. `getSettings` goes through
+   *      `loadOrCreateRow`, which INSERTs when the row is missing. A read on a
+   *      fire-and-forget send path must not write — the same rule
+   *      `NotificationsService.loadRecipient` follows for `user_settings`, and
+   *      for the same reason: materialising a settings row as a side effect of
+   *      sending a notification is a write nobody asked for, on a path with no
+   *      caller left to report it to.
+   *   2. IT RETURNS ONLY THIS BLOCK. `GET /api/system-settings` is gated on
+   *      `system_settings:read`, which a Viewer does not hold, and widening
+   *      that permission so a Viewer's browser can learn whether toasts are
+   *      enabled would hand every account the whole settings blob — including
+   *      the open `features` map that downstream forks fill with operational
+   *      flags. `GET /api/notifications/config` exists precisely so the answer
+   *      can be published without the rest of the row; see its handler.
+   *
+   * Degrades exactly as every other read here does: a missing row, a `null`
+   * value or a malformed one yields `DEFAULT_SYSTEM_SETTINGS.notifications`
+   * through `readKnownSettings`, so a damaged row cannot make notifications
+   * undeliverable.
+   */
+  async getNotificationsPolicy(): Promise<SystemNotificationsValue> {
+    const row = await this.prisma.systemSettings.findUnique({
+      where: { key: SETTINGS_KEY },
+      select: { value: true },
+    });
+
+    return this.readKnownSettings(row?.value).notifications;
   }
 
   /**

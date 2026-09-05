@@ -84,12 +84,23 @@ export const MAX_DISABLED_NOTIFICATION_EVENTS =
  * semantics to live. Putting it in `features` would also collide with a fork's
  * own flag namespace the first time someone picked the same string.
  *
- * NOTHING ENFORCES THIS YET, AND THAT IS NOT A BUG. Issue #225 adds the setting,
- * its persistence and its admin page only; the server-side enforcement (the
- * browser channel consulting these values, and the non-admin read endpoint that
- * lets the web app stop asking for OS permission when the capability is off) is
- * issue #226. Until then the block round-trips and is editable, and no delivery
- * path reads it.
+ * WHAT ENFORCES IT (#226). Three consumers, all reading through
+ * `notifications/notification-policy.ts`, which is the only place these two
+ * fields are interpreted:
+ *
+ *   * `resolveChannels` — the dispatcher's gate. A `browser` channel this
+ *     policy disallows is not delivered over.
+ *   * `GET /api/notifications/events` — the same filter, so the preferences
+ *     matrix cannot offer a channel the dispatcher would refuse.
+ *   * the SSE payload's `toast` flag, and `GET /api/notifications/config`,
+ *     which is how a non-admin client learns the capability is off without
+ *     being granted `system_settings:read`.
+ *
+ * WHAT IT DELIBERATELY DOES NOT SWITCH OFF: the `notifications` row itself for
+ * a `mandatory` event. Muting a toast must not mute an audit-relevant inbox
+ * entry — see notification-policy.ts, which carries the full argument.
+ *
+ * Web Push (#229/#230) will read the same block when it lands.
  *
  * `disabledEvents` holds `NOTIFICATION_EVENTS` keys and is validated with
  * `notificationEventKeySchema` — the same syntactic bound the per-user

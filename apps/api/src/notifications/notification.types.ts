@@ -2,6 +2,7 @@ import type {
   NotificationChannel,
   NotificationEventDef,
 } from './notification-events';
+import type { NotificationPolicy } from './notification-policy';
 import type { NotificationPreferences } from './notification-preferences';
 
 // =============================================================================
@@ -87,6 +88,23 @@ export interface NotificationDispatchContext {
    * throw as a recorded delivery failure rather than trusting the shape.
    */
   data: unknown;
+
+  /**
+   * The deployment-wide admin policy in force for this dispatch (#226).
+   *
+   * READ ONCE PER DISPATCH AND PASSED DOWN, for exactly the reason
+   * `NotificationRecipient.preferences` is: the dispatcher already resolved it
+   * to decide which channels to fan out to, and a channel that re-read it would
+   * be a second query and — worse — a second snapshot. The browser channel
+   * derives the stream's `toast` flag from this, so a re-read could publish a
+   * flag that contradicts the channel decision that produced the row.
+   *
+   * Optional so that a test (or a future caller) building a context by hand
+   * gets the permissive default rather than a compile error demanding a value
+   * it has no opinion about; the consumers all resolve `undefined` through
+   * `DEFAULT_NOTIFICATION_POLICY`. The real dispatcher always sets it.
+   */
+  policy?: NotificationPolicy;
 }
 
 /**

@@ -8,6 +8,7 @@ import {
   type NotificationChannel,
   type NotificationEventDef,
 } from './notification-events';
+import { NotificationPolicyService } from './notification-policy.service';
 import {
   readNotificationPreferences,
   resolveChannels,
@@ -130,6 +131,9 @@ export class NotificationsService implements OnModuleDestroy {
   constructor(
     private readonly prisma: PrismaService,
     private readonly deliveries: NotificationDeliveryService,
+    // The deployment-wide gate (#226). Injected rather than read inline so the
+    // never-throw guarantee lives in one place; see the service's own header.
+    private readonly policy: NotificationPolicyService,
     @Inject(NOTIFICATION_CHANNEL_SENDERS)
     senders: NotificationChannelSender[],
   ) {
@@ -527,10 +531,21 @@ export class NotificationsService implements OnModuleDestroy {
     recipient: NotificationRecipient,
     data: unknown,
   ): Promise<void> {
-    // THE GATE. `resolveChannels` applies the sparse absent-key contract and
-    // the `mandatory` override; nothing else in this file consults a
-    // preference. One resolution point, one gate.
-    const channels = resolveChannels(event, recipient.preferences);
+    // THE ADMIN GATE (#226), read ONCE per dispatch and carried in the context
+    // below. Both halves of the browser decision — which channels to fan out to,
+    // and whether the streamed event may raise an OS toast — are then derived
+    // from the SAME snapshot, so a policy change mid-dispatch cannot produce a
+    // row whose `toast` flag disagrees with the decision that wrote it.
+    //
+    // `getPolicy` never throws and degrades to the permissive default; see its
+    // own comment for why that direction, on a path whose whole purpose is to
+    // make sure a privilege change is not silent.
+    const policy = await this.policy.getPolicy();
+
+    // THE GATE. `resolveChannels` applies the admin policy, then the sparse
+    // absent-key contract and the `mandatory` override; nothing else in this
+    // file consults a preference or a policy. One resolution point, one gate.
+    const channels = resolveChannels(event, recipient.preferences, policy);
 
     if (channels.length === 0) {
       // Every channel muted. No rows: nothing was attempted, and recording a
@@ -543,7 +558,12 @@ export class NotificationsService implements OnModuleDestroy {
       return;
     }
 
-    const context: NotificationDispatchContext = { event, recipient, data };
+    const context: NotificationDispatchContext = {
+      event,
+      recipient,
+      data,
+      policy,
+    };
 
     // SEQUENTIAL, not `Promise.all`. Two channels at most today, so there is
     // no latency worth parallelising for, and sequencing keeps the log lines
