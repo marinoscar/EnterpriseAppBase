@@ -957,11 +957,21 @@ Get system-wide settings.
 | `security.jwtAccessTtlMinutes` | number | **Read-only.** JWT access token TTL in minutes, read from the `JWT_ACCESS_TTL_MINUTES` deploy-time environment variable — not stored settings, and not writable through this API |
 | `security.refreshTtlDays` | number | **Read-only.** Refresh token TTL in days, read from the `JWT_REFRESH_TTL_DAYS` deploy-time environment variable — not stored settings, and not writable through this API |
 | `features` | object | Feature flags (extensible) |
-| `notifications.browserEnabled` | boolean | Whether browser notifications are enabled deployment-wide. **Not yet enforced** — the browser notification channel does not consult this value yet (issue #226) |
-| `notifications.disabledEvents` | string[] | Notification event keys (e.g. `security.role_changed`, from the notification event registry) suppressed deployment-wide, regardless of per-user preference. Max 100 entries. **Not yet enforced** (issue #226) |
+| `notifications.browserEnabled` | boolean | Whether browser notifications are enabled deployment-wide. **Enforced** (issue #226): when `false`, the `browser` channel is dropped from `GET /notifications/events`'s advertised channels, from the dispatcher's channel resolution, and from delivery — the SSE stream's `toast` field is set to `false`. Mandatory events (e.g. `security.role_changed`) are the one exception: their channel list is never filtered and the `notifications` row is always written; only the browser toast is suppressed for them |
+| `notifications.disabledEvents` | string[] | Notification event keys (e.g. `security.role_changed`, from the notification event registry) suppressed deployment-wide, regardless of per-user preference. Max 100 entries. **Enforced** (issue #226) the same way as `browserEnabled` above — including the same mandatory-event exception |
 | `updatedAt` | string | ISO 8601 timestamp of last update |
 | `updatedBy` | object | User who last updated settings |
 | `version` | number | Version number for optimistic concurrency control |
+
+`GET /notifications/config` exposes just the `browserEnabled` half of this
+policy — `{ browserEnabled, pushEnabled: false, vapidPublicKey: null }` — to
+any authenticated user, with no `system_settings:read` requirement, since a
+non-admin (e.g. a viewer) cannot call `GET /system-settings` directly but
+still needs to know whether browser notifications are enabled deployment-wide.
+`pushEnabled` and `vapidPublicKey` are placeholders for future push-notification
+support (issues #229/#230) and are always `false`/`null` today. `disabledEvents`
+is deliberately not exposed here — per-event suppression travels with each
+event as the stream's `toast` flag instead.
 
 ---
 

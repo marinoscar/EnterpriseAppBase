@@ -29,6 +29,10 @@ function makeEvent(overrides: Partial<NotificationStreamEvent> = {}): Notificati
     body: 'An administrator changed your roles.',
     link: '/settings',
     createdAt: '2026-01-01T00:00:00.000Z',
+    // #226. The registry is a dumb pipe for this field — it publishes whatever
+    // the browser channel computed — so the default here is simply the ordinary
+    // case, and a test that cares passes an override.
+    toast: true,
     ...overrides,
   };
 }

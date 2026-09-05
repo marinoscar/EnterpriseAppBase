@@ -2,9 +2,11 @@ import { Module } from '@nestjs/common';
 
 import { EmailModule } from '../email/email.module';
 import { PrismaModule } from '../prisma/prisma.module';
+import { SettingsModule } from '../settings/settings.module';
 import { BrowserNotificationChannel } from './channels/browser-notification.channel';
 import { EmailNotificationChannel } from './channels/email-notification.channel';
 import { NotificationDeliveryService } from './notification-delivery.service';
+import { NotificationPolicyService } from './notification-policy.service';
 import { NotificationStoreService } from './notification-store.service';
 import { NotificationStreamService } from './notification-stream.service';
 import { NotificationsController } from './notifications.controller';
@@ -83,11 +85,23 @@ import {
     // it can reach a plaintext-returning credential service, so every consumer
     // shows up in a diff.
     EmailModule,
+    // The deployment-wide browser-notification policy (#226), read through
+    // `SystemSettingsService`. The dependency runs one way only —
+    // notifications depend on settings, settings depend on nothing here — so
+    // there is no cycle to forward-ref around, and reusing that service means
+    // the dispatcher degrades a malformed `system_settings` row exactly as the
+    // admin API does instead of re-deriving those rules.
+    SettingsModule,
   ],
   controllers: [NotificationsController],
   providers: [
     NotificationsService,
     NotificationDeliveryService,
+    // NOT EXPORTED, like the store and the stream. It is a read-only view of an
+    // admin setting, so exporting it would leak nothing — but a second consumer
+    // reading the policy is a second place that could act on it, and #226's
+    // whole point is that the policy is interpreted in exactly one file.
+    NotificationPolicyService,
     NotificationStoreService,
     NotificationStreamService,
     EmailNotificationChannel,

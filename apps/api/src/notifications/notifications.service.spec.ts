@@ -7,6 +7,8 @@ import {
   MockPrismaService,
 } from '../../test/mocks/prisma.mock';
 import { NotificationDeliveryService } from './notification-delivery.service';
+import { DEFAULT_NOTIFICATION_POLICY } from './notification-policy';
+import { NotificationPolicyService } from './notification-policy.service';
 import { NotificationsService } from './notifications.service';
 import {
   NOTIFICATION_CHANNEL_SENDERS,
@@ -61,6 +63,7 @@ describe('NotificationsService', () => {
   let mockPrisma: MockPrismaService;
   let emailSender: jest.Mocked<NotificationChannelSender>;
   let browserSender: jest.Mocked<NotificationChannelSender>;
+  let policyService: jest.Mocked<NotificationPolicyService>;
   let callOrder: string[];
   let nextDeliveryId: number;
 
@@ -110,11 +113,19 @@ describe('NotificationsService', () => {
       return { success: true, messageId: 'msg-2' };
     });
 
+    // #226. Mocked rather than wired to a mocked `SystemSettingsService`: this
+    // suite is about the dispatcher's ordering and containment, and the policy
+    // is an input to it. The tests that care set `policy.getPolicy` themselves.
+    policyService = {
+      getPolicy: jest.fn().mockResolvedValue(DEFAULT_NOTIFICATION_POLICY),
+    } as unknown as jest.Mocked<NotificationPolicyService>;
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         NotificationsService,
         NotificationDeliveryService,
         { provide: PrismaService, useValue: mockPrisma },
+        { provide: NotificationPolicyService, useValue: policyService },
         {
           provide: NOTIFICATION_CHANNEL_SENDERS,
           useValue: [emailSender, browserSender],

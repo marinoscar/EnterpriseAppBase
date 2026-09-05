@@ -246,16 +246,39 @@ export interface UnreadCountResponse {
  * One `event: notification` frame's payload, as `NotificationStreamService`
  * publishes it.
  *
- * `AppNotification` WITHOUT `readAt` — not an oversight and not a different
- * model: a notification is unread by definition at the instant it is
- * published, so the field would carry no information. Everything else is
+ * `AppNotification` WITHOUT `readAt`, PLUS `toast` — not an oversight and not a
+ * different model. `readAt` is absent because a notification is unread by
+ * definition at the instant it is published, so the field would carry no
+ * information. `toast` is present because it is an instruction about THIS
+ * delivery rather than a property of the stored row. Everything else is
  * identical, which is the property that lets a streamed event be pushed
  * straight into the fetched list.
  *
  * Carries NO user id. The recipient is implicit in which stream it arrived on;
  * the API omits it specifically so no client is ever tempted to filter on it.
  */
-export type NotificationStreamEvent = Omit<AppNotification, 'readAt'>;
+export type NotificationStreamEvent = Omit<AppNotification, 'readAt'> & {
+  /**
+   * May this client raise an OS notification for this event? (#226, epic #215)
+   *
+   * SERVER-COMPUTED, from the administrator's deployment-wide policy:
+   * `browserEnabled && !disabledEvents.includes(eventKey)`. It travels with the
+   * event rather than being derived from a cached
+   * `GET /api/notifications/config`, so a tab open since before an
+   * administrator changed the setting still honours the current policy.
+   *
+   * `false` DOES NOT MEAN SUPPRESSED. The notification was recorded and this
+   * frame was sent; the bell, the unread count and the notification centre are
+   * unaffected. Only the OS bubble is withheld — which is what lets an
+   * administrator mute toasts without muting a mandatory security alert's
+   * durable record.
+   *
+   * #227 is what acts on it. Until then it is parsed and carried, which is the
+   * harmless direction: a field ignored is cheaper than a field the client
+   * cannot see when it finally needs it.
+   */
+  toast: boolean;
+};
 
 export interface UserSettings {
   theme: 'light' | 'dark' | 'system';
