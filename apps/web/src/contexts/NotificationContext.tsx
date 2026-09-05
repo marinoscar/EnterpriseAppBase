@@ -316,7 +316,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
    * on render is a connection that reconnects constantly.
    */
   const handleNotification = useCallback(
-    (notification: AppNotification) => {
+    (notification: AppNotification, toast: boolean) => {
       if (!isMounted()) return;
 
       // =======================================================================
@@ -384,6 +384,33 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       // count. The user has already been interrupted about this notification;
       // a second OS-level popup for one event is the badge lie in audible form.
       if (!isNew) return;
+
+      // =======================================================================
+      // ⚠️ #227: THE SERVER-AUTHORITATIVE TOAST GATE
+      // =======================================================================
+      //
+      // `toast` is this frame's OWN, freshly-computed answer to "may this
+      // client raise an OS notification for this event?" — see
+      // `NotificationStreamEvent.toast` in `types/index.ts`. It is deliberately
+      // NOT derived from this tab's own `adminDisabled`/capability state (the
+      // config `UserNotificationsPage` reads via `useNotificationConfig`):
+      // a long-lived tab's cached `GET /api/notifications/config` can go stale
+      // the instant an administrator flips the toggle, and nothing pushes an
+      // update to it. Every SSE frame's `toast` flag, by contrast, is computed
+      // at PUBLISH time from the policy that held then — so gating here, on the
+      // frame itself, is what makes a stale client harmless: even a tab that
+      // still believes toasts are enabled cannot raise one the server just said
+      // not to show.
+      //
+      // ONLY THE TOAST IS GATED. `setNotifications` and `setUnreadCount` above
+      // already ran unconditionally — `toast: false` does not mean suppressed,
+      // it means the OS bubble alone is withheld; the bell, the unread count and
+      // the notification centre are unaffected, exactly as the mandatory
+      // `security.role_changed` alert's durable record survives an
+      // administrator muting its toast. Placed the same way as the `isNew`
+      // check above: alongside this call, never inside `setNotifications` or
+      // `setUnreadCount`'s updaters.
+      if (!toast) return;
 
       // =======================================================================
       // ⚠️ #224: SUPPRESS THE TOAST WHEN THIS WINDOW IS ALREADY WHAT THE USER
@@ -512,8 +539,8 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     const connection = connectNotificationStream({
       // Indirected through the ref so this effect never re-runs for a changed
       // callback identity.
-      onNotification: (notification) =>
-        handlersRef.current.handleNotification(notification),
+      onNotification: (notification, toast) =>
+        handlersRef.current.handleNotification(notification, toast),
       onOpen: () => handlersRef.current.handleStreamOpen(),
       onStateChange: (state) => {
         if (isMounted()) setStreamState(state);
