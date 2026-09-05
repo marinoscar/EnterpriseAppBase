@@ -599,6 +599,24 @@ Live examples of all three steps: `AuthService.handleGoogleLogin`
 (`user.welcome`), `AllowlistService.addEmail` (`allowlist.invitation`), and
 `UsersService.updateUserRoles` (`security.role_changed`, mandatory).
 
+### Browser Notifications and Web Push
+
+OS-level browser notifications — a service worker precaching the app shell
+and hosting the `push`/`notificationclick` handlers Android requires, a
+brand-parameterized PWA manifest, an 8-state notification capability model,
+an admin kill switch that mutes the OS toast without ever muting the durable
+`notifications` row, and Web Push behind a VAPID key pair that ships disabled
+by default — is epic #215 (issues #216–#233). The design decisions that
+shape this area (why `injectManifest` over `generateSW`, why the service
+worker must never call the API, why `sw.js` must be served `no-cache`, why a
+non-admin learns the toggle from `GET /api/notifications/config` rather than
+`system_settings`, why nothing under `/api` is ever precached) are documented
+in full, with rationale and rejected alternatives, in
+[`docs/specs/browser-notifications.md`](docs/specs/browser-notifications.md).
+Generating, enabling, rotating, and disabling VAPID keys is
+[`docs/runbooks/vapid-keys.md`](docs/runbooks/vapid-keys.md). Don't restate
+either here; extend those two instead.
+
 ## Specialized Subagents (MANDATORY)
 
 **CRITICAL REQUIREMENT**: This project uses specialized subagents for all development work. You MUST delegate tasks to the appropriate subagent. Do NOT attempt to perform development tasks directly without using the designated agent.
