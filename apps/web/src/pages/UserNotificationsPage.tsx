@@ -158,6 +158,17 @@ export default function UserNotificationsPage() {
             // driven by `isRequestingPermission`.
             onRequestPermission={() => void handleRequestPermission()}
             isRequestingPermission={isRequestingPermission}
+            // PLACEHOLDER, MATCHING THE SERVER'S CURRENT HARDCODED VALUE
+            // (issue #228, epic #215). `GET /api/notifications/config`
+            // already exists and returns `pushEnabled: false` unconditionally
+            // — Web Push isn't implemented until #229/#230 — but wiring that
+            // fetch into this page is issue #227's scope, not this one's.
+            // Passing the literal here is deliberate rather than omitting the
+            // prop (`NotificationSettings` defaults it to `false` too, for
+            // the same reason): it makes the placeholder visible at the call
+            // site instead of buried in the component's default. #227
+            // replaces this with the real fetched value.
+            pushEnabled={false}
             onToggle={(channel, event, value) => {
               // The single-key patch. Built with a computed key so the channel
               // comes from the control that was clicked rather than from a
