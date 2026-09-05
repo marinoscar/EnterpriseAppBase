@@ -52,6 +52,8 @@ import { NavigationRoute, registerRoute } from 'workbox-routing';
 // `/api` because the API is a different service entirely.
 // =============================================================================
 
+import { isInternalLink } from './utils/internalLink';
+
 declare let self: ServiceWorkerGlobalScope;
 
 // -----------------------------------------------------------------------------
@@ -124,14 +126,118 @@ self.addEventListener('message', (event) => {
 });
 
 // -----------------------------------------------------------------------------
-// Push notifications  —  NOT YET IMPLEMENTED
+// notificationclick — issue #223, epic #215
 // -----------------------------------------------------------------------------
-// `push` and `notificationclick` land in issue #223, `pushsubscriptionchange`
-// in issue #230. They belong HERE, in this file, and not in a script pulled in
-// with `importScripts()` — that split is precisely why this build uses
-// `injectManifest` rather than `generateSW`; see `vite.config.ts`.
 //
-// Whatever they do, they must respect the "never call the API" constraint at
-// the top of this file: a `push` handler renders the payload it was given, and
-// a `notificationclick` handler opens a client window and lets the PAGE talk to
-// the API with the token only the page has.
+// The ONLY place a click on a worker-shown notification can be handled. A
+// toast raised by `showPageNotification` (`services/browserNotifications.ts`)
+// carries a JS `onclick` closure in the page that already knows what to do
+// with a click; one raised by `registration.showNotification()`
+// (`showAppNotification`, same file, issue #222) has NO such closure — the
+// click instead arrives here, as this event, possibly with no page open at
+// all. That is the entire reason this handler exists rather than living next
+// to the other one.
+//
+// STILL BOUND BY "THIS WORKER MUST NEVER CALL THE API" AT THE TOP OF THIS
+// FILE. Marking a notification read needs a valid access token, and the only
+// place one exists is inside an open page's `ApiClient` instance (memory-only,
+// see above) — so this handler never does the marking itself. It only ever
+// hands the click to a page that already holds a token, one of two ways:
+//   * a page is already open — focus it and `postMessage` the click, and let
+//     `NotificationContext.tsx`'s `message` listener call the SAME
+//     `markRead`/`navigate` the in-page toast's own click handler calls;
+//   * no page is open — `clients.openWindow()` a fresh one at the link, with
+//     the notification id riding along in a `?n=` query param, because there
+//     is no page yet to `postMessage` to. `NotificationContext.tsx`'s
+//     boot-time effect reads `?n=`, marks it read once the app (and its
+//     token) exist, and strips the param so a refresh does not re-fire it.
+// Either way, the API call happens from the page, on the page's own token,
+// exactly as if the user had clicked the row in the bell.
+//
+// RE-VALIDATE `link` HERE EVEN THOUGH `sanitizeLink` ALREADY ENFORCES
+// ROOT-RELATIVE-ONLY AT WRITE TIME
+// (`apps/api/src/notifications/channels/browser-notification.channel.ts`).
+// That sanitizer's own comment argues a forgetful FUTURE consumer would have
+// to be unlucky, not that one is impossible — and this worker is exactly that
+// new consumer, feeding the value straight into `clients.openWindow()`, a real
+// navigation. A row written by an older build, seeded by hand, or restored
+// from a backup taken before the sanitiser existed is not something this
+// worker chooses to trust a second time on faith. `isInternalLink` (also used
+// by the row click in `NotificationBell.tsx` and the in-page toast click in
+// `NotificationContext.tsx`) accepts only a single leading `/` and rejects the
+// protocol-relative `//`, which a browser resolves as "same scheme, ANY
+// host" — precisely the shape an open-redirect payload would take. Anything
+// that fails the check falls back to `/`: a wrong destination inside this app
+// is a wrong click, an accepted off-origin link is a vulnerability.
+self.addEventListener('notificationclick', (event) => {
+  // Dismiss immediately, before the async work below. Left open, the OS lets
+  // the same notification be clicked again while this handler is still
+  // in flight, which would just fire it a second time for one click.
+  event.notification.close();
+
+  const data = (event.notification.data ?? {}) as { id?: unknown; link?: unknown };
+  const id = typeof data.id === 'string' ? data.id : '';
+  const rawLink = typeof data.link === 'string' ? data.link : null;
+  const link = isInternalLink(rawLink) ? rawLink : '/';
+
+  event.waitUntil(
+    (async () => {
+      // `includeUncontrolled: true` matters on the FIRST click after this
+      // worker activates: `clientsClaim()` above hands the worker control of
+      // pages going forward, but a tab that was already open when this worker
+      // installed is not retroactively controlled, and without this flag
+      // `matchAll` would not see it — the click would then look like the
+      // cold-open case below and launch a SECOND tab next to the one already
+      // open, rather than reusing it.
+      const allClients = await self.clients.matchAll({
+        type: 'window',
+        includeUncontrolled: true,
+      });
+
+      if (allClients.length > 0) {
+        // Prefer a client already sitting on the link's path — nothing to
+        // navigate, just bring it forward — and fall back to whichever window
+        // is first otherwise. `matchAll({ type: 'window' })` guarantees
+        // `WindowClient`s back even though `Clients.matchAll`'s declared
+        // return type is the narrower `Client[]`.
+        const windowClients = allClients as WindowClient[];
+        const linkPath = link.split('?')[0];
+        const target =
+          windowClients.find((client) => {
+            try {
+              return new URL(client.url).pathname === linkPath;
+            } catch {
+              return false;
+            }
+          }) ?? windowClients[0];
+
+        await target.focus();
+        // The PAGE does the mark-read and the navigation from here — see
+        // `NotificationContext.tsx`'s `message` listener, which reuses the
+        // exact `markRead`/`navigate` calls the in-page toast's click handler
+        // already makes. This worker only ever delivers the click.
+        target.postMessage({ type: 'notification-click', id, link });
+        return;
+      }
+
+      // COLD OPEN: no page to `postMessage` to, so the id rides along in the
+      // URL instead, for `NotificationContext.tsx`'s boot-time `?n=` handler
+      // to pick up once the app — and a token to mark it read with — exists.
+      const separator = link.includes('?') ? '&' : '?';
+      await self.clients.openWindow(`${link}${separator}n=${encodeURIComponent(id)}`);
+    })(),
+  );
+});
+
+// -----------------------------------------------------------------------------
+// Push notifications  —  PARTIALLY IMPLEMENTED
+// -----------------------------------------------------------------------------
+// `push` and `pushsubscriptionchange` are not yet wired — the former has no
+// filed issue yet, the latter is issue #230. They belong HERE, in this file,
+// and not in a script pulled in with `importScripts()` — that split is
+// precisely why this build uses `injectManifest` rather than `generateSW`;
+// see `vite.config.ts`.
+//
+// Whatever `push` ends up doing, it must respect the "never call the API"
+// constraint at the top of this file: it renders the payload it was given
+// (from the push message itself), it does not fetch anything to render it.
