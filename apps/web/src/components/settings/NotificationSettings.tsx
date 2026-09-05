@@ -188,10 +188,47 @@ export function preferenceWriteFor(
 const CHANNEL_LABELS: Record<NotificationChannel, string> = {
   email: 'Email',
   browser: 'Browser',
+  // THE REAL PUSH COLUMN (issue #228, epic #215) — not a placeholder anymore.
+  // `pushChannelState()` below renders it disabled with an honest
+  // "not available yet" explanation for as long as the server's
+  // `pushEnabled` stays hardcoded `false` (`notifications.controller.ts`).
+  // No entry in `NOTIFICATION_EVENTS` declares `push` in its `channels` yet,
+  // so `showsPushChannel` below is `false` and this label is currently
+  // unreachable through `event.channels.map` — the column renders no rows.
+  // THAT IS THE INTENDED STATE OF #228, NOT A BUG: this issue widens
+  // `NotificationChannel` and builds the column ahead of there being
+  // anything to put in it; wiring a real event to `push` and implementing
+  // delivery are #229/#230's job.
+  push: 'Push',
 };
 
 function channelLabel(channel: NotificationChannel): string {
   return CHANNEL_LABELS[channel] ?? channel;
+}
+
+/**
+ * How a gated channel column must behave: whether its control is disabled,
+ * the terse note beside it, and the banner above the whole matrix.
+ *
+ * SHARED BY `browserChannelState` AND `pushChannelState` — originally this
+ * was `BrowserChannelState`, named for its one caller, but `push` needs the
+ * exact same three fields (a control can be live or not, with or without a
+ * one-line reason, with or without a banner explaining why) for a completely
+ * different underlying reason (an unimplemented feature, not a browser
+ * permission). Two interfaces that are structurally identical and diverge
+ * only in field NAMES would be the worse choice here: every caller below —
+ * the channel-state lookup, the render column, the banner block — treats
+ * both the same way, and a shared name says so instead of asking the reader
+ * to notice two shapes happen to line up. `email` never produces one of
+ * these at all: it is never gated, so it simply has no entry wherever these
+ * are collected (see `channelStates` in the component below).
+ */
+interface ChannelState {
+  disabled: boolean;
+  /** Terse note beside the control. `null` when there is nothing to add. */
+  note: string | null;
+  /** The banner above the matrix. `null` when the channel is fully working. */
+  alert: { severity: 'info' | 'warning'; title: string; body: string } | null;
 }
 
 /**
@@ -238,23 +275,9 @@ function channelLabel(channel: NotificationChannel): string {
  *                          opinion, which is backwards.
  *   * `granted`          — nothing to say.
  */
-interface BrowserChannelState {
-  disabled: boolean;
-  /** Terse note beside the control. `null` when there is nothing to add. */
-  note: string | null;
-  /**
-   * The banner above the matrix. `null` when the channel is fully working.
-   *
-   * `body` may contain newlines and is rendered with `white-space: pre-line`,
-   * which is what lets `denied` carry a three-line per-platform list without
-   * this becoming a rich-content type nothing else needs.
-   */
-  alert: { severity: 'info' | 'warning'; title: string; body: string } | null;
-}
-
 export function browserChannelState(
   capability: NotificationCapability,
-): BrowserChannelState {
+): ChannelState {
   switch (capability) {
     case 'granted':
       return { disabled: false, note: null, alert: null };
@@ -394,6 +417,56 @@ export function browserChannelState(
   }
 }
 
+/**
+ * How the push column must behave, given whether the server can currently
+ * deliver push notifications at all.
+ *
+ * `pushEnabled` comes from `GET /api/notifications/config`'s `pushEnabled`
+ * field (`notification-config.dto.ts`); wiring that fetch into
+ * `UserNotificationsPage` is issue #227's scope, not this one, so today every
+ * caller passes (or defaults to) `false` — matching the controller's own
+ * hardcoded `pushEnabled: false`, since Web Push is not implemented until
+ * #229/#230. This function is nonetheless written to be correct for BOTH
+ * values now, so nothing here needs to change again once the server starts
+ * returning `true`.
+ *
+ * Unlike `browserChannelState`, there is no permission axis to report on —
+ * this codebase has no service-worker subscription and no `PushManager` call
+ * anywhere yet, so there is exactly one way to be unable to deliver, not a
+ * four-way switch:
+ *
+ *   * `pushEnabled === false` — disabled, with a "not available yet" note and
+ *                     banner. This is DELIBERATELY NOT phrased like
+ *                     `browserChannelState`'s `denied`/`unsupported` copy
+ *                     ("blocked by your browser", "not supported by this
+ *                     browser"): those describe a BROWSER's refusal, which is
+ *                     the user's browser's doing and something only the user
+ *                     can fix in its settings. This describes a FEATURE this
+ *                     application has not built yet, which the user cannot
+ *                     fix at all and which it would be dishonest to blame on
+ *                     their browser.
+ *   * `pushEnabled === true`  — nothing to say, mirroring `granted` above. No
+ *                     caller can reach this branch until #229/#230 land and
+ *                     issue #227 wires the real fetch, but the function must
+ *                     already be correct for it.
+ */
+export function pushChannelState(pushEnabled: boolean): ChannelState {
+  if (pushEnabled) {
+    return { disabled: false, note: null, alert: null };
+  }
+  return {
+    disabled: true,
+    note: 'Not available yet',
+    alert: {
+      severity: 'info',
+      title: 'Push notifications are not available yet',
+      body:
+        'Push notifications are planned but not yet implemented on this ' +
+        'server. Email and browser notifications are unaffected.',
+    },
+  };
+}
+
 // =============================================================================
 // Component
 // =============================================================================
@@ -438,6 +511,21 @@ export interface NotificationSettingsProps {
    */
   browserCapability: NotificationCapability;
   /**
+   * Whether the server can currently deliver push notifications at all, from
+   * `GET /api/notifications/config`'s `pushEnabled` field. Unlike
+   * `browserCapability`, this has no dedicated hook yet — fetching this
+   * endpoint into `UserNotificationsPage` is issue #227's scope, not this
+   * one's.
+   *
+   * Optional, defaulting to `false` below. That default is not merely "the
+   * safe choice while nobody supplies one" — it is LITERALLY the value the
+   * server hardcodes today (`notifications.controller.ts` returns
+   * `pushEnabled: false` unconditionally until Web Push ships in #229/#230),
+   * so an omitted prop and a real fetch of today's server both render
+   * identically. A caller passes an actual fetched value once #227 lands.
+   */
+  pushEnabled?: boolean;
+  /**
    * Ask the browser for notification permission (#127).
    *
    * FILLS THE SEAM #126 LEFT in the `default`-state banner below. The component
@@ -466,6 +554,7 @@ export function NotificationSettings({
   browserCapability,
   onRequestPermission,
   isRequestingPermission = false,
+  pushEnabled = false,
 }: NotificationSettingsProps) {
   // `useId` rather than interpolating `event.key`: two instances of this
   // component (or a future second matrix on the page) would otherwise emit
@@ -474,11 +563,36 @@ export function NotificationSettings({
   const idPrefix = useId();
 
   const browser = browserChannelState(browserCapability);
+  const push = pushChannelState(pushEnabled);
+
+  // ONE LOOKUP, BUILT ONCE PER RENDER, REPLACING A GROWING `isBrowser` /
+  // `isPush` TERNARY CHAIN. With one gated channel the explicit-branch style
+  // the rest of this file favours (see the file header's "READ THIS BEFORE
+  // CHANGING ANYTHING" rules, all written as explicit named checks) still
+  // read fine; with two — and #229/#230 plausibly landing a third kind of
+  // gating later, once real push delivery exists — the ternary chain grows
+  // one branch per channel while this map grows one KEY per channel, in the
+  // same shape every time. `email` is deliberately absent: it is never
+  // gated, so it has no entry, and the per-channel lookups below (`?? false`,
+  // `?? null`) fall through to "nothing to disable, nothing to say" for it
+  // and for any channel a newer server declares that this build has no
+  // `ChannelState` for at all.
+  const channelStates: Partial<Record<NotificationChannel, ChannelState>> = {
+    browser,
+    push,
+  };
 
   // Only relevant if some event actually declares the channel. Today only
-  // `security.role_changed` does, and an event list that declares none must not
-  // show a banner about a column that is not on screen.
+  // `security.role_changed` declares `browser`, and an event list that
+  // declares none must not show a banner about a column that is not on
+  // screen.
   const showsBrowserChannel = events.some((event) => event.channels.includes('browser'));
+  // Always `false` today (see `CHANNEL_LABELS`'s `push` entry above) — no
+  // registry event declares `push` yet — but written the same way as
+  // `showsBrowserChannel` rather than hardcoded to `false`, so the push
+  // banner appears on its own the day #229/#230 add the first `push` event,
+  // with no change needed here.
+  const showsPushChannel = events.some((event) => event.channels.includes('push'));
 
   if (events.length === 0) {
     // A REAL ANSWER, not a loading state — the caller renders a spinner while
@@ -606,6 +720,23 @@ export function NotificationSettings({
           </Alert>
         )}
 
+        {showsPushChannel && push.alert && (
+          <Alert severity={push.alert.severity} sx={{ mb: 2 }}>
+            <AlertTitle>{push.alert.title}</AlertTitle>
+            {push.alert.body}
+            {/*
+              NO ACTION BUTTON HERE, UNLIKE THE BROWSER BANNER ABOVE. That
+              button asks the BROWSER for a permission that already exists to
+              ask for; push has no such mechanism anywhere in this codebase
+              yet — no service-worker subscription, no `PushManager` call, no
+              code path that can ever produce `pushEnabled: true` today. A
+              button wired to nothing would be worse than no button, so this
+              banner is purely informational until #229/#230 give it
+              something to do.
+            */}
+          </Alert>
+        )}
+
         <Box component="ul" sx={{ listStyle: 'none', m: 0, p: 0 }}>
           {events.map((event, index) => {
             const descriptionId = `${idPrefix}-${event.key}-description`;
@@ -680,9 +811,13 @@ export function NotificationSettings({
                     */}
                     {event.channels.map((channel) => {
                       const checked = isEventChannelEnabled(event, channel, preferences);
-                      const isBrowser = channel === 'browser';
-                      const channelDisabled = isBrowser && browser.disabled;
-                      const note = isBrowser ? browser.note : null;
+                      // See `channelStates` above: `email` (and any channel a
+                      // newer server declares that this build has no
+                      // `ChannelState` for) has no entry, so both fallbacks
+                      // below apply — nothing disabled, nothing to note.
+                      const channelState = channelStates[channel];
+                      const channelDisabled = channelState?.disabled ?? false;
+                      const note = channelState?.note ?? null;
                       const noteId = note ? `${idPrefix}-${event.key}-${channel}-note` : undefined;
 
                       return (

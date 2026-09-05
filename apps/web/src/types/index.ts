@@ -63,12 +63,23 @@ export interface DataTableSettings {
  * against the same enum and 400s on anything else), so a channel this union
  * lacks is a channel this app could not write anyway.
  *
+ * `'push'` was added here in #228 (epic #215), mirroring the API's widening of
+ * `NOTIFICATION_CHANNELS` in the same issue. #228 also builds the real third
+ * preferences-matrix column for it (`pushChannelState()` in
+ * `NotificationSettings.tsx`, rendered disabled with an explanation while the
+ * server's `pushEnabled` is hardcoded `false`) — but no event declares `push`
+ * in its `channels` yet, so that column has nothing to show and stays
+ * unreached through `event.channels.map`. Real push delivery, and the first
+ * event that declares this channel, are #229/#230's job, not #228's: this
+ * issue is a structural widening plus the column's plumbing, not a feature
+ * launch.
+ *
  * Rendering is nonetheless written to survive a NEWER server that declares a
- * channel this build has never heard of — see `CHANNEL_META` in
+ * channel this build has never heard of — see `CHANNEL_LABELS` in
  * `components/settings/NotificationSettings.tsx`, which falls back to the raw
  * key rather than rendering a blank label.
  */
-export type NotificationChannel = 'email' | 'browser';
+export type NotificationChannel = 'email' | 'browser' | 'push';
 
 /**
  * One entry of the event registry, as served by `GET /api/notifications/events`.
