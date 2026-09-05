@@ -1,9 +1,36 @@
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { build } from 'vite';
 import { buildServiceWorkerOptions } from '../../../pwa/service-worker';
+
+// -----------------------------------------------------------------------------
+// `notificationclick` (issue #223, epic #215) — the one part of `sw.ts` that
+// CAN be executed under jsdom, with its two side-effecting dependencies
+// (workbox, and the real `self.clients`) replaced.
+//
+// The suite above cannot import `src/sw.ts` at all: unmocked, it calls
+// `clientsClaim()` and registers routes against workbox internals that assume
+// a real `ServiceWorkerGlobalScope`, which jsdom does not provide. Mocking
+// `workbox-core`/`workbox-precaching`/`workbox-routing` to no-ops removes
+// every one of those calls' real side effects, which is enough for the module
+// to load — the two handlers it registers with `self.addEventListener` are
+// then just plain functions, captured below by spying on `addEventListener`
+// and invoked directly with a hand-built fake event, bypassing jsdom's lack of
+// a real `NotificationEvent` entirely.
+// -----------------------------------------------------------------------------
+
+vi.mock('workbox-core', () => ({ clientsClaim: vi.fn() }));
+vi.mock('workbox-precaching', () => ({
+  cleanupOutdatedCaches: vi.fn(),
+  createHandlerBoundToURL: vi.fn(() => vi.fn()),
+  precacheAndRoute: vi.fn(),
+}));
+vi.mock('workbox-routing', () => ({
+  NavigationRoute: vi.fn(),
+  registerRoute: vi.fn(),
+}));
 
 // =============================================================================
 // The service worker  (issue #218, epic #215)
@@ -222,5 +249,205 @@ describe('src/sw.ts', () => {
 
     expect(code).not.toMatch(/fetch\s*\(/);
     expect(code).not.toMatch(/['"`]\/api\//);
+  });
+});
+
+describe('sw.ts notificationclick handler', () => {
+  let notificationClickHandler: (event: {
+    notification: { close: () => void; data: unknown };
+    waitUntil: (promise: Promise<unknown>) => void;
+  }) => void;
+  let clientsMatchAll: ReturnType<typeof vi.fn>;
+  let clientsOpenWindow: ReturnType<typeof vi.fn>;
+
+  beforeAll(async () => {
+    clientsMatchAll = vi.fn();
+    clientsOpenWindow = vi.fn();
+
+    // `self` in jsdom IS `window`/`globalThis` — these are the two properties
+    // `sw.ts` reaches for beyond what workbox already covers (mocked above).
+    (self as unknown as { __WB_MANIFEST: unknown }).__WB_MANIFEST = [];
+    (self as unknown as { clients: unknown }).clients = {
+      matchAll: clientsMatchAll,
+      openWindow: clientsOpenWindow,
+    };
+
+    // Captures the real listener functions `sw.ts` registers at import time,
+    // rather than trying to `dispatchEvent` a `notificationclick` — jsdom has
+    // no such event, and the handler needs `.notification`/`.waitUntil`,
+    // neither of which a real Event carries.
+    const addEventListenerSpy = vi.spyOn(self, 'addEventListener');
+
+    await import('../../sw');
+
+    const call = addEventListenerSpy.mock.calls.find(([type]) => type === 'notificationclick');
+    if (!call) {
+      throw new Error('sw.ts did not register a notificationclick listener');
+    }
+    notificationClickHandler = call[1] as typeof notificationClickHandler;
+
+    addEventListenerSpy.mockRestore();
+  });
+
+  beforeEach(() => {
+    clientsMatchAll.mockReset();
+    clientsOpenWindow.mockReset();
+  });
+
+  function fireAndAwait(data: unknown) {
+    const close = vi.fn();
+    let waited: Promise<unknown> = Promise.resolve();
+    const event = {
+      notification: { close, data },
+      waitUntil: (promise: Promise<unknown>) => {
+        waited = promise;
+      },
+    };
+
+    notificationClickHandler(event);
+    return { close, settled: waited.catch(() => undefined) };
+  }
+
+  it('focuses a matching open window client and postMessages the click, without opening a new window', async () => {
+    const matching = {
+      url: 'http://localhost:3000/notifications',
+      focus: vi.fn().mockResolvedValue(undefined),
+      postMessage: vi.fn(),
+    };
+    const other = {
+      url: 'http://localhost:3000/settings',
+      focus: vi.fn().mockResolvedValue(undefined),
+      postMessage: vi.fn(),
+    };
+    clientsMatchAll.mockResolvedValue([other, matching]);
+
+    const { close, settled } = fireAndAwait({ id: 'notif-1', link: '/notifications' });
+    await settled;
+
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(clientsMatchAll).toHaveBeenCalledWith({ type: 'window', includeUncontrolled: true });
+    expect(matching.focus).toHaveBeenCalledTimes(1);
+    expect(matching.postMessage).toHaveBeenCalledWith({
+      type: 'notification-click',
+      id: 'notif-1',
+      link: '/notifications',
+    });
+    expect(other.focus).not.toHaveBeenCalled();
+    expect(other.postMessage).not.toHaveBeenCalled();
+    expect(clientsOpenWindow).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the first open client when none matches the link path', async () => {
+    const first = {
+      url: 'http://localhost:3000/settings',
+      focus: vi.fn().mockResolvedValue(undefined),
+      postMessage: vi.fn(),
+    };
+    const second = {
+      url: 'http://localhost:3000/admin',
+      focus: vi.fn().mockResolvedValue(undefined),
+      postMessage: vi.fn(),
+    };
+    clientsMatchAll.mockResolvedValue([first, second]);
+
+    const { settled } = fireAndAwait({ id: 'notif-2', link: '/notifications' });
+    await settled;
+
+    expect(first.focus).toHaveBeenCalledTimes(1);
+    expect(first.postMessage).toHaveBeenCalledWith({
+      type: 'notification-click',
+      id: 'notif-2',
+      link: '/notifications',
+    });
+    expect(second.focus).not.toHaveBeenCalled();
+    expect(clientsOpenWindow).not.toHaveBeenCalled();
+  });
+
+  it('opens a new window with ?n=<id> appended when no window client is open (link has no query)', async () => {
+    clientsMatchAll.mockResolvedValue([]);
+
+    const { close, settled } = fireAndAwait({ id: 'notif-3', link: '/notifications' });
+    await settled;
+
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(clientsOpenWindow).toHaveBeenCalledWith('/notifications?n=notif-3');
+  });
+
+  it('opens a new window with &n=<id> appended when the link already carries a query string', async () => {
+    clientsMatchAll.mockResolvedValue([]);
+
+    const { settled } = fireAndAwait({ id: 'notif-4', link: '/notifications?tab=unread' });
+    await settled;
+
+    expect(clientsOpenWindow).toHaveBeenCalledWith('/notifications?tab=unread&n=notif-4');
+  });
+
+  it('URL-encodes the id in the cold-open query string', async () => {
+    clientsMatchAll.mockResolvedValue([]);
+
+    const { settled } = fireAndAwait({ id: 'id with spaces', link: '/notifications' });
+    await settled;
+
+    expect(clientsOpenWindow).toHaveBeenCalledWith(
+      `/notifications?n=${encodeURIComponent('id with spaces')}`,
+    );
+  });
+
+  it('rejects an off-origin link (absolute URL) and falls back to "/" rather than trusting it', async () => {
+    clientsMatchAll.mockResolvedValue([]);
+
+    const { settled } = fireAndAwait({ id: 'notif-5', link: 'https://evil.example.com/phish' });
+    await settled;
+
+    expect(clientsOpenWindow).toHaveBeenCalledWith('/?n=notif-5');
+    expect(clientsOpenWindow).not.toHaveBeenCalledWith(
+      expect.stringContaining('evil.example.com'),
+    );
+  });
+
+  it('rejects a protocol-relative link ("//host") and falls back to "/" rather than trusting it', async () => {
+    const client = {
+      url: 'http://localhost:3000/',
+      focus: vi.fn().mockResolvedValue(undefined),
+      postMessage: vi.fn(),
+    };
+    clientsMatchAll.mockResolvedValue([client]);
+
+    const { settled } = fireAndAwait({ id: 'notif-6', link: '//evil.example.com' });
+    await settled;
+
+    expect(client.postMessage).toHaveBeenCalledWith({
+      type: 'notification-click',
+      id: 'notif-6',
+      link: '/',
+    });
+  });
+
+  it('does not throw when notification.data is missing', async () => {
+    clientsMatchAll.mockResolvedValue([]);
+
+    const { close, settled } = fireAndAwait(undefined);
+    await expect(settled).resolves.toBeUndefined();
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(clientsOpenWindow).toHaveBeenCalledWith('/?n=');
+  });
+
+  it('does not throw when notification.data is malformed (wrong shape)', async () => {
+    clientsMatchAll.mockResolvedValue([]);
+
+    const { close, settled } = fireAndAwait({ id: 42, link: { not: 'a string' } });
+    await expect(settled).resolves.toBeUndefined();
+    expect(close).toHaveBeenCalledTimes(1);
+    // Non-string `id`/`link` are defensively coerced away rather than passed
+    // through: id becomes '', link falls back to '/'.
+    expect(clientsOpenWindow).toHaveBeenCalledWith('/?n=');
+  });
+
+  it('does not throw when notification.data is null', async () => {
+    clientsMatchAll.mockResolvedValue([]);
+
+    const { close, settled } = fireAndAwait(null);
+    await expect(settled).resolves.toBeUndefined();
+    expect(close).toHaveBeenCalledTimes(1);
   });
 });
