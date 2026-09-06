@@ -11,6 +11,18 @@ import {
 } from '../node/node-config.js';
 import { WORKER_ENV } from '../node/worker-env.js';
 import { resolveConfig } from '../config.js';
+import { formatLogRecord, readLogTail } from '../node/logger.js';
+import {
+  applyConcurrency,
+  noDaemonHint,
+  readLiveStatus,
+  spawnDetachedDaemon,
+  stopNode,
+} from '../node/lifecycle.js';
+import { connectToDaemon } from '../node/daemon.js';
+import { nodeLogPath, nodePidPath, nodeSocketPath } from '../node/paths.js';
+import { startNode } from '../node/start.js';
+import { saveNodeConfig } from '../node/node-config.js';
 
 // =============================================================================
 // `appctl node` — the worker-node command group  (issue #272, epic #254)
@@ -202,7 +214,195 @@ export function registerNodeCommand(program: Command, ctx?: NodeCommandContext):
       );
     });
 
+  node
+    .command('start')
+    .description('Run this machine as a worker until stopped')
+    .option('-d, --daemon', 'Detach and run in the background')
+    .option('--headless', 'Drain on SIGTERM WITHOUT deregistering — the container/service mode')
+    .action(async (options: StartCommandOptions) => {
+      const stderr = ctx?.stderr ?? process.stderr;
+      const configContext = contextOf(ctx);
+
+      if (options.daemon === true) {
+        // Re-spawn ourselves detached and return immediately. The child hosts
+        // the same socket, so `status`, `logs` and `set-concurrency` behave
+        // identically against a detached run and a foreground one.
+        const args = ['node', 'start', ...(options.headless === true ? ['--headless'] : [])];
+        const pid = spawnDetachedDaemon({ logPath: nodeLogPath(configContext), args });
+        stderr.write(
+          `Worker started in the background${pid === undefined ? '' : ` (pid ${pid})`}.\n` +
+            `  ${CLI_NAME} node status\n  ${CLI_NAME} node logs --follow\n  ${CLI_NAME} node stop\n`,
+        );
+        return;
+      }
+
+      const started = await startNode({
+        ...configContext,
+        ...(options.headless === true ? { headless: true } : {}),
+        stderr,
+      });
+      await started.finished;
+    });
+
+  node
+    .command('stop')
+    .description('Stop the worker running on this machine')
+    .action(async () => {
+      const stderr = ctx?.stderr ?? process.stderr;
+      const configContext = contextOf(ctx);
+
+      const outcome = await stopNode({
+        socketPath: nodeSocketPath(configContext),
+        pidPath: nodePidPath(configContext),
+      });
+
+      stderr.write(`${outcome.detail}\n`);
+      if (!outcome.wasRunning && outcome.stoppedBy === undefined) {
+        stderr.write(`${noDaemonHint(nodeSocketPath(configContext))}\n`);
+      }
+    });
+
+  node
+    .command('status')
+    .description('Report what the worker on this machine is doing')
+    .option('--json', 'Emit the snapshot as JSON on stdout')
+    .action(async (options: { json?: boolean }) => {
+      const stdout = ctx?.stdout ?? process.stdout;
+      const stderr = ctx?.stderr ?? process.stderr;
+      const configContext = contextOf(ctx);
+
+      const status = await readLiveStatus({
+        socketPath: nodeSocketPath(configContext),
+        pidPath: nodePidPath(configContext),
+      });
+
+      if (status.live && status.snapshot !== undefined) {
+        if (options.json === true) {
+          stdout.write(`${JSON.stringify(status.snapshot, null, 2)}\n`);
+          return;
+        }
+        const snapshot = status.snapshot;
+        stderr.write(
+          [
+            `Node        ${snapshot.nodeId}`,
+            `Status      ${snapshot.status}`,
+            `Concurrency ${snapshot.concurrency}`,
+            `Types       ${snapshot.eligibleTypes.join(', ') || '(none)'}`,
+            `Active      ${snapshot.activeJobs.length}`,
+            `Totals      ${snapshot.counters.succeeded} ok, ${snapshot.counters.failed} failed, ` +
+              `${snapshot.counters.rateLimited} rate-limited of ${snapshot.counters.claimed} claimed`,
+            `Heartbeat   ${
+              snapshot.heartbeatAgeMs === null ? 'never' : `${Math.round(snapshot.heartbeatAgeMs / 1000)}s ago`
+            }`,
+            ...snapshot.activeJobs.map((job) => `  · ${job.type} ${job.jobId} since ${job.startedAt}`),
+          ].join('\n') + '\n',
+        );
+        return;
+      }
+
+      // NEVER SIMPLY UNAVAILABLE: fall back to what this machine is configured
+      // to do, so the command answers something useful either way.
+      const resolved = resolveNodeConfig(configContext);
+      if (options.json === true) {
+        stdout.write(
+          `${JSON.stringify(
+            {
+              live: false,
+              nodeId: resolved.nodeId ?? null,
+              name: resolved.node.name,
+              concurrency: resolved.node.concurrency,
+              eligibleTypes: resolved.node.eligibleTypes,
+            },
+            null,
+            2,
+          )}\n`,
+        );
+        return;
+      }
+
+      stderr.write(
+        `${noDaemonHint(nodeSocketPath(configContext))}\n\n` +
+          `Configured as "${resolved.node.name}"${resolved.nodeId === undefined ? ' (not registered)' : ` (${resolved.nodeId})`}, ` +
+          `concurrency ${resolved.node.concurrency}.\n`,
+      );
+    });
+
+  node
+    .command('logs')
+    .description('Show this worker’s log')
+    .option('-n, --lines <n>', 'How many lines to show', '50')
+    .option('-f, --follow', 'Stream new lines until interrupted')
+    .action(async (options: { lines?: string; follow?: boolean }) => {
+      const stdout = ctx?.stdout ?? process.stdout;
+      const stderr = ctx?.stderr ?? process.stderr;
+      const configContext = contextOf(ctx);
+      const limit = parsePositiveInteger('--lines', options.lines ?? '50');
+
+      for (const record of readLogTail(nodeLogPath(configContext), limit)) {
+        stdout.write(`${formatLogRecord(record)}\n`);
+      }
+
+      if (options.follow !== true) return;
+
+      // Following ATTACHES to the daemon rather than tailing the file: the
+      // daemon already pushes every line, so this needs no polling and shows
+      // events the file does not carry.
+      await new Promise<void>((resolve) => {
+        connectToDaemon({
+          socketPath: nodeSocketPath(configContext),
+          onMessage: (message) => {
+            if (message.type === 'log-tail') {
+              for (const record of message.lines) stdout.write(`${formatLogRecord(record)}\n`);
+            }
+          },
+          onClose: () => resolve(),
+        })
+          .then((client) => {
+            // Ctrl-C detaches cleanly and leaves the daemon untouched.
+            const finish = (): void => {
+              client.close();
+              resolve();
+            };
+            process.once('SIGINT', finish);
+            process.once('SIGTERM', finish);
+          })
+          .catch(() => {
+            stderr.write(`${noDaemonHint(nodeSocketPath(configContext))}\n`);
+            resolve();
+          });
+      });
+    });
+
+  node
+    .command('set-concurrency')
+    .argument('<n>', 'How many jobs to run at once (1–64)')
+    .description('Change how many jobs this worker runs at once, live if it is running')
+    .action(async (raw: string) => {
+      const stderr = ctx?.stderr ?? process.stderr;
+      const configContext = contextOf(ctx);
+      const value = parsePositiveInteger('<n>', raw);
+
+      const outcome = await applyConcurrency({
+        value,
+        socketPath: nodeSocketPath(configContext),
+        persist: (next) => {
+          saveNodeConfig({ node: { concurrency: next } }, { ...configContext, degradeOnFailure: true });
+        },
+      });
+
+      stderr.write(
+        outcome.applied
+          ? `Concurrency set to ${outcome.value} on the running worker, and saved for next start.\n`
+          : `No worker is running here; saved concurrency ${outcome.value} for the next start.\n`,
+      );
+    });
+
   return node;
+}
+
+interface StartCommandOptions {
+  daemon?: boolean;
+  headless?: boolean;
 }
 
 interface EnrollCommandOptions {
