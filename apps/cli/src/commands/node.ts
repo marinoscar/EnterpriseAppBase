@@ -27,6 +27,7 @@ import { formatDoctorReport, runDoctor } from '../node/doctor.js';
 import { formatInstallReport, runInstallDeps } from '../node/install-deps.js';
 import { installService, serviceStatus, uninstallService } from '../node/service.js';
 import { nodeStateDir } from '../node/paths.js';
+import { maybeReexecWithHeapLimit } from '../node/runtime-tuning.js';
 
 // =============================================================================
 // `appctl node` — the worker-node command group  (issue #272, epic #254)
@@ -226,6 +227,17 @@ export function registerNodeCommand(program: Command, ctx?: NodeCommandContext):
     .action(async (options: StartCommandOptions) => {
       const stderr = ctx?.stderr ?? process.stderr;
       const configContext = contextOf(ctx);
+
+      // THE FIRST THING, before config load: the re-exec replaces this
+      // process, so anything done before it is done twice — including any
+      // error it would report. When it re-execs, this process becomes a
+      // signal-forwarding shim and never returns from here.
+      if (options.daemon !== true) {
+        const tuned = maybeReexecWithHeapLimit({
+          ...(ctx?.env !== undefined ? { env: ctx.env } : {}),
+        });
+        if (tuned.reexeced) return;
+      }
 
       if (options.daemon === true) {
         // Re-spawn ourselves detached and return immediately. The child hosts
@@ -486,6 +498,40 @@ export function registerNodeCommand(program: Command, ctx?: NodeCommandContext):
       const stderr = ctx?.stderr ?? process.stderr;
       const status = serviceStatus(contextOf(ctx));
       stderr.write(`${status.detail}\n  unit: ${status.unitPath}\n`);
+    });
+
+  node
+    .command('heap-snapshot')
+    .description('Ask the running worker to write a heap snapshot')
+    .action(async () => {
+      const stderr = ctx?.stderr ?? process.stderr;
+      const configContext = contextOf(ctx);
+      const socketPath = nodeSocketPath(configContext);
+
+      // Deliberately asks the LIVE daemon rather than snapshotting a fresh
+      // process: restarting to attach a diagnostic flag discards exactly the
+      // accumulated state that names the retainer.
+      const result = await new Promise<{ ok: boolean; detail: string }>((resolve) => {
+        connectToDaemon({
+          socketPath,
+          onMessage: (message) => {
+            if (message.type === 'ack' && message.command === 'heap-snapshot') {
+              const detail = message.detail as { path?: string; size?: number } | undefined;
+              resolve({
+                ok: true,
+                detail: `Wrote ${detail?.path ?? '(unknown path)'} (${Math.round((detail?.size ?? 0) / 1024 / 1024)} MB).`,
+              });
+            } else if (message.type === 'error') {
+              resolve({ ok: false, detail: message.message });
+            }
+          },
+        })
+          .then((client) => client.send({ type: 'heap-snapshot' }))
+          .catch(() => resolve({ ok: false, detail: noDaemonHint(socketPath) }));
+      });
+
+      stderr.write(`${result.detail}\n`);
+      if (!result.ok) throw new PreconditionError('No heap snapshot was written.');
     });
 
   return node;
