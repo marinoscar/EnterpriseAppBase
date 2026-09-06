@@ -21,6 +21,7 @@ import {
   systemMaintenanceSchema,
   MAX_DISABLED_NOTIFICATION_EVENTS,
   type SystemNotificationsValue,
+  type SystemMaintenanceValue,
 } from '../../common/schemas/settings.schema';
 
 const SETTINGS_KEY = 'global';
@@ -674,6 +675,41 @@ export class SystemSettingsService {
     });
 
     return this.readKnownSettings(row?.value).notifications;
+  }
+
+  /**
+   * The persisted maintenance window, read only (#257, epic #254).
+   *
+   * A NARROW ACCESSOR RATHER THAN `getSettings()`, for the two reasons
+   * `getNotificationsPolicy` above gives, and one more that is specific to this
+   * caller:
+   *
+   *   1. IT DOES NOT CREATE THE ROW. `getSettings` goes through
+   *      `loadOrCreateRow`, which INSERTs when the row is missing. This is read
+   *      by a GLOBAL GUARD on every request in the application; a read path
+   *      that can write is not acceptable there at all, and least of all
+   *      during a maintenance window, when the database may be exactly what is
+   *      being worked on.
+   *   2. IT RETURNS ONLY THIS BLOCK. The guard has no business seeing the
+   *      whole settings row, and neither has anything it might hand a value to.
+   *   3. IT IS ALLOWED TO THROW. `MaintenanceModeService.readPersisted` catches
+   *      it and degrades to its last known state — the restore swap (#285)
+   *      renames the live database, so "this read failed" is a NORMAL,
+   *      anticipated outcome there rather than a bug. Nothing is swallowed
+   *      here, so that caller can tell the difference.
+   *
+   * Degrades exactly as every other read here does: a missing row, a `null`
+   * value or a malformed one yields `DEFAULT_SYSTEM_SETTINGS.maintenance`
+   * through `readKnownSettings` — which means a damaged row reads as
+   * `enabled: false` and cannot take the application off the air by accident.
+   */
+  async getMaintenancePolicy(): Promise<SystemMaintenanceValue> {
+    const row = await this.prisma.systemSettings.findUnique({
+      where: { key: SETTINGS_KEY },
+      select: { value: true },
+    });
+
+    return this.readKnownSettings(row?.value).maintenance;
   }
 
   /**
