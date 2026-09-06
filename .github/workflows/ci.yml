@@ -195,6 +195,19 @@ jobs:
       # issues a `SELECT 1`, which passes against an empty database, whereas the
       # seed writes real rows and fails on a schema that does not match.
       - run: npm run prisma:migrate --workspace=api
+
+      # The one place in CI a real Postgres is up: `*.db.spec.ts` (job-schema
+      # index/constraint assertions today, see apps/api/test/jobs/) are
+      # excluded from every other `npm test`/`test:unit`/`test:cov`/`test:ci`
+      # run precisely because no Postgres is reachable there, and would
+      # otherwise fail with a confusing connection error rather than a clear
+      # skip. NODE_ENV=test (not the job's ambient unset/production value)
+      # matches what these specs assume when they build their own connection
+      # string from the POSTGRES_* vars above.
+      - run: npm run test:db --workspace=api
+        env:
+          NODE_ENV: test
+
       - run: npm run prisma:seed --workspace=api
 
       # Boots the compiled app and asserts it serves /api/health/live,
