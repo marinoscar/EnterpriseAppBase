@@ -1,6 +1,7 @@
 import { Box, useMediaQuery, useTheme } from '@mui/material';
 import { Outlet } from 'react-router-dom';
 import { AppBar } from '../navigation/AppBar';
+import { MaintenanceBanner } from './MaintenanceBanner';
 import { NavigationRail } from '../navigation/NavigationRail';
 import { BottomNav } from '../navigation/BottomNav';
 
@@ -100,6 +101,13 @@ export function Layout() {
             pb: { xs: 10, sm: 3 },
           }}
         >
+          {/* Issue #258, epic #254. Above the page rather than inside any one
+              of them, because "this deployment is deliberately out of service"
+              is a property of the shell, not of whatever the operator happens
+              to be looking at. It renders NOTHING — no element, no spacing —
+              for anyone without `system_settings:read` and whenever no window
+              is open, which is every viewer on every ordinary day. */}
+          <MaintenanceBanner />
           <Outlet />
         </Box>
       </Box>
