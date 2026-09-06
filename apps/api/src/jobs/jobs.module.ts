@@ -3,6 +3,8 @@ import { Module } from '@nestjs/common';
 import { SettingsModule } from '../settings/settings.module';
 import { ExampleEchoHandler } from './handlers/example-echo.handler';
 import { JobHistoryPurgeHandler } from './handlers/job-history-purge.handler';
+import { JobAdminController } from './job-admin.controller';
+import { JobAdminService } from './job-admin.service';
 import { JobClaimService } from './job-claim.service';
 import { JobHandlerRegistry } from './job-handler.registry';
 import { JobStuckService } from './job-stuck.service';
@@ -15,7 +17,7 @@ import { JobStuckResetTask } from './tasks/job-stuck-reset.task';
 import { TempFileJanitorTask } from './tasks/temp-file-janitor.task';
 
 // =============================================================================
-// JobsModule (issues #259, #260, #261, #262 and #263, epic #254)
+// JobsModule (issues #259 - #264, epic #254)
 // =============================================================================
 //
 // #259 shipped the queue's extension
@@ -132,7 +134,9 @@ import { TempFileJanitorTask } from './tasks/temp-file-janitor.task';
 
 @Module({
   imports: [SettingsModule],
+  controllers: [JobAdminController],
   providers: [
+    JobAdminService,
     JobHandlerRegistry,
     ExampleEchoHandler,
     JobHistoryPurgeHandler,
