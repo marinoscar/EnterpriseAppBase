@@ -228,6 +228,18 @@ const JOB_LIST_SELECT = {
  * would make every retry succeed by removing the row from the active-dedup
  * index, at the cost of silently allowing a duplicate of work that is already
  * running.
+ *
+ * WHY THE *Unchecked* INPUT TYPE. `claimedByNodeId` became a real relation
+ * (`Job.claimedByNode`) in #267, and Prisma's *Checked* input types
+ * (`JobUpdateManyMutationInput`) deliberately hide the raw foreign-key scalar
+ * behind a relation operation (`claimedByNode: { disconnect: true }`) — they
+ * exist to stop a caller writing an FK that points at nothing. This object
+ * writes the SCALAR directly and on purpose: it is a bulk `updateMany` reset
+ * that clears the column to `null`, which is exactly the "set the foreign key
+ * myself" case the Unchecked variants exist for, and `updateMany` cannot
+ * express nested relation operations at all. Narrowing this back to the
+ * Checked type does not make anything safer here; it makes this reset
+ * unexpressible.
  */
 const RETRY_RESET = {
   status: 'pending',
@@ -241,7 +253,7 @@ const RETRY_RESET = {
   claimedByNodeId: null,
   leaseExpiresAt: null,
   executor: null,
-} as const satisfies Prisma.JobUpdateManyMutationInput;
+} as const satisfies Prisma.JobUncheckedUpdateManyInput;
 
 @Injectable()
 export class JobAdminService {

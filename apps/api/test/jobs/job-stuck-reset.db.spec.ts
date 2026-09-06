@@ -86,10 +86,24 @@ describeWithDb('JobStuckService.resetStuck (real Postgres)', () => {
     await client?.$disconnect();
   });
 
-  /** Inserts one row and returns its id. */
-  async function seed(data: Omit<Prisma.JobCreateInput, 'reason'>): Promise<string> {
+  /**
+   * Inserts one row and returns its id.
+   *
+   * WHY THE *Unchecked* CREATE INPUT. Several cases below seed
+   * `claimedByNodeId` directly — a raw foreign-key scalar — to stage a job
+   * that a node was holding when it died. Since #267 wired
+   * `Job.claimedByNode` as a real relation, Prisma's *Checked*
+   * `JobCreateInput` no longer exposes that scalar at all; it exposes only
+   * `claimedByNode: { connect: ... }`, which would force these tests to
+   * create a real `WorkerNode` row purely to satisfy the type. That is the
+   * wrong shape for this suite: `resetStuck` never reads the node, only the
+   * column, and the FK is nullable so a NULL stays legal. `Unchecked` is
+   * Prisma's own name for "I am writing the foreign key myself", which is
+   * exactly what these fixtures do.
+   */
+  async function seed(data: Omit<Prisma.JobUncheckedCreateInput, 'reason'>): Promise<string> {
     const row = await client.job.create({
-      data: { reason: 'backfill', ...data } as Prisma.JobCreateInput,
+      data: { reason: 'backfill', ...data } as Prisma.JobUncheckedCreateInput,
     });
 
     return row.id;

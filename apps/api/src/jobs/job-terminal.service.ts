@@ -533,10 +533,23 @@ export class JobTerminalService {
    *
    * Returns the written row (so the caller can emit an accurate settled
    * event) or `null` when both attempts failed.
+   *
+   * WHY `JobUncheckedUpdateInput` AND NOT `JobUpdateInput`. Every one of this
+   * method's five call sites releases the node claim by writing
+   * `claimedByNodeId: null` — a raw foreign-key scalar. Since #267 wired
+   * `Job.claimedByNode` as a real relation, Prisma's *Checked* input
+   * (`JobUpdateInput`) no longer accepts that scalar; it accepts only the
+   * nested relation form (`claimedByNode: { disconnect: true }`). The
+   * *Unchecked* variant is the one Prisma provides precisely for callers that
+   * set foreign keys themselves, which is what a terminal write is: it clears
+   * an ownership column, it does not navigate a relation. Widening it here
+   * once fixes all five call sites without rewriting each of them into
+   * relation syntax that would read as though the job were being reconnected
+   * to something.
    */
   private async safeTerminalUpdate(
     jobId: string,
-    data: Prisma.JobUpdateInput
+    data: Prisma.JobUncheckedUpdateInput
   ): Promise<Job | null> {
     try {
       return await this.prisma.job.update({ where: { id: jobId }, data });
