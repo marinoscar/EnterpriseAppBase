@@ -33,6 +33,7 @@ import { JobHandler } from './job-handler.interface';
 import { JobHandlerRegistry } from './job-handler.registry';
 import { JobWorker } from './job.worker';
 import { JobsModule } from './jobs.module';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import configuration from '../config/configuration';
 import { PrismaModule } from '../prisma/prisma.module';
 import { PrismaService } from '../prisma/prisma.service';
@@ -96,6 +97,14 @@ describe('JobWorker lifecycle (real module graph)', () => {
         SlowHandlerModule,
       ],
     })
+      // `JobsModule` imports `SettingsModule` since #263 (the reaper and the
+      // purge read the `jobs` policy through `SystemSettingsService`), which
+      // brings the settings CONTROLLERS into this graph along with the guards
+      // they are decorated with. This suite is about lifecycle ordering and
+      // has no HTTP surface, so the guard is stubbed rather than dragging the
+      // whole auth graph in behind it.
+      .overrideGuard(JwtAuthGuard)
+      .useValue({ canActivate: () => true })
       // The graph must RESOLVE, not reach a database: this suite is about
       // lifecycle ordering and never runs a job.
       .overrideProvider(PrismaService)

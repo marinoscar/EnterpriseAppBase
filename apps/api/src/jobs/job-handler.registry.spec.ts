@@ -10,6 +10,7 @@ import { JobHandler } from './job-handler.interface';
 import { JobHandlerRegistry } from './job-handler.registry';
 import { JobWorker } from './job.worker';
 import { JobsModule } from './jobs.module';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import configuration from '../config/configuration';
 import { PrismaModule } from '../prisma/prisma.module';
 import { PrismaService } from '../prisma/prisma.service';
@@ -206,6 +207,11 @@ describe('ExampleEchoHandler self-registration (via JobsModule)', () => {
         JobsModule,
       ],
     })
+      // See the note in `job.worker.bootstrap.spec.ts`: `JobsModule` imports
+      // `SettingsModule` since #263, which brings its controllers (and their
+      // guards) into this graph. Nothing here serves a request.
+      .overrideGuard(JwtAuthGuard)
+      .useValue({ canActivate: () => true })
       .overrideProvider(PrismaService)
       .useValue({})
       // `JobWorker` (#262) is the one provider in `JobsModule` that RUNS on
