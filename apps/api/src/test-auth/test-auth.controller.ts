@@ -13,6 +13,7 @@ import { Public } from '../auth/decorators/public.decorator';
 import { TestEnvironmentGuard } from './guards/test-environment.guard';
 import { TestAuthService } from './test-auth.service';
 import { TestLoginDto } from './dto/test-login.dto';
+import { AllowDuringMaintenance } from '../common/maintenance/allow-during-maintenance.decorator';
 
 const REFRESH_TOKEN_COOKIE = 'refresh_token';
 const COOKIE_OPTIONS = {
@@ -23,8 +24,18 @@ const COOKIE_OPTIONS = {
   maxAge: 14 * 24 * 60 * 60, // 14 days in seconds
 };
 
+/**
+ * REACHABLE DURING A MAINTENANCE WINDOW (#257).
+ *
+ * This module is only registered when `NODE_ENV !== 'production'`, so the
+ * exemption cannot widen a production deployment's surface at all. Where it IS
+ * registered it is how automated tests obtain a token, and a suite that could
+ * not authenticate would be unable to test any of the behaviour a window is
+ * supposed to have — including whether the window itself works.
+ */
 @ApiTags('Test Authentication')
 @Controller('auth/test')
+@AllowDuringMaintenance()
 export class TestAuthController {
   private readonly logger = new Logger(TestAuthController.name);
 

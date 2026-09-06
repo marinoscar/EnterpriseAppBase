@@ -31,6 +31,7 @@ import {
   AuthProviderDto,
 } from './dto/auth-provider.dto';
 import { CurrentUserDto } from './dto/auth-user.dto';
+import { AllowDuringMaintenance } from '../common/maintenance/allow-during-maintenance.decorator';
 
 const REFRESH_TOKEN_COOKIE = 'refresh_token';
 const COOKIE_OPTIONS = {
@@ -41,8 +42,30 @@ const COOKIE_OPTIONS = {
   maxAge: 14 * 24 * 60 * 60, // 14 days in seconds (cookie spec uses seconds)
 };
 
+/**
+ * REACHABLE DURING A MAINTENANCE WINDOW, as a whole controller (#257).
+ *
+ * The exemption is class-level rather than route-by-route because every route
+ * on it is one of four things a window must not break:
+ *
+ *   * `providers`, `google`, `google/callback` — SIGNING IN. A window in which
+ *     nobody can sign in is a window nobody can end: `allowAdmins` is worth
+ *     nothing to an administrator who cannot obtain a token, and the only way
+ *     back would be the environment break-glass and a restart.
+ *   * `refresh` — STAYING signed in. An access token is minutes long; a window
+ *     that outlives one would evict the very admin who opened it.
+ *   * `me` — the identity lookup the maintenance page itself needs, to decide
+ *     whether the person looking at it is an admin who can carry on.
+ *   * `logout` / `logout-all` — signing OUT must never be the thing that is
+ *     unavailable. A user who wants their session ended during an incident is
+ *     entitled to have it ended.
+ *
+ * Note this is REACHABILITY only: `@Auth()` and `@Public()` still decide who
+ * may call what, exactly as they do outside a window.
+ */
 @ApiTags('Authentication')
 @Controller('auth')
+@AllowDuringMaintenance()
 export class AuthController {
   private readonly logger = new Logger(AuthController.name);
 
