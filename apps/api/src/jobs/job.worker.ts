@@ -197,6 +197,34 @@ export function parseWorkerMode(raw: unknown): JobWorkerMode | null {
 }
 
 /**
+ * `JOBS_WORKER_CONCURRENCY` as a number, with the shipped default when the key
+ * is missing or not a finite number.
+ *
+ * THE ONE READ OF THIS SETTING IN THE PROCESS, extracted for exactly the
+ * reason `parseWorkerMode` above was: a second consumer appeared.
+ * `JobInsightsService` (#265) divides its ETA by the worker concurrency, and
+ * an ETA computed against a DIFFERENT number from the one the pool actually
+ * runs is worse than no ETA — it would stay plausible while being wrong by a
+ * constant factor, which is the kind of error nobody catches by looking.
+ *
+ * Injecting `JobWorker` into the insights service was rejected for the same
+ * reason the janitor does not inject it for the mode: what that service needs
+ * is a configuration ANSWER, not the worker pool, and anything holding the
+ * pool can stop it.
+ *
+ * The defensive fallback matters here for the same reason `configNumber` has
+ * one below: this is also reachable from a directly-constructed test double
+ * with a stub `ConfigService`, and a missing key must degrade to the shipped
+ * behaviour rather than to `NaN` — which as a divisor would publish an ETA of
+ * `NaN` milliseconds.
+ */
+export function resolveWorkerConcurrency(config: ConfigService): number {
+  const value = config.get<number>('jobs.workerConcurrency');
+
+  return typeof value === 'number' && Number.isFinite(value) ? value : DEFAULT_CONCURRENCY;
+}
+
+/**
  * What a per-job timeout throws.
  *
  * A distinct class rather than a bare `Error` so the failure is greppable in
@@ -732,9 +760,14 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
   // Configuration
   // ---------------------------------------------------------------------------
 
-  /** `JOBS_WORKER_CONCURRENCY` — fixed at startup; the pool is not resized. */
+  /**
+   * `JOBS_WORKER_CONCURRENCY` — fixed at startup; the pool is not resized.
+   *
+   * Delegates to the module-level `resolveWorkerConcurrency` so that this and
+   * the insights ETA divisor cannot disagree; see that function's comment.
+   */
   private concurrency(): number {
-    return this.configNumber('jobs.workerConcurrency', DEFAULT_CONCURRENCY);
+    return resolveWorkerConcurrency(this.config);
   }
 
   /** `JOBS_POLL_MS` — how long an EMPTY queue sleeps before asking again. */

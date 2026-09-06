@@ -1,5 +1,5 @@
 // =============================================================================
-// Integration tests for the admin jobs API (issue #264, epic #254)
+// Integration tests for the admin jobs API (issues #264 and #265, epic #254)
 // =============================================================================
 //
 // `src/jobs/job-admin.service.spec.ts` proves what the service DECIDES. This
@@ -65,6 +65,13 @@ describe('Admin jobs API (Integration)', () => {
     prisma.job.findUnique.mockResolvedValue(null);
     prisma.job.updateMany.mockResolvedValue({ count: 0 });
     prisma.job.deleteMany.mockResolvedValue({ count: 0 });
+
+    // #265's insights surface. `$queryRaw` is the two duration aggregates;
+    // the deep mock would otherwise resolve them to `undefined` and the
+    // service would iterate nothing.
+    prisma.$queryRaw.mockResolvedValue([]);
+    prisma.jobStatsRollup.findMany.mockResolvedValue([]);
+    prisma.jobStatsRollup.deleteMany.mockResolvedValue({ count: 0 });
   });
 
   const server = () => context.app.getHttpServer();
@@ -126,6 +133,44 @@ describe('Admin jobs API (Integration)', () => {
       });
     });
 
+    it('reads GET /admin/jobs/insights as the analysis, not as a job id', async () => {
+      const admin = await createMockAdminUser(context);
+
+      const response = await request(server())
+        .get('/api/admin/jobs/insights')
+        .set(authHeader(admin.accessToken))
+        .expect(200);
+
+      // Asserting the SHAPE, not merely the status: a `:id` route capturing
+      // this would answer 400 or 404, but so would several unrelated
+      // failures. Four blocks and a window mean the computation ran.
+      expect(response.body.data).toMatchObject({
+        windowDays: 7,
+        live: { total: 0, byStatus: { pending: 0, running: 0, succeeded: 0, failed: 0 } },
+        history: { overall: { samples: 0, avgMs: null } },
+        eta: [],
+        lifetime: [],
+      });
+    });
+
+    it('reads POST /admin/jobs/insights/reset-history as the reset, not as a job id', async () => {
+      const admin = await createMockAdminUser(context);
+      prisma.jobStatsRollup.deleteMany.mockResolvedValue({ count: 2 });
+
+      const response = await request(server())
+        .post('/api/admin/jobs/insights/reset-history')
+        .set(authHeader(admin.accessToken))
+        .send()
+        .expect(200);
+
+      expect(response.body.data).toEqual({ reset: 2 });
+      // The rollup was cleared and no job row was touched — the whole safety
+      // argument for putting this control on the dashboard at all.
+      expect(prisma.jobStatsRollup.deleteMany).toHaveBeenCalledWith({});
+      expect(prisma.job.deleteMany).not.toHaveBeenCalled();
+      expect(prisma.job.updateMany).not.toHaveBeenCalled();
+    });
+
     it('still routes a real UUID to the :id handlers', async () => {
       const admin = await createMockAdminUser(context);
       prisma.job.findUnique.mockResolvedValue({ id: JOB_ID, status: 'running' });
@@ -147,6 +192,12 @@ describe('Admin jobs API (Integration)', () => {
   describe('authorization', () => {
     const routes: Array<[string, 'get' | 'post' | 'delete', string]> = [
       ['GET /admin/jobs/stats', 'get', '/api/admin/jobs/stats'],
+      ['GET /admin/jobs/insights', 'get', '/api/admin/jobs/insights'],
+      [
+        'POST /admin/jobs/insights/reset-history',
+        'post',
+        '/api/admin/jobs/insights/reset-history',
+      ],
       ['GET /admin/jobs', 'get', '/api/admin/jobs'],
       ['POST /admin/jobs/retry-failed', 'post', '/api/admin/jobs/retry-failed'],
       ['POST /admin/jobs/reset-stuck', 'post', '/api/admin/jobs/reset-stuck'],
@@ -240,6 +291,58 @@ describe('Admin jobs API (Integration)', () => {
         .get('/api/admin/jobs?processedWithin=1h')
         .set(authHeader(admin.accessToken))
         .expect(400);
+    });
+  });
+
+  // =========================================================================
+  // GET /admin/jobs/insights — the window, through the real pipe
+  // =========================================================================
+
+  describe('GET /admin/jobs/insights', () => {
+    it('accepts the ceiling exactly', async () => {
+      const admin = await createMockAdminUser(context);
+
+      const response = await request(server())
+        .get('/api/admin/jobs/insights?windowDays=90')
+        .set(authHeader(admin.accessToken))
+        .expect(200);
+
+      expect(response.body.data.windowDays).toBe(90);
+    });
+
+    it('coerces the string a query parameter always is', async () => {
+      const admin = await createMockAdminUser(context);
+
+      const response = await request(server())
+        .get('/api/admin/jobs/insights?windowDays=30')
+        .set(authHeader(admin.accessToken))
+        .expect(200);
+
+      expect(response.body.data.windowDays).toBe(30);
+    });
+
+    it('400s a window above the ceiling rather than silently clamping it', async () => {
+      // Silently reducing it would return a response that looks exactly like
+      // the one that was asked for, over a window that was never computed.
+      const admin = await createMockAdminUser(context);
+
+      await request(server())
+        .get('/api/admin/jobs/insights?windowDays=91')
+        .set(authHeader(admin.accessToken))
+        .expect(400);
+
+      expect(prisma.$queryRaw).not.toHaveBeenCalled();
+    });
+
+    it('400s a zero, a negative and a non-numeric window', async () => {
+      const admin = await createMockAdminUser(context);
+
+      for (const value of ['0', '-7', 'lots', '7.5']) {
+        await request(server())
+          .get(`/api/admin/jobs/insights?windowDays=${value}`)
+          .set(authHeader(admin.accessToken))
+          .expect(400);
+      }
     });
   });
 
