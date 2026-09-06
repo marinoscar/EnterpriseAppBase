@@ -281,3 +281,49 @@ export function saveNodeConfig(
     return undefined;
   }
 }
+
+/**
+ * Persist a freshly-minted `nod_` credential, PRESERVING the node block.
+ *
+ * `saveCredentials()` in config.ts replaces the whole file, which is right for
+ * `login` (it is establishing a new session) and wrong here: `node enroll` on
+ * a machine that has already registered would silently drop its `nodeId` and
+ * leak a second node row on the next start.
+ *
+ * ⚠ THE EXPIRY IS CLEARED, NOT CARRIED OVER. A node credential normally never
+ * expires (`expiresAt: null` — see the epic's locked decisions), and leaving a
+ * previous PAT's `expiresAt` in place would make `config` report a perfectly
+ * valid credential as expired, and `status` refuse to use it. Passing `null`
+ * is therefore meaningfully different from passing `undefined`: it means "this
+ * one has no expiry", and both land as an ABSENT field rather than a stale one.
+ */
+export function saveNodeCredentials(
+  input: {
+    serverUrl: string;
+    token: string;
+    expiresAt?: string | null | undefined;
+    tokenId?: string | undefined;
+    tokenName?: string | undefined;
+  },
+  options?: ResolveNodeConfigOptions,
+): string {
+  const existing: StoredConfig = readConfigFile(options) ?? {};
+
+  const next: StoredConfig = {
+    ...existing,
+    serverUrl: input.serverUrl,
+    token: input.token,
+    ...(typeof input.expiresAt === 'string' ? { expiresAt: input.expiresAt } : {}),
+    ...(input.tokenId !== undefined ? { tokenId: input.tokenId } : {}),
+    ...(input.tokenName !== undefined ? { tokenName: input.tokenName } : {}),
+  };
+
+  // Explicitly deleted rather than merely not set: `existing` was spread in
+  // above, so an omitted key would carry the OLD value forward — which is
+  // exactly the stale-expiry bug this function exists to prevent.
+  if (typeof input.expiresAt !== 'string') delete next.expiresAt;
+  if (input.tokenId === undefined) delete next.tokenId;
+  if (input.tokenName === undefined) delete next.tokenName;
+
+  return writeConfigFile(next, options);
+}
