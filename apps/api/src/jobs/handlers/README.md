@@ -98,8 +98,8 @@ enqueue service or the dashboard is touched.
 
 ### 4. Enqueue Work
 
-Enqueue a job of your type from wherever the trigger lives (the enqueue
-service arrives with issue #260):
+Inject `JobsService` (exported by `JobsModule`, which step 3 already imported)
+and enqueue from wherever the trigger lives:
 
 ```typescript
 await this.jobs.enqueue({
@@ -115,6 +115,30 @@ await this.jobs.enqueue({
 small and keep it to **identifiers**, not copies of data — the job may run
 minutes later, and a row it names should be re-read at run time rather than
 carried inside the payload where it can go stale.
+
+**Enqueueing the same work twice is safe by default.** A job is deduplicated
+on `type` plus subject for as long as an earlier one is still `pending` or
+`running`: the second call does not create a second row, it returns the job
+already in flight. Both callers get a job, neither gets an error, and the
+returned row is the *first* caller's — so its `reason`, `priority` and
+`payload` are the ones that job was created with. When several jobs of the
+same type against the same subject are legitimately distinct work, opt out
+per call:
+
+```typescript
+await this.jobs.enqueue({ ...input, skipDedup: true });
+```
+
+Two more optional fields worth knowing about:
+
+- `priority` — **ascending is more urgent**, `0` is normal, negative is
+  ahead of it.
+- `scheduledFor` — the earliest time the job may be claimed. Omit it (the
+  default) for "run as soon as a worker is free".
+
+The full reasoning — why the database decides dedup instead of a
+`findFirst` pre-check, and why `skipDedup` costs nothing — is
+[`docs/specs/job-queue.md`](../../../../../docs/specs/job-queue.md) §4.
 
 ### The Type Appears in the Dashboard Automatically
 

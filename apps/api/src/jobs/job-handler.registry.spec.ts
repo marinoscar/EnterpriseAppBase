@@ -7,6 +7,8 @@ import { ExampleEchoHandler } from './handlers/example-echo.handler';
 import { JobHandler } from './job-handler.interface';
 import { JobHandlerRegistry } from './job-handler.registry';
 import { JobsModule } from './jobs.module';
+import { PrismaModule } from '../prisma/prisma.module';
+import { PrismaService } from '../prisma/prisma.service';
 
 // -----------------------------------------------------------------------------
 // Test doubles for the three node-eligibility shapes.
@@ -92,9 +94,7 @@ describe('JobHandlerRegistry', () => {
 
   describe('duplicate registration', () => {
     it('logs a warning and lets the LAST registration win', () => {
-      const warn = jest
-        .spyOn(Logger.prototype, 'warn')
-        .mockImplementation(() => undefined);
+      const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
 
       const first = new NeitherMemberHandler();
       // A second, distinct class claiming the same `type` string.
@@ -121,9 +121,7 @@ describe('JobHandlerRegistry', () => {
     });
 
     it('does not warn when two different types are registered', () => {
-      const warn = jest
-        .spyOn(Logger.prototype, 'warn')
-        .mockImplementation(() => undefined);
+      const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
 
       registry.register(new NeitherMemberHandler());
       registry.register(new BothMembersHandler());
@@ -166,7 +164,7 @@ describe('JobHandlerRegistry', () => {
       registry.register(new PersistOnlyHandler());
 
       expect(registry.serverOnlyTypes().sort()).toEqual(
-        ['test.neither', 'test.persist-only', 'test.schema-only'].sort(),
+        ['test.neither', 'test.persist-only', 'test.schema-only'].sort()
       );
     });
 
@@ -181,9 +179,19 @@ describe('ExampleEchoHandler self-registration (via JobsModule)', () => {
   let registry: JobHandlerRegistry;
 
   beforeEach(async () => {
+    // `PrismaModule` is imported and its `PrismaService` STUBBED because
+    // `JobsModule` gained two database-backed providers with #260
+    // (`JobsService`, `JobClaimService`). This suite is about registration
+    // and self-registration only — it never enqueues and never claims — so it
+    // needs the injection to RESOLVE, not to reach a database. Importing the
+    // (`@Global()`) module satisfies the graph; overriding the provider keeps
+    // a unit test from opening a connection in `onModuleInit`.
     moduleRef = await Test.createTestingModule({
-      imports: [JobsModule],
-    }).compile();
+      imports: [PrismaModule, JobsModule],
+    })
+      .overrideProvider(PrismaService)
+      .useValue({})
+      .compile();
 
     // `init()` is what runs the `onModuleInit` hooks — the registration path
     // itself. Without it the registry would be empty, which is exactly the
@@ -218,9 +226,7 @@ describe('ExampleEchoHandler self-registration (via JobsModule)', () => {
 
   it('processes a job without throwing, and logs the payload', async () => {
     const handler = moduleRef.get(ExampleEchoHandler);
-    const log = jest
-      .spyOn(Logger.prototype, 'log')
-      .mockImplementation(() => undefined);
+    const log = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
 
     const job = {
       id: 'job-1',
