@@ -60,6 +60,7 @@
 // =============================================================================
 
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { createHash, randomBytes } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
@@ -92,6 +93,22 @@ export interface NodeCredentialListRow {
   lastUsedAt: Date | null;
   createdAt: Date;
   revokedAt: Date | null;
+}
+
+/**
+ * {@link NodeCredentialListRow} plus its owner — the shape the ADMIN listing
+ * returns (#270).
+ *
+ * A separate interface rather than an optional `user` on the row above,
+ * because the two answer different questions and are read by different
+ * surfaces: `GET /node-credentials` is "my credentials", where the owner is
+ * the caller and naming them is noise, and `GET /admin/nodes/credentials` is
+ * "every long-lived worker token in this deployment", where whose it is IS the
+ * audit. An optional field would let the admin surface silently render
+ * `undefined` the day somebody reused the owner-scoped query.
+ */
+export interface AdminNodeCredentialRow extends NodeCredentialListRow {
+  user: { id: string; email: string; name: string | null };
 }
 
 /** The show-once shape returned by {@link NodeCredentialService.createCredential}. */
@@ -244,9 +261,79 @@ export class NodeCredentialService {
    * off.
    */
   async revokeCredential(userId: string, credentialId: string): Promise<void> {
-    const credential = await this.prisma.nodeCredential.findFirst({
-      where: { id: credentialId, userId },
+    return this.revokeMatching({ id: credentialId, userId }, `user ${userId}`);
+  }
+
+  /**
+   * Lists EVERY credential in the deployment with its owner, masked (#270).
+   *
+   * The admin half of `listCredentials` above, and it exists because a
+   * `NodeCredential` has no mandatory expiry (see the model's own comment):
+   * the only thing that ever cuts a worker token off is somebody revoking it,
+   * and somebody can only revoke what they can see. An administrator who can
+   * see their own credentials and not the fleet's has no way to answer "which
+   * long-lived tokens can reach this API", which is the question the whole
+   * `nod_` design leans on being answerable.
+   *
+   * The `select` is an ALLOWLIST for exactly the reason `listCredentials`
+   * gives — a column added by a future migration must not appear here until
+   * somebody adds it deliberately — and `tokenHash` is absent from it. That
+   * matters MORE on this surface than on the owner-scoped one: this response
+   * carries every credential in the deployment at once, so a hash leaked here
+   * is an offline verification oracle for the entire fleet.
+   *
+   * Not paginated. This is bounded by how many worker machines an operator
+   * runs, which is a number they chose and can see; a page cursor over a list
+   * an admin is scanning for anomalies would hide the anomaly on page two.
+   */
+  async listAllCredentials(): Promise<AdminNodeCredentialRow[]> {
+    return this.prisma.nodeCredential.findMany({
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        name: true,
+        tokenPrefix: true,
+        expiresAt: true,
+        lastUsedAt: true,
+        createdAt: true,
+        revokedAt: true,
+        user: { select: { id: true, email: true, name: true } },
+      },
     });
+  }
+
+  /**
+   * Revokes ANY credential, whoever owns it (#270).
+   *
+   * The ownership half of the `where` is dropped, and nothing else changes —
+   * both paths go through `revokeMatching` so revocation stays ONE piece of
+   * code with one definition of "already revoked" and one place that stamps
+   * `revokedAt`. A second hand-written revoke for admins is how the two
+   * acquire different semantics for the second call.
+   *
+   * The enumeration argument that shapes the owner-scoped path does NOT apply
+   * here: an administrator is allowed to know which credential ids exist, so
+   * "not found" being distinguishable from "someone else's" costs nothing.
+   * The 404 shape is kept anyway, because the caller cannot tell them apart
+   * either way and one message is easier to test than two.
+   */
+  async revokeAnyCredential(credentialId: string): Promise<void> {
+    return this.revokeMatching({ id: credentialId }, 'an administrator');
+  }
+
+  /**
+   * The one revocation, with the caller's scope folded into the lookup.
+   *
+   * OWNERSHIP IS PART OF THE `where` rather than a check after a `findUnique`
+   * — see `revokeCredential`'s doc comment for the enumeration oracle that
+   * prevents. `actor` is only ever a log string; it is never a second place
+   * authorization is decided.
+   */
+  private async revokeMatching(
+    where: Prisma.NodeCredentialWhereInput,
+    actor: string,
+  ): Promise<void> {
+    const credential = await this.prisma.nodeCredential.findFirst({ where });
 
     if (!credential) {
       throw new NotFoundException('Node credential not found');
@@ -262,7 +349,7 @@ export class NodeCredentialService {
     });
 
     this.logger.log(
-      `Revoked node credential "${credential.name}" (${credential.id}) for user ${userId}`,
+      `Revoked node credential "${credential.name}" (${credential.id}) for ${actor}`,
     );
   }
 
