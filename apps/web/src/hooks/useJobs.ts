@@ -10,31 +10,27 @@
  * for display.
  *
  * =============================================================================
- * `useVisiblePolling` — WHY THE INTERVAL STOPS WITH THE TAB
+ * `useVisiblePolling` — RE-EXPORTED, NOT DEFINED HERE
  * =============================================================================
  *
- * The jobs page polls, because a queue is the one admin surface whose contents
- * change with nobody touching it: an operator watching a backlog drain needs
- * the numbers to move, and a manual refresh button turns "is it draining" into
- * a clicking exercise.
+ * The jobs page polls, because a queue is one of the two admin surfaces whose
+ * contents change with nobody touching it. The hook that does it used to live
+ * in this file; issue #271 moved it to `hooks/useVisiblePolling.ts` when the
+ * worker-fleet page needed the same behaviour, and that module's header keeps
+ * the full rationale — why the interval is torn down while the tab is hidden,
+ * and why returning to it fetches immediately rather than waiting out a
+ * period.
  *
- * A bare `setInterval` keeps firing in a background tab, and that is not a
- * micro-optimisation to skip. A dashboard left open on a second monitor
- * overnight is ~2,900 requests at a 10-second poll — each one a real query
- * against the same database the workers are competing for — and every response
- * is discarded, because nobody is looking. Browsers throttle background timers
- * but do not stop them, and the throttling is neither uniform nor something a
- * server capacity plan can rely on.
- *
- * So the interval is torn down on `visibilitychange` to hidden and rebuilt on
- * the way back, with ONE IMMEDIATE FETCH on return. The immediate fetch is the
- * half that makes the pause invisible to the operator: without it, a tab
- * restored after an hour would show hour-old numbers for up to a full interval,
- * which is worse than not pausing at all — stale data that looks live.
+ * It is RE-EXPORTED from here rather than left to each page to import from the
+ * new module, so `JobsPage` keeps taking its polling from the hook module it
+ * already depends on — which is also what keeps a page test that mocks
+ * `hooks/useJobs` in control of the poll. There is exactly one implementation;
+ * this is an alias of it.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError } from '../services/api';
+import { useVisiblePolling } from './useVisiblePolling';
 import {
   deleteJob,
   getJobStats,
@@ -52,6 +48,9 @@ import type {
 } from '../services/jobs';
 import { useIsMounted } from './useIsMounted';
 
+// See the file header: one implementation, in `hooks/useVisiblePolling.ts`.
+export { useVisiblePolling };
+
 /**
  * How often the jobs page re-asks, while its tab is in front.
  *
@@ -61,65 +60,6 @@ import { useIsMounted } from './useIsMounted';
  * is not observed any better by asking three times as often.
  */
 export const JOBS_POLL_INTERVAL_MS = 10_000;
-
-/**
- * Call `callback` every `intervalMs` — but only while the document is visible.
- *
- * `callback` is held in a ref rather than being an effect dependency: a page
- * naturally passes a fresh closure on every render (it reads the current
- * filters), and depending on it directly would tear down and rebuild the
- * interval on every keystroke, so the timer would never actually reach its
- * period. The ref is updated on each render, so a tick always calls the
- * LATEST closure while the timer itself survives.
- *
- * `intervalMs <= 0` disables polling entirely, which is what a test — or a
- * caller with no reason to poll — passes.
- */
-export function useVisiblePolling(callback: () => void, intervalMs: number): void {
-  const callbackRef = useRef(callback);
-  callbackRef.current = callback;
-
-  useEffect(() => {
-    if (intervalMs <= 0) return;
-
-    let timer: ReturnType<typeof setInterval> | null = null;
-
-    const stop = () => {
-      if (timer !== null) {
-        clearInterval(timer);
-        timer = null;
-      }
-    };
-
-    const start = () => {
-      // Guarded rather than assumed: `visibilitychange` can fire more than
-      // once for the same effective state, and an unguarded `setInterval`
-      // would leak a second timer and double the request rate.
-      if (timer !== null) return;
-      timer = setInterval(() => callbackRef.current(), intervalMs);
-    };
-
-    const onVisibilityChange = () => {
-      if (document.hidden) {
-        stop();
-        return;
-      }
-      // Catch up FIRST, then resume — see the file header on why a resumed
-      // poll that waits out a full interval is worse than never pausing.
-      callbackRef.current();
-      start();
-    };
-
-    // A tab that is already hidden at mount never starts one.
-    if (!document.hidden) start();
-    document.addEventListener('visibilitychange', onVisibilityChange);
-
-    return () => {
-      stop();
-      document.removeEventListener('visibilitychange', onVisibilityChange);
-    };
-  }, [intervalMs]);
-}
 
 /** Turn any thrown value into the sentence the page will render. */
 function messageFor(err: unknown, fallback: string): string {
