@@ -531,6 +531,64 @@ appctl node config          # human-readable, on stderr
 appctl node config --json   # machine-readable, on stdout — never includes the token
 ```
 
+### Running the worker
+
+```bash
+appctl node start                 # foreground, attachable
+appctl node start --daemon        # detached, logging to ~/.appctl/node/logs/node.log
+appctl node start --headless      # container/service mode
+```
+
+**Every run hosts the control socket**, foreground or detached — a worker you
+can only inspect if you started it a particular way is a worker nobody
+inspects. The socket lives in the state directory at mode `0600`, so the
+control channel is bounded by the same filesystem permission that protects
+your token.
+
+`--headless` changes exactly one thing, and it matters: on `SIGTERM` the
+worker **drains without deregistering**, so a restarting container re-attaches
+to its existing node row instead of leaking a new one on every restart.
+Interactive Ctrl-C does deregister — a human stopping a worker on their laptop
+means it is going away.
+
+### Inspecting and controlling a running worker
+
+```bash
+appctl node status                # live snapshot from the running worker
+appctl node status --json
+appctl node logs -n 200           # recent lines
+appctl node logs --follow         # attach and stream
+appctl node set-concurrency 8     # applies live; persists either way
+appctl node stop
+```
+
+`status` is never simply unavailable: with no worker running it falls back to
+this machine's stored settings, so the command always answers something useful.
+
+`set-concurrency` works whether or not a worker is running — live over the
+control socket when one is, persisted for the next start when not. The cap is
+re-read on every claim pass, so a live change takes effect on the next
+iteration rather than at restart.
+
+`stop` is a three-rung ladder, each rung bounded: ask the worker over the
+socket (clean drain and deregister) → `SIGTERM` the pid in the pidfile (its
+handler drains) → deregister server-side so no further work is dispatched to a
+process that is already gone. That last rung matters more than it looks:
+without it a `SIGKILL`ed worker keeps its `online` row until the liveness cron
+notices, and every lease handed to it in the meantime has to expire before the
+work is retried elsewhere.
+
+### Logs
+
+JSONL under `<state dir>/logs/node.log`, one rollover generation at 5 MiB.
+Writes are synchronous, so the lines written immediately before a crash — the
+only ones anybody wants after a crash — are on disk.
+
+**Secrets are redacted before anything reaches the file**, recursively, through
+nested objects and arrays: tokens, API keys, passwords, and **presigned storage
+URLs**. That last one is not hygiene theatre — a presigned URL is a bearer
+capability over an object, and a log file is a thing people attach to issues.
+
 ### Worker environment variables
 
 Every setting can come from the environment instead of the config file, which
