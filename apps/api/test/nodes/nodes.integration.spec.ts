@@ -57,9 +57,13 @@ describe('Worker node control plane (Integration)', () => {
 
     // Registered into the REAL registry the application booted with, which is
     // the same extension point a fork's own handler uses (`handlers/README.md`).
-    // Without a node-eligible type registered anywhere, every claim would
-    // correctly return nothing — this template ships no node-eligible handler,
-    // because a node-eligible handler is a product decision, not framework.
+    // Suite-local types on purpose, even though #269 added a real
+    // node-eligible handler (`example.checksum`): these two exist to give this
+    // file a node-persistable type and a server-only one whose SHAPES it
+    // controls, so a change to the shipped handler's result schema cannot
+    // break assertions that are about the control plane. The shipped handler
+    // is driven end to end by `node-data-plane.integration.spec.ts` and
+    // `node-checksum-data-plane.db.spec.ts` instead.
     const registry = context.module.get(JobHandlerRegistry, { strict: false });
     registry.register({
       type: NODE_TYPE,

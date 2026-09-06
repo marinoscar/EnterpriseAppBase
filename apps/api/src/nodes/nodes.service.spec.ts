@@ -731,6 +731,57 @@ describe('NodesService', () => {
   });
 
   // ===========================================================================
+  // The published contract (#269)
+  // ===========================================================================
+
+  describe('listNodeEligibleJobTypes', () => {
+    it('lists node-eligible types only — never a server-only one', async () => {
+      // The same derivation the claim uses, published. A server-only type
+      // appearing here would tell a client to build a node for work this
+      // server could never store a result for.
+      const types = service.listNodeEligibleJobTypes().map((entry) => entry.type);
+
+      expect(types).toContain(NODE_TYPE);
+      expect(types).not.toContain(SERVER_TYPE);
+    });
+
+    it('publishes the handler’s OWN schema as JSON Schema', async () => {
+      // Generated from the very object `submitResult` parses against, which is
+      // the entire point: a client cannot validate against a definition this
+      // server stopped using.
+      const [entry] = service.listNodeEligibleJobTypes();
+
+      expect(entry.resultSchema).toMatchObject({
+        type: 'object',
+        properties: { ok: { type: 'boolean' } },
+        required: ['ok'],
+      });
+      expect(entry.label).toBe(NODE_TYPE);
+    });
+
+    it('publishes `null` — not `{}` — for a schema with no JSON Schema form', async () => {
+      // `{}` in JSON Schema means "anything is valid", so an empty object
+      // would be a lie in the most expensive direction: the client validates
+      // garbage confidently and is refused by the server it just agreed with.
+      // `null` says "submit it and let the server answer", which is true.
+      registry.register({
+        type: 'test.unrepresentable',
+        process: async () => undefined,
+        nodeResultSchema: z.custom(() => true),
+        persistNodeResult: async () => undefined,
+      });
+
+      const entry = service
+        .listNodeEligibleJobTypes()
+        .find((candidate) => candidate.type === 'test.unrepresentable');
+
+      expect(entry).toBeDefined();
+      // Still LISTED — it is still claimable; only its contract is unpublishable.
+      expect(entry?.resultSchema).toBeNull();
+    });
+  });
+
+  // ===========================================================================
   // deregister
   // ===========================================================================
 
