@@ -456,6 +456,105 @@ whether you typed it or the wizard generated it — is redacted from both
 files before a single byte reaches disk, so they're safe to attach to an
 issue or hand to someone else for help.
 
+## Running a worker node
+
+`appctl node` turns this machine into a worker for the application's job
+queue (epic #254). A node claims jobs from the server, runs them locally,
+and submits results — the same handler code the API server would have run,
+on hardware you control. Nodes coordinate through nothing but the database,
+so you can run as many as you like without configuring any of them to know
+about the others.
+
+### Enrolling a machine
+
+```bash
+appctl node enroll
+```
+
+One command from nothing to a machine that holds its own credential. It
+runs the same device-authorization login `appctl login` does, then uses that
+session to mint a **node credential** (`nod_…`) and stores it for you. You
+never see or paste the secret.
+
+A node credential is deliberately weaker than a personal access token: the
+API refuses it on every route outside `/api/nodes/*` — including the route
+that mints credentials — so a worker running unattended for months cannot
+escalate, and cannot mint a second identity. That is why enrolling is worth
+a separate command rather than just reusing your login token.
+
+| Flag | Meaning |
+|---|---|
+| `-s, --server <url>` | Server URL, when this machine has no stored one |
+| `-n, --name <name>` | Name for the credential in the web UI (default: `appctl node: user@host`) |
+| `--expires-in-days <n>` | Expire the credential after N days (default: never — see below) |
+| `--no-browser` | Print the verification URL instead of opening one |
+| `--show-token` | Also print the credential on stdout, for provisioning another machine |
+
+**Node credentials do not expire by default, on purpose.** A worker runs
+unattended for months; a token expiry nobody scheduled taking a fleet down
+at 3am is worse than a long-lived credential whose blast radius is already
+confined to `/api/nodes/*`. Revocation is the control, and it is immediate —
+revoke from the web UI and the next request fails.
+
+If the server predates node credentials you get a named error, not a stack
+trace, pointing at the fallback: create a PAT in the web UI, `appctl login
+--token <pat>`, then register. That works, but the PAT carries your full
+account authority.
+
+### Registering the node
+
+```bash
+appctl node register --concurrency 4 --types example.checksum
+```
+
+Creates (or re-attaches to) this machine's row in the fleet. Registration is
+idempotent: the server keys on your account plus the node name, so re-running
+it reattaches rather than creating a second row — and the command tells you
+which of the two happened, because an unexpected reattach means a name
+collision you want to know about.
+
+| Flag | Meaning |
+|---|---|
+| `-n, --name <name>` | Node name; reattachment keys on it (default: the hostname) |
+| `-c, --concurrency <n>` | How many jobs to run at once, 1–64 |
+| `-t, --types <csv>` | Job types to claim (default: every node-eligible type) |
+| `--json` | Emit the registered node as JSON on stdout |
+
+`--types` is checked against what the server actually advertises at
+`GET /api/nodes/job-types`, so a typo is refused with the valid list rather
+than producing a node that registers happily and then claims nothing.
+
+### Inspecting the resolved settings
+
+```bash
+appctl node config          # human-readable, on stderr
+appctl node config --json   # machine-readable, on stdout — never includes the token
+```
+
+### Worker environment variables
+
+Every setting can come from the environment instead of the config file, which
+is how a container runs with no interactive setup at all. Environment values
+win over the file, **per field** — override one without restating the rest.
+
+| Variable | Meaning |
+|---|---|
+| `APPCTL_SERVER_URL` | The server. Same variable `appctl login` uses |
+| `APPCTL_TOKEN` | The credential, normally a `nod_…` one. Same variable as above |
+| `APPCTL_NODE_ID` | Re-attach to this node row instead of registering a new one |
+| `APPCTL_NODE_NAME` | Node name (default: the hostname) |
+| `APPCTL_CONCURRENCY` | Jobs at once, 1–64 |
+| `APPCTL_ELIGIBLE_TYPES` | Comma-separated job types to claim |
+| `APPCTL_POLL_INTERVAL_MS` | Idle poll interval |
+| `APPCTL_HEADLESS` | `true` to run without a terminal |
+| `APPCTL_STATE_DIR` | Where the worker keeps its runtime state (default: `~/.appctl/node`) |
+
+With `APPCTL_SERVER_URL` and `APPCTL_TOKEN` set and no config file at all, the
+worker synthesises its settings from the environment and starts. If it cannot
+write the file back (a read-only container home is common), it warns and keeps
+going — set `APPCTL_NODE_ID` so a restart re-attaches instead of registering
+again.
+
 ## CI usage
 
 In CI there's no browser to complete the device flow in and no persistent
