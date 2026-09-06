@@ -2,10 +2,24 @@
 // The queue's admin routes (issue #264, epic #254)
 // =============================================================================
 //
-// Six routes over `JobAdminService`, mounted at `/api/admin/jobs`. The
-// controller does nothing but bind, document and authorize; every decision
-// about what a request means lives in the service, and every decision about
-// what "stuck" means lives further down still, in `job-stuck.service.ts`.
+// Eight routes over two services, mounted at `/api/admin/jobs`: six from #264
+// over `JobAdminService`, and #265's `insights` pair over
+// `JobInsightsService`. The controller does nothing but bind, document and
+// authorize; every decision about what a request means lives in a service, and
+// every decision about what "stuck" means lives further down still, in
+// `job-stuck.service.ts`.
+//
+// TWO SERVICES BEHIND ONE CONTROLLER, and that is deliberate rather than
+// accidental: these are one admin surface to the operator holding it — the
+// same `/api/admin/jobs` prefix, the same two permissions, the same route
+// table whose ORDER is the load-bearing property below. A second controller
+// mounted on the same path would put half of that ordering constraint in a
+// file that cannot see the other half, which is precisely how a `:id` route
+// ends up shadowing a literal one. What is split is the WORK: `insights` is a
+// read-only analytical surface with its own lock-safety contract (see
+// `job-insights.service.ts`), and folding it into `JobAdminService` — which
+// exists to retry, reset and delete rows — would put that contract in a file
+// whose other half writes.
 //
 // -----------------------------------------------------------------------------
 // ⚠ LITERAL ROUTES ARE DECLARED BEFORE `:id`, AND THE ORDER IS LOAD-BEARING
@@ -28,16 +42,24 @@
 // the sweep ran, so re-ordering these methods fails a test rather than a
 // production incident.
 //
-// The declaration order below is therefore: `stats`, `retry-failed`,
-// `reset-stuck`, `/`, then `:id/retry` and `:id`. Keep every literal above
-// every parameterised route.
+// The declaration order below is therefore: `stats`, `insights`,
+// `insights/reset-history`, `retry-failed`, `reset-stuck`, `/`, then
+// `:id/retry` and `:id`. Keep every literal above every parameterised route.
+//
+// `insights/reset-history` is two segments deep, so today it could not be
+// captured by `:id` (one segment) or by `:id/retry` (whose second segment is
+// literal) whatever the order — but it is declared with the other literals
+// anyway. The rule that survives is "every literal above every parameterised
+// route", not "every literal that would currently break"; a future `:id/:action`
+// route would swallow it silently, and by then nobody is re-deriving which
+// literals were safe by accident.
 //
 // -----------------------------------------------------------------------------
 // TWO PERMISSIONS, SPLIT ON READ VERSUS WRITE
 // -----------------------------------------------------------------------------
 //
-// `jobs:read` for `stats` and the list; `jobs:write` for the four routes that
-// change a row. Both are seeded to ADMIN ONLY (`prisma/seed-data.ts`), and
+// `jobs:read` for `stats`, `insights` and the list; `jobs:write` for the five
+// routes that change something. Both are seeded to ADMIN ONLY (`prisma/seed-data.ts`), and
 // `@Auth({ roles: [ROLES.ADMIN], permissions: [...] })` states both — the role
 // admits, the permission is what the guard checks. The pair is what a settings
 // card's `permission` field must mirror byte-for-byte (CLAUDE.md, Settings UI
@@ -46,7 +68,12 @@
 //
 // The split is not decoration. A read of this surface exposes job payload
 // metadata, subject ids and the shape of a deployment's workload; a write can
-// requeue every failed job in the queue. A later issue that wants to give an
+// requeue every failed job in the queue or discard the lifetime rollup.
+// `insights/reset-history` sits on the WRITE side even though it deletes no
+// job and changes no job's state, because what it destroys — accumulators
+// summarising rows that have already been purged — is unrecoverable by any
+// other means: the evidence needed to rebuild it is exactly what the purge
+// deleted. A later issue that wants to give an
 // operations role visibility without control has a permission to hand out that
 // does not also hand out the reset button.
 // =============================================================================
@@ -69,6 +96,7 @@ import { Auth } from '../auth/decorators/auth.decorator';
 import { PERMISSIONS, ROLES } from '../common/constants/roles.constants';
 import { ApiDataResponse } from '../common/decorators/api-data-response.decorator';
 import { JobAdminService } from './job-admin.service';
+import { JobInsightsService } from './job-insights.service';
 import {
   ResetStuckDto,
   ResetStuckResultDto,
@@ -77,12 +105,21 @@ import {
 } from './dto/job-actions.dto';
 import { JobListQueryDto, PROCESSED_WITHIN_VALUES } from './dto/job-list-query.dto';
 import { JOB_STATUSES, JobDto } from './dto/job-response.dto';
+import {
+  JobInsightsDto,
+  JobInsightsQueryDto,
+  MAX_INSIGHTS_WINDOW_DAYS,
+  ResetHistoryResultDto,
+} from './dto/job-insights.dto';
 import { JobStatsDto } from './dto/job-stats.dto';
 
 @ApiTags('Jobs')
 @Controller('admin/jobs')
 export class JobAdminController {
-  constructor(private readonly jobs: JobAdminService) {}
+  constructor(
+    private readonly jobs: JobAdminService,
+    private readonly insights: JobInsightsService
+  ) {}
 
   // -------------------------------------------------------------------------
   // Literal routes. These MUST stay above `:id` — see the file header.
@@ -103,6 +140,52 @@ export class JobAdminController {
   @ApiResponse({ status: 200, description: 'Queue summary', type: JobStatsDto })
   async stats(): Promise<unknown> {
     return this.jobs.stats();
+  }
+
+  @Get('insights')
+  @Auth({ roles: [ROLES.ADMIN], permissions: [PERMISSIONS.JOBS_READ] })
+  @ApiOperation({
+    summary: 'Analyse queue throughput and estimate completion',
+    description:
+      'Answers the two questions the summary cannot: how long the outstanding work will take, ' +
+      'and whether the queue is getting faster or slower. Returns live counts (including how ' +
+      'many jobs are scheduled, rate-limited or retried), duration percentiles over succeeded ' +
+      'jobs in the window, a per-type completion estimate, and all-time totals merged from the ' +
+      'lifetime rollup. Computed on demand from pure `SELECT`s, so it never blocks the worker ' +
+      'pool it reports on — there is no snapshot table and no background refresh. Each ' +
+      'estimate carries a `basis` saying whether it used that type\'s own history (`live`), ' +
+      'the overall average (`partial`), or no history at all (`none`). Lifetime figures are ' +
+      'counts and averages only: percentiles cannot be reconstructed from purged history.',
+  })
+  @ApiQuery({
+    name: 'windowDays',
+    required: false,
+    type: Number,
+    description: `Days of history the percentiles cover. Default 7, max ${MAX_INSIGHTS_WINDOW_DAYS}.`,
+  })
+  @ApiResponse({ status: 200, description: 'Queue insights', type: JobInsightsDto })
+  @ApiResponse({ status: 400, description: 'windowDays out of range' })
+  async getInsights(@Query() query: JobInsightsQueryDto): Promise<unknown> {
+    return this.insights.insights(query);
+  }
+
+  @Post('insights/reset-history')
+  @Auth({ roles: [ROLES.ADMIN], permissions: [PERMISSIONS.JOBS_WRITE] })
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Clear the lifetime statistics rollup',
+    description:
+      'Deletes every `JobStatsRollup` row — the accumulators that preserve counts and durations ' +
+      'for jobs the history purge has already deleted — and returns how many were removed (one ' +
+      'per job type, not one per job). Live job rows are NOT touched: no job is deleted, no ' +
+      'job changes state, and every live-derived number in the insights response is identical ' +
+      'afterwards. Lifetime totals simply restart from the rows still in the table. Intended ' +
+      'for a rollup that has been corrupted or seeded with fictional history, which nothing ' +
+      'else can correct because the rows that would disprove it were purged.',
+  })
+  @ApiResponse({ status: 200, description: 'Rollup rows deleted', type: ResetHistoryResultDto })
+  async resetInsightsHistory(): Promise<unknown> {
+    return this.insights.resetHistory();
   }
 
   @Post('retry-failed')

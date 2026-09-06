@@ -5,6 +5,7 @@ import { ExampleEchoHandler } from './handlers/example-echo.handler';
 import { JobHistoryPurgeHandler } from './handlers/job-history-purge.handler';
 import { JobAdminController } from './job-admin.controller';
 import { JobAdminService } from './job-admin.service';
+import { JobInsightsService } from './job-insights.service';
 import { JobClaimService } from './job-claim.service';
 import { JobHandlerRegistry } from './job-handler.registry';
 import { JobStuckService } from './job-stuck.service';
@@ -17,7 +18,7 @@ import { JobStuckResetTask } from './tasks/job-stuck-reset.task';
 import { TempFileJanitorTask } from './tasks/temp-file-janitor.task';
 
 // =============================================================================
-// JobsModule (issues #259 - #264, epic #254)
+// JobsModule (issues #259 - #265, epic #254)
 // =============================================================================
 //
 // #259 shipped the queue's extension
@@ -48,6 +49,19 @@ import { TempFileJanitorTask } from './tasks/temp-file-janitor.task';
 // jitter, and only a test that constructs a service directly can substitute
 // either. Providing them here would create a seam a fork could fill by
 // accident.
+//
+// #265 adds `JobInsightsService`, the queue's analytical read: throughput
+// percentiles over a bounded window, a per-type completion estimate, and
+// all-time totals merged out of `JobStatsRollup`. It is a PROVIDER AND NOT AN
+// EXPORT, like `JobAdminService` beside it — its only caller is the controller
+// in this module, and it holds the one contract in this file that a second
+// caller could break by accident: every statement it issues must stay a pure
+// `SELECT`, so that reporting on the queue can never lock the queue. See its
+// header. It reads the worker concurrency through `resolveWorkerConcurrency`
+// exported from `job.worker.ts` rather than by injecting `JobWorker`, for the
+// same reason `TempFileJanitorTask` reads the mode through `parseWorkerMode`:
+// what it needs is a configuration answer, and anything holding the pool could
+// stop it.
 //
 // -----------------------------------------------------------------------------
 // WHAT IS EXPORTED, AND WHY EACH
@@ -137,6 +151,7 @@ import { TempFileJanitorTask } from './tasks/temp-file-janitor.task';
   controllers: [JobAdminController],
   providers: [
     JobAdminService,
+    JobInsightsService,
     JobHandlerRegistry,
     ExampleEchoHandler,
     JobHistoryPurgeHandler,
