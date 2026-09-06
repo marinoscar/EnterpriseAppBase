@@ -12,21 +12,30 @@
 > `apps/api/src/jobs/job-type-labels.ts`,
 > `apps/api/src/jobs/jobs.service.ts`,
 > `apps/api/src/jobs/job-claim.service.ts`,
+> `apps/api/src/jobs/job-terminal.service.ts`,
+> `apps/api/src/jobs/backoff.util.ts`,
+> `apps/api/src/jobs/rate-limit.error.ts`,
+> `apps/api/src/jobs/provider-throttle.service.ts`,
+> `apps/api/src/jobs/job-clock.ts`,
+> `apps/api/src/jobs/events/job-settled.event.ts`,
 > `apps/api/src/jobs/jobs.module.ts` and
 > `apps/api/src/jobs/handlers/`.
 >
 > **On what is merged today.** Sections 1–3 describe what #259 shipped: the
 > contract, the registry, the labels map, the example handler and the module.
 > Section 4 describes what #260 shipped: enqueue with index-backed dedup, and
-> the atomic `SKIP LOCKED` claim. Sections 5–7 are deliberate stubs for the
-> issues that fill them in, marked as such. Where an unmerged issue's
-> behaviour is referenced from a merged section (the worker's lifecycle phase,
-> for instance) it is stated as a **constraint that issue must satisfy**, not
-> as behaviour verified in this checkout.
+> the atomic `SKIP LOCKED` claim. Section 5 describes what #261 shipped: the
+> single terminal chokepoint, the two budgets, the backoff, the throttle gate
+> and the settled event. Sections 6–7 are deliberate stubs for the issues that
+> fill them in, marked as such. Where an unmerged issue's behaviour is
+> referenced from a merged section (the worker's lifecycle phase, for
+> instance) it is stated as a **constraint that issue must satisfy**, not as
+> behaviour verified in this checkout.
 >
-> **Nothing polls yet.** #260 adds the two halves of moving a row through the
-> table, and no timer. The thing that calls `claim()` on a tick is the
-> in-process worker pool (#262).
+> **Nothing polls yet.** #260 and #261 add the three halves of moving a row
+> through the table — enqueue, claim, settle — and no timer. The thing that
+> calls `claim()` on a tick, and `completeSucceeded`/`completeFailed`
+> afterwards, is the in-process worker pool (#262).
 
 ## Why this shape, and not the obvious one
 
@@ -548,22 +557,331 @@ the **real services** over two independent `PrismaClient` instances, each with
 its own connection pool, which is as close to two API replicas as one process
 gets. See the Verification table below for the mapping from claim to test.
 
-## 5. The terminal state machine — *#261*
+## 5. The terminal state machine
 
-> **Stub.** Filled in by #261 ("Terminal state machine — retry, rate-limit
-> deferral, throttle gate, settled event").
->
-> To cover: the `pending → running → succeeded|failed` transitions; retry and
-> backoff against the attempt budget; why rate-limit deferral moves
-> `scheduledFor` and increments `rateLimitHits` **without** charging
-> `attempts` (the `Job` model comment already argues this — a job waiting its
-> turn must not exhaust a budget meant for a job that keeps failing); the
-> per-provider throttle gate; and the job-settled event.
->
-> Already fixed by §4.5 and not up for rediscovery there: `attempts` is
-> charged at CLAIM time and means "attempts started", so the deferral path
-> must explicitly **un-charge** the increment the claim applied — it is not
-> merely "declining to add one".
+Once a job stops running, **exactly one component decides what happens to the
+row**: `apps/api/src/jobs/job-terminal.service.ts`. It has two entry points —
+`completeSucceeded(job)` and `completeFailed(job, error, opts?)` — and both
+executors funnel through them: the in-process worker (#262) after its handler
+returns or throws, and the node control plane (#268) when a remote node posts
+its result back.
+
+Supporting it are three small pieces: `backoff.util.ts` (one pure function),
+`rate-limit.error.ts` (the failure-kind discrimination), and
+`provider-throttle.service.ts` (a cooperative per-provider cooldown). The
+event it emits is `events/job-settled.event.ts`.
+
+### 5.1 One chokepoint, because two executors must not drift
+
+**Rejected: letting each executor write its own terminal state.** It is the
+obvious shape — the worker knows it just failed, so it writes `failed` — and
+it is the drift this service exists to prevent. Two call sites means two
+answers to each of: does a 429 charge an attempt? does a give-up clear the
+lease? does the settled event fire on a retry? what is the backoff curve?
+Every answer would start identical and diverge on the first fix applied to one
+side, and **the divergence would be silent**. Nothing fails loudly when the
+node path forgets to un-charge an attempt; a long backfill just quietly starts
+failing permanently on rate limits while the same work run in-process
+succeeds. One chokepoint makes "the two executors agree" a property of the
+code rather than of two people's diligence — the same argument §4.4 makes for
+sharing one claim statement, applied to the other end of the row's life.
+
+`completeSucceeded` and `completeFailed` return a `JobSettleOutcome`
+(`succeeded` | `failed` | `retry-scheduled` | `rate-limit-deferred` |
+`write-failed`) so a worker can log what happened without reverse-engineering
+it from the row it did not write.
+
+### 5.2 Three ways in, one classification order
+
+There are two genuinely different kinds of failure, and the whole section
+depends on telling them apart:
+
+- A **bug** — a null dereference, a malformed payload, a permission error —
+  should burn through a small attempt budget quickly and land in `failed`
+  where a human sees it.
+- A **provider rate limit** is not a failure of the work at all. Nothing is
+  wrong with the job, the payload or the code; we simply asked too often. It
+  should back off for *minutes*, and it must not consume the attempt budget.
+
+A handler that inspected the response itself says so by throwing
+`RateLimitError` (optionally carrying `retryAfterMs`). A handler that did not
+wrap its SDK gets `classifyRateLimit(err)`, which reads a status from
+`err.status ?? err.statusCode ?? err.response?.status ?? err.$metadata
+?.httpStatusCode`, treats **429 and 503/529-style overload** as rate limits,
+and additionally matches the AWS throttle error *names* (`ThrottlingException`,
+`TooManyRequestsException`, `SlowDown`, `RequestThrottled`,
+`ProvisionedThroughputExceededException`, …) that arrive with a **400** status
+— a status-only reading of those is "client error, fail permanently", which is
+exactly wrong.
+
+**A remote node is the third way in, and it is why `opts` exists.** A node
+cannot throw a typed error across HTTP — an exception does not survive a JSON
+response body — so it reports the same *conclusion* as flags,
+`{ rateLimited: true, retryAfterMs }`, and gets **identical** treatment, down
+to tripping this server's throttle gate. That identity is asserted directly:
+the write payload produced by a node's flags and by a thrown `RateLimitError`
+are compared field for field.
+
+The order is fixed:
+
+1. a thrown `RateLimitError` — the most specific signal there is;
+2. `classifyRateLimit(error)` — ahead of the caller's flags because it reads
+   the actual error, while a flag is a *claim* about it;
+3. the caller's `opts.rateLimited`;
+4. otherwise, an ordinary failure.
+
+*Whether* it is a rate limit follows that order; *how long* to wait is taken
+from the first source that actually named a delay, so a node forwarding a
+provider's `Retry-After` is believed even when the error shape it also
+forwarded carried none.
+
+`classifyRateLimit` is **total and never throws**. It is called from inside a
+failure path on a value that is `unknown` by construction, and every property
+it reads could be a getter; an exception raised while classifying a failure
+would escape the failure handler itself, losing the retry, the deferral and
+the `lastError`. Anything it does not positively recognise is simply "not a
+rate limit", which costs at most one attempt.
+
+`parseRetryAfterMs` accepts both RFC 9110 forms — integer delta-seconds and an
+HTTP-date — and returns `null` for absent, empty, unparseable, negative, or
+already-past input. **`null` means "no opinion", never zero**: a provider that
+said nothing must not be read as a provider that said "retry immediately".
+
+### 5.3 Two budgets, deliberately separate
+
+`attempts` (budget `JOBS_MAX_ATTEMPTS`, default 3) bounds **bugs**.
+`rateLimitHits` (budget `JOBS_RATELIMIT_MAX_HITS`, default 10) bounds
+**waiting**. Each has its own backoff constants — seconds for a retry, minutes
+for a cooldown — and each gives up independently.
+
+**Rejected: one combined counter.** A long backfill against a rate-limited
+provider would exhaust it during the first minute of throttling and fail
+permanently for a transient reason that was never its fault. Two failure modes
+with different causes, different timescales and different correct responses
+need two budgets. The `Job` model's block comment in `schema.prisma` records
+the same decision from the schema side.
+
+The two branches are therefore:
+
+- **Rate-limited.** Trip the throttle gate, increment `rateLimitHits`, set
+  `rateLimitedAt`, compute the delay into `scheduledFor`, un-charge the
+  attempt (§5.4), and return the row to `pending`. Give up — terminal
+  `failed` — only once `rateLimitHits` exceeds *its own* budget; at ten
+  deferrals against a 15-minute ceiling the job has been waiting well over an
+  hour, and something is wrong that waiting will not fix.
+- **Ordinary.** Retry while `attempts < JOBS_MAX_ATTEMPTS`, setting
+  `scheduledFor` from the backoff; otherwise terminal `failed`. `<` is the
+  correct comparison because `job.attempts` already includes the attempt that
+  just failed (§4.5), so a budget of 3 retries after attempts 1 and 2 and
+  fails on 3.
+
+Every branch releases the claim (`claimedByNodeId`) and the lease
+(`leaseExpiresAt`), and every branch records the error message in `lastError`
+(truncated at 2000 characters — some SDKs embed a whole response body in a
+message, and the admin job list renders this string).
+
+**`executor` is deliberately never cleared.** `succeeded` and `failed` are
+terminal, so there is no stale ownership to null out, and *which side ran the
+job* is exactly the kind of thing worth still knowing later. `lastError` is
+likewise left alone on success: on a job that succeeded on its third attempt,
+the message from attempt two is the only surviving explanation of why it took
+three.
+
+### 5.4 The un-charge is an absolute value, not a decrement
+
+§4.5 fixed that `attempts` is charged at **claim** time and means "attempts
+started". That is right for failures and wrong for deferrals, so the
+rate-limit branch explicitly gives the attempt back — the net effect of
+claim-then-defer is zero. It is not merely "declining to add one"; the
+increment has already been written to the row.
+
+It is written as **`attempts: job.attempts - 1`, an absolute value**, clamped
+at zero.
+
+**Rejected: `{ decrement: 1 }`.** It is not idempotent, and this write can
+genuinely run twice: `safeTerminalUpdate` retries once (§5.7), and its first
+call can have committed before the connection dropped on the way back. An
+absolute value applied twice still lands on `job.attempts - 1`. A relative
+decrement applied twice subtracts two, silently **granting the job an extra
+attempt it never earned**, and repeated across a long throttled backfill it
+would drive `attempts` negative and make the budget unreachable — a bug that
+would surface months later as "why did this job retry eleven times".
+
+### 5.5 Equal-jitter exponential backoff, with an injectable RNG
+
+`computeBackoffMs` is one pure function used by both deferral paths; they
+differ only in the constants they pass.
+
+```
+exp   = min(maxMs, baseMs * 2^(attempt - 1))
+delay = max(retryAfterMs ?? 0, exp / 2 + rand() * exp / 2)
+```
+
+**Jitter is not a rounding detail; it is the point.** Without it, every job
+deferred by one provider outage retries in the same millisecond: they are
+deferred by the same formula within the same second, so they land on the same
+`scheduledFor`, all become eligible at the same instant, and hit the provider
+together — reproducing exactly the burst that got us throttled. Pure
+exponential backoff keeps them synchronised forever, because the same input
+produces the same delay: the herd stays a herd at 2s, 4s, 8s, only sparser.
+
+Equal jitter rather than the alternatives: **full jitter** (`rand() * exp`)
+spreads widest but its lower bound is zero, so a job can retry essentially
+immediately after being deferred for a reason that has not gone away — half
+the point of backing off is the waiting. **Decorrelated jitter** needs the
+previous delay as state, and ours is recomputed from a counter on a row that a
+different process may pick up, so there is nowhere to carry it without adding
+a column.
+
+`retryAfterMs` is a **floor, not an override**: a provider asking for an hour
+is obeyed past our own ceiling, and a provider asking for one second does not
+undo six consecutive failures' worth of backoff. Taking the max is the only
+combination that violates neither constraint.
+
+The RNG is a parameter (`rand`, defaulting to `Math.random`) so tests assert an
+**exact** delay. A range assertion on a jittered delay is nearly worthless: it
+passes for a correct implementation *and* for one that ignores `attempt`
+entirely, which is the bug most worth catching.
+
+### 5.6 The cooperative per-provider throttle gate
+
+At concurrency > 1, one 429 teaches exactly one worker slot that the provider
+is throttling us. The other slots know nothing, so they each go and discover
+it independently — sending more requests to a provider that has just asked for
+quiet, and burning each of those jobs' rate-limit budget to learn a fact the
+first slot already knew.
+
+`ProviderThrottleService` shares the discovery. `trip(jobType, delayMs)` sets
+a cooldown on the job type's **provider key**; `acquire(jobType)` waits out
+whatever remains of it before the provider call; `recordSuccess(jobType)`
+clears it, because a success is direct evidence the limit has lifted and is
+strictly more recent information than the trip. A trip **extends but never
+shortens** — a sibling's short backoff must not cut a provider's long one.
+
+`resolveKey(jobType)` returns `null` for a type with no external provider,
+which makes the gate a **zero-cost no-op**: no wait, no timer, nothing to act
+on. That is the default and the common case, and this framework ships no job
+type that talks to an external provider, so out of the box the gate does
+nothing at all. A fork declares its own mapping beside the registration that
+makes the handler exist:
+
+```ts
+onModuleInit() {
+  this.registry.register(this);
+  this.throttle.registerProviderKey(this.type, 'acme-vision');
+}
+```
+
+**Several job types should share one key when they share one quota** — that is
+the entire reason the key is not just the job type. Three handlers hitting one
+vendor account are one bucket, and mapping all three to `'acme-vision'` is
+what makes a 429 on any of them back off the other two; two handlers hitting
+two vendors must *not* share a key, or one vendor's outage stalls work that had
+nothing to do with it.
+
+Two bounds keep the gate from becoming a liability. It is **in-memory and
+best-effort**, not a distributed limiter: a second replica has its own gate.
+That is acceptable because the gate is an optimisation, while the thing that
+actually keeps a throttled job from failing is the durable deferral in the row
+— and `scheduledFor` *is* shared state, invisible to every replica's claim
+query, not just this one's. **Rejected: a database- or Redis-backed shared
+gate**, which would put a network round trip in front of every job, for every
+provider, on every tick — permanently, to improve behaviour during an outage —
+and would add a datastore this template deliberately does not require (§"Why
+this shape"). And `acquire` is **capped at `JOBS_RATELIMIT_MAX_MS`**: a worker
+slot is scarce, and an unbounded wait would let one provider's long cooldown
+pin every slot in the pool, starving jobs that have nothing to do with it. Past
+the cap the job proceeds and, if the provider is still throttling, takes the
+durable deferral instead — a long wait belongs in the row, where it costs
+nothing, not in a slot.
+
+The gate is tripped **before** the terminal write, on both the thrown and the
+node-reported paths: sibling slots are calling that provider right now, and
+the provider does not care which machine a request came from.
+
+### 5.7 `safeTerminalUpdate` logs and swallows — and that is the feature
+
+The terminal write is retried **once**, after a short unref'd sleep, and then
+logged at `error` and swallowed.
+
+Every caller is a worker finishing a job and about to free its slot. If a
+database blip could throw out of here, that exception would propagate into the
+worker's slot accounting and either crash the worker or leave the slot
+accounted for but never released. **A slot lost that way is lost for the life
+of the process**, and losing all of them reduces the queue's throughput to zero
+with nothing in the logs but one stack trace from an hour ago.
+
+So the worst case is deliberately bounded and recoverable: the slot is freed,
+and the row is left `running` with an expiring lease — precisely the state the
+lease reaper (#263) exists to find and requeue. The job is delayed by one lease
+interval; nothing is lost and nothing wedges.
+
+One retry, not zero and not many. Zero would fail the whole terminal write on
+a single recycled connection, which is common enough to be worth covering.
+Many, with waits between them, would hold the worker slot open for the duration
+of an outage — the exact resource this method is protecting. The 250ms pause is
+short for the same reason: it is covering a blip, not an outage.
+
+When both writes fail, the outcome is `write-failed` and **no settled event is
+emitted** — the row does not say what the event would claim.
+
+### 5.8 `job.settled` fires only when the job is genuinely over
+
+`JobSettledEvent` is emitted through `EventEmitter2` (registered globally in
+`app.module.ts`) from the terminal branches only: `succeeded`, or a give-up on
+either budget. **A retry emits nothing. A deferral emits nothing.** It is
+always emitted *after* the write, so the database already agrees with the
+event, and it carries the row the write returned.
+
+**Rejected: emitting on every state change** (`job.running`, `job.retried`,
+`job.deferred`, …). It looks more useful and is strictly less useful, because
+it moves work into every subscriber: a listener that wants to know "did this
+finish" would have to re-derive the answer from `status`, `attempts`,
+`rateLimitHits`, `scheduledFor` and the attempt budget — that is, to
+re-implement this service's decision from outside, against config it does not
+read. Every subscriber would carry a copy of the retry logic, and each copy
+would be somewhere for the two to disagree. Emitting only at the terminal
+branches is what lets a subscriber treat the event as what it says: this job
+is done, here is how it ended. One event rather than a
+`job.succeeded`/`job.failed` pair, because the carried `status` already says
+which.
+
+The emit is wrapped in `try/catch`. `EventEmitter2` dispatches
+**synchronously**, so an unguarded listener exception would throw out of
+`completeSucceeded` into a worker that has already written a correct terminal
+row — the worker would be handling an "error" for a job that finished
+perfectly. A listener is a bystander and must not be able to affect the row or
+the slot. It can still *block* one, so a listener should queue a job (there is
+a queue right here) rather than do real work.
+
+### 5.9 Configuration, and the two injection seams
+
+Six settings, read through `ConfigService` from `config/configuration.ts` like
+everything else in this app, bare and unprefixed, and documented in
+`infra/compose/.env.example`:
+
+| Variable | Default | What it bounds |
+|---|---|---|
+| `JOBS_MAX_ATTEMPTS` | 3 | Attempts before a job is permanently `failed` |
+| `JOBS_RETRY_BASE_MS` | 2000 | First retry delay, doubling per attempt |
+| `JOBS_RETRY_MAX_MS` | 60000 | Ceiling on the retry exponential |
+| `JOBS_RATELIMIT_MAX_HITS` | 10 | Deferrals before a rate-limited job gives up |
+| `JOBS_RATELIMIT_BASE_MS` | 30000 | First deferral delay, doubling per hit |
+| `JOBS_RATELIMIT_MAX_MS` | 900000 | Ceiling on the deferral exponential, and on how long `acquire` may hold a slot |
+
+Each is read with a defensive fallback to the same default, because these
+services are also constructed directly in unit tests: a missing key must
+degrade to the shipped behaviour rather than to `NaN`, which would silently
+produce `new Date(NaN)` and an unwritable `scheduledFor`.
+
+`JOB_CLOCK` and `JOB_RANDOM` are **optional DI tokens that nothing provides**.
+Both services fall back to the real clock and `Math.random`, so an application
+always runs on real time and real jitter and a fork cannot fill the seam by
+accident; only a test constructing a service directly can substitute either.
+They exist because the alternative is tests that prove nothing — a range
+assertion that passes for an off-by-a-factor-of-sixty bug, or a gate test that
+either sleeps for thirty real seconds per case or shrinks the cooldown until it
+is testing something other than the shipped behaviour.
 
 ## 6. The in-process worker and worker modes — *#262*
 
@@ -652,6 +970,34 @@ To make a type node-eligible, add **both** `nodeResultSchema` and
 - **Charging `attempts` on failure rather than at claim.** A job that kills
   its process never reaches a failure path, so its budget would never be
   charged and it would crash-loop the container forever (§4.5).
+- **Letting each executor write its own terminal state.** Two call sites, two
+  answers to every retry question, and a divergence nothing reports: the node
+  path forgetting to un-charge an attempt shows up only as long backfills
+  quietly failing permanently on rate limits (§5.1).
+- **One combined counter for attempts and rate-limit hits.** A long backfill
+  against a rate-limited provider would exhaust it in the first minute and
+  fail permanently for a transient reason that was never its fault (§5.3).
+- **Un-charging the claim increment with `{ decrement: 1 }`.** Not idempotent,
+  and the terminal write can genuinely run twice — applied twice it grants an
+  attempt the job never earned, and over a long throttled backfill drives
+  `attempts` negative (§5.4).
+- **Emitting an event on every job state change.** Every subscriber would have
+  to re-implement "is this actually over" from `status`, `attempts`,
+  `rateLimitHits` and the budget config, and each copy is somewhere for the
+  two to disagree (§5.8).
+- **Full jitter, or no jitter, on the retry backoff.** Without jitter every
+  job deferred by one provider outage retries in the same millisecond, herd
+  intact; with full jitter a job can retry immediately after being deferred
+  (§5.5).
+- **A database- or Redis-backed shared throttle gate.** A network round trip
+  in front of every job on every tick, permanently, to improve behaviour
+  during an outage — and a datastore this template deliberately does not
+  require. The durable half is already shared, because `scheduledFor` is
+  (§5.6).
+- **Throwing out of the terminal write when the database is unavailable.** It
+  would propagate into the worker's slot accounting; a slot lost that way is
+  lost for the life of the process. Logging and swallowing leaves the row
+  `running` for the reaper, which is bounded and recoverable (§5.7).
 - **Making the database backup a job type.** Recorded in epic #254's own
   locked decisions and repeated here because it is the obvious thing to try:
   the stuck-job threshold would reset a 30-minute `pg_dump` and start a
@@ -701,8 +1047,45 @@ What #260 proves, and by what. Everything in the first block runs against a
 | Enqueue never pre-checks with `findFirst` before inserting | `src/jobs/jobs.service.spec.ts` |
 | `JOB_CLAIM_COLUMNS` covers exactly the generated `Job` field set | `test/jobs/job-model-fields.spec.ts` (the compile-time half is the `Record<keyof Job, string>` type itself) |
 
-Be honest about the limits: nothing yet exercises a claimed job being **run**.
-There is no worker and no terminal state machine — a claimed row stays
-`running` with a lease until #261 and #262 arrive. What is proved is that a
-row can be written exactly once under concurrency, and taken exactly once
-under concurrency.
+What #261 proves, and by what. All of it runs **without a database**, and
+that is a deliberate choice rather than a gap: everything asserted here is a
+*decision* — which branch, which counter, which exact `scheduledFor`, whether
+an event fired — and every one of those is made in-process before any SQL is
+generated. A database test would confirm the row it was told to write, which
+is the one thing already guaranteed; what it could not do is make the write
+fail on cue, pin the clock so a jittered `scheduledFor` is an exact timestamp
+rather than a range, or drive eleven consecutive deferrals without eleven real
+waits. So: a fake `JobClock`, a pinned RNG, and a mocked `job.update` whose
+recorded payload *is* the assertion.
+
+| Claim | Covered by |
+|---|---|
+| A rate-limit deferral leaves `attempts` unchanged NET of the claim increment, and increments `rateLimitHits` | `src/jobs/job-terminal.service.spec.ts` — asserts the exact written payload, plus an eight-deferral loop that re-charges the claim each round and ends with `attempts` still 1 |
+| The un-charge is written as an ABSOLUTE value, never a relative decrement | `src/jobs/job-terminal.service.spec.ts` — asserts `typeof attempts === 'number'`, and that a forced write-retry sends a byte-identical payload twice |
+| A normal failure consumes an attempt; the row is `failed` once the budget is spent | `src/jobs/job-terminal.service.spec.ts` — attempts 1 and 2 retry with growing backoff, attempt 3 fails terminally |
+| `Retry-After` parses as integer seconds AND as an HTTP-date; absent or unparseable yields `null` and pure backoff | `src/jobs/rate-limit.error.spec.ts` (ten unparseable forms, both valid forms, a past date) and `src/jobs/job-terminal.service.spec.ts` (both forms end to end, as an exact `scheduledFor`) |
+| A provider's `Retry-After` is a floor, not an override | `src/jobs/backoff.util.spec.ts` and `src/jobs/job-terminal.service.spec.ts` |
+| A node-reported `{ rateLimited: true }` follows the IDENTICAL path to a thrown `RateLimitError` | `src/jobs/job-terminal.service.spec.ts` — the two write payloads and the two throttle-gate calls are compared field for field |
+| `instanceof RateLimitError` survives transpilation | `src/jobs/rate-limit.error.spec.ts` |
+| 429/503/529 and the AWS throttle names (including with a 400 status) classify as rate limits; 500/502/400 and a plain `Error` do not | `src/jobs/rate-limit.error.spec.ts` |
+| `classifyRateLimit` never throws, even on an exploding getter | `src/jobs/rate-limit.error.spec.ts` |
+| Tripping the gate for a provider delays a sibling job of the same provider and does NOT delay an unrelated one | `src/jobs/provider-throttle.service.spec.ts`, and again in `src/jobs/job-terminal.service.spec.ts` against the **real** `ProviderThrottleService` driven by a node-reported 429 |
+| A type with no provider key is a zero-cost no-op | `src/jobs/provider-throttle.service.spec.ts` |
+| A trip extends a cooldown but never shortens one; a success clears it | `src/jobs/provider-throttle.service.spec.ts` |
+| `acquire` genuinely suspends, and is capped at `JOBS_RATELIMIT_MAX_MS` | `src/jobs/provider-throttle.service.spec.ts` — the cap with a fake clock, the suspension with the **real** clock under jest fake timers |
+| Backoff doubles per attempt, caps at `maxMs`, and jitters within `[exp/2, exp]` | `src/jobs/backoff.util.spec.ts` — every case pins the RNG, so each is an exact number |
+| `job.settled` fires on success and on give-up (both budgets), NEVER on a deferral or an intermediate retry | `src/jobs/job-terminal.service.spec.ts` |
+| A THROWING listener does not affect the row or the outcome | `src/jobs/job-terminal.service.spec.ts`, on both terminal branches |
+| The event fires AFTER the write, and not at all when the write failed | `src/jobs/job-terminal.service.spec.ts` — call-order assertion |
+| A simulated write failure frees the slot and leaves the row `running` | `src/jobs/job-terminal.service.spec.ts` — both writes rejected, `write-failed` returned rather than thrown, on all four branches |
+| The terminal write retries exactly once, after 250ms, with an identical payload | `src/jobs/job-terminal.service.spec.ts` |
+| `executor` is never cleared, on success or on failure | `src/jobs/job-terminal.service.spec.ts` |
+| Missing config degrades to the shipped defaults, not to `NaN` dates | `src/jobs/job-terminal.service.spec.ts`, `src/jobs/provider-throttle.service.spec.ts` |
+| The module graph still boots with the new providers wired | `src/jobs/job-handler.registry.spec.ts` — boots `JobsModule` for real, so a missing provider or a broken injection fails here |
+
+Be honest about the limits: nothing yet exercises a claimed job being **run**
+end to end. There is no worker — a claimed row stays `running` with a lease
+until #262 arrives, and the terminal path is driven by tests rather than by a
+handler. What is proved is that a row can be written exactly once under
+concurrency, taken exactly once under concurrency, and settled by exactly one
+component that reaches the same conclusion whichever executor calls it.
