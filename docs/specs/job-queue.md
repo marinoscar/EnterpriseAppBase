@@ -19,6 +19,9 @@
 > `apps/api/src/jobs/job-clock.ts`,
 > `apps/api/src/jobs/job.worker.ts`,
 > `apps/api/src/jobs/events/job-settled.event.ts`,
+> `apps/api/src/jobs/job-stuck.service.ts`,
+> `apps/api/src/jobs/job-temp.ts`,
+> `apps/api/src/jobs/tasks/`,
 > `apps/api/src/jobs/jobs.module.ts` and
 > `apps/api/src/jobs/handlers/`.
 >
@@ -28,8 +31,14 @@
 > the atomic `SKIP LOCKED` claim. Section 5 describes what #261 shipped: the
 > single terminal chokepoint, the two budgets, the backoff, the throttle gate
 > and the settled event. Section 6 describes what #262 shipped: the in-process
-> worker pool, the three worker modes, and per-job timeouts. Section 7 is a
-> deliberate stub for the issue that fills it in, marked as such.
+> worker pool, the three worker modes, and per-job timeouts. Section 7
+> describes what #263 shipped: the lease reaper, the nightly history purge
+> with its lifetime rollup, and the temp-file janitor.
+>
+> **The queue maintains itself as of #263.** It is also the first point at
+> which this repository ships a job type that does real work rather than
+> demonstrating the contract: `job.history.purge` (§7.5) is the queue's own
+> housekeeping, wired exactly the way a fork wires its own handlers.
 >
 > **The queue polls as of #262.** #260 and #261 added the three halves of
 > moving a row through the table — enqueue, claim, settle — and no timer;
@@ -1091,17 +1100,318 @@ away from the log line that explains it.
 Nothing should reach it: it has no method a feature module wants, and a module
 that could inject it could stop the pool.
 
-## 7. Queue hygiene — *#263*
+## 7. Queue hygiene — the lease reaper, the history purge, the janitor
 
-> **Stub.** Filled in by #263 ("Queue hygiene — lease reaper, history purge
-> with lifetime rollup, temp-file janitor").
->
-> To cover: the lease-expiry reaper and why `resetStuck`/`stuckRunningWhere`
-> are extracted so a control-plane-only API can reap dead node leases without
-> depending on the admin service; the nightly history purge; and why
-> `JobStatsRollup` exists at all — it is the lifetime accumulator that
-> survives that purge, so per-type stats do not reset when history is
-> trimmed.
+Three things degrade on their own once the queue is real, and none of them is
+visible from inside a single job's lifecycle:
+
+1. A job whose executor **died** stays `running` forever. Its slot is never
+   reclaimed, its dedup key is held forever, and — once remote nodes exist — a
+   laptop closing its lid mid-job is the *normal* case rather than an edge one.
+2. Terminal rows **accumulate without bound**. `jobs` is both a work list and
+   the only record of throughput, and only the first of those two goes stale.
+3. A worker SIGKILLed mid-download **leaves temp files behind**. No `finally`
+   block, no exit hook and no shutdown handler runs when the kernel removes a
+   process.
+
+#263 adds one component per problem: `JobStuckService` plus
+`tasks/job-stuck-reset.task.ts`, `handlers/job-history-purge.handler.ts` plus
+`tasks/job-history-purge.task.ts`, and `tasks/temp-file-janitor.task.ts`.
+
+### 7.1 Three recovery signals, and why each one is load-bearing
+
+`stuckRunningWhere(threshold, now)` is the queue's definition of "abandoned",
+and it is three OR'd clauses over `status = 'running'`:
+
+```ts
+{ status: 'running', OR: [
+    { startedAt: { lt: threshold } },                   // aged
+    { startedAt: null, createdAt: { lt: threshold } },  // zombie
+    { leaseExpiresAt: { lt: now } },                    // dead owner
+]}
+```
+
+- **Aged.** The ordinary case: a properly stamped claim that has been running
+  longer than any job of any type should. It is also the signal that still
+  works when `lease_expires_at` was never written — a fork's own claim path, a
+  hand-inserted row, a restored backup.
+- **Zombie.** `running` with no `startedAt` at all. It looks impossible,
+  because the claim writes `started_at = now()` in the same statement that
+  writes `status = 'running'` (§4.4), and it is exactly what a partially
+  applied write or an external control plane leaves behind. The aged clause
+  cannot see it — `NULL < threshold` is NULL, never true — and neither can the
+  lease clause if the lease was not written either, so **without this clause
+  such a row is stuck forever** and holds its dedup key with it. `createdAt` is
+  the substitute age, and it is always present.
+- **Dead owner.** The fastest and most precise signal, and the only one that
+  does not wait out the threshold: whoever claimed the row promised to settle
+  or renew it before this instant and did not. It covers a killed API replica
+  and a vanished worker node *identically*, because a lease says nothing about
+  where the executor was.
+
+The two instants are deliberately different. The first two clauses ask "older
+than the threshold"; the third asks "past its deadline, **now**". Collapsing
+them to one instant either reaps live jobs (using `now` for the age) or leaves
+every expired lease sitting for another full threshold (using `threshold` for
+the deadline). Both are parameters rather than clock reads inside the function,
+so one sweep judges every row against one pair of instants.
+
+### 7.2 Two phases: requeue what has budget, fail what does not
+
+`resetStuck(olderThanMinutes?)` returns `{ reset, failed }` and does two
+different things to two disjoint sets of rows:
+
+- **Rows at or over `JOBS_MAX_ATTEMPTS` are marked `failed`**, one at a time.
+  One at a time, and not one `updateMany`, because the message written to
+  `lastError` names *that job's own* attempt count — the number that
+  distinguishes an unlucky job from a poison pill — and a bulk update can only
+  write one string for every row it touches. The phase is bounded by how many
+  jobs exhausted their budget unattended, which in a healthy deployment is a
+  handful.
+- **Rows still under budget go back to `pending`** with the claim, the lease
+  and the executor released, in one `updateMany`. `executor` *is* cleared here,
+  unlike on the terminal path (§5): the row is about to be claimed again,
+  possibly by the other side entirely, and a stale `"node"` on a job the server
+  is about to run is a lie rather than history.
+
+**The give-up phase is what bounds a poison pill to N crashes instead of an
+infinite loop, and it only works because `attempts` is charged at CLAIM time**
+(§4.5). A job that reliably kills its executor — an OOM, a segfault in a native
+dependency, a library calling `process.exit()` — never reaches
+`JobTerminalService`, so nothing on the terminal path can ever count it. If the
+reaper simply requeued, the sequence would be *claim → executor dies → reaped →
+claim → …* forever, at one crash per threshold, with the container restarting
+underneath. The claim-time increment survives the death of the process, which
+is the only reason the reaper can say "this has had its budget" with evidence.
+Charge `attempts` on failure instead and this phase becomes unimplementable —
+these two decisions are one decision seen from two ends.
+
+Neither phase touches `attempts`. The attempt genuinely happened: the executor
+started the work and died doing it.
+
+### 7.3 The primitives are extracted, so a control plane can reap
+
+`getStuckThresholdMinutes()`, `stuckRunningWhere()` and `resetStuck()` live in
+`JobStuckService` rather than in the admin jobs service that will also expose
+them. That is not tidiness; it is a deployment:
+
+    JOBS_WORKER_MODE=off  +  an external node fleet
+
+is an API server acting as a **pure control plane** — it claims nothing and
+runs nothing, and every job executes on a machine it does not own. It is also,
+by a wide margin, the deployment where dead leases are most likely, because a
+fleet member's disappearance is routine. If reaping could only reach these
+primitives through the admin service, reaping would be coupled to the admin
+surface being mounted, and the deployment that needs it most would be the one
+least likely to have it. So the dependency points one way permanently: the
+reaper task, and later the admin endpoint, depend on this service; the service
+depends on Prisma, config and settings.
+
+The threshold is read through `SystemSettingsService.getJobsPolicy()` — a
+narrow accessor in the style of `getNotificationsPolicy()` /
+`getMaintenancePolicy()`: it projects one column, and it **does not create the
+row** the way `getSettings()` would. A cron tick materialising a settings row
+as a side effect is a write nobody asked for on a path with no caller to report
+it to. A failed read degrades to `DEFAULT_SYSTEM_SETTINGS.jobs`, because a
+settings blip is not a reason to stop reaping.
+
+### 7.4 The reaper honours `JOBS_REAPER_ENABLED` and never the worker mode
+
+The most important line in `job-stuck-reset.task.ts` is the one that is not
+there: no `if (mode === 'off') return`. Reaping is a **control-plane duty**,
+not a worker duty. `JOBS_WORKER_MODE=off` says "this process executes no jobs";
+it does not say "this deployment has no jobs", and the leases that expire in
+that deployment belong to remote nodes, which have no database access and
+cannot reap themselves. Gating the reaper on this process's willingness to run
+work would leave the fleet's abandoned rows to nobody.
+
+The one switch is `JOBS_REAPER_ENABLED`, defaulting to on, for the one
+legitimate case: several API replicas sharing a database where an operator
+wants exactly one of them sweeping. Running it everywhere is safe anyway —
+every phase re-asserts "still stuck" in its own `where`, so two reapers racing
+produce one winner and one no-op — the switch merely saves the duplicated
+queries. Only the literal `false` disables it, so a typo fails **open**, the
+same direction §6.3 argues for the worker mode.
+
+The tick is every ten minutes: tighter would re-ask a question whose answer
+changes on a scale of tens of minutes, and hourly would let a node that died
+just after a tick hold its dedup key for most of an hour.
+
+### 7.5 The purge is a job, not another cron
+
+`job.history.purge` is the first job type in this repository that does real
+work, and the queue's own housekeeping is deliberately the first customer of
+the queue. The nightly task **enqueues** it; the handler does the deleting on a
+worker slot. That indirection is the whole difference from the three older
+cleanup crons this document opens by criticising:
+
+- it is **observable** — a purge that ran is a row with a status, a duration,
+  an attempt count and a `lastError`, in the same admin list as everything else;
+- it **retries on the queue's own budget**, with backoff, instead of "wait 24
+  hours";
+- it **runs where the work belongs**, competing for a worker slot rather than
+  executing on the scheduler's thread;
+- and it is the **dogfood** for the epic's headline promise: one handler class,
+  self-registered, no queue wiring, no migration, no enum arm.
+
+It is server-only by carrying neither node member (§2) — the job *is* a
+sequence of database statements, so there is nothing for a node without
+database access to compute — and global, with no subject, which folds into a
+constant dedup key (§4.2) so the active-dedup index alone guarantees at most
+one purge in flight. It is enqueued at **priority 100**, which is *low*:
+ascending is more urgent (§4.4), every ordinary job takes the column default of
+`0`, and housekeeping must never be claimed ahead of user-facing work.
+
+Two guards sit in front of the enqueue and neither is redundant. The
+`purgeEnabled` setting is checked by the task so a disabled deployment creates
+no row, and **again by the handler**, because a purge row can also arrive from
+an admin control or a rerun and the setting is a statement about deleting
+history rather than about scheduling it. The "is one already pending or
+running?" lookup is not what prevents duplicates — the index does that — it is
+what keeps the log honest: without it, a purge that legitimately overran
+midnight would produce a "queued" line every night that queued nothing.
+
+### 7.6 Deleting history must not delete history
+
+`jobs` is two things at once: a work list, interesting only while it is recent,
+and the only record of **throughput** — how many jobs of each type have ever
+run, how many failed, how long they took. A plain `deleteMany` keeps the first
+and destroys the second, so all-time counts and average durations would reset
+every retention period and the answer to "how many exports have we ever run?"
+would depend on when the last purge happened. Worse, the reset is invisible:
+the numbers still look like numbers.
+
+`JobStatsRollup` (#255) is the accumulator that survives the delete, and this
+handler is its first and only writer. Every row about to be deleted is folded
+into per-type deltas first, so lifetime statistics are *rollup + the rows still
+in the table* — a quantity the purge is designed never to change. Purging
+becomes pure compaction: what is summarised changes, what is true does not.
+
+Duration samples are taken from **succeeded** rows only, matching
+`jobs_succeeded_duration_idx` — the partial index the schema builds for exactly
+this computation. Folding failures in would make the purged half of the
+statistic mean something different from the live half, and the average would
+drift on every purge; it is also the less useful number, since a failure's
+duration measures how long it took to break. Both counts, by contrast, include
+everything: a failure is a job that ran.
+
+**The upserts and the delete are one `$transaction`, per batch.** The two
+non-atomic orderings fail differently and both are unacceptable:
+
+- *Delete first, count after* — a crash in between loses the rows **and** their
+  contribution. Lifetime totals shrink, and the evidence needed to correct them
+  is what was just deleted, so the error is permanent and silent.
+- *Count first, delete after* — a crash in between counts the rows **twice**,
+  because the next run finds them again, still past the cutoff. Totals inflate,
+  and keep inflating on every retry.
+
+Inside the transaction the delete names **the exact ids just counted**, never a
+re-run of the `where`: re-running it would delete rows that became terminal
+between the select and the delete — rows nothing has counted, which is the
+"deleted uncounted" corruption arriving by the back door.
+
+Batches are 5000 rows. That is a lock-duration bound, not a throughput knob:
+this job runs on a worker slot in a live application, and a single `DELETE`
+over a year of history holds row locks for as long as it takes, with the claim
+query other slots run every few seconds waiting behind it. Bounded batches keep
+each step short so the queue keeps flowing while the purge runs; the loop is
+what makes the total work unbounded while each step stays bounded.
+
+The cutoff has two arms — `finishedAt < cutoff`, or `finishedAt IS NULL AND
+createdAt < cutoff` — for the same reason the reaper has a zombie clause, at
+the other end of a job's life: `finishedAt` is written by `JobTerminalService`
+but not enforced by the database, and `NULL < cutoff` is NULL, so a terminal
+row without one would otherwise be unpurgeable forever.
+
+### 7.7 Pending and running rows are never touched, at any age
+
+The `where` filters on terminal status **first** and age second, and that order
+is a rule rather than an implementation detail. A `pending` job is work that has
+not been done. Its age says something about the *queue* — a backlog, a paused
+worker, a `scheduledFor` far in the future, a deployment that was down over the
+weekend — and nothing whatsoever about whether the work is still wanted;
+deleting it silently cancels it, with no failure, no audit row and no retry.
+A `running` row is worse: deleting it orphans an executor that is about to
+write a terminal update for a row that no longer exists, and it removes exactly
+the rows the reaper exists to reclaim. Age is a retention criterion for
+finished work only. An old `pending` row is the reaper's business, or an
+operator's — never the purge's.
+
+### 7.8 The temp-file janitor
+
+A handler that downloads, renders or transcodes writes a scratch file, and
+deletes it when it is done. A handler whose process is SIGKILLed does not,
+because nothing of ours runs when the kernel removes a process. Nothing in the
+queue can notice: the reaper reclaims the *row*, and the row is all it knows
+about; the bytes on the dead worker's disk are invisible to every query. On a
+long-lived host with a small `/tmp` the eventual failure is not "a job failed",
+it is every write on the machine failing at once, for a reason that looks
+nothing like the job queue.
+
+So the janitor sweeps `os.tmpdir()` on module init and hourly, removing
+prefixed entries older than **six hours**. The three decisions worth recording:
+
+- **The prefix is what makes it safe.** `/tmp` is shared with the operating
+  system, the package manager and every other process on the box; a sweeper
+  that deleted "old files in /tmp" would eventually delete something that
+  mattered to someone else. `JOB_TEMP_PREFIX` is derived from `APP_NAME` (this
+  template's one rebrand point) rather than written out, which also means two
+  applications built from this template on one host get different prefixes and
+  neither janitor can touch the other's in-flight files. It falls back to a
+  neutral slug rather than an empty string, because an empty prefix makes
+  `startsWith` true for every file in the directory — that fallback is a safety
+  property, not a nicety. Renaming the application orphans files written under
+  the old prefix; they are files in `/tmp` with nothing referring to them, left
+  to the operating system's own reaping, and the window is one deploy.
+- **Six hours, by mtime.** There is no other signal: an open handle on a file
+  this process is writing looks identical, on disk, to a file a dead process
+  left behind. `JOBS_JOB_TIMEOUT_MS` defaults to ten minutes and may legitimately
+  be raised to hours, so six hours leaves an order of magnitude of headroom
+  while bounding wasted disk to a fraction of a day. Deleting a file out from
+  under a live handler is a corrupted output and a mysterious failure; keeping a
+  stale one costs disk that is reclaimed on the next tick. mtime specifically,
+  because a handler that is still writing keeps proving it is alive — atime is
+  unreliable under `relatime`/`noatime`, and ctime moves for metadata changes
+  that say nothing about progress.
+- **Skipped only when the worker mode is `off`** — the opposite gate to the
+  reaper's, and for a reason worth stating: a dead *lease* is a shared row in a
+  shared database, so any control plane can reap it, but a stale temp *file* is
+  on one machine's local disk and only a process that ran a handler could have
+  created it. A `JOBS_WORKER_MODE=off` process has nothing of its own in `/tmp`,
+  and sweeping anyway would mean a pure control plane deleting prefixed files
+  belonging to whichever other process on that host does the work. It reads the
+  mode through `parseWorkerMode`, the same parse `JobWorker.mode()` uses, rather
+  than injecting the worker: it needs a configuration answer, not the pool.
+
+Errors are swallowed twice over: per file, so one unreadable entry does not
+stop the sweep of the hundreds behind it (a file that fails today is retried in
+an hour), and per sweep, so an unreadable temp directory produces one warning
+rather than an unhandled rejection out of a `@Cron` handler or a failed
+bootstrap. The startup sweep matters most of the three schedules: the commonest
+way to leak temp files is a process that was killed, and the commonest thing to
+happen next is that it is restarted — in a crash loop, which is when files
+accumulate fastest.
+
+### 7.9 Configuration
+
+One environment variable and two system settings. The split is the usual one in
+this repository: what an operator sets per *process* is an env var; what an
+administrator changes at runtime for the *deployment* is a system setting.
+
+| Setting | Where | Default | What it decides |
+|---|---|---|---|
+| `JOBS_REAPER_ENABLED` | env | `true` | Whether this process reaps abandoned jobs at all (§7.4) |
+| `jobs.stuckThresholdMinutes` | system settings | 30 | How long a claimed job may go without progress before it is abandoned |
+| `jobs.history.retentionDays` | system settings | 30 | How much terminal history is kept |
+| `jobs.history.purgeEnabled` | system settings | `true` | Whether history is purged at all |
+
+The schedules — ten minutes, midnight, hourly, and the janitor's six-hour age
+limit — are deliberately **not** configurable. Each is derived from something
+that already is: the reaper's interval from the stuck threshold, the janitor's
+age limit from the job timeout, and the purge's schedule from the fact that
+retention is measured in days. A knob for each would be four more ways to
+produce a configuration that contradicts itself, which is the same argument
+§6.5 makes for deriving the lease from the timeout rather than configuring it.
 
 ## The extension recipe
 
@@ -1128,6 +1438,11 @@ dashboard automatically. Optionally add a display label in
 
 To make a type node-eligible, add **both** `nodeResultSchema` and
 `persistNodeResult` — and nothing else (§2).
+
+The worked examples are `handlers/example-echo.handler.ts` (the smallest thing
+a handler can be) and `handlers/job-history-purge.handler.ts` (§7.5), which is
+the same four steps applied to work that actually does something: a settings
+read, a batched loop, a transaction, and a scheduling task that enqueues it.
 
 ## Rejected alternatives
 
@@ -1221,6 +1536,57 @@ To make a type node-eligible, add **both** `nodeResultSchema` and
   runs against an orchestrator's SIGKILL countdown; a bounded grace plus a
   `running` row for the lease reaper turns a hard kill into one delayed job
   (§6.7).
+- **A fixed timeout instead of a lease.** "Anything `running` for more than N
+  minutes is dead" cannot distinguish a slow job from a dead one: the only
+  evidence it has is elapsed time, so the threshold must be set longer than the
+  slowest legitimate job in the deployment — and a job that exceeds it is
+  reaped and re-run while it is still working, producing duplicate work. A
+  lease is **renewable**, so a long job that is still alive can say so, and its
+  expiry is a statement by the executor rather than a guess about it. The aged
+  clause survives as one signal of three (§7.1) precisely because it is the
+  weak one: it is the fallback for rows whose lease was never written.
+- **Requeueing a stuck job unconditionally.** A job that kills its executor —
+  an OOM kill is the ordinary way — never reaches the terminal path, so nothing
+  counts it there. Requeueing without checking the budget turns that into
+  *claim → die → reap → claim → die* forever, at one crash per threshold, with
+  the container restarting under it: a crash loop caused by the recovery
+  mechanism. The give-up phase bounds it to `JOBS_MAX_ATTEMPTS` crashes, and it
+  is only implementable because `attempts` is charged at claim time (§7.2).
+- **Deleting history without the rollup.** `jobs` is both a work list and the
+  only record of all-time throughput. A plain `deleteMany` resets per-type
+  counts and average durations every retention period, invisibly — the numbers
+  still look like numbers — so "how many exports have we ever run?" would
+  answer differently depending on when the purge last ran (§7.6).
+- **Counting the rows and deleting them in two statements.** A crash between
+  them either loses rows *and* their contribution (totals shrink, permanently,
+  with the evidence deleted) or counts them twice on the next run (totals
+  inflate, and keep inflating). One transaction per batch makes both states
+  unrepresentable (§7.6).
+- **Purging by age alone, including `pending` rows.** A pending job is work
+  that has not been done; its age describes the queue, not the job's
+  usefulness. Deleting it silently cancels work with no failure, no audit row
+  and no retry — and deleting a `running` row orphans an executor that is about
+  to settle a row that no longer exists (§7.7).
+- **Gating the lease reaper on `JOBS_WORKER_MODE`.** A pure control plane
+  (`off`, in front of a node fleet) is the deployment where dead leases are
+  most likely and the only component that *can* reap them: the nodes have no
+  database access. Gating there leaves the fleet's abandoned rows to nobody
+  (§7.4).
+- **Making the history purge another `@Cron` that deletes inline.** It would
+  reproduce all four weaknesses this document opens with — no retry, no record,
+  no observability, and it competes with request handling — for the one job
+  type where the queue is already available (§7.5).
+- **A hard-coded temp-file prefix.** Two applications built from this template
+  on one host would share it, and each janitor would delete the other's
+  in-flight scratch files. Deriving it from `APP_NAME` costs nothing and makes
+  the collision impossible; an empty prefix (the degenerate case) would make
+  the janitor an indiscriminate `/tmp` sweeper, which is why it falls back to a
+  neutral slug (§7.8).
+- **Configurable schedules for the three hygiene tasks.** Each interval is
+  derived from a number that is already configurable — the reaper's from the
+  stuck threshold, the janitor's age limit from the job timeout — so a separate
+  knob is one more way to configure a contradiction, the same argument
+  §6.5 makes for the lease (§7.9).
 - **Making the database backup a job type.** Recorded in epic #254's own
   locked decisions and repeated here because it is the obvious thing to try:
   the stuck-job threshold would reset a 30-minute `pg_dump` and start a
@@ -1269,6 +1635,49 @@ What #260 proves, and by what. Everything in the first block runs against a
 | `recordProvider` swallows a failed audit write | `src/jobs/jobs.service.spec.ts`, and end to end in `test/jobs/jobs-enqueue.db.spec.ts` |
 | Enqueue never pre-checks with `findFirst` before inserting | `src/jobs/jobs.service.spec.ts` |
 | `JOB_CLAIM_COLUMNS` covers exactly the generated `Job` field set | `test/jobs/job-model-fields.spec.ts` (the compile-time half is the `Record<keyof Job, string>` type itself) |
+
+What #263 proves, and by what. The split between the two blocks is the point.
+The first runs against a **real Postgres** (`npm run test:db`), because both of
+its claims are about what the database does: which rows a `where` matches
+(a mocked `updateMany` returns whatever the test told it to, so a unit test of
+`stuckRunningWhere` can only assert the shape of an object — and the zombie
+clause would keep passing that assertion while matching nothing, since
+`NULL < threshold` is NULL rather than false), and whether a `$transaction`
+rolls back (a mocked `$transaction` rolls nothing back). The second block is
+everything a database makes *harder* to test: the `where`'s exact shape, the
+per-row give-up message, the settings fallbacks that only happen when a read
+throws, and a filesystem sweep.
+
+| Claim | Covered by |
+|---|---|
+| Each of the three stuck signals reclaims its own row, with the other two unable to fire | `test/jobs/job-stuck-reset.db.spec.ts` — one test per signal, including the `startedAt IS NULL` zombie aged by `createdAt` with a NULL lease |
+| A healthy `running` job — young, stamped, holding a live lease — is left alone | `test/jobs/job-stuck-reset.db.spec.ts` |
+| `pending`, `succeeded` and `failed` rows are never touched, however old | `test/jobs/job-stuck-reset.db.spec.ts` |
+| A row at (or over) the attempt cap becomes `failed`, with its own attempt count in the message, keeping `executor` | `test/jobs/job-stuck-reset.db.spec.ts` |
+| A row under the cap returns to `pending` with claim, lease and executor cleared, and `attempts` untouched | `test/jobs/job-stuck-reset.db.spec.ts` |
+| A mixed sweep splits between the two phases in one pass, and a second sweep is a no-op | `test/jobs/job-stuck-reset.db.spec.ts` |
+| Only terminal rows past the cutoff are deleted; a terminal row with no `finishedAt` is aged by `createdAt` | `test/jobs/job-history-purge.db.spec.ts` |
+| A batch failing **mid-transaction** leaves counts and rows consistent: nothing deleted uncounted, nothing counted undeleted | `test/jobs/job-history-purge.db.spec.ts` — the delete is rigged to throw from inside the real transaction, and the rollup is read *through the transaction* first, so the assertion cannot pass vacuously |
+| A pre-existing rollup survives a failed batch unchanged, and the retry counts each row exactly once | `test/jobs/job-history-purge.db.spec.ts` |
+| Lifetime totals (rollup + live rows) are identical before and after a purge, and after three purges | `test/jobs/job-history-purge.db.spec.ts` |
+
+| Claim | Covered by |
+|---|---|
+| `stuckRunningWhere` carries all three signals, OR'd, with the lease compared against `now` and the ages against the threshold | `src/jobs/job-stuck.service.spec.ts` |
+| The give-up phase runs one row at a time so each message names that job's attempts; neither phase writes `attempts` | `src/jobs/job-stuck.service.spec.ts` |
+| A settings read that throws falls back to the shipped threshold; a missing `jobs.maxAttempts` falls back to 3 rather than `NaN` | `src/jobs/job-stuck.service.spec.ts` |
+| The reaper runs under **every** worker mode, including `off`, and stops only for `JOBS_REAPER_ENABLED=false` | `src/jobs/tasks/job-stuck-reset.task.spec.ts` |
+| A failed sweep is swallowed rather than rejecting out of the `@Cron` handler | `src/jobs/tasks/job-stuck-reset.task.spec.ts`, and the same for the purge scheduler |
+| The purge selects terminal statuses only, and both age arms | `src/jobs/handlers/job-history-purge.handler.spec.ts` |
+| Duration samples come from succeeded rows only; a negative duration drops both the sum and the sample | `src/jobs/handlers/job-history-purge.handler.spec.ts` |
+| The batch counts and deletes inside one `$transaction`, deleting the exact ids it counted | `src/jobs/handlers/job-history-purge.handler.spec.ts` |
+| A disabled purge is a no-op in the handler as well as in the task | `src/jobs/handlers/job-history-purge.handler.spec.ts`, `src/jobs/tasks/job-history-purge.task.spec.ts` |
+| The purge is enqueued globally, at priority 100 (low), and skipped when one is already pending or running | `src/jobs/tasks/job-history-purge.task.spec.ts` |
+| The janitor removes an aged prefixed file and leaves a fresh one **and** an unrelated one alone | `src/jobs/tasks/temp-file-janitor.task.spec.ts` — a real filesystem in a disposable directory; the unrelated file is aged too, so only the prefix saves it |
+| It sweeps on module init, in every mode that runs jobs, and not at all when the mode is `off` | `src/jobs/tasks/temp-file-janitor.task.spec.ts` |
+| One entry that cannot be removed does not stop the sweep; an unlistable directory is one warning | `src/jobs/tasks/temp-file-janitor.task.spec.ts` |
+| The prefix is derived from `APP_NAME` and is never empty | `src/jobs/job-temp.spec.ts` |
+| The module graph still boots with the three tasks and the purge handler wired | `src/jobs/job-handler.registry.spec.ts`, `src/jobs/job.worker.bootstrap.spec.ts`, plus `npm run openapi:dump` |
 
 What #262 proves, and by what. All of it runs **without a database**, for the
 same reason #261's does: every claim below is about a decision the worker
@@ -1339,8 +1748,17 @@ recorded payload *is* the assertion.
 | Missing config degrades to the shipped defaults, not to `NaN` dates | `src/jobs/job-terminal.service.spec.ts`, `src/jobs/provider-throttle.service.spec.ts` |
 | The module graph still boots with the new providers wired | `src/jobs/job-handler.registry.spec.ts` — boots `JobsModule` for real, so a missing provider or a broken injection fails here |
 
-Be honest about the limits: nothing yet exercises a claimed job being **run**
-end to end. There is no worker — a claimed row stays `running` with a lease
+Be honest about the limits of #263 too. Nothing here proves the `@Cron`
+decorators actually fire — `ScheduleModule` is Nest's, and a test of it would
+be a test of Nest — so each task's `handleCron` is called directly and the
+schedules themselves are read, not executed. The janitor's six-hour age limit
+is exercised with rewritten mtimes rather than by waiting. And the reaper is
+proved against rows a test *constructed* in each stuck shape; no test kills a
+real worker mid-job, because the states it would produce are exactly the three
+that are seeded here.
+
+Be honest about the limits (as of #261): nothing yet exercises a claimed job
+being **run** end to end. There is no worker — a claimed row stays `running` with a lease
 until #262 arrives, and the terminal path is driven by tests rather than by a
 handler. What is proved is that a row can be written exactly once under
 concurrency, taken exactly once under concurrency, and settled by exactly one
