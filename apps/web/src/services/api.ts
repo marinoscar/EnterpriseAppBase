@@ -10,6 +10,10 @@
  */
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
+// Issue #258, epic #254. The maintenance recogniser is imported here — and
+// nowhere near a page — because the interception is CENTRAL: see `toError`.
+import { readMaintenanceBlock, reportMaintenanceBlock } from './maintenance';
+
 interface RequestOptions extends RequestInit {
   skipAuth?: boolean;
 }
@@ -70,12 +74,7 @@ class ApiService {
 
         if (!retryResponse.ok) {
           const error = await retryResponse.json().catch(() => ({}));
-          throw new ApiError(
-            error.message || 'Request failed',
-            retryResponse.status,
-            error.code,
-            error.details,
-          );
+          throw this.toError(retryResponse.status, error);
         }
 
         if (retryResponse.status === 204) {
@@ -90,12 +89,7 @@ class ApiService {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
-      throw new ApiError(
-        error.message || 'Request failed',
-        response.status,
-        error.code,
-        error.details,
-      );
+      throw this.toError(response.status, error);
     }
 
     // Handle 204 No Content
@@ -105,6 +99,43 @@ class ApiService {
 
     const data = await response.json();
     return data.data ?? data;
+  }
+
+  /**
+   * Build the `ApiError` every call site already catches — and, on the way
+   * past, notice a maintenance window (#258, epic #254).
+   *
+   * THIS IS THE ONLY PLACE THE WEB APP LOOKS FOR THE MARKER, and that is the
+   * design rather than a convenience. Every request in this application goes
+   * through `request()`, so putting the check on its single error path means
+   * every existing caller — hooks, pages, one-off handlers, code added after
+   * this — inherits maintenance handling without a line of change. The
+   * alternative (each caller inspecting its own error) would be ~30 copies of
+   * one `if`, each free to be forgotten on the next endpoint added, in a client
+   * whose whole reason for recognising the marker is that it must not guess.
+   *
+   * ⚠️ AN ORDINARY 503 IS UNTOUCHED. `readMaintenanceBlock` returns `null`
+   * unless the status is 503 AND `details.reason` is the marker, so a crashed
+   * upstream, a full connection pool or a proxy with no backend produces
+   * EXACTLY the `ApiError` it produced before this method existed — same
+   * message, same status, same code, same details. That distinction is the
+   * feature; see `services/maintenance.ts`.
+   *
+   * The error is still THROWN in both cases. The block is a side channel for
+   * the gate, never a replacement for the rejection a caller is awaiting: a
+   * request that silently resolved during a window would leave every one of
+   * those callers holding `undefined` and rendering it.
+   */
+  private toError(
+    status: number,
+    body: { message?: string; code?: string; details?: unknown },
+  ): ApiError {
+    const block = readMaintenanceBlock(status, body);
+    if (block) {
+      reportMaintenanceBlock(block);
+    }
+
+    return new ApiError(body.message || 'Request failed', status, body.code, body.details);
   }
 
   async refreshToken(): Promise<boolean> {
@@ -220,6 +251,8 @@ import type {
   AppNotification,
   NotificationListResponse,
   UnreadCountResponse,
+  MaintenanceStatus,
+  UpdateMaintenanceInput,
 } from '../types';
 
 // Allowlist API
@@ -542,3 +575,51 @@ export async function markAllNotificationsRead(): Promise<UnreadCountResponse> {
 
 /** Re-exported for consumers that only import from this module. */
 export type { AppNotification };
+
+// Maintenance mode API — issue #258, epic #254.
+//
+// Two calls, one controller (`system_settings:read` to look,
+// `system_settings:write` to change), and the only place in the web app that
+// names these endpoints.
+//
+// BOTH ROUTES ARE EXEMPT FROM THE API'S OWN MAINTENANCE GUARD
+// (`@AllowDuringMaintenance()` on `maintenance.controller.ts`), which is what
+// makes them usable for the two jobs they have here: the admin page can close a
+// window from inside one, and `MaintenanceBanner` can keep telling a bypassing
+// administrator that a window is open. Exemption is REACHABILITY only — `@Auth()`
+// still runs, so a caller without the permission gets a 403 during a window
+// exactly as they would outside one.
+
+/**
+ * The effective maintenance state, plus each contributing layer.
+ *
+ * Served with `fresh: true` on the API side, so this never returns a value from
+ * the guard's five-second cache: an operator inspecting the switch must not be
+ * shown a stale one.
+ */
+export async function getMaintenanceStatus(): Promise<MaintenanceStatus> {
+  return api.get<MaintenanceStatus>('/admin/maintenance');
+}
+
+/**
+ * Open or close the persisted window.
+ *
+ * PUT, not PATCH, because `enabled` is required on every call — this endpoint
+ * exists to answer on-or-off — while `message` and `allowAdmins` are optional
+ * and OMITTING one keeps whatever is stored. So the caller must send `enabled`
+ * deliberately every time and can leave the rest alone; see
+ * `UpdateMaintenanceInput` for why `startedAt` / `startedById` are not part of
+ * this body at all.
+ *
+ * RETURNS THE STATE AFTER THE WRITE, INCLUDING ITS LAYERS — which is the whole
+ * reason the caller must adopt the response rather than its own input. An
+ * environment override still outranks anything this writes, so a save that
+ * turned the persisted flag off can legitimately come back with
+ * `enabled: true` and `source: 'env'`, and a page that assumed its own payload
+ * had taken effect would then show the operator the opposite of the truth.
+ */
+export async function updateMaintenance(
+  input: UpdateMaintenanceInput,
+): Promise<MaintenanceStatus> {
+  return api.put<MaintenanceStatus>('/admin/maintenance', input);
+}

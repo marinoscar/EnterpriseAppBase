@@ -769,3 +769,75 @@ export interface EmailTestResult {
   /** When the attempt was made. */
   attemptedAt?: string;
 }
+
+// =============================================================================
+// Maintenance mode — issue #258, epic #254
+// =============================================================================
+//
+// The web mirror of `GET`/`PUT /api/admin/maintenance`
+// (`apps/api/src/common/maintenance/dto/update-maintenance.dto.ts`). Mirrored
+// rather than shared because there is no cross-package type surface between
+// `apps/api` and `apps/web` — `packages/shared` is deliberately plain
+// JavaScript constants (see its header) — so this is the same arrangement
+// `EmailSettings` and `SystemSettings` above already live under.
+//
+// The one thing NOT restated here is the marker string and the retry delay:
+// those are the wire CONTRACT rather than a shape, and they live beside the
+// code that recognises them, in `services/maintenance.ts`.
+
+/** Which of the three layers decided `enabled`. Reported, never inferred. */
+export type MaintenanceSource = 'env' | 'memory' | 'persisted';
+
+/**
+ * An override held in the API process only (the database restore's swap
+ * window). `message` and `allowAdmins` are optional on it because the caller
+ * that installs one usually has nothing to say about them.
+ */
+export interface MaintenanceOverride {
+  enabled: boolean;
+  message?: string;
+  allowAdmins?: boolean;
+}
+
+/** The stored `maintenance` namespace of the system settings document. */
+export interface MaintenancePolicy {
+  enabled: boolean;
+  message: string;
+  allowAdmins: boolean;
+  startedAt: string | null;
+  startedById: string | null;
+}
+
+/**
+ * The effective state, plus every contributing layer, separately.
+ *
+ * `layers` is the reason the admin page exists as more than a switch: an
+ * operator asking "I turned it off and it is still on" needs to be shown that
+ * `MAINTENANCE_MODE=true` is in the environment and outranks the row they just
+ * wrote. Rendering only `enabled` would make that invisible from the UI in
+ * exactly the way it would have been invisible from the API without this block.
+ */
+export interface MaintenanceStatus extends MaintenancePolicy {
+  source: MaintenanceSource;
+  layers: {
+    /** `enabled: null` means the variable is unset, or set to something that is neither `'true'` nor `'false'`. */
+    env: { present: boolean; enabled: boolean | null };
+    memory: { present: boolean; override: MaintenanceOverride | null };
+    /** `readable: false` means the row could not be read and `value` is the last known state. */
+    persisted: { readable: boolean; value: MaintenancePolicy };
+  };
+}
+
+/**
+ * The `PUT` body. `enabled` is the only required field, exactly as in
+ * `updateMaintenanceSchema`.
+ *
+ * `startedAt` / `startedById` are ABSENT on purpose and must stay absent: the
+ * API stamps them itself and refuses to take them from a caller, because an
+ * audit trail the audited party can dictate is not one.
+ */
+export interface UpdateMaintenanceInput {
+  enabled: boolean;
+  message?: string;
+  allowAdmins?: boolean;
+}
