@@ -25,7 +25,7 @@ issues #267–#279 build against.
 5. [Two shared guards in the service](#5-two-shared-guards-in-the-service)
 6. [Claiming, and the four job-scoped endpoints](#6-claiming-and-the-four-job-scoped-endpoints)
 7. [Fleet lifecycle, and an ordering bug worth naming](#7-fleet-lifecycle-and-an-ordering-bug-worth-naming)
-8. [The CLI worker (`appctl node …`)](#8-the-cli-worker-appctl-node-)
+8. [The CLI worker (`appctl node`)](#8-the-cli-worker-appctl-node)
 9. [The `NodeEngine` loop is a continuous top-up pool, not a batch drain](#9-the-nodeengine-loop-is-a-continuous-top-up-pool-not-a-batch-drain)
 10. [The daemon: pidfile, IPC socket, and the write-backlog guard](#10-the-daemon-pidfile-ipc-socket-and-the-write-backlog-guard)
 11. [Memory hardening](#11-memory-hardening)
@@ -212,7 +212,7 @@ All routes under `/api/nodes/*`, PAT- or `nod_`-authenticated
 |---|---|
 | `POST /register` | Register a node. **Idempotent on `(owner, name)`.** |
 | `POST /:id/deregister` | Graceful shutdown — see [§7](#7-fleet-lifecycle-and-an-ordering-bug-worth-naming) for why this alone is not enough to track fleet health. |
-| `POST /:id/heartbeat` | Liveness ping; may also refresh `status`/`capabilities`/`concurrency` live, so `set-concurrency` ([§8](#8-the-cli-worker-appctl-node-)) takes effect without a restart. |
+| `POST /:id/heartbeat` | Liveness ping; may also refresh `status`/`capabilities`/`concurrency` live, so `set-concurrency` ([§8](#8-the-cli-worker-appctl-node)) takes effect without a restart. |
 | `POST /:id/claim` | The shared claim primitive from [Job Queue §5](job-queue.md#5-claiming-a-job), `executor: 'node'` — see [§6](#6-claiming-and-the-four-job-scoped-endpoints). |
 | `POST /:id/jobs/:jobId/renew` | Extends the lease on a long-running claimed job before `leaseExpiresAt` passes. |
 | `POST /:id/jobs/:jobId/result` | Submit a computed result — see [§6](#6-claiming-and-the-four-job-scoped-endpoints). |
@@ -289,7 +289,7 @@ from the request body:
   matter what a malformed or malicious claim request asks for.
 - **Requested limit, clamped to the node's declared `concurrency`**, read
   **live** from the row at claim time — not cached from registration — so
-  `set-concurrency` ([§8](#8-the-cli-worker-appctl-node-)) takes effect on
+  `set-concurrency` ([§8](#8-the-cli-worker-appctl-node)) takes effect on
   the very next claim call, with no restart required.
 
 ### 6.1 Result ingestion, in order
@@ -375,7 +375,7 @@ the bug this section describes: the prune's own `WHERE status = 'offline'`
 clause would still never match a node that has been silently dead for
 months but never transitioned out of `'online'`.
 
-## 8. The CLI worker (`appctl node …`)
+## 8. The CLI worker (`appctl node`)
 
 ```
 appctl node register            # register this machine as a worker node
@@ -542,7 +542,7 @@ shell form `CMD node dist/worker.js`), so `SIGTERM` from `docker stop`
 reaches the Node process directly as PID 1 rather than being swallowed by an
 intermediate shell — the same reasoning any container running a
 long-lived, gracefully-shutting-down process must follow, and the reason
-the headless drain-on-signal path in [§8](#8-the-cli-worker-appctl-node-)
+the headless drain-on-signal path in [§8](#8-the-cli-worker-appctl-node)
 only works at all if the signal is delivered where the code is actually
 listening for it.
 
