@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { CONFIG_DIR_NAME, CONFIG_FILE_NAME } from '../branding.js';
 import type { NodeApi } from './node-api.js';
-import { startNode } from './start.js';
+import { EXIT_MISSING_CAPABILITY, startNode } from './start.js';
 import { WORKER_ENV } from './worker-env.js';
 
 // =============================================================================
@@ -152,6 +152,50 @@ describe('startNode', () => {
 
     // A human stopping a worker on their laptop means it is going away.
     expect(record.deregisters).toBe(1);
+  });
+
+  it('hard-exits when an advertised type is missing a REQUIRED capability', async () => {
+    // The worst failure a worker has is starting successfully and then failing
+    // every job it claims — it looks healthy while draining the queue into the
+    // failed pile, charging each job an attempt on the way.
+    writeConfig({
+      serverUrl: 'https://app.example.com',
+      token: 'nod_x',
+      nodeId: 'node-1',
+      node: { eligibleTypes: ['video.transcode'] },
+    });
+
+    const exits: number[] = [];
+    const stderr = { lines: [] as string[], write(chunk: string) { this.lines.push(chunk); return true; } };
+
+    await expect(
+      startNode({
+        home,
+        env: { [WORKER_ENV.stateDir]: join(home, 'state-fail') },
+        headless: true,
+        stderr,
+        createApi: () => api({ deregisters: 0, claims: 0 }),
+        installSignalHandlers: () => {},
+        requirements: { 'video.transcode': { required: ['binary:ffmpeg'], degradable: [] } },
+        probe: {
+          platform: 'linux',
+          arch: 'x64',
+          nodeVersion: process.version,
+          cpus: 1,
+          totalMemoryMb: 1024,
+          freeMemoryMb: 512,
+          binaries: {},
+          capabilities: [],
+        },
+        exit: ((code: number) => {
+          exits.push(code);
+          throw new Error(`exit ${code}`);
+        }) as never,
+      }),
+    ).rejects.toThrow(/exit 70/);
+
+    expect(exits).toEqual([EXIT_MISSING_CAPABILITY]);
+    expect(stderr.lines.join('')).toContain('video.transcode');
   });
 
   it('reads headless from the environment, not only from the flag', async () => {

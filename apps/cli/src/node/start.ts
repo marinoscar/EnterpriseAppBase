@@ -7,6 +7,12 @@ import { NodeLogger, readLogTail, formatLogRecord } from './logger.js';
 import { startDaemonHost, type DaemonHost } from './daemon.js';
 import { nodeLogPath, nodePidPath, nodeSocketPath, nodeTmpDir, type NodePathsContext } from './paths.js';
 import { resolveNodeConfig, saveNodeConfig, type ResolvedNodeConfig } from './node-config.js';
+import {
+  probeCapabilities,
+  runStartupSelfTest,
+  type CapabilityProbe,
+  type JobTypeRequirements,
+} from './capabilities.js';
 
 // =============================================================================
 // `node start`  (issue #275, epic #254)
@@ -39,7 +45,22 @@ export interface StartNodeOptions extends NodePathsContext {
   /** Wired by #277. */
   writeHeapSnapshot?: (() => Promise<{ path: string; size: number }>) | undefined;
   capabilities?: Record<string, unknown> | undefined;
+  /** Overrides the capability probe. Injected by tests; never in production. */
+  probe?: CapabilityProbe | undefined;
+  /** Overrides `JOB_TYPE_REQUIREMENTS`. A fork could supply its own map here. */
+  requirements?: Record<string, JobTypeRequirements> | undefined;
+  /**
+   * Run the startup self-test. Defaults to ON in headless mode, where a hard
+   * exit is a visible crash-loop with a reason; interactive runs default to
+   * warning, because a human is right there to read it.
+   */
+  selfTest?: boolean | undefined;
+  /** Replaces `process.exit` for the self-test's hard failure. */
+  exit?: ((code: number) => never) | undefined;
 }
+
+/** Exit code for "this node cannot do the work it advertised". */
+export const EXIT_MISSING_CAPABILITY = 70;
 
 export interface StartedNode {
   engine: NodeEngine;
@@ -75,6 +96,34 @@ export async function startNode(options: StartNodeOptions = {}): Promise<Started
     ...(headless ? {} : { mirror: (record) => stderr.write(`${formatLogRecord(record)}\n`) }),
   });
 
+  // ---------------------------------------------------------------------------
+  // The startup self-test (#276), BEFORE anything is registered or claimed
+  // ---------------------------------------------------------------------------
+  // A node that cannot do the work it advertised must not reach the claim loop:
+  // there it would take a lease, fail it, and charge the job an attempt — once
+  // per job, looking healthy the whole time.
+  const probe = options.probe ?? probeCapabilities();
+  const selfTestEnabled = options.selfTest ?? headless;
+  if (selfTestEnabled) {
+    const failures: string[] = [];
+    const result = runStartupSelfTest({
+      types: config.node.eligibleTypes,
+      probe,
+      ...(options.requirements !== undefined ? { requirements: options.requirements } : {}),
+      warn: (message) => logger.warn(message),
+      fail: (message) => {
+        logger.error(message);
+        failures.push(message);
+      },
+    });
+
+    if (!result.ok) {
+      stderr.write(`${failures.join('\n')}\n`);
+      const exit = options.exit ?? ((code: number) => process.exit(code));
+      exit(EXIT_MISSING_CAPABILITY);
+    }
+  }
+
   const api = options.createApi?.(config) ?? HttpNodeApi.create(config.serverUrl, config.token);
 
   // Register on first start. `validateTypes: false` because a start must not
@@ -105,7 +154,7 @@ export async function startNode(options: StartNodeOptions = {}): Promise<Started
     eligibleTypes: config.node.eligibleTypes,
     pollIntervalMs: config.node.pollIntervalMs,
     tmpDir: nodeTmpDir(pathCtx),
-    ...(options.capabilities !== undefined ? { capabilities: options.capabilities } : {}),
+    capabilities: { ...(options.capabilities ?? {}), probe: { ...probe } },
     persistConcurrency: (value) => {
       saveNodeConfig({ node: { concurrency: value } }, { ...pathCtx, degradeOnFailure: true });
     },
