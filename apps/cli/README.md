@@ -589,6 +589,33 @@ nested objects and arrays: tokens, API keys, passwords, and **presigned storage
 URLs**. That last one is not hygiene theatre — a presigned URL is a bearer
 capability over an object, and a log file is a thing people attach to issues.
 
+### Health checks, dependencies and running as a service
+
+```bash
+appctl node doctor                 # three independent groups of checks
+appctl node install-deps --dry-run # the dependency step framework
+appctl node service install        # systemd user unit
+appctl node service status
+appctl node service uninstall
+```
+
+`doctor` checks **this machine**, **the server** and **the worker**
+independently — a failure in one never masks the others — and distinguishes
+"cannot reach the server" from "reached it and was refused", which look
+identical in a stack trace and have entirely different fixes.
+
+`install-deps` ships as a **framework**, not a set of real installs: this
+template has no native dependencies, so it provides the ordered-step structure,
+per-step outcomes, distro detection and `--dry-run`, and a fork fills in its own
+steps. See [`docs/deployment/worker-nodes.md`](../../docs/deployment/worker-nodes.md).
+
+`service install` writes a systemd **user** unit (no root needed) whose name
+and description derive from the CLI and app names. It sets
+`Restart=on-failure`, which is required rather than decorative — the memory
+watchdog exits deliberately after draining, and without a supervisor that
+successful drain leaves the worker down. Run `loginctl enable-linger $USER`
+afterwards, or the unit stops when you log out.
+
 ### Worker environment variables
 
 Every setting can come from the environment instead of the config file, which

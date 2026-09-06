@@ -1,7 +1,7 @@
 import type { Command } from 'commander';
 
 import { CLI_NAME } from '../branding.js';
-import { UsageError } from '../errors.js';
+import { PreconditionError, UsageError } from '../errors.js';
 import { enrollNode, registerNode } from '../node/enrollment.js';
 import { HttpNodeApi } from '../node/node-api.js';
 import {
@@ -23,6 +23,10 @@ import { connectToDaemon } from '../node/daemon.js';
 import { nodeLogPath, nodePidPath, nodeSocketPath } from '../node/paths.js';
 import { startNode } from '../node/start.js';
 import { saveNodeConfig } from '../node/node-config.js';
+import { formatDoctorReport, runDoctor } from '../node/doctor.js';
+import { formatInstallReport, runInstallDeps } from '../node/install-deps.js';
+import { installService, serviceStatus, uninstallService } from '../node/service.js';
+import { nodeStateDir } from '../node/paths.js';
 
 // =============================================================================
 // `appctl node` — the worker-node command group  (issue #272, epic #254)
@@ -395,6 +399,93 @@ export function registerNodeCommand(program: Command, ctx?: NodeCommandContext):
           ? `Concurrency set to ${outcome.value} on the running worker, and saved for next start.\n`
           : `No worker is running here; saved concurrency ${outcome.value} for the next start.\n`,
       );
+    });
+
+  node
+    .command('doctor')
+    .description('Check this machine, the server, and the worker — independently')
+    .option('--json', 'Emit the report as JSON on stdout')
+    .action(async (options: { json?: boolean }) => {
+      const stdout = ctx?.stdout ?? process.stdout;
+      const stderr = ctx?.stderr ?? process.stderr;
+      const configContext = contextOf(ctx);
+
+      // The config itself can fail to resolve — that IS a diagnosis, and
+      // doctor is the command that should report it rather than throw it.
+      let config;
+      try {
+        config = resolveNodeConfig(configContext);
+      } catch (error) {
+        stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+        throw error;
+      }
+
+      const report = await runDoctor({
+        config,
+        socketPath: nodeSocketPath(configContext),
+        pidPath: nodePidPath(configContext),
+        stateDir: nodeStateDir(configContext),
+        api: HttpNodeApi.create(config.serverUrl, config.token, {
+          ...(ctx?.fetch !== undefined ? { fetch: ctx.fetch } : {}),
+        }),
+      });
+
+      if (options.json === true) {
+        stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+      } else {
+        stderr.write(formatDoctorReport(report));
+      }
+
+      if (!report.ok) throw new PreconditionError('At least one worker check failed.');
+    });
+
+  node
+    .command('install-deps')
+    .description('Install the dependencies this worker’s job types need')
+    .option('--dry-run', 'Print the plan without changing anything')
+    .action((options: { dryRun?: boolean }) => {
+      const stderr = ctx?.stderr ?? process.stderr;
+      const configContext = contextOf(ctx);
+
+      const report = runInstallDeps({
+        stateDir: nodeStateDir(configContext),
+        ...(options.dryRun === true ? { dryRun: true } : {}),
+        log: (message) => stderr.write(`${message}\n`),
+      });
+
+      stderr.write(formatInstallReport(report));
+      if (!report.ok) throw new PreconditionError('At least one dependency step failed.');
+    });
+
+  const service = node.command('service').description('Manage the worker as a systemd user service');
+
+  service
+    .command('install')
+    .description('Install and start a systemd user unit for this worker')
+    .action(() => {
+      const stderr = ctx?.stderr ?? process.stderr;
+      const result = installService(contextOf(ctx));
+      stderr.write(`${result.detail}\n`);
+      if (result.guidance !== undefined) stderr.write(`${result.guidance}\n`);
+    });
+
+  service
+    .command('uninstall')
+    .description('Stop and remove the systemd user unit')
+    .action(() => {
+      const stderr = ctx?.stderr ?? process.stderr;
+      const result = uninstallService(contextOf(ctx));
+      stderr.write(`${result.detail}\n`);
+      if (result.guidance !== undefined) stderr.write(`${result.guidance}\n`);
+    });
+
+  service
+    .command('status')
+    .description('Report the real state of the systemd user unit')
+    .action(() => {
+      const stderr = ctx?.stderr ?? process.stderr;
+      const status = serviceStatus(contextOf(ctx));
+      stderr.write(`${status.detail}\n  unit: ${status.unitPath}\n`);
     });
 
   return node;
