@@ -108,8 +108,9 @@ import {
   JobListQuery,
   PROCESSED_WITHIN_MS,
 } from './dto/job-list-query.dto';
-import { JOB_STATUSES, JobStatusName } from './dto/job-response.dto';
-import { JobStatsResult, JobStatusCounts } from './dto/job-stats.dto';
+import { JobStatusName } from './dto/job-response.dto';
+import { JobStatsResult } from './dto/job-stats.dto';
+import { countOf, foldTypeCounts, sumCounts, zeroCounts } from './job-counts.util';
 
 /** How long a stats roll-up may be reused. See the file header for the sizing. */
 export const STATS_CACHE_TTL_MS = 2_000;
@@ -314,15 +315,7 @@ export class JobAdminService {
       total += count;
     }
 
-    const perType = new Map<string, JobStatusCounts>();
-
-    for (const row of byTypeRows) {
-      const counts = perType.get(row.type) ?? zeroCounts();
-      counts[row.status as JobStatusName] = countOf(row);
-      perType.set(row.type, counts);
-    }
-
-    const byType = [...perType.entries()]
+    const byType = [...foldTypeCounts(byTypeRows).entries()]
       .map(([type, counts]) => ({
         type,
         label: jobTypeLabel(type),
@@ -597,28 +590,6 @@ export class JobAdminService {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/** A fresh, fully zero-filled status breakdown. See `dto/job-stats.dto.ts`. */
-function zeroCounts(): JobStatusCounts {
-  return { pending: 0, running: 0, succeeded: 0, failed: 0 };
-}
-
-function sumCounts(counts: JobStatusCounts): number {
-  return JOB_STATUSES.reduce((sum, status) => sum + counts[status], 0);
-}
-
-/**
- * The `_count._all` of a `groupBy` row, defensively.
- *
- * Prisma types `_count` as possibly absent because the shape depends on the
- * argument object, which it cannot always narrow through a service boundary.
- * A missing count must read as 0 rather than propagate `NaN` through `total`.
- */
-function countOf(row: { _count?: { _all?: number } | null }): number {
-  const count = row._count?._all;
-
-  return typeof count === 'number' && Number.isFinite(count) ? count : 0;
-}
 
 /**
  * Whether `error` is a unique violation on the active-dedup index specifically.
