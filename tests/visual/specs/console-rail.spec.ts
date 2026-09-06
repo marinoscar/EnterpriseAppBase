@@ -43,8 +43,12 @@ test('Console rail: Back to library + General/Access/Operations groups @ lg', as
   await expect(rail.getByRole('link', { name: 'Users & Allowlist' })).toBeVisible();
   await expect(rail.getByRole('link', { name: 'Jobs', exact: true })).toBeVisible();
   await expect(rail.getByRole('link', { name: 'Job Insights' })).toBeVisible();
-  // Registered but not yet routed: declared in the IA, deliberately not a link.
-  await expect(rail.getByRole('link', { name: 'Worker Nodes' })).toHaveCount(0);
+  // Live since #271 — the rail row appearing IS the assertion that flipping a
+  // card from `disabled` to routed reaches all three consumers of the registry,
+  // not just the hub.
+  await expect(rail.getByRole('link', { name: 'Worker Nodes' })).toBeVisible();
+  // Still registered but not yet routed: declared in the IA, deliberately not a
+  // link. `NavigationRail` skips any card with `!card.path || card.disabled`.
   await expect(rail.getByRole('link', { name: 'Database Backup' })).toHaveCount(0);
 
   await expect(rail).toHaveScreenshot('console-rail-lg-expanded.png');
