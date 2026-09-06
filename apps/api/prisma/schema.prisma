@@ -41,6 +41,8 @@ model User {
   notificationDeliveries NotificationDelivery[] @relation("UserNotificationDeliveries")
   notifications          Notification[]         @relation("UserNotifications")
   pushSubscriptions      PushSubscription[]     @relation("UserPushSubscriptions")
+  workerNodes            WorkerNode[]           @relation("UserWorkerNodes")
+  nodeCredentials        NodeCredential[]       @relation("UserNodeCredentials")
 
   @@map("users")
 }
@@ -836,18 +838,20 @@ model PushSubscription {
 // scheduling.
 //
 // -----------------------------------------------------------------------------
-// claimedByNodeId — NO foreign key yet, deliberately
+// claimedByNodeId — a real relation as of issue #267, epic #254
 // -----------------------------------------------------------------------------
-// This column exists now (`String? @db.Uuid`) so the claim query and its
-// indexes ([status, leaseExpiresAt], [claimedByNodeId]) can be built against
-// their final shape today, but the `WorkerNode` table it will reference does
-// not exist until the node plane (a later issue of #254) adds it. THE
-// RELATION AND ITS `onDelete: SetNull` ARRIVE THEN, added as a migration that
-// adds the FK constraint on top of this already-populated column — SetNull
-// so a node's disappearance frees the jobs it was holding (via
-// `leaseExpiresAt` already having them look abandoned) rather than deleting
-// job history. Until that migration, this column is enforced by application
-// code only.
+// This column existed unconstrained (`String? @db.Uuid`) from #255 onward, so
+// the claim query and its indexes ([status, leaseExpiresAt],
+// [claimedByNodeId]) could be built against their final shape before the
+// `WorkerNode` table it references existed. #267 adds that table and wires
+// the FK on top of this already-populated column: `onDelete: SetNull`, so a
+// node's disappearance (deregistered, pruned, or manually deleted by an
+// admin) frees the jobs it was holding — via `leaseExpiresAt` already having
+// them look abandoned to the reaper — rather than deleting job history. See
+// the block comment above the `WorkerNode` model for the corresponding
+// `onDelete` decision on `WorkerNode.createdBy`, which is a different
+// question (what happens to the NODE when its owning USER is deleted, not
+// what happens to a JOB when its claiming NODE is deleted).
 //
 // -----------------------------------------------------------------------------
 // sumDurationMs on JobStatsRollup — Float (double precision), NOT BigInt
@@ -949,10 +953,12 @@ model Job {
   rateLimitedAt DateTime? @map("rate_limited_at") @db.Timestamptz
   rateLimitHits Int       @default(0) @map("rate_limit_hits")
 
-  // Node claiming. NO relation yet — see the block comment above
-  // ("claimedByNodeId") for why, and what arrives with the node plane.
-  claimedByNodeId String?   @map("claimed_by_node_id") @db.Uuid
-  leaseExpiresAt  DateTime? @map("lease_expires_at") @db.Timestamptz
+  // Node claiming. See the block comment above ("claimedByNodeId") for why
+  // this relation arrived a migration after the column did, and why
+  // `onDelete: SetNull` is correct here specifically.
+  claimedByNodeId String?     @map("claimed_by_node_id") @db.Uuid
+  claimedByNode   WorkerNode? @relation("NodeClaimedJobs", fields: [claimedByNodeId], references: [id], onDelete: SetNull)
+  leaseExpiresAt  DateTime?   @map("lease_expires_at") @db.Timestamptz
   // 'server' | 'node' — which side actually executed the job. A plain
   // string, not an enum, for the same "small closed set, but code-owned and
   // not this table's own state machine" reasoning as
@@ -973,8 +979,7 @@ model Job {
   @@index([type, status])
   // Lease expiry sweep (finding jobs whose claiming node went away):
   @@index([status, leaseExpiresAt])
-  // "What is this node holding right now" (will back the node-plane FK's own
-  // lookups once it exists too):
+  // "What is this node holding right now" — also backs the FK added by #267:
   @@index([claimedByNodeId])
   // Recency listings (admin job list, "what just happened"):
   @@index([createdAt(sort: Desc)])
@@ -1029,4 +1034,267 @@ model JobStatsRollup {
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   @@map("job_stats_rollup")
+}
+
+// =============================================================================
+// Worker Nodes (issue #267, epic #254)
+// =============================================================================
+//
+// This issue adds only the schema half of the node plane: `WorkerNode`
+// itself, `NodeCredential` (the `nod_` bearer credential a node authenticates
+// with), and the `Job.claimedByNode` relation deferred by #255 (see the
+// block comment above the `Job` model, "claimedByNodeId"). The service that
+// mints/validates `NodeCredential` tokens, the `/api/node-credentials`
+// endpoints, and the `Bearer nod_` branch in `jwt-auth.guard.ts` all arrive
+// in the same issue's backend half; the register/heartbeat/claim control
+// plane that actually populates and mutates `WorkerNode` rows is #268. What
+// is here is deliberately complete on its own for that later work: every
+// column and index the control plane needs already exists, so #268 requires
+// no follow-up migration to either table.
+//
+// -----------------------------------------------------------------------------
+// Why a `NodeCredential` distinct from `PersonalAccessToken`, not a reused PAT
+// -----------------------------------------------------------------------------
+// A worker node runs unattended for months on a machine its operator may not
+// tightly control. A leaked PAT carries its owning user's FULL authority —
+// admin routes included, if the owner is an admin. A node only ever needs to
+// talk to `/api/nodes/*` (enforced by a route allowlist in the guard, not by
+// this schema), so its credential is a distinct token family precisely so a
+// leak's blast radius is confined to that allowlist even for an admin owner.
+// `NodeCredential` mirrors `PersonalAccessToken`'s shape — same hash/prefix
+// pattern, same show-once-in-full contract — MINUS the duration bookkeeping;
+// see the block comment on `NodeCredential.expiresAt` below for why that one
+// column is deliberately not carried over.
+model WorkerNode {
+  id String @id @default(uuid()) @db.Uuid
+
+  name String
+
+  // Self-reported identity, refreshed on every successful register/reattach
+  // and heartbeat (#268) — none of these three are queried on individually,
+  // they exist for the fleet page and for operators diagnosing "which
+  // process is this row". Not part of any uniqueness: a node can rename its
+  // hostname or upgrade its CLI without becoming a different node, because
+  // identity is `(createdById, name)`, not any of these.
+  hostname   String
+  platform   String
+  cliVersion String @map("cli_version")
+
+  // The handler `type` keys (see `Job.type`'s own comment for why that column
+  // is a plain string, not an enum) this node is willing to claim. #268's
+  // claim endpoint INTERSECTS a request's requested types with this list — a
+  // node can only ever narrow what it claims, never broaden it beyond what it
+  // last declared itself capable of running.
+  eligibleTypes String[] @map("eligible_types")
+
+  // The node's own claimed concurrency ceiling, read LIVE by #268's claim
+  // endpoint (not cached at claim time) so a runtime `appctl node
+  // set-concurrency` takes effect on the very next claim without a
+  // re-register.
+  concurrency Int
+
+  // Operator/administrative state, NOT liveness — a node can be `online` and
+  // still be silently dead; that question is answered by comparing
+  // `lastHeartbeatAt` against the heartbeat interval, elsewhere (#270's fleet
+  // cron), not by this column. `disabled` is the operator-driven kill switch
+  // (refuse this node's claims regardless of what it reports); `draining` is
+  // "finish what you're holding, claim nothing new" — both are decisions a
+  // human or #270's lifecycle cron makes, not facts the node reports about
+  // itself.
+  status NodeStatus @default(offline)
+
+  // The node's last self-reported capability summary (CPU/RAM, GPU
+  // presence, disk headroom, ... — the exact shape is #268/#276's to define,
+  // not this schema's) from register or heartbeat. JSONB, not typed columns,
+  // for the same reason `Job.payload` is JSONB: this is opaque, evolving,
+  // node-supplied data that no query here needs to filter or index on —
+  // it exists for the fleet page to display, not for this table to reason
+  // about. Nullable: a node that has never heartbeated has reported nothing
+  // yet.
+  capabilities Json? @db.JsonB
+
+  // When this row was first created (register), vs. `lastHeartbeatAt` below
+  // which moves on every liveness ping. Distinct on purpose: "how long has
+  // this node existed" and "is it still alive" are different questions, and
+  // collapsing them into one timestamp would lose the first once the second
+  // starts moving.
+  registeredAt DateTime @default(now()) @map("registered_at") @db.Timestamptz
+
+  // NULL until the first heartbeat. #270's liveness/prune cron reads this to
+  // decide a node has gone dark; #268's lease reaper reads `Job
+  // .leaseExpiresAt` for the same question about an individual claim — the
+  // two are deliberately independent so a node with no jobs currently
+  // claimed still shows up as stale when it stops heartbeating.
+  lastHeartbeatAt DateTime? @map("last_heartbeat_at") @db.Timestamptz
+
+  // The user who registered this node — see the long comment below for why
+  // this is required (not nullable) and `onDelete: Cascade`.
+  createdById String @map("created_by_id") @db.Uuid
+
+  // Relations
+  //
+  // -----------------------------------------------------------------------------
+  // createdBy — onDelete: Cascade, and `createdById` stays required
+  // -----------------------------------------------------------------------------
+  // This is NOT the audit-trail pattern this schema uses elsewhere
+  // (`AuditEvent.actorUserId`, `Credential.updatedByUser`,
+  // `NotificationDelivery.user` — all `SetNull`, all deliberately preserving a
+  // history record after its actor is gone). A `WorkerNode` is closer to
+  // `PushSubscription`: a LIVE registration with no standalone value once its
+  // owner is gone, not a record of a past event. Concretely:
+  //
+  //   1. `NodeCredential.user` is `onDelete: Cascade` (mirroring
+  //      `PersonalAccessToken`, per this table's own design above) — so
+  //      deleting the owning user ALREADY destroys every credential that
+  //      could ever authenticate as this node. A `WorkerNode` row surviving
+  //      its owner would be permanently unauthenticatable inventory: no
+  //      token can ever heartbeat, claim, or deregister it again.
+  //   2. `assertOwnership` (#268) is `node.createdById === callerId` with no
+  //      concept of "unowned" — a `SetNull`'d, ownerless node could not be
+  //      managed (deregistered, disabled, viewed via `GET /nodes`) by
+  //      anyone, ever, through the API this issue's sibling adds. It would
+  //      sit as a permanently orphaned row no admin surface reaches.
+  //   3. `@@unique([createdById, name])` below is #268's register-or-reattach
+  //      anchor. Keeping `createdById` NOT NULL keeps that constraint doing
+  //      real work: two different (deleted-owner) nodes could otherwise both
+  //      carry `createdById: null` with the same `name` and NOT collide
+  //      (Postgres does not treat two NULLs as equal for uniqueness) — a
+  //      silent hole in the exact invariant #268 depends on "existing
+  //      exactly this way" for.
+  //
+  // Cascade does not touch job HISTORY: `Job.claimedByNode` is its own
+  // separate `onDelete: SetNull` (see the block comment above the `Job`
+  // model), so a cascaded `WorkerNode` deletion still only nulls out
+  // `claimedByNodeId` on whatever it was holding — it never deletes a `Job`
+  // row. Losing the fleet-inventory row (hostname, platform, capabilities
+  // history) when its owner's account is gone is an acceptable, even
+  // correct, cleanup; losing job history is not, and nothing here does that.
+  createdBy User @relation("UserWorkerNodes", fields: [createdById], references: [id], onDelete: Cascade)
+
+  // The jobs this node currently holds or has ever held. See `Job
+  // .claimedByNode`'s own comment for the `onDelete: SetNull` that keeps
+  // this list from ever forcing a `Job` deletion.
+  claimedJobs Job[] @relation("NodeClaimedJobs")
+
+  // THE register-or-reattach anchor (#268's own words: "existing exactly
+  // this way"). A node identifies itself to `/nodes/register` by
+  // `(callerId, name)`; this is what lets that endpoint find-or-create
+  // instead of always inserting, so a restarted container reattaches to its
+  // existing row (refreshing hostname/platform/cliVersion/eligibleTypes/
+  // concurrency and flipping back to `online`) rather than leaking a new
+  // node row on every restart. `name` is caller-chosen precisely so one
+  // user can register many distinctly-named nodes while each individual
+  // name stays idempotent for them.
+  @@unique([createdById, name])
+  // "Every online/draining/offline/disabled node" — the fleet page's own
+  // primary filter, and what #270's lifecycle cron scans to find nodes to
+  // act on.
+  @@index([status])
+  // "This user's own nodes" — backs `GET /nodes` (#268: "the caller's own
+  // nodes") and the ownership check inside `assertOwnership`, in addition to
+  // already being the left half of the composite unique index above.
+  @@index([createdById])
+  @@map("worker_nodes")
+}
+
+enum NodeStatus {
+  online
+  draining
+  offline
+  disabled
+}
+
+// -----------------------------------------------------------------------------
+// NodeCredential — mirrors PersonalAccessToken minus the duration bookkeeping
+// -----------------------------------------------------------------------------
+// Same token lifecycle as `PersonalAccessToken` (`pat.service.ts` is the
+// documented model for `NodeCredentialService`): a `nod_`-prefixed token is
+// minted, hashed with sha256 into `tokenHash`, a short `tokenPrefix` is kept
+// for display, and the raw value is shown exactly once. `validateToken`
+// rejects an unknown hash, a `revokedAt`, an expired `expiresAt`, or an
+// inactive owning user, then stamps `lastUsedAt` fire-and-forget — all of
+// that is `NodeCredentialService`'s job (#267's backend half), not this
+// schema's; this model exists to make those checks possible.
+//
+// -----------------------------------------------------------------------------
+// expiresAt — nullable here, REQUIRED on PersonalAccessToken. This is the one
+// deliberate divergence from the PAT shape, and it is worth writing out why.
+// -----------------------------------------------------------------------------
+// A PAT is typically minted for a person's own convenience (the CLI, a
+// script they wrote) and a forced expiry is a reasonable default nudge
+// toward rotation — a human is around to notice it expired and mint a new
+// one. A `NodeCredential` authenticates a worker node that is expected to
+// run UNATTENDED FOR MONTHS: a spare box, a container in someone else's
+// cluster, a machine nobody is watching a dashboard for. If that credential
+// had a mandatory expiry the way a PAT does, the failure mode is an entire
+// fleet going dark at 3am because a timer nobody scheduled fired — the
+// worker can't heartbeat, can't claim, can't report results, and the first
+// anyone learns of it is jobs silently piling up unclaimed. That is a WORSE
+// failure than a long-lived credential, because the credential's blast
+// radius is already confined to `/api/nodes/*` by the guard's route
+// allowlist (issue #267) even if it leaks — the thing a mandatory expiry on
+// a PAT protects against (a leaked token with the owner's full authority)
+// simply does not apply here to the same degree. So `expiresAt` is nullable
+// and NULL is a real, supported, expected value meaning "never expires,
+// authenticate indefinitely until revoked" — not "not yet set". Revocation
+// (`revokedAt`) is the actual control for a node credential, and it is
+// immediate: an operator who needs to cut a node off does so by revoking,
+// not by waiting for a clock. An operator who DOES want an expiring node
+// credential can still set one; the column supports it, it is just not
+// forced.
+model NodeCredential {
+  id String @id @default(uuid()) @db.Uuid
+
+  userId String @map("user_id") @db.Uuid
+
+  // Operator-chosen label ("prod-worker-1", "gpu-box-3"), shown alongside
+  // `tokenPrefix` in list views — same role as `PersonalAccessToken.name`.
+  name String
+
+  // sha256 hash of the full `nod_...` token; the only form of the token this
+  // table ever stores. Never the plaintext — see `NodeCredentialService
+  // .validateToken`'s own documentation for the lookup this backs.
+  tokenHash String @unique @map("token_hash")
+
+  // Short, non-secret display fragment (e.g. the first several characters
+  // after `nod_`) so an operator can tell two credentials apart in a list
+  // without either one's full value ever being shown again after creation.
+  tokenPrefix String @map("token_prefix")
+
+  // See the block comment above for why this is nullable, unlike
+  // `PersonalAccessToken.expiresAt` which is required. NULL = never expires.
+  expiresAt DateTime? @map("expires_at") @db.Timestamptz
+
+  // Stamped fire-and-forget by `validateToken` on each successful
+  // authentication — the operator-facing answer to "is this node actually
+  // still using this credential, or is it dead and safe to revoke".
+  lastUsedAt DateTime? @map("last_used_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  // NULL means active. Set once, never cleared — revocation is a one-way
+  // door, matching `PersonalAccessToken.revokedAt` and `RefreshToken
+  // .revokedAt` elsewhere in this schema. Revocation is immediate: the
+  // block comment above explains why this, not a clock, is the real control
+  // for a node credential.
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz
+
+  // Relations
+  //
+  // onDelete: Cascade, matching `PersonalAccessToken.user` exactly (per
+  // issue #267's own instruction) and for the identical reason: a node
+  // credential is a live, personal authentication artifact with no
+  // standalone value once its owning account is gone — there is no one left
+  // to authorize a node acting on this user's behalf, and no audit value in
+  // keeping hashed token material around for an account that no longer
+  // exists. See `WorkerNode.createdBy`'s own comment above for how this
+  // Cascade is part of the same reasoning that made `WorkerNode.createdBy`
+  // Cascade too: the two tables are designed to disappear together.
+  user User @relation("UserNodeCredentials", fields: [userId], references: [id], onDelete: Cascade)
+
+  // "This user's own credentials" — backs `GET /api/node-credentials`
+  // (#267's list endpoint), matching `PersonalAccessToken`'s own
+  // `@@index([userId])` for the identical query shape.
+  @@index([userId])
+  @@map("node_credentials")
 }
