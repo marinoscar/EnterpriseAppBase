@@ -1,5 +1,10 @@
 import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
+
+// One shared builder rather than a third private copy of the formula; the
+// header of that module explains what the three copies did to each other.
+import { buildDatabaseUrl } from '../common/database-url';
 
 @Injectable()
 export class PrismaService
@@ -9,7 +14,9 @@ export class PrismaService
   private readonly logger = new Logger(PrismaService.name);
 
   constructor() {
+    const adapter = new PrismaPg(buildDatabaseUrl());
     super({
+      adapter,
       log: [
         { emit: 'event', level: 'query' },
         { emit: 'event', level: 'error' },

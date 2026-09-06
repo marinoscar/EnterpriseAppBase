@@ -27,7 +27,11 @@ export class CurrentUserDto {
   })
   email!: string;
 
+  // `type` is explicit because `string | null` erases to `Object` in the
+  // emitted design-time metadata, so without it the property publishes as an
+  // object — a client generator would produce the wrong type for the field.
   @ApiProperty({
+    type: String,
     example: 'John Doe',
     description: 'Display name (computed from override or provider)',
     nullable: true,
@@ -35,6 +39,7 @@ export class CurrentUserDto {
   displayName!: string | null;
 
   @ApiProperty({
+    type: String,
     example: 'https://example.com/avatar.jpg',
     description: 'Profile image URL (computed from override or provider)',
     nullable: true,

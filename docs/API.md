@@ -460,6 +460,43 @@ Authorization: Bearer <token>
 
 ---
 
+### Test Authentication (Development/Test Only)
+
+**Security Notice:** These endpoints are completely disabled in production. They exist solely to enable automated E2E testing without requiring real OAuth credentials.
+
+#### POST /auth/test/login
+**Development/Test Only** - Authenticate as a test user without OAuth.
+
+**Availability:** Only when `NODE_ENV !== 'production'`
+
+**Request Body:**
+```json
+{
+  "email": "test@test.local",
+  "role": "admin",
+  "displayName": "Test Admin"
+}
+```
+
+**Fields:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `email` | string | Yes | Email address for test user |
+| `role` | enum | No | Role to assign: `admin`, `contributor`, `viewer` (default: `viewer`) |
+| `displayName` | string | No | Display name for the user |
+
+**Response:** HTTP 302 redirect to `/auth/callback?token=<accessToken>&expiresIn=900`
+- Sets HttpOnly refresh token cookie (same as OAuth flow)
+- Creates user if not exists, assigns specified role
+
+**Error Cases:**
+- 403 Forbidden - Endpoint disabled (production environment)
+- 400 Bad Request - Invalid email or role
+
+**Use Case:** Playwright E2E tests use this endpoint to authenticate without Google OAuth.
+
+---
+
 ### Users
 
 **All user endpoints require Admin role (`users:read` or `users:write` permissions)**
@@ -900,6 +937,10 @@ Get system-wide settings.
     "refreshTtlDays": 14
   },
   "features": {},
+  "notifications": {
+    "browserEnabled": true,
+    "disabledEvents": []
+  },
   "updatedAt": "2024-01-01T00:00:00.000Z",
   "updatedBy": {
     "id": "uuid",
@@ -913,12 +954,24 @@ Get system-wide settings.
 | Field | Type | Description |
 |-------|------|-------------|
 | `ui.allowUserThemeOverride` | boolean | Allow users to override system theme |
-| `security.jwtAccessTtlMinutes` | number | JWT access token TTL in minutes |
-| `security.refreshTtlDays` | number | Refresh token TTL in days |
+| `security.jwtAccessTtlMinutes` | number | **Read-only.** JWT access token TTL in minutes, read from the `JWT_ACCESS_TTL_MINUTES` deploy-time environment variable — not stored settings, and not writable through this API |
+| `security.refreshTtlDays` | number | **Read-only.** Refresh token TTL in days, read from the `JWT_REFRESH_TTL_DAYS` deploy-time environment variable — not stored settings, and not writable through this API |
 | `features` | object | Feature flags (extensible) |
+| `notifications.browserEnabled` | boolean | Whether browser notifications are enabled deployment-wide. **Enforced** (issue #226): when `false`, the `browser` channel is dropped from `GET /notifications/events`'s advertised channels, from the dispatcher's channel resolution, and from delivery — the SSE stream's `toast` field is set to `false`. Mandatory events (e.g. `security.role_changed`) are the one exception: their channel list is never filtered and the `notifications` row is always written; only the browser toast is suppressed for them |
+| `notifications.disabledEvents` | string[] | Notification event keys (e.g. `security.role_changed`, from the notification event registry) suppressed deployment-wide, regardless of per-user preference. Max 100 entries. **Enforced** (issue #226) the same way as `browserEnabled` above — including the same mandatory-event exception |
 | `updatedAt` | string | ISO 8601 timestamp of last update |
 | `updatedBy` | object | User who last updated settings |
 | `version` | number | Version number for optimistic concurrency control |
+
+`GET /notifications/config` exposes just the `browserEnabled` half of this
+policy — `{ browserEnabled, pushEnabled: false, vapidPublicKey: null }` — to
+any authenticated user, with no `system_settings:read` requirement, since a
+non-admin (e.g. a viewer) cannot call `GET /system-settings` directly but
+still needs to know whether browser notifications are enabled deployment-wide.
+`pushEnabled` and `vapidPublicKey` are placeholders for future push-notification
+support (issues #229/#230) and are always `false`/`null` today. `disabledEvents`
+is deliberately not exposed here — per-event suppression travels with each
+event as the stream's `toast` flag instead.
 
 ---
 
@@ -933,13 +986,21 @@ Replace all system settings.
   "ui": {
     "allowUserThemeOverride": true
   },
-  "security": {
-    "jwtAccessTtlMinutes": 15,
-    "refreshTtlDays": 14
-  },
-  "features": {}
+  "features": {},
+  "notifications": {
+    "browserEnabled": true,
+    "disabledEvents": []
+  }
 }
 ```
+
+`security` is not part of the request body — it is a read-only, server-derived
+block (see the GET fields table above). Sending it is not an error; the global
+`ZodValidationPipe` silently strips unknown keys, so it has no effect.
+`notifications`, by contrast, IS required in the PUT body, exactly like `ui`
+and `features` — omitting it returns **400 VALIDATION_ERROR** rather than
+resetting it, because the value that would be reset is an operator's decision
+to turn a delivery channel off for everyone.
 
 **Response:**
 ```json
@@ -952,6 +1013,10 @@ Replace all system settings.
     "refreshTtlDays": 14
   },
   "features": {},
+  "notifications": {
+    "browserEnabled": true,
+    "disabledEvents": []
+  },
   "updatedAt": "2024-01-01T12:00:00.000Z",
   "updatedBy": {
     "id": "uuid",
@@ -977,6 +1042,21 @@ Partially update system settings.
 }
 ```
 
+Or, to suppress one notification event without touching anything else:
+```json
+{
+  "notifications": {
+    "disabledEvents": ["security.role_changed"]
+  }
+}
+```
+
+`notifications` is optional in PATCH, and its two fields
+(`browserEnabled`, `disabledEvents`) merge independently — sending one leaves
+the other at its stored value. `disabledEvents`, when sent, REPLACES the
+stored array wholesale rather than merging entries; send `disabledEvents: []`
+to lift every suppression.
+
 **Request Headers (Optional):**
 ```
 If-Match: 1
@@ -993,6 +1073,10 @@ If-Match: 1
     "refreshTtlDays": 14
   },
   "features": {},
+  "notifications": {
+    "browserEnabled": true,
+    "disabledEvents": ["security.role_changed"]
+  },
   "updatedAt": "2024-01-01T12:00:00.000Z",
   "updatedBy": {
     "id": "uuid",
@@ -1006,6 +1090,264 @@ If-Match: 1
 - Include `If-Match: <version>` header to ensure settings haven't been modified by another request
 - Returns **409 Conflict** if version mismatch detected
 - Prevents lost updates when multiple admins modify settings concurrently
+
+---
+
+### Storage Objects
+
+The storage system provides file upload and management capabilities with support for large files (GB scale) through resumable multipart uploads.
+
+#### Initialize Resumable Upload
+
+`POST /api/storage/objects/upload/init`
+
+**Requires Authentication** - Initialize a multipart upload for large files. Returns presigned URLs for direct-to-S3 uploads.
+
+**Request Body:**
+```json
+{
+  "name": "document.pdf",
+  "size": 104857600,
+  "mimeType": "application/pdf"
+}
+```
+
+**Response:**
+```json
+{
+  "data": {
+    "objectId": "uuid",
+    "uploadId": "s3-upload-id",
+    "partSize": 10485760,
+    "totalParts": 10,
+    "presignedUrls": [
+      { "partNumber": 1, "url": "https://..." },
+      { "partNumber": 2, "url": "https://..." }
+    ]
+  }
+}
+```
+
+---
+
+#### Get Upload Status
+
+`GET /api/storage/objects/:id/upload/status`
+
+**Requires Authentication** - Check progress of an in-progress upload.
+
+**Response:**
+```json
+{
+  "data": {
+    "status": "uploading",
+    "uploadedParts": 5,
+    "totalParts": 10,
+    "progress": 50
+  }
+}
+```
+
+---
+
+#### Complete Upload
+
+`POST /api/storage/objects/:id/upload/complete`
+
+**Requires Authentication** - Finalize multipart upload after all parts are uploaded.
+
+**Request Body:**
+```json
+{
+  "parts": [
+    { "partNumber": 1, "eTag": "\"etag1\"" },
+    { "partNumber": 2, "eTag": "\"etag2\"" }
+  ]
+}
+```
+
+**Response:**
+```json
+{
+  "data": {
+    "id": "uuid",
+    "name": "document.pdf",
+    "size": 104857600,
+    "mimeType": "application/pdf",
+    "status": "processing"
+  }
+}
+```
+
+---
+
+#### Abort Upload
+
+`DELETE /api/storage/objects/:id/upload/abort`
+
+**Requires Authentication** - Cancel an in-progress upload and clean up resources.
+
+**Response:** HTTP 204 No Content
+
+---
+
+#### Simple Upload
+
+`POST /api/storage/objects`
+
+**Requires Authentication** - Direct upload for small files (< 100MB) using multipart/form-data.
+
+**Request:**
+- Content-Type: `multipart/form-data`
+- Body: File attached as form data with key `file`
+
+**Response:**
+```json
+{
+  "data": {
+    "id": "uuid",
+    "name": "document.pdf",
+    "size": 1048576,
+    "mimeType": "application/pdf",
+    "status": "uploading"
+  }
+}
+```
+
+---
+
+#### List Objects
+
+`GET /api/storage/objects`
+
+**Requires Authentication** - List storage objects with pagination and filtering.
+
+**Query Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `page` | number | 1 | Page number |
+| `pageSize` | number | 20 | Items per page (max 100) |
+| `status` | enum | - | Filter by status: `pending`, `uploading`, `processing`, `ready`, `failed` |
+| `sortBy` | enum | `createdAt` | Sort field: `createdAt`, `name`, `size` |
+| `sortOrder` | enum | `desc` | Sort order: `asc`, `desc` |
+
+**Response:**
+```json
+{
+  "data": [
+    {
+      "id": "uuid",
+      "name": "document.pdf",
+      "size": 104857600,
+      "mimeType": "application/pdf",
+      "status": "ready",
+      "createdAt": "2024-01-01T00:00:00.000Z"
+    }
+  ],
+  "meta": {
+    "total": 50,
+    "page": 1,
+    "pageSize": 20,
+    "totalPages": 3
+  }
+}
+```
+
+---
+
+#### Get Object
+
+`GET /api/storage/objects/:id`
+
+**Requires Authentication** - Get storage object metadata.
+
+**Response:**
+```json
+{
+  "data": {
+    "id": "uuid",
+    "name": "document.pdf",
+    "size": 104857600,
+    "mimeType": "application/pdf",
+    "status": "ready",
+    "metadata": {
+      "customField": "value"
+    },
+    "createdAt": "2024-01-01T00:00:00.000Z",
+    "updatedAt": "2024-01-01T00:00:00.000Z"
+  }
+}
+```
+
+---
+
+#### Get Download URL
+
+`GET /api/storage/objects/:id/download`
+
+**Requires Authentication** - Get a signed download URL for the object.
+
+**Query Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `expiresIn` | number | 3600 | URL expiration in seconds |
+
+**Response:**
+```json
+{
+  "data": {
+    "url": "https://s3.amazonaws.com/...",
+    "expiresAt": "2024-01-01T01:00:00.000Z"
+  }
+}
+```
+
+---
+
+#### Delete Object
+
+`DELETE /api/storage/objects/:id`
+
+**Requires Authentication** - Delete a storage object and its associated file.
+
+**Response:** HTTP 204 No Content
+
+**Error Cases:**
+- 404 Not Found - Object not found
+- 403 Forbidden - User does not own object (non-admin)
+
+---
+
+#### Update Metadata
+
+`PATCH /api/storage/objects/:id/metadata`
+
+**Requires Authentication** - Update custom metadata for an object.
+
+**Request Body:**
+```json
+{
+  "metadata": {
+    "customField": "value",
+    "tags": ["document", "important"]
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "data": {
+    "id": "uuid",
+    "name": "document.pdf",
+    "metadata": {
+      "customField": "value",
+      "tags": ["document", "important"]
+    },
+    "updatedAt": "2024-01-01T12:00:00.000Z"
+  }
+}
+```
 
 ---
 
@@ -1112,17 +1454,21 @@ Readiness check - includes database connectivity test.
 
 ---
 
-## Swagger/OpenAPI Documentation
+## OpenAPI Documentation
 
 Interactive API documentation with request/response examples is available at:
 
 **Development:** http://localhost:3535/api/docs
 
-The Swagger UI allows you to:
-- Explore all endpoints
-- View request/response schemas
+This serves a [Scalar](https://scalar.com) reference page (not Swagger UI) generated from the
+OpenAPI 3.1 document at `/api/openapi.json`. It allows you to:
+- Explore all endpoints, grouped into sections via `x-tagGroups`
+- View request/response schemas, including the generated **Requires:** RBAC line per operation
 - Test API calls directly from the browser
-- Authenticate with JWT tokens
+- Authenticate with one click via "Authorize with my session" (exchanges your existing browser
+  session for an access token), a personal access token, or a device authorization grant
+
+See [`docs/specs/api-documentation.md`](specs/api-documentation.md) for how the document is built.
 
 ---
 

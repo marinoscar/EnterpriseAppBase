@@ -1,5 +1,7 @@
 # Enterprise Application Foundation
 
+[![CI](https://github.com/marinoscar/EnterpriseAppBase/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/marinoscar/EnterpriseAppBase/actions/workflows/ci.yml)
+
 A production-grade full-stack application foundation built with React, NestJS, and PostgreSQL. Features OAuth authentication, role-based access control, and comprehensive observability.
 
 ## Features
@@ -24,7 +26,7 @@ A production-grade full-stack application foundation built with React, NestJS, a
 - **Testing**: Jest + Supertest
 
 ### Frontend
-- **Framework**: React 18 with TypeScript
+- **Framework**: React 19 with TypeScript
 - **UI Library**: Material-UI (MUI)
 - **State Management**: React Context API
 - **Testing**: Vitest + React Testing Library
@@ -37,7 +39,7 @@ A production-grade full-stack application foundation built with React, NestJS, a
 
 ## Prerequisites
 
-- Node.js 18+
+- Node.js 24+ (see `.nvmrc`; enforced by the `engines` field)
 - Docker Desktop
 - Google OAuth credentials (from [Google Cloud Console](https://console.cloud.google.com))
 
@@ -100,7 +102,7 @@ exit
 
 The first user to login with email matching `INITIAL_ADMIN_EMAIL` (from `.env`) will automatically be granted the **admin** role. All subsequent users get **viewer** role by default.
 
-**Important:** Only email addresses in the **allowlist** can login. The `INITIAL_ADMIN_EMAIL` is automatically added to the allowlist during seeding. After your first login as admin, use the Admin interface (`/admin/users`, Allowlist tab) to add additional email addresses before other users can login.
+**Important:** Only email addresses in the **allowlist** can login. The `INITIAL_ADMIN_EMAIL` is automatically added to the allowlist during seeding. After your first login as admin, use the Admin Panel to manage the allowlist.
 
 ## Development
 
@@ -133,6 +135,17 @@ npm test              # Run all tests
 npm run test:watch    # Watch mode
 npm run test:coverage # With coverage
 ```
+
+**E2E Tests (Playwright):**
+```bash
+cd tests/e2e
+npm install              # First time setup
+npx playwright install   # Install browsers
+npm test                 # Run E2E tests
+npm run test:ui          # Run with visual UI
+```
+
+Note: E2E tests use a test authentication bypass (`/testing/login`) that is only available in development/test environments. See [TESTING.md](docs/TESTING.md#e2e-testing-with-playwright) for details.
 
 ### Database Migrations
 
@@ -201,6 +214,7 @@ EnterpriseAppBase/
 - **[TESTING.md](docs/TESTING.md)** - Testing strategy and best practices
 - **[DEVICE-AUTH.md](docs/DEVICE-AUTH.md)** - Device Authorization Flow guide and integration examples
 - **[API.md](docs/API.md)** - Complete API reference
+- **[Deploying to a VPS](docs/deployment/vps.md)** - Operator runbook for `appctl deploy` (install, update, status on a real server); command reference in [`apps/cli/README.md`](apps/cli/README.md#deploying-to-a-server)
 - **[System Specification](docs/System_Specification_Document.md)** - Complete project specification
 - **[Feature Specs](docs/specs/)** - Individual feature specifications
 
@@ -253,8 +267,12 @@ NODE_ENV=development
 PORT=3000
 APP_URL=http://localhost:3535
 
-# Database
-DATABASE_URL=postgresql://postgres:postgres@db:5432/appdb
+# Database (DATABASE_URL is constructed from these at runtime)
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
+POSTGRES_DB=appdb
 
 # JWT
 JWT_SECRET=your-secret-min-32-chars
@@ -272,6 +290,14 @@ INITIAL_ADMIN_EMAIL=admin@example.com
 # Observability
 OTEL_ENABLED=true
 OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+
+# Uptrace (when using otel.compose.yml) - the values below are
+# development-only defaults from .env.example. Change them before running
+# the observability stack anywhere other than local development.
+UPTRACE_SECRET_KEY=change-me-in-production-1234567890abcdef
+UPTRACE_PROJECT1_TOKEN=project1_secret_token
+UPTRACE_ADMIN_PASSWORD=admin
+UPTRACE_PGPASSWORD=uptrace
 ```
 
 ## Important Notes for Developers
@@ -302,7 +328,7 @@ This creates roles, permissions, and default settings. Without seeding, OAuth lo
 
 ### OAuth with Fastify
 
-Passport OAuth strategies expect Express-style objects. The `GoogleOAuthGuard` handles compatibility by returning raw Node.js request/response objects to Passport. See [SECURITY-ARCHITECTURE.md](docs/SECURITY-ARCHITECTURE.md#9-implementation-notes-fastify--passport-oauth) for details.
+Passport OAuth strategies expect Express-style objects. The `GoogleOAuthGuard` handles compatibility by returning raw Node.js request/response objects to Passport. See [SECURITY-ARCHITECTURE.md](docs/SECURITY-ARCHITECTURE.md) for details.
 
 ## Troubleshooting
 
@@ -325,8 +351,8 @@ If you're not the first admin, ask an existing admin to add your email to the al
 ### Database connection error
 **Solution:**
 1. Ensure containers are running: `docker compose ps`
-2. Check `DATABASE_URL` in `.env`
-3. Restart: `docker compose restart db`
+2. Verify the `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` values in `.env` point to a reachable PostgreSQL instance (the compose stack no longer bundles a `db` service, so PostgreSQL must be running separately)
+3. Restart the API container: `docker compose restart api`
 
 ### Port already in use
 **Solution:** Change `PORT` in `.env` or stop conflicting service

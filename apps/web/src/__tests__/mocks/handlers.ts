@@ -30,10 +30,6 @@ const mockSystemSettings = {
   ui: {
     allowUserThemeOverride: true,
   },
-  security: {
-    jwtAccessTtlMinutes: 15,
-    refreshTtlDays: 14,
-  },
   features: {},
   updatedAt: new Date().toISOString(),
   updatedBy: null,

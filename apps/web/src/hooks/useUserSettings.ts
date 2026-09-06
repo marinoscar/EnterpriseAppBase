@@ -1,48 +1,75 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api, ApiError } from '../services/api';
-import { UserSettings } from '../types';
+import { UserSettings, UserSettingsUpdate } from '../types';
 import { useThemeContext } from '../contexts/ThemeContext';
+import { useIsMounted } from './useIsMounted';
+
+interface UseUserSettingsOptions {
+  /**
+   * Whether loading/saving settings should push the theme into ThemeContext.
+   * Defaults to `true`, which is what the settings page wants.
+   *
+   * Pass `false` when mounting this hook from always-present chrome (AppBar,
+   * navigation rail, layout shells). There, syncing would make the STORED
+   * theme authoritative on every page load: the moment the user flips the
+   * AppBar's light/dark toggle, any refetch — or simply navigating to a route
+   * that remounts the chrome — calls setMode() with the persisted value and
+   * stamps the toggle right back. Do not "simplify" this option away.
+   */
+  syncTheme?: boolean;
+}
 
 interface UseUserSettingsReturn {
   settings: UserSettings | null;
   isLoading: boolean;
   error: string | null;
   isSaving: boolean;
-  updateSettings: (updates: Partial<UserSettings>) => Promise<void>;
+  updateSettings: (updates: UserSettingsUpdate) => Promise<void>;
   updateTheme: (theme: 'light' | 'dark' | 'system') => Promise<void>;
   updateProfile: (profile: UserSettings['profile']) => Promise<void>;
   refresh: () => Promise<void>;
 }
 
-export function useUserSettings(): UseUserSettingsReturn {
+export function useUserSettings(options: UseUserSettingsOptions = {}): UseUserSettingsReturn {
+  const { syncTheme = true } = options;
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const { setMode } = useThemeContext();
+  // Every `setState` past an `await` is guarded: a request that settles after
+  // the component is gone must not schedule an update on it. `setMode` is
+  // included — it writes ThemeContext state and is just as unsafe once the
+  // tree is gone. Only the state write is skipped; what these functions
+  // return or throw is unchanged.
+  const isMounted = useIsMounted();
 
   const fetchSettings = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
       const data = await api.get<UserSettings>('/user-settings');
-      setSettings(data);
-      // Sync theme with settings
-      setMode(data.theme);
+      if (isMounted()) {
+        setSettings(data);
+        // Sync theme with settings (opt-out via syncTheme: false)
+        if (syncTheme) {
+          setMode(data.theme);
+        }
+      }
     } catch (err) {
       const message = err instanceof ApiError ? err.message : 'Failed to load settings';
-      setError(message);
+      if (isMounted()) setError(message);
     } finally {
-      setIsLoading(false);
+      if (isMounted()) setIsLoading(false);
     }
-  }, [setMode]);
+  }, [setMode, syncTheme, isMounted]);
 
   useEffect(() => {
     fetchSettings();
   }, [fetchSettings]);
 
   const updateSettings = useCallback(
-    async (updates: Partial<UserSettings>) => {
+    async (updates: UserSettingsUpdate) => {
       if (!settings) return;
 
       try {
@@ -55,11 +82,13 @@ export function useUserSettings(): UseUserSettingsReturn {
           },
         });
 
-        setSettings(data);
+        if (isMounted()) {
+          setSettings(data);
 
-        // Sync theme if changed
-        if (updates.theme) {
-          setMode(updates.theme);
+          // Sync theme if changed (opt-out via syncTheme: false)
+          if (syncTheme && updates.theme) {
+            setMode(updates.theme);
+          }
         }
       } catch (err) {
         if (err instanceof ApiError && err.status === 409) {
@@ -68,13 +97,13 @@ export function useUserSettings(): UseUserSettingsReturn {
           throw new Error('Settings were updated elsewhere. Please try again.');
         }
         const message = err instanceof ApiError ? err.message : 'Failed to save settings';
-        setError(message);
+        if (isMounted()) setError(message);
         throw err;
       } finally {
-        setIsSaving(false);
+        if (isMounted()) setIsSaving(false);
       }
     },
-    [settings, setMode, fetchSettings],
+    [settings, setMode, syncTheme, fetchSettings, isMounted],
   );
 
   const updateTheme = useCallback(

@@ -103,10 +103,7 @@ export default function ActivateDevicePage() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background:
-          theme.palette.mode === 'dark'
-            ? 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)'
-            : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        backgroundColor: theme.palette.background.default,
         p: 2,
       }}
     >
@@ -120,7 +117,7 @@ export default function ActivateDevicePage() {
         <CardContent sx={{ p: { xs: 3, sm: 4 } }}>
           {/* Header */}
           <Box sx={{ textAlign: 'center', mb: 4 }}>
-            <Typography variant="h4" component="h1" fontWeight="bold">
+            <Typography variant="h4" component="h1" sx={{ fontWeight: 'bold' }}>
               {state.step === 'complete' ? 'Authorization Complete' : 'Authorize Device'}
             </Typography>
             {state.step !== 'complete' && (

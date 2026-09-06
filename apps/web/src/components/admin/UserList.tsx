@@ -1,270 +1,235 @@
-import { useState, useEffect } from 'react';
-import {
-  Paper,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  TablePagination,
-  TextField,
-  IconButton,
-  Chip,
-  Box,
-  Typography,
-  Avatar,
-  Menu,
-  MenuItem,
-  CircularProgress,
-  Alert,
-  Checkbox,
-  ListItemText,
-} from '@mui/material';
-import { MoreVert as MoreVertIcon } from '@mui/icons-material';
-import { useUsers } from '../../hooks/useUsers';
-import type { UserListItem } from '../../types';
+/**
+ * Admin → Users (issue #67, epic #51).
+ *
+ * The hand-rolled `TableContainer` / `TablePagination` / `MoreVert` block this
+ * file used to be is gone wholesale — not wrapped — and replaced by the shared
+ * `DataTable`. What remains here is state: the query this page sends, the
+ * selection it holds, and the dialog its row action opens.
+ *
+ * Four rules from the migration brief are load-bearing in this file:
+ *
+ *  1. **The table renders unconditionally; `loading` is a prop.** The previous
+ *     `{isLoading ? <CircularProgress/> : <Table/>}` ternary UNMOUNTED the
+ *     whole table on every refetch, taking row expansion, scroll offset and
+ *     grid focus with it. `DataTable` draws a loading overlay above rows that
+ *     stay on screen.
+ *  2. **Refetch effects key on SCALARS.** Never on `filters` (an array) or on a
+ *     row object: `useUsers` hands back brand-new objects on every fetch, so an
+ *     effect keyed on one would refetch forever.
+ *  3. **The row-action ARRAY is gated, never a rendered control.** A user
+ *     without `users:write` gets an array that does not CONTAIN the activate /
+ *     deactivate actions, so they are absent from the grid, the tablet expander
+ *     and the card header at once. The old code hid a `<TableCell>` — a
+ *     grid-shaped gate no card renderer can reproduce.
+ *  4. **A per-row `disabled` replaces "render nothing".** "Activate user" stays
+ *     visible (and tooltipped) on an already-active user rather than vanishing,
+ *     so the set of actions does not change shape row to row.
+ */
 
-const AVAILABLE_ROLES = ['admin', 'contributor', 'viewer'];
+import { useEffect, useMemo, useState } from 'react';
+import { Alert, Box, Paper, Typography } from '@mui/material';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import BlockIcon from '@mui/icons-material/Block';
+import SecurityIcon from '@mui/icons-material/Security';
+import { DataTable } from '../datatable';
+import type {
+  DataTableFilterModel,
+  DataTableRowAction,
+  DataTableSortState,
+} from '../datatable';
+import { useUsers } from '../../hooks/useUsers';
+import { usePermissions } from '../../hooks/usePermissions';
+import { getUsers } from '../../services/api';
+import type { UserListItem } from '../../types';
+import { ManageRolesDialog } from './ManageRolesDialog';
+import { TABLE_ID, asUserSortField, buildUserColumns } from './userListColumns';
+
+/**
+ * Read a single-operand `is` filter out of the model as a plain string.
+ *
+ * Returning a SCALAR (not the filter object) is what lets the refetch effect
+ * below depend on it directly — see rule 2 in the module docblock.
+ */
+function readIsFilter(filters: DataTableFilterModel, columnId: string): string | undefined {
+  const found = filters.find(
+    (filter) => filter.columnId === columnId && filter.operator === 'is',
+  );
+  return typeof found?.value === 'string' && found.value ? found.value : undefined;
+}
 
 export function UserList() {
-  const {
-    users,
-    total,
-    isLoading,
-    error,
-    fetchUsers,
-    updateUser,
-    updateUserRoles,
-  } = useUsers();
+  const { users, total, isLoading, error, fetchUsers, updateUser, updateUserRoles } =
+    useUsers();
+  const { hasPermission } = usePermissions();
 
   const [search, setSearch] = useState('');
-  const [currentPage, setCurrentPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(10);
-  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
-  const [selectedUser, setSelectedUser] = useState<UserListItem | null>(null);
-  const [rolesMenuOpen, setRolesMenuOpen] = useState(false);
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(10);
+  const [sort, setSort] = useState<DataTableSortState | null>(null);
+  const [filters, setFilters] = useState<DataTableFilterModel>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [rolesDialogUser, setRolesDialogUser] = useState<UserListItem | null>(null);
 
-  // Fetch data on mount and when pagination changes
+  const columns = useMemo(() => buildUserColumns(), []);
+
+  // --- Query params, flattened to scalars ------------------------------------
+  const roleFilter = useMemo(() => readIsFilter(filters, 'roles'), [filters]);
+  const statusFilter = useMemo(() => readIsFilter(filters, 'isActive'), [filters]);
+  // Narrowed against the endpoint's `sortBy` enum: a stored layout is
+  // user-writable JSON, so an unrecognised field is dropped rather than sent.
+  const sortField = asUserSortField(sort?.field);
+  const sortDirection = sort?.direction;
+
   useEffect(() => {
     fetchUsers({
-      page: currentPage + 1,
-      pageSize: rowsPerPage,
+      page: page + 1, // the table is zero-based, the API is one-based
+      pageSize,
       search: search || undefined,
+      role: roleFilter,
+      isActive: statusFilter === undefined ? undefined : statusFilter === 'active',
+      ...(sortField ? { sortBy: sortField, sortOrder: sortDirection } : {}),
     });
-  }, [currentPage, rowsPerPage, search, fetchUsers]);
+    // Every dependency is a scalar. `fetchUsers` is `useCallback([])`-stable.
+  }, [
+    page,
+    pageSize,
+    search,
+    roleFilter,
+    statusFilter,
+    sortField,
+    sortDirection,
+    fetchUsers,
+  ]);
 
-  const handleSearchChange = (value: string) => {
-    setSearch(value);
-    setCurrentPage(0); // Reset to first page on search
-  };
+  // --- Row actions ------------------------------------------------------------
+  // `hasPermission` is memoized by `usePermissions`, so keying this on it is
+  // safe and the array keeps its identity between renders.
+  const rowActions = useMemo(() => {
+    const actions: DataTableRowAction<UserListItem>[] = [];
 
-  const handleChangePage = (_: unknown, newPage: number) => {
-    setCurrentPage(newPage);
-  };
+    // PATCH /api/users/{id} enforces users:read + users:write.
+    if (hasPermission('users:write')) {
+      actions.push(
+        {
+          id: 'activate',
+          label: 'Activate user',
+          icon: <CheckCircleIcon fontSize="small" />,
+          disabled: (user) => user.isActive,
+          onClick: (user) => {
+            void updateUser(user.id, { isActive: true }).catch(() => {
+              /* surfaced through the hook's `error` */
+            });
+          },
+        },
+        {
+          id: 'deactivate',
+          label: 'Deactivate user',
+          icon: <BlockIcon fontSize="small" />,
+          destructive: true,
+          disabled: (user) => !user.isActive,
+          onClick: (user) => {
+            void updateUser(user.id, { isActive: false }).catch(() => {
+              /* surfaced through the hook's `error` */
+            });
+          },
+        },
+      );
+    }
 
-  const handleChangeRowsPerPage = (
-    event: React.ChangeEvent<HTMLInputElement>,
-  ) => {
-    setRowsPerPage(parseInt(event.target.value, 10));
-    setCurrentPage(0);
-  };
-
-  const handleMenuOpen = (
-    event: React.MouseEvent<HTMLElement>,
-    user: UserListItem,
-  ) => {
-    setAnchorEl(event.currentTarget);
-    setSelectedUser(user);
-  };
-
-  const handleMenuClose = () => {
-    setAnchorEl(null);
-    setRolesMenuOpen(false);
-  };
-
-  const handleToggleActive = async () => {
-    if (!selectedUser) return;
-
-    try {
-      await updateUser(selectedUser.id, {
-        isActive: !selectedUser.isActive,
+    // PUT /api/users/{id}/roles enforces rbac:manage — a different permission
+    // from the two above, so it is a separate gate rather than one `isAdmin`.
+    if (hasPermission('rbac:manage')) {
+      actions.push({
+        id: 'manage-roles',
+        label: 'Manage roles',
+        icon: <SecurityIcon fontSize="small" />,
+        onClick: (user) => setRolesDialogUser(user),
       });
-      handleMenuClose();
-    } catch (err) {
-      // Error handled by hook
     }
-  };
 
-  const handleRoleToggle = async (role: string) => {
-    if (!selectedUser) return;
+    return actions;
+  }, [hasPermission, updateUser]);
 
-    try {
-      const currentRoles = selectedUser.roles;
-      const newRoles = currentRoles.includes(role)
-        ? currentRoles.filter((r) => r !== role)
-        : [...currentRoles, role];
-
-      // Ensure at least one role
-      if (newRoles.length === 0) {
-        alert('User must have at least one role');
-        return;
-      }
-
-      await updateUserRoles(selectedUser.id, newRoles);
-    } catch (err) {
-      // Error handled by hook
-    }
-  };
-
-  const getStatusChip = (isActive: boolean) => {
-    return isActive ? (
-      <Chip label="Active" color="success" size="small" />
-    ) : (
-      <Chip label="Inactive" color="error" size="small" />
-    );
-  };
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString();
-  };
-
-  const getDisplayName = (user: UserListItem) => {
-    return user.displayName || user.providerDisplayName || 'No name';
-  };
+  const emptyState = useMemo(
+    () => (
+      <Typography color="text.secondary">
+        {search ? 'No users found matching your search' : 'No users found'}
+      </Typography>
+    ),
+    [search],
+  );
 
   return (
-    <Paper sx={{ width: '100%', overflow: 'hidden' }}>
-      <Box sx={{ p: 2 }}>
-        <TextField
-          label="Search by email or name"
-          variant="outlined"
-          size="small"
-          value={search}
-          onChange={(e) => handleSearchChange(e.target.value)}
-          fullWidth
-        />
-      </Box>
-
+    <Paper sx={{ width: '100%', p: 2 }}>
       {error && (
-        <Alert severity="error" sx={{ mx: 2, mb: 2 }}>
+        <Alert severity="error" sx={{ mb: 2 }}>
           {error}
         </Alert>
       )}
 
-      {isLoading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
-          <CircularProgress />
-        </Box>
-      ) : users.length === 0 ? (
-        <Box sx={{ p: 4, textAlign: 'center' }}>
-          <Typography color="text.secondary">
-            {search ? 'No users found matching your search' : 'No users found'}
-          </Typography>
-        </Box>
-      ) : (
-        <>
-          <TableContainer>
-            <Table>
-              <TableHead>
-                <TableRow>
-                  <TableCell>User</TableCell>
-                  <TableCell>Display Name</TableCell>
-                  <TableCell>Roles</TableCell>
-                  <TableCell>Status</TableCell>
-                  <TableCell>Created</TableCell>
-                  <TableCell align="right">Actions</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {users.map((user) => (
-                  <TableRow key={user.id} hover>
-                    <TableCell>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Avatar
-                          src={user.profileImageUrl || undefined}
-                          alt={user.email}
-                          sx={{ width: 32, height: 32 }}
-                        >
-                          {user.email[0].toUpperCase()}
-                        </Avatar>
-                        <Typography variant="body2">{user.email}</Typography>
-                      </Box>
-                    </TableCell>
-                    <TableCell>{getDisplayName(user)}</TableCell>
-                    <TableCell>
-                      <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                        {user.roles.map((role) => (
-                          <Chip key={role} label={role} size="small" />
-                        ))}
-                      </Box>
-                    </TableCell>
-                    <TableCell>{getStatusChip(user.isActive)}</TableCell>
-                    <TableCell>{formatDate(user.createdAt)}</TableCell>
-                    <TableCell align="right">
-                      <IconButton
-                        size="small"
-                        onClick={(e) => handleMenuOpen(e, user)}
-                      >
-                        <MoreVertIcon />
-                      </IconButton>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
-          <TablePagination
-            component="div"
-            count={total}
-            page={currentPage}
-            onPageChange={handleChangePage}
-            rowsPerPage={rowsPerPage}
-            onRowsPerPageChange={handleChangeRowsPerPage}
-            rowsPerPageOptions={[5, 10, 25, 50]}
-          />
-        </>
-      )}
+      <Box sx={{ minWidth: 0 }}>
+        <DataTable<UserListItem>
+          tableId={TABLE_ID}
+          data-testid="admin-users-table"
+          ariaLabel="Users"
+          columns={columns}
+          rows={users}
+          rowId={(user) => user.id}
+          loading={isLoading}
+          emptyState={emptyState}
+          pagination={{
+            page,
+            pageSize,
+            total,
+            pageSizeOptions: [5, 10, 25, 50],
+            onPaginationChange: (next) => {
+              setPage(next.page);
+              setPageSize(next.pageSize);
+            },
+          }}
+          sort={{ sort, onSortChange: setSort }}
+          filters={filters}
+          onFiltersChange={(next) => {
+            setFilters(next);
+            setPage(0);
+          }}
+          quickSearch={{
+            value: search,
+            ariaLabel: 'Search by email or name',
+            placeholder: 'Search by email or name',
+            onChange: (next) => {
+              setSearch(next);
+              setPage(0);
+            },
+          }}
+          selection={{
+            selectedIds,
+            onSelectionChange: setSelectedIds,
+          }}
+          rowActions={rowActions}
+          csvExport={{
+            filename: 'users',
+            // Replays THIS page's own query, so an export can only ever contain
+            // what the user's own list request already returns.
+            fetchAllRows: async ({ page: exportPage, pageSize: exportPageSize }) => {
+              const response = await getUsers({
+                page: exportPage + 1,
+                pageSize: exportPageSize,
+                search: search || undefined,
+                role: roleFilter,
+                isActive: statusFilter === undefined ? undefined : statusFilter === 'active',
+              });
+              return response.items;
+            },
+          }}
+        />
+      </Box>
 
-      <Menu
-        anchorEl={anchorEl}
-        open={Boolean(anchorEl) && !rolesMenuOpen}
-        onClose={handleMenuClose}
-      >
-        <MenuItem onClick={handleToggleActive}>
-          {selectedUser?.isActive ? 'Deactivate User' : 'Activate User'}
-        </MenuItem>
-        <MenuItem
-          onClick={() => setRolesMenuOpen(true)}
-          sx={{ display: 'flex', justifyContent: 'space-between' }}
-        >
-          Change Roles
-          <Typography variant="caption" sx={{ ml: 2 }}>
-            &gt;
-          </Typography>
-        </MenuItem>
-      </Menu>
-
-      <Menu
-        anchorEl={anchorEl}
-        open={rolesMenuOpen}
-        onClose={handleMenuClose}
-        anchorOrigin={{
-          vertical: 'top',
-          horizontal: 'right',
-        }}
-        transformOrigin={{
-          vertical: 'top',
-          horizontal: 'left',
-        }}
-      >
-        {AVAILABLE_ROLES.map((role) => (
-          <MenuItem key={role} onClick={() => handleRoleToggle(role)}>
-            <Checkbox checked={selectedUser?.roles.includes(role) || false} />
-            <ListItemText primary={role} />
-          </MenuItem>
-        ))}
-      </Menu>
+      <ManageRolesDialog
+        user={rolesDialogUser}
+        onClose={() => setRolesDialogUser(null)}
+        onSave={updateUserRoles}
+      />
     </Paper>
   );
 }

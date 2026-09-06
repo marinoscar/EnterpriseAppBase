@@ -15,8 +15,8 @@ services:
     build:
       target: development
     volumes:
-      - ../../apps/api/src:/app/src:ro
-      - ../../apps/api/prisma:/app/prisma:ro
+      - ../../apps/api/src:/app/apps/api/src:ro
+      - ../../apps/api/prisma:/app/apps/api/prisma:ro
     environment:
       - NODE_ENV=development
     command: npm run start:dev
@@ -28,14 +28,7 @@ services:
     build:
       target: development
     volumes:
-      - ../../apps/web/src:/app/src:ro
+      - ../../apps/web/src:/app/apps/web/src:ro
     environment:
       - NODE_ENV=development
     command: npm run dev
-
-  # ---------------------------------------------------------------------------
-  # Database - Expose port for local tools
-  # ---------------------------------------------------------------------------
-  db:
-    ports:
-      - "5432:5432"

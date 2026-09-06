@@ -8,7 +8,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 // =============================================================================
@@ -16,26 +15,34 @@ datasource db {
 // =============================================================================
 
 model User {
-  id                      String    @id @default(uuid()) @db.Uuid
-  email                   String    @unique
-  displayName             String?   @map("display_name")
-  providerDisplayName     String?   @map("provider_display_name")
-  profileImageUrl         String?   @map("profile_image_url")
-  providerProfileImageUrl String?   @map("provider_profile_image_url")
-  isActive                Boolean   @default(true) @map("is_active")
-  createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt               DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  id                      String   @id @default(uuid()) @db.Uuid
+  email                   String   @unique
+  displayName             String?  @map("display_name")
+  providerDisplayName     String?  @map("provider_display_name")
+  profileImageUrl         String?  @map("profile_image_url")
+  providerProfileImageUrl String?  @map("provider_profile_image_url")
+  isActive                Boolean  @default(true) @map("is_active")
+  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt               DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relations
-  identities                UserIdentity[]
-  userRoles                 UserRole[]
-  userSettings              UserSettings?
-  auditEvents               AuditEvent[]     @relation("ActorEvents")
-  settingsUpdates           SystemSettings[] @relation("SettingsUpdater")
-  refreshTokens             RefreshToken[]   @relation("UserRefreshTokens")
-  allowlistEntriesAdded     AllowedEmail[]   @relation("AllowlistAddedBy")
-  allowlistEntry            AllowedEmail?    @relation("AllowlistClaimedBy")
-  deviceCodes               DeviceCode[]     @relation("UserDeviceCodes")
+  identities             UserIdentity[]
+  userRoles              UserRole[]
+  userSettings           UserSettings?
+  auditEvents            AuditEvent[]           @relation("ActorEvents")
+  settingsUpdates        SystemSettings[]       @relation("SettingsUpdater")
+  refreshTokens          RefreshToken[]         @relation("UserRefreshTokens")
+  allowlistEntriesAdded  AllowedEmail[]         @relation("AllowlistAddedBy")
+  allowlistEntry         AllowedEmail?          @relation("AllowlistClaimedBy")
+  deviceCodes            DeviceCode[]           @relation("UserDeviceCodes")
+  storageObjects         StorageObject[]        @relation("UserStorageObjects")
+  personalAccessTokens   PersonalAccessToken[]  @relation("UserPersonalAccessTokens")
+  credentialUpdates      Credential[]           @relation("CredentialUpdatedBy")
+  notificationDeliveries NotificationDelivery[] @relation("UserNotificationDeliveries")
+  notifications          Notification[]         @relation("UserNotifications")
+  pushSubscriptions      PushSubscription[]     @relation("UserPushSubscriptions")
+  workerNodes            WorkerNode[]           @relation("UserWorkerNodes")
+  nodeCredentials        NodeCredential[]       @relation("UserNodeCredentials")
 
   @@map("users")
 }
@@ -60,8 +67,8 @@ model UserIdentity {
 // =============================================================================
 
 model Role {
-  id          String   @id @default(uuid()) @db.Uuid
-  name        String   @unique
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String  @unique
   description String?
 
   // Relations
@@ -72,8 +79,8 @@ model Role {
 }
 
 model Permission {
-  id          String   @id @default(uuid()) @db.Uuid
-  name        String   @unique
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String  @unique
   description String?
 
   // Relations
@@ -180,6 +187,37 @@ model RefreshToken {
 }
 
 // =============================================================================
+// Personal Access Tokens (PAT)
+// =============================================================================
+
+enum PatDurationUnit {
+  minutes
+  days
+  months
+}
+
+model PersonalAccessToken {
+  id            String          @id @default(uuid()) @db.Uuid
+  userId        String          @map("user_id") @db.Uuid
+  name          String
+  tokenHash     String          @unique @map("token_hash")
+  tokenPrefix   String          @map("token_prefix")
+  durationValue Int             @map("duration_value")
+  durationUnit  PatDurationUnit @map("duration_unit")
+  expiresAt     DateTime        @map("expires_at") @db.Timestamptz
+  lastUsedAt    DateTime?       @map("last_used_at") @db.Timestamptz
+  createdAt     DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  revokedAt     DateTime?       @map("revoked_at") @db.Timestamptz
+
+  // Relations
+  user User @relation("UserPersonalAccessTokens", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("personal_access_tokens")
+}
+
+// =============================================================================
 // Allowlist (Email Access Control)
 // =============================================================================
 
@@ -230,4 +268,1033 @@ model DeviceCode {
   @@index([status, expiresAt])
   @@index([userId])
   @@map("device_codes")
+}
+
+// =============================================================================
+// Storage Objects
+// =============================================================================
+
+enum StorageObjectStatus {
+  pending // Upload initiated, awaiting chunks
+  uploading // Chunks being uploaded
+  processing // Post-upload processing in progress
+  ready // Available for use
+  failed // Upload or processing failed
+}
+
+model StorageObject {
+  id              String              @id @default(uuid()) @db.Uuid
+  name            String // Original filename
+  size            BigInt // Total size in bytes (BigInt for GB-scale)
+  mimeType        String              @map("mime_type")
+  storageKey      String              @unique @map("storage_key") // S3 object key
+  storageProvider String              @default("s3") @map("storage_provider")
+  bucket          String?
+  status          StorageObjectStatus @default(pending)
+  s3UploadId      String?             @map("s3_upload_id") // S3 multipart upload ID
+  metadata        Json? // JSONB for flexible metadata
+  uploadedById    String?             @map("uploaded_by_id") @db.Uuid
+  createdAt       DateTime            @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime            @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  uploadedBy User?                @relation("UserStorageObjects", fields: [uploadedById], references: [id], onDelete: SetNull)
+  chunks     StorageObjectChunk[]
+
+  @@index([uploadedById])
+  @@index([status])
+  @@index([createdAt])
+  @@map("storage_objects")
+}
+
+model StorageObjectChunk {
+  id         String   @id @default(uuid()) @db.Uuid
+  objectId   String   @map("object_id") @db.Uuid
+  partNumber Int      @map("part_number") // S3 part number (1-10000)
+  eTag       String   @map("e_tag") // S3 ETag for verification
+  size       BigInt // Chunk size in bytes
+  uploadedAt DateTime @default(now()) @map("uploaded_at") @db.Timestamptz
+
+  // Relations
+  object StorageObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
+
+  @@unique([objectId, partNumber])
+  @@index([objectId])
+  @@map("storage_object_chunks")
+}
+
+// =============================================================================
+// Encrypted Credential Store  (issue #115, epic #108)
+// =============================================================================
+//
+// Runtime-configured secrets (an SMTP password, an OAuth client secret, a
+// second bucket's S3 key, ...) addressed by (purpose, name) rather than one
+// column per consumer, so every future secret reuses this table instead of
+// inventing its own column, its own encrypt call, and its own chance to leak.
+//
+// `secret` holds ONLY the opaque base64 ciphertext produced by
+// `encryptSecret()` in `common/crypto/secret-cipher.ts`, encrypted under
+// `purpose` as the sub-key derivation label — a ciphertext lifted from one
+// row cannot be decrypted under a different purpose. This model stores
+// ciphertext and non-secret metadata only; it never sees plaintext, and
+// Prisma performs no encryption of its own.
+//
+// NEVER select `secret` into anything that reaches an API response or a log
+// line. `CredentialsService` is the sole reader/writer and is what actually
+// enforces that split (a plaintext-returning method for server-side
+// consumers, a metadata-only method for presentation) — this comment is the
+// signpost, not the guarantee.
+model Credential {
+  id              String   @id @default(uuid()) @db.Uuid
+  purpose         String
+  name            String
+  // Opaque [iv][authTag][ciphertext] payload, base64-encoded by
+  // encryptSecret(). @db.Text (not the default `varchar`) because a base64
+  // AES-GCM payload has no meaningful bound: encrypted key material,
+  // passwords, or tokens of arbitrary length must never be truncated.
+  secret          String   @db.Text
+  // Non-secret display aid for the admin UI (e.g. last 4 chars, or a fixed
+  // mask like '••••'). Nullable: a credential can exist before anyone has
+  // decided how to hint it, and some secrets have no meaningful suffix to show.
+  hint            String?
+  // Human-readable description for the admin UI. Nullable for the same reason.
+  label           String?
+  updatedByUserId String?  @map("updated_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  //
+  // onDelete: SetNull — deliberately NOT Cascade. A credential is
+  // infrastructure shared by whatever consumer looks it up by (purpose,
+  // name); the admin who last set it is provenance, not an owner the
+  // credential's lifetime should depend on. Offboarding the user who last
+  // typed in the SMTP password must not silently delete a working SMTP
+  // configuration — that failure mode (email breaks because someone left
+  // the company) is exactly what this FK behaviour avoids. The credential
+  // outliving its last editor is correct; losing it is not.
+  updatedByUser User? @relation("CredentialUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([purpose, name])
+  @@map("credentials")
+}
+
+// =============================================================================
+// Notification Deliveries (issue #125, epic #109)
+// =============================================================================
+//
+// One row per delivery ATTEMPT of an event (#121, `notification-events.ts`)
+// over a channel, to a recipient. This is the answer to "did the user
+// actually get it?" — the first question asked when something goes wrong,
+// and epic #109's own success criterion 7: a delivery record exists for
+// every attempt, with the provider's message id or error.
+//
+// -----------------------------------------------------------------------------
+// eventKey — plain string, NOT a foreign key
+// -----------------------------------------------------------------------------
+// Events are declared in code (`notification-events.ts`, #121), not in a
+// database table — `findEvent()` there returns `undefined` rather than
+// throwing for a key it doesn't recognize, precisely because callers may be
+// holding a key that came from persisted data written before the event was
+// renamed or removed. An FK into an "events" table would force a migration
+// (and a backfill, or a placeholder row) every time the registry changes,
+// which is exactly the coupling #121 built the registry to avoid. A delivery
+// record must outlive the event definition that produced it.
+//
+// -----------------------------------------------------------------------------
+// channel — ALSO a plain string, not a Prisma enum (deliberately asymmetric
+// with `status` below)
+// -----------------------------------------------------------------------------
+// `NotificationChannel` in `notification-events.ts` is explicitly derived
+// from a plain array (`NOTIFICATION_CHANNELS`) so that adding `'push'` later
+// (epic #109 reserves it) costs one edit to that array, not a migration. A
+// Postgres enum on this column would quietly reintroduce that migration: the
+// set of valid channels would live in two places — the code registry and
+// this column's type — and adding one would require updating both. The
+// registry is the single source of truth for what channels exist; this
+// column just records which one a given attempt used.
+//
+// -----------------------------------------------------------------------------
+// status — IS a Prisma enum
+// -----------------------------------------------------------------------------
+// Unlike eventKey/channel, `status` is not registry data — it is this
+// table's own delivery state machine, owned entirely by the dispatcher, and
+// nothing outside this table grows it. It follows the convention this schema
+// already uses for exactly this shape of field (`DeviceCodeStatus`,
+// `StorageObjectStatus`): a small, closed, code-owned set of states is a
+// Postgres enum here, so the database itself rejects a delivery row written
+// with anything other than queued/sent/failed.
+//
+// -----------------------------------------------------------------------------
+// userId — nullable; recipient — the actual destination used
+// -----------------------------------------------------------------------------
+// `allowlist.invitation` (#121) is sent to an email address with no user
+// account yet (#128) — there is no user row to point to, so `userId` must be
+// nullable. `recipient` is what makes that case complete: it is the actual
+// destination address used for THIS delivery, captured independently of the
+// user relation, so the record stands on its own with `userId` null, and
+// stays historically accurate even if the user's email later changes.
+//
+// -----------------------------------------------------------------------------
+// onDelete: SetNull on the user relation
+// -----------------------------------------------------------------------------
+// Matches the audit-trail precedent this schema already sets for
+// `AuditEvent.actorUserId` and `Credential.updatedByUser`: a delivery record
+// is a history of what the application sent, and deleting a user account
+// should not retroactively erase the evidence of what was sent to them —
+// particularly for `security.*` events (#121), which are exactly the ones an
+// incident review is most likely to need after the account in question no
+// longer exists. Nothing is lost by nulling the FK: `recipient` already
+// carries the actual destination independently of it. A GDPR-style request
+// to purge one user's PII is a deliberate, targeted scrub of these rows (and
+// `recipient` specifically) — not something an ON DELETE clause should do
+// silently and irreversibly as a side effect of an unrelated user-deletion
+// path elsewhere in the app.
+//
+// -----------------------------------------------------------------------------
+// Indexes — exactly the two queries this table is known to serve
+// -----------------------------------------------------------------------------
+// Every index is a write cost on a table that grows with every notification
+// sent, so nothing speculative is added beyond what #125 itself names:
+//   - [userId, eventKey]: "did this user get this event?" — an equality
+//     filter on both columns, from an account's delivery history view.
+//   - [status, createdAt]: "what failed recently?" — status = 'failed'
+//     filtered and ordered by recency, for on-call triage.
+model NotificationDelivery {
+  id                String                     @id @default(uuid()) @db.Uuid
+  eventKey          String                     @map("event_key")
+  userId            String?                    @map("user_id") @db.Uuid
+  recipient         String
+  channel           String
+  status            NotificationDeliveryStatus @default(queued)
+  providerMessageId String?                    @map("provider_message_id")
+  // Provider errors (SMTP rejections, SES API errors, ...) have no useful
+  // length bound — @db.Text, same reasoning as Credential.secret above.
+  error             String?                    @db.Text
+  createdAt         DateTime                   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime                   @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  user User? @relation("UserNotificationDeliveries", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, eventKey])
+  @@index([status, createdAt])
+  @@map("notification_deliveries")
+}
+
+enum NotificationDeliveryStatus {
+  queued
+  sent
+  failed
+}
+
+// =============================================================================
+// Notifications — the in-app notification centre store (issue #127, epic #109)
+// =============================================================================
+//
+// THE PRIMARY SURFACE OF THE BROWSER CHANNEL, NOT A CACHE OF WHAT SSE SENT.
+//
+// That ordering is the whole reason this table exists. `Notification`
+// permission is denied by a large share of users, and once denied it is
+// effectively permanent — the page cannot re-prompt. A browser channel that
+// existed only as an OS toast would therefore not exist at all for those
+// accounts. So the durable, per-user list is the feature; the SSE stream
+// (`notification-stream.service.ts`) makes it live, and the native toast is a
+// decoration on top that degrades to nothing.
+//
+// Read the second consequence too: SSE IS NOT A DELIVERY GUARANTEE. Events
+// published while a tab is disconnected are lost — `EventSource` reconnects
+// but replays nothing, and the per-process subscriber registry does not fan
+// out across replicas. Because rows land here first and the stream is
+// published second, a client that refetches this table on (re)connect sees
+// everything regardless. That is the designed recovery path, and it is why
+// there is no event-replay machinery anywhere in #127.
+//
+// -----------------------------------------------------------------------------
+// HOW THIS DIFFERS FROM `notification_deliveries` (#125), WHICH IS NOT THE SAME
+// TABLE WITH A DIFFERENT NAME
+// -----------------------------------------------------------------------------
+//
+// `notification_deliveries` is the OPERATOR's record: one row per ATTEMPT, per
+// channel, answering "did we try, and what did the provider say?". It records
+// email attempts too, it keeps rows for recipients with no account, and it is
+// never shown to the user it is about.
+//
+// `notifications` is the USER's inbox: one row per thing they should see, only
+// for the browser channel, only for real accounts, with read state they own.
+// An email send writes a delivery row and no row here — there is nothing for
+// the bell to show about a message that went to their mailbox.
+//
+// Merging the two would mean either showing users provider error strings, or
+// filtering an operator table by channel on every bell render. They answer
+// different questions for different audiences and are kept apart.
+// =============================================================================
+
+model Notification {
+  id     String @id @default(uuid()) @db.Uuid
+  // NOT NULL, unlike NotificationDelivery.userId. An inbox belongs to an
+  // account by definition; there is no "notification centre" for a recipient
+  // with no login (#128's `allowlist.invitation` case), which is exactly why
+  // the browser channel's resolveTo returns null for them.
+  userId String @map("user_id") @db.Uuid
+
+  // Plain string, NOT a foreign key — the same reasoning written out at length
+  // on NotificationDelivery.eventKey. Events are declared in code
+  // (`notification-events.ts`, #121) and `findEvent` returns undefined rather
+  // than throwing precisely because persisted rows outlive their definitions.
+  // An FK would force a migration every time the registry changed.
+  eventKey String @map("event_key")
+
+  // RENDERED AT WRITE TIME, not at read time. The alternative — store the
+  // event payload as JSONB and render in the bell — means an old row renders
+  // through today's template, so editing copy silently rewrites history and a
+  // removed event's rows become unrenderable. What the user was told is a
+  // fact; it is frozen here.
+  title String
+  // @db.Text for the same reason as Credential.secret and
+  // NotificationDelivery.error: a rendered body has no meaningful length
+  // bound, and silently truncating what a user was told is worse than storing
+  // a long string. (Postgres `text` has no performance penalty over `varchar`.)
+  body  String @db.Text
+
+  // Where the bell should send the user, as a ROOT-RELATIVE PATH ("/settings",
+  // "/admin/users?id=…"), never an absolute URL.
+  //
+  // THIS IS A SECURITY BOUNDARY, ENFORCED IN CODE AT WRITE TIME
+  // (`browser-notification.channel.ts`). The web client will put this value in
+  // an href or a router navigation; an absolute URL makes every notification a
+  // potential open redirect, and a `javascript:` scheme makes it script
+  // execution in the app's own origin. The column cannot express that
+  // constraint, so the writer enforces it and drops a link it cannot vouch
+  // for rather than storing it and hoping the client is careful.
+  //
+  // Nullable: most notifications have nowhere specific to go.
+  link String?
+
+  // A TIMESTAMP, NOT A BOOLEAN. `readAt IS NULL` answers "is it unread?" just
+  // as well as `read = false` does, and additionally answers "when did they
+  // see it?" — which is the question asked when someone reports acting late on
+  // a security alert. A boolean would have to grow this column later anyway.
+  readAt DateTime? @map("read_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  // NO `updatedAt`. The only mutation this row ever undergoes is being marked
+  // read, and `readAt` already timestamps that with more precision than an
+  // `updatedAt` would carry. A second, redundant answer to "when did this
+  // change?" is a second thing to keep consistent for no reader.
+
+  // Relations
+  //
+  // onDelete: Cascade — deliberately the OPPOSITE of
+  // NotificationDelivery.user's SetNull, and the contrast is the point. A
+  // delivery record is an audit trail that must outlive the account it
+  // describes ("did we email this person before they were offboarded?"). An
+  // inbox is personal data with no reader once the account is gone: keeping
+  // orphaned rows would retain rendered titles and bodies about a deleted user
+  // forever, and `userId` is NOT NULL here so SetNull is not even expressible.
+  user User @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
+
+  // The two queries this table actually serves, and nothing speculative.
+  //
+  // 1. THE UNREAD BADGE: `where { userId, readAt: null }`, run on every bell
+  //    render and on every SSE (re)connect — by far the hottest query here.
+  //    (Ideally a partial index `WHERE read_at IS NULL`, which Prisma cannot
+  //    express declaratively; the composite covers the same predicate and
+  //    stays in one place the schema owns.)
+  @@index([userId, readAt])
+  // 2. THE RECENT LIST: `where { userId } orderBy { createdAt: desc }`.
+  //    `sort: Desc` matters — a plain ascending index makes Postgres walk it
+  //    backwards for the newest page, which is the only page anyone loads.
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("notifications")
+}
+
+// =============================================================================
+// Push Subscriptions (issue #229, epic #215)
+// =============================================================================
+//
+// Storage for the browser's `PushSubscription` object — the endpoint URL plus
+// the two keys (`p256dh`, `auth`) needed to encrypt a Web Push payload to that
+// specific device — so the server has something to sign and send to when a
+// notification's `browser` channel wants to reach a tab that isn't open.
+//
+// THIS SHIPS DISABLED BY DEFAULT (per #215). This table, and the endpoints the
+// next pass builds on top of it, exist regardless; what makes push actually
+// fire is a downstream deployment setting `VAPID_PUBLIC_KEY` /
+// `VAPID_PRIVATE_KEY` in its own environment. A repo that never sets those
+// vars has this table sitting empty and unused — generating keys, not writing
+// code, is the enable step. Nothing here should ever require a schema change
+// to turn push on.
+//
+// -----------------------------------------------------------------------------
+// endpoint — @unique, not part of a composite key with userId
+// -----------------------------------------------------------------------------
+// The endpoint URL (assigned by the browser's push service — FCM, Mozilla's
+// autopush, ...) already uniquely identifies one subscribed device/browser
+// instance; it cannot simultaneously be valid for two different users. Making
+// it @unique on its own, rather than @@unique([userId, endpoint]), is what
+// lets the service layer `upsert` on `endpoint` alone (#229's acceptance
+// criterion: "Re-subscribing the same endpoint upserts instead of creating a
+// duplicate row") — including the case where the same browser subscription
+// re-registers under a different signed-in user, which should move the row,
+// not fork it.
+//
+// -----------------------------------------------------------------------------
+// userId — onDelete: Cascade, the OPPOSITE of NotificationDelivery.user's
+// SetNull right above, and deliberately so
+// -----------------------------------------------------------------------------
+// NotificationDelivery keeps its user relation nullable-with-SetNull because a
+// delivery row is an audit trail with standalone value ("did we send this
+// before the account was offboarded?") even once the account is gone — it
+// carries its own `recipient` and stands on its own. A push subscription has
+// no such standalone meaning: it is nothing but a live credential for pushing
+// to one specific person's device. Once that person's account is deleted
+// there is no one left to authorize a push, no one left to act on it, and no
+// audit value in keeping an endpoint + key material around — it is simply
+// dead. Cascade is correct here for the same reason `Notification.user` above
+// is Cascade rather than SetNull: this is live, personal state with no reader
+// once the account is gone, not history.
+//
+// -----------------------------------------------------------------------------
+// failureCount / lastSuccessAt — written by #230, columns exist now
+// -----------------------------------------------------------------------------
+// Web Push endpoints go stale silently (uninstalled browser, revoked
+// permission, expired subscription) and the push service reports this as a
+// 404/410 (gone) or persistent 429/5xx on send, never as an explicit
+// unsubscribe call. `failureCount` is incremented by the not-yet-built sender
+// (#230) on each such failure so a pruning job can drop subscriptions that
+// have stopped working, and `lastSuccessAt` is its complement — updated on
+// every successful send — so "why did this stop working" has an answer
+// (compare `failureCount`'s growth against how long ago `lastSuccessAt` was)
+// without needing delivery-log archaeology. Neither column is written by
+// anything in this migration; they exist now so #230 needs no schema change.
+model PushSubscription {
+  id String @id @default(uuid()) @db.Uuid
+
+  userId String @map("user_id") @db.Uuid
+
+  // The push service URL the browser gave us (e.g.
+  // `https://fcm.googleapis.com/fcm/send/...`). @unique — see block comment
+  // above for why this, not a composite key, is what the upsert relies on.
+  endpoint String @unique
+
+  // The two halves of the browser's subscription keys
+  // (`PushSubscription.getKey('p256dh'|'auth')`, base64url-encoded), together
+  // sufficient to encrypt a payload to this device per the Web Push
+  // encryption spec (RFC 8291). Neither is secret in the same sense as
+  // `Credential.secret` — they are meaningless without also knowing the
+  // corresponding endpoint and the server's VAPID private key — so they are
+  // stored plain, matching how every Web Push library (including `web-push`,
+  // which the next pass will use) expects to read them back out.
+  p256dh String
+  auth   String
+
+  // From the browser's `PushSubscription.expirationTime`, when the push
+  // service supplies one (most don't). Nullable because absence is the
+  // common case, not an error.
+  expirationTime DateTime? @map("expiration_time") @db.Timestamptz
+
+  // For diagnosing "why did this stop working" alongside failureCount/
+  // lastSuccessAt below. Nullable: not always available, and never required.
+  userAgent String? @map("user_agent")
+
+  // Incremented by #230's sender on delivery failure (429/5xx from the push
+  // service); read by its not-yet-built pruning logic to drop dead
+  // subscriptions. Starts at 0 and is reset to 0 on the next successful send.
+  failureCount Int @default(0) @map("failure_count")
+
+  // Updated on every successful send by #230. Nullable: a freshly created
+  // subscription has never had one.
+  lastSuccessAt DateTime? @map("last_success_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  //
+  // onDelete: Cascade — see block comment above for why this reverses the
+  // SetNull precedent set by NotificationDelivery.user just above.
+  user User @relation("UserPushSubscriptions", fields: [userId], references: [id], onDelete: Cascade)
+
+  // The one query this table is known to serve: "give me this user's
+  // subscriptions to push to" (#229's subscribe/unsubscribe endpoints and
+  // #230's send fan-out both key off userId; endpoint's own @unique index
+  // already covers lookup/upsert by endpoint).
+  @@index([userId])
+  @@map("push_subscriptions")
+}
+
+// =============================================================================
+// Jobs (issue #255, epic #254)
+// =============================================================================
+//
+// A generic background-job queue table: one row per unit of work a worker
+// node claims, runs, and reports the outcome of. This issue adds only the
+// schema — the enqueue path, the claim query, and the node plane that
+// actually pulls jobs off this table all arrive in later issues of #254
+// (the claim query's `RETURNING` aliases land in #260, the `WorkerNode` model
+// that `claimedByNodeId` will finally point at lands with the node plane).
+// What is here is deliberately complete on its own: every column and index a
+// worker needs to claim, execute, retry, and rate-limit a job, so nothing
+// downstream requires a follow-up migration to `jobs` itself.
+//
+// -----------------------------------------------------------------------------
+// subjectType / subjectId — plain nullable TEXT, not typed or FK'd columns
+// -----------------------------------------------------------------------------
+// REJECTED: a column per subject shape (`mediaItemId`, `circleId`, ...). This
+// table is generic across every handler `type` this app will ever register,
+// present and future. A typed column per subject means every new job kind
+// that targets a new kind of thing is a migration to this table, which is
+// exactly the coupling a job queue must not have to its callers — the whole
+// point of `type` being a free-form handler key is that new handlers cost
+// zero schema changes. `subjectType` (a short discriminator string the
+// handler itself defines, e.g. `'media_item'`) plus `subjectId` (that
+// subject's id, stored as text specifically so it is not assumed to be a
+// UUID — some future subject might key by something else) covers every shape
+// with two columns, forever.
+//
+// REJECTED: payload-only, with no subject columns at all (dig the subject id
+// out of the JSONB `payload` when you need it). This is what `[subjectType,
+// subjectId]` below exists to make wrong: "cancel every pending job for this
+// media item" and "is there already an active job for this exact subject"
+// (the dedup index just below) are both real, known queries (not
+// speculative), and neither is expressible as an index over JSONB without a
+// GIN index and a much more awkward query. Two plain columns, indexed
+// normally, are simpler and cheaper than making Postgres reach into JSON for
+// a value that is known and named at enqueue time regardless.
+//
+// Both nullable, and BOTH null together is the documented spelling of "this
+// is a global/system job" (a nightly sweep, a cache warm) that is not about
+// any one row elsewhere in the database — there is no sentinel subjectType
+// like `'system'` to keep in sync with anything.
+//
+// -----------------------------------------------------------------------------
+// dedupKey / the active-dedup unique index — enforced by a hand-written
+// partial index, NOT `findFirst` then `create` in the enqueue service
+// -----------------------------------------------------------------------------
+// REJECTED: "check whether an active job with this key already exists, and
+// only insert if not" as application logic. That is a check-then-act race:
+// two concurrent enqueue calls can both see "no active duplicate" and both
+// insert, which is precisely the failure a dedup key exists to prevent, and
+// under real concurrent load (a webhook retried while the first delivery is
+// still being handled, two nodes reacting to the same event) it is not a
+// rare edge case. Only the database can make "is there already an active job
+// with this key" atomic with the insert that would violate it, which is what
+// `jobs_active_dedup_uniq_idx` below is for: a partial UNIQUE index on
+// `dedup_key` filtered to `status IN ('pending','running')`. The enqueue path
+// (arriving with #260) inserts optimistically and treats the resulting
+// unique-violation as "a duplicate is already in flight", not as an error —
+// no pre-check query, no race window.
+//
+// The partial filter is exactly what makes the key reusable: once a job
+// reaches `succeeded` (or `failed`) it drops out of the index's predicate, so
+// the same `dedup_key` is free again for a new active job — retrying or
+// re-triggering the same logical work later is not permanently blocked by
+// its own history. `dedup_key IS NOT NULL` in the predicate is what lets
+// jobs that opt out of dedup (most ad-hoc jobs) insert freely with a NULL key
+// — Postgres does not consider NULLs equal for uniqueness, but the explicit
+// clause documents that this is relied upon, not incidental.
+//
+// The key's actual format (`type:subjectType:subjectId`) is defined ONCE, in
+// `buildDedupKey()` (`src/jobs/job-keys.ts`), which this comment and the
+// migration's raw SQL both point back to rather than restating it — see that
+// file for why the format is what it is.
+//
+// -----------------------------------------------------------------------------
+// priority — ASCENDING is more urgent
+// -----------------------------------------------------------------------------
+// Chosen so `ORDER BY priority ASC, created_at ASC` is both "most urgent
+// first" and "oldest first within a priority", the same direction Postgres
+// already walks a plain ascending b-tree index in — no `DESC` index variant
+// needed for the hot claim-query ordering that `[status, priority,
+// createdAt]` and `[status, scheduledFor, priority, createdAt]` below exist
+// to serve. `0` is the default (normal) priority; more urgent work is a
+// smaller (including negative) number, not a larger one.
+//
+// -----------------------------------------------------------------------------
+// attempts vs rateLimitedAt/rateLimitHits — two counters for two different
+// reasons a job didn't finish, deliberately not merged into one
+// -----------------------------------------------------------------------------
+// `attempts` is charged AT CLAIM TIME (incremented when a worker takes the
+// job, not when it fails) and is what a max-retry policy reads. Being rate
+// limited by a downstream provider is not the job's fault and is not a
+// retry in that sense — charging it against `attempts` would make a job that
+// is simply waiting its turn look like a job that keeps failing, and could
+// exhaust its retry budget for a reason that has nothing to do with the
+// job's own correctness. `rateLimitedAt` / `rateLimitHits` track that
+// separately: `scheduledFor` is pushed out to defer the job, `rateLimitHits`
+// records how often this has happened (for observability/alerting on a
+// provider that is persistently saturated), and neither touches `attempts`.
+//
+// -----------------------------------------------------------------------------
+// providerKey / modelVersion — audit of WHAT ran the job, not inputs to it
+// -----------------------------------------------------------------------------
+// Both nullable and both write-once-at-completion-time metadata: which
+// downstream provider handled this job and which model/version it ran
+// against, for after-the-fact questions ("did the incident affect jobs that
+// ran on provider X" / "which jobs ran before the model version bump").
+// Neither is read back by the claim query — they exist for audit, not for
+// scheduling.
+//
+// -----------------------------------------------------------------------------
+// claimedByNodeId — a real relation as of issue #267, epic #254
+// -----------------------------------------------------------------------------
+// This column existed unconstrained (`String? @db.Uuid`) from #255 onward, so
+// the claim query and its indexes ([status, leaseExpiresAt],
+// [claimedByNodeId]) could be built against their final shape before the
+// `WorkerNode` table it references existed. #267 adds that table and wires
+// the FK on top of this already-populated column: `onDelete: SetNull`, so a
+// node's disappearance (deregistered, pruned, or manually deleted by an
+// admin) frees the jobs it was holding — via `leaseExpiresAt` already having
+// them look abandoned to the reaper — rather than deleting job history. See
+// the block comment above the `WorkerNode` model for the corresponding
+// `onDelete` decision on `WorkerNode.createdBy`, which is a different
+// question (what happens to the NODE when its owning USER is deleted, not
+// what happens to a JOB when its claiming NODE is deleted).
+//
+// -----------------------------------------------------------------------------
+// sumDurationMs on JobStatsRollup — Float (double precision), NOT BigInt
+// -----------------------------------------------------------------------------
+// REJECTED: BigInt. Prisma maps a BigInt column to the JS `bigint` primitive,
+// which `JSON.stringify` refuses outright ("Do not know how to serialize a
+// BigInt") — the not-yet-built insights endpoint that reads this rollup would
+// crash on its very first response, not degrade gracefully. A running sum of
+// per-job durations in milliseconds, even at very high job volume, never
+// approaches the ~2^53 safe-integer boundary where `Float` would start
+// losing precision that matters for an aggregate (an average duration off by
+// fractions of a millisecond at that scale is not a real-world concern);
+// BigInt's exactness buys nothing here and costs a runtime crash.
+//
+// -----------------------------------------------------------------------------
+// Prisma-expressible indexes vs the three below written directly in the
+// migration (INTENTIONAL SCHEMA DRIFT — see migration.sql in
+// 20260906120000_add_jobs)
+// -----------------------------------------------------------------------------
+// Everything Prisma's index DSL can express is declared with `@@index` below.
+// Three more indexes exist ONLY in `migration.sql` because the Prisma schema
+// language has no syntax for a partial index (a `WHERE` clause on the index
+// itself) — `@@index` always builds a full index over every row:
+//
+//   - "jobs_active_dedup_uniq_idx": the partial UNIQUE index described above
+//     that actually enforces the active-dedup constraint (`dedup_key` where
+//     `status IN ('pending','running') AND dedup_key IS NOT NULL`).
+//   - "jobs_attempts_gt1_idx": a partial index on `attempts` where
+//     `attempts > 1`, sized to the small minority of jobs that have ever
+//     been retried, for "show me flaky jobs" without indexing the (large)
+//     majority that succeeded on the first attempt.
+//   - "jobs_succeeded_duration_idx": a partial index on
+//     `(finished_at, started_at, type)` where `status = 'succeeded' AND
+//     started_at IS NOT NULL AND finished_at IS NOT NULL`, for computing
+//     per-type duration stats (what feeds `JobStatsRollup`) without scanning
+//     jobs that were never actually timed.
+//
+// Because `prisma migrate dev`/`diff` cannot regenerate these from the
+// schema file, they will show up as "drift" if anyone ever diffs this schema
+// against the live database with a tool that expects `@@index` to be the
+// full story. That drift is intentional and this comment (plus the ones in
+// the migration itself) is the record of why — do not "fix" it by dropping
+// these three indexes, and do not try to force them into `@@index` syntax
+// that does not exist.
+model Job {
+  id String @id @default(uuid()) @db.Uuid
+
+  // The handler key a worker dispatches on (e.g. `'email.send'`,
+  // `'export.csv'`). A small, code-owned, growing set — deliberately a plain
+  // string and not a Prisma enum, for the same reason `NotificationDelivery
+  // .channel` and `.eventKey` are plain strings: new handlers must cost zero
+  // migrations, and a row must be able to outlive the handler that produced
+  // it (a removed/renamed handler's historical jobs stay queryable).
+  type String
+
+  // See the block comment above for why these are plain nullable TEXT rather
+  // than typed/FK'd columns, and why both null together means a
+  // global/system job.
+  subjectType String? @map("subject_type")
+  subjectId   String? @map("subject_id")
+
+  // See the block comment above ("dedupKey / the active-dedup unique index")
+  // for the full mechanism. Built by `buildDedupKey()`
+  // (`src/jobs/job-keys.ts`); nullable because most jobs opt out of dedup
+  // entirely.
+  dedupKey String? @map("dedup_key")
+
+  status JobStatus @default(pending)
+  reason JobReason
+
+  // Ascending = more urgent. See the block comment above.
+  priority Int @default(0)
+
+  // Audit of what actually ran this job — see the block comment above.
+  // Written once, at completion; never read by the claim query.
+  providerKey  String? @map("provider_key")
+  modelVersion String? @map("model_version")
+
+  // Handler-defined input, opaque to this table.
+  payload Json? @db.JsonB
+
+  // Charged AT CLAIM TIME (see the block comment above for why this is kept
+  // separate from rateLimitHits).
+  attempts Int @default(0)
+
+  lastError String? @map("last_error")
+
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  startedAt  DateTime? @map("started_at") @db.Timestamptz
+  finishedAt DateTime? @map("finished_at") @db.Timestamptz
+
+  // NULL means eligible now. A non-null value in the future is what makes a
+  // job invisible to the claim query until then (deferred rate-limit retries,
+  // deliberately scheduled work).
+  scheduledFor DateTime? @map("scheduled_for") @db.Timestamptz
+
+  // Deferral bookkeeping, deliberately separate from `attempts` — see the
+  // block comment above.
+  rateLimitedAt DateTime? @map("rate_limited_at") @db.Timestamptz
+  rateLimitHits Int       @default(0) @map("rate_limit_hits")
+
+  // Node claiming. See the block comment above ("claimedByNodeId") for why
+  // this relation arrived a migration after the column did, and why
+  // `onDelete: SetNull` is correct here specifically.
+  claimedByNodeId String?     @map("claimed_by_node_id") @db.Uuid
+  claimedByNode   WorkerNode? @relation("NodeClaimedJobs", fields: [claimedByNodeId], references: [id], onDelete: SetNull)
+  leaseExpiresAt  DateTime?   @map("lease_expires_at") @db.Timestamptz
+  // 'server' | 'node' — which side actually executed the job. A plain
+  // string, not an enum, for the same "small closed set, but code-owned and
+  // not this table's own state machine" reasoning as
+  // NotificationDelivery.channel above.
+  executor        String?
+
+  // See the block comment above ("Prisma-expressible indexes...") for why
+  // these eight are declared here and three more exist only in
+  // migration.sql.
+  //
+  // The hot claim-query orderings:
+  @@index([status, priority, createdAt])
+  @@index([status, scheduledFor, priority, createdAt])
+  // "Every job for this subject" / "is there already a job for this exact
+  // subject":
+  @@index([subjectType, subjectId])
+  // "How is this handler doing" (per-type status breakdown):
+  @@index([type, status])
+  // Lease expiry sweep (finding jobs whose claiming node went away):
+  @@index([status, leaseExpiresAt])
+  // "What is this node holding right now" — also backs the FK added by #267:
+  @@index([claimedByNodeId])
+  // Recency listings (admin job list, "what just happened"):
+  @@index([createdAt(sort: Desc)])
+  // Covering index: the two unconditional admin groupBy counts
+  // (`groupBy({ by: ['status'] })`-shaped queries) are answered entirely from
+  // this index — status, type and id are all it needs to project — so
+  // Postgres never has to visit the heap for them (index-only scan).
+  @@index([status, type, id])
+  @@map("jobs")
+}
+
+enum JobStatus {
+  pending
+  running
+  succeeded
+  failed
+}
+
+enum JobReason {
+  upload
+  rerun
+  backfill
+}
+
+// =============================================================================
+// Job Stats Rollup (issue #255, epic #254)
+// =============================================================================
+//
+// One row per `type` (Job.type), maintained incrementally as jobs finish
+// rather than computed by aggregating the full `jobs` table on every read —
+// `jobs` is expected to grow without bound (or be pruned independently of
+// this rollup's needs), so a per-type COUNT/AVG over it is not something the
+// not-yet-built insights endpoint should be doing on every request.
+//
+// `sumDurationMs` is `Float`, deliberately not `BigInt` — see the block
+// comment above the `Job` model ("sumDurationMs on JobStatsRollup") for why
+// BigInt would crash `JSON.stringify` at the exact place this rollup is
+// meant to be read from. Average duration for a type is
+// `sumDurationMs / durationSamples`, computed by the reader; this table
+// stores the two accumulators, not the derived average, so re-deriving after
+// a correction never requires touching historical precision.
+model JobStatsRollup {
+  type String @id
+
+  succeededCount Int @default(0) @map("succeeded_count")
+  failedCount    Int @default(0) @map("failed_count")
+
+  // See the block comment above for why Float, not BigInt.
+  sumDurationMs   Float @default(0) @map("sum_duration_ms")
+  durationSamples Int   @default(0) @map("duration_samples")
+
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("job_stats_rollup")
+}
+
+// =============================================================================
+// Worker Nodes (issue #267, epic #254)
+// =============================================================================
+//
+// This issue adds only the schema half of the node plane: `WorkerNode`
+// itself, `NodeCredential` (the `nod_` bearer credential a node authenticates
+// with), and the `Job.claimedByNode` relation deferred by #255 (see the
+// block comment above the `Job` model, "claimedByNodeId"). The service that
+// mints/validates `NodeCredential` tokens, the `/api/node-credentials`
+// endpoints, and the `Bearer nod_` branch in `jwt-auth.guard.ts` all arrive
+// in the same issue's backend half; the register/heartbeat/claim control
+// plane that actually populates and mutates `WorkerNode` rows is #268. What
+// is here is deliberately complete on its own for that later work: every
+// column and index the control plane needs already exists, so #268 requires
+// no follow-up migration to either table.
+//
+// -----------------------------------------------------------------------------
+// Why a `NodeCredential` distinct from `PersonalAccessToken`, not a reused PAT
+// -----------------------------------------------------------------------------
+// A worker node runs unattended for months on a machine its operator may not
+// tightly control. A leaked PAT carries its owning user's FULL authority —
+// admin routes included, if the owner is an admin. A node only ever needs to
+// talk to `/api/nodes/*` (enforced by a route allowlist in the guard, not by
+// this schema), so its credential is a distinct token family precisely so a
+// leak's blast radius is confined to that allowlist even for an admin owner.
+// `NodeCredential` mirrors `PersonalAccessToken`'s shape — same hash/prefix
+// pattern, same show-once-in-full contract — MINUS the duration bookkeeping;
+// see the block comment on `NodeCredential.expiresAt` below for why that one
+// column is deliberately not carried over.
+model WorkerNode {
+  id String @id @default(uuid()) @db.Uuid
+
+  name String
+
+  // Self-reported identity, refreshed on every successful register/reattach
+  // and heartbeat (#268) — none of these three are queried on individually,
+  // they exist for the fleet page and for operators diagnosing "which
+  // process is this row". Not part of any uniqueness: a node can rename its
+  // hostname or upgrade its CLI without becoming a different node, because
+  // identity is `(createdById, name)`, not any of these.
+  hostname   String
+  platform   String
+  cliVersion String @map("cli_version")
+
+  // The handler `type` keys (see `Job.type`'s own comment for why that column
+  // is a plain string, not an enum) this node is willing to claim. #268's
+  // claim endpoint INTERSECTS a request's requested types with this list — a
+  // node can only ever narrow what it claims, never broaden it beyond what it
+  // last declared itself capable of running.
+  eligibleTypes String[] @map("eligible_types")
+
+  // The node's own claimed concurrency ceiling, read LIVE by #268's claim
+  // endpoint (not cached at claim time) so a runtime `appctl node
+  // set-concurrency` takes effect on the very next claim without a
+  // re-register.
+  concurrency Int
+
+  // Operator/administrative state, NOT liveness — a node can be `online` and
+  // still be silently dead; that question is answered by comparing
+  // `lastHeartbeatAt` against the heartbeat interval, elsewhere (#270's fleet
+  // cron), not by this column. `disabled` is the operator-driven kill switch
+  // (refuse this node's claims regardless of what it reports); `draining` is
+  // "finish what you're holding, claim nothing new" — both are decisions a
+  // human or #270's lifecycle cron makes, not facts the node reports about
+  // itself.
+  status NodeStatus @default(offline)
+
+  // The node's last self-reported capability summary (CPU/RAM, GPU
+  // presence, disk headroom, ... — the exact shape is #268/#276's to define,
+  // not this schema's) from register or heartbeat. JSONB, not typed columns,
+  // for the same reason `Job.payload` is JSONB: this is opaque, evolving,
+  // node-supplied data that no query here needs to filter or index on —
+  // it exists for the fleet page to display, not for this table to reason
+  // about. Nullable: a node that has never heartbeated has reported nothing
+  // yet.
+  capabilities Json? @db.JsonB
+
+  // When this row was first created (register), vs. `lastHeartbeatAt` below
+  // which moves on every liveness ping. Distinct on purpose: "how long has
+  // this node existed" and "is it still alive" are different questions, and
+  // collapsing them into one timestamp would lose the first once the second
+  // starts moving.
+  registeredAt DateTime @default(now()) @map("registered_at") @db.Timestamptz
+
+  // NULL until the first heartbeat. #270's liveness/prune cron reads this to
+  // decide a node has gone dark; #268's lease reaper reads `Job
+  // .leaseExpiresAt` for the same question about an individual claim — the
+  // two are deliberately independent so a node with no jobs currently
+  // claimed still shows up as stale when it stops heartbeating.
+  lastHeartbeatAt DateTime? @map("last_heartbeat_at") @db.Timestamptz
+
+  // The user who registered this node — see the long comment below for why
+  // this is required (not nullable) and `onDelete: Cascade`.
+  createdById String @map("created_by_id") @db.Uuid
+
+  // Relations
+  //
+  // -----------------------------------------------------------------------------
+  // createdBy — onDelete: Cascade, and `createdById` stays required
+  // -----------------------------------------------------------------------------
+  // This is NOT the audit-trail pattern this schema uses elsewhere
+  // (`AuditEvent.actorUserId`, `Credential.updatedByUser`,
+  // `NotificationDelivery.user` — all `SetNull`, all deliberately preserving a
+  // history record after its actor is gone). A `WorkerNode` is closer to
+  // `PushSubscription`: a LIVE registration with no standalone value once its
+  // owner is gone, not a record of a past event. Concretely:
+  //
+  //   1. `NodeCredential.user` is `onDelete: Cascade` (mirroring
+  //      `PersonalAccessToken`, per this table's own design above) — so
+  //      deleting the owning user ALREADY destroys every credential that
+  //      could ever authenticate as this node. A `WorkerNode` row surviving
+  //      its owner would be permanently unauthenticatable inventory: no
+  //      token can ever heartbeat, claim, or deregister it again.
+  //   2. `assertOwnership` (#268) is `node.createdById === callerId` with no
+  //      concept of "unowned" — a `SetNull`'d, ownerless node could not be
+  //      managed (deregistered, disabled, viewed via `GET /nodes`) by
+  //      anyone, ever, through the API this issue's sibling adds. It would
+  //      sit as a permanently orphaned row no admin surface reaches.
+  //   3. `@@unique([createdById, name])` below is #268's register-or-reattach
+  //      anchor. Keeping `createdById` NOT NULL keeps that constraint doing
+  //      real work: two different (deleted-owner) nodes could otherwise both
+  //      carry `createdById: null` with the same `name` and NOT collide
+  //      (Postgres does not treat two NULLs as equal for uniqueness) — a
+  //      silent hole in the exact invariant #268 depends on "existing
+  //      exactly this way" for.
+  //
+  // Cascade does not touch job HISTORY: `Job.claimedByNode` is its own
+  // separate `onDelete: SetNull` (see the block comment above the `Job`
+  // model), so a cascaded `WorkerNode` deletion still only nulls out
+  // `claimedByNodeId` on whatever it was holding — it never deletes a `Job`
+  // row. Losing the fleet-inventory row (hostname, platform, capabilities
+  // history) when its owner's account is gone is an acceptable, even
+  // correct, cleanup; losing job history is not, and nothing here does that.
+  createdBy User @relation("UserWorkerNodes", fields: [createdById], references: [id], onDelete: Cascade)
+
+  // The jobs this node currently holds or has ever held. See `Job
+  // .claimedByNode`'s own comment for the `onDelete: SetNull` that keeps
+  // this list from ever forcing a `Job` deletion.
+  claimedJobs Job[] @relation("NodeClaimedJobs")
+
+  // THE register-or-reattach anchor (#268's own words: "existing exactly
+  // this way"). A node identifies itself to `/nodes/register` by
+  // `(callerId, name)`; this is what lets that endpoint find-or-create
+  // instead of always inserting, so a restarted container reattaches to its
+  // existing row (refreshing hostname/platform/cliVersion/eligibleTypes/
+  // concurrency and flipping back to `online`) rather than leaking a new
+  // node row on every restart. `name` is caller-chosen precisely so one
+  // user can register many distinctly-named nodes while each individual
+  // name stays idempotent for them.
+  @@unique([createdById, name])
+  // "Every online/draining/offline/disabled node" — the fleet page's own
+  // primary filter, and what #270's lifecycle cron scans to find nodes to
+  // act on.
+  @@index([status])
+  // "This user's own nodes" — backs `GET /nodes` (#268: "the caller's own
+  // nodes") and the ownership check inside `assertOwnership`, in addition to
+  // already being the left half of the composite unique index above.
+  @@index([createdById])
+  @@map("worker_nodes")
+}
+
+enum NodeStatus {
+  online
+  draining
+  offline
+  disabled
+}
+
+// -----------------------------------------------------------------------------
+// NodeCredential — mirrors PersonalAccessToken minus the duration bookkeeping
+// -----------------------------------------------------------------------------
+// Same token lifecycle as `PersonalAccessToken` (`pat.service.ts` is the
+// documented model for `NodeCredentialService`): a `nod_`-prefixed token is
+// minted, hashed with sha256 into `tokenHash`, a short `tokenPrefix` is kept
+// for display, and the raw value is shown exactly once. `validateToken`
+// rejects an unknown hash, a `revokedAt`, an expired `expiresAt`, or an
+// inactive owning user, then stamps `lastUsedAt` fire-and-forget — all of
+// that is `NodeCredentialService`'s job (#267's backend half), not this
+// schema's; this model exists to make those checks possible.
+//
+// -----------------------------------------------------------------------------
+// expiresAt — nullable here, REQUIRED on PersonalAccessToken. This is the one
+// deliberate divergence from the PAT shape, and it is worth writing out why.
+// -----------------------------------------------------------------------------
+// A PAT is typically minted for a person's own convenience (the CLI, a
+// script they wrote) and a forced expiry is a reasonable default nudge
+// toward rotation — a human is around to notice it expired and mint a new
+// one. A `NodeCredential` authenticates a worker node that is expected to
+// run UNATTENDED FOR MONTHS: a spare box, a container in someone else's
+// cluster, a machine nobody is watching a dashboard for. If that credential
+// had a mandatory expiry the way a PAT does, the failure mode is an entire
+// fleet going dark at 3am because a timer nobody scheduled fired — the
+// worker can't heartbeat, can't claim, can't report results, and the first
+// anyone learns of it is jobs silently piling up unclaimed. That is a WORSE
+// failure than a long-lived credential, because the credential's blast
+// radius is already confined to `/api/nodes/*` by the guard's route
+// allowlist (issue #267) even if it leaks — the thing a mandatory expiry on
+// a PAT protects against (a leaked token with the owner's full authority)
+// simply does not apply here to the same degree. So `expiresAt` is nullable
+// and NULL is a real, supported, expected value meaning "never expires,
+// authenticate indefinitely until revoked" — not "not yet set". Revocation
+// (`revokedAt`) is the actual control for a node credential, and it is
+// immediate: an operator who needs to cut a node off does so by revoking,
+// not by waiting for a clock. An operator who DOES want an expiring node
+// credential can still set one; the column supports it, it is just not
+// forced.
+model NodeCredential {
+  id String @id @default(uuid()) @db.Uuid
+
+  userId String @map("user_id") @db.Uuid
+
+  // Operator-chosen label ("prod-worker-1", "gpu-box-3"), shown alongside
+  // `tokenPrefix` in list views — same role as `PersonalAccessToken.name`.
+  name String
+
+  // sha256 hash of the full `nod_...` token; the only form of the token this
+  // table ever stores. Never the plaintext — see `NodeCredentialService
+  // .validateToken`'s own documentation for the lookup this backs.
+  tokenHash String @unique @map("token_hash")
+
+  // Short, non-secret display fragment (e.g. the first several characters
+  // after `nod_`) so an operator can tell two credentials apart in a list
+  // without either one's full value ever being shown again after creation.
+  tokenPrefix String @map("token_prefix")
+
+  // See the block comment above for why this is nullable, unlike
+  // `PersonalAccessToken.expiresAt` which is required. NULL = never expires.
+  expiresAt DateTime? @map("expires_at") @db.Timestamptz
+
+  // Stamped fire-and-forget by `validateToken` on each successful
+  // authentication — the operator-facing answer to "is this node actually
+  // still using this credential, or is it dead and safe to revoke".
+  lastUsedAt DateTime? @map("last_used_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  // NULL means active. Set once, never cleared — revocation is a one-way
+  // door, matching `PersonalAccessToken.revokedAt` and `RefreshToken
+  // .revokedAt` elsewhere in this schema. Revocation is immediate: the
+  // block comment above explains why this, not a clock, is the real control
+  // for a node credential.
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz
+
+  // Relations
+  //
+  // onDelete: Cascade, matching `PersonalAccessToken.user` exactly (per
+  // issue #267's own instruction) and for the identical reason: a node
+  // credential is a live, personal authentication artifact with no
+  // standalone value once its owning account is gone — there is no one left
+  // to authorize a node acting on this user's behalf, and no audit value in
+  // keeping hashed token material around for an account that no longer
+  // exists. See `WorkerNode.createdBy`'s own comment above for how this
+  // Cascade is part of the same reasoning that made `WorkerNode.createdBy`
+  // Cascade too: the two tables are designed to disappear together.
+  user User @relation("UserNodeCredentials", fields: [userId], references: [id], onDelete: Cascade)
+
+  // "This user's own credentials" — backs `GET /api/node-credentials`
+  // (#267's list endpoint), matching `PersonalAccessToken`'s own
+  // `@@index([userId])` for the identical query shape.
+  @@index([userId])
+  @@map("node_credentials")
 }

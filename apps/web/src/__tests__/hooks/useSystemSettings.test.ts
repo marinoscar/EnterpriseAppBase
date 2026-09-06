@@ -10,10 +10,6 @@ const mockSystemSettings: SystemSettings = {
   ui: {
     allowUserThemeOverride: true,
   },
-  security: {
-    jwtAccessTtlMinutes: 15,
-    refreshTtlDays: 14,
-  },
   features: {},
   updatedAt: new Date().toISOString(),
   updatedBy: null,
@@ -53,7 +49,6 @@ describe('useSystemSettings', () => {
       expect(result.current?.settings).not.toBeNull();
       expect(result.current.settings).toMatchObject({
         ui: { allowUserThemeOverride: true },
-        security: { jwtAccessTtlMinutes: 15, refreshTtlDays: 14 },
         features: {},
         updatedBy: null,
         version: 1,
@@ -69,7 +64,6 @@ describe('useSystemSettings', () => {
       });
 
       expect(result.current.settings).toHaveProperty('ui');
-      expect(result.current.settings).toHaveProperty('security');
       expect(result.current.settings).toHaveProperty('features');
       expect(result.current.settings).toHaveProperty('version');
       expect(result.current.settings).toHaveProperty('updatedAt');
@@ -299,7 +293,6 @@ describe('useSystemSettings', () => {
 
       const newSettings = {
         ui: { allowUserThemeOverride: false },
-        security: { jwtAccessTtlMinutes: 30, refreshTtlDays: 7 },
         features: { newFeature: true },
       };
 
@@ -308,7 +301,6 @@ describe('useSystemSettings', () => {
       });
 
       expect(result.current.settings?.ui.allowUserThemeOverride).toBe(false);
-      expect(result.current.settings?.security.jwtAccessTtlMinutes).toBe(30);
       expect(result.current.settings?.features).toEqual({ newFeature: true });
       expect(result.current.error).toBeNull();
     });
@@ -342,7 +334,6 @@ describe('useSystemSettings', () => {
 
       const newSettings = {
         ui: { allowUserThemeOverride: false },
-        security: { jwtAccessTtlMinutes: 30, refreshTtlDays: 7 },
         features: {},
       };
 
@@ -381,7 +372,6 @@ describe('useSystemSettings', () => {
 
       const newSettings = {
         ui: { allowUserThemeOverride: false },
-        security: { jwtAccessTtlMinutes: 30, refreshTtlDays: 7 },
         features: {},
       };
 
@@ -682,21 +672,20 @@ describe('useSystemSettings', () => {
 
       const newSettings = {
         ui: { allowUserThemeOverride: false },
-        security: { jwtAccessTtlMinutes: 30, refreshTtlDays: 7 },
         features: {},
       };
 
       // Should throw when permission is denied
-      await expect(
-        act(async () => {
-          await result.current.replaceSettings(newSettings);
-        })
-      ).rejects.toThrow();
-
-      // Wait for state updates from the finally block to propagate
+      let thrownError: Error | null = null;
       await act(async () => {
-        await new Promise(resolve => setTimeout(resolve, 0));
+        try {
+          await result.current.replaceSettings(newSettings);
+        } catch (err) {
+          thrownError = err as Error;
+        }
       });
+
+      expect(thrownError).not.toBeNull();
 
       // isSaving should be false after error
       expect(result.current?.isSaving).toBe(false);
@@ -711,13 +700,12 @@ describe('useSystemSettings', () => {
         expect(result.current?.settings).not.toBeNull();
       });
 
-      const updates = [
-        result.current.updateSettings({ ui: { allowUserThemeOverride: false } }),
-        result.current.updateSettings({ security: { jwtAccessTtlMinutes: 30, refreshTtlDays: 7 } }),
-      ];
-
+      // Both updates should complete without errors
       await act(async () => {
-        await Promise.all(updates);
+        await Promise.all([
+          result.current.updateSettings({ ui: { allowUserThemeOverride: false } }),
+          result.current.updateSettings({ features: { testFeature: true } }),
+        ]);
       });
 
       // Both should complete without errors
@@ -729,31 +717,32 @@ describe('useSystemSettings', () => {
     it('should clear error after successful update', async () => {
       const { result } = renderHook(() => useSystemSettings());
 
+      // Wait for successful initial load
       await waitFor(() => {
         expect(result.current?.settings).not.toBeNull();
       });
 
-      // Set an error by failing a fetch
-      server.resetHandlers();
+      // First, create an error by making a fetch fail
       server.use(
         http.get('*/api/system-settings', () => {
           return HttpResponse.json(
-            { message: 'Fetch error' },
+            { message: 'Server error' },
             { status: 500 }
           );
         })
       );
 
+      // Refresh to trigger the error
       await act(async () => {
         await result.current.refresh();
       });
 
-      // Should have an error
+      // Should have an error now
       await waitFor(() => {
         expect(result.current?.error).not.toBeNull();
       });
 
-      // Now reset and do a successful update
+      // Now restore handlers and do a successful update to clear the error
       server.resetHandlers();
 
       await act(async () => {
@@ -761,7 +750,7 @@ describe('useSystemSettings', () => {
       });
 
       // Error should be cleared by the successful update
-      expect(result.current?.error).toBeNull();
+      expect(result.current.error).toBeNull();
     });
   });
 });

@@ -1,10 +1,32 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { render, mockAdminUser } from '../../utils/test-utils';
-import { AllowlistTable } from '../../../components/admin/AllowlistTable';
+/**
+ * Component tests — Admin → Allowlist, after the DataTable migration (#67).
+ *
+ * Table mechanics (pagination round-trips, select-all, CSV escaping, the column
+ * picker, the axe pass, keyboard navigation) are asserted once by
+ * `runDataTableConformanceSuite` and are NOT repeated here. The suite is not
+ * invoked with these columns either: nothing in them renders anything the
+ * built-in fixture does not already exercise — a chip, plain text and a
+ * truncated cell are all in the fixture.
+ *
+ * Gone from the old file: `TableContainer` markup, `TablePagination` internals,
+ * and — the substantive one — the `window.confirm` spy. The native dialog is
+ * replaced by the row action's own `confirm` option, so the confirmation is now
+ * asserted as a real dialog with real buttons rather than as a stubbed global.
+ */
 
-// Mock the hooks
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
+import { screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { render, mockAdminUser, type MockUser } from '../../utils/test-utils';
+import { AllowlistTable } from '../../../components/admin/AllowlistTable';
+import {
+  installLayoutStubs,
+  resetContainerWidth,
+  setInitialContainerWidth,
+} from '../../../components/datatable/__tests__/testUtils/layoutStubs';
+import { api } from '../../../services/api';
+import type { AllowedEmailEntry } from '../../../types';
+
 vi.mock('../../../hooks/useAllowlist', () => ({
   useAllowlist: vi.fn(),
 }));
@@ -13,603 +35,351 @@ import { useAllowlist } from '../../../hooks/useAllowlist';
 
 const mockUseAllowlist = vi.mocked(useAllowlist);
 
+// ---------------------------------------------------------------------------
+// Fixtures
+// ---------------------------------------------------------------------------
+
+const pendingEntry: AllowedEmailEntry = {
+  id: 'entry-1',
+  email: 'pending@example.com',
+  notes: 'Test note',
+  addedAt: '2024-01-15T10:00:00Z',
+  claimedAt: null,
+  addedBy: { id: 'admin-id', email: 'admin@example.com' },
+  claimedBy: null,
+};
+
+const claimedEntry: AllowedEmailEntry = {
+  id: 'entry-2',
+  email: 'claimed@example.com',
+  notes: null,
+  addedAt: '2024-01-15T10:00:00Z',
+  claimedAt: '2024-01-16T10:00:00Z',
+  addedBy: { id: 'admin-id', email: 'admin@example.com' },
+  claimedBy: { id: 'user-id', email: 'user@example.com' },
+};
+
+/** A seeded entry: no `addedBy`, which the column renders as "System". */
+const systemEntry: AllowedEmailEntry = {
+  id: 'entry-3',
+  email: 'seeded@example.com',
+  notes: null,
+  addedAt: '2024-01-14T10:00:00Z',
+  claimedAt: null,
+  addedBy: null,
+  claimedBy: null,
+};
+
+const mockFetchAllowlist = vi.fn();
+const mockAddEmail = vi.fn();
+const mockRemoveEmail = vi.fn();
+
+function userWith(permissions: string[]): MockUser {
+  return { ...mockAdminUser, permissions };
+}
+
+function setHookState({
+  entries = [] as AllowedEmailEntry[],
+  total = entries.length,
+  isLoading = false,
+  error = null as string | null,
+} = {}) {
+  mockUseAllowlist.mockReturnValue({
+    entries,
+    total,
+    page: 1,
+    pageSize: 10,
+    totalPages: 1,
+    isLoading,
+    error,
+    fetchAllowlist: mockFetchAllowlist,
+    addEmail: mockAddEmail,
+    removeEmail: mockRemoveEmail,
+  });
+}
+
+function renderTable(permissions: string[] = mockAdminUser.permissions, width = 1400) {
+  setInitialContainerWidth(width);
+  return render(<AllowlistTable />, { wrapperOptions: { user: userWith(permissions) } });
+}
+
+async function pickOption(
+  user: ReturnType<typeof userEvent.setup>,
+  label: string,
+  option: string,
+) {
+  await user.click(screen.getByRole('combobox', { name: label }));
+  const listbox = await screen.findByRole('listbox');
+  await user.click(within(listbox).getByRole('option', { name: option }));
+}
+
+// ---------------------------------------------------------------------------
+
 describe('AllowlistTable', () => {
-  const mockFetchAllowlist = vi.fn();
-  const mockAddEmail = vi.fn();
-  const mockRemoveEmail = vi.fn();
-
-  const mockPendingEntry = {
-    id: 'entry-1',
-    email: 'pending@example.com',
-    notes: 'Test note',
-    addedById: 'admin-id',
-    addedAt: '2024-01-15T10:00:00Z',
-    claimedById: null,
-    claimedAt: null,
-    addedBy: {
-      id: 'admin-id',
-      email: 'admin@example.com',
-    },
-    claimedBy: null,
-  };
-
-  const mockClaimedEntry = {
-    id: 'entry-2',
-    email: 'claimed@example.com',
-    notes: null,
-    addedById: 'admin-id',
-    addedAt: '2024-01-15T10:00:00Z',
-    claimedById: 'user-id',
-    claimedAt: '2024-01-16T10:00:00Z',
-    addedBy: {
-      id: 'admin-id',
-      email: 'admin@example.com',
-    },
-    claimedBy: {
-      id: 'user-id',
-      email: 'user@example.com',
-    },
-  };
+  beforeAll(() => {
+    installLayoutStubs();
+  });
 
   beforeEach(() => {
     vi.clearAllMocks();
-
-    // Default mock implementation
-    mockUseAllowlist.mockReturnValue({
-      entries: [],
-      total: 0,
-      isLoading: false,
-      error: null,
-      fetchAllowlist: mockFetchAllowlist,
-      addEmail: mockAddEmail.mockResolvedValue(undefined),
-      removeEmail: mockRemoveEmail.mockResolvedValue(undefined),
-    });
+    resetContainerWidth(1400);
+    vi.spyOn(api, 'get').mockResolvedValue({ dataTables: {} } as never);
+    vi.spyOn(api, 'patch').mockResolvedValue({} as never);
+    mockAddEmail.mockResolvedValue(undefined);
+    mockRemoveEmail.mockResolvedValue(undefined);
+    setHookState();
   });
 
-  describe('Rendering', () => {
-    it('should render table with entries', async () => {
-      mockUseAllowlist.mockReturnValue({
-        entries: [mockPendingEntry, mockClaimedEntry],
-        total: 2,
-        isLoading: false,
-        error: null,
-        fetchAllowlist: mockFetchAllowlist,
-        addEmail: mockAddEmail,
-        removeEmail: mockRemoveEmail,
-      });
-
-      render(<AllowlistTable />, {
-        wrapperOptions: { user: mockAdminUser },
-      });
-
-      await waitFor(() => {
-        expect(screen.getByText('pending@example.com')).toBeInTheDocument();
-        expect(screen.getByText('claimed@example.com')).toBeInTheDocument();
-      });
-    });
-
-    it('should show loading spinner while loading', () => {
-      mockUseAllowlist.mockReturnValue({
-        entries: [],
-        total: 0,
-        isLoading: true,
-        error: null,
-        fetchAllowlist: mockFetchAllowlist,
-        addEmail: mockAddEmail,
-        removeEmail: mockRemoveEmail,
-      });
-
-      render(<AllowlistTable />, {
-        wrapperOptions: { user: mockAdminUser },
-      });
-
-      expect(screen.getByRole('progressbar')).toBeInTheDocument();
-    });
-
-    it('should show error alert when error exists', async () => {
-      mockUseAllowlist.mockReturnValue({
-        entries: [],
-        total: 0,
-        isLoading: false,
-        error: 'Failed to load allowlist',
-        fetchAllowlist: mockFetchAllowlist,
-        addEmail: mockAddEmail,
-        removeEmail: mockRemoveEmail,
-      });
-
-      render(<AllowlistTable />, {
-        wrapperOptions: { user: mockAdminUser },
-      });
-
-      await waitFor(() => {
-        expect(screen.getByText('Failed to load allowlist')).toBeInTheDocument();
-      });
-    });
-
-    it('should show empty state when no entries', async () => {
-      mockUseAllowlist.mockReturnValue({
-        entries: [],
-        total: 0,
-        isLoading: false,
-        error: null,
-        fetchAllowlist: mockFetchAllowlist,
-        addEmail: mockAddEmail,
-        removeEmail: mockRemoveEmail,
-      });
-
-      render(<AllowlistTable />, {
-        wrapperOptions: { user: mockAdminUser },
-      });
-
-      await waitFor(() => {
-        expect(screen.getByText('No emails in allowlist')).toBeInTheDocument();
-      });
-    });
-
-    it('should show search empty state when no results', async () => {
-      mockUseAllowlist.mockReturnValue({
-        entries: [],
-        total: 0,
-        isLoading: false,
-        error: null,
-        fetchAllowlist: mockFetchAllowlist,
-        addEmail: mockAddEmail,
-        removeEmail: mockRemoveEmail,
-      });
-
-      const user = userEvent.setup();
-
-      render(<AllowlistTable />, {
-        wrapperOptions: { user: mockAdminUser },
-      });
-
-      // Type in search box
-      const searchInput = screen.getByLabelText(/search by email/i);
-      await user.type(searchInput, 'nonexistent');
-
-      await waitFor(() => {
-        expect(
-          screen.getByText('No emails found matching your search'),
-        ).toBeInTheDocument();
-      });
-    });
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
-  describe('Status Display', () => {
-    it('should show "Pending" status for unclaimed entries', async () => {
-      mockUseAllowlist.mockReturnValue({
-        entries: [mockPendingEntry],
-        total: 1,
-        isLoading: false,
-        error: null,
-        fetchAllowlist: mockFetchAllowlist,
-        addEmail: mockAddEmail,
-        removeEmail: mockRemoveEmail,
-      });
+  // =========================================================================
+  // Rendering + column mapping
+  // =========================================================================
 
-      render(<AllowlistTable />, {
-        wrapperOptions: { user: mockAdminUser },
-      });
+  describe('rendering', () => {
+    it('renders one row per entry with the mapped columns', async () => {
+      setHookState({ entries: [pendingEntry, claimedEntry], total: 2 });
+      renderTable();
 
-      await waitFor(() => {
-        expect(screen.getByText('Pending')).toBeInTheDocument();
-      });
+      expect(await screen.findByText('pending@example.com')).toBeInTheDocument();
+      expect(screen.getByText('claimed@example.com')).toBeInTheDocument();
+      expect(screen.getByText('Pending')).toBeInTheDocument();
+      expect(screen.getByText('Claimed')).toBeInTheDocument();
+      expect(screen.getAllByText('admin@example.com').length).toBeGreaterThan(0);
+      expect(screen.getByText('Test note')).toBeInTheDocument();
     });
 
-    it('should show "Claimed" status for claimed entries', async () => {
-      mockUseAllowlist.mockReturnValue({
-        entries: [mockClaimedEntry],
-        total: 1,
-        isLoading: false,
-        error: null,
-        fetchAllowlist: mockFetchAllowlist,
-        addEmail: mockAddEmail,
-        removeEmail: mockRemoveEmail,
-      });
+    it('renders "System" for a seeded entry with no adder, and a dash for absent notes', async () => {
+      setHookState({ entries: [systemEntry], total: 1 });
+      renderTable();
 
-      render(<AllowlistTable />, {
-        wrapperOptions: { user: mockAdminUser },
-      });
-
-      await waitFor(() => {
-        expect(screen.getByText('Claimed')).toBeInTheDocument();
-      });
-    });
-  });
-
-  describe('Remove Button', () => {
-    it('should disable remove button for claimed entries', async () => {
-      mockUseAllowlist.mockReturnValue({
-        entries: [mockClaimedEntry],
-        total: 1,
-        isLoading: false,
-        error: null,
-        fetchAllowlist: mockFetchAllowlist,
-        addEmail: mockAddEmail,
-        removeEmail: mockRemoveEmail,
-      });
-
-      render(<AllowlistTable />, {
-        wrapperOptions: { user: mockAdminUser },
-      });
-
-      await waitFor(() => {
-        expect(screen.getByText('claimed@example.com')).toBeInTheDocument();
-      });
-
-      // Find delete button (it should be disabled)
-      const deleteButtons = screen.getAllByRole('button', { name: '' });
-      const deleteButton = deleteButtons.find((btn) => btn.disabled);
-      expect(deleteButton).toBeDefined();
+      await screen.findByText('seeded@example.com');
+      expect(screen.getByText('System')).toBeInTheDocument();
+      expect(screen.getByText('-')).toBeInTheDocument();
     });
 
-    it('should enable remove button for pending entries', async () => {
-      mockUseAllowlist.mockReturnValue({
-        entries: [mockPendingEntry],
-        total: 1,
-        isLoading: false,
-        error: null,
-        fetchAllowlist: mockFetchAllowlist,
-        addEmail: mockAddEmail,
-        removeEmail: mockRemoveEmail,
-      });
+    it('names every row control after the email', async () => {
+      setHookState({ entries: [pendingEntry], total: 1 });
+      renderTable();
 
-      render(<AllowlistTable />, {
-        wrapperOptions: { user: mockAdminUser },
-      });
-
-      await waitFor(() => {
-        expect(screen.getByText('pending@example.com')).toBeInTheDocument();
-      });
-
-      // Delete button should be enabled
-      const deleteButtons = screen.getAllByRole('button', { name: '' });
-      const enabledDeleteButton = deleteButtons.find(
-        (btn) => !btn.disabled && btn.querySelector('svg'),
-      );
-      expect(enabledDeleteButton).toBeDefined();
-    });
-
-    it('should call removeEmail when remove button clicked and confirmed', async () => {
-      mockUseAllowlist.mockReturnValue({
-        entries: [mockPendingEntry],
-        total: 1,
-        isLoading: false,
-        error: null,
-        fetchAllowlist: mockFetchAllowlist,
-        addEmail: mockAddEmail,
-        removeEmail: mockRemoveEmail,
-      });
-
-      // Mock window.confirm
-      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
-
-      const user = userEvent.setup();
-
-      render(<AllowlistTable />, {
-        wrapperOptions: { user: mockAdminUser },
-      });
-
-      await waitFor(() => {
-        expect(screen.getByText('pending@example.com')).toBeInTheDocument();
-      });
-
-      // Click delete button
-      const deleteButtons = screen.getAllByRole('button', { name: '' });
-      const deleteButton = deleteButtons.find(
-        (btn) => !btn.disabled && btn.querySelector('svg'),
-      );
-      await user.click(deleteButton!);
-
-      expect(confirmSpy).toHaveBeenCalled();
-      expect(mockRemoveEmail).toHaveBeenCalledWith(mockPendingEntry.id);
-
-      confirmSpy.mockRestore();
-    });
-
-    it('should not call removeEmail when remove cancelled', async () => {
-      mockUseAllowlist.mockReturnValue({
-        entries: [mockPendingEntry],
-        total: 1,
-        isLoading: false,
-        error: null,
-        fetchAllowlist: mockFetchAllowlist,
-        addEmail: mockAddEmail,
-        removeEmail: mockRemoveEmail,
-      });
-
-      // Mock window.confirm to return false (cancelled)
-      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
-
-      const user = userEvent.setup();
-
-      render(<AllowlistTable />, {
-        wrapperOptions: { user: mockAdminUser },
-      });
-
-      await waitFor(() => {
-        expect(screen.getByText('pending@example.com')).toBeInTheDocument();
-      });
-
-      // Click delete button
-      const deleteButtons = screen.getAllByRole('button', { name: '' });
-      const deleteButton = deleteButtons.find(
-        (btn) => !btn.disabled && btn.querySelector('svg'),
-      );
-      await user.click(deleteButton!);
-
-      expect(confirmSpy).toHaveBeenCalled();
-      expect(mockRemoveEmail).not.toHaveBeenCalled();
-
-      confirmSpy.mockRestore();
-    });
-  });
-
-  describe('Search Functionality', () => {
-    it('should have search input field', () => {
-      render(<AllowlistTable />, {
-        wrapperOptions: { user: mockAdminUser },
-      });
-
-      expect(screen.getByLabelText(/search by email/i)).toBeInTheDocument();
-    });
-
-    it('should call fetchAllowlist with search parameter', async () => {
-      const user = userEvent.setup();
-
-      render(<AllowlistTable />, {
-        wrapperOptions: { user: mockAdminUser },
-      });
-
-      const searchInput = screen.getByLabelText(/search by email/i);
-      await user.type(searchInput, 'test@example.com');
-
-      await waitFor(() => {
-        expect(mockFetchAllowlist).toHaveBeenCalledWith(
-          expect.objectContaining({
-            search: 'test@example.com',
-            page: 1,
-          }),
-        );
-      });
-    });
-
-    it('should reset to first page when searching', async () => {
-      const user = userEvent.setup();
-
-      render(<AllowlistTable />, {
-        wrapperOptions: { user: mockAdminUser },
-      });
-
-      const searchInput = screen.getByLabelText(/search by email/i);
-      await user.type(searchInput, 'search');
-
-      await waitFor(() => {
-        expect(mockFetchAllowlist).toHaveBeenCalledWith(
-          expect.objectContaining({
-            page: 1,
-          }),
-        );
-      });
-    });
-  });
-
-  describe('Add Email Button', () => {
-    it('should have "Add Email" button', () => {
-      render(<AllowlistTable />, {
-        wrapperOptions: { user: mockAdminUser },
-      });
-
+      await screen.findByText('pending@example.com');
       expect(
-        screen.getByRole('button', { name: /add email/i }),
+        screen.getByRole('button', { name: 'Remove for pending@example.com' }),
       ).toBeInTheDocument();
     });
 
-    it('should open dialog when "Add Email" button clicked', async () => {
-      const user = userEvent.setup();
+    it('surfaces the hook error in an alert', async () => {
+      setHookState({ error: 'Failed to load allowlist' });
+      renderTable();
 
-      render(<AllowlistTable />, {
-        wrapperOptions: { user: mockAdminUser },
-      });
+      expect(await screen.findByText('Failed to load allowlist')).toBeInTheDocument();
+    });
 
-      const addButton = screen.getByRole('button', { name: /add email/i });
-      await user.click(addButton);
+    it('shows the empty state', async () => {
+      renderTable();
+      expect(await screen.findByText('No emails in allowlist')).toBeInTheDocument();
+    });
 
-      await waitFor(() => {
-        expect(
-          screen.getByRole('dialog', { name: /add email to allowlist/i }),
-        ).toBeInTheDocument();
-      });
+    it('keeps rows on screen underneath the loading overlay', async () => {
+      setHookState({ entries: [pendingEntry], total: 1, isLoading: true });
+      renderTable();
+
+      expect(await screen.findByText('pending@example.com')).toBeInTheDocument();
+      expect(screen.getByTestId('datatable-loading-overlay')).toBeInTheDocument();
     });
   });
 
-  describe('Pagination', () => {
-    it('should display pagination controls', async () => {
-      mockUseAllowlist.mockReturnValue({
-        entries: [mockPendingEntry, mockClaimedEntry],
-        total: 25,
-        isLoading: false,
-        error: null,
-        fetchAllowlist: mockFetchAllowlist,
-        addEmail: mockAddEmail,
-        removeEmail: mockRemoveEmail,
-      });
+  // =========================================================================
+  // Fetch + query mapping
+  // =========================================================================
 
-      render(<AllowlistTable />, {
-        wrapperOptions: { user: mockAdminUser },
-      });
-
-      await waitFor(() => {
-        expect(screen.getByText(/1–10 of 25/i)).toBeInTheDocument();
-      });
-    });
-
-    it('should call fetchAllowlist when page changes', async () => {
-      mockUseAllowlist.mockReturnValue({
-        entries: Array.from({ length: 10 }, (_, i) => ({
-          ...mockPendingEntry,
-          id: `entry-${i}`,
-          email: `user${i}@example.com`,
-        })),
-        total: 25,
-        isLoading: false,
-        error: null,
-        fetchAllowlist: mockFetchAllowlist,
-        addEmail: mockAddEmail,
-        removeEmail: mockRemoveEmail,
-      });
-
-      const user = userEvent.setup();
-
-      render(<AllowlistTable />, {
-        wrapperOptions: { user: mockAdminUser },
-      });
-
-      await waitFor(() => {
-        expect(screen.getByLabelText(/next page/i)).toBeInTheDocument();
-      });
-
-      const nextButton = screen.getByLabelText(/next page/i);
-      await user.click(nextButton);
+  describe('query mapping', () => {
+    it('fetches the first page on mount', async () => {
+      renderTable();
 
       await waitFor(() => {
         expect(mockFetchAllowlist).toHaveBeenCalledWith(
-          expect.objectContaining({
-            page: 2,
-          }),
+          expect.objectContaining({ page: 1, pageSize: 10, status: 'all' }),
         );
       });
     });
 
-    it('should have pagination with rows per page selector', async () => {
-      mockUseAllowlist.mockReturnValue({
-        entries: [mockPendingEntry],
-        total: 100,
-        isLoading: false,
-        error: null,
-        fetchAllowlist: mockFetchAllowlist,
-        addEmail: mockAddEmail,
-        removeEmail: mockRemoveEmail,
-      });
+    it('sends the quick-search term as ?search=', async () => {
+      const user = userEvent.setup();
+      renderTable();
 
-      render(<AllowlistTable />, {
-        wrapperOptions: { user: mockAdminUser },
-      });
+      await user.type(screen.getByRole('searchbox', { name: 'Search by email' }), 'ada');
+
+      await waitFor(
+        () => {
+          expect(mockFetchAllowlist).toHaveBeenCalledWith(
+            expect.objectContaining({ search: 'ada', page: 1 }),
+          );
+        },
+        { timeout: 3000 },
+      );
+    });
+
+    it('maps the Status filter onto ?status=', async () => {
+      const user = userEvent.setup();
+      setHookState({ entries: [pendingEntry], total: 1 });
+      renderTable();
+
+      await screen.findByText('pending@example.com');
+      await pickOption(user, 'Value', 'Claimed');
+      await user.click(screen.getByTestId('datatable-filter-apply'));
 
       await waitFor(() => {
-        expect(screen.getByText(/rows per page/i)).toBeInTheDocument();
+        expect(mockFetchAllowlist).toHaveBeenCalledWith(
+          expect.objectContaining({ status: 'claimed' }),
+        );
       });
+    });
 
-      // Pagination controls should be present
-      expect(screen.getByText(/1–10 of 100/i)).toBeInTheDocument();
+    it('sends sortBy/sortOrder only for the fields the endpoint accepts', async () => {
+      const user = userEvent.setup();
+      setHookState({ entries: [pendingEntry], total: 1 });
+      renderTable();
+
+      await screen.findByText('pending@example.com');
+      await user.click(screen.getByRole('columnheader', { name: /^Email/ }));
+
+      await waitFor(() => {
+        expect(mockFetchAllowlist).toHaveBeenCalledWith(
+          expect.objectContaining({ sortBy: 'email', sortOrder: 'asc' }),
+        );
+      });
+    });
+
+    it('offers no sort affordance on Added By or Notes — the service filters on neither', async () => {
+      setHookState({ entries: [pendingEntry], total: 1 });
+      renderTable();
+
+      await screen.findByText('pending@example.com');
+      for (const label of ['Added By', 'Notes']) {
+        const header = screen.getByRole('columnheader', { name: new RegExp(`^${label}`) });
+        expect(header).toHaveAttribute('aria-sort', 'none');
+        expect(within(header).queryByRole('button')).not.toBeInTheDocument();
+      }
     });
   });
 
-  describe('Data Display', () => {
-    it('should display email addresses', async () => {
-      mockUseAllowlist.mockReturnValue({
-        entries: [mockPendingEntry],
-        total: 1,
-        isLoading: false,
-        error: null,
-        fetchAllowlist: mockFetchAllowlist,
-        addEmail: mockAddEmail,
-        removeEmail: mockRemoveEmail,
-      });
+  // =========================================================================
+  // Removal — the confirm dialog that replaced window.confirm
+  // =========================================================================
 
-      render(<AllowlistTable />, {
-        wrapperOptions: { user: mockAdminUser },
-      });
+  describe('removal', () => {
+    it('routes the remove action through the table’s own confirmation dialog', async () => {
+      const user = userEvent.setup();
+      setHookState({ entries: [pendingEntry], total: 1 });
+      renderTable();
 
-      await waitFor(() => {
-        expect(screen.getByText('pending@example.com')).toBeInTheDocument();
-      });
+      await screen.findByText('pending@example.com');
+      await user.click(
+        screen.getByRole('button', { name: 'Remove for pending@example.com' }),
+      );
+
+      const dialog = await screen.findByRole('dialog');
+      expect(within(dialog).getByText('Remove from allowlist?')).toBeInTheDocument();
+      expect(within(dialog).getByText(/pending@example\.com will no longer/i)).toBeInTheDocument();
+      // Not yet — the dialog is a gate, not a receipt.
+      expect(mockRemoveEmail).not.toHaveBeenCalled();
+
+      await user.click(within(dialog).getByRole('button', { name: 'Remove' }));
+      await waitFor(() => expect(mockRemoveEmail).toHaveBeenCalledWith('entry-1'));
     });
 
-    it('should display added by information', async () => {
-      mockUseAllowlist.mockReturnValue({
-        entries: [mockPendingEntry],
-        total: 1,
-        isLoading: false,
-        error: null,
-        fetchAllowlist: mockFetchAllowlist,
-        addEmail: mockAddEmail,
-        removeEmail: mockRemoveEmail,
-      });
+    it('does not remove when the dialog is cancelled', async () => {
+      const user = userEvent.setup();
+      setHookState({ entries: [pendingEntry], total: 1 });
+      renderTable();
 
-      render(<AllowlistTable />, {
-        wrapperOptions: { user: mockAdminUser },
-      });
+      await screen.findByText('pending@example.com');
+      await user.click(
+        screen.getByRole('button', { name: 'Remove for pending@example.com' }),
+      );
 
-      await waitFor(() => {
-        expect(screen.getByText('admin@example.com')).toBeInTheDocument();
-      });
+      const dialog = await screen.findByRole('dialog');
+      await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      expect(mockRemoveEmail).not.toHaveBeenCalled();
     });
 
-    it('should display notes when present', async () => {
-      mockUseAllowlist.mockReturnValue({
-        entries: [mockPendingEntry],
-        total: 1,
-        isLoading: false,
-        error: null,
-        fetchAllowlist: mockFetchAllowlist,
-        addEmail: mockAddEmail,
-        removeEmail: mockRemoveEmail,
-      });
+    it('disables — rather than removes — the action on a claimed entry', async () => {
+      setHookState({ entries: [claimedEntry], total: 1 });
+      renderTable();
 
-      render(<AllowlistTable />, {
-        wrapperOptions: { user: mockAdminUser },
-      });
-
-      await waitFor(() => {
-        expect(screen.getByText('Test note')).toBeInTheDocument();
-      });
+      await screen.findByText('claimed@example.com');
+      // The control stays discoverable (and keeps its tooltip); the API refuses
+      // this too, with a 400.
+      expect(screen.getByRole('button', { name: 'Remove for claimed@example.com' })).toBeDisabled();
     });
 
-    it('should display dash when no notes', async () => {
-      mockUseAllowlist.mockReturnValue({
-        entries: [mockClaimedEntry],
-        total: 1,
-        isLoading: false,
-        error: null,
-        fetchAllowlist: mockFetchAllowlist,
-        addEmail: mockAddEmail,
-        removeEmail: mockRemoveEmail,
-      });
+    it('leaves the action enabled on a pending entry', async () => {
+      setHookState({ entries: [pendingEntry], total: 1 });
+      renderTable();
 
-      render(<AllowlistTable />, {
-        wrapperOptions: { user: mockAdminUser },
-      });
+      await screen.findByText('pending@example.com');
+      expect(
+        screen.getByRole('button', { name: 'Remove for pending@example.com' }),
+      ).toBeEnabled();
+    });
+  });
 
-      await waitFor(() => {
-        const cells = screen.getAllByRole('cell');
-        expect(cells.some((cell) => cell.textContent === '-')).toBe(true);
-      });
+  // =========================================================================
+  // The table-level action, now in the page header
+  // =========================================================================
+
+  describe('add email', () => {
+    it('offers "Add Email" outside the table and opens its dialog', async () => {
+      const user = userEvent.setup();
+      renderTable();
+
+      const addButton = screen.getByRole('button', { name: /add email/i });
+      // It belongs to neither a row nor a selection, so it must not live inside
+      // the table wrapper.
+      expect(screen.getByTestId('admin-allowlist-table')).not.toContainElement(addButton);
+
+      await user.click(addButton);
+      expect(await screen.findByRole('dialog')).toHaveTextContent('Add Email to Allowlist');
     });
 
-    it('should format dates', async () => {
-      mockUseAllowlist.mockReturnValue({
-        entries: [mockPendingEntry],
-        total: 1,
-        isLoading: false,
-        error: null,
-        fetchAllowlist: mockFetchAllowlist,
-        addEmail: mockAddEmail,
-        removeEmail: mockRemoveEmail,
-      });
+    it('adds the email through the hook', async () => {
+      const user = userEvent.setup();
+      renderTable();
 
-      render(<AllowlistTable />, {
-        wrapperOptions: { user: mockAdminUser },
-      });
+      await user.click(screen.getByRole('button', { name: /add email/i }));
+      const dialog = await screen.findByRole('dialog');
+      await user.type(within(dialog).getByLabelText(/email address/i), 'new@example.com');
+      await user.click(within(dialog).getByRole('button', { name: /^add email$/i }));
 
-      await waitFor(() => {
-        // Date should be formatted (actual format depends on locale)
-        const cells = screen.getAllByRole('cell');
-        const dateCell = Array.from(cells).find((cell) =>
-          cell.textContent?.includes('2024') || cell.textContent?.includes('/'),
-        );
-        expect(dateCell).toBeDefined();
-      });
+      await waitFor(() =>
+        expect(mockAddEmail).toHaveBeenCalledWith('new@example.com', undefined),
+      );
+    });
+  });
+
+  // =========================================================================
+  // Permission gating — ABSENT from the DOM
+  // =========================================================================
+
+  describe('permission gating', () => {
+    it('omits the remove action and the Add Email button without allowlist:write', async () => {
+      setHookState({ entries: [pendingEntry], total: 1 });
+      renderTable(['allowlist:read']);
+
+      await screen.findByText('pending@example.com');
+      expect(
+        screen.queryByRole('button', { name: 'Remove for pending@example.com' }),
+      ).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /add email/i })).not.toBeInTheDocument();
+      // Not merely disabled — the whole Actions column is gone with the array.
+      expect(
+        screen.queryByRole('columnheader', { name: /^Actions/ }),
+      ).not.toBeInTheDocument();
     });
   });
 });

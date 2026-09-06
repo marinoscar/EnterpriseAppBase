@@ -5,15 +5,22 @@ node_modules/
 dist/
 build/
 .next/
+*.tsbuildinfo
 
 # Environment files
 .env
 .env.local
 .env.*.local
+# The worker fleet's own env file (epic #254). `.env.worker.example` beside it
+# is committed; the filled-in copy holds a node credential and is not.
+.env.worker
 
 # IDE
 .idea/
-.vscode/
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/extensions.json
 *.swp
 *.swo
 
@@ -34,10 +41,36 @@ coverage/
 apps/api/prisma/*.db
 apps/api/prisma/*.db-journal
 
+# SQLite sync databases
+sync.db
+sync.db-journal
+
 # Docker
 .docker/
+
+# Worktrees
+worktrees/
+
+# OpenAPI dump — a CI artifact regenerated from the running app, never committed
+openapi.json
 
 # Misc
 *.tgz
 .cache/
 nul
+
+# Source modules whose filenames collide with a global secrets-ignore pattern.
+#
+# A machine-level excludesFile (e.g. ~/.config/git/ignore) that blocks
+# `credentials.*` / `secrets.*` to stop real secret files being committed is
+# good hygiene, and it has a false positive here: `credentials.service.ts` is
+# ORDINARY SOURCE. Without these negations `git add <dir>` skips those files
+# silently — no warning, no error — and the commit lands with `app.module.ts`
+# importing a module that is not in the repository. That happened once already
+# (issue #115); it passes locally, because the files are on disk, and only
+# fails for CI and for the next person to clone.
+#
+# Repo .gitignore takes precedence over the global excludesFile, so these
+# re-include the source without weakening the global rule anywhere else.
+!apps/api/src/credentials/
+!apps/api/src/credentials/**

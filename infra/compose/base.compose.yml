@@ -18,7 +18,7 @@ services:
   # Nginx - Reverse Proxy
   # ---------------------------------------------------------------------------
   nginx:
-    image: nginx:alpine
+    image: nginx:1.30-alpine
     ports:
       - "3535:80"
     volumes:
@@ -34,36 +34,51 @@ services:
   # ---------------------------------------------------------------------------
   api:
     build:
-      context: ../../apps/api
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    # EVERY variable in .env reaches the container, not a hand-maintained subset.
+    #
+    # This block used to be an allow-list, and the keys it forgot were exactly
+    # the ones whose absence is silent: APP_URL, COOKIE_SECRET,
+    # SECRETS_ENCRYPTION_KEY, every DEVICE_* and every storage limit. An
+    # operator would set SECRETS_ENCRYPTION_KEY in .env, watch the app boot with
+    # the "no encryption key" warning anyway, and have nothing pointing at
+    # compose as the cause.
+    #
+    # It was also hostile to forks of this template: adding a variable to
+    # .env.example was not enough, you had to remember to add it here too, and
+    # nothing told you otherwise. With env_file, .env.example IS the contract.
+    #
+    # `required: false` keeps a missing .env a soft condition, as it was before
+    # this block existed: `docker compose config` and a fresh clone still work,
+    # falling back to the defaults below. Without it, every compose invocation
+    # fails outright until the file is created.
+    env_file:
+      - path: .env
+        required: false
     environment:
+      # ONLY keys that need a COMPOSE-LEVEL DEFAULT when .env omits them.
+      #
+      # Do not add a bare `- FOO=${FOO}` here. `environment` overrides
+      # `env_file`, and an unset FOO interpolates to an empty string — so the
+      # entry would blank out the value .env just supplied. Every line below
+      # therefore carries a `:-default`.
       - NODE_ENV=${NODE_ENV:-development}
       - PORT=${PORT:-3000}
-      # Database connection (individual variables)
+      # Database connection (individual variables; DATABASE_URL is derived)
       - POSTGRES_HOST=${POSTGRES_HOST:-db}
       - POSTGRES_PORT=${POSTGRES_PORT:-5432}
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
       - POSTGRES_DB=${POSTGRES_DB:-appdb}
       - POSTGRES_SSL=${POSTGRES_SSL:-false}
-      # JWT
-      - JWT_SECRET=${JWT_SECRET}
+      # JWT lifetimes (JWT_SECRET and COOKIE_SECRET arrive via env_file)
       - JWT_ACCESS_TTL_MINUTES=${JWT_ACCESS_TTL_MINUTES:-15}
       - JWT_REFRESH_TTL_DAYS=${JWT_REFRESH_TTL_DAYS:-14}
-      # OAuth
-      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
-      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
-      - GOOGLE_CALLBACK_URL=${GOOGLE_CALLBACK_URL}
-      # Admin bootstrap
-      - INITIAL_ADMIN_EMAIL=${INITIAL_ADMIN_EMAIL}
-      # Observability
+      # Observability: off unless asked for, so the otel overlay is opt-in
       - OTEL_ENABLED=${OTEL_ENABLED:-false}
-      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT}
       - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-enterprise-app-api}
       - LOG_LEVEL=${LOG_LEVEL:-info}
-    depends_on:
-      db:
-        condition: service_healthy
     networks:
       - app-network
 
@@ -72,27 +87,8 @@ services:
   # ---------------------------------------------------------------------------
   web:
     build:
-      context: ../../apps/web
-      dockerfile: Dockerfile
-    networks:
-      - app-network
-
-  # ---------------------------------------------------------------------------
-  # Database - PostgreSQL
-  # ---------------------------------------------------------------------------
-  db:
-    image: postgres:15-alpine
-    environment:
-      - POSTGRES_USER=${POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
-      - POSTGRES_DB=${POSTGRES_DB:-appdb}
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+      context: ../..
+      dockerfile: apps/web/Dockerfile
     networks:
       - app-network
 
@@ -103,8 +99,3 @@ networks:
   app-network:
     driver: bridge
 
-# =============================================================================
-# Volumes
-# =============================================================================
-volumes:
-  postgres-data:

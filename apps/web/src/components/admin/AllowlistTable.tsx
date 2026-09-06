@@ -1,204 +1,212 @@
-import { useState, useEffect } from 'react';
-import {
-  Paper,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  TablePagination,
-  TextField,
-  Button,
-  IconButton,
-  Chip,
-  Box,
-  Typography,
-  Tooltip,
-  CircularProgress,
-  Alert,
-} from '@mui/material';
-import { Delete as DeleteIcon, Add as AddIcon } from '@mui/icons-material';
+/**
+ * Admin → Allowlist (issue #67, epic #51).
+ *
+ * The hand-rolled `TableContainer` block is deleted wholesale. Three specific
+ * conversions, each of them a shape the card renderer could not otherwise have:
+ *
+ *  1. **`window.confirm` → the row action's own `confirm` option.** The native
+ *     dialog blocked the event loop, could not be styled or translated, and
+ *     needed a global stub to test. `DataTableRowAction.confirm` gives ONE
+ *     dialog per table, owned by the renderer, with copy derived from the row.
+ *  2. **"Cannot remove a claimed entry" → `disabled: (e) => Boolean(e.claimedBy)`.**
+ *     The old code branched between a disabled `IconButton` wrapped in a
+ *     Tooltip and a live one; the contract expresses that as one action with a
+ *     per-row predicate, and `RowActionsCell` keeps the tooltip working over
+ *     the disabled control.
+ *  3. **"Add Email" moved OUT of the table into this page's header.** It is a
+ *     TABLE-level action — it belongs to neither a row nor a selection — so it
+ *     has no home inside a renderer that only knows about rows. It sits above
+ *     the table, next to the heading, where it is the same control at every
+ *     width.
+ *
+ * The search box is gone from this file entirely: quick search is now the
+ * table's own control, debounced on emission, and it renders as a bar on
+ * desktop and a full-screen sheet on a phone.
+ */
+
+import { useEffect, useMemo, useState } from 'react';
+import { Alert, Box, Button, Paper, Stack, Typography } from '@mui/material';
+import { Add as AddIcon, Delete as DeleteIcon } from '@mui/icons-material';
+import { DataTable } from '../datatable';
+import type {
+  DataTableFilterModel,
+  DataTableRowAction,
+  DataTableSortState,
+} from '../datatable';
 import { useAllowlist } from '../../hooks/useAllowlist';
+import { usePermissions } from '../../hooks/usePermissions';
+import { getAllowlist } from '../../services/api';
 import { AddEmailDialog } from './AddEmailDialog';
 import type { AllowedEmailEntry } from '../../types';
+import { TABLE_ID, asAllowlistSortField, buildAllowlistColumns } from './allowlistColumns';
+
+type AllowlistStatus = 'all' | 'pending' | 'claimed';
+
+/** The `status` query param, read out of the filter model as a SCALAR. */
+function readStatusFilter(filters: DataTableFilterModel): AllowlistStatus {
+  const found = filters.find(
+    (filter) => filter.columnId === 'status' && filter.operator === 'is',
+  );
+  return found?.value === 'pending' || found?.value === 'claimed' ? found.value : 'all';
+}
 
 export function AllowlistTable() {
-  const {
-    entries,
-    total,
-    isLoading,
-    error,
-    fetchAllowlist,
-    addEmail,
-    removeEmail,
-  } = useAllowlist();
+  const { entries, total, isLoading, error, fetchAllowlist, addEmail, removeEmail } =
+    useAllowlist();
+  const { hasPermission } = usePermissions();
 
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(10);
+  const [sort, setSort] = useState<DataTableSortState | null>(null);
+  const [filters, setFilters] = useState<DataTableFilterModel>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [currentPage, setCurrentPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(10);
 
-  // Fetch data on mount and when pagination changes
+  const columns = useMemo(() => buildAllowlistColumns(), []);
+
+  // --- Query params, flattened to scalars ------------------------------------
+  const status = useMemo(() => readStatusFilter(filters), [filters]);
+  const sortField = asAllowlistSortField(sort?.field);
+  const sortDirection = sort?.direction;
+
   useEffect(() => {
     fetchAllowlist({
-      page: currentPage + 1,
-      pageSize: rowsPerPage,
+      page: page + 1,
+      pageSize,
       search: search || undefined,
+      status,
+      ...(sortField ? { sortBy: sortField, sortOrder: sortDirection } : {}),
     });
-  }, [currentPage, rowsPerPage, search, fetchAllowlist]);
+    // Scalars only — `entries` is replaced on every fetch, so nothing here may
+    // depend on a row object.
+  }, [page, pageSize, search, status, sortField, sortDirection, fetchAllowlist]);
 
-  const handleSearchChange = (value: string) => {
-    setSearch(value);
-    setCurrentPage(0); // Reset to first page on search
-  };
+  // --- Row actions ------------------------------------------------------------
+  const canWrite = hasPermission('allowlist:write');
 
-  const handleChangePage = (_: unknown, newPage: number) => {
-    setCurrentPage(newPage);
-  };
+  const rowActions = useMemo(() => {
+    // DELETE /api/allowlist/{id} enforces allowlist:write. Gating the ARRAY (as
+    // opposed to a rendered `<TableCell>`) removes the control from the grid,
+    // the tablet row expander and the card header in one move.
+    if (!canWrite) return [] as DataTableRowAction<AllowedEmailEntry>[];
 
-  const handleChangeRowsPerPage = (
-    event: React.ChangeEvent<HTMLInputElement>,
-  ) => {
-    setRowsPerPage(parseInt(event.target.value, 10));
-    setCurrentPage(0);
-  };
+    return [
+      {
+        id: 'remove',
+        label: 'Remove',
+        icon: <DeleteIcon fontSize="small" />,
+        destructive: true,
+        // The server refuses this too (`allowlist.service.ts` raises 400 on a
+        // claimed entry); disabling keeps the control and its tooltip
+        // discoverable rather than making the row silently actionless.
+        disabled: (entry) => Boolean(entry.claimedBy),
+        confirm: {
+          title: 'Remove from allowlist?',
+          description: (entry) =>
+            `${entry.email} will no longer be able to sign in. This cannot be undone.`,
+          confirmLabel: 'Remove',
+        },
+        onClick: (entry) => {
+          void removeEmail(entry.id).catch(() => {
+            /* surfaced through the hook's `error` */
+          });
+        },
+      },
+    ] satisfies DataTableRowAction<AllowedEmailEntry>[];
+  }, [canWrite, removeEmail]);
 
-  const handleRemove = async (id: string) => {
-    if (window.confirm('Are you sure you want to remove this email from the allowlist?')) {
-      try {
-        await removeEmail(id);
-      } catch (err) {
-        // Error is handled by the hook
-      }
-    }
-  };
-
-  const handleAddEmail = async (email: string, notes?: string) => {
-    await addEmail(email, notes);
-  };
-
-  const getStatusChip = (entry: AllowedEmailEntry) => {
-    if (entry.claimedBy) {
-      return <Chip label="Claimed" color="success" size="small" />;
-    }
-    return <Chip label="Pending" color="warning" size="small" />;
-  };
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleString();
-  };
+  const emptyState = useMemo(
+    () => (
+      <Typography color="text.secondary">
+        {search ? 'No emails found matching your search' : 'No emails in allowlist'}
+      </Typography>
+    ),
+    [search],
+  );
 
   return (
-    <Paper sx={{ width: '100%', overflow: 'hidden' }}>
-      <Box sx={{ p: 2, display: 'flex', gap: 2, alignItems: 'center' }}>
-        <TextField
-          label="Search by email"
-          variant="outlined"
-          size="small"
-          value={search}
-          onChange={(e) => handleSearchChange(e.target.value)}
-          sx={{ flexGrow: 1 }}
-        />
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => setDialogOpen(true)}
-        >
-          Add Email
-        </Button>
-      </Box>
+    <Paper sx={{ width: '100%', p: 2 }}>
+      {/* Table-level action: not a row action, not a bulk action. */}
+      <Stack
+        direction={{ xs: 'column', sm: 'row' }}
+        spacing={1}
+        sx={{ mb: 2, alignItems: { sm: 'center' }, justifyContent: 'space-between' }}
+      >
+        <Typography variant="h6" component="h2">
+          Email allowlist
+        </Typography>
+        {canWrite && (
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => setDialogOpen(true)}
+          >
+            Add Email
+          </Button>
+        )}
+      </Stack>
 
       {error && (
-        <Alert severity="error" sx={{ mx: 2, mb: 2 }}>
+        <Alert severity="error" sx={{ mb: 2 }}>
           {error}
         </Alert>
       )}
 
-      {isLoading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
-          <CircularProgress />
-        </Box>
-      ) : entries.length === 0 ? (
-        <Box sx={{ p: 4, textAlign: 'center' }}>
-          <Typography color="text.secondary">
-            {search ? 'No emails found matching your search' : 'No emails in allowlist'}
-          </Typography>
-        </Box>
-      ) : (
-        <>
-          <TableContainer>
-            <Table>
-              <TableHead>
-                <TableRow>
-                  <TableCell>Email</TableCell>
-                  <TableCell>Status</TableCell>
-                  <TableCell>Added By</TableCell>
-                  <TableCell>Added Date</TableCell>
-                  <TableCell>Notes</TableCell>
-                  <TableCell align="right">Actions</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {entries.map((entry) => (
-                  <TableRow key={entry.id} hover>
-                    <TableCell>{entry.email}</TableCell>
-                    <TableCell>{getStatusChip(entry)}</TableCell>
-                    <TableCell>
-                      {entry.addedBy ? entry.addedBy.email : 'System'}
-                    </TableCell>
-                    <TableCell>{formatDate(entry.addedAt)}</TableCell>
-                    <TableCell>
-                      {entry.notes ? (
-                        <Typography variant="body2" sx={{ maxWidth: 200 }}>
-                          {entry.notes}
-                        </Typography>
-                      ) : (
-                        <Typography variant="body2" color="text.secondary">
-                          -
-                        </Typography>
-                      )}
-                    </TableCell>
-                    <TableCell align="right">
-                      {entry.claimedBy ? (
-                        <Tooltip title="Cannot remove claimed emails">
-                          <span>
-                            <IconButton size="small" disabled>
-                              <DeleteIcon />
-                            </IconButton>
-                          </span>
-                        </Tooltip>
-                      ) : (
-                        <IconButton
-                          size="small"
-                          onClick={() => handleRemove(entry.id)}
-                          color="error"
-                        >
-                          <DeleteIcon />
-                        </IconButton>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
-          <TablePagination
-            component="div"
-            count={total}
-            page={currentPage}
-            onPageChange={handleChangePage}
-            rowsPerPage={rowsPerPage}
-            onRowsPerPageChange={handleChangeRowsPerPage}
-            rowsPerPageOptions={[5, 10, 25, 50]}
-          />
-        </>
-      )}
+      <Box sx={{ minWidth: 0 }}>
+        <DataTable<AllowedEmailEntry>
+          tableId={TABLE_ID}
+          data-testid="admin-allowlist-table"
+          ariaLabel="Email allowlist"
+          columns={columns}
+          rows={entries}
+          rowId={(entry) => entry.id}
+          loading={isLoading}
+          emptyState={emptyState}
+          pagination={{
+            page,
+            pageSize,
+            total,
+            pageSizeOptions: [5, 10, 25, 50],
+            onPaginationChange: (next) => {
+              setPage(next.page);
+              setPageSize(next.pageSize);
+            },
+          }}
+          sort={{ sort, onSortChange: setSort }}
+          filters={filters}
+          onFiltersChange={(next) => {
+            setFilters(next);
+            setPage(0);
+          }}
+          quickSearch={{
+            value: search,
+            ariaLabel: 'Search by email',
+            placeholder: 'Search by email',
+            onChange: (next) => {
+              setSearch(next);
+              setPage(0);
+            },
+          }}
+          rowActions={rowActions}
+          csvExport={{
+            filename: 'allowlist',
+            fetchAllRows: async ({ page: exportPage, pageSize: exportPageSize }) => {
+              const response = await getAllowlist({
+                page: exportPage + 1,
+                pageSize: exportPageSize,
+                search: search || undefined,
+                status,
+              });
+              return response.items;
+            },
+          }}
+        />
+      </Box>
 
       <AddEmailDialog
         open={dialogOpen}
         onClose={() => setDialogOpen(false)}
-        onAdd={handleAddEmail}
+        onAdd={addEmail}
       />
     </Paper>
   );

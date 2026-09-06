@@ -59,6 +59,33 @@ export const mockPermissions = {
     name: 'allowlist:write',
     description: 'Modify allowlist',
   },
+  // The background queue's admin surface (#264, epic #254). Seeded to Admin
+  // only in `prisma/seed-data.ts`, and mirrored that way below.
+  jobsRead: {
+    id: randomUUID(),
+    name: 'jobs:read',
+    description: 'View queued, running and completed jobs',
+  },
+  jobsWrite: {
+    id: randomUUID(),
+    name: 'jobs:write',
+    description: 'Enqueue, retry and cancel jobs',
+  },
+  // The worker fleet (#267, epic #254). Split from `jobs:*` deliberately —
+  // see `common/constants/roles.constants.ts` — and, like the queue's pair,
+  // seeded to Admin ONLY in `prisma/seed-data.ts`. Mirrored that way below so
+  // an integration test that expects a viewer to be refused a node surface is
+  // testing the real grant and not a fixture that happened to be generous.
+  nodesRead: {
+    id: randomUUID(),
+    name: 'nodes:read',
+    description: 'View worker nodes and their health',
+  },
+  nodesWrite: {
+    id: randomUUID(),
+    name: 'nodes:write',
+    description: 'Register, drain and remove worker nodes',
+  },
 };
 
 export const mockRoles = {
@@ -240,7 +267,6 @@ export function createMockSystemSettings(
     key = 'default',
     value = {
       ui: { allowUserThemeOverride: true },
-      security: { jwtAccessTtlMinutes: 15, refreshTtlDays: 14 },
       features: {},
     },
     version = 1,
@@ -351,6 +377,10 @@ export const rolePermissionsMap = {
     mockPermissions.rbacManage,
     mockPermissions.allowlistRead,
     mockPermissions.allowlistWrite,
+    mockPermissions.jobsRead,
+    mockPermissions.jobsWrite,
+    mockPermissions.nodesRead,
+    mockPermissions.nodesWrite,
   ],
   contributor: [
     mockPermissions.userSettingsRead,

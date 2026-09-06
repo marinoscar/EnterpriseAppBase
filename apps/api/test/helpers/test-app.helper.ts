@@ -5,8 +5,8 @@ import {
 } from '@nestjs/platform-fastify';
 import fastifyCookie from '@fastify/cookie';
 import { AppModule } from '../../src/app.module';
+import { JobWorker } from '../../src/jobs/job.worker';
 import { PrismaService } from '../../src/prisma/prisma.service';
-import { ValidationPipe } from '@nestjs/common';
 import { prismaMock } from '../mocks/prisma.mock';
 
 export interface TestContext {
@@ -25,6 +25,31 @@ export interface TestAppOptions {
    * Set to false only for true E2E tests that need a real database
    */
   useMockDatabase?: boolean;
+
+  /**
+   * Called after the global prefix is set but before `init()` — the same point
+   * in the boot sequence `main.ts` uses.
+   *
+   * Exists for `registerDocsRoutes`, which adds raw Fastify routes: Fastify
+   * refuses new routes once its root plugin has booted, so a spec cannot add
+   * them after `createTestApp` returns.
+   */
+  registerRoutes?: (app: NestFastifyApplication) => void;
+
+  /**
+   * Additional provider substitutions applied on top of the mandatory
+   * `PrismaService` mock, e.g. `{ provide: CredentialsService, useValue: stub }`.
+   *
+   * Exists so a full-`AppModule` integration spec (issue #124's email-settings
+   * suite is the first user) can control a narrow slice of the app — a
+   * transport it does not want to hit the network, a service it wants to drive
+   * with a controllable stub — while every other provider stays the REAL one
+   * wired by `AppModule`. Only `PrismaService` gets a mock unconditionally;
+   * everything else opts in here, one entry per provider, so a spec's fixture
+   * list is a visible, reviewable diff rather than a growing pile of module
+   * overrides only that spec knows about.
+   */
+  overrideProviders?: Array<{ provide: unknown; useValue: unknown }>;
 }
 
 /**
@@ -41,12 +66,27 @@ export async function createTestApp(
 
   if (shouldUseMock) {
     // Create test module with mocked PrismaService
-    moduleFixture = await Test.createTestingModule({
+    let builder = Test.createTestingModule({
       imports: [AppModule],
     })
       .overrideProvider(PrismaService)
       .useValue(prismaMock)
-      .compile();
+      // The background job worker (#262) starts a polling pool from
+      // `onApplicationBootstrap`, which `app.init()` below reaches. Against a
+      // mocked database it would claim nothing, log a failure every poll
+      // interval, and add a timer to every spec in the suite for no benefit —
+      // no test that uses this helper is about background execution. Its own
+      // behaviour is covered by `src/jobs/job.worker.spec.ts` and
+      // `src/jobs/job.worker.bootstrap.spec.ts`, both of which drive it
+      // deliberately.
+      .overrideProvider(JobWorker)
+      .useValue({});
+
+    for (const { provide, useValue } of options.overrideProviders ?? []) {
+      builder = builder.overrideProvider(provide).useValue(useValue);
+    }
+
+    moduleFixture = await builder.compile();
   } else {
     // Create test module with real database (for true E2E tests)
     moduleFixture = await Test.createTestingModule({
@@ -64,12 +104,10 @@ export async function createTestApp(
   });
 
   app.setGlobalPrefix('api');
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      transform: true,
-    }),
-  );
+  // Note: ZodValidationPipe is already registered globally via APP_PIPE in AppModule
+  // Do NOT add a standard ValidationPipe here as it conflicts with Zod DTOs
+
+  options.registerRoutes?.(app);
 
   await app.init();
   await app.getHttpAdapter().getInstance().ready();

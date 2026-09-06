@@ -11,6 +11,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { DatabaseSeedException } from '../common/exceptions/database-seed.exception';
 import {
   ApiTags,
   ApiOperation,
@@ -30,6 +31,7 @@ import {
   AuthProviderDto,
 } from './dto/auth-provider.dto';
 import { CurrentUserDto } from './dto/auth-user.dto';
+import { AllowDuringMaintenance } from '../common/maintenance/allow-during-maintenance.decorator';
 
 const REFRESH_TOKEN_COOKIE = 'refresh_token';
 const COOKIE_OPTIONS = {
@@ -40,8 +42,30 @@ const COOKIE_OPTIONS = {
   maxAge: 14 * 24 * 60 * 60, // 14 days in seconds (cookie spec uses seconds)
 };
 
+/**
+ * REACHABLE DURING A MAINTENANCE WINDOW, as a whole controller (#257).
+ *
+ * The exemption is class-level rather than route-by-route because every route
+ * on it is one of four things a window must not break:
+ *
+ *   * `providers`, `google`, `google/callback` — SIGNING IN. A window in which
+ *     nobody can sign in is a window nobody can end: `allowAdmins` is worth
+ *     nothing to an administrator who cannot obtain a token, and the only way
+ *     back would be the environment break-glass and a restart.
+ *   * `refresh` — STAYING signed in. An access token is minutes long; a window
+ *     that outlives one would evict the very admin who opened it.
+ *   * `me` — the identity lookup the maintenance page itself needs, to decide
+ *     whether the person looking at it is an admin who can carry on.
+ *   * `logout` / `logout-all` — signing OUT must never be the thing that is
+ *     unavailable. A user who wants their session ended during an incident is
+ *     entitled to have it ended.
+ *
+ * Note this is REACHABILITY only: `@Auth()` and `@Public()` still decide who
+ * may call what, exactly as they do outside a window.
+ */
 @ApiTags('Authentication')
 @Controller('auth')
+@AllowDuringMaintenance()
 export class AuthController {
   private readonly logger = new Logger(AuthController.name);
 
@@ -140,11 +164,23 @@ export class AuthController {
       this.logger.log(`Redirecting to: ${redirectUrl.toString()}`);
       return res.status(302).redirect(redirectUrl.toString());
     } catch (error) {
-      this.logger.error('Error in Google OAuth callback', error);
+      // Log with full context for debugging
+      if (error instanceof DatabaseSeedException) {
+        this.logger.error(
+          'Database seed error during OAuth callback - seeds have not been run',
+          {
+            error: error.message,
+            stack: error.stack,
+          },
+        );
+      } else {
+        this.logger.error('Error in Google OAuth callback', error);
+      }
+
       const appUrl = this.configService.get<string>('appUrl');
       // Sanitize error message for URL - remove newlines and encode
       const errorMessage = error instanceof Error
-        ? encodeURIComponent(error.message.replace(/[\r\n]/g, ' ').substring(0, 100))
+        ? encodeURIComponent(error.message.replace(/[\r\n]/g, ' ').substring(0, 200))
         : 'authentication_failed';
       return res.redirect(
         `${appUrl}/auth/callback?error=${errorMessage}`,
@@ -158,7 +194,7 @@ export class AuthController {
    */
   @Get('me')
   @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
+  @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: 'Get current user',
     description: 'Returns information about the currently authenticated user',
@@ -229,7 +265,7 @@ export class AuthController {
   @Post('logout')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiBearerAuth()
+  @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: 'Logout',
     description: 'Logout endpoint and revoke refresh token',
@@ -264,7 +300,7 @@ export class AuthController {
   @Post('logout-all')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiBearerAuth()
+  @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: 'Logout from all devices',
     description: 'Revoke all refresh tokens for the current user',

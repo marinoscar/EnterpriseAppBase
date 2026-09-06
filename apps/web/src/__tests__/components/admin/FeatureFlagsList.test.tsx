@@ -1,1134 +1,356 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+/**
+ * Component tests — Admin → System settings → Feature flags, after the
+ * DataTable migration (#67).
+ *
+ * The component's substance is unchanged: local-first editing, one `PUT` on
+ * save, the add-flag dialog, the delete, and the read-only mode. What changed
+ * is the SHAPE it is drawn in — a `List` of `ListItem`s with a
+ * `ListItemSecondaryAction` became a table with a `render`ed inline editor and
+ * a row action.
+ *
+ * Table mechanics are asserted once by `runDataTableConformanceSuite`; the
+ * suite is not invoked with these columns, because a `<Switch>` inside a
+ * `render` is the same "interactive control inside a custom cell" shape the
+ * fixture's `<a>` already covers.
+ *
+ * The old file asserted the list markup — `getAllByRole('checkbox')` for the
+ * switches (they were unnamed), `ListItemText` secondary text, and delete
+ * buttons found by index. Every one of those queries is now expressed by NAME,
+ * which is possible precisely because the switch is labelled correctly.
+ */
+
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { render, mockAdminUser } from '../../utils/test-utils';
+import { render } from '../../utils/test-utils';
 import { FeatureFlagsList } from '../../../components/admin/FeatureFlagsList';
+import {
+  installLayoutStubs,
+  resetContainerWidth,
+  setInitialContainerWidth,
+} from '../../../components/datatable/__tests__/testUtils/layoutStubs';
+import { api } from '../../../services/api';
+
+const defaultFlags = {
+  zebra_mode: true,
+  alpha_feature: false,
+  beta_feature: true,
+};
+
+function renderFlags(
+  props: Partial<React.ComponentProps<typeof FeatureFlagsList>> = {},
+  width = 1400,
+) {
+  const onSave = props.onSave ?? vi.fn().mockResolvedValue(undefined);
+  setInitialContainerWidth(width);
+  const result = render(
+    <FeatureFlagsList flags={props.flags ?? defaultFlags} onSave={onSave} disabled={props.disabled} />,
+  );
+  return { ...result, onSave };
+}
+
+const switchFor = (key: string) => screen.getByRole('switch', { name: `Toggle ${key}` });
+const deleteFor = (key: string) =>
+  screen.getByRole('button', { name: `Delete flag for ${key}` });
+
+// ---------------------------------------------------------------------------
 
 describe('FeatureFlagsList', () => {
-  const mockOnSave = vi.fn();
-
-  const defaultFlags = {
-    enable_new_feature: true,
-    allow_beta_access: false,
-    maintenance_mode: false,
-  };
+  beforeAll(() => {
+    installLayoutStubs();
+  });
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockOnSave.mockResolvedValue(undefined);
+    resetContainerWidth(1400);
+    vi.spyOn(api, 'get').mockResolvedValue({ dataTables: {} } as never);
+    vi.spyOn(api, 'patch').mockResolvedValue({} as never);
   });
 
-  describe('Rendering', () => {
-    it('should render feature flags heading', () => {
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // =========================================================================
+  // Rendering
+  // =========================================================================
+
+  describe('rendering', () => {
+    it('renders the heading, Add Flag and Save Changes', () => {
+      renderFlags();
 
       expect(screen.getByText('Feature Flags')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /add flag/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /save changes/i })).toBeInTheDocument();
     });
 
-    it('should render Add Flag button', () => {
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
+    it('renders one row per flag, in alphabetical order', async () => {
+      renderFlags();
 
-      expect(
-        screen.getByRole('button', { name: /add flag/i })
-      ).toBeInTheDocument();
+      await screen.findByText('alpha_feature');
+      const cells = screen
+        .getAllByRole('gridcell')
+        .map((cell) => cell.textContent)
+        .filter((text) => text && text in defaultFlags);
+      expect(cells).toEqual(['alpha_feature', 'beta_feature', 'zebra_mode']);
     });
 
-    it('should render Save Changes button', () => {
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
+    it('gives every switch an accessible name that identifies its flag', async () => {
+      renderFlags();
 
-      expect(
-        screen.getByRole('button', { name: /save changes/i })
-      ).toBeInTheDocument();
-    });
-  });
-
-  describe('Feature Flags Display', () => {
-    it('should display all feature flags with names', () => {
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
-
-      expect(screen.getByText('enable_new_feature')).toBeInTheDocument();
-      expect(screen.getByText('allow_beta_access')).toBeInTheDocument();
-      expect(screen.getByText('maintenance_mode')).toBeInTheDocument();
+      await screen.findByText('alpha_feature');
+      // `<Switch aria-label>` would have put the name on the wrapper span,
+      // leaving the element with `role="switch"` nameless — which is what the
+      // old suite's `getAllByRole('checkbox')[index]` queries worked around.
+      expect(switchFor('alpha_feature')).toBeInTheDocument();
+      expect(switchFor('beta_feature')).toBeInTheDocument();
+      expect(switchFor('zebra_mode')).toBeInTheDocument();
     });
 
-    it('should display flags in alphabetical order', () => {
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
+    it('reflects each flag’s value in its switch', async () => {
+      renderFlags();
 
-      const flagNames = screen
-        .getAllByRole('listitem')
-        .map((item) => item.textContent?.match(/^[a-z_]+/)?.[0]);
-
-      expect(flagNames).toEqual([
-        'allow_beta_access',
-        'enable_new_feature',
-        'maintenance_mode',
-      ]);
+      await screen.findByText('alpha_feature');
+      expect(switchFor('zebra_mode')).toBeChecked();
+      expect(switchFor('beta_feature')).toBeChecked();
+      expect(switchFor('alpha_feature')).not.toBeChecked();
     });
 
-    it('should show "Enabled" status for enabled flags', () => {
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
+    it('shows the empty state and still offers Add Flag with no flags configured', async () => {
+      renderFlags({ flags: {} });
 
-      const enabledFlags = screen.getAllByText('Enabled');
-      expect(enabledFlags).toHaveLength(1);
+      expect(await screen.findByText('No feature flags configured')).toBeInTheDocument();
+      expect(screen.queryByRole('switch')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /add flag/i })).toBeInTheDocument();
     });
 
-    it('should show "Disabled" status for disabled flags', () => {
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
+    it('handles keys with special characters', async () => {
+      renderFlags({ flags: { 'feature-with-dash': true, 'feature.with.dots': false } });
 
-      const disabledFlags = screen.getAllByText('Disabled');
-      expect(disabledFlags).toHaveLength(2);
-    });
-
-    it('should render switch for each flag', () => {
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
-
-      const switches = screen.getAllByRole('checkbox');
-      expect(switches).toHaveLength(3);
-    });
-
-    it('should render delete button for each flag', () => {
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
-
-      const deleteButtons = screen.getAllByRole('button', { name: '' });
-      const deleteIconButtons = deleteButtons.filter((btn) =>
-        btn.querySelector('svg[data-testid="DeleteIcon"]')
-      );
-      expect(deleteIconButtons.length).toBeGreaterThanOrEqual(3);
-    });
-
-    it('should set switch checked state based on flag value', () => {
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
-
-      const switches = screen.getAllByRole('checkbox') as HTMLInputElement[];
-
-      // Sorted order: allow_beta_access (false), enable_new_feature (true), maintenance_mode (false)
-      expect(switches[0].checked).toBe(false); // allow_beta_access
-      expect(switches[1].checked).toBe(true);  // enable_new_feature
-      expect(switches[2].checked).toBe(false); // maintenance_mode
+      await screen.findByText('feature-with-dash');
+      expect(switchFor('feature-with-dash')).toBeChecked();
+      expect(switchFor('feature.with.dots')).not.toBeChecked();
     });
   });
 
-  describe('Empty State', () => {
-    it('should show empty state message when no flags exist', () => {
-      render(<FeatureFlagsList flags={{}} onSave={mockOnSave} />, {
-        wrapperOptions: { user: mockAdminUser },
-      });
+  // =========================================================================
+  // Toggling
+  // =========================================================================
 
-      expect(
-        screen.getByText('No feature flags configured')
-      ).toBeInTheDocument();
+  describe('toggling', () => {
+    it('toggles a flag on and off and enables Save', async () => {
+      const user = userEvent.setup();
+      renderFlags();
+
+      await screen.findByText('alpha_feature');
+      expect(screen.getByRole('button', { name: /save changes/i })).toBeDisabled();
+
+      await user.click(switchFor('alpha_feature'));
+      expect(switchFor('alpha_feature')).toBeChecked();
+      expect(screen.getByRole('button', { name: /save changes/i })).toBeEnabled();
+
+      await user.click(switchFor('zebra_mode'));
+      expect(switchFor('zebra_mode')).not.toBeChecked();
     });
 
-    it('should not render list when no flags exist', () => {
-      render(<FeatureFlagsList flags={{}} onSave={mockOnSave} />, {
-        wrapperOptions: { user: mockAdminUser },
-      });
+    it('sends every local change in one save', async () => {
+      const user = userEvent.setup();
+      const { onSave } = renderFlags();
 
-      const list = screen.queryByRole('list');
-      expect(list).not.toBeInTheDocument();
-    });
+      await screen.findByText('alpha_feature');
+      await user.click(switchFor('alpha_feature'));
+      await user.click(switchFor('zebra_mode'));
+      await user.click(screen.getByRole('button', { name: /save changes/i }));
 
-    it('should still show Add Flag button in empty state', () => {
-      render(<FeatureFlagsList flags={{}} onSave={mockOnSave} />, {
-        wrapperOptions: { user: mockAdminUser },
-      });
-
-      expect(
-        screen.getByRole('button', { name: /add flag/i })
-      ).toBeInTheDocument();
+      await waitFor(() =>
+        expect(onSave).toHaveBeenCalledWith({
+          zebra_mode: false,
+          alpha_feature: true,
+          beta_feature: true,
+        }),
+      );
+      expect(onSave).toHaveBeenCalledTimes(1);
     });
   });
 
-  describe('Toggle Functionality', () => {
-    it('should enable save button when flag is toggled', async () => {
+  // =========================================================================
+  // Delete — now a row action with a confirmation
+  // =========================================================================
+
+  describe('delete', () => {
+    it('removes a flag through the row action’s confirmation dialog', async () => {
       const user = userEvent.setup();
+      const { onSave } = renderFlags();
 
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
+      await screen.findByText('alpha_feature');
+      await user.click(deleteFor('alpha_feature'));
+
+      const dialog = await screen.findByRole('dialog');
+      expect(within(dialog).getByText('Delete flag?')).toBeInTheDocument();
+      // Still present: the dialog gates the removal.
+      expect(screen.getByText('alpha_feature')).toBeInTheDocument();
+
+      await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
+
+      // Wait for the dialog to unmount too: while it is open MUI marks the
+      // rest of the tree `aria-hidden`, so a role query would not see Save.
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      expect(screen.queryByText('alpha_feature')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /save changes/i })).toBeEnabled();
+
+      await user.click(screen.getByRole('button', { name: /save changes/i }));
+      await waitFor(() =>
+        expect(onSave).toHaveBeenCalledWith({ zebra_mode: true, beta_feature: true }),
       );
-
-      const saveButton = screen.getByRole('button', {
-        name: /save changes/i,
-      });
-      expect(saveButton).toBeDisabled();
-
-      const switches = screen.getAllByRole('checkbox');
-      await user.click(switches[0]);
-
-      await waitFor(() => {
-        expect(saveButton).not.toBeDisabled();
-      });
     });
 
-    it('should toggle flag from enabled to disabled', async () => {
+    it('falls back to the empty state when every flag is deleted', async () => {
       const user = userEvent.setup();
+      renderFlags({ flags: { only_flag: true } });
 
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
+      await screen.findByText('only_flag');
+      await user.click(deleteFor('only_flag'));
+      const dialog = await screen.findByRole('dialog');
+      await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
 
-      const switches = screen.getAllByRole('checkbox') as HTMLInputElement[];
-      const enabledSwitch = switches.find((sw) => sw.checked);
-
-      expect(enabledSwitch?.checked).toBe(true);
-
-      await user.click(enabledSwitch!);
-
-      await waitFor(() => {
-        expect(enabledSwitch?.checked).toBe(false);
-      });
-    });
-
-    it('should toggle flag from disabled to enabled', async () => {
-      const user = userEvent.setup();
-
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
-
-      const switches = screen.getAllByRole('checkbox') as HTMLInputElement[];
-      const disabledSwitch = switches.find((sw) => !sw.checked);
-
-      expect(disabledSwitch?.checked).toBe(false);
-
-      await user.click(disabledSwitch!);
-
-      await waitFor(() => {
-        expect(disabledSwitch?.checked).toBe(true);
-      });
-    });
-
-    it('should update status text when flag is toggled', async () => {
-      const user = userEvent.setup();
-
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
-
-      const switches = screen.getAllByRole('checkbox') as HTMLInputElement[];
-      const firstSwitch = switches[0]; // allow_beta_access - initially disabled
-
-      await user.click(firstSwitch);
-
-      await waitFor(() => {
-        expect(screen.getAllByText('Enabled')).toHaveLength(2);
-        expect(screen.getAllByText('Disabled')).toHaveLength(1);
-      });
-    });
-
-    it('should allow toggling multiple flags', async () => {
-      const user = userEvent.setup();
-
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
-
-      const switches = screen.getAllByRole('checkbox');
-
-      await user.click(switches[0]);
-      await user.click(switches[1]);
-      await user.click(switches[2]);
-
-      await waitFor(() => {
-        const saveButton = screen.getByRole('button', {
-          name: /save changes/i,
-        });
-        expect(saveButton).not.toBeDisabled();
-      });
+      expect(await screen.findByText('No feature flags configured')).toBeInTheDocument();
     });
   });
 
-  describe('Add Flag Dialog', () => {
-    it('should open dialog when Add Flag button clicked', async () => {
+  // =========================================================================
+  // Add flag dialog
+  // =========================================================================
+
+  describe('add flag dialog', () => {
+    async function openDialog(user: ReturnType<typeof userEvent.setup>) {
+      await user.click(screen.getByRole('button', { name: /add flag/i }));
+      return screen.findByRole('dialog');
+    }
+
+    it('adds a new flag, disabled by default, and closes', async () => {
       const user = userEvent.setup();
+      renderFlags();
 
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
+      const dialog = await openDialog(user);
+      await user.type(within(dialog).getByLabelText(/flag name/i), 'new_flag');
+      await user.click(within(dialog).getByRole('button', { name: 'Add' }));
 
-      const addButton = screen.getByRole('button', { name: /add flag/i });
-      await user.click(addButton);
-
-      await waitFor(() => {
-        expect(screen.getByRole('dialog')).toBeInTheDocument();
-        expect(screen.getByText('Add Feature Flag')).toBeInTheDocument();
-      });
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      expect(switchFor('new_flag')).not.toBeChecked();
     });
 
-    it('should render flag name input in dialog', async () => {
+    it('replaces spaces with underscores in the flag name', async () => {
       const user = userEvent.setup();
+      renderFlags();
 
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
+      const dialog = await openDialog(user);
+      await user.type(within(dialog).getByLabelText(/flag name/i), 'my new flag');
+      await user.click(within(dialog).getByRole('button', { name: 'Add' }));
 
-      const addButton = screen.getByRole('button', { name: /add flag/i });
-      await user.click(addButton);
-
-      await waitFor(() => {
-        expect(screen.getByLabelText(/flag name/i)).toBeInTheDocument();
-      });
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      expect(switchFor('my_new_flag')).toBeInTheDocument();
     });
 
-    it('should show helper text in dialog', async () => {
+    it('refuses a duplicate key and keeps the dialog open', async () => {
       const user = userEvent.setup();
+      renderFlags();
 
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
+      const dialog = await openDialog(user);
+      await user.type(within(dialog).getByLabelText(/flag name/i), 'zebra_mode');
+      await user.click(within(dialog).getByRole('button', { name: 'Add' }));
 
-      const addButton = screen.getByRole('button', { name: /add flag/i });
-      await user.click(addButton);
-
-      await waitFor(() => {
-        expect(
-          screen.getByText(/use snake_case or camelcase/i)
-        ).toBeInTheDocument();
-      });
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+      expect(screen.getAllByText('zebra_mode')).toHaveLength(1);
     });
 
-    it('should render Cancel and Add buttons in dialog', async () => {
+    it('disables Add until a name is typed, and cancels cleanly', async () => {
       const user = userEvent.setup();
+      renderFlags();
 
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
+      const dialog = await openDialog(user);
+      expect(within(dialog).getByRole('button', { name: 'Add' })).toBeDisabled();
 
-      const addButton = screen.getByRole('button', { name: /add flag/i });
-      await user.click(addButton);
+      await user.type(within(dialog).getByLabelText(/flag name/i), 'x');
+      expect(within(dialog).getByRole('button', { name: 'Add' })).toBeEnabled();
 
-      await waitFor(() => {
-        expect(
-          screen.getByRole('button', { name: /^cancel$/i })
-        ).toBeInTheDocument();
-        expect(
-          screen.getByRole('button', { name: /^add$/i })
-        ).toBeInTheDocument();
-      });
-    });
-
-    it('should close dialog when Cancel button clicked', async () => {
-      const user = userEvent.setup();
-
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
-
-      const addButton = screen.getByRole('button', { name: /add flag/i });
-      await user.click(addButton);
-
-      await waitFor(() => {
-        expect(screen.getByRole('dialog')).toBeInTheDocument();
-      });
-
-      const cancelButton = screen.getByRole('button', { name: /^cancel$/i });
-      await user.click(cancelButton);
-
-      await waitFor(() => {
-        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-      });
-    });
-
-    it('should add new flag when Add button clicked with valid name', async () => {
-      const user = userEvent.setup();
-
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
-
-      const addButton = screen.getByRole('button', { name: /add flag/i });
-      await user.click(addButton);
-
-      const flagNameInput = await screen.findByLabelText(/flag name/i);
-      await user.type(flagNameInput, 'new_feature_flag');
-
-      const submitButton = screen.getByRole('button', { name: /^add$/i });
-      await user.click(submitButton);
-
-      await waitFor(() => {
-        expect(screen.getByText('new_feature_flag')).toBeInTheDocument();
-      });
-    });
-
-    it('should set new flag to disabled by default', async () => {
-      const user = userEvent.setup();
-
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
-
-      const addButton = screen.getByRole('button', { name: /add flag/i });
-      await user.click(addButton);
-
-      const flagNameInput = await screen.findByLabelText(/flag name/i);
-      await user.type(flagNameInput, 'aaa_new_flag'); // Start with 'aaa' to ensure it's first alphabetically
-
-      const submitButton = screen.getByRole('button', { name: /^add$/i });
-      await user.click(submitButton);
-
-      await waitFor(() => {
-        expect(screen.getByText('aaa_new_flag')).toBeInTheDocument();
-        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-      });
-
-      const switches = screen.getAllByRole('checkbox') as HTMLInputElement[];
-      const newFlagSwitch = switches[0]; // Alphabetically first: aaa_new_flag
-      expect(newFlagSwitch.checked).toBe(false);
-    });
-
-    it('should close dialog after adding flag', async () => {
-      const user = userEvent.setup();
-
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
-
-      const addButton = screen.getByRole('button', { name: /add flag/i });
-      await user.click(addButton);
-
-      const flagNameInput = await screen.findByLabelText(/flag name/i);
-      await user.type(flagNameInput, 'test_flag');
-
-      const submitButton = screen.getByRole('button', { name: /^add$/i });
-      await user.click(submitButton);
-
-      await waitFor(() => {
-        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-      });
-    });
-
-    it('should disable Add button when flag name is empty', async () => {
-      const user = userEvent.setup();
-
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
-
-      const addButton = screen.getByRole('button', { name: /add flag/i });
-      await user.click(addButton);
-
-      await waitFor(() => {
-        const submitButton = screen.getByRole('button', { name: /^add$/i });
-        expect(submitButton).toBeDisabled();
-      });
-    });
-
-    it('should enable Add button when flag name is entered', async () => {
-      const user = userEvent.setup();
-
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
-
-      const addButton = screen.getByRole('button', { name: /add flag/i });
-      await user.click(addButton);
-
-      const flagNameInput = await screen.findByLabelText(/flag name/i);
-      await user.type(flagNameInput, 'test');
-
-      await waitFor(() => {
-        const submitButton = screen.getByRole('button', { name: /^add$/i });
-        expect(submitButton).not.toBeDisabled();
-      });
-    });
-
-    it('should replace spaces with underscores in flag name', async () => {
-      const user = userEvent.setup();
-
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
-
-      const addButton = screen.getByRole('button', { name: /add flag/i });
-      await user.click(addButton);
-
-      const flagNameInput = await screen.findByLabelText(
-        /flag name/i
-      ) as HTMLInputElement;
-      await user.type(flagNameInput, 'my new flag');
-
-      expect(flagNameInput.value).toBe('my_new_flag');
-    });
-
-    it('should not add duplicate flag', async () => {
-      const user = userEvent.setup();
-
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
-
-      // Initial count
-      const initialSwitches = screen.getAllByRole('checkbox');
-      expect(initialSwitches).toHaveLength(3);
-
-      const addButton = screen.getByRole('button', { name: /add flag/i });
-      await user.click(addButton);
-
-      const flagNameInput = await screen.findByLabelText(/flag name/i);
-      await user.type(flagNameInput, 'enable_new_feature');
-
-      const submitButton = screen.getByRole('button', { name: /^add$/i });
-      await user.click(submitButton);
-
-      // Dialog should stay open since duplicate was not added
-      await waitFor(() => {
-        expect(screen.getByRole('dialog')).toBeInTheDocument();
-      });
-
-      // Close the dialog manually to verify count
-      const cancelButton = screen.getByRole('button', { name: /^cancel$/i });
-      await user.click(cancelButton);
-
-      await waitFor(() => {
-        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-      });
-
-      // Should still only have 3 flags
-      const finalSwitches = screen.getAllByRole('checkbox');
-      expect(finalSwitches).toHaveLength(3);
-    });
-
-    it('should clear input field after adding flag', async () => {
-      const user = userEvent.setup();
-
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
-
-      let addButton = screen.getByRole('button', { name: /add flag/i });
-      await user.click(addButton);
-
-      const flagNameInput = await screen.findByLabelText(/flag name/i);
-      await user.type(flagNameInput, 'first_flag');
-
-      const submitButton = screen.getByRole('button', { name: /^add$/i });
-      await user.click(submitButton);
-
-      await waitFor(() => {
-        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-      });
-
-      // Open dialog again
-      addButton = screen.getByRole('button', { name: /add flag/i });
-      await user.click(addButton);
-
-      await waitFor(() => {
-        const input = screen.getByLabelText(/flag name/i) as HTMLInputElement;
-        expect(input.value).toBe('');
-      });
+      await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      expect(screen.queryByRole('switch', { name: 'Toggle x' })).not.toBeInTheDocument();
     });
   });
 
-  describe('Delete Functionality', () => {
-    it('should remove flag when delete button clicked', async () => {
+  // =========================================================================
+  // Saving
+  // =========================================================================
+
+  describe('saving', () => {
+    it('shows "Saving..." and disables Save while the write is in flight', async () => {
       const user = userEvent.setup();
+      let resolve!: () => void;
+      const onSave = vi.fn(() => new Promise<void>((r) => { resolve = r; }));
+      renderFlags({ onSave });
 
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
+      await screen.findByText('alpha_feature');
+      await user.click(switchFor('alpha_feature'));
+      await user.click(screen.getByRole('button', { name: /save changes/i }));
+
+      const saving = await screen.findByRole('button', { name: /saving\.\.\./i });
+      expect(saving).toBeDisabled();
+
+      resolve();
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: /save changes/i })).toBeInTheDocument(),
       );
-
-      expect(screen.getByText('allow_beta_access')).toBeInTheDocument();
-
-      const deleteButtons = screen.getAllByRole('button', { name: '' });
-      const deleteIconButtons = deleteButtons.filter((btn) =>
-        btn.querySelector('svg[data-testid="DeleteIcon"]')
-      );
-
-      await user.click(deleteIconButtons[0]);
-
-      await waitFor(() => {
-        expect(screen.queryByText('allow_beta_access')).not.toBeInTheDocument();
-      });
     });
 
-    it('should enable save button when flag is deleted', async () => {
+    it('keeps the local edit when the save fails', async () => {
       const user = userEvent.setup();
+      const onSave = vi.fn().mockRejectedValue(new Error('nope'));
+      renderFlags({ onSave });
 
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
+      await screen.findByText('alpha_feature');
+      await user.click(switchFor('alpha_feature'));
+      await user.click(screen.getByRole('button', { name: /save changes/i })).catch(() => {});
+
+      await waitFor(() => expect(onSave).toHaveBeenCalled());
+      // The edit survives, and Save is offered again.
+      expect(switchFor('alpha_feature')).toBeChecked();
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: /save changes/i })).toBeEnabled(),
       );
-
-      const saveButton = screen.getByRole('button', {
-        name: /save changes/i,
-      });
-      expect(saveButton).toBeDisabled();
-
-      const deleteButtons = screen.getAllByRole('button', { name: '' });
-      const deleteIconButtons = deleteButtons.filter((btn) =>
-        btn.querySelector('svg[data-testid="DeleteIcon"]')
-      );
-
-      await user.click(deleteIconButtons[0]);
-
-      await waitFor(() => {
-        expect(saveButton).not.toBeDisabled();
-      });
-    });
-
-    it('should reduce flag count when flag is deleted', async () => {
-      const user = userEvent.setup();
-
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
-
-      const deleteButtons = screen.getAllByRole('button', { name: '' });
-      const deleteIconButtons = deleteButtons.filter((btn) =>
-        btn.querySelector('svg[data-testid="DeleteIcon"]')
-      );
-
-      await user.click(deleteIconButtons[0]);
-
-      await waitFor(() => {
-        const switches = screen.getAllByRole('checkbox');
-        expect(switches).toHaveLength(2);
-      });
-    });
-
-    it('should show empty state when all flags are deleted', async () => {
-      const user = userEvent.setup();
-
-      render(
-        <FeatureFlagsList flags={{ single_flag: true }} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
-
-      const deleteButtons = screen.getAllByRole('button', { name: '' });
-      const deleteIconButton = deleteButtons.find((btn) =>
-        btn.querySelector('svg[data-testid="DeleteIcon"]')
-      );
-
-      await user.click(deleteIconButton!);
-
-      await waitFor(() => {
-        expect(
-          screen.getByText('No feature flags configured')
-        ).toBeInTheDocument();
-      });
     });
   });
 
-  describe('Save Functionality', () => {
-    it('should disable save button when no changes made', () => {
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
-
-      const saveButton = screen.getByRole('button', {
-        name: /save changes/i,
-      });
-      expect(saveButton).toBeDisabled();
-    });
-
-    it('should call onSave with updated flags when save clicked', async () => {
-      const user = userEvent.setup();
-
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
-
-      const switches = screen.getAllByRole('checkbox');
-      await user.click(switches[0]); // Toggle allow_beta_access
-
-      const saveButton = screen.getByRole('button', {
-        name: /save changes/i,
-      });
-      await user.click(saveButton);
-
-      await waitFor(() => {
-        expect(mockOnSave).toHaveBeenCalledWith({
-          allow_beta_access: true, // toggled from false
-          enable_new_feature: true,
-          maintenance_mode: false,
-        });
-      });
-    });
-
-    it('should call onSave only once', async () => {
-      const user = userEvent.setup();
-
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
-
-      const switches = screen.getAllByRole('checkbox');
-      await user.click(switches[0]);
-
-      const saveButton = screen.getByRole('button', {
-        name: /save changes/i,
-      });
-      await user.click(saveButton);
-
-      await waitFor(() => {
-        expect(mockOnSave).toHaveBeenCalledTimes(1);
-      });
-    });
-
-    it('should call onSave with correct flags after adding a new flag', async () => {
-      const user = userEvent.setup();
-
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
-
-      // Add new flag
-      const addButton = screen.getByRole('button', { name: /add flag/i });
-      await user.click(addButton);
-
-      const flagNameInput = await screen.findByLabelText(/flag name/i);
-      await user.type(flagNameInput, 'new_test_flag');
-
-      const submitButton = screen.getByRole('button', { name: /^add$/i });
-      await user.click(submitButton);
-
-      await waitFor(() => {
-        expect(screen.getByText('new_test_flag')).toBeInTheDocument();
-        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-      });
-
-      // Save changes
-      const saveButton = screen.getByRole('button', {
-        name: /save changes/i,
-      });
-      await user.click(saveButton);
-
-      await waitFor(() => {
-        expect(mockOnSave).toHaveBeenCalledWith({
-          ...defaultFlags,
-          new_test_flag: false,
-        });
-      });
-    });
-
-    it('should call onSave with correct flags after deleting a flag', async () => {
-      const user = userEvent.setup();
-
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
-
-      const deleteButtons = screen.getAllByRole('button', { name: '' });
-      const deleteIconButtons = deleteButtons.filter((btn) =>
-        btn.querySelector('svg[data-testid="DeleteIcon"]')
-      );
-
-      await user.click(deleteIconButtons[0]); // Delete allow_beta_access
-
-      const saveButton = screen.getByRole('button', {
-        name: /save changes/i,
-      });
-      await user.click(saveButton);
-
-      await waitFor(() => {
-        expect(mockOnSave).toHaveBeenCalledWith({
-          enable_new_feature: true,
-          maintenance_mode: false,
-        });
-      });
-    });
-  });
-
-  describe('Loading State', () => {
-    it('should show "Saving..." text when save is in progress', async () => {
-      const user = userEvent.setup();
-      const slowSave = vi.fn(
-        () => new Promise((resolve) => setTimeout(resolve, 100))
-      );
-
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={slowSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
-
-      const switches = screen.getAllByRole('checkbox');
-      await user.click(switches[0]);
-
-      const saveButton = screen.getByRole('button', {
-        name: /save changes/i,
-      });
-      await user.click(saveButton);
-
-      expect(
-        screen.getByRole('button', { name: /saving\.\.\./i })
-      ).toBeInTheDocument();
-    });
-
-    it('should disable save button while saving', async () => {
-      const user = userEvent.setup();
-      const slowSave = vi.fn(
-        () => new Promise((resolve) => setTimeout(resolve, 100))
-      );
-
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={slowSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
-
-      const switches = screen.getAllByRole('checkbox');
-      await user.click(switches[0]);
-
-      const saveButton = screen.getByRole('button', {
-        name: /save changes/i,
-      });
-      await user.click(saveButton);
-
-      const savingButton = screen.getByRole('button', { name: /saving\.\.\./i });
-      expect(savingButton).toBeDisabled();
-    });
-
-    it('should re-enable save button after save completes', async () => {
-      const user = userEvent.setup();
-
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
-
-      const switches = screen.getAllByRole('checkbox');
-      await user.click(switches[0]);
-
-      const saveButton = screen.getByRole('button', {
-        name: /save changes/i,
-      });
-      await user.click(saveButton);
-
-      await waitFor(() => {
-        expect(mockOnSave).toHaveBeenCalled();
-      });
-
-      // Button text should be back to "Save Changes"
-      await waitFor(() => {
-        const button = screen.getByRole('button', { name: /save changes/i });
-        expect(button).toBeInTheDocument();
-      });
-    });
-
-    it('should re-enable save button even if save fails', async () => {
-      const user = userEvent.setup();
-
-      // Suppress console errors for this test
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-      // Use a promise that we can control to simulate failure, but resolve
-      // after the component handles the error state
-      let resolveSave: () => void;
-      const savePromise = new Promise<void>((resolve) => {
-        resolveSave = resolve;
-      });
-
-      // Track if save was called
-      let saveCalled = false;
-      const failingSave = vi.fn(async () => {
-        saveCalled = true;
-        // Simulate async delay then resolve (component has try/finally so it handles this)
-        await new Promise(resolve => setTimeout(resolve, 10));
-        // Return resolved promise - the component's finally block will still run
-      });
-
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={failingSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
-
-      const switches = screen.getAllByRole('checkbox');
-      await user.click(switches[0]);
-
-      const saveButton = screen.getByRole('button', {
-        name: /save changes/i,
-      });
-
-      await user.click(saveButton);
-
-      // Wait for the save to be called
-      await waitFor(() => {
-        expect(failingSave).toHaveBeenCalled();
-      });
-
-      // Button should be enabled again (still has changes since props didn't update)
-      await waitFor(() => {
-        const button = screen.getByRole('button', { name: /save changes/i });
-        expect(button).not.toBeDisabled();
-      });
-
-      consoleSpy.mockRestore();
-    });
-  });
-
-  describe('Disabled State', () => {
-    it('should disable all switches when disabled prop is true', () => {
-      render(
-        <FeatureFlagsList
-          flags={defaultFlags}
-          onSave={mockOnSave}
-          disabled={true}
-        />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
-
-      const switches = screen.getAllByRole('checkbox');
-      switches.forEach((sw) => {
-        expect(sw).toBeDisabled();
-      });
-    });
-
-    it('should disable all delete buttons when disabled prop is true', () => {
-      render(
-        <FeatureFlagsList
-          flags={defaultFlags}
-          onSave={mockOnSave}
-          disabled={true}
-        />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
-
-      const deleteButtons = screen.getAllByRole('button', { name: '' });
-      const deleteIconButtons = deleteButtons.filter((btn) =>
-        btn.querySelector('svg[data-testid="DeleteIcon"]')
-      );
-
-      deleteIconButtons.forEach((btn) => {
-        expect(btn).toBeDisabled();
-      });
-    });
-
-    it('should disable Add Flag button when disabled prop is true', () => {
-      render(
-        <FeatureFlagsList
-          flags={defaultFlags}
-          onSave={mockOnSave}
-          disabled={true}
-        />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
-
-      const addButton = screen.getByRole('button', { name: /add flag/i });
-      expect(addButton).toBeDisabled();
-    });
-
-    it('should disable save button when disabled prop is true', () => {
-      render(
-        <FeatureFlagsList
-          flags={defaultFlags}
-          onSave={mockOnSave}
-          disabled={true}
-        />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
-
-      const saveButton = screen.getByRole('button', {
-        name: /save changes/i,
-      });
-      expect(saveButton).toBeDisabled();
-    });
-
-    it('should not disable controls when disabled prop is false', () => {
-      render(
-        <FeatureFlagsList
-          flags={defaultFlags}
-          onSave={mockOnSave}
-          disabled={false}
-        />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
-
-      const addButton = screen.getByRole('button', { name: /add flag/i });
-      expect(addButton).not.toBeDisabled();
-
-      const switches = screen.getAllByRole('checkbox');
-      switches.forEach((sw) => {
-        expect(sw).not.toBeDisabled();
-      });
-    });
-
-    it('should not disable controls when disabled prop is undefined', () => {
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
-
-      const addButton = screen.getByRole('button', { name: /add flag/i });
-      expect(addButton).not.toBeDisabled();
-
-      const switches = screen.getAllByRole('checkbox');
-      switches.forEach((sw) => {
-        expect(sw).not.toBeDisabled();
-      });
-    });
-  });
-
-  describe('Error Handling', () => {
-    it('should preserve local state when save fails', async () => {
-      const user = userEvent.setup();
-
-      // Suppress console errors for this test
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-      // Use a promise that simulates a slow save operation
-      // The key behavior we're testing is that local state is preserved
-      const failingSave = vi.fn(async () => {
-        // Simulate async delay
-        await new Promise(resolve => setTimeout(resolve, 10));
-        // Even though this doesn't throw, the test validates the key behavior:
-        // local state is preserved after save operation completes
-      });
-
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={failingSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
-
-      const switches = screen.getAllByRole('checkbox');
-      await user.click(switches[0]); // Toggle first switch
-
-      const saveButton = screen.getByRole('button', {
-        name: /save changes/i,
-      });
-
-      await user.click(saveButton);
-
-      // Wait for the save to be called
-      await waitFor(() => {
-        expect(failingSave).toHaveBeenCalled();
-      });
-
-      // Switch should still be toggled (local state preserved)
-      const updatedSwitches = screen.getAllByRole(
-        'checkbox'
-      ) as HTMLInputElement[];
-      expect(updatedSwitches[0].checked).toBe(true);
-
-      consoleSpy.mockRestore();
-    });
-  });
-
-  describe('Edge Cases', () => {
-    it('should handle flags with empty string key', () => {
-      const flagsWithEmpty = { '': true, normal_flag: false };
-
-      render(
-        <FeatureFlagsList flags={flagsWithEmpty} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
-
-      expect(screen.getByText('normal_flag')).toBeInTheDocument();
-    });
-
-    it('should handle flags with special characters in names', () => {
-      const specialFlags = {
-        'flag-with-dashes': true,
-        'flag.with.dots': false,
-      };
-
-      render(
-        <FeatureFlagsList flags={specialFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
-
-      expect(screen.getByText('flag-with-dashes')).toBeInTheDocument();
-      expect(screen.getByText('flag.with.dots')).toBeInTheDocument();
-    });
-
-    it('should maintain sort order when adding multiple flags', async () => {
-      const user = userEvent.setup();
-
-      render(
-        <FeatureFlagsList flags={{}} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
-
-      // Add flags in non-alphabetical order
-      const flagNames = ['zebra_flag', 'alpha_flag', 'middle_flag'];
-
-      for (const name of flagNames) {
-        const addButton = screen.getByRole('button', { name: /add flag/i });
-        await user.click(addButton);
-
-        const flagNameInput = await screen.findByLabelText(/flag name/i);
-        await user.type(flagNameInput, name);
-
-        const submitButton = screen.getByRole('button', { name: /^add$/i });
-        await user.click(submitButton);
-
-        await waitFor(() => {
-          expect(screen.getByText(name)).toBeInTheDocument();
-          expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-        });
+  // =========================================================================
+  // Read-only mode
+  // =========================================================================
+
+  describe('read-only mode', () => {
+    /**
+     * `disabled` conflates "no system_settings:write" with "a save is in
+     * flight", so it is expressed as a per-row/per-control `disabled` rather
+     * than by dropping controls: a viewer must still be able to SEE which
+     * flags exist, which are on, and that they are deletable by someone.
+     */
+    it('disables every control but keeps them all present', async () => {
+      renderFlags({ disabled: true });
+
+      await screen.findByText('alpha_feature');
+      for (const key of Object.keys(defaultFlags)) {
+        expect(switchFor(key)).toBeDisabled();
+        expect(deleteFor(key)).toBeDisabled();
       }
-
-      // Verify alphabetical order
-      const listItems = screen.getAllByRole('listitem');
-      const displayedNames = listItems.map(
-        (item) => item.textContent?.match(/^[a-z_]+/)?.[0]
-      );
-
-      expect(displayedNames).toEqual(['alpha_flag', 'middle_flag', 'zebra_flag']);
+      expect(screen.getByRole('button', { name: /add flag/i })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /save changes/i })).toBeDisabled();
     });
 
-    it('should initialize with props on mount', () => {
-      render(
-        <FeatureFlagsList flags={defaultFlags} onSave={mockOnSave} />,
-        { wrapperOptions: { user: mockAdminUser } }
-      );
+    it('leaves the controls live when disabled is false or absent', async () => {
+      renderFlags({ disabled: false });
 
-      expect(screen.getByText('enable_new_feature')).toBeInTheDocument();
-      expect(screen.getByText('allow_beta_access')).toBeInTheDocument();
-      expect(screen.getByText('maintenance_mode')).toBeInTheDocument();
+      await screen.findByText('alpha_feature');
+      expect(switchFor('alpha_feature')).toBeEnabled();
+      expect(deleteFor('alpha_feature')).toBeEnabled();
+      expect(screen.getByRole('button', { name: /add flag/i })).toBeEnabled();
     });
   });
 });

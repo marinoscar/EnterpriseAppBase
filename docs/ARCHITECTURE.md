@@ -171,7 +171,7 @@ All components served from the same base URL via Nginx reverse proxy:
 |------|-----------|---------|
 | `/` | Frontend (React) | User interface |
 | `/api/*` | Backend (NestJS) | REST API |
-| `/api/docs` | Swagger UI | API documentation |
+| `/api/docs` | Scalar API reference | Interactive API documentation |
 | `/api/openapi.json` | OpenAPI spec | Machine-readable API schema |
 
 **Benefits**: No CORS complexity, simplified cookie handling, unified deployment.
@@ -188,7 +188,9 @@ All components served from the same base URL via Nginx reverse proxy:
 - **Contract-Driven**: OpenAPI specification generated from code annotations
 - **Versioned**: API paths support future versioning (`/api/v1/`)
 - **Consistent**: Standardized response format for success and errors
-- **Documented**: Every endpoint documented with Swagger decorators
+- **Documented**: Every endpoint documented with OpenAPI decorators; the published
+  document is assembled in `apps/api/src/openapi/` and linted by Spectral in CI
+  (see [`docs/specs/api-documentation.md`](specs/api-documentation.md))
 
 ### 3.5 Observable by Design
 
@@ -205,14 +207,14 @@ All components served from the same base URL via Nginx reverse proxy:
 
 | Component | Technology | Version | Purpose |
 |-----------|------------|---------|---------|
-| **Runtime** | Node.js | 18+ | Server runtime |
-| **Language** | TypeScript | 5.x | Type safety |
-| **Backend Framework** | NestJS | 10.x | API structure |
-| **HTTP Adapter** | Fastify | 4.x | High-performance HTTP |
-| **Frontend Framework** | React | 18.x | UI rendering |
-| **UI Library** | Material UI (MUI) | 5.x | Component library |
-| **Database** | PostgreSQL | 14+ | Data persistence |
-| **ORM** | Prisma | 5.x | Database access |
+| **Runtime** | Node.js | 24+ (LTS) | Server runtime |
+| **Language** | TypeScript | 6.x | Type safety |
+| **Backend Framework** | NestJS | 11.x | API structure |
+| **HTTP Adapter** | Fastify | 5.x | High-performance HTTP |
+| **Frontend Framework** | React | 19.x | UI rendering |
+| **UI Library** | Material UI (MUI) | 9.x | Component library |
+| **Database** | PostgreSQL | 16+ | Data persistence |
+| **ORM** | Prisma | 7.x | Database access |
 
 ### 4.2 Authentication & Security
 
@@ -369,6 +371,101 @@ pages/
 │   └── index.ts                  # Barrel export
 ```
 
+### 5.4 Storage Subsystem
+
+The storage system provides file upload and management capabilities with support for large files through resumable multipart uploads.
+
+#### Architecture Overview
+
+The storage system uses a provider abstraction pattern to support multiple cloud storage backends while maintaining a consistent API.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Storage Module                            │
+├─────────────────────────────────────────────────────────────┤
+│  Objects Controller                                          │
+│  └── Upload/Download/CRUD endpoints                          │
+├─────────────────────────────────────────────────────────────┤
+│  Objects Service                                             │
+│  └── Business logic, ownership validation                    │
+├─────────────────────────────────────────────────────────────┤
+│  Storage Provider Interface                                  │
+│  ├── S3StorageProvider (implemented)                         │
+│  └── AzureStorageProvider (future)                          │
+├─────────────────────────────────────────────────────────────┤
+│  Object Processing Pipeline                                  │
+│  └── Async post-upload processing with pluggable processors  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### Upload Flow
+
+**1. Resumable Upload (Large Files)**:
+   - Client calls `/api/storage/objects/upload/init` with file metadata
+   - Server creates DB record, initializes S3 multipart, returns presigned URLs
+   - Client uploads parts directly to S3 (bypasses application server)
+   - Client calls `/api/storage/objects/:id/upload/complete` with part ETags
+   - Server finalizes upload with S3, triggers processing pipeline
+
+**2. Simple Upload (Small Files < 100MB)**:
+   - Client sends file via multipart/form-data to `/api/storage/objects`
+   - Server streams directly to S3
+   - Processing pipeline triggered on completion
+
+#### Processing Pipeline
+
+Post-upload processing is handled asynchronously via NestJS EventEmitter:
+
+```
+ObjectUploadedEvent (emitted)
+         ↓
+ObjectProcessingService (orchestrator)
+         ↓
+Registered Processors (run in priority order)
+         ↓
+Results aggregated into object metadata
+         ↓
+Status updated: ready | failed
+```
+
+**Key Features:**
+- Pluggable processor architecture
+- Priority-based execution order
+- Processors run asynchronously (non-blocking)
+- Results stored in object metadata JSONB field
+- Extensible for future processing needs (virus scanning, image resizing, etc.)
+
+#### Database Schema
+
+**storage_objects**:
+- File metadata, status, storage key
+- Owner reference (user_id)
+- Processing results in JSONB metadata field
+
+**storage_object_chunks**:
+- Tracks multipart upload progress
+- Part number, ETag, upload status
+- Enables resume capability
+
+#### Module Structure
+
+```
+apps/api/src/storage/
+├── storage.module.ts                # Module definition
+├── objects/
+│   ├── objects.controller.ts        # HTTP endpoints
+│   ├── objects.service.ts           # Business logic
+│   ├── dto/                         # Data transfer objects
+│   └── interfaces/
+├── providers/
+│   ├── storage-provider.interface.ts
+│   └── s3-storage.provider.ts
+└── processing/
+    ├── object-processing.service.ts
+    └── processors/
+        └── base-processor.interface.ts
+```
+
 ---
 
 ## 6. Data Architecture
@@ -459,6 +556,23 @@ pages/
 │ meta (JSONB)       │
 │ created_at         │
 └────────────────────┘
+
+┌────────────────────┐       ┌────────────────────────┐
+│  storage_objects   │       │ storage_object_chunks  │
+├────────────────────┤       ├────────────────────────┤
+│ id (PK, UUID)      │──┐    │ id (PK, UUID)          │
+│ owner_id (FK)      │  │    │ object_id (FK)         │──┘
+│ name               │  └───▶│ part_number            │
+│ size               │       │ e_tag                  │
+│ mime_type          │       │ size                   │
+│ storage_key        │       │ status                 │
+│ storage_provider   │       │ created_at             │
+│ upload_id          │       │ completed_at           │
+│ status             │       └────────────────────────┘
+│ metadata (JSONB)   │
+│ created_at         │
+│ updated_at         │
+└────────────────────┘
 ```
 
 ### 6.2 JSONB Schema Definitions
@@ -478,6 +592,27 @@ pages/
 
 #### System Settings Shape
 
+`system_settings.value` — the JSONB column itself — holds `ui`, `features`,
+and `notifications`:
+
+```json
+{
+  "ui": {
+    "allowUserThemeOverride": true
+  },
+  "features": {
+    "exampleFlag": false
+  },
+  "notifications": {
+    "browserEnabled": true,
+    "disabledEvents": []
+  }
+}
+```
+
+`GET/PUT/PATCH /api/system-settings` project this stored row into
+`SystemSettingsResponseDto`, which adds a `security` block on the way out:
+
 ```json
 {
   "ui": {
@@ -489,9 +624,42 @@ pages/
   },
   "features": {
     "exampleFlag": false
-  }
+  },
+  "notifications": {
+    "browserEnabled": true,
+    "disabledEvents": []
+  },
+  "updatedAt": "...",
+  "updatedBy": { "id": "...", "email": "..." },
+  "version": 1
 }
 ```
+
+`security` is derived, read-only configuration — `jwtAccessTtlMinutes` and
+`refreshTtlDays` are read from the `JWT_ACCESS_TTL_MINUTES` /
+`JWT_REFRESH_TTL_DAYS` environment variables via `ConfigService`, not from the
+database. It is never written to `system_settings.value`: the write schemas
+(`updateSystemSettingsSchema` / `patchSystemSettingsSchema`) don't declare it,
+so a client that sends it has the key silently stripped by the global
+`ZodValidationPipe` before the request reaches the settings service.
+
+`notifications` (issue #225, epic #215) is a modelled block rather than a key
+inside `features` — `features` is a `z.record(z.string(), z.boolean())` with
+no shape, no default, and no place to document semantics, and is deliberately
+owned by downstream forks for their own operational flags; a framework-level,
+security-adjacent gate like this one needs a real type, a real default, and
+somewhere for its semantics to live. It is stored and editable as of #225, and
+as of #226 it is enforced: `browserEnabled` and `disabledEvents` are read once
+per dispatch by a new `NotificationPolicyService` and applied through
+`notification-policy.ts`'s `policyChannels` and `isBrowserToastAllowed`
+functions, consulted at three call sites — the dispatcher's channel
+resolution, `GET /api/notifications/events`'s advertised channels, and the
+SSE stream's `toast` field — so the matrix, the dispatch decision, and the
+delivered toast can never disagree. Mandatory events (e.g.
+`security.role_changed`) are the deliberate exception: their `notifications`
+row is always written regardless of policy, since the row itself is the
+record of a privilege or security change the user must not be able to make
+disappear; only the browser toast is suppressed for them.
 
 ### 6.3 Database Design Principles
 
@@ -664,6 +832,7 @@ Before OAuth authentication completes:
 | `POST` | `/api/auth/logout` | JWT | Single session logout |
 | `POST` | `/api/auth/logout-all` | JWT | All sessions logout |
 | `GET` | `/api/auth/me` | JWT | Current user info |
+| `POST` | `/api/auth/test/login` | Public | Test login bypass (dev only) |
 
 #### Device Authorization (RFC 8628)
 
@@ -750,15 +919,40 @@ Before OAuth authentication completes:
 
 ### 9.1 Page Structure
 
-| Page | Route | Auth | Role | Purpose |
-|------|-------|------|------|---------|
+As of epic #90, the admin console and the per-user settings surface are each
+a single registry-driven **hub** with one route per card, rather than a
+tab-strip page per area. See
+[`docs/specs/settings-ui.md`](specs/settings-ui.md) for the full pattern —
+the registry, the shared `SettingsHub` component, and why tabs are reserved
+for genuinely parallel content only.
+
+| Page | Route | Auth | Permission | Purpose |
+|------|-------|------|------------|---------|
 | Login | `/login` | Public | - | OAuth provider selection |
 | Auth Callback | `/auth/callback` | Public | - | Token handling |
 | Home | `/` | Required | Any | Dashboard |
-| User Settings | `/settings` | Required | Any | User preferences |
-| System Settings | `/admin/settings` | Required | Admin | App configuration |
-| User Management | `/admin/users` | Required | Admin | User/allowlist mgmt |
-| Device Activation | `/device` | Required | Any | Device auth approval |
+| User Settings hub | `/settings` | Required | Any (authenticated) | Searchable hub over the user's own settings |
+| — Profile | `/settings/profile` | Required | Any (authenticated) | Display name, avatar, email |
+| — Appearance | `/settings/appearance` | Required | Any (authenticated) | Personal theme preference |
+| — Access Tokens | `/settings/tokens` | Required | Any (authenticated) | Personal access token management |
+| Console / Settings hub | `/admin/settings` | Required | `system_settings:read` OR `users:read` | Searchable hub over admin settings |
+| — System | `/admin/settings/general` | Required | `system_settings:read` | Core system settings |
+| — Appearance | `/admin/settings/appearance` | Required | `system_settings:read` | Default theme for new users |
+| — Feature Flags | `/admin/settings/feature-flags` | Required | `system_settings:read` | Toggle optional features |
+| — Notifications | `/admin/settings/notifications` | Required | `system_settings:read` | Turn browser notifications on/off deployment-wide and suppress individual events |
+| — Advanced (JSON) | `/admin/settings/advanced` | Required | `system_settings:write` | Raw settings document editor |
+| — Users & Allowlist | `/admin/settings/users` | Required | `users:read` | User accounts, roles, and allowlist |
+| `/admin` (redirect) | `/admin` | Required | — | `<Navigate replace>` to `/admin/settings` |
+| `/admin/users` (redirect) | `/admin/users` | Required | — | `<Navigate replace>` to `/admin/settings/users` |
+| Device Activation | `/activate` | Required | Any | Device auth approval |
+| Test Login | `/testing/login` | Public | - | Test auth bypass (dev only) |
+
+**Note:** The `/testing/login` route is excluded from production builds via `import.meta.env.PROD` check.
+
+**Note:** The two redirect routes are real `<Route>` entries in `App.tsx`, not
+catch-all fallout — a bookmarked `/admin/users` resolves via `<Navigate
+replace>` rather than falling through to the `*` fallback and landing
+silently on `/`.
 
 ### 9.2 Context Providers
 
@@ -794,13 +988,36 @@ interface AuthContext {
 
 ### 9.4 Protected Routes
 
+Route-level **authorization**, not just authentication, is enforced with
+`RequirePermission` (`apps/web/src/components/common/RequirePermission.tsx`),
+wrapped around the page element inside the `<Route>`. `ProtectedRoute` above
+it in the tree only establishes that someone is signed in; `RequirePermission`
+is what denies the page itself to a signed-in user who lacks the permission,
+rather than letting them land on the page and watch every API call return
+`403`.
+
+`RequirePermission` accepts `permission` (single string), `permissions`
+(array, OR'd unless `requireAll` is set), `role`, `roles`, and a `fallback`
+to render when the check fails. The real pattern, taken directly from
+`apps/web/src/App.tsx`'s `/admin/settings/users` route:
+
 ```tsx
-<Route path="/admin/*" element={
-  <ProtectedRoute requiredRole="admin">
-    <AdminLayout />
-  </ProtectedRoute>
-} />
+<Route
+  path="/admin/settings/users"
+  element={
+    <RequirePermission permission="users:read" fallback={<Navigate to="/" replace />}>
+      <AdminUsersPage />
+    </RequirePermission>
+  }
+/>
 ```
+
+The permission named here is the same string the card declares in
+`config/adminSections.tsx` and the same string `users.controller.ts`
+enforces — so the hub card, the Console rail row, and the route itself
+cannot disagree about who may go where. See
+[`docs/specs/settings-ui.md`](specs/settings-ui.md) for the full registry
+pattern this route belongs to.
 
 ---
 
@@ -814,7 +1031,9 @@ services:
   nginx:        # Reverse proxy (port 3535)
   api:          # NestJS backend (port 3000)
   web:          # React frontend (port 5173)
-  db:           # PostgreSQL (port 5432)
+
+# PostgreSQL is not bundled in base.compose.yml - it runs as a separate
+# instance reached via POSTGRES_HOST/POSTGRES_PORT (see infra/compose/.env.example)
 
 # Observability (otel.compose.yml)
 services:
@@ -829,30 +1048,32 @@ services:
 ┌─────────────────────────────────────────────────────────────┐
 │                    Docker Network                           │
 │                                                             │
-│  ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐  │
-│  │  nginx  │    │   api   │    │   web   │    │   db    │  │
-│  │  :3535  │───▶│  :3000  │    │  :5173  │    │  :5432  │  │
-│  │         │    └─────────┘    └─────────┘    └─────────┘  │
-│  │         │         │                            ▲        │
-│  │         │─────────┼────────────────────────────┘        │
-│  └─────────┘         │                                     │
-│       │              ▼                                     │
-│       │         ┌─────────┐                                │
-│       │         │  otel   │                                │
-│       │         │collector│                                │
-│       │         └─────────┘                                │
-│       │              │                                     │
-│       │              ▼                                     │
-│       │         ┌─────────┐    ┌─────────┐                 │
-│       │         │ uptrace │───▶│clickhse │                 │
-│       │         │ :14318  │    │         │                 │
-│       │         └─────────┘    └─────────┘                 │
+│  ┌─────────┐    ┌─────────┐    ┌─────────┐                  │
+│  │  nginx  │───▶│   api   │    │   web   │                  │
+│  │  :3535  │    │  :3000  │    │  :5173  │                  │
+│  │         │────┼─────────┼───▶│         │                  │
+│  └────┬────┘    └────┬────┘    └─────────┘                  │
+│       │              │                                      │
+│       │              ▼                                      │
+│       │         ┌─────────┐                                 │
+│       │         │  otel   │   (only with otel.compose.yml)  │
+│       │         │collector│                                 │
+│       │         └────┬────┘                                 │
+│       │              ▼                                      │
+│       │         ┌─────────┐    ┌──────────┐                 │
+│       │         │ uptrace │───▶│clickhouse│                 │
+│       │         │ :14318  │    │          │                 │
+│       │         └─────────┘    └──────────┘                 │
 └───────┼─────────────────────────────────────────────────────┘
-        │
-        ▼
-   External Access
-   http://localhost:3535
+        │                              │
+        ▼                              ▼
+   External Access              External PostgreSQL
+   http://localhost:3535        (POSTGRES_HOST / POSTGRES_PORT)
 ```
+
+**PostgreSQL is not part of the Compose stack.** The `api` service connects out
+to a database you provide via the `POSTGRES_*` variables; only
+`infra/compose/test.compose.yml` starts a Postgres container, for tests.
 
 ### 10.3 Environment Configuration
 
@@ -865,7 +1086,7 @@ PORT=3000
 APP_URL=http://localhost:3535
 
 # Database
-POSTGRES_HOST=db
+POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=postgres
@@ -1402,7 +1623,7 @@ exit
 # 5. Access application
 # UI: http://localhost:3535
 # API: http://localhost:3535/api
-# Swagger: http://localhost:3535/api/docs
+# API reference: http://localhost:3535/api/docs
 ```
 
 ### 14.2 Database Changes
@@ -1465,7 +1686,7 @@ cd apps/web && npm run typecheck
 | Service | URL |
 |---------|-----|
 | Application | http://localhost:3535 |
-| Swagger UI | http://localhost:3535/api/docs |
+| API Reference (Scalar) | http://localhost:3535/api/docs |
 | Uptrace | http://localhost:14318 |
 | PostgreSQL | localhost:5432 |
 

@@ -4,6 +4,8 @@ import { JwtModule } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { CommonModule } from '../common/common.module';
 import { AllowlistModule } from '../allowlist/allowlist.module';
+import { PatModule } from '../pat/pat.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { GoogleStrategy } from './strategies/google.strategy';
@@ -31,6 +33,13 @@ import { TokenCleanupTask } from './tasks/token-cleanup.task';
 
     // Allowlist module for email allowlist checks
     AllowlistModule,
+
+    // PAT module for Personal Access Token validation in JwtAuthGuard
+    PatModule,
+
+    // Notifications: `handleGoogleLogin` raises `user.welcome` the first time
+    // a user record is created through OAuth (#128).
+    NotificationsModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, GoogleStrategy, JwtStrategy, TokenCleanupTask],

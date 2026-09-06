@@ -1,10 +1,27 @@
 import { useState, useCallback } from 'react';
 import type { UserListItem, UsersResponse } from '../types';
+import type { UserSortField } from '../services/api';
 import {
   getUsers as getUsersApi,
   updateUser as updateUserApi,
   updateUserRoles as updateUserRolesApi,
 } from '../services/api';
+import { useIsMounted } from './useIsMounted';
+
+/**
+ * The query `GET /api/users` accepts. `sortBy` is the endpoint's own enum
+ * (see `services/api.ts`), so a table column that declares itself sortable
+ * against an unsupported field will not compile.
+ */
+export interface UserListParams {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  role?: string;
+  isActive?: boolean;
+  sortBy?: UserSortField;
+  sortOrder?: 'asc' | 'desc';
+}
 
 interface UseUsersResult {
   users: UserListItem[];
@@ -14,13 +31,7 @@ interface UseUsersResult {
   totalPages: number;
   isLoading: boolean;
   error: string | null;
-  fetchUsers: (params?: {
-    page?: number;
-    pageSize?: number;
-    search?: string;
-    role?: string;
-    isActive?: boolean;
-  }) => Promise<void>;
+  fetchUsers: (params?: UserListParams) => Promise<void>;
   updateUser: (
     id: string,
     data: { displayName?: string; isActive?: boolean },
@@ -36,33 +47,35 @@ export function useUsers(): UseUsersResult {
   const [totalPages, setTotalPages] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Every `setState` past an `await` is guarded: a request that settles after
+  // the component is gone must not schedule an update on it. Only the state
+  // write is skipped — what these functions return or throw is unchanged.
+  const isMounted = useIsMounted();
 
   const fetchUsers = useCallback(
-    async (params?: {
-      page?: number;
-      pageSize?: number;
-      search?: string;
-      role?: string;
-      isActive?: boolean;
-    }) => {
+    async (params?: UserListParams) => {
       setIsLoading(true);
       setError(null);
       try {
         const response: UsersResponse = await getUsersApi(params);
-        setUsers(response.items);
-        setTotal(response.total);
-        setPage(response.page);
-        setPageSize(response.pageSize);
-        setTotalPages(response.totalPages);
+        if (isMounted()) {
+          setUsers(response.items);
+          setTotal(response.total);
+          setPage(response.page);
+          setPageSize(response.pageSize);
+          setTotalPages(response.totalPages);
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to fetch users';
-        setError(message);
-        setUsers([]);
+        if (isMounted()) {
+          setError(message);
+          setUsers([]);
+        }
       } finally {
-        setIsLoading(false);
+        if (isMounted()) setIsLoading(false);
       }
     },
-    [],
+    [isMounted],
   );
 
   const updateUser = useCallback(
@@ -71,16 +84,18 @@ export function useUsers(): UseUsersResult {
       try {
         const updatedUser = await updateUserApi(id, data);
         // Update the user in the list
-        setUsers((prevUsers) =>
-          prevUsers.map((user) => (user.id === id ? updatedUser : user)),
-        );
+        if (isMounted()) {
+          setUsers((prevUsers) =>
+            prevUsers.map((user) => (user.id === id ? updatedUser : user)),
+          );
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to update user';
-        setError(message);
+        if (isMounted()) setError(message);
         throw err;
       }
     },
-    [],
+    [isMounted],
   );
 
   const updateUserRoles = useCallback(
@@ -89,17 +104,19 @@ export function useUsers(): UseUsersResult {
       try {
         const updatedUser = await updateUserRolesApi(id, roles);
         // Update the user in the list
-        setUsers((prevUsers) =>
-          prevUsers.map((user) => (user.id === id ? updatedUser : user)),
-        );
+        if (isMounted()) {
+          setUsers((prevUsers) =>
+            prevUsers.map((user) => (user.id === id ? updatedUser : user)),
+          );
+        }
       } catch (err) {
         const message =
           err instanceof Error ? err.message : 'Failed to update user roles';
-        setError(message);
+        if (isMounted()) setError(message);
         throw err;
       }
     },
-    [],
+    [isMounted],
   );
 
   return {

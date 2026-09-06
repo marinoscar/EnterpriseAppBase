@@ -1,81 +1,34 @@
 import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
+// The declarative half of this script. Split out (#256) so a Jest test can
+// import it: this file instantiates a PrismaClient and calls `main()` at import
+// time, so nothing can import IT to check the data. See seed-data.ts.
+import {
+  ROLES,
+  PERMISSIONS,
+  ROLE_PERMISSIONS,
+  DEFAULT_SYSTEM_SETTINGS,
+} from './seed-data';
 
-const prisma = new PrismaClient();
+// Prisma 7 requires a driver adapter — PrismaClient can no longer be
+// instantiated with no options. The seed script is invoked as a standalone
+// ts-node process (see prisma.config.ts: migrations.seed), not through
+// Nest's DI container, so it can't reuse PrismaService's buildConnectionString()
+// without also pulling in @nestjs/common. Every Prisma CLI invocation in this
+// project (npm run prisma:*, or `npx prisma db seed` per the README) already
+// guarantees DATABASE_URL is set before the CLI — and therefore this seed
+// script — runs, either via scripts/prisma-env.js or an explicit export, so
+// reading it directly here is sufficient and keeps the script framework-free.
+const databaseUrl = process.env.DATABASE_URL;
+if (!databaseUrl) {
+  throw new Error(
+    'DATABASE_URL is not set. Run this script via `npm run prisma:seed` ' +
+      '(or export DATABASE_URL) so Prisma can connect to the database.',
+  );
+}
 
-// =============================================================================
-// Seed Data Definitions
-// =============================================================================
-
-const ROLES = [
-  {
-    name: 'admin',
-    description: 'Full system access - manage users, roles, and all settings',
-  },
-  {
-    name: 'contributor',
-    description: 'Standard user - can manage own settings and future features',
-  },
-  {
-    name: 'viewer',
-    description: 'Read-only access - can view content and manage own settings',
-  },
-] as const;
-
-const PERMISSIONS = [
-  // System settings
-  { name: 'system_settings:read', description: 'Read system settings' },
-  { name: 'system_settings:write', description: 'Modify system settings' },
-
-  // User settings
-  { name: 'user_settings:read', description: 'Read own user settings' },
-  { name: 'user_settings:write', description: 'Modify own user settings' },
-
-  // Users management
-  { name: 'users:read', description: 'View user list and details' },
-  { name: 'users:write', description: 'Modify user accounts' },
-
-  // RBAC management
-  { name: 'rbac:manage', description: 'Manage roles and permissions' },
-
-  // Allowlist management
-  { name: 'allowlist:read', description: 'View allowlisted emails' },
-  { name: 'allowlist:write', description: 'Manage allowlisted emails' },
-] as const;
-
-// Role to permissions mapping
-const ROLE_PERMISSIONS: Record<string, string[]> = {
-  admin: [
-    'system_settings:read',
-    'system_settings:write',
-    'user_settings:read',
-    'user_settings:write',
-    'users:read',
-    'users:write',
-    'rbac:manage',
-    'allowlist:read',
-    'allowlist:write',
-  ],
-  contributor: [
-    'user_settings:read',
-    'user_settings:write',
-  ],
-  viewer: [
-    'user_settings:read',
-    'user_settings:write',
-  ],
-};
-
-// Default system settings
-const DEFAULT_SYSTEM_SETTINGS = {
-  ui: {
-    allowUserThemeOverride: true,
-  },
-  security: {
-    jwtAccessTtlMinutes: 15,
-    refreshTtlDays: 14,
-  },
-  features: {},
-};
+const adapter = new PrismaPg(databaseUrl);
+const prisma = new PrismaClient({ adapter });
 
 // =============================================================================
 // Seed Functions

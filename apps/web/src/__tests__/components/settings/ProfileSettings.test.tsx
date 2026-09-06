@@ -113,7 +113,7 @@ describe('ProfileSettings', () => {
         <ProfileSettings profile={defaultProfile} onSave={mockOnSave} />
       );
 
-      const toggle = screen.getByRole('checkbox', { name: /use google profile image/i });
+      const toggle = screen.getByRole('switch', { name: /use google profile image/i });
       expect(toggle).toBeInTheDocument();
       expect(toggle).toBeChecked();
     });
@@ -204,7 +204,7 @@ describe('ProfileSettings', () => {
         <ProfileSettings profile={defaultProfile} onSave={mockOnSave} />
       );
 
-      const toggle = screen.getByRole('checkbox', { name: /use google profile image/i });
+      const toggle = screen.getByRole('switch', { name: /use google profile image/i });
       expect(toggle).toBeChecked();
 
       await user.click(toggle);
@@ -223,7 +223,7 @@ describe('ProfileSettings', () => {
       const saveButton = screen.getByRole('button', { name: /save changes/i });
       expect(saveButton).toBeDisabled();
 
-      const toggle = screen.getByRole('checkbox', { name: /use google profile image/i });
+      const toggle = screen.getByRole('switch', { name: /use google profile image/i });
       await user.click(toggle);
 
       expect(saveButton).toBeEnabled();
@@ -251,7 +251,7 @@ describe('ProfileSettings', () => {
         <ProfileSettings profile={defaultProfile} onSave={mockOnSave} disabled />
       );
 
-      const toggle = screen.getByRole('checkbox', { name: /use google profile image/i });
+      const toggle = screen.getByRole('switch', { name: /use google profile image/i });
       expect(toggle).toBeDisabled();
     });
 
@@ -368,7 +368,7 @@ describe('ProfileSettings', () => {
 
       render(<ProfileSettings profile={profile} onSave={mockOnSave} />);
 
-      const toggle = screen.getByRole('checkbox', { name: /use google profile image/i });
+      const toggle = screen.getByRole('switch', { name: /use google profile image/i });
       await user.click(toggle);
 
       // Wait for state to update
@@ -625,7 +625,7 @@ describe('ProfileSettings', () => {
       const saveButton = screen.getByRole('button', { name: /save changes/i });
       expect(saveButton).toBeDisabled();
 
-      const toggle = screen.getByRole('checkbox', { name: /use google profile image/i });
+      const toggle = screen.getByRole('switch', { name: /use google profile image/i });
       await user.click(toggle);
 
       expect(saveButton).toBeEnabled();
@@ -708,7 +708,7 @@ describe('ProfileSettings', () => {
         <ProfileSettings profile={defaultProfile} onSave={mockOnSave} disabled />
       );
 
-      const toggle = screen.getByRole('checkbox', { name: /use google profile image/i });
+      const toggle = screen.getByRole('switch', { name: /use google profile image/i });
       expect(toggle).toBeDisabled();
     });
 

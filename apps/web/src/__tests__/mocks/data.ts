@@ -66,10 +66,6 @@ export const mockSystemSettings: SystemSettings = {
   ui: {
     allowUserThemeOverride: true,
   },
-  security: {
-    jwtAccessTtlMinutes: 15,
-    refreshTtlDays: 14,
-  },
   features: {},
   updatedAt: '2024-01-01T00:00:00.000Z',
   updatedBy: null,
