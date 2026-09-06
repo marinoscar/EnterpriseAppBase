@@ -114,6 +114,19 @@ const DEFAULT_PERMISSIONS = [
   'storage:read_any',
   'storage:write_any',
   'storage:delete_any',
+  // Operations (#256/#266, epic #254). Present for the same reason every
+  // string above is: this list's contract is "enough to see EVERY card in
+  // `ADMIN_SECTIONS`", so a card the harness cannot see is a card this suite
+  // silently stops asserting pixels for. Omitting these would have let the
+  // `Operations` group be added with all eleven baselines still passing —
+  // green, and wrong.
+  'jobs:read',
+  'jobs:write',
+  'nodes:read',
+  'nodes:write',
+  'db_backup:read',
+  'db_backup:write',
+  'db_backup:restore',
 ];
 
 interface HarnessParams {

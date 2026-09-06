@@ -58,6 +58,11 @@ const NotificationSettingsPage = lazy(
 // which is the screen a BLOCKED user sees rather than the page that opens and
 // closes the window.
 const AdminMaintenancePage = lazy(() => import('./pages/Admin/MaintenancePage'));
+// Issue #266, epic #254 — the background queue's two Operations pages. Lazy
+// like every other admin page: both pull in the shared DataTable, and neither
+// is on the path of a user who never opens the Console.
+const JobsPage = lazy(() => import('./pages/Admin/JobsPage'));
+const JobInsightsPage = lazy(() => import('./pages/Admin/JobInsightsPage'));
 const AdvancedSettingsPage = lazy(() => import('./pages/Admin/AdvancedSettingsPage'));
 const AdminUsersPage = lazy(() => import('./pages/Admin/UsersPage'));
 
@@ -326,6 +331,43 @@ function AppRoutes() {
                         fallback={<Navigate to="/" replace />}
                       >
                         <AdminMaintenancePage />
+                      </RequirePermission>
+                    }
+                  />
+                  {/* Issue #266, epic #254. `jobs:read` on both, the same
+                      string the `Jobs` and `Job Insights` cards declare and the
+                      same one `jobs/job-admin.controller.ts` enforces on its
+                      list, stats and insights reads — the invariant
+                      `destinations.test.ts` asserts for every card. Retrying,
+                      deleting, sweeping and clearing the rollup all need
+                      `jobs:write`, which each PAGE gates internally by omitting
+                      the row actions and the sweep buttons.
+
+                      TWO ROUTES, NOT A TAB. `/admin/settings/jobs/insights`
+                      nests under the Jobs path deliberately, and React Router
+                      v6 ranks by specificity, so the nested route wins wherever
+                      it is declared. `settingsPageTitle`'s longest-prefix rule
+                      is what keeps the compact AppBar titling it "Job Insights"
+                      rather than "Jobs". */}
+                  <Route
+                    path="/admin/settings/jobs"
+                    element={
+                      <RequirePermission
+                        permission="jobs:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <JobsPage />
+                      </RequirePermission>
+                    }
+                  />
+                  <Route
+                    path="/admin/settings/jobs/insights"
+                    element={
+                      <RequirePermission
+                        permission="jobs:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <JobInsightsPage />
                       </RequirePermission>
                     }
                   />

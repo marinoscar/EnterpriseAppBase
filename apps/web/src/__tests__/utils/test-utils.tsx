@@ -59,6 +59,18 @@ export const mockAdminUser: MockUser = {
     // so an admin fixture missing it would test a user that cannot exist.
     'allowlist:read',
     'allowlist:write',
+    // Present for the same reason as the allowlist pair above: the seeded
+    // `admin` role grants the whole operations set (#256, epic #254), so an
+    // admin fixture without them would be a user that cannot exist — and any
+    // test rendering the real Console surface with this fixture would silently
+    // be testing a hub with no `Operations` group.
+    'jobs:read',
+    'jobs:write',
+    'nodes:read',
+    'nodes:write',
+    'db_backup:read',
+    'db_backup:write',
+    'db_backup:restore',
   ],
   isActive: true,
   createdAt: new Date().toISOString(),

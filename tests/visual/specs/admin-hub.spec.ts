@@ -15,10 +15,18 @@ import { harnessUrl, waitForInter } from '../support/harness';
  *     `isCompactWindow` gate) with no rail at all (`Layout`'s `showRail` gate)
  *     and the compact back-arrow `AppBar` in its place.
  *
- * `ADMIN_SECTIONS` (`apps/web/src/config/adminSections.tsx`) has 2 groups / 5
- * cards total — General (System, Appearance, Feature Flags, Advanced (JSON))
- * and Access (Users & Allowlist) — so "3-up"/"2-up" describes the CSS grid's
- * column count at that width, not the number of sections.
+ * `ADMIN_SECTIONS` (`apps/web/src/config/adminSections.tsx`) has 3 groups / 12
+ * cards total — General (System, Appearance, Feature Flags, Email,
+ * Notifications, Maintenance, Advanced (JSON)), Access (Users & Allowlist) and
+ * Operations (Jobs, Job Insights, Worker Nodes, Database Backup) — so
+ * "3-up"/"2-up" describes the CSS grid's column count at that width, not the
+ * number of sections.
+ *
+ * ⚠ THAT COUNT IS LOAD-BEARING ONLY IF THE HARNESS CAN SEE EVERY CARD. The
+ * hub filters by permission, so a card whose permission is missing from
+ * `DEFAULT_PERMISSIONS` in `apps/web/visual/main.tsx` renders nowhere and this
+ * suite quietly stops asserting anything about it. When a group is added,
+ * that list is the second half of the change — see its own comment.
  *
  * `SettingsHub` makes no network request of its own (the registry is a static
  * array), so every screenshot here is safe as a FULL PAGE capture — nothing on
@@ -75,7 +83,11 @@ test.describe('Admin settings hub', () => {
 
     // Below `sm` there is no rail at all (`Layout`'s `showRail` gate) — the
     // hub itself becomes the navigation.
-    await expect(page.getByRole('button', { name: 'Back' })).toBeVisible();
+    // `exact: true` is load-bearing, not tidiness: accessible-name matching is
+    // substring-based by default, and the Operations group's disabled
+    // "Database Backup — Coming soon" card contains "Back". Without it this
+    // resolves to two elements and fails on strict mode.
+    await expect(page.getByRole('button', { name: 'Back', exact: true })).toBeVisible();
     await expect(page.locator('main').getByText('Advanced (JSON)')).toBeVisible();
 
     await expect(page).toHaveScreenshot('admin-hub-551x840-drilldown.png', {
