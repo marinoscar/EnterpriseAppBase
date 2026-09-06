@@ -345,13 +345,17 @@ describe('the Operations group (#266)', () => {
     ]);
   });
 
-  it('routes the two pages this issue ships', () => {
+  it('routes every page that has shipped', () => {
     expect(cardsByTitle.get('Jobs')?.path).toBe('/admin/settings/jobs');
     expect(cardsByTitle.get('Job Insights')?.path).toBe('/admin/settings/jobs/insights');
+    // #271 flipped this one from inert to routed. The path is the route
+    // `App.tsx` declares, byte for byte — a card pointing anywhere else would
+    // send the click to the `*` catch-all and land on the home page.
+    expect(cardsByTitle.get('Worker Nodes')?.path).toBe('/admin/settings/workers');
   });
 
-  it('leaves the two unbuilt cards non-navigable rather than linking to a 404', () => {
-    for (const title of ['Worker Nodes', 'Database Backup']) {
+  it('leaves the unbuilt card non-navigable rather than linking to a 404', () => {
+    for (const title of ['Database Backup']) {
       const card = cardsByTitle.get(title);
       expect(card?.disabled, `${title} must be inert`).toBe(true);
       // No `path` AND `disabled`: the rail skips on either, the hub renders an
@@ -361,8 +365,8 @@ describe('the Operations group (#266)', () => {
     }
   });
 
-  it('leaves the two shipped cards navigable', () => {
-    for (const title of ['Jobs', 'Job Insights']) {
+  it('leaves the shipped cards navigable', () => {
+    for (const title of ['Jobs', 'Job Insights', 'Worker Nodes']) {
       expect(cardsByTitle.get(title)?.disabled).toBeUndefined();
     }
   });
@@ -390,6 +394,10 @@ describe('the Operations group (#266)', () => {
       resolve(API_SRC, 'jobs/job-admin.controller.ts'),
       'utf8',
     );
+    const nodesAdminController = readFileSync(
+      resolve(API_SRC, 'nodes/nodes-admin.controller.ts'),
+      'utf8',
+    );
 
     it('binds both Jobs cards to jobs:read, which job-admin.controller.ts enforces on its reads', () => {
       expect(cardsByTitle.get('Jobs')?.permission).toBe('jobs:read');
@@ -403,7 +411,12 @@ describe('the Operations group (#266)', () => {
       // on `jobs:read` would advertise a permission the nodes controller never
       // checks, so the hub would decide reachability on unrelated evidence.
       expect(cardsByTitle.get('Worker Nodes')?.permission).toBe('nodes:read');
+      expect(cardsByTitle.get('Worker Nodes')?.permission).not.toBe('jobs:read');
       expect(rolesConstants).toContain("NODES_READ: 'nodes:read'");
+      // And the controller really does enforce it — the mechanical half of
+      // CLAUDE.md Settings UI Pattern rule 3, now that the card is routed and
+      // the string gates a page somebody can actually open (#271).
+      expect(nodesAdminController).toContain('PERMISSIONS.NODES_READ');
     });
 
     it('binds Database Backup to the dedicated db_backup:read, never to system_settings:read', () => {

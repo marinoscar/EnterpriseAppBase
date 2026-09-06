@@ -63,6 +63,10 @@ const AdminMaintenancePage = lazy(() => import('./pages/Admin/MaintenancePage'))
 // is on the path of a user who never opens the Console.
 const JobsPage = lazy(() => import('./pages/Admin/JobsPage'));
 const JobInsightsPage = lazy(() => import('./pages/Admin/JobInsightsPage'));
+// Issue #271, epic #254 — the fleet page, and with it the node credentials it
+// hosts as a section. Lazy for the same reason: two DataTables and two dialogs
+// that nobody who never opens the Console will ever mount.
+const WorkersPage = lazy(() => import('./pages/Admin/WorkersPage'));
 const AdvancedSettingsPage = lazy(() => import('./pages/Admin/AdvancedSettingsPage'));
 const AdminUsersPage = lazy(() => import('./pages/Admin/UsersPage'));
 
@@ -368,6 +372,35 @@ function AppRoutes() {
                         fallback={<Navigate to="/" replace />}
                       >
                         <JobInsightsPage />
+                      </RequirePermission>
+                    }
+                  />
+                  {/* Issue #271, epic #254. Guarded EXACTLY as the two Jobs
+                      routes above are, and on `nodes:read` — the literal string
+                      `nodes/nodes-admin.controller.ts` enforces on its fleet
+                      list, its node detail and its credential list, and the
+                      same one the `Worker Nodes` card declares (the invariant
+                      `settingsRegistry.test.ts` asserts against the API's own
+                      constants file). Deleting a node and creating or revoking
+                      a credential need `nodes:write`, which the PAGE gates
+                      internally by omitting the row actions and the create
+                      button — the route gate is about REACHABILITY.
+
+                      ONE ROUTE, NOT TWO, and no tab: node credentials are
+                      CONTENT of this page rather than a destination of their
+                      own, because revoking a leaked worker token is an
+                      incident-response action and a second card would put two
+                      clicks in front of it. See `WorkersPage.tsx` and
+                      `components/admin/NodeCredentials.tsx` for the full
+                      argument and the alternatives rejected. */}
+                  <Route
+                    path="/admin/settings/workers"
+                    element={
+                      <RequirePermission
+                        permission="nodes:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <WorkersPage />
                       </RequirePermission>
                     }
                   />
