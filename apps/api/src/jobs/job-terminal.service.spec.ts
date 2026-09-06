@@ -258,6 +258,79 @@ describe('JobTerminalService', () => {
   // ===========================================================================
   // Rate limits: the separate budget, and the un-charge
   // ===========================================================================
+  // ===========================================================================
+  // A caller-declared permanent failure (issue #262's missing-handler path)
+  // ===========================================================================
+  describe('completeFailed — { permanent: true }', () => {
+    it('fails the job on the FIRST attempt, with budget still unspent', async () => {
+      // `attempts: 1` of a budget of 3, so the ordinary branch would have
+      // retried. "Unrunnable" is not "failed once".
+      await expect(
+        service.completeFailed(runningJob({ attempts: 1 }), new Error('no handler'), {
+          permanent: true,
+        })
+      ).resolves.toBe('failed');
+
+      expect(written()).toMatchObject({
+        status: 'failed',
+        finishedAt: new Date(NOW),
+        lastError: 'no handler',
+        scheduledFor: null,
+        claimedByNodeId: null,
+        leaseExpiresAt: null,
+      });
+    });
+
+    it('never schedules a retry', async () => {
+      await service.completeFailed(runningJob({ attempts: 1 }), new Error('no handler'), {
+        permanent: true,
+      });
+
+      expect(written()).not.toMatchObject({ status: 'pending' });
+      expect(written().scheduledFor).toBeNull();
+    });
+
+    it('emits the settled event, because the job is genuinely over', async () => {
+      await service.completeFailed(runningJob(), new Error('no handler'), { permanent: true });
+
+      expect(emit).toHaveBeenCalledTimes(1);
+      expect((emit.mock.calls[0][1] as JobSettledEvent).job.status).toBe('failed');
+      expect(emit.mock.calls[0][0]).toBe(JOB_SETTLED_EVENT);
+    });
+
+    it('BEATS the rate-limit classification: an unrunnable job is not deferred', async () => {
+      // A 429-shaped error on a job the executor already knows can never run.
+      // Deferring it for fifteen minutes before failing it anyway would be
+      // fifteen minutes spent learning nothing.
+      await expect(
+        service.completeFailed(runningJob(), new RateLimitError('slow down', 30_000), {
+          permanent: true,
+        })
+      ).resolves.toBe('failed');
+
+      expect(written()).toMatchObject({ status: 'failed' });
+      expect(throttle.trip).not.toHaveBeenCalled();
+    });
+
+    it('does not change the ordinary path when the flag is absent or false', async () => {
+      await expect(
+        service.completeFailed(runningJob({ attempts: 1 }), new Error('boom'), {
+          permanent: false,
+        })
+      ).resolves.toBe('retry-scheduled');
+    });
+
+    it('still reports write-failed if the row cannot be written', async () => {
+      update.mockRejectedValue(new Error('connection terminated'));
+
+      await expect(
+        service.completeFailed(runningJob(), new Error('no handler'), { permanent: true })
+      ).resolves.toBe('write-failed');
+
+      expect(emit).not.toHaveBeenCalled();
+    });
+  });
+
   describe('completeFailed — the rate-limit branch', () => {
     it('defers WITHOUT consuming an attempt, and increments rateLimitHits', async () => {
       const job = runningJob({ attempts: 1, rateLimitHits: 0 });

@@ -124,6 +124,25 @@ export default () => {
   // Each pair of *BaseMs / *MaxMs feeds the same equal-jitter exponential
   // backoff (`src/jobs/backoff.util.ts`); only the constants differ —
   // seconds for a retry, minutes for a provider cooldown.
+  //
+  // THE WORKER POOL'S OWN FIVE (issue #262) sit in the same block because
+  // they bound the same thing from the other end: the four above decide what
+  // happens to a job that stopped, these decide how many jobs may be running
+  // at once, how eagerly an empty queue is asked again, which types this
+  // process is allowed to take, and how long one job may hold a slot.
+  //
+  // `workerMode` is a plain string rather than a union parsed here, and
+  // `JobWorker.mode()` validates it on every claim: an unrecognised value
+  // FAILS OPEN to "all" with a single warning, because a typo in an env file
+  // silently stopping every background job is a far worse outcome than
+  // running the default loudly. Validating it here would have to decide
+  // between throwing at boot (the fail-closed outcome, rejected) and
+  // silently rewriting the value (the same fallback, further from the log
+  // line that explains it).
+  //
+  // The lease a claim is taken with is DERIVED from `jobTimeoutMs` rather
+  // than configured, so it cannot be set shorter than the timeout it has to
+  // outlive — see `LEASE_GRACE_MS` in `src/jobs/job.worker.ts`.
   jobs: {
     maxAttempts: parseInt(process.env.JOBS_MAX_ATTEMPTS || '3', 10),
     retryBaseMs: parseInt(process.env.JOBS_RETRY_BASE_MS || '2000', 10),
@@ -131,6 +150,17 @@ export default () => {
     rateLimitMaxHits: parseInt(process.env.JOBS_RATELIMIT_MAX_HITS || '10', 10),
     rateLimitBaseMs: parseInt(process.env.JOBS_RATELIMIT_BASE_MS || '30000', 10),
     rateLimitMaxMs: parseInt(process.env.JOBS_RATELIMIT_MAX_MS || '900000', 10),
+    workerConcurrency: parseInt(process.env.JOBS_WORKER_CONCURRENCY || '2', 10),
+    pollMs: parseInt(process.env.JOBS_POLL_MS || '5000', 10),
+    workerMode: process.env.JOBS_WORKER_MODE || 'all',
+    jobTimeoutMs: parseInt(process.env.JOBS_JOB_TIMEOUT_MS || '600000', 10),
+    // Split here rather than in the worker so the shape a consumer reads is
+    // the shape it wants, and an unset variable is an empty list rather than
+    // `['']` — which would look like a job type named "" to every caller.
+    systemModeExtraTypes: (process.env.JOBS_SYSTEM_MODE_EXTRA_TYPES || '')
+      .split(',')
+      .map((type) => type.trim())
+      .filter((type) => type.length > 0),
   },
 
   // Observability

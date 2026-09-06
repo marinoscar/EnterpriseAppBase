@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { ExampleEchoHandler } from './handlers/example-echo.handler';
 import { JobHandler } from './job-handler.interface';
 import { JobHandlerRegistry } from './job-handler.registry';
+import { JobWorker } from './job.worker';
 import { JobsModule } from './jobs.module';
 import configuration from '../config/configuration';
 import { PrismaModule } from '../prisma/prisma.module';
@@ -206,6 +207,13 @@ describe('ExampleEchoHandler self-registration (via JobsModule)', () => {
       ],
     })
       .overrideProvider(PrismaService)
+      .useValue({})
+      // `JobWorker` (#262) is the one provider in `JobsModule` that RUNS on
+      // its own: `init()` below reaches `onApplicationBootstrap` and it would
+      // start polling a stubbed Prisma for the life of this suite. Its own
+      // lifecycle is proven in `job.worker.bootstrap.spec.ts`; here it would
+      // only add noise.
+      .overrideProvider(JobWorker)
       .useValue({})
       .compile();
 

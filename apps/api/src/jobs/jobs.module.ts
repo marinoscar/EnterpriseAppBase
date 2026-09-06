@@ -4,11 +4,12 @@ import { ExampleEchoHandler } from './handlers/example-echo.handler';
 import { JobClaimService } from './job-claim.service';
 import { JobHandlerRegistry } from './job-handler.registry';
 import { JobTerminalService } from './job-terminal.service';
+import { JobWorker } from './job.worker';
 import { JobsService } from './jobs.service';
 import { ProviderThrottleService } from './provider-throttle.service';
 
 // =============================================================================
-// JobsModule (issues #259, #260 and #261, epic #254)
+// JobsModule (issues #259, #260, #261 and #262, epic #254)
 // =============================================================================
 //
 // STILL NOTHING THAT RUNS ON ITS OWN. #259 shipped the queue's extension
@@ -21,8 +22,15 @@ import { ProviderThrottleService } from './provider-throttle.service';
 // the `ProviderThrottleService` cooldown gate it trips on a provider rate
 // limit. Still nothing polls, and no timer exists here yet: the thing that
 // calls `claim()` on a tick and `completeSucceeded`/`completeFailed`
-// afterwards is the in-process worker pool (#262). Queue hygiene — lease
-// reaper, history purge, temp-file janitor (#263) — lands here too.
+// afterwards is the in-process worker pool — and #262 adds it: `JobWorker`
+// is the first provider in this module that runs on its own. Queue hygiene —
+// lease reaper, history purge, temp-file janitor (#263) — lands here too.
+//
+// ⚠ `JobWorker` STARTS FROM `onApplicationBootstrap`, NOT `onModuleInit`, and
+// that is a correctness constraint rather than a style choice: handlers
+// self-register from their own `onModuleInit`, and a worker polling in the
+// same lifecycle phase would race them. See `job.worker.ts`'s header,
+// `job-handler.registry.ts`'s, and §1.3 of docs/specs/job-queue.md.
 //
 // `JOB_CLOCK` and `JOB_RANDOM` are DELIBERATELY NOT PROVIDED. Both services
 // fall back to the real clock and `Math.random` when the optional token
@@ -70,6 +78,13 @@ import { ProviderThrottleService } from './provider-throttle.service';
 // once around the provider call itself to `acquire()` the gate. Neither is
 // reachable from `JobTerminalService`.
 //
+// `JobWorker` is NOT exported, and that is deliberate. Nothing should reach
+// it: it has no method a feature module wants, and the two it does have
+// (`start`/`stop`) exist for the lifecycle hooks and for tests. A module that
+// could inject it could stop the pool, which is not a capability any feature
+// should have. Contrast every export above, each of which exists because some
+// other module genuinely cannot do its job without it.
+//
 // `PrismaService` is not imported here: `PrismaModule` is `@Global()`.
 // `EventEmitter2` is likewise global — `EventEmitterModule.forRoot()` in
 // `app.module.ts` — so the settled event needs no import either.
@@ -83,6 +98,7 @@ import { ProviderThrottleService } from './provider-throttle.service';
     JobClaimService,
     ProviderThrottleService,
     JobTerminalService,
+    JobWorker,
   ],
   exports: [
     JobHandlerRegistry,

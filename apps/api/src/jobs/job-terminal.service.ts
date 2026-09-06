@@ -88,6 +88,29 @@ export interface CompleteFailedOptions {
 
   /** A provider-requested delay, in milliseconds. A FLOOR on the backoff, not an override. */
   retryAfterMs?: number;
+
+  /**
+   * "This job can never succeed, so do not spend attempts discovering that."
+   *
+   * SHORT-CIRCUITS EVERYTHING BELOW — ahead of the rate-limit classification,
+   * not after it — because it is a statement about the job being UNRUNNABLE,
+   * and neither a retry nor a deferral can change an unrunnable job into a
+   * runnable one. A 429 is a "not now"; this is a "not ever".
+   *
+   * The caller that has this knowledge is the executor, not this service: the
+   * in-process worker (#262) sets it when a claimed row names a type no
+   * handler in this process registers, and the node control plane (#268) will
+   * set it for a node reporting an input it can never accept. Retrying either
+   * one re-enters the same process with the same registry, or ships the same
+   * input to the same fleet, and reaches the same conclusion two minutes
+   * later having burnt the budget to learn nothing.
+   *
+   * It is a FLAG INTO THE CHOKEPOINT rather than a licence for the caller to
+   * write its own terminal row — the whole argument in this file's header
+   * applies unchanged: the two executors must reach the same conclusion by
+   * running the same code, including this one.
+   */
+  permanent?: boolean;
 }
 
 /**
@@ -227,6 +250,20 @@ export class JobTerminalService {
   ): Promise<JobSettleOutcome> {
     const now = new Date(this.clock.now());
     const message = toErrorMessage(error);
+
+    if (opts?.permanent) {
+      // BEFORE the classification below, deliberately. A caller that knows
+      // the job is unrunnable knows something no amount of reading the error
+      // object can discover, and an unrunnable job that happens to have
+      // thrown a 429-shaped error must not be deferred for fifteen minutes
+      // before failing anyway. See `CompleteFailedOptions.permanent`.
+      return this.failPermanently(
+        job,
+        message,
+        now,
+        `Job ${job.id} (${job.type}) failed permanently and will not be retried: ${message}`
+      );
+    }
 
     // ---- Classification, in the fixed order documented in the header -----
     let rateLimited = false;
@@ -419,6 +456,36 @@ export class JobTerminalService {
       return 'retry-scheduled';
     }
 
+    return this.failPermanently(
+      job,
+      message,
+      now,
+      `Job ${job.id} (${job.type}) permanently failed after ` +
+        `${job.attempts} attempt(s): ${message}`
+    );
+  }
+
+  /**
+   * Writes the terminal `failed` row and announces it.
+   *
+   * ONE implementation, reached from the two routes whose written row is
+   * IDENTICAL: the attempt budget running out, and a caller declaring the job
+   * unrunnable. `log` is the only thing that differs, because the row must
+   * not — a `failed` job releases its claim and its lease and keeps its
+   * `executor` whichever route it took, and a second copy of that object is a
+   * second place to forget a field.
+   *
+   * The rate-limit give-up in `deferForRateLimit` deliberately does NOT come
+   * through here: it writes `rateLimitHits` and `rateLimitedAt` as well, and
+   * widening this method with two optional counters to absorb it would make
+   * the shared thing less readable than the duplication it removed.
+   */
+  private async failPermanently(
+    job: Job,
+    message: string,
+    now: Date,
+    log: string
+  ): Promise<JobSettleOutcome> {
     const updated = await this.safeTerminalUpdate(job.id, {
       status: 'failed',
       finishedAt: now,
@@ -433,10 +500,7 @@ export class JobTerminalService {
       return 'write-failed';
     }
 
-    this.logger.warn(
-      `Job ${job.id} (${job.type}) permanently failed after ` +
-        `${job.attempts} attempt(s): ${message}`
-    );
+    this.logger.warn(log);
 
     this.emitSettled(updated);
 
