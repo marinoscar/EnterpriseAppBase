@@ -62,6 +62,9 @@ describe('Node credentials (Integration)', () => {
 
   const NODE_TOKEN = 'nod_integration_fixture_token';
 
+  /** A node id for the routes #268 mounted under the allowlisted prefix. */
+  const NODE_ID = '11111111-1111-4111-8111-111111111111';
+
   /**
    * Registers a live node credential owned by `userId`, keyed by the same
    * sha256 digest `NodeCredentialService.validateToken` computes — so the
@@ -106,25 +109,27 @@ describe('Node credentials (Integration)', () => {
   const nodeHeader = () => ({ Authorization: `Bearer ${NODE_TOKEN}` });
 
   // ---------------------------------------------------------------------------
-  // Driving the guard directly, over the REAL NodeCredentialService
+  // Driving the guard directly, for the paths that still have no handler
   // ---------------------------------------------------------------------------
   //
-  // WHY THIS EXISTS ALONGSIDE THE SUPERTEST CASES, AND WHY IT IS NOT A UNIT
-  // TEST. `JwtAuthGuard` is a ROUTE-LEVEL guard: Nest runs it only after the
-  // router has matched a handler. `/api/nodes` and everything under it has no
-  // handler until #268 — and neither do `/api/nodesX` or `/api/nodes-other` —
-  // so an HTTP request to any of them 404s before the guard is ever consulted.
-  // A supertest assertion there would be measuring the router, not the
-  // allowlist, and would silently start measuring something else the day #268
-  // lands.
+  // ⚠ THIS BLOCK USED TO CARRY THE ALLOWED SIDE OF THE BOUNDARY TOO, AND #268
+  // TOOK THAT HALF BACK. `JwtAuthGuard` is a ROUTE-LEVEL guard: Nest runs it
+  // only after the router has matched a handler, so while `/api/nodes` had no
+  // controller, an HTTP request there 404'd before the guard was ever
+  // consulted — an assertion on it would have measured the router, not the
+  // allowlist. #268 mounts `NodesController`, so the admitted cases are now
+  // ordinary supertest requests in the block below this one, through the real
+  // router, the real guard and the real service.
   //
-  // So the ALLOWED side of the boundary, and the prefix-boundary paths that
-  // must not match it, are exercised by invoking the guard with the real
-  // service and the real Prisma mock behind it. That is still an integration:
-  // guard, service, hashing and row shape are all the production code. Only
-  // the router is absent, because the router has nothing to say yet. The
-  // REFUSED side, on routes that DO exist, is asserted over HTTP above — the
-  // two halves together cover the boundary from both directions.
+  // What is left here is the half that CANNOT be an HTTP request, and never
+  // will be: paths that begin with the literal characters `/api/nodes` and
+  // must still be refused (`/api/nodesX`, `/api/nodes-other`,
+  // `/api/nodescrape`, `/api/node-credentials`), plus `/api/nodes/` with its
+  // trailing slash. None of them routes anywhere, so all of them 404 in the
+  // router whatever the guard would have decided — which is exactly why the
+  // guard has to be asked directly. A naive `startsWith('/api/nodes')` admits
+  // every one of them, and the day somebody adds a route under one of those
+  // names, the 404 that currently hides the question disappears.
   function guardHarness() {
     const guard = new JwtAuthGuard(
       context.module.get(Reflector, { strict: false }),
@@ -256,19 +261,106 @@ describe('Node credentials (Integration)', () => {
   // The ALLOWED side of the allowlist, and the four ways validation fails
   // ===========================================================================
 
-  describe('the allowlist itself, driven through the real service', () => {
-    it.each([
-      ['/api/nodes'],
-      ['/api/nodes/'],
-      ['/api/nodes/11111111-1111-4111-8111-111111111111/heartbeat'],
-      ['/api/nodes?x=1'],
-    ])('admits %s', async (url) => {
+  describe('the ADMITTED side, over real HTTP now that #268 mounts /api/nodes', () => {
+    // These are the cases #267 could only assert against the guard directly,
+    // because the router 404'd first. They are the whole point of the
+    // allowlist: a `nod_` credential must be able to do the node conversation
+    // and nothing else, and "can do the node conversation" is only provable
+    // once there is a node conversation to do.
+
+    /** A node row owned by `ownerId`, enough for the two routes used below. */
+    const nodeRowFor = (ownerId: string) => ({
+      id: NODE_ID,
+      name: 'prod-worker-1',
+      hostname: 'box-a',
+      platform: 'linux-x64',
+      cliVersion: '1.0.0',
+      eligibleTypes: [],
+      concurrency: 1,
+      status: 'online',
+      capabilities: null,
+      registeredAt: new Date(),
+      lastHeartbeatAt: null,
+      createdById: ownerId,
+    });
+
+    it('admits GET /api/nodes — and resolves the credential to do it', async () => {
+      const admin = await createMockAdminUser(context);
+      const update = await givenLiveNodeCredentialFor(admin.id);
+      (context.prismaMock.workerNode.findMany as jest.Mock).mockResolvedValue([]);
+
+      await request(context.app.getHttpServer())
+        .get('/api/nodes')
+        .set(nodeHeader())
+        .expect(200);
+
+      // It got there by actually resolving the credential, not by skipping —
+      // and `lastUsedAt` is stamped, which is the operator's "is this node
+      // alive" signal working as designed on an ALLOWED route.
+      expect(context.prismaMock.nodeCredential.findUnique).toHaveBeenCalled();
+      expect(update).toHaveBeenCalled();
+    });
+
+    it('admits GET /api/nodes?x=1 — the query string is not part of the path', async () => {
+      const admin = await createMockAdminUser(context);
+      await givenLiveNodeCredentialFor(admin.id);
+      (context.prismaMock.workerNode.findMany as jest.Mock).mockResolvedValue([]);
+
+      await request(context.app.getHttpServer())
+        .get('/api/nodes?x=1')
+        .set(nodeHeader())
+        .expect(200);
+    });
+
+    it('admits POST /api/nodes/:id/heartbeat — the routine call of a node’s life', async () => {
+      const admin = await createMockAdminUser(context);
+      await givenLiveNodeCredentialFor(admin.id);
+      (context.prismaMock.workerNode.findUnique as jest.Mock).mockResolvedValue(
+        nodeRowFor(admin.id),
+      );
+      (context.prismaMock.workerNode.update as jest.Mock).mockResolvedValue(
+        nodeRowFor(admin.id),
+      );
+
+      await request(context.app.getHttpServer())
+        .post(`/api/nodes/${NODE_ID}/heartbeat`)
+        .set(nodeHeader())
+        .send({ status: 'online' })
+        .expect(200);
+    });
+
+    it('admits POST /api/nodes/register — how a worker attaches in the first place', async () => {
+      const admin = await createMockAdminUser(context);
+      await givenLiveNodeCredentialFor(admin.id);
+      (context.prismaMock.workerNode.findUnique as jest.Mock).mockResolvedValue(null);
+      (context.prismaMock.workerNode.create as jest.Mock).mockImplementation(
+        async ({ data }: any) => ({ ...nodeRowFor(admin.id), ...data }),
+      );
+
+      const response = await request(context.app.getHttpServer())
+        .post('/api/nodes/register')
+        .set(nodeHeader())
+        .send({
+          name: 'prod-worker-1',
+          hostname: 'box-a',
+          platform: 'linux-x64',
+          cliVersion: '1.0.0',
+          eligibleTypes: [],
+          concurrency: 1,
+        })
+        .expect(200);
+
+      expect(response.body.data.reattached).toBe(false);
+    });
+  });
+
+  describe('the prefix boundary, which still has no router to ask', () => {
+    it('admits /api/nodes/ (trailing slash) at the guard, though nothing routes there', async () => {
       const admin = await createMockAdminUser(context);
       await givenLiveNodeCredentialFor(admin.id);
       const { guard, contextFor } = guardHarness();
 
-      await expect(guard.canActivate(contextFor(url))).resolves.toBe(true);
-      // It got there by actually resolving the credential, not by skipping.
+      await expect(guard.canActivate(contextFor('/api/nodes/'))).resolves.toBe(true);
       expect(context.prismaMock.nodeCredential.findUnique).toHaveBeenCalled();
     });
 
