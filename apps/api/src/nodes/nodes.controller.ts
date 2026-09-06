@@ -1,12 +1,15 @@
 // =============================================================================
-// /api/nodes — the routes a worker node talks to (issue #268, epic #254)
+// /api/nodes — the routes a worker node talks to (issues #268 & #269, epic #254)
 // =============================================================================
 //
-// Nine routes, one service, and a controller that binds, documents and
+// Twelve routes, two services, and a controller that binds, documents and
 // authorizes — nothing else. Every decision about what a request MEANS lives
-// in `nodes.service.ts`, including both guards; this file must not grow a
+// in `nodes.service.ts` (the control plane) and `node-data-plane.service.ts`
+// (#269's presigned IO), including both guards; this file must not grow a
 // second opinion about ownership or about a lease, because a check written
-// here would be a check the service's own callers (and its tests) do not get.
+// here would be a check the services' own callers (and their tests) do not
+// get. The data plane's two routes go through the SAME
+// `assertJobHeldByNode` the control plane's do — reused, never reimplemented.
 //
 // -----------------------------------------------------------------------------
 // THIS IS THE MOUNT POINT THE `nod_` ALLOWLIST HAS BEEN POINTING AT SINCE #267
@@ -32,8 +35,12 @@
 // PERMISSIONS, AND WHY THE READS ARE SPLIT FROM THE WRITES
 // -----------------------------------------------------------------------------
 //
-// Every write route is `nodes:write`; `GET /nodes` and `GET /nodes/:id` are
-// `nodes:read`. The split is the same one `/api/node-credentials` makes and
+// Every write route is `nodes:write`; `GET /nodes`, `GET /nodes/:id` and
+// `GET /nodes/job-types` are `nodes:read`. Note that MINTING A SIGNED URL is a
+// write (`download-url` included): it hands out a capability against storage
+// and is scoped by a lease the node must be actively holding, which is not
+// the shape of anything a read-only auditor should be able to do.
+// The split is the same one `/api/node-credentials` makes and
 // exists for the same reason: a role that may AUDIT the fleet without being
 // able to change it is a distinction worth being able to express, and it is
 // the entire reason the permission pair is split at all. Note that claiming a
@@ -41,7 +48,7 @@
 // operator might think of "get me work" as a read.
 //
 // -----------------------------------------------------------------------------
-// ⚠ `register` IS DECLARED BEFORE THE `:id` ROUTES, AND THE ORDER IS LOAD-BEARING
+// ⚠ THE LITERALS ARE DECLARED BEFORE THE `:id` ROUTES, AND THE ORDER IS LOAD-BEARING
 // -----------------------------------------------------------------------------
 //
 // Nest matches in DECLARATION ORDER, not by specificity. `POST /nodes/register`
@@ -50,6 +57,13 @@
 // a `register` declared after it becomes unreachable, and the symptom is a
 // fleet-wide "node not found: register" with a UUID validation error rather
 // than anything naming this file. Literals first removes the trap in advance.
+//
+// `GET /nodes/job-types` (#269) is the live case, not a hypothetical one:
+// `GET /nodes/:id` ALREADY EXISTS, so declaring `job-types` after it would
+// route every request for the contract list into the node lookup, where
+// `ParseUUIDPipe` would answer `400 "Validation failed (uuid is expected)"`
+// for a path that has nothing to do with a UUID. It is declared immediately
+// after `register`, above every parameterised route.
 //
 // -----------------------------------------------------------------------------
 // WHY `register` RETURNS 200 AND NOT 201
@@ -95,12 +109,22 @@ import {
   toWorkerNodeDto,
   WorkerNodeDto,
 } from './dto/node-response.dto';
+import {
+  NodeDownloadUrlResponseDto,
+  NodeJobTypesResponseDto,
+  NodeUploadUrlDto,
+  NodeUploadUrlResponseDto,
+} from './dto/node-data-plane.dto';
+import { NodeDataPlaneService } from './node-data-plane.service';
 import { NodesService } from './nodes.service';
 
 @ApiTags('Worker Nodes')
 @Controller('nodes')
 export class NodesController {
-  constructor(private readonly nodes: NodesService) {}
+  constructor(
+    private readonly nodes: NodesService,
+    private readonly dataPlane: NodeDataPlaneService
+  ) {}
 
   // ---------------------------------------------------------------------------
   // Literal routes first — see the header.
@@ -129,6 +153,25 @@ export class NodesController {
     const { node, reattached } = await this.nodes.register(userId, dto);
 
     return { node: toWorkerNodeDto(node), reattached };
+  }
+
+  @Get('job-types')
+  @Auth({ permissions: [PERMISSIONS.NODES_READ] })
+  @ApiOperation({
+    summary: 'List the job types a node can run, with their result contracts',
+    description:
+      'Every type whose handler carries both `nodeResultSchema` and `persistNodeResult` — the ' +
+      'only types a claim can ever return — each with a JSON Schema (2020-12) for the `result` ' +
+      'a submission must carry. The schema is generated from the server’s own Zod definition, ' +
+      'so a client validates against what this server will actually enforce rather than ' +
+      'against a copy that can go stale. `resultSchema` is `null` for the rare type whose ' +
+      'schema has no JSON Schema representation; submit and let the server validate. ' +
+      'The list is derived from the handler registry, so a fork’s own types appear with no ' +
+      'list to edit.',
+  })
+  @ApiResponse({ status: 200, description: 'The node-eligible types', type: NodeJobTypesResponseDto })
+  listJobTypes(): NodeJobTypesResponseDto {
+    return { types: this.nodes.listNodeEligibleJobTypes() };
   }
 
   @Get()
@@ -269,6 +312,70 @@ export class NodesController {
     const renewed = await this.nodes.renewLease(userId, id, jobId);
 
     return { jobId: renewed.jobId, leaseExpiresAt: renewed.leaseExpiresAt.toISOString() };
+  }
+
+  // ---------------------------------------------------------------------------
+  // The data plane (#269) — bytes move between the node and the storage
+  // provider DIRECTLY. Neither route carries a payload, and no storage
+  // credential ever leaves this server.
+  // ---------------------------------------------------------------------------
+
+  @Post(':id/jobs/:jobId/download-url')
+  @Auth({ permissions: [PERMISSIONS.NODES_WRITE] })
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Mint a short-lived signed GET for a held job’s input object',
+    description:
+      'Returns a signed URL for the storage object this job names as its subject. Fetch it ' +
+      'DIRECTLY from the storage provider: the bytes never pass through this API, and a node ' +
+      'never receives a storage credential. The expiry is bounded by the server and is not ' +
+      'negotiable — ask again if a transfer needs longer, which is cheap while the lease is ' +
+      'live. Treat the URL as a secret and do not log it. `409` once the lease has expired ' +
+      '(another executor may own the job — drop the work); `422` when the job names no ' +
+      'resolvable input, which is permanent: report the job as FAILED rather than retrying, ' +
+      'and `details.reason` says which of `missing_subject_id`, `input_object_not_found` or ' +
+      '`input_object_has_no_storage_key` applied.',
+  })
+  @ApiParam({ name: 'id', type: String, format: 'uuid' })
+  @ApiParam({ name: 'jobId', type: String, format: 'uuid' })
+  @ApiResponse({ status: 200, description: 'A signed download URL', type: NodeDownloadUrlResponseDto })
+  @ApiResponse({ status: 409, description: 'This node no longer holds the job with a live lease' })
+  @ApiResponse({ status: 422, description: 'The job names no resolvable input object' })
+  async downloadUrl(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('jobId', ParseUUIDPipe) jobId: string,
+    @CurrentUser('id') userId: string
+  ): Promise<NodeDownloadUrlResponseDto> {
+    return this.dataPlane.createDownloadUrl(userId, id, jobId);
+  }
+
+  @Post(':id/jobs/:jobId/upload-url')
+  @Auth({ permissions: [PERMISSIONS.NODES_WRITE] })
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Mint a short-lived signed PUT for a held job’s output',
+    description:
+      'Returns a signed URL accepting ONE `PUT` of a whole object, plus the storage key the ' +
+      'SERVER chose for it. A node may not choose its own key — a signed PUT is an ' +
+      'unconditional overwrite of exactly that key, so a node-supplied one would be a write ' +
+      'primitive over the whole bucket — and a request carrying `key` (or any field other ' +
+      'than `contentType`) is refused with `400` naming it. The key is returned so the node ' +
+      'can report it in its result; no `storage_objects` row is created here. If ' +
+      '`contentType` is supplied it becomes part of the signature and must be sent verbatim ' +
+      'on the PUT. `409` once the lease has expired.',
+  })
+  @ApiParam({ name: 'id', type: String, format: 'uuid' })
+  @ApiParam({ name: 'jobId', type: String, format: 'uuid' })
+  @ApiResponse({ status: 200, description: 'A signed upload URL and its server-chosen key', type: NodeUploadUrlResponseDto })
+  @ApiResponse({ status: 400, description: 'The request carried a field a node may not set (e.g. `key`)' })
+  @ApiResponse({ status: 409, description: 'This node no longer holds the job with a live lease' })
+  async uploadUrl(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('jobId', ParseUUIDPipe) jobId: string,
+    @Body() dto: NodeUploadUrlDto,
+    @CurrentUser('id') userId: string
+  ): Promise<NodeUploadUrlResponseDto> {
+    return this.dataPlane.createUploadTarget(userId, id, jobId, dto);
   }
 
   @Post(':id/jobs/:jobId/result')

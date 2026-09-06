@@ -121,9 +121,11 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Job, NodeStatus, Prisma, WorkerNode } from '@prisma/client';
+import { z } from 'zod';
 
 import { JobClaimService } from '../jobs/job-claim.service';
 import { JobHandlerRegistry } from '../jobs/job-handler.registry';
+import { jobTypeLabel } from '../jobs/job-type-labels';
 import { JobSettleOutcome, JobTerminalService } from '../jobs/job-terminal.service';
 import { resolveJobLeaseMs } from '../jobs/job.worker';
 import { PrismaService } from '../prisma/prisma.service';
@@ -149,6 +151,21 @@ const FRESH_HEARTBEAT_WARN_MS = 60_000;
 export interface NodeRegistration {
   node: WorkerNode;
   reattached: boolean;
+}
+
+/**
+ * One node-eligible job type as `GET /nodes/job-types` publishes it.
+ *
+ * Declared here rather than imported from the DTO file so this service keeps
+ * describing what it KNOWS rather than what a controller happens to render —
+ * the same reason the mappers in `dto/node-response.dto.ts` are the only place
+ * a Prisma row becomes a wire shape.
+ */
+export interface NodeEligibleJobType {
+  type: string;
+  label: string;
+  /** JSON Schema for the result, or `null` when the schema cannot be published. */
+  resultSchema: Record<string, unknown> | null;
 }
 
 /** What a settled job reports back to the node that settled it. */
@@ -733,6 +750,85 @@ export class NodesService {
     );
 
     return { jobId: job.id, outcome, willRetry: this.willRetry(outcome) };
+  }
+
+  // ===========================================================================
+  // The published contract
+  // ===========================================================================
+
+  /**
+   * Every job type a node could run, each with the JSON Schema its results
+   * must satisfy.
+   *
+   * THIS IS THE ONE PLACE THE RESULT CONTRACT CROSSES A PROCESS BOUNDARY, and
+   * it does so as DATA rather than as a shared build artefact. A client — the
+   * CLI is the first — validates a result before posting it, against the
+   * schema this server will actually enforce in `submitResult`, generated from
+   * the very same Zod object. There is no second definition to drift, no
+   * package to publish, and no way for a client on an older release to
+   * validate against a schema this server stopped using.
+   *
+   * REJECTED: a shared `packages/job-contracts` workspace exporting the Zod
+   * schemas to every app. `packages/shared/index.js` already documents, at
+   * length, why a compiled workspace package does not work in this
+   * repository: `apps/api` builds with `rootDir: ./src`, so importing
+   * TypeScript source from outside it widens the root and tsc starts emitting
+   * `dist/src/main.js`, which no longer matches `start:prod`'s `node
+   * dist/main` — a green build and a broken container. Its Jest config has no
+   * `moduleNameMapper` and the default `transformIgnorePatterns`, so a
+   * workspace symlink resolving to `.ts` would be untransformed and every API
+   * suite would die at import time. And CI runs `npm ci` straight into
+   * typecheck, so a package needing compilation would have to add a build step
+   * to several jobs. `packages/shared` escapes all of that by shipping
+   * committed `.js` plus a hand-written `.d.ts` — which is fine for a string
+   * constant and useless for a Zod schema, whose entire value is the runtime
+   * object.
+   *
+   * ⚠ `resultSchema` IS `null` RATHER THAN `{}` WHEN CONVERSION FAILS.
+   * `z.toJSONSchema` throws on a schema with no JSON Schema representation (a
+   * `z.custom()`, a `z.date()`, a transform), and the tempting rescue is to
+   * publish an empty schema. That would be a LIE in the most expensive
+   * direction: `{}` in JSON Schema means "anything is valid", so a client
+   * would confidently validate garbage and be refused by the server it just
+   * agreed with. `null` says "this one cannot be published — submit it and
+   * let the server answer", which is true and actionable. The type is still
+   * listed, because it is still claimable.
+   */
+  listNodeEligibleJobTypes(): NodeEligibleJobType[] {
+    return this.nodeEligibleTypes().map((type) => ({
+      type,
+      label: jobTypeLabel(type),
+      resultSchema: this.toPublishableSchema(type),
+    }));
+  }
+
+  /**
+   * `handler.nodeResultSchema` as JSON Schema, or `null` if it cannot be one.
+   *
+   * `io: 'input'` because what is being published is what a client must SEND.
+   * The distinction is invisible for a plain object schema and real the moment
+   * a schema grows a default or a coercion, where the input shape and the
+   * parsed output shape stop agreeing — and publishing the output shape would
+   * tell a client to send a field the server actually supplies for it.
+   */
+  private toPublishableSchema(type: string): Record<string, unknown> | null {
+    const schema = this.registry.get(type)?.nodeResultSchema;
+
+    if (!schema) {
+      return null;
+    }
+
+    try {
+      return z.toJSONSchema(schema, { io: 'input' }) as Record<string, unknown>;
+    } catch (error) {
+      this.logger.warn(
+        `Job type "${type}" is node-eligible but its nodeResultSchema has no JSON Schema ` +
+          `representation, so clients cannot validate against it before submitting: ` +
+          `${error instanceof Error ? error.message : String(error)}`
+      );
+
+      return null;
+    }
   }
 
   // ===========================================================================
