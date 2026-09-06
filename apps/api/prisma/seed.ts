@@ -1,5 +1,14 @@
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
+// The declarative half of this script. Split out (#256) so a Jest test can
+// import it: this file instantiates a PrismaClient and calls `main()` at import
+// time, so nothing can import IT to check the data. See seed-data.ts.
+import {
+  ROLES,
+  PERMISSIONS,
+  ROLE_PERMISSIONS,
+  DEFAULT_SYSTEM_SETTINGS,
+} from './seed-data';
 
 // Prisma 7 requires a driver adapter — PrismaClient can no longer be
 // instantiated with no options. The seed script is invoked as a standalone
@@ -20,99 +29,6 @@ if (!databaseUrl) {
 
 const adapter = new PrismaPg(databaseUrl);
 const prisma = new PrismaClient({ adapter });
-
-// =============================================================================
-// Seed Data Definitions
-// =============================================================================
-
-const ROLES = [
-  {
-    name: 'admin',
-    description: 'Full system access - manage users, roles, and all settings',
-  },
-  {
-    name: 'contributor',
-    description: 'Standard user - can manage own settings and future features',
-  },
-  {
-    name: 'viewer',
-    description: 'Read-only access - can view content and manage own settings',
-  },
-] as const;
-
-const PERMISSIONS = [
-  // System settings
-  { name: 'system_settings:read', description: 'Read system settings' },
-  { name: 'system_settings:write', description: 'Modify system settings' },
-
-  // User settings
-  { name: 'user_settings:read', description: 'Read own user settings' },
-  { name: 'user_settings:write', description: 'Modify own user settings' },
-
-  // Users management
-  { name: 'users:read', description: 'View user list and details' },
-  { name: 'users:write', description: 'Modify user accounts' },
-
-  // RBAC management
-  { name: 'rbac:manage', description: 'Manage roles and permissions' },
-
-  // Allowlist management
-  { name: 'allowlist:read', description: 'View allowlisted emails' },
-  { name: 'allowlist:write', description: 'Manage allowlisted emails' },
-
-  // Storage management
-  { name: 'storage:read', description: 'Read object metadata, get download URLs' },
-  { name: 'storage:write', description: 'Upload, update metadata' },
-  { name: 'storage:delete_any', description: 'Admin: delete any object' },
-] as const;
-
-// Role to permissions mapping
-const ROLE_PERMISSIONS: Record<string, string[]> = {
-  admin: [
-    'system_settings:read',
-    'system_settings:write',
-    'user_settings:read',
-    'user_settings:write',
-    'users:read',
-    'users:write',
-    'rbac:manage',
-    'allowlist:read',
-    'allowlist:write',
-    'storage:read',
-    'storage:write',
-    'storage:delete_any',
-  ],
-  contributor: [
-    'user_settings:read',
-    'user_settings:write',
-    'storage:read',
-    'storage:write',
-  ],
-  viewer: [
-    'user_settings:read',
-    'user_settings:write',
-    'storage:read',
-  ],
-};
-
-// Default system settings
-// Must stay in step with `DEFAULT_SYSTEM_SETTINGS` in
-// `src/common/types/settings.types.ts` — the seed cannot import it (this script
-// runs outside the Nest build), so the two are a deliberate duplicate. A seeded
-// row missing a modelled block is not fatal (`readKnownSettings` degrades it to
-// the same defaults), but it does mean the first PATCH is what materialises it.
-const DEFAULT_SYSTEM_SETTINGS = {
-  ui: {
-    allowUserThemeOverride: true,
-  },
-  features: {},
-  // #225, epic #215. Browser notifications on, nothing suppressed: an operator
-  // opts OUT of the channel, never into it.
-  notifications: {
-    browserEnabled: true,
-    disabledEvents: [] as string[],
-  },
-};
 
 // =============================================================================
 // Seed Functions

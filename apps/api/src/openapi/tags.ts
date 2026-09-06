@@ -136,6 +136,51 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
           'Liveness and readiness probes for orchestrators and load balancers. Public — a probe that ' +
           'needed a token could not report that authentication is down.',
       },
+      // ----------------------------------------------------------------------
+      // Reserved ahead of their controllers (#256, epic #254)
+      // ----------------------------------------------------------------------
+      //
+      // The four tags below are declared before any operation carries them, so
+      // that the epic's later issues add a controller and not a taxonomy
+      // argument. That is safe here and needs no exception in the tests:
+      // `applyTagGroups` (openapi/document.ts) publishes only the tags an
+      // operation actually uses, so an unused declaration is PRUNED from
+      // `document.tags` and from `x-tagGroups` rather than rendering an empty
+      // section. `test/openapi/openapi-document.spec.ts` asserts orphans
+      // against the PUBLISHED tags for exactly that reason — the same mechanism
+      // that already lets `Test Authentication` be declared here and absent
+      // from a production document.
+      //
+      // The rule that has no slack is the other direction: a tag USED by a
+      // controller and missing from this file is undeclared, undescribed and
+      // ungrouped, and that assertion stays strict. So each issue below adds
+      // its operations to a tag that is already described and already grouped.
+      {
+        name: 'Jobs',
+        description:
+          'The background job queue: what is queued, running, finished or failed, and the controls ' +
+          'to retry or cancel a job. Gated on `jobs:read`/`jobs:write`.',
+      },
+      {
+        name: 'Worker Nodes',
+        description:
+          'The worker fleet that executes queued jobs — registration, heartbeats, health, and ' +
+          'draining a node before it is retired. Gated on `nodes:read`/`nodes:write`, separately ' +
+          'from the queue itself.',
+      },
+      {
+        name: 'Database Backup',
+        description:
+          'Scheduled database backups, their history, and restore. Reading and scheduling are ' +
+          '`db_backup:read`/`db_backup:write`; restoring requires `db_backup:restore`, which is a ' +
+          'permission of its own because it renames the live database and restarts the process.',
+      },
+      {
+        name: 'Maintenance',
+        description:
+          'The maintenance window: turning it on, the message callers see while it is open, and ' +
+          'whether administrators keep access. Gated on `system_settings:write`.',
+      },
     ],
   },
 ];

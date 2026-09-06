@@ -120,12 +120,248 @@ export const systemNotificationsSchema = z.object({
 
 export type SystemNotificationsValue = z.infer<typeof systemNotificationsSchema>;
 
+// =============================================================================
+// Operations namespaces (epic #254, issue #256)
+// =============================================================================
+//
+// Four blocks — the job queue, the worker fleet, database backup/restore and
+// the maintenance window — declared here BEFORE the code that reads them
+// exists. Every consumer arrives in a later issue of the epic; today nothing
+// in this build looks at a single one of these values.
+//
+// WHY DECLARE THEM FIRST, WHICH LOOKS LIKE DEAD CODE. A namespace on this row
+// has to be written down in SIX places that nothing links together:
+//
+//   1. `systemSettingsSchema`            (this file)
+//   2. `systemSettingsPatchSchema`       (this file)
+//   3. `updateSystemSettingsSchema`      (settings/dto/update-system-settings.dto.ts)
+//   4. `patchSystemSettingsSchema`       (same file — the WIRE bodies)
+//   5. `SystemSettingsValue` + `DEFAULT_SYSTEM_SETTINGS`
+//                                        (common/types/settings.types.ts)
+//   6. the hand-written merge in settings/system-settings/system-settings.service.ts
+//
+// Miss 3 or 4 and the namespace validates perfectly in every unit test in this
+// file while every real PATCH silently no-ops: the request body is parsed by
+// the wire DTO first, zod strips the key it does not know, and the service is
+// handed a body with the caller's change already deleted. No error, no log
+// line, no audit entry — the same class of silent loss #130 fixed one layer
+// down. Adding all four namespaces in one pass, with one test that fails when
+// the six drift (`common/schemas/settings-parity.spec.ts`), is what keeps the
+// later issues from each rediscovering that trap under time pressure.
+//
+// REQUIRED HERE, OPTIONAL ON THE WIRE — and that asymmetry is deliberate; see
+// `updateSystemSettingsSchema` for the argument. In short: this schema
+// describes the STORED value, which is always complete because
+// `readKnownSettings` fills every block from `DEFAULT_SYSTEM_SETTINGS`; the
+// PUT body is what an existing client sends, and no existing client knows
+// these blocks exist yet.
+//
+// NO `.default()` ANYWHERE IN THIS SECTION, on purpose. A `.default()` here
+// would make `systemSettingsSchema.parse()` mint values silently, which moves
+// the defaults out of `DEFAULT_SYSTEM_SETTINGS` (where they are visible,
+// documented and seeded) and into whichever parse happened to run first. Every
+// default below lives in `settings.types.ts` and nowhere else.
+// =============================================================================
+
+/**
+ * Job-queue policy (`jobs`).
+ *
+ * `history` is nested rather than flattened to `historyRetentionDays` because
+ * retention and the purge switch are one decision — an operator who turns the
+ * purge off does not care what the retention number says — and grouping them
+ * is what lets a later UI render them as one control without inventing a
+ * grouping the API does not have.
+ *
+ * `stuckThresholdMinutes` is how long a claimed job may go without progress
+ * before the queue treats it as abandoned. Bounded at a week: a threshold
+ * longer than that is indistinguishable from "never reap", which is what
+ * disabling the reaper is for.
+ */
+export const systemJobsSchema = z.object({
+  history: z.object({
+    retentionDays: z.number().int().min(1).max(3650),
+    purgeEnabled: z.boolean(),
+  }),
+  stuckThresholdMinutes: z.number().int().min(1).max(10080),
+});
+
+export type SystemJobsValue = z.infer<typeof systemJobsSchema>;
+
+/**
+ * Worker-fleet policy (`nodes`).
+ *
+ * `staleHeartbeatSeconds` is when a node stops counting as healthy;
+ * `offlineStaleMultiplier` is how many stale intervals it takes before it is
+ * declared offline rather than merely late (a multiplier, not a second
+ * duration, so the two cannot be configured into contradicting each other);
+ * `offlineRetentionDays` is how long an offline node's record is kept before
+ * it is forgotten.
+ */
+export const systemNodesSchema = z.object({
+  staleHeartbeatSeconds: z.number().int().min(5).max(86400),
+  offlineStaleMultiplier: z.number().int().min(1).max(100),
+  offlineRetentionDays: z.number().int().min(1).max(3650),
+});
+
+export type SystemNodesValue = z.infer<typeof systemNodesSchema>;
+
+/**
+ * `databaseBackup.timeOfDay`: 24-hour `HH:MM`, zero-padded.
+ *
+ * A string rather than two numbers because it is one field on one form and one
+ * value in one cron-ish schedule; the regex is what stops `"2:00"`, `"25:00"`
+ * and `"02:60"` from reaching a scheduler that would have to guess.
+ */
+export const BACKUP_TIME_OF_DAY_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/**
+ * Database backup and restore policy (`databaseBackup`).
+ *
+ * `dayOfWeek` and `dayOfMonth` are BOTH always present and both always valid,
+ * whatever `frequency` says. The alternative — a discriminated union keyed on
+ * `frequency` — would mean switching a schedule from weekly to monthly and
+ * back loses the day the operator had chosen, and would make a PATCH that
+ * changes only `frequency` invalid unless it also carried the other field.
+ * Storing an inert-but-remembered value is the cheaper mistake.
+ *
+ * `dayOfMonth` stops at 28 rather than 31 so that "monthly" means every month:
+ * a schedule pinned to the 30th silently skips February.
+ *
+ * `restoreRollbackMode` decides what happens to the database a restore
+ * displaced — `retain_database` keeps it (renamed, reachable, deleted later by
+ * `oldDatabaseRetentionHours`), `drop_database` does not. The default is to
+ * retain, because the failure mode of retaining is disk and the failure mode
+ * of dropping is a restore from the wrong dump with nothing to go back to.
+ */
+export const systemDatabaseBackupSchema = z.object({
+  enabled: z.boolean(),
+  frequency: z.enum(['daily', 'weekly', 'monthly']),
+  dayOfWeek: z.number().int().min(0).max(6),
+  dayOfMonth: z.number().int().min(1).max(28),
+  timeOfDay: z
+    .string()
+    .regex(BACKUP_TIME_OF_DAY_PATTERN, 'Expected a 24-hour HH:MM time'),
+  timezone: z.string().min(1).max(64),
+  retentionCount: z.number().int().min(1).max(365),
+  storageProvider: z.string().min(1).max(64),
+  runStaleMinutes: z.number().int().min(1).max(10080),
+  compressionLevel: z.number().int().min(0).max(9),
+  restoreRollbackMode: z.enum(['retain_database', 'drop_database']),
+  oldDatabaseRetentionHours: z.number().int().min(1).max(8760),
+});
+
+export type SystemDatabaseBackupValue = z.infer<
+  typeof systemDatabaseBackupSchema
+>;
+
+/**
+ * The maintenance banner's default text.
+ *
+ * Deliberately names no product, no company and no repository: this is a
+ * template repo, and a hard-coded name here would be a string a fork has to
+ * find and change in a place nobody thinks to look. Anything that genuinely
+ * needs the application's name reads `APP_NAME` from `@app/shared`; this copy
+ * does not need it, so it does not take the dependency.
+ */
+export const DEFAULT_MAINTENANCE_MESSAGE =
+  'This service is temporarily unavailable for scheduled maintenance. Please try again shortly.';
+
+/**
+ * Maintenance-window state (`maintenance`).
+ *
+ * Half policy, half live state, in one block on purpose: `enabled` +
+ * `message` + `allowAdmins` are what an operator sets, and `startedAt` +
+ * `startedById` are what the act of enabling records. Splitting them across
+ * two rows would let the flag and the provenance of the flag disagree.
+ *
+ * `startedAt`/`startedById` are NULLABLE rather than absent when no window is
+ * open, so the key set of this namespace is the same whether maintenance is on
+ * or off — a shape that changes with the value is a shape every consumer has
+ * to special-case, and it is what `settings-parity.spec.ts` would have no way
+ * to check.
+ *
+ * `allowAdmins` defaults to true because the person most likely to need the
+ * application during maintenance is the person who turned maintenance on.
+ */
+export const systemMaintenanceSchema = z.object({
+  enabled: z.boolean(),
+  message: z.string().min(1).max(1000),
+  allowAdmins: z.boolean(),
+  startedAt: z.iso.datetime().nullable(),
+  startedById: z.string().uuid().nullable(),
+});
+
+export type SystemMaintenanceValue = z.infer<typeof systemMaintenanceSchema>;
+
+// -----------------------------------------------------------------------------
+// PATCH (deep-partial) counterparts
+// -----------------------------------------------------------------------------
+//
+// Hand-written, one level deep, exactly like `systemSettingsPatchSchema` above
+// them: zod v4 removed `deepPartial`, and a generated partial would in any case
+// get `maintenance.startedAt` wrong — `.nullable().optional()` there means two
+// different things (`null` clears the window's start, absent leaves it alone)
+// and the service's merge distinguishes them with `!== undefined`, never `??`.
+
+export const systemJobsPatchSchema = z.object({
+  history: z
+    .object({
+      retentionDays: z.number().int().min(1).max(3650).optional(),
+      purgeEnabled: z.boolean().optional(),
+    })
+    .optional(),
+  stuckThresholdMinutes: z.number().int().min(1).max(10080).optional(),
+});
+
+export const systemNodesPatchSchema = z.object({
+  staleHeartbeatSeconds: z.number().int().min(5).max(86400).optional(),
+  offlineStaleMultiplier: z.number().int().min(1).max(100).optional(),
+  offlineRetentionDays: z.number().int().min(1).max(3650).optional(),
+});
+
+export const systemDatabaseBackupPatchSchema = z.object({
+  enabled: z.boolean().optional(),
+  frequency: z.enum(['daily', 'weekly', 'monthly']).optional(),
+  dayOfWeek: z.number().int().min(0).max(6).optional(),
+  dayOfMonth: z.number().int().min(1).max(28).optional(),
+  timeOfDay: z
+    .string()
+    .regex(BACKUP_TIME_OF_DAY_PATTERN, 'Expected a 24-hour HH:MM time')
+    .optional(),
+  timezone: z.string().min(1).max(64).optional(),
+  retentionCount: z.number().int().min(1).max(365).optional(),
+  storageProvider: z.string().min(1).max(64).optional(),
+  runStaleMinutes: z.number().int().min(1).max(10080).optional(),
+  compressionLevel: z.number().int().min(0).max(9).optional(),
+  restoreRollbackMode: z
+    .enum(['retain_database', 'drop_database'])
+    .optional(),
+  oldDatabaseRetentionHours: z.number().int().min(1).max(8760).optional(),
+});
+
+export const systemMaintenancePatchSchema = z.object({
+  enabled: z.boolean().optional(),
+  message: z.string().min(1).max(1000).optional(),
+  allowAdmins: z.boolean().optional(),
+  startedAt: z.iso.datetime().nullable().optional(),
+  startedById: z.string().uuid().nullable().optional(),
+});
+
 export const systemSettingsSchema = z.object({
   ui: z.object({
     allowUserThemeOverride: z.boolean(),
   }),
   features: z.record(z.string(), z.boolean()),
   notifications: systemNotificationsSchema,
+  // Operations namespaces (#256, epic #254). REQUIRED, because this schema
+  // describes the value as STORED and the stored value is always complete:
+  // every write path runs the row through `readKnownSettings`, which fills any
+  // missing block from `DEFAULT_SYSTEM_SETTINGS`. What a CLIENT may omit is a
+  // separate question, answered by `updateSystemSettingsSchema`.
+  jobs: systemJobsSchema,
+  nodes: systemNodesSchema,
+  databaseBackup: systemDatabaseBackupSchema,
+  maintenance: systemMaintenanceSchema,
 });
 
 export type SystemSettingsDto = z.infer<typeof systemSettingsSchema>;
@@ -149,4 +385,12 @@ export const systemSettingsPatchSchema = z.object({
         .optional(),
     })
     .optional(),
+  // Operations namespaces (#256, epic #254). Optional at the namespace level
+  // like every other branch of a PATCH, and optional field by field inside —
+  // `{ "databaseBackup": { "enabled": true } }` must be a legal body, or the
+  // admin page has to send twelve fields to change one.
+  jobs: systemJobsPatchSchema.optional(),
+  nodes: systemNodesPatchSchema.optional(),
+  databaseBackup: systemDatabaseBackupPatchSchema.optional(),
+  maintenance: systemMaintenancePatchSchema.optional(),
 });

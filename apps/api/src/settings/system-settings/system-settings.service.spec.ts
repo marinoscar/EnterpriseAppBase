@@ -13,6 +13,25 @@ import {
 } from '../../common/types/settings.types';
 import { systemSettingsResponseSchema } from '../dto/system-settings-response.dto';
 
+/**
+ * The operations namespaces (#256, epic #254) with their defaults.
+ *
+ * Spread into the "exactly this value reached Prisma" assertions below rather
+ * than written out in each of them. Every write path materialises these four
+ * blocks — `readKnownSettings` fills them from `DEFAULT_SYSTEM_SETTINGS` for a
+ * row that predates them, and the merge then writes them back — so what reaches
+ * storage always carries all four, whatever the caller sent. Spreading keeps
+ * each assertion about the one thing it was written to prove (unknown-key
+ * preservation, audit meta, the closed-body rule) instead of restating
+ * twenty-three defaults five times.
+ */
+const OPERATIONS_DEFAULTS = {
+  jobs: DEFAULT_SYSTEM_SETTINGS.jobs,
+  nodes: DEFAULT_SYSTEM_SETTINGS.nodes,
+  databaseBackup: DEFAULT_SYSTEM_SETTINGS.databaseBackup,
+  maintenance: DEFAULT_SYSTEM_SETTINGS.maintenance,
+};
+
 describe('SystemSettingsService', () => {
   let service: SystemSettingsService;
   let mockPrisma: MockPrismaService;
@@ -116,6 +135,7 @@ describe('SystemSettingsService', () => {
   describe('replaceSettings (PUT)', () => {
     it('should replace entire settings', async () => {
       const newSettings: SystemSettingsValue = {
+        ...DEFAULT_SYSTEM_SETTINGS,
         ui: { allowUserThemeOverride: false },
         features: { newFeature: true },
         notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
@@ -158,6 +178,7 @@ describe('SystemSettingsService', () => {
 
     it('should increment version on update', async () => {
       const newSettings: SystemSettingsValue = {
+        ...DEFAULT_SYSTEM_SETTINGS,
         ui: { allowUserThemeOverride: true },
         features: {},
         notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
@@ -185,6 +206,7 @@ describe('SystemSettingsService', () => {
 
     it('should create audit event on replace', async () => {
       const newSettings: SystemSettingsValue = {
+        ...DEFAULT_SYSTEM_SETTINGS,
         ui: { allowUserThemeOverride: false },
         features: {},
         notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
@@ -428,6 +450,7 @@ describe('SystemSettingsService', () => {
                 ui: { allowUserThemeOverride: true },
                 features: { newFlag: true },
                 notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
+                ...OPERATIONS_DEFAULTS,
                 branding: { logoUrl: 'https://example.com/logo.png' },
               },
             }),
@@ -478,6 +501,7 @@ describe('SystemSettingsService', () => {
                 ui: { allowUserThemeOverride: false, density: 'compact' },
                 features: {},
                 notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
+                ...OPERATIONS_DEFAULTS,
               },
             }),
           }),
@@ -506,6 +530,7 @@ describe('SystemSettingsService', () => {
         } as any);
 
         const newSettings: SystemSettingsValue = {
+        ...DEFAULT_SYSTEM_SETTINGS,
           ui: { allowUserThemeOverride: false },
           features: { newFlag: true },
           notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
@@ -528,6 +553,7 @@ describe('SystemSettingsService', () => {
           ui: { allowUserThemeOverride: false },
           features: { newFlag: true },
           notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
+          ...OPERATIONS_DEFAULTS,
         };
 
         expect(mockPrisma.systemSettings.upsert).toHaveBeenCalledWith(
@@ -560,6 +586,7 @@ describe('SystemSettingsService', () => {
         } as any);
 
         const newSettings: SystemSettingsValue = {
+        ...DEFAULT_SYSTEM_SETTINGS,
           ui: { allowUserThemeOverride: false },
           features: { freshFlag: true },
           notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
@@ -590,6 +617,7 @@ describe('SystemSettingsService', () => {
         mockPrisma.systemSettings.findUnique.mockResolvedValue(null as any);
 
         const newSettings: SystemSettingsValue = {
+        ...DEFAULT_SYSTEM_SETTINGS,
           ui: { allowUserThemeOverride: true },
           features: { onlyFlag: true },
           notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
@@ -634,6 +662,7 @@ describe('SystemSettingsService', () => {
           } as any);
 
           const newSettings: SystemSettingsValue = {
+        ...DEFAULT_SYSTEM_SETTINGS,
             ui: { allowUserThemeOverride: true },
             features: {},
             notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
@@ -813,6 +842,7 @@ describe('SystemSettingsService', () => {
                 ui: { allowUserThemeOverride: true, density: 'compact' },
                 features: { newFlag: true },
                 notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
+                ...OPERATIONS_DEFAULTS,
                 branding: { logoUrl: 'https://example.com/logo.png' },
               },
             }),
@@ -945,6 +975,7 @@ describe('SystemSettingsService', () => {
                 ui: DEFAULT_SYSTEM_SETTINGS.ui,
                 features: { newFlag: true },
                 notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
+                ...OPERATIONS_DEFAULTS,
               },
             } as any,
           },
@@ -975,6 +1006,7 @@ describe('SystemSettingsService', () => {
 
     async function callReplaceSettings() {
       const newSettings: SystemSettingsValue = {
+        ...DEFAULT_SYSTEM_SETTINGS,
         ui: { allowUserThemeOverride: true },
         features: {},
         notifications: DEFAULT_SYSTEM_SETTINGS.notifications,

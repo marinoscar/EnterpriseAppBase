@@ -93,6 +93,7 @@ describe('System Settings Integration', () => {
 
   describe.skip('PUT /api/system-settings', () => {
     const newSettings: SystemSettingsValue = {
+      ...DEFAULT_SYSTEM_SETTINGS,
       ui: { allowUserThemeOverride: false },
       features: { newFeature: true },
       notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
@@ -449,6 +450,176 @@ describe('System Settings Integration', () => {
         .patch('/api/system-settings')
         .set(authHeader(admin.accessToken))
         .send({ notifications: { disabledEvents: ['NOT A KEY'] } })
+        .expect(400);
+    });
+
+    /**
+     * Issue #256, epic #254 — the wire-DTO trap, proven over real HTTP.
+     *
+     * A namespace can be declared in `systemSettingsSchema`,
+     * `systemSettingsPatchSchema`, `SystemSettingsValue` and
+     * `DEFAULT_SYSTEM_SETTINGS`, pass every unit test written against those,
+     * and STILL no-op on every real request — because the global
+     * `ZodValidationPipe` parses the body against
+     * `patchSystemSettingsSchema` (settings/dto/update-system-settings.dto.ts)
+     * first and strips whatever that schema does not declare. The service is
+     * then handed `{}`, merges nothing, writes the row back unchanged and
+     * returns 200 with a body that looks exactly right.
+     *
+     * That is why this test goes through HTTP rather than calling the service:
+     * a service-level test constructs the DTO itself and never touches the pipe
+     * that does the stripping, so it cannot see this failure at all.
+     *
+     * TWO NETS ALREADY CATCH PART OF IT, AND NEITHER REPLACES THIS ONE. Because
+     * the merge in `system-settings.service.ts` names `dto.databaseBackup`
+     * explicitly and the namespace is required in `systemSettingsSchema`,
+     * deleting it from the PATCH body schema is currently a compile error, and
+     * deleting it from the merge as well is a ZodError. Both nets depend on
+     * choices that a future namespace may not repeat — a namespace merged with
+     * a spread, or made optional in the canonical schema, restores the silent
+     * 200 exactly. `common/schemas/settings-parity.spec.ts` catches the key-set
+     * half of that; this test is what proves the whole path still works when
+     * the schemas agree.
+     *
+     * Asserted in three places for three different reasons:
+     *   1. the PERSISTED value — what the service asked Prisma to write is the
+     *      only honest evidence the change survived the pipe;
+     *   2. the PATCH response — the caller's own confirmation;
+     *   3. a subsequent GET over the stored value — the read path projects the
+     *      namespace too, so the round trip is closed rather than assumed.
+     */
+    it('persists and reads back a single-field databaseBackup patch (#256)', async () => {
+      const admin = await createMockAdminUser(context);
+
+      const expectedStored = {
+        ...DEFAULT_SYSTEM_SETTINGS.databaseBackup,
+        enabled: true,
+      };
+
+      context.prismaMock.systemSettings.update.mockResolvedValue({
+        id: 'settings-1',
+        key: 'global',
+        value: {
+          ...DEFAULT_SYSTEM_SETTINGS,
+          databaseBackup: expectedStored,
+        } as any,
+        version: 2,
+        updatedAt: new Date(),
+        updatedByUserId: admin.id,
+        updatedByUser: { id: admin.id, email: admin.email },
+      });
+      context.prismaMock.auditEvent.create.mockResolvedValue({} as any);
+
+      const patched = await request(context.app.getHttpServer())
+        .patch('/api/system-settings')
+        .set(authHeader(admin.accessToken))
+        .send({ databaseBackup: { enabled: true } })
+        .expect(200);
+
+      // 1. What actually reached storage: the one field the caller sent,
+      //    changed; the other eleven, untouched. A body stripped by the wire
+      //    DTO would show `enabled: false` here while everything above still
+      //    passed.
+      const updateArgs = context.prismaMock.systemSettings.update.mock
+        .calls[0][0] as any;
+      expect(updateArgs.data.value.databaseBackup).toEqual(expectedStored);
+
+      // 2. The response the caller gets back.
+      expect(patched.body.data.databaseBackup).toEqual(expectedStored);
+      expect(() =>
+        systemSettingsResponseSchema.parse(patched.body.data),
+      ).not.toThrow();
+
+      // 3. And a genuine read back, over the value the write produced.
+      context.prismaMock.systemSettings.findUnique.mockResolvedValue({
+        id: 'settings-1',
+        key: 'global',
+        value: updateArgs.data.value,
+        version: 2,
+        updatedAt: new Date(),
+        updatedByUserId: admin.id,
+        updatedByUser: { id: admin.id, email: admin.email },
+      });
+
+      const reread = await request(context.app.getHttpServer())
+        .get('/api/system-settings')
+        .set(authHeader(admin.accessToken))
+        .expect(200);
+
+      expect(reread.body.data.databaseBackup).toEqual(expectedStored);
+    });
+
+    it('leaves the other operations namespaces alone while patching one (#256)', async () => {
+      // The complement of the test above: a PATCH must not quietly rewrite the
+      // namespaces it did not mention, which is the failure the hand-written
+      // merge in `system-settings.service.ts` produces when a namespace is
+      // added to the schemas and forgotten there.
+      const admin = await createMockAdminUser(context);
+
+      const stored = {
+        ...DEFAULT_SYSTEM_SETTINGS,
+        jobs: {
+          history: { retentionDays: 7, purgeEnabled: false },
+          stuckThresholdMinutes: 15,
+        },
+        maintenance: {
+          ...DEFAULT_SYSTEM_SETTINGS.maintenance,
+          enabled: true,
+          message: 'Back shortly.',
+          startedAt: '2026-01-01T00:00:00.000Z',
+          startedById: '11111111-1111-4111-8111-111111111111',
+        },
+      };
+
+      context.prismaMock.systemSettings.findUnique.mockResolvedValue({
+        id: 'settings-1',
+        key: 'global',
+        value: stored as any,
+        version: 1,
+        updatedAt: new Date(),
+        updatedByUserId: null,
+        updatedByUser: null,
+      });
+      context.prismaMock.systemSettings.update.mockResolvedValue({
+        id: 'settings-1',
+        key: 'global',
+        value: stored as any,
+        version: 2,
+        updatedAt: new Date(),
+        updatedByUserId: admin.id,
+        updatedByUser: { id: admin.id, email: admin.email },
+      });
+      context.prismaMock.auditEvent.create.mockResolvedValue({} as any);
+
+      await request(context.app.getHttpServer())
+        .patch('/api/system-settings')
+        .set(authHeader(admin.accessToken))
+        .send({ nodes: { offlineRetentionDays: 14 } })
+        .expect(200);
+
+      const updateArgs = context.prismaMock.systemSettings.update.mock
+        .calls[0][0] as any;
+      expect(updateArgs.data.value.nodes).toEqual({
+        ...DEFAULT_SYSTEM_SETTINGS.nodes,
+        offlineRetentionDays: 14,
+      });
+      expect(updateArgs.data.value.jobs).toEqual(stored.jobs);
+      expect(updateArgs.data.value.maintenance).toEqual(stored.maintenance);
+    });
+
+    it('rejects a databaseBackup value outside its bounds rather than storing it (#256)', async () => {
+      const admin = await createMockAdminUser(context);
+
+      await request(context.app.getHttpServer())
+        .patch('/api/system-settings')
+        .set(authHeader(admin.accessToken))
+        .send({ databaseBackup: { compressionLevel: 10 } })
+        .expect(400);
+
+      await request(context.app.getHttpServer())
+        .patch('/api/system-settings')
+        .set(authHeader(admin.accessToken))
+        .send({ databaseBackup: { timeOfDay: '2:00' } })
         .expect(400);
     });
 
