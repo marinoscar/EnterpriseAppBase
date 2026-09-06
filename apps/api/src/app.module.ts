@@ -15,6 +15,7 @@ import { AllowlistModule } from './allowlist/allowlist.module';
 import { DeviceAuthModule } from './device-auth/device-auth.module';
 import { StorageModule } from './storage/storage.module';
 import { PatModule } from './pat/pat.module';
+import { NodeCredentialModule } from './nodes/node-credential.module';
 import { CredentialsModule } from './credentials/credentials.module';
 import { EmailModule } from './email/email.module';
 import { NotificationsModule } from './notifications/notifications.module';
@@ -61,6 +62,18 @@ import configuration from './config/configuration';
     DeviceAuthModule,
     StorageModule,
     PatModule,
+    // Worker node credentials (#267, epic #254): the `nod_` token family the
+    // node fleet authenticates with, and its `/api/node-credentials` admin
+    // endpoints. Registered here beside `PatModule` and for the same reason —
+    // both are @Global providers of a service `JwtAuthGuard` injects, so the
+    // module that owns the application is where they belong rather than
+    // scattered through whichever feature module happened to need one.
+    //
+    // DELIBERATELY NOT the (much heavier) nodes module #268 will add; see the
+    // block comment in `nodes/node-credential.module.ts` for why splitting by
+    // dependency weight rather than by topic is what keeps the guard's
+    // dependency graph acyclic.
+    NodeCredentialModule,
     // Encrypted credential store (#115). Registered here so it is part of the
     // module graph; consumers still import CredentialsModule explicitly (it is
     // not @Global) so every user of a plaintext-returning service is visible.

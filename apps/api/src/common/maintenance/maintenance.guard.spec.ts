@@ -7,7 +7,9 @@ import {
   MAINTENANCE_ERROR_MARKER,
   MAINTENANCE_RETRY_AFTER_SECONDS,
   MaintenanceGuard,
+  OPAQUE_BEARER_PREFIXES,
 } from './maintenance.guard';
+import { NODE_TOKEN_PREFIX } from '../../nodes/node-credential.service';
 
 const SECRET = 'guard-spec-secret-guard-spec-secret';
 
@@ -234,6 +236,17 @@ describe('MaintenanceGuard', () => {
       await expect(guard.canActivate(context)).rejects.toBeInstanceOf(
         ServiceUnavailableException,
       );
+    });
+
+    it('enumerates the SAME `nod_` prefix the node credential service mints', () => {
+      // A LINKING ASSERTION, not a tautology. `NodeCredentialService` mints
+      // the prefix, `JwtAuthGuard` routes on it, and this guard refuses it
+      // the admin bypass — three files that must agree. Renaming the family
+      // in one of them would not break a compile: the token would simply
+      // stop matching here and silently regain the bypass it is supposed to
+      // be denied. Comparing against the exported constant is what turns
+      // that into a test failure.
+      expect(OPAQUE_BEARER_PREFIXES).toContain(NODE_TOKEN_PREFIX);
     });
 
     it.each(['pat_', 'nod_'])(
