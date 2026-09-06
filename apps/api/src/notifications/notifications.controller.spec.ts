@@ -7,6 +7,7 @@ import { NotificationStoreService } from './notification-store.service';
 import { NotificationStreamService } from './notification-stream.service';
 import { PushSubscriptionService } from './push-subscription.service';
 import { PatService } from '../pat/pat.service';
+import { NodeCredentialService } from '../nodes/node-credential.service';
 
 // =============================================================================
 // NotificationsController — tests (issues #226/#229, epic #215)
@@ -78,6 +79,11 @@ describe('NotificationsController', () => {
         // resolves `JwtAuthGuard`'s constructor dependencies at module-compile
         // time. A minimal stub is enough to satisfy that.
         { provide: PatService, useValue: { validateToken: jest.fn() } },
+        // JwtAuthGuard gained a second opaque-bearer dependency in #267
+        // (the `nod_` family). Stubbed the same way PatService is: this suite
+        // never sends a bearer token, so neither validator is ever reached —
+        // the provider exists only so the guard can be constructed.
+        { provide: NodeCredentialService, useValue: { validateToken: jest.fn() } },
       ],
     }).compile();
 
