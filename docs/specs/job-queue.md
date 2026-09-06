@@ -17,6 +17,7 @@
 > `apps/api/src/jobs/rate-limit.error.ts`,
 > `apps/api/src/jobs/provider-throttle.service.ts`,
 > `apps/api/src/jobs/job-clock.ts`,
+> `apps/api/src/jobs/job.worker.ts`,
 > `apps/api/src/jobs/events/job-settled.event.ts`,
 > `apps/api/src/jobs/jobs.module.ts` and
 > `apps/api/src/jobs/handlers/`.
@@ -26,16 +27,15 @@
 > Section 4 describes what #260 shipped: enqueue with index-backed dedup, and
 > the atomic `SKIP LOCKED` claim. Section 5 describes what #261 shipped: the
 > single terminal chokepoint, the two budgets, the backoff, the throttle gate
-> and the settled event. Sections 6–7 are deliberate stubs for the issues that
-> fill them in, marked as such. Where an unmerged issue's behaviour is
-> referenced from a merged section (the worker's lifecycle phase, for
-> instance) it is stated as a **constraint that issue must satisfy**, not as
-> behaviour verified in this checkout.
+> and the settled event. Section 6 describes what #262 shipped: the in-process
+> worker pool, the three worker modes, and per-job timeouts. Section 7 is a
+> deliberate stub for the issue that fills it in, marked as such.
 >
-> **Nothing polls yet.** #260 and #261 add the three halves of moving a row
-> through the table — enqueue, claim, settle — and no timer. The thing that
-> calls `claim()` on a tick, and `completeSucceeded`/`completeFailed`
-> afterwards, is the in-process worker pool (#262).
+> **The queue polls as of #262.** #260 and #261 added the three halves of
+> moving a row through the table — enqueue, claim, settle — and no timer;
+> #262 adds the timer. The lifecycle constraint §1.3 places on the worker is
+> now satisfied rather than merely required, and it is verified by
+> `src/jobs/job.worker.bootstrap.spec.ts`.
 
 ## Why this shape, and not the obvious one
 
@@ -189,12 +189,13 @@ So the last registration wins and the collision is logged at `warn` — visible
 either way, whether it was an intended override or two features that
 copy-pasted the same `type` string.
 
-### 1.3 The lifecycle constraint this places on the worker (#262)
+### 1.3 The lifecycle constraint this places on the worker
 
 **The worker must start from `onApplicationBootstrap`, not `onModuleInit`.**
 
 This is a direct consequence of §1.2 and is recorded here because the issue
-that builds the worker is not the issue that can discover the bug. Nest runs
+that builds the worker is not the issue that can discover the bug. §6.2 is the
+other side of it: `JobWorker` satisfies this, and a test drives the race. Nest runs
 every `onModuleInit` hook in one phase, in module-resolution order, and only
 then runs every `onApplicationBootstrap` hook. A worker polling from
 `onModuleInit` would therefore race the registrations it depends on: whether
@@ -883,17 +884,212 @@ assertion that passes for an off-by-a-factor-of-sixty bug, or a gate test that
 either sleeps for thirty real seconds per case or shrinks the cooldown until it
 is testing something other than the shipped behaviour.
 
-## 6. The in-process worker and worker modes — *#262*
+## 6. The in-process worker and worker modes
 
-> **Stub.** Filled in by #262 ("In-process worker pool, worker modes, per-job
-> timeouts").
->
-> Two things already fixed by this document and not up for rediscovery
-> there: the worker starts from **`onApplicationBootstrap`** (§1.3 — this is
-> a correctness constraint, not a preference), and the `system` mode's job
-> list is `JobHandlerRegistry.serverOnlyTypes()` (§2), never a second
-> hand-maintained list. To cover: the `all|system|off` modes, pool sizing,
-> per-job timeouts, and shutdown behaviour for in-flight jobs.
+This is the first thing in the epic that **runs on its own**. Everything
+before it moves a row when something calls it; `apps/api/src/jobs/job.worker.ts`
+is the thing that calls.
+
+It writes **nothing** to the `jobs` table itself. Every row it touches goes in
+through `JobClaimService.claim` (§4.4) and out through
+`JobTerminalService.completeSucceeded` / `completeFailed` (§5.1). That is not
+tidiness: the node control plane (#268) reaches the same two methods from the
+other side, and two executors can only agree about a finished job by running
+the same code.
+
+### 6.1 N independent slot loops, not one loop claiming a batch
+
+The pool is `JOBS_WORKER_CONCURRENCY` **independent** loops. Each one claims
+**one** job, runs it, and goes round again; on an empty queue it sleeps
+`JOBS_POLL_MS` and asks again. A slot that just finished a job does **not**
+sleep — otherwise throughput would be capped at one job per slot per poll
+interval however deep the backlog is.
+
+The obvious alternative is one loop that claims `limit: N` and `Promise.all`s
+the results. **Rejected**, because that is a *batch barrier*: the loop cannot
+claim again until its **slowest** member finishes, so with mixed durations —
+which is every real queue — effective concurrency collapses toward 1. Nine
+hundred-millisecond jobs batched with one ten-minute job means eight idle
+slots for ten minutes while the queue backs up behind them.
+
+Independent loops have no barrier. A slow job stalls exactly one slot, which
+is the honest cost of running it, and the other N-1 keep claiming. The price
+is N concurrent single-row claims instead of one N-row claim, and that price
+is nothing: `FOR UPDATE SKIP LOCKED` is built for exactly this access pattern
+and never blocks — two loops racing for one row produce one winner and one
+empty result, with no waiting on either side (§4.4).
+
+### 6.2 It starts from `onApplicationBootstrap`
+
+The constraint §1.3 states from the registry's side, satisfied here. Handlers
+self-register from their own `onModuleInit`; Nest runs every `onModuleInit`
+hook in one phase and only afterwards every `onApplicationBootstrap` hook, so
+starting in the later phase is what makes "every handler has registered before
+the first claim" a guarantee rather than a function of module-resolution
+order.
+
+The failure it prevents is not a retryable blip: a claimed job whose type has
+no registered handler is failed **permanently** (§6.6), so losing this race
+destroys a perfectly good job for a reason that had gone away one second
+later. It is a real production bug in the application this design was
+extracted from, and it is why the constraint is written down in three places —
+`job-handler.registry.ts` (the file that creates the hazard), `job.worker.ts`
+(the file that must respect it), and here.
+
+`src/jobs/job.worker.bootstrap.spec.ts` proves it behaviourally rather than by
+asserting the hook is spelled right: a handler that stalls 40ms inside its own
+`onModuleInit` before registering is nonetheless present in the **first**
+claim's `eligibleTypes`.
+
+### 6.3 Three modes, re-read on every claim, failing open
+
+`JOBS_WORKER_MODE` decides which types this process is willing to claim:
+
+| Mode | Claims | When |
+|---|---|---|
+| `all` | Every registered type | The default, and the single-box posture: there is nowhere else for the work to run |
+| `system` | Only the types a node could never run (§2's derived server-only set), plus the extras below | The recommended posture once worker nodes exist — the API server stops competing with the fleet for the expensive jobs the fleet was added to take |
+| `off` | Nothing | A pure control plane: still enqueues, still serves the queue API, executes nothing |
+
+Two decisions inside that table are worth stating on their own.
+
+**An unrecognised value warns once and behaves as `all`.** Failing closed is
+the safe-looking answer and it is the worse one: `JOBS_WORKER_MODE=sytem` in
+one env file would silently stop **all** background processing, and the
+symptom arrives hours later as "jobs stopped running" with nothing obviously
+broken. Running the default loudly is the recoverable failure; stopping every
+job in the deployment is not. The warning is latched at **module** level
+because the mode is re-read on every claim — without the latch a typo would
+emit several warnings a second, forever, burying the one line an operator
+needs.
+
+**Eligible types are resolved per claim, not captured at bootstrap.** Both
+reads are in-memory (a `Map` walk and a `ConfigService` lookup), so doing it
+every poll costs nothing next to the query it precedes. Capturing once would
+make `system` mode depend on registration order — a handler whose module
+resolved after the worker's would simply be missing from a list computed once
+— which is the same class of invisible coupling explicit self-registration
+exists to avoid (§1.2).
+
+### 6.4 `JOBS_SYSTEM_MODE_EXTRA_TYPES`
+
+`system` mode's base list is `JobHandlerRegistry.serverOnlyTypes()` — derived
+from which optional members each handler carries (§2), never a second
+hand-maintained list that could disagree with the handlers themselves.
+
+The extras are the escape hatch for the one thing that derivation cannot know:
+a type that **is** node-eligible but that this deployment still wants the
+server to claim, because its node fleet is small, paused, or does not run that
+type. Overlap with the fleet is **safe rather than tolerated** — `SKIP LOCKED`
+means a server and a node racing for one row produce one winner and one empty
+result, never a double claim (§4.4).
+
+An entry no handler in this process registers is **dropped with a warning**
+rather than passed through, once per type. Claiming a type with no handler is
+not a harmless no-op: the claim succeeds, the lookup fails, and the job is
+destroyed permanently. Declining to claim is a far better answer to a typo.
+
+### 6.5 Per-job timeouts, and the `Promise.race` trap
+
+`JOBS_JOB_TIMEOUT_MS` (default 600000; `0` disables) bounds how long one job
+may hold a slot. A timeout is an ordinary failure: it goes through
+`completeFailed` like any other, so the job retries or fails on its normal
+attempts budget, and `Job.lastError` carries a greppable `JobTimeoutError`
+message.
+
+**The work is not cancelled, because JavaScript cannot cancel it.** There is
+no way to stop a promise that is mid-`await`. So the timeout frees the
+**slot** — which is the scarce resource — and leaves the abandoned work to
+settle whenever it settles. Handlers should be idempotent anyway (§1.1's
+at-least-once contract already requires it), and the row is fully accounted
+for the moment the timeout fires.
+
+That leaves one trap, and it is the reason `withTimeout` is not a bare
+`Promise.race`:
+
+> A naive `Promise.race([work, timeout])` attaches nothing of its own to
+> `work` once the race is decided. A work promise that **rejects after losing
+> the race** is therefore a rejected promise with no handler — an
+> `unhandledRejection`, which in Node's default posture terminates the
+> process. A per-job timeout that kills the API server on the next slow
+> provider call is worse than no timeout at all.
+
+So the reactions are attached unconditionally, before the race can be decided,
+and stay attached forever; settling an already-settled promise is a harmless
+no-op. `src/jobs/job.worker.spec.ts` asserts this directly by listening for
+`unhandledRejection` and rejecting the abandoned work after the timeout has
+already failed the job.
+
+**The claim lease is derived from the timeout**, as `timeout + 60s` (or one
+hour when timeouts are disabled), rather than configured separately. Two
+independent knobs whose only requirement is `lease > timeout` are two knobs an
+operator can set into a state where the lease reaper (#263) requeues jobs that
+are running perfectly well — duplicate work that looks like a queue bug and is
+really a typo. Deriving it makes that state unrepresentable.
+
+### 6.6 A claimed job whose type has no handler
+
+Failed **terminally**, immediately, with the claim and lease released — not
+retried. A retry would re-enter this same process, find the same registry, and
+reach the same conclusion two minutes later having burnt the attempt budget to
+learn nothing. The type is gone, misspelled, or was claimed by a mode that
+should not have claimed it, and all three need a human rather than another
+attempt.
+
+It is still `JobTerminalService` that writes the row. `completeFailed` gained
+`CompleteFailedOptions.permanent`, a flag **into** the chokepoint rather than a
+licence for the worker to write its own terminal row — §5.1's argument applies
+to this route exactly as it does to the others, and the node control plane
+(#268) will use the same flag for a node reporting an input it can never
+accept. `permanent` short-circuits **ahead of** the rate-limit classification
+(§5.2): an unrunnable job that happens to throw a 429-shaped error must not be
+deferred for fifteen minutes before failing anyway.
+
+### 6.7 Shutdown
+
+`onModuleDestroy` stops claiming immediately, aborts every sleeping slot, and
+then waits — **briefly** — for jobs still in flight.
+
+Every timer the worker creates lives in one `Set` and is `unref`'d, for the
+reason `job-clock.ts` gives for its own: a pending timer must never hold a
+shutting-down process open. But `unref` alone is not enough here, which is why
+these timers are not behind `JobClock.sleep` — that sleep has no handle, so a
+slot parked in a five-second poll could only be woken by waiting it out.
+Clearing the set wakes every slot at once, each sees the stop flag, and
+`onModuleDestroy` returns in milliseconds instead of up to a full poll
+interval.
+
+The wait for in-flight work is **bounded** (five seconds). `onModuleDestroy`
+runs while an orchestrator is already counting down to SIGKILL, and a slot
+running a ten-minute job cannot be hurried; waiting for it would turn a
+graceful shutdown into a hard kill. Past the grace the job is simply left: its
+row stays `running` with a lease that will expire, which is precisely the
+state the lease reaper (#263) exists to find and requeue. Nothing is lost, and
+one job is delayed — the same bounded-and-recoverable trade `safeTerminalUpdate`
+makes in §5.7.
+
+### 6.8 Configuration
+
+Five more settings, in the same `jobs` block as §5.9's six and documented the
+same way in `infra/compose/.env.example`:
+
+| Variable | Default | What it bounds |
+|---|---|---|
+| `JOBS_WORKER_CONCURRENCY` | 2 | Slot loops, fixed at startup. `0` starts no pool |
+| `JOBS_POLL_MS` | 5000 | How long an **empty** queue waits before asking again |
+| `JOBS_WORKER_MODE` | `all` | Which types this process claims (§6.3) |
+| `JOBS_JOB_TIMEOUT_MS` | 600000 | How long one job may hold a slot; `0` disables |
+| `JOBS_SYSTEM_MODE_EXTRA_TYPES` | *(empty)* | Extra types `system` mode claims anyway (§6.4) |
+
+`JOBS_WORKER_MODE` is stored as a plain string and validated by the worker on
+every claim rather than parsed in `configuration.ts`, because validating it
+there would have to choose between throwing at boot (the fail-closed outcome
+§6.3 rejects) and silently rewriting the value — the same fallback, further
+away from the log line that explains it.
+
+`JobWorker` is provided by `JobsModule` and deliberately **not exported**.
+Nothing should reach it: it has no method a feature module wants, and a module
+that could inject it could stop the pool.
 
 ## 7. Queue hygiene — *#263*
 
@@ -998,6 +1194,33 @@ To make a type node-eligible, add **both** `nodeResultSchema` and
   would propagate into the worker's slot accounting; a slot lost that way is
   lost for the life of the process. Logging and swallowing leaves the row
   `running` for the reaper, which is bounded and recoverable (§5.7).
+- **One loop claiming a batch of N instead of N independent loops.** A batch
+  barrier: the loop cannot claim again until its slowest member finishes, so
+  with mixed job durations effective concurrency collapses toward 1 and N-1
+  slots sit idle behind one long job (§6.1).
+- **Failing closed on an unrecognised `JOBS_WORKER_MODE`.** A typo in one env
+  file would silently stop every background job in the deployment, and the
+  symptom arrives hours later as "jobs stopped running". Behaving as the
+  default and warning once is the recoverable failure (§6.3).
+- **Capturing the eligible types at bootstrap.** Makes `system` mode depend on
+  module-resolution order — a handler registering after the worker's module
+  resolved is simply missing from a list computed once — which is the same
+  invisible coupling explicit self-registration exists to avoid (§6.3).
+- **A bare `Promise.race([work, timeout])` for the per-job timeout.** Work
+  that rejects after losing the race has no handler left, which is an
+  `unhandledRejection` and, in Node's default posture, a dead process: a
+  timeout that kills the API server on the next slow provider call (§6.5).
+- **A separate `JOBS_LEASE_MS`.** Two knobs whose only requirement is
+  `lease > timeout` are two knobs an operator can set into a state where the
+  lease reaper requeues jobs that are still running fine. Deriving the lease
+  from the timeout makes that unrepresentable (§6.5).
+- **Retrying a job whose type has no registered handler.** The retry re-enters
+  the same process, finds the same registry and reaches the same conclusion,
+  having spent the attempt budget to learn nothing (§6.6).
+- **Waiting for in-flight jobs indefinitely on shutdown.** `onModuleDestroy`
+  runs against an orchestrator's SIGKILL countdown; a bounded grace plus a
+  `running` row for the lease reaper turns a hard kill into one delayed job
+  (§6.7).
 - **Making the database backup a job type.** Recorded in epic #254's own
   locked decisions and repeated here because it is the obvious thing to try:
   the stuck-job threshold would reset a 30-minute `pg_dump` and start a
@@ -1046,6 +1269,39 @@ What #260 proves, and by what. Everything in the first block runs against a
 | `recordProvider` swallows a failed audit write | `src/jobs/jobs.service.spec.ts`, and end to end in `test/jobs/jobs-enqueue.db.spec.ts` |
 | Enqueue never pre-checks with `findFirst` before inserting | `src/jobs/jobs.service.spec.ts` |
 | `JOB_CLAIM_COLUMNS` covers exactly the generated `Job` field set | `test/jobs/job-model-fields.spec.ts` (the compile-time half is the `Record<keyof Job, string>` type itself) |
+
+What #262 proves, and by what. All of it runs **without a database**, for the
+same reason #261's does: every claim below is about a decision the worker
+makes in memory — which types it claims, what it does with a job whose handler
+is missing, whether a slot is freed when a job overruns, whether a slow job
+blocks a fast one — and all of them are settled before any SQL exists. The
+claim and the terminal service are stubbed, and what is recorded on those
+stubs *is* the assertion. The one exception is the lifecycle claim, which is
+about Nest's phase ordering and therefore needs a real module graph:
+
+| Claim | Covered by |
+|---|---|
+| A handler registering **slowly** in its own `onModuleInit` is present in the worker's **first** claim | `src/jobs/job.worker.bootstrap.spec.ts` — a real `Test.createTestingModule(...).init()`, a handler that awaits 40ms before registering, and `eligibleTypes` recorded at claim time |
+| The same holds across module boundaries (`example.echo` from `JobsModule`, the slow handler from another) | `src/jobs/job.worker.bootstrap.spec.ts` |
+| `JobWorker` implements `onApplicationBootstrap` and **not** `onModuleInit` | `src/jobs/job.worker.spec.ts` — the cheap structural guard against renaming the hook back |
+| `all` claims node-eligible types too; `system` claims only server-only ones; `off` claims nothing and starts no pool | `src/jobs/job.worker.spec.ts` |
+| An unrecognised mode behaves as `all` and warns **exactly once** across 50 reads and across two worker instances | `src/jobs/job.worker.spec.ts` — the module-level latch, reset per case so the assertion cannot pass vacuously |
+| `JOBS_SYSTEM_MODE_EXTRA_TYPES` adds a registered type; an unregistered entry is dropped with one warning per type | `src/jobs/job.worker.spec.ts` |
+| Eligible types are re-resolved per claim: a handler registered *after* the pool started appears in a later claim | `src/jobs/job.worker.spec.ts` |
+| A job exceeding its timeout frees the slot promptly and settles through `completeFailed` with a `JobTimeoutError` | `src/jobs/job.worker.spec.ts` |
+| The abandoned work rejecting later produces **no** `unhandledRejection` | `src/jobs/job.worker.spec.ts` — an explicit `process.on('unhandledRejection', …)` listener, because this is the part a bare `Promise.race` gets wrong |
+| A late *success* does not retroactively mark the timed-out job succeeded | `src/jobs/job.worker.spec.ts` |
+| The timeout timer is cleared the moment a job finishes | `src/jobs/job.worker.spec.ts` — asserts the tracked timer set is empty |
+| A slow job in one slot does not delay a fast job in another | `src/jobs/job.worker.spec.ts` — the fast job is finished while the slow one is still running, which is exactly what a batch barrier would prevent |
+| A busy queue never sleeps between jobs | `src/jobs/job.worker.spec.ts` — three jobs drained with a ten-minute poll interval configured |
+| `onModuleDestroy` resolves in milliseconds from a sleeping pool, leaving no timer behind | `src/jobs/job.worker.spec.ts` |
+| Shutdown stops claiming immediately, and gives up on a job that outlives the grace | `src/jobs/job.worker.spec.ts` |
+| A claim query that throws backs off instead of spinning | `src/jobs/job.worker.spec.ts` |
+| A job with no registered handler is failed **permanently** through the chokepoint, with `{ permanent: true }` | `src/jobs/job.worker.spec.ts`, and the terminal behaviour itself in `src/jobs/job-terminal.service.spec.ts` |
+| `permanent` beats the rate-limit classification, never schedules a retry, and still emits `job.settled` | `src/jobs/job-terminal.service.spec.ts` |
+| The worker goes through the real `ProviderThrottleService.acquire` before processing | `src/jobs/job.worker.spec.ts` — the real gate, a tripped cooldown, and a fake `JobClock` |
+| The claim is one row, as `executor: 'server'` with a `null` node id and a lease longer than the timeout | `src/jobs/job.worker.spec.ts` and `src/jobs/job.worker.bootstrap.spec.ts` |
+| A missing setting degrades to the shipped default rather than `NaN` (a `setTimeout(NaN)` poll loop spins the event loop flat out) | `src/jobs/job.worker.spec.ts` |
 
 What #261 proves, and by what. All of it runs **without a database**, and
 that is a deliberate choice rather than a gap: everything asserted here is a
