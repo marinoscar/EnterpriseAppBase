@@ -221,12 +221,13 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
    * exactly when someone is scanning it during an incident.
    *
    * ===========================================================================
-   * ALL FOUR CARDS ARE DECLARED HERE NOW, THOUGH ONLY TWO PAGES EXIST YET
+   * ALL FOUR CARDS WERE DECLARED AT ONCE, BEFORE THEIR PAGES EXISTED
    * ===========================================================================
    *
-   * `Worker Nodes` (#267) and `Database Backup` (#268) land in later issues.
-   * They are declared in THIS issue anyway, `disabled: true` and with NO
-   * `path`, and the reason is concrete rather than aesthetic:
+   * `Worker Nodes` and `Database Backup` landed in later issues (#271 routed
+   * the first of the two; `Database Backup` is still inert). Both were declared
+   * back in #266 anyway, `disabled: true` and with NO `path`, and the reason is
+   * concrete rather than aesthetic:
    *
    * The settings hub is under visual-regression testing at
    * `maxDiffPixels: 4`. Any change to the card grid — a card added to a
@@ -238,9 +239,15 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
    * page behind yet. Declaring the whole group at once makes it ONE reflow and
    * ONE baseline regeneration for the epic.
    *
-   * `disabled: true` AND no `path` together, not either alone. They are
-   * belt-and-braces on purpose, because the two consumers treat them
-   * differently and both treatments must be right: `SettingsHub` renders an
+   * That reasoning is about ADDING a card, and it does not argue against
+   * flipping one when its page ships: routing `Worker Nodes` (#271) changes
+   * what a card in the existing grid renders — a "Coming soon" chip becomes a
+   * `CardActionArea`, and the rail gains the row it was skipping — so the
+   * baselines move once more, for a card somebody can now actually open.
+   *
+   * `disabled: true` AND no `path` together, not either alone, for a card that
+   * is still unbuilt. They are belt-and-braces on purpose, because the two
+   * consumers treat them differently and both treatments must be right: `SettingsHub` renders an
    * inert card with a "Coming soon" chip and — importantly — no
    * `CardActionArea` at all, so the card is not a tab stop and does not ripple;
    * `NavigationRail` skips the row entirely rather than drawing a link to
@@ -263,7 +270,10 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
    *                        is about REACHABILITY, and "what is the queue doing"
    *                        is worth reading for anyone answering "why has
    *                        nothing happened".
-   *   - `nodes:read`     → the worker-node controller (#267).
+   *   - `nodes:read`     → `nodes/nodes-admin.controller.ts`
+   *                        (`PERMISSIONS.NODES_READ`), the string it enforces
+   *                        on the fleet list, the node detail and the
+   *                        credential list; also `node-credential.controller.ts`.
    *                        DELIBERATELY NOT `jobs:read`: `roles.constants.ts`
    *                        splits the two, so a Workers card gated on
    *                        `jobs:read` would advertise a permission that
@@ -318,13 +328,28 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
         permission: 'jobs:read',
       },
       {
-        // #267. Declared, not routed — see the section header.
+        // Declared inert by #266 alongside the whole group; ROUTED by #271,
+        // which ships the page. Flipping a card is exactly the two-field edit
+        // the section header describes — a `path` appears and `disabled`
+        // disappears — and both consumers pick it up from that alone: the hub
+        // swaps its "Coming soon" chip for a real `CardActionArea`, and the
+        // Console rail, which skipped the row entirely, starts drawing it.
+        //
+        // `permission` is UNCHANGED and was already right: `nodes:read` is the
+        // literal string `nodes-admin.controller.ts` enforces on its fleet
+        // list, its detail read and its credential list
+        // (`PERMISSIONS.NODES_READ`). Creating and revoking credentials, and
+        // deleting a node, need `nodes:write`, which the PAGE gates internally
+        // by omitting the row actions and the create button — the card gate is
+        // about REACHABILITY, and "which machines are attached and are they
+        // alive" is worth reading for anyone answering "why is nothing being
+        // processed".
         title: 'Worker Nodes',
         description:
           'See which machines are attached to this deployment, what they are running, and whether they are healthy.',
         Icon: DnsOutlinedIcon,
+        path: '/admin/settings/workers',
         permission: 'nodes:read',
-        disabled: true,
       },
       {
         // #268. Declared, not routed — see the section header.
