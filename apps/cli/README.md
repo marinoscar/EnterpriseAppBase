@@ -665,6 +665,49 @@ discards exactly the accumulated state that names the retainer. Snapshots go to
 reason when free disk is under 1.5× the live heap. `APPCTL_HEAP_SNAPSHOTS=false`
 disables all three snapshot paths at once.
 
+### Running a fleet in containers
+
+The recommended way to run workers is containers, not a per-machine install.
+
+```bash
+cd infra/compose
+cp .env.worker.example .env.worker      # fill in the server URL and the token
+docker compose --env-file .env.worker -f worker.compose.yml up -d --scale worker=4
+```
+
+Four replicas, no coordination configured anywhere. Each registers as its own
+node — its name derives from the container hostname, which Docker makes unique
+— and they load-balance through the server's `FOR UPDATE SKIP LOCKED` claim, so
+two replicas can never receive the same job.
+
+> **Do not set `APPCTL_NODE_NAME` or `APPCTL_NODE_ID` when scaling.** Every
+> replica would reattach to the *same* node row, and the server's per-node
+> claim cap would be shared between processes that each think they own it.
+
+Only `APPCTL_SERVER_URL` and `APPCTL_TOKEN` are required: with no config file
+the worker synthesises everything else from the environment and starts.
+
+Two settings in `worker.compose.yml` are load-bearing rather than decorative:
+
+- **`restart: unless-stopped`** — the memory watchdog exits deliberately after
+  a clean drain, so without it a successful drain leaves the worker down.
+- **`stop_grace_period: 300s`** — Docker sends `SIGTERM`, waits, then
+  `SIGKILL`s. A job killed mid-flight has to wait out its lease before the
+  server retries it anywhere.
+
+The image's `ENTRYPOINT` is in **exec form** for the same reason: shell form
+wraps the process in `/bin/sh -c`, which does not forward `SIGTERM`, so the
+drain would never run.
+
+To build from source instead of pulling the published image:
+
+```bash
+docker compose -f worker.compose.yml -f worker.build.compose.yml up --build
+```
+
+CI publishes `ghcr.io/<owner>/<repo>-worker` alongside the api and web images,
+with the same tag conventions.
+
 ### Worker environment variables
 
 Every setting can come from the environment instead of the config file, which
