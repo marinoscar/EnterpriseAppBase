@@ -15,32 +15,32 @@ datasource db {
 // =============================================================================
 
 model User {
-  id                      String    @id @default(uuid()) @db.Uuid
-  email                   String    @unique
-  displayName             String?   @map("display_name")
-  providerDisplayName     String?   @map("provider_display_name")
-  profileImageUrl         String?   @map("profile_image_url")
-  providerProfileImageUrl String?   @map("provider_profile_image_url")
-  isActive                Boolean   @default(true) @map("is_active")
-  createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt               DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  id                      String   @id @default(uuid()) @db.Uuid
+  email                   String   @unique
+  displayName             String?  @map("display_name")
+  providerDisplayName     String?  @map("provider_display_name")
+  profileImageUrl         String?  @map("profile_image_url")
+  providerProfileImageUrl String?  @map("provider_profile_image_url")
+  isActive                Boolean  @default(true) @map("is_active")
+  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt               DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relations
-  identities                UserIdentity[]
-  userRoles                 UserRole[]
-  userSettings              UserSettings?
-  auditEvents               AuditEvent[]     @relation("ActorEvents")
-  settingsUpdates           SystemSettings[] @relation("SettingsUpdater")
-  refreshTokens             RefreshToken[]   @relation("UserRefreshTokens")
-  allowlistEntriesAdded     AllowedEmail[]   @relation("AllowlistAddedBy")
-  allowlistEntry            AllowedEmail?    @relation("AllowlistClaimedBy")
-  deviceCodes               DeviceCode[]     @relation("UserDeviceCodes")
-  storageObjects            StorageObject[]  @relation("UserStorageObjects")
-  personalAccessTokens      PersonalAccessToken[] @relation("UserPersonalAccessTokens")
-  credentialUpdates         Credential[]     @relation("CredentialUpdatedBy")
-  notificationDeliveries    NotificationDelivery[] @relation("UserNotificationDeliveries")
-  notifications             Notification[]   @relation("UserNotifications")
-  pushSubscriptions         PushSubscription[] @relation("UserPushSubscriptions")
+  identities             UserIdentity[]
+  userRoles              UserRole[]
+  userSettings           UserSettings?
+  auditEvents            AuditEvent[]           @relation("ActorEvents")
+  settingsUpdates        SystemSettings[]       @relation("SettingsUpdater")
+  refreshTokens          RefreshToken[]         @relation("UserRefreshTokens")
+  allowlistEntriesAdded  AllowedEmail[]         @relation("AllowlistAddedBy")
+  allowlistEntry         AllowedEmail?          @relation("AllowlistClaimedBy")
+  deviceCodes            DeviceCode[]           @relation("UserDeviceCodes")
+  storageObjects         StorageObject[]        @relation("UserStorageObjects")
+  personalAccessTokens   PersonalAccessToken[]  @relation("UserPersonalAccessTokens")
+  credentialUpdates      Credential[]           @relation("CredentialUpdatedBy")
+  notificationDeliveries NotificationDelivery[] @relation("UserNotificationDeliveries")
+  notifications          Notification[]         @relation("UserNotifications")
+  pushSubscriptions      PushSubscription[]     @relation("UserPushSubscriptions")
 
   @@map("users")
 }
@@ -65,8 +65,8 @@ model UserIdentity {
 // =============================================================================
 
 model Role {
-  id          String   @id @default(uuid()) @db.Uuid
-  name        String   @unique
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String  @unique
   description String?
 
   // Relations
@@ -77,8 +77,8 @@ model Role {
 }
 
 model Permission {
-  id          String   @id @default(uuid()) @db.Uuid
-  name        String   @unique
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String  @unique
   description String?
 
   // Relations
@@ -273,24 +273,24 @@ model DeviceCode {
 // =============================================================================
 
 enum StorageObjectStatus {
-  pending    // Upload initiated, awaiting chunks
-  uploading  // Chunks being uploaded
+  pending // Upload initiated, awaiting chunks
+  uploading // Chunks being uploaded
   processing // Post-upload processing in progress
-  ready      // Available for use
-  failed     // Upload or processing failed
+  ready // Available for use
+  failed // Upload or processing failed
 }
 
 model StorageObject {
   id              String              @id @default(uuid()) @db.Uuid
-  name            String              // Original filename
-  size            BigInt              // Total size in bytes (BigInt for GB-scale)
+  name            String // Original filename
+  size            BigInt // Total size in bytes (BigInt for GB-scale)
   mimeType        String              @map("mime_type")
   storageKey      String              @unique @map("storage_key") // S3 object key
   storageProvider String              @default("s3") @map("storage_provider")
   bucket          String?
   status          StorageObjectStatus @default(pending)
   s3UploadId      String?             @map("s3_upload_id") // S3 multipart upload ID
-  metadata        Json?               // JSONB for flexible metadata
+  metadata        Json? // JSONB for flexible metadata
   uploadedById    String?             @map("uploaded_by_id") @db.Uuid
   createdAt       DateTime            @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime            @updatedAt @map("updated_at") @db.Timestamptz
@@ -310,7 +310,7 @@ model StorageObjectChunk {
   objectId   String   @map("object_id") @db.Uuid
   partNumber Int      @map("part_number") // S3 part number (1-10000)
   eTag       String   @map("e_tag") // S3 ETag for verification
-  size       BigInt   // Chunk size in bytes
+  size       BigInt // Chunk size in bytes
   uploadedAt DateTime @default(now()) @map("uploaded_at") @db.Timestamptz
 
   // Relations
@@ -553,7 +553,7 @@ model Notification {
   // NotificationDelivery.error: a rendered body has no meaningful length
   // bound, and silently truncating what a user was told is worse than storing
   // a long string. (Postgres `text` has no performance penalty over `varchar`.)
-  body String @db.Text
+  body  String @db.Text
 
   // Where the bell should send the user, as a ROOT-RELATIVE PATH ("/settings",
   // "/admin/users?id=…"), never an absolute URL.
@@ -721,4 +721,312 @@ model PushSubscription {
   // already covers lookup/upsert by endpoint).
   @@index([userId])
   @@map("push_subscriptions")
+}
+
+// =============================================================================
+// Jobs (issue #255, epic #254)
+// =============================================================================
+//
+// A generic background-job queue table: one row per unit of work a worker
+// node claims, runs, and reports the outcome of. This issue adds only the
+// schema — the enqueue path, the claim query, and the node plane that
+// actually pulls jobs off this table all arrive in later issues of #254
+// (the claim query's `RETURNING` aliases land in #260, the `WorkerNode` model
+// that `claimedByNodeId` will finally point at lands with the node plane).
+// What is here is deliberately complete on its own: every column and index a
+// worker needs to claim, execute, retry, and rate-limit a job, so nothing
+// downstream requires a follow-up migration to `jobs` itself.
+//
+// -----------------------------------------------------------------------------
+// subjectType / subjectId — plain nullable TEXT, not typed or FK'd columns
+// -----------------------------------------------------------------------------
+// REJECTED: a column per subject shape (`mediaItemId`, `circleId`, ...). This
+// table is generic across every handler `type` this app will ever register,
+// present and future. A typed column per subject means every new job kind
+// that targets a new kind of thing is a migration to this table, which is
+// exactly the coupling a job queue must not have to its callers — the whole
+// point of `type` being a free-form handler key is that new handlers cost
+// zero schema changes. `subjectType` (a short discriminator string the
+// handler itself defines, e.g. `'media_item'`) plus `subjectId` (that
+// subject's id, stored as text specifically so it is not assumed to be a
+// UUID — some future subject might key by something else) covers every shape
+// with two columns, forever.
+//
+// REJECTED: payload-only, with no subject columns at all (dig the subject id
+// out of the JSONB `payload` when you need it). This is what `[subjectType,
+// subjectId]` below exists to make wrong: "cancel every pending job for this
+// media item" and "is there already an active job for this exact subject"
+// (the dedup index just below) are both real, known queries (not
+// speculative), and neither is expressible as an index over JSONB without a
+// GIN index and a much more awkward query. Two plain columns, indexed
+// normally, are simpler and cheaper than making Postgres reach into JSON for
+// a value that is known and named at enqueue time regardless.
+//
+// Both nullable, and BOTH null together is the documented spelling of "this
+// is a global/system job" (a nightly sweep, a cache warm) that is not about
+// any one row elsewhere in the database — there is no sentinel subjectType
+// like `'system'` to keep in sync with anything.
+//
+// -----------------------------------------------------------------------------
+// dedupKey / the active-dedup unique index — enforced by a hand-written
+// partial index, NOT `findFirst` then `create` in the enqueue service
+// -----------------------------------------------------------------------------
+// REJECTED: "check whether an active job with this key already exists, and
+// only insert if not" as application logic. That is a check-then-act race:
+// two concurrent enqueue calls can both see "no active duplicate" and both
+// insert, which is precisely the failure a dedup key exists to prevent, and
+// under real concurrent load (a webhook retried while the first delivery is
+// still being handled, two nodes reacting to the same event) it is not a
+// rare edge case. Only the database can make "is there already an active job
+// with this key" atomic with the insert that would violate it, which is what
+// `jobs_active_dedup_uniq_idx` below is for: a partial UNIQUE index on
+// `dedup_key` filtered to `status IN ('pending','running')`. The enqueue path
+// (arriving with #260) inserts optimistically and treats the resulting
+// unique-violation as "a duplicate is already in flight", not as an error —
+// no pre-check query, no race window.
+//
+// The partial filter is exactly what makes the key reusable: once a job
+// reaches `succeeded` (or `failed`) it drops out of the index's predicate, so
+// the same `dedup_key` is free again for a new active job — retrying or
+// re-triggering the same logical work later is not permanently blocked by
+// its own history. `dedup_key IS NOT NULL` in the predicate is what lets
+// jobs that opt out of dedup (most ad-hoc jobs) insert freely with a NULL key
+// — Postgres does not consider NULLs equal for uniqueness, but the explicit
+// clause documents that this is relied upon, not incidental.
+//
+// The key's actual format (`type:subjectType:subjectId`) is defined ONCE, in
+// `buildDedupKey()` (`src/jobs/job-keys.ts`), which this comment and the
+// migration's raw SQL both point back to rather than restating it — see that
+// file for why the format is what it is.
+//
+// -----------------------------------------------------------------------------
+// priority — ASCENDING is more urgent
+// -----------------------------------------------------------------------------
+// Chosen so `ORDER BY priority ASC, created_at ASC` is both "most urgent
+// first" and "oldest first within a priority", the same direction Postgres
+// already walks a plain ascending b-tree index in — no `DESC` index variant
+// needed for the hot claim-query ordering that `[status, priority,
+// createdAt]` and `[status, scheduledFor, priority, createdAt]` below exist
+// to serve. `0` is the default (normal) priority; more urgent work is a
+// smaller (including negative) number, not a larger one.
+//
+// -----------------------------------------------------------------------------
+// attempts vs rateLimitedAt/rateLimitHits — two counters for two different
+// reasons a job didn't finish, deliberately not merged into one
+// -----------------------------------------------------------------------------
+// `attempts` is charged AT CLAIM TIME (incremented when a worker takes the
+// job, not when it fails) and is what a max-retry policy reads. Being rate
+// limited by a downstream provider is not the job's fault and is not a
+// retry in that sense — charging it against `attempts` would make a job that
+// is simply waiting its turn look like a job that keeps failing, and could
+// exhaust its retry budget for a reason that has nothing to do with the
+// job's own correctness. `rateLimitedAt` / `rateLimitHits` track that
+// separately: `scheduledFor` is pushed out to defer the job, `rateLimitHits`
+// records how often this has happened (for observability/alerting on a
+// provider that is persistently saturated), and neither touches `attempts`.
+//
+// -----------------------------------------------------------------------------
+// providerKey / modelVersion — audit of WHAT ran the job, not inputs to it
+// -----------------------------------------------------------------------------
+// Both nullable and both write-once-at-completion-time metadata: which
+// downstream provider handled this job and which model/version it ran
+// against, for after-the-fact questions ("did the incident affect jobs that
+// ran on provider X" / "which jobs ran before the model version bump").
+// Neither is read back by the claim query — they exist for audit, not for
+// scheduling.
+//
+// -----------------------------------------------------------------------------
+// claimedByNodeId — NO foreign key yet, deliberately
+// -----------------------------------------------------------------------------
+// This column exists now (`String? @db.Uuid`) so the claim query and its
+// indexes ([status, leaseExpiresAt], [claimedByNodeId]) can be built against
+// their final shape today, but the `WorkerNode` table it will reference does
+// not exist until the node plane (a later issue of #254) adds it. THE
+// RELATION AND ITS `onDelete: SetNull` ARRIVE THEN, added as a migration that
+// adds the FK constraint on top of this already-populated column — SetNull
+// so a node's disappearance frees the jobs it was holding (via
+// `leaseExpiresAt` already having them look abandoned) rather than deleting
+// job history. Until that migration, this column is enforced by application
+// code only.
+//
+// -----------------------------------------------------------------------------
+// sumDurationMs on JobStatsRollup — Float (double precision), NOT BigInt
+// -----------------------------------------------------------------------------
+// REJECTED: BigInt. Prisma maps a BigInt column to the JS `bigint` primitive,
+// which `JSON.stringify` refuses outright ("Do not know how to serialize a
+// BigInt") — the not-yet-built insights endpoint that reads this rollup would
+// crash on its very first response, not degrade gracefully. A running sum of
+// per-job durations in milliseconds, even at very high job volume, never
+// approaches the ~2^53 safe-integer boundary where `Float` would start
+// losing precision that matters for an aggregate (an average duration off by
+// fractions of a millisecond at that scale is not a real-world concern);
+// BigInt's exactness buys nothing here and costs a runtime crash.
+//
+// -----------------------------------------------------------------------------
+// Prisma-expressible indexes vs the three below written directly in the
+// migration (INTENTIONAL SCHEMA DRIFT — see migration.sql in
+// 20260906120000_add_jobs)
+// -----------------------------------------------------------------------------
+// Everything Prisma's index DSL can express is declared with `@@index` below.
+// Three more indexes exist ONLY in `migration.sql` because the Prisma schema
+// language has no syntax for a partial index (a `WHERE` clause on the index
+// itself) — `@@index` always builds a full index over every row:
+//
+//   - "jobs_active_dedup_uniq_idx": the partial UNIQUE index described above
+//     that actually enforces the active-dedup constraint (`dedup_key` where
+//     `status IN ('pending','running') AND dedup_key IS NOT NULL`).
+//   - "jobs_attempts_gt1_idx": a partial index on `attempts` where
+//     `attempts > 1`, sized to the small minority of jobs that have ever
+//     been retried, for "show me flaky jobs" without indexing the (large)
+//     majority that succeeded on the first attempt.
+//   - "jobs_succeeded_duration_idx": a partial index on
+//     `(finished_at, started_at, type)` where `status = 'succeeded' AND
+//     started_at IS NOT NULL AND finished_at IS NOT NULL`, for computing
+//     per-type duration stats (what feeds `JobStatsRollup`) without scanning
+//     jobs that were never actually timed.
+//
+// Because `prisma migrate dev`/`diff` cannot regenerate these from the
+// schema file, they will show up as "drift" if anyone ever diffs this schema
+// against the live database with a tool that expects `@@index` to be the
+// full story. That drift is intentional and this comment (plus the ones in
+// the migration itself) is the record of why — do not "fix" it by dropping
+// these three indexes, and do not try to force them into `@@index` syntax
+// that does not exist.
+model Job {
+  id String @id @default(uuid()) @db.Uuid
+
+  // The handler key a worker dispatches on (e.g. `'email.send'`,
+  // `'export.csv'`). A small, code-owned, growing set — deliberately a plain
+  // string and not a Prisma enum, for the same reason `NotificationDelivery
+  // .channel` and `.eventKey` are plain strings: new handlers must cost zero
+  // migrations, and a row must be able to outlive the handler that produced
+  // it (a removed/renamed handler's historical jobs stay queryable).
+  type String
+
+  // See the block comment above for why these are plain nullable TEXT rather
+  // than typed/FK'd columns, and why both null together means a
+  // global/system job.
+  subjectType String? @map("subject_type")
+  subjectId   String? @map("subject_id")
+
+  // See the block comment above ("dedupKey / the active-dedup unique index")
+  // for the full mechanism. Built by `buildDedupKey()`
+  // (`src/jobs/job-keys.ts`); nullable because most jobs opt out of dedup
+  // entirely.
+  dedupKey String? @map("dedup_key")
+
+  status JobStatus @default(pending)
+  reason JobReason
+
+  // Ascending = more urgent. See the block comment above.
+  priority Int @default(0)
+
+  // Audit of what actually ran this job — see the block comment above.
+  // Written once, at completion; never read by the claim query.
+  providerKey  String? @map("provider_key")
+  modelVersion String? @map("model_version")
+
+  // Handler-defined input, opaque to this table.
+  payload Json? @db.JsonB
+
+  // Charged AT CLAIM TIME (see the block comment above for why this is kept
+  // separate from rateLimitHits).
+  attempts Int @default(0)
+
+  lastError String? @map("last_error")
+
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  startedAt  DateTime? @map("started_at") @db.Timestamptz
+  finishedAt DateTime? @map("finished_at") @db.Timestamptz
+
+  // NULL means eligible now. A non-null value in the future is what makes a
+  // job invisible to the claim query until then (deferred rate-limit retries,
+  // deliberately scheduled work).
+  scheduledFor DateTime? @map("scheduled_for") @db.Timestamptz
+
+  // Deferral bookkeeping, deliberately separate from `attempts` — see the
+  // block comment above.
+  rateLimitedAt DateTime? @map("rate_limited_at") @db.Timestamptz
+  rateLimitHits Int       @default(0) @map("rate_limit_hits")
+
+  // Node claiming. NO relation yet — see the block comment above
+  // ("claimedByNodeId") for why, and what arrives with the node plane.
+  claimedByNodeId String?   @map("claimed_by_node_id") @db.Uuid
+  leaseExpiresAt  DateTime? @map("lease_expires_at") @db.Timestamptz
+  // 'server' | 'node' — which side actually executed the job. A plain
+  // string, not an enum, for the same "small closed set, but code-owned and
+  // not this table's own state machine" reasoning as
+  // NotificationDelivery.channel above.
+  executor        String?
+
+  // See the block comment above ("Prisma-expressible indexes...") for why
+  // these eight are declared here and three more exist only in
+  // migration.sql.
+  //
+  // The hot claim-query orderings:
+  @@index([status, priority, createdAt])
+  @@index([status, scheduledFor, priority, createdAt])
+  // "Every job for this subject" / "is there already a job for this exact
+  // subject":
+  @@index([subjectType, subjectId])
+  // "How is this handler doing" (per-type status breakdown):
+  @@index([type, status])
+  // Lease expiry sweep (finding jobs whose claiming node went away):
+  @@index([status, leaseExpiresAt])
+  // "What is this node holding right now" (will back the node-plane FK's own
+  // lookups once it exists too):
+  @@index([claimedByNodeId])
+  // Recency listings (admin job list, "what just happened"):
+  @@index([createdAt(sort: Desc)])
+  // Covering index: the two unconditional admin groupBy counts
+  // (`groupBy({ by: ['status'] })`-shaped queries) are answered entirely from
+  // this index — status, type and id are all it needs to project — so
+  // Postgres never has to visit the heap for them (index-only scan).
+  @@index([status, type, id])
+  @@map("jobs")
+}
+
+enum JobStatus {
+  pending
+  running
+  succeeded
+  failed
+}
+
+enum JobReason {
+  upload
+  rerun
+  backfill
+}
+
+// =============================================================================
+// Job Stats Rollup (issue #255, epic #254)
+// =============================================================================
+//
+// One row per `type` (Job.type), maintained incrementally as jobs finish
+// rather than computed by aggregating the full `jobs` table on every read —
+// `jobs` is expected to grow without bound (or be pruned independently of
+// this rollup's needs), so a per-type COUNT/AVG over it is not something the
+// not-yet-built insights endpoint should be doing on every request.
+//
+// `sumDurationMs` is `Float`, deliberately not `BigInt` — see the block
+// comment above the `Job` model ("sumDurationMs on JobStatsRollup") for why
+// BigInt would crash `JSON.stringify` at the exact place this rollup is
+// meant to be read from. Average duration for a type is
+// `sumDurationMs / durationSamples`, computed by the reader; this table
+// stores the two accumulators, not the derived average, so re-deriving after
+// a correction never requires touching historical precision.
+model JobStatsRollup {
+  type String @id
+
+  succeededCount Int @default(0) @map("succeeded_count")
+  failedCount    Int @default(0) @map("failed_count")
+
+  // See the block comment above for why Float, not BigInt.
+  sumDurationMs   Float @default(0) @map("sum_duration_ms")
+  durationSamples Int   @default(0) @map("duration_samples")
+
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("job_stats_rollup")
 }
