@@ -18,6 +18,7 @@ import { PatModule } from './pat/pat.module';
 import { CredentialsModule } from './credentials/credentials.module';
 import { EmailModule } from './email/email.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { JobsModule } from './jobs/jobs.module';
 import { LoggerModule } from './common/logger/logger.module';
 import { TestAuthModule } from './test-auth/test-auth.module';
 
@@ -75,6 +76,16 @@ import configuration from './config/configuration';
     // so a broken channel graph — a duplicate channel registration, a missing
     // transport — fails at boot rather than at the first notification.
     NotificationsModule,
+    // Background job queue (#259, epic #254): the handler contract, the
+    // handler registry and one worked example handler. Registered here even
+    // though nothing enqueues, claims or runs a job yet (#260-#263 add
+    // enqueue/claim, the terminal state machine, the worker pool and the
+    // hygiene crons) so a broken graph fails at boot rather than at the first
+    // job -- and so the example handler's self-registration is exercised on
+    // every boot, which is what proves the extension point actually works. It
+    // costs nothing at runtime: no loop is started and no query is issued
+    // until a worker exists.
+    JobsModule,
 
     // Test modules (non-production only)
     ...(process.env.NODE_ENV !== 'production' ? [TestAuthModule] : []),
