@@ -177,6 +177,28 @@ export default () => {
       .filter((type) => type.length > 0),
   },
 
+  // Worker-fleet lifecycle (#270). Both switches are the SAME KIND of switch as
+  // `jobs.reaperEnabled` above — "does this replica run this sweep" — and not a
+  // policy: the thresholds themselves (`staleHeartbeatSeconds`,
+  // `offlineStaleMultiplier`, `offlineRetentionDays`) are system settings an
+  // administrator changes at runtime, because they are decisions about a
+  // deployment's fleet rather than about a process's environment.
+  //
+  // BOTH DEFAULT TO ON, and only the literal string turns either off. A fleet
+  // whose liveness tracking silently stopped because of a typo in an env file
+  // looks exactly like a fleet that is perfectly healthy — every node reads
+  // `online` forever — which is the worst failure of the two to diagnose. See
+  // `nodes/tasks/node-stale-offline.task.ts`.
+  //
+  // ⚠ TURNING THE SWEEP OFF ALSO TURNS RETENTION OFF, whatever the prune's own
+  // switch says: the prune selects `offline` rows, and without the sweep a
+  // crashed node never reaches that status. The pair is ordered, not
+  // independent.
+  nodes: {
+    staleOfflineEnabled: process.env.NODE_STALE_OFFLINE_ENABLED !== 'false',
+    offlinePruneEnabled: process.env.NODE_OFFLINE_PRUNE_ENABLED !== 'false',
+  },
+
   // Observability
   otel: {
     enabled: process.env.OTEL_ENABLED === 'true',
