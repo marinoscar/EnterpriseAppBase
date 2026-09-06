@@ -107,6 +107,32 @@ export default () => {
     patExpiryDays: parseInt(process.env.DEVICE_PAT_EXPIRY_DAYS || '90', 10),
   },
 
+  // Background job queue — the terminal state machine's budgets and backoff
+  // (issue #261, epic #254).
+  //
+  // TWO INDEPENDENT BUDGETS, and conflating them is the mistake to avoid.
+  // `maxAttempts` bounds BUGS: a handler that keeps throwing should burn
+  // through a small budget quickly and land in `failed` where a human sees
+  // it. `rateLimitMaxHits` bounds WAITING: a provider throttling us is not
+  // the job failing, so a deferral must not spend the attempt budget at all
+  // (`JobTerminalService` explicitly un-charges the claim-time increment) and
+  // it gets its own, much larger, allowance on a much longer timescale.
+  // A single combined counter would let a long backfill against a
+  // rate-limited provider exhaust it in the first minute and fail
+  // permanently for a transient reason that was never its fault.
+  //
+  // Each pair of *BaseMs / *MaxMs feeds the same equal-jitter exponential
+  // backoff (`src/jobs/backoff.util.ts`); only the constants differ —
+  // seconds for a retry, minutes for a provider cooldown.
+  jobs: {
+    maxAttempts: parseInt(process.env.JOBS_MAX_ATTEMPTS || '3', 10),
+    retryBaseMs: parseInt(process.env.JOBS_RETRY_BASE_MS || '2000', 10),
+    retryMaxMs: parseInt(process.env.JOBS_RETRY_MAX_MS || '60000', 10),
+    rateLimitMaxHits: parseInt(process.env.JOBS_RATELIMIT_MAX_HITS || '10', 10),
+    rateLimitBaseMs: parseInt(process.env.JOBS_RATELIMIT_BASE_MS || '30000', 10),
+    rateLimitMaxMs: parseInt(process.env.JOBS_RATELIMIT_MAX_MS || '900000', 10),
+  },
+
   // Observability
   otel: {
     enabled: process.env.OTEL_ENABLED === 'true',

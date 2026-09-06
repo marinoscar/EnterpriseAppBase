@@ -1,4 +1,6 @@
 import { Logger } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { Test, TestingModule } from '@nestjs/testing';
 import { Job } from '@prisma/client';
 import { z } from 'zod';
@@ -7,6 +9,7 @@ import { ExampleEchoHandler } from './handlers/example-echo.handler';
 import { JobHandler } from './job-handler.interface';
 import { JobHandlerRegistry } from './job-handler.registry';
 import { JobsModule } from './jobs.module';
+import configuration from '../config/configuration';
 import { PrismaModule } from '../prisma/prisma.module';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -186,8 +189,21 @@ describe('ExampleEchoHandler self-registration (via JobsModule)', () => {
     // needs the injection to RESOLVE, not to reach a database. Importing the
     // (`@Global()`) module satisfies the graph; overriding the provider keeps
     // a unit test from opening a connection in `onModuleInit`.
+    //
+    // `ConfigModule` and `EventEmitterModule` are here for the same
+    // "resolve, don't exercise" reason, added with #261: the terminal state
+    // machine reads its retry budgets from `ConfigService` and announces
+    // settled jobs through `EventEmitter2`. Both are `forRoot()`-ed exactly
+    // as `app.module.ts` does — a bare `ConfigModule` import would hand this
+    // graph a `ConfigService` with none of `configuration()` loaded, which is
+    // a subtler wrong than a missing provider.
     moduleRef = await Test.createTestingModule({
-      imports: [PrismaModule, JobsModule],
+      imports: [
+        ConfigModule.forRoot({ isGlobal: true, load: [configuration] }),
+        EventEmitterModule.forRoot(),
+        PrismaModule,
+        JobsModule,
+      ],
     })
       .overrideProvider(PrismaService)
       .useValue({})
