@@ -5,6 +5,7 @@ import { registerApiCommand } from './commands/api.js';
 import { registerConfigCommand } from './commands/config.js';
 import { registerDeployCommand } from './commands/deploy.js';
 import { registerLoginCommand } from './commands/login.js';
+import { registerNodeCommand } from './commands/node.js';
 import { EXIT, exitCodeFor, formatError } from './errors.js';
 import { CLI_VERSION } from './package-info.js';
 import { evaluateTuiGate, type TtyContext } from './tui/tty.js';
@@ -67,6 +68,10 @@ export function buildProgram(): Command {
   registerLoginCommand(program);
   registerApiCommand(program);
   registerConfigCommand(program);
+  // `node` before `deploy`: it acts on THIS machine (turning it into a worker),
+  // which puts it with `login`/`config` rather than with the group that acts on
+  // a remote server.
+  registerNodeCommand(program);
   // `deploy` last: it is the only group that acts on a SERVER rather than on
   // this machine's session, and it reads as a separate concern in --help.
   registerDeployCommand(program);
