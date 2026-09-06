@@ -23,6 +23,7 @@ import {
   type SystemNotificationsValue,
   type SystemMaintenanceValue,
   type SystemJobsValue,
+  type SystemNodesValue,
 } from '../../common/schemas/settings.schema';
 
 const SETTINGS_KEY = 'global';
@@ -748,6 +749,46 @@ export class SystemSettingsService {
     });
 
     return this.readKnownSettings(row?.value).jobs;
+  }
+
+  /**
+   * The worker-fleet policy — the stale window, the offline multiplier and the
+   * offline retention (#270, epic #254).
+   *
+   * A NARROW ACCESSOR RATHER THAN `getSettings()`, for exactly the three
+   * reasons `getJobsPolicy` above gives, and read by exactly the callers that
+   * argument was written for:
+   *
+   *   1. IT DOES NOT CREATE THE ROW. Its callers are two background timers —
+   *      the stale-offline sweep every ten minutes and the offline prune
+   *      daily — plus the admin fleet read. A cron tick materialising a
+   *      settings row is a write nobody asked for on a path with no request
+   *      to attribute it to.
+   *   2. IT RETURNS ONLY THIS BLOCK. The sweep needs two integers and the
+   *      prune needs one; neither has any business holding the whole settings
+   *      blob, including the open `features` map.
+   *   3. IT IS THE ONE READ PATH FOR THESE VALUES. `NodeLifecycleService` is
+   *      the only caller and every consumer goes through it, so "which stale
+   *      window is this?" has exactly one answer. That matters more here than
+   *      anywhere else in this file, because the whole design of
+   *      `offlineStaleMultiplier` — a MULTIPLE of the stale window rather than
+   *      an independent duration — exists to stop the UI's "stale" pill and
+   *      the database's `offline` status from becoming two unrelated notions
+   *      of liveness. A second read path would reintroduce that drift by the
+   *      back door.
+   *
+   * Degrades exactly as every other read here does: a missing row, a `null`
+   * value or a malformed one yields `DEFAULT_SYSTEM_SETTINGS.nodes` through
+   * `readKnownSettings`, so a damaged row cannot strand a dead fleet at
+   * `online` forever — it falls back to the shipped policy.
+   */
+  async getNodesPolicy(): Promise<SystemNodesValue> {
+    const row = await this.prisma.systemSettings.findUnique({
+      where: { key: SETTINGS_KEY },
+      select: { value: true },
+    });
+
+    return this.readKnownSettings(row?.value).nodes;
   }
 
   /**

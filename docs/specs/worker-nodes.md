@@ -752,6 +752,177 @@ after it routes every request for the contract list into the node lookup, where
 `ParseUUIDPipe` answers `400 "Validation failed (uuid is expected)"` — a
 message that names nothing about the real mistake.
 
+# Part four: fleet lifecycle (#270)
+
+## 23. A node that crashes never says goodbye
+
+`POST /nodes/{id}/deregister` is a **graceful shutdown** — a cooperative
+process telling the control plane it is going away — and graceful shutdowns
+are not how workers usually stop. An OOM kill, a segfault in a native
+dependency, a reclaimed spot instance, a closed laptop lid and a network
+partition all end the same way: the last thing the row ever hears is a
+heartbeat. A node has no database access, so nothing else writes to it either,
+and `status` stays `online` **forever**.
+
+Two things go wrong, and the second is much worse than the first.
+
+**The fleet page lies.** A green "online" chip sits above a three-week-old
+heartbeat. That is worse than showing no status at all: an operator shown no
+data goes and looks; an operator shown a confident green chip does not.
+
+**Retention is silently voided.** The prune (§25) selects `status = 'offline'`,
+so a row stuck at `online` can never be reached by it. `nodes
+.offlineRetentionDays` therefore does nothing for exactly the failure mode it
+exists for — crashed nodes are the ones that accumulate; gracefully
+deregistered ones are the ones that already get cleaned up. **Without the
+sweep, the prune is dead code**, and it is dead code that logs
+`0 nodes pruned` and looks like a fleet with nothing to clean up.
+
+That is why the two crons are a **pair with an order**, and why the ordering
+has a test of its own in both suites (§27): each cron in isolation passes its
+own tests with the bug present.
+
+## 24. The sweep: `staleHeartbeatSeconds x offlineStaleMultiplier`
+
+`NodeStaleOfflineTask` runs every ten minutes, honours
+`NODE_STALE_OFFLINE_ENABLED`, never throws out of the handler, and is one
+set-based statement:
+
+```
+UPDATE worker_nodes SET status = 'offline'
+ WHERE status IN ('online', 'draining')
+   AND (last_heartbeat_at < cutoff
+        OR (last_heartbeat_at IS NULL AND registered_at < cutoff))
+```
+
+with `cutoff = now - staleHeartbeatSeconds x offlineStaleMultiplier`.
+
+**The threshold is a multiple of the stale window, not a duration of its own.**
+An independent `offlineAfterMinutes` setting reads simpler and creates **two
+unrelated notions of liveness** in a system that must have exactly one: the
+UI's "stale" pill would be `staleHeartbeatSeconds`, the database's `offline`
+status would be `offlineAfterMinutes`, nothing would link them, and an
+administrator raising the heartbeat interval from 90s to 10 minutes — a
+reasonable thing to do for a fleet of laptops — would leave the offline
+threshold behind and mark every healthy node in the fleet offline. As a
+multiplier, "offline" is by construction some whole number of stale windows
+later than "stale", in the same units.
+
+**The second `OR` arm is not redundant.** `NULL < cutoff` is NULL in SQL, never
+true, so the first arm cannot see a node that registered and never sent a
+heartbeat — a bad credential, a firewall, a crash during startup. Without the
+`registered_at` arm such a row is stuck at `online` forever, and per §23
+permanently invisible to retention.
+
+**`disabled` is never auto-transitioned.** It is an administrator's explicit
+intent and must survive the sweep. The cost of being wrong is asymmetric and
+permanent: `offline` is a status a re-registering node clears (§10), so a
+disabled node swept to `offline` and then restarted comes back **online and
+enabled** — a kill switch quietly undone by a timer, with nothing in the row
+recording that it was ever thrown. `offline` is already terminal and is
+excluded for the different reason that re-stamping it changes nothing.
+
+## 25. The prune: retention, minus anything still working
+
+`NodeOfflinePruneTask` runs daily, honours `NODE_OFFLINE_PRUNE_ENABLED`, and
+never throws. It selects `offline` rows past `nodes.offlineRetentionDays` —
+aged by `last_heartbeat_at`, or by `registered_at` when the node never
+heartbeated, **mirroring the sweep's arms exactly**, because a node aged one
+way there and the other way here would be swept to `offline` and then never
+deleted — then excludes any node still holding a `running` job, then deletes.
+
+Fleet inventory is not history. A `Job` row records work that happened; a
+`WorkerNode` row is a **live registration** — the machine it names is either
+still out there or it is not.
+
+**The `running`-job exclusion is not about safety.** `Job.claimedByNode` is
+`onDelete: SetNull`, so deleting a node can neither delete a job nor fail on a
+foreign key. The exclusion exists so that live queue state never points at a
+row that just vanished: a `running` job whose `claimed_by_node_id` was just
+nulled says "some executor is working on this and we no longer know which one",
+which is precisely the corrupt state the lease reaper's zombie signal exists to
+recover *from*. Do not manufacture it. Such a node is skipped, not failed — the
+reaper settles the job on its own schedule and the next daily tick takes the
+node, with nothing to re-run by hand.
+
+Unlike the sweep this is three statements (select, ask which are busy, delete),
+because the exclusion is a fact about another table. It is still idempotent and
+still needs no overlap guard: the `DELETE` **re-asserts the full candidate
+predicate** alongside the ids, so a node that re-registered between the read and
+the write is left alone.
+
+## 26. `/api/admin/nodes`, and why it is not on `/api/nodes`
+
+`JwtAuthGuard` admits a `nod_` credential on `/api/nodes` and paths beneath it
+and refuses it everywhere else (§2). Everything mounted under
+`NodesController` is therefore reachable by an unattended, months-old worker
+token on a machine this deployment may not own. The admin plane lists every
+node **with its owner's email** and deletes other people's nodes and
+credentials; none of that belongs in that blast radius, so it is mounted on a
+different prefix — outside the allowlist by construction rather than by a check
+somebody has to remember.
+
+| Route | Permission |
+| --- | --- |
+| `GET /api/admin/nodes` | `nodes:read` |
+| `GET /api/admin/nodes/{id}` | `nodes:read` |
+| `DELETE /api/admin/nodes/{id}` | `nodes:write` |
+| `GET /api/admin/nodes/credentials` | `nodes:read` |
+| `DELETE /api/admin/nodes/credentials/{id}` | `nodes:write` |
+
+All five additionally require the Admin role: the role admits, the permission
+is what the guard checks, matching `job-admin.controller.ts`. There is
+deliberately **no** `nodes:admin` permission — the split that matters is
+read-versus-write (an operations role that may audit the fleet without being
+able to delete it), and deployment-versus-own scope is already expressed by the
+prefix and the role.
+
+⚠ **The two `credentials` literals are declared before `:id`.** Nest matches in
+declaration order, not by specificity: `GET /admin/nodes/credentials` is one
+segment past the prefix, exactly the shape `GET /admin/nodes/{id}` matches, so
+`:id` declared first captures it and `ParseUUIDPipe` answers
+`400 "Validation failed (uuid is expected)"` — no error at boot, no warning in
+the log, just an administrator being told their UUID is malformed.
+`DELETE /admin/nodes/credentials/{id}` is two segments and is safe today
+whatever the order; it is declared with the other literal anyway, because the
+rule that survives is "every literal above every parameterised route".
+
+**`health` is derived, never stored.** `deriveNodeHealth` (`node-lifecycle
+.service.ts`) is `offline` when the status says so, `healthy` when the last
+heartbeat is inside `staleHeartbeatSeconds`, and `stale` otherwise — including
+a node that has never heartbeated at all. Both the list and the detail read call
+it with the same policy, so they cannot disagree; a fleet page showing a "stale"
+pill beside a detail panel that says the node is fine teaches an operator to
+distrust both. A stored `health` column would be the §23 bug one layer up: a
+value correct at write time that rots silently.
+
+**Per-node job counts come from one `groupBy(['claimedByNodeId', 'status'])`**,
+not a count per node, because the fleet page polls. The N+1 returns the
+identical answer, so the test asserts the **call count** — one `groupBy`, and
+`count` never called.
+
+**An administrator may delete a node that is holding running jobs; the prune
+may not.** The difference is intent. The prune is a timer acting on a guess
+about a machine nobody has looked at, so it declines the ambiguous case. An
+administrator has looked, and the node they are deleting is usually the one
+that is never coming back and whose stuck jobs they are trying to free.
+Refusing there would make the tool useless in the only situation anyone reaches
+for it. Either way, jobs are neither deleted nor requeued by hand: `SetNull`
+clears the pointer and the reaper's existing signals do the rest.
+
+## 27. Verification for this part
+
+Both crons are covered twice on purpose.
+`apps/api/test/nodes/node-fleet-lifecycle.spec.ts` drives them **in sequence**
+against a narrow in-memory Prisma emulation, so the void-retention regression
+is covered on every ordinary `npm test`; the fixture supports only the
+operators these two queries use and throws on anything else, so adding a `NOT`
+or a `gte` fails loudly rather than quietly returning the wrong rows.
+`apps/api/test/nodes/node-fleet-lifecycle.db.spec.ts` proves the three things
+only Postgres can: that `NULL < cutoff` is not true, that
+`Job.claimedByNode` really is `SetNull`, and that the reaper requeues a job
+whose node was deleted.
+
 ## Rejected alternatives
 
 **Reuse `PersonalAccessToken` for nodes.** The whole of §1. A leaked worker
@@ -878,6 +1049,32 @@ data-plane defect is observable from this repository at all.
 **A shared `packages/job-contracts` workspace.** §22, and
 `packages/shared/index.js` for the three build-system reasons in full.
 
+**Pruning offline nodes without the stale sweep.** §23. It is the shape the
+issue arrives in — "forget nodes we have not heard from in a month" — and it
+silently does nothing, because a crashed node never reaches `offline` and a
+prune that selects `offline` can never see it. The setting exists for exactly
+the failure mode it would then be blind to, and the symptom is a log line
+saying `0 nodes pruned`.
+
+**An independent "offline after N minutes" setting.** §24. Two unrelated
+notions of liveness in a system that must have exactly one, which drift apart
+the first time an administrator changes the heartbeat interval.
+
+**Auto-transitioning `disabled` nodes in the sweep.** §24. A disabled node that
+went silent is also gone, so including it looks harmless. It is not: `offline`
+is cleared by re-registration, so the node comes back online *and enabled*, and
+nothing records that a kill switch was ever thrown.
+
+**Deleting a node that still holds a `running` job.** §25. The foreign key
+makes it safe, which is why nothing would catch it: what it produces is a
+`running` row owned by nobody — the corrupt state the reaper's zombie signal
+exists to recover from, manufactured on purpose.
+
+**A denormalised job-count column on `worker_nodes`.** §26. It has to be kept
+correct by every path that touches a job — claim, settle, reap, purge, admin
+retry, admin delete — and the first one that forgets leaves a number that is
+wrong forever with nothing to reconcile it against.
+
 **Requeueing a deregistering node's jobs.** `deregister` is an HTTP call a
 process makes while shutting down; nothing proves the work actually stopped.
 Requeueing on that say-so would hand a still-running job to a second executor.
@@ -937,6 +1134,23 @@ The load-bearing suites:
   own input object.
 * `apps/api/src/nodes/node-credential.service.spec.ts` — the four rejection
   paths one at a time, and the `expiresAt: null` group.
+* `apps/api/test/nodes/node-fleet-lifecycle.spec.ts` — the two crons run **in
+  sequence** (§27): the crashed node that the prune alone can never reach, the
+  never-heartbeated node aged by `registered_at`, the `disabled` node the sweep
+  must not touch, and the busy node deferred until its job settles.
+* `apps/api/test/nodes/node-fleet-lifecycle.db.spec.ts` — **real Postgres
+  only.** The same sequence plus what only a database proves: `NULL < cutoff`
+  is not true, `Job.claimedByNode` is `SetNull`, and the lease reaper requeues
+  a job whose node was deleted.
+* `apps/api/src/nodes/tasks/node-stale-offline.task.spec.ts` and
+  `node-offline-prune.task.spec.ts` — the statements each cron sends, the
+  fail-open kill switches, and that neither rejects out of its `@Cron` handler.
+* `apps/api/src/nodes/nodes-admin.service.spec.ts` — the single `groupBy`
+  asserted as a **call count**, and the list and detail reads agreeing on
+  health.
+* `apps/api/test/nodes/nodes-admin.integration.spec.ts` — `/api/admin/nodes/
+  credentials` resolving to the credentials route rather than `:id`, over the
+  real router, and the Admin-only RBAC on all five routes.
 * `apps/api/src/auth/guards/jwt-auth.guard.spec.ts` — the allowlist, the
   prefix-boundary paths, the ordering assertion (spy on `validateToken`), and
   regression coverage for the untouched `pat_` and JWT branches.

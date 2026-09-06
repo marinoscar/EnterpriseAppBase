@@ -69,6 +69,36 @@
 // chokepoint, and neither is a capability any feature should have — the same
 // argument `JobsModule` makes for not exporting `JobWorker`.
 //
+// -----------------------------------------------------------------------------
+// `SettingsModule`, THE TWO CRONS AND THE ADMIN PLANE (#270)
+// -----------------------------------------------------------------------------
+//
+// `SettingsModule` is imported for exactly one thing: `SystemSettingsService`'s
+// narrow `getNodesPolicy()` accessor, behind which `NodeLifecycleService` reads
+// the stale window, the offline multiplier and the offline retention. The
+// direction is acyclic — settings depends on nothing here — and it mirrors
+// `JobsModule`, which imports it for `getJobsPolicy()` for the identical
+// reason.
+//
+// `NodeStaleOfflineTask` and `NodeOfflinePruneTask` are registered here as
+// plain providers, exactly as `JobStuckResetTask` is in `JobsModule` and
+// `StorageCleanupTask` is in `StorageModule`; `ScheduleModule.forRoot()` in
+// `app.module.ts` is what makes their `@Cron` methods fire. Neither is
+// exported: nothing outside this module should be able to trigger a sweep.
+// ⚠ THE PAIR IS ORDERED, NOT INDEPENDENT — the prune selects `offline` rows,
+// which only the sweep produces for a node that crashed. Their headers carry
+// the argument; do not register one without the other.
+//
+// `NodesAdminController` is mounted here rather than in a module of its own so
+// that the two node planes are configured, tested and reviewed together, and
+// so the `nod_` allowlist argument above stays visible from both. It is a
+// SEPARATE controller on a SEPARATE prefix (`admin/nodes`) precisely because
+// everything under `NodesController` is reachable by a worker token, and
+// nothing on the admin plane may be. `NodesAdminService` is a provider and not
+// an export, like every other service here: it performs no ownership check at
+// all, and a feature module that could inject it could read or delete any
+// node in the deployment.
+//
 // `PrismaModule` is not imported here: it is `@Global()`. `ConfigService`
 // likewise, via `ConfigModule.forRoot({ isGlobal: true })`.
 // =============================================================================
@@ -76,14 +106,27 @@
 import { Module } from '@nestjs/common';
 
 import { JobsModule } from '../jobs/jobs.module';
+import { SettingsModule } from '../settings/settings.module';
 import { StorageProvidersModule } from '../storage/providers/storage-providers.module';
 import { NodeDataPlaneService } from './node-data-plane.service';
+import { NodeLifecycleService } from './node-lifecycle.service';
+import { NodesAdminController } from './nodes-admin.controller';
+import { NodesAdminService } from './nodes-admin.service';
 import { NodesController } from './nodes.controller';
 import { NodesService } from './nodes.service';
+import { NodeOfflinePruneTask } from './tasks/node-offline-prune.task';
+import { NodeStaleOfflineTask } from './tasks/node-stale-offline.task';
 
 @Module({
-  imports: [JobsModule, StorageProvidersModule],
-  controllers: [NodesController],
-  providers: [NodesService, NodeDataPlaneService],
+  imports: [JobsModule, SettingsModule, StorageProvidersModule],
+  controllers: [NodesController, NodesAdminController],
+  providers: [
+    NodesService,
+    NodeDataPlaneService,
+    NodesAdminService,
+    NodeLifecycleService,
+    NodeStaleOfflineTask,
+    NodeOfflinePruneTask,
+  ],
 })
 export class NodesModule {}
