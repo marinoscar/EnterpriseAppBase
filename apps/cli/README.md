@@ -708,6 +708,26 @@ docker compose -f worker.compose.yml -f worker.build.compose.yml up --build
 CI publishes `ghcr.io/<owner>/<repo>-worker` alongside the api and web images,
 with the same tag conventions.
 
+### The interactive dashboard
+
+Run `appctl` with no arguments in a real terminal and choose **Worker node**.
+It offers a live dashboard, `doctor`, the log, and both `register` and
+`enroll` — all calling the same functions the subcommands call, so there is no
+second implementation of anything.
+
+**Attaching is read-only.** The dashboard renders the event stream the daemon
+already pushes and sends nothing back, so you can inspect a systemd unit or a
+container running production work without perturbing it, and Esc leaves it
+running untouched. `set-concurrency` and `stop` stay one-line commands
+deliberately — a TUI that can stop a fleet member from a highlighted row is a
+liability.
+
+With no worker running, press `s` to start a **detached** one and attach to it.
+That is not laziness: an interactive process cannot re-exec itself to raise its
+heap ceiling without destroying raw-mode input, so an in-process engine would
+silently run at the low default old-space limit — the least suitable
+configuration for exactly the long jobs a node exists to take.
+
 ### Worker environment variables
 
 Every setting can come from the environment instead of the config file, which
