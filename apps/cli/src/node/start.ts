@@ -13,6 +13,10 @@ import {
   type CapabilityProbe,
   type JobTypeRequirements,
 } from './capabilities.js';
+import { MemoryWatchdog, memoryWatchdogEnabled } from './memory-watchdog.js';
+import { writeHeapSnapshot } from './heap-snapshot.js';
+import { resolveDefaultConcurrency } from './runtime-tuning.js';
+import { snapshotsDir } from './paths.js';
 
 // =============================================================================
 // `node start`  (issue #275, epic #254)
@@ -57,6 +61,8 @@ export interface StartNodeOptions extends NodePathsContext {
   selfTest?: boolean | undefined;
   /** Replaces `process.exit` for the self-test's hard failure. */
   exit?: ((code: number) => never) | undefined;
+  /** `false` disables the memory watchdog for this run (#277). */
+  watchdog?: boolean | undefined;
 }
 
 /** Exit code for "this node cannot do the work it advertised". */
@@ -64,6 +70,8 @@ export const EXIT_MISSING_CAPABILITY = 70;
 
 export interface StartedNode {
   engine: NodeEngine;
+  /** `undefined` when the watchdog is disabled. */
+  watchdog: MemoryWatchdog | undefined;
   host: DaemonHost;
   logger: NodeLogger;
   config: ResolvedNodeConfig;
@@ -85,7 +93,10 @@ export async function startNode(options: StartNodeOptions = {}): Promise<Started
     ...(options.platform !== undefined ? { platform: options.platform } : {}),
   };
 
-  const config = resolveNodeConfig(pathCtx);
+  // The RAM- and core-aware default lands here rather than in `node-config.ts`
+  // so the config module stays free of any runtime-tuning dependency; an
+  // explicit setting in the file or the environment still wins.
+  const config = resolveNodeConfig({ ...pathCtx, defaultConcurrency: resolveDefaultConcurrency() });
   const headless = options.headless ?? config.headless;
 
   const logger = new NodeLogger({
@@ -164,12 +175,40 @@ export async function startNode(options: StartNodeOptions = {}): Promise<Started
     },
   });
 
+  // The `heap-snapshot` IPC command asks the LIVE daemon to write one, which
+  // is the point: restarting to attach a diagnostic flag discards exactly the
+  // accumulated state that names the retainer.
+  const snapshotWriter =
+    options.writeHeapSnapshot ??
+    (async () => {
+      const result = writeHeapSnapshot({ dir: snapshotsDir(pathCtx), reason: 'manual', ...(options.env !== undefined ? { env: options.env } : {}) });
+      if (!result.written) throw new Error(result.skipped ?? 'The snapshot could not be written.');
+      return { path: result.path ?? '', size: result.size ?? 0 };
+    });
+
   host = await startDaemonHost(engine, logger, {
     pidPath: nodePidPath(pathCtx),
     socketPath: nodeSocketPath(pathCtx),
     logTail: () => readLogTail(nodeLogPath(pathCtx), 50),
-    ...(options.writeHeapSnapshot !== undefined ? { writeHeapSnapshot: options.writeHeapSnapshot } : {}),
+    writeHeapSnapshot: snapshotWriter,
   });
+
+  // ---------------------------------------------------------------------------
+  // The memory watchdog (#277)
+  // ---------------------------------------------------------------------------
+  // ⚠ Its valve EXITS DELIBERATELY after a clean drain. Without a supervisor —
+  // `Restart=on-failure` (#276) or `restart: unless-stopped` (#278) — that
+  // successful drain leaves the worker down.
+  const watchdog =
+    options.watchdog === false || !memoryWatchdogEnabled(options.env ?? process.env)
+      ? undefined
+      : new MemoryWatchdog({
+          snapshotDir: snapshotsDir(pathCtx),
+          ...(options.env !== undefined ? { env: options.env } : {}),
+          stop: () => engine.stop({ deregister: false }),
+          log: (message, fields) => logger.warn(message, fields),
+        });
+  watchdog?.start();
 
   const install =
     options.installSignalHandlers ??
@@ -189,10 +228,12 @@ export async function startNode(options: StartNodeOptions = {}): Promise<Started
   const finished = engine
     .run()
     .then(async () => {
+      watchdog?.stop();
       await host?.close();
     })
     .catch(async (error: unknown) => {
       logger.error('worker exited with an error', { error: error instanceof Error ? error.message : String(error) });
+      watchdog?.stop();
       await host?.close();
       throw error;
     });
@@ -215,7 +256,7 @@ export async function startNode(options: StartNodeOptions = {}): Promise<Started
     );
   }
 
-  return { engine, host, logger, config, finished };
+  return { engine, host, logger, config, watchdog, finished };
 }
 
 /**
