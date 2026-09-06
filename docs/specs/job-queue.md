@@ -4,7 +4,8 @@
 > `buildDedupKey`, #259 the handler contract, registry, worked example and
 > this document, #260 enqueue with index-backed dedup and the atomic
 > `SKIP LOCKED` claim, #261 the terminal state machine, #262 the in-process
-> worker pool and worker modes, #263 queue hygiene). Implemented in
+> worker pool and worker modes, #263 queue hygiene, #264 the admin API).
+> Implemented in
 > `apps/api/prisma/schema.prisma` (the `Job` and `JobStatsRollup` models),
 > `apps/api/src/jobs/job-keys.ts`,
 > `apps/api/src/jobs/job-handler.interface.ts`,
@@ -22,6 +23,9 @@
 > `apps/api/src/jobs/job-stuck.service.ts`,
 > `apps/api/src/jobs/job-temp.ts`,
 > `apps/api/src/jobs/tasks/`,
+> `apps/api/src/jobs/job-admin.service.ts`,
+> `apps/api/src/jobs/job-admin.controller.ts`,
+> `apps/api/src/jobs/dto/`,
 > `apps/api/src/jobs/jobs.module.ts` and
 > `apps/api/src/jobs/handlers/`.
 >
@@ -33,7 +37,15 @@
 > and the settled event. Section 6 describes what #262 shipped: the in-process
 > worker pool, the three worker modes, and per-job timeouts. Section 7
 > describes what #263 shipped: the lease reaper, the nightly history purge
-> with its lifetime rollup, and the temp-file janitor.
+> with its lifetime rollup, and the temp-file janitor. Section 8 describes what
+> #264 shipped: the admin API — the stats roll-up, the filtered list, and the
+> four repair actions.
+>
+> **The queue is operable as of #264.** It is also the first point at which
+> this module has an HTTP surface at all: everything through §7 is machinery
+> that no request can reach. Every primitive that surface needs was extracted
+> downwards before it existed (§7.3), so §8 adds routes and a cache and
+> reimplements nothing.
 >
 > **The queue maintains itself as of #263.** It is also the first point at
 > which this repository ships a job type that does real work rather than
@@ -1413,6 +1425,269 @@ retention is measured in days. A knob for each would be four more ways to
 produce a configuration that contradicts itself, which is the same argument
 §6.5 makes for deriving the lease from the timeout rather than configuring it.
 
+## 8. The admin surface
+
+> #264. `apps/api/src/jobs/job-admin.controller.ts`,
+> `apps/api/src/jobs/job-admin.service.ts`, `apps/api/src/jobs/dto/`.
+
+Six routes under `/api/admin/jobs`, and they are the first HTTP surface this
+module has ever had — everything through §7 is machinery with no controller.
+Two of them read, four repair.
+
+| Route | Permission | What it does |
+|---|---|---|
+| `GET /api/admin/jobs/stats` | `jobs:read` | Totals, per-status and per-type breakdowns, `scheduled`, `stuckRunning` and the threshold it was counted against |
+| `GET /api/admin/jobs` | `jobs:read` | One page of rows, newest first, filterable |
+| `POST /api/admin/jobs/retry-failed` | `jobs:write` | Requeues failed jobs, optionally of one type |
+| `POST /api/admin/jobs/reset-stuck` | `jobs:write` | Runs the lease reaper (§7) on demand |
+| `POST /api/admin/jobs/{id}/retry` | `jobs:write` | Requeues one job |
+| `DELETE /api/admin/jobs/{id}` | `jobs:write` | Deletes one job |
+
+Every route is `@Auth({ roles: [ROLES.ADMIN], permissions: [...] })`, and both
+permissions are seeded to Admin alone (`prisma/seed-data.ts`). The read/write
+split is not decoration: a read of this surface exposes subject ids, provider
+keys and the shape of a deployment's workload, and a write can requeue the
+entire failed backlog. A later issue that wants to give an operations role
+visibility without control has a permission to hand out that does not also hand
+out the reset button.
+
+### 8.1 It reimplements nothing — least of all "stuck"
+
+The whole of §7.3 was written so that this section could be short. The admin
+service **calls** `stuckRunningWhere()`, `getStuckThresholdMinutes()` and
+`resetStuck()`; it does not own a copy of any of them.
+
+That matters most for `stats.stuckRunning`. A dashboard that asked "how many
+jobs are stuck?" with its own `where` and a reaper that acts on a different one
+are two independent opinions, and they diverge the first time either changes.
+The divergence would not even be obvious: the clause an independent
+implementation always drops is the second recovery signal — a `running` row
+with a NULL `startedAt`, aged by `createdAt` — because it describes a state the
+claim statement cannot produce (§7.1). A dashboard missing it reports **0
+stuck** for precisely the rows that are stuck forever, which is the worst
+possible reading of that tile.
+
+`reset-stuck` likewise delegates to `JobStuckService.resetStuck()` — the same
+two-phase give-up/requeue sweep the ten-minute cron runs, reached through the
+same method, so the button and the timer cannot drift apart.
+
+The dependency direction is the one §7.3 fixed and this section keeps:
+`JobAdminService` depends on `JobStuckService`, never the reverse, and
+`JobAdminService` is **not exported** from `JobsModule`. Nothing outside this
+module should be able to requeue the backlog.
+
+### 8.2 `reset-stuck` has no default, deliberately
+
+`resetStuckSchema` gives `olderThanMinutes` no `.default(...)`. An empty body
+therefore parses to `{}`, and the threshold is resolved by calling
+`getStuckThresholdMinutes()` — the `jobs.stuckThresholdMinutes` system setting,
+the single read path for that number (§7.9).
+
+A default in the DTO — even one spelled
+`DEFAULT_SYSTEM_SETTINGS.jobs.stuckThresholdMinutes` — would be a *second*
+place the threshold is decided, and it would win: the parsed value is always
+defined, so the settings lookup below it becomes dead code reachable only from
+the cron. An operator who moved the setting to 5 minutes would then find the
+dashboard button still sweeping at 30, with nothing on screen to explain why.
+
+The parameter still exists for a real case: sweeping tighter than the
+configured threshold during an incident without changing a setting the cron
+will keep using afterwards. `0` is permitted and means "every running job
+matching any recovery signal, at any age" — note that this is **not** the same
+as "everything running", because the lease signal is independent of the
+threshold.
+
+The response echoes `thresholdMinutes`, so the caller always learns which
+number was applied. `GET stats` publishes the same value for the same reason:
+`stuckRunning` is a count against a threshold the client cannot otherwise see,
+and a UI that hardcoded "(over 30 minutes)" would go on saying 30 after the
+setting moved.
+
+### 8.3 The filters, and the two that are more than a column match
+
+`status`, `type`, `subjectType`, `subjectId`, `page` and `pageSize` are exactly
+what they look like; `page`/`pageSize` are copied from
+`users/dto/user-list-query.dto.ts`, including the 100-row ceiling, so every
+paginated list in this API takes the same names. The response is the **flat**
+list shape (`{ items, total, page, pageSize, totalPages }`) that `GET /api/users`
+and `GET /api/allowlist` already use.
+
+**`scheduled` is a boolean that overrides `status`, not a fifth status.** "In
+backoff" is a `pending` row whose `scheduled_for` is still in the future —
+which is how §5 records a retry and how the throttle gate records a rate-limit
+deferral. Publishing it as `status=scheduled` was rejected: `status` is a
+database enum with four values, a filter value that is not one of them cannot
+round-trip against a row, and a client would end up with a `status` vocabulary
+that differs from the `status` on every row it receives.
+
+Given that it is separate, `scheduled=true` **forces** `status=pending` rather
+than intersecting with any `status` sent alongside it. Honouring both — so
+`?scheduled=true&status=failed` returns an empty page — is defensible and
+useless: the request is a contradiction, and an empty page tells the operator
+that no such job *exists*, when the truth is that none *can*.
+
+**`processedWithin` filters on activity, not creation.** It accepts
+`4h|24h|7d|30d|all` and matches `COALESCE(finished_at, created_at)`. A plain
+`created_at >= …` window would hide the single most interesting row on the
+dashboard — a job enqueued two days ago that failed ninety seconds ago — from
+the "last 4 hours" view, which is the view an operator opens *while the
+incident is happening*. Prisma has no `COALESCE` in a `where`, so it is
+expressed as two disjoint arms, `{ finishedAt: { gte } }` OR
+`{ finishedAt: null, createdAt: { gte } }`; the second pins `finishedAt` to
+null, so no row matches both and no `count` is inflated. `all` is the default
+and is a real value rather than an absent parameter, so that "no window" is
+visible in the URL and renderable in a dropdown.
+
+**Job payloads are not returned.** A payload is arbitrary JSONB with no size
+bound anywhere in the schema, and a hundred of them is a response whose size is
+set by whatever a fork's largest handler input happens to be — on an endpoint a
+dashboard polls. The fields an operator triages with are all present, and
+`subjectType`/`subjectId` exist precisely so that "which thing was this about"
+is answerable without the payload. A later per-job detail route can publish it
+for one row, where the size is bounded by construction.
+
+`type` is always sent verbatim, with a `typeLabel` alongside it resolved
+server-side through `jobTypeLabel()` (§3). The label is not shipped as a map
+for the client to join against, because that helper's contract is "an unmapped
+type renders as itself, never blank" and a client doing its own lookup can
+forget the fallback — rendering an empty cell for exactly the types a fork
+cares most about.
+
+### 8.4 The stats cache: ~2 seconds, in-process, deliberately dumb
+
+`stats()` runs four aggregates, and a dashboard polls it. The query rate is
+(tabs × replicas ÷ poll interval), and none of those three factors is bounded
+by anything this code controls, so the result is cached for **2 seconds**.
+
+The TTL is **shorter than any sensible poll interval**, on purpose. A cache at
+or above the poll interval makes the refresh a coin flip — half the polls
+return the previous poll's numbers and the page appears to update every other
+tick. Two seconds against a poll of five or more means a deliberate refresh
+always sees fresh counts, while a burst of tabs arriving together collapses
+into one query. It is keyed to nothing and invalidated by nothing, including by
+this service's own writes: a retry that appears in the counts instantly and one
+that appears two seconds later are indistinguishable to the human who clicked
+the button, and an invalidation hook is a thing the next writer forgets. Two
+concurrent misses run two queries; sharing an in-flight promise would save one
+query per window and add a rejected-promise-poisons-the-cache failure mode that
+is strictly worse than the query it saves.
+
+The clock behind the TTL is the injected `JobClock` (§5.9), optional exactly as
+it is everywhere else in this module — production provides nothing and gets
+`Date.now()`. Without it the expiry test would have to sleep for two real
+seconds, which means nobody writes it and the expiry goes unproven.
+
+The shape of the four queries is chosen for the indexes they can use. The two
+`groupBy` aggregates — by `status`, and by `type` + `status` — carry **no
+`where` at all**, so Postgres can answer both with an index-only scan of
+`jobs(status, type, id)`, the covering index §4 added for exactly this pair.
+Adding any filter to either would push it onto the heap and turn the cheapest
+part of the response into the most expensive. `total` is **summed from the
+status breakdown** rather than asked for as a fifth `count()`: a separate count
+would be taken at a different instant from the breakdown it heads, so on a busy
+queue the headline tile would not equal the sum of the tiles beneath it — the
+one arithmetic error a person reading a dashboard always notices and never
+forgives. Every status key is zero-filled, because a `GROUP BY` returns no row
+for a status nothing is in, and a client rendering `byStatus.failed` would
+otherwise show `undefined` exactly when everything is fine.
+
+### 8.5 Retry resets the row completely, and refuses a running job
+
+A retry writes: `status: 'pending'`, `attempts: 0`, `lastError: null`,
+`startedAt`/`finishedAt`/`scheduledFor` null, `rateLimitHits: 0`,
+`rateLimitedAt` null, and `claimedByNodeId`/`leaseExpiresAt`/`executor`
+cleared. One shared object serves both the single-row and the bulk path,
+because "retry" must mean the same thing however it was asked for — a bulk
+sweep that forgot `leaseExpiresAt` would requeue rows the reaper then
+immediately reclaims as stuck, a loop between two subsystems that only appears
+under load and only in the path written second.
+
+This is the **one** place in the queue that resets `attempts`. §7.2 explicitly
+does not (the give-up phase depends on the count surviving) and the rate-limit
+deferral un-charges exactly one attempt rather than clearing them (§5.4).
+Leaving it here would mean a job at its budget goes straight back to `failed`
+on its next claim, so the button would appear to do nothing. `scheduledFor` is
+cleared for the same reason: a retry is an operator overriding the backoff they
+can see on the screen. `executor` **is** cleared, as §7.2's requeue phase
+clears it and unlike the terminal path which keeps it as history — this row is
+going to run again, possibly on the other side, and a stale `executor` on a
+pending row is a lie rather than a record.
+
+`dedupKey` is deliberately **not** cleared. See §8.6.
+
+**Both `retry` and `DELETE` answer 400 for a `running` job**, and 404 for one
+that does not exist. The refusal is not caution, it is correctness:
+
+- Resetting a running row gives a second worker the same job while the first
+  may still be alive on the other end of that claim, and the dedup index cannot
+  stop it — the key moves with the row.
+- Deleting a running row does not stop its executor. The work carries on, its
+  terminal write updates zero rows and is swallowed by `safeTerminalUpdate`
+  (§5.7), and the job runs to completion with no record that it existed — while
+  its freed dedup key lets a duplicate be enqueued underneath it.
+
+An operator who believes the executor is gone has a correct tool for exactly
+that: `reset-stuck`, which checks the lease before it acts.
+
+The guard is a re-read followed by a **conditional** write
+(`where: { id, status: { not: 'running' } }`), not a check-then-update by id. A
+job that starts running in between is then refused by the write itself rather
+than reset under a live executor, and because both paths answer 400 the race is
+invisible to the caller.
+
+### 8.6 A retry can collide with the dedup index — that is a 409, not a 500
+
+`jobs_active_dedup_uniq_idx` is unique over `dedup_key` where the row is
+`pending` or `running` (§4.1). A `failed` row has dropped out of that predicate,
+so its key is free — that is the point of the filter — but moving it **back**
+to `pending` re-enters the index, and if another job has taken that key
+meanwhile the write is a unique violation.
+
+This is a normal outcome, not a defect: the collision means equivalent work is
+already queued or running, which is what the operator was arranging. So:
+
+- A single retry answers **409** with `details.reason = "active_dedup_conflict"`.
+- A bulk `retry-failed` **counts** the collision as `skipped` and keeps going.
+
+Clearing `dedupKey` on retry would make every retry succeed, at the cost of
+silently permitting a duplicate of work that is already running. Letting the
+P2002 escape as a 500 is what happens if nobody thinks about the index at all.
+
+This is also why `retry-failed` is a **loop of single-row updates** rather than
+one `updateMany`: a unique violation anywhere in a bulk statement aborts the
+entire statement, so one already-queued duplicate would block the retry of
+every other failed job in the queue. Each update re-asserts `status: 'failed'`
+alongside the id — the same defensive shape §7.2's give-up phase uses — so a
+row another admin already moved is a no-op instead of a reset of a job that is
+now running happily. The sweep is capped at 500 rows per call and reports
+`remaining`, because "how many jobs failed" is not a number this code gets to
+bound; it is idempotent, so the honest answer to a larger backlog is "press it
+again".
+
+### 8.7 Literal routes are declared before `:id`
+
+Nest matches routes in **declaration order**, not by specificity. The
+controller therefore declares `stats`, `retry-failed`, `reset-stuck` and the
+list before `:id/retry` and `:id`, with a comment marking the line below which
+nothing literal may be added.
+
+Transposing them has no boot-time error and no log line. `POST
+/admin/jobs/reset-stuck` would simply be captured as `:id`, and the operator
+pressing "reset stuck jobs" would get a 400 about a malformed UUID — or, in a
+version where `:id` took a plain string, a 404 for a job whose id is the
+literal text `reset-stuck`. `test/jobs/job-admin.integration.spec.ts` drives
+that URL through the real router and asserts the **sweep ran**, so a re-order
+fails a test rather than an incident.
+
+### 8.8 Errors carry their machine-readable half in `details`
+
+`common/filters/http-exception.filter.ts` rebuilds every error body from a
+fixed key allowlist and **derives `code` from the status**, discarding any
+`code` an exception supplied. A field added at the top level of a thrown
+payload therefore never reaches the client. So the running-job refusal sends
+`details: { jobId, status: 'running', reason: 'job_running' }` and the dedup
+collision sends `details: { jobId, reason: 'active_dedup_conflict' }`.
+
 ## The extension recipe
 
 The operational version of this lives in
@@ -1587,6 +1862,48 @@ read, a batched loop, a transaction, and a scheduling task that enqueues it.
   stuck threshold, the janitor's age limit from the job timeout — so a separate
   knob is one more way to configure a contradiction, the same argument
   §6.5 makes for the lease (§7.9).
+- **A `scheduled` job status.** "Waiting out a backoff" is a `pending` row
+  with a future `scheduled_for`, not a fifth enum value. A filter value that
+  no row can ever carry gives a client a `status` vocabulary that differs from
+  the `status` on every row it receives; the boolean filter that replaced it
+  keeps the two vocabularies identical (§8.3).
+- **Intersecting `scheduled=true` with a conflicting `status`.** Answering
+  `?scheduled=true&status=failed` with an empty page tells the operator that no
+  such job exists, when the truth is that none can. Overriding answers the
+  question they meant (§8.3).
+- **Filtering the list by `created_at`.** It hides the most interesting row on
+  the dashboard — a job enqueued days ago that failed a minute ago — from the
+  short windows, which are the windows an operator opens during an incident.
+  The filter is on `COALESCE(finished_at, created_at)` instead (§8.3).
+- **A default for `reset-stuck`'s `olderThanMinutes`.** It would be a second
+  place the stuck threshold is decided, and it would win: the parsed value is
+  always defined, so the settings read below it becomes dead code reachable
+  only from the cron, and the dashboard button would keep sweeping at 30 after
+  an operator moved the setting to 5 (§8.2).
+- **Reimplementing "which rows are stuck" in the admin service.** The
+  dashboard's number and the rows a reset touches would be two independent
+  opinions. The clause an independent implementation drops is always the
+  zombie arm — a `running` row with a NULL `started_at` — so the tile would
+  read 0 for exactly the rows that are stuck forever (§8.1).
+- **`retry-failed` as one `updateMany`.** A dedup collision anywhere in a bulk
+  statement aborts all of it, so a single already-queued duplicate would block
+  the retry of every other failed job in the queue. The loop of single-row
+  updates counts the collision as `skipped` and keeps going (§8.6).
+- **Clearing `dedup_key` on retry.** It would make every retry succeed, by
+  removing the row from the active-dedup index — silently permitting a
+  duplicate of work that is already running (§8.6).
+- **Force-resetting or deleting a `running` job.** Neither stops the executor
+  that holds the claim. A reset hands a second worker the same job; a delete
+  lets the work run to completion with no row to record it, while its freed
+  dedup key admits a duplicate underneath it. `reset-stuck` is the correct
+  tool, because it checks the lease first (§8.5).
+- **Returning job payloads in the list.** Unbounded JSONB times a page size of
+  a hundred, on an endpoint a dashboard polls, with the response size set by
+  whatever a fork's largest handler input happens to be (§8.3).
+- **A stats cache at or above the dashboard's poll interval.** Half the polls
+  would return the previous poll's numbers and the page would appear to update
+  every other tick. Two seconds is deliberately shorter than any sensible poll
+  (§8.4).
 - **Making the database backup a job type.** Recorded in epic #254's own
   locked decisions and repeated here because it is the obvious thing to try:
   the stuck-job threshold would reset a 30-minute `pg_dump` and start a
@@ -1763,3 +2080,50 @@ until #262 arrives, and the terminal path is driven by tests rather than by a
 handler. What is proved is that a row can be written exactly once under
 concurrency, taken exactly once under concurrency, and settled by exactly one
 component that reaches the same conclusion whichever executor calls it.
+
+What #264 proves, and by what. All of it runs **without a database**, and the
+division of labour is the same one #261 argued for: every claim below is a
+*decision* — which `where` a set of filters produces, which rule wins when two
+of them contradict, whether a cached roll-up is still young enough, which
+exception a status becomes — and each is made in-process before any SQL is
+generated. What a mock uniquely CAN do here is capture the `where` verbatim,
+which is exactly what a filter assertion needs; what it cannot do — decide
+which rows that `where` matches — is already asked of Postgres one level down,
+in `test/jobs/job-stuck-reset.db.spec.ts`, against the predicate §8.1 borrows
+rather than copies. The clock is pinned through `JOB_CLOCK` in every case, so
+the cache TTL and the two time windows are exact timestamps rather than ranges.
+
+| Claim | Covered by |
+|---|---|
+| Every filter works alone — `status`, `type`, `subjectType`, `subjectId`, `scheduled`, each `processedWithin` window | `src/jobs/job-admin.service.spec.ts` — one case each, asserting the captured `where` in full |
+| The filters combine, all six at once, into one AND-ed `where` | `src/jobs/job-admin.service.spec.ts` |
+| `scheduled=true` OVERRIDES a conflicting `status` rather than intersecting with it | `src/jobs/job-admin.service.spec.ts`, and again over the wire in `test/jobs/job-admin.integration.spec.ts` |
+| `scheduled=false` is the opt-OUT, not the opt-in (`Boolean('false')` is `true`) | `src/jobs/job-admin.service.spec.ts` |
+| `processedWithin` is `COALESCE(finished_at, created_at)` as two DISJOINT arms, so a `count` is not inflated | `src/jobs/job-admin.service.spec.ts` |
+| `stats.stuckRunning` uses the reaper's own `stuckRunningWhere`, zombie arm included | `src/jobs/job-admin.service.spec.ts` — compared against `stuckRunningWhere()` itself, not a literal, so the assertion fails if the reaper's predicate changes and this service does not follow |
+| The stats cache serves a second caller inside the TTL and does NOT serve one past it | `src/jobs/job-admin.service.spec.ts` — the pinned clock advanced to exactly `STATS_CACHE_TTL_MS`, plus a re-query assertion |
+| A settings change to the stuck threshold lands on the next cache miss | `src/jobs/job-admin.service.spec.ts` |
+| Both `groupBy` aggregates are unfiltered, so the covering index can serve them, and `total` is summed from the first rather than counted separately | `src/jobs/job-admin.service.spec.ts` |
+| Every status key is zero-filled; a `groupBy` row with no `_count` reads as 0, never `NaN` | `src/jobs/job-admin.service.spec.ts` |
+| `byType` is labelled through `jobTypeLabel` and ordered busiest-first with an alphabetical tie-break | `src/jobs/job-admin.service.spec.ts` — the tie case is fed in reverse-alphabetical order, as a database is free to return it |
+| Retry writes the complete reset, and never touches `dedupKey` | `src/jobs/job-admin.service.spec.ts` — asserts the exact `data` payload on both the single and the bulk path |
+| Retry and delete both 400 on a running job and 404 on a missing one | `src/jobs/job-admin.service.spec.ts` and `test/jobs/job-admin.integration.spec.ts` |
+| The 400 also wins the RACE: a job that starts running between the read and the write is refused by the conditional write | `src/jobs/job-admin.service.spec.ts`, both routes |
+| A dedup collision is a 409 on the single retry and a `skipped` on the bulk sweep — and a P2002 on any OTHER constraint still propagates | `src/jobs/job-admin.service.spec.ts` |
+| `retry-failed` scopes by type when given, is idempotent when nothing is failed, and caps the batch while reporting `remaining` | `src/jobs/job-admin.service.spec.ts` |
+| `reset-stuck` DELEGATES — it issues no query of its own — and an explicit `0` is honoured rather than falling back to the setting | `src/jobs/job-admin.service.spec.ts` |
+| An empty `reset-stuck` body defers to `jobs.stuckThresholdMinutes` | `src/jobs/job-admin.service.spec.ts`, and end to end (as the shipped default, 30) in `test/jobs/job-admin.integration.spec.ts` |
+| Literal routes resolve before `:id` | `test/jobs/job-admin.integration.spec.ts` — `POST /api/admin/jobs/reset-stuck` through the real router, asserting the SWEEP RAN rather than merely that the status was not 400 |
+| Every route is Admin-only and rejects an anonymous caller and a viewer | `test/jobs/job-admin.integration.spec.ts` — all six routes, both cases |
+| The query parameters survive the real `ZodValidationPipe`: bounds, enums and the boolean | `test/jobs/job-admin.integration.spec.ts` |
+| The running-job refusal's machine-readable half survives the exception filter's key allowlist | `test/jobs/job-admin.integration.spec.ts` — asserts `details` on the wire |
+| Every route carries `x-rbac` and the document still lints | `npm run openapi:dump` + `npm run openapi:lint`, plus `test/openapi/openapi-document.spec.ts` |
+
+Be honest about the limits of #264. No test here asks Postgres whether the
+`(status, type, id)` covering index is genuinely chosen for the two `groupBy`
+aggregates — that is a planner question, and asserting it would mean pinning an
+`EXPLAIN` output that a version upgrade may legitimately change. What is
+asserted instead is the property the plan depends on: that neither aggregate
+carries a `where`. Likewise no test drives two admins into a real dedup
+collision; the P2002 is injected, because Postgres raising it on that index is
+already proved by `test/jobs/jobs-enqueue.db.spec.ts`.
