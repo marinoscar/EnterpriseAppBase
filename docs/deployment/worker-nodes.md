@@ -57,6 +57,44 @@ operator routinely conflates, and a failure in one never masks the others:
   which look identical in a stack trace and have entirely different fixes.
 - **The worker** — whether a daemon is actually running here.
 
+## Running a fleet in containers
+
+Containers are the recommended shape for more than one or two workers.
+
+```bash
+cd infra/compose
+cp .env.worker.example .env.worker      # server URL + node credential
+docker compose --env-file .env.worker -f worker.compose.yml up -d --scale worker=4
+```
+
+That is the whole configuration. Each replica registers as its own node and
+they load-balance through the database — nothing coordinates them, and nothing
+needs to.
+
+> **Leave `APPCTL_NODE_NAME` and `APPCTL_NODE_ID` empty when scaling.** Setting
+> either makes every replica reattach to the same node row, and the server's
+> per-node claim cap is then shared between processes that each believe they
+> own it.
+
+| Setting | Why it is there |
+|---|---|
+| `restart: unless-stopped` | The memory valve exits deliberately; without this a clean drain leaves the worker down |
+| `stop_grace_period: 300s` | Long enough for a real drain before Docker escalates to `SIGKILL` |
+| Exec-form `ENTRYPOINT` | Shell form wraps PID 1 in `/bin/sh -c`, which does not forward `SIGTERM` — the drain would never run |
+| A volume at `/var/lib/worker` | State survives a restart, so a replica re-attaches instead of leaking a node row |
+
+The worker makes only **outbound** connections: no ports, no inbound firewall
+rule, and no database access.
+
+To build the image from a checkout instead of pulling it:
+
+```bash
+docker compose -f worker.compose.yml -f worker.build.compose.yml up --build
+```
+
+CI publishes `ghcr.io/<owner>/<repo>-worker` beside the api and web images on
+every tag, using the same tag conventions.
+
 ## Surviving a reboot
 
 ```bash
