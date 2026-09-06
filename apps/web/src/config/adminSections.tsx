@@ -37,6 +37,7 @@ import PaletteIcon from '@mui/icons-material/Palette';
 import FlagIcon from '@mui/icons-material/Flag';
 import EmailOutlinedIcon from '@mui/icons-material/EmailOutlined';
 import NotificationsActiveOutlinedIcon from '@mui/icons-material/NotificationsActiveOutlined';
+import BuildCircleOutlinedIcon from '@mui/icons-material/BuildCircleOutlined';
 import DataObjectIcon from '@mui/icons-material/DataObject';
 import PeopleIcon from '@mui/icons-material/People';
 
@@ -153,6 +154,27 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
           'Turn browser notifications on or off for everyone, and suppress individual events.',
         Icon: NotificationsActiveOutlinedIcon,
         path: '/admin/settings/notifications',
+        permission: 'system_settings:read',
+      },
+      {
+        // Issue #258, epic #254. `system_settings:read` is the string
+        // `common/maintenance/maintenance.controller.ts` enforces on its GET —
+        // the registry never invents a permission, it mirrors one. That
+        // controller deliberately adds NO permission of its own: a maintenance
+        // window IS a system setting, stored in the `maintenance` namespace of
+        // that row and nowhere else, so `system_settings:read` / `:write`
+        // already mean exactly what this page needs them to mean.
+        //
+        // Opening and closing a window needs `system_settings:write`, which the
+        // PAGE gates internally by disabling its controls: the card gate is
+        // about REACHABILITY, and "is this deployment deliberately out of
+        // service, and which layer is deciding that" is worth reading for
+        // anyone answering "why is nothing working".
+        title: 'Maintenance',
+        description:
+          'Take the application out of service for planned work, with a message for anyone who tries to use it.',
+        Icon: BuildCircleOutlinedIcon,
+        path: '/admin/settings/maintenance',
         permission: 'system_settings:read',
       },
       {

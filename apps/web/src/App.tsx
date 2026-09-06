@@ -8,6 +8,11 @@ import { ProtectedRoute } from './components/common/ProtectedRoute';
 import { RequirePermission } from './components/common/RequirePermission';
 import { Layout } from './components/common/Layout';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
+// Issue #258, epic #254. Eagerly imported, not lazy: it renders on the error
+// path of a deployment that is deliberately out of service, and a code-split
+// chunk fetched at that moment is one more thing that has to be working for the
+// screen explaining why nothing is working to appear at all.
+import { MaintenanceGate } from './components/common/MaintenanceGate';
 // PWA prompts (#219, epic #215). Eagerly imported, not lazy: `UpdatePrompt` is
 // what REGISTERS the service worker, and a registration deferred behind a
 // dynamic import would not happen until React had already decided it was
@@ -48,6 +53,11 @@ const EmailSettingsPage = lazy(() => import('./pages/Admin/EmailSettingsPage'));
 const NotificationSettingsPage = lazy(
   () => import('./pages/Admin/NotificationSettingsPage'),
 );
+// Issue #258, epic #254 — the maintenance window's switch and its layers.
+// `Admin`-prefixed locally to keep it distinct from `pages/MaintenancePage`,
+// which is the screen a BLOCKED user sees rather than the page that opens and
+// closes the window.
+const AdminMaintenancePage = lazy(() => import('./pages/Admin/MaintenancePage'));
 const AdvancedSettingsPage = lazy(() => import('./pages/Admin/AdvancedSettingsPage'));
 const AdminUsersPage = lazy(() => import('./pages/Admin/UsersPage'));
 
@@ -63,258 +73,300 @@ function AppRoutes() {
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <ErrorBoundary>
-        <Suspense fallback={<LoadingSpinner fullScreen />}>
-          <Routes>
-            {/* Public routes */}
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/auth/callback" element={<AuthCallbackPage />} />
+        {/* THE CLIENT GATE (#258, epic #254), around the whole route tree and
+            inside `AuthProvider`.
 
-            {/* Test login (development only) */}
-            {!import.meta.env.PROD && TestLoginPage && (
-              <Route path="/testing/login" element={<TestLoginPage />} />
-            )}
+            Around everything, because a maintenance window is a property of the
+            deployment rather than of any one page — the user's next click is
+            refused wherever they are — and because swapping the subtree is what
+            makes the screen's retry work: the pages unmount, and clearing the
+            block remounts them so their own effects re-issue the requests that
+            failed.
 
-            {/* Protected routes */}
-            <Route element={<ProtectedRoute />}>
-              {/* Device activation page - without layout for full-screen experience */}
-              <Route path="/activate" element={<ActivateDevicePage />} />
+            Inside `AuthProvider` because the screen asks who is looking:
+            `system_settings:read` decides whether it offers a link to the page
+            that closes the window. That answer comes from the session already
+            in memory, never from the API, which is refusing.
 
-              {/* The notification centre (#127, epic #109) wraps the SHELL,
-                  not the whole app, and that scoping is the point:
+            An ordinary 503 with no marker never reaches it — see
+            `services/maintenance.ts` for why that distinction is the feature. */}
+        <MaintenanceGate>
+          <Suspense fallback={<LoadingSpinner fullScreen />}>
+            <Routes>
+              {/* Public routes */}
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/auth/callback" element={<AuthCallbackPage />} />
 
-                    * It is INSIDE `ProtectedRoute`, so it only ever mounts for
-                      an authenticated user. Every endpoint it calls is
-                      `@Auth()`-guarded and every one resolves the recipient from
-                      the JWT, so mounting it on `/login` would buy a burst of
-                      401s and a stream that cannot connect.
-                    * It is around `Layout` specifically, because `Layout`'s
-                      `AppBar` is where the bell lives. `/activate` above sits
-                      outside the shell on purpose (full-screen device flow) and
-                      correspondingly gets no bell and opens no stream.
+              {/* Test login (development only) */}
+              {!import.meta.env.PROD && TestLoginPage && (
+                <Route path="/testing/login" element={<TestLoginPage />} />
+              )}
 
-                  ONE MOUNT POINT, so there is exactly one SSE connection per
-                  tab. A provider mounted per-page would open and close a stream
-                  on every navigation, which the server sees as a connection
-                  storm from a single user and the client experiences as a bell
-                  that resets its state every time the route changes. */}
-              <Route
-                element={
-                  <NotificationProvider>
-                    <Layout />
-                  </NotificationProvider>
-                }
-              >
-                <Route path="/" element={<HomePage />} />
-                {/* The per-user settings surface (#96, epic #90) — the same
-                    hub component `/admin/settings` renders, over
-                    `USER_SETTINGS_SECTIONS`, plus one route per card.
+              {/* Protected routes */}
+              <Route element={<ProtectedRoute />}>
+                {/* Device activation page - without layout for full-screen experience */}
+                <Route path="/activate" element={<ActivateDevicePage />} />
 
-                    NONE OF THESE IS WRAPPED IN `RequirePermission`, and that is
-                    the deliberate difference from the `/admin/settings/*` block
-                    below rather than an oversight. `ProtectedRoute` above
-                    establishes that someone is signed in, and that is the only
-                    question these routes have: they edit the caller's OWN
-                    settings, which the API grants to all three roles, and
-                    `config/userSettingsSections.tsx` correspondingly declares no
-                    `permission` on any card. A gate here would deny a Viewer
-                    their own display name.
+                {/* The notification centre (#127, epic #109) wraps the SHELL,
+                    not the whole app, and that scoping is the point:
 
-                    As above, declaration order does not matter — React Router
-                    v6 ranks by specificity, so `/settings/profile` beats
-                    `/settings` wherever each is written. */}
-                <Route path="/settings" element={<UserSettingsHubPage />} />
-                <Route path="/settings/profile" element={<UserProfilePage />} />
-                <Route path="/settings/appearance" element={<UserAppearancePage />} />
-                {/* Ungated like its siblings (#126): these are the caller's own
-                    preferences, and the registry endpoint the page renders is
-                    itself `@Auth()` with no permission for the same reason. */}
-                <Route path="/settings/notifications" element={<UserNotificationsPage />} />
-                <Route path="/settings/tokens" element={<UserTokensPage />} />
-                {/* Route-level AUTHORIZATION, not just authentication.
-                    `ProtectedRoute` above only establishes that someone is
-                    logged in — before this, a Viewer typing `/admin/settings`
-                    reached the page and only then watched every API call 403.
-                    `RequirePermission` was already in the codebase but had zero
-                    usages; wrapping these routes is what turns it into the
-                    enforcement point.
+                      * It is INSIDE `ProtectedRoute`, so it only ever mounts for
+                        an authenticated user. Every endpoint it calls is
+                        `@Auth()`-guarded and every one resolves the recipient from
+                        the JWT, so mounting it on `/login` would buy a burst of
+                        401s and a stream that cannot connect.
+                      * It is around `Layout` specifically, because `Layout`'s
+                        `AppBar` is where the bell lives. `/activate` above sits
+                        outside the shell on purpose (full-screen device flow) and
+                        correspondingly gets no bell and opens no stream.
 
-                    The permission on each route is the SAME string its card
-                    declares in `config/adminSections.tsx`, which is the same
-                    string the API's controller enforces — so the hub card, the
-                    rail row, the menu entry and the route can no longer
-                    disagree about who may go where.
-
-                    ORDER IS NOT SIGNIFICANT HERE. React Router v6 ranks routes
-                    by specificity rather than by declaration order, so
-                    `/admin/settings/users` beats `/admin/settings` regardless
-                    of where each sits in this list. They are grouped by surface
-                    for reading, not for matching. */}
-
-                {/* Both redirects are REAL ROUTES, not catch-all fallout.
-                    Without them a bookmarked `/admin/users` matches only `*`
-                    and lands silently on `/` — the user asked for a page that
-                    still exists and got the home screen with no explanation.
-                    `replace` keeps the dead URL out of the history stack, so
-                    Back returns to wherever the user came from rather than
-                    bouncing through the redirect again.
-
-                    They sit INSIDE `ProtectedRoute` so an unauthenticated
-                    bookmark goes to login and arrives here afterwards, rather
-                    than being redirected first and losing the destination. */}
-                <Route path="/admin" element={<Navigate to="/admin/settings" replace />} />
+                    ONE MOUNT POINT, so there is exactly one SSE connection per
+                    tab. A provider mounted per-page would open and close a stream
+                    on every navigation, which the server sees as a connection
+                    storm from a single user and the client experiences as a bell
+                    that resets its state every time the route changes. */}
                 <Route
-                  path="/admin/users"
-                  element={<Navigate to="/admin/settings/users" replace />}
-                />
-
-                {/* The Console hub (#93, epic #90) — the searchable, grouped
-                    card grid that reads `ADMIN_SECTIONS`. It replaces the
-                    three-tab placeholder that answered this route through #92,
-                    whose tabs duplicated the four routes below. That
-                    duplication is now gone: the hub NAVIGATES to those routes
-                    instead of re-hosting them. */}
-                {/* ANY-OF, and the one route here that is not a single
-                    permission. This gate MUST STAY IN SYNC WITH `console`'s
-                    `anyPermission` in `config/destinations.ts` — the two lists
-                    answer the same question ("may this user reach the admin
-                    surface?") on two different surfaces, and #92 left them
-                    disagreeing: the Console row appeared in the rail, bottom
-                    bar, user menu and quick actions for a `users:read`-only
-                    user, whose click then bounced straight back to `/`. That
-                    split brain is exactly what `config/destinations.ts`'s
-                    header says the destination model exists to prevent, so the
-                    route follows the destination rather than the reverse.
-
-                    `requireAll` defaults to `false`, so `permissions` is an OR
-                    here — matching `anyPermission`'s semantics, not
-                    `hasAllPermissions`'.
-
-                    A `users:read`-only user consequently reaches this route
-                    and — since #93 — sees a hub containing exactly the one card
-                    that permission unlocks, instead of the placeholder page's
-                    blanket access-denied state. The hub's own gate
-                    (`visibleSettingsSections`) does that per CARD, which is why
-                    this route only answers the coarser question "may this user
-                    reach the admin surface at all?". The five child routes
-                    below keep their single-permission gates: each is one
-                    specific page with one specific permission. */}
-                <Route
-                  path="/admin/settings"
                   element={
-                    <RequirePermission
-                      permissions={['system_settings:read', 'users:read']}
-                      fallback={<Navigate to="/" replace />}
-                    >
-                      <SettingsHubPage />
-                    </RequirePermission>
+                    <NotificationProvider>
+                      <Layout />
+                    </NotificationProvider>
                   }
-                />
-                <Route
-                  path="/admin/settings/general"
-                  element={
-                    <RequirePermission
-                      permission="system_settings:read"
-                      fallback={<Navigate to="/" replace />}
-                    >
-                      <GeneralSettingsPage />
-                    </RequirePermission>
-                  }
-                />
-                <Route
-                  path="/admin/settings/appearance"
-                  element={
-                    <RequirePermission
-                      permission="system_settings:read"
-                      fallback={<Navigate to="/" replace />}
-                    >
-                      <AppearanceSettingsPage />
-                    </RequirePermission>
-                  }
-                />
-                <Route
-                  path="/admin/settings/feature-flags"
-                  element={
-                    <RequirePermission
-                      permission="system_settings:read"
-                      fallback={<Navigate to="/" replace />}
-                    >
-                      <FeatureFlagsPage />
-                    </RequirePermission>
-                  }
-                />
-                {/* Issue #124, epic #109. Same permission string the `Email`
-                    card declares in `config/adminSections.tsx`, which is the
-                    same string the API's email-settings controller enforces on
-                    its GET — the invariant `destinations.test.ts` asserts for
-                    every card. `system_settings:read` and not `:write`: saving
-                    and test-sending need write, and the page disables both
-                    without it, but the configuration is worth READING for
-                    anyone diagnosing why mail is not arriving. */}
-                <Route
-                  path="/admin/settings/email"
-                  element={
-                    <RequirePermission
-                      permission="system_settings:read"
-                      fallback={<Navigate to="/" replace />}
-                    >
-                      <EmailSettingsPage />
-                    </RequirePermission>
-                  }
-                />
-                {/* Issue #225, epic #215. `system_settings:read`, the same
-                    string the `Notifications` card declares and the same one
-                    `system-settings.controller.ts` enforces on its GET — the
-                    invariant `destinations.test.ts` asserts for every card.
-                    Saving needs `system_settings:write`, which the page gates
-                    internally by disabling its controls. */}
-                <Route
-                  path="/admin/settings/notifications"
-                  element={
-                    <RequirePermission
-                      permission="system_settings:read"
-                      fallback={<Navigate to="/" replace />}
-                    >
-                      <NotificationSettingsPage />
-                    </RequirePermission>
-                  }
-                />
-                {/* `system_settings:WRITE`, not `read`, and the one route here
-                    whose permission differs from its siblings'. A raw editor
-                    over the entire settings document has no read-only meaning —
-                    see `config/adminSections.tsx`. */}
-                <Route
-                  path="/admin/settings/advanced"
-                  element={
-                    <RequirePermission
-                      permission="system_settings:write"
-                      fallback={<Navigate to="/" replace />}
-                    >
-                      <AdvancedSettingsPage />
-                    </RequirePermission>
-                  }
-                />
-                {/* `users:read` alone, even though the page also hosts the
-                    allowlist. The route gate is about REACHABILITY and the page
-                    is worth reaching for its Users tab; the Allowlist tab gates
-                    its own content on `allowlist:read` inside the page. */}
-                <Route
-                  path="/admin/settings/users"
-                  element={
-                    <RequirePermission
-                      permission="users:read"
-                      fallback={<Navigate to="/" replace />}
-                    >
-                      <AdminUsersPage />
-                    </RequirePermission>
-                  }
-                />
+                >
+                  <Route path="/" element={<HomePage />} />
+                  {/* The per-user settings surface (#96, epic #90) — the same
+                      hub component `/admin/settings` renders, over
+                      `USER_SETTINGS_SECTIONS`, plus one route per card.
+
+                      NONE OF THESE IS WRAPPED IN `RequirePermission`, and that is
+                      the deliberate difference from the `/admin/settings/*` block
+                      below rather than an oversight. `ProtectedRoute` above
+                      establishes that someone is signed in, and that is the only
+                      question these routes have: they edit the caller's OWN
+                      settings, which the API grants to all three roles, and
+                      `config/userSettingsSections.tsx` correspondingly declares no
+                      `permission` on any card. A gate here would deny a Viewer
+                      their own display name.
+
+                      As above, declaration order does not matter — React Router
+                      v6 ranks by specificity, so `/settings/profile` beats
+                      `/settings` wherever each is written. */}
+                  <Route path="/settings" element={<UserSettingsHubPage />} />
+                  <Route path="/settings/profile" element={<UserProfilePage />} />
+                  <Route path="/settings/appearance" element={<UserAppearancePage />} />
+                  {/* Ungated like its siblings (#126): these are the caller's own
+                      preferences, and the registry endpoint the page renders is
+                      itself `@Auth()` with no permission for the same reason. */}
+                  <Route path="/settings/notifications" element={<UserNotificationsPage />} />
+                  <Route path="/settings/tokens" element={<UserTokensPage />} />
+                  {/* Route-level AUTHORIZATION, not just authentication.
+                      `ProtectedRoute` above only establishes that someone is
+                      logged in — before this, a Viewer typing `/admin/settings`
+                      reached the page and only then watched every API call 403.
+                      `RequirePermission` was already in the codebase but had zero
+                      usages; wrapping these routes is what turns it into the
+                      enforcement point.
+
+                      The permission on each route is the SAME string its card
+                      declares in `config/adminSections.tsx`, which is the same
+                      string the API's controller enforces — so the hub card, the
+                      rail row, the menu entry and the route can no longer
+                      disagree about who may go where.
+
+                      ORDER IS NOT SIGNIFICANT HERE. React Router v6 ranks routes
+                      by specificity rather than by declaration order, so
+                      `/admin/settings/users` beats `/admin/settings` regardless
+                      of where each sits in this list. They are grouped by surface
+                      for reading, not for matching. */}
+
+                  {/* Both redirects are REAL ROUTES, not catch-all fallout.
+                      Without them a bookmarked `/admin/users` matches only `*`
+                      and lands silently on `/` — the user asked for a page that
+                      still exists and got the home screen with no explanation.
+                      `replace` keeps the dead URL out of the history stack, so
+                      Back returns to wherever the user came from rather than
+                      bouncing through the redirect again.
+
+                      They sit INSIDE `ProtectedRoute` so an unauthenticated
+                      bookmark goes to login and arrives here afterwards, rather
+                      than being redirected first and losing the destination. */}
+                  <Route path="/admin" element={<Navigate to="/admin/settings" replace />} />
+                  <Route
+                    path="/admin/users"
+                    element={<Navigate to="/admin/settings/users" replace />}
+                  />
+
+                  {/* The Console hub (#93, epic #90) — the searchable, grouped
+                      card grid that reads `ADMIN_SECTIONS`. It replaces the
+                      three-tab placeholder that answered this route through #92,
+                      whose tabs duplicated the four routes below. That
+                      duplication is now gone: the hub NAVIGATES to those routes
+                      instead of re-hosting them. */}
+                  {/* ANY-OF, and the one route here that is not a single
+                      permission. This gate MUST STAY IN SYNC WITH `console`'s
+                      `anyPermission` in `config/destinations.ts` — the two lists
+                      answer the same question ("may this user reach the admin
+                      surface?") on two different surfaces, and #92 left them
+                      disagreeing: the Console row appeared in the rail, bottom
+                      bar, user menu and quick actions for a `users:read`-only
+                      user, whose click then bounced straight back to `/`. That
+                      split brain is exactly what `config/destinations.ts`'s
+                      header says the destination model exists to prevent, so the
+                      route follows the destination rather than the reverse.
+
+                      `requireAll` defaults to `false`, so `permissions` is an OR
+                      here — matching `anyPermission`'s semantics, not
+                      `hasAllPermissions`'.
+
+                      A `users:read`-only user consequently reaches this route
+                      and — since #93 — sees a hub containing exactly the one card
+                      that permission unlocks, instead of the placeholder page's
+                      blanket access-denied state. The hub's own gate
+                      (`visibleSettingsSections`) does that per CARD, which is why
+                      this route only answers the coarser question "may this user
+                      reach the admin surface at all?". The five child routes
+                      below keep their single-permission gates: each is one
+                      specific page with one specific permission. */}
+                  <Route
+                    path="/admin/settings"
+                    element={
+                      <RequirePermission
+                        permissions={['system_settings:read', 'users:read']}
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <SettingsHubPage />
+                      </RequirePermission>
+                    }
+                  />
+                  <Route
+                    path="/admin/settings/general"
+                    element={
+                      <RequirePermission
+                        permission="system_settings:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <GeneralSettingsPage />
+                      </RequirePermission>
+                    }
+                  />
+                  <Route
+                    path="/admin/settings/appearance"
+                    element={
+                      <RequirePermission
+                        permission="system_settings:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <AppearanceSettingsPage />
+                      </RequirePermission>
+                    }
+                  />
+                  <Route
+                    path="/admin/settings/feature-flags"
+                    element={
+                      <RequirePermission
+                        permission="system_settings:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <FeatureFlagsPage />
+                      </RequirePermission>
+                    }
+                  />
+                  {/* Issue #124, epic #109. Same permission string the `Email`
+                      card declares in `config/adminSections.tsx`, which is the
+                      same string the API's email-settings controller enforces on
+                      its GET — the invariant `destinations.test.ts` asserts for
+                      every card. `system_settings:read` and not `:write`: saving
+                      and test-sending need write, and the page disables both
+                      without it, but the configuration is worth READING for
+                      anyone diagnosing why mail is not arriving. */}
+                  <Route
+                    path="/admin/settings/email"
+                    element={
+                      <RequirePermission
+                        permission="system_settings:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <EmailSettingsPage />
+                      </RequirePermission>
+                    }
+                  />
+                  {/* Issue #225, epic #215. `system_settings:read`, the same
+                      string the `Notifications` card declares and the same one
+                      `system-settings.controller.ts` enforces on its GET — the
+                      invariant `destinations.test.ts` asserts for every card.
+                      Saving needs `system_settings:write`, which the page gates
+                      internally by disabling its controls. */}
+                  <Route
+                    path="/admin/settings/notifications"
+                    element={
+                      <RequirePermission
+                        permission="system_settings:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <NotificationSettingsPage />
+                      </RequirePermission>
+                    }
+                  />
+                  {/* Issue #258, epic #254. Same permission string the
+                      `Maintenance` card declares and the same one
+                      `common/maintenance/maintenance.controller.ts` enforces on
+                      its GET — the invariant `destinations.test.ts` asserts for
+                      every card. Opening and closing a window needs
+                      `system_settings:write`, which the page gates internally by
+                      disabling its controls.
+
+                      THIS IS ALSO THE ONE ROUTE `MaintenanceGate` NEVER COVERS,
+                      mirroring `@AllowDuringMaintenance()` on the controller
+                      behind it: the switch that ends a window has to be reachable
+                      while the window is open, on both sides. */}
+                  <Route
+                    path="/admin/settings/maintenance"
+                    element={
+                      <RequirePermission
+                        permission="system_settings:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <AdminMaintenancePage />
+                      </RequirePermission>
+                    }
+                  />
+                  {/* `system_settings:WRITE`, not `read`, and the one route here
+                      whose permission differs from its siblings'. A raw editor
+                      over the entire settings document has no read-only meaning —
+                      see `config/adminSections.tsx`. */}
+                  <Route
+                    path="/admin/settings/advanced"
+                    element={
+                      <RequirePermission
+                        permission="system_settings:write"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <AdvancedSettingsPage />
+                      </RequirePermission>
+                    }
+                  />
+                  {/* `users:read` alone, even though the page also hosts the
+                      allowlist. The route gate is about REACHABILITY and the page
+                      is worth reaching for its Users tab; the Allowlist tab gates
+                      its own content on `allowlist:read` inside the page. */}
+                  <Route
+                    path="/admin/settings/users"
+                    element={
+                      <RequirePermission
+                        permission="users:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <AdminUsersPage />
+                      </RequirePermission>
+                    }
+                  />
+                </Route>
               </Route>
-            </Route>
 
-            {/* Fallback */}
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </Suspense>
+              {/* Fallback */}
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </Suspense>
+        </MaintenanceGate>
       </ErrorBoundary>
       {/* The PWA prompts (#219, epic #215) sit here — inside `ThemeProvider`
           so they are themed, OUTSIDE both `ErrorBoundary` and `Routes`, and
