@@ -616,6 +616,55 @@ watchdog exits deliberately after draining, and without a supervisor that
 successful drain leaves the worker down. Run `loginctl enable-linger $USER`
 afterwards, or the unit stops when you log out.
 
+### Memory: heap tuning, the watchdog and snapshots
+
+A worker is a long-lived process doing repetitive work — the shape that turns a
+small per-job leak into an OOM kill hours later. Three things address that, and
+all three are on by default.
+
+**Heap tuning.** Node's default old-space limit is low for a machine whose
+whole job is being a worker: a 32 GB box can OOM at a fraction of it. On start
+the worker re-execs itself once with an explicit, RAM-aware
+`--max-old-space-size`, and the original process becomes a signal-forwarding
+shim — so a container `SIGTERM` still reaches the worker and still drains, and
+a signal-killed child makes the shim die of the *same* signal rather than
+reporting a clean exit to its supervisor. Set `APPCTL_HEAP_LIMIT_MB=0` to turn
+re-tuning off entirely (the right answer when a cgroup or a PaaS already
+manages memory).
+
+**The memory watchdog** samples `rss`, `heapUsed`, `heapTotal`, `external` and
+`arrayBuffers`, and once the samples span a real window reports a least-squares
+growth trend in MB/hour. A single reading cannot tell a leak from GC sawtooth;
+the trend is what turns "it died" into "it was climbing 40 MB/hour".
+
+**The pre-OOM valve** fires once, when `heapUsed / heapLimit` crosses
+`APPCTL_MEMORY_THRESHOLD` (default 0.9), in this order:
+
+1. write a heap snapshot — **first**, before the drain collects the evidence away
+2. log the decision with the sample
+3. drain in-flight work, **keeping** the node row
+4. exit `71`, for a supervised restart
+
+> ⚠️ **The valve requires a supervisor.** It exits deliberately after a clean
+> drain, so without `Restart=on-failure` (`appctl node service install` sets
+> this) or `restart: unless-stopped` in compose, a *successful* drain leaves
+> the worker down.
+
+Why not V8's own `--heapsnapshot-near-heap-limit`? It fires only at genuine
+near-OOM, which is *above* this threshold — so on a worker hardened with this
+valve it would never fire at all, the process would recycle cleanly forever,
+and the retainer could never be named.
+
+```bash
+appctl node heap-snapshot   # ask the LIVE daemon to write one
+```
+
+Asking the live daemon is the point: restarting to attach a diagnostic flag
+discards exactly the accumulated state that names the retainer. Snapshots go to
+`<state dir>/heap-snapshots`, newest five kept, and are skipped with a clear
+reason when free disk is under 1.5× the live heap. `APPCTL_HEAP_SNAPSHOTS=false`
+disables all three snapshot paths at once.
+
 ### Worker environment variables
 
 Every setting can come from the environment instead of the config file, which
@@ -633,6 +682,10 @@ win over the file, **per field** — override one without restating the rest.
 | `APPCTL_POLL_INTERVAL_MS` | Idle poll interval |
 | `APPCTL_HEADLESS` | `true` to run without a terminal |
 | `APPCTL_STATE_DIR` | Where the worker keeps its runtime state (default: `~/.appctl/node`) |
+| `APPCTL_HEAP_LIMIT_MB` | Old-space limit for the re-exec; `0` disables re-tuning |
+| `APPCTL_MEMORY_WATCHDOG` | `false` to disable the watchdog and its valve |
+| `APPCTL_MEMORY_THRESHOLD` | `heapUsed / heapLimit` at which the valve fires (default `0.9`) |
+| `APPCTL_HEAP_SNAPSHOTS` | `false` to disable all three snapshot paths |
 
 With `APPCTL_SERVER_URL` and `APPCTL_TOKEN` set and no config file at all, the
 worker synthesises its settings from the environment and starts. If it cannot

@@ -131,6 +131,51 @@ detection, an explicit sudo announcement before anything runs, and a working
 `--dry-run`. Add your own steps in `apps/cli/src/node/install-deps.ts` beside
 the two generic ones.
 
+## Memory
+
+Three mechanisms, all on by default, all with one thing in common: they assume
+a supervisor is watching.
+
+**Heap tuning.** The worker re-execs itself once at startup with a RAM-aware
+`--max-old-space-size`, because Node's default old-space limit is low for a
+machine dedicated to being a worker. The original process becomes a
+signal-forwarding shim, so a container `SIGTERM` still reaches the worker and
+still drains. Set `APPCTL_HEAP_LIMIT_MB=0` when a cgroup or a PaaS already
+manages memory — a second opinion there is worse than none.
+
+**The watchdog** samples memory and, once the samples span a real window,
+reports a least-squares growth trend in MB/hour. That trend is the difference
+between "it died" and "it was climbing 40 MB/hour for six hours".
+
+**The pre-OOM valve** fires once when `heapUsed / heapLimit` crosses the
+threshold (default `0.9`): snapshot → log → drain → exit `71`.
+
+> ⚠️ **The valve requires a supervisor.** It exits deliberately after a clean
+> drain. Without `Restart=on-failure` or `restart: unless-stopped`, a
+> *successful* drain leaves the worker down — a self-healing mechanism turned
+> into an outage. `appctl node service install` sets this for you.
+
+### Diagnosing a leak
+
+```bash
+appctl node heap-snapshot     # asks the LIVE daemon
+```
+
+Ask the running worker, not a fresh one. Restarting to attach a diagnostic flag
+discards exactly the accumulated state that names the retainer — which is also
+why the valve writes its snapshot *before* draining rather than after.
+
+Snapshots land in `<state dir>/heap-snapshots`, newest five kept, and are
+skipped with a clear reason when free disk is under 1.5× the live heap: a
+snapshot must never be the thing that fills the volume. Open one in Chrome
+DevTools → Memory → Load.
+
+| Exit code | Meaning |
+|---|---|
+| `0` | Clean stop |
+| `70` | A required capability for an advertised job type is missing |
+| `71` | The pre-OOM valve fired — restart it |
+
 ## Day-to-day operation
 
 ```bash
