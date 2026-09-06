@@ -154,6 +154,20 @@ export default () => {
     pollMs: parseInt(process.env.JOBS_POLL_MS || '5000', 10),
     workerMode: process.env.JOBS_WORKER_MODE || 'all',
     jobTimeoutMs: parseInt(process.env.JOBS_JOB_TIMEOUT_MS || '600000', 10),
+    // The lease reaper's ONLY switch (#263), and deliberately not the worker
+    // mode. Reaping a dead lease is a CONTROL-PLANE duty: an API running as a
+    // pure control plane (`JOBS_WORKER_MODE=off` in front of an external node
+    // fleet) claims nothing itself, and is also the deployment where dead
+    // leases are most likely — a node's laptop closing its lid is the normal
+    // case there, not an edge one. Gating the reaper on this process's
+    // willingness to RUN jobs would leave that fleet's abandoned rows to
+    // nobody. See `tasks/job-stuck-reset.task.ts`.
+    //
+    // DEFAULTS TO ON, and only the literal string turns it off, so a typo
+    // fails open into "keep reaping" rather than silently leaving every
+    // abandoned job stuck forever — the same direction `workerMode` fails in,
+    // for the same reason.
+    reaperEnabled: process.env.JOBS_REAPER_ENABLED !== 'false',
     // Split here rather than in the worker so the shape a consumer reads is
     // the shape it wants, and an unset variable is an empty list rather than
     // `['']` — which would look like a job type named "" to every caller.

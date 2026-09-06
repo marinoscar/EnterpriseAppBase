@@ -50,6 +50,10 @@ export const JOB_TYPE_LABELS: Readonly<Record<string, string>> = {
   // (`handlers/example-echo.handler.ts`). Delete the handler and you may
   // delete this line; neither is load-bearing.
   'example.echo': 'Example echo',
+  // The queue's own housekeeping (`handlers/job-history-purge.handler.ts`,
+  // #263) — the first real job type this template ships, and one a fork
+  // should keep: deleting it stops history being trimmed.
+  'job.history.purge': 'Job history purge',
 };
 
 /**

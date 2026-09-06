@@ -1,18 +1,24 @@
 import { Module } from '@nestjs/common';
 
+import { SettingsModule } from '../settings/settings.module';
 import { ExampleEchoHandler } from './handlers/example-echo.handler';
+import { JobHistoryPurgeHandler } from './handlers/job-history-purge.handler';
 import { JobClaimService } from './job-claim.service';
 import { JobHandlerRegistry } from './job-handler.registry';
+import { JobStuckService } from './job-stuck.service';
 import { JobTerminalService } from './job-terminal.service';
 import { JobWorker } from './job.worker';
 import { JobsService } from './jobs.service';
 import { ProviderThrottleService } from './provider-throttle.service';
+import { JobHistoryPurgeTask } from './tasks/job-history-purge.task';
+import { JobStuckResetTask } from './tasks/job-stuck-reset.task';
+import { TempFileJanitorTask } from './tasks/temp-file-janitor.task';
 
 // =============================================================================
-// JobsModule (issues #259, #260, #261 and #262, epic #254)
+// JobsModule (issues #259, #260, #261, #262 and #263, epic #254)
 // =============================================================================
 //
-// STILL NOTHING THAT RUNS ON ITS OWN. #259 shipped the queue's extension
+// #259 shipped the queue's extension
 // point — the handler contract, the registry that collects handlers, and one
 // worked example. #260 added the two halves of moving a row through the
 // table: `JobsService` (enqueue, with dedup decided by the partial unique
@@ -23,8 +29,10 @@ import { ProviderThrottleService } from './provider-throttle.service';
 // limit. Still nothing polls, and no timer exists here yet: the thing that
 // calls `claim()` on a tick and `completeSucceeded`/`completeFailed`
 // afterwards is the in-process worker pool — and #262 adds it: `JobWorker`
-// is the first provider in this module that runs on its own. Queue hygiene —
-// lease reaper, history purge, temp-file janitor (#263) — lands here too.
+// is the first provider in this module that runs on its own. #263 adds the
+// three timers that keep the queue from degrading on its own — the lease
+// reaper, the nightly history purge and the temp-file janitor — plus the
+// first job type in this repository that does real work.
 //
 // ⚠ `JobWorker` STARTS FROM `onApplicationBootstrap`, NOT `onModuleInit`, and
 // that is a correctness constraint rather than a style choice: handlers
@@ -88,25 +96,65 @@ import { ProviderThrottleService } from './provider-throttle.service';
 // `PrismaService` is not imported here: `PrismaModule` is `@Global()`.
 // `EventEmitter2` is likewise global — `EventEmitterModule.forRoot()` in
 // `app.module.ts` — so the settled event needs no import either.
+//
+// -----------------------------------------------------------------------------
+// WHAT #263 ADDS: THREE TIMERS, ONE SERVICE AND THE FIRST REAL HANDLER
+// -----------------------------------------------------------------------------
+//
+// `JobStuckResetTask` (the lease reaper, every ten minutes),
+// `JobHistoryPurgeTask` (queues the nightly purge) and `TempFileJanitorTask`
+// (sweeps abandoned scratch files, on init and hourly) are registered here
+// exactly as `TokenCleanupTask` is in `AuthModule` and `StorageCleanupTask` in
+// `StorageModule` — plain providers whose `@Cron` methods `ScheduleModule
+// .forRoot()` in `app.module.ts` discovers. None of the three is exported:
+// nothing outside this module should be able to trigger a sweep, and the two
+// that have anything worth reusing expose it through `JobStuckService`.
+//
+// `JobStuckService` IS exported, and that is the whole point of it existing
+// separately from the task that drives it: the admin "reset stuck jobs"
+// control and any later node-plane sweeper must ask the same question and take
+// the same two-phase action, which they can only do by calling the same code.
+// Its header explains why these primitives may not live in an admin service.
+//
+// `JobHistoryPurgeHandler` is provided here for the same reason
+// `ExampleEchoHandler` is — it belongs to no feature; it belongs to the queue —
+// and it self-registers from its own `onModuleInit` like any other handler. It
+// is exported so a fork can resolve it in a test without rebuilding this
+// module.
+//
+// `SettingsModule` IS NOW IMPORTED, and it is the only new module dependency:
+// the reaper reads `jobs.stuckThresholdMinutes` and the purge reads
+// `jobs.history.*`, both through `SystemSettingsService`'s narrow
+// `getJobsPolicy()` accessor. The direction is acyclic — settings depends on
+// nothing here — and it mirrors `NotificationsModule`, which imports
+// `SettingsModule` for exactly the same kind of read.
 // =============================================================================
 
 @Module({
+  imports: [SettingsModule],
   providers: [
     JobHandlerRegistry,
     ExampleEchoHandler,
+    JobHistoryPurgeHandler,
     JobsService,
     JobClaimService,
     ProviderThrottleService,
     JobTerminalService,
+    JobStuckService,
     JobWorker,
+    JobStuckResetTask,
+    JobHistoryPurgeTask,
+    TempFileJanitorTask,
   ],
   exports: [
     JobHandlerRegistry,
     ExampleEchoHandler,
+    JobHistoryPurgeHandler,
     JobsService,
     JobClaimService,
     ProviderThrottleService,
     JobTerminalService,
+    JobStuckService,
   ],
 })
 export class JobsModule {}

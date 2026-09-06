@@ -177,6 +177,26 @@ export function resetUnknownWorkerModeWarning(): void {
 }
 
 /**
+ * `JOBS_WORKER_MODE` as a value, or `null` when the configured string is not
+ * one of the three modes.
+ *
+ * THE ONE PARSE OF THIS SETTING IN THE PROCESS. `JobWorker.mode()` adds the
+ * warn-once fallback on top of it, and `TempFileJanitorTask` (#263) reads it
+ * to decide whether this process could have created any temp files at all.
+ * Extracted rather than injecting `JobWorker` into the janitor: the janitor
+ * needs a configuration ANSWER, not the worker pool, and a task that holds the
+ * pool could stop it.
+ *
+ * A non-string (an unset key) is treated as the default rather than as
+ * garbage, so a deployment that never set the variable is not "unrecognised".
+ */
+export function parseWorkerMode(raw: unknown): JobWorkerMode | null {
+  const value = (typeof raw === 'string' ? raw : DEFAULT_MODE).trim().toLowerCase();
+
+  return WORKER_MODES.includes(value) ? (value as JobWorkerMode) : null;
+}
+
+/**
  * What a per-job timeout throws.
  *
  * A distinct class rather than a bare `Error` so the failure is greppable in
@@ -358,10 +378,10 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
    */
   mode(): JobWorkerMode {
     const raw = this.config.get<string>('jobs.workerMode');
-    const value = (typeof raw === 'string' ? raw : DEFAULT_MODE).trim().toLowerCase();
+    const parsed = parseWorkerMode(raw);
 
-    if (WORKER_MODES.includes(value)) {
-      return value as JobWorkerMode;
+    if (parsed !== null) {
+      return parsed;
     }
 
     if (!unknownModeWarned) {

@@ -22,6 +22,7 @@ import {
   MAX_DISABLED_NOTIFICATION_EVENTS,
   type SystemNotificationsValue,
   type SystemMaintenanceValue,
+  type SystemJobsValue,
 } from '../../common/schemas/settings.schema';
 
 const SETTINGS_KEY = 'global';
@@ -710,6 +711,43 @@ export class SystemSettingsService {
     });
 
     return this.readKnownSettings(row?.value).maintenance;
+  }
+
+  /**
+   * The job-queue policy — history retention and the stuck-job threshold
+   * (#263, epic #254).
+   *
+   * A NARROW ACCESSOR RATHER THAN `getSettings()`, for the two reasons
+   * `getNotificationsPolicy` above gives, plus one that belongs to this
+   * caller specifically:
+   *
+   *   1. IT DOES NOT CREATE THE ROW. `getSettings` goes through
+   *      `loadOrCreateRow`, which INSERTs when the row is missing. Every
+   *      caller here is a background timer — the lease reaper every ten
+   *      minutes, the history-purge scheduler at midnight, the purge handler
+   *      itself — and a cron tick materialising a settings row is a write
+   *      nobody asked for, on a path with no request to attribute it to.
+   *   2. IT RETURNS ONLY THIS BLOCK. The reaper needs one integer and the
+   *      purge needs two values; neither has any business holding the whole
+   *      settings blob, including the open `features` map.
+   *   3. IT IS THE ONE READ PATH FOR THESE VALUES. `JobStuckService` and
+   *      `JobHistoryPurgeHandler` both call this rather than reaching into
+   *      `system_settings` themselves, so "where does the threshold come
+   *      from" has exactly one answer and a fork changing the storage shape
+   *      changes one method.
+   *
+   * Degrades exactly as every other read here does: a missing row, a `null`
+   * value or a malformed one yields `DEFAULT_SYSTEM_SETTINGS.jobs` through
+   * `readKnownSettings`, so a damaged row cannot leave dead leases unreaped
+   * or history ungoverned — it falls back to the shipped policy.
+   */
+  async getJobsPolicy(): Promise<SystemJobsValue> {
+    const row = await this.prisma.systemSettings.findUnique({
+      where: { key: SETTINGS_KEY },
+      select: { value: true },
+    });
+
+    return this.readKnownSettings(row?.value).jobs;
   }
 
   /**

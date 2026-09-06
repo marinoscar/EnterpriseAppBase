@@ -193,6 +193,13 @@ See `example-echo.handler.ts` — a server-only handler that logs its payload
 and returns. It is deliberately trivial and side-effect free, and it is a live
 implementation of the contract rather than a comment about one.
 
+For a handler that does real work, see `job-history-purge.handler.ts` (#263):
+the queue's own housekeeping, and the same four steps applied to a settings
+read, a batched loop and a transaction. Its scheduling half lives in
+`../tasks/job-history-purge.task.ts` and shows the other end of the recipe — a
+`@Cron` that ENQUEUES rather than doing the work inline, so the run is
+observable, retried on the queue's budget, and executed on a worker slot.
+
 ## Related Files
 
 | File | What it is |
