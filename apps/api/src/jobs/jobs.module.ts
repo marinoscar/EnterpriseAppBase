@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 
 import { SettingsModule } from '../settings/settings.module';
+import { StorageProvidersModule } from '../storage/providers/storage-providers.module';
+import { ExampleChecksumHandler } from './handlers/example-checksum.handler';
 import { ExampleEchoHandler } from './handlers/example-echo.handler';
 import { JobHistoryPurgeHandler } from './handlers/job-history-purge.handler';
 import { JobAdminController } from './job-admin.controller';
@@ -80,6 +82,28 @@ import { TempFileJanitorTask } from './tasks/temp-file-janitor.task';
 // in a feature module only because it belongs to no feature; a real handler
 // lives with the feature it serves (see `handlers/README.md`, step 3).
 //
+// `ExampleChecksumHandler` (#269) is the same, for the NODE-ELIGIBLE half of
+// the same lesson, and it is the reason `StorageProvidersModule` now appears
+// in the import list. It needs `STORAGE_PROVIDER` for its server-side
+// `process` — a node-eligible type must still be runnable by the in-process
+// worker, or a deployment with no fleet could not execute a type it can
+// enqueue.
+//
+// ⚠ `StorageProvidersModule` AND NOT `StorageModule`, deliberately. The
+// provider module contributes ONE token and no controllers; `StorageModule`
+// would pull `ObjectsController`, `ObjectsService` and the upload-processing
+// pipeline into the queue's graph, and would make the queue depend on the
+// interactive storage API rather than on the ability to read bytes. The node
+// plane makes the identical choice for the identical reason — see
+// `nodes.module.ts`. The direction is still acyclic: nothing under
+// `src/storage/providers/` imports `JobsModule`.
+//
+// Until #269 this template shipped NO node-eligible handler, which made the
+// whole fleet untestable end to end: `NodesService.claimJobs` intersects with
+// the registry's node-eligible types, so with none registered, every claim by
+// every node correctly returned an empty list and no data-plane defect could
+// be observed. `example.checksum` is what closes that loop.
+//
 // `JobsService` is exported because EVERY feature module that queues work
 // needs it — that is step 4 of the extension recipe, and there is no other
 // way to create a `jobs` row that honours the dedup contract.
@@ -147,13 +171,14 @@ import { TempFileJanitorTask } from './tasks/temp-file-janitor.task';
 // =============================================================================
 
 @Module({
-  imports: [SettingsModule],
+  imports: [SettingsModule, StorageProvidersModule],
   controllers: [JobAdminController],
   providers: [
     JobAdminService,
     JobInsightsService,
     JobHandlerRegistry,
     ExampleEchoHandler,
+    ExampleChecksumHandler,
     JobHistoryPurgeHandler,
     JobsService,
     JobClaimService,
@@ -168,6 +193,7 @@ import { TempFileJanitorTask } from './tasks/temp-file-janitor.task';
   exports: [
     JobHandlerRegistry,
     ExampleEchoHandler,
+    ExampleChecksumHandler,
     JobHistoryPurgeHandler,
     JobsService,
     JobClaimService,

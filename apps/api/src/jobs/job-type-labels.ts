@@ -50,6 +50,11 @@ export const JOB_TYPE_LABELS: Readonly<Record<string, string>> = {
   // (`handlers/example-echo.handler.ts`). Delete the handler and you may
   // delete this line; neither is load-bearing.
   'example.echo': 'Example echo',
+  // The template's NODE-ELIGIBLE demonstration handler
+  // (`handlers/example-checksum.handler.ts`, #269) — the type that makes a
+  // worker node's claim return anything at all. Delete the handler and you
+  // may delete this line.
+  'example.checksum': 'Example checksum',
   // The queue's own housekeeping (`handlers/job-history-purge.handler.ts`,
   // #263) — the first real job type this template ships, and one a fork
   // should keep: deleting it stops history being trimmed.
