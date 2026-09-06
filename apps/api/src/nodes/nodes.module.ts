@@ -19,7 +19,7 @@
 //   is obvious; different modules, so the graph stays acyclic.
 //
 // -----------------------------------------------------------------------------
-// ONE IMPORT, AND IT IS THE POINT OF THE WHOLE ISSUE
+// TWO IMPORTS, AND THE FIRST IS THE POINT OF THE WHOLE ISSUE
 // -----------------------------------------------------------------------------
 //
 // `JobsModule` is imported for exactly three of its exports:
@@ -39,6 +39,30 @@
 // is one more claimer of rows, which is precisely what `ClaimOptions`
 // carrying `nodeId` and `executor` encodes.
 //
+// -----------------------------------------------------------------------------
+// `StorageProvidersModule`, AND WHY IT IS NOT `StorageModule` (#269)
+// -----------------------------------------------------------------------------
+//
+// The data plane needs exactly one thing out of storage: `STORAGE_PROVIDER`,
+// so it can mint a signed URL. `StorageProvidersModule` provides that and
+// nothing else — no controller, no `ObjectsService`, no processing pipeline,
+// no event emitter subscriptions.
+//
+// REJECTED: importing `StorageModule`. It would bring `ObjectsController` and
+// `ObjectsService` into this graph for a capability we do not want, and worse,
+// it would put `ObjectsService.getDownloadUrl` within reach — the method that
+// applies a PER-USER OWNERSHIP CHECK. A node is a trusted internal executor,
+// not a user acting on their own file, and the owner a `nod_` credential
+// resolves to has no relationship to whoever uploaded the object a job is
+// about; routing a node through that check would `403` every cross-user job.
+// `node-data-plane.service.ts`'s header states the full argument. Not
+// importing the module is what keeps the wrong method out of reach.
+//
+// `NodeDataPlaneService` is a provider and not an export, exactly like
+// `NodesService`: its only caller is the controller in this module, and a
+// feature module that could inject it could mint storage capabilities against
+// any job it could name.
+//
 // NOT `@Global`, and NOT EXPORTING `NodesService`. Its only caller is the
 // controller in this module. A feature module that could inject it could
 // claim jobs on a node's behalf or settle a job outside the terminal
@@ -52,12 +76,14 @@
 import { Module } from '@nestjs/common';
 
 import { JobsModule } from '../jobs/jobs.module';
+import { StorageProvidersModule } from '../storage/providers/storage-providers.module';
+import { NodeDataPlaneService } from './node-data-plane.service';
 import { NodesController } from './nodes.controller';
 import { NodesService } from './nodes.service';
 
 @Module({
-  imports: [JobsModule],
+  imports: [JobsModule, StorageProvidersModule],
   controllers: [NodesController],
-  providers: [NodesService],
+  providers: [NodesService, NodeDataPlaneService],
 })
 export class NodesModule {}

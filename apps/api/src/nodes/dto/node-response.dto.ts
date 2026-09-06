@@ -1,5 +1,5 @@
 // =============================================================================
-// What the control plane sends BACK to a node (issue #268, epic #254)
+// What the control plane sends BACK to a node (issues #268 & #269, epic #254)
 // =============================================================================
 //
 // THE DESIGN CONSTRAINT OF THIS WHOLE ISSUE IS VISIBLE IN THIS FILE: a node
@@ -29,17 +29,25 @@
 // A claim returns `{ job, params }` pairs rather than one flattened object.
 // `job` is a faithful (narrowed) projection of the row — the node echoes its
 // `id` and `type` back on every subsequent call. `params` is EVERYTHING THE
-// NODE NEEDS TO ACTUALLY RUN THE WORK, which today is the job's `payload` and
-// tomorrow (#269) is that plus presigned URLs for the data plane: server-
-// derived values that exist in no column and that a node cannot obtain for
-// itself because it holds no storage credentials.
+// NODE NEEDS TO ACTUALLY RUN THE WORK that is not a column of the row: today
+// that is the job's `payload`, and a fork's own server-derived values go here
+// rather than beside the projection.
 //
-// Keeping them apart means #269 adds keys to `params` without changing what
-// `job` means, and a reader can always tell "this came out of the row" from
-// "this server minted this for you". Flattened into one object, the first
-// presigned URL would be indistinguishable from a column, and the first
-// person to add a column named like a param would produce a very confusing
-// bug.
+// ⚠ #269's PRESIGNED URLS DID NOT LAND HERE, and the reason is worth
+// recording because this comment used to predict that they would. Minting a
+// signed URL at claim time spends its lifetime on the wrong clock: a node
+// claiming its whole `concurrency` in one call queues that work internally,
+// so the last job's URL has been ageing since before the first job started —
+// and the obvious fix, a longer expiry, widens exactly the window a short
+// expiry exists to close. They are minted on demand instead, by
+// `POST /nodes/:id/jobs/:jobId/download-url` and `…/upload-url`. See
+// `node-data-plane.service.ts` and docs/specs/worker-nodes.md §18.
+//
+// Keeping the two bags apart still matters, and now for the general case: a
+// reader can always tell "this came out of the row" from "this server minted
+// this for you". Flattened into one object, a server-derived value would be
+// indistinguishable from a column, and the first person to add a column named
+// like a param would produce a very confusing bug.
 // =============================================================================
 
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -162,9 +170,11 @@ export class NodeJobAssignmentDto {
 
   @ApiProperty({
     description:
-      'Everything the node needs to run this job: the job’s payload today, plus (issue #269) ' +
-      'presigned data-plane URLs the node could not obtain itself. Deliberately separate from ' +
-      '`job` so server-minted values are never mistaken for columns.',
+      'Everything the node needs to run this job that is not a column of the row — the job’s ' +
+      '`payload`. Deliberately separate from `job` so a server-minted value is never mistaken ' +
+      'for a column. Presigned data-plane URLs are NOT here: they are minted on demand by ' +
+      '`POST /nodes/{id}/jobs/{jobId}/download-url` and `…/upload-url`, so their short expiry ' +
+      'starts when the transfer does rather than when the batch was claimed.',
     type: Object,
   })
   params!: Record<string, unknown>;

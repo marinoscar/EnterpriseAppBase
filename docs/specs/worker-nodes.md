@@ -1,6 +1,6 @@
 # Worker Nodes
 
-> Issues #267 and #268, epic #254. The schema — `WorkerNode`, `NodeCredential`,
+> Issues #267, #268 and #269, epic #254. The schema — `WorkerNode`, `NodeCredential`,
 > the `NodeStatus` enum and the `Job.claimedByNode` relation deferred by #255 —
 > lives in `apps/api/prisma/schema.prisma`, whose block comments carry the
 > per-column reasoning and are not restated here.
@@ -18,9 +18,17 @@
 > `apps/api/src/nodes/nodes.module.ts` and
 > `apps/api/src/nodes/dto/node-control-plane.dto.ts`.
 >
-> The presigned data plane a node moves bytes through is **#269**, and the
-> fleet lifecycle cron (liveness, pruning, auto-drain) is **#270**; neither is
-> described here.
+> **Part three (§15–§22)** is the data plane — how a node with no storage
+> credentials reads input bytes and writes output bytes — plus the reference
+> node-eligible job type that makes the whole fleet reachable end to end:
+> `apps/api/src/nodes/node-data-plane.service.ts`,
+> `apps/api/src/nodes/dto/node-data-plane.dto.ts`,
+> `apps/api/src/storage/storage-job-input.ts`,
+> `apps/api/src/jobs/handlers/example-checksum.handler.ts` and
+> `apps/api/src/jobs/contracts/`.
+>
+> The fleet lifecycle cron (liveness, pruning, auto-drain) is **#270** and is
+> not described here.
 
 A worker node is a process on a machine the deployment may not own, running
 unattended for months, that pulls jobs off this API's queue and reports
@@ -463,9 +471,286 @@ Two things exist in the application this design was extracted from and are
   models.
 
 The presigned data-plane IO — how a node reads an input object and writes an
-output object with no storage credentials of its own — is **#269** and is
-deliberately absent from `params`, which is why `params` is a separate bag
-from `job` in the claim response rather than a flattened object.
+output object with no storage credentials of its own — is **#269**, and it is
+still deliberately absent from `params`: the URLs are minted on demand by the
+two routes in §15 rather than folded into the claim response, for the reason
+§18 gives. `params` stays a separate bag from `job` regardless, so that a
+server-minted value is never mistaken for a column.
+
+# Part three: the data plane (#269)
+
+## 15. Bytes never pass through the API
+
+A node holds **no storage credentials**, permanently and by design (§8). It
+therefore cannot read the object a job is about, and cannot write one. Two
+routes close that gap, both behind the same `assertJobHeldByNode` the control
+plane uses:
+
+| Route | What it mints |
+|---|---|
+| `POST /api/nodes/{id}/jobs/{jobId}/download-url` | a short-lived signed **GET** for the job's input object |
+| `POST /api/nodes/{id}/jobs/{jobId}/upload-url` | a short-lived signed **PUT**, to a key **the server chose** |
+
+The node then talks to the storage provider **directly**. No object payload
+enters the API process, and no storage credential leaves it. Both are
+`nodes:write`: minting a signed URL hands out a capability against storage and
+is scoped by a lease the node must be actively holding, which is not the shape
+of anything a read-only auditor should be able to do.
+
+They are `POST` rather than `GET` even though they read nothing, because they
+**mint a credential**. A `GET`'s URL is what every layer between the server and
+the node writes down — proxy access logs, a CDN cache key, an APM trace's
+endpoint label — and a response body containing a bearer URL has no business
+being cacheable.
+
+**The expiry is bounded and not negotiable.** `storage.signedUrlExpiry`
+(default one hour) is honoured when it is *stricter* and clamped to 15 minutes
+when it is not, with a 60-second floor so a `SIGNED_URL_EXPIRY=0` typo cannot
+take a whole fleet down. The reasoning is the asymmetry: an hour is right for a
+URL handed to a logged-in person's browser and wrong for one handed to an
+unattended process on hardware this deployment may not own. A node that needs
+longer asks again, which costs one request while it holds the lease. There is
+deliberately no node-only environment variable — a second knob is a second
+thing to get wrong, and its only correct values are already inside that range.
+
+**The URL is never logged**, at any level, by any component: the storage
+provider names the key only, `NodeDataPlaneService` names the job and the
+object, and `LoggingInterceptor` records method, url and duration — never a
+response body. `test/nodes/node-data-plane.integration.spec.ts` asserts that
+across a real request, because it is a property of the whole pipeline rather
+than of one service.
+
+## 16. The download is resolved through an *internal* path
+
+`ObjectsService.getDownloadUrl` exists and is deliberately **not** used. It
+applies a per-user ownership check, because its caller is a person asking for
+their own file over the interactive API. A node is not that.
+
+Applying that check here would not add safety — it would add a bug. The user a
+`nod_` credential resolves to is the node's **owner**, the operator who
+registered the machine, who has no relationship to whoever uploaded the object
+a job happens to be about. Every job over another user's upload would fail with
+a `403` that is simply wrong, and a fleet would appear to work perfectly right
+up until the first cross-user job.
+
+The posture is exactly the in-process worker's: when `JobWorker` runs a
+handler, that handler calls `storageProvider.download(key)` with no ownership
+check at all, because a background job is not acting on behalf of a user. A
+node is the same executor on different hardware, and giving the two different
+access rules would make a job's outcome depend on which one claimed it. **What
+bounds a node is the lease, not ownership**: it may read exactly the input of
+exactly the job it is holding, for exactly as long as it holds it.
+
+`NodesModule` imports `StorageProvidersModule` rather than `StorageModule`
+partly for this reason — not importing the module is what keeps the wrong
+method out of reach.
+
+## 17. The server chooses the upload key
+
+`node-outputs/{jobId}/{uuid}`, derived from a path parameter the router
+already validated as a UUID plus a fresh `randomUUID()`. Nothing from the
+request body reaches it. Two consequences, both load-bearing:
+
+* **A node cannot overwrite anything.** A signed PUT is an unconditional
+  overwrite of exactly its key, so "the key is always new" is the whole of that
+  guarantee — including against a node clobbering its own earlier output.
+* **Output is attributable.** The job id is in the path, so an object found in
+  the bucket months later traces to the row that produced it with no lookup
+  table. The `node-outputs/` prefix keeps fleet output separable from
+  `uploads/` for listing and for lifecycle rules.
+
+A node-supplied `key` is **refused with `400`, not silently ignored**, and the
+choice between those two is about what the node's author learns rather than
+about safety (both are safe; the key is never read). Ignoring means their field
+vanishes without a word: the upload succeeds, the bytes land somewhere they did
+not choose, and their code goes on referring to a path with nothing at it —
+found days later by a person. A `400` naming the field is found on the first
+run by the person who just wrote it, and costs a correct client nothing,
+because no legitimate node ever sends it.
+
+Minting a target creates **no `storage_objects` row**. The node may never use
+the URL, may crash mid-transfer, or may have its lease expire and its result
+refused; a row written now would outlive all three as a `pending` object with
+nothing behind it. Recording the output is the handler's business in
+`persistNodeResult`, which is why the chosen key is returned to the node: it
+reports it back in its result.
+
+## 18. URLs are minted on demand, not folded into the claim
+
+#268's `params` bag was built to receive them and deliberately still does not.
+Minting at claim time spends the URL's lifetime on the wrong clock: a node
+claiming its whole `concurrency` in one call queues that work internally, so
+the last job's URL has been ageing since before the first job started — and the
+obvious fix, a longer expiry, widens exactly the window the short expiry exists
+to close. On-demand minting starts the clock when the transfer does, costs
+nothing for a job type that never touches storage, and makes a retried transfer
+one cheap call rather than a re-claim.
+
+## 19. Input resolution fails by name, never with an empty path
+
+The application this design was extracted from resolved a job's input by
+reading a path out of a row and handing it to a stream open. When the subject
+was missing, deleted, or keyless, the path was the empty string and the job
+died with:
+
+```
+Error: ENOENT: no such file or directory, open ''
+```
+
+That message names nothing — not the job, not the type, not the subject, not
+which of three causes applied — and the same text appeared for all three.
+Nothing about it suggests the failure is permanent, so such jobs were retried
+to exhaustion.
+
+`resolveStorageObjectInput` (`src/storage/storage-job-input.ts`) is the single
+resolver both executors use, and it returns a `StorageObject` with a guaranteed
+non-empty `storageKey` or throws one of three named reasons:
+
+| `reason` | Meaning |
+|---|---|
+| `missing_subject_id` | the job names no subject at all |
+| `input_object_not_found` | the subject id names no row |
+| `input_object_has_no_storage_key` | the row exists but holds no key |
+
+It is a **plain function taking the client**, not an injectable service,
+because its two callers live in modules that must not reach each other — the
+handler is in `JobsModule` and the data plane in `NodesModule`, and
+`NodesModule` already imports `JobsModule`, so a service would run the
+dependency in the one direction the queue is kept free of. It throws a
+**transport-agnostic error** for the same kind of reason: the handler needs a
+throw the worker records in `Job.lastError`, and only the data plane needs a
+status code.
+
+Over HTTP that status is **`422`**, and the choice is the instruction, exactly
+as the `409` is in §12:
+
+* `400` would say "your request was malformed". It was not — the node sent the
+  right thing about the right job — and a node written to fix-and-resend a 4xx
+  would resend forever.
+* `404` would say "no such job", which is false and sends an operator hunting
+  for a row that is right there in the admin list.
+* `500` would say "try again". All three reasons are permanent: a subject that
+  was never set does not appear later, and a deleted row does not come back.
+* `422` says "understood, and cannot be processed", which is the truth. The
+  node's correct response is to report the job **failed**, letting the attempt
+  budget and the admin list surface it like any other permanent failure.
+  `details.reason` says which of the three applied and `details.retryable` is
+  `false`.
+
+## 20. A single-shot signed PUT, and what it replaced
+
+`StorageProvider` had `getSignedDownloadUrl(key, options?)` — exactly what the
+download route needs — and, for uploads, only
+`getSignedUploadUrl(key, uploadId, partNumber, expiresIn?)`, which is
+**multipart-specific** and meaningless without an `uploadId` from
+`initMultipartUpload`. There was no plain signed PUT.
+
+#269 adds `getSignedPutUrl(key, options?)` to the interface and implements it
+in `S3StorageProvider` with `PutObjectCommand`.
+
+**Rejected: driving a one-part multipart upload through the existing methods.**
+It is possible — `init`, sign part 1, let the node PUT it, then `complete` —
+and it is worse in four ways, each of which surfaces operationally rather than
+as ugly code:
+
+1. It needs a second round trip **and the part's ETag from the node**. That
+   ETag is required by `CompleteMultipartUploadCommand`, so it would have to
+   become a field in the node result contract — every node-eligible job type
+   carrying a storage-protocol detail in its own result schema, forever, for a
+   reason no handler author could guess.
+2. **An abandoned upload leaks billable storage.** A node that dies between
+   `init` and `complete` leaves an in-progress multipart upload holding its
+   parts: invisible to `ListObjects`, chargeable until a bucket lifecycle rule
+   (which this template does not require an operator to configure) expires it.
+   An unused signed PUT leaves nothing — "no object" is exactly what a failed
+   job should leave behind.
+3. **It makes the server hold per-job state.** The `uploadId` must survive from
+   mint to completion, so it needs a column, a cache, or a round trip through
+   the node — three ways for a node's crash to strand a row. The node plane is
+   designed so the server holds only what is already in `jobs`.
+4. S3 enforces a **5 MiB minimum on every part but the last**. A one-part
+   upload is exempt, but the rule sits next to a path somebody will later
+   "optimise" into two parts.
+
+The cost of the chosen option is one method every implementation must provide.
+`test/nodes/node-checksum-data-plane.db.spec.ts` implements the whole interface
+in its local provider precisely so that the day somebody adds a method without
+implementing it everywhere, a file stops compiling.
+
+## 21. `example.checksum`: the reference node-eligible type
+
+Before #269 this template shipped **no node-eligible handler**, and the
+consequence was not cosmetic: `claimJobs` intersects with the registry's
+node-eligible types (§11), so with none registered, every claim by every node
+correctly returned an empty list. The entire data plane could be wrong in any
+way at all and nothing in this repository would notice, because nothing could
+reach it.
+
+`example.checksum` (`apps/api/src/jobs/handlers/example-checksum.handler.ts`)
+takes `subjectType: 'storage_object'` and a `StorageObject.id`, and exercises
+the complete path: claim → download URL → stream → SHA-256 → submit → schema
+validation → `persistNodeResult` writing `{ sha256, bytes }` into
+`StorageObject.metadata`, plus the failure and lease-renewal branches.
+
+It is deliberately generic. **Rejected: a node-eligible `example.echo`** (post
+`{ ok: true }`) — it would exercise the control plane and skip the whole data
+plane, which is the half #269 adds and the half that is easy to get wrong.
+**Rejected: anything domain-specific** — thumbnails, PDF page counts,
+transcodes, inference — each needs a native dependency (`sharp`, `pdfium`,
+`ffmpeg`, a model runtime) that a template must not force on a fork which will
+delete this handler on day one, and which turns "can I run a node?" into a
+packaging problem before it is a queue problem. SHA-256 over a stored object is
+provider-agnostic, needs nothing beyond `node:crypto`, is genuinely useful
+(integrity, deduplication, a stable content id), and is CPU-bound work over a
+stream — the exact shape worth moving off the API server.
+
+Its `process` and `persistNodeResult` **share one private write**. The compute
+half differs by executor; the persist half is a single method called from both,
+because otherwise a job's stored result depends on which executor claimed it —
+a divergence nothing catches by accident, since each path is naturally tested
+on its own.
+
+## 22. The result contract crosses the boundary as **data**
+
+`GET /api/nodes/job-types` lists every node-eligible type with its
+`nodeResultSchema` converted by `z.toJSONSchema()`, so a client validates a
+result before posting it, against the definition this server will actually
+enforce. The schemas live in `apps/api/src/jobs/contracts/`.
+
+**Rejected: a shared `packages/job-contracts` workspace.** The reasons are
+already written down in `packages/shared/index.js`, which is the one package
+that had to solve this problem in this repository:
+
+* `apps/api` builds with `rootDir: ./src`. Importing TypeScript **source** from
+  outside that root widens it, and tsc then emits `dist/src/main.js` — which no
+  longer matches `start:prod`'s `node dist/main`. The build stays green and the
+  container breaks.
+* `apps/api`'s Jest config has no `moduleNameMapper` and the default
+  `transformIgnorePatterns` (`/node_modules/`), so a workspace symlink
+  resolving to `.ts` would be untransformed and every API suite would die at
+  import time.
+* CI runs `npm ci` and goes straight to typecheck; nothing builds a fourth
+  workspace first, so a package needing compilation would have to add a step to
+  several jobs.
+
+`packages/shared` escapes all of that by shipping committed `.js` plus a
+hand-written `.d.ts` — which works for a string constant and is useless for a
+Zod schema, whose entire value is the runtime object. Serving the schema over
+HTTP has none of those problems and one extra property a package cannot have:
+a client on an older release cannot validate against a schema this server
+stopped using.
+
+`resultSchema` is **`null`, never `{}`**, when a schema has no JSON Schema
+representation. `{}` means "anything is valid", so an empty object would be a
+lie in the most expensive direction — the client would confidently validate
+garbage and be refused by the server it just agreed with. The type is still
+listed, because it is still claimable.
+
+⚠ The route is a **literal under `/nodes` and must be declared before any
+`:id` route**. `GET /api/nodes/{id}` already exists, so declaring `job-types`
+after it routes every request for the contract list into the node lookup, where
+`ParseUUIDPipe` answers `400 "Validation failed (uuid is expected)"` — a
+message that names nothing about the real mistake.
 
 ## Rejected alternatives
 
@@ -555,6 +840,44 @@ parameter that hands the one safety property the lease exists for to the least
 trustworthy participant: a node asking for a 24-hour lease parks every row it
 claims for a day, and nothing in the fleet looks broken while it happens.
 
+**Proxying job bytes through the API** (`GET …/input` streaming the object,
+`POST …/output` accepting it). The smallest diff and the worst outcome: every
+byte of every job would cross the API process twice, so the API's memory, event
+loop and egress bill become a function of how much work the *fleet* is doing —
+the exact coupling a worker node exists to remove. A ten-node fleet hashing 1 GB
+objects would saturate the API before it saturated anything that was computing.
+It also puts long-lived streaming connections on the process that serves
+interactive requests, so one large transfer degrades every page load, and a node
+on a slow link holds a request open for minutes against every timeout in the
+stack (Nginx, Fastify, the load balancer) — each of which would have to be
+raised, for everyone.
+
+**Giving nodes storage credentials.** Also small, also worse. A credential
+handed to a node is a bucket-wide capability sitting in a config file on a
+machine this deployment may not own, for as long as that machine exists: it does
+not expire when the job ends, it is not scoped to one object, and it cannot be
+revoked without rotating it for every other holder. A node compromised on
+Tuesday can read every object in the bucket on Friday. A signed URL is the same
+capability reduced along three axes at once — one object, one verb, minutes —
+and a decommissioned node holds nothing to rotate.
+
+**Letting the node choose the upload key.** §17. A signed PUT is an
+unconditional overwrite of exactly its key, so a key from the request body is a
+write primitive over the whole bucket handed to the least trustworthy
+participant. `../../etc/config.json` and the storage key of any row in
+`storage_objects` are both just strings, and no provider objects: S3 keys are
+opaque, `..` is not special, and there is no filesystem to refuse the traversal.
+The damage is silent — a job that "succeeded" while overwriting another user's
+file.
+
+**Shipping no node-eligible handler.** §21. It is what #268 shipped under, and
+it leaves the fleet untestable end to end: with no node-eligible type
+registered, every claim by every node correctly returns nothing, so no
+data-plane defect is observable from this repository at all.
+
+**A shared `packages/job-contracts` workspace.** §22, and
+`packages/shared/index.js` for the three build-system reasons in full.
+
 **Requeueing a deregistering node's jobs.** `deregister` is an HTTP call a
 process makes while shutting down; nothing proves the work actually stopped.
 Requeueing on that say-so would hand a still-running job to a second executor.
@@ -589,6 +912,29 @@ The load-bearing suites:
   claiming through `JobClaimService`, over two independent clients, never
   receive the same row. Unprovable against a mock, which is why it is a
   `*.db.spec.ts`.
+* `apps/api/src/nodes/node-data-plane.service.spec.ts` — the guard being
+  REACHED rather than reimplemented, the key being derived server-side (asserted
+  on the argument handed to the provider, because a service that reported one
+  key while signing another would pass any body-only assertion), the expiry
+  clamp in both directions, and the three input-resolution reasons.
+* `apps/api/test/nodes/node-data-plane.integration.spec.ts` — the same over the
+  real router: `GET /api/nodes/job-types` being reachable at all (route order),
+  valid JSON Schema for every node-eligible type, `409` without a lease, `400`
+  naming a node-supplied `key`, `422` with `details.reason`, and a `Logger` spy
+  proving no signed URL reaches a log line.
+* `apps/api/src/jobs/handlers/example-checksum.handler.spec.ts` — both
+  executors leaving the same row, `persistNodeResult` never touching the
+  provider, the merge into `metadata`, and the near-miss digests (upper case,
+  prefixed, truncated) a fork's own node would produce.
+* `apps/api/src/storage/storage-job-input.spec.ts` — the three failures one at
+  a time, each asserting the message names the job and is not `open ''`.
+* `apps/api/test/nodes/node-checksum-data-plane.db.spec.ts` — **real Postgres
+  only.** `example.checksum` from enqueue to persisted metadata, with a local
+  signing storage provider: the "node" is handed nothing but the job and the
+  URL it asked for, so it can only succeed if the data plane really works.
+  Covers the lease-renewal and failure branches, the malformed result refused
+  before `persistNodeResult`, and a node-supplied key refused against the job's
+  own input object.
 * `apps/api/src/nodes/node-credential.service.spec.ts` — the four rejection
   paths one at a time, and the `expiresAt: null` group.
 * `apps/api/src/auth/guards/jwt-auth.guard.spec.ts` — the allowlist, the

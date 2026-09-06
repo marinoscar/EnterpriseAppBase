@@ -7,6 +7,7 @@ import {
   HeadObjectCommand,
   CopyObjectCommand,
   CreateMultipartUploadCommand,
+  PutObjectCommand,
   UploadPartCommand,
   CompleteMultipartUploadCommand,
   AbortMultipartUploadCommand,
@@ -22,6 +23,7 @@ import {
   MultipartUploadInit,
   UploadPart,
   SignedUrlOptions,
+  SignedPutUrlOptions,
 } from '../storage-provider.types';
 
 /**
@@ -323,6 +325,51 @@ export class S3StorageProvider implements StorageProvider {
       const stack = error instanceof Error ? error.stack : undefined;
       this.logger.error(
         `Failed to generate signed download URL for key ${key}: ${message}`,
+        stack,
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Generate a signed URL for a single-shot `PUT` of a whole object.
+   *
+   * `PutObjectCommand`, deliberately — not `UploadPartCommand`. See the block
+   * comment on `getSignedPutUrl` in `../storage-provider.interface.ts` for why
+   * a one-part multipart upload was rejected for this.
+   *
+   * ⚠ `ContentType` IS ONLY SET WHEN THE CALLER SUPPLIED ONE. S3 signs the
+   * headers it is given: presigning with a `Content-Type` the uploader then
+   * does not send exactly produces a `SignatureDoesNotMatch` on a machine
+   * nobody is watching, and the error names the signature rather than the
+   * header that caused it. Omitting it leaves the uploader free, which is the
+   * right default for a caller that is guessing.
+   *
+   * The URL itself is NEVER logged, here or anywhere else — it is a bearer
+   * write capability for `key` until it expires. The debug line below names
+   * the key only, matching `getSignedDownloadUrl` beside it.
+   */
+  async getSignedPutUrl(
+    key: string,
+    options?: SignedPutUrlOptions,
+  ): Promise<string> {
+    this.logger.debug(`Generating signed PUT URL for key: ${key}`);
+
+    try {
+      const expiresIn = options?.expiresIn || 3600;
+
+      const command = new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        ...(options?.contentType ? { ContentType: options.contentType } : {}),
+      });
+
+      return await getSignedUrl(this.s3Client, command, { expiresIn });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const stack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(
+        `Failed to generate signed PUT URL for key ${key}: ${message}`,
         stack,
       );
       throw error;
