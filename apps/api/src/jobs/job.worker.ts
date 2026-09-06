@@ -225,6 +225,39 @@ export function resolveWorkerConcurrency(config: ConfigService): number {
 }
 
 /**
+ * How long a claim's lease is good for, derived from `JOBS_JOB_TIMEOUT_MS`.
+ *
+ * EXTRACTED FOR THE SAME REASON AS `resolveWorkerConcurrency` ABOVE, and with
+ * a sharper consequence: a second claimer appeared. The node control plane
+ * (#268) takes rows through the same `JobClaimService` this pool does, and it
+ * has to take them with the SAME lease — because the lease is not a private
+ * detail of a claimer, it is the contract the lease reaper (#263) reads to
+ * decide a claim is dead.
+ *
+ * Two independent lease derivations would drift the moment either side was
+ * tuned, and the failure would be silent in the worst direction: a node plane
+ * computing a lease shorter than a job's timeout would have the reaper requeue
+ * work that is still running perfectly well on a machine nobody is watching,
+ * producing duplicate execution that looks exactly like a queue bug. One
+ * function, one number, both executors.
+ *
+ * `LEASE_GRACE_MS` and `UNBOUNDED_LEASE_MS` carry the reasoning for the two
+ * branches; the defensive fallback exists for the same reason as above (a
+ * directly-constructed test double with a stub `ConfigService` must degrade to
+ * the shipped behaviour rather than to `NaN`, which here would produce an
+ * unwritable `lease_expires_at`).
+ */
+export function resolveJobLeaseMs(config: ConfigService): number {
+  const value = config.get<number>('jobs.jobTimeoutMs');
+  const timeout = Math.max(
+    0,
+    typeof value === 'number' && Number.isFinite(value) ? value : DEFAULT_JOB_TIMEOUT_MS
+  );
+
+  return timeout > 0 ? timeout + LEASE_GRACE_MS : UNBOUNDED_LEASE_MS;
+}
+
+/**
  * What a per-job timeout throws.
  *
  * A distinct class rather than a bare `Error` so the failure is greppable in
@@ -780,11 +813,14 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
     return Math.max(0, this.configNumber('jobs.jobTimeoutMs', DEFAULT_JOB_TIMEOUT_MS));
   }
 
-  /** See `LEASE_GRACE_MS` for why this is derived rather than configured. */
+  /**
+   * See `LEASE_GRACE_MS` for why this is derived rather than configured, and
+   * `resolveJobLeaseMs` for why the derivation is module-level: the node
+   * control plane (#268) claims through the same service and must take the
+   * same lease.
+   */
   private leaseMs(): number {
-    const timeout = this.timeoutMs();
-
-    return timeout > 0 ? timeout + LEASE_GRACE_MS : UNBOUNDED_LEASE_MS;
+    return resolveJobLeaseMs(this.config);
   }
 
   /** `JOBS_SYSTEM_MODE_EXTRA_TYPES`, already split by `configuration.ts`. */

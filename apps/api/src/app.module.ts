@@ -16,6 +16,7 @@ import { DeviceAuthModule } from './device-auth/device-auth.module';
 import { StorageModule } from './storage/storage.module';
 import { PatModule } from './pat/pat.module';
 import { NodeCredentialModule } from './nodes/node-credential.module';
+import { NodesModule } from './nodes/nodes.module';
 import { CredentialsModule } from './credentials/credentials.module';
 import { EmailModule } from './email/email.module';
 import { NotificationsModule } from './notifications/notifications.module';
@@ -101,6 +102,20 @@ import configuration from './config/configuration';
     // costs nothing at runtime: no loop is started and no query is issued
     // until a worker exists.
     JobsModule,
+    // The worker-node control plane (#268, epic #254): register/reattach,
+    // heartbeat, claim, lease renewal, result and failure submission at
+    // `/api/nodes`. Registered AFTER `JobsModule` for readability only — Nest
+    // resolves the graph, not the order — but the dependency is real and
+    // one-way: this module claims through `JobClaimService` and settles
+    // through `JobTerminalService` rather than owning either, which is what
+    // keeps the two executors (this API's own worker pool, and a remote node)
+    // from ever disagreeing about a row.
+    //
+    // Deliberately separate from the `@Global` `NodeCredentialModule` above,
+    // which carries only the guard's dependency; see the block comments in
+    // both node modules for why splitting by dependency weight is what keeps
+    // `JwtAuthGuard` out of a cycle with `JobsModule`.
+    NodesModule,
 
     // Maintenance mode (#257, epic #254): the three-layer switch, its admin
     // endpoints, and the global guard registered below. Imported here — rather
