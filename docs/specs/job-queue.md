@@ -4,7 +4,8 @@
 > `buildDedupKey`, #259 the handler contract, registry, worked example and
 > this document, #260 enqueue with index-backed dedup and the atomic
 > `SKIP LOCKED` claim, #261 the terminal state machine, #262 the in-process
-> worker pool and worker modes, #263 queue hygiene, #264 the admin API).
+> worker pool and worker modes, #263 queue hygiene, #264 the admin API,
+> #265 insights and ETA).
 > Implemented in
 > `apps/api/prisma/schema.prisma` (the `Job` and `JobStatsRollup` models),
 > `apps/api/src/jobs/job-keys.ts`,
@@ -24,6 +25,8 @@
 > `apps/api/src/jobs/job-temp.ts`,
 > `apps/api/src/jobs/tasks/`,
 > `apps/api/src/jobs/job-admin.service.ts`,
+> `apps/api/src/jobs/job-insights.service.ts`,
+> `apps/api/src/jobs/job-counts.util.ts`,
 > `apps/api/src/jobs/job-admin.controller.ts`,
 > `apps/api/src/jobs/dto/`,
 > `apps/api/src/jobs/jobs.module.ts` and
@@ -39,7 +42,14 @@
 > describes what #263 shipped: the lease reaper, the nightly history purge
 > with its lifetime rollup, and the temp-file janitor. Section 8 describes what
 > #264 shipped: the admin API — the stats roll-up, the filtered list, and the
-> four repair actions.
+> four repair actions. Section 9 describes what #265 shipped: the insights and
+> ETA endpoint, and the lifetime-rollup reset beside it.
+>
+> **The queue can be reasoned about as of #265.** §8 answers "what is the queue
+> doing right now"; §9 answers "how long will this take, and is it getting
+> faster or slower" — and it does so *without becoming a writer*, which is the
+> single property that makes an analytical endpoint safe to point at a table a
+> worker pool is claiming from. See §9.1.
 >
 > **The queue is operable as of #264.** It is also the first point at which
 > this module has an HTTP surface at all: everything through §7 is machinery
@@ -1432,7 +1442,8 @@ produce a configuration that contradicts itself, which is the same argument
 
 Six routes under `/api/admin/jobs`, and they are the first HTTP surface this
 module has ever had — everything through §7 is machinery with no controller.
-Two of them read, four repair.
+Two of them read, four repair. (§9 adds two more to the same controller, under
+the same permission split and the same declaration-order rule.)
 
 | Route | Permission | What it does |
 |---|---|---|
@@ -1688,6 +1699,260 @@ payload therefore never reaches the client. So the running-job refusal sends
 `details: { jobId, status: 'running', reason: 'job_running' }` and the dedup
 collision sends `details: { jobId, reason: 'active_dedup_conflict' }`.
 
+## 9. Insights and ETA
+
+> #265. `apps/api/src/jobs/job-insights.service.ts`,
+> `apps/api/src/jobs/dto/job-insights.dto.ts`,
+> `apps/api/src/jobs/job-counts.util.ts`, and two more routes on the §8
+> controller.
+
+§8's `stats` answers *what is the queue doing right now*. It structurally
+cannot answer the two questions an operator asks next — **how long will this
+take**, and **is it getting faster or slower** — because both need history,
+and `stats` deliberately runs no query that carries a `where`.
+
+Two routes answer them:
+
+| Route | Permission | What it does |
+|---|---|---|
+| `GET /api/admin/jobs/insights?windowDays=` | `jobs:read` | Live counts, duration percentiles over a bounded window, a per-type completion estimate, and all-time totals |
+| `POST /api/admin/jobs/insights/reset-history` | `jobs:write` | Clears `JobStatsRollup`; live rows untouched |
+
+`windowDays` defaults to 7 and is capped at 90. Both routes are declared with
+the other literals, **above** `:id` — §8.7's rule, which is about the rule and
+not about which literals happen to be safe today.
+
+### 9.1 ⚠ Every query is a pure `SELECT`, and that is why this endpoint exists
+
+This is the load-bearing property of the whole section, and it is stated in the
+service's file header in the same words.
+
+The endpoint reports on a table a worker pool is actively claiming rows out of.
+The claim (§4.4) is an `UPDATE … WHERE id IN (SELECT … FOR UPDATE SKIP LOCKED)`:
+it takes `ROW EXCLUSIVE` on `jobs` and holds row locks for the life of its
+transaction. Anything here that took a conflicting lock would not merely be
+slow — **it would block the queue it is reporting on**, and it would do so
+exactly when an operator opens the dashboard, which is exactly when the queue
+is already in trouble. A monitoring surface that can stall the thing it
+monitors is worse than no monitoring surface.
+
+So every statement is a plain `SELECT` — Prisma `groupBy`, `count`, `findMany`,
+and two `$queryRaw`s whose text begins with `SELECT`. A plain `SELECT` takes
+`ACCESS SHARE`, which conflicts with nothing but `ACCESS EXCLUSIVE`
+(`DROP`/`ALTER TABLE`), and under READ COMMITTED it does not wait behind
+`FOR UPDATE` row locks either: it sees the last committed version and moves on.
+Insights and a saturated worker pool are mutually invisible.
+
+The rules that keep it that way, for anyone extending the file:
+
+- **No `FOR UPDATE`, `FOR SHARE`, `LOCK TABLE` or advisory lock.** Ever.
+- **No write of any kind** — not a counter bump, not a `last_viewed_at` stamp,
+  not an upsert into a cache table. `resetHistory()` is the one write in the
+  service and it is a separate, separately authorized route.
+- **No `$executeRaw`.** Raw SQL is a `$queryRaw` starting with `SELECT`.
+
+Both halves are proved. `src/jobs/job-insights.service.spec.ts` asserts that no
+statement the service issues *contains* a lock or a mutating verb — the half a
+database cannot prove, since it never sees SQL that was not sent.
+`test/jobs/job-insights.db.spec.ts` asserts the other half against real
+Postgres: it holds `FOR UPDATE` row locks open on claimed rows in one
+transaction and runs the entire computation from a second connection, which
+must return complete, correct numbers without waiting.
+
+### 9.2 On demand and in parallel — no snapshot table, no cron, no polling
+
+Eight queries, issued together through one `Promise.all`, all answered from
+indexes the schema already has. Nothing is precomputed and nothing is kept.
+
+`Promise.all` is a **correctness** choice before it is a latency one: the live
+backlog, the window's percentiles and the lifetime totals must describe very
+nearly the same instant, or the ETA is computed from a queue depth that has
+already moved — the same argument §8 makes for summing `stats.total` out of its
+first aggregate rather than counting it separately.
+
+There is deliberately no cache. §8.4's two-second roll-up exists because a
+*dashboard polls* `stats`; insights is opened by a person, so there is nothing
+to collapse.
+
+### 9.3 What the four blocks contain
+
+**`live`** — totals by status and a `byType` breakdown, plus three counts an
+operator triages with: `scheduled` (pending, with a future `scheduled_for`),
+`rateLimited` (`rateLimitHits > 0` and **non-terminal** — a finished job is not
+being held up by anything), and `retried` (`attempts > 1`, terminal rows
+included, because "how much of this history needed a second go" is the
+question).
+
+**`history`** — over **succeeded** jobs inside the window: `samples`, `avgMs`,
+`p50Ms` and `p95Ms` via `PERCENTILE_CONT` in raw SQL, plus `throughputPerMin`
+computed from the **last hour** rather than from the window (averaging
+throughput over a week turns a queue that stopped an hour ago into one that
+looks healthy). `overall` and `byType` come from **one scan**, via
+`GROUP BY GROUPING SETS ((type), ())`: the grand total's percentiles cannot be
+derived from the per-type rows — a percentile is a position in a sorted
+distribution — so they have to be their own aggregate, and computing them in
+the same scan is what guarantees `overall.samples` equals the sum of
+`byType[].samples`. `PERCENTILE_CONT`, not `PERCENTILE_DISC`: the continuous
+form interpolates, so a slowing job type moves p95 smoothly instead of jumping
+between two observed durations.
+
+`avgMs`, `p50Ms` and `p95Ms` are **nullable, and zero would be a lie**. A type
+with no successes in the window has no average; `0` renders as "this job type
+is instant" and, worse, is a number the ETA multiplies a backlog by. `samples`
+is the field that says whether the other three mean anything.
+
+**`eta`** — per type, `remaining = pending + running` (a running job is still
+work the operator is waiting for), times that type's own average, divided by
+the configured worker concurrency. Types with nothing outstanding are omitted:
+this array is a to-do list.
+
+The average is resolved in three steps and the response **says which one won**:
+
+| `basis` | Where `avgMs` came from | What it means |
+|---|---|---|
+| `live` | This type's own succeeded jobs in the window | The estimate is a measurement |
+| `partial` | The overall average across all types | The estimate is an analogy, and a bad one whenever job types differ in cost |
+| `none` | A shipped constant (`FALLBACK_JOB_DURATION_MS`) | The estimate is a placeholder |
+
+Publishing only the milliseconds would make those three indistinguishable on
+the wire, and a UI would render all of them with the same confidence. With
+`basis` a client can say "about 4 minutes", "roughly 4 minutes, based on other
+job types", and "no idea yet" from one field.
+
+The divisor is read through `resolveWorkerConcurrency()`, **exported from
+`job.worker.ts`** — the same one read path `JobWorker` itself uses, extracted
+for exactly the reason `parseWorkerMode` was (§6.3). An ETA computed against a
+different number from the one the pool actually runs stays plausible while
+being wrong by a constant factor, which is the kind of error nobody catches by
+looking. It is floored at 1 for the divisor and published **raw**, so a client
+can see a `concurrency` of 0 and say the queue is not draining at all.
+
+**`lifetime`** — all-time succeeded / failed / total / average per type,
+merging `JobStatsRollup` with the live rows:
+
+```
+succeeded = rollup.succeededCount + (live succeeded rows)
+failed    = rollup.failedCount    + (live failed rows)
+avgMs     = (rollup.sumDurationMs + liveSum)
+            / (rollup.durationSamples + liveSamples)
+```
+
+### 9.4 The lifetime merge cannot double count, and §7.6 is the reason
+
+The merge is only correct because of the invariant the purge establishes: it
+folds a batch into the rollup and **deletes that exact batch inside one
+`$transaction`**, by the ids it just counted. So at any instant a terminal job
+is in exactly one of two places — still a `jobs` row, or an increment inside an
+accumulator — never in both and never in neither. Lifetime is therefore a plain
+sum of the two halves.
+
+The half that is easy to get wrong is the **denominator**, and the rule is
+`foldDeltas`': a duration sample is a **succeeded** row with both timestamps and
+a **non-negative** duration. Failures count towards `failedCount` and
+contribute nothing to the average (a failure's duration measures how long it
+took to break, which is dominated by timeouts); a negative duration — an NTP
+step backwards between the claim and the terminal write — drops out of the sum
+**and** the sample count together, because counting a sample whose duration was
+discarded drags the mean towards zero. The live query repeats that predicate
+exactly (`finished_at >= started_at`). If the two ever disagree, a type's
+lifetime average changes silently every time a purge runs.
+
+The live **counts** are not queried separately at all: they are read out of the
+same unconditional `groupBy(['type','status'])` the `live` block already ran,
+so the two blocks of one response cannot report different live totals. And the
+merge iterates the **union** of the two key sets — a type purged long ago has a
+rollup row and no live rows; a type introduced yesterday has live rows and no
+rollup row — because iterating either side alone drops half the deployment's
+history in the direction nobody checks, since the number that remains still
+looks like a number.
+
+### 9.5 Counts and averages, never lifetime percentiles
+
+`lifetime` publishes no percentiles, and that is a statement about what
+survives summarisation rather than a gap.
+
+A rollup row is four accumulators: two counts, a sum and a sample count. Those
+are exactly the quantities that can be merged — counts add, and a mean can be
+reconstructed from a sum and a denominator. **A percentile cannot.** p95 is a
+position in a sorted distribution, and the distribution was deleted. No scheme
+of storing "the p95 at purge time" and combining it with a live p95 produces
+the p95 of the union; it produces a number that *looks like* one, which is
+strictly worse than publishing nothing, because a wrong p95 is indistinguishable
+from a right one.
+
+So the honest split is: **`history` is a distribution over a bounded window**,
+where the rows still exist to be sorted; **`lifetime` is totals over all time**.
+Neither pretends to be the other.
+
+### 9.6 The window is bounded, and the ceiling is a 400 rather than a clamp
+
+`history` scans succeeded jobs whose `finished_at` falls inside the window,
+capped at 90 days. Computing a percentile means *sorting* the sample set, so an
+unbounded percentile query is one whose cost grows with a table nothing in this
+file controls — on an endpoint whose entire justification is that it cannot
+hurt the queue.
+
+A larger `windowDays` is **rejected with a 400**, not silently reduced. An
+operator who asked for a year and got a quarter, in a response that looks
+exactly like the one they asked for, would compare it against last month's
+figures and draw a conclusion about a window that was never computed. The bound
+lives on the Zod schema, so the global pipe answers before any query runs; the
+service clamps as well, because the bound belongs to the query's cost rather
+than to one route's validation and a future non-HTTP caller must not escape it.
+
+### 9.7 The `where` clauses are shaped to #255's partial indexes
+
+Two partial indexes exist in `20260906120000_add_jobs/migration.sql` for
+precisely these queries, and a partial index is usable only when the query's
+predicate **implies** the index's. That makes the exact spelling load-bearing
+rather than stylistic:
+
+- `jobs_attempts_gt1_idx ON jobs(attempts) WHERE attempts > 1` — so `retried`
+  is `attempts > 1`, not `attempts >= 2` and not `attempts != 1`. All three
+  describe the same integers; only the first matches the predicate as written.
+- `jobs_succeeded_duration_idx ON jobs(finished_at, started_at, type) WHERE
+  status = 'succeeded' AND started_at IS NOT NULL AND finished_at IS NOT NULL`
+  — so **both** raw queries repeat all three predicates, even though the NULL
+  tests look redundant beside an arithmetic expression that would yield NULL
+  anyway. Every column either query touches is *in* that index, so both are
+  answerable without visiting the heap and the window filter is a range scan on
+  its leading column. Dropping either NULL test turns an index-only scan into a
+  sequential scan of the whole table — and the query keeps returning the right
+  answer while doing so, which is why nobody notices.
+
+The two `groupBy` aggregates stay unfiltered for §8.4's reason:
+`jobs(status, type, id)` covers them, and any `where` pushes them onto the heap.
+
+### 9.8 Durations are cast to `double precision` at the database
+
+`EXTRACT(EPOCH FROM interval)` returns `numeric` on PostgreSQL 14 and later,
+and Prisma maps `numeric` to a `Decimal` **object** — so `avg()` and `sum()`
+over the uncast expression would serialize into the response body as
+`{"s":1,"e":3,…}`. Every count is likewise cast `::int`, because `count(*)` is
+`bigint`, which Prisma hands back as a JS `bigint`, which `JSON.stringify`
+refuses outright. This is the same trap the schema's `sumDurationMs` comment
+warns about: the response would not fail to be *built*, it would fail to be
+*sent*.
+
+### 9.9 `reset-history` clears accumulators, never jobs
+
+`POST /api/admin/jobs/insights/reset-history` deletes every `JobStatsRollup`
+row and returns `{ reset }` — **rows, not jobs**: one per job type, however
+many millions each summarised.
+
+Live rows are untouched. No job is deleted, no job changes state, and every
+live-derived number in the insights response — `live`, `history`, `eta`, and
+the live half of `lifetime` — is identical afterwards. Lifetime totals simply
+restart from the rows still in the table.
+
+It sits on the **write** side of the permission split even though it changes no
+job, because what it destroys is unrecoverable by any other means: the evidence
+needed to rebuild an accumulator is exactly what the purge deleted. That is
+also why it exists at all — a rollup corrupted by a botched migration, or a
+staging database seeded with fictional history, has an all-time average that is
+wrong forever, and starting the accumulators again is the only available
+repair.
+
 ## The extension recipe
 
 The operational version of this lives in
@@ -1904,6 +2169,42 @@ read, a batched loop, a transaction, and a scheduling task that enqueues it.
   would return the previous poll's numbers and the page would appear to update
   every other tick. Two seconds is deliberately shorter than any sensible poll
   (§8.4).
+- **A cron-refreshed snapshot table for insights.** The obvious "make it
+  fast" move — a `job_insights_snapshot` row rewritten on a timer that the
+  endpoint then reads — and rejected on four counts, the first fatal on its
+  own. (1) It is a **writer on the hot path**: the refresh would write into the
+  same table the worker pool claims from, forever, in every deployment
+  including the overwhelming majority whose queue nobody is watching — trading
+  away §9.1, the single reason the endpoint is safe, to speed up a page nobody
+  has open. (2) It answers a question nobody asked: a snapshot is stale by its
+  refresh interval, and queue depth is the input that changes fastest, so
+  "estimated 4 minutes" would be derived from a backlog that has since halved —
+  not a cached answer but a wrong one. (3) `windowDays` makes the answer a
+  function of the request, so the cache would need a key space the caller
+  supplies, or the parameter would have to go. (4) It is a migration, a table,
+  a scheduled task and a staleness rule, for an endpoint a human opens by hand
+  a few times a week (§9.2).
+- **Storing percentiles in `JobStatsRollup`.** Counts add and a mean can be
+  reconstructed from a sum and a denominator; a percentile is a position in a
+  sorted distribution, and the distribution was deleted. Combining a stored
+  "p95 at purge time" with a live p95 does not produce the p95 of the union —
+  it produces a number that looks like one, which is worse than publishing
+  nothing, because a wrong p95 is indistinguishable from a right one (§9.5).
+- **Unbounded lifetime percentiles.** "p95 over all time" sounds strictly
+  better than "p95 over 7 days" and is two bad things at once. After a purge it
+  cannot be computed at all — so it would silently mean "since the last purge",
+  a window that moves with the retention setting and is stated nowhere — and
+  where history *has* been kept it degrades exactly as the deployment grows, on
+  an endpoint whose whole justification is that it cannot hurt the queue
+  (§9.6).
+- **Silently clamping an out-of-range `windowDays`.** The response would look
+  exactly like the one that was asked for, over a window that was never
+  computed, and the operator would compare it against last month's figures
+  (§9.6).
+- **Injecting `JobWorker` into the insights service for the ETA divisor.**
+  What that service needs is a configuration answer, not the worker pool, and
+  anything holding the pool can stop it — the same argument the temp-file
+  janitor makes for reading the mode through `parseWorkerMode` (§9.3, §6.3).
 - **Making the database backup a job type.** Recorded in epic #254's own
   locked decisions and repeated here because it is the obvious thing to try:
   the stuck-job threshold would reset a 30-minute `pg_dump` and start a
@@ -2127,3 +2428,51 @@ asserted instead is the property the plan depends on: that neither aggregate
 carries a `where`. Likewise no test drives two admins into a real dedup
 collision; the P2002 is injected, because Postgres raising it on that index is
 already proved by `test/jobs/jobs-enqueue.db.spec.ts`.
+
+What #265 proves, and by what. The split follows the shape of the claims. The
+first block runs against a **real Postgres** (`npm run test:db`) because each
+of its claims is about what the database does — what `PERCENTILE_CONT`
+interpolates, what lock a statement takes, and whether the rollup/live merge
+stays conserved when rows genuinely move between the two. The second runs
+without one, because a mock is the only thing that can capture a `where`
+verbatim, drive all three ETA bases from a fixture that *is* the whole table,
+and assert that a statement the service never sent contains nothing dangerous:
+
+| Claim | Covered by |
+|---|---|
+| The whole computation completes, promptly and correctly, while another connection holds `FOR UPDATE` locks on claimed rows in an open transaction | `test/jobs/job-insights.db.spec.ts` — a second `PrismaClient`, the claim's own `SELECT … FOR UPDATE SKIP LOCKED` shape, insights run from inside the lock's lifetime with an elapsed-time bound so a conflicting lock fails as an assertion rather than as a hang |
+| p50 and p95 equal the hand-computed `PERCENTILE_CONT` interpolations on a seeded fixture (p95 = 4800 over 1000…5000 ms, which `PERCENTILE_DISC` would answer 5000) | `test/jobs/job-insights.db.spec.ts` |
+| Only jobs inside the window count; failed and untimed rows are excluded from the distribution | `test/jobs/job-insights.db.spec.ts` — the same fixture read at two window sizes |
+| `throughputPerMin` counts the last hour, not the window | `test/jobs/job-insights.db.spec.ts` |
+| `retried` and `rateLimited` match the partial-index predicates against real rows, terminal rate-limited rows excluded | `test/jobs/job-insights.db.spec.ts` — asserted as deltas, because the suite owns its type prefix and not the table |
+| Lifetime totals are **identical** before and after a real purge, and unchanged by a second purge (no double counting) | `test/jobs/job-insights.db.spec.ts` — the real `JobHistoryPurgeHandler` over real rows, with the rollup read back |
+| A type whose live rows are all purged still appears in `lifetime` | `test/jobs/job-insights.db.spec.ts` |
+| `reset-history` clears the rollup, leaves every job row and every live-derived block byte-identical, and leaves lifetime reporting the survivors alone | `test/jobs/job-insights.db.spec.ts` — foreign rollup rows are captured and restored, because the control is deliberately not scoped by type |
+| `basis` is `live` when the type has its own history and `partial` when it falls back to the overall average | `test/jobs/job-insights.db.spec.ts` (both survive unrelated rows) and `src/jobs/job-insights.service.spec.ts` |
+
+| Claim | Covered by |
+|---|---|
+| Every raw statement begins with `SELECT` and contains no `INSERT`/`UPDATE`/`DELETE`/`FOR UPDATE`/`FOR SHARE`/`LOCK TABLE`/advisory lock | `src/jobs/job-insights.service.spec.ts` — asserted on the SQL text, which is the half a database cannot prove: it never sees a statement that was not sent |
+| A read writes nothing at all | `src/jobs/job-insights.service.spec.ts` |
+| The window is a bound parameter, not interpolated text | `src/jobs/job-insights.service.spec.ts` — asserts `Prisma.Sql`'s `values` and `sql`, as `job-claim.service.spec.ts` does for the claim |
+| `basis` is `none` with no history anywhere | `src/jobs/job-insights.service.spec.ts` — a statement about the *whole table*, which a prefix-scoped database suite cannot own |
+| Out-of-range, zero, negative, fractional and non-numeric `windowDays` are 400s; 90 is accepted; a direct service call is clamped | `src/jobs/job-insights.service.spec.ts` and `test/jobs/job-admin.integration.spec.ts` (through the real pipe, asserting no query ran) |
+| Both `groupBy` aggregates stay unfiltered, so the covering index can serve them | `src/jobs/job-insights.service.spec.ts` |
+| The three live counts carry exactly the predicates the partial indexes are built on | `src/jobs/job-insights.service.spec.ts` — the captured `where`s in full |
+| An empty window publishes nulls, not zeroes | `src/jobs/job-insights.service.spec.ts` |
+| Running jobs count as remaining; types with nothing outstanding are omitted; the longest wait is first | `src/jobs/job-insights.service.spec.ts` |
+| The ETA divides by the configured concurrency, floors the divisor at 1, publishes the raw value, and degrades to the shipped default rather than `NaN` | `src/jobs/job-insights.service.spec.ts` |
+| The lifetime merge adds rollup and live without double counting, includes a purged-only type and a rollup-less type, and reports `null` rather than `NaN` for a type that has only failed | `src/jobs/job-insights.service.spec.ts` |
+| All eight queries are in flight at once | `src/jobs/job-insights.service.spec.ts` — a peak-concurrency counter, which is what makes `Promise.all` an assertion rather than a comment |
+| `resetHistory` deletes every rollup row and touches no job query | `src/jobs/job-insights.service.spec.ts` |
+| Both insights routes resolve ahead of `:id`, and both are Admin-only against an anonymous caller and a viewer | `test/jobs/job-admin.integration.spec.ts` — driven through the real router, asserting the COMPUTATION RAN rather than merely that the status was not 400 |
+| Both routes carry `x-rbac` and the document still lints | `npm run openapi:dump` + `npm run openapi:lint` |
+
+Be honest about the limits of #265. No test asks Postgres whether the two
+partial indexes are genuinely *chosen* — that is a planner question, and
+pinning an `EXPLAIN` is pinning a decision a version upgrade may legitimately
+change. What is asserted instead is the property the plan depends on: that each
+`where` states the index's predicate. `basis: 'none'` is proved only without a
+database, because it is a claim about the whole table and the database suite
+owns one type prefix. And nothing here proves the endpoint is *fast* on a large
+table; what is proved is that it cannot be in anyone else's way while it runs.
