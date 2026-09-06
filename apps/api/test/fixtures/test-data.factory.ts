@@ -59,6 +59,18 @@ export const mockPermissions = {
     name: 'allowlist:write',
     description: 'Modify allowlist',
   },
+  // The background queue's admin surface (#264, epic #254). Seeded to Admin
+  // only in `prisma/seed-data.ts`, and mirrored that way below.
+  jobsRead: {
+    id: randomUUID(),
+    name: 'jobs:read',
+    description: 'View queued, running and completed jobs',
+  },
+  jobsWrite: {
+    id: randomUUID(),
+    name: 'jobs:write',
+    description: 'Enqueue, retry and cancel jobs',
+  },
 };
 
 export const mockRoles = {
@@ -350,6 +362,8 @@ export const rolePermissionsMap = {
     mockPermissions.rbacManage,
     mockPermissions.allowlistRead,
     mockPermissions.allowlistWrite,
+    mockPermissions.jobsRead,
+    mockPermissions.jobsWrite,
   ],
   contributor: [
     mockPermissions.userSettingsRead,
