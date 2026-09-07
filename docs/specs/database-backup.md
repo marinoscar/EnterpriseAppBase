@@ -1,9 +1,10 @@
 # Database Backup
 
 > Epic #254, Phase 6 (#280 the `pg_*` process wrappers, the client/server
-> version guard and the schedule translation; **#281** the
-> `DatabaseBackupRun` model, the single-active-run index, the streaming
-> `pg_dump` engine and this document).
+> version guard and the schedule translation; #281 the `DatabaseBackupRun`
+> model, the single-active-run index, the streaming `pg_dump` engine and this
+> document; **#282** the scheduler, the retention rules and the staleness
+> sweep).
 > Implemented in
 > `apps/api/prisma/schema.prisma` (the `DatabaseBackupRun` model and its two
 > enums),
@@ -14,20 +15,24 @@
 > `apps/api/src/db-backup/schedule.util.ts`,
 > `apps/api/src/db-backup/db-backup-storage.ts`,
 > `apps/api/src/db-backup/db-backup.errors.ts`,
-> `apps/api/src/db-backup/db-backup-runner.service.ts` and
+> `apps/api/src/db-backup/db-backup-runner.service.ts`,
+> `apps/api/src/db-backup/db-backup-retention.service.ts`,
+> `apps/api/src/db-backup/tasks/db-backup-schedule.task.ts` and
 > `apps/api/src/db-backup/db-backup.module.ts`.
 >
 > **On what is merged today.** §1–§3 describe the table and the guard that
 > makes "one backup at a time" true. §4–§8 describe the engine: the claim, the
 > streaming contract, verification, the heartbeat, failure ordering and
-> cancellation. §9 describes the storage-provider constraint. §10 lists the
-> rejected alternatives, §11 the verification.
+> cancellation. §9 describes the storage-provider constraint. §10–§12 describe
+> the caller #282 added: the scheduler and its boundary rule, retention's two
+> clocks, and the staleness sweep. §13 lists the rejected alternatives, §14 the
+> verification.
 >
-> **Nothing triggers a backup yet.** `DbBackupModule` is registered in
-> `app.module.ts` so a broken provider graph fails at boot, but the scheduler,
-> the retention sweep and the stale sweep are #282, and the admin API is #283.
-> The engine is complete and driven end to end by its own suite; what is
-> missing is a caller.
+> **What is still missing is the admin API.** #283 adds the endpoints that let
+> an administrator see the run list, take a backup by hand and cancel one;
+> #285 adds restore. Backups themselves happen from #282 onward: with
+> `databaseBackup.enabled` turned on, a deployment takes and prunes them with
+> no human in the loop.
 
 ## Why this is not a queue job
 
@@ -322,7 +327,282 @@ Multi-provider backup destinations are **out of scope**. A fork that wants one
 adds a provider registry and reads this field to select from it; nothing here
 has to change shape for that, which is why the column exists now.
 
-## 10. Rejected alternatives
+## 10. Scheduling
+
+A single `@Cron` provider, `DatabaseBackupScheduleTask`, ticking **every ten
+minutes**. Each tick does two things, in this order:
+
+1. **Release stale runs** (§12).
+2. **Fire a due backup**, if one is due.
+
+The order matters and is not cosmetic. The sweep is what frees the
+single-active-run slot; if the fire went first it would collide with a zombie
+row left by a container that vanished mid-dump, log "already running", and
+push tonight's backup to the next tick — ten minutes of delay bought by
+nothing but statement order. The two calls are wrapped separately, so a failing
+sweep still lets the fire happen and vice versa: they share a tick, not a
+transaction.
+
+### 10.1 Why a ten-minute poll rather than the operator's own cron
+
+A backup scheduled for 02:00 starts somewhere in `[02:00, 02:10)`. Registering
+a timer on the operator's expression instead would be exact, and would have to
+be re-registered every time an administrator edited the schedule — and a
+missed tick (a deploy at 01:59, a restart, a paused container) would skip the
+night with nothing left behind to notice it. A coarse poll plus the boundary
+rule below **recovers** a missed window instead of losing it, which is the
+property that matters for something that runs once a day.
+
+### 10.2 The anti-double-fire rule
+
+```
+boundary = previousFireBoundary(expr, now, timezone)
+latest   = the run with the greatest started_at
+fire only if latest.started_at < boundary
+```
+
+The question is *"has a run already started since the moment this schedule last
+came due?"*, and the answer is computed from the settings and the table and
+from nothing else. That buys three properties at once:
+
+- **Exactly one run per boundary.** Six ticks fall inside a one-hour window;
+  five of them find a run at or after the boundary and stand down.
+- **A late tick still fires.** Down from 01:55 to 02:40, the 02:40 tick
+  computes the same 02:00 boundary, sees no run since it, and takes the backup
+  forty minutes late instead of not at all.
+- **Restarts are free.** There is no in-memory "last fired" to lose and no
+  column to keep current, so a fresh process reaches the same verdict as the
+  one it replaced.
+
+**Every trigger counts.** A `manual` backup taken at 02:05 satisfies the 02:00
+boundary and the scheduler stands down. The schedule's promise is *"a backup
+exists for this window"*, not *"a backup with the `scheduled` label exists"*,
+and taking a second full dump of the same database five minutes after an
+administrator took one is pure I/O for no additional safety.
+
+### 10.3 The timezone is passed explicitly
+
+`previousFireBoundary(expr, now, policy.timezone)` — never a two-argument call.
+Omitting the zone evaluates the operator's "02:00" in the **server's** zone,
+which in a container is UTC and is not what an operator in Denver typed. The
+symptom would be a backup running at the wrong hour with nothing reporting a
+problem.
+
+A zone this runtime does not know throws `InvalidTimezoneError` — #280 made it
+a throw rather than a `null` precisely so this layer can tell it apart from
+"nothing due" — and the scheduler **stands down**. Firing in UTC instead would
+put a nightly dump in the middle of the working day, and because the boundary
+would then be wrong the "already fired" check would be wrong with it.
+
+**It logs once.** Standing down happens on every tick — 144 a day — and the
+zone is evaluated *before* the due check, so an unlatched log would bury its
+own diagnosis under 144 identical copies daily. The latch is keyed on the
+offending value, so correcting the setting (or breaking it differently) logs
+again, and a zone that starts working clears the latch so a later regression is
+loud.
+
+### 10.4 DST is handled by the boundary, not by the scheduler
+
+The scheduler contains no timezone arithmetic of its own; §10.2 is correct
+across transitions because `previousFireBoundary` walks civil days in the
+configured zone (see `schedule.util.ts`). In practice, for a 02:00 daily
+schedule in `America/New_York`:
+
+| Transition | What happens |
+|---|---|
+| **Spring forward** — 02:00 does not exist | The boundary is the instant the clock jumped to (03:00 EDT). The backup runs an hour late rather than the night being silently skipped |
+| **Fall back** — 01:30 happens twice | The boundary is the **first** pass. The second pass finds a run that already covers it and stands down, so an ambiguous time does not mean two full dumps an hour apart |
+
+### 10.5 `databaseBackup.enabled` gates only the firing
+
+The sweep runs whatever the setting says. A run orphaned *before* an
+administrator switched scheduled backups off still holds the single active
+slot, and leaving it there would make every later **manual** backup fail with
+"already running" for a schedule nobody is using. The setting is a statement
+about taking backups automatically, not about cleaning up after ones that were
+already taken.
+
+### 10.6 `DB_BACKUP_SCHEDULE_ENABLED`, and never the worker mode
+
+The single most important line in the task is the one that is **not** there:
+there is no `if (workerMode === 'off') return`. A backup is not queue work
+(see "Why this is not a queue job"), and `JOBS_WORKER_MODE=off` says "this
+process executes no queued jobs" — it does not say "this deployment's database
+does not need backing up". A pure control plane in front of an external node
+fleet is still the only process with a database connection at all, so gating
+backups on its willingness to run jobs would mean that deployment silently
+never backs up.
+
+So the only switch is `DB_BACKUP_SCHEDULE_ENABLED`, bare and unprefixed like
+`JOBS_REAPER_ENABLED` and `NODE_STALE_OFFLINE_ENABLED`, defaulting to on, with
+only the literal `false` turning it off. It exists for the one legitimate case:
+several API replicas sharing one database where an operator wants exactly one
+of them scheduling. Running it everywhere is safe anyway — the active index
+makes the second claim a no-op and the sweep re-asserts its own predicate — the
+switch just saves the duplicated queries.
+
+Fail-open is the only defensible direction here, and more sharply than for the
+other two crons: a deployment whose backups silently stopped because of a typo
+in an env file is **indistinguishable** from one that is being backed up, right
+up until somebody needs a restore.
+
+## 11. Retention: two clocks
+
+`DatabaseBackupRetentionService` prunes by two different rules, over two
+different populations.
+
+| Population | Rule | Setting |
+|---|---|---|
+| `completed` runs whose trigger is **not** `pre_restore` | Keep the newest N; delete the rest, **oldest first** | `databaseBackup.retentionCount` |
+| `completed` runs whose trigger **is** `pre_restore` | Delete once older than the bound | `databaseBackup.oldDatabaseRetentionHours` |
+
+**Why count for ordinary runs.** A count is what an operator actually reasons
+about ("I want a week of nightlies"), and it is the only rule that survives a
+schedule change: switch `frequency` from daily to weekly under an age rule and
+the same number of days now keeps one backup instead of seven.
+
+**Why age for `pre_restore` runs, and why they are invisible to the count
+rule.** #285 takes a `pre_restore` backup immediately before it swaps a
+restored database into place, and under
+`restoreRollbackMode: 'drop_database'` — where the displaced database is not
+kept — **that dump is the only way back** from a restore that has just
+happened. A count rule knows nothing about that: with `retentionCount: 7` on a
+deployment that took seven nightlies after a restore, it would evict the
+rollback silently, on an ordinary Tuesday, and the operator would find out at
+the exact moment they needed it.
+
+So `pre_restore` runs are excluded from the count rule in **both** directions:
+they are not deleted by it, and they do not consume one of its N slots either.
+A retention count of 7 means seven *nightly* backups, not six plus whatever a
+restore left behind. (A rule that merely refused to delete them would still
+have counted them — that is the failure the "does not consume one of the N
+slots" test exists to catch.)
+
+Their bound is `oldDatabaseRetentionHours`, **reused deliberately**: that is
+already the setting answering "how long does the way back from a restore stay
+available", because under `retain_database` it is how long the displaced
+database survives before being dropped. The `pre_restore` dump is the same
+promise expressed in the other rollback mode, so the two must expire together —
+an operator who sets "keep the rollback for 48 hours" means 48 hours whichever
+mode they are in.
+
+**Oldest-first deletion.** The candidate query has to return newest-first —
+that is what makes `skip: retentionCount` mean "the keepers" — so the loop
+reverses it. Deleting in query order would eat the archive from the recent end
+whenever a prune broke half way through; oldest-first means an interrupted
+prune still leaves the newest N-ish intact, which is the property retention
+exists to provide.
+
+**`failed` and `stale` rows are never pruned here.** Their objects are already
+gone (the runner deletes a partial object before marking a run failed; the
+sweep deletes a stale one), so there is no storage to reclaim — and the row is
+the only record that a backup did *not* happen that night. Deleting it under a
+rule whose job is "keep N good backups" would erase precisely what an operator
+needs to notice that the good backups stopped. Ageing out failure history is a
+different rule (the shape `jobs.history.retentionDays` already has) and belongs
+beside this one rather than inside it.
+
+### 11.1 Deletion is object first, then row
+
+Always, and the opposite order looks equally reasonable until its failure is
+named:
+
+- **Row first, then object.** A crash or a refused delete between the two
+  leaves a multi-gigabyte object with nothing anywhere pointing at it. Nothing
+  will ever try again, because the only index of what exists in the bucket is
+  the table this just deleted from. Billed forever, and invisible.
+- **Object first, then row.** The same crash leaves a *row* whose object is
+  already gone: visible in the admin list, costing nothing, and deleted by the
+  next prune — re-deleting an absent key is a no-op on every provider this
+  interface targets.
+
+One failure is permanent and silent, the other transient and loud. So a failed
+object delete **keeps the row**; giving up on it would convert the second
+failure into the first.
+
+### 11.2 Pruning runs only after a successful backup, and never throws
+
+The call sits in the runner's success path, and its position there is three
+separate decisions:
+
+- **After verification**, because retention deletes older archives and this one
+  is only a replacement for them once `pg_restore --list` has proven it
+  readable. Pruning first would let a run that is about to fail verification
+  delete the last known-good backup on its way out.
+- **After the `completed` write**, not before it. The count rule keeps the
+  newest N `completed` runs, so a prune that ran while this row still said
+  `running` would not count it and would evict one *more* old backup than
+  retention asked for — a deployment set to keep 7 drifting to 6.
+- **Only on success.** There is no prune in the failure path. A failed backup
+  is exactly when the old archives matter most.
+
+`prune()` swallows its own failures by contract, and the call site wraps it in
+a second `try` anyway — because that call sits inside the `try` whose `catch`
+deletes the object and marks the run failed. If the contract were ever broken
+by a refactor, an exception there would delete the archive the run had just
+proven good. A missed prune costs storage; a thrown one would cost the backup.
+
+## 12. The staleness sweep
+
+A backup whose executing process disappears leaves a `running` row with a
+stopped heartbeat, and that row holds the single active slot forever. The sweep
+is what resolves it.
+
+Candidates are `running` rows matching either arm:
+
+1. `last_heartbeat_at < now - runStaleMinutes` — it was beating and stopped.
+2. `last_heartbeat_at IS NULL AND started_at < now - runStaleMinutes` — **the
+   zombie that never beat**, a process that died between the claim and its
+   first progress write. `NULL < cutoff` is `NULL` in SQL and never true, so
+   arm 1 cannot see it and without arm 2 the row holds the slot forever. Same
+   two-armed defence the queue's lease reaper and the fleet sweep use.
+
+`pending` is deliberately not swept: the runner never writes it (the claim and
+the start are one act), so there is nothing to sweep today. A future path that
+*does* insert a `pending` row must extend this predicate, or that row holds the
+slot with no heartbeat that could ever age it out.
+
+### 12.1 The transition is a conditional `updateMany`, and the row is the guard
+
+```sql
+UPDATE ... SET status = 'stale' WHERE id = $1 AND status = 'running'
+```
+
+The read and the write are not atomic, and the interesting case is the run that
+**finished in between** — a dump whose heartbeat was starved by a lock wait and
+that then completed normally two seconds later. `count === 0` means exactly
+that, and it must not be stomped: overwriting a `completed` row with `stale`
+would discard a verified backup's record *and* the object cleanup below would
+then delete the archive it points at.
+
+Because the `where` re-asserts everything it cares about, the statement is also
+idempotent across replicas: two API processes sweeping at the same moment
+produce one winner and one no-op. There is no advisory lock and no leader
+election, for the same reason `JobStuckResetTask` records.
+
+### 12.2 The row transitions first; object cleanup follows
+
+If the delete went first and the process died before the row was transitioned,
+the row would still say `running`, still hold the active slot, and still point
+at an object that no longer exists. With the row first, a failed delete leaves
+a **visible** `stale` row naming an orphaned object an operator can find —
+rather than an invisible, billable one nothing points at. The cleanup is
+best-effort and never fails the sweep: the slot is already free, which is the
+part that had to happen.
+
+### 12.3 `stale` is terminal, and nothing re-queues it
+
+`stale` is distinct from `failed` on purpose: nothing *observed* these runs
+fail. The process holding them disappeared, and an operator reading the list
+needs to tell "the dump errored" from "the container went away mid-dump".
+
+Nothing restarts one automatically. Re-running a multi-gigabyte dump that just
+OOM-killed its own process burns hours of I/O on a database that is probably
+already unwell, unattended, at whatever hour the first attempt died. **The
+retry for a backup is the next scheduled run** — the same answer this document
+gives for why a backup is not a queue job.
+
+## 13. Rejected alternatives
 
 **Run the backup as a queue job.** See the section at the top. Two concurrent
 `pg_dump` processes writing one key, and no error.
@@ -368,7 +648,58 @@ to poll for, on a path whose whole point is that it is streaming. And it could
 not stop the child: only the process holding the handle can. The abort map is
 honest about that; a status column would not be.
 
-## 11. Verification for this part
+**A `lastRunAt` column (or settings field) stamped after each fire.** The
+obvious alternative to §10.2's boundary comparison, and strictly worse in three
+ways. It **drifts**: the value written is when the run actually started, so a
+fire ten minutes late moves the next comparison ten minutes later and a "daily"
+backup walks forward through the day. It **needs a write of its own**, which
+can fail after the backup started, producing a second fire on the next tick —
+two `pg_dump`s for one night, arbitrated only by the active index. And it
+**cannot be recomputed**: if it is ever wrong (a restored settings blob, a
+hand-edited row, a clock jump) nothing can repair it, whereas a boundary is
+derived fresh from the schedule every ten minutes.
+
+**"Did we fire in the last N minutes?"** It answers a question nobody asked.
+Two ticks in one window both see "no run in the last 10 minutes" after a run
+that started 11 minutes ago, and a weekly schedule would need N to be a week —
+at which point a manual backup on Tuesday suppresses Sunday's scheduled one.
+
+**A `@Cron` registered on the operator's own expression.** Exact, and it has to
+be re-registered on every settings edit — and a missed tick skips the night
+entirely with nothing left behind to notice it. See §10.1.
+
+**Auto-requeueing a stale run.** Restarting a multi-gigabyte dump that just
+OOM-killed its own process, unattended, at whatever hour the first attempt
+died, on a database that is probably already unwell. The next scheduled run is
+the retry; see §12.3.
+
+**Pruning before verification, or regardless of the outcome.** Before means a
+run that is about to fail `pg_restore --list` gets to delete the last
+known-good backup on its way out. Regardless means a failed backup deletes an
+old one — at exactly the moment old archives matter most. See §11.2.
+
+**Deleting the row before the object.** An orphaned multi-gigabyte object that
+nothing points at, billed forever and invisible, versus an orphaned row that is
+visible, free and re-prunable. See §11.1 and §12.2.
+
+**Gating the scheduler on `JOBS_WORKER_MODE`.** A backup is not queue work, and
+the deployment that sets `off` — a control plane in front of a worker fleet —
+is the one whose API is the only component with a database connection. It would
+silently never back up. See §10.6.
+
+**A `preRestoreRetentionHours` settings field.** One number, at the cost of
+`systemDatabaseBackupSchema`, the defaults, the PATCH schema, the response DTO,
+the admin UI and the settings-parity spec — to express a duration this
+deployment has already expressed once, with a real risk that the two end up
+meaning different things on the same page. See §11.
+
+**A retention cron of its own.** A second, unsynchronised deleter of archives
+running with no new backup to justify what it removes. Retention is a
+consequence of a backup succeeding, so it runs where that is known.
+
+## 14. Verification
+
+### 14.1 #281: the model, the guard and the engine
 
 | Claim | Covered by |
 |---|---|
@@ -393,10 +724,52 @@ honest about that; a status column would not be.
 | The key is server-chosen, prefixed, month-partitioned, time-sortable, run-id-unique, UTC, and derives its name component from `APP_NAME` | `src/db-backup/db-backup-storage.spec.ts` |
 | The audit trio is recorded on completed **and** failed runs, and an audit read failure never fails a backup | `src/db-backup/db-backup-runner.service.spec.ts` |
 
-Be honest about the limits of #281. Nothing here runs a real `pg_dump` against
-a real database — the engine seam stands in for both, so what is proved is
-that this service treats a dump's stream and its exit code correctly, not that
+
+### 14.2 #282: scheduling, retention and the sweep
+
+| Claim | Covered by |
+|---|---|
+| Exactly one run per boundary; a second tick inside the window stands down | `src/db-backup/tasks/db-backup-schedule.task.spec.ts` |
+| A **late** tick still fires — a missed window is recovered, not lost | `src/db-backup/tasks/db-backup-schedule.task.spec.ts` |
+| A **restart** changes nothing: a fresh task instance over the same table reaches the same verdict | `src/db-backup/tasks/db-backup-schedule.task.spec.ts` — the argument against a `lastRunAt` column, as an assertion |
+| A `manual` run covers the window; a row that never started does not | `src/db-backup/tasks/db-backup-schedule.task.spec.ts` |
+| The **configured** zone is honoured, not the server's | `src/db-backup/tasks/db-backup-schedule.task.spec.ts` — 03:00 UTC on 15 June is 23:00 on the 14th in New York |
+| **DST both directions**: a spring-forward 02:00 that does not exist still runs once; an autumn 01:30 fires on the first pass and not the second | `src/db-backup/tasks/db-backup-schedule.task.spec.ts` |
+| An unknown timezone stands the scheduler down, logs **once**, logs again for a different bad value, and clears its latch when the zone works | `src/db-backup/tasks/db-backup-schedule.task.spec.ts` |
+| A run whose heartbeat went stale is released and the slot freed; a zombie with a null heartbeat is aged by `started_at` | `src/db-backup/tasks/db-backup-schedule.task.spec.ts` |
+| A run that finished in the race is **not stomped** — the `count === 0` path, including that its object is never deleted | `src/db-backup/tasks/db-backup-schedule.task.spec.ts` |
+| The sweep transitions the **row first** and cleans the object second; a failed delete still counts the release | `src/db-backup/tasks/db-backup-schedule.task.spec.ts` — asserted on a shared call log |
+| `stale` is terminal: nothing re-queues it | `src/db-backup/tasks/db-backup-schedule.task.spec.ts` |
+| The sweep runs first, in the same tick as the fire | `src/db-backup/tasks/db-backup-schedule.task.spec.ts` |
+| `databaseBackup.enabled: false` stops the firing but **not** the sweep | `src/db-backup/tasks/db-backup-schedule.task.spec.ts` |
+| `AlreadyRunning` is logged at **debug**; any other claim failure stays loud | `src/db-backup/tasks/db-backup-schedule.task.spec.ts` |
+| `DB_BACKUP_SCHEDULE_ENABLED=false` stops the cron; an unset switch fails open; **the job worker mode does not affect it** | `src/db-backup/tasks/db-backup-schedule.task.spec.ts` — including that the task never reads `jobs.workerMode` |
+| The overlap guard skips an overlapping tick and is released even when the tick throws; the handler never rejects | `src/db-backup/tasks/db-backup-schedule.task.spec.ts` |
+| Count retention keeps the newest N and deletes **oldest first** | `src/db-backup/db-backup-retention.service.spec.ts` |
+| `pre_restore` runs are neither deleted by the count rule **nor counted by it** | `src/db-backup/db-backup-retention.service.spec.ts` |
+| Age retention handles `pre_restore` runs on `oldDatabaseRetentionHours`, and never ages out an ordinary run | `src/db-backup/db-backup-retention.service.spec.ts` |
+| `failed` and `stale` rows are never pruned | `src/db-backup/db-backup-retention.service.spec.ts` |
+| Deletion is **object then row**, and a failed object delete **keeps the row** | `src/db-backup/db-backup-retention.service.spec.ts` — asserted on a shared call log |
+| A row delete that failed after its object was removed self-heals on the next prune | `src/db-backup/db-backup-retention.service.spec.ts` |
+| Retention never throws, and reports what it managed when one rule fails | `src/db-backup/db-backup-retention.service.spec.ts` |
+| Pruning happens **after** verification **and after** the `completed` write, never on a failure, and never turns a verified backup into a failed run | `src/db-backup/db-backup-runner.service.spec.ts` |
+
+### 14.3 The limits of both
+
+Be honest about them. Nothing here runs a real `pg_dump` against a real
+database — the engine seam stands in for both, so what is proved is that this
+service treats a dump's stream and its exit code correctly, not that
 `pg_dump`'s argv is right (which `pg-dump.util.spec.ts` asserts separately, at
 the layer that owns it). The real-Postgres suite proves the index and nothing
 about the engine. And no test asserts an end-to-end restore of a backup this
 engine produced; that is #285's to prove, with a real archive.
+
+#282 adds two limits of its own. The scheduler's boundary arithmetic is
+exercised through `schedule.util.ts`, which has its own suite and its own
+IANA data — so what these tests prove is that the task **asks the right
+question with the right zone**, not that the runtime's timezone database is
+correct. And neither retention nor the sweep is driven against real Postgres:
+the `where` clauses are emulated, so an `orderBy`/`skip` that Prisma would
+reject at runtime would pass here. The queries are the ones the declared
+indexes exist for (`[status, createdAt DESC]` and `[startedAt DESC]`), which is
+the check that would have caught a shape the table cannot answer.
