@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
 
+import { MaintenanceModule } from '../common/maintenance/maintenance.module';
 import { SettingsModule } from '../settings/settings.module';
 import { StorageProvidersModule } from '../storage/providers/storage-providers.module';
+import { DatabaseRestoreService } from './database-restore.service';
 import { DatabaseBackupAdminService } from './db-backup-admin.service';
 import { DatabaseBackupRetentionService } from './db-backup-retention.service';
 import { DatabaseBackupRunnerService } from './db-backup-runner.service';
@@ -136,10 +138,46 @@ import { DatabaseBackupScheduleTask } from './tasks/db-backup-schedule.task';
 // `DB_BACKUP_TIMERS` are: the application always probes a real cluster, and a
 // stubbed cluster connection in production is a restore subsystem that reports
 // a clean pre-flight against nothing at all.
+//
+// -----------------------------------------------------------------------------
+// #285 ADDS THE RESTORE ITSELF, AND THE ONE NEW IMPORT IT NEEDS
+// -----------------------------------------------------------------------------
+//
+// `DatabaseRestoreService` is the first thing in this repository that CREATES,
+// DROPS AND RENAMES DATABASES. It is a PROVIDER AND NOT EXPORTED and it is bound
+// to no controller, exactly as the pre-flight is: #286 owns the restore
+// endpoints, and a service that can replace the production database must not be
+// reachable over HTTP before the route that authorizes it has been reviewed.
+//
+// ⚠ `MaintenanceModule` IS THE ONE NEW IMPORT, and it is not optional. The swap
+// renames the live database out from under this process, so for those seconds
+// the PERSISTED maintenance flag — which lives inside that database — cannot be
+// read. `MaintenanceModeService`'s IN-MEMORY override layer exists for this one
+// caller and says so in its own header; without this import the swap would have
+// no way to hold traffic back at the only moment it must.
+//
+// It is a plain import rather than a re-export: the module is NOT `@Global()`
+// (unlike `PrismaModule`), it exports `MaintenanceModeService` explicitly, and
+// the dependency direction stays acyclic — maintenance depends on settings and
+// JWT, and on nothing here.
+//
+// `DATABASE_RESTORE_SEAM` joins the list of OPTIONAL tokens deliberately left
+// unbound, and it is the most important member of that list: it carries
+// `exitProcess`, and a bound stub in production would leave a process serving
+// requests through a connection pool pointed at a database that has been
+// renamed away.
+//
+// `DatabaseBackupScheduleTask` gains a third duty in the same ten-minute tick —
+// dropping retained `<live>_old_<ts>` databases past their retention window — so
+// it now injects the restore service. It is deliberately NOT a fourth `@Cron`,
+// for the same reason retention is not a second one: a window measured in hours
+// does not need a timer of its own, and a second unsynchronised deleter of
+// databases is exactly the kind of thing this module has already decided once
+// not to have.
 // =============================================================================
 
 @Module({
-  imports: [SettingsModule, StorageProvidersModule],
+  imports: [SettingsModule, StorageProvidersModule, MaintenanceModule],
   controllers: [DatabaseBackupController],
   providers: [
     DatabaseBackupRunnerService,
@@ -147,6 +185,7 @@ import { DatabaseBackupScheduleTask } from './tasks/db-backup-schedule.task';
     DatabaseBackupAdminService,
     DatabaseBackupScheduleTask,
     DatabaseRestorePreflightService,
+    DatabaseRestoreService,
   ],
   exports: [DatabaseBackupRunnerService, DatabaseBackupRetentionService],
 })

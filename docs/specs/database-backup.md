@@ -31,12 +31,13 @@
 > clocks, and the staleness sweep. §13 describes the admin API #283 added.
 > §14 lists the rejected alternatives, §15 the verification.
 >
-> **Restore is what is still missing.** Phase 7 adds it, and it has a document
-> of its own: [`database-restore.md`](database-restore.md). #284 has landed the
-> pre-flight gates and the cluster admin connection there; #285 adds the
-> scratch-database replay and the swap, which finally write the `restore*`
-> columns already declared on the model (§1) and deliberately left unpublished
-> by the admin API's run DTO (§13).
+> **Restore is Phase 7, and it has a document of its own:**
+> [`database-restore.md`](database-restore.md). #284 landed the pre-flight gates
+> and the cluster admin connection; #285 landed the scratch-database replay, the
+> swap and rollback, which write the `restore*` columns already declared on the
+> model (§1) and still deliberately unpublished by the admin API's run DTO
+> (§13). **What is still missing is the way in** — #286 adds the endpoints and
+> #287 the dialog, so today nothing over HTTP can start a restore.
 > Everything else is in place — with `databaseBackup.enabled` turned on, a
 > deployment takes and prunes backups with no human in the loop (#282 onward),
 > and an administrator can inspect, trigger, cancel, download and delete them
@@ -86,7 +87,7 @@ One row per attempt, `database_backup_runs`. The interesting groups:
 | Storage | `storage_provider`, `storage_key`, `bucket`, `format`, `checksum_sha256` | The whole triple is recorded rather than derived on read: a bucket rename or a provider swap must not make an old archive unlocatable |
 | Audit | `db_version`, `app_version`, `migration_name` | All best-effort; none may fail a backup |
 | Proof | `verified_at` | Set only after the **uploaded object** passed `pg_restore --list` |
-| Restore (Phase 7) | `restore_status`, `restore_error`, `restored_at`, `restored_by_id`, `restore_scratch_db`, `restore_old_db`, `swapped_at`, `pre_restore_backup_id` | Declared now, written by #285 |
+| Restore (Phase 7) | `restore_status`, `restore_error`, `restored_at`, `restored_by_id`, `restore_scratch_db`, `restore_old_db`, `swapped_at`, `pre_restore_backup_id` | Written by #285's `DatabaseRestoreService`; not published by the run DTO until #286 |
 
 `bytes_written` and `size_bytes` are `BigInt` because a dump crossing 2 GiB is
 ordinary and a signed 32-bit column overflows at 2147483647 — the failure

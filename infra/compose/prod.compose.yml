@@ -16,6 +16,13 @@ services:
       target: production
     environment:
       - NODE_ENV=production
+    # ⚠ REQUIRED BY THE DATABASE RESTORE, not only good hygiene. A restore's
+    # swap ends in `process.exit(0)` on purpose — the connection pool is bound
+    # to a database that has just been renamed out from under it and every
+    # pooled session was terminated to allow the rename, so the process cannot
+    # be trusted to keep serving. Without a supervisor that restarts it, a
+    # SUCCESSFUL restore leaves the application down. See
+    # docs/runbooks/database-restore.md §7.1.
     restart: unless-stopped
     deploy:
       resources:
