@@ -96,7 +96,7 @@ import { ConfigService } from '@nestjs/config';
 
 import { JobHandler } from './job-handler.interface';
 import { JobHandlerRegistry } from './job-handler.registry';
-import { resolveJobLeaseMs } from './job.worker';
+import { LEASE_GRACE_MS, resolveJobLeaseMs } from './job.worker';
 
 /**
  * What a job type declares about how it is allowed to run.
@@ -298,6 +298,62 @@ export function resolveRenewIntervalMs(leaseMs: number): number {
     MAX_RENEW_INTERVAL_MS,
     Math.max(MIN_RENEW_INTERVAL_MS, Math.floor(leaseMs / RENEW_INTERVAL_DIVISOR))
   );
+}
+
+/**
+ * How far into the future a lease may legitimately point, as a duration from
+ * "now": the LONGEST lease any registered handler could ask for, plus one
+ * grace.
+ *
+ * THIS IS THE REAPER'S FOURTH SIGNAL (#347), and it exists because the other
+ * three stopped covering a case they used to cover by accident. Until in-process
+ * renewal existed, `stuckRunningWhere`'s aged-claim clause reaped ANY row that
+ * had been `running` too long, lease or no lease — which caught a corrupt
+ * `lease_expires_at` for free, while also (this is the bug #347 fixes) reaping
+ * jobs that were running perfectly well. Narrowing that clause to unleased rows
+ * fixes the second problem and would silently drop the first: a lease pushed
+ * absurdly far out — a bug in a fork's own claim path, a clock jump on the
+ * writer, a hostile write — would then match NO signal at all and hold its
+ * dedup key forever.
+ *
+ * A lease further out than the longest lease ANY REGISTERED HANDLER COULD
+ * LEGITIMATELY ASK FOR is, by construction, not a live executor's promise.
+ * That is a fact this process can compute from what it already knows, without
+ * a new column, a new setting, or a per-row handler lookup inside the sweep.
+ *
+ * ⚠ THE DEPLOYMENT-WIDE LEASE IS ALWAYS IN THE MAXIMUM, even when the registry
+ * is empty. A `JOBS_WORKER_MODE=off` control plane may register no handlers at
+ * all and must still reap for its fleet; a `jobs` row may name a type this
+ * process does not register, and such a row was claimed on the global lease.
+ * Taking the max over registered handlers ALONE would give an empty registry a
+ * horizon of one grace period and reap every live row on the next sweep — the
+ * exact opposite of what this function is for.
+ *
+ * ⚠ THE TRADE-OFF, STATED HONESTLY: this ceiling MOVES WITH THE PROCESS
+ * READING IT. A deployment that removes a handler (or lowers its
+ * `maxRuntimeMs`, or lowers `JOBS_JOB_TIMEOUT_MS`) shortens the horizon, and
+ * in-flight rows of that type carrying the older, longer lease may be reaped
+ * on the next sweep. That is correct rather than merely acceptable: no process
+ * in that deployment can run those rows to completion any more, so requeueing
+ * them is the only outcome that is not "stuck until a human notices". It is
+ * also why the horizon is computed per sweep rather than cached — see
+ * `JobStuckService.leaseHorizon`.
+ */
+export function resolveLeaseHorizonMs(
+  config: ConfigService,
+  registry: JobHandlerRegistry
+): number {
+  const longest = registry
+    .types()
+    .reduce(
+      (max, type) =>
+        Math.max(max, resolveJobLeaseMs(config, resolveJobProfile(registry.get(type)))),
+      // The floor is the lease an UNPROFILED type takes, which is also the
+      // lease every unregistered type takes. See the warning above.
+      resolveJobLeaseMs(config, undefined)
+    );
+
+  return longest + LEASE_GRACE_MS;
 }
 
 /**

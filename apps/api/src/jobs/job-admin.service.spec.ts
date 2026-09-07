@@ -34,6 +34,16 @@ import { jobListQuerySchema } from './dto/job-list-query.dto';
 
 const NOW = new Date('2026-03-01T12:00:00.000Z');
 
+/**
+ * The horizon width the stubbed `JobStuckService` reports (#347).
+ *
+ * ⚠ IT MUST COME FROM THE STUB, NOT FROM A SECOND COMPUTATION HERE. The point
+ * of the assertion below is that this service asks the reaper for the third
+ * instant instead of deriving one of its own — a test that derived one would
+ * pass against exactly the copy it exists to forbid.
+ */
+const HORIZON_MS = 720_000;
+
 /** A parsed query, so every test goes through the same defaults the pipe applies. */
 function query(raw: Record<string, unknown> = {}) {
   return jobListQuerySchema.parse(raw);
@@ -51,6 +61,7 @@ interface Harness {
   };
   stuck: {
     getStuckThresholdMinutes: jest.Mock;
+    leaseHorizon: jest.Mock;
     resetStuck: jest.Mock;
   };
   /** Moves the pinned clock forward. */
@@ -72,6 +83,11 @@ function makeService(overrides: Partial<Harness['job']> = {}): Harness {
 
   const stuck = {
     getStuckThresholdMinutes: jest.fn().mockResolvedValue(30),
+    // The third instant the predicate needs (#347). Stubbed here rather than
+    // computed, because this suite is about what `JobAdminService` DOES with
+    // the reaper's answers — that the horizon itself is right is
+    // `JobStuckService.leaseHorizon`'s own test.
+    leaseHorizon: jest.fn((now: Date) => new Date(now.getTime() + HORIZON_MS)),
     resetStuck: jest.fn().mockResolvedValue({ reset: 0, failed: 0 }),
   };
 
@@ -255,10 +271,13 @@ describe('JobAdminService.stats', () => {
     // Compared against `stuckRunningWhere` itself rather than a hand-written
     // literal: the assertion has to fail if the reaper's predicate changes, not
     // merely if this service's copy of it does — because there must be no copy.
-    expect(whereOf(job.count, 1)).toEqual(stuckRunningWhere(threshold, NOW));
+    expect(whereOf(job.count, 1)).toEqual(
+      stuckRunningWhere(threshold, NOW, new Date(NOW.getTime() + HORIZON_MS))
+    );
     // The zombie arm (`running` with a NULL `startedAt`) is the one an
     // independent implementation always forgets. Assert it is really in there.
     expect((whereOf(job.count, 1) as { OR: unknown[] }).OR).toContainEqual({
+      leaseExpiresAt: null,
       startedAt: null,
       createdAt: { lt: threshold },
     });

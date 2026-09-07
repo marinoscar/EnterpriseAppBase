@@ -3,7 +3,7 @@
 // =============================================================================
 //
 // THE SPLIT WITH `test/jobs/job-stuck-reset.db.spec.ts` IS DELIBERATE. That
-// suite asks Postgres which rows the three recovery signals actually MATCH —
+// suite asks Postgres which rows the four recovery signals actually MATCH —
 // a question a mock cannot answer, because a mocked `updateMany` returns
 // whatever the test told it to regardless of the `where` it was handed. This
 // suite covers what a real database makes awkward instead: the exact shape of
@@ -25,6 +25,9 @@ import type { SystemSettingsService } from '../settings/system-settings/system-s
 
 const THRESHOLD = new Date('2026-01-01T12:00:00.000Z');
 const NOW = new Date('2026-01-01T12:30:00.000Z');
+
+/** The fourth instant (#347): "no lease could legitimately point past here". */
+const HORIZON = new Date('2026-01-01T12:45:00.000Z');
 
 function makeService(overrides: {
   findMany?: jest.Mock;
@@ -78,14 +81,15 @@ function handler(type: string, profile?: JobExecutionProfile): JobHandler {
 }
 
 describe('stuckRunningWhere', () => {
-  it('carries all three recovery signals, OR-ed, under status running', () => {
-    const where = stuckRunningWhere(THRESHOLD, NOW);
+  it('carries all four recovery signals, OR-ed, under status running', () => {
+    const where = stuckRunningWhere(THRESHOLD, NOW, HORIZON);
 
     expect(where.status).toBe('running');
     expect(where.OR).toEqual([
-      { startedAt: { lt: THRESHOLD } },
-      { startedAt: null, createdAt: { lt: THRESHOLD } },
+      { leaseExpiresAt: null, startedAt: { lt: THRESHOLD } },
+      { leaseExpiresAt: null, startedAt: null, createdAt: { lt: THRESHOLD } },
       { leaseExpiresAt: { lt: NOW } },
+      { leaseExpiresAt: { gt: HORIZON } },
     ]);
   });
 
@@ -95,20 +99,95 @@ describe('stuckRunningWhere', () => {
     // that is `running` with no `startedAt` is invisible to signal 1 and
     // (when the lease was never written either) to signal 3. Without this
     // arm it is stuck forever, holding its dedup key with it.
-    const zombie = stuckRunningWhere(THRESHOLD, NOW).OR?.[1];
+    const zombie = stuckRunningWhere(THRESHOLD, NOW, HORIZON).OR?.[1];
 
-    expect(zombie).toEqual({ startedAt: null, createdAt: { lt: THRESHOLD } });
+    expect(zombie).toEqual({
+      leaseExpiresAt: null,
+      startedAt: null,
+      createdAt: { lt: THRESHOLD },
+    });
   });
 
-  it('compares the lease against now and the ages against the threshold', () => {
-    // Two different instants, deliberately: an expired lease is stuck NOW,
-    // while an aged claim is stuck relative to the threshold. Collapsing them
-    // to one instant either reaps live jobs or delays every dead lease by a
-    // whole threshold.
-    const where = stuckRunningWhere(THRESHOLD, NOW);
+  it('never judges a LEASED row by its age (#347)', () => {
+    // THE DEFECT #347 FIXED, asserted as a property of the shape rather than
+    // as a literal: every age-based clause must also require the lease to be
+    // absent. Without that, a job renewing its lease flawlessly was still
+    // requeued the moment it passed the stuck threshold, a second executor
+    // claimed it, and the same work ran twice — concurrently.
+    const where = stuckRunningWhere(THRESHOLD, NOW, HORIZON);
+    const ageClauses = (where.OR ?? []).filter(
+      (clause) => 'startedAt' in clause || 'createdAt' in clause
+    );
 
-    expect(where.OR?.[0]).toEqual({ startedAt: { lt: THRESHOLD } });
+    expect(ageClauses).toHaveLength(2);
+
+    for (const clause of ageClauses) {
+      expect(clause).toMatchObject({ leaseExpiresAt: null });
+    }
+  });
+
+  it('catches an implausibly distant lease, which no other signal can', () => {
+    // Clause 4, and the reason narrowing clauses 1 and 2 did not open a gap.
+    // A lease in the year 2400 is not expired (so signal 3 misses it) and is
+    // not absent (so signals 1 and 2 miss it); without this arm such a row is
+    // `running` forever and holds its dedup key with it.
+    const where = stuckRunningWhere(THRESHOLD, NOW, HORIZON);
+
+    expect(where.OR?.[3]).toEqual({ leaseExpiresAt: { gt: HORIZON } });
+  });
+
+  it('compares each signal against its own instant', () => {
+    // Three different instants, deliberately: an expired lease is stuck NOW,
+    // an aged unleased claim is stuck relative to the threshold, and an
+    // implausible lease is stuck relative to the horizon. Collapsing any two
+    // either reaps live jobs or delays a dead lease by a whole threshold.
+    const where = stuckRunningWhere(THRESHOLD, NOW, HORIZON);
+
+    expect(where.OR?.[0]).toEqual({ leaseExpiresAt: null, startedAt: { lt: THRESHOLD } });
     expect(where.OR?.[2]).toEqual({ leaseExpiresAt: { lt: NOW } });
+    expect(where.OR?.[3]).toEqual({ leaseExpiresAt: { gt: HORIZON } });
+  });
+});
+
+describe('JobStuckService.leaseHorizon', () => {
+  it('is the deployment-wide lease plus a grace when nothing is registered', () => {
+    // THE EMPTY-REGISTRY CASE IS THE DANGEROUS ONE: a `JOBS_WORKER_MODE=off`
+    // control plane registers no handlers and must still reap for its fleet.
+    // A horizon taken as the max over registered handlers alone would be one
+    // grace period wide and reap every live row on the next sweep.
+    const { service } = makeService({
+      config: { 'jobs.maxAttempts': 3, 'jobs.jobTimeoutMs': 600_000 },
+    });
+
+    // lease = 600_000 + 60_000 grace; horizon = lease + 60_000 grace.
+    expect(service.leaseHorizon(NOW).getTime()).toBe(NOW.getTime() + 720_000);
+  });
+
+  it('stretches to the LONGEST lease any registered handler could ask for', () => {
+    const { service } = makeService({
+      config: { 'jobs.maxAttempts': 3, 'jobs.jobTimeoutMs': 600_000 },
+      handlers: [
+        handler('fast.one', { maxRuntimeMs: 5_000, maxAttempts: 3 }),
+        handler('slow.dump', { maxRuntimeMs: 6 * 3_600_000, maxAttempts: 1 }),
+      ],
+    });
+
+    // The six-hour type decides it: 21_600_000 + 60_000 lease grace, then the
+    // horizon's own 60_000. A shorter horizon would reap that type mid-run,
+    // which is the exact failure #346 and #347 exist to remove.
+    expect(service.leaseHorizon(NOW).getTime()).toBe(NOW.getTime() + 21_720_000);
+  });
+
+  it('never shrinks below the unprofiled lease, however short the profiles', () => {
+    // A row may name a type this process does not register (a removed
+    // handler, a fork's type, another deployment's), and such a row was
+    // claimed on the deployment-wide lease. The floor keeps it plausible.
+    const { service } = makeService({
+      config: { 'jobs.maxAttempts': 3, 'jobs.jobTimeoutMs': 600_000 },
+      handlers: [handler('fast.one', { maxRuntimeMs: 1_000, maxAttempts: 3 })],
+    });
+
+    expect(service.leaseHorizon(NOW).getTime()).toBe(NOW.getTime() + 720_000);
   });
 });
 

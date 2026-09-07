@@ -1,5 +1,5 @@
 // =============================================================================
-// The lease reaper's three primitives (issue #263, epic #254)
+// The lease reaper's primitives (issue #263, epic #254; #347)
 // =============================================================================
 //
 // A job whose executor died is `running` forever. Nothing else in the queue
@@ -10,11 +10,20 @@
 // the ONLY thing that distinguishes the two is time.
 //
 // This file is what turns "time" into a decision, and it is deliberately
-// three separate pieces:
+// several separate pieces rather than one method:
 //
 //   - `getStuckThresholdMinutes()` — how long is too long, from settings.
+//   - `leaseHorizon()`             — how far out a lease may plausibly point.
 //   - `stuckRunningWhere()`        — which rows are stuck, as a `where`.
 //   - `resetStuck()`               — what to do about them.
+//
+// ⚠ SINCE #347, "TIME" IS NOT THE ONLY THING THAT DISTINGUISHES THE TWO, and
+// that is the point of that issue. A live executor now RENEWS its lease on a
+// schedule — the in-process worker through `JobLeaseService`, a node through
+// `POST …/renew` — so a healthy long-running job is distinguished from a dead
+// one by evidence it produces while it works, not merely by how long it has
+// been at it. The signals below were re-cut around that: age is now only
+// consulted for rows that carry NO lease at all.
 //
 // -----------------------------------------------------------------------------
 // WHY THESE LIVE HERE AND NOT IN AN ADMIN SERVICE
@@ -91,7 +100,7 @@ import { Prisma } from '@prisma/client';
 import { DEFAULT_SYSTEM_SETTINGS } from '../common/types/settings.types';
 import { PrismaService } from '../prisma/prisma.service';
 import { SystemSettingsService } from '../settings/system-settings/system-settings.service';
-import { resolveMaxAttempts } from './job-execution-profile';
+import { resolveLeaseHorizonMs, resolveMaxAttempts } from './job-execution-profile';
 import { JobHandlerRegistry } from './job-handler.registry';
 
 /** What `resetStuck` did, split by which phase claimed each row. */
@@ -104,29 +113,31 @@ export interface ResetStuckResult {
 }
 
 /**
- * The `where` that identifies an abandoned `running` job, as THREE OR'd
+ * The `where` that identifies an abandoned `running` job, as FOUR OR'd
  * recovery signals.
  *
- * All three are real, and each one is the only signal that catches its own
+ * All four are real, and each one is the only signal that catches its own
  * failure mode. Dropping any of them leaves a class of dead row unreapable:
  *
- *   1. `startedAt < threshold` — THE AGED CLAIM. The ordinary case: a job
- *      that was properly stamped when it was claimed and has been running
- *      longer than any job of any type should. This is the signal that works
- *      even when `lease_expires_at` was never written (a fork's own claim
- *      path, a row hand-inserted by an operator, a migration that pre-dates
- *      leases).
+ *   1. `leaseExpiresAt IS NULL AND startedAt < threshold` — THE AGED,
+ *      UNLEASED CLAIM. A row that was properly stamped when it was claimed,
+ *      has been running longer than any job of any type should, and carries
+ *      NO LEASE AT ALL: a fork's own claim path, a row hand-inserted by an
+ *      operator, a migration that pre-dates leases. Nothing about such a row
+ *      says when its owner promised to be back, so age is the only evidence
+ *      there is.
  *
- *   2. `startedAt IS NULL AND createdAt < threshold` — THE ZOMBIE. A row that
- *      is `running` and has no start time at all. It looks impossible,
- *      because the claim writes `started_at = now()` in the same statement
- *      that writes `status = 'running'` — and it is exactly the state a
- *      partially-applied write, a restored backup, or an external control
- *      plane setting the status without the timestamp leaves behind. Signal
- *      1 cannot see it (`NULL < threshold` is NULL, never true) and neither
- *      can signal 3 if the lease was not written either, so without this
- *      clause such a row is stuck FOREVER and its dedup key is held forever
- *      with it. `createdAt` is the substitute age, and it is always present.
+ *   2. `leaseExpiresAt IS NULL AND startedAt IS NULL AND createdAt < threshold`
+ *      — THE ZOMBIE. A row that is `running` and has no start time at all. It
+ *      looks impossible, because the claim writes `started_at = now()` in the
+ *      same statement that writes `status = 'running'` — and it is exactly the
+ *      state a partially-applied write, a restored backup, or an external
+ *      control plane setting the status without the timestamp leaves behind.
+ *      Signal 1 cannot see it (`NULL < threshold` is NULL, never true) and
+ *      neither can signal 3, since the lease was never written either, so
+ *      without this clause such a row is stuck FOREVER and its dedup key is
+ *      held forever with it. `createdAt` is the substitute age, and it is
+ *      always present.
  *
  *   3. `leaseExpiresAt < now` — THE DEAD OWNER. The fastest and most precise
  *      signal, and the only one that does not have to wait out the stuck
@@ -136,29 +147,91 @@ export interface ResetStuckResult {
  *      identically, because the lease says nothing about WHERE the executor
  *      was.
  *
- * ⚠ THE COMPARISONS USE TWO DIFFERENT INSTANTS ON PURPOSE. Signals 1 and 2
- * are "older than the threshold"; signal 3 is "past its deadline, now". A
- * single instant for both would either reap live jobs (using `now` for the
- * age) or leave an expired lease sitting for another whole threshold (using
- * `threshold` for the deadline). Both are passed in rather than read from the
- * clock inside, so every row in one sweep is judged against the same pair of
- * instants and a test can pin them.
+ *   4. `leaseExpiresAt > leaseHorizon` — THE IMPLAUSIBLE LEASE. A lease
+ *      pointing further into the future than the longest lease any registered
+ *      handler could legitimately ask for. See `resolveLeaseHorizonMs` for how
+ *      that ceiling is computed, and the section below for why this clause is
+ *      not optional.
+ *
+ * -----------------------------------------------------------------------------
+ * ⚠ WHY SIGNALS 1 AND 2 ARE RESTRICTED TO `leaseExpiresAt IS NULL` (#347)
+ * -----------------------------------------------------------------------------
+ *
+ * They were not, and that was the defect. Signal 1 used to be a bare
+ * `startedAt < threshold`, and its own docstring gave it TWO jobs: catching a
+ * job that had been running too long, and catching a row whose
+ * `lease_expires_at` was never written. Only the second is load-bearing; the
+ * first is precisely what made a long job unsafe.
+ *
+ * The reason is that "running too long" was a proxy for "its executor died",
+ * and it was a proxy chosen when NOTHING RENEWED A LEASE — the in-process
+ * worker wrote one at claim time and never touched the row again (#347 gives
+ * it `JobLeaseService` and a ticker). With renewal in place the proxy is not
+ * merely redundant, it is WRONG: a job that renewed one second ago was still
+ * requeued the moment it passed `jobs.stuckThresholdMinutes`, a second
+ * executor claimed it, and the same work ran twice — concurrently, on exactly
+ * the long-running job whose author had said it takes a long time. For a
+ * database backup that is two `pg_dump`s streaming into one storage key, both
+ * exiting 0, and an unrestorable archive with no error anywhere.
+ *
+ * Restricting these two clauses to `leaseExpiresAt IS NULL` keeps the job that
+ * was load-bearing (a row nobody ever leased is still reaped on age) and drops
+ * only the one that was a proxy for a signal the queue now measures directly.
+ * A leased row is judged by its lease, by clause 3 or clause 4 — never by its
+ * age.
+ *
+ * -----------------------------------------------------------------------------
+ * ⚠ CLAUSE 4 IS WHAT REPLACES THE PROTECTION THAT WAS DROPPED
+ * -----------------------------------------------------------------------------
+ *
+ * Narrowing 1 and 2 alone would leave a real gap. Before, a corrupt or
+ * malicious `lease_expires_at` — a clock jump on the writer, a fork's claim
+ * path multiplying instead of adding, a hostile write — was caught anyway,
+ * because the bare age clause did not care about the lease. Afterwards it
+ * would match NOTHING: clause 3 wants an expired lease and it has a lease
+ * expiring in the year 2400, and clauses 1 and 2 now want no lease at all. The
+ * row would sit `running` forever, holding its dedup key with it, which is the
+ * failure the zombie clause exists to prevent arriving through a different
+ * door.
+ *
+ * `leaseHorizon` closes it, and the trade-off it carries — a deployment that
+ * removes a handler shortens the ceiling and may reap that type's in-flight
+ * rows on the next sweep, which is correct, since no process there can run
+ * them anyway — is argued in full at `resolveLeaseHorizonMs`.
+ *
+ * -----------------------------------------------------------------------------
+ *
+ * ⚠ THE COMPARISONS USE THREE DIFFERENT INSTANTS ON PURPOSE. Signals 1 and 2
+ * are "older than the threshold"; signal 3 is "past its deadline, now"; signal
+ * 4 is "further out than anything could legitimately be". A single instant for
+ * all of them would either reap live jobs (using `now` for the age) or leave an
+ * expired lease sitting for another whole threshold (using `threshold` for the
+ * deadline). All three are passed in rather than read from the clock inside, so
+ * every row in one sweep is judged against the same set of instants and a test
+ * can pin them.
  *
  * Exported as a pure function, not a private method, for the reason the file
  * header gives: the admin surface, the reaper and any later node-plane
  * sweeper must ask the same question, and the only way to guarantee that is
  * for there to be one copy of it.
  */
-export function stuckRunningWhere(threshold: Date, now: Date): Prisma.JobWhereInput {
+export function stuckRunningWhere(
+  threshold: Date,
+  now: Date,
+  leaseHorizon: Date
+): Prisma.JobWhereInput {
   return {
     status: 'running',
     OR: [
-      // 1. Aged: claimed and stamped, running too long.
-      { startedAt: { lt: threshold } },
-      // 2. Zombie: claimed, never stamped — aged by `createdAt` instead.
-      { startedAt: null, createdAt: { lt: threshold } },
+      // 1. Aged and UNLEASED: claimed and stamped by something that never
+      //    wrote a lease, running too long. A leased row is judged by 3 or 4.
+      { leaseExpiresAt: null, startedAt: { lt: threshold } },
+      // 2. Zombie: claimed, never stamped, never leased — aged by `createdAt`.
+      { leaseExpiresAt: null, startedAt: null, createdAt: { lt: threshold } },
       // 3. Dead owner: the lease its claimer took has run out (server OR node).
       { leaseExpiresAt: { lt: now } },
+      // 4. Implausible lease: further out than any handler could have asked for.
+      { leaseExpiresAt: { gt: leaseHorizon } },
     ],
   };
 }
@@ -213,6 +286,35 @@ export class JobStuckService {
   }
 
   /**
+   * The instant past which a `lease_expires_at` cannot be a live executor's
+   * promise — `now` plus the longest lease any registered handler could ask
+   * for, plus one grace.
+   *
+   * PUBLIC, AND THAT IS WHY IT IS A METHOD RATHER THAN A LOCAL IN `resetStuck`.
+   * `stuckRunningWhere` needs three instants, and the admin surface
+   * (`JobAdminService.stats`, which counts `stuckRunning` with this same
+   * predicate) has to produce the same third one or the dashboard would report
+   * a different number from the sweep that runs ten minutes later. That service
+   * injects neither `ConfigService` nor `JobHandlerRegistry` — it holds this
+   * one, which already holds both — so exposing the answer here is what keeps
+   * "the reaper and the dashboard ask the same question" true without giving
+   * the admin service two dependencies it has no other use for.
+   *
+   * COMPUTED PER SWEEP, NEVER CACHED. It depends on which handlers are
+   * registered and on `JOBS_JOB_TIMEOUT_MS`, and both are re-read rather than
+   * captured everywhere else in this queue for the same reason: a value baked
+   * in at bootstrap is a value that quietly disagrees with the process it is
+   * meant to describe. It is two in-memory reads and a `Math.max` over single
+   * digits of registered types — nothing next to the query it precedes.
+   *
+   * @param now the sweep's single instant — passed in rather than read here,
+   * so every clause of one sweep is judged against the same clock reading.
+   */
+  leaseHorizon(now: Date): Date {
+    return new Date(now.getTime() + resolveLeaseHorizonMs(this.config, this.registry));
+  }
+
+  /**
    * Reclaims every abandoned `running` job, in TWO PHASES.
    *
    * PHASE 1 — GIVE UP. Rows at or over THEIR OWN TYPE'S attempt budget are
@@ -259,7 +361,10 @@ export class JobStuckService {
     // makes the phases untestable without freezing timers.
     const now = new Date();
     const threshold = new Date(now.getTime() - minutes * 60_000);
-    const where = stuckRunningWhere(threshold, now);
+    // The third instant, taken from the SAME `now` as the other two for the
+    // reason stated just above: one sweep, one set of instants, so a row
+    // cannot be judged live by one clause and dead by the next.
+    const where = stuckRunningWhere(threshold, now, this.leaseHorizon(now));
 
     const budgets = this.attemptBudgets();
 
