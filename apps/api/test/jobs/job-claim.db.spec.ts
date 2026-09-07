@@ -63,12 +63,42 @@ describeWithDb('JobClaimService.claim (real Postgres)', () => {
   /** A fresh, unique job type, so no two tests can see each other's rows. */
   const nextType = (): string => `${TYPE_PREFIX}${(typeCounter += 1)}`;
 
+  // A real owner + `WorkerNode` row, scoped behind the same `TYPE_PREFIX` as
+  // this suite's jobs. `jobs.claimed_by_node_id` became a real foreign key to
+  // `worker_nodes` in #267 — a nullable FK still enforces referential
+  // integrity for any non-NULL value, so "sets ... node id on the claimed
+  // row" below needs a `nodeId` that actually resolves to a row, not a
+  // hand-invented UUID. (That is exactly the bug that made this suite red on
+  // `main` from #267 until now — see `job-stuck-reset.db.spec.ts`'s `seed()`
+  // comment for the fuller account.)
+  const OWNER_EMAIL = `${TYPE_PREFIX}owner@example.test`;
+  let ownerId: string;
+  let nodeId: string;
+
   beforeAll(async () => {
     clientA = createDbClient();
     clientB = createDbClient();
     await Promise.all([clientA.$connect(), clientB.$connect()]);
     claimerA = claimServiceFor(clientA);
     claimerB = claimServiceFor(clientB);
+
+    const owner = await clientA.user.create({
+      data: { email: OWNER_EMAIL, displayName: 'job-claim suite' },
+    });
+    ownerId = owner.id;
+
+    const node = await clientA.workerNode.create({
+      data: {
+        name: `${TYPE_PREFIX}node`,
+        hostname: 'job-claim-suite-box',
+        platform: 'linux-x64',
+        cliVersion: '0.0.0-test',
+        eligibleTypes: [],
+        concurrency: 1,
+        createdById: ownerId,
+      },
+    });
+    nodeId = node.id;
   });
 
   afterEach(async () => {
@@ -78,7 +108,12 @@ describeWithDb('JobClaimService.claim (real Postgres)', () => {
   });
 
   afterAll(async () => {
+    // Jobs before the node before the owner: `jobs.claimed_by_node_id` FKs to
+    // `worker_nodes`, which FKs to `users` — deleting in the other order
+    // would fail the same constraint this fixture exists to satisfy.
     await clientA?.job.deleteMany({ where: { type: { startsWith: TYPE_PREFIX } } });
+    await clientA?.workerNode.deleteMany({ where: { name: { startsWith: TYPE_PREFIX } } });
+    await clientA?.user.deleteMany({ where: { email: OWNER_EMAIL } });
     await Promise.all([clientA?.$disconnect(), clientB?.$disconnect()]);
   });
 
@@ -388,7 +423,6 @@ describeWithDb('JobClaimService.claim (real Postgres)', () => {
     const type = nextType();
     await seedPending(type, 1);
 
-    const nodeId = '11111111-2222-3333-4444-555555555555';
     const before = Date.now();
 
     const [claimed] = await claimerA.claim({
