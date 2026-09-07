@@ -20,3 +20,25 @@ export declare const THEME_COLOR: string;
 
 /** Typed `string`, not a literal — see the note on `THEME_COLOR`. */
 export declare const BACKGROUND_COLOR: string;
+
+/**
+ * `APP_NAME` as a lowercase hyphenated token (`'My App'` -> `'my-app'`), for
+ * the contexts where spaces and capitals are wrong.
+ *
+ * Typed `string`, not a literal — see the note on `APP_NAME`.
+ */
+export declare const APP_SLUG: string;
+
+/**
+ * The GitHub repository, as `owner/name`. A separate fact from `APP_NAME`.
+ *
+ * Typed `string`, not a literal — see the note on `APP_NAME`.
+ */
+export declare const REPO_SLUG: string;
+
+/**
+ * The repository's canonical HTTPS URL, derived from `REPO_SLUG`.
+ *
+ * Typed `string`, not a literal — see the note on `APP_NAME`.
+ */
+export declare const REPO_URL: string;

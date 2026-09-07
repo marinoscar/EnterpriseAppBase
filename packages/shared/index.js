@@ -149,3 +149,74 @@ exports.THEME_COLOR = identity.themeColor;
  * case rather than in neither.
  */
 exports.BACKGROUND_COLOR = identity.backgroundColor;
+
+/**
+ * What `APP_SLUG` degrades to when `APP_NAME` slugifies to nothing (all
+ * punctuation, all non-Latin script, empty).
+ *
+ * Deliberately generic and carrying no product name, and deliberately the same
+ * literal `apps/api/src/jobs/job-temp.ts` falls back to — see `slugify` below.
+ */
+const NEUTRAL_SLUG = 'app';
+
+/**
+ * A display name to a filename- and identifier-safe slug
+ * (`'Some Name'` -> `'some-name'`).
+ *
+ * This rule is a COPY, byte for byte, of the one in
+ * `apps/api/src/jobs/job-temp.ts` and `apps/api/src/db-backup/db-backup-storage.ts`.
+ * Those two are NOT refactored to import `APP_SLUG` from here, and that is
+ * deliberate: each carries a long in-file argument that deriving the prefix
+ * from the app name is the point, because two applications built from this
+ * template on one host must get different temp-file and backup-key prefixes
+ * automatically. Collapsing them onto this export is a safe follow-up, but it
+ * touches a janitor sweep pattern and a live object-storage key prefix, so it
+ * does not belong in the same change as a rename tool.
+ */
+function slugify(name) {
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  return slug.length > 0 ? slug : NEUTRAL_SLUG;
+}
+
+/**
+ * `APP_NAME` reduced to a lowercase hyphenated token: `'My App'` -> `'my-app'`.
+ *
+ * For the places that need the name in a context where spaces and capitals are
+ * wrong — today that is the OpenTelemetry service name (`${APP_SLUG}-api`),
+ * which lands in every span and every log line.
+ *
+ * NOT stored in `identity.json`. A stored slug would be a second source of
+ * truth that could silently disagree with the prefix the temp-file janitor
+ * actually sweeps for; derived, it cannot.
+ */
+exports.APP_SLUG = slugify(exports.APP_NAME);
+
+/**
+ * The GitHub repository this template is published from, as `owner/name`.
+ *
+ * ▲ THIS IS A REBRAND POINT: `repoSlug` in `identity.json`.
+ *
+ * It is a SEPARATE fact from `APP_NAME` and not derived from it: the product
+ * and the repository it lives in are named independently, and a fork routinely
+ * changes one without the other. It is here rather than hardcoded at its call
+ * sites because it leaks into the PUBLISHED OpenAPI document, where a stale
+ * value points a fork's API consumers at somebody else's repository.
+ */
+exports.REPO_SLUG = identity.repoSlug;
+
+/**
+ * The repository's canonical HTTPS URL.
+ *
+ * Derived rather than stored so that the slug and the URL cannot drift, and so
+ * that `identity.json` keeps one fact rather than two spellings of it.
+ *
+ * Note what this deliberately does NOT cover: `install.sh` builds the same URL
+ * and cannot read this, because it is fetched and run via `curl | bash` BEFORE
+ * the repository exists on disk. That one is a codemod target in
+ * `scripts/rename.mjs`, permanently. See docs/RENAMING.md.
+ */
+exports.REPO_URL = `https://github.com/${exports.REPO_SLUG}`;

@@ -1,5 +1,7 @@
 {
   "productName": "My App",
+  "tagline": "A production-grade full-stack application foundation.",
+  "repoSlug": "marinoscar/EnterpriseAppBase",
   "themeColor": "#1976d2",
   "backgroundColor": "#ffffff"
 }
