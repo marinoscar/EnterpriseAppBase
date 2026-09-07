@@ -524,7 +524,6 @@ describe('the streaming contract', () => {
       return { key, bucket: 'test-bucket', location: 'x' };
     }) as unknown as StorageProvider['upload'];
 
-    const before = process.memoryUsage();
     const h = makeHarness({ uploadImpl: upload, dumpStdout: source });
 
     await h.service.startBackup({ trigger: 'scheduled' });
@@ -532,18 +531,54 @@ describe('the streaming contract', () => {
     source.on('end', () => dump.finish());
 
     const row = await h.settled;
-    const after = process.memoryUsage();
 
     expect(consumed).toBe(TOTAL);
     expect(row.status).toBe('completed');
     expect(row.sizeBytes).toBe(BigInt(TOTAL));
-    // A few high-water marks, not the archive.
+    // A few high-water marks, not the archive. This IS the proof that nothing
+    // is buffered — see the block comment above.
+    //
+    // There used to be a second assertion here, comparing
+    // `process.memoryUsage()` before and after the run and requiring the
+    // heap+external growth to stay under `TOTAL`. It was deleted (see CI
+    // failure on PR #318: measured growth of 68217643 bytes against a
+    // 67108864-byte bound) and MUST NOT be reintroduced in this or any
+    // similar form. Two independent reasons, either one sufficient on its
+    // own:
+    //
+    // 1. `process.memoryUsage()` reads whatever the heap happens to look
+    //    like at the moment it is called, and the heap only shrinks when V8
+    //    decides to run a collection. Nothing in this test forces one —
+    //    `global.gc()` requires Node to be launched with `--expose-gc`,
+    //    which this suite is not — so the number is at least as much a
+    //    measurement of GC scheduling on the CI runner as it is of what the
+    //    implementation actually retained. A metric that moves with the
+    //    garbage collector's mood is not a metric a test can gate on.
+    // 2. Even granting a favourable GC moment, there is no threshold that
+    //    actually separates "streamed" from "buffered" here. A fully
+    //    buffered implementation would grow by roughly `TOTAL` (64 MiB); the
+    //    real, correctly-streaming implementation measured `TOTAL` + ~1.06
+    //    MiB of incidental overhead on the CI run above. Any bound tight
+    //    enough to catch a buffered implementation is also tight enough to
+    //    be tripped by ordinary allocator/runtime noise, and any bound loose
+    //    enough to tolerate that noise no longer catches a buffered
+    //    implementation. Widening the bound to make CI green would not fix
+    //    the test — it would leave an assertion that reads as coverage of
+    //    "never materialises the archive" while being unable to fail for
+    //    that reason.
+    //
+    // The `maxInFlight` assertion below is what actually proves the
+    // no-buffering property, and it does so deterministically: it is a
+    // running max of `produced - consumed`, both of which are plain byte
+    // counters driven by the real stream's backpressure, not a snapshot of
+    // process-wide memory. A buffered implementation (collect everything,
+    // *then* hand it to the consumer) would let `produced` race to `TOTAL`
+    // before `consumed` moves at all, pushing this gap to the full 64 MiB —
+    // nowhere near the 8 MiB bound below. If a future implementation change
+    // needs a memory-based check, it needs a differently-designed one (e.g.
+    // asserting on byte counters the implementation itself reports, not on
+    // `process.memoryUsage()`), not a resurrection of this one.
     expect(maxInFlight).toBeLessThan(8 * 1024 * 1024);
-    // And the process did not grow by anything like the archive's size. Heap
-    // AND external, because chunk buffers live outside the JS heap — measuring
-    // `heapUsed` alone would pass even for a fully buffered implementation.
-    const grew = after.heapUsed + after.external - (before.heapUsed + before.external);
-    expect(grew).toBeLessThan(TOTAL);
   });
 
   it('computes the checksum and the byte count in ONE pass, matching an independent hash', async () => {
