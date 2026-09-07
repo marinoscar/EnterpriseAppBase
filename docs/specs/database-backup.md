@@ -133,7 +133,7 @@ retention never deletes the restore record that referenced it.
 
 ```sql
 CREATE UNIQUE INDEX "database_backup_runs_active_uniq_idx"
-  ON "database_backup_runs" ("status") WHERE "status" IN ('pending','running');
+  ON "database_backup_runs" ((true)) WHERE "status" IN ('pending','running');
 ```
 
 `DatabaseBackupRunnerService.startBackup` **inserts optimistically** and turns
@@ -151,21 +151,41 @@ active" atomic with the insert that would violate it. This is the same
 argument, and the same shape, as `jobs_active_dedup_uniq_idx`.
 
 **Prisma cannot express this index.** The schema language has no syntax for a
-partial index, so it exists only in the migration, written by hand, and
-`prisma migrate dev`/`diff` will want to drop it on the next diff. That drift
-is intentional and permanent; both the migration and the `DatabaseBackupRun`
-model carry the warning. `src/db-backup/db-backup-active-index.db.spec.ts`
+partial index *or* an expression index, so it exists only in the migration,
+written by hand, and `prisma migrate dev`/`diff` will want to drop it on the
+next diff. That drift is intentional and permanent; both the migration and the
+`DatabaseBackupRun` model carry the warning. `db-backup-active-index.db.spec.ts`
 proves against a real Postgres that it is applied and that it arbitrates.
 
-**What it admits, precisely.** A UNIQUE index on `status` filtered to two
-values permits at most one `pending` row *and* at most one `running` row. The
-runner claims directly as `running` and never writes `pending`, so today the
-ceiling is exactly one active run. `pending` exists in the enum as a declared
-lifecycle state (claimed, dump not yet spawned) and is covered by the
-predicate so a future path that does insert one is still arbitrated by the
-database. A future design that needs both states populated at once must
-**tighten** this index to a constant expression — never relax the guard into
-application code.
+**What it admits, precisely — and the tightening that happened (issue #351,
+epic #345).** The ORIGINAL index (`20260907120000_add_database_backup_runs`)
+keyed on the `status` COLUMN, filtered to two values. That permits at most one
+`pending` row *and*, independently, at most one `running` row *at the same
+time* — two active runs, not one — because a `pending` row and a `running` row
+carry different key values and so never collide with each other. That ceiling
+was harmless only as long as the runner claimed directly as `running` and
+never wrote `pending`.
+
+#351 removed that precondition: the backup became a queue job
+(`db.backup.run`), and `POST /api/admin/db-backup/runs` now enqueues the job
+and creates the run row as `pending` *before* any worker has claimed it — the
+row has to exist at enqueue time so the endpoint can return a run id and `GET
+/runs/{id}` keeps working, and `pending` is more honest than the old behaviour
+of reporting `running` before anything was. The moment `pending` rows became
+real, the column-keyed index stopped meaning "at most one active run" and
+started meaning "at most two".
+
+`prisma/migrations/20260907140000_add_backup_run_job_link/migration.sql`
+(landed alongside the `database_backup_runs.job_id` FK described in §1) drops
+and recreates the index keyed on the constant expression `(true)` instead of
+`status`, still filtered to the same two statuses. Every row matching the
+predicate — `pending` or `running`, it no longer matters which — now indexes
+to the identical key, so Postgres enforces "at most one active row, full
+stop" across both statuses combined. This is exactly the tightening this
+section always said a future path needing both states populated at once would
+require: "tighten this index to a constant expression — never relax the guard
+into application code." A `completed`, `failed` or `stale` row still never
+matches the predicate and is never constrained by this index.
 
 ## 3. Indexes
 

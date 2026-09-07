@@ -1226,6 +1226,12 @@ model Job {
   // NotificationDelivery.channel above.
   executor        String?
 
+  // The `database_backup_runs` row this job produced, when `type` is
+  // `'db.backup.run'` (epic #345, issue #351). See `DatabaseBackupRun.jobId`
+  // for the full reasoning behind `@unique`/nullable/`SetNull` — this is
+  // just the required other half of that one-to-one relation.
+  backupRun DatabaseBackupRun?
+
   // See the block comment above ("Prisma-expressible indexes...") for why
   // these eight are declared here and three more exist only in
   // migration.sql.
@@ -1610,9 +1616,13 @@ model NodeCredential {
 // -----------------------------------------------------------------------------
 //
 // `database_backup_runs_active_uniq_idx` (hand-written in
-// `prisma/migrations/20260907120000_add_database_backup_runs/migration.sql`)
-// is a UNIQUE index on `status` restricted to `status IN ('pending','running')`.
-// It is what makes "at most one backup at a time" true ACROSS REPLICAS.
+// `prisma/migrations/20260907120000_add_database_backup_runs/migration.sql`,
+// TIGHTENED by
+// `prisma/migrations/<add_backup_run_job_link>/migration.sql`, epic #345,
+// issue #351 — see that migration's own header for why) is a UNIQUE index on
+// the CONSTANT EXPRESSION `(true)` restricted to `status IN
+// ('pending','running')`. It is what makes "at most one backup at a time"
+// true ACROSS REPLICAS.
 //
 // REJECTED: a `findFirst({ where: { status: 'running' } })` before the insert.
 // It is a check-then-act race, and it is racy exactly when it matters — a
@@ -1626,23 +1636,31 @@ model NodeCredential {
 // carrying the winner's run id, which #282/#283 turn into a 409.
 //
 // ⚠ PRISMA CANNOT EXPRESS THIS INDEX — INTENTIONAL SCHEMA DRIFT. The schema
-// language has no syntax for a partial index, exactly as recorded above the
-// `Job` model for `jobs_active_dedup_uniq_idx` and its two siblings. So
-// `prisma migrate dev`/`diff` will not regenerate it and, if anyone diffs this
-// schema against a live database, will want to DROP it. That drift is
-// deliberate and permanent: do not "fix" it, and do not try to force it into
-// `@@unique` syntax that does not exist. The migration file carries the same
-// warning next to the statement itself.
+// language has no syntax for a partial index OR an expression index, exactly
+// as recorded above the `Job` model for `jobs_active_dedup_uniq_idx` and its
+// two siblings. So `prisma migrate dev`/`diff` will not regenerate it and, if
+// anyone diffs this schema against a live database, will want to DROP it.
+// That drift is deliberate and permanent: do not "fix" it, and do not try to
+// force it into `@@unique` syntax that does not exist. The migration file
+// carries the same warning next to the statement itself.
 //
-// ⚠ WHAT THE INDEX ADMITS, PRECISELY. A unique index on `status` filtered to
-// two values permits at most one `pending` row AND at most one `running` row.
-// `DatabaseBackupRunnerService` inserts its claim directly as `running` and
-// never writes `pending`, so today that ceiling is exactly one active run.
-// `pending` exists in the enum as a declared lifecycle state (claimed, dump
-// not yet spawned) and is covered by the predicate so that a future path which
-// does insert one is still arbitrated by the database rather than by code. A
-// future path that needs BOTH states populated at once must first tighten this
-// index to a constant expression — it must not add an application-side check.
+// ⚠ WHAT THE INDEX ADMITS, PRECISELY, AND WHY THAT CHANGED. The ORIGINAL index
+// keyed on the `status` COLUMN, filtered to two values — that admits at most
+// one `pending` row AND at most one `running` row AT THE SAME TIME, i.e. TWO
+// active runs, not one. That was harmless only as long as
+// `DatabaseBackupRunnerService` inserted its claim directly as `running` and
+// never wrote `pending`. #351 makes the backup a queue job: `POST
+// /api/admin/db-backup/runs` now enqueues the job and creates the run row in
+// `pending` BEFORE any worker has claimed it (so the endpoint can return a run
+// id immediately and `GET /runs/{id}` keeps working), and the handler flips it
+// to `running` once claimed. The moment `pending` rows are real, the
+// column-keyed index stops meaning "at most one active run" and starts
+// meaning "at most two". Keying on `(true)` instead makes every active row —
+// whichever of the two statuses it holds — index to the SAME key, so at most
+// one can exist across both statuses COMBINED. This is the exact tightening
+// this comment always said a future path needing both states populated at
+// once would require ("tighten this index to a constant expression, never
+// move the guard into a service") — it has now happened.
 //
 // -----------------------------------------------------------------------------
 // WHY THE RESTORE AUDIT LIVES ON THE BACKUP'S OWN ROW
@@ -1670,6 +1688,37 @@ model NodeCredential {
 // retention never deletes the restore record that referenced it.
 model DatabaseBackupRun {
   id String @id @default(uuid()) @db.Uuid
+
+  // The `jobs` row that drove this run, once the dump became a queue job
+  // (`db.backup.run`, epic #345, issue #351). Three properties, each
+  // load-bearing:
+  //
+  //   1. `@unique` is what makes a SECOND run row for one job
+  //      UNREPRESENTABLE. #348 lets a handler derive its own node upload
+  //      key, and a node may legitimately ask for that key twice (a
+  //      timed-out transfer, a lost response, a restarted process still
+  //      holding the lease). The backup's `deriveOutputKey` re-reads by
+  //      `jobId` and returns the existing key; the unique index is what
+  //      GUARANTEES there is at most one to find, rather than that being a
+  //      convention the service has to remember.
+  //
+  //   2. Nullable, ON PURPOSE. Not every run has a job: the `pre_restore`
+  //      dump `DatabaseRestoreService` takes goes through the runner
+  //      directly, with no job in between, and rows predating this
+  //      migration have no job at all. A required column would either break
+  //      the restore path or need a backfill that invents job rows for
+  //      history.
+  //
+  //   3. `onDelete: SetNull`, NOT `Cascade`. `job.history.purge` deletes
+  //      `jobs` rows on a retention schedule that is completely independent
+  //      of the archive retention. Cascade would let a routine history purge
+  //      delete the record of a backup whose archive is still in the bucket
+  //      and still restorable — the exact "deleting history must not delete
+  //      history" hazard `JobStatsRollup` already exists to avoid on the
+  //      stats side. Losing the LINK is acceptable; losing the RUN ROW is
+  //      not.
+  jobId String? @unique @map("job_id") @db.Uuid
+  job   Job?    @relation(fields: [jobId], references: [id], onDelete: SetNull)
 
   // `pending` = claimed, dump not yet spawned. `running` = a `pg_dump` is
   // streaming. `completed` = uploaded AND verified (see `verifiedAt`).

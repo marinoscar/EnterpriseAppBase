@@ -42,6 +42,7 @@ const MIGRATIONS_AT_288 = [
   '20260906190000_add_worker_nodes',
   '20260907120000_add_database_backup_runs',
   '20260907130000_add_notification_broadcasts',
+  '20260907140000_add_backup_run_job_link',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');
