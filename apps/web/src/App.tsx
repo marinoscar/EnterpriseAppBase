@@ -67,6 +67,10 @@ const JobInsightsPage = lazy(() => import('./pages/Admin/JobInsightsPage'));
 // hosts as a section. Lazy for the same reason: two DataTables and two dialogs
 // that nobody who never opens the Console will ever mount.
 const WorkersPage = lazy(() => import('./pages/Admin/WorkersPage'));
+// Issue #325, epic #319 — the admin broadcast list and its composer. Lazy for
+// the same reason: a DataTable, a composer dialog and a detail dialog that
+// nobody who never opens the Console will ever mount.
+const BroadcastsPage = lazy(() => import('./pages/Admin/BroadcastsPage'));
 const AdvancedSettingsPage = lazy(() => import('./pages/Admin/AdvancedSettingsPage'));
 const AdminUsersPage = lazy(() => import('./pages/Admin/UsersPage'));
 
@@ -401,6 +405,38 @@ function AppRoutes() {
                         fallback={<Navigate to="/" replace />}
                       >
                         <WorkersPage />
+                      </RequirePermission>
+                    }
+                  />
+                  {/* Issue #325, epic #319. Guarded EXACTLY as the Jobs and
+                      Workers routes above are, and on `broadcasts:read` — the
+                      literal string
+                      `notifications/broadcasts/broadcasts.controller.ts`
+                      enforces on its audience count, its list and its detail
+                      read (`PERMISSIONS.BROADCASTS_READ`), and the same one the
+                      `Broadcasts` card declares (the invariant
+                      `destinations.test.ts` asserts for every card). Composing,
+                      cancelling, deleting and test-sending need
+                      `broadcasts:write`, which the PAGE gates internally by
+                      disabling its controls with a tooltip — the route gate is
+                      about REACHABILITY.
+
+                      The `/admin/settings` hub gate is deliberately NOT widened
+                      to include this permission. It mirrors `console`'s
+                      `anyPermission` in `config/destinations.ts` byte for byte
+                      (asserted in `destinations.test.ts`), and every holder of
+                      `broadcasts:read` is an admin who also holds
+                      `system_settings:read`, so nothing is unreachable.
+                      Widening one side without the other is exactly the
+                      disagreement that test exists to catch. */}
+                  <Route
+                    path="/admin/settings/broadcasts"
+                    element={
+                      <RequirePermission
+                        permission="broadcasts:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <BroadcastsPage />
                       </RequirePermission>
                     }
                   />
