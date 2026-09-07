@@ -21,6 +21,7 @@ import { CredentialsModule } from './credentials/credentials.module';
 import { EmailModule } from './email/email.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { JobsModule } from './jobs/jobs.module';
+import { DbBackupModule } from './db-backup/db-backup.module';
 import { LoggerModule } from './common/logger/logger.module';
 import { TestAuthModule } from './test-auth/test-auth.module';
 import { MaintenanceModule } from './common/maintenance/maintenance.module';
@@ -116,6 +117,20 @@ import configuration from './config/configuration';
     // both node modules for why splitting by dependency weight is what keeps
     // `JwtAuthGuard` out of a cycle with `JobsModule`.
     NodesModule,
+
+    // The database backup engine (#281, epic #254): the `database_backup_runs`
+    // table's only writer, and the streaming `pg_dump` behind it. Registered
+    // here even though nothing triggers a backup yet (#282 adds the scheduler
+    // and the sweeps, #283 the admin API) so a broken provider graph fails at
+    // boot rather than at 02:00 on the first night backups are switched on. It
+    // starts no timer and issues no query until `startBackup` is called.
+    //
+    // ⚠ IT IS NOT A JOB TYPE, and must not become one. See the
+    // "### Why this is not a queue job" block above `DatabaseBackupRun` in
+    // prisma/schema.prisma: the queue's 30-minute stuck threshold would reset a
+    // legitimately long dump to `pending` and start a SECOND `pg_dump` against
+    // the same storage key.
+    DbBackupModule,
 
     // Maintenance mode (#257, epic #254): the three-layer switch, its admin
     // endpoints, and the global guard registered below. Imported here — rather
