@@ -46,6 +46,20 @@ const SAMPLE_PAYLOADS: Record<string, unknown> = {
     currentRoles: ['viewer'],
     changedAt: new Date('2026-01-01T00:00:00.000Z'),
   },
+  // #322's two broadcast keys share one renderer, and it is a projection of
+  // the admin-composed payload — so, like the role-change template, `{}` would
+  // exercise its throw branch rather than the happy path the loops below are
+  // about.
+  'admin.broadcast': {
+    title: 'Planned maintenance this Saturday',
+    body: 'The application will be unavailable from 22:00 UTC.',
+    link: '/announcements/42',
+  },
+  'admin.broadcast_critical': {
+    title: 'Unplanned outage',
+    body: 'Sign-in is currently failing. We are working on it.',
+    critical: true,
+  },
 };
 
 function contextFor(eventKey: string, data: unknown = {}): NotificationDispatchContext {
