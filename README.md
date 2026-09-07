@@ -1,4 +1,9 @@
-# Enterprise Application Foundation
+<!-- The title and the sentence below the badge are the product's identity.
+     `node scripts/rename.mjs --name "..."` rewrites both; see docs/RENAMING.md.
+     "My App" is the template's placeholder — if you are reading it in a fork,
+     the rename has not been run yet. -->
+
+# My App
 
 [![CI](https://github.com/marinoscar/EnterpriseAppBase/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/marinoscar/EnterpriseAppBase/actions/workflows/ci.yml)
 
