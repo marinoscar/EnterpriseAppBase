@@ -168,7 +168,7 @@ describeWithDb('A node and the in-process worker claiming concurrently (real Pos
       executor: 'server',
       eligibleTypes: [type],
       limit,
-      leaseMs: 60_000,
+      leases: [{ type: type, leaseMs: 60_000 }],
     });
 
   const claimAsNode = (limit: number): Promise<Job[]> =>

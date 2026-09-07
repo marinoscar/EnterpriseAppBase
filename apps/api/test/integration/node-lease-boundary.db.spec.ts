@@ -122,7 +122,8 @@ describeWithDb('The node lease boundary (real Postgres)', () => {
       prismaService,
       config,
       new ProviderThrottleService(config),
-      new EventEmitter2()
+      new EventEmitter2(),
+      registry
     );
 
     nodes = new NodesService(prismaService, config, claims, terminal, registry);

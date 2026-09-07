@@ -124,6 +124,7 @@ import { Job, NodeStatus, Prisma, WorkerNode } from '@prisma/client';
 import { z } from 'zod';
 
 import { JobClaimService } from '../jobs/job-claim.service';
+import { buildClaimLeases, resolveJobProfile } from '../jobs/job-execution-profile';
 import { JobHandlerRegistry } from '../jobs/job-handler.registry';
 import { jobTypeLabel } from '../jobs/job-type-labels';
 import { JobSettleOutcome, JobTerminalService } from '../jobs/job-terminal.service';
@@ -565,7 +566,16 @@ export class NodesService {
       // Derived on the server, identically to the in-process worker's — see
       // `resolveJobLeaseMs`, and the file header on why a node does not get
       // to choose its own lease.
-      leaseMs: resolveJobLeaseMs(this.config),
+      //
+      // ONE PER TYPE, from the SAME intersected list passed as
+      // `eligibleTypes` just above (#346). This is the claim that made
+      // per-row leases necessary at all: a node takes up to its concurrency
+      // ACROSS SEVERAL TYPES in one statement, so with per-type runtime
+      // ceilings those rows do not share a lease. Built by the same
+      // `buildClaimLeases` the in-process worker calls, so the fleet and the
+      // server derive the identical lease for the identical type — the lease
+      // is the reaper's contract, not a claimer's private detail.
+      leases: buildClaimLeases(this.config, this.registry, eligibleTypes),
     });
   }
 
@@ -589,7 +599,13 @@ export class NodesService {
   ): Promise<{ jobId: string; leaseExpiresAt: Date }> {
     const job = await this.assertJobHeldByNode(userId, nodeId, jobId);
 
-    const leaseExpiresAt = new Date(Date.now() + resolveJobLeaseMs(this.config));
+    // The renewal grants the SAME lease the claim did, which means resolving
+    // it from the same profile: a renewal computed from the deployment-wide
+    // timeout would hand a six-hour type a ten-minute extension and have the
+    // reaper take the job away from a node that is renewing on schedule.
+    const leaseExpiresAt = new Date(
+      Date.now() + resolveJobLeaseMs(this.config, resolveJobProfile(this.registry.get(job.type)))
+    );
 
     const { count } = await this.prisma.job.updateMany({
       where: {

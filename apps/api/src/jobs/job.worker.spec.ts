@@ -26,6 +26,7 @@ import { JobClock } from './job-clock';
 import { JobHandler } from './job-handler.interface';
 import { JobHandlerRegistry } from './job-handler.registry';
 import { JobTerminalService } from './job-terminal.service';
+import { resetJobProfileWarnings } from './job-execution-profile';
 import { JobTimeoutError, JobWorker, resetUnknownWorkerModeWarning } from './job.worker';
 import { ProviderThrottleService } from './provider-throttle.service';
 
@@ -388,8 +389,11 @@ describe('JobWorker', () => {
       expect(options.nodeId).toBeNull();
       expect(options.eligibleTypes).toEqual(['test.echo']);
       // The lease is DERIVED from the timeout so it cannot be configured
-      // shorter than the run it has to outlive.
-      expect(options.leaseMs).toBeGreaterThan(30_000);
+      // shorter than the run it has to outlive. One entry per eligible type
+      // (#346), even at `limit: 1`: which type this slot ends up with is not
+      // known until the statement has run.
+      expect(options.leases).toEqual([{ type: 'test.echo', leaseMs: 90_000 }]);
+      expect(options.leases[0].leaseMs).toBeGreaterThan(30_000);
     });
 
     it('re-resolves eligible types per claim rather than capturing them at start', async () => {
@@ -429,6 +433,175 @@ describe('JobWorker', () => {
       await worker.stop();
 
       expect(String(error.mock.calls[0][0])).toContain('connection terminated');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Per-type execution profiles (#346)
+  // ---------------------------------------------------------------------------
+
+  describe('per-type execution profiles', () => {
+    /** A handler carrying a profile. */
+    function profiled(type: string, maxRuntimeMs: number, maxAttempts = 3): JobHandler {
+      return { type, profile: { maxRuntimeMs, maxAttempts }, process: async () => undefined };
+    }
+
+    beforeEach(() => {
+      resetJobProfileWarnings();
+    });
+
+    it('claims a profiled type under a lease derived from ITS ceiling', async () => {
+      const { worker, registry, claim } = makeWorker({
+        'jobs.workerConcurrency': 1,
+        'jobs.jobTimeoutMs': 30_000,
+      });
+
+      registry.register(profiled('test.slow', 7_200_000));
+
+      worker.start(1);
+      await waitFor(() => claim.mock.calls.length > 0);
+      await worker.stop();
+
+      const options = claim.mock.calls[0][0] as ClaimOptions;
+
+      // Its own ceiling plus the same grace — NOT the 30s deployment timeout
+      // this worker is otherwise configured with.
+      expect(options.leases).toEqual([{ type: 'test.slow', leaseMs: 7_260_000 }]);
+    });
+
+    it('gives each type in a heterogeneous claim its own lease', async () => {
+      // The in-process worker offers every registered type and takes whichever
+      // row is most urgent, so it cannot know which type it will get. One
+      // lease per type is what lets the statement stamp the right one.
+      const { worker, registry, claim } = makeWorker({
+        'jobs.workerConcurrency': 1,
+        'jobs.jobTimeoutMs': 30_000,
+      });
+
+      registry.register(profiled('test.slow', 7_200_000));
+      registry.register(profiled('test.brief', 5_000));
+      registry.register(handler('test.plain', async () => undefined));
+
+      worker.start(1);
+      await waitFor(() => claim.mock.calls.length > 0);
+      await worker.stop();
+
+      const options = claim.mock.calls[0][0] as ClaimOptions;
+
+      expect(options.leases).toEqual([
+        { type: 'test.slow', leaseMs: 7_260_000 },
+        { type: 'test.brief', leaseMs: 65_000 },
+        { type: 'test.plain', leaseMs: 90_000 },
+      ]);
+    });
+
+    it('covers every eligible type it offers, so the claim’s join cannot drop a row', async () => {
+      const { worker, registry, claim } = makeWorker({ 'jobs.workerConcurrency': 1 });
+
+      registry.register(profiled('test.slow', 7_200_000));
+      registry.register(handler('test.plain', async () => undefined));
+
+      worker.start(1);
+      await waitFor(() => claim.mock.calls.length > 0);
+      await worker.stop();
+
+      const options = claim.mock.calls[0][0] as ClaimOptions;
+
+      expect(options.leases.map(({ type }) => type)).toEqual(options.eligibleTypes);
+    });
+
+    it('times a profiled job out on its OWN ceiling, not the deployment’s', async () => {
+      // The lease and the timeout must read the same ceiling. A timeout taken
+      // from the global while the lease came from the profile is the
+      // self-reaping job this whole feature exists to make unrepresentable.
+      const { worker, registry, completeFailed } = makeWorker({ 'jobs.jobTimeoutMs': 600_000 });
+
+      registry.register({
+        type: 'test.hang',
+        profile: { maxRuntimeMs: 20, maxAttempts: 3 },
+        process: () => new Promise<void>(() => undefined),
+      });
+
+      const outcome = await worker.runJob(claimedJob('test.hang'));
+
+      expect(outcome).toBe('failed');
+
+      const [, error] = completeFailed.mock.calls[0];
+
+      expect(error).toBeInstanceOf(JobTimeoutError);
+      expect((error as JobTimeoutError).timeoutMs).toBe(20);
+    });
+
+    it('lets a profile of maxRuntimeMs 0 disable the timeout for that type alone', async () => {
+      const { worker, registry, completeSucceeded } = makeWorker({ 'jobs.jobTimeoutMs': 20 });
+
+      let release: () => void = () => undefined;
+      const work = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+
+      registry.register({
+        type: 'test.unbounded',
+        profile: { maxRuntimeMs: 0, maxAttempts: 3 },
+        process: () => work,
+      });
+
+      const settled = worker.runJob(claimedJob('test.unbounded'));
+
+      // Well past the 20ms deployment timeout, which does not apply here.
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      release();
+
+      await expect(settled).resolves.toBe('succeeded');
+      expect(completeSucceeded).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves an UNPROFILED type exactly as it was', async () => {
+      // The regression guard: same lease, same timeout, same everything for
+      // every handler that did not ask for a profile.
+      const { worker, registry, claim, completeFailed } = makeWorker({
+        'jobs.workerConcurrency': 1,
+        'jobs.jobTimeoutMs': 20,
+      });
+
+      registry.register(handler('test.hang', () => new Promise<void>(() => undefined)));
+
+      worker.start(1);
+      await waitFor(() => claim.mock.calls.length > 0);
+      await worker.stop();
+
+      expect((claim.mock.calls[0][0] as ClaimOptions).leases).toEqual([
+        { type: 'test.hang', leaseMs: 60_020 },
+      ]);
+
+      await worker.runJob(claimedJob('test.hang'));
+
+      expect((completeFailed.mock.calls[0][1] as JobTimeoutError).timeoutMs).toBe(20);
+    });
+
+    it('falls back to the deployment numbers when the profile is unusable', async () => {
+      const { worker, registry, claim, completeFailed } = makeWorker({
+        'jobs.workerConcurrency': 1,
+        'jobs.jobTimeoutMs': 20,
+      });
+
+      registry.register({
+        type: 'test.hang',
+        profile: { maxRuntimeMs: Number.NaN, maxAttempts: 3 },
+        process: () => new Promise<void>(() => undefined),
+      });
+
+      worker.start(1);
+      await waitFor(() => claim.mock.calls.length > 0);
+      await worker.stop();
+
+      expect((claim.mock.calls[0][0] as ClaimOptions).leases).toEqual([
+        { type: 'test.hang', leaseMs: 60_020 },
+      ]);
+
+      await worker.runJob(claimedJob('test.hang'));
+
+      expect((completeFailed.mock.calls[0][1] as JobTimeoutError).timeoutMs).toBe(20);
     });
   });
 

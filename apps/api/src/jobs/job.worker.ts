@@ -92,6 +92,12 @@ import { Job } from '@prisma/client';
 
 import { JobClaimService } from './job-claim.service';
 import { JobClock, JOB_CLOCK, systemJobClock } from './job-clock';
+import {
+  JobExecutionProfile,
+  buildClaimLeases,
+  resolveJobProfile,
+} from './job-execution-profile';
+import { JobHandler } from './job-handler.interface';
 import { JobHandlerRegistry } from './job-handler.registry';
 import { JobSettleOutcome, JobTerminalService } from './job-terminal.service';
 import { ProviderThrottleService } from './provider-throttle.service';
@@ -225,7 +231,9 @@ export function resolveWorkerConcurrency(config: ConfigService): number {
 }
 
 /**
- * How long a claim's lease is good for, derived from `JOBS_JOB_TIMEOUT_MS`.
+ * How long a claim's lease is good for, derived from the runtime ceiling that
+ * applies to the job being claimed: the type's own `profile.maxRuntimeMs` when
+ * it declares one, and `JOBS_JOB_TIMEOUT_MS` otherwise.
  *
  * EXTRACTED FOR THE SAME REASON AS `resolveWorkerConcurrency` ABOVE, and with
  * a sharper consequence: a second claimer appeared. The node control plane
@@ -241,14 +249,30 @@ export function resolveWorkerConcurrency(config: ConfigService): number {
  * producing duplicate execution that looks exactly like a queue bug. One
  * function, one number, both executors.
  *
+ * ⚠ THE PROFILE IS A PARAMETER HERE, NOT A SECOND FUNCTION NEXT TO THIS ONE
+ * (#346). Per-type ceilings multiply the number of leases in play, and the
+ * paragraph above is the whole reason they must not multiply the number of
+ * PLACES a lease is computed: a `resolveProfiledJobLeaseMs` sitting beside
+ * this one would be two derivations again, differing at first only in which
+ * ceiling they read and then — after one of them is tuned — in the grace, in
+ * the unbounded branch, in the rounding. Everything a per-type lease changes
+ * is the value of `ceiling`; nothing it changes is the arithmetic. So the
+ * arithmetic stays here, exactly as it was, and the ceiling arrives as an
+ * argument. `buildClaimLeases` (`job-execution-profile.ts`) is the one caller
+ * both claimers use to turn a list of eligible types into a list of leases.
+ *
  * `LEASE_GRACE_MS` and `UNBOUNDED_LEASE_MS` carry the reasoning for the two
- * branches; the defensive fallback exists for the same reason as above (a
- * directly-constructed test double with a stub `ConfigService` must degrade to
- * the shipped behaviour rather than to `NaN`, which here would produce an
- * unwritable `lease_expires_at`).
+ * branches, and both are UNCHANGED by profiles: `maxRuntimeMs: 0` means "no
+ * ceiling" exactly as `JOBS_JOB_TIMEOUT_MS=0` does, and takes the same
+ * unbounded lease. The defensive fallback exists for the same reason as above
+ * (a directly-constructed test double with a stub `ConfigService` must degrade
+ * to the shipped behaviour rather than to `NaN`, which here would produce an
+ * unwritable `lease_expires_at`); a profile that arrives here has already been
+ * bounds-checked by `resolveJobProfile`, which is why this reads its field
+ * directly.
  */
-export function resolveJobLeaseMs(config: ConfigService): number {
-  const value = config.get<number>('jobs.jobTimeoutMs');
+export function resolveJobLeaseMs(config: ConfigService, profile?: JobExecutionProfile): number {
+  const value = profile ? profile.maxRuntimeMs : config.get<number>('jobs.jobTimeoutMs');
   const timeout = Math.max(
     0,
     typeof value === 'number' && Number.isFinite(value) ? value : DEFAULT_JOB_TIMEOUT_MS
@@ -386,6 +410,9 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
 
     this.logger.log(
       `Job worker started: ${concurrency} slot(s), mode "${this.mode()}", ` +
+        // No handler argument: this is the DEPLOYMENT-WIDE timeout, which is
+        // the only one that exists at start time. A type carrying a profile of
+        // its own overrides it per job, and says so on the job's own log line.
         `poll ${this.pollMs()}ms, job timeout ${this.timeoutMs() || 'disabled'}`
     );
   }
@@ -581,6 +608,13 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
 
   /** One claim, for this slot, in whatever mode is configured right now. */
   private async claimOne(): Promise<Job | undefined> {
+    // Resolved ONCE and used for both fields, so the lease list and the type
+    // list are the same list. `JobClaimService.claim` joins the two on `type`,
+    // and that join can only be total if nothing recomputes the eligible types
+    // between here and there — the mode is re-read per claim, so two calls to
+    // `eligibleTypes()` could legitimately disagree.
+    const eligibleTypes = this.eligibleTypes();
+
     const rows = await this.claims.claim({
       // The in-process worker is not a node: `null` node id, `server`
       // executor. `JobClaimService` is shared verbatim with the node control
@@ -588,10 +622,15 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
       // the claim service knows about its caller.
       nodeId: null,
       executor: 'server',
-      eligibleTypes: this.eligibleTypes(),
+      eligibleTypes,
       // ONE. See the file header on why this is not a batch.
       limit: 1,
-      leaseMs: this.leaseMs(),
+      // PER TYPE, even claiming a single row: this slot offers every eligible
+      // type and takes whichever row is most urgent, so which type it gets —
+      // and therefore which lease is correct — is not known until the
+      // statement has run. Handing the claim one lease per type lets Postgres
+      // apply the right one to the row it actually took.
+      leases: buildClaimLeases(this.config, this.registry, eligibleTypes),
     });
 
     return rows[0];
@@ -638,7 +677,7 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
       // which is every type this framework ships.
       await this.throttle.acquire(job.type);
 
-      await this.withTimeout(handler.process(job), this.timeoutMs(), job);
+      await this.withTimeout(handler.process(job), this.timeoutMs(handler), job);
     } catch (error) {
       return this.terminal.completeFailed(job, error);
     }
@@ -808,19 +847,28 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
     return Math.max(1, this.configNumber('jobs.pollMs', DEFAULT_POLL_MS));
   }
 
-  /** `JOBS_JOB_TIMEOUT_MS` — `0` disables per-job timeouts entirely. */
-  private timeoutMs(): number {
-    return Math.max(0, this.configNumber('jobs.jobTimeoutMs', DEFAULT_JOB_TIMEOUT_MS));
-  }
-
   /**
-   * See `LEASE_GRACE_MS` for why this is derived rather than configured, and
-   * `resolveJobLeaseMs` for why the derivation is module-level: the node
-   * control plane (#268) claims through the same service and must take the
-   * same lease.
+   * The runtime ceiling for one attempt at `handler`'s type — its own
+   * `profile.maxRuntimeMs`, or `JOBS_JOB_TIMEOUT_MS`. `0` disables the
+   * per-job timeout entirely, in either source.
+   *
+   * ⚠ IT MUST READ THE SAME CEILING `resolveJobLeaseMs` DID. The lease the
+   * claim took is this number plus `LEASE_GRACE_MS`, and the only thing
+   * keeping the grace positive is that both sides consult the same profile
+   * through the same validator. A timeout resolved from the profile against a
+   * lease resolved from the global (or the reverse) is precisely the
+   * self-reaping job — one attempt still running, its lease already expired,
+   * the reaper handing a second executor the same work — that per-type
+   * profiles exist to make unrepresentable.
    */
-  private leaseMs(): number {
-    return resolveJobLeaseMs(this.config);
+  private timeoutMs(handler?: JobHandler): number {
+    const profile = resolveJobProfile(handler);
+
+    if (profile) {
+      return Math.max(0, profile.maxRuntimeMs);
+    }
+
+    return Math.max(0, this.configNumber('jobs.jobTimeoutMs', DEFAULT_JOB_TIMEOUT_MS));
   }
 
   /** `JOBS_SYSTEM_MODE_EXTRA_TYPES`, already split by `configuration.ts`. */

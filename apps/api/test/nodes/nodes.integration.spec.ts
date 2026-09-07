@@ -341,11 +341,32 @@ describe('Worker node control plane (Integration)', () => {
         .send({})
         .expect(200);
 
-      // `JobClaimService` builds one `Prisma.sql` whose bound values end with
-      // the limit, so the cap is readable without re-parsing the statement.
+      // THE LIMIT IS LOCATED BY SHAPE, NOT BY POSITION, and that is the point
+      // of the filter rather than an index. `JobClaimService` binds two arrays
+      // (the eligible types, and the per-type leases), two string-or-null
+      // values (the node id and the executor), and EXACTLY ONE plain number —
+      // the limit. Picking the sole non-array number identifies it whatever
+      // order the statement binds things in.
+      //
+      // This used to read `values[values.length - 1]`, which was true until
+      // #346 moved the row pick into a `WITH picked AS MATERIALIZED` CTE and
+      // put `limit` second rather than last. A positional read couples a
+      // node-plane test to the claim statement's parameter order — two files
+      // that have no other reason to know about each other — so it breaks on a
+      // change that is none of its business, and breaks with an error about a
+      // concurrency cap rather than about the ordering that actually moved.
       const limitOf = (call: any[]): unknown => {
         const values = (call[0] as { values: unknown[] }).values;
-        return values[values.length - 1];
+        const numbers = values.filter(
+          (value) => typeof value === 'number' && !Array.isArray(value)
+        );
+
+        // If this ever finds more than one, the assumption above has expired
+        // and the test must say so rather than silently asserting on whichever
+        // number came first.
+        expect(numbers).toHaveLength(1);
+
+        return numbers[0];
       };
       const calls = (context.prismaMock.$queryRaw as jest.Mock).mock.calls;
       expect(limitOf(calls[0])).toBe(2);

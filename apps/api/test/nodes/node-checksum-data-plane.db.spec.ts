@@ -298,7 +298,8 @@ describeWithDb('example.checksum end to end on a worker node (real Postgres)', (
         service,
         config,
         new ProviderThrottleService(config),
-        new EventEmitter2()
+        new EventEmitter2(),
+        registry
       ),
       registry
     );

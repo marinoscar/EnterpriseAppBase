@@ -394,7 +394,58 @@ describe('NodesService', () => {
       expect(claimArgs()).toMatchObject({ nodeId: NODE_ID, executor: 'node' });
       // Derived from the shipped `JOBS_JOB_TIMEOUT_MS` default plus the grace,
       // identically to the in-process worker — not a number this file chose.
-      expect(claimArgs().leaseMs).toBe(660_000);
+      // ONE ENTRY PER ELIGIBLE TYPE (#346): a node claims up to its
+      // concurrency across several types in one statement, so the lease is
+      // per row, not per batch.
+      expect(claimArgs().leases).toEqual([{ type: NODE_TYPE, leaseMs: 660_000 }]);
+    });
+
+    it('derives a PROFILED type’s lease from its own ceiling, like the server does', async () => {
+      // A node and the API server must reach the same number for the same
+      // type, because the lease is the reaper's contract, not a claimer's
+      // private detail. Both go through `buildClaimLeases`, so the only way
+      // they can disagree is if one of them stops calling it.
+      registry.register({
+        type: NODE_TYPE,
+        profile: { maxRuntimeMs: 7_200_000, maxAttempts: 1 },
+        process: async () => undefined,
+        nodeResultSchema: z.object({ ok: z.boolean() }),
+        persistNodeResult,
+      });
+
+      (prisma.workerNode.findUnique as jest.Mock).mockResolvedValue(makeNode());
+
+      await service.claimJobs(USER, NODE_ID, {} as ClaimJobsDto);
+
+      expect(claimArgs().leases).toEqual([{ type: NODE_TYPE, leaseMs: 7_260_000 }]);
+    });
+
+    it('emits one lease per eligible type, matching the list it claims on', async () => {
+      // The heterogeneous claim is the whole reason the lease became per row:
+      // a node takes up to its concurrency ACROSS types in one statement.
+      const second = 'test.node.eligible.two';
+
+      registry.register({
+        type: second,
+        profile: { maxRuntimeMs: 5_000, maxAttempts: 3 },
+        process: async () => undefined,
+        nodeResultSchema: z.object({ ok: z.boolean() }),
+        persistNodeResult,
+      });
+
+      (prisma.workerNode.findUnique as jest.Mock).mockResolvedValue(
+        makeNode({ eligibleTypes: [NODE_TYPE, second] })
+      );
+
+      await service.claimJobs(USER, NODE_ID, {} as ClaimJobsDto);
+
+      expect(claimArgs().leases).toEqual([
+        { type: NODE_TYPE, leaseMs: 660_000 },
+        { type: second, leaseMs: 65_000 },
+      ]);
+      expect(claimArgs().leases.map((lease: { type: string }) => lease.type)).toEqual(
+        claimArgs().eligibleTypes
+      );
     });
 
     it('refuses a DISABLED node with 403 and claims nothing', async () => {
