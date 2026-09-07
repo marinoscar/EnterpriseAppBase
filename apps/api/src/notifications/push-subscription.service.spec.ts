@@ -1,23 +1,27 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 
 import {
   createMockPrismaService,
   MockPrismaService,
 } from '../../test/mocks/prisma.mock';
 import { PrismaService } from '../prisma/prisma.service';
+import { PushConfigService, ActiveVapidConfig } from './push-config.service';
 import { PushSubscriptionService } from './push-subscription.service';
 import type { PushSubscribeRequest } from './dto/push-subscription.dto';
 
 // =============================================================================
-// PushSubscriptionService — tests (issue #229, epic #215)
+// PushSubscriptionService — tests (issue #229, epic #215; #355 made it async)
 // =============================================================================
 //
 // Three properties this issue's acceptance criteria turn on, in the order
 // they matter most:
 //
-//   1. `isEnabled()`/`getVapidPublicKey()` gate on BOTH VAPID halves, not just
-//      the public one (see the service's file header for why).
+//   1. `isEnabled()`/`getVapidPublicKey()` are now thin ASYNC wrappers over
+//      `PushConfigService.resolveActiveVapidConfig()` (#355) — the full
+//      env/DB precedence matrix that method implements is exercised
+//      separately in `push-config.service.spec.ts`. Here we only prove the
+//      delegation itself: a resolved config means "enabled" and hands back
+//      its public key; `null` means "disabled" and `null`.
 //   2. `subscribe()` upserts BY ENDPOINT — a second call with the same
 //      endpoint updates the same row (and resets `failureCount`), and a
 //      re-subscribe under a DIFFERENT userId reassigns ownership rather than
@@ -44,10 +48,19 @@ function subscribeDto(
   };
 }
 
-function fakeConfig(values: Record<string, string | undefined>): ConfigService {
+const ACTIVE_CONFIG: ActiveVapidConfig = {
+  publicKey: 'pub-key',
+  privateKey: 'priv-key',
+  subject: 'mailto:ops@example.com',
+};
+
+/** A mock `PushConfigService` exposing only what this service touches. */
+function mockPushConfig(
+  resolved: ActiveVapidConfig | null,
+): jest.Mocked<Pick<PushConfigService, 'resolveActiveVapidConfig'>> {
   return {
-    get: jest.fn((key: string) => values[key]),
-  } as unknown as ConfigService;
+    resolveActiveVapidConfig: jest.fn().mockResolvedValue(resolved),
+  };
 }
 
 describe('PushSubscriptionService', () => {
@@ -58,93 +71,56 @@ describe('PushSubscriptionService', () => {
   });
 
   // ==========================================================================
-  // isEnabled() / getVapidPublicKey()
+  // isEnabled() / getVapidPublicKey() — thin async delegation to
+  // PushConfigService.resolveActiveVapidConfig()
   // ==========================================================================
 
   describe('isEnabled()', () => {
-    it('is true when both public and private VAPID keys are configured', () => {
+    it('is true when resolveActiveVapidConfig() resolves an active config', async () => {
       mockPrisma = createMockPrismaService();
+      const pushConfig = mockPushConfig(ACTIVE_CONFIG);
       const service = new PushSubscriptionService(
         mockPrisma as unknown as PrismaService,
-        fakeConfig({
-          'push.vapidPublicKey': 'pub-key',
-          'push.vapidPrivateKey': 'priv-key',
-        }),
+        pushConfig as unknown as PushConfigService,
       );
 
-      expect(service.isEnabled()).toBe(true);
+      await expect(service.isEnabled()).resolves.toBe(true);
+      expect(pushConfig.resolveActiveVapidConfig).toHaveBeenCalledTimes(1);
     });
 
-    it('is false when the private key is missing', () => {
+    it('is false when resolveActiveVapidConfig() resolves null (the default test environment)', async () => {
       mockPrisma = createMockPrismaService();
+      const pushConfig = mockPushConfig(null);
       const service = new PushSubscriptionService(
         mockPrisma as unknown as PrismaService,
-        fakeConfig({
-          'push.vapidPublicKey': 'pub-key',
-          'push.vapidPrivateKey': undefined,
-        }),
+        pushConfig as unknown as PushConfigService,
       );
 
-      expect(service.isEnabled()).toBe(false);
-    });
-
-    it('is false when the public key is missing', () => {
-      mockPrisma = createMockPrismaService();
-      const service = new PushSubscriptionService(
-        mockPrisma as unknown as PrismaService,
-        fakeConfig({
-          'push.vapidPublicKey': undefined,
-          'push.vapidPrivateKey': 'priv-key',
-        }),
-      );
-
-      expect(service.isEnabled()).toBe(false);
-    });
-
-    it('is false when both keys are missing (the default test environment)', () => {
-      mockPrisma = createMockPrismaService();
-      const service = new PushSubscriptionService(
-        mockPrisma as unknown as PrismaService,
-        fakeConfig({}),
-      );
-
-      expect(service.isEnabled()).toBe(false);
-    });
-
-    it('does NOT require VAPID_SUBJECT — that is delivery-time metadata, not a gate', () => {
-      mockPrisma = createMockPrismaService();
-      const service = new PushSubscriptionService(
-        mockPrisma as unknown as PrismaService,
-        fakeConfig({
-          'push.vapidPublicKey': 'pub-key',
-          'push.vapidPrivateKey': 'priv-key',
-          'push.vapidSubject': undefined,
-        }),
-      );
-
-      expect(service.isEnabled()).toBe(true);
+      await expect(service.isEnabled()).resolves.toBe(false);
     });
   });
 
   describe('getVapidPublicKey()', () => {
-    it('returns the configured public key when present', () => {
+    it('returns the resolved config\'s publicKey when active', async () => {
       mockPrisma = createMockPrismaService();
+      const pushConfig = mockPushConfig(ACTIVE_CONFIG);
       const service = new PushSubscriptionService(
         mockPrisma as unknown as PrismaService,
-        fakeConfig({ 'push.vapidPublicKey': 'pub-key' }),
+        pushConfig as unknown as PushConfigService,
       );
 
-      expect(service.getVapidPublicKey()).toBe('pub-key');
+      await expect(service.getVapidPublicKey()).resolves.toBe('pub-key');
     });
 
-    it('returns null (not undefined) when absent', () => {
+    it('returns null (not undefined) when nothing is active', async () => {
       mockPrisma = createMockPrismaService();
+      const pushConfig = mockPushConfig(null);
       const service = new PushSubscriptionService(
         mockPrisma as unknown as PrismaService,
-        fakeConfig({}),
+        pushConfig as unknown as PushConfigService,
       );
 
-      expect(service.getVapidPublicKey()).toBeNull();
+      await expect(service.getVapidPublicKey()).resolves.toBeNull();
     });
   });
 
@@ -157,18 +133,15 @@ describe('PushSubscriptionService', () => {
       mockPrisma = createMockPrismaService();
       return new PushSubscriptionService(
         mockPrisma as unknown as PrismaService,
-        fakeConfig({
-          'push.vapidPublicKey': 'pub-key',
-          'push.vapidPrivateKey': 'priv-key',
-        }),
+        mockPushConfig(ACTIVE_CONFIG) as unknown as PushConfigService,
       );
     }
 
-    it('throws ConflictException (409) when this deployment has no VAPID keys', async () => {
+    it('throws ConflictException (409) when this deployment has no active VAPID config', async () => {
       mockPrisma = createMockPrismaService();
       const service = new PushSubscriptionService(
         mockPrisma as unknown as PrismaService,
-        fakeConfig({}),
+        mockPushConfig(null) as unknown as PushConfigService,
       );
 
       await expect(
@@ -365,7 +338,7 @@ describe('PushSubscriptionService', () => {
     function service(): PushSubscriptionService {
       return new PushSubscriptionService(
         mockPrisma as unknown as PrismaService,
-        fakeConfig({}),
+        mockPushConfig(null) as unknown as PushConfigService,
       );
     }
 
