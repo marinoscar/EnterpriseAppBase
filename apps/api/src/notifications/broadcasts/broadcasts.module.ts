@@ -10,15 +10,23 @@
 // arm, no `switch` in the worker, no central list of types — and this module
 // is the "add it to your feature module" step from `jobs/handlers/README.md`.
 //
-// NO CONTROLLER AND NO SERVICE YET. #324 adds `/api/admin/broadcasts` (create,
-// list, get, cancel, delete, test send, audience count) and the service behind
-// it; #325 adds the admin page. This module is deliberately shipped ahead of
-// them, in the same spirit as `JobsModule` and `NotificationsModule` being
-// registered in `app.module.ts` before anything used them: a broken DI graph
-// then fails at boot, and the handlers' self-registration is exercised on
-// every boot, which is what proves the extension point actually works. It
-// costs nothing at runtime — no loop is started and no query is issued until a
-// broadcast job is claimed.
+// THE ADMIN SURFACE, ADDED BY #324: `BroadcastsController` and
+// `BroadcastsService` — `/api/admin/broadcasts` (audience count, test send,
+// list, create, get, cancel, delete). #325 adds the admin page on top of them.
+// The handlers were shipped first, deliberately, in the same spirit as
+// `JobsModule` and `NotificationsModule` being registered in `app.module.ts`
+// before anything used them: a broken DI graph fails at boot, and the
+// handlers' self-registration is exercised on every boot, which is what proves
+// the extension point actually works. The fan-out still costs nothing at
+// runtime — no loop is started and no query is issued until a broadcast job is
+// claimed.
+//
+// THE CONTROLLER AND THE HANDLERS SHARE A MODULE BECAUSE THEY SHARE A FEATURE,
+// not because either needs the other: the controller enqueues a job by TYPE
+// STRING and never touches a handler, and the handlers never see a request.
+// What they genuinely share is `broadcast-audience.ts` — the one predicate the
+// composer's count and the fan-out's paging must not disagree about — and
+// keeping them in one directory is what makes that sharing obvious.
 //
 // A SIBLING OF `NotificationsModule`, NOT PART OF IT. The two are separate on
 // purpose: broadcasts CONSUME the dispatcher through its one public entry
@@ -38,6 +46,14 @@
 //   - `NotificationsModule` — `NotificationsService.notifyNow`, the ONLY way
 //                       a recipient is reached. It exports that service and
 //                       nothing else, which is the point.
+//   - `SettingsModule` — `SystemSettingsService.getNotificationsPolicy()`, so
+//                       `create` can WARN (never refuse) when `browser` was
+//                       chosen while the deployment-wide kill switch is off.
+//                       Read through the settings service rather than
+//                       `NotificationPolicyService`, which `NotificationsModule`
+//                       deliberately does not export — it exports
+//                       `NotificationsService` and nothing else, and widening
+//                       that for a warning string is not a trade worth making.
 //   - `ConfigModule`  — `appUrl`, for the absolute CTA URL the email layout
 //                       requires. Listed explicitly even though
 //                       `ConfigModule.forRoot({ isGlobal: true })` in
@@ -52,12 +68,16 @@ import { ConfigModule } from '@nestjs/config';
 
 import { JobsModule } from '../../jobs/jobs.module';
 import { PrismaModule } from '../../prisma/prisma.module';
+import { SettingsModule } from '../../settings/settings.module';
 import { NotificationsModule } from '../notifications.module';
+import { BroadcastsController } from './broadcasts.controller';
+import { BroadcastsService } from './broadcasts.service';
 import { BroadcastChunkHandler } from './handlers/broadcast-chunk.handler';
 import { BroadcastStartHandler } from './handlers/broadcast-start.handler';
 
 @Module({
-  imports: [PrismaModule, JobsModule, NotificationsModule, ConfigModule],
-  providers: [BroadcastStartHandler, BroadcastChunkHandler],
+  imports: [PrismaModule, JobsModule, NotificationsModule, SettingsModule, ConfigModule],
+  controllers: [BroadcastsController],
+  providers: [BroadcastStartHandler, BroadcastChunkHandler, BroadcastsService],
 })
 export class BroadcastsModule {}

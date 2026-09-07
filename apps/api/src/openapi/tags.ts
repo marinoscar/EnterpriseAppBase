@@ -176,6 +176,17 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
           'permission of its own because it renames the live database and restarts the process.',
       },
       {
+        name: 'Notification Broadcasts',
+        description:
+          'Announcements an administrator composes and sends to every active user, immediately ' +
+          'or on a schedule, over the channels the deployment supports. Gated on ' +
+          '`broadcasts:read`/`broadcasts:write`, separately from `Notifications` — that section ' +
+          'is every signed-in user\'s own preferences and registry, this one sends to all of ' +
+          'them. Grouped with Operations rather than with Account & Settings because a ' +
+          'broadcast is an operational action (maintenance windows, incident updates, policy ' +
+          'changes), not a per-account setting.',
+      },
+      {
         name: 'Maintenance',
         description:
           'The maintenance window: turning it on, the message callers see while it is open, and ' +
