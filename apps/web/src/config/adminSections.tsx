@@ -36,8 +36,20 @@ import TuneIcon from '@mui/icons-material/Tune';
 import PaletteIcon from '@mui/icons-material/Palette';
 import FlagIcon from '@mui/icons-material/Flag';
 import EmailOutlinedIcon from '@mui/icons-material/EmailOutlined';
+import NotificationsActiveOutlinedIcon from '@mui/icons-material/NotificationsActiveOutlined';
+import BuildCircleOutlinedIcon from '@mui/icons-material/BuildCircleOutlined';
 import DataObjectIcon from '@mui/icons-material/DataObject';
 import PeopleIcon from '@mui/icons-material/People';
+// Operations (#266, epic #254). One icon per card, including the two cards
+// whose pages land in later issues — the card is declared now, so its icon is
+// declared now; see the `Operations` section's own header.
+import WorkHistoryOutlinedIcon from '@mui/icons-material/WorkHistoryOutlined';
+import QueryStatsIcon from '@mui/icons-material/QueryStats';
+import DnsOutlinedIcon from '@mui/icons-material/DnsOutlined';
+import BackupOutlinedIcon from '@mui/icons-material/BackupOutlined';
+// Broadcasts (#325, epic #319) — the one Operations card that is not a view
+// onto machinery, but an action taken through it.
+import CampaignOutlinedIcon from '@mui/icons-material/CampaignOutlined';
 
 /**
  * One settings page, fully described for every surface that draws it.
@@ -86,6 +98,9 @@ export interface SettingsSectionDef {
  *   - `system_settings:read`  → `system-settings.controller.ts` (GET)
  *   - `system_settings:write` → `system-settings.controller.ts` (PUT/PATCH)
  *   - `users:read`            → `users.controller.ts`
+ *   - `jobs:read`             → `jobs/job-admin.controller.ts`
+ *   - `nodes:read`            → the worker-node controller (#267)
+ *   - `db_backup:read`        → the database-backup controller (#268)
  *
  * `Advanced (JSON)` gates on `system_settings:WRITE` deliberately, unlike its
  * three siblings. It is a raw editor over the entire settings blob, so
@@ -139,6 +154,43 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
         permission: 'system_settings:read',
       },
       {
+        // Issue #225, epic #215. `system_settings:read` is the string
+        // `system-settings.controller.ts` enforces on its GET — the same
+        // controller the three cards above mirror, because this setting lives
+        // in the same document. Saving needs `system_settings:write`, which the
+        // PAGE gates internally: the card gate is about REACHABILITY, and "are
+        // browser notifications on for this deployment, and which events are
+        // suppressed" is worth reading for anyone answering "why did nobody get
+        // notified".
+        title: 'Notifications',
+        description:
+          'Turn browser notifications on or off for everyone, and suppress individual events.',
+        Icon: NotificationsActiveOutlinedIcon,
+        path: '/admin/settings/notifications',
+        permission: 'system_settings:read',
+      },
+      {
+        // Issue #258, epic #254. `system_settings:read` is the string
+        // `common/maintenance/maintenance.controller.ts` enforces on its GET —
+        // the registry never invents a permission, it mirrors one. That
+        // controller deliberately adds NO permission of its own: a maintenance
+        // window IS a system setting, stored in the `maintenance` namespace of
+        // that row and nowhere else, so `system_settings:read` / `:write`
+        // already mean exactly what this page needs them to mean.
+        //
+        // Opening and closing a window needs `system_settings:write`, which the
+        // PAGE gates internally by disabling its controls: the card gate is
+        // about REACHABILITY, and "is this deployment deliberately out of
+        // service, and which layer is deciding that" is worth reading for
+        // anyone answering "why is nothing working".
+        title: 'Maintenance',
+        description:
+          'Take the application out of service for planned work, with a message for anyone who tries to use it.',
+        Icon: BuildCircleOutlinedIcon,
+        path: '/admin/settings/maintenance',
+        permission: 'system_settings:read',
+      },
+      {
         title: 'Advanced (JSON)',
         description: 'Edit the raw system settings document directly, with validation.',
         Icon: DataObjectIcon,
@@ -156,6 +208,219 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
         Icon: PeopleIcon,
         path: '/admin/settings/users',
         permission: 'users:read',
+      },
+    ],
+  },
+  /**
+   * Operations — the deployment's moving parts (issue #266, epic #254).
+   *
+   * A THIRD GROUP rather than more cards under `General`, because the question
+   * it answers is a different one. `General` is configuration: values an
+   * administrator SETS, which then sit there. These four are the running
+   * system: work in flight, machines executing it, and the copy of the data
+   * taken while it ran. An operator opens `General` to change something and
+   * opens this group to find out what is happening — and putting the two under
+   * one heading would make the twelve-card grid a single undifferentiated wall
+   * exactly when someone is scanning it during an incident.
+   *
+   * ===========================================================================
+   * ALL FOUR CARDS WERE DECLARED AT ONCE, BEFORE THEIR PAGES EXISTED
+   * ===========================================================================
+   *
+   * `Worker Nodes` and `Database Backup` landed in later issues (#271 routed
+   * the first; #287, the epic's last issue, routed the second). Both were
+   * declared back in #266 anyway, `disabled: true` and with NO `path`, and the
+   * reason is concrete rather than aesthetic:
+   *
+   * The settings hub is under visual-regression testing at
+   * `maxDiffPixels: 4`. Any change to the card grid — a card added to a
+   * section, a new section, a title long enough to wrap — reflows the layout
+   * and requires the baselines to be regenerated inside a pinned Playwright
+   * container. Adding these four cards one issue at a time means doing that
+   * four times, with four chances to land a stale or mis-generated baseline,
+   * and three of those regenerations would be for a grid nobody has shipped a
+   * page behind yet. Declaring the whole group at once makes it ONE reflow and
+   * ONE baseline regeneration for the epic.
+   *
+   * That reasoning is about ADDING a card, and it does not argue against
+   * flipping one when its page ships: routing `Worker Nodes` (#271), and then
+   * `Database Backup` (#287), changes what a card in the existing grid renders
+   * — a "Coming soon" chip becomes a `CardActionArea`, and the rail gains the
+   * row it was skipping — so the baselines move once more each time, for a card
+   * somebody can now actually open. As of #287 no card in this group is inert,
+   * which is the state the group was declared in advance to reach.
+   *
+   * `disabled: true` AND no `path` together, not either alone, for a card that
+   * is still unbuilt. They are belt-and-braces on purpose, because the two
+   * consumers treat them differently and both treatments must be right: `SettingsHub` renders an
+   * inert card with a "Coming soon" chip and — importantly — no
+   * `CardActionArea` at all, so the card is not a tab stop and does not ripple;
+   * `NavigationRail` skips the row entirely rather than drawing a link to
+   * nowhere. A card carrying a `path` to an unrouted page would instead send a
+   * click to `App.tsx`'s `*` catch-all and land the operator on the home page
+   * with no explanation.
+   *
+   * ===========================================================================
+   * THE PERMISSIONS ARE THE CONTROLLERS' OWN STRINGS
+   * ===========================================================================
+   *
+   * Per `CLAUDE.md` Settings UI Pattern rule 3, verified against the API rather
+   * than assumed:
+   *
+   *   - `jobs:read`      → `jobs/job-admin.controller.ts` (`PERMISSIONS.JOBS_READ`),
+   *                        which both Jobs cards mirror: the list, the stats
+   *                        and the insights read all sit behind it. The five
+   *                        writes need `jobs:write`, which each PAGE gates
+   *                        internally by disabling its controls — the card gate
+   *                        is about REACHABILITY, and "what is the queue doing"
+   *                        is worth reading for anyone answering "why has
+   *                        nothing happened".
+   *   - `nodes:read`     → `nodes/nodes-admin.controller.ts`
+   *                        (`PERMISSIONS.NODES_READ`), the string it enforces
+   *                        on the fleet list, the node detail and the
+   *                        credential list; also `node-credential.controller.ts`.
+   *                        DELIBERATELY NOT `jobs:read`: `roles.constants.ts`
+   *                        splits the two, so a Workers card gated on
+   *                        `jobs:read` would advertise a permission that
+   *                        controller never checks, and the hub would decide
+   *                        reachability on evidence unrelated to whether the
+   *                        request behind it will be authorized.
+   *   - `db_backup:read` → the backup controller (#268). NOT
+   *                        `system_settings:read`: `roles.constants.ts`
+   *                        reserves a dedicated `db_backup:read/write/restore`
+   *                        triple for this surface precisely so backup access
+   *                        can be granted without handing over the settings
+   *                        document, and mirroring the settings permission here
+   *                        would quietly undo that.
+   *
+   * All five strings are seeded to ADMIN ONLY (`prisma/seed-data.ts`), so in
+   * practice this whole group is invisible to Contributor and Viewer today. The
+   * cards still gate per permission and not on the admin ROLE, because a later
+   * issue widening one read to an operations role must not have to touch this
+   * file — and because a role check here is the split-brain `destinations.ts`'s
+   * header exists to describe.
+   *
+   * The `/admin/settings` route gate is deliberately NOT widened to include
+   * `jobs:read`. It mirrors `console`'s `anyPermission` in
+   * `config/destinations.ts` byte for byte (asserted in
+   * `destinations.test.ts`), and every holder of these permissions is an admin
+   * who also holds `system_settings:read`, so nothing is unreachable. Widening
+   * one side without the other is exactly the disagreement that test exists to
+   * catch.
+   */
+  {
+    label: 'Operations',
+    cards: [
+      {
+        title: 'Jobs',
+        description:
+          'Inspect the background queue, retry or remove individual jobs, and recover work that stalled.',
+        Icon: WorkHistoryOutlinedIcon,
+        path: '/admin/settings/jobs',
+        permission: 'jobs:read',
+      },
+      {
+        // Nested UNDER the Jobs route, which `settingsPageTitle`'s
+        // longest-prefix rule resolves correctly: a bare `startsWith` would let
+        // `Jobs` claim this path and title the page "Jobs" in the compact
+        // AppBar. That is the case the rule was written for, and it is asserted
+        // in `settingsRegistry.test.ts` rather than left to the comment.
+        title: 'Job Insights',
+        description:
+          'See how long the queue takes, how fast it is moving, and when the outstanding work will be done.',
+        Icon: QueryStatsIcon,
+        path: '/admin/settings/jobs/insights',
+        permission: 'jobs:read',
+      },
+      {
+        // Declared inert by #266 alongside the whole group; ROUTED by #271,
+        // which ships the page. Flipping a card is exactly the two-field edit
+        // the section header describes — a `path` appears and `disabled`
+        // disappears — and both consumers pick it up from that alone: the hub
+        // swaps its "Coming soon" chip for a real `CardActionArea`, and the
+        // Console rail, which skipped the row entirely, starts drawing it.
+        //
+        // `permission` is UNCHANGED and was already right: `nodes:read` is the
+        // literal string `nodes-admin.controller.ts` enforces on its fleet
+        // list, its detail read and its credential list
+        // (`PERMISSIONS.NODES_READ`). Creating and revoking credentials, and
+        // deleting a node, need `nodes:write`, which the PAGE gates internally
+        // by omitting the row actions and the create button — the card gate is
+        // about REACHABILITY, and "which machines are attached and are they
+        // alive" is worth reading for anyone answering "why is nothing being
+        // processed".
+        title: 'Worker Nodes',
+        description:
+          'See which machines are attached to this deployment, what they are running, and whether they are healthy.',
+        Icon: DnsOutlinedIcon,
+        path: '/admin/settings/workers',
+        permission: 'nodes:read',
+      },
+      {
+        // Declared inert by #266 alongside the whole group; ROUTED by #287,
+        // the last issue of the epic, which ships the page. Flipping a card is
+        // the two-field edit the section header describes — a `path` appears
+        // and `disabled` disappears — and both consumers pick it up from that
+        // alone: the hub swaps its "Coming soon" chip for a real
+        // `CardActionArea`, and the Console rail, which skipped the row
+        // entirely, starts drawing it. Both of those move pixels, so the
+        // visual baselines were regenerated with this change.
+        //
+        // `permission` is UNCHANGED and was already right: `db_backup:read` is
+        // the literal string `db-backup/db-backup.controller.ts` enforces on
+        // its config read, its run list and its run detail
+        // (`PERMISSIONS.DB_BACKUP_READ`). NOT `system_settings:read`:
+        // `roles.constants.ts` reserves a dedicated
+        // `db_backup:read/write/restore` triple for this surface precisely so
+        // backup access can be granted without handing over the settings
+        // document, and mirroring the settings permission here would quietly
+        // undo that.
+        //
+        // Scheduling, cancelling and deleting need `db_backup:write`, and
+        // restoring or rolling back need `db_backup:restore` — a THIRD
+        // permission, kept separate by the API so it can be withheld from
+        // someone who may schedule backups but must not be able to replace the
+        // database. The PAGE gates both internally by disabling its controls;
+        // the card gate is about REACHABILITY, and "is this deployment being
+        // backed up, and what have we got" is worth reading for anyone
+        // answering "can we recover from this".
+        title: 'Database Backup',
+        description:
+          'Schedule backups, review what has been taken, and restore the database from one.',
+        Icon: BackupOutlinedIcon,
+        path: '/admin/settings/db-backup',
+        permission: 'db_backup:read',
+      },
+      {
+        // Issue #325, epic #319. `broadcasts:read` is the literal string
+        // `notifications/broadcasts/broadcasts.controller.ts` enforces on its
+        // audience count, its list and its detail read
+        // (`PERMISSIONS.BROADCASTS_READ`) — the registry never invents a
+        // permission, it mirrors one. Composing, scheduling, cancelling,
+        // deleting and test-sending need `broadcasts:write`, which the PAGE
+        // gates internally by disabling its controls: the card gate is about
+        // REACHABILITY, and "what has been announced, and is anything queued to
+        // go out" is worth reading for anyone answering "did everyone get told".
+        //
+        // OPERATIONS, NOT GENERAL, per this section's own header. General holds
+        // values an administrator SETS, which then sit there; a broadcast is
+        // work you dispatch and then watch — it has a status, a progress
+        // counter and a cancel — and it belongs one card away from Jobs, where
+        // its fan-out becomes visible.
+        //
+        // ⚠ NOT THE SAME PAGE AS General → Notifications, and the descriptions
+        // are written to keep them apart. That card is the deployment-wide KILL
+        // SWITCH: it decides whether browser notifications may be raised at all
+        // and which events are suppressed. This one composes and sends a single
+        // announcement to every user. Confusing the two during an incident is
+        // the difference between silencing every notification in the product
+        // and telling everybody what is happening.
+        title: 'Broadcasts',
+        description:
+          'Write an announcement and send it to every active user now or at a scheduled time, then watch it go out.',
+        Icon: CampaignOutlinedIcon,
+        path: '/admin/settings/broadcasts',
+        permission: 'broadcasts:read',
       },
     ],
   },

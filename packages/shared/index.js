@@ -76,3 +76,43 @@
  * this folder's README for the exact command.
  */
 exports.APP_NAME = 'My App';
+
+/**
+ * The brand's primary colour, as a CSS hex string.
+ *
+ * ▲ THIS IS A REBRAND POINT. It lives here rather than in the MUI theme because
+ * two kinds of consumer need it and only one of them can import a theme:
+ *
+ *   - `apps/web/src/theme/light.ts` reads it as `palette.primary.main`, so it
+ *     is every button, link and focus ring in the running application.
+ *   - The installed-app surfaces live OUTSIDE React and never execute theme
+ *     code: the web app manifest's `theme_color` (the OS chrome drawn around an
+ *     installed PWA) and the committed icon PNGs under
+ *     `apps/web/public/icons/`.
+ *
+ * ONE THING TO KNOW BEFORE YOU CHANGE IT: the icons are generated PIXELS, not a
+ * value read at runtime, so editing this line does not restyle them — they will
+ * keep the old colour until you re-run
+ * `python3 apps/web/scripts/generate-icons.py`. See this folder's README.
+ *
+ * Keep the value a 6-digit `#rrggbb` literal. A manifest's `theme_color` is
+ * parsed by the platform rather than by a CSS engine, and the 3-digit shorthand
+ * and `rgb()` forms are not reliably accepted there.
+ */
+exports.THEME_COLOR = '#1976d2';
+
+/**
+ * The colour painted behind the application before it has rendered anything.
+ *
+ * ▲ THIS IS A REBRAND POINT. It is the web app manifest's `background_color`:
+ * the splash screen an installed PWA shows while it launches, and the ground
+ * under the document during first paint.
+ *
+ * It is deliberately a SINGLE value and not theme-aware. The manifest is static
+ * JSON that the platform reads before any JavaScript of ours runs, so there is
+ * nothing at that moment that could ask which mode the user prefers. White is
+ * the light theme's `background.paper` — the surface the first real paint lands
+ * on — which makes the handover from splash to app invisible in the default
+ * case rather than in neither.
+ */
+exports.BACKGROUND_COLOR = '#ffffff';

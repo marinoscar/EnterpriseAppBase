@@ -1,14 +1,16 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import { ExecutionContext, ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { JwtAuthGuard } from './jwt-auth.guard';
+import { JwtAuthGuard, NODE_ROUTE_PREFIX } from './jwt-auth.guard';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { PatService } from '../../pat/pat.service';
+import { NodeCredentialService } from '../../nodes/node-credential.service';
 
 describe('JwtAuthGuard', () => {
   let guard: JwtAuthGuard;
   let reflector: jest.Mocked<Reflector>;
   let patService: jest.Mocked<PatService>;
+  let nodeCredentialService: jest.Mocked<NodeCredentialService>;
 
   beforeEach(async () => {
     reflector = {
@@ -19,11 +21,16 @@ describe('JwtAuthGuard', () => {
       validateToken: jest.fn(),
     } as any;
 
+    nodeCredentialService = {
+      validateToken: jest.fn(),
+    } as any;
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         JwtAuthGuard,
         { provide: Reflector, useValue: reflector },
         { provide: PatService, useValue: patService },
+        { provide: NodeCredentialService, useValue: nodeCredentialService },
       ],
     }).compile();
 
@@ -37,10 +44,16 @@ describe('JwtAuthGuard', () => {
     jest.restoreAllMocks();
   });
 
-  function createMockContext(authorizationHeader?: string): ExecutionContext {
+  function createMockContext(authorizationHeader?: string, url?: string): ExecutionContext {
     const request: any = {};
     if (authorizationHeader !== undefined) {
       request.headers = { authorization: authorizationHeader };
+    }
+    // `url` is what `isNodeRoute` reads (via `originalUrl ?? url`). Left
+    // undefined by default so the pre-#267 cases below exercise exactly the
+    // request shape they always did.
+    if (url !== undefined) {
+      request.url = url;
     }
     return {
       switchToHttp: () => ({
@@ -272,6 +285,180 @@ describe('JwtAuthGuard', () => {
       await guard.canActivate(context);
 
       expect(patService.validateToken).toHaveBeenCalledWith(rawToken);
+    });
+  });
+
+  // ============================================================================
+  // Node credential handling: Bearer nod_... tokens (#267, epic #254)
+  // ============================================================================
+  //
+  // These cases are a PRIVILEGE BOUNDARY, not feature coverage. A `nod_` token
+  // resolves to a real `AuthenticatedUser` — and, because `nodes:write` is
+  // admin-only in `prisma/seed-data.ts`, that user is an admin. The ONLY thing
+  // standing between a leaked worker credential and full administrative
+  // authority over this deployment is the route allowlist asserted below, so
+  // the negative cases here carry more weight than the positive one.
+  // ============================================================================
+
+  describe('Node credential handling', () => {
+    const NODE_TOKEN = 'nod_0011223344556677889900aabbccddeeff';
+
+    const nodeUser = {
+      id: 'node-owner-1',
+      email: 'owner@example.com',
+      isActive: true,
+      userRoles: [],
+    };
+
+    it('routes a nod_ token on /api/nodes to NodeCredentialService.validateToken', async () => {
+      reflector.getAllAndOverride.mockReturnValue(false);
+      nodeCredentialService.validateToken.mockResolvedValue(nodeUser as any);
+
+      const context = createMockContext(`Bearer ${NODE_TOKEN}`, NODE_ROUTE_PREFIX);
+      const request = context.switchToHttp().getRequest();
+
+      const result = await guard.canActivate(context);
+
+      expect(nodeCredentialService.validateToken).toHaveBeenCalledWith(NODE_TOKEN);
+      expect(result).toBe(true);
+      expect(request.user).toBe(nodeUser);
+      // A nod_ token must never fall through to the PAT branch or to Passport.
+      expect(patService.validateToken).not.toHaveBeenCalled();
+    });
+
+    it('accepts a path UNDER /api/nodes/', async () => {
+      reflector.getAllAndOverride.mockReturnValue(false);
+      nodeCredentialService.validateToken.mockResolvedValue(nodeUser as any);
+
+      const context = createMockContext(
+        `Bearer ${NODE_TOKEN}`,
+        '/api/nodes/11111111-1111-4111-8111-111111111111/heartbeat',
+      );
+
+      await expect(guard.canActivate(context)).resolves.toBe(true);
+    });
+
+    it('accepts /api/nodes?x=1 — the query string is not part of route identity', async () => {
+      reflector.getAllAndOverride.mockReturnValue(false);
+      nodeCredentialService.validateToken.mockResolvedValue(nodeUser as any);
+
+      const context = createMockContext(`Bearer ${NODE_TOKEN}`, '/api/nodes?x=1');
+
+      await expect(guard.canActivate(context)).resolves.toBe(true);
+      expect(nodeCredentialService.validateToken).toHaveBeenCalledWith(NODE_TOKEN);
+    });
+
+    // -------------------------------------------------------------------------
+    // The allowlist is a PREFIX-BOUNDARY match, not `startsWith('/api/nodes')`
+    // -------------------------------------------------------------------------
+    // Each of these paths begins with the literal characters `/api/nodes` and
+    // MUST STILL BE REFUSED. A naive `startsWith` passes all three, which is
+    // precisely why they are enumerated rather than left to a single case.
+    it.each([
+      ['/api/nodesX'],
+      ['/api/nodes-other'],
+      ['/api/nodescrape'],
+      ['/api/node-credentials'],
+      ['/api/node-credentials/11111111-1111-4111-8111-111111111111'],
+      ['/api/users'],
+      ['/api/admin/jobs'],
+    ])('refuses a nod_ token on %s with 403', async (url) => {
+      reflector.getAllAndOverride.mockReturnValue(false);
+
+      const context = createMockContext(`Bearer ${NODE_TOKEN}`, url);
+
+      await expect(guard.canActivate(context)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('refuses BEFORE validating — no lookup, and therefore no lastUsedAt stamp', async () => {
+      // THE ORDERING ASSERTION. `validateToken` is what stamps `lastUsedAt`
+      // fire-and-forget, so a refused request that reached it would (a) hand
+      // an attacker a liveness oracle in the operator's own credential
+      // listing and (b) corrupt the "is this node alive?" signal with probe
+      // traffic. Spying on the service is the only way to see the difference:
+      // both orderings return the same 403 to the caller.
+      reflector.getAllAndOverride.mockReturnValue(false);
+      nodeCredentialService.validateToken.mockResolvedValue(nodeUser as any);
+
+      const context = createMockContext(`Bearer ${NODE_TOKEN}`, '/api/users');
+
+      await expect(guard.canActivate(context)).rejects.toThrow(ForbiddenException);
+
+      expect(nodeCredentialService.validateToken).not.toHaveBeenCalled();
+    });
+
+    it('refuses a nod_ token on a request with no resolvable URL (fails closed)', async () => {
+      reflector.getAllAndOverride.mockReturnValue(false);
+
+      // No `url` at all — the classifier cannot answer, so the allowlist must
+      // deny rather than assume.
+      const context = createMockContext(`Bearer ${NODE_TOKEN}`);
+
+      await expect(guard.canActivate(context)).rejects.toThrow(ForbiddenException);
+      expect(nodeCredentialService.validateToken).not.toHaveBeenCalled();
+    });
+
+    it('prefers originalUrl over url when both are present', async () => {
+      reflector.getAllAndOverride.mockReturnValue(false);
+      nodeCredentialService.validateToken.mockResolvedValue(nodeUser as any);
+
+      const context = createMockContext(`Bearer ${NODE_TOKEN}`, '/api/nodes');
+      const request = context.switchToHttp().getRequest();
+      // Express-style rewrite: `url` looks allowed, the real path is not.
+      request.originalUrl = '/api/users';
+
+      await expect(guard.canActivate(context)).rejects.toThrow(ForbiddenException);
+      expect(nodeCredentialService.validateToken).not.toHaveBeenCalled();
+    });
+
+    it('throws 401 (not 403) when an allowlisted route carries an invalid credential', async () => {
+      // Unknown, revoked, expired and inactive-owner all arrive here as the
+      // same `null` from the service, and all become the same 401 — the guard
+      // deliberately cannot tell the caller which.
+      reflector.getAllAndOverride.mockReturnValue(false);
+      nodeCredentialService.validateToken.mockResolvedValue(null);
+
+      const context = createMockContext(`Bearer ${NODE_TOKEN}`, NODE_ROUTE_PREFIX);
+
+      await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
+      await expect(guard.canActivate(context)).rejects.toThrow('Invalid or expired node credential');
+    });
+
+    it('does not invoke NodeCredentialService for @Public() routes', async () => {
+      reflector.getAllAndOverride.mockReturnValue(true);
+
+      const context = createMockContext(`Bearer ${NODE_TOKEN}`, '/api/users');
+
+      // Public wins over both the allowlist and validation: a route that needs
+      // no authentication is not made LESS reachable by presenting a token.
+      await expect(guard.canActivate(context)).resolves.toBe(true);
+      expect(nodeCredentialService.validateToken).not.toHaveBeenCalled();
+    });
+
+    it('leaves the pat_ branch untouched: a PAT still works on a non-node route', async () => {
+      // Regression guard for the boundary between the two opaque families —
+      // #267 must not have narrowed the PAT's documented universality.
+      reflector.getAllAndOverride.mockReturnValue(false);
+      patService.validateToken.mockResolvedValue(nodeUser as any);
+
+      const context = createMockContext('Bearer pat_something', '/api/users');
+
+      await expect(guard.canActivate(context)).resolves.toBe(true);
+      expect(nodeCredentialService.validateToken).not.toHaveBeenCalled();
+    });
+
+    it('does not treat a JWT on a node route as a node credential', async () => {
+      reflector.getAllAndOverride.mockReturnValue(false);
+      const superSpy = jest
+        .spyOn(Object.getPrototypeOf(JwtAuthGuard.prototype), 'canActivate')
+        .mockReturnValue(true);
+
+      const context = createMockContext('Bearer eyJhbGciOiJIUzI1NiJ9.x.y', NODE_ROUTE_PREFIX);
+
+      await guard.canActivate(context);
+
+      expect(nodeCredentialService.validateToken).not.toHaveBeenCalled();
+      expect(superSpy).toHaveBeenCalledWith(context);
     });
   });
 

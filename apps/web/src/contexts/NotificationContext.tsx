@@ -59,7 +59,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 import { useIsMounted } from '../hooks/useIsMounted';
 import {
@@ -70,7 +70,7 @@ import {
   markNotificationRead,
 } from '../services/api';
 import { connectNotificationStream, type SseState } from '../services/notificationStream';
-import { showNativeNotification } from '../services/browserNotifications';
+import { showAppNotification } from '../services/browserNotifications';
 import { isInternalLink } from '../utils/internalLink';
 import type { AppNotification } from '../types';
 
@@ -173,6 +173,7 @@ export const NotificationContext = createContext<NotificationContextValue | null
 export function NotificationProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const isMounted = useIsMounted();
 
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
@@ -315,7 +316,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
    * on render is a connection that reconnects constantly.
    */
   const handleNotification = useCallback(
-    (notification: AppNotification) => {
+    (notification: AppNotification, toast: boolean) => {
       if (!isMounted()) return;
 
       // =======================================================================
@@ -384,9 +385,88 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       // a second OS-level popup for one event is the badge lie in audible form.
       if (!isNew) return;
 
+      // =======================================================================
+      // ⚠️ #227: THE SERVER-AUTHORITATIVE TOAST GATE
+      // =======================================================================
+      //
+      // `toast` is this frame's OWN, freshly-computed answer to "may this
+      // client raise an OS notification for this event?" — see
+      // `NotificationStreamEvent.toast` in `types/index.ts`. It is deliberately
+      // NOT derived from this tab's own `adminDisabled`/capability state (the
+      // config `UserNotificationsPage` reads via `useNotificationConfig`):
+      // a long-lived tab's cached `GET /api/notifications/config` can go stale
+      // the instant an administrator flips the toggle, and nothing pushes an
+      // update to it. Every SSE frame's `toast` flag, by contrast, is computed
+      // at PUBLISH time from the policy that held then — so gating here, on the
+      // frame itself, is what makes a stale client harmless: even a tab that
+      // still believes toasts are enabled cannot raise one the server just said
+      // not to show.
+      //
+      // ONLY THE TOAST IS GATED. `setNotifications` and `setUnreadCount` above
+      // already ran unconditionally — `toast: false` does not mean suppressed,
+      // it means the OS bubble alone is withheld; the bell, the unread count and
+      // the notification centre are unaffected, exactly as the mandatory
+      // `security.role_changed` alert's durable record survives an
+      // administrator muting its toast. Placed the same way as the `isNew`
+      // check above: alongside this call, never inside `setNotifications` or
+      // `setUnreadCount`'s updaters.
+      if (!toast) return;
+
+      // =======================================================================
+      // ⚠️ #224: SUPPRESS THE TOAST WHEN THIS WINDOW IS ALREADY WHAT THE USER
+      // IS LOOKING AT — A SECOND, INDEPENDENT GATE ON TOP OF `isNew` ABOVE
+      // =======================================================================
+      //
+      // NOT a replacement for the `isNew` return above, and not merged with it.
+      // `isNew` answers "has this notification been accounted for yet" — a
+      // question about the EVENT, decided once, from a ref, because a duplicate
+      // stream frame must never double-count or double-toast regardless of
+      // anything about the window. This answers a completely different
+      // question — "is anyone about to miss it if we don't pop a toast" — which
+      // is about the TAB'S CURRENT STATE and must be re-evaluated on every
+      // genuinely-new arrival, not cached anywhere.
+      //
+      // The rule (per #224): show an OS notification only when NO window of
+      // this registration is both visible and focused. When the tab the user
+      // is actually looking at just gained a row in the bell and bumped the
+      // badge, an OS popup on top of that is a second, redundant interruption
+      // for something already on screen — the badge already IS the feedback.
+      // `document.hasFocus()` alone is not enough: a fully covered-but-focused
+      // window (alt-tabbed to another app while this browser window still has
+      // OS input focus) reports `visibilityState === 'hidden'`, and a visible
+      // background tab in the same window is not focused — BOTH conditions are
+      // required together for "the user is plausibly looking at this right
+      // now", which is exactly why the check is a `&&`, not an `||`.
+      //
+      // These are DOM globals (`document`, not anything from
+      // `browserNotifications.ts`), so the check lives here rather than inside
+      // `showAppNotification` — that module's job is "how do I raise a toast
+      // given permission and a registration", not "should one be raised at
+      // all", and it has no business reaching for `document` to answer a
+      // question this file already has the context to ask first.
+      //
+      // Placed AFTER every state update above (`setNotifications`,
+      // `setUnreadCount`) and BEFORE the toast call ONLY — the bell and unread
+      // count must update identically whether or not the tab is focused; only
+      // the OS-level popup is conditional. Do not move this earlier in the
+      // function.
+      //
+      // A hidden or unfocused tab still gets exactly one toast — this check
+      // does nothing there, on purpose. Cross-tab collapsing to ONE toast when
+      // several backgrounded tabs are all eligible to show one is a SEPARATE
+      // mechanism: the `getNotifications({ tag })` registration-wide guard in
+      // `showAppNotification` (`services/browserNotifications.ts`). That one
+      // works by reading what the browser has already displayed; this one
+      // works by reading what the user is currently looking at. Neither
+      // subsumes the other.
+      if (document.visibilityState === 'visible' && document.hasFocus()) return;
+
       // THIRD IN THE ORDERING, and deliberately last: the centre is already
-      // correct by this point, so everything below is free to fail.
-      showNativeNotification(notification, (clicked) => {
+      // correct by this point, so everything below is free to fail. Fired
+      // and forgotten — `showAppNotification` resolves with which path (if
+      // any) raised the toast, purely for tests/diagnostics, and nothing here
+      // is waiting on that answer.
+      void showAppNotification(notification, (clicked) => {
         // Marking read on activation matches clicking the row in the bell —
         // the user has demonstrably seen it.
         void markRead(clicked.id);
@@ -459,8 +539,8 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     const connection = connectNotificationStream({
       // Indirected through the ref so this effect never re-runs for a changed
       // callback identity.
-      onNotification: (notification) =>
-        handlersRef.current.handleNotification(notification),
+      onNotification: (notification, toast) =>
+        handlersRef.current.handleNotification(notification, toast),
       onOpen: () => handlersRef.current.handleStreamOpen(),
       onStateChange: (state) => {
         if (isMounted()) setStreamState(state);
@@ -473,6 +553,86 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     // which matters under StrictMode's double-mount in development.
     return () => connection.close();
   }, [isAuthenticated, isMounted]);
+
+  // ---------------------------------------------------------------------------
+  // The service-worker click bridge — issue #223, epic #215
+  // ---------------------------------------------------------------------------
+  //
+  // `sw.ts`'s `notificationclick` handler is the ONLY place a click on a
+  // worker-shown notification (Android's SW-only toast path, or any toast that
+  // fires with no page in view — see `showAppNotification` in
+  // `services/browserNotifications.ts`, issue #222) can be caught, and that
+  // handler has no token to mark anything read with — see the "never call the
+  // API" constraint documented at the top of `sw.ts`. So when a page IS open,
+  // the worker `postMessage`s the click here instead of acting on it, and this
+  // listener finishes the job with the token this page already holds.
+  //
+  // REUSES `markRead` AND `isInternalLink`/`navigate` RATHER THAN DUPLICATING
+  // THEM. This is deliberately the SAME pair of calls `handleNotification`
+  // above makes from the in-page toast's `onClick` — a worker-delivered click
+  // and a page-delivered click are the same user action wearing two different
+  // delivery mechanisms, and a notification clicked via the worker must be
+  // indistinguishable in its effect from one clicked via `new Notification()`.
+  //
+  // `navigator.serviceWorker` can be undefined (no SW support, or a context
+  // where `self.serviceWorker` never registers) — guarded rather than asserted,
+  // the same posture `browserNotifications.ts` takes everywhere it touches
+  // this API.
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+
+    const handleMessage = (event: MessageEvent) => {
+      const data = event.data as { type?: unknown; id?: unknown; link?: unknown } | null;
+      if (!data || data.type !== 'notification-click') return;
+
+      // Matches the toast's `onClick` in `handleNotification` above: mark read
+      // first (the click itself is the "seen" signal), then navigate only if
+      // the link is a validated in-app destination.
+      const link = typeof data.link === 'string' ? data.link : null;
+      if (typeof data.id === 'string') void markRead(data.id);
+      if (isInternalLink(link)) navigate(link);
+    };
+
+    navigator.serviceWorker.addEventListener('message', handleMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', handleMessage);
+  }, [markRead, navigate]);
+
+  // ---------------------------------------------------------------------------
+  // The cold-open `?n=` handler — issue #223, epic #215
+  // ---------------------------------------------------------------------------
+  //
+  // The other half of `sw.ts`'s `notificationclick` handler: when NO page is
+  // open to `postMessage`, the worker cannot deliver the click at all — there
+  // is nothing listening yet — so it `clients.openWindow()`s the link with the
+  // notification id encoded as `?n=<id>` instead, and this effect is what
+  // reads that back once the app has booted and (if the user is signed in) a
+  // token exists to mark it read with.
+  //
+  // GUARDED ON `isAuthenticated`, not just presence of `n`: a cold-opened
+  // window loads `/login` first for a signed-out user, and this provider
+  // itself only mounts inside the authenticated shell (see `App.tsx`) — but
+  // `searchParams` is still readable at that point via the router, and calling
+  // `markRead` before a session exists would just spend a request on a 401
+  // that `markRead` already swallows. Waiting for `isAuthenticated` means the
+  // mark-read fires once, right after the shell mounts for real.
+  //
+  // STRIPPED WITH `replace: true` AFTER CONSUMING IT, not left in the URL: a
+  // page refresh must not re-fire the same mark-read (harmless, since
+  // `markRead` is idempotent server-side, but noisy) and must not leave `n` in
+  // a bookmarked or shared URL. `replace` keeps the strip out of the history
+  // stack, so Back does not resurrect the param.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const notificationId = searchParams.get('n');
+    if (!notificationId) return;
+
+    void markRead(notificationId);
+
+    const next = new URLSearchParams(searchParams);
+    next.delete('n');
+    setSearchParams(next, { replace: true });
+  }, [isAuthenticated, searchParams, markRead, setSearchParams]);
 
   // ---------------------------------------------------------------------------
   // Writes, continued — `markRead` sits above the live-arrival handler that

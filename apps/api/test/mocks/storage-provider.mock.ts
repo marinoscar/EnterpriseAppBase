@@ -29,6 +29,13 @@ export const createMockStorageProvider = (): jest.Mocked<StorageProvider> => ({
     .fn()
     .mockResolvedValue('https://mock-presigned-url.com/upload'),
 
+  // Single-shot signed PUT (#269). Distinct from the multipart part URL above
+  // so a spec asserting "the node was given a WRITE url" cannot pass because
+  // the wrong method happened to be stubbed with the same string.
+  getSignedPutUrl: jest
+    .fn()
+    .mockResolvedValue('https://mock-presigned-url.com/put'),
+
   completeMultipartUpload: jest.fn().mockResolvedValue({
     key: 'test-key',
     bucket: 'test-bucket',

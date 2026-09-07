@@ -11,6 +11,9 @@ build/
 .env
 .env.local
 .env.*.local
+# The worker fleet's own env file (epic #254). `.env.worker.example` beside it
+# is committed; the filled-in copy holds a node credential and is not.
+.env.worker
 
 # IDE
 .idea/

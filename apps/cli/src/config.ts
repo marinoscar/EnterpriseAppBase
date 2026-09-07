@@ -68,6 +68,31 @@ export interface StoredConfig {
   tokenName?: string;
   /** When this file was last written, for `config` output. */
   updatedAt?: string;
+  /**
+   * The `worker_nodes` row this machine registered (#272, epic #254).
+   *
+   * Stored so a restart RE-ATTACHES to its existing node rather than leaking a
+   * new row on every start — which is what a container without it would do,
+   * once per crash-loop iteration.
+   */
+  nodeId?: string;
+  /** Worker-node settings. Absent on every machine that never ran `node register`. */
+  node?: StoredNodeConfig;
+}
+
+/**
+ * The persisted half of a worker node's settings (#272).
+ *
+ * Every field optional for the same reason every field of `StoredConfig` is:
+ * this file is on a user's disk and gets hand-edited, partially restored and
+ * written by other versions. Defaults are applied in `node-config.ts`, once,
+ * where the environment overlay is also applied.
+ */
+export interface StoredNodeConfig {
+  name?: string;
+  concurrency?: number;
+  eligibleTypes?: string[];
+  pollIntervalMs?: number;
 }
 
 /** Where a resolved field came from. Shown by `config`; used by diagnostics. */
@@ -189,7 +214,40 @@ export function readConfigFile(ctx?: ConfigContext): StoredConfig | undefined {
     ...optionalField('tokenId', readString(body.tokenId)),
     ...optionalField('tokenName', readString(body.tokenName)),
     ...optionalField('updatedAt', readString(body.updatedAt)),
+    ...optionalField('nodeId', readString(body.nodeId)),
+    ...optionalField('node', readStoredNodeConfig(body.node)),
   };
+}
+
+/**
+ * Read the `node` block, dropping anything of the wrong type.
+ *
+ * Same contract as `readString`: a hand-edited `concurrency: "4"` reads as
+ * absent and the default applies, rather than propagating a string into
+ * arithmetic and producing a claim limit of `NaN` — which the server would
+ * reject with a validation error naming a field the user never set.
+ */
+function readStoredNodeConfig(value: unknown): StoredNodeConfig | undefined {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const body = value as Record<string, unknown>;
+
+  const types = Array.isArray(body.eligibleTypes)
+    ? body.eligibleTypes.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    : undefined;
+
+  const block: StoredNodeConfig = {
+    ...optionalField('name', readString(body.name)),
+    ...optionalField('concurrency', readFiniteNumber(body.concurrency)),
+    ...optionalField('eligibleTypes', types),
+    ...optionalField('pollIntervalMs', readFiniteNumber(body.pollIntervalMs)),
+  };
+
+  return Object.keys(block).length > 0 ? block : undefined;
+}
+
+/** A finite number, or `undefined`. `NaN` and `Infinity` are not numbers a config may hold. */
+function readFiniteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
 /**

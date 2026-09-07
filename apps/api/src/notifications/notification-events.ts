@@ -86,10 +86,19 @@
  * Every channel the framework knows about, as a value.
  *
  * The type is DERIVED from this array rather than declared alongside it, so
- * the two cannot disagree — adding `'push'` here (which epic #109 explicitly
- * reserves, and #127 adds `'browser'` for) widens the type in the same edit,
- * and every `switch` over a channel that lacks the new arm fails typecheck
- * instead of silently dropping deliveries.
+ * the two cannot disagree — widening this array widens the type in the same
+ * edit, and every `switch` over a channel that lacks the new arm fails
+ * typecheck instead of silently dropping deliveries. `'browser'` arrived this
+ * way in #127; `'push'` arrives the same way in #228 (epic #215) — epic #109
+ * reserved the name in this comment long before #228 filed the sweep that
+ * actually widens the array, and this is that sweep. Adding the string here is
+ * ONLY a capability declaration: no `NOTIFICATION_EVENTS` entry declares
+ * `'push'` yet (no event has anything to send over it), no sender implements
+ * `NotificationChannelSender` for it, and `notification-policy.ts` explains
+ * deliberately, in its own comment, why `policyChannels` gives it no
+ * deployment-wide gate yet either — that gate is #230's job. Every
+ * non-exhaustive `switch`/if-chain over `NotificationChannel` in this tree was
+ * swept in the same change that added `'push'` here, per #228.
  *
  * CHANNEL IS AN ENUM FROM THE START, even though #122 delivers only email.
  * Preferences are persisted per event AND per channel from day one. Storing a
@@ -97,7 +106,7 @@
  * live user preferences, which is the one shape of change this registry
  * exists to avoid.
  */
-export const NOTIFICATION_CHANNELS = ['email', 'browser'] as const;
+export const NOTIFICATION_CHANNELS = ['email', 'browser', 'push'] as const;
 
 /** A delivery channel. See {@link NOTIFICATION_CHANNELS}. */
 export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
@@ -137,6 +146,26 @@ export interface NotificationEventDef {
    * The dispatcher intersects this with the user's preferences and with the
    * transports actually registered, so declaring a channel before its
    * implementation lands is safe — it simply has nowhere to go until then.
+   *
+   * ---------------------------------------------------------------------------
+   * WHAT `channels` MEANS ON THE WIRE IS NOW CAPABILITY ∩ POLICY (#226)
+   * ---------------------------------------------------------------------------
+   *
+   * The array declared BELOW is still pure capability, and this is still the
+   * only place it is stated. But `GET /api/notifications/events` no longer
+   * serves it verbatim: since #226 both that endpoint and the dispatcher run it
+   * through `policyChannels` (notification-policy.ts), which drops `browser`
+   * when an operator has switched browser notifications off deployment-wide or
+   * suppressed this event specifically in system settings.
+   *
+   * So an event that declares `browser` here and shows no `browser` over the
+   * API is CONFIGURATION, not a bug in this registry — check
+   * `system_settings.value.notifications` before concluding otherwise. The one
+   * exception is a `mandatory` event, whose channels survive the policy filter
+   * because its `notifications` row is the delivery and muting a toast must not
+   * mute an audit-relevant inbox entry; for those the policy shows up as
+   * `toast: false` on the stream instead. notification-policy.ts carries the
+   * full argument.
    *
    * Must be non-empty: an event with no channels can never be delivered, which
    * is a declaration bug rather than a configuration.
@@ -224,6 +253,146 @@ export const NOTIFICATION_EVENTS: NotificationEventDef[] = [
     // A privilege change the user never hears about is the failure mode this
     // whole flag exists for: an account silently gains or loses access and
     // nobody outside the admin console can tell. Not silenceable.
+    mandatory: true,
+  },
+
+  // ===========================================================================
+  // ADMIN BROADCASTS (#321, epic #319) — TWO KEYS, AND WHY NOT ONE
+  // ===========================================================================
+  //
+  // The obvious alternative is a single `admin.broadcast` event whose composer
+  // sets an "important" flag per send. It was rejected, and the reason is
+  // structural rather than stylistic.
+  //
+  // `mandatory` is a STATIC REGISTRY PROPERTY, and it is not decoration: both
+  // `isChannelEnabled` (notification-preferences.ts) and `policyChannels`
+  // (notification-policy.ts) BRANCH ON IT, and each branch is a gate — the
+  // first decides whether a stored user preference may mute this event at all,
+  // the second whether an operator's deployment-wide kill switch may. Making
+  // the flag dynamic would push a PER-SEND value into the gate that decides
+  // whether a user may mute an event at all, which is to say: whoever composes
+  // a message would be handed the switch that overrides the recipient's
+  // preferences. That is the exact coupling `mandatory` exists to keep out of
+  // reach of anything but this file.
+  //
+  // Two keys is also THE ONLY REPRESENTATION UNDER WHICH THE PREFERENCES
+  // MATRIX CAN SHOW BOTH: a muteable row the user may switch off, and an
+  // unmuteable one rendered disabled with its reason (#126). One key carrying a
+  // per-send flag has exactly one row, and that row has to lie in one direction
+  // or the other — it either offers a toggle that some sends ignore, or hides a
+  // toggle that most sends would honour.
+  //
+  // The pair is otherwise deliberately identical: same channels, same default.
+  // The ONLY difference between them is who is in charge of muting them.
+  // ===========================================================================
+  {
+    key: 'admin.broadcast',
+    label: 'Announcements',
+    description:
+      'Occasional messages an administrator sends to everyone using this application.',
+    // All three channels: a broadcast has no shape of its own, so the medium is
+    // the admin's choice per send — expressed as a NARROWING of this list (see
+    // `NotifyOptions` in notification.types.ts), never as a widening of it.
+    channels: ['email', 'browser', 'push'],
+    defaultEnabled: true,
+  },
+  {
+    key: 'admin.broadcast_critical',
+    label: 'Important announcements',
+    description:
+      'Messages an administrator has marked as important — service interruptions, security notices and anything else everyone needs to see. These cannot be turned off.',
+    channels: ['email', 'browser', 'push'],
+    defaultEnabled: true,
+    // A service interruption or a security notice nobody receives is the
+    // failure this flag exists for, and it is the same argument
+    // `security.role_changed` makes: silence is itself the risk.
+    //
+    // Note what this does NOT constrain: `mandatory` binds the RECIPIENT, not
+    // the sender. An admin may still choose to send a critical broadcast over a
+    // subset of channels — see `dispatch()` in notifications.service.ts, which
+    // permits narrowing a mandatory event on purpose and says why.
+    mandatory: true,
+  },
+
+  // ===========================================================================
+  // OPERATIONAL FAILURES (#288, epic #254) — AND WHY THEIR AUDIENCE IS A
+  // PERMISSION RATHER THAN A USER
+  // ===========================================================================
+  //
+  // Every event above this block has ONE natural recipient the trigger already
+  // knows: the user who signed in, the address an admin allowlisted, the
+  // account whose roles changed. The four below have none. A job that ran out
+  // of retries, a worker node that stopped heartbeating, a backup that failed
+  // and a restore that completed are facts about the DEPLOYMENT, and the
+  // question "who should hear about this?" has no user id in it.
+  //
+  // The answer this epic settles on is: WHOEVER CAN ACT ON IT — which is a
+  // permission, not a person and not a role. `NotificationsService
+  // .notifyPermissionHolders` resolves that set, and its header states the
+  // full argument (in short: a role is a bundle that a fork renames or splits,
+  // while the permission string is the SAME string the controller enforces, so
+  // the audience for "your backup failed" is by construction the set of people
+  // the API would let look at the backup).
+  //
+  // ⚠ THREE OF THE FOUR ARE MUTEABLE AND ONE IS NOT, and the split is the same
+  // one `security.role_changed` draws. A failure is a thing an operator may
+  // reasonably decide to watch elsewhere (a dashboard, an alerting stack) and
+  // silence here. A COMPLETED RESTORE is not: the database this application
+  // serves has just been replaced with an older copy of itself, and everybody
+  // who can act on that must be told, whatever their preferences say.
+  //
+  // ROLL-UP IS DELIBERATELY NOT BUILT. A fork whose queue carries thousands of
+  // a single job type will want digesting — see docs/specs/browser-
+  // notifications.md's operational-events section — but nothing in this
+  // template can produce that volume, and a roll-up nobody needs is a second
+  // scheduler, a second state table and a second way for a failure to be late.
+  // ===========================================================================
+  {
+    key: 'jobs.job_failed',
+    label: 'Background job failed',
+    description:
+      'Sent when a background job exhausts its retry budget and is given up on. Retries and deferrals are silent; only the final give-up raises this.',
+    // EMAIL ONLY, and not for want of a browser template. This is the one
+    // event of the four with NO ADMIN PAGE THAT ANSWERS IT: a failed job's
+    // detail lives behind a filter on the jobs list, and a toast whose click
+    // target cannot show the thing it is about is worse than no toast. The
+    // email carries the type, the error and the attempt count, which is the
+    // whole of what a reader needs before deciding to go and look.
+    channels: ['email'],
+    defaultEnabled: true,
+  },
+  {
+    key: 'nodes.node_offline',
+    label: 'Worker node went offline',
+    description:
+      'Sent when a worker node stops heartbeating and the fleet sweep marks it offline. Capacity has dropped until it comes back.',
+    // Both channels: lost capacity is worth an immediate in-app row for
+    // somebody already looking at the application, and a durable mail for
+    // somebody who is not.
+    channels: ['email', 'browser'],
+    defaultEnabled: true,
+  },
+  {
+    key: 'db_backup.backup_failed',
+    label: 'Database backup failed',
+    description:
+      'Sent when a database backup run fails, or stops heartbeating and is given up on. The deployment has one fewer recovery point than it thinks.',
+    channels: ['email', 'browser'],
+    defaultEnabled: true,
+  },
+  {
+    key: 'db_backup.restore_completed',
+    label: 'Database restored',
+    description:
+      'Sent when a database restore finishes and the restored copy becomes the live database. This cannot be turned off.',
+    channels: ['email', 'browser'],
+    defaultEnabled: true,
+    // THE ONE MANDATORY EVENT OF THE FOUR, for the reason `security
+    // .role_changed` is mandatory: silence is itself the risk. A restore
+    // replaces the live database with the contents of an archive — every write
+    // made after that archive was taken is gone, and the process that did it
+    // exits immediately afterwards. An operator who is not told is an operator
+    // debugging "where did today's data go?" from first principles.
     mandatory: true,
   },
 ];

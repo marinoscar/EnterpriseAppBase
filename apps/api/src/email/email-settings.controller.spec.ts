@@ -4,6 +4,7 @@ import { EmailSettingsController } from './email-settings.controller';
 import { EmailSettingsService } from './email-settings.service';
 import { EmailTestSendService } from './email-test-send.service';
 import { PatService } from '../pat/pat.service';
+import { NodeCredentialService } from '../nodes/node-credential.service';
 import type { RequestUser } from '../auth/interfaces/authenticated-user.interface';
 
 // =============================================================================
@@ -50,6 +51,11 @@ describe('EmailSettingsController', () => {
         // since it appears in the controller's `@UseGuards` metadata).
         // A minimal stub is enough to satisfy the constructor.
         { provide: PatService, useValue: { validateToken: jest.fn() } },
+        // JwtAuthGuard gained a second opaque-bearer dependency in #267
+        // (the `nod_` family). Stubbed the same way PatService is: this suite
+        // never sends a bearer token, so neither validator is ever reached —
+        // the provider exists only so the guard can be constructed.
+        { provide: NodeCredentialService, useValue: { validateToken: jest.fn() } },
       ],
     }).compile();
 

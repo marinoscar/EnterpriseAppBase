@@ -59,6 +59,27 @@ export default () => {
     callbackUrl: process.env.GOOGLE_CALLBACK_URL,
   },
 
+  // Web Push (issue #229, epic #215) — deploy-time VAPID key pair.
+  //
+  // Read exactly like `google` above: plain `process.env`, no default, no
+  // validation at this layer. `undefined` is the correct value for a
+  // deployment that has not generated keys — `PushSubscriptionService.isEnabled`
+  // is what turns "these are unset" into "Web Push is off", not this file.
+  //
+  // Deliberately NOT run through `common/crypto/secret-cipher.ts` /
+  // `SECRETS_ENCRYPTION_KEY`, for the same reason `google.clientSecret` isn't:
+  // that machinery encrypts credentials an ADMIN ENTERS AT RUNTIME through the
+  // app before they land in the `credentials` table. A VAPID key pair is
+  // generated once at deploy time (`npx web-push generate-vapid-keys`) and
+  // supplied as an environment variable, exactly like `GOOGLE_CLIENT_SECRET` —
+  // there is no runtime entry path for it, so there is nothing for that cipher
+  // to do here.
+  push: {
+    vapidPublicKey: process.env.VAPID_PUBLIC_KEY,
+    vapidPrivateKey: process.env.VAPID_PRIVATE_KEY,
+    vapidSubject: process.env.VAPID_SUBJECT,
+  },
+
   // Admin bootstrap
   initialAdminEmail: process.env.INITIAL_ADMIN_EMAIL,
 
@@ -84,6 +105,120 @@ export default () => {
     pollInterval: parseInt(process.env.DEVICE_CODE_POLL_INTERVAL || '5', 10),
     tokenExpiryDays: parseInt(process.env.DEVICE_TOKEN_EXPIRY_DAYS || '7', 10),
     patExpiryDays: parseInt(process.env.DEVICE_PAT_EXPIRY_DAYS || '90', 10),
+  },
+
+  // Background job queue — the terminal state machine's budgets and backoff
+  // (issue #261, epic #254).
+  //
+  // TWO INDEPENDENT BUDGETS, and conflating them is the mistake to avoid.
+  // `maxAttempts` bounds BUGS: a handler that keeps throwing should burn
+  // through a small budget quickly and land in `failed` where a human sees
+  // it. `rateLimitMaxHits` bounds WAITING: a provider throttling us is not
+  // the job failing, so a deferral must not spend the attempt budget at all
+  // (`JobTerminalService` explicitly un-charges the claim-time increment) and
+  // it gets its own, much larger, allowance on a much longer timescale.
+  // A single combined counter would let a long backfill against a
+  // rate-limited provider exhaust it in the first minute and fail
+  // permanently for a transient reason that was never its fault.
+  //
+  // Each pair of *BaseMs / *MaxMs feeds the same equal-jitter exponential
+  // backoff (`src/jobs/backoff.util.ts`); only the constants differ —
+  // seconds for a retry, minutes for a provider cooldown.
+  //
+  // THE WORKER POOL'S OWN FIVE (issue #262) sit in the same block because
+  // they bound the same thing from the other end: the four above decide what
+  // happens to a job that stopped, these decide how many jobs may be running
+  // at once, how eagerly an empty queue is asked again, which types this
+  // process is allowed to take, and how long one job may hold a slot.
+  //
+  // `workerMode` is a plain string rather than a union parsed here, and
+  // `JobWorker.mode()` validates it on every claim: an unrecognised value
+  // FAILS OPEN to "all" with a single warning, because a typo in an env file
+  // silently stopping every background job is a far worse outcome than
+  // running the default loudly. Validating it here would have to decide
+  // between throwing at boot (the fail-closed outcome, rejected) and
+  // silently rewriting the value (the same fallback, further from the log
+  // line that explains it).
+  //
+  // The lease a claim is taken with is DERIVED from `jobTimeoutMs` rather
+  // than configured, so it cannot be set shorter than the timeout it has to
+  // outlive — see `LEASE_GRACE_MS` in `src/jobs/job.worker.ts`.
+  jobs: {
+    maxAttempts: parseInt(process.env.JOBS_MAX_ATTEMPTS || '3', 10),
+    retryBaseMs: parseInt(process.env.JOBS_RETRY_BASE_MS || '2000', 10),
+    retryMaxMs: parseInt(process.env.JOBS_RETRY_MAX_MS || '60000', 10),
+    rateLimitMaxHits: parseInt(process.env.JOBS_RATELIMIT_MAX_HITS || '10', 10),
+    rateLimitBaseMs: parseInt(process.env.JOBS_RATELIMIT_BASE_MS || '30000', 10),
+    rateLimitMaxMs: parseInt(process.env.JOBS_RATELIMIT_MAX_MS || '900000', 10),
+    workerConcurrency: parseInt(process.env.JOBS_WORKER_CONCURRENCY || '2', 10),
+    pollMs: parseInt(process.env.JOBS_POLL_MS || '5000', 10),
+    workerMode: process.env.JOBS_WORKER_MODE || 'all',
+    jobTimeoutMs: parseInt(process.env.JOBS_JOB_TIMEOUT_MS || '600000', 10),
+    // The lease reaper's ONLY switch (#263), and deliberately not the worker
+    // mode. Reaping a dead lease is a CONTROL-PLANE duty: an API running as a
+    // pure control plane (`JOBS_WORKER_MODE=off` in front of an external node
+    // fleet) claims nothing itself, and is also the deployment where dead
+    // leases are most likely — a node's laptop closing its lid is the normal
+    // case there, not an edge one. Gating the reaper on this process's
+    // willingness to RUN jobs would leave that fleet's abandoned rows to
+    // nobody. See `tasks/job-stuck-reset.task.ts`.
+    //
+    // DEFAULTS TO ON, and only the literal string turns it off, so a typo
+    // fails open into "keep reaping" rather than silently leaving every
+    // abandoned job stuck forever — the same direction `workerMode` fails in,
+    // for the same reason.
+    reaperEnabled: process.env.JOBS_REAPER_ENABLED !== 'false',
+    // Split here rather than in the worker so the shape a consumer reads is
+    // the shape it wants, and an unset variable is an empty list rather than
+    // `['']` — which would look like a job type named "" to every caller.
+    systemModeExtraTypes: (process.env.JOBS_SYSTEM_MODE_EXTRA_TYPES || '')
+      .split(',')
+      .map((type) => type.trim())
+      .filter((type) => type.length > 0),
+  },
+
+  // Worker-fleet lifecycle (#270). Both switches are the SAME KIND of switch as
+  // `jobs.reaperEnabled` above — "does this replica run this sweep" — and not a
+  // policy: the thresholds themselves (`staleHeartbeatSeconds`,
+  // `offlineStaleMultiplier`, `offlineRetentionDays`) are system settings an
+  // administrator changes at runtime, because they are decisions about a
+  // deployment's fleet rather than about a process's environment.
+  //
+  // BOTH DEFAULT TO ON, and only the literal string turns either off. A fleet
+  // whose liveness tracking silently stopped because of a typo in an env file
+  // looks exactly like a fleet that is perfectly healthy — every node reads
+  // `online` forever — which is the worst failure of the two to diagnose. See
+  // `nodes/tasks/node-stale-offline.task.ts`.
+  //
+  // ⚠ TURNING THE SWEEP OFF ALSO TURNS RETENTION OFF, whatever the prune's own
+  // switch says: the prune selects `offline` rows, and without the sweep a
+  // crashed node never reaches that status. The pair is ordered, not
+  // independent.
+  nodes: {
+    staleOfflineEnabled: process.env.NODE_STALE_OFFLINE_ENABLED !== 'false',
+    offlinePruneEnabled: process.env.NODE_OFFLINE_PRUNE_ENABLED !== 'false',
+  },
+
+  // Database backup scheduling (#282). ONE switch, and — like the two groups
+  // above — it decides whether THIS PROCESS runs the timer, never what the
+  // policy is: the schedule, the timezone, the retention count and the stale
+  // window are all system settings an administrator edits at runtime, because
+  // they are decisions about a deployment rather than about a process.
+  //
+  // ⚠ DELIBERATELY NOT `JOBS_WORKER_MODE`. Taking a backup is not queue work
+  // (see the "Why this is not a queue job" block in `schema.prisma`), and an
+  // API running as a pure control plane in front of an external node fleet is
+  // still the only component with a database connection — so gating backups on
+  // its willingness to execute jobs would leave that deployment's database
+  // backed up by nobody.
+  //
+  // DEFAULTS TO ON, and only the literal string turns it off. A deployment
+  // whose backups silently stopped because of a typo in an env file is
+  // indistinguishable from one that is being backed up, right up until
+  // somebody needs a restore — which makes fail-open the only defensible
+  // direction here. See `db-backup/tasks/db-backup-schedule.task.ts`.
+  dbBackup: {
+    scheduleEnabled: process.env.DB_BACKUP_SCHEDULE_ENABLED !== 'false',
   },
 
   // Observability

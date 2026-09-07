@@ -30,6 +30,7 @@ jobs:
     outputs:
       api-image: ${{ steps.meta-api.outputs.tags }}
       web-image: ${{ steps.meta-web.outputs.tags }}
+      worker-image: ${{ steps.meta-worker.outputs.tags }}
       version: ${{ steps.version.outputs.version }}
 
     steps:
@@ -77,6 +78,20 @@ jobs:
             type=sha,prefix=
             type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
 
+      # The worker node image (issue #278, epic #254). A third target, not a
+      # new literal: IMAGE_NAME is already ${{ github.repository }}, so the
+      # published name follows a fork's own repository automatically.
+      - name: Extract metadata for Worker
+        id: meta-worker
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=
+            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
+
       - name: Build and push API image
         uses: docker/build-push-action@v7
         with:
@@ -98,6 +113,22 @@ jobs:
           push: true
           tags: ${{ steps.meta-web.outputs.tags }}
           labels: ${{ steps.meta-web.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+
+      # Context is the repository root, like the other two: apps/cli is an npm
+      # workspace member with no lockfile of its own.
+      - name: Build and push Worker image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: apps/cli/Dockerfile
+          target: production
+          push: true
+          tags: ${{ steps.meta-worker.outputs.tags }}
+          labels: ${{ steps.meta-worker.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |

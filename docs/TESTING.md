@@ -13,6 +13,7 @@ This document describes the testing strategy, frameworks, and conventions used i
 7. [Test Configuration](#test-configuration)
 8. [Best Practices](#best-practices)
 9. [Visual Regression Testing](#visual-regression-testing)
+10. [Real-Postgres Testing](#real-postgres-testing)
 
 ## Testing Framework Overview
 
@@ -1083,6 +1084,186 @@ Three details in that command are load-bearing:
 To regenerate baselines after an intentional visual change, run the suite with `--update-snapshots` inside the same pinned container — `tests/visual/package.json` provides `npm run test:update` for this. As with the run command above, this must happen inside `mcr.microsoft.com/playwright:v1.62.1-noble`, not on a host machine.
 
 This is the most important paragraph in this section: **blessing a diff without opening the image and confirming the new pixels are the intended change is the standard failure mode of every snapshot-testing suite, and it would defeat the entire purpose of this one.** A rubber-stamped `--update-snapshots` run after a CI failure silently readmits the exact class of regression — #105 — that this suite exists to catch. Before running `test:update`, open the failing run's HTML report, look at the diff image for each failing spec, and understand specifically what changed and why. Only update the baseline once that change is confirmed intentional. If it isn't, the fix is to fix the code, not the baseline.
+
+---
+
+## Real-Postgres Testing
+
+### Overview
+
+Everything above this section runs against mocks (unit tests) or against the
+shared, `beforeEach`-reset test database that `test/helpers/database.helper.ts`
+truncates between tests. A third tier exists beside those: **`*.db.spec.ts`**
+is the naming convention for a suite that must observe real PostgreSQL
+behavior — a lock mode, a partial index, a foreign key's `ON DELETE`
+behavior, a real `pg_dump`/`pg_restore` pair, two genuinely concurrent
+connections racing each other — properties a mocked Prisma client cannot make
+a claim about, because a mock returns whatever the test told it to return no
+matter what SQL would really have done.
+
+Those specs are deliberately excluded from every other Jest entry point.
+`apps/api/package.json`'s `test`, `test:unit`, `test:cov` and `test:ci`
+scripts all pass `--testPathIgnorePatterns='\.db\.spec\.ts$'` (alongside the
+existing `e2e` exclusion), so a plain `npm test` never touches them. That
+exclusion exists because no database is reachable in those contexts — without
+it, a `.db.spec.ts` file would fail every ordinary test run with a confusing
+connection error instead of being cleanly absent from it.
+
+They run through one dedicated script instead:
+
+```bash
+npm run test:db --workspace=api
+```
+
+which is:
+
+```
+jest --config ./test/jest.config.js --testRegex '\.db\.spec\.ts$' --runInBand
+```
+
+If no Postgres is reachable at `POSTGRES_HOST`/`POSTGRES_PORT`, each suite
+skips itself with a warning (via `resolveDbSuite` in
+`apps/api/test/jobs/db-test-support.ts`) rather than failing — `npm run
+test:db` is safe to run without a database up; it just proves nothing that
+run.
+
+### Where They Run in CI
+
+The `smoke` job in `.github/workflows/ci.yml` is the only place in this
+repository's CI where a real PostgreSQL is running (`postgres:16-alpine`, as
+a service container). That job runs the compiled API artifact end to end —
+build, migrate, seed, boot — and `npm run test:db --workspace=api` is one
+step in that sequence, positioned deliberately: **after** `npm run
+prisma:migrate --workspace=api` and **before** `npm run prisma:seed
+--workspace=api`. The migration has to have actually run for the
+hand-written indexes and constraints these suites check to exist at all; the
+step runs before seeding so the suites see a freshly-migrated, unseeded
+database, not one with the application's default rows already in it. It runs
+with `NODE_ENV=test` explicitly set for that one step — overriding the job's
+ambient (otherwise unset/production) value — because that is the
+`NODE_ENV` these suites assume when they build their own connection string
+from the job's `POSTGRES_*` environment variables (see
+`apps/api/test/helpers/scratch-database.helper.ts` and
+`apps/api/test/jobs/db-test-support.ts`).
+
+### Running Them Locally
+
+The API never reads `DATABASE_URL` from the environment — it always builds
+the connection string from the individual `POSTGRES_*` variables (see
+`src/config/configuration.ts` and `src/prisma/prisma.service.ts`), and the
+Prisma CLI does the same through `scripts/prisma-env.js`. Point these suites
+at a real, migrated PostgreSQL 16 the same way CI does, by setting
+`POSTGRES_*`, not `DATABASE_URL`:
+
+```bash
+NODE_ENV=test \
+POSTGRES_HOST=127.0.0.1 \
+POSTGRES_PORT=5432 \
+POSTGRES_USER=postgres \
+POSTGRES_PASSWORD=postgres \
+POSTGRES_DB=appdb \
+POSTGRES_SSL=false \
+JWT_SECRET=test-jwt-secret-not-a-real-secret-000000 \
+COOKIE_SECRET=test-cookie-secret \
+GOOGLE_CLIENT_ID=x \
+GOOGLE_CLIENT_SECRET=y \
+INITIAL_ADMIN_EMAIL=admin@example.test \
+OTEL_ENABLED=false \
+npm run test:db --workspace=api
+```
+
+The database must already be migrated (`npm run prisma:migrate:dev
+--workspace=api` or `npm run prisma:migrate --workspace=api`, depending on
+whether you want a dev-style or deploy-style migration run) before these
+suites can pass — several of them assert on indexes and constraints that
+only exist once the migration ledger has actually been applied, not merely
+on what `schema.prisma` declares.
+
+The backup- and restore-facing suites additionally shell out to the real
+`pg_dump`, `pg_restore` and `psql` binaries, so those three must be on
+`PATH`. Their major version must be compatible with the server's — see
+[`docs/runbooks/postgres-client-version.md`](runbooks/postgres-client-version.md)
+for that rule and how to fix a mismatch.
+
+### Rules for a New `.db.spec.ts`
+
+Every existing suite in this tier follows the same four conventions. A new
+one must too:
+
+1. **Scope every row behind a distinct type/name prefix, and clean up after
+   yourself.** These suites all share one database (locally, `appdb`; in CI,
+   the `smoke` job's service container), so nothing may assume it has that
+   database to itself. The established pattern is a prefix keyed on the
+   suite and the running process id — e.g. `` `test.claim.${process.pid}.` ``
+   in `job-claim.db.spec.ts` — used for every job `type`, user `email` or
+   node `name` the suite creates, deleted with a `startsWith` filter in
+   `afterAll` (and often again in `beforeAll`, to clean up after a prior run
+   that crashed before its own `afterAll` ran).
+
+2. **`--runInBand`.** `test:db` always runs these suites serially, on
+   purpose — several of them depend on being the only thing touching the
+   rows they claim or lock at that instant, which is incompatible with
+   Jest's default parallel workers.
+
+3. **A destructive test must run against a throwaway database, never the
+   shared database `test:db` itself relies on.** This is not advisory: a
+   test that renames, drops, or otherwise mutates the database at the
+   cluster level would corrupt every other suite in the same `test:db` run
+   if it ran against `appdb`/the CI service database directly.
+   `apps/api/test/helpers/scratch-database.helper.ts` exists for exactly
+   this — it creates a uniquely-named database, migrates it for real with
+   `prisma migrate deploy`, hands back a `PrismaClient`/connection bound to
+   it, and drops it afterward. `database-restore-round-trip.db.spec.ts`
+   shows the guard this rule earns: `assertNeverTheSharedDatabase` runs
+   before anything else in that file and throws loudly if a derived "live"
+   database name were ever miscomputed to collide with the real
+   `POSTGRES_DB` — turning a bug in the suite into a failed test instead of
+   a renamed shared database.
+
+4. **Name it `<subject>.db.spec.ts` and put it where its siblings already
+   are** (see the inventory below) so it is picked up by the `test:db`
+   `testRegex` and excluded everywhere else automatically — no registration
+   step beyond the filename itself.
+
+### Inventory and Time Budget
+
+As of this writing there are **17 suites / 119 tests** in this tier:
+
+| Location | Suites | What the group proves |
+|---|---|---|
+| `apps/api/test/jobs/` | 6 | The queue's real-Postgres guarantees: the `FOR UPDATE SKIP LOCKED` claim never double-claims, enqueue dedup survives a race on the partial unique index, the lease reaper's three stuck-recovery signals each really match the rows they claim to (including `NULL < threshold` being `NULL`, not `false`), history purge is atomic and its counters conserve across a deliberate mid-transaction failure, insights queries are lock-free and numerically exact across a purge, and the three hand-written partial indexes on `jobs` actually exist after migration. |
+| `apps/api/test/nodes/` | 4 | The fleet's real-Postgres guarantees: `worker_nodes`/`node_credentials` constraints and `jobs.claimed_by_node_id`'s `ON DELETE SET NULL` behavior, a node and the in-process worker never claiming the same row, the fleet lifecycle (heartbeat cutoffs, the FK's null-not-cascade behavior, the reaper picking up a job orphaned by a deleted node), and the `example.checksum` job running its entire real path — enqueue, claim, download URL, hash, submit, persist, settle. |
+| `apps/api/test/broadcasts/` | 1 | The `NotificationBroadcast` schema's hand-declared indexes and column defaults are actually applied by the migration, not merely declared in `schema.prisma`. |
+| `apps/api/src/db-backup/` | 2 | The cluster primitives a restore's swap is built from — `CREATE`/`RENAME`/`DROP DATABASE` from the maintenance connection, a rename onto a taken name failing rather than overwriting, no leaked session, a subselect FK resolving to `NULL` instead of aborting — and that the single-active-backup-run constraint is enforced by a real partial unique index, not by a `findFirst`-then-`create` race in the service. |
+| `apps/api/test/integration/` | 4 | See below — the four specs added in Phase 8 of epic #254. |
+
+Measured wall clock for the whole tier, run in isolation: **≈14s before**
+Phase 8 added the four `test/integration/*.db.spec.ts` specs below, **≈27–31s
+after** (higher under CPU contention). Each of those four files also carries
+its own measured per-file estimate in its own header comment — see those
+headers rather than this table for a per-file breakdown.
+
+### The `test/integration/*.db.spec.ts` Specs
+
+The four specs in `apps/api/test/integration/` (`queue-fleet-concurrency`,
+`node-lease-boundary`, `db-backup-round-trip`, `database-restore-round-trip`)
+are Phase 8 of epic #254, added for issue #290. Every other suite in this
+tier proves one seam in isolation; these four exist because this epic's most
+important remaining risks live precisely at the seams no single earlier
+issue owned: two independent executors racing to claim the same row under
+real contention rather than a single burst, a lease expiring in the gap
+between a node computing a result and submitting it, a real `pg_dump`
+process piping its stdout into a storage provider with both the dump's exit
+code and the upload awaited, and a database renamed out from under a live
+connection pool and then renamed back. None of those is something a mock can
+show — each is a property of two real, concurrently-running things (two
+Postgres sessions, a subprocess and a stream, a live pool and a `RENAME`)
+disagreeing or agreeing about the same object at the same instant. Following
+the convention the rest of this tier already uses, each of the four specs'
+header comments names the specific epic #254 success criterion it is
+evidence for (criteria 2, 3, 7, 8, 9 and 10 across the four files) — continue
+that convention in any future spec added here rather than letting the
+criterion-to-test mapping live only in the epic's issue thread.
 
 ---
 

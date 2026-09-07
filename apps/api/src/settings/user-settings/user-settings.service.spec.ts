@@ -876,6 +876,26 @@ describe('UserSettingsService', () => {
       ).toThrow(BadRequestException);
     });
 
+    // Issue #228 (epic #215) widened NOTIFICATION_CHANNELS from 2 members
+    // (email, browser) to 3 (adding push), which moves the EFFECTIVE ceiling
+    // on a user's total persisted notification preferences from 200 (100 x 2)
+    // to 300 (100 x 3). That is not a bug: `assertNotificationLimit` has no
+    // aggregate/total check anywhere - see the loop above, which enforces the
+    // cap PER CHANNEL and never sums across channels - so a third channel
+    // simply adds its own independent 100-item budget rather than eating into
+    // a shared one. This test pins that behaviour down: every channel sitting
+    // exactly at the per-channel cap simultaneously (300 preferences total)
+    // must not throw.
+    it('has no aggregate cap across channels - all three channels at the 100 cap simultaneously (300 total) does not throw', () => {
+      expect(() =>
+        assertNotificationLimit({
+          email: buildEvents(100),
+          browser: buildEvents(100),
+          push: buildEvents(100),
+        }),
+      ).not.toThrow();
+    });
+
     // Same scenario as assertDataTableLimit's PATCH test: the REQUEST BODY
     // alone is under the cap, but merging it on top of what is already stored
     // pushes the channel's total over, so the check has to run on the

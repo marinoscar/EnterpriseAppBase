@@ -67,6 +67,13 @@ export {
   userWelcomeEmail,
   allowlistInvitationEmail,
   roleChangedEmail,
+  // The admin-composed broadcast template (#322, epic #319).
+  broadcastEmail,
+  // The four operational templates (#288, epic #254).
+  jobFailedEmail,
+  nodeOfflineEmail,
+  backupFailedEmail,
+  restoreCompletedEmail,
 } from './templates';
 export {
   SmtpEmailProvider,
@@ -89,6 +96,17 @@ export type {
   UserWelcomeEmailData,
   AllowlistInvitationEmailData,
   RoleChangedEmailData,
+  // #322's payload. Also the type the BROWSER and PUSH channels project from,
+  // since one `notify()` call carries one payload to every channel.
+  BroadcastEmailData,
+  // #288's operational payloads (epic #254). Same contract: the
+  // `notifyPermissionHolders` call site that annotates its payload with one of
+  // these is the only place the shape is checked.
+  JobFailedEmailData,
+  NodeOfflineEmailData,
+  BackupFailedEmailData,
+  BackupFailureOutcome,
+  RestoreCompletedEmailData,
 } from './templates';
 export type { EmailProvider } from './providers/email-provider.interface';
 export type {

@@ -78,6 +78,20 @@ export {
   resolveChannels,
 } from './notification-preferences';
 
+// Admin policy resolution (#226, epic #215). Pure functions, exported for the
+// same reason the preference ones are — and one more: `policyChannels` is the
+// single definition of "capability ∩ policy", called by both the dispatcher and
+// `GET /api/notifications/events`. A second implementation of that intersection
+// anywhere is a matrix and a delivery path that can disagree.
+export {
+  DEFAULT_NOTIFICATION_POLICY,
+  isBrowserToastAllowed,
+  policyChannels,
+} from './notification-policy';
+export type { NotificationPolicy } from './notification-policy';
+export { notificationConfigSchema } from './dto/notification-config.dto';
+export type { NotificationConfigResponse } from './dto/notification-config.dto';
+
 // The DI token, exported so a channel added later (#127) can be registered
 // from its own module if it ever needs to live in one.
 export { NOTIFICATION_CHANNEL_SENDERS } from './notification.types';

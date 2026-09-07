@@ -35,6 +35,7 @@ import { DeviceTokenErrorDto } from './dto/device-token-error.dto';
 import { DeviceActivateResponseDto } from './dto/device-activate-response.dto';
 import { DeviceAuthorizeResponseDto } from './dto/device-authorize-response.dto';
 import { DeviceSessionsResponseDto } from './dto/device-session.dto';
+import { AllowDuringMaintenance } from '../common/maintenance/allow-during-maintenance.decorator';
 
 @ApiTags('Device Authorization')
 @Controller('auth/device')
@@ -139,6 +140,12 @@ export class DeviceAuthController {
    * Get activation page information
    */
   @Get('activate')
+  // Reachable during a maintenance window (#257): this and `authorize` below
+  // are the BROWSER half of the device flow, driven by a signed-in human on
+  // the activation page. The polling half (`code` / `token`) is deliberately
+  // NOT exempt — those belong to unattended clients, which is precisely what a
+  // window is asking to back off, and they get the 503's `Retry-After` for it.
+  @AllowDuringMaintenance()
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
@@ -182,6 +189,8 @@ export class DeviceAuthController {
    * Authorize or deny a device
    */
   @Post('authorize')
+  // Reachable during a maintenance window (#257) — see `activate` above.
+  @AllowDuringMaintenance()
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth('JWT-auth')

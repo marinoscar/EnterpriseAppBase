@@ -1,8 +1,12 @@
+import { z } from 'zod';
 import { Injectable, Logger, ConflictException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UpdateSystemSettingsDto } from '../dto/update-system-settings.dto';
-import { PatchSystemSettingsDto } from '../dto/update-system-settings.dto';
+import {
+  PatchSystemSettingsDto,
+  updateSystemSettingsSchema,
+} from '../dto/update-system-settings.dto';
 import {
   DEFAULT_SYSTEM_SETTINGS,
   SystemSettingsValue,
@@ -10,6 +14,17 @@ import {
 import {
   SystemSettingsDto,
   systemSettingsSchema,
+  systemNotificationsSchema,
+  systemJobsSchema,
+  systemNodesSchema,
+  systemDatabaseBackupSchema,
+  systemMaintenanceSchema,
+  MAX_DISABLED_NOTIFICATION_EVENTS,
+  type SystemNotificationsValue,
+  type SystemMaintenanceValue,
+  type SystemJobsValue,
+  type SystemNodesValue,
+  type SystemDatabaseBackupValue,
 } from '../../common/schemas/settings.schema';
 
 const SETTINGS_KEY = 'global';
@@ -125,17 +140,57 @@ const KNOWN_TOP_LEVEL_KEYS: readonly string[] = Object.keys(
 );
 
 /**
- * The keys of the nested `ui` object, derived for the same reason.
+ * The known keys of every CLOSED nested object in the value, keyed by
+ * namespace: `{ ui: ['allowUserThemeOverride'], notifications: [...], ... }`.
  *
- * `ui` needs its own list because it is the only CLOSED nested object in the
- * value: `features` is a `z.record`, so it is already open and nothing there
- * can be stripped. An unknown key inside `ui` (say a `ui.density` left behind
- * by a rolled-back deploy) is destroyed by exactly the same mechanism as an
- * unknown top-level key, so it gets exactly the same treatment.
+ * `ui` needed a list of its own because an unknown key inside it (say a
+ * `ui.density` left behind by a rolled-back deploy) is destroyed by exactly
+ * the same mechanism as an unknown TOP-LEVEL key, and must therefore get
+ * exactly the same treatment. `notifications` (#225) needed a second one for
+ * the same reason, and #256 would have needed four more.
+ *
+ * So it is a DERIVED MAP rather than one hand-written constant per namespace.
+ * The list-per-namespace shape does not scale past the point where someone
+ * adds a namespace and forgets its constant — at which point that namespace
+ * silently loses unknown keys while its neighbours keep them, which is a
+ * harder bug to see than the one it replaced. This asks the schema instead:
+ * every `ZodObject` in the shape is closed and gets an entry; `features` is a
+ * `z.record`, which is already open and cannot strip anything, so it is
+ * skipped by construction rather than by being left off a list.
+ *
+ * ONE LEVEL DEEP, exactly as before. `jobs.history` is a closed object one
+ * level further down and is NOT walked: preservation is a safety net for keys
+ * a rolled-back deploy left behind, and the depth it reaches has always been
+ * the depth the merge below writes.
  */
-const KNOWN_UI_KEYS: readonly string[] = Object.keys(
-  systemSettingsSchema.shape.ui.shape,
-);
+const KNOWN_NESTED_KEYS: Readonly<Record<string, readonly string[]>> =
+  Object.fromEntries(
+    Object.entries(systemSettingsSchema.shape)
+      .filter(([, field]) => field instanceof z.ZodObject)
+      .map(([key, field]) => [
+        key,
+        Object.keys((field as z.ZodObject<z.ZodRawShape>).shape),
+      ]),
+  );
+
+/**
+ * The top-level namespaces a PUT body is allowed to omit (#256).
+ *
+ * DERIVED FROM THE WIRE SCHEMA — the keys of `updateSystemSettingsSchema` that
+ * accept `undefined` — and not from a list written out here. The two would
+ * otherwise be one more pair that can drift, and the drift is invisible in
+ * exactly the direction that hurts: promote a namespace to required on the
+ * wire, forget this list, and `replaceSettings` goes on "carrying forward" a
+ * key the caller is now obliged to send, which quietly makes the requirement
+ * unenforceable.
+ *
+ * See `updateSystemSettingsSchema` for why anything is optional there at all.
+ */
+const OMITTABLE_ON_PUT: readonly string[] = (
+  Object.entries(updateSystemSettingsSchema.shape) as Array<[string, z.ZodType]>
+)
+  .filter(([, field]) => field.safeParse(undefined).success)
+  .map(([key]) => key);
 
 @Injectable()
 export class SystemSettingsService {
@@ -251,6 +306,7 @@ export class SystemSettingsService {
     const root = this.asPlainObject(stored);
     const storedUi = this.asPlainObject(root?.ui);
     const storedFeatures = this.asPlainObject(root?.features);
+    const storedNotifications = this.asPlainObject(root?.notifications);
 
     const features: Record<string, boolean> = {};
     if (storedFeatures) {
@@ -269,7 +325,118 @@ export class SystemSettingsService {
             : DEFAULT_SYSTEM_SETTINGS.ui.allowUserThemeOverride,
       },
       features,
+      notifications: {
+        browserEnabled:
+          typeof storedNotifications?.browserEnabled === 'boolean'
+            ? storedNotifications.browserEnabled
+            : DEFAULT_SYSTEM_SETTINGS.notifications.browserEnabled,
+        disabledEvents: this.readDisabledEvents(
+          storedNotifications?.disabledEvents,
+        ),
+      },
+      // Operations namespaces (#256). Same contract as everything above —
+      // whatever is on disk, what comes back validates — but read through one
+      // helper instead of four more hand-written ladders. See
+      // `readNamespace`.
+      jobs: this.readNamespace(
+        root?.jobs,
+        systemJobsSchema,
+        DEFAULT_SYSTEM_SETTINGS.jobs,
+      ),
+      nodes: this.readNamespace(
+        root?.nodes,
+        systemNodesSchema,
+        DEFAULT_SYSTEM_SETTINGS.nodes,
+      ),
+      databaseBackup: this.readNamespace(
+        root?.databaseBackup,
+        systemDatabaseBackupSchema,
+        DEFAULT_SYSTEM_SETTINGS.databaseBackup,
+      ),
+      maintenance: this.readNamespace(
+        root?.maintenance,
+        systemMaintenanceSchema,
+        DEFAULT_SYSTEM_SETTINGS.maintenance,
+      ),
     };
+  }
+
+  /**
+   * Project one stored namespace down to something its schema will accept,
+   * field by field, falling back to that namespace's defaults (#256).
+   *
+   * WHY A HELPER AND NOT FOUR MORE LADDERS. `ui` and `notifications` are read
+   * by hand above because they are two fields each; the four operations
+   * namespaces are twenty-three between them, and twenty-three hand-written
+   * `typeof x === 'number' ? x : DEFAULT...` lines is twenty-three chances to
+   * name the wrong default. This asks each field's own schema instead, so the
+   * check and the declaration cannot disagree — a bound tightened in
+   * `settings.schema.ts` tightens what survives a damaged row too, with nothing
+   * to update here.
+   *
+   * FIELD BY FIELD FOR THE REASON `readKnownSettings` IS: a row where one
+   * number is corrupt keeps every other value an operator set, rather than
+   * having the whole namespace snap back to the defaults. The granularity is
+   * one level — `jobs.history` is validated as a unit, so a bad
+   * `retentionDays` costs the `purgeEnabled` next to it. That is the same depth
+   * the merge and the preservation work at, and matching them is worth more
+   * than one extra level of salvage.
+   *
+   * THE FALLBACK IS CLONED, never handed out by reference:
+   * `DEFAULT_SYSTEM_SETTINGS` is a module-level constant, and returning its
+   * nested `history` object to a caller that merges into it and persists it is
+   * a mutation bug waiting on the first caller that does. Same rule
+   * `readDisabledEvents` follows for its array.
+   */
+  private readNamespace<T extends Record<string, unknown>>(
+    stored: unknown,
+    schema: z.ZodObject<z.ZodRawShape>,
+    defaults: T,
+  ): T {
+    const source = this.asPlainObject(stored) ?? {};
+    const value: Record<string, unknown> = {};
+
+    const fields = Object.entries(schema.shape) as Array<[string, z.ZodType]>;
+    for (const [key, field] of fields) {
+      const parsed = field.safeParse(source[key]);
+      value[key] = parsed.success
+        ? parsed.data
+        : structuredClone(defaults[key]);
+    }
+
+    return value as T;
+  }
+
+  /**
+   * Project a stored `notifications.disabledEvents` down to something
+   * `systemSettingsSchema` will accept (#225).
+   *
+   * Same argument as "NON-BOOLEAN FEATURE VALUES ARE DROPPED" above, one level
+   * deeper. `notifications` is a KNOWN key, so whatever this returns is handed
+   * straight to `systemSettingsSchema.parse` — an entry that fails the event-key
+   * pattern, or an array longer than the cap, would convert a repairable row
+   * into a ZodError and leave the admin unable to save anything at all. Dropping
+   * the unusable entries keeps the row repairable through the API, which is the
+   * whole point of `readKnownSettings`.
+   *
+   * A fresh array every call, never `DEFAULT_SYSTEM_SETTINGS.notifications
+   * .disabledEvents` itself: that constant is module-level and shared, and
+   * handing out the same array reference to be merged into and persisted is a
+   * mutation bug waiting on the first caller that pushes to it.
+   */
+  private readDisabledEvents(stored: unknown): string[] {
+    if (!Array.isArray(stored)) {
+      return [];
+    }
+
+    return stored
+      .filter(
+        (entry): entry is string =>
+          typeof entry === 'string' &&
+          systemNotificationsSchema.shape.disabledEvents.element.safeParse(entry)
+            .success,
+      )
+      .slice(0, MAX_DISABLED_NOTIFICATION_EVENTS);
   }
 
   /**
@@ -325,21 +492,35 @@ export class SystemSettingsService {
       KNOWN_TOP_LEVEL_KEYS,
     );
 
-    const unknownUi = this.collectUnknownKeys(
-      this.asPlainObject(storedValue)?.ui,
-      KNOWN_UI_KEYS,
-    );
+    const storedRoot = this.asPlainObject(storedValue);
 
     const value: Record<string, unknown> = {
       ...unknownTopLevel,
       ...validated,
-      ui: { ...unknownUi, ...validated.ui },
     };
 
-    const preservedPaths = [
-      ...Object.keys(unknownTopLevel),
-      ...Object.keys(unknownUi).map((key) => `ui.${key}`),
-    ];
+    const preservedPaths = [...Object.keys(unknownTopLevel)];
+
+    // The same treatment, once per closed nested namespace, driven by the
+    // schema rather than by a line per namespace (#256). Spread order is
+    // load-bearing here exactly as it is above: the unknown keys go first so
+    // the validated value always wins.
+    for (const [namespace, knownKeys] of Object.entries(KNOWN_NESTED_KEYS)) {
+      const unknown = this.collectUnknownKeys(
+        storedRoot?.[namespace],
+        knownKeys,
+      );
+
+      const validatedNamespace = (
+        validated as unknown as Record<string, Record<string, unknown>>
+      )[namespace];
+
+      value[namespace] = { ...unknown, ...validatedNamespace };
+
+      preservedPaths.push(
+        ...Object.keys(unknown).map((key) => `${namespace}.${key}`),
+      );
+    }
 
     return { value, preservedPaths };
   }
@@ -429,6 +610,17 @@ export class SystemSettingsService {
     return {
       ui: value.ui,
       features: value.features,
+      notifications: value.notifications,
+      // #256. Part of the represented resource from the day the namespaces
+      // exist, not from the day a UI reads them: a block a client cannot GET is
+      // a block it cannot echo back in a PUT, and `replaceSettings` would then
+      // be carrying it forward blind forever. Publishing it is what makes the
+      // PUT round-trip honest, and what lets the integration test prove a PATCH
+      // was actually stored rather than merely accepted.
+      jobs: value.jobs,
+      nodes: value.nodes,
+      databaseBackup: value.databaseBackup,
+      maintenance: value.maintenance,
       security: this.readSecurityPolicy(),
       updatedAt: row.updatedAt,
       updatedBy: row.updatedByUser,
@@ -453,21 +645,222 @@ export class SystemSettingsService {
   }
 
   /**
+   * The deployment-wide browser-notification policy, read only (#226).
+   *
+   * A NARROW ACCESSOR RATHER THAN `getSettings()`, for two reasons that both
+   * matter on the path that calls it (the notification dispatcher, on every
+   * event, plus two endpoints any authenticated user can reach):
+   *
+   *   1. IT DOES NOT CREATE THE ROW. `getSettings` goes through
+   *      `loadOrCreateRow`, which INSERTs when the row is missing. A read on a
+   *      fire-and-forget send path must not write — the same rule
+   *      `NotificationsService.loadRecipient` follows for `user_settings`, and
+   *      for the same reason: materialising a settings row as a side effect of
+   *      sending a notification is a write nobody asked for, on a path with no
+   *      caller left to report it to.
+   *   2. IT RETURNS ONLY THIS BLOCK. `GET /api/system-settings` is gated on
+   *      `system_settings:read`, which a Viewer does not hold, and widening
+   *      that permission so a Viewer's browser can learn whether toasts are
+   *      enabled would hand every account the whole settings blob — including
+   *      the open `features` map that downstream forks fill with operational
+   *      flags. `GET /api/notifications/config` exists precisely so the answer
+   *      can be published without the rest of the row; see its handler.
+   *
+   * Degrades exactly as every other read here does: a missing row, a `null`
+   * value or a malformed one yields `DEFAULT_SYSTEM_SETTINGS.notifications`
+   * through `readKnownSettings`, so a damaged row cannot make notifications
+   * undeliverable.
+   */
+  async getNotificationsPolicy(): Promise<SystemNotificationsValue> {
+    const row = await this.prisma.systemSettings.findUnique({
+      where: { key: SETTINGS_KEY },
+      select: { value: true },
+    });
+
+    return this.readKnownSettings(row?.value).notifications;
+  }
+
+  /**
+   * The persisted maintenance window, read only (#257, epic #254).
+   *
+   * A NARROW ACCESSOR RATHER THAN `getSettings()`, for the two reasons
+   * `getNotificationsPolicy` above gives, and one more that is specific to this
+   * caller:
+   *
+   *   1. IT DOES NOT CREATE THE ROW. `getSettings` goes through
+   *      `loadOrCreateRow`, which INSERTs when the row is missing. This is read
+   *      by a GLOBAL GUARD on every request in the application; a read path
+   *      that can write is not acceptable there at all, and least of all
+   *      during a maintenance window, when the database may be exactly what is
+   *      being worked on.
+   *   2. IT RETURNS ONLY THIS BLOCK. The guard has no business seeing the
+   *      whole settings row, and neither has anything it might hand a value to.
+   *   3. IT IS ALLOWED TO THROW. `MaintenanceModeService.readPersisted` catches
+   *      it and degrades to its last known state — the restore swap (#285)
+   *      renames the live database, so "this read failed" is a NORMAL,
+   *      anticipated outcome there rather than a bug. Nothing is swallowed
+   *      here, so that caller can tell the difference.
+   *
+   * Degrades exactly as every other read here does: a missing row, a `null`
+   * value or a malformed one yields `DEFAULT_SYSTEM_SETTINGS.maintenance`
+   * through `readKnownSettings` — which means a damaged row reads as
+   * `enabled: false` and cannot take the application off the air by accident.
+   */
+  async getMaintenancePolicy(): Promise<SystemMaintenanceValue> {
+    const row = await this.prisma.systemSettings.findUnique({
+      where: { key: SETTINGS_KEY },
+      select: { value: true },
+    });
+
+    return this.readKnownSettings(row?.value).maintenance;
+  }
+
+  /**
+   * The job-queue policy — history retention and the stuck-job threshold
+   * (#263, epic #254).
+   *
+   * A NARROW ACCESSOR RATHER THAN `getSettings()`, for the two reasons
+   * `getNotificationsPolicy` above gives, plus one that belongs to this
+   * caller specifically:
+   *
+   *   1. IT DOES NOT CREATE THE ROW. `getSettings` goes through
+   *      `loadOrCreateRow`, which INSERTs when the row is missing. Every
+   *      caller here is a background timer — the lease reaper every ten
+   *      minutes, the history-purge scheduler at midnight, the purge handler
+   *      itself — and a cron tick materialising a settings row is a write
+   *      nobody asked for, on a path with no request to attribute it to.
+   *   2. IT RETURNS ONLY THIS BLOCK. The reaper needs one integer and the
+   *      purge needs two values; neither has any business holding the whole
+   *      settings blob, including the open `features` map.
+   *   3. IT IS THE ONE READ PATH FOR THESE VALUES. `JobStuckService` and
+   *      `JobHistoryPurgeHandler` both call this rather than reaching into
+   *      `system_settings` themselves, so "where does the threshold come
+   *      from" has exactly one answer and a fork changing the storage shape
+   *      changes one method.
+   *
+   * Degrades exactly as every other read here does: a missing row, a `null`
+   * value or a malformed one yields `DEFAULT_SYSTEM_SETTINGS.jobs` through
+   * `readKnownSettings`, so a damaged row cannot leave dead leases unreaped
+   * or history ungoverned — it falls back to the shipped policy.
+   */
+  async getJobsPolicy(): Promise<SystemJobsValue> {
+    const row = await this.prisma.systemSettings.findUnique({
+      where: { key: SETTINGS_KEY },
+      select: { value: true },
+    });
+
+    return this.readKnownSettings(row?.value).jobs;
+  }
+
+  /**
+   * The worker-fleet policy — the stale window, the offline multiplier and the
+   * offline retention (#270, epic #254).
+   *
+   * A NARROW ACCESSOR RATHER THAN `getSettings()`, for exactly the three
+   * reasons `getJobsPolicy` above gives, and read by exactly the callers that
+   * argument was written for:
+   *
+   *   1. IT DOES NOT CREATE THE ROW. Its callers are two background timers —
+   *      the stale-offline sweep every ten minutes and the offline prune
+   *      daily — plus the admin fleet read. A cron tick materialising a
+   *      settings row is a write nobody asked for on a path with no request
+   *      to attribute it to.
+   *   2. IT RETURNS ONLY THIS BLOCK. The sweep needs two integers and the
+   *      prune needs one; neither has any business holding the whole settings
+   *      blob, including the open `features` map.
+   *   3. IT IS THE ONE READ PATH FOR THESE VALUES. `NodeLifecycleService` is
+   *      the only caller and every consumer goes through it, so "which stale
+   *      window is this?" has exactly one answer. That matters more here than
+   *      anywhere else in this file, because the whole design of
+   *      `offlineStaleMultiplier` — a MULTIPLE of the stale window rather than
+   *      an independent duration — exists to stop the UI's "stale" pill and
+   *      the database's `offline` status from becoming two unrelated notions
+   *      of liveness. A second read path would reintroduce that drift by the
+   *      back door.
+   *
+   * Degrades exactly as every other read here does: a missing row, a `null`
+   * value or a malformed one yields `DEFAULT_SYSTEM_SETTINGS.nodes` through
+   * `readKnownSettings`, so a damaged row cannot strand a dead fleet at
+   * `online` forever — it falls back to the shipped policy.
+   */
+  async getNodesPolicy(): Promise<SystemNodesValue> {
+    const row = await this.prisma.systemSettings.findUnique({
+      where: { key: SETTINGS_KEY },
+      select: { value: true },
+    });
+
+    return this.readKnownSettings(row?.value).nodes;
+  }
+
+  /**
+   * The database-backup policy — schedule, retention, compression, the stale
+   * window and the storage-provider name (#281, epic #254).
+   *
+   * A NARROW ACCESSOR RATHER THAN `getSettings()`, for exactly the three
+   * reasons `getJobsPolicy` above gives, and each of them bites harder here:
+   *
+   *   1. IT DOES NOT CREATE THE ROW. Its callers are #282's scheduler tick and
+   *      `DatabaseBackupRunnerService.startBackup`. A cron materialising a
+   *      settings row as a side effect of deciding whether to take a backup is
+   *      a write nobody asked for — and it would happen on every tick of a
+   *      deployment that has backups switched off.
+   *   2. IT RETURNS ONLY THIS BLOCK. The runner needs three numbers and a
+   *      provider name; handing it the whole settings blob, including the open
+   *      `features` map, widens what a background process holds for no reason.
+   *   3. IT IS THE ONE READ PATH FOR THESE VALUES. `compressionLevel` reaches
+   *      `pg_dump`'s argv and `runStaleMinutes` becomes the dump's SIGKILL
+   *      deadline; a second read path is how the schedule an operator sees and
+   *      the schedule that runs start to differ.
+   *
+   * Degrades exactly as every other read here does: a missing row, a `null`
+   * value or a malformed one yields `DEFAULT_SYSTEM_SETTINGS.databaseBackup`
+   * through `readKnownSettings`, so a damaged row cannot be the reason a
+   * deployment stops taking backups — it falls back to the shipped policy.
+   */
+  async getDatabaseBackupPolicy(): Promise<SystemDatabaseBackupValue> {
+    const row = await this.prisma.systemSettings.findUnique({
+      where: { key: SETTINGS_KEY },
+      select: { value: true },
+    });
+
+    return this.readKnownSettings(row?.value).databaseBackup;
+  }
+
+  /**
    * Replace system settings (PUT)
    */
   async replaceSettings(dto: UpdateSystemSettingsDto, userId: string) {
-    // Validate against schema. This still strips unknown keys out of the
-    // REQUEST, and is meant to: the body is the untrusted half.
-    const validated = systemSettingsSchema.parse(dto);
-
-    // Read the stored value before overwriting it, purely to recover the keys
-    // this code does not model. `select` is narrow because nothing else is
+    // Read the stored value before overwriting it, purely to recover what the
+    // body does not carry. `select` is narrow because nothing else is
     // needed — the upsert below still handles the row not existing yet, so
     // this read deliberately does NOT create anything.
     const current = await this.prisma.systemSettings.findUnique({
       where: { key: SETTINGS_KEY },
       select: { value: true },
     });
+
+    // Fill in the namespaces a PUT body is allowed to omit (#256) BEFORE
+    // validating, from the stored value — which `readKnownSettings` has already
+    // completed with `DEFAULT_SYSTEM_SETTINGS` for anything storage lacks.
+    //
+    // This is what keeps "optional on the wire" from meaning "reset by
+    // omission". `ui`, `features` and `notifications` are untouched by this
+    // loop and are replaced wholesale exactly as they always were: they are
+    // required on the wire, so they can never be absent here. See
+    // `OMITTABLE_ON_PUT`, and `updateSystemSettingsSchema` for why any
+    // namespace is omittable at all.
+    const body = dto as unknown as Record<string, unknown>;
+    const currentValue = this.readKnownSettings(current?.value);
+    const filled: Record<string, unknown> = { ...body };
+    for (const key of OMITTABLE_ON_PUT) {
+      if (body[key] === undefined) {
+        filled[key] = (currentValue as unknown as Record<string, unknown>)[key];
+      }
+    }
+
+    // Validate against schema. This still strips unknown keys out of the
+    // REQUEST, and is meant to: the body is the untrusted half.
+    const validated = systemSettingsSchema.parse(filled);
 
     // Read-then-write, unguarded, exactly as PATCH has always been: two
     // simultaneous PUTs can still race, and the loser's `ui`/`features` lose
@@ -560,6 +953,105 @@ export class SystemSettingsService {
       features: {
         ...currentValue.features,
         ...(dto.features || {}),
+      },
+      // Field by field like `ui`, NOT by spread like `features` — and
+      // `disabledEvents` is therefore REPLACED wholesale when the caller sends
+      // one. That is RFC 7396's rule for arrays and the only usable semantics
+      // here: a merged list could only ever grow, so the admin page's "stop
+      // suppressing this event" would have no way to say so.
+      notifications: {
+        browserEnabled:
+          dto.notifications?.browserEnabled ??
+          currentValue.notifications.browserEnabled,
+        disabledEvents:
+          dto.notifications?.disabledEvents ??
+          currentValue.notifications.disabledEvents,
+      },
+      // -----------------------------------------------------------------------
+      // Operations namespaces (#256, epic #254)
+      // -----------------------------------------------------------------------
+      //
+      // Written out field by field like `ui` and `notifications`, and NOT with
+      // a spread, because there is deliberately no generic deep merge in this
+      // service. A generic one would have to guess: whether an array replaces
+      // or concatenates (`disabledEvents` above settles that it replaces), and
+      // whether an explicit `null` means "clear this" or "no opinion" — and
+      // `maintenance.startedAt` needs those to be different answers, which is
+      // why the two nullable fields test `!== undefined` instead of using `??`.
+      // `??` treats a caller's `null` as absent, so clearing the window's
+      // provenance would silently be a no-op.
+      //
+      // Verbose on purpose: this is the sixth of the six places a namespace
+      // must be declared, and it is the one no schema can check for you.
+      jobs: {
+        history: {
+          retentionDays:
+            dto.jobs?.history?.retentionDays ??
+            currentValue.jobs.history.retentionDays,
+          purgeEnabled:
+            dto.jobs?.history?.purgeEnabled ??
+            currentValue.jobs.history.purgeEnabled,
+        },
+        stuckThresholdMinutes:
+          dto.jobs?.stuckThresholdMinutes ??
+          currentValue.jobs.stuckThresholdMinutes,
+      },
+      nodes: {
+        staleHeartbeatSeconds:
+          dto.nodes?.staleHeartbeatSeconds ??
+          currentValue.nodes.staleHeartbeatSeconds,
+        offlineStaleMultiplier:
+          dto.nodes?.offlineStaleMultiplier ??
+          currentValue.nodes.offlineStaleMultiplier,
+        offlineRetentionDays:
+          dto.nodes?.offlineRetentionDays ??
+          currentValue.nodes.offlineRetentionDays,
+      },
+      databaseBackup: {
+        enabled: dto.databaseBackup?.enabled ?? currentValue.databaseBackup.enabled,
+        frequency:
+          dto.databaseBackup?.frequency ?? currentValue.databaseBackup.frequency,
+        dayOfWeek:
+          dto.databaseBackup?.dayOfWeek ?? currentValue.databaseBackup.dayOfWeek,
+        dayOfMonth:
+          dto.databaseBackup?.dayOfMonth ?? currentValue.databaseBackup.dayOfMonth,
+        timeOfDay:
+          dto.databaseBackup?.timeOfDay ?? currentValue.databaseBackup.timeOfDay,
+        timezone:
+          dto.databaseBackup?.timezone ?? currentValue.databaseBackup.timezone,
+        retentionCount:
+          dto.databaseBackup?.retentionCount ??
+          currentValue.databaseBackup.retentionCount,
+        storageProvider:
+          dto.databaseBackup?.storageProvider ??
+          currentValue.databaseBackup.storageProvider,
+        runStaleMinutes:
+          dto.databaseBackup?.runStaleMinutes ??
+          currentValue.databaseBackup.runStaleMinutes,
+        compressionLevel:
+          dto.databaseBackup?.compressionLevel ??
+          currentValue.databaseBackup.compressionLevel,
+        restoreRollbackMode:
+          dto.databaseBackup?.restoreRollbackMode ??
+          currentValue.databaseBackup.restoreRollbackMode,
+        oldDatabaseRetentionHours:
+          dto.databaseBackup?.oldDatabaseRetentionHours ??
+          currentValue.databaseBackup.oldDatabaseRetentionHours,
+      },
+      maintenance: {
+        enabled: dto.maintenance?.enabled ?? currentValue.maintenance.enabled,
+        message: dto.maintenance?.message ?? currentValue.maintenance.message,
+        allowAdmins:
+          dto.maintenance?.allowAdmins ?? currentValue.maintenance.allowAdmins,
+        // `!== undefined`, never `??` — an explicit `null` is a value here.
+        startedAt:
+          dto.maintenance?.startedAt !== undefined
+            ? dto.maintenance.startedAt
+            : currentValue.maintenance.startedAt,
+        startedById:
+          dto.maintenance?.startedById !== undefined
+            ? dto.maintenance.startedById
+            : currentValue.maintenance.startedById,
       },
     };
 

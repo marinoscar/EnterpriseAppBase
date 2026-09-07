@@ -50,6 +50,10 @@ describe('parseNotificationEvent', () => {
     body: 'You are now an Admin.',
     createdAt: '2026-01-01T00:00:00.000Z',
     link: '/settings',
+    // #226. Server-computed: may this client raise an OS notification for this
+    // event? Validated like every other field rather than defaulted — see the
+    // parser for why neither default is safe.
+    toast: true,
   };
 
   it('parses a well-formed payload', () => {
@@ -101,20 +105,51 @@ describe('parseNotificationEvent', () => {
     const payload = { ...valid, link: 42 };
     expect(parseNotificationEvent(JSON.stringify(payload))).toBeNull();
   });
+
+  it('parses toast: false — the administrator has muted the bubble', () => {
+    const payload = { ...valid, toast: false };
+    expect(parseNotificationEvent(JSON.stringify(payload))).toEqual(payload);
+  });
+
+  it('rejects a missing toast rather than guessing a default', () => {
+    // Neither default is safe: `true` would let a frame this client cannot
+    // fully understand re-enable something an administrator switched off, and
+    // `false` would silently drop toasts a server is still sending.
+    const payload: Record<string, unknown> = { ...valid };
+    delete payload.toast;
+    expect(parseNotificationEvent(JSON.stringify(payload))).toBeNull();
+  });
+
+  it('rejects a toast of the wrong type', () => {
+    expect(
+      parseNotificationEvent(JSON.stringify({ ...valid, toast: 'yes' })),
+    ).toBeNull();
+  });
 });
 
 describe('streamEventToNotification', () => {
-  it('spreads the event and adds readAt: null', () => {
-    const event = {
-      id: 'n1',
-      eventKey: 'security.role_changed',
-      title: 'Title',
-      body: 'Body',
-      createdAt: '2026-01-01T00:00:00.000Z',
-      link: null,
-    };
+  const event = {
+    id: 'n1',
+    eventKey: 'security.role_changed',
+    title: 'Title',
+    body: 'Body',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    link: null,
+    toast: true,
+  };
 
-    expect(streamEventToNotification(event)).toEqual({ ...event, readAt: null });
+  it('spreads the event and adds readAt: null', () => {
+    const { toast: _toast, ...row } = event;
+
+    expect(streamEventToNotification(event)).toEqual({ ...row, readAt: null });
+  });
+
+  it('drops `toast` — it describes the live delivery, not the stored row', () => {
+    // A fetched notification has no such field, and the centre must not hold
+    // two subtly different objects depending on how one arrived.
+    expect(
+      streamEventToNotification({ ...event, toast: false }),
+    ).not.toHaveProperty('toast');
   });
 });
 
@@ -182,7 +217,7 @@ describe('connectNotificationStream', () => {
     expect(onNotification).not.toHaveBeenCalled();
   });
 
-  it('onFrame calls onNotification with a well-formed notification frame', () => {
+  it('onFrame calls onNotification with a well-formed notification frame, passing toast through as the second argument', () => {
     const onNotification = vi.fn();
     connectNotificationStream({ onNotification, onOpen: vi.fn() });
 
@@ -194,6 +229,7 @@ describe('connectNotificationStream', () => {
       body: 'Body',
       createdAt: '2026-01-01T00:00:00.000Z',
       link: '/settings',
+      toast: true,
     };
     const frame: SseFrame = {
       event: NOTIFICATION_SSE_EVENT,
@@ -202,8 +238,42 @@ describe('connectNotificationStream', () => {
     };
     options.onFrame(frame);
 
+    const { toast: _toast, ...row } = payload;
+
     expect(onNotification).toHaveBeenCalledTimes(1);
-    expect(onNotification).toHaveBeenCalledWith({ ...payload, readAt: null });
+    expect(onNotification).toHaveBeenCalledWith({ ...row, readAt: null }, true);
+  });
+
+  // #227: `toast` is the live-delivery instruction, and it must reach
+  // `onNotification` UNCHANGED from the frame's own value - a `false` here is
+  // an administrator's mute reaching this specific arrival, and folding it
+  // into a default (or dropping it) would silently re-enable a bubble the
+  // server just said not to show.
+  it('onFrame passes toast: false through unchanged, as the second argument', () => {
+    const onNotification = vi.fn();
+    connectNotificationStream({ onNotification, onOpen: vi.fn() });
+
+    const options = connectSseMock.mock.calls[0][0] as SseOptions;
+    const payload = {
+      id: 'n2',
+      eventKey: 'security.role_changed',
+      title: 'Title',
+      body: 'Body',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      link: '/settings',
+      toast: false,
+    };
+    const frame: SseFrame = {
+      event: NOTIFICATION_SSE_EVENT,
+      data: JSON.stringify(payload),
+      id: null,
+    };
+    options.onFrame(frame);
+
+    const { toast: _toast, ...row } = payload;
+
+    expect(onNotification).toHaveBeenCalledTimes(1);
+    expect(onNotification).toHaveBeenCalledWith({ ...row, readAt: null }, false);
   });
 
   it('onFrame silently drops a notification-event frame with malformed JSON - no throw, onNotification not called', () => {

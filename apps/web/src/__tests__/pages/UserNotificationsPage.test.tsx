@@ -6,11 +6,17 @@
  * assertions are about the actual PATCH bodies the page sends, not a stub's
  * promise to send them.
  *
- * `useNotificationEvents` and `useBrowserNotificationPermission` are mocked
- * because they own their own fetch/observation concerns with their own test
- * files (`useNotificationEvents` is a thin fetch hook exercised like its
- * siblings elsewhere; `useBrowserNotificationPermission.test.ts` covers the
- * browser-permission behaviour directly).
+ * `useNotificationEvents` and `useNotificationCapability` are mocked because
+ * they own their own fetch/observation concerns with their own test files
+ * (`useNotificationEvents` is a thin fetch hook exercised like its siblings
+ * elsewhere; `useNotificationCapability.test.ts` covers the 8-state capability
+ * resolution and its precedence directly, and
+ * `useBrowserNotificationPermission.test.ts` the raw permission underneath it).
+ *
+ * #221 swapped the mocked hook here from `useBrowserNotificationPermission` to
+ * the capability hook layered over it - this page now asks "what can this
+ * device do", not "what did the browser say", because only the former has an
+ * actionable remedy attached to every one of its answers.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -26,19 +32,26 @@ vi.mock('../../hooks/useNotificationEvents', () => ({
   useNotificationEvents: vi.fn(),
 }));
 
-vi.mock('../../hooks/useBrowserNotificationPermission', () => ({
-  useBrowserNotificationPermission: vi.fn(),
+vi.mock('../../hooks/useNotificationCapability', () => ({
+  useNotificationCapability: vi.fn(),
+}));
+
+vi.mock('../../hooks/useNotificationConfig', () => ({
+  useNotificationConfig: vi.fn(),
 }));
 
 import { useUserSettings } from '../../hooks/useUserSettings';
 import { useNotificationEvents } from '../../hooks/useNotificationEvents';
-import { useBrowserNotificationPermission } from '../../hooks/useBrowserNotificationPermission';
+import { useNotificationCapability } from '../../hooks/useNotificationCapability';
+import { useNotificationConfig } from '../../hooks/useNotificationConfig';
 import UserNotificationsPage from '../../pages/UserNotificationsPage';
-import type { NotificationEventDef } from '../../types';
+import type { NotificationEventDef, NotificationConfigResponse } from '../../types';
+import type { NotificationCapability } from '../../hooks/useNotificationCapability';
 
 const mockUseUserSettings = vi.mocked(useUserSettings);
 const mockUseNotificationEvents = vi.mocked(useNotificationEvents);
-const mockUseBrowserNotificationPermission = vi.mocked(useBrowserNotificationPermission);
+const mockUseNotificationCapability = vi.mocked(useNotificationCapability);
+const mockUseNotificationConfig = vi.mocked(useNotificationConfig);
 
 const WELCOME: NotificationEventDef = {
   key: 'user.welcome',
@@ -100,10 +113,30 @@ function mockEvents(events: NotificationEventDef[] | null, overrides: Partial<Re
   });
 }
 
-function mockPermission(permission: 'granted' | 'denied' | 'default' | 'unsupported' = 'granted') {
-  mockUseBrowserNotificationPermission.mockReturnValue({
-    permission,
+function mockCapability(capability: NotificationCapability = 'granted') {
+  mockUseNotificationCapability.mockReturnValue({
+    capability,
+    // The raw permission underneath. Only meaningful for the states that are
+    // permission-shaped; anything else reports what the browser said, which is
+    // deliberately NOT the same claim as the capability.
+    permission:
+      capability === 'granted' || capability === 'denied' || capability === 'default'
+        ? capability
+        : 'unsupported',
     refresh: vi.fn(),
+  });
+}
+
+// #227. `config: null` is the "first read has not resolved yet" state - NOT
+// the same as `browserEnabled: false` - so the default here is a resolved,
+// enabled config, and the loading window is exercised as its own explicit
+// case below.
+function mockConfig(config: NotificationConfigResponse | null = { browserEnabled: true, pushEnabled: false, vapidPublicKey: null }) {
+  mockUseNotificationConfig.mockReturnValue({
+    config,
+    isLoading: config === null,
+    error: null,
+    refresh: vi.fn().mockResolvedValue(undefined),
   });
 }
 
@@ -112,7 +145,8 @@ describe('UserNotificationsPage', () => {
     vi.clearAllMocks();
     mockSettings();
     mockEvents([WELCOME, WEEKLY_DIGEST, ROLE_CHANGED]);
-    mockPermission('granted');
+    mockCapability('granted');
+    mockConfig();
   });
 
   it('displays its title and description', () => {
@@ -305,11 +339,86 @@ describe('UserNotificationsPage', () => {
     expect(screen.getByText(/failed to load notification events/i)).toBeInTheDocument();
   });
 
+  // #227. The page's job here is to translate `GET /notifications/config`
+  // into `useNotificationCapability`'s `adminDisabled` option - and,
+  // critically, to get the loading window right: `config` is `null` until the
+  // first read resolves, and `config?.browserEnabled === false` (not
+  // `!config?.browserEnabled`) is what keeps that window from being
+  // mis-reported as "disabled". See `useNotificationConfig`'s own header and
+  // the call site in `UserNotificationsPage.tsx`.
+  describe('wiring GET /notifications/config into adminDisabled (#227)', () => {
+    it('passes adminDisabled: true when the fetched config says browserEnabled: false', () => {
+      mockConfig({ browserEnabled: false, pushEnabled: false, vapidPublicKey: null });
+
+      render(<UserNotificationsPage />);
+
+      expect(mockUseNotificationCapability).toHaveBeenCalledWith(
+        expect.objectContaining({ adminDisabled: true }),
+      );
+    });
+
+    it('passes adminDisabled: false while the config is still loading (config: null)', () => {
+      mockConfig(null);
+
+      render(<UserNotificationsPage />);
+
+      expect(mockUseNotificationCapability).toHaveBeenCalledWith(
+        expect.objectContaining({ adminDisabled: false }),
+      );
+    });
+
+    it('passes adminDisabled: false when the fetched config says browserEnabled: true', () => {
+      mockConfig({ browserEnabled: true, pushEnabled: false, vapidPublicKey: null });
+
+      render(<UserNotificationsPage />);
+
+      expect(mockUseNotificationCapability).toHaveBeenCalledWith(
+        expect.objectContaining({ adminDisabled: false }),
+      );
+    });
+  });
+
+  // #221. The page's ONLY job here is to hand the capability down; this is
+  // what proves it hands down the capability and not the raw permission, which
+  // would render the iOS lie the epic exists to delete.
+  describe('the capability reaches the matrix', () => {
+    it('an iOS tab gets the Add to Home Screen remedy, not "not supported"', () => {
+      mockCapability('ios-needs-install');
+
+      render(<UserNotificationsPage />);
+
+      expect(screen.getByText('Add this app to your Home Screen')).toBeInTheDocument();
+      expect(
+        screen.queryByText('This browser cannot show notifications'),
+      ).not.toBeInTheDocument();
+    });
+
+    it('renders the "Allow notifications" button only in the default state', () => {
+      mockCapability('default');
+      const { unmount } = render(<UserNotificationsPage />);
+      expect(
+        screen.getByRole('button', { name: /allow notifications/i }),
+      ).toBeInTheDocument();
+      unmount();
+
+      // Every other state either has nothing to ask for or could not use the
+      // answer, and the prompt is a one-shot, effectively permanent resource.
+      for (const capability of ['granted', 'denied', 'admin-disabled', 'sw-unavailable'] as const) {
+        mockCapability(capability);
+        const view = render(<UserNotificationsPage />);
+        expect(
+          screen.queryByRole('button', { name: /allow notifications/i }),
+        ).not.toBeInTheDocument();
+        view.unmount();
+      }
+    });
+  });
+
   it('never calls Notification.requestPermission on this page - observed only, see #127', async () => {
     const originalNotification = (window as any).Notification;
     const requestPermission = vi.fn();
     (window as any).Notification = { permission: 'default', requestPermission };
-    mockPermission('default');
+    mockCapability('default');
 
     const user = userEvent.setup();
     render(<UserNotificationsPage />);

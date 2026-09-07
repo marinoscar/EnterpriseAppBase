@@ -39,6 +39,19 @@ export default defineConfig({
   // never used by `npm run build` (that uses `apps/web/vite.config.ts`), so
   // nothing under `visual/` can reach the production output.
   publicDir: path.resolve(here, '..', 'public'),
+  // DELIBERATELY NO `VitePWA` (issue #218), and this is not an oversight to be
+  // tidied up later. `apps/web/vite.config.ts` registers a service worker with
+  // `devOptions.enabled`, which would mean this harness's dev server installs
+  // one too — and a service worker is precisely the wrong thing to have
+  // underneath a pixel-diff suite. It caches and then SERVES the app shell, so
+  // a screenshot could be taken against the previous run's assets rather than
+  // the ones the spec just changed; and its activation races the first
+  // navigation, so whether a given run is controlled by it at screenshot time
+  // is a timing question. Either turns `maxDiffPixels: 4` into a coin flip.
+  //
+  // Nothing needs disabling to achieve this — the plugin lives only in the
+  // OTHER config, and configs do not inherit. The note exists so that "the
+  // harness is missing the PWA plugin" is never read as a bug.
   plugins: [react()],
   // Required for the same reason as in `apps/web/vite.config.ts`, and this is
   // the config where its absence actually shows: `@app/shared` is CommonJS

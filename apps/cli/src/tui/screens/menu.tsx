@@ -55,6 +55,13 @@ export function MenuScreen({ onSelect, onQuit }: MenuScreenProps): ReactNode {
       },
       { key: 'status', label: 'Status', value: 'status' },
       {
+        key: 'node',
+        // Not gated on being logged in either: Enroll is exactly what an
+        // unconfigured machine needs, and hiding the entry would hide the fix.
+        label: 'Worker node  (this machine)',
+        value: 'node',
+      },
+      {
         key: 'deploy',
         // Not gated on being logged in: deploying acts on THIS SERVER, not on
         // the API, so a stored token is irrelevant to it.

@@ -9,6 +9,7 @@ export {
   StorageUploadResult,
   UploadPart,
   SignedUrlOptions,
+  SignedPutUrlOptions,
   MultipartUploadInit,
 } from './storage-provider.types';
 export { StorageProvidersModule } from './storage-providers.module';

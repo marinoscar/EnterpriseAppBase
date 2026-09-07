@@ -5,6 +5,7 @@ import {
 } from '@nestjs/platform-fastify';
 import fastifyCookie from '@fastify/cookie';
 import { AppModule } from '../../src/app.module';
+import { JobWorker } from '../../src/jobs/job.worker';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { prismaMock } from '../mocks/prisma.mock';
 
@@ -69,7 +70,17 @@ export async function createTestApp(
       imports: [AppModule],
     })
       .overrideProvider(PrismaService)
-      .useValue(prismaMock);
+      .useValue(prismaMock)
+      // The background job worker (#262) starts a polling pool from
+      // `onApplicationBootstrap`, which `app.init()` below reaches. Against a
+      // mocked database it would claim nothing, log a failure every poll
+      // interval, and add a timer to every spec in the suite for no benefit —
+      // no test that uses this helper is about background execution. Its own
+      // behaviour is covered by `src/jobs/job.worker.spec.ts` and
+      // `src/jobs/job.worker.bootstrap.spec.ts`, both of which drive it
+      // deliberately.
+      .overrideProvider(JobWorker)
+      .useValue({});
 
     for (const { provide, useValue } of options.overrideProviders ?? []) {
       builder = builder.overrideProvider(provide).useValue(useValue);

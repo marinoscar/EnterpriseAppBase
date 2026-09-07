@@ -456,6 +456,316 @@ whether you typed it or the wizard generated it — is redacted from both
 files before a single byte reaches disk, so they're safe to attach to an
 issue or hand to someone else for help.
 
+## Running a worker node
+
+`appctl node` turns this machine into a worker for the application's job
+queue (epic #254). A node claims jobs from the server, runs them locally,
+and submits results — the same handler code the API server would have run,
+on hardware you control. Nodes coordinate through nothing but the database,
+so you can run as many as you like without configuring any of them to know
+about the others.
+
+### Enrolling a machine
+
+```bash
+appctl node enroll
+```
+
+One command from nothing to a machine that holds its own credential. It
+runs the same device-authorization login `appctl login` does, then uses that
+session to mint a **node credential** (`nod_…`) and stores it for you. You
+never see or paste the secret.
+
+A node credential is deliberately weaker than a personal access token: the
+API refuses it on every route outside `/api/nodes/*` — including the route
+that mints credentials — so a worker running unattended for months cannot
+escalate, and cannot mint a second identity. That is why enrolling is worth
+a separate command rather than just reusing your login token.
+
+| Flag | Meaning |
+|---|---|
+| `-s, --server <url>` | Server URL, when this machine has no stored one |
+| `-n, --name <name>` | Name for the credential in the web UI (default: `appctl node: user@host`) |
+| `--expires-in-days <n>` | Expire the credential after N days (default: never — see below) |
+| `--no-browser` | Print the verification URL instead of opening one |
+| `--show-token` | Also print the credential on stdout, for provisioning another machine |
+
+**Node credentials do not expire by default, on purpose.** A worker runs
+unattended for months; a token expiry nobody scheduled taking a fleet down
+at 3am is worse than a long-lived credential whose blast radius is already
+confined to `/api/nodes/*`. Revocation is the control, and it is immediate —
+revoke from the web UI and the next request fails.
+
+If the server predates node credentials you get a named error, not a stack
+trace, pointing at the fallback: create a PAT in the web UI, `appctl login
+--token <pat>`, then register. That works, but the PAT carries your full
+account authority.
+
+### Registering the node
+
+```bash
+appctl node register --concurrency 4 --types example.checksum
+```
+
+Creates (or re-attaches to) this machine's row in the fleet. Registration is
+idempotent: the server keys on your account plus the node name, so re-running
+it reattaches rather than creating a second row — and the command tells you
+which of the two happened, because an unexpected reattach means a name
+collision you want to know about.
+
+| Flag | Meaning |
+|---|---|
+| `-n, --name <name>` | Node name; reattachment keys on it (default: the hostname) |
+| `-c, --concurrency <n>` | How many jobs to run at once, 1–64 |
+| `-t, --types <csv>` | Job types to claim (default: every node-eligible type) |
+| `--json` | Emit the registered node as JSON on stdout |
+
+`--types` is checked against what the server actually advertises at
+`GET /api/nodes/job-types`, so a typo is refused with the valid list rather
+than producing a node that registers happily and then claims nothing.
+
+### Inspecting the resolved settings
+
+```bash
+appctl node config          # human-readable, on stderr
+appctl node config --json   # machine-readable, on stdout — never includes the token
+```
+
+### Running the worker
+
+```bash
+appctl node start                 # foreground, attachable
+appctl node start --daemon        # detached, logging to ~/.appctl/node/logs/node.log
+appctl node start --headless      # container/service mode
+```
+
+**Every run hosts the control socket**, foreground or detached — a worker you
+can only inspect if you started it a particular way is a worker nobody
+inspects. The socket lives in the state directory at mode `0600`, so the
+control channel is bounded by the same filesystem permission that protects
+your token.
+
+`--headless` changes exactly one thing, and it matters: on `SIGTERM` the
+worker **drains without deregistering**, so a restarting container re-attaches
+to its existing node row instead of leaking a new one on every restart.
+Interactive Ctrl-C does deregister — a human stopping a worker on their laptop
+means it is going away.
+
+### Inspecting and controlling a running worker
+
+```bash
+appctl node status                # live snapshot from the running worker
+appctl node status --json
+appctl node logs -n 200           # recent lines
+appctl node logs --follow         # attach and stream
+appctl node set-concurrency 8     # applies live; persists either way
+appctl node stop
+```
+
+`status` is never simply unavailable: with no worker running it falls back to
+this machine's stored settings, so the command always answers something useful.
+
+`set-concurrency` works whether or not a worker is running — live over the
+control socket when one is, persisted for the next start when not. The cap is
+re-read on every claim pass, so a live change takes effect on the next
+iteration rather than at restart.
+
+`stop` is a three-rung ladder, each rung bounded: ask the worker over the
+socket (clean drain and deregister) → `SIGTERM` the pid in the pidfile (its
+handler drains) → deregister server-side so no further work is dispatched to a
+process that is already gone. That last rung matters more than it looks:
+without it a `SIGKILL`ed worker keeps its `online` row until the liveness cron
+notices, and every lease handed to it in the meantime has to expire before the
+work is retried elsewhere.
+
+### Logs
+
+JSONL under `<state dir>/logs/node.log`, one rollover generation at 5 MiB.
+Writes are synchronous, so the lines written immediately before a crash — the
+only ones anybody wants after a crash — are on disk.
+
+**Secrets are redacted before anything reaches the file**, recursively, through
+nested objects and arrays: tokens, API keys, passwords, and **presigned storage
+URLs**. That last one is not hygiene theatre — a presigned URL is a bearer
+capability over an object, and a log file is a thing people attach to issues.
+
+### Health checks, dependencies and running as a service
+
+```bash
+appctl node doctor                 # three independent groups of checks
+appctl node install-deps --dry-run # the dependency step framework
+appctl node service install        # systemd user unit
+appctl node service status
+appctl node service uninstall
+```
+
+`doctor` checks **this machine**, **the server** and **the worker**
+independently — a failure in one never masks the others — and distinguishes
+"cannot reach the server" from "reached it and was refused", which look
+identical in a stack trace and have entirely different fixes.
+
+`install-deps` ships as a **framework**, not a set of real installs: this
+template has no native dependencies, so it provides the ordered-step structure,
+per-step outcomes, distro detection and `--dry-run`, and a fork fills in its own
+steps. See [`docs/deployment/worker-nodes.md`](../../docs/deployment/worker-nodes.md).
+
+`service install` writes a systemd **user** unit (no root needed) whose name
+and description derive from the CLI and app names. It sets
+`Restart=on-failure`, which is required rather than decorative — the memory
+watchdog exits deliberately after draining, and without a supervisor that
+successful drain leaves the worker down. Run `loginctl enable-linger $USER`
+afterwards, or the unit stops when you log out.
+
+### Memory: heap tuning, the watchdog and snapshots
+
+A worker is a long-lived process doing repetitive work — the shape that turns a
+small per-job leak into an OOM kill hours later. Three things address that, and
+all three are on by default.
+
+**Heap tuning.** Node's default old-space limit is low for a machine whose
+whole job is being a worker: a 32 GB box can OOM at a fraction of it. On start
+the worker re-execs itself once with an explicit, RAM-aware
+`--max-old-space-size`, and the original process becomes a signal-forwarding
+shim — so a container `SIGTERM` still reaches the worker and still drains, and
+a signal-killed child makes the shim die of the *same* signal rather than
+reporting a clean exit to its supervisor. Set `APPCTL_HEAP_LIMIT_MB=0` to turn
+re-tuning off entirely (the right answer when a cgroup or a PaaS already
+manages memory).
+
+**The memory watchdog** samples `rss`, `heapUsed`, `heapTotal`, `external` and
+`arrayBuffers`, and once the samples span a real window reports a least-squares
+growth trend in MB/hour. A single reading cannot tell a leak from GC sawtooth;
+the trend is what turns "it died" into "it was climbing 40 MB/hour".
+
+**The pre-OOM valve** fires once, when `heapUsed / heapLimit` crosses
+`APPCTL_MEMORY_THRESHOLD` (default 0.9), in this order:
+
+1. write a heap snapshot — **first**, before the drain collects the evidence away
+2. log the decision with the sample
+3. drain in-flight work, **keeping** the node row
+4. exit `71`, for a supervised restart
+
+> ⚠️ **The valve requires a supervisor.** It exits deliberately after a clean
+> drain, so without `Restart=on-failure` (`appctl node service install` sets
+> this) or `restart: unless-stopped` in compose, a *successful* drain leaves
+> the worker down.
+
+Why not V8's own `--heapsnapshot-near-heap-limit`? It fires only at genuine
+near-OOM, which is *above* this threshold — so on a worker hardened with this
+valve it would never fire at all, the process would recycle cleanly forever,
+and the retainer could never be named.
+
+```bash
+appctl node heap-snapshot   # ask the LIVE daemon to write one
+```
+
+Asking the live daemon is the point: restarting to attach a diagnostic flag
+discards exactly the accumulated state that names the retainer. Snapshots go to
+`<state dir>/heap-snapshots`, newest five kept, and are skipped with a clear
+reason when free disk is under 1.5× the live heap. `APPCTL_HEAP_SNAPSHOTS=false`
+disables all three snapshot paths at once.
+
+### Running a fleet in containers
+
+The recommended way to run workers is containers, not a per-machine install.
+
+```bash
+cd infra/compose
+cp .env.worker.example .env.worker      # fill in the server URL and the token
+docker compose --env-file .env.worker -f worker.compose.yml up -d --scale worker=4
+```
+
+Four replicas, no coordination configured anywhere. Each registers as its own
+node — its name derives from the container hostname, which Docker makes unique
+— and they load-balance through the server's `FOR UPDATE SKIP LOCKED` claim, so
+two replicas can never receive the same job.
+
+> **Do not set `APPCTL_NODE_NAME` or `APPCTL_NODE_ID` when scaling.** Every
+> replica would reattach to the *same* node row, and the server's per-node
+> claim cap would be shared between processes that each think they own it.
+
+Only `APPCTL_SERVER_URL` and `APPCTL_TOKEN` are required: with no config file
+the worker synthesises everything else from the environment and starts.
+
+Two settings in `worker.compose.yml` are load-bearing rather than decorative:
+
+- **`restart: unless-stopped`** — the memory watchdog exits deliberately after
+  a clean drain, so without it a successful drain leaves the worker down.
+- **`stop_grace_period: 300s`** — Docker sends `SIGTERM`, waits, then
+  `SIGKILL`s. A job killed mid-flight has to wait out its lease before the
+  server retries it anywhere.
+
+The image's `ENTRYPOINT` is in **exec form** for the same reason: shell form
+wraps the process in `/bin/sh -c`, which does not forward `SIGTERM`, so the
+drain would never run.
+
+To build from source instead of pulling the published image:
+
+```bash
+docker compose -f worker.compose.yml -f worker.build.compose.yml up --build
+```
+
+CI publishes `ghcr.io/<owner>/<repo>-worker` alongside the api and web images,
+with the same tag conventions.
+
+### The interactive dashboard
+
+Run `appctl` with no arguments in a real terminal and choose **Worker node**.
+It offers a live dashboard, `doctor`, the log, and both `register` and
+`enroll` — all calling the same functions the subcommands call, so there is no
+second implementation of anything.
+
+**Attaching is read-only.** The dashboard renders the event stream the daemon
+already pushes and sends nothing back, so you can inspect a systemd unit or a
+container running production work without perturbing it, and Esc leaves it
+running untouched. `set-concurrency` and `stop` stay one-line commands
+deliberately — a TUI that can stop a fleet member from a highlighted row is a
+liability.
+
+With no worker running, press `s` to start a **detached** one and attach to it.
+That is not laziness: an interactive process cannot re-exec itself to raise its
+heap ceiling without destroying raw-mode input, so an in-process engine would
+silently run at the low default old-space limit — the least suitable
+configuration for exactly the long jobs a node exists to take.
+
+### Worker environment variables
+
+Every setting can come from the environment instead of the config file, which
+is how a container runs with no interactive setup at all. Environment values
+win over the file, **per field** — override one without restating the rest.
+
+⚠️ **Generated — do not edit the table below by hand.** It is built from
+`WORKER_ENV` (`src/node/worker-env.ts`) and the JSDoc comment already written
+above each of its entries, so it cannot drift the way a hand-typed copy would.
+Run `npm run docs:worker-env --workspace=cli` to regenerate it after changing
+`WORKER_ENV`; `worker-env-table.test.ts` fails the build if this block and
+`WORKER_ENV` disagree.
+
+<!-- GENERATED:WORKER_ENV_TABLE:START -->
+| Variable | Description |
+| --- | --- |
+| `APPCTL_SERVER_URL` | `APPCTL_SERVER_URL` — reused from `config.ts`, never minted again. |
+| `APPCTL_TOKEN` | `APPCTL_TOKEN` — reused from `config.ts`. A `nod_` credential, normally. |
+| `APPCTL_NODE_ID` | The node row this process re-attaches to, so a restart is not a new node. |
+| `APPCTL_NODE_NAME` | Display name; defaults to the hostname. Reattachment keys on it server-side. |
+| `APPCTL_CONCURRENCY` | How many jobs this process runs at once. 1–64, per the server's own cap. |
+| `APPCTL_ELIGIBLE_TYPES` | Comma-separated job types this node will claim. Empty means "all it can". |
+| `APPCTL_POLL_INTERVAL_MS` | Idle poll interval in milliseconds. |
+| `APPCTL_HEADLESS` | `true` to run without a TTY and drain on SIGTERM WITHOUT deregistering. |
+| `APPCTL_STATE_DIR` | Overrides the state directory. The one variable a container almost always sets. |
+| `APPCTL_HEAP_LIMIT_MB` | Old-space limit in MB for the re-exec (#277). `0` disables re-tuning entirely. |
+| `APPCTL_HEAP_TUNED` | The re-exec LATCH (#277). Set by the parent shim on the child it spawns. Not an operator knob — it exists so the re-exec cannot loop. It is still declared here rather than read as a literal, because the rule this map enforces has no exceptions: a variable the code reads is a variable a rename must reach. |
+| `APPCTL_MEMORY_WATCHDOG` | `false` to disable the memory watchdog and its pre-OOM valve (#277). |
+| `APPCTL_MEMORY_THRESHOLD` | heapUsed/heapLimit fraction at which the valve fires. Default ~0.9 (#277). |
+| `APPCTL_HEAP_SNAPSHOTS` | `false` to disable ALL THREE heap-snapshot paths (#277). |
+<!-- GENERATED:WORKER_ENV_TABLE:END -->
+
+With `APPCTL_SERVER_URL` and `APPCTL_TOKEN` set and no config file at all, the
+worker synthesises its settings from the environment and starts. If it cannot
+write the file back (a read-only container home is common), it warns and keeps
+going — set `APPCTL_NODE_ID` so a restart re-attaches instead of registering
+again.
+
 ## CI usage
 
 In CI there's no browser to complete the device flow in and no persistent

@@ -1,7 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import {
   NotificationProvider,
   useNotifications,
@@ -12,6 +12,22 @@ import type {
   NotificationListResponse,
   UnreadCountResponse,
 } from '../../types';
+
+/**
+ * `useNavigate` is stubbed to a spy so the "click bridge navigates" tests
+ * below can assert on it directly, without depending on which route actually
+ * renders. Everything else from `react-router-dom` — `MemoryRouter`,
+ * `useSearchParams` (exercised for real by the `?n=` tests), `useLocation` —
+ * stays the real implementation.
+ */
+const navigateMock = vi.fn();
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
+  return {
+    ...actual,
+    useNavigate: () => navigateMock,
+  };
+});
 
 /**
  * Issue #127, epic #109. `NotificationProvider` is the notification centre's
@@ -39,7 +55,7 @@ vi.mock('../../contexts/AuthContext', () => ({
 }));
 
 interface CapturedHandlers {
-  onNotification: (notification: AppNotification) => void;
+  onNotification: (notification: AppNotification, toast: boolean) => void;
   onOpen: () => void;
   onStateChange?: (state: string) => void;
 }
@@ -55,9 +71,9 @@ vi.mock('../../services/notificationStream', () => ({
     connectNotificationStreamMock(handlers),
 }));
 
-const showNativeNotificationMock = vi.fn();
+const showAppNotificationMock = vi.fn(() => Promise.resolve('page'));
 vi.mock('../../services/browserNotifications', () => ({
-  showNativeNotification: (...args: unknown[]) => showNativeNotificationMock(...args),
+  showAppNotification: (...args: unknown[]) => showAppNotificationMock(...args),
 }));
 
 const getNotificationsMock = vi.fn();
@@ -111,15 +127,97 @@ function createWrapper() {
   };
 }
 
+/**
+ * Renders `location.search` into `latestSearch` on every render, reset by
+ * each test that uses it below. Used by the `?n=` tests (issue #223) to
+ * assert the param is actually stripped from the URL after being consumed,
+ * not just that `markRead` fired.
+ */
+let latestSearch = '';
+function LocationProbe() {
+  latestSearch = useLocation().search;
+  return null;
+}
+
+function createWrapperWithLocation(initialEntries: string[]) {
+  return function Wrapper({ children }: { children: ReactNode }) {
+    return (
+      <MemoryRouter initialEntries={initialEntries}>
+        <LocationProbe />
+        <NotificationProvider>{children}</NotificationProvider>
+      </MemoryRouter>
+    );
+  };
+}
+
+/**
+ * `navigator.serviceWorker`, mirroring `browserNotifications.test.ts`'s
+ * `setServiceWorker`: replaced per test with a fake exposing just enough of
+ * `EventTarget` (`addEventListener`/`removeEventListener`) to capture the
+ * `message` listener `NotificationContext`'s click-bridge effect registers,
+ * plus a `dispatch` helper to invoke it directly — jsdom has no real
+ * `navigator.serviceWorker`, so there is nothing to fire a genuine
+ * `MessageEvent` through.
+ *
+ * NOT torn down in `afterEach`: this suite's global `afterEach` (in
+ * `setup.ts`) unmounts every rendered tree via RTL's `cleanup()`, which is
+ * what fires the click-bridge effect's own cleanup
+ * (`navigator.serviceWorker.removeEventListener(...)`) - and Vitest runs
+ * per-file `afterEach` hooks BEFORE that global one (LIFO, last-registered
+ * runs first). Deleting/restoring `navigator.serviceWorker` here would race
+ * that unmount and throw on the now-missing property. Resetting to a safe
+ * default in `beforeEach` instead sidesteps the ordering entirely: it runs
+ * before the NEXT test even starts, well after the previous test's own
+ * cleanup already ran against whatever fake it had installed.
+ */
+function setServiceWorker() {
+  const listeners = new Map<string, Set<(event: { data: unknown }) => void>>();
+
+  const addEventListener = vi.fn((type: string, listener: (event: { data: unknown }) => void) => {
+    if (!listeners.has(type)) listeners.set(type, new Set());
+    listeners.get(type)!.add(listener);
+  });
+  const removeEventListener = vi.fn(
+    (type: string, listener: (event: { data: unknown }) => void) => {
+      listeners.get(type)?.delete(listener);
+    },
+  );
+
+  Object.defineProperty(window.navigator, 'serviceWorker', {
+    value: { addEventListener, removeEventListener },
+    configurable: true,
+    writable: true,
+  });
+
+  return {
+    addEventListener,
+    removeEventListener,
+    dispatch: (type: string, data: unknown) => {
+      listeners.get(type)?.forEach((listener) => listener({ data }));
+    },
+  };
+}
+
+/** A `navigator.serviceWorker` whose `addEventListener`/`removeEventListener` are harmless no-ops. */
+function resetServiceWorkerToSafeDefault() {
+  Object.defineProperty(window.navigator, 'serviceWorker', {
+    value: { addEventListener: () => {}, removeEventListener: () => {} },
+    configurable: true,
+    writable: true,
+  });
+}
+
 describe('NotificationContext', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     capturedHandlers = null;
+    latestSearch = '';
     isAuthenticatedMock.mockReturnValue(true);
     getNotificationsMock.mockResolvedValue(makeListResponse());
     getUnreadNotificationCountMock.mockResolvedValue(makeUnreadResponse(0));
     markNotificationReadMock.mockResolvedValue(makeUnreadResponse(0));
     markAllNotificationsReadMock.mockResolvedValue(makeUnreadResponse(0));
+    resetServiceWorkerToSafeDefault();
   });
 
   describe('mount behaviour', () => {
@@ -179,7 +277,7 @@ describe('NotificationContext', () => {
 
       const notification = makeAppNotification({ id: 'live-1', title: 'New arrival' });
       act(() => {
-        capturedHandlers!.onNotification(notification);
+        capturedHandlers!.onNotification(notification, true);
       });
 
       expect(result.current?.notifications[0]).toEqual(notification);
@@ -195,10 +293,10 @@ describe('NotificationContext', () => {
 
       const notification = makeAppNotification({ id: 'dup-1' });
       act(() => {
-        capturedHandlers!.onNotification(notification);
+        capturedHandlers!.onNotification(notification, true);
       });
       act(() => {
-        capturedHandlers!.onNotification(notification);
+        capturedHandlers!.onNotification(notification, true);
       });
 
       const matching = result.current?.notifications.filter((n) => n.id === 'dup-1');
@@ -219,7 +317,7 @@ describe('NotificationContext', () => {
       // pushed off the end of `notifications` by truncation.
       act(() => {
         for (let i = 0; i < RECENT_NOTIFICATION_COUNT + 1; i++) {
-          capturedHandlers!.onNotification(makeAppNotification({ id: `evict-${i}` }));
+          capturedHandlers!.onNotification(makeAppNotification({ id: `evict-${i}` }), true);
         }
       });
 
@@ -233,7 +331,7 @@ describe('NotificationContext', () => {
       // server counted it exactly once, and a re-delivery must not count it
       // again just because it scrolled off screen.
       act(() => {
-        capturedHandlers!.onNotification(makeAppNotification({ id: 'evict-0' }));
+        capturedHandlers!.onNotification(makeAppNotification({ id: 'evict-0' }), true);
       });
 
       expect(result.current?.unreadCount).toBe(RECENT_NOTIFICATION_COUNT + 1);
@@ -264,7 +362,7 @@ describe('NotificationContext', () => {
       // from the page it returned, so this must be recognised as already
       // counted rather than pushing the badge to 6.
       act(() => {
-        capturedHandlers!.onNotification(raceNotification);
+        capturedHandlers!.onNotification(raceNotification, true);
       });
 
       expect(result.current?.unreadCount).toBe(5);
@@ -277,18 +375,145 @@ describe('NotificationContext', () => {
 
       const notification = makeAppNotification({ id: 'toast-1' });
       act(() => {
-        capturedHandlers!.onNotification(notification);
+        capturedHandlers!.onNotification(notification, true);
       });
-      expect(showNativeNotificationMock).toHaveBeenCalledTimes(1);
+      expect(showAppNotificationMock).toHaveBeenCalledTimes(1);
 
       act(() => {
-        capturedHandlers!.onNotification(notification);
+        capturedHandlers!.onNotification(notification, true);
       });
 
       // Same reasoning as the count: the user has already been interrupted
       // once about this notification, so a duplicate frame must raise no
       // second OS-level toast.
-      expect(showNativeNotificationMock).toHaveBeenCalledTimes(1);
+      expect(showAppNotificationMock).toHaveBeenCalledTimes(1);
+    });
+
+    describe('foreground suppression (#224)', () => {
+      // These mutate `document.visibilityState` (normally a read-only getter)
+      // and `document.hasFocus`, so both are restored after every test rather
+      // than only within this block - a leak here would silently change
+      // `document.hasFocus()`'s behaviour for every later test file that
+      // shares this jsdom instance.
+      const originalVisibilityState = Object.getOwnPropertyDescriptor(
+        Document.prototype,
+        'visibilityState',
+      );
+      const originalHasFocus = document.hasFocus;
+
+      function setVisibility(state: 'visible' | 'hidden') {
+        Object.defineProperty(document, 'visibilityState', {
+          value: state,
+          configurable: true,
+        });
+      }
+
+      function setFocused(focused: boolean) {
+        vi.spyOn(document, 'hasFocus').mockReturnValue(focused);
+      }
+
+      afterEach(() => {
+        if (originalVisibilityState) {
+          Object.defineProperty(Document.prototype, 'visibilityState', originalVisibilityState);
+        }
+        document.hasFocus = originalHasFocus;
+      });
+
+      it('does not raise a toast for a new arrival when the tab is visible and focused', async () => {
+        setVisibility('visible');
+        setFocused(true);
+
+        const { result } = renderHook(() => useNotifications(), { wrapper: createWrapper() });
+        await waitFor(() => expect(result.current?.isLoading).toBe(false));
+
+        act(() => {
+          capturedHandlers!.onNotification(makeAppNotification({ id: 'fg-visible-focused' }), true);
+        });
+
+        expect(showAppNotificationMock).not.toHaveBeenCalled();
+      });
+
+      it('raises a toast for a new arrival when the tab is hidden, even if focused', async () => {
+        setVisibility('hidden');
+        setFocused(true);
+
+        const { result } = renderHook(() => useNotifications(), { wrapper: createWrapper() });
+        await waitFor(() => expect(result.current?.isLoading).toBe(false));
+
+        act(() => {
+          capturedHandlers!.onNotification(makeAppNotification({ id: 'fg-hidden' }), true);
+        });
+
+        expect(showAppNotificationMock).toHaveBeenCalledTimes(1);
+      });
+
+      it('raises a toast for a new arrival when the tab is visible but unfocused', async () => {
+        setVisibility('visible');
+        setFocused(false);
+
+        const { result } = renderHook(() => useNotifications(), { wrapper: createWrapper() });
+        await waitFor(() => expect(result.current?.isLoading).toBe(false));
+
+        act(() => {
+          capturedHandlers!.onNotification(makeAppNotification({ id: 'fg-unfocused' }), true);
+        });
+
+        expect(showAppNotificationMock).toHaveBeenCalledTimes(1);
+      });
+
+      it('raises a toast when both hidden and unfocused', async () => {
+        setVisibility('hidden');
+        setFocused(false);
+
+        const { result } = renderHook(() => useNotifications(), { wrapper: createWrapper() });
+        await waitFor(() => expect(result.current?.isLoading).toBe(false));
+
+        act(() => {
+          capturedHandlers!.onNotification(makeAppNotification({ id: 'fg-hidden-unfocused' }), true);
+        });
+
+        expect(showAppNotificationMock).toHaveBeenCalledTimes(1);
+      });
+
+      it('still updates the bell list and unread count when the toast is suppressed - the gate is toast-only', async () => {
+        setVisibility('visible');
+        setFocused(true);
+
+        const { result } = renderHook(() => useNotifications(), { wrapper: createWrapper() });
+        await waitFor(() => expect(result.current?.isLoading).toBe(false));
+
+        const notification = makeAppNotification({ id: 'fg-badge-still-updates' });
+        act(() => {
+          capturedHandlers!.onNotification(notification, true);
+        });
+
+        // The most important regression per #224's acceptance criteria: "The
+        // bell badge and notification centre update normally in all three
+        // cases" - suppressing the OS toast must never suppress the list or
+        // the count.
+        expect(result.current?.notifications[0]).toEqual(notification);
+        expect(result.current?.unreadCount).toBe(1);
+        expect(showAppNotificationMock).not.toHaveBeenCalled();
+      });
+
+      it('does not raise a toast for a duplicate frame even when hidden - the isNew gate still wins first', async () => {
+        setVisibility('hidden');
+        setFocused(false);
+
+        const { result } = renderHook(() => useNotifications(), { wrapper: createWrapper() });
+        await waitFor(() => expect(result.current?.isLoading).toBe(false));
+
+        const notification = makeAppNotification({ id: 'fg-dup-hidden' });
+        act(() => {
+          capturedHandlers!.onNotification(notification, true);
+        });
+        expect(showAppNotificationMock).toHaveBeenCalledTimes(1);
+
+        act(() => {
+          capturedHandlers!.onNotification(notification, true);
+        });
+        expect(showAppNotificationMock).toHaveBeenCalledTimes(1);
+      });
     });
 
     it('logout clears the id memory, so the same id arriving again after a re-login counts as new', async () => {
@@ -299,7 +524,7 @@ describe('NotificationContext', () => {
 
       const notification = makeAppNotification({ id: 'relogin-1' });
       act(() => {
-        capturedHandlers!.onNotification(notification);
+        capturedHandlers!.onNotification(notification, true);
       });
       expect(result.current?.unreadCount).toBe(1);
 
@@ -322,7 +547,7 @@ describe('NotificationContext', () => {
       // still-remembered duplicate from the previous session and silently
       // not counted - a real under-count, not just a stale badge.
       act(() => {
-        capturedHandlers!.onNotification(makeAppNotification({ id: 'relogin-1' }));
+        capturedHandlers!.onNotification(makeAppNotification({ id: 'relogin-1' }), true);
       });
 
       expect(result.current?.unreadCount).toBe(1);
@@ -334,12 +559,46 @@ describe('NotificationContext', () => {
 
       act(() => {
         for (let i = 0; i < RECENT_NOTIFICATION_COUNT + 5; i++) {
-          capturedHandlers!.onNotification(makeAppNotification({ id: `cap-${i}` }));
+          capturedHandlers!.onNotification(makeAppNotification({ id: `cap-${i}` }), true);
         }
       });
 
       expect(result.current?.notifications).toHaveLength(RECENT_NOTIFICATION_COUNT);
       expect(result.current?.notifications[0].id).toBe(`cap-${RECENT_NOTIFICATION_COUNT + 4}`);
+    });
+  });
+
+  describe('the server-authoritative toast gate (#227)', () => {
+    it('toast: false still updates the bell, list and unread count, but raises no native notification', async () => {
+      const { result } = renderHook(() => useNotifications(), { wrapper: createWrapper() });
+      await waitFor(() => expect(result.current?.isLoading).toBe(false));
+
+      getNotificationsMock.mockClear();
+      getUnreadNotificationCountMock.mockClear();
+
+      const notification = makeAppNotification({ id: 'muted-1' });
+      act(() => {
+        capturedHandlers!.onNotification(notification, false);
+      });
+
+      // The centre is unaffected by the gate: `setNotifications` and
+      // `setUnreadCount` already ran before `if (!toast) return;` is reached.
+      expect(result.current?.notifications[0]).toEqual(notification);
+      expect(result.current?.unreadCount).toBe(1);
+      // Only the OS-level bubble is withheld.
+      expect(showAppNotificationMock).not.toHaveBeenCalled();
+    });
+
+    it('toast: true (the normal case) still raises the native notification', async () => {
+      const { result } = renderHook(() => useNotifications(), { wrapper: createWrapper() });
+      await waitFor(() => expect(result.current?.isLoading).toBe(false));
+
+      const notification = makeAppNotification({ id: 'toasted-1' });
+      act(() => {
+        capturedHandlers!.onNotification(notification, true);
+      });
+
+      expect(showAppNotificationMock).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -486,6 +745,142 @@ describe('NotificationContext', () => {
       const { result } = renderHook(() => useNotifications());
 
       expect(result.current).toBeNull();
+    });
+  });
+
+  describe('service-worker click bridge (issue #223)', () => {
+    it('marks the notification read and navigates on an internal link', async () => {
+      const sw = setServiceWorker();
+
+      const { result } = renderHook(() => useNotifications(), { wrapper: createWrapper() });
+      await waitFor(() => expect(result.current?.isLoading).toBe(false));
+      expect(sw.addEventListener).toHaveBeenCalledWith('message', expect.any(Function));
+
+      await act(async () => {
+        sw.dispatch('message', { type: 'notification-click', id: 'sw-1', link: '/settings' });
+        await Promise.resolve();
+      });
+
+      expect(markNotificationReadMock).toHaveBeenCalledWith('sw-1');
+      expect(navigateMock).toHaveBeenCalledWith('/settings');
+    });
+
+    it('marks read but does not navigate when the link is not internal', async () => {
+      const sw = setServiceWorker();
+
+      const { result } = renderHook(() => useNotifications(), { wrapper: createWrapper() });
+      await waitFor(() => expect(result.current?.isLoading).toBe(false));
+
+      await act(async () => {
+        sw.dispatch('message', {
+          type: 'notification-click',
+          id: 'sw-2',
+          link: 'https://evil.example.com/phish',
+        });
+        await Promise.resolve();
+      });
+
+      expect(markNotificationReadMock).toHaveBeenCalledWith('sw-2');
+      expect(navigateMock).not.toHaveBeenCalled();
+    });
+
+    it('ignores a message of a different type', async () => {
+      const sw = setServiceWorker();
+
+      const { result } = renderHook(() => useNotifications(), { wrapper: createWrapper() });
+      await waitFor(() => expect(result.current?.isLoading).toBe(false));
+
+      await act(async () => {
+        sw.dispatch('message', { type: 'something-else', id: 'sw-3', link: '/settings' });
+        await Promise.resolve();
+      });
+
+      expect(markNotificationReadMock).not.toHaveBeenCalled();
+      expect(navigateMock).not.toHaveBeenCalled();
+    });
+
+    it('ignores a malformed message without throwing', async () => {
+      const sw = setServiceWorker();
+
+      const { result } = renderHook(() => useNotifications(), { wrapper: createWrapper() });
+      await waitFor(() => expect(result.current?.isLoading).toBe(false));
+
+      expect(() => {
+        act(() => {
+          sw.dispatch('message', null);
+        });
+      }).not.toThrow();
+
+      expect(markNotificationReadMock).not.toHaveBeenCalled();
+      expect(navigateMock).not.toHaveBeenCalled();
+    });
+
+    it('removes its message listener on unmount', async () => {
+      const sw = setServiceWorker();
+
+      const { result, unmount } = renderHook(() => useNotifications(), {
+        wrapper: createWrapper(),
+      });
+      await waitFor(() => expect(result.current?.isLoading).toBe(false));
+
+      expect(sw.removeEventListener).not.toHaveBeenCalled();
+      unmount();
+      expect(sw.removeEventListener).toHaveBeenCalledWith('message', expect.any(Function));
+    });
+
+    it('does not attempt to attach a listener when navigator.serviceWorker is absent', async () => {
+      delete (window.navigator as unknown as { serviceWorker?: unknown }).serviceWorker;
+
+      const { result } = renderHook(() => useNotifications(), { wrapper: createWrapper() });
+
+      // No throw, and nothing to assert on addEventListener since there is no
+      // `navigator.serviceWorker` to have called it - the guard's whole job is
+      // to make this a silent no-op rather than a TypeError.
+      await waitFor(() => expect(result.current?.isLoading).toBe(false));
+    });
+  });
+
+  describe('boot-time ?n= handling (issue #223)', () => {
+    it('marks the id read and strips ?n= from the URL once authenticated', async () => {
+      const { result } = renderHook(() => useNotifications(), {
+        wrapper: createWrapperWithLocation(['/?n=cold-1']),
+      });
+      await waitFor(() => expect(result.current?.isLoading).toBe(false));
+
+      await waitFor(() => expect(markNotificationReadMock).toHaveBeenCalledWith('cold-1'));
+      await waitFor(() => expect(latestSearch).toBe(''));
+    });
+
+    it('preserves other query params while stripping only ?n=', async () => {
+      const { result } = renderHook(() => useNotifications(), {
+        wrapper: createWrapperWithLocation(['/?tab=unread&n=cold-2']),
+      });
+      await waitFor(() => expect(result.current?.isLoading).toBe(false));
+
+      await waitFor(() => expect(markNotificationReadMock).toHaveBeenCalledWith('cold-2'));
+      await waitFor(() => expect(latestSearch).toBe('?tab=unread'));
+    });
+
+    it('does not mark read when there is no ?n= param', async () => {
+      const { result } = renderHook(() => useNotifications(), {
+        wrapper: createWrapperWithLocation(['/']),
+      });
+      await waitFor(() => expect(result.current?.isLoading).toBe(false));
+
+      expect(markNotificationReadMock).not.toHaveBeenCalled();
+    });
+
+    it('does not mark read while unauthenticated, even with ?n= present', async () => {
+      isAuthenticatedMock.mockReturnValue(false);
+
+      const { result } = renderHook(() => useNotifications(), {
+        wrapper: createWrapperWithLocation(['/?n=cold-3']),
+      });
+      await waitFor(() => expect(result.current?.notifications).toEqual([]));
+
+      expect(markNotificationReadMock).not.toHaveBeenCalled();
+      // The param is left alone too - nothing has consumed it yet.
+      expect(latestSearch).toBe('?n=cold-3');
     });
   });
 });

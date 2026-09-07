@@ -1,6 +1,9 @@
 import {
+  Body,
   Controller,
+  Delete,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
   Param,
@@ -24,11 +27,18 @@ import { ApiDataResponse } from '../common/decorators/api-data-response.decorato
 import { Auth } from '../auth/decorators/auth.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { NOTIFICATION_EVENTS } from './notification-events';
+import { policyChannels } from './notification-policy';
+import { NotificationPolicyService } from './notification-policy.service';
 import {
   NotificationStreamService,
   type SseMessage,
 } from './notification-stream.service';
 import { NotificationStoreService } from './notification-store.service';
+import { PushSubscriptionService } from './push-subscription.service';
+import {
+  NotificationConfigDto,
+  type NotificationConfigResponse,
+} from './dto/notification-config.dto';
 import {
   NotificationEventDto,
   type NotificationEventResponse,
@@ -40,6 +50,12 @@ import {
   type NotificationListResponse,
   type UnreadCountResponse,
 } from './dto/notification.dto';
+import {
+  PushSubscribeDto,
+  PushSubscriptionResponseDto,
+  PushUnsubscribeDto,
+  type PushSubscriptionResponse,
+} from './dto/push-subscription.dto';
 
 // =============================================================================
 // NotificationsController (issues #124/#127, epic #109)
@@ -74,6 +90,12 @@ export class NotificationsController {
     // `streams`, plural, and not `stream`: the handler below is named `stream`
     // and a field of the same name shadows it on the class.
     private readonly streams: NotificationStreamService,
+    // The admin policy (#226), for `GET /events` and `GET /config`. Same
+    // reader the dispatcher uses, so the two cannot disagree.
+    private readonly policy: NotificationPolicyService,
+    // Push subscription storage (#229), for `GET /config` and the two
+    // `push/subscriptions` endpoints below.
+    private readonly pushSubscriptions: PushSubscriptionService,
   ) {}
 
   @Get('events')
@@ -87,22 +109,36 @@ export class NotificationsController {
       'This describes what events *exist*, not what the caller has chosen. An event ' +
       'with `mandatory: true` cannot be switched off; that is enforced server-side ' +
       'during delivery, and the flag is here so the UI can show the control disabled ' +
-      'with a reason rather than hiding it.',
+      'with a reason rather than hiding it.\n\n' +
+      '**`channels` is capability ∩ administrator policy.** An event that can be ' +
+      'delivered over `browser` does not list it while an administrator has browser ' +
+      'notifications switched off deployment-wide, or has suppressed that event, in ' +
+      'system settings — the delivery path applies the identical filter, so a channel ' +
+      'listed here is a channel that will be used and one omitted is one that will not. ' +
+      'A `mandatory` event is the exception: its channels are never filtered, because ' +
+      'its stored notification is the delivery. For those, the policy shows up as ' +
+      '`toast: false` on the SSE stream instead.',
   })
   @ApiDataResponse(NotificationEventDto, {
     isArray: true,
     description: 'The notification event registry',
   })
-  listEvents(): NotificationEventResponse[] {
+  async listEvents(): Promise<NotificationEventResponse[]> {
+    // THE SAME POLICY THE DISPATCHER WILL APPLY, from the same function (#226).
+    // `resolveChannels` calls `policyChannels` too, which is what makes it
+    // impossible for this matrix to offer a channel delivery would refuse — or
+    // to hide one it would use. See notification-policy.ts.
+    const policy = await this.policy.getPolicy();
+
     // Mapped field by field rather than returned directly, for three reasons:
     //
     //   1. `mandatory` is normalised from `boolean | undefined` to `boolean`,
     //      so no client has to know that absent means "the user is in charge".
-    //   2. `channels` is COPIED. The arrays in `NOTIFICATION_EVENTS` are the
-    //      registry's own state and this is a module-level constant living for
-    //      the process lifetime; handing out the live array would let a
-    //      serialiser or an interceptor that sorts in place reconfigure
-    //      delivery for every later dispatch.
+    //   2. `channels` is a FRESH ARRAY out of `policyChannels`. The arrays in
+    //      `NOTIFICATION_EVENTS` are the registry's own state and this is a
+    //      module-level constant living for the process lifetime; handing out
+    //      the live array would let a serialiser or an interceptor that sorts
+    //      in place reconfigure delivery for every later dispatch.
     //   3. The response shape is decided here, in code that is about the
     //      response shape. A spread would make it a consequence of whatever
     //      the registry happens to hold, so a field added for the dispatcher's
@@ -111,10 +147,68 @@ export class NotificationsController {
       key: event.key,
       label: event.label,
       description: event.description,
-      channels: [...event.channels],
+      channels: policyChannels(event, policy),
       defaultEnabled: event.defaultEnabled,
       mandatory: event.mandatory === true,
     }));
+  }
+
+  /**
+   * What this deployment can do, for the client that has to decide whether to
+   * ask the browser for notification permission.
+   *
+   * ---------------------------------------------------------------------------
+   * `@Auth()` WITH NO PERMISSION, EXACTLY LIKE `GET /events` ABOVE
+   * ---------------------------------------------------------------------------
+   *
+   * Deliberately the same gate, and for the same reason: this is information
+   * every signed-in account needs about its own notifications. A `viewer` holds
+   * `user_settings:read|write` and `storage:read` and nothing else — so gating
+   * this on `system_settings:read` would lock the policy away from precisely the
+   * users it governs, and widening THAT permission to reach it would publish the
+   * entire settings blob (including the open `features` map downstream forks
+   * fill with operational flags) to every account. See the DTO, which carries
+   * the full argument and the rejected alternative.
+   */
+  @Get('config')
+  @Auth()
+  @ApiOperation({
+    summary: 'Notification capabilities of this deployment',
+    description:
+      'What this deployment can deliver, for a client deciding whether to ask the browser ' +
+      'for notification permission. Readable by **any authenticated user** — the policy ' +
+      'governs every account, so every account can read it.\n\n' +
+      '`browserEnabled` is the administrator’s deployment-wide switch (system settings). ' +
+      'A client should not prompt for OS notification permission when it is `false`: browser ' +
+      'permission, once denied, cannot be re-prompted, so prompting for a capability this ' +
+      'deployment has switched off spends a one-shot decision for nothing.\n\n' +
+      '**This is not a delivery switch.** Notifications are still recorded and the ' +
+      'notification centre still fills when `browserEnabled` is `false`; what is withheld is ' +
+      'the OS toast. Per-event suppression is deliberately not listed here — it travels with ' +
+      'each notification as `toast` on the SSE stream, so a long-lived tab holding a cached ' +
+      'copy of this response can never re-enable something an administrator has muted.\n\n' +
+      '`pushEnabled` reflects whether THIS DEPLOYMENT has a VAPID key pair configured ' +
+      '(`VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY`) — it says nothing about this user’s own ' +
+      'subscription state. When `true`, `vapidPublicKey` carries the public key a client needs ' +
+      'to call `pushManager.subscribe`; a client should not attempt that call while `pushEnabled` ' +
+      'is `false`. Still not a delivery switch in the #230 sense: #229 (this) is the subscription ' +
+      'store; #230 is the (separate, future) channel that actually sends a push to a stored ' +
+      'subscription.',
+  })
+  @ApiDataResponse(NotificationConfigDto, {
+    description: 'This deployment’s notification capabilities',
+  })
+  async config(): Promise<NotificationConfigResponse> {
+    const policy = await this.policy.getPolicy();
+
+    return {
+      browserEnabled: policy.browserEnabled,
+      // Real values as of #229: true/non-null exactly when this deployment's
+      // environment carries a VAPID key pair. #230 (the delivery channel) is
+      // what makes a stored subscription actually receive anything.
+      pushEnabled: this.pushSubscriptions.isEnabled(),
+      vapidPublicKey: this.pushSubscriptions.getVapidPublicKey(),
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -202,8 +296,14 @@ export class NotificationsController {
       'A `text/event-stream` carrying **only the authenticated caller’s** notifications. ' +
       'There is no parameter that selects a user; the recipient is the bearer of the token.\n\n' +
       '**Frames.** `event: notification` with a JSON `data` payload matching `Notification` ' +
-      '(without `readAt`), plus `: heartbeat` comment lines roughly every 25 seconds so ' +
-      'proxies do not reap an idle connection.\n\n' +
+      '(without `readAt`, plus `toast`), plus `: heartbeat` comment lines roughly every 25 ' +
+      'seconds so proxies do not reap an idle connection.\n\n' +
+      '**`toast`** is the server’s answer to “may this client raise an OS notification for ' +
+      'this event?”, computed from the administrator’s policy at publish time. `false` means ' +
+      'the bubble is withheld — the notification itself was still recorded and this frame was ' +
+      'still sent, so the bell and the unread count are unaffected. Because it travels with ' +
+      'each event, a tab holding a stale copy of `GET /api/notifications/config` still ' +
+      'honours the current policy.\n\n' +
       '**This is not a delivery guarantee.** Events published while the connection is down are ' +
       'lost — there is no replay and no `Last-Event-ID` support. `EventSource` reconnects by ' +
       'itself; the client must then refetch `GET /api/notifications/unread-count` and ' +
@@ -221,7 +321,8 @@ export class NotificationsController {
           type: 'string',
           example:
             ': connected\n\nevent: notification\ndata: {"id":"…","eventKey":"security.role_changed",' +
-            '"title":"Your roles changed","body":"…","link":"/settings","createdAt":"…"}\n\n: heartbeat\n\n',
+            '"title":"Your roles changed","body":"…","link":"/settings","createdAt":"…","toast":true}' +
+            '\n\n: heartbeat\n\n',
         },
       },
     },
@@ -345,5 +446,85 @@ export class NotificationsController {
     @CurrentUser('id') userId: string,
   ): Promise<UnreadCountResponse> {
     return { unreadCount: await this.store.markAllRead(userId) };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Push subscriptions (#229)
+  // ---------------------------------------------------------------------------
+
+  @Post('push/subscriptions')
+  @Auth()
+  @ApiOperation({
+    summary: 'Register a browser push subscription',
+    description:
+      'Stores (or refreshes) the caller’s `PushSubscription`, so #230’s sender has something to ' +
+      'push to. Body matches the browser’s `PushSubscription.toJSON()` shape exactly, so the ' +
+      'client can pass that object through unmodified.\n\n' +
+      '**Upserted by `endpoint`, not created unconditionally.** Re-subscribing the same endpoint ' +
+      '(the same browser instance) updates the existing row in place — including moving it to a ' +
+      'different `userId` when the same browser subscribes while signed in as someone else — ' +
+      'rather than creating a duplicate. See `PushSubscriptionService.subscribe`.\n\n' +
+      '`User-Agent` is read from the request header, not a body field, since the browser already ' +
+      'sends it on every request with zero client code required and a client-supplied value could ' +
+      'be spoofed to no benefit.\n\n' +
+      '**`409 Conflict`** when this deployment has no VAPID key pair configured — check ' +
+      '`GET /api/notifications/config`’s `pushEnabled` before ever calling `pushManager.subscribe` ' +
+      'in the first place.',
+  })
+  @ApiDataResponse(PushSubscriptionResponseDto, {
+    status: 201,
+    description: 'The subscription was stored',
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Web Push is not enabled on this deployment (no VAPID keys configured)',
+  })
+  @HttpCode(HttpStatus.CREATED)
+  async subscribePush(
+    @CurrentUser('id') userId: string,
+    @Body() dto: PushSubscribeDto,
+    @Headers('user-agent') userAgent: string | undefined,
+  ): Promise<PushSubscriptionResponse> {
+    const subscription = await this.pushSubscriptions.subscribe(
+      userId,
+      dto,
+      userAgent,
+    );
+
+    return {
+      id: subscription.id,
+      endpoint: subscription.endpoint,
+      createdAt: subscription.createdAt.toISOString(),
+    };
+  }
+
+  /**
+   * `DELETE` with a JSON body — unusual in this codebase's other `DELETE`
+   * endpoints (`allowlist`, `pat`), which identify their target by an `:id`
+   * path segment, but there is no surrogate id here: the client's only handle
+   * on a subscription is the (long, `/`-containing) endpoint URL the browser
+   * gave it, and a body avoids re-encoding that into a path or query segment.
+   * Both Fastify and Nest support a body on `DELETE`; nothing here relies on
+   * `DELETE` being body-less.
+   */
+  @Delete('push/subscriptions')
+  @Auth()
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Remove a browser push subscription',
+    description:
+      'Deletes the caller’s own push subscription for the given `endpoint`. Ownership-scoped: ' +
+      'an endpoint that does not exist and one that belongs to a different user return the same ' +
+      '`404`, matching this API’s existing precedent for ownership checks (e.g. ' +
+      '`POST /api/notifications/:id/read`) — the two are deliberately indistinguishable so this ' +
+      'cannot be used to probe which endpoints exist.',
+  })
+  @ApiResponse({ status: 204, description: 'Subscription removed' })
+  @ApiResponse({ status: 404, description: 'No such subscription for this user' })
+  async unsubscribePush(
+    @CurrentUser('id') userId: string,
+    @Body() dto: PushUnsubscribeDto,
+  ): Promise<void> {
+    await this.pushSubscriptions.unsubscribe(userId, dto.endpoint);
   }
 }

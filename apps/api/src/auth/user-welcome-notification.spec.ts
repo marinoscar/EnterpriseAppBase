@@ -9,6 +9,8 @@ import {
   MockPrismaService,
 } from '../../test/mocks/prisma.mock';
 import { NotificationDeliveryService } from '../notifications/notification-delivery.service';
+import { DEFAULT_NOTIFICATION_POLICY } from '../notifications/notification-policy';
+import { NotificationPolicyService } from '../notifications/notification-policy.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import {
   NOTIFICATION_CHANNEL_SENDERS,
@@ -112,6 +114,15 @@ describe('user.welcome: fires after commit, and the dispatcher reads the recipie
         NotificationsService,
         NotificationDeliveryService,
         { provide: PrismaService, useValue: prisma },
+        // #226. The dispatcher now reads the deployment-wide notification
+        // policy; this suite is not about that policy, so it gets the
+        // permissive default every untouched deployment has.
+        {
+          provide: NotificationPolicyService,
+          useValue: {
+            getPolicy: jest.fn().mockResolvedValue(DEFAULT_NOTIFICATION_POLICY),
+          },
+        },
         {
           provide: JwtService,
           useValue: {

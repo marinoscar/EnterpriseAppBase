@@ -85,6 +85,9 @@ function setSettings(overrides: Partial<ReturnType<typeof useSystemSettings>> = 
     settings: {
       ui: { allowUserThemeOverride: true },
       features: { beta: false, newDashboard: true },
+      // #225 — part of the document these pages read, so the fixture carries
+      // it even though none of the four pages here edits it.
+      notifications: { browserEnabled: true, disabledEvents: [] },
       updatedAt: '2024-01-15T10:30:00Z',
       updatedBy: null,
       version: 7,

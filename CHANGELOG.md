@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Background Job Queue** (epic #254): a Postgres-backed generic work queue — no Redis, no second datastore. Atomic `FOR UPDATE SKIP LOCKED` claim, retry and rate-limit budgets tracked independently, a lease reaper that reclaims work abandoned by a dead executor, and per-type lifetime stats that survive history pruning. A new job type is one self-registering handler class: no migration, no enum, no queue wiring, and it appears in the admin dashboard automatically. Admin surface at `/admin/settings/jobs` (queue + insights), API under `/api/admin/jobs/*`, gated by `jobs:read`/`jobs:write`. See `docs/specs/job-queue.md`.
+- **Distributed Worker Nodes** (epic #254): job types can optionally be computed on a remote worker node instead of the API server — the *same* handler code runs either way, with no branching. Ships as `appctl node` (enroll, register, start/stop, doctor, capability probing, heap tuning and a pre-OOM memory valve, a systemd service installer, an interactive dashboard) plus a published worker container image and compose bundle for running a fleet (`docker compose -f infra/compose/worker.compose.yml up --scale worker=N`). A node authenticates with a dedicated `nod_…` credential confined to `/api/nodes/*`, and moves job input/output directly against object storage through short-lived presigned URLs — no storage credential ever reaches a node. Admin fleet view at `/admin/settings/workers`, API under `/api/nodes/*`, `/api/node-credentials` and `/api/admin/nodes/*`, gated by `nodes:read`/`nodes:write`. See `docs/specs/worker-nodes.md` and `docs/deployment/worker-nodes.md`.
+- **Maintenance Mode**: an admin-controlled maintenance window (`/admin/settings/maintenance`, `/api/admin/maintenance`) that returns `503` to ordinary requests with an operator-supplied message, with an environment-variable break-glass (`MAINTENANCE_MODE`) that outranks the persisted setting. No dedicated permission — it is a `system_settings:read`/`write`-gated system setting. See `docs/specs/maintenance-mode.md` and `docs/runbooks/maintenance-mode.md`.
+- **PostgreSQL Backup**: scheduled and on-demand `pg_dump` backups streamed directly into object storage (never buffered), with their own heartbeat, stale-run detection and single-active-run enforcement independent of the job queue. Admin surface at `/admin/settings/db-backup`, API under `/api/admin/db-backup/*`, gated by `db_backup:read`/`db_backup:write`. See `docs/specs/database-backup.md`.
+- **PostgreSQL Restore**: restore the application's database from a backup, or roll back a restore, gated by a dedicated `db_backup:restore` permission kept separate from `db_backup:write` on purpose — scheduling backups and replacing the live database are not the same authority. Pre-flight capability gates (e.g. managed PostgreSQL denying `CREATEDB`) answer with a ready-to-run command block instead of an error. See `docs/specs/database-restore.md` and `docs/runbooks/database-restore.md`.
+- Four operational notification events: a background job giving up (`jobs.job_failed`), a worker node going offline (`nodes.node_offline`), a database backup failing (`db_backup.backup_failed`), and a database restore completing (`db_backup.restore_completed`, mandatory — this one cannot be muted).
+- A new **Operations** admin settings group (Jobs, Job Insights, Worker Nodes, Database Backup, Broadcasts) alongside the existing General and Access groups.
+
 ## [1.1.0] - 2026-06-10
 
 ### Changed

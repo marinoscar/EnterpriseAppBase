@@ -7,6 +7,8 @@ import {
   MockPrismaService,
 } from '../../test/mocks/prisma.mock';
 import { NotificationDeliveryService } from './notification-delivery.service';
+import { DEFAULT_NOTIFICATION_POLICY } from './notification-policy';
+import { NotificationPolicyService } from './notification-policy.service';
 import { NotificationsService } from './notifications.service';
 import {
   NOTIFICATION_CHANNEL_SENDERS,
@@ -61,6 +63,7 @@ describe('NotificationsService', () => {
   let mockPrisma: MockPrismaService;
   let emailSender: jest.Mocked<NotificationChannelSender>;
   let browserSender: jest.Mocked<NotificationChannelSender>;
+  let policyService: jest.Mocked<NotificationPolicyService>;
   let callOrder: string[];
   let nextDeliveryId: number;
 
@@ -110,11 +113,19 @@ describe('NotificationsService', () => {
       return { success: true, messageId: 'msg-2' };
     });
 
+    // #226. Mocked rather than wired to a mocked `SystemSettingsService`: this
+    // suite is about the dispatcher's ordering and containment, and the policy
+    // is an input to it. The tests that care set `policy.getPolicy` themselves.
+    policyService = {
+      getPolicy: jest.fn().mockResolvedValue(DEFAULT_NOTIFICATION_POLICY),
+    } as unknown as jest.Mocked<NotificationPolicyService>;
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         NotificationsService,
         NotificationDeliveryService,
         { provide: PrismaService, useValue: mockPrisma },
+        { provide: NotificationPolicyService, useValue: policyService },
         {
           provide: NOTIFICATION_CHANNEL_SENDERS,
           useValue: [emailSender, browserSender],
@@ -445,6 +456,264 @@ describe('NotificationsService', () => {
 
       expect(mockPrisma.user.findFirst).not.toHaveBeenCalled();
       expect(mockPrisma.notificationDelivery.create).not.toHaveBeenCalled();
+    });
+  });
+
+  // ==========================================================================
+  // NotifyOptions.channels — the narrowing-only subset (issue #321, epic #319)
+  // ==========================================================================
+  //
+  // Every test below exists to pin ONE claim: this option can only ever REMOVE
+  // channels. It is applied in `dispatch()` as a set intersection against the
+  // list `resolveChannels` already returned, so the interesting cases are not
+  // "does the filter filter" but the four ways a caller might hope to use it to
+  // ADD something — an undeclared channel, one the admin policy dropped, one
+  // the user muted, and one on a mandatory event.
+  //
+  // `admin.broadcast` / `admin.broadcast_critical` are used as the subjects
+  // because they are the first events declaring three channels, which is what
+  // makes a proper subset observable. Note that no `push` sender is registered
+  // in this suite (as in production before #230's transport lands), so a `push`
+  // channel that survives resolution is skipped with a debug log and no row —
+  // which is why the assertions below count email and browser only.
+  // ==========================================================================
+
+  describe('NotifyOptions.channels', () => {
+    /** The channel of every delivery row written, in call order. */
+    function writtenChannels(): string[] {
+      return mockPrisma.notificationDelivery.create.mock.calls.map(
+        ([args]: [{ data: { channel: string } }]) => args.data.channel,
+      );
+    }
+
+    it('narrows the resolved set: a three-channel event asked for email only delivers over email', async () => {
+      await service.notify('admin.broadcast', USER_ID, {}, {
+        channels: ['email'],
+      });
+      await service.flush();
+
+      expect(emailSender.deliver).toHaveBeenCalledTimes(1);
+      expect(browserSender.deliver).not.toHaveBeenCalled();
+      expect(writtenChannels()).toEqual(['email']);
+    });
+
+    it('cannot ADD a channel the event does not declare', async () => {
+      // user.welcome declares email only. Asking for browser as well is not an
+      // error and is not a delivery — it is an element with nothing to
+      // intersect with.
+      await service.notify('user.welcome', USER_ID, {}, {
+        channels: ['email', 'browser'],
+      });
+      await service.flush();
+
+      expect(browserSender.deliver).not.toHaveBeenCalled();
+      expect(writtenChannels()).toEqual(['email']);
+    });
+
+    it('cannot resurrect a channel the admin policy dropped (kill switch off + browser requested)', async () => {
+      // #226's deployment-wide gate. `admin.broadcast` is NOT mandatory, so
+      // `policyChannels` removes browser before the intersection ever runs.
+      policyService.getPolicy.mockResolvedValue({
+        browserEnabled: false,
+        disabledEvents: [],
+      });
+
+      await service.notify('admin.broadcast', USER_ID, {}, {
+        channels: ['browser'],
+      });
+      await service.flush();
+
+      expect(browserSender.deliver).not.toHaveBeenCalled();
+      expect(emailSender.deliver).not.toHaveBeenCalled();
+      expect(mockPrisma.notificationDelivery.create).not.toHaveBeenCalled();
+    });
+
+    it('cannot resurrect a channel the user muted', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(
+        userRow({
+          userSettingsValue: {
+            notifications: { email: { 'admin.broadcast': false } },
+          },
+        }) as never,
+      );
+
+      await service.notify('admin.broadcast', USER_ID, {}, {
+        channels: ['email'],
+      });
+      await service.flush();
+
+      expect(emailSender.deliver).not.toHaveBeenCalled();
+      expect(mockPrisma.notificationDelivery.create).not.toHaveBeenCalled();
+    });
+
+    it('an empty intersection writes NO delivery rows and does not throw', async () => {
+      // Requesting only a channel this event cannot use leaves nothing, which
+      // must land in the existing every-channel-muted path rather than in an
+      // error or an empty-array send.
+      await expect(
+        service.notify('user.welcome', USER_ID, {}, { channels: ['browser'] }),
+      ).resolves.toBeUndefined();
+      await expect(service.flush()).resolves.toBeUndefined();
+
+      expect(mockPrisma.notificationDelivery.create).not.toHaveBeenCalled();
+      expect(emailSender.deliver).not.toHaveBeenCalled();
+      expect(browserSender.deliver).not.toHaveBeenCalled();
+    });
+
+    it('an explicitly empty channels array is an opinion, and means no channels', async () => {
+      // Distinct from omitting the option entirely (the test below): `[]` says
+      // "nowhere", `undefined` says "no restriction".
+      await service.notify('admin.broadcast', USER_ID, {}, { channels: [] });
+      await service.flush();
+
+      expect(mockPrisma.notificationDelivery.create).not.toHaveBeenCalled();
+    });
+
+    it('a mandatory event still ignores stored preferences, and is still narrowable', async () => {
+      // Both halves in one test because they are the same ruling seen from two
+      // sides: `mandatory` binds the RECIPIENT (so the stored `false` below is
+      // ignored and email still goes), not the SENDER (so browser, which the
+      // caller did not ask for, still does not).
+      mockPrisma.user.findUnique.mockResolvedValue(
+        userRow({
+          userSettingsValue: {
+            notifications: {
+              email: { 'admin.broadcast_critical': false },
+              browser: { 'admin.broadcast_critical': false },
+            },
+          },
+        }) as never,
+      );
+
+      await service.notify('admin.broadcast_critical', USER_ID, {}, {
+        channels: ['email'],
+      });
+      await service.flush();
+
+      expect(emailSender.deliver).toHaveBeenCalledTimes(1);
+      expect(browserSender.deliver).not.toHaveBeenCalled();
+      expect(writtenChannels()).toEqual(['email']);
+    });
+
+    it('omitting the option reproduces the pre-#321 behaviour: every resolved channel is used', async () => {
+      // The property that lets auth.service.ts, users.service.ts and
+      // allowlist.service.ts stay untouched by this issue.
+      await service.notify('admin.broadcast', USER_ID, {});
+      await service.flush();
+
+      // email + browser. `push` resolves too, but no push sender is registered,
+      // so it is skipped without a row — the documented state for a declared
+      // channel whose transport has not landed.
+      expect(writtenChannels().sort()).toEqual(['browser', 'email']);
+      expect(emailSender.deliver).toHaveBeenCalledTimes(1);
+      expect(browserSender.deliver).toHaveBeenCalledTimes(1);
+    });
+
+    it('narrows identically on the address path', async () => {
+      // `notifyAddress` builds a different recipient but feeds the same
+      // `dispatch()`, so the subset must behave the same there — the whole
+      // reason there is one gate rather than two.
+      mockPrisma.user.findFirst.mockResolvedValue(null as never);
+
+      await service.notifyAddress('admin.broadcast', 'nobody@example.com', {}, {
+        channels: ['email'],
+      });
+      await service.flush();
+
+      expect(writtenChannels()).toEqual(['email']);
+      expect(browserSender.deliver).not.toHaveBeenCalled();
+    });
+  });
+
+  // ==========================================================================
+  // notifyNow() — the awaited sibling (issue #321, epic #319)
+  // ==========================================================================
+  //
+  // The whole point of this method is a TIMING guarantee: when its promise
+  // resolves, the delivery rows exist. That is what a job handler needs in
+  // order to honour `JobHandler.process`'s contract ("returning normally means
+  // the work is done and durable"), and it is the one property `notify()` does
+  // not have. So the tests below assert on `callOrder` WITHOUT calling
+  // `flush()` — using the drain would prove nothing about who waited for what.
+  // ==========================================================================
+
+  describe('notifyNow()', () => {
+    it('resolves only AFTER the delivery rows are written — no flush() needed', async () => {
+      await service.notifyNow('user.welcome', USER_ID, {});
+
+      expect(callOrder).toEqual([
+        'db:create',
+        'sender:email:deliver',
+        'db:update:sent',
+      ]);
+    });
+
+    it('notify(), by contrast, returns before the delivery has been recorded', async () => {
+      // The contrast is made with a BLOCKED sender rather than by counting
+      // microtasks: while `deliver` is pending, the `sent` update cannot have
+      // happened, whatever the scheduler did — so this cannot flake.
+      let release!: () => void;
+      const blocked = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+
+      emailSender.deliver.mockImplementation(async () => {
+        callOrder.push('sender:email:deliver');
+        await blocked;
+        return { success: true, messageId: 'msg-1' };
+      });
+
+      await service.notify('user.welcome', USER_ID, {});
+      expect(callOrder).not.toContain('db:update:sent');
+
+      release();
+      await service.flush();
+      expect(callOrder).toContain('db:update:sent');
+    });
+
+    it('never rejects when a channel sender throws, and records the failure', async () => {
+      // A rejection here would fail and retry an ENTIRE broadcast job over one
+      // recipient's bad mailbox, which is why `notifyNow` shares `notify`'s
+      // containment rather than being an unwrapped `await`.
+      emailSender.deliver.mockRejectedValue(new Error('smtp exploded'));
+
+      await expect(
+        service.notifyNow('user.welcome', USER_ID, {}),
+      ).resolves.toBeUndefined();
+
+      expect(mockPrisma.notificationDelivery.update).toHaveBeenCalledTimes(1);
+      const [[updateArgs]] = mockPrisma.notificationDelivery.update.mock
+        .calls as unknown as [[{ data: Record<string, unknown> }]];
+      expect(updateArgs.data.status).toBe(NotificationDeliveryStatus.failed);
+      expect(updateArgs.data.error).toContain('smtp exploded');
+    });
+
+    it('never rejects for a user that does not exist, and records nothing', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(null as never);
+
+      await expect(
+        service.notifyNow('user.welcome', 'ghost-user', {}),
+      ).resolves.toBeUndefined();
+
+      expect(mockPrisma.notificationDelivery.create).not.toHaveBeenCalled();
+    });
+
+    it('for an unknown event key, is a no-op that records nothing', async () => {
+      await expect(
+        service.notifyNow('no.such.event', USER_ID, {}),
+      ).resolves.toBeUndefined();
+
+      expect(mockPrisma.user.findUnique).not.toHaveBeenCalled();
+      expect(mockPrisma.notificationDelivery.create).not.toHaveBeenCalled();
+    });
+
+    it('honours the same narrowing option as notify()', async () => {
+      await service.notifyNow('admin.broadcast', USER_ID, {}, {
+        channels: ['email'],
+      });
+
+      expect(emailSender.deliver).toHaveBeenCalledTimes(1);
+      expect(browserSender.deliver).not.toHaveBeenCalled();
     });
   });
 });

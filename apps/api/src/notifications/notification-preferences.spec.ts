@@ -90,12 +90,15 @@ describe('readNotificationPreferences', () => {
       const prefs = readNotificationPreferences({
         notifications: {
           email: { 'user.welcome': false },
-          push: { 'user.welcome': false }, // not a member of NOTIFICATION_CHANNELS
+          // 'sms' rather than 'push': #228 (epic #215) widened
+          // NOTIFICATION_CHANNELS to include 'push', so 'push' is no longer a
+          // usable stand-in for "a channel the registry does not declare".
+          sms: { 'user.welcome': false }, // not a member of NOTIFICATION_CHANNELS
         },
       });
 
       expect(prefs.email).toEqual({ 'user.welcome': false });
-      expect((prefs as Record<string, unknown>).push).toBeUndefined();
+      expect((prefs as Record<string, unknown>).sms).toBeUndefined();
     });
 
     it('keeps an event key this build does not recognise, within a known channel', () => {

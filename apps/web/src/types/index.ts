@@ -63,12 +63,23 @@ export interface DataTableSettings {
  * against the same enum and 400s on anything else), so a channel this union
  * lacks is a channel this app could not write anyway.
  *
+ * `'push'` was added here in #228 (epic #215), mirroring the API's widening of
+ * `NOTIFICATION_CHANNELS` in the same issue. #228 also builds the real third
+ * preferences-matrix column for it (`pushChannelState()` in
+ * `NotificationSettings.tsx`, rendered disabled with an explanation while the
+ * server's `pushEnabled` is hardcoded `false`) — but no event declares `push`
+ * in its `channels` yet, so that column has nothing to show and stays
+ * unreached through `event.channels.map`. Real push delivery, and the first
+ * event that declares this channel, are #229/#230's job, not #228's: this
+ * issue is a structural widening plus the column's plumbing, not a feature
+ * launch.
+ *
  * Rendering is nonetheless written to survive a NEWER server that declares a
- * channel this build has never heard of — see `CHANNEL_META` in
+ * channel this build has never heard of — see `CHANNEL_LABELS` in
  * `components/settings/NotificationSettings.tsx`, which falls back to the raw
  * key rather than rendering a blank label.
  */
-export type NotificationChannel = 'email' | 'browser';
+export type NotificationChannel = 'email' | 'browser' | 'push';
 
 /**
  * One entry of the event registry, as served by `GET /api/notifications/events`.
@@ -246,16 +257,72 @@ export interface UnreadCountResponse {
  * One `event: notification` frame's payload, as `NotificationStreamService`
  * publishes it.
  *
- * `AppNotification` WITHOUT `readAt` — not an oversight and not a different
- * model: a notification is unread by definition at the instant it is
- * published, so the field would carry no information. Everything else is
+ * `AppNotification` WITHOUT `readAt`, PLUS `toast` — not an oversight and not a
+ * different model. `readAt` is absent because a notification is unread by
+ * definition at the instant it is published, so the field would carry no
+ * information. `toast` is present because it is an instruction about THIS
+ * delivery rather than a property of the stored row. Everything else is
  * identical, which is the property that lets a streamed event be pushed
  * straight into the fetched list.
  *
  * Carries NO user id. The recipient is implicit in which stream it arrived on;
  * the API omits it specifically so no client is ever tempted to filter on it.
  */
-export type NotificationStreamEvent = Omit<AppNotification, 'readAt'>;
+export type NotificationStreamEvent = Omit<AppNotification, 'readAt'> & {
+  /**
+   * May this client raise an OS notification for this event? (#226, epic #215)
+   *
+   * SERVER-COMPUTED, from the administrator's deployment-wide policy:
+   * `browserEnabled && !disabledEvents.includes(eventKey)`. It travels with the
+   * event rather than being derived from a cached
+   * `GET /api/notifications/config`, so a tab open since before an
+   * administrator changed the setting still honours the current policy.
+   *
+   * `false` DOES NOT MEAN SUPPRESSED. The notification was recorded and this
+   * frame was sent; the bell, the unread count and the notification centre are
+   * unaffected. Only the OS bubble is withheld — which is what lets an
+   * administrator mute toasts without muting a mandatory security alert's
+   * durable record.
+   *
+   * #227 is what acts on it. Until then it is parsed and carried, which is the
+   * harmless direction: a field ignored is cheaper than a field the client
+   * cannot see when it finally needs it.
+   */
+  toast: boolean;
+};
+
+/**
+ * `GET /api/notifications/config` — this deployment's client-facing
+ * notification capabilities (#226, epic #215). Field for field the API's
+ * `notificationConfigSchema` (`apps/api/src/notifications/dto/notification-config.dto.ts`),
+ * which carries the full argument for why this is its own narrow, unauthenticated-
+ * by-permission endpoint rather than a widening of `system_settings:read` — cited
+ * here rather than re-derived: a viewer holds no `system_settings:read`, so this
+ * is the one place that lets a non-admin learn the toggle without exposing the
+ * whole settings blob (the open `features` map included).
+ */
+export interface NotificationConfigResponse {
+  /**
+   * May this client raise browser notifications at all? THE PERMISSION-PROMPT
+   * GATE — see the DTO's own doc comment. `false` does not stop delivery; rows
+   * are still written and the centre still fills, it only means the OS bubble
+   * is off. Consumed by #227 as `useNotificationCapability`'s `adminDisabled`
+   * input (`!browserEnabled`).
+   */
+  browserEnabled: boolean;
+  /**
+   * May this client subscribe to Web Push? ALWAYS `false` TODAY — Web Push is
+   * #229/#230. Not consumed anywhere in the web app yet; #228's push column
+   * takes it as its own prop with its own placeholder value.
+   */
+  pushEnabled: boolean;
+  /**
+   * The VAPID application server key for `pushManager.subscribe`, or `null`
+   * when push is unavailable. ALWAYS `null` TODAY, for the same reason
+   * `pushEnabled` is. Unused until #229/#230.
+   */
+  vapidPublicKey: string | null;
+}
 
 export interface UserSettings {
   theme: 'light' | 'dark' | 'system';
@@ -325,11 +392,42 @@ export interface UserSettingsUpdate {
   notifications?: NotificationPreferencesPatch | null;
 }
 
+/**
+ * Deployment-wide browser-notification policy (#225, epic #215).
+ *
+ * A MODELLED block on the settings document, mirroring the API's
+ * `systemNotificationsSchema` — deliberately NOT a key in the open `features`
+ * record, which has no shape and is owned by downstream forks for their own
+ * operational flags.
+ *
+ * NOTHING READS THESE VALUES YET, on either side. Issue #225 adds the setting,
+ * its persistence and the admin page at `/admin/settings/notifications`; the
+ * enforcement (the browser channel consulting them, and the non-admin read
+ * endpoint that lets this app skip asking for OS permission when the capability
+ * is off) is issue #226. An editable control with no observable effect is the
+ * expected state until then, not a bug.
+ */
+export interface SystemNotificationSettings {
+  /** The whole browser channel, for everyone. */
+  browserEnabled: boolean;
+  /**
+   * `NotificationEventDef` keys whose OS notification is suppressed for
+   * everyone, independently of any user's own preference.
+   *
+   * A plain `string[]` and not a union: the registry is served by the API, so a
+   * key this build has never heard of is a key an operator may still legitimately
+   * have suppressed — the admin page renders what the registry returns and
+   * leaves unknown stored keys alone.
+   */
+  disabledEvents: string[];
+}
+
 export interface SystemSettings {
   ui: {
     allowUserThemeOverride: boolean;
   };
   features: Record<string, boolean>;
+  notifications: SystemNotificationSettings;
   updatedAt: string;
   updatedBy: { id: string; email: string } | null;
   version: number;
@@ -670,4 +768,76 @@ export interface EmailTestResult {
 
   /** When the attempt was made. */
   attemptedAt?: string;
+}
+
+// =============================================================================
+// Maintenance mode — issue #258, epic #254
+// =============================================================================
+//
+// The web mirror of `GET`/`PUT /api/admin/maintenance`
+// (`apps/api/src/common/maintenance/dto/update-maintenance.dto.ts`). Mirrored
+// rather than shared because there is no cross-package type surface between
+// `apps/api` and `apps/web` — `packages/shared` is deliberately plain
+// JavaScript constants (see its header) — so this is the same arrangement
+// `EmailSettings` and `SystemSettings` above already live under.
+//
+// The one thing NOT restated here is the marker string and the retry delay:
+// those are the wire CONTRACT rather than a shape, and they live beside the
+// code that recognises them, in `services/maintenance.ts`.
+
+/** Which of the three layers decided `enabled`. Reported, never inferred. */
+export type MaintenanceSource = 'env' | 'memory' | 'persisted';
+
+/**
+ * An override held in the API process only (the database restore's swap
+ * window). `message` and `allowAdmins` are optional on it because the caller
+ * that installs one usually has nothing to say about them.
+ */
+export interface MaintenanceOverride {
+  enabled: boolean;
+  message?: string;
+  allowAdmins?: boolean;
+}
+
+/** The stored `maintenance` namespace of the system settings document. */
+export interface MaintenancePolicy {
+  enabled: boolean;
+  message: string;
+  allowAdmins: boolean;
+  startedAt: string | null;
+  startedById: string | null;
+}
+
+/**
+ * The effective state, plus every contributing layer, separately.
+ *
+ * `layers` is the reason the admin page exists as more than a switch: an
+ * operator asking "I turned it off and it is still on" needs to be shown that
+ * `MAINTENANCE_MODE=true` is in the environment and outranks the row they just
+ * wrote. Rendering only `enabled` would make that invisible from the UI in
+ * exactly the way it would have been invisible from the API without this block.
+ */
+export interface MaintenanceStatus extends MaintenancePolicy {
+  source: MaintenanceSource;
+  layers: {
+    /** `enabled: null` means the variable is unset, or set to something that is neither `'true'` nor `'false'`. */
+    env: { present: boolean; enabled: boolean | null };
+    memory: { present: boolean; override: MaintenanceOverride | null };
+    /** `readable: false` means the row could not be read and `value` is the last known state. */
+    persisted: { readable: boolean; value: MaintenancePolicy };
+  };
+}
+
+/**
+ * The `PUT` body. `enabled` is the only required field, exactly as in
+ * `updateMaintenanceSchema`.
+ *
+ * `startedAt` / `startedById` are ABSENT on purpose and must stay absent: the
+ * API stamps them itself and refuses to take them from a caller, because an
+ * audit trail the audited party can dictate is not one.
+ */
+export interface UpdateMaintenanceInput {
+  enabled: boolean;
+  message?: string;
+  allowAdmins?: boolean;
 }

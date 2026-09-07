@@ -95,7 +95,8 @@ import type {
   NotificationEventDef,
   NotificationPreferences,
 } from '../../types';
-import type { BrowserNotificationPermission } from '../../hooks/useBrowserNotificationPermission';
+import type { NotificationCapability } from '../../hooks/useNotificationCapability';
+import { AddToHomeScreenPanel } from './AddToHomeScreenPanel';
 
 // =============================================================================
 // Derivation — the pure half, exported so it can be reasoned about and tested
@@ -187,6 +188,18 @@ export function preferenceWriteFor(
 const CHANNEL_LABELS: Record<NotificationChannel, string> = {
   email: 'Email',
   browser: 'Browser',
+  // THE REAL PUSH COLUMN (issue #228, epic #215) — not a placeholder anymore.
+  // `pushChannelState()` below renders it disabled with an honest
+  // "not available yet" explanation for as long as the server's
+  // `pushEnabled` stays hardcoded `false` (`notifications.controller.ts`).
+  // No entry in `NOTIFICATION_EVENTS` declares `push` in its `channels` yet,
+  // so `showsPushChannel` below is `false` and this label is currently
+  // unreachable through `event.channels.map` — the column renders no rows.
+  // THAT IS THE INTENDED STATE OF #228, NOT A BUG: this issue widens
+  // `NotificationChannel` and builds the column ahead of there being
+  // anything to put in it; wiring a real event to `push` and implementing
+  // delivery are #229/#230's job.
+  push: 'Push',
 };
 
 function channelLabel(channel: NotificationChannel): string {
@@ -194,26 +207,23 @@ function channelLabel(channel: NotificationChannel): string {
 }
 
 /**
- * How the browser column must behave for a given permission state.
+ * How a gated channel column must behave: whether its control is disabled,
+ * the terse note beside it, and the banner above the whole matrix.
  *
- * SEPARATED FROM THE JSX so the honest answer to "what does `denied` do?" is
- * one readable table rather than three ternaries spread through a render.
- *
- * `disabled` is true only where the app genuinely cannot deliver AND cannot
- * recover:
- *   * `denied`      — the browser refused; nothing this application does can
- *                     undo that, only the user in their browser's site
- *                     settings. A control that looks live but can never take
- *                     effect is worse than one that explains itself.
- *   * `unsupported` — no `Notification` API at all. Nothing to configure.
- *   * `default`     — NOT disabled. The permission has not been asked for yet,
- *                     and the stored preference is still meaningful: it is what
- *                     takes effect the moment permission is granted. Disabling
- *                     it would force the user to grant permission before they
- *                     are allowed to express an opinion, which is backwards.
- *   * `granted`     — nothing to say.
+ * SHARED BY `browserChannelState` AND `pushChannelState` — originally this
+ * was `BrowserChannelState`, named for its one caller, but `push` needs the
+ * exact same three fields (a control can be live or not, with or without a
+ * one-line reason, with or without a banner explaining why) for a completely
+ * different underlying reason (an unimplemented feature, not a browser
+ * permission). Two interfaces that are structurally identical and diverge
+ * only in field NAMES would be the worse choice here: every caller below —
+ * the channel-state lookup, the render column, the banner block — treats
+ * both the same way, and a shared name says so instead of asking the reader
+ * to notice two shapes happen to line up. `email` never produces one of
+ * these at all: it is never gated, so it simply has no entry wherever these
+ * are collected (see `channelStates` in the component below).
  */
-interface BrowserChannelState {
+interface ChannelState {
   disabled: boolean;
   /** Terse note beside the control. `null` when there is nothing to add. */
   note: string | null;
@@ -221,12 +231,151 @@ interface BrowserChannelState {
   alert: { severity: 'info' | 'warning'; title: string; body: string } | null;
 }
 
+/**
+ * How the browser column must behave for a given CAPABILITY state.
+ *
+ * SEPARATED FROM THE JSX so the honest answer to "what does `denied` do?" is
+ * one readable table rather than eight ternaries spread through a render, and
+ * so the copy is assertable without a DOM. #126 wrote this over the 4-state
+ * permission; #221 widened it to `NotificationCapability`, and the widening is
+ * the whole point:
+ *
+ *   EVERY ARM MUST NAME A DIFFERENT THING TO DO.
+ *
+ * That is the rule this function exists to keep. Before #221 an iOS Safari tab,
+ * a plain-HTTP origin and a browser from 2011 all rendered the identical "not
+ * supported by this browser" — one of which is a lie, one of which blames the
+ * wrong party, and none of which tells the user the fix. If a new state is
+ * added here and its copy could be swapped with another arm's without anyone
+ * noticing, the state is not pulling its weight and should not exist.
+ *
+ * `disabled` is true only where the app genuinely cannot deliver AND cannot
+ * recover — a control that looks live but can never take effect is worse than
+ * one that explains itself:
+ *   * `admin-disabled`   — the server will not send on this channel at all.
+ *   * `insecure-context` — the API cannot exist over plain HTTP.
+ *   * `unsupported`      — no `Notification` API at all. Nothing to configure.
+ *   * `denied`           — the browser refused; nothing this application does
+ *                          can undo that, only the user in their browser's site
+ *                          settings.
+ *   * `ios-needs-install`— nothing to configure until the app is installed;
+ *                          iOS does not even offer a permission before then.
+ *   * `sw-unavailable`   — NOT disabled. Degraded, not blocked, and reached
+ *                          only with permission ALREADY GRANTED: the page-level
+ *                          `Notification` fallback may still deliver, and a
+ *                          stored preference is still meaningful. A warning
+ *                          explains the risk; a disabled control would overstate
+ *                          it, and copy that told the user to enable something
+ *                          would be addressing a step they have already taken.
+ *   * `default`          — NOT disabled. The permission has not been asked for
+ *                          yet, and the stored preference is still meaningful:
+ *                          it is what takes effect the moment permission is
+ *                          granted. Disabling it would force the user to grant
+ *                          permission before they are allowed to express an
+ *                          opinion, which is backwards.
+ *   * `granted`          — nothing to say.
+ */
 export function browserChannelState(
-  permission: BrowserNotificationPermission,
-): BrowserChannelState {
-  switch (permission) {
+  capability: NotificationCapability,
+): ChannelState {
+  switch (capability) {
     case 'granted':
       return { disabled: false, note: null, alert: null };
+
+    case 'admin-disabled':
+      return {
+        disabled: true,
+        note: 'Turned off by an administrator',
+        alert: {
+          // `info`, not `warning`: nothing is broken and nothing is at risk.
+          // This is a deliberate configuration, and the only useful thing to
+          // say is that no amount of fiddling on this page will change it.
+          severity: 'info',
+          title: 'Browser notifications are turned off for this application',
+          body:
+            'An administrator has disabled browser notifications for everyone, ' +
+            'so nothing you change here will make them appear. Email ' +
+            'notifications are unaffected. Ask an administrator if you need ' +
+            'them turned back on.',
+        },
+      };
+
+    case 'insecure-context':
+      return {
+        disabled: true,
+        note: 'Requires a secure (HTTPS) connection',
+        alert: {
+          severity: 'warning',
+          title: 'Notifications need a secure connection',
+          // NAMES THE localhost EXEMPTION on purpose: in practice the person
+          // most likely to see this state is a developer running the app over
+          // plain HTTP on a LAN address, and "use HTTPS" alone reads as
+          // "impossible locally" when it is not.
+          body:
+            'This page is not being served over HTTPS, so your browser will ' +
+            'not allow notifications here. Open the site over HTTPS to turn ' +
+            'them on. (localhost counts as secure — a plain http:// address ' +
+            'on any other host does not.)',
+        },
+      };
+
+    case 'unsupported':
+      return {
+        disabled: true,
+        note: 'Not supported by this browser',
+        alert: {
+          severity: 'info',
+          // NARROWED BY #221. This arm used to absorb iOS tabs and insecure
+          // origins, so its copy had to hedge about HTTPS; both now have their
+          // own state, and this one can say the single true thing that is left.
+          title: 'This browser cannot show notifications',
+          body:
+            'This browser does not provide the notifications API, so there is ' +
+            'nothing to turn on here. Email notifications are unaffected.',
+        },
+      };
+
+    case 'ios-needs-install':
+      return {
+        disabled: true,
+        note: 'Add to Home Screen to enable',
+        alert: {
+          severity: 'info',
+          title: 'Add this app to your Home Screen',
+          // DELIBERATELY SHORT. #231 adds the illustrated step-by-step panel;
+          // this is the inline note that has to be right on its own until then,
+          // and the one thing it must not do is repeat the old lie that the
+          // browser is incapable.
+          body:
+            'On iPhone and iPad, notifications work only for a web app added ' +
+            'to the Home Screen. In Safari, tap the Share button, choose "Add ' +
+            'to Home Screen", then open the app from there and allow ' +
+            'notifications.',
+        },
+      };
+
+    case 'sw-unavailable':
+      return {
+        // NOT DISABLED — degraded, not blocked. See the header above.
+        disabled: false,
+        note: 'Allowed, but delivery may be limited',
+        alert: {
+          severity: 'warning',
+          // THE COPY MUST NOT READ AS "YOU CANNOT ENABLE THESE". Permission is
+          // already granted in this state — the capability hook only reports it
+          // for a granted device (see `useNotificationCapability`'s header) —
+          // so the user has done everything asked of them and the remaining
+          // problem is ours, not theirs.
+          title: 'Notifications are on, but may not always arrive',
+          body:
+            'You have allowed browser notifications, but the background ' +
+            'service worker did not register, so some may not appear — on ' +
+            'Android in particular it is the only way they can be shown. ' +
+            'Reloading the page usually fixes it, and everything still ' +
+            'arrives in the notification centre either way.',
+        },
+      };
+
     case 'denied':
       return {
         disabled: true,
@@ -237,24 +386,20 @@ export function browserChannelState(
           // Names the remedy AND who owns it. This application cannot re-ask
           // for a permission the user has denied, so telling them to "try
           // again here" would be a lie.
+          //
+          // PER-PLATFORM, because "allow it in your browser settings" is a
+          // remedy nobody can follow: the control is in a different place in
+          // every browser and is nowhere near anything labelled "settings" in
+          // two of the three. Newlines render as a list (see `alert.body`).
           body:
             'Your browser is blocking notifications from this site, so these ' +
-            'preferences cannot take effect. Allow notifications for this site ' +
-            'in your browser settings to turn them back on.',
+            'preferences cannot take effect. Only you can undo this:\n' +
+            '• Chrome or Edge: click the icon at the left of the address bar → Notifications → Allow\n' +
+            '• Firefox: click the padlock in the address bar → Clear the blocked notifications permission\n' +
+            '• Safari: Settings → Websites → Notifications → allow this site',
         },
       };
-    case 'unsupported':
-      return {
-        disabled: true,
-        note: 'Not supported by this browser',
-        alert: {
-          severity: 'info',
-          title: 'This browser cannot show notifications',
-          body:
-            'Browser notifications need a browser that supports them over a ' +
-            'secure (HTTPS) connection. Email notifications are unaffected.',
-        },
-      };
+
     case 'default':
     default:
       return {
@@ -270,6 +415,56 @@ export function browserChannelState(
         },
       };
   }
+}
+
+/**
+ * How the push column must behave, given whether the server can currently
+ * deliver push notifications at all.
+ *
+ * `pushEnabled` comes from `GET /api/notifications/config`'s `pushEnabled`
+ * field (`notification-config.dto.ts`); wiring that fetch into
+ * `UserNotificationsPage` is issue #227's scope, not this one, so today every
+ * caller passes (or defaults to) `false` — matching the controller's own
+ * hardcoded `pushEnabled: false`, since Web Push is not implemented until
+ * #229/#230. This function is nonetheless written to be correct for BOTH
+ * values now, so nothing here needs to change again once the server starts
+ * returning `true`.
+ *
+ * Unlike `browserChannelState`, there is no permission axis to report on —
+ * this codebase has no service-worker subscription and no `PushManager` call
+ * anywhere yet, so there is exactly one way to be unable to deliver, not a
+ * four-way switch:
+ *
+ *   * `pushEnabled === false` — disabled, with a "not available yet" note and
+ *                     banner. This is DELIBERATELY NOT phrased like
+ *                     `browserChannelState`'s `denied`/`unsupported` copy
+ *                     ("blocked by your browser", "not supported by this
+ *                     browser"): those describe a BROWSER's refusal, which is
+ *                     the user's browser's doing and something only the user
+ *                     can fix in its settings. This describes a FEATURE this
+ *                     application has not built yet, which the user cannot
+ *                     fix at all and which it would be dishonest to blame on
+ *                     their browser.
+ *   * `pushEnabled === true`  — nothing to say, mirroring `granted` above. No
+ *                     caller can reach this branch until #229/#230 land and
+ *                     issue #227 wires the real fetch, but the function must
+ *                     already be correct for it.
+ */
+export function pushChannelState(pushEnabled: boolean): ChannelState {
+  if (pushEnabled) {
+    return { disabled: false, note: null, alert: null };
+  }
+  return {
+    disabled: true,
+    note: 'Not available yet',
+    alert: {
+      severity: 'info',
+      title: 'Push notifications are not available yet',
+      body:
+        'Push notifications are planned but not yet implemented on this ' +
+        'server. Email and browser notifications are unaffected.',
+    },
+  };
 }
 
 // =============================================================================
@@ -304,8 +499,32 @@ export interface NotificationSettingsProps {
    * them costs a few hundred milliseconds and removes the conflict entirely.
    */
   isSaving?: boolean;
-  /** Live `Notification.permission`, from `useBrowserNotificationPermission`. */
-  browserPermission: BrowserNotificationPermission;
+  /**
+   * What this device can actually do about browser notifications, from
+   * `useNotificationCapability` (#221).
+   *
+   * WIDER THAN `Notification.permission`, and named for that: it folds in the
+   * administrator kill switch, the secure-context requirement, the iOS
+   * install-first rule and the service worker's registration, because each of
+   * those has a remedy the raw permission cannot express. `browserChannelState`
+   * above turns it into the copy.
+   */
+  browserCapability: NotificationCapability;
+  /**
+   * Whether the server can currently deliver push notifications at all, from
+   * `GET /api/notifications/config`'s `pushEnabled` field. Unlike
+   * `browserCapability`, this has no dedicated hook yet — fetching this
+   * endpoint into `UserNotificationsPage` is issue #227's scope, not this
+   * one's.
+   *
+   * Optional, defaulting to `false` below. That default is not merely "the
+   * safe choice while nobody supplies one" — it is LITERALLY the value the
+   * server hardcodes today (`notifications.controller.ts` returns
+   * `pushEnabled: false` unconditionally until Web Push ships in #229/#230),
+   * so an omitted prop and a real fetch of today's server both render
+   * identically. A caller passes an actual fetched value once #227 lands.
+   */
+  pushEnabled?: boolean;
   /**
    * Ask the browser for notification permission (#127).
    *
@@ -332,9 +551,10 @@ export function NotificationSettings({
   preferences,
   onToggle,
   isSaving = false,
-  browserPermission,
+  browserCapability,
   onRequestPermission,
   isRequestingPermission = false,
+  pushEnabled = false,
 }: NotificationSettingsProps) {
   // `useId` rather than interpolating `event.key`: two instances of this
   // component (or a future second matrix on the page) would otherwise emit
@@ -342,12 +562,37 @@ export function NotificationSettings({
   // at the first match.
   const idPrefix = useId();
 
-  const browser = browserChannelState(browserPermission);
+  const browser = browserChannelState(browserCapability);
+  const push = pushChannelState(pushEnabled);
+
+  // ONE LOOKUP, BUILT ONCE PER RENDER, REPLACING A GROWING `isBrowser` /
+  // `isPush` TERNARY CHAIN. With one gated channel the explicit-branch style
+  // the rest of this file favours (see the file header's "READ THIS BEFORE
+  // CHANGING ANYTHING" rules, all written as explicit named checks) still
+  // read fine; with two — and #229/#230 plausibly landing a third kind of
+  // gating later, once real push delivery exists — the ternary chain grows
+  // one branch per channel while this map grows one KEY per channel, in the
+  // same shape every time. `email` is deliberately absent: it is never
+  // gated, so it has no entry, and the per-channel lookups below (`?? false`,
+  // `?? null`) fall through to "nothing to disable, nothing to say" for it
+  // and for any channel a newer server declares that this build has no
+  // `ChannelState` for at all.
+  const channelStates: Partial<Record<NotificationChannel, ChannelState>> = {
+    browser,
+    push,
+  };
 
   // Only relevant if some event actually declares the channel. Today only
-  // `security.role_changed` does, and an event list that declares none must not
-  // show a banner about a column that is not on screen.
+  // `security.role_changed` declares `browser`, and an event list that
+  // declares none must not show a banner about a column that is not on
+  // screen.
   const showsBrowserChannel = events.some((event) => event.channels.includes('browser'));
+  // Always `false` today (see `CHANNEL_LABELS`'s `push` entry above) — no
+  // registry event declares `push` yet — but written the same way as
+  // `showsBrowserChannel` rather than hardcoded to `false`, so the push
+  // banner appears on its own the day #229/#230 add the first `push` event,
+  // with no change needed here.
+  const showsPushChannel = events.some((event) => event.channels.includes('push'));
 
   if (events.length === 0) {
     // A REAL ANSWER, not a loading state — the caller renders a spinner while
@@ -370,10 +615,33 @@ export function NotificationSettings({
           Choose what reaches you, and how. Changes are saved as you make them.
         </Typography>
 
-        {showsBrowserChannel && browser.alert && (
+        {/*
+          `ios-needs-install` GETS THE ILLUSTRATED PANEL, NOT THE GENERIC ALERT
+          BELOW — #231. `browserChannelState` still carries a short `alert` for
+          this capability (its `note` and `disabled` are still used by every
+          switch row below), but its `body` was deliberately written as a
+          one-line placeholder for exactly this panel; rendering both here
+          would say the same thing twice in two shapes. Every other capability
+          continues straight to the generic `browser.alert` banner beneath.
+        */}
+        {showsBrowserChannel && browserCapability === 'ios-needs-install' && (
+          <Box sx={{ mb: 2 }}>
+            <AddToHomeScreenPanel />
+          </Box>
+        )}
+
+        {showsBrowserChannel && browserCapability !== 'ios-needs-install' && browser.alert && (
           <Alert severity={browser.alert.severity} sx={{ mb: 2 }}>
             <AlertTitle>{browser.alert.title}</AlertTitle>
-            {browser.alert.body}
+            {/*
+              `pre-line`, so the newlines `browserChannelState` writes into a
+              body render as the short list they are. Text-node interpolation
+              is kept (no `dangerouslySetInnerHTML`, no markdown parser) —
+              this is copy, and CSS is the whole mechanism it needs.
+            */}
+            <Box component="span" sx={{ whiteSpace: 'pre-line' }}>
+              {browser.alert.body}
+            </Box>
             {/*
               ===================================================================
               THE PERMISSION PROMPT (#127) — FILLING THE SEAM #126 MARKED HERE
@@ -403,13 +671,34 @@ export function NotificationSettings({
               only context in which asking is fair.
 
               The state afterwards is re-read through
-              `useBrowserNotificationPermission().refresh()` in
-              `UserNotificationsPage`, so this banner becomes the `granted` or
+              `useNotificationCapability().refresh()` in
+              `UserNotificationsPage` (which delegates to the permission hook
+              underneath it and re-probes the service worker), so this banner
+              becomes the `granted` or
               `denied` treatment without a reload — including the case where the
               user dismisses the prompt without choosing, which leaves the
               permission at `default` and correctly leaves this button in place.
             */}
-            {browserPermission === 'default' && onRequestPermission && (
+            {/*
+              STILL EXACTLY ONE STATE, now that there are eight (#221). Every
+              other arm is a state in which asking would be wrong: `granted`
+              and `sw-unavailable` have already been granted, so there is
+              nothing left to ask for; `denied`, `unsupported`,
+              `insecure-context` and `admin-disabled` cannot be recovered from
+              inside this application; and `ios-needs-install` has no permission
+              to grant until the app is installed. Each of those gets an
+              explanatory alert and no action.
+
+              NOTE WHAT THIS MEANS FOR A MISSING SERVICE WORKER: it does NOT
+              suppress this button, because `sw-unavailable` is only ever
+              reported for an already-granted device. A model that let a missing
+              worker preempt `default` would strand the user — the prompt lives
+              here and nowhere else, so they could never grant permission, and
+              #222's page-level `new Notification()` fallback (which exists for
+              exactly the no-registration case) would be unreachable on any
+              profile that had not already granted.
+            */}
+            {browserCapability === 'default' && onRequestPermission && (
               <Box sx={{ mt: 1.5 }}>
                 <Button
                   variant="outlined"
@@ -428,6 +717,23 @@ export function NotificationSettings({
                 </Button>
               </Box>
             )}
+          </Alert>
+        )}
+
+        {showsPushChannel && push.alert && (
+          <Alert severity={push.alert.severity} sx={{ mb: 2 }}>
+            <AlertTitle>{push.alert.title}</AlertTitle>
+            {push.alert.body}
+            {/*
+              NO ACTION BUTTON HERE, UNLIKE THE BROWSER BANNER ABOVE. That
+              button asks the BROWSER for a permission that already exists to
+              ask for; push has no such mechanism anywhere in this codebase
+              yet — no service-worker subscription, no `PushManager` call, no
+              code path that can ever produce `pushEnabled: true` today. A
+              button wired to nothing would be worse than no button, so this
+              banner is purely informational until #229/#230 give it
+              something to do.
+            */}
           </Alert>
         )}
 
@@ -505,9 +811,13 @@ export function NotificationSettings({
                     */}
                     {event.channels.map((channel) => {
                       const checked = isEventChannelEnabled(event, channel, preferences);
-                      const isBrowser = channel === 'browser';
-                      const channelDisabled = isBrowser && browser.disabled;
-                      const note = isBrowser ? browser.note : null;
+                      // See `channelStates` above: `email` (and any channel a
+                      // newer server declares that this build has no
+                      // `ChannelState` for) has no entry, so both fallbacks
+                      // below apply — nothing disabled, nothing to note.
+                      const channelState = channelStates[channel];
+                      const channelDisabled = channelState?.disabled ?? false;
+                      const note = channelState?.note ?? null;
                       const noteId = note ? `${idPrefix}-${event.key}-${channel}-note` : undefined;
 
                       return (
