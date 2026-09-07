@@ -228,9 +228,9 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
    * ===========================================================================
    *
    * `Worker Nodes` and `Database Backup` landed in later issues (#271 routed
-   * the first of the two; `Database Backup` is still inert). Both were declared
-   * back in #266 anyway, `disabled: true` and with NO `path`, and the reason is
-   * concrete rather than aesthetic:
+   * the first; #287, the epic's last issue, routed the second). Both were
+   * declared back in #266 anyway, `disabled: true` and with NO `path`, and the
+   * reason is concrete rather than aesthetic:
    *
    * The settings hub is under visual-regression testing at
    * `maxDiffPixels: 4`. Any change to the card grid — a card added to a
@@ -243,10 +243,12 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
    * ONE baseline regeneration for the epic.
    *
    * That reasoning is about ADDING a card, and it does not argue against
-   * flipping one when its page ships: routing `Worker Nodes` (#271) changes
-   * what a card in the existing grid renders — a "Coming soon" chip becomes a
-   * `CardActionArea`, and the rail gains the row it was skipping — so the
-   * baselines move once more, for a card somebody can now actually open.
+   * flipping one when its page ships: routing `Worker Nodes` (#271), and then
+   * `Database Backup` (#287), changes what a card in the existing grid renders
+   * — a "Coming soon" chip becomes a `CardActionArea`, and the rail gains the
+   * row it was skipping — so the baselines move once more each time, for a card
+   * somebody can now actually open. As of #287 no card in this group is inert,
+   * which is the state the group was declared in advance to reach.
    *
    * `disabled: true` AND no `path` together, not either alone, for a card that
    * is still unbuilt. They are belt-and-braces on purpose, because the two
@@ -355,13 +357,39 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
         permission: 'nodes:read',
       },
       {
-        // #268. Declared, not routed — see the section header.
+        // Declared inert by #266 alongside the whole group; ROUTED by #287,
+        // the last issue of the epic, which ships the page. Flipping a card is
+        // the two-field edit the section header describes — a `path` appears
+        // and `disabled` disappears — and both consumers pick it up from that
+        // alone: the hub swaps its "Coming soon" chip for a real
+        // `CardActionArea`, and the Console rail, which skipped the row
+        // entirely, starts drawing it. Both of those move pixels, so the
+        // visual baselines were regenerated with this change.
+        //
+        // `permission` is UNCHANGED and was already right: `db_backup:read` is
+        // the literal string `db-backup/db-backup.controller.ts` enforces on
+        // its config read, its run list and its run detail
+        // (`PERMISSIONS.DB_BACKUP_READ`). NOT `system_settings:read`:
+        // `roles.constants.ts` reserves a dedicated
+        // `db_backup:read/write/restore` triple for this surface precisely so
+        // backup access can be granted without handing over the settings
+        // document, and mirroring the settings permission here would quietly
+        // undo that.
+        //
+        // Scheduling, cancelling and deleting need `db_backup:write`, and
+        // restoring or rolling back need `db_backup:restore` — a THIRD
+        // permission, kept separate by the API so it can be withheld from
+        // someone who may schedule backups but must not be able to replace the
+        // database. The PAGE gates both internally by disabling its controls;
+        // the card gate is about REACHABILITY, and "is this deployment being
+        // backed up, and what have we got" is worth reading for anyone
+        // answering "can we recover from this".
         title: 'Database Backup',
         description:
           'Schedule backups, review what has been taken, and restore the database from one.',
         Icon: BackupOutlinedIcon,
+        path: '/admin/settings/db-backup',
         permission: 'db_backup:read',
-        disabled: true,
       },
       {
         // Issue #325, epic #319. `broadcasts:read` is the literal string
