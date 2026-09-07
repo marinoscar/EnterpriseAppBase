@@ -20,6 +20,9 @@
 
 import { NodeStatus, Prisma } from '@prisma/client';
 
+import { OWNER_SELECT } from '../../src/nodes/nodes-admin.service';
+import { CREDENTIAL_OWNER_SELECT } from '../../src/nodes/node-credential.service';
+
 describe('Prisma.WorkerNodeScalarFieldEnum', () => {
   it('has exactly the field names WorkerNode is documented to have', () => {
     const expected = [
@@ -90,6 +93,55 @@ describe('Prisma.NodeCredentialScalarFieldEnum', () => {
     const fields = Object.keys(Prisma.NodeCredentialScalarFieldEnum);
     expect(fields).not.toContain('durationValue');
     expect(fields).not.toContain('durationUnit');
+  });
+});
+
+// =============================================================================
+// The admin owner joins select real `User` columns (issue #340 regression)
+// =============================================================================
+//
+// `NodesAdminService`/`NodeCredentialService` join `User` on three admin read
+// paths (`GET /admin/nodes`, `GET /admin/nodes/:id`,
+// `GET /admin/nodes/credentials`) with an explicit `select`, the same
+// allowlist-select pattern used everywhere else in this file. #340 was that
+// select naming `name` — a column `User` has never had; the real column is
+// `displayName` (`@map("display_name")`). Every existing test for this area
+// mocked `PrismaService`, so the invalid select sailed through mocks and only
+// broke against the real client. Asserting the select's keys against
+// `Prisma.UserScalarFieldEnum` — generated from `schema.prisma`, not a
+// hand-copied list — is what makes this fail the moment a select and the
+// schema disagree again, without needing a database.
+// =============================================================================
+
+describe('Prisma.UserScalarFieldEnum', () => {
+  it('contains displayName and does NOT contain name — the exact fact #340 got wrong', () => {
+    const fields = Object.keys(Prisma.UserScalarFieldEnum);
+
+    expect(fields).toContain('displayName');
+    expect(fields).not.toContain('name');
+  });
+});
+
+describe('admin owner selects', () => {
+  const userFields = new Set(Object.keys(Prisma.UserScalarFieldEnum));
+
+  it('NodesAdminService.OWNER_SELECT names only real User scalar columns', () => {
+    const keys = Object.keys(OWNER_SELECT.select);
+
+    expect(keys.length).toBeGreaterThan(0);
+    const invalid = keys.filter((key) => !userFields.has(key));
+    expect(invalid).toEqual([]);
+    // Restated directly: this is the column #340 got wrong.
+    expect(keys).not.toContain('name');
+  });
+
+  it('NodeCredentialService.CREDENTIAL_OWNER_SELECT names only real User scalar columns', () => {
+    const keys = Object.keys(CREDENTIAL_OWNER_SELECT.select);
+
+    expect(keys.length).toBeGreaterThan(0);
+    const invalid = keys.filter((key) => !userFields.has(key));
+    expect(invalid).toEqual([]);
+    expect(keys).not.toContain('name');
   });
 });
 

@@ -108,8 +108,24 @@ export interface NodeCredentialListRow {
  * `undefined` the day somebody reused the owner-scoped query.
  */
 export interface AdminNodeCredentialRow extends NodeCredentialListRow {
-  user: { id: string; email: string; name: string | null };
+  // The column on `User` is `displayName`; the admin DTO exposes it as
+  // `owner.name` (see `NodesAdminService.listCredentials`, which does the
+  // mapping). Renaming this back to `name` breaks the select, not the DTO.
+  user: { id: string; email: string; displayName: string | null };
 }
+
+/**
+ * The owner columns {@link NodeCredentialService.listAllCredentials} joins.
+ *
+ * Hoisted out of the inline `select` (and exported) for the same reason
+ * `nodes-admin.service.ts`'s `OWNER_SELECT` is: it lets
+ * `test/nodes/worker-node-model-fields.spec.ts` assert its keys are real
+ * `User` scalar columns, which is the check issue #340 (a `name` column that
+ * does not exist) would have failed instantly.
+ */
+export const CREDENTIAL_OWNER_SELECT = {
+  select: { id: true, email: true, displayName: true },
+} as const;
 
 /** The show-once shape returned by {@link NodeCredentialService.createCredential}. */
 export interface NodeCredentialCreated {
@@ -297,7 +313,7 @@ export class NodeCredentialService {
         lastUsedAt: true,
         createdAt: true,
         revokedAt: true,
-        user: { select: { id: true, email: true, name: true } },
+        user: CREDENTIAL_OWNER_SELECT,
       },
     });
   }

@@ -24,6 +24,8 @@ import { execFileSync } from 'node:child_process';
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { buildDatabaseUrl } from '../../src/common/database-url';
+import { OWNER_SELECT } from '../../src/nodes/nodes-admin.service';
+import { CREDENTIAL_OWNER_SELECT } from '../../src/nodes/node-credential.service';
 
 const HAND_WRITTEN_INDEX_NAMES = ['worker_nodes_created_by_id_name_key'];
 
@@ -284,6 +286,78 @@ describeWithDb('WorkerNode / NodeCredential schema (real Postgres)', () => {
     });
 
     expect(credential.expiresAt).toBeNull();
+
+    await prisma.user.delete({ where: { id: owner.id } });
+  });
+
+  // ===========================================================================
+  // Admin owner joins execute against the real client (issue #340 regression)
+  // ===========================================================================
+  //
+  // `worker-node-model-fields.spec.ts` proves `OWNER_SELECT` and
+  // `CREDENTIAL_OWNER_SELECT` name real `User` scalar columns without a
+  // database, by checking them against the generated
+  // `Prisma.UserScalarFieldEnum`. That is enough to catch #340's exact
+  // mistake (`name` is not a `User` column) in the default `npm test` run,
+  // with no Postgres required.
+  //
+  // What it CANNOT prove is that the select, embedded in a real `include`/
+  // `select` tree exactly as the services build it, actually executes — a
+  // schema/select mismatch is a Prisma *query validation* error, thrown only
+  // when the real client parses the query against its runtime schema
+  // metadata; the mock `PrismaService` every other node test uses never
+  // performs that validation at all, which is precisely how #340 shipped.
+  // So this runs the two selects, unmodified, through the real generated
+  // client — the same proof `worker-node-schema.db.spec.ts` already gives the
+  // unique indexes and the FK behaviour above.
+  it('OWNER_SELECT and CREDENTIAL_OWNER_SELECT execute against the real client (#340)', async () => {
+    const owner = await createOwner('node-owner-select');
+
+    const node = await prisma.workerNode.create({
+      data: {
+        name: 'test-node-owner-select',
+        hostname: 'host-owner-select',
+        platform: 'linux',
+        cliVersion: '1.0.0',
+        eligibleTypes: [],
+        concurrency: 1,
+        createdById: owner.id,
+      },
+    });
+    const credential = await prisma.nodeCredential.create({
+      data: {
+        userId: owner.id,
+        name: 'test-credential-owner-select',
+        tokenHash: `hash-${Date.now()}-${Math.random()}`,
+        tokenPrefix: 'nod_test',
+        expiresAt: null,
+      },
+    });
+
+    // Exactly the shape `NodesAdminService.listFleet`/`getNode` build. Before
+    // #340's fix this rejected with "Unknown field `name` for select
+    // statement on model `User`" — a real Prisma error the mock-Prisma
+    // integration/unit suites never see.
+    const reloadedNode = await prisma.workerNode.findUniqueOrThrow({
+      where: { id: node.id },
+      include: { createdBy: OWNER_SELECT },
+    });
+    expect(reloadedNode.createdBy).toEqual({
+      id: owner.id,
+      email: owner.email,
+      displayName: owner.displayName,
+    });
+
+    // Exactly the shape `NodeCredentialService.listAllCredentials` builds.
+    const reloadedCredential = await prisma.nodeCredential.findUniqueOrThrow({
+      where: { id: credential.id },
+      select: { id: true, user: CREDENTIAL_OWNER_SELECT },
+    });
+    expect(reloadedCredential.user).toEqual({
+      id: owner.id,
+      email: owner.email,
+      displayName: owner.displayName,
+    });
 
     await prisma.user.delete({ where: { id: owner.id } });
   });
