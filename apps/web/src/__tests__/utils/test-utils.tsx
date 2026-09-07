@@ -77,6 +77,11 @@ export const mockAdminUser: MockUser = {
     // exist, asserted against as though it could.
     'broadcasts:read',
     'broadcasts:write',
+    // Present because the seeded `admin` role grants them (#355). Without
+    // these, every test rendering the real Console surface would silently be
+    // testing a hub with no `Web Push` card — a user that cannot exist.
+    'push:read',
+    'push:write',
   ],
   isActive: true,
   createdAt: new Date().toISOString(),

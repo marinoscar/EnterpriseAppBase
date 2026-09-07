@@ -126,6 +126,21 @@ export const mockPermissions = {
     name: 'db_backup:restore',
     description: 'Restore the database from a backup',
   },
+  // Runtime-configurable Web Push (VAPID) admin UI (#355). Seeded to Admin
+  // ONLY in `prisma/seed-data.ts`, and mirrored that way below — split from
+  // `system_settings:*` deliberately (see `common/constants/roles.constants.ts`),
+  // so a fixture that granted it more broadly than the seed would make an
+  // integration test asserting a viewer is refused pass for the wrong reason.
+  pushRead: {
+    id: randomUUID(),
+    name: 'push:read',
+    description: 'View the Web Push (VAPID) configuration',
+  },
+  pushWrite: {
+    id: randomUUID(),
+    name: 'push:write',
+    description: 'Generate, rotate, enable/disable and remove the Web Push key pair',
+  },
 };
 
 export const mockRoles = {
@@ -426,6 +441,8 @@ export const rolePermissionsMap = {
     mockPermissions.dbBackupRead,
     mockPermissions.dbBackupWrite,
     mockPermissions.dbBackupRestore,
+    mockPermissions.pushRead,
+    mockPermissions.pushWrite,
   ],
   contributor: [
     mockPermissions.userSettingsRead,

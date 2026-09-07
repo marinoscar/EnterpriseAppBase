@@ -57,18 +57,21 @@ export const notificationConfigSchema = z.object({
   /**
    * May this client subscribe to Web Push?
    *
-   * `true` exactly when THIS DEPLOYMENT'S environment carries a VAPID key
-   * pair (`VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` both set — see
-   * `PushSubscriptionService.isEnabled`, #229). It says nothing about whether
-   * the CALLER has subscribed; a client asks the browser for permission and
+   * `true` exactly when THIS DEPLOYMENT has an ACTIVE VAPID key pair right
+   * now — an admin-configured one saved through `/admin/push-config` and
+   * enabled, or, absent one, the `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` env
+   * vars (see `PushConfigService.resolveActiveVapidConfig`, #355, for the
+   * full precedence; `PushSubscriptionService.isEnabled` is the one-line
+   * delegation this field is built from). It says nothing about whether the
+   * CALLER has subscribed; a client asks the browser for permission and
    * calls `pushManager.subscribe` only when this is `true`, then posts the
    * result to `POST /api/notifications/push/subscriptions`.
    *
-   * STILL NOT #230. This deployment can accept and store a subscription the
-   * moment this is `true` (#229); whether anything is ever actually pushed TO
-   * that subscription is #230 (the delivery channel), a separate, later
-   * change. A `true` here is "you may subscribe", not "you will be sent
-   * anything".
+   * NOT A DELIVERY GUARANTEE. This deployment can accept and store a
+   * subscription the moment this is `true`; whether any given send actually
+   * reaches a device still depends on that subscription staying valid at
+   * `PushNotificationChannel`'s next delivery. A `true` here is "you may
+   * subscribe", not "you will be sent anything".
    */
   pushEnabled: z.boolean(),
 
@@ -76,11 +79,13 @@ export const notificationConfigSchema = z.object({
    * The VAPID application server key a client needs to call
    * `pushManager.subscribe`, or `null` when `pushEnabled` is `false`.
    *
-   * Mirrors `pushEnabled`: non-null exactly when `VAPID_PUBLIC_KEY` is
-   * configured. It is a PUBLIC key by definition — it is handed to every
-   * browser that subscribes — so returning it here to any authenticated user
-   * gives nothing away; the private half never leaves the server (it lives in
-   * `VAPID_PRIVATE_KEY`, read only by the server-side sender #230 adds).
+   * Mirrors `pushEnabled`: non-null exactly when an active key pair exists —
+   * see that field's note for the admin-configured-or-env precedence. It is a
+   * PUBLIC key by definition — it is handed to every browser that subscribes
+   * — so returning it here to any authenticated user gives nothing away; the
+   * private half never leaves the server (it lives in the encrypted
+   * credential store, read only by `PushConfigService.resolveActiveVapidConfig`
+   * at the moment `PushNotificationChannel` signs a push).
    */
   vapidPublicKey: z.string().nullable(),
 });

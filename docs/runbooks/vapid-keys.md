@@ -2,31 +2,51 @@
 
 This runbook covers the operator-facing lifecycle of Web Push on this
 deployment: generating a VAPID key pair, turning the channel on, rotating the
-keys, and turning it back off. It does not cover the delivery mechanism
-itself — see [`docs/specs/browser-notifications.md`](../specs/browser-notifications.md)
+keys, and turning it back off (or removing it entirely). It does not cover
+the delivery mechanism itself — see
+[`docs/specs/browser-notifications.md`](../specs/browser-notifications.md)
 for why Web Push exists, how it fits alongside the browser-toast channel, and
 what it does and does not guarantee.
 
+**As of issue #355, the recommended path is the admin UI** at
+`/admin/settings/push` — generate, enable, rotate, or remove a VAPID key pair
+live, with no restart. Section 2 covers that path. The original env-var
+procedure (Section 3) still works and is kept as a documented fallback for a
+deployment that has not touched the admin UI — see Section 1.1 for exactly
+how the two interact when both are present.
+
 Source of truth for every claim below:
 
+- `apps/api/src/notifications/push-config.service.ts` — `PushConfigService`,
+  and specifically `resolveActiveVapidConfig()`, the one place both callers
+  below ask "what VAPID key pair, if any, is active right now."
+- `apps/api/src/notifications/push-config.controller.ts` — the five
+  `/api/admin/push-config` routes the admin UI (and any other client) calls.
+- `apps/api/src/notifications/push-config.schema.ts` — the `webPush`
+  `system_settings` row's shape (`enabled`, `publicKey`, `subject`).
+- `apps/api/src/notifications/push-vapid-credential.constants.ts` — where the
+  private key actually lives (`CredentialsService`, `purpose: 'push_vapid'`).
 - `apps/api/src/config/configuration.ts` — the `push` config block
   (`push.vapidPublicKey`, `push.vapidPrivateKey`, `push.vapidSubject`), read
-  from `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT`.
+  from `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` — the
+  env-var fallback path only.
 - `apps/api/src/notifications/push-subscription.service.ts` — `isEnabled()`,
-  the one predicate that decides whether this deployment accepts push
-  subscriptions at all.
+  the predicate that decides whether this deployment accepts push
+  subscriptions at all; delegates to `resolveActiveVapidConfig()`.
 - `apps/api/src/notifications/channels/push-notification.channel.ts` — the
   sender, including what happens when a send fails.
-- `apps/api/src/notifications/notifications.module.ts` — where `isEnabled()`
-  decides, once, whether the push channel is even in the dispatcher's sender
-  array.
-- `infra/compose/.env.example` — the three environment variables, commented
-  out by default.
+- `apps/api/src/notifications/notifications.module.ts` — registers the push
+  channel unconditionally (like email/browser); see its header comment for
+  why that changed with #355.
+- `apps/web/src/pages/Admin/PushConfigPage.tsx` and
+  `apps/web/src/components/admin/PushConfigConfirmDialog.tsx` — the admin UI.
+- `infra/compose/.env.example` — the three fallback environment variables,
+  commented out by default.
 
-**Web Push ships disabled by default.** Leaving the three variables unset is
-a fully supported, permanent configuration — nothing in this codebase
-requires them, and every other notification channel (email, the in-app
-browser toast) is unaffected by their absence.
+**Web Push ships disabled by default.** Neither touching the admin UI nor
+setting the three environment variables is required — nothing in this
+codebase requires either, and every other notification channel (email, the
+in-app browser toast) is unaffected by their absence.
 
 ---
 
@@ -36,17 +56,198 @@ browser toast) is unaffected by their absence.
   reach a signed-in user with the app fully closed (no open tab, no installed
   PWA in the foreground) — if that is not a requirement for this deployment,
   there is nothing to do here.
-- Decide on a contact address for `VAPID_SUBJECT` before generating keys: a
+- Decide on a contact address (the VAPID subject) before generating keys: a
   `mailto:` or `https:` URL identifying the operator, per the Web Push
   protocol (RFC 8292). This is advisory metadata a push service (FCM,
   Mozilla's autopush, …) can use to reach you if this deployment's traffic
-  looks abusive — it is never seen by end users. See Section 2.3 for what
+  looks abusive — it is never seen by end users. See Section 2.3/3.3 for what
   happens if you skip it.
-- Note that turning Web Push on or off requires an **API restart** — see
-  Section 3's explanation of why the decision is not re-evaluated per
-  request.
+- You need `push:read` (to view configuration) and `push:write` (to change
+  it) — a permission pair of its own, **not** a reuse of `system_settings:*`,
+  because generating or rotating key material has a real blast radius (every
+  existing subscriber goes dark until it re-subscribes) that should not ride
+  along with routine settings edits.
 
-## 2. Generating a key pair
+### 1.1 How the admin UI and the environment variables interact
+
+`PushConfigService.resolveActiveVapidConfig()` is the one place this decision
+is made, for every send and every subscribe attempt. Four cases, in order:
+
+1. **No `webPush` row exists at all** (the admin page has never been saved
+   on) → fall back to the `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/
+   `VAPID_SUBJECT` environment variables, exactly as before #355. A
+   deployment that only ever used Section 3's procedure needs to do nothing
+   differently.
+2. **A `webPush` row exists, `enabled: true`, and both a public key and the
+   private-key credential are present** → the database wins, **even over
+   env vars that are still set**. The moment an admin saves anything through
+   `/admin/settings/push`, that row is the source of truth, full stop.
+3. **A `webPush` row exists with `enabled: false`** → push is off, and there
+   is **no fallback to the environment variables**. This is the one
+   deliberate asymmetry in the rule: an explicit disable in the admin UI must
+   actually disable push, even on a deployment that also has env vars set —
+   otherwise "disable" would do nothing on such a deployment.
+4. **A `webPush` row exists with `enabled: true`, a public key is stored, but
+   the private-key credential is missing** (corruption, a hand-edited row, a
+   botched migration) → treated as disabled, and logged loudly. This never
+   silently falls back to the env vars — that would mask a real data problem
+   as ordinary "not configured."
+
+In short: touch the admin UI once, and it owns the answer from then on,
+regardless of what the environment variables say. Never touch it, and the
+environment variables behave exactly as they always did.
+
+## 2. The admin UI (recommended)
+
+Visit `/admin/settings/push` as an Admin (or any role holding `push:read`/
+`push:write`). The page has three panels, matching `PushConfigPage.tsx`:
+
+1. **Status** — always shown: configured/not, enabled/disabled, the full
+   public key (monospace, copyable — it is not secret), the subject, and the
+   private key's provenance (a masked hint, when it was last set, and by
+   whom). The private key itself is never rendered or returned by any
+   endpoint.
+2. **Empty state** (nothing generated yet) — a single **Generate & enable**
+   action, with an optional subject field.
+3. **Configured state** — an enable/disable switch and the subject field
+   (saved via `PUT`, non-destructive: the keys are retained either way), plus
+   two destructive actions in a "Danger zone": **Rotate keys** and **Remove
+   configuration**.
+
+### 2.1 Generating the first key pair
+
+From the empty state, optionally fill in a subject (`mailto:` or `https://`),
+then click **Generate & enable**. This calls
+`POST /api/admin/push-config/generate`, which:
+
+- Generates a fresh VAPID key pair with `web-push`'s `generateVAPIDKeys()`.
+- Stores the private key in the encrypted credential store
+  (`(purpose: 'push_vapid', name: 'default')`), written **before** the
+  settings row — the same partial-failure-safe ordering
+  `EmailSettingsService.update` uses for the SMTP password.
+- Stores the public key and the subject in the `webPush` system-settings row,
+  and sets `enabled: true`.
+
+This is **first-time only** — a second call returns `409 Conflict` and points
+you at Rotate instead. It is deliberately not idempotent: a second `generate`
+silently replacing a live key pair with no confirmation step would invalidate
+every existing subscriber with no warning, which is exactly what Rotate's
+typed confirmation exists to prevent.
+
+### 2.2 Enabling and disabling
+
+Once a key pair exists, the switch on the configured-state panel toggles
+`enabled` via `PUT /api/admin/push-config`. This is the **non-destructive**
+action — the stored key pair is retained either way, so switching back on
+needs no regenerating. Disabling takes effect immediately (Section 1.1, case
+3): no push is sent while `enabled` is `false`, and `POST
+/api/notifications/push/subscriptions` starts rejecting new subscriptions
+with `409 Conflict`.
+
+Attempting to enable before any key pair has been generated returns `409
+Conflict` — this endpoint flips the switch, it does not manufacture keys.
+
+### 2.3 What happens if the subject is left blank
+
+The subject is optional at every step. If it is unset,
+`PushNotificationChannel` still sends, but falls back to a generic
+`mailto:admin@example.com` and logs a warning on every delivery. Every push
+this deployment sends will therefore carry `web-push`'s own example address
+as its contact, which is harmless to end users (they never see it) but means
+a push-service operator investigating unwanted traffic from this deployment
+has no way to reach you. Set a real subject before enabling push on any
+deployment that will see real traffic.
+
+### 2.4 Rotating VAPID keys (what the Rotate button does)
+
+Click **Rotate keys** in the Danger zone. This opens a confirmation dialog
+that states the consequence and requires typing the literal `ROTATE` before
+the button is enabled — the same typed-confirmation pattern
+`db-backup`'s restore/rollback flow uses, with a deliberately different word
+so a confirmation typed for Remove (Section 2.5) can never satisfy this one.
+Confirming calls `POST /api/admin/push-config/rotate` with
+`{ "confirmation": "ROTATE" }`, which:
+
+- Generates a fresh VAPID key pair and overwrites both the stored credential
+  and the row's `publicKey`.
+- Leaves `enabled` exactly as it was — rotating is not a decision about
+  whether push should be on, only about which keys back it.
+- Replaces the subject only if one was supplied in the request; omitted
+  keeps the existing one.
+
+Returns `400 Bad Request` if nothing is configured yet — use Generate
+(Section 2.1) for a first key pair.
+
+**Every existing push subscription becomes permanently unusable the moment
+you rotate.** A `PushSubscription` a browser holds is cryptographically bound
+to the public key it was created with (`applicationServerKey`) — there is no
+"re-key in place" operation on either side of the Web Push protocol. This is
+expected behavior of the protocol, not a bug in this implementation. What
+happens on the next send attempt against a subscription negotiated under the
+old keys, per `push-notification.channel.ts`'s failure handling (Section 9 of
+the spec document covers this in full): the push service rejects the send.
+Whether that arrives as a 404/410 (immediate deletion of the row) or some
+other error code that instead increments `failureCount` toward the 5-attempt
+threshold (`MAX_PUSH_FAILURE_COUNT`) depends on how the specific push service
+(FCM, autopush, …) reports a key mismatch — this codebase does not
+special-case that response, so expect anywhere from immediate pruning to up
+to 5 silently failed deliveries per stale subscription before the row is
+cleaned up automatically.
+
+**⚠ Recovery is not automatic, and the confirmation dialog's own copy says so
+in exactly these words.** There is **no** client-side re-subscribe-on-reopen
+mechanism anywhere in this codebase, checked directly against
+`PushConfigConfirmDialog.tsx`'s header comment and
+`apps/web/src/sw.ts`'s `pushsubscriptionchange` handler: that handler only
+re-subscribes when the *browser itself* rotates a subscription out from under
+the page (a browser-initiated event, unrelated to a server-side key
+rotation) — it has no way to detect "the server changed its VAPID keys,"
+because nothing tells it that. Do not describe rotation as something that
+"heals itself the next time each user's tab loads" — it does not. What
+genuinely recovers a subscription: the ordinary subscribe flow. Once a user's
+client next calls `pushManager.subscribe({ applicationServerKey: <new public
+key> })` — which happens whenever code calls that API, for example a user
+manually toggling notifications off and back on in a UI that wires up `POST
+/api/notifications/push/subscriptions` — `PushSubscriptionService.subscribe`
+upserts by `endpoint`, replacing whatever row existed. Until that happens for
+a given browser, that subscription is dead weight that will fail every send
+and eventually prune itself via the failure-threshold mechanism above.
+
+### 2.5 Removing the configuration
+
+Click **Remove configuration** in the Danger zone. Same typed-confirmation
+mechanism as Rotate, but with the literal `REMOVE` — a different word on
+purpose, so a confirmation copied from one dialog can never satisfy the
+other. Confirming calls `DELETE /api/admin/push-config` with
+`{ "confirmation": "REMOVE" }`, which:
+
+- Deletes the stored private-key credential **first**, then the `webPush`
+  settings row — the opposite order from Generate, and deliberately so: the
+  safer partial-failure state is "row still present but the credential is
+  gone" (Section 1.1's case 4 already treats that as disabled and logs
+  loudly), not "row gone but the credential still present," which would let a
+  partial failure silently fall back to any env vars this deployment also has
+  set — reactivating push on stale keys the admin just asked to remove.
+- Returns the resulting, now-empty configuration.
+
+This is **destructive and immediate**: every existing push subscriber stops
+receiving push, exactly as with a rotation and needing the same manual
+re-subscribe to recover (Section 2.4), and there is no way to bring the same
+key pair back — a subsequent Generate mints an entirely new one. The app
+keeps working; only web push stops. `push_subscriptions` rows are not deleted
+by this action — they sit inert until a new key pair is generated and each
+browser re-subscribes, or until the 404/410 pruning path removes them.
+
+## 3. The environment-variable path (fallback)
+
+This is the original, deploy-time-only mechanism from before #355. It still
+works, unchanged, and is the automatic behavior for any deployment that has
+never saved anything through `/admin/settings/push` (Section 1.1, case 1).
+Use it if you would rather manage Web Push the same way as `JWT_SECRET` or
+`GOOGLE_CLIENT_SECRET` — provisioned once at deploy time, outside the
+application — or as a bootstrap step before an admin ever opens the UI.
+
+### 3.1 Generating a key pair
 
 ```bash
 npx web-push generate-vapid-keys
@@ -57,7 +258,7 @@ network access and touches no state on this deployment — it is a pure
 keypair generation, and running it twice produces two independent, unrelated
 key pairs.
 
-### 2.1 Where the keys go
+### 3.2 Where the keys go
 
 Set three environment variables (`infra/compose/.env.example:86-93` documents
 them, commented out by default):
@@ -71,198 +272,82 @@ VAPID_SUBJECT=mailto:admin@example.com
 Do not commit these to the repository. Store them the same way you store
 `JWT_SECRET` or `GOOGLE_CLIENT_SECRET` — this deployment's ordinary
 environment-variable secret path, not the encrypted `credentials` table (that
-path is for runtime-configured, admin-entered secrets like an SMTP password;
-VAPID keys are deploy-time configuration like every other credential in this
-list, per `apps/api/src/config/configuration.ts`'s own comment: "generated
-once at deploy time... and supplied as an environment variable, exactly like
-`GOOGLE_CLIENT_SECRET`").
+path is what the admin UI itself uses for the private key — see Section
+2.1 — and is reserved for runtime-configured, admin-entered secrets).
 
-### 2.2 Why both halves of the key pair are required, together
+Both keys are required together: a public key with no private key is
+useless, since nothing on this server could sign a push, and a deployment
+that only sets one is treated by the fallback resolution as "not configured"
+(Section 1.1, case 1's env read requires both).
 
-`PushSubscriptionService.isEnabled()` (`push-subscription.service.ts:57-61`)
-requires **both** `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` to be present —
-a public key with no private key is useless, since nothing on this server
-could sign a push, and accepting subscriptions in that state would just
-accumulate rows the channel can never deliver to.
+### 3.3 What happens if `VAPID_SUBJECT` is absent
 
-### 2.3 What happens if `VAPID_SUBJECT` is absent
+Unlike the two keys, `VAPID_SUBJECT` is not required for the env fallback to
+activate — it is contact metadata for the JWT `web-push` signs, not something
+that affects whether signing is possible at all. See Section 2.3 for what
+happens when it (or the admin UI's subject field) is left unset: the same
+generic fallback and warning apply regardless of which path supplied the
+keys.
 
-Unlike the two keys, `VAPID_SUBJECT` is not required for `isEnabled()` to
-return `true` — `push-subscription.service.ts`'s own header states why it is
-a different kind of field: it is contact metadata for the JWT `web-push`
-signs, not something that affects whether signing is possible at all.
+### 3.4 Applying an environment-variable change
 
-If it is unset, `PushNotificationChannel.deliverInner` still sends, but falls
-back to a generic subject and logs a warning on every delivery
-(`push-notification.channel.ts:266-287`):
-
-```ts
-const vapidDetails = {
-  subject: vapidSubject ?? 'mailto:admin@example.com',
-  publicKey: vapidPublicKey,
-  privateKey: vapidPrivateKey,
-};
-```
-
-Every push this deployment sends will therefore carry `web-push`'s own
-example address as its contact, which is harmless to end users (they never
-see it) but means a push-service operator investigating unwanted traffic from
-this deployment has no way to reach you. Set `VAPID_SUBJECT` before enabling
-push in any deployment that will see real traffic.
-
-## 3. Enabling Web Push on a running deployment
-
-1. Set all three environment variables from Section 2.1.
-2. **Restart the API.**
-
-That second step is not optional, and confirming exactly why requires reading
-two things together:
-
-- `PushSubscriptionService.isEnabled()` reads `this.config.get<string>(...)`
-  on every call — it is not cached inside that service, and NestJS's
-  `ConfigService` (configured with `ConfigModule.forRoot({ isGlobal: true,
-  load: [configuration] })` in `apps/api/src/app.module.ts`) resolves
-  `process.env` once, at process boot, into its internal store. So
-  `isEnabled()` itself is "live" only in the sense that it re-reads that
-  store on every call — it does not re-read `process.env` after boot.
-- More importantly, **whether the push channel is even reachable is decided
-  once, at module construction, not per call.** `notifications.module.ts`'s
-  `NOTIFICATION_CHANNEL_SENDERS` factory
-  (`notifications.module.ts:160-190`) calls
-  `pushSubscriptions.isEnabled()` exactly once, when Nest builds the provider
-  array, and that decision — whether `PushNotificationChannel` is in the
-  `senders` array the dispatcher iterates — is fixed for the life of the
-  process. A running API process that had no VAPID keys at boot will **never**
-  dispatch over `push`, no matter what you change in its environment
-  afterward, until it restarts.
-
-So: set the env vars, then restart. There is no live-reload path, no admin
-endpoint, and no signal you can send the running process to make it
-re-evaluate this.
-
-Once restarted, confirm it took effect by calling `GET
+Restart the API. Unlike the admin UI, this path has no live-reload mechanism:
+`ConfigService` resolves `process.env` once, at process boot, so changing
+`VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` on a running process
+has no effect until it restarts, and `resolveActiveVapidConfig()`'s case-1
+fallback only re-reads those values when it runs (case 1 applies at all only
+when no `webPush` row exists). Confirm the change took effect by calling `GET
 /api/notifications/config` as any authenticated user — `pushEnabled` should
-read `true` and `vapidPublicKey` should carry your public key
-(`notifications.controller.ts:205-211`). Nothing beyond the restart is
-required: there is no migration, no seed step, and no admin toggle separate
-from these three environment variables — `push` has no deployment-wide
-enable/disable setting of its own in `system_settings` (see
-[`docs/specs/browser-notifications.md`](../specs/browser-notifications.md#5-the-kill-switch--inbox-row-split)
-for why: the admin kill switch epic #226 shipped covers the browser toast
-only, and a policy gate for `push` specifically was explicitly left to a
-later change, not this one).
+read `true` and `vapidPublicKey` should carry your public key.
 
-## 4. Rotating VAPID keys
+Unsetting all three and restarting turns push back off, following the same
+case-1 logic in reverse — with no `webPush` row present, an empty env read
+resolves to "no active config."
 
-**Every existing push subscription becomes permanently unusable the moment
-you rotate.** A `PushSubscription` a browser holds is cryptographically bound
-to the public key it was created with (`applicationServerKey`) — there is no
-"re-key in place" operation on either side of the Web Push protocol. This is
-expected behavior of the protocol, not a bug in this implementation.
+## 4. Recovery mechanics reference
 
-What actually happens on the next send attempt against a subscription
-negotiated under the old keys, verified against
-`push-notification.channel.ts`'s failure handling (Section 9 of the spec
-document covers this in full): the push service will reject the send. Whether
-that arrives as a 404/410 (immediate deletion of the row,
-`push-notification.channel.ts:339-352`) or some other error code that instead
-increments `failureCount` toward the 5-attempt threshold
-(`push-notification.channel.ts:363-376`,
-`MAX_PUSH_FAILURE_COUNT`) depends on how the specific push service (FCM,
-autopush, …) reports a key mismatch — this codebase does not special-case
-that response, so expect anywhere from immediate pruning to up to 5 silently
-failed deliveries per stale subscription before the row is cleaned up
-automatically.
+This section is the single source both Section 2.4 (admin UI rotate/remove)
+and Section 3 (env-var changes) point back to, so the claim is checked once,
+not re-asserted per path.
 
-**Recovery is real but not instantaneous, and it requires the user to open
-the app.** `apps/web/src/hooks/useNotificationCapability.ts` and
-`apps/web/src/services/browserNotifications.ts` were checked for a
-client-side re-subscribe-on-boot mechanism, and **none exists as merged in
-this worktree.** `apps/web/src/sw.ts`'s `pushsubscriptionchange` handler
-(`sw.ts:374-403`) only re-subscribes when the *browser itself* rotates a
-subscription out from under the page (a browser-initiated event, unrelated to
-a server-side key rotation) — it has no way to detect "the server changed its
-VAPID keys," because nothing tells it that. So do not assert that a rotation
-"heals itself the next time each user's tab loads and a client-side re-sync
-runs" — that re-sync does not exist yet in this codebase.
+**As of this writing, this codebase has no client-side
+re-subscribe-on-reopen mechanism, in either path.** Verified directly against
+`apps/web/src/hooks/useNotificationCapability.ts`,
+`apps/web/src/services/browserNotifications.ts`, and
+`apps/web/src/sw.ts`'s `pushsubscriptionchange` handler: none of them detect
+"the server's active VAPID key pair changed" and re-subscribe on their own.
+The only thing that recovers a subscription is a fresh call to
+`pushManager.subscribe()` against the new public key, however that call gets
+triggered (a re-prompt flow, or a user manually toggling notifications off
+and back on). Do not write or accept documentation, UI copy, or code comments
+claiming "reopening the app re-subscribes automatically" without re-verifying
+this section first — it has been wrong before and will be wrong again the
+moment this file drifts from the code.
 
-What genuinely does recover a subscription after rotation: the ordinary
-subscribe flow. Once a user's client next calls
-`pushManager.subscribe({ applicationServerKey: <new public key> })` — which
-happens whenever code calls that API, e.g. a future re-prompt flow, or a user
-manually toggling notifications off and back on in a UI that wires up
-`POST /api/notifications/push/subscriptions` — `PushSubscriptionService.subscribe`
-upserts by `endpoint` (`push-subscription.service.ts:89-138`), replacing
-whatever row existed. Until that happens for a given browser, that
-subscription is dead weight that will fail every send and eventually prune
-itself via the failure-threshold mechanism above.
+## 5. Summary checklist
 
-**Practical rotation procedure:**
+**Admin UI path (recommended):**
+- [ ] Signed in as a user holding `push:read`/`push:write`
+- [ ] Subject decided (a real `mailto:` or `https:` address, not left to the
+      `mailto:admin@example.com` fallback, for any deployment with real
+      traffic)
+- [ ] Generated via `/admin/settings/push` → **Generate & enable**
+- [ ] `GET /api/notifications/config` confirms `pushEnabled: true` and
+      `vapidPublicKey` matches
+- [ ] If rotating or removing: typed the exact confirmation literal
+      (`ROTATE`/`REMOVE`), and understood that recovery needs each
+      subscriber to re-trigger the subscribe flow manually (Section 4) — not
+      automatic, and not tied to reopening the app
 
-1. Generate a new key pair (Section 2).
-2. Update `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` (and `VAPID_SUBJECT` if it
-   changed) to the new values.
-3. Restart the API (Section 3 explains why this step cannot be skipped).
-4. Expect every existing subscription to fail on its next delivery attempt,
-   per the failure handling above, and to prune itself over time (immediately
-   for a 404/410-reporting push service, within 5 attempts otherwise).
-5. There is currently no bulk re-subscribe mechanism and no forced client
-   notification that a rotation happened — a subscribed user simply stops
-   receiving push notifications (their bell and email notifications are
-   unaffected) until whatever UI calls `pushManager.subscribe` again runs for
-   them. If this matters for your deployment, that gap — a proactive
-   re-subscribe prompt after a detected rotation — is a feature this runbook
-   cannot make you a workaround for; it does not exist in this codebase as of
-   this writing.
-6. Securely discard the old key pair once you've confirmed the new one is
-   live (`GET /api/notifications/config` reflects the new `vapidPublicKey`).
-
-## 5. Disabling Web Push
-
-1. Unset (or remove) `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and
-   `VAPID_SUBJECT`.
-2. Restart the API.
-
-This is genuinely sufficient, confirmed by reading both halves of the gate:
-
-- `PushSubscriptionService.isEnabled()` returns `false` the moment either key
-  is missing (`push-subscription.service.ts:57-61`), which makes
-  `POST /api/notifications/push/subscriptions` reject new subscriptions with
-  a `409 Conflict` ("Web Push is not enabled on this deployment",
-  `push-subscription.service.ts:94-104`) — but existing rows in
-  `push_subscriptions` are **not deleted** by disabling.
-- `notifications.module.ts`'s factory (`notifications.module.ts:160-190`)
-  re-evaluates `isEnabled()` on the **next process boot** and, finding it
-  `false`, omits `PushNotificationChannel` from `NOTIFICATION_CHANNEL_SENDERS`
-  entirely. With the channel absent from that array, `NotificationsService`
-  never sees `push` as an available sender for any event — not a queued
-  delivery that fails, no delivery record at all, exactly as the module's own
-  comment states for the "never configured" case.
-
-So after the restart, no push is ever attempted again, existing
-`push_subscriptions` rows sit inert (harmless — nothing reads them while the
-channel is unregistered), and `GET /api/notifications/config` reports
-`pushEnabled: false` again. Re-enabling later (Section 3) picks up exactly
-where you left off; the leftover rows are not a problem — the next real send
-attempt to one would rediscover any that have since gone stale via the
-ordinary 404/410 pruning path.
-
-## 6. Summary checklist
-
+**Environment-variable path (fallback, no admin UI touched):**
 - [ ] Key pair generated with `npx web-push generate-vapid-keys`
-- [ ] `VAPID_SUBJECT` decided (a real `mailto:` or `https:` address, not left
-      to the `mailto:admin@example.com` fallback, for any deployment with
-      real traffic)
 - [ ] `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` set in the
       deployment's environment (not committed, not stored in the
       `credentials` table)
-- [ ] API restarted — required for both enabling and disabling, because
-      channel registration is decided once at module construction
+- [ ] API restarted — this path has no live-reload; the admin UI path does
 - [ ] `GET /api/notifications/config` confirms `pushEnabled` and
       `vapidPublicKey` match the change just made
-- [ ] If rotating: existing subscriptions expected to fail and self-prune;
-      no bulk re-subscribe or user notification exists in this codebase —
-      affected users simply stop receiving push until their client
-      re-subscribes through the ordinary flow
-- [ ] If disabling: understood that `push_subscriptions` rows are left in
-      place, inert, not deleted
+- [ ] Understood that once any admin saves through `/admin/settings/push`,
+      the database takes over as the source of truth and these environment
+      variables are no longer consulted (Section 1.1, case 2) — even if they
+      remain set

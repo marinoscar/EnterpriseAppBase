@@ -5,10 +5,12 @@ import type {
   NotificationDispatchContext,
   NotificationRecipient,
 } from '../notification.types';
+import type { PushConfigService } from '../push-config.service';
 import { PushNotificationChannel } from './push-notification.channel';
 
 // =============================================================================
-// PushNotificationChannel — tests (issue #230, epic #215)
+// PushNotificationChannel — tests (issue #230, epic #215; #355 swapped the
+// VAPID config source)
 // =============================================================================
 //
 // `jest.mock('web-push', ...)` replaces `sendNotification`/`setVapidDetails`
@@ -23,6 +25,22 @@ import { PushNotificationChannel } from './push-notification.channel';
 // `jest-mock-extended`) mirroring `browser-notification.channel.spec.ts`'s own
 // choice: this suite is about the channel's branching (pruning, threshold,
 // payload shape, VAPID plumbing), not about Prisma's generated types.
+//
+// -----------------------------------------------------------------------------
+// #355: THE CHANNEL NOW READS `PushConfigService.resolveActiveVapidConfig()`,
+// NOT `ConfigService.get('push.*')`
+// -----------------------------------------------------------------------------
+//
+// `mockPushConfig.resolveActiveVapidConfig` stands in for the single call the
+// channel now makes per delivery. Its return value IS the env/DB precedence
+// answer — that precedence itself is `PushConfigService`'s own suite's job
+// (`push-config.service.spec.ts`); this file only proves the channel reacts
+// correctly to what it's handed back, including the case that matters most
+// for #355's reason for being: an unconfigured deployment (`null`) now
+// produces an honest, admin-actionable FAILED delivery — the channel is
+// unconditionally registered (see `notifications.module.ts`), so this is the
+// path that turns into a real `notification_deliveries` row where before this
+// channel would never have been reached at all.
 // =============================================================================
 
 jest.mock('web-push', () => {
@@ -49,6 +67,12 @@ const recipient: NotificationRecipient = {
 const VAPID_PUBLIC_KEY = 'test-public-key';
 const VAPID_PRIVATE_KEY = 'test-private-key';
 const VAPID_SUBJECT = 'mailto:ops@example.com';
+
+const ACTIVE_CONFIG = {
+  publicKey: VAPID_PUBLIC_KEY,
+  privateKey: VAPID_PRIVATE_KEY,
+  subject: VAPID_SUBJECT,
+};
 
 function contextFor(eventKey: string, data: unknown = {}): NotificationDispatchContext {
   const event = NOTIFICATION_EVENTS.find((e) => e.key === eventKey);
@@ -88,7 +112,7 @@ describe('PushNotificationChannel', () => {
     };
     notification: { create: jest.Mock };
   };
-  let mockConfig: { get: jest.Mock };
+  let mockPushConfig: { resolveActiveVapidConfig: jest.Mock };
 
   beforeEach(() => {
     mockPrisma = {
@@ -100,22 +124,14 @@ describe('PushNotificationChannel', () => {
       notification: { create: jest.fn() },
     };
 
-    mockConfig = {
-      get: jest.fn((key: string) => {
-        switch (key) {
-          case 'push.vapidPublicKey':
-            return VAPID_PUBLIC_KEY;
-          case 'push.vapidPrivateKey':
-            return VAPID_PRIVATE_KEY;
-          case 'push.vapidSubject':
-            return VAPID_SUBJECT;
-          default:
-            return undefined;
-        }
-      }),
+    mockPushConfig = {
+      resolveActiveVapidConfig: jest.fn().mockResolvedValue(ACTIVE_CONFIG),
     };
 
-    channel = new PushNotificationChannel(mockPrisma as never, mockConfig as never);
+    channel = new PushNotificationChannel(
+      mockPrisma as never,
+      mockPushConfig as unknown as PushConfigService,
+    );
 
     mockPrisma.notification.create.mockResolvedValue({ id: 'notif-1' });
     mockPrisma.pushSubscription.update.mockResolvedValue({ failureCount: 0 });
@@ -339,7 +355,7 @@ describe('PushNotificationChannel', () => {
   });
 
   // ==========================================================================
-  // VAPID details passed PER-CALL, not via a global setVapidDetails
+  // VAPID details — now sourced from PushConfigService.resolveActiveVapidConfig()
   // ==========================================================================
 
   describe('VAPID details', () => {
@@ -363,18 +379,14 @@ describe('PushNotificationChannel', () => {
         });
       }
       expect(webpush.setVapidDetails).not.toHaveBeenCalled();
+      expect(mockPushConfig.resolveActiveVapidConfig).toHaveBeenCalledTimes(1);
     });
 
-    it('falls back to a generic mailto: subject when VAPID_SUBJECT is not configured', async () => {
-      mockConfig.get.mockImplementation((key: string) => {
-        switch (key) {
-          case 'push.vapidPublicKey':
-            return VAPID_PUBLIC_KEY;
-          case 'push.vapidPrivateKey':
-            return VAPID_PRIVATE_KEY;
-          default:
-            return undefined;
-        }
+    it('reads whatever subject resolveActiveVapidConfig() hands back — including its own generic fallback', async () => {
+      mockPushConfig.resolveActiveVapidConfig.mockResolvedValue({
+        publicKey: VAPID_PUBLIC_KEY,
+        privateKey: VAPID_PRIVATE_KEY,
+        subject: 'mailto:admin@example.com',
       });
       const sub = subscriptionRow();
       mockPrisma.pushSubscription.findMany.mockResolvedValue([sub]);
@@ -390,14 +402,43 @@ describe('PushNotificationChannel', () => {
       expect(options.vapidDetails.subject).toBe('mailto:admin@example.com');
     });
 
-    it('fails cleanly, with no sendNotification call, when VAPID keys are not configured at all', async () => {
-      mockConfig.get.mockReturnValue(undefined);
+    // -------------------------------------------------------------------------
+    // #355's whole point: an unconfigured deployment is now an HONEST FAILED
+    // DELIVERY, not silence — because the channel is unconditionally
+    // registered (notifications.module.ts), this branch is what a real
+    // `notification_deliveries` row now looks like for it.
+    // -------------------------------------------------------------------------
+
+    it('fails cleanly, with no sendNotification call, when resolveActiveVapidConfig() resolves null (unconfigured/disabled)', async () => {
+      mockPushConfig.resolveActiveVapidConfig.mockResolvedValue(null);
       mockPrisma.pushSubscription.findMany.mockResolvedValue([subscriptionRow()]);
 
       const result = await channel.deliver(contextFor('user.welcome'), 'user-1');
 
       expect(result.success).toBe(false);
       expect(webpush.sendNotification).not.toHaveBeenCalled();
+    });
+
+    it('the failure carries a clear, admin-actionable message naming Web Push as not configured/disabled', async () => {
+      mockPushConfig.resolveActiveVapidConfig.mockResolvedValue(null);
+      mockPrisma.pushSubscription.findMany.mockResolvedValue([subscriptionRow()]);
+
+      const result = await channel.deliver(contextFor('user.welcome'), 'user-1');
+
+      expect(result.success).toBe(false);
+      expect((result as { error: string }).error).toMatch(/not configured|disabled/i);
+    });
+
+    it('still writes the notification row before discovering push is unconfigured — the inbox entry is not lost', async () => {
+      mockPushConfig.resolveActiveVapidConfig.mockResolvedValue(null);
+      mockPrisma.pushSubscription.findMany.mockResolvedValue([subscriptionRow()]);
+
+      await channel.deliver(contextFor('user.welcome'), 'user-1');
+
+      // The row is written before the VAPID lookup (see deliverInner's
+      // ordering), so an operator inspecting the notifications table sees the
+      // attempt even though the wire send never happened.
+      expect(mockPrisma.notification.create).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -427,6 +468,16 @@ describe('PushNotificationChannel', () => {
     it('resolves { success: false } when prisma.notification.create rejects', async () => {
       mockPrisma.pushSubscription.findMany.mockResolvedValue([subscriptionRow()]);
       mockPrisma.notification.create.mockRejectedValue(new Error('db down'));
+
+      const result = await channel.deliver(contextFor('user.welcome'), 'user-1');
+
+      expect(result.success).toBe(false);
+      expect(webpush.sendNotification).not.toHaveBeenCalled();
+    });
+
+    it('resolves { success: false } when resolveActiveVapidConfig() itself rejects', async () => {
+      mockPrisma.pushSubscription.findMany.mockResolvedValue([subscriptionRow()]);
+      mockPushConfig.resolveActiveVapidConfig.mockRejectedValue(new Error('db down'));
 
       const result = await channel.deliver(contextFor('user.welcome'), 'user-1');
 

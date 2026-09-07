@@ -103,6 +103,18 @@ export const PERMISSIONS = [
     name: 'broadcasts:write',
     description: 'Compose, schedule, cancel and send notification broadcasts',
   },
+
+  // Web Push (VAPID) configuration (#355). A separate pair from
+  // `system_settings:*`: generating or rotating the VAPID key pair knocks
+  // every existing push subscriber offline until they resubscribe, which is
+  // a materially different act from an ordinary settings edit and gets its
+  // own controller-enforced permission rather than mirroring one nothing in
+  // that controller checks.
+  { name: 'push:read', description: 'View Web Push (VAPID) configuration' },
+  {
+    name: 'push:write',
+    description: 'Generate, rotate, enable/disable and remove Web Push VAPID keys',
+  },
 ] as const;
 
 // Role to permissions mapping
@@ -140,6 +152,11 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     // widened later without a migration, since these are rows.
     'broadcasts:read',
     'broadcasts:write',
+    // #355 — ADMIN ONLY, same reasoning: rotating VAPID keys knocks every
+    // push subscriber offline, so it starts as narrow as the surfaces above
+    // and can be widened later without a migration, since these are rows.
+    'push:read',
+    'push:write',
   ],
   contributor: [
     'user_settings:read',

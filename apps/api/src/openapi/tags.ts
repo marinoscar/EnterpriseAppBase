@@ -114,6 +114,16 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
           'Readable by any signed-in user, because every user renders their own notification ' +
           'preferences against it.',
       },
+      {
+        name: 'Push Configuration',
+        description:
+          'Runtime-configurable Web Push (VAPID) keys: generate, rotate, enable/disable and ' +
+          'remove, with no restart required. Gated on `push:read`/`push:write`, separately from ' +
+          '`system_settings:*`, because rotating or removing the key pair knocks every existing ' +
+          'push subscriber offline until they resubscribe — a materially different act from an ' +
+          'ordinary settings edit. The VAPID private key is write-only: it is held in the ' +
+          'encrypted credential store and is never returned by any endpoint.',
+      },
     ],
   },
   {

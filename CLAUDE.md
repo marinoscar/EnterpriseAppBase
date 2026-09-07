@@ -484,6 +484,17 @@ and [`docs/runbooks/maintenance-mode.md`](docs/runbooks/maintenance-mode.md).
 - `POST /api/admin/db-backup/runs/{id}/restore` - Restore the database from this backup (`db_backup:restore`; body `{"confirmation":"RESTORE"}`; three normal `mode`s: `running`/`guided`/`blocked`)
 - `POST /api/admin/db-backup/runs/{id}/rollback` - Undo that restore (`db_backup:restore`; body `{"confirmation":"ROLLBACK"}`; three normal `mode`s: `renamed`/`restore_started`/`unavailable`)
 
+### Push Configuration (Admin-only)
+Runtime-configurable Web Push (VAPID) keys (issue #355) — generate, rotate,
+enable/disable, and remove entirely from the admin UI, no restart. See
+[`docs/specs/browser-notifications.md`](docs/specs/browser-notifications.md)
+and [`docs/runbooks/vapid-keys.md`](docs/runbooks/vapid-keys.md).
+- `GET /api/admin/push-config` - Configuration plus masked `privateKeyStatus`; private key never returned (`push:read`)
+- `PUT /api/admin/push-config` - Flip `{ enabled, subject }`; does not manufacture keys (409 if enabling with none generated) (`push:write`)
+- `POST /api/admin/push-config/generate` - First-time key generation, sets `enabled: true` (409 if already configured) (`push:write`)
+- `POST /api/admin/push-config/rotate` - Replace the key pair (body `{"confirmation":"ROTATE"}`; 400 if nothing configured yet) (`push:write`)
+- `DELETE /api/admin/push-config` - Delete both the credential and the settings row (body `{"confirmation":"REMOVE"}`) (`push:write`)
+
 ### Health
 - `GET /api/health/live` - Liveness check
 - `GET /api/health/ready` - Readiness check (includes DB)
@@ -515,6 +526,12 @@ and [`docs/runbooks/maintenance-mode.md`](docs/runbooks/maintenance-mode.md).
   it does not trust with the second. Folding it into `:write` would let every existing
   `db_backup:write` holder silently acquire the ability to roll back production
 - `broadcasts:read/write` - Admin notification broadcasts (epic #319)
+- `push:read/write` - Web Push (VAPID) configuration: generate, rotate, enable/disable
+  (epic #355). **Not a reuse of `system_settings:*`** — generating/rotating key material
+  has a real, described blast radius (every existing subscriber goes dark until it
+  re-subscribes) that should not ride along with routine settings edits, mirroring why
+  `broadcasts:*` and `nodes:*` were split out rather than folded into
+  `system_settings:*`/`jobs:*`
 
 ## Database Tables
 
@@ -874,8 +891,10 @@ non-admin learns the toggle from `GET /api/notifications/config` rather than
 in full, with rationale and rejected alternatives, in
 [`docs/specs/browser-notifications.md`](docs/specs/browser-notifications.md).
 Generating, enabling, rotating, and disabling VAPID keys is
-[`docs/runbooks/vapid-keys.md`](docs/runbooks/vapid-keys.md). Don't restate
-either here; extend those two instead.
+[`docs/runbooks/vapid-keys.md`](docs/runbooks/vapid-keys.md). Since issue #355
+this is also runtime-configurable, live, with no restart, through an admin UI
+at `/admin/settings/push`. Don't restate either here; extend those two
+instead.
 
 ### Admin Notification Broadcasts
 

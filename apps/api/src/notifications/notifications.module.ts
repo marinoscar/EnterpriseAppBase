@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { CredentialsModule } from '../credentials/credentials.module';
 import { EmailModule } from '../email/email.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { SettingsModule } from '../settings/settings.module';
@@ -13,6 +14,8 @@ import { NotificationStreamService } from './notification-stream.service';
 import { NotificationsController } from './notifications.controller';
 import { NotificationsService } from './notifications.service';
 import { JobFailureNotifier } from './ops/job-failure-notifier';
+import { PushConfigController } from './push-config.controller';
+import { PushConfigService } from './push-config.service';
 import { PushSubscriptionService } from './push-subscription.service';
 import {
   NOTIFICATION_CHANNEL_SENDERS,
@@ -58,38 +61,40 @@ import {
 // the array-under-a-token indirection above was for.
 //
 // -----------------------------------------------------------------------------
-// #230's `PushNotificationChannel` IS ALWAYS CONSTRUCTIBLE, BUT ONLY
-// SOMETIMES REGISTERED — CONDITIONAL, NOT CONSTANT, MEMBERSHIP IN THE ARRAY
+// `PushNotificationChannel` IS NOW ALWAYS REGISTERED, LIKE EVERY OTHER
+// CHANNEL — SEE #355 FOR WHY THAT CHANGED
 // -----------------------------------------------------------------------------
 //
-// Every other entry in the factory below is unconditional: if the class
-// exists, it is in the array. Push breaks that pattern on purpose. Web Push
-// requires a VAPID key pair this deployment may never have generated
-// (`PushSubscriptionService.isEnabled()`, reused here rather than
-// re-deriving a second predicate for the exact same question), and a
-// deployment with no keys has, by construction, no rows in
-// `push_subscriptions` either — nobody's browser could have completed a
-// subscribe call without them.
+// Until #355, this factory registered `PushNotificationChannel` only when
+// `PushSubscriptionService.isEnabled()` was true AT BOOT, because Web Push
+// required a VAPID key pair set as an env var this deployment might never
+// have generated — and registering the channel anyway would make
+// `NotificationsService.resolveChannels` see `push` as an available sender
+// for any event that declares it, write a `queued` `notification_deliveries`
+// row, and then fail that row on every single attempt, forever, for every
+// user, on a deployment that simply never turned Web Push on. A permanently
+// red delivery record for a feature that was never supposed to be live.
 //
-// Registering the channel anyway in that state would not merely be a no-op:
-// `NotificationsService.resolveChannels` would see `push` as an available
-// sender for any event that later declares it, resolve it as "enabled" per
-// the user's (nonexistent, defaulted) preference, and write a `queued`
-// `notification_deliveries` row — which `deliver` would then fail on every
-// single attempt, forever, for every user, on a deployment that simply never
-// turned Web Push on. That is a permanently red delivery record for a
-// feature that was never supposed to be live, which is worse than the
-// channel not existing: `notification.types.ts`'s "NO BROWSER STUB SHIPS"
-// note describes exactly this failure shape for #125's original single
-// channel, and the fix is the same one applied here — an unregistered
-// channel is a silent, debug-logged skip in `deliverOne`, with no delivery
-// row at all, not a channel that exists only to fail.
+// #355 REMOVES THE PREMISE THAT MADE THAT THE RIGHT CALL: Web Push
+// configuration is now admin-UI-configurable at runtime, through
+// `PushConfigController`/`PushConfigService` above, with generate/rotate/
+// enable/disable/remove — a real, in-app remedy for "this channel is
+// unconfigured" that did not exist when the conditional above was written.
+// So `push` now follows the SAME pattern `email`/`browser` already do:
+// unconditional registration, with `PushNotificationChannel`'s existing
+// defensive guard (empty keys -> `{ success: false, error }`, now backed by
+// `PushConfigService.resolveActiveVapidConfig()` instead of a raw
+// `ConfigService.get`) as the real, always-live gate. This matches
+// `EmailModule`'s own documented precedent (see `email.module.ts:31-39`):
+// an unconfigured channel produces an honest, admin-actionable FAILED
+// delivery row — something an operator can see and fix from the Push
+// Configuration settings page — rather than the channel not existing at all.
 //
-// So `PushNotificationChannel` is declared as an ordinary provider (Nest DI
-// must be able to construct it regardless, the same as any other class in
-// this file) but the FACTORY decides, at the moment the array is built,
-// whether to include it — by asking the one service that already knows the
-// answer.
+// `PushSubscriptionService.isEnabled()` is STILL the gate for whether a
+// browser may SUBSCRIBE (`POST /notifications/push/subscriptions` still 409s
+// on a deployment with no active VAPID config) — that question did not
+// change, only whether an unconfigured deployment's failed push deliveries
+// are visible or silently absent.
 //
 // -----------------------------------------------------------------------------
 // WHY `NotificationStreamService` IS A PROVIDER AND NOT EXPORTED (#127)
@@ -129,8 +134,14 @@ import {
     // the dispatcher degrades a malformed `system_settings` row exactly as the
     // admin API does instead of re-deriving those rules.
     SettingsModule,
+    // The VAPID private key's only home (#355). Imported explicitly, exactly
+    // like `EmailModule` above and for the identical reason: `CredentialsModule`
+    // is deliberately not `@Global()` because it can reach a plaintext-returning
+    // service (`CredentialsService.getSecret`), so every consumer of it shows
+    // up in a diff. `PushConfigService` is the consumer here.
+    CredentialsModule,
   ],
-  controllers: [NotificationsController],
+  controllers: [NotificationsController, PushConfigController],
   providers: [
     NotificationsService,
     NotificationDeliveryService,
@@ -143,14 +154,21 @@ import {
     NotificationStreamService,
     // NOT EXPORTED, same reasoning as the three above: #229's subscribe/
     // unsubscribe endpoints are the only legitimate way to write or remove a
-    // `push_subscriptions` row, and #230's sender reaches these rows through
+    // `push_subscriptions` row, and the push channel reaches these rows through
     // Prisma directly (it reads, it does not subscribe/unsubscribe on anyone's
-    // behalf) rather than through this service. `isEnabled()` is ALSO the
-    // predicate the factory below asks, below, to decide whether that sender
-    // is even registered — one method answers both "may a browser subscribe"
-    // and "should the dispatcher ever try to push", because they are the same
-    // underlying fact (this deployment has, or has not, generated VAPID keys).
+    // behalf) rather than through this service. `isEnabled()`/
+    // `getVapidPublicKey()` now delegate to `PushConfigService
+    // .resolveActiveVapidConfig()` (#355) — see that file for the full
+    // env/DB precedence — rather than reading `ConfigService` directly.
     PushSubscriptionService,
+    // The runtime-configurable Web Push admin surface (#355): generate,
+    // rotate, enable/disable, and remove a VAPID key pair with no restart.
+    // Both `PushSubscriptionService` and `PushNotificationChannel` inject it
+    // for `resolveActiveVapidConfig()` — the one place the env/DB precedence
+    // is implemented (see that method's own header) — and it is EXPORTED, in
+    // case a future feature outside this module (an ops dashboard, a health
+    // check) needs to read the same "is push actually active" answer.
+    PushConfigService,
     EmailNotificationChannel,
     BrowserNotificationChannel,
     // #288's queue listener (epic #254). A PROVIDER AND NOT AN EXPORT, and it
@@ -160,10 +178,6 @@ import {
     // this module keeps none on the queue. See the file's own header for why a
     // listener rather than a `notify()` inside `JobTerminalService`.
     JobFailureNotifier,
-    // Always a provider — see the file header block on why Nest must be able
-    // to construct this regardless of configuration — but see the factory
-    // immediately below for why it is not unconditionally in the array it
-    // feeds.
     PushNotificationChannel,
     {
       provide: NOTIFICATION_CHANNEL_SENDERS,
@@ -171,38 +185,23 @@ import {
         email: EmailNotificationChannel,
         browser: BrowserNotificationChannel,
         push: PushNotificationChannel,
-        pushSubscriptions: PushSubscriptionService,
-      ): NotificationChannelSender[] => {
-        const senders: NotificationChannelSender[] = [email, browser];
-
-        // The one conditional line in this factory, and the entire effect of
-        // #230's feature gate: no VAPID keys (or the operator has otherwise
-        // never enabled Web Push) means `push` never enters the array, which
-        // means `NotificationsService.resolveChannels` never sees it as
-        // available, which means no `notification_deliveries` row with
-        // `channel: 'push'` is EVER written on this deployment — not a queued
-        // row that immediately fails, nothing. See the block comment above
-        // for why that distinction is the whole point.
-        if (pushSubscriptions.isEnabled()) {
-          senders.push(push);
-        }
-
-        return senders;
-      },
+      ): NotificationChannelSender[] => [email, browser, push],
       inject: [
         EmailNotificationChannel,
         BrowserNotificationChannel,
         PushNotificationChannel,
-        PushSubscriptionService,
       ],
     },
   ],
-  // ONLY the dispatcher is exported. `NotificationDeliveryService`, the store,
-  // the stream and the channels are internals: a feature that wants to notify
-  // someone calls `notify`, and must not be able to write a delivery record for
-  // a send that did not happen, push to a user's open tabs without a durable
-  // row, or reach past the preference gate by invoking a channel directly. That
-  // gate is only a gate if there is no way around it.
-  exports: [NotificationsService],
+  // `NotificationsService` and `PushConfigService` are exported.
+  // `NotificationDeliveryService`, the store, the stream and the channels stay
+  // internal: a feature that wants to notify someone calls `notify`, and must
+  // not be able to write a delivery record for a send that did not happen,
+  // push to a user's open tabs without a durable row, or reach past the
+  // preference gate by invoking a channel directly. That gate is only a gate
+  // if there is no way around it. `PushConfigService` is different in kind —
+  // it is the admin configuration surface itself, not a delivery internal — so
+  // it is exported like `NotificationsService`.
+  exports: [NotificationsService, PushConfigService],
 })
 export class NotificationsModule {}

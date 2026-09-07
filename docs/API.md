@@ -2261,6 +2261,151 @@ Delete a broadcast's record.
 
 ---
 
+### Push Configuration (Admin-only)
+
+Runtime-configurable Web Push (VAPID) keys — issue #355. Two permissions:
+`push:read` (get) and `push:write` (every write) — **deliberately separate
+from `system_settings:*`**, mirroring why `broadcasts:*`/`nodes:*`/
+`db_backup:*` were split out rather than folded into an existing pair:
+generating or rotating key material has a real blast radius (every existing
+push subscriber goes dark until it re-subscribes) that should not ride along
+with routine settings edits. See
+[`docs/specs/browser-notifications.md`](specs/browser-notifications.md) for
+the always-registered channel design and the `webPush` settings/credential
+split, and [`docs/runbooks/vapid-keys.md`](runbooks/vapid-keys.md) for the
+operator-facing flow. **The VAPID private key is never returned by any
+endpoint below** — every response carries only a masked
+`privateKeyStatus` (`configured`, `hint`, `updatedAt`, `updatedByUserId`).
+
+#### GET /admin/push-config
+Current configuration plus `privateKeyStatus`. `configured` is `true` only
+when both a public key is stored and a private-key credential exists — the
+admin page renders its empty ("Generate & enable") state exactly when this is
+`false`.
+
+**Requires:** `push:read`
+
+**Response:**
+```json
+{
+  "data": {
+    "enabled": true,
+    "publicKey": "BF3z...",
+    "subject": "mailto:admin@example.com",
+    "configured": true,
+    "privateKeyStatus": {
+      "configured": true,
+      "hint": "••••x9fQ",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "updatedByUserId": "uuid"
+    },
+    "settingsError": null,
+    "version": 3,
+    "updatedAt": "2024-01-01T00:00:00.000Z",
+    "updatedBy": { "id": "uuid", "email": "admin@example.com" }
+  }
+}
+```
+
+---
+
+#### PUT /admin/push-config
+Full replace of `{ enabled, subject }`. **This endpoint flips the switch; it
+does not manufacture keys** — neither VAPID key is settable here.
+
+**Requires:** `push:write`
+
+**Headers:** `If-Match: <version>` (optional) — expected `version` for
+optimistic concurrency; use `0` to assert nothing is stored yet, or omit to
+overwrite unconditionally.
+
+**Request Body:**
+```json
+{ "enabled": true, "subject": "mailto:admin@example.com" }
+```
+
+**Response:** the configuration, in the shape above.
+
+**Error Cases:**
+- 400 Bad Request - Validation error (e.g. `subject` is not a `mailto:`/`http(s)://` value)
+- 409 Conflict - Version mismatch (`If-Match` didn't match the stored version), or `enabled: true` was requested with no key pair generated yet
+
+---
+
+#### POST /admin/push-config/generate
+First-time-only key generation: a fresh VAPID key pair via `web-push`, the
+private key stored in the encrypted credential store, the public key stored
+and `enabled` set to `true`. **Not idempotent** — a second call is refused
+rather than silently replacing a live key pair with no confirmation step.
+
+**Requires:** `push:write`
+
+**Request Body:**
+```json
+{ "subject": "mailto:admin@example.com" }
+```
+`subject` is optional; omitted or blank falls back to the generic default at
+send time.
+
+**Response:** the generated configuration, in the shape above.
+
+**Error Cases:**
+- 409 Conflict - Web Push is already configured; use rotate instead
+
+---
+
+#### POST /admin/push-config/rotate
+Generates a fresh VAPID key pair and replaces the stored one. **Disruptive**:
+every existing push subscriber stops receiving pushes until it re-subscribes
+(there is no automatic re-subscribe-on-reopen mechanism in this codebase —
+see the runbook). `enabled` is left exactly as it was; rotating is not a
+decision about whether push should be on.
+
+**Requires:** `push:write`
+
+**Request Body:**
+```json
+{ "confirmation": "ROTATE", "subject": "mailto:admin@example.com" }
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `confirmation` | literal `"ROTATE"` | Yes | Checked before the service is touched. A body copied from the remove endpoint's confirmation is rejected — the two use deliberately different words. |
+| `subject` | string | No | Replaces the stored subject; omitted keeps it. |
+
+**Response:** the rotated configuration, in the shape above.
+
+**Error Cases:**
+- 400 Bad Request - Missing/incorrect confirmation, or nothing is configured yet (use `generate` instead)
+
+---
+
+#### DELETE /admin/push-config
+Deletes both the stored VAPID private-key credential and the `webPush`
+settings row, then returns the resulting (empty) configuration — the same
+shape every other route on this controller returns, so a client can render
+the post-removal state with no follow-up GET. **Destructive and immediate**
+— every existing push subscription becomes unusable, and there is no way to
+bring the same key pair back; a subsequent `generate` mints an entirely new
+one.
+
+**Requires:** `push:write`
+
+**Request Body:**
+```json
+{ "confirmation": "REMOVE" }
+```
+`confirmation` must be the literal `"REMOVE"` — a different word from the
+rotate route's on purpose, so a body copied from one route to the other is
+refused rather than silently accepted.
+
+**Response:** the resulting (now empty) configuration.
+
+**Error Cases:**
+- 400 Bad Request - Missing or incorrect confirmation
+
+---
+
 ### Health
 
 **Public endpoints** - Used for Kubernetes liveness/readiness probes.

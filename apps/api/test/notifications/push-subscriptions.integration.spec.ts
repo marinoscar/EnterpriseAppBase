@@ -179,10 +179,10 @@ describe('Push subscriptions integration (#229)', () => {
         '../../src/notifications/push-subscription.service'
       );
       const pushSubscriptions = context.module.get(PushSubscriptionService);
-      jest.spyOn(pushSubscriptions, 'isEnabled').mockReturnValue(true);
+      jest.spyOn(pushSubscriptions, 'isEnabled').mockResolvedValue(true);
       jest
         .spyOn(pushSubscriptions, 'getVapidPublicKey')
-        .mockReturnValue('test-vapid-public-key');
+        .mockResolvedValue('test-vapid-public-key');
     });
 
     afterEach(() => {
