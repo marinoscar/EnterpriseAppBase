@@ -575,11 +575,35 @@ describe('the happy path', () => {
 
     // Post-swap, through the raw client, into the promoted database.
     expect(h.carriedAudit).toHaveLength(1);
-    expect(h.carriedAudit[0][1]).toBe(RESTORE_AUDIT_COMPLETE);
-    expect(h.carriedAudit[0][3]).toBe(backupRow().id);
+    expect(h.carriedAudit[0][2]).toBe(RESTORE_AUDIT_COMPLETE);
+    expect(h.carriedAudit[0][4]).toBe(backupRow().id);
 
-    const meta = JSON.parse(String(h.carriedAudit[0][4])) as Record<string, unknown>;
+    const meta = JSON.parse(String(h.carriedAudit[0][5])) as Record<string, unknown>;
     expect(meta).toMatchObject({ scratchDatabase: SCRATCH, oldDatabase: OLD });
+  });
+
+  it('supplies the audit row\'s own id, because the column has no default (#337)', async () => {
+    // `audit_events.id` lost its server-side default in
+    // `20260831014110_drop_stale_uuid_defaults`. An INSERT that leaves the
+    // column out is a NOT NULL violation on every real restore — and
+    // `reinsertCatalog` never throws, so the only trace was a CRITICAL log
+    // line and a promoted database with no record of its own restore.
+    const h = makeHarness();
+    await runRestore(h);
+
+    const insert = h.statements().find((s) => s.startsWith('INSERT INTO audit_events'));
+    expect(insert).toContain('INSERT INTO audit_events (id,');
+    expect(insert).toContain('VALUES ($1::uuid,');
+    // The actor still goes through a subselect, as it did before: the promoted
+    // `users` is the archive's, so an administrator created after the backup
+    // was taken is not in it and a plain value would be an FK violation.
+    expect(insert).toContain('(SELECT id FROM users WHERE id = $2::uuid)');
+
+    // FRESH, not preserved: unlike a carried run, this row has no original —
+    // nothing ever wrote `db_restore:complete` into the displaced database.
+    expect(String(h.carriedAudit[0][0])).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    );
   });
 
   it('takes no pre-restore backup in retain_database mode', async () => {
@@ -1344,7 +1368,8 @@ describe('rollback', () => {
 
     expect(h.carried.map((values) => values[0])).toEqual([swapped.id, 'newer']);
     expect(h.carried[0][19]).toBe('rolled_back');
-    expect(h.carriedAudit[0][1]).toBe(RESTORE_AUDIT_ROLLBACK);
+    // [0] is the row's own generated id (#337); the action is [2].
+    expect(h.carriedAudit[0][2]).toBe(RESTORE_AUDIT_ROLLBACK);
   });
 
   it('never drops the database it parked', async () => {
