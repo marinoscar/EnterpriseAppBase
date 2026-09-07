@@ -239,6 +239,105 @@ describe('the Notifications card (#225)', () => {
   });
 });
 
+/**
+ * Issue #325, epic #319. The `Broadcasts` page is a registry CARD, never a
+ * fourth tab on the admin Notifications settings page — `CLAUDE.md`'s mandatory
+ * settings-UI rule 1 and rule 2, stated as assertions. The two pages answer
+ * different questions: `/admin/settings/notifications` is the deployment-wide
+ * kill switch (reachability of the notification MECHANISM), while this one
+ * composes and dispatches one announcement to every user. A tab strip would
+ * present the second as content of the first.
+ *
+ * The route/permission agreement with `App.tsx` is asserted generically for
+ * every card in `destinations.test.ts`; what is pinned here is this card's own
+ * identity, and that the gate genuinely denies.
+ */
+describe('the Broadcasts card (#325)', () => {
+  const card = ADMIN_SECTIONS.flatMap((section) => section.cards).find(
+    (entry) => entry.title === 'Broadcasts',
+  );
+
+  it('is declared in ADMIN_SECTIONS', () => {
+    expect(card).toBeDefined();
+  });
+
+  it('routes to /admin/settings/broadcasts', () => {
+    expect(card?.path).toBe('/admin/settings/broadcasts');
+  });
+
+  it('lives under Operations, not General', () => {
+    // General holds values an administrator SETS, which then sit there; a
+    // broadcast is work you dispatch and then watch. The distinction is this
+    // section's own header, and it is what keeps the card one away from Jobs.
+    const owner = ADMIN_SECTIONS.find((section) =>
+      section.cards.some((entry) => entry.title === 'Broadcasts'),
+    );
+    expect(owner?.label).toBe('Operations');
+  });
+
+  it('declares the exact permission the API enforces on the broadcast routes', () => {
+    // `notifications/broadcasts/broadcasts.controller.ts` — the registry never
+    // invents a permission. NOT `system_settings:read`, which would let the
+    // hub decide reachability on evidence unrelated to whether the request
+    // behind the card will be authorized.
+    expect(card?.permission).toBe('broadcasts:read');
+    expect(card?.permission).not.toBe('system_settings:read');
+  });
+
+  it('is not an alwaysShow escape hatch — the gate must be able to deny it', () => {
+    expect(card?.alwaysShow).toBeUndefined();
+  });
+
+  it('is routed, not inert', () => {
+    expect(card?.disabled).toBeUndefined();
+  });
+
+  it('appears for an admin holding broadcasts:read', () => {
+    const result = visibleSettingsSections(
+      ADMIN_SECTIONS,
+      (permission) => permission === 'broadcasts:read',
+    );
+
+    expect(titlesOf(result)).toContain('Broadcasts');
+  });
+
+  it('appears in none of the three surfaces for a viewer', () => {
+    // A viewer holds `user_settings:*` only. One assertion covers the hub, the
+    // rail and the title resolver because all three run this same function.
+    const viewerPermissions = ['user_settings:read', 'user_settings:write'];
+    const result = visibleSettingsSections(ADMIN_SECTIONS, (permission) =>
+      viewerPermissions.includes(permission),
+    );
+
+    expect(titlesOf(result)).not.toContain('Broadcasts');
+  });
+
+  it('resolves its route to its own title, not the hub title', () => {
+    expect(
+      settingsPageTitle(
+        ADMIN_SECTIONS,
+        ADMIN_HUB_PATH,
+        ADMIN_HUB_TITLE,
+        '/admin/settings/broadcasts',
+      ),
+    ).toBe('Broadcasts');
+  });
+
+  it('is not confusable with the General → Notifications card', () => {
+    // Both exist, at different paths, behind different permissions. The
+    // failure this guards against is a later edit collapsing one into the
+    // other — a "Broadcasts" tab on the notifications route, or a card whose
+    // path quietly points at the kill switch.
+    const notifications = ADMIN_SECTIONS.flatMap((section) => section.cards).find(
+      (entry) => entry.title === 'Notifications',
+    );
+
+    expect(notifications?.path).toBe('/admin/settings/notifications');
+    expect(card?.path).not.toBe(notifications?.path);
+    expect(card?.permission).not.toBe(notifications?.permission);
+  });
+});
+
 describe('settingsPageTitle', () => {
   it('resolves an exact card path to its title', () => {
     expect(settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, '/admin/settings/users')).toBe(
@@ -332,16 +431,24 @@ describe('the Operations group (#266)', () => {
     ]);
   });
 
-  it('registers all four of the epic’s cards at once', () => {
+  it('registers all four of the epic’s cards at once, and epic #319 appends a fifth', () => {
     // Declared together on purpose: the hub is under visual-regression testing
     // at `maxDiffPixels: 4`, so every change to the card grid needs baselines
     // regenerated in a pinned container. Four cards across four issues would
     // be four regenerations and four chances to land a stale baseline.
+    //
+    // `Broadcasts` (#325, epic #319) is APPENDED rather than inserted, and the
+    // order is asserted rather than left to chance: the hub, the rail and the
+    // drill-down list all render this array in declaration order, so an
+    // insertion would move four existing cards for a reader who has learnt
+    // where they are — and would reflow the grid further than the one added
+    // card requires.
     expect(operations?.cards.map((card) => card.title)).toEqual([
       'Jobs',
       'Job Insights',
       'Worker Nodes',
       'Database Backup',
+      'Broadcasts',
     ]);
   });
 
@@ -398,6 +505,10 @@ describe('the Operations group (#266)', () => {
       resolve(API_SRC, 'nodes/nodes-admin.controller.ts'),
       'utf8',
     );
+    const broadcastsController = readFileSync(
+      resolve(API_SRC, 'notifications/broadcasts/broadcasts.controller.ts'),
+      'utf8',
+    );
 
     it('binds both Jobs cards to jobs:read, which job-admin.controller.ts enforces on its reads', () => {
       expect(cardsByTitle.get('Jobs')?.permission).toBe('jobs:read');
@@ -417,6 +528,21 @@ describe('the Operations group (#266)', () => {
       // CLAUDE.md Settings UI Pattern rule 3, now that the card is routed and
       // the string gates a page somebody can actually open (#271).
       expect(nodesAdminController).toContain('PERMISSIONS.NODES_READ');
+    });
+
+    it('binds Broadcasts to broadcasts:read, which broadcasts.controller.ts enforces on its reads', () => {
+      // #325, epic #319. The dedicated pair exists so composing an
+      // announcement to every user can be granted — or withheld — without
+      // handing over the settings document, and mirroring
+      // `system_settings:read` here would quietly undo that.
+      expect(cardsByTitle.get('Broadcasts')?.permission).toBe('broadcasts:read');
+      expect(cardsByTitle.get('Broadcasts')?.permission).not.toBe('system_settings:read');
+      expect(rolesConstants).toContain("BROADCASTS_READ: 'broadcasts:read'");
+      expect(rolesConstants).toContain("BROADCASTS_WRITE: 'broadcasts:write'");
+      // And the controller really does enforce it — the mechanical half of
+      // CLAUDE.md Settings UI Pattern rule 3.
+      expect(broadcastsController).toContain('PERMISSIONS.BROADCASTS_READ');
+      expect(broadcastsController).toContain('PERMISSIONS.BROADCASTS_WRITE');
     });
 
     it('binds Database Backup to the dedicated db_backup:read, never to system_settings:read', () => {
