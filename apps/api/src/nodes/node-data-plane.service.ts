@@ -96,6 +96,7 @@ import { ConfigService } from '@nestjs/config';
 import { Job } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 
+import { JobHandlerRegistry } from '../jobs/job-handler.registry';
 import { PrismaService } from '../prisma/prisma.service';
 import { STORAGE_PROVIDER } from '../storage/providers/storage-provider.interface';
 import type { StorageProvider } from '../storage/providers/storage-provider.interface';
@@ -153,14 +154,21 @@ export const NODE_OUTPUT_KEY_PREFIX = 'node-outputs';
 /**
  * What a server-derived storage key is allowed to contain.
  *
- * ⚠ THIS ASSERTS A PROPERTY THIS FILE ALREADY GUARANTEES, and it stays anyway.
- * The key below is built from a UUID path parameter and `randomUUID()`, so it
- * cannot contain anything else — today. The check costs one regex per upload
- * and it is the thing that fails loudly if a future edit interpolates
- * something less disciplined into that template (a job type, a filename from
- * a payload, a node-reported label). Path traversal does not announce itself:
- * `..` in an S3 key is not an error, it is a key, and the object simply lands
- * somewhere nobody looks.
+ * ⚠ THIS IS NOW LOAD-BEARING, NOT DEFENSIVE (#348). It used to assert a
+ * property this file guaranteed on its own: the key was a UUID path parameter
+ * plus a `randomUUID()`, so it could not contain anything else, and the regex
+ * was insurance against a future edit interpolating something less
+ * disciplined into that template. Since #348 the key may come from a
+ * handler's `deriveOutputKey`, which is arbitrary application code computing
+ * a path — a job type, a payload field, a timestamp formatted by hand, a
+ * name read out of a row — so this is the only check standing between that
+ * computation and a signed PUT.
+ *
+ * Path traversal does not announce itself: `..` in an S3 key is not an error,
+ * it is a key, and the object simply lands somewhere nobody looks. The
+ * leading-character rule additionally refuses a key starting with `/`, which
+ * some providers accept and then store under a different name than the one
+ * the handler recorded.
  */
 const SAFE_STORAGE_KEY = /^[A-Za-z0-9][A-Za-z0-9/_.-]*$/;
 
@@ -173,7 +181,12 @@ export class NodeDataPlaneService {
     private readonly config: ConfigService,
     private readonly nodes: NodesService,
     @Inject(STORAGE_PROVIDER)
-    private readonly storage: StorageProvider
+    private readonly storage: StorageProvider,
+    // The registry, for exactly one question: does this job's type want to
+    // choose its own output key (#348)? Injected rather than imported so the
+    // answer comes from the handlers actually registered in THIS process —
+    // the same source `serverOnlyTypes()` and the claim already read.
+    private readonly registry: JobHandlerRegistry
   ) {}
 
   // ===========================================================================
@@ -235,9 +248,10 @@ export class NodeDataPlaneService {
    * holds.
    *
    * The key derivation is the security-relevant line and it takes no input
-   * from the request: `node-outputs/<jobId>/<uuid>`. The job id is a UUID the
-   * router already validated; the suffix is a fresh `randomUUID()`. Two
-   * consequences worth stating, because both are load-bearing:
+   * from the request. The DEFAULT is `node-outputs/<jobId>/<uuid>`: the job id
+   * is a UUID the router already validated, the suffix is a fresh
+   * `randomUUID()`. Two consequences worth stating, because both are
+   * load-bearing:
    *
    *   * A NODE CANNOT OVERWRITE ANYTHING. The random suffix means every mint
    *     is a new key, so even the same node asking twice for the same job
@@ -248,9 +262,29 @@ export class NodeDataPlaneService {
    *     found in the bucket months later can be traced to the row that
    *     produced it without a lookup table.
    *
+   * ⚠ A TYPE MAY OVERRIDE WHERE ITS OUTPUT LANDS, AND THE SERVER STILL CHOOSES
+   * (#348). A handler implementing `deriveOutputKey` answers instead of the
+   * template above, because some artifacts have a REQUIRED location: a
+   * database backup's key is recorded on its `database_backup_runs` row and
+   * read back by the retention sweep, the download endpoint and the restore
+   * path, so an archive under `node-outputs/…` is one none of them can find.
+   * Without this, no such type could ever be node-eligible.
+   *
+   * What does NOT change is who decides. `deriveOutputKey` runs in this
+   * process, in the handler that owns the artifact, with the `Job` row as its
+   * only input; the node's influence remains exactly zero. It is also the
+   * handler's job to be IDEMPOTENT — a node that asks twice (a retry, a lost
+   * response) must get the same key back rather than a second artifact; see
+   * `JobHandler.deriveOutputKey`. Note the trade that buys: a handler that
+   * derives a STABLE key gives up the "every mint is a new key" guarantee
+   * above for its own type, deliberately, because a stable location is the
+   * whole point — the overwrite it can then perform is of its own artifact,
+   * for its own job, and of nothing else.
+   *
    * A `key` in the request body is REFUSED, not ignored — see the DTO file's
    * header for why the node's author being told beats the node's author
-   * guessing.
+   * guessing. That refusal is unchanged by the above and happens BEFORE any
+   * derivation runs.
    *
    * NO `storage_objects` ROW IS CREATED HERE. Minting a write target is not
    * the same as recording an object: the node may never use the URL, may
@@ -271,12 +305,32 @@ export class NodeDataPlaneService {
 
     this.rejectCallerSuppliedFields(job, dto);
 
-    const key = `${NODE_OUTPUT_KEY_PREFIX}/${job.id}/${randomUUID()}`;
+    // The type's own answer if it has one, the data plane's default if it does
+    // not. `?.` twice, not a branch: a job whose type has no registered
+    // handler at all (a row left by a fork's handler that is no longer in this
+    // process) still gets a usable key rather than a crash on the way to one.
+    const handler = this.registry.get(job.type);
+    const key =
+      (await handler?.deriveOutputKey?.(job)) ??
+      `${NODE_OUTPUT_KEY_PREFIX}/${job.id}/${randomUUID()}`;
 
     if (!SAFE_STORAGE_KEY.test(key)) {
-      // Unreachable with today's inputs; see `SAFE_STORAGE_KEY`. A 500 rather
-      // than a 400 because if this ever fires, the fault is in the derivation
-      // above and not in anything the node sent.
+      // ⚠ REACHABLE SINCE #348, and this is the check that makes
+      // `deriveOutputKey` safe to hand to arbitrary handlers: the value above
+      // may now be a path some feature's code computed, and `..`, a leading
+      // `/` or a stray space in it is not an error at the provider — it is a
+      // key, and the bytes land somewhere nobody looks.
+      //
+      // A 500 rather than a 400, deliberately: nothing the node sent can
+      // reach this string, so a 4xx would tell an operator to go and fix a
+      // node that is behaving perfectly. The fault is in a handler in this
+      // process, and the log line below names the type so the search starts
+      // in the right file.
+      this.logger.error(
+        `Handler for job type ${job.type} derived an unsafe storage key for job ${job.id}; ` +
+          `refusing to sign an upload. Fix the handler's deriveOutputKey.`
+      );
+
       throw new Error(
         `Refusing to sign an upload for job ${job.id}: the derived storage key is not safe.`
       );

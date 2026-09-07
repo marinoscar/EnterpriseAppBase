@@ -271,13 +271,60 @@ Three rules a handler author should know, because they shape what your
 
 - **The server chooses the upload key.** A node-supplied key is refused with a
   `400`. If your handler needs to record where the output went, put the key in
-  your result schema — the node reports back the one it was given.
+  your result schema — the node reports back the one it was given. By default
+  that key is `node-outputs/<jobId>/<uuid>`: fresh every time, attributable to
+  the job, and never reused, which is what makes an overwrite impossible.
+  Implement `deriveOutputKey` (below) if your artifact needs a *specific*
+  location instead.
 - **URLs are minted on demand, not at claim time,** and their expiry is
   bounded by the server. A long transfer asks again; it holds the lease, so it
   may.
 - **Renew the lease** (`POST …/renew`) during long work. Once the lease
   expires, the download URL, the upload URL and the result submission are all
   refused with `409`, because another executor may already own the job.
+
+### Choosing where the output lands (`deriveOutputKey`, optional)
+
+Most node-eligible types want the default key above: nothing outside the job
+ever names the artifact, so a fresh location per mint is strictly better than
+a predictable one. Implement `deriveOutputKey(job)` only when the artifact's
+location is **part of its contract** — a row records the key, a retention
+sweep lists a prefix, a download endpoint reconstructs it:
+
+```ts
+async deriveOutputKey(job: Job): Promise<string> {
+  const run = await this.prisma.myArtifactRun.findUniqueOrThrow({
+    where: { jobId: job.id },          // ⚠ see idempotency, below
+  });
+  return run.storageKey;
+}
+```
+
+Three rules, and none of them is optional:
+
+- **This is still the server choosing.** The method runs in the API process,
+  in the handler that owns the artifact, with the `Job` row as its only
+  argument. Nothing from the node's request reaches it, and a node-supplied
+  `key` is still refused with a `400` *before* it is called.
+- **⚠ It must be idempotent per job.** A node asks for an upload URL more than
+  once as a matter of course — a timed-out transfer, a response lost on the
+  way back, a process restarted while holding the lease — and every one of
+  those calls must return the **same key**. A derivation that mints something
+  new each time (inserting a row, interpolating `randomUUID()` or
+  `Date.now()`) produces a second artifact per retry, and the row the rest of
+  the system reads then points at bytes the node never finished writing.
+  Derive from values already fixed on the job, or re-read the artifact row
+  this job already created — a `@unique` `jobId` on that row makes it
+  structural rather than a thing you remembered.
+- **The key must be a safe storage key** (`^[A-Za-z0-9][A-Za-z0-9/_.-]*$`).
+  One that is not is refused server-side with a **500**, and the node gets no
+  URL: `..` is not an error at a storage provider, it is a key, and the object
+  lands somewhere nobody looks. A 500 rather than a 400 because the fault is
+  in the handler, not in anything the node sent.
+
+Note the trade this makes deliberately: a stable key gives up "every mint is a
+new key" for your type. That is the point — the overwrite it permits is of
+your own artifact, for your own job, and of nothing else.
 
 ### Publishing the result contract
 

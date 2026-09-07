@@ -547,9 +547,9 @@ method out of reach.
 
 ## 17. The server chooses the upload key
 
-`node-outputs/{jobId}/{uuid}`, derived from a path parameter the router
-already validated as a UUID plus a fresh `randomUUID()`. Nothing from the
-request body reaches it. Two consequences, both load-bearing:
+The default is `node-outputs/{jobId}/{uuid}`, derived from a path parameter the
+router already validated as a UUID plus a fresh `randomUUID()`. Nothing from
+the request body reaches it. Two consequences, both load-bearing:
 
 * **A node cannot overwrite anything.** A signed PUT is an unconditional
   overwrite of exactly its key, so "the key is always new" is the whole of that
@@ -574,6 +574,60 @@ refused; a row written now would outlive all three as a `pending` object with
 nothing behind it. Recording the output is the handler's business in
 `persistNodeResult`, which is why the chosen key is returned to the node: it
 reports it back in its result.
+
+### 17.1 A type may derive its own key — and the server still chooses (#348)
+
+One prefix for the whole fleet is right for a scratch output and wrong for any
+artifact with a **required, externally-referenced location**. A database
+backup's key is `buildBackupStorageKey(at, runId)`, and its
+`database_backup_runs` row records `storage_key`/`bucket`/`format` precisely so
+the archive stays locatable across a bucket rename; the same archive written to
+`node-outputs/…` is one the retention sweep, the download endpoint and the
+restore path cannot find. With the key hard-coded in the data plane, **no such
+type could ever be node-eligible** — which is what blocked epic #345's second
+decision.
+
+So `JobHandler` gained one optional member:
+
+```ts
+deriveOutputKey?(job: Job): Promise<string>;
+```
+
+`createUploadTarget` asks the registry for the job's handler and uses its
+answer, falling back to the template above when there is no handler or no
+member. **The choice moved between two parts of the server** — from a constant
+in the data plane to the handler that owns the artifact — and the node's
+influence stays exactly zero: a caller-supplied `key` is still a `400` and is
+still refused *before* any derivation runs, the chosen key is still returned so
+the node can name it back in its result, and no `storage_objects` row is
+created at mint time.
+
+Two consequences worth stating:
+
+* **`SAFE_STORAGE_KEY` stops being defensive and becomes the guard.** It used
+  to assert a property the template already guaranteed; it now checks a value
+  application code computed. A key that fails it is refused with a **500**, not
+  a `400`, and the node gets no URL — nothing the node sent can reach that
+  string, so a `4xx` would send an operator to fix a node that behaved
+  perfectly.
+* **Idempotency is the handler's responsibility.** A node asks for an upload
+  URL more than once as a matter of course (a timed-out transfer, a lost
+  response, a restarted process holding the lease), and each call must return
+  the same key or the retry produces a second artifact while the recorded row
+  points at bytes nobody finished writing. #351 makes this structural for the
+  database backup with a `@unique` `jobId` on its run row: `deriveOutputKey`
+  re-reads by `jobId` and returns the existing key rather than creating a
+  second run. A type that derives a stable key thereby gives up the "every mint
+  is a new key" guarantee above — deliberately, for its own artifact, for its
+  own job, and for nothing else.
+
+**Rejected: a `keyPrefix` string on the handler.** It covers a prefix but not
+the `buildBackupStorageKey(at, runId)` shape, and — decisively — it cannot
+create the artifact row the key's `runId` comes from. **Rejected: minting the
+key at claim time and shipping it in the assignment**, for the same reason §18
+gives against folding signed URLs into the claim: a node claiming its whole
+`concurrency` at once would have the last job's key derived long before that
+job starts.
 
 ## 18. URLs are minted on demand, not folded into the claim
 

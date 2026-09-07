@@ -111,6 +111,43 @@
 // unknown` makes the same trade. The value arrives from off-machine, so it is
 // untrusted by construction, and `nodeResultSchema` is the only thing that
 // may narrow it. Parse, then use the parse's output type.
+//
+// -----------------------------------------------------------------------------
+// `deriveOutputKey` MOVES THE KEY CHOICE, IT DOES NOT SURRENDER IT (#348, epic #345)
+// -----------------------------------------------------------------------------
+//
+// `NodeDataPlaneService.createUploadTarget` used to hard-code where every
+// node-written output lands: `node-outputs/<jobId>/<uuid>`. That is exactly
+// right for a checksum's scratch output — nothing outside the job ever names
+// it — and exactly wrong for any type whose artifact has a REQUIRED,
+// EXTERNALLY-REFERENCED location. A database backup's key is
+// `buildBackupStorageKey(at, runId)` and its `database_backup_runs` row
+// records `storage_key`/`bucket`/`format` so the archive stays locatable
+// across a bucket rename; the same archive written to `node-outputs/…` is one
+// the retention sweep, the download endpoint and the restore path cannot
+// find. With one constant in the data plane, NO type whose output has a
+// required location could ever be node-eligible.
+//
+// ⚠ THE SERVER STILL CHOOSES THE KEY. This member moves that choice from a
+// constant in the data plane to the handler that OWNS the artifact — both of
+// which are this server. The node's influence stays exactly zero: a
+// caller-supplied `key` is still a 400 (`rejectCallerSuppliedFields`), the
+// chosen key is still returned so the node can name it back in its result,
+// and no `storage_objects` row is created at mint time. Nothing about the
+// data plane's posture changes; only who inside the server answers "where".
+//
+// The consequence for the data plane is that `SAFE_STORAGE_KEY` stops being
+// defensive code about a template it fully controls and becomes the real
+// guard on a value a handler computed — which is why a failure there is a
+// 500, not a 400: the fault is in a handler, not in anything a node sent.
+//
+// REJECTED: a `readonly keyPrefix: string` on the handler. It covers a prefix
+// and not the `buildBackupStorageKey(at, runId)` SHAPE, and — the part that
+// kills it — it cannot create the artifact row the key's `runId` comes from.
+// REJECTED: minting the key at claim time and shipping it in the assignment,
+// for the same reason the spec already rejects folding signed URLs into the
+// claim: a node claiming its whole `concurrency` at once would have the last
+// job's key derived long before that job starts.
 // =============================================================================
 
 import { Job } from '@prisma/client';
@@ -213,4 +250,43 @@ export interface JobHandler {
    * Throwing here fails the job exactly as throwing from `process` does.
    */
   persistNodeResult?(job: Job, result: unknown): Promise<void>;
+
+  /**
+   * Where this type's node-written output must land, when
+   * `node-outputs/<jobId>/<uuid>` is the wrong answer.
+   *
+   * OPTIONAL, AND OMITTING IT IS THE NORMAL ANSWER. A handler that does not
+   * implement this gets the data plane's default key, unchanged — a fresh,
+   * job-attributable, never-reused location under `node-outputs/`, which is
+   * the right shape for any artifact nothing outside the job ever names.
+   * Implement it only when the artifact's location is part of its contract:
+   * a row somewhere records the key, a retention sweep lists a prefix, or a
+   * download endpoint reconstructs it. See the file header for the full
+   * argument and the two rejected alternatives.
+   *
+   * ⚠ THIS IS STILL THE SERVER CHOOSING. It runs in the API process, from the
+   * handler that owns the artifact, with the `Job` row as its only input —
+   * nothing from the node's request reaches it, and a node-supplied `key` is
+   * refused with a 400 before this is ever called.
+   *
+   * ⚠ IT MUST BE IDEMPOTENT PER JOB, and that is this member's one hard
+   * requirement. A node asks for an upload URL more than once as a matter of
+   * course: a transfer that timed out, a response lost on the way back, a
+   * process restarted while holding the lease. Every one of those calls must
+   * yield THE SAME KEY. A derivation that mints something new each time —
+   * inserting an artifact row, or interpolating `randomUUID()`/`Date.now()` —
+   * produces a second artifact per retry, and the row the rest of the system
+   * reads then points at bytes the node never finished writing. Derive from
+   * values already fixed on the job, or re-read the artifact row this job
+   * already created and return its recorded key. #351 makes that structural
+   * for the database backup with a `@unique` `jobId` on its run row, so
+   * "re-read by `jobId`, return the existing key" is enforced by the database
+   * rather than by the handler remembering to.
+   *
+   * The returned key must satisfy the data plane's `SAFE_STORAGE_KEY`; one
+   * that does not is refused server-side with a 500 and the node gets no URL
+   * at all. Throwing here fails the request the same way — no URL is minted,
+   * and the node's correct response is the same as for any other refusal.
+   */
+  deriveOutputKey?(job: Job): Promise<string>;
 }

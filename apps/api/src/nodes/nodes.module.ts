@@ -32,7 +32,11 @@
 //     conclusions (attempt budget, rate-limit deferral, settled event,
 //     backoff) that an in-process handler's would.
 //   - `JobHandlerRegistry` — so "which types can a node run" is derived from
-//     the handlers themselves rather than from a list somebody maintains.
+//     the handlers themselves rather than from a list somebody maintains,
+//     and (since #348) so the data plane can ask a type where its output must
+//     land instead of hard-coding one prefix for the whole fleet. Both
+//     questions are answered by the handler that owns the type, which is why
+//     neither needs a second list.
 //
 // The direction is one-way: nothing in `JobsModule` imports this module, and
 // nothing should. The queue does not need to know that nodes exist — a node
