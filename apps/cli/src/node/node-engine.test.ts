@@ -45,11 +45,19 @@ function deferred<T = void>(): { promise: Promise<T>; resolve: (value: T) => voi
 }
 
 /** A scheduler whose timers only fire when a test says so. */
-function fakeScheduler(): EngineScheduler & { fireAll(): void; count(): number } {
+function fakeScheduler(): EngineScheduler & {
+  fireAll(): void;
+  count(): number;
+  /** Every interval the engine asked for, in the order it asked. */
+  intervals: number[];
+} {
   const timers = new Map<number, () => void>();
+  const intervals: number[] = [];
   let next = 1;
   return {
-    setInterval(fn: () => void) {
+    intervals,
+    setInterval(fn: () => void, ms?: number) {
+      intervals.push(ms as number);
       const id = next++;
       timers.set(id, fn);
       return id;
@@ -353,6 +361,76 @@ describe('NodeEngine — leases', () => {
     expect(engine.getSnapshot().activeJobs).toHaveLength(1);
 
     executor.gate('long').resolve({ ok: true });
+    await engine.drain();
+    await run;
+  });
+
+  it('renews on the SERVER-DERIVED interval when the assignment carries one', async () => {
+    // #347. The server derived `renewIntervalMs` from the lease it granted
+    // THIS job, so it is the only cadence that is right for a type whose
+    // lease is not the deployment default. A six-hour-lease job renewed on
+    // the local 30-second default is 720 pointless round trips.
+    const rec = recorder();
+    const executor = new ControlledExecutor();
+    const scheduler = fakeScheduler();
+
+    const engine = new NodeEngine({
+      api: fakeApi([[{ ...assignment('slow'), renewIntervalMs: 60_000 }]], rec),
+      nodeId: 'node-1',
+      concurrency: 1,
+      executors: new ExecutorRegistry().register(executor),
+      scheduler,
+      tmpDir: tmp,
+      sleep: tick,
+      pollIntervalMs: 1,
+      // Deliberately different from the server's number, so a pass cannot be
+      // an accident of the two agreeing.
+      leaseRenewIntervalMs: 1_000,
+    });
+
+    const run = engine.run();
+    await vi.waitFor(() => expect(executor.started).toEqual(['slow']));
+
+    expect(scheduler.intervals).toContain(60_000);
+    expect(scheduler.intervals).not.toContain(1_000);
+
+    executor.gate('slow').resolve({ ok: true });
+    await engine.drain();
+    await run;
+  });
+
+  it('falls back to its own cadence when the server sends none, or nonsense', async () => {
+    // ADDITIVE AND BACKWARD-COMPATIBLE: an older control plane sends no
+    // `renewIntervalMs` at all, and a broken one could send a zero — which,
+    // taken literally, is a renewal timer firing flat out. Both take the
+    // local default and stay correct.
+    const rec = recorder();
+    const executor = new ControlledExecutor();
+    const scheduler = fakeScheduler();
+
+    const engine = new NodeEngine({
+      api: fakeApi(
+        [[{ ...assignment('a'), renewIntervalMs: 0 }, assignment('b')]],
+        rec
+      ),
+      nodeId: 'node-1',
+      concurrency: 2,
+      executors: new ExecutorRegistry().register(executor),
+      scheduler,
+      tmpDir: tmp,
+      sleep: tick,
+      pollIntervalMs: 1,
+      leaseRenewIntervalMs: 7_000,
+    });
+
+    const run = engine.run();
+    await vi.waitFor(() => expect(executor.started.sort()).toEqual(['a', 'b']));
+
+    expect(scheduler.intervals.filter((ms) => ms === 7_000)).toHaveLength(2);
+    expect(scheduler.intervals).not.toContain(0);
+
+    executor.gate('a').resolve({ ok: true });
+    executor.gate('b').resolve({ ok: true });
     await engine.drain();
     await run;
   });

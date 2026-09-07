@@ -178,6 +178,18 @@ export class NodeJobAssignmentDto {
     type: Object,
   })
   params!: Record<string, unknown>;
+
+  @ApiProperty({
+    description:
+      'How often, in milliseconds, this node should renew the job’s lease — derived by the ' +
+      'SERVER from the same lease it just granted (a third of it, clamped), so a node never ' +
+      'has to guess. Prefer it over any local default: a job whose type declares a six-hour ' +
+      'runtime ceiling takes a six-hour lease, and renewing that every 30 seconds is 720 ' +
+      'round trips to say something the server already knew. Optional for a node to honour — ' +
+      'an older client that ignores this field renews on its own cadence and stays correct, ' +
+      'just chattier.',
+  })
+  renewIntervalMs!: number;
 }
 
 /** The response to `POST /nodes/:id/claim`. */
@@ -252,7 +264,7 @@ export function toWorkerNodeDto(node: WorkerNode): WorkerNodeDto {
  * is a fact about this deployment's internals that a remote machine has no
  * reason to hold.
  */
-export function toNodeJobAssignment(job: Job): NodeJobAssignmentDto {
+export function toNodeJobAssignment(job: Job, renewIntervalMs: number): NodeJobAssignmentDto {
   return {
     job: {
       id: job.id,
@@ -274,5 +286,12 @@ export function toNodeJobAssignment(job: Job): NodeJobAssignmentDto {
       job.payload !== null && typeof job.payload === 'object' && !Array.isArray(job.payload)
         ? (job.payload as Record<string, unknown>)
         : {},
+    // A PARAMETER, NOT SOMETHING THIS MAPPER DERIVES. The interval comes from
+    // the type's lease, which comes from its execution profile, which lives in
+    // the handler registry — none of which a pure row-to-wire mapper has, or
+    // should acquire. The caller already resolved the lease to make the claim;
+    // it passes the interval it derived from that same lease, so the node is
+    // told a cadence that matches the lease it was actually granted.
+    renewIntervalMs,
   };
 }

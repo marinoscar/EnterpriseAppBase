@@ -285,7 +285,15 @@ export class NodesController {
   ): Promise<ClaimJobsResponseDto> {
     const jobs = await this.nodes.claimJobs(userId, id, dto);
 
-    return { jobs: jobs.map(toNodeJobAssignment) };
+    // The renewal cadence is resolved PER JOB, not once per batch: a node
+    // claims across several types in one call (#346), and with per-type
+    // runtime ceilings those rows no longer share a lease — so they no longer
+    // share a renewal interval either.
+    return {
+      jobs: jobs.map((job) =>
+        toNodeJobAssignment(job, this.nodes.renewIntervalMsFor(job.type))
+      ),
+    };
   }
 
   @Post(':id/jobs/:jobId/renew')

@@ -79,6 +79,15 @@ export interface NodeJobAssignment {
     leaseExpiresAt: string | null;
   };
   params: Record<string, unknown>;
+  /**
+   * How often the server wants this job's lease renewed, in milliseconds.
+   *
+   * OPTIONAL BECAUSE THE SERVER MIGHT BE OLDER THAN THIS CLI, not because it
+   * is advisory — when it is present it is strictly better than any local
+   * default, since it is derived from the very lease this job was granted.
+   * See `NodeEngine.processJob` for the fallback.
+   */
+  renewIntervalMs?: number;
 }
 
 export interface HeartbeatRequest {

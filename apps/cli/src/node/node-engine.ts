@@ -102,7 +102,19 @@ export interface NodeEngineOptions {
 /** How many settled jobs the snapshot remembers. A daemon runs for months. */
 export const HISTORY_LIMIT = 50;
 
-/** Default lease-renew cadence: comfortably inside any sane lease window. */
+/**
+ * Default lease-renew cadence: comfortably inside any sane lease window.
+ *
+ * ⚠ A FALLBACK, NOT THE ANSWER, since the server started sending
+ * `renewIntervalMs` on every assignment. It is a fixed number chosen to be
+ * safe against the shortest lease a server might grant, which necessarily
+ * makes it wasteful against the longest: a job type declaring a six-hour
+ * runtime ceiling takes a six-hour lease, and renewing that every 30 seconds
+ * is 720 round trips to tell the server something it derived itself. The
+ * server's per-job number wins wherever it is present; this covers an older
+ * control plane, and the `--lease-renew-ms` operator override still outranks
+ * both (see `processJob`).
+ */
 export const DEFAULT_LEASE_RENEW_MS = 30_000;
 
 /** Default heartbeat cadence. */
@@ -382,9 +394,25 @@ export class NodeEngine {
     // The renew ticker runs for the WHOLE job, input download included: a
     // multi-gigabyte download can outlive a lease just as easily as the
     // compute can.
+    //
+    // THE SERVER'S NUMBER WINS WHEN IT SENT ONE. It derived `renewIntervalMs`
+    // from the lease it granted THIS job (a third of it, clamped), so it is
+    // the only cadence that is correct for a type whose lease is not the
+    // deployment default — and it is per job, because a node claims across
+    // several types at once and those rows no longer share a lease. The local
+    // value stays the fallback for an older control plane that sends nothing.
+    // Validated rather than trusted: a non-finite or non-positive number out
+    // of a JSON body would become a `setInterval` firing flat out.
+    const renewIntervalMs =
+      typeof assignment.renewIntervalMs === 'number' &&
+      Number.isFinite(assignment.renewIntervalMs) &&
+      assignment.renewIntervalMs > 0
+        ? assignment.renewIntervalMs
+        : this.leaseRenewIntervalMs;
+
     record.renewHandle = this.scheduler.setInterval(() => {
       void this.renewLease(job.id);
-    }, this.leaseRenewIntervalMs);
+    }, renewIntervalMs);
 
     let inputPath: string | undefined;
 
