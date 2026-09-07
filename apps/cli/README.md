@@ -799,15 +799,21 @@ explicit subcommand ignores this gate entirely and is unaffected by it.
 
 There are two identities here, and they are deliberately independent.
 
-**The product name** — the "Enterprise App" half of the `Enterprise App CLI`
-banner in `--help` and the interactive UI — is not set in this package at all.
-It comes from the shared constant every app renders, so renaming the product
-renames the CLI banner, the browser wordmark and the email templates together:
+**The product name** — the half of the CLI banner in `--help` and the
+interactive UI that names the product rather than the executable — is not set
+in this package at all. It comes from `packages/shared/identity.json`, the one
+manifest every app reads its identity from, so renaming the product renames
+the CLI banner, the browser wordmark and the email templates together:
 
-```js
-// packages/shared/index.js
-exports.APP_NAME = 'Enterprise App';
+```json
+// packages/shared/identity.json
+{
+  "productName": "Your Product Name"
+}
 ```
+
+See [`docs/RENAMING.md`](../../docs/RENAMING.md) for the full rebrand
+walkthrough — this section only covers what's specific to the CLI.
 
 **The executable's own identity** — the command name shown in `--help` and
 errors, the config directory (`~/.appctl/`), and the `APPCTL_`

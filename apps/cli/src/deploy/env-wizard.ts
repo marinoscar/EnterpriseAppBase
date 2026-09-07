@@ -47,6 +47,19 @@ export interface WizardOptions {
   nonInteractive?: boolean | undefined;
   /** Optional feature groups the operator opted into. */
   groups?: readonly EnvGroup[] | undefined;
+  /**
+   * Resolves the annotation for a key. Defaults to `metadataFor` - the VPS
+   * deployment's ENV_METADATA, which is what every existing caller wants.
+   *
+   * THIS IS THE PROFILE SEAM (issue #344). `appctl init` bootstraps a LOCAL
+   * checkout, and local differs from a VPS in exactly the places this registry
+   * encodes: NODE_ENV is not forced to production, APP_URL is not derived from
+   * a public domain, and the observability defaults are wanted rather than
+   * opted into. Passing a different RESOLVER expresses that in one argument
+   * and leaves the deploy path byte-for-byte unchanged - which is the whole
+   * reason it is a parameter here rather than a second copy of this wizard.
+   */
+  metadata?: ((key: string) => EnvVarMetadata) | undefined;
   ctx?: PromptContext | undefined;
 }
 
@@ -100,6 +113,7 @@ export async function runEnvWizard(options: WizardOptions): Promise<WizardResult
     all = false,
     nonInteractive = false,
     groups = [],
+    metadata: resolveMetadata = metadataFor,
     ctx,
   } = options;
 
@@ -109,7 +123,7 @@ export async function runEnvWizard(options: WizardOptions): Promise<WizardResult
   const unresolved: string[] = [];
 
   for (const spec of specs) {
-    const metadata = metadataFor(spec.key);
+    const metadata = resolveMetadata(spec.key);
 
     // Never written, whatever the template says. TEST_AUTH_ENABLED is the case
     // this exists for: true in production fails startup by design.
@@ -169,6 +183,17 @@ export async function runEnvWizard(options: WizardOptions): Promise<WizardResult
         metadata.essential === true
           ? current
           : (current ?? (spec.optional ? undefined : spec.defaultValue));
+      // `allowBlank` keys are the exception the local profile needs: an empty
+      // GOOGLE_CLIENT_ID means "not set up yet", which is a state a freshly
+      // cloned checkout is genuinely allowed to be in. Blank skips validation
+      // (a validator's job is to judge a value, and there isn't one); anything
+      // actually present is still judged below.
+      if (isBlank(candidate) && metadata.allowBlank === true) {
+        values.set(spec.key, '');
+        summary.push({ key: spec.key, display: displayValue('', metadata), source: 'default' });
+        continue;
+      }
+
       const invalid =
         isBlank(candidate) || metadata.validate?.(candidate as string) !== undefined;
 
@@ -263,6 +288,13 @@ async function ask(
         : await prompt(`  ${spec.key}${suffix}: `, ctx);
 
     const value = raw === '' ? fallback : raw;
+
+    // Same rule as the unattended path: blank is an answer for these keys, and
+    // re-asking would trap somebody who has not created their OAuth client yet
+    // on a question they cannot answer and cannot skip.
+    if (value === '' && metadata.allowBlank === true) {
+      return { value, source: 'asked' };
+    }
 
     const message = metadata.validate?.(value);
     if (message !== undefined) {

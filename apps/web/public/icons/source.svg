@@ -20,8 +20,11 @@
     bar height 0.22 x 299.42 = 65.87, gap 0.17 x 299.42 = 50.90
     bars       100% / 75% / 50% of the mark width, each centred
 
-  The colour is `THEME_COLOR` from `packages/shared/index.js`, which is the
-  source of truth; this is a copy, as is the one in the generator script.
+  The colour is `themeColor` from `packages/shared/identity.json`, which is the
+  source of truth. This file holds a COPY of it, because an SVG attribute cannot
+  read a manifest -- and unlike the generator script, which now loads the
+  manifest, nothing keeps this copy in step automatically. `scripts/rename.mjs`
+  rewrites it, and the template-identity guard fails if it ever drifts.
 -->
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Application mark">
   <rect width="512" height="512" rx="112.64" ry="112.64" fill="#1976d2"/>

@@ -66,12 +66,24 @@ import { deriveNodeHealth, NodeLifecycleService } from './node-lifecycle.service
 import { NodeCredentialService } from './node-credential.service';
 import { PrismaService } from '../prisma/prisma.service';
 
-/** The owner columns every admin response carries, selected explicitly. */
-const OWNER_SELECT = { select: { id: true, email: true, name: true } } as const;
+/**
+ * The owner columns every admin response carries, selected explicitly.
+ *
+ * The column on `User` is `displayName`; the wire field is `owner.name`. The
+ * two names are deliberately different and `toAdminNodeDto` maps between them
+ * — selecting `name` here is not a fix, it is a Prisma validation error.
+ *
+ * Exported (not module-private) so
+ * `test/nodes/worker-node-model-fields.spec.ts` can assert its keys are real
+ * `User` scalar columns without duplicating this literal — issue #340 was
+ * exactly this select naming a column, `name`, that does not exist, and every
+ * existing test mocked `PrismaService` so nothing caught it.
+ */
+export const OWNER_SELECT = { select: { id: true, email: true, displayName: true } } as const;
 
 /** A node row with its owner joined — what both read paths load. */
 type NodeWithOwner = WorkerNode & {
-  createdBy: { id: string; email: string; name: string | null };
+  createdBy: { id: string; email: string; displayName: string | null };
 };
 
 @Injectable()
@@ -169,7 +181,7 @@ export class NodesAdminService {
       lastUsedAt: row.lastUsedAt ? row.lastUsedAt.toISOString() : null,
       createdAt: row.createdAt.toISOString(),
       revokedAt: row.revokedAt ? row.revokedAt.toISOString() : null,
-      owner: { id: row.user.id, email: row.user.email, name: row.user.name },
+      owner: { id: row.user.id, email: row.user.email, name: row.user.displayName },
     }));
   }
 
@@ -295,7 +307,7 @@ export class NodesAdminService {
       owner: {
         id: node.createdBy.id,
         email: node.createdBy.email,
-        name: node.createdBy.name,
+        name: node.createdBy.displayName,
       },
       // A node with no jobs at all produces no `groupBy` row, which is
       // "absent", not "zero" — the map lookup misses and the zeroes are

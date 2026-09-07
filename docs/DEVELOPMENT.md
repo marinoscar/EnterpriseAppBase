@@ -40,7 +40,7 @@ This application uses **Fastify** as the HTTP adapter, not Express. This has imp
 ### Prerequisites
 - Node.js 24+ (see `.nvmrc`; enforced by the `engines` field)
 - Docker Desktop
-- PostgreSQL (via Docker)
+- PostgreSQL 16, reachable from the API container — `base.compose.yml` has no `db` service of its own; the `devdb.compose.yml` overlay (step 3 below) is the easy way to get one locally
 - Google OAuth credentials (from Google Cloud Console)
 
 ### Initial Setup
@@ -48,7 +48,7 @@ This application uses **Fastify** as the HTTP adapter, not Express. This has imp
 1. **Clone and install dependencies**
    ```bash
    git clone <repository-url>
-   cd EnterpriseAppBase
+   cd <repository-directory>
    npm install
    ```
 
@@ -60,25 +60,56 @@ This application uses **Fastify** as the HTTP adapter, not Express. This has imp
    ```
 
 3. **Start development environment**
+
+   PostgreSQL is required, but it is **not** part of the base stack —
+   `base.compose.yml` deliberately declares only `nginx`, `api`, and `web`, so
+   a bundled database is never fighting a Postgres this repo doesn't own (a
+   shared host, a managed instance). If you don't already have one, add the
+   opt-in `devdb.compose.yml` overlay as a third `-f`:
+
    ```bash
    cd infra/compose
+   docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml up
+   ```
+
+   > **First run on a new machine:** `base.compose.yml` attaches the API to an
+   > external Docker network named `devnet`, so the very first `docker compose
+   > up` on a host fails with *network devnet declared as external, but could
+   > not be found* until it exists. Create it once per machine:
+   >
+   > ```bash
+   > docker network create devnet
+   > ```
+   >
+   > It exists so several applications built from this template can share one
+   > PostgreSQL container on a development host. You need it even when you are
+   > not sharing anything — the network is declared unconditionally.
+
+   Already running your own PostgreSQL 16? Point the `POSTGRES_*` variables in
+   `.env` at it and leave the overlay out:
+
+   ```bash
    docker compose -f base.compose.yml -f dev.compose.yml up
    ```
 
-4. **IMPORTANT: Run database seeds**
+4. **IMPORTANT: Apply the database schema**
+
+   The API **does not migrate on startup**, and that is deliberate — its
+   container command is `node dist/main` and nothing else, so a fresh database
+   has no tables until you run:
+
+   ```bash
+   docker compose exec api npm run prisma:migrate
+   ```
+
+   Skipping it makes the seed below fail against an empty database.
+
+5. **IMPORTANT: Run database seeds**
 
    Before your first login, you MUST seed the database with roles and permissions:
 
    ```bash
-   # In a new terminal, exec into the API container
-   docker compose exec api sh
-
-   # Run the seed script
-   cd /app/apps/api
-   npx prisma db seed
-
-   # Exit the container
-   exit
+   docker compose exec api npm run prisma:seed
    ```
 
    **Why this is critical:**
@@ -87,7 +118,7 @@ This application uses **Fastify** as the HTTP adapter, not Express. This has imp
    - Without seeds, user creation will fail with "Default role not found"
    - Seeds are idempotent - safe to run multiple times
 
-5. **Access the application**
+6. **Access the application**
    - Frontend: http://localhost:3535
    - API: http://localhost:3535/api
    - API reference: http://localhost:3535/api/docs
@@ -373,21 +404,18 @@ const user = await prisma.user.create({
 
 ### Seeding the Database
 
-The seed script (`apps/api/prisma/seed.ts`) is idempotent and safe to run multiple times.
+The seed script (`apps/api/prisma/seed.ts`) is idempotent and safe to run multiple times. Always run it through the `prisma:seed` npm script, never `ts-node`/`tsx` on the file directly: the script only reads `DATABASE_URL` from the environment, and `prisma:seed` (`scripts/prisma-env.js`) is what constructs that value from the `POSTGRES_*` variables before invoking Prisma. Calling the file straight fails with "DATABASE_URL is not set" — there's no other env var supplying it.
 
 **Running Seeds:**
 
-**In Docker:**
+**In Docker** (the container's working directory is already `/app/apps/api`):
 ```bash
-docker compose exec api sh
-cd /app/apps/api
-npx tsx prisma/seed.ts
+docker compose exec api npm run prisma:seed
 ```
 
-**Locally:**
+**In a local checkout** (from the repository root — the same command CI runs):
 ```bash
-cd apps/api
-npx tsx prisma/seed.ts
+npm run prisma:seed --workspace=api
 ```
 
 **What Gets Seeded:**
@@ -414,10 +442,7 @@ npx tsx prisma/seed.ts
 
 **Solution:**
 ```bash
-docker compose exec api sh
-cd /app/apps/api
-npx tsx prisma/seed.ts
-exit
+docker compose exec api npm run prisma:seed
 ```
 
 ### 2. Passport OAuth Not Working with Fastify
@@ -575,7 +600,7 @@ const response = await request(app.getHttpServer())
 ⚠️ Security alert: Possible token theft
 
 **"Default role not found - run database seeds"**
-❌ Database not seeded - run `npx tsx prisma/seed.ts`
+❌ Database not seeded - run `docker compose exec api npm run prisma:seed`
 
 ---
 
@@ -610,7 +635,12 @@ const response = await request(app.getHttpServer())
 4. **Update Seeds (if needed):**
    ```bash
    # Edit prisma/seed.ts
-   npx tsx prisma/seed.ts
+
+   # Using npm script (recommended)
+   npm run prisma:seed
+
+   # Or in Docker container
+   docker compose exec api npm run prisma:seed
    ```
 
 **Note:** The project uses individual database environment variables (`POSTGRES_HOST`, `POSTGRES_PORT`, etc.) instead of a single `DATABASE_URL`. The npm scripts (`prisma:*`) automatically construct the connection URL from these variables. See `apps/api/scripts/README.md` for details.
@@ -620,7 +650,7 @@ const response = await request(app.getHttpServer())
 1. Create DTO with Zod schema
 2. Add controller method with guards
 3. Implement service method with business logic
-4. Add OpenAPI decorators for documentation (see [`docs/specs/api-documentation.md`](specs/api-documentation.md))
+4. Add OpenAPI decorators for documentation (see [API.md § How the document is built](API.md#how-the-document-is-built))
 5. Write tests (unit + integration)
 6. Update API.md documentation
 
@@ -694,7 +724,7 @@ If you encounter issues:
 Key takeaways for developers:
 
 - ✅ **Use Fastify methods**: `code()` and `send()`, not `status()` and `json()`
-- ✅ **Seed before first login**: `npx tsx prisma/seed.ts` in the API container
+- ✅ **Seed before first login**: `npm run prisma:seed` (in the API container, or from the repo root with `--workspace=api`)
 - ✅ **Use transactions**: Wrap related creates in `prisma.$transaction()`
 - ✅ **Return raw objects for OAuth**: Override guard methods for Passport compatibility
 - ✅ **Sanitize redirect URLs**: Encode and remove newlines from error messages

@@ -38,6 +38,7 @@ import FlagIcon from '@mui/icons-material/Flag';
 import EmailOutlinedIcon from '@mui/icons-material/EmailOutlined';
 import NotificationsActiveOutlinedIcon from '@mui/icons-material/NotificationsActiveOutlined';
 import BuildCircleOutlinedIcon from '@mui/icons-material/BuildCircleOutlined';
+import VpnKeyOutlinedIcon from '@mui/icons-material/VpnKeyOutlined';
 import DataObjectIcon from '@mui/icons-material/DataObject';
 import PeopleIcon from '@mui/icons-material/People';
 // Operations (#266, epic #254). One icon per card, including the two cards
@@ -101,6 +102,7 @@ export interface SettingsSectionDef {
  *   - `jobs:read`             → `jobs/job-admin.controller.ts`
  *   - `nodes:read`            → the worker-node controller (#267)
  *   - `db_backup:read`        → the database-backup controller (#268)
+ *   - `push:read`             → the push-config controller (#355)
  *
  * `Advanced (JSON)` gates on `system_settings:WRITE` deliberately, unlike its
  * three siblings. It is a raw editor over the entire settings blob, so
@@ -168,6 +170,27 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
         Icon: NotificationsActiveOutlinedIcon,
         path: '/admin/settings/notifications',
         permission: 'system_settings:read',
+      },
+      {
+        // Issue #355. `push:read` / `push:write` is a permission pair OF ITS
+        // OWN, not a reuse of `system_settings:*`: generating/rotating key
+        // material has a real, described blast radius (every existing
+        // subscriber goes dark until it re-subscribes) that should not ride
+        // along with routine settings edits, mirroring why `broadcasts:*` and
+        // `nodes:*` were split out rather than folded into
+        // `system_settings:*`/`jobs:*`. `push:read` is the string
+        // `push-config.controller.ts` enforces on its GET — the registry
+        // never invents a permission, it mirrors one. Generating, rotating,
+        // enabling/disabling and removing all need `push:write`, which the
+        // PAGE gates internally: the card gate is about REACHABILITY, and "is
+        // web push configured, and by whom" is worth reading for anyone
+        // diagnosing why push notifications are not arriving.
+        title: 'Web Push',
+        description:
+          'Generate a VAPID key pair, enable or rotate it, and control whether this deployment can send browser push notifications.',
+        Icon: VpnKeyOutlinedIcon,
+        path: '/admin/settings/push',
+        permission: 'push:read',
       },
       {
         // Issue #258, epic #254. `system_settings:read` is the string

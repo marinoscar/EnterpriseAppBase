@@ -2261,6 +2261,151 @@ Delete a broadcast's record.
 
 ---
 
+### Push Configuration (Admin-only)
+
+Runtime-configurable Web Push (VAPID) keys — issue #355. Two permissions:
+`push:read` (get) and `push:write` (every write) — **deliberately separate
+from `system_settings:*`**, mirroring why `broadcasts:*`/`nodes:*`/
+`db_backup:*` were split out rather than folded into an existing pair:
+generating or rotating key material has a real blast radius (every existing
+push subscriber goes dark until it re-subscribes) that should not ride along
+with routine settings edits. See
+[`docs/specs/browser-notifications.md`](specs/browser-notifications.md) for
+the always-registered channel design and the `webPush` settings/credential
+split, and [`docs/runbooks/vapid-keys.md`](runbooks/vapid-keys.md) for the
+operator-facing flow. **The VAPID private key is never returned by any
+endpoint below** — every response carries only a masked
+`privateKeyStatus` (`configured`, `hint`, `updatedAt`, `updatedByUserId`).
+
+#### GET /admin/push-config
+Current configuration plus `privateKeyStatus`. `configured` is `true` only
+when both a public key is stored and a private-key credential exists — the
+admin page renders its empty ("Generate & enable") state exactly when this is
+`false`.
+
+**Requires:** `push:read`
+
+**Response:**
+```json
+{
+  "data": {
+    "enabled": true,
+    "publicKey": "BF3z...",
+    "subject": "mailto:admin@example.com",
+    "configured": true,
+    "privateKeyStatus": {
+      "configured": true,
+      "hint": "••••x9fQ",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "updatedByUserId": "uuid"
+    },
+    "settingsError": null,
+    "version": 3,
+    "updatedAt": "2024-01-01T00:00:00.000Z",
+    "updatedBy": { "id": "uuid", "email": "admin@example.com" }
+  }
+}
+```
+
+---
+
+#### PUT /admin/push-config
+Full replace of `{ enabled, subject }`. **This endpoint flips the switch; it
+does not manufacture keys** — neither VAPID key is settable here.
+
+**Requires:** `push:write`
+
+**Headers:** `If-Match: <version>` (optional) — expected `version` for
+optimistic concurrency; use `0` to assert nothing is stored yet, or omit to
+overwrite unconditionally.
+
+**Request Body:**
+```json
+{ "enabled": true, "subject": "mailto:admin@example.com" }
+```
+
+**Response:** the configuration, in the shape above.
+
+**Error Cases:**
+- 400 Bad Request - Validation error (e.g. `subject` is not a `mailto:`/`http(s)://` value)
+- 409 Conflict - Version mismatch (`If-Match` didn't match the stored version), or `enabled: true` was requested with no key pair generated yet
+
+---
+
+#### POST /admin/push-config/generate
+First-time-only key generation: a fresh VAPID key pair via `web-push`, the
+private key stored in the encrypted credential store, the public key stored
+and `enabled` set to `true`. **Not idempotent** — a second call is refused
+rather than silently replacing a live key pair with no confirmation step.
+
+**Requires:** `push:write`
+
+**Request Body:**
+```json
+{ "subject": "mailto:admin@example.com" }
+```
+`subject` is optional; omitted or blank falls back to the generic default at
+send time.
+
+**Response:** the generated configuration, in the shape above.
+
+**Error Cases:**
+- 409 Conflict - Web Push is already configured; use rotate instead
+
+---
+
+#### POST /admin/push-config/rotate
+Generates a fresh VAPID key pair and replaces the stored one. **Disruptive**:
+every existing push subscriber stops receiving pushes until it re-subscribes
+(there is no automatic re-subscribe-on-reopen mechanism in this codebase —
+see the runbook). `enabled` is left exactly as it was; rotating is not a
+decision about whether push should be on.
+
+**Requires:** `push:write`
+
+**Request Body:**
+```json
+{ "confirmation": "ROTATE", "subject": "mailto:admin@example.com" }
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `confirmation` | literal `"ROTATE"` | Yes | Checked before the service is touched. A body copied from the remove endpoint's confirmation is rejected — the two use deliberately different words. |
+| `subject` | string | No | Replaces the stored subject; omitted keeps it. |
+
+**Response:** the rotated configuration, in the shape above.
+
+**Error Cases:**
+- 400 Bad Request - Missing/incorrect confirmation, or nothing is configured yet (use `generate` instead)
+
+---
+
+#### DELETE /admin/push-config
+Deletes both the stored VAPID private-key credential and the `webPush`
+settings row, then returns the resulting (empty) configuration — the same
+shape every other route on this controller returns, so a client can render
+the post-removal state with no follow-up GET. **Destructive and immediate**
+— every existing push subscription becomes unusable, and there is no way to
+bring the same key pair back; a subsequent `generate` mints an entirely new
+one.
+
+**Requires:** `push:write`
+
+**Request Body:**
+```json
+{ "confirmation": "REMOVE" }
+```
+`confirmation` must be the literal `"REMOVE"` — a different word from the
+rotate route's on purpose, so a body copied from one route to the other is
+refused rather than silently accepted.
+
+**Response:** the resulting (now empty) configuration.
+
+**Error Cases:**
+- 400 Bad Request - Missing or incorrect confirmation
+
+---
+
 ### Health
 
 **Public endpoints** - Used for Kubernetes liveness/readiness probes.
@@ -2378,7 +2523,50 @@ OpenAPI 3.1 document at `/api/openapi.json`. It allows you to:
 - Authenticate with one click via "Authorize with my session" (exchanges your existing browser
   session for an access token), a personal access token, or a device authorization grant
 
-See [`docs/specs/api-documentation.md`](specs/api-documentation.md) for how the document is built.
+### How the document is built
+
+Everything that shapes `/api/openapi.json` lives in `apps/api/src/openapi/` rather than in
+`main.ts`, so it can be built by a test harness and by `scripts/dump-openapi.ts` (the `openapi:dump`
+npm script) without booting a listening server — the document CI lints is the document users get.
+
+- **`document.ts`** builds the base document with Nest's `SwaggerModule.createDocument`, then runs
+  it through a fixed pipeline of enrichment passes (`rbac-docs.ts`, `data-envelope.ts`,
+  `tags.ts`, `nullable.ts`, in that order — order matters, since later passes must see what
+  earlier ones added). **`version.ts`** resolves the version stamped into `info.version`
+  (`APP_VERSION`, then `npm_package_version`, then `apps/api/package.json`, never throwing).
+  **`description.ts`** builds the Markdown intro shown at the top of the page and inside the
+  downloaded spec itself.
+- **`rbac-docs.ts`** renders each operation's `@Auth()` metadata (roles, permissions) into the
+  **Requires:** line appended to its description — generated from the same decorator the guards
+  read, so the documented requirement cannot drift from the enforced one.
+- **`tags.ts`** is the single declaration of every `@ApiTags(...)` name, its description, and which
+  sidebar section it belongs to, emitted as the `x-tagGroups` vendor extension Scalar reads to
+  render the sectioned sidebar. A tag used by a controller but not declared here, or declared here
+  and used by nobody, fails a test rather than silently rendering wrong.
+- **`data-envelope.ts`** rewrites every documented 2xx JSON response to match what the global
+  `TransformInterceptor` actually sends (`{ data, meta }`), since a handler's declared return type
+  and its wire shape are two different things once that interceptor runs. **`nullable.ts`** rewrites
+  `@ApiProperty({ nullable: true })`'s OpenAPI 3.0 spelling into the 3.1 type union the published
+  document (3.1, driven by zod v4's JSON Schema 2020-12 output) actually requires.
+- **`docs-page.ts`** renders the `/api/docs` page itself — a hand-written template rather than the
+  `@scalar/nestjs-api-reference` package, because the one-click session auth below has to resolve a
+  token before Scalar mounts, which that package's fixed template does not expose a seam for. See
+  [One-click session auth](#one-click-session-auth) below.
+- The Spectral lint (`npm run openapi:lint` against `.spectral.yaml`, run in CI via `openapi:dump`
+  then `openapi:lint`) fails the build on a missing or duplicated operation id, an undeclared tag,
+  or anything else that would quietly degrade the reference page.
+
+#### One-click session auth
+
+Landing on `/api/docs` while already signed in authorizes it automatically, with no manual token
+step. The page's inline script (`buildDocsAuthScript` in `docs-page.ts`) runs before Scalar mounts:
+it calls `POST /api/auth/refresh` with `credentials: 'include'` — required even same-origin, since
+the refresh cookie is scoped to `/api/auth` — reads the access token out of the response envelope
+(`body.data.accessToken`), and passes it to Scalar as a pre-authorized `securitySchemes` entry for
+the `JWT-auth` scheme, rather than poking it into Scalar's internal store after the fact. A failed
+or missing session leaves the reference unauthorized with a status message rather than blocking the
+page; reloading after signing in re-runs the exchange, which is also how a 15-minute-old token gets
+refreshed — there is no separate "re-authorize" action.
 
 ---
 
