@@ -121,6 +121,37 @@ export interface NotifyOptions {
 }
 
 /**
+ * Per-dispatch options for the permission-addressed entry points
+ * ({@link NotificationsService.notifyPermissionHolders} and its awaited
+ * sibling) — issue #288, epic #254.
+ *
+ * Everything {@link NotifyOptions} says still applies, unchanged: `channels`
+ * NARROWS and can only remove. This adds ONE field, and it is deliberately the
+ * only way in which the two entry points differ.
+ *
+ * WHY THE EXTRA RECIPIENTS ARE AN OPTION RATHER THAN A SECOND CALL. The
+ * motivating case is `db_backup.restore_completed`: its audience is everybody
+ * holding `db_backup:read`, PLUS the operator who triggered the restore, who
+ * may hold `db_backup:restore` through some other role and not `db_backup:read`
+ * at all. Sending that as two calls would put the actor in both audiences
+ * whenever they DO hold the permission — two emails and two bell rows for one
+ * event — and de-duplicating after the fact is not possible once the dispatches
+ * have been detached. Unioning before the fan-out is the only place the
+ * de-duplication can happen at all.
+ */
+export interface NotifyPermissionHoldersOptions extends NotifyOptions {
+  /**
+   * Additional recipients, unioned with the permission holders and
+   * de-duplicated BY USER ID before anything is dispatched.
+   *
+   * A user id that does not exist is not an error here: it resolves to no
+   * recipient in `dispatchToUser`, which logs and returns — the same outcome as
+   * for any other stale id.
+   */
+  alsoNotifyUserIds?: readonly string[];
+}
+
+/**
  * Everything a channel needs to render and deliver one notification.
  */
 export interface NotificationDispatchContext {

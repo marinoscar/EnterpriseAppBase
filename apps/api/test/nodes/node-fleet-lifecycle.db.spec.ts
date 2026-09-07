@@ -35,6 +35,7 @@ import { JobStuckService } from '../../src/jobs/job-stuck.service';
 import { NodeLifecycleService } from '../../src/nodes/node-lifecycle.service';
 import { NodeOfflinePruneTask } from '../../src/nodes/tasks/node-offline-prune.task';
 import { NodeStaleOfflineTask } from '../../src/nodes/tasks/node-stale-offline.task';
+import type { NotificationsService } from '../../src/notifications/notifications.service';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import type { SystemSettingsService } from '../../src/settings/system-settings/system-settings.service';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
@@ -87,7 +88,13 @@ describeWithDb('Worker-node fleet lifecycle (real Postgres)', () => {
     const lifecycle = new NodeLifecycleService(settings);
     const prismaService = prisma as unknown as PrismaService;
 
-    sweep = new NodeStaleOfflineTask(prismaService, lifecycle, config);
+    // #288's notifier, stubbed: this suite is about what real Postgres does to
+    // the rows, not about what the sweep tells anybody.
+    const notifications = {
+      notifyPermissionHolders: async () => undefined,
+    } as unknown as NotificationsService;
+
+    sweep = new NodeStaleOfflineTask(prismaService, lifecycle, config, notifications);
     prune = new NodeOfflinePruneTask(prismaService, lifecycle, config);
     reaper = new JobStuckService(prismaService, config, settings);
   });

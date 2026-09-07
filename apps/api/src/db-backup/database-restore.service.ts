@@ -5,11 +5,15 @@ import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { DatabaseBackupRun, Prisma } from '@prisma/client';
 
+import { PERMISSIONS } from '../common/constants/roles.constants';
 import { MaintenanceModeService } from '../common/maintenance/maintenance-mode.service';
 import type { SystemDatabaseBackupValue } from '../common/schemas/settings.schema';
+import type { RestoreCompletedEmailData } from '../email';
 import { jobTempPath } from '../jobs/job-temp';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SystemSettingsService } from '../settings/system-settings/system-settings.service';
 import {
@@ -723,6 +727,12 @@ export class DatabaseRestoreService {
     // the single-active-run index stops being a guarantee.
     private readonly runner: DatabaseBackupRunnerService,
     private readonly maintenance: MaintenanceModeService,
+    // #288 (epic #254). REQUIRED, and the one collaborator here whose absence
+    // would be silent: `db_backup.restore_completed` is a `mandatory` event, so
+    // an instance constructed without a notifier would replace the live
+    // database and tell nobody.
+    private readonly notifications: NotificationsService,
+    private readonly config: ConfigService,
     @Optional() @Inject(DATABASE_RESTORE_SEAM) seam?: DatabaseRestoreSeam
   ) {
     this.seam = seam ?? defaultDatabaseRestoreSeam;
@@ -1227,7 +1237,156 @@ export class DatabaseRestoreService {
         'back, this deployment has no restart policy — see docs/runbooks/database-restore.md.'
     );
 
+    // =========================================================================
+    // ⚠ AWAITED, AND IT MUST STAY BETWEEN THE RENAME AND THE EXIT (#288, #254)
+    // =========================================================================
+    //
+    // THE ORDERING BELOW IS THE WHOLE POINT, AND IT IS WHAT A LATER REFACTOR
+    // WILL SILENTLY BREAK. Three constraints pin this one line to this one
+    // place, and losing any of them produces a `mandatory` event that appears
+    // wired, passes every registry and template test, and delivers nothing in
+    // production on the only path that matters.
+    //
+    //   1. AFTER `renameSwap`, BECAUSE OF WHERE THE ROWS LAND. Prisma is
+    //      pointed at `connection.liveDatabase` BY NAME, and after the renames
+    //      that name resolves to the PROMOTED database. So the
+    //      `notification_deliveries` and `notifications` rows this writes go
+    //      into the database the operator will actually be looking at, and the
+    //      recipients are resolved from the restored `users`/`user_roles` — the
+    //      post-restore answer to "who can act on this?", which is the correct
+    //      one. Raising it before the swap would write the record of the
+    //      restore into the database the restore is about to rename away.
+    //
+    //   2. BEFORE `exitProcess`, OBVIOUSLY — and that is exactly why it is
+    //      AWAITED. The detached `notifyPermissionHolders` would schedule the
+    //      work on a microtask and return; `exitProcess` would then tear the
+    //      process down before any of it ran, and `onModuleDestroy`'s shutdown
+    //      drain never runs here because nothing is shutting Nest down. The
+    //      awaited sibling is the only shape that survives this seam.
+    //
+    //   3. `notifyPermissionHoldersNow` NEVER REJECTS — same containment as
+    //      every other entry point, via `runContained` — so awaiting it cannot
+    //      turn a completed restore into a failure. It cannot hang the exit
+    //      either: the seam's `exitProcess` is the next statement whatever the
+    //      transports did.
+    //
+    // The audience is `db_backup:read` (the string `db-backup.controller.ts`
+    // enforces) PLUS the actor, de-duplicated by user id inside the dispatcher —
+    // an operator who triggered the restore through `db_backup:restore` need not
+    // also hold `db_backup:read` to hear that their own restore finished.
+    await this.announceRestoreCompleted(context, swappedAt, preRestoreRunId);
+
     this.seam.exitProcess(0);
+  }
+
+  /**
+   * Raise `db_backup.restore_completed`, AWAITED, from inside the promoted
+   * database (#288, epic #254).
+   *
+   * See the block comment at the call site for why this sits exactly where it
+   * does. What is worth saying HERE is the two things this method does that
+   * the other three operational notifiers do not:
+   *
+   * 1. IT RESOLVES THE ACTOR'S ADDRESS FROM THE RESTORED DATABASE, AND MAY
+   *    LEGITIMATELY FIND NOTHING. The account that triggered the restore is
+   *    looked up AFTER the swap, so it is looked up in the archive's copy of
+   *    `users` — and an operator whose account was created after the backup was
+   *    taken genuinely does not exist there. That is not an error to log
+   *    loudly; it is a true and rather important fact about the state the
+   *    deployment is now in, and it renders as "Not recorded" rather than as a
+   *    failure.
+   *
+   * 2. IT ADDS THE ACTOR TO THE AUDIENCE RATHER THAN SENDING THEM A SECOND
+   *    MESSAGE. `alsoNotifyUserIds` is unioned with the permission holders and
+   *    de-duplicated by user id inside the dispatcher, so an actor who also
+   *    holds `db_backup:read` gets exactly one email and one bell row. See
+   *    `NotifyPermissionHoldersOptions`.
+   *
+   * NEVER THROWS. `notifyPermissionHoldersNow` cannot reject by construction,
+   * and the try/catch covers the address lookup and the payload build — because
+   * a throw here would land in `executeRestore`'s `catch`, which would then
+   * record a COMPLETED restore as a failure and, worse, try to drop a scratch
+   * database that has already been promoted to live.
+   */
+  private async announceRestoreCompleted(
+    context: RestoreContext,
+    swappedAt: Date,
+    preRestoreRunId: string | null
+  ): Promise<void> {
+    const { run, actorUserId } = context;
+
+    try {
+      const payload: RestoreCompletedEmailData = {
+        runId: run.id,
+        // `startedAt`, NOT `finishedAt`: `pg_dump` takes its snapshot when it
+        // starts, so the state this database now holds is the state at the
+        // START of that run. `finishedAt` would overstate it by however long
+        // the dump took, which on a large database is the difference between
+        // "we lost ten minutes" and "we lost two hours".
+        backupTakenAt: run.startedAt ?? run.finishedAt,
+        completedAt: swappedAt,
+        triggeredBy: await this.resolveActorEmail(actorUserId),
+        preRestoreBackupId: preRestoreRunId,
+        appUrl: this.appUrl(),
+      };
+
+      await this.notifications.notifyPermissionHoldersNow(
+        'db_backup.restore_completed',
+        PERMISSIONS.DB_BACKUP_READ,
+        payload,
+        {
+          // The actor, when there is one. Unioned and de-duplicated by the
+          // dispatcher — see the header.
+          alsoNotifyUserIds: actorUserId === null ? [] : [actorUserId],
+        }
+      );
+    } catch (error) {
+      this.logger.error(
+        `The restore of backup run ${run.id} completed, but ` +
+          `'db_backup.restore_completed' could not be raised: ` +
+          `${toError(error).message}`
+      );
+    }
+  }
+
+  /**
+   * The actor's email address as recorded IN THE RESTORED DATABASE, or `null`.
+   *
+   * `null` for three different and equally ordinary reasons: there was no actor
+   * (a restore triggered without one), the actor's account does not exist in
+   * the archive, or the read failed. None of them justifies holding up an exit
+   * or failing a completed restore, so all three collapse to `null` and the
+   * template gives it words.
+   */
+  private async resolveActorEmail(actorUserId: string | null): Promise<string | null> {
+    if (actorUserId === null) return null;
+
+    try {
+      const actor = await this.prisma.user.findUnique({
+        where: { id: actorUserId },
+        select: { email: true },
+      });
+
+      return actor?.email ?? null;
+    } catch (error) {
+      this.logger.warn(
+        `Could not read the restore actor's address from the restored database: ` +
+          `${toError(error).message}`
+      );
+
+      return null;
+    }
+  }
+
+  /**
+   * The application root, trailing slashes trimmed, or `undefined`.
+   *
+   * Same shape as `UsersService.appUrl()`; `undefined` makes the template omit
+   * its CTA rather than render a button that goes nowhere.
+   */
+  private appUrl(): string | undefined {
+    const appUrl = this.config.get<string>('appUrl');
+    return appUrl ? appUrl.replace(/\/+$/, '') : undefined;
   }
 
   /**

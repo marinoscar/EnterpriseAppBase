@@ -5,6 +5,7 @@ import type { PrismaService } from '../../prisma/prisma.service';
 import type { SystemSettingsService } from '../../settings/system-settings/system-settings.service';
 import type { StorageProvider } from '../../storage/providers/storage-provider.interface';
 import type { SystemDatabaseBackupValue } from '../../common/schemas/settings.schema';
+import type { NotificationsService } from '../../notifications/notifications.service';
 import type { DatabaseRestoreService } from '../database-restore.service';
 import type { DatabaseBackupRunnerService } from '../db-backup-runner.service';
 import { DatabaseBackupAlreadyRunningError } from '../db-backup.errors';
@@ -53,6 +54,8 @@ interface RunRow {
   lastHeartbeatAt: Date | null;
   finishedAt?: Date;
   lastError?: string;
+  /** #288: projected by the sweep's read and rendered by the notification. */
+  trigger?: string;
 }
 
 interface HarnessOptions {
@@ -66,6 +69,8 @@ interface HarnessOptions {
   settleDuringSweep?: string[];
   /** Replaces #285's retained-database sweep, e.g. to make it reject. */
   dropExpiredImpl?: (policy: SystemDatabaseBackupValue, now: Date) => Promise<number>;
+  /** #288: a notifier that misbehaves, for the containment assertions. */
+  notifyImpl?: () => Promise<void>;
 }
 
 function makeHarness(options: HarnessOptions = {}) {
@@ -186,13 +191,31 @@ function makeHarness(options: HarnessOptions = {}) {
 
   const restore = { dropExpiredOldDatabases } as unknown as DatabaseRestoreService;
 
+  // #288's notifier. A jest mock, so the containment assertions can make it
+  // throw and still require the sweep to finish.
+  const notifyPermissionHolders: jest.Mock = jest.fn(async (..._args: unknown[]) => {
+    if (options.notifyImpl) await options.notifyImpl();
+  });
+  const notifications = {
+    notifyPermissionHolders,
+  } as unknown as NotificationsService;
+
   const build = () =>
-    new DatabaseBackupScheduleTask(prisma, settings, runner, storage, config, restore);
+    new DatabaseBackupScheduleTask(
+      prisma,
+      settings,
+      runner,
+      storage,
+      config,
+      restore,
+      notifications
+    );
 
   const task = build();
 
   return {
     task,
+    notifyPermissionHolders,
     /** A fresh instance over the SAME table — the restart simulation. */
     restart: build,
     policy,
@@ -252,6 +275,7 @@ function runningRow(id: string, overrides: Partial<RunRow> = {}): RunRow {
     storageKey: `backups/${id}.dump`,
     startedAt: new Date('2026-09-07T02:00:00.000Z'),
     lastHeartbeatAt: new Date('2026-09-07T02:00:20.000Z'),
+    trigger: 'scheduled',
     ...overrides,
   };
 }
@@ -695,6 +719,126 @@ describe('the stale sweep', () => {
 
     await expect(h.sweepAt('2026-09-07T02:20:00.000Z')).resolves.toBe(0);
     await expect(h.sweepAt('2026-09-07T02:40:00.000Z')).resolves.toBe(1);
+  });
+});
+
+// =============================================================================
+// `db_backup.backup_failed` from the STALE side (#288, epic #254)
+// =============================================================================
+
+describe('the stale sweep raises db_backup.backup_failed', () => {
+  it('raises it once per run it actually transitioned', async () => {
+    const h = makeHarness({
+      rows: [
+        runningRow('zombie-a', { lastHeartbeatAt: new Date('2026-09-07T02:00:00.000Z') }),
+        runningRow('zombie-b', { lastHeartbeatAt: new Date('2026-09-07T02:00:00.000Z') }),
+      ],
+    });
+
+    await expect(h.sweepAt('2026-09-07T05:00:00.000Z')).resolves.toBe(2);
+
+    expect(h.notifyPermissionHolders).toHaveBeenCalledTimes(2);
+    expect(h.notifyPermissionHolders.mock.calls[0][0]).toBe('db_backup.backup_failed');
+    // `db_backup:read` — the exact string `db-backup.controller.ts` enforces,
+    // and the same one the runner's own failure path uses.
+    expect(h.notifyPermissionHolders.mock.calls[0][1]).toBe('db_backup:read');
+  });
+
+  it("carries outcome 'stale', not 'failed' — nothing observed this run break", async () => {
+    // An operator chases the two in completely different places: a dump's
+    // stderr versus a host that disappeared. Flattening both into "backup
+    // failed" sends them to the wrong one.
+    const h = makeHarness({
+      rows: [runningRow('zombie', { lastHeartbeatAt: new Date('2026-09-07T02:00:00.000Z') })],
+    });
+
+    await h.sweepAt('2026-09-07T05:00:00.000Z');
+
+    const payload = h.notifyPermissionHolders.mock.calls[0][2];
+
+    expect(payload).toMatchObject({
+      runId: 'zombie',
+      outcome: 'stale',
+      trigger: 'scheduled',
+      failedAt: new Date('2026-09-07T05:00:00.000Z'),
+    });
+  });
+
+  it('quotes the SAME explanation the row was given, rather than a second wording of it', async () => {
+    const h = makeHarness({
+      rows: [runningRow('zombie', { lastHeartbeatAt: new Date('2026-09-07T02:00:00.000Z') })],
+    });
+
+    await h.sweepAt('2026-09-07T05:00:00.000Z');
+
+    expect(h.notifyPermissionHolders.mock.calls[0][2].error).toBe(
+      h.table.get('zombie')?.lastError,
+    );
+  });
+
+  it('raises NOTHING for a run that settled between the read and the write', async () => {
+    // `count === 0`: somebody else transitioned it, and one settled run must
+    // raise exactly one notification however many replicas are sweeping.
+    const h = makeHarness({
+      rows: [runningRow('racer', { lastHeartbeatAt: new Date('2026-09-07T02:00:00.000Z') })],
+      settleDuringSweep: ['racer'],
+    });
+
+    await expect(h.sweepAt('2026-09-07T05:00:00.000Z')).resolves.toBe(0);
+
+    expect(h.notifyPermissionHolders).not.toHaveBeenCalled();
+  });
+
+  it('raises NOTHING when every run is still heartbeating', async () => {
+    const h = makeHarness({
+      rows: [runningRow('healthy', { lastHeartbeatAt: new Date('2026-09-07T04:59:00.000Z') })],
+    });
+
+    await expect(h.sweepAt('2026-09-07T05:00:00.000Z')).resolves.toBe(0);
+
+    expect(h.notifyPermissionHolders).not.toHaveBeenCalled();
+  });
+
+  // ---------------------------------------------------------------------------
+  // CONTAINMENT — the #288 acceptance criterion
+  // ---------------------------------------------------------------------------
+
+  it('a THROWING notifier does not fail the sweep, and the slot is still freed', async () => {
+    const h = makeHarness({
+      rows: [runningRow('zombie', { lastHeartbeatAt: new Date('2026-09-07T02:00:00.000Z') })],
+      notifyImpl: () => {
+        throw new Error('the notifier exploded');
+      },
+    });
+
+    await expect(h.sweepAt('2026-09-07T05:00:00.000Z')).resolves.toBe(1);
+
+    expect(h.table.get('zombie')?.status).toBe('stale');
+  });
+
+  it('a THROWING notifier does not stop the object cleanup that follows it', async () => {
+    const h = makeHarness({
+      rows: [runningRow('zombie', { lastHeartbeatAt: new Date('2026-09-07T02:00:00.000Z') })],
+      notifyImpl: () => {
+        throw new Error('the notifier exploded');
+      },
+    });
+
+    await h.sweepAt('2026-09-07T05:00:00.000Z');
+
+    expect(h.deleteObject).toHaveBeenCalledWith('backups/zombie.dump');
+  });
+
+  it('a notifier that REJECTS does not fail the cron tick', async () => {
+    const h = makeHarness({
+      rows: [runningRow('zombie', { lastHeartbeatAt: new Date('2026-09-07T02:00:00.000Z') })],
+      notifyImpl: async () => {
+        throw new Error('dispatch blew up');
+      },
+    });
+
+    await expect(h.task.handleCron()).resolves.toBeUndefined();
+    expect(h.table.get('zombie')?.status).toBe('stale');
   });
 });
 

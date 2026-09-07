@@ -1,6 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 
-import type { BroadcastEmailData, RoleChangedEmailData } from '../../email';
+import type {
+  BackupFailedEmailData,
+  BroadcastEmailData,
+  NodeOfflineEmailData,
+  RestoreCompletedEmailData,
+  RoleChangedEmailData,
+} from '../../email';
 import { PrismaService } from '../../prisma/prisma.service';
 import { describeThrown } from '../describe-thrown';
 import type { NotificationChannel } from '../notification-events';
@@ -231,6 +237,78 @@ export const EVENT_BROWSER_TEMPLATES: Partial<
   // them, not in what the message says.
   'admin.broadcast': broadcastBrowserTemplate,
   'admin.broadcast_critical': broadcastBrowserTemplate,
+
+  // ---------------------------------------------------------------------------
+  // THE OPERATIONAL EVENTS (#288, epic #254) — THREE OF FOUR, AND THE ABSENCE
+  // IS THE INTERESTING ONE
+  // ---------------------------------------------------------------------------
+  //
+  // `jobs.job_failed` is email-only in the registry and therefore has no entry
+  // here, and the reason is the `link` field rather than the copy: a failed
+  // job's detail is not a page in this application — it is a filter on the jobs
+  // list — so a bell row for it would either be inert or would send the reader
+  // somewhere that does not answer the question it just raised. The other three
+  // each have a real destination, which is exactly why they carry a link and it
+  // does.
+  //
+  // Every `link` below is ROOT-RELATIVE and is the path its own admin card
+  // declares in `apps/web/src/config/adminSections.tsx`. `sanitizeLink` in this
+  // file enforces the root-relative part at write time; matching the registry
+  // is what keeps the destination REAL, and it is the same rule the Settings UI
+  // Pattern applies to `permission` — use the string the other side actually
+  // uses, never an approximation of it.
+  'nodes.node_offline': (data: never): BrowserNotificationContent => {
+    const { nodeName, lastHeartbeatAt } = data as NodeOfflineEmailData;
+
+    const heard =
+      lastHeartbeatAt === null
+        ? 'It never sent a heartbeat.'
+        : `Last heartbeat ${lastHeartbeatAt.toISOString()}.`;
+
+    return {
+      title: 'Worker node went offline',
+      body:
+        `${nodeName} stopped responding and was marked offline. ${heard} ` +
+        'Fleet capacity is reduced until it comes back.',
+      link: '/admin/settings/workers',
+    };
+  },
+
+  'db_backup.backup_failed': (data: never): BrowserNotificationContent => {
+    const { runId, outcome, error } = data as BackupFailedEmailData;
+
+    const reason =
+      outcome === 'stale'
+        ? 'it stopped heartbeating and was given up on'
+        : (error ?? 'no reason was recorded');
+
+    return {
+      title: 'Database backup failed',
+      body:
+        `Backup run ${runId} did not complete: ${reason}. There is one fewer ` +
+        'recovery point than the retention policy assumes; the next scheduled ' +
+        'backup is the retry.',
+      link: '/admin/settings/db-backup',
+    };
+  },
+
+  'db_backup.restore_completed': (data: never): BrowserNotificationContent => {
+    const { runId, backupTakenAt } = data as RestoreCompletedEmailData;
+
+    const takenAt =
+      backupTakenAt === null ? 'an unrecorded time' : backupTakenAt.toISOString();
+
+    return {
+      title: 'Database restored from a backup',
+      // THE CUT-OFF IS THE WHOLE MESSAGE. A row that said only "restore
+      // completed" would leave the reader to work out what is missing; the
+      // archive's own timestamp is the fact that answers it.
+      body:
+        `The live database was replaced from backup run ${runId}. It now holds ` +
+        `the state from ${takenAt}; anything written after that is not present.`,
+      link: '/admin/settings/db-backup',
+    };
+  },
 };
 
 /** Length caps applied before the row is written. See {@link truncate}. */

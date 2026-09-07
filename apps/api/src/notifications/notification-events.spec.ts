@@ -172,6 +172,62 @@ describe('seeded events', () => {
     expect(event?.channels).toHaveLength(2);
   });
 
+  it('the four operational events (#288) are registered with the declared channels and defaults', () => {
+    // The table from issue #288, asserted as a table rather than as four
+    // loose expectations, so a channel quietly added or removed is a diff in
+    // one place.
+    const expected = [
+      { key: 'jobs.job_failed', channels: ['email'], defaultEnabled: true, mandatory: false },
+      {
+        key: 'nodes.node_offline',
+        channels: ['email', 'browser'],
+        defaultEnabled: true,
+        mandatory: false,
+      },
+      {
+        key: 'db_backup.backup_failed',
+        channels: ['email', 'browser'],
+        defaultEnabled: true,
+        mandatory: false,
+      },
+      {
+        key: 'db_backup.restore_completed',
+        channels: ['email', 'browser'],
+        defaultEnabled: true,
+        mandatory: true,
+      },
+    ];
+
+    for (const row of expected) {
+      const event = findEvent(row.key);
+
+      expect(event).toBeDefined();
+      expect(event?.channels).toEqual(row.channels);
+      expect(event?.defaultEnabled).toBe(row.defaultEnabled);
+      expect(isMandatory(row.key)).toBe(row.mandatory);
+    }
+  });
+
+  it('db_backup.restore_completed is the ONLY mandatory one of the four', () => {
+    // The three failures are things an operator may reasonably decide to watch
+    // in an alerting stack instead. A database that has just been replaced with
+    // an older copy of itself is not.
+    expect(isMandatory('db_backup.restore_completed')).toBe(true);
+    expect(isMandatory('jobs.job_failed')).toBe(false);
+    expect(isMandatory('nodes.node_offline')).toBe(false);
+    expect(isMandatory('db_backup.backup_failed')).toBe(false);
+  });
+
+  it('jobs.job_failed is email-only, and deliberately so', () => {
+    // Not an oversight and not "the browser template is still to come": a
+    // failed job's detail is a filter on the jobs list rather than a page, so a
+    // bell row for it would have no honest click target. The browser channel
+    // map (`EVENT_BROWSER_TEMPLATES`) has no entry for it either, and that
+    // agreement is the property worth pinning.
+    expect(channelsFor('jobs.job_failed')).toEqual(['email']);
+    expect(supportsChannel('jobs.job_failed', 'browser')).toBe(false);
+  });
+
   it('allowlist.invitation is email-only', () => {
     // Its recipient has no account and no open tab by definition — that is
     // what being newly allowlisted means — so a browser channel would be

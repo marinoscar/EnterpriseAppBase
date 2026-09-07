@@ -1,7 +1,11 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import type { DatabaseBackupTrigger } from '@prisma/client';
 
+import { PERMISSIONS } from '../../common/constants/roles.constants';
+import type { BackupFailedEmailData } from '../../email';
+import { NotificationsService } from '../../notifications/notifications.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SystemSettingsService } from '../../settings/system-settings/system-settings.service';
 import {
@@ -228,7 +232,13 @@ export class DatabaseBackupScheduleTask {
     // the restore service owns the admin connection, the identifier rules and
     // the seam, and a second place that issues `DROP DATABASE` is a second place
     // to get the guard wrong.
-    private readonly restore: DatabaseRestoreService
+    private readonly restore: DatabaseRestoreService,
+    // #288 (epic #254). `db_backup.backup_failed` is raised from BOTH give-up
+    // paths — the runner's own `markFailed` and this sweep — because they are
+    // genuinely different events: one is a run that reported an error, the
+    // other is a run whose executing process went away and was never heard from
+    // again. The `outcome` field on the payload is what tells them apart.
+    private readonly notifications: NotificationsService
   ) {}
 
   @Cron(CronExpression.EVERY_10_MINUTES)
@@ -358,8 +368,26 @@ export class DatabaseBackupScheduleTask {
           { lastHeartbeatAt: null, startedAt: { lt: cutoff } },
         ],
       },
-      select: { id: true, storageKey: true },
+      // `startedAt` and `trigger` join the projection for #288: they are what
+      // `db_backup.backup_failed` renders, and reading them here — in the query
+      // the sweep was making anyway — is cheaper and less racy than a second
+      // read after the row has been rewritten.
+      select: {
+        id: true,
+        storageKey: true,
+        startedAt: true,
+        trigger: true,
+      },
     });
+
+    // ONE COPY OF THE EXPLANATION, written to the row AND carried into the
+    // notification (#288). Two copies would be two places to reword, and the
+    // email quoting something the row does not say is worse than no email.
+    const staleMessage =
+      `The run stopped heartbeating for more than ${policy.runStaleMinutes} ` +
+      'minute(s) (databaseBackup.runStaleMinutes) and was given up on. Nothing ' +
+      'observed it fail: the process executing it went away. It is not retried ' +
+      'automatically; the next scheduled backup is the retry.';
 
     let released = 0;
 
@@ -379,11 +407,7 @@ export class DatabaseBackupScheduleTask {
         data: {
           status: 'stale',
           finishedAt: now,
-          lastError:
-            `The run stopped heartbeating for more than ${policy.runStaleMinutes} ` +
-            'minute(s) (databaseBackup.runStaleMinutes) and was given up on. Nothing ' +
-            'observed it fail: the process executing it went away. It is not retried ' +
-            'automatically; the next scheduled backup is the retry.',
+          lastError: staleMessage,
         },
       });
 
@@ -397,6 +421,18 @@ export class DatabaseBackupScheduleTask {
       }
 
       released += 1;
+
+      // ⚠ AFTER THE `stale` ROW HAS COMMITTED, and only on the branch where
+      // THIS process is the one that transitioned it (`count === 1` — the
+      // `continue` above covers the replica that lost the race). One settled run
+      // raises exactly one notification however many replicas are sweeping.
+      //
+      // Before the object cleanup below, deliberately: the delete is
+      // best-effort and may take a while against a slow bucket, and the report
+      // of the failure should not wait on the tidying-up of a partial archive.
+      // `notifyPermissionHolders` is detached and never rejects, so this costs
+      // the sweep nothing and cannot fail it.
+      this.announceStale(candidate, staleMessage, now);
 
       // ⚠ AND OBJECT CLEANUP FOLLOWS, NEVER PRECEDES.
       //
@@ -423,6 +459,78 @@ export class DatabaseBackupScheduleTask {
     }
 
     return released;
+  }
+
+  /**
+   * Raise `db_backup.backup_failed` for a run this sweep gave up on. Never
+   * throws.
+   *
+   * ⚠ `outcome: 'stale'` AND NOT `'failed'`, and the distinction is the whole
+   * reason the field exists. A `failed` run reported an error: something
+   * observed it break and wrote down what. A `stale` run reported nothing —
+   * the process executing it went away, and the sweep is inferring the failure
+   * from silence. An operator chasing the two looks in completely different
+   * places (a dump's stderr versus a host that disappeared), so the message
+   * says which it is rather than flattening both into "backup failed".
+   *
+   * SYNCHRONOUS AND FIRE-AND-FORGET: `notifyPermissionHolders` schedules the
+   * audience query and the sends and returns, so a ten-minute cron never waits
+   * on a mail server, and the try/catch means a notifier bug cannot abort a
+   * sweep that has already freed the active slot.
+   */
+  private announceStale(
+    run: { id: string; startedAt: Date | null; trigger: DatabaseBackupTrigger },
+    reason: string,
+    settledAt: Date
+  ): void {
+    try {
+      // ANNOTATED WITH THE TEMPLATE'S TYPE: `notifyPermissionHolders` takes
+      // `data: unknown`, so this is the only place the shape is checked.
+      const payload: BackupFailedEmailData = {
+        runId: run.id,
+        outcome: 'stale',
+        error: reason,
+        startedAt: run.startedAt,
+        failedAt: settledAt,
+        trigger: run.trigger,
+        appUrl: this.appUrl(),
+      };
+
+      // `db_backup:read` — the exact string `db-backup.controller.ts` enforces,
+      // and the same one the runner's own failure path uses.
+      // ⚠ `.catch()` DESPITE THE DISPATCHER CONTRACTING NEVER TO REJECT — same
+      // reason as everywhere else this event is raised: an unhandled rejection
+      // inside a `@Cron` tick has no caller, and the `try/catch` around this
+      // block cannot see one.
+      void this.notifications
+        .notifyPermissionHolders(
+          'db_backup.backup_failed',
+          PERMISSIONS.DB_BACKUP_READ,
+          payload
+        )
+        .catch((error: unknown) => {
+          this.logger.error(
+            `Dispatching 'db_backup.backup_failed' for run ${run.id} rejected, ` +
+              `which the dispatcher contracts never to do: ${toError(error).message}`
+          );
+        });
+    } catch (error) {
+      this.logger.error(
+        `Could not raise 'db_backup.backup_failed' for run ${run.id}; the run is ` +
+          `still marked stale and its slot is free: ${toError(error).message}`
+      );
+    }
+  }
+
+  /**
+   * The application root, trailing slashes trimmed, or `undefined`.
+   *
+   * Same shape as `UsersService.appUrl()`; `undefined` makes the template omit
+   * its CTA rather than render a button that goes nowhere.
+   */
+  private appUrl(): string | undefined {
+    const appUrl = this.config.get<string>('appUrl');
+    return appUrl ? appUrl.replace(/\/+$/, '') : undefined;
   }
 
   /**

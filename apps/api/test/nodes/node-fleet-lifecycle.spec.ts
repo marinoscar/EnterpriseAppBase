@@ -43,6 +43,7 @@ import { ConfigService } from '@nestjs/config';
 import { NodeOfflinePruneTask } from '../../src/nodes/tasks/node-offline-prune.task';
 import { NodeStaleOfflineTask } from '../../src/nodes/tasks/node-stale-offline.task';
 import type { NodeLifecycleService } from '../../src/nodes/node-lifecycle.service';
+import type { NotificationsService } from '../../src/notifications/notifications.service';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 
 /** The shipped policy: stale after 90s, offline after 4 x that, forgotten after 30 days. */
@@ -56,6 +57,8 @@ interface FakeNode {
   status: string;
   registeredAt: Date;
   lastHeartbeatAt: Date | null;
+  /** #288: the sweep's `updateManyAndReturn` projects this into the notification. */
+  name?: string;
 }
 
 interface FakeJob {
@@ -116,6 +119,19 @@ class FakeNodeStore {
 
           return { count: hits.length };
         },
+        // #288: `UPDATE ... RETURNING`. Same statement, same `where`, but it
+        // answers "which rows did I change?" — which is what the per-node
+        // `nodes.node_offline` notification needs and a count cannot give.
+        updateManyAndReturn: async ({ where, data }: any) => {
+          const hits = this.nodes.filter((node) => matches(node as never, where));
+          hits.forEach((node) => Object.assign(node, data));
+
+          return hits.map((node) => ({
+            id: node.id,
+            name: node.name ?? node.id,
+            lastHeartbeatAt: node.lastHeartbeatAt,
+          }));
+        },
         findMany: async ({ where }: any) =>
           this.nodes.filter((node) => matches(node as never, where)).map((node) => ({ id: node.id })),
         deleteMany: async ({ where }: any) => {
@@ -149,11 +165,20 @@ const lifecycle = {
 /** Every switch unset, so both crons fail open — the shipped behaviour. */
 const config = { get: () => undefined } as unknown as ConfigService;
 
+/**
+ * #288's notifier, stubbed. This suite is about the two crons' row semantics;
+ * what the sweep tells anybody about them is asserted in
+ * `src/nodes/tasks/node-stale-offline.task.spec.ts`.
+ */
+const notifications = {
+  notifyPermissionHolders: async () => undefined,
+} as unknown as NotificationsService;
+
 function tasks(store: FakeNodeStore) {
   const prisma = store.asPrisma();
 
   return {
-    sweep: new NodeStaleOfflineTask(prisma, lifecycle, config),
+    sweep: new NodeStaleOfflineTask(prisma, lifecycle, config, notifications),
     prune: new NodeOfflinePruneTask(prisma, lifecycle, config),
   };
 }

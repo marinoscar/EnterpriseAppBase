@@ -98,6 +98,81 @@ describe('NotificationsController', () => {
   // GET /config — now backed by PushSubscriptionService (#229)
   // ==========================================================================
 
+  // ==========================================================================
+  // GET /events — the registry as the preferences page sees it
+  // ==========================================================================
+
+  describe('GET /events', () => {
+    it("lists #288's four operational events with the channels and defaults the registry declares", async () => {
+      // The acceptance criterion of #288, asserted at the endpoint the
+      // preferences page actually reads rather than against the registry
+      // constant — the endpoint applies the admin policy on the way out, and
+      // "the event is registered" and "the endpoint offers it" are two
+      // different claims.
+      const events = await controller.listEvents();
+      const byKey = new Map(events.map((event) => [event.key, event]));
+
+      expect(byKey.get('jobs.job_failed')).toMatchObject({
+        channels: ['email'],
+        defaultEnabled: true,
+        mandatory: false,
+      });
+      expect(byKey.get('nodes.node_offline')).toMatchObject({
+        channels: ['email', 'browser'],
+        defaultEnabled: true,
+        mandatory: false,
+      });
+      expect(byKey.get('db_backup.backup_failed')).toMatchObject({
+        channels: ['email', 'browser'],
+        defaultEnabled: true,
+        mandatory: false,
+      });
+      expect(byKey.get('db_backup.restore_completed')).toMatchObject({
+        channels: ['email', 'browser'],
+        defaultEnabled: true,
+        // The one the user may not switch off.
+        mandatory: true,
+      });
+    });
+
+    it('gives every one of the four a non-empty label and description for the matrix to render', async () => {
+      const events = await controller.listEvents();
+
+      for (const key of [
+        'jobs.job_failed',
+        'nodes.node_offline',
+        'db_backup.backup_failed',
+        'db_backup.restore_completed',
+      ]) {
+        const event = events.find((candidate) => candidate.key === key);
+
+        expect(event).toBeDefined();
+        expect(event!.label.trim().length).toBeGreaterThan(0);
+        expect(event!.description.trim().length).toBeGreaterThan(0);
+      }
+    });
+
+    it('drops browser from the muteable operational events when the admin kill switch is off, but not from the mandatory one', async () => {
+      // `channels` is capability ∩ policy, and a `mandatory` event is the
+      // documented exception: its stored notification IS the delivery, so the
+      // policy shows up as `toast: false` on the stream instead.
+      mockPolicy.getPolicy.mockResolvedValue({
+        browserEnabled: false,
+        disabledEvents: [],
+      });
+
+      const events = await controller.listEvents();
+      const byKey = new Map(events.map((event) => [event.key, event]));
+
+      expect(byKey.get('nodes.node_offline')!.channels).toEqual(['email']);
+      expect(byKey.get('db_backup.backup_failed')!.channels).toEqual(['email']);
+      expect(byKey.get('db_backup.restore_completed')!.channels).toEqual([
+        'email',
+        'browser',
+      ]);
+    });
+  });
+
   describe('GET /config', () => {
     it('reflects pushEnabled: false and vapidPublicKey: null when no VAPID keys are configured', async () => {
       mockPushSubscriptions.isEnabled.mockReturnValue(false);

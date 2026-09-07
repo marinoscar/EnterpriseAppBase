@@ -923,6 +923,16 @@ only Postgres can: that `NULL < cutoff` is not true, that
 `Job.claimedByNode` really is `SetNull`, and that the reaper requeues a job
 whose node was deleted.
 
+## Notifying somebody a node went offline
+
+The sweep raises `nodes.node_offline` once per node it actually flips,
+addressed to whoever holds `nodes:read`. That is why the sweep's single
+statement is `updateManyAndReturn` rather than `updateMany`: still one atomic
+`UPDATE`, still safe to run from several replicas, but it answers "which rows
+did *I* change?" — which a count cannot, and which a per-node message needs.
+The recipient rule is in
+[`browser-notifications.md` §10](browser-notifications.md#10-operational-events-an-audience-that-is-a-permission-not-a-user).
+
 ## Rejected alternatives
 
 **Reuse `PersonalAccessToken` for nodes.** The whole of §1. A leaked worker

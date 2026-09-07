@@ -4,6 +4,9 @@ import { Readable } from 'node:stream';
 import { Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
+import type { ConfigService } from '@nestjs/config';
+
+import type { NotificationsService } from '../notifications/notifications.service';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { SystemSettingsService } from '../settings/system-settings/system-settings.service';
 import type { StorageProvider } from '../storage/providers/storage-provider.interface';
@@ -164,6 +167,10 @@ interface HarnessOptions {
   dumpStdout?: Readable;
   /** What retention reports, or an error it (contractually cannot) throw. */
   pruneImpl?: () => Promise<BackupPruneResult>;
+  /** #288: what `ConfigService.get('appUrl')` returns. */
+  appUrl?: string;
+  /** #288: a notifier that misbehaves, for the containment assertions. */
+  notifyImpl?: () => Promise<void>;
 }
 
 function makeHarness(options: HarnessOptions = {}) {
@@ -317,17 +324,34 @@ function makeHarness(options: HarnessOptions = {}) {
       },
     } as BackupTimers);
 
+  // #288's notifier. A jest mock rather than the real service: what this suite
+  // proves about it is that a FAILING one cannot fail a backup, which needs a
+  // seam that can be made to throw.
+  const notifyPermissionHolders: jest.Mock = jest.fn(async (..._args: unknown[]) => {
+    if (options.notifyImpl) await options.notifyImpl();
+  });
+  const notifications = {
+    notifyPermissionHolders,
+  } as unknown as NotificationsService;
+
+  const config = {
+    get: jest.fn((key: string) => (key === 'appUrl' ? options.appUrl : undefined)),
+  } as unknown as ConfigService;
+
   const service = new DatabaseBackupRunnerService(
     prisma as unknown as PrismaService,
     settings as unknown as SystemSettingsService,
     storage as unknown as StorageProvider,
     retention as unknown as DatabaseBackupRetentionService,
+    notifications,
+    config,
     engine,
     timers
   );
 
   return {
     service,
+    notifyPermissionHolders,
     prisma,
     settings,
     storage,
@@ -852,6 +876,127 @@ describe('the failure path', () => {
 
     expect(h.engine.startDump).toHaveBeenCalledTimes(1);
     expect(h.prisma.databaseBackupRun.create).toHaveBeenCalledTimes(1);
+  });
+});
+
+// =============================================================================
+// `db_backup.backup_failed` (#288, epic #254)
+// =============================================================================
+
+describe('the failure path raises db_backup.backup_failed', () => {
+  it('raises it once, after the failed row has been written', async () => {
+    const h = makeHarness();
+    await h.service.startBackup({ trigger: 'scheduled' });
+    (await h.firstDump()).die(new Error('pg_dump exited with code 1'));
+    await h.settled;
+    await tick();
+
+    expect(h.notifyPermissionHolders).toHaveBeenCalledTimes(1);
+    expect(h.notifyPermissionHolders.mock.calls[0][0]).toBe('db_backup.backup_failed');
+    // `db_backup:read` — the exact string `db-backup.controller.ts` enforces.
+    expect(h.notifyPermissionHolders.mock.calls[0][1]).toBe('db_backup:read');
+  });
+
+  it("carries outcome 'failed', the run id, the error and the trigger", async () => {
+    const h = makeHarness({ appUrl: 'https://app.example.com/' });
+    await h.service.startBackup({ trigger: 'manual' });
+    (await h.firstDump()).die(new Error('server closed the connection'));
+    const row = await h.settled;
+    await tick();
+
+    const payload = h.notifyPermissionHolders.mock.calls[0][2];
+
+    expect(payload).toMatchObject({
+      runId: row.id,
+      // NOT 'stale'. Something observed this run break and wrote down what; the
+      // sweep's give-up is the case where nothing did.
+      outcome: 'failed',
+      error: 'server closed the connection',
+      trigger: 'manual',
+      // Trailing slash trimmed, exactly as `UsersService.appUrl()` does it.
+      appUrl: 'https://app.example.com',
+    });
+    expect(payload.failedAt).toBeInstanceOf(Date);
+  });
+
+  it('raises NOTHING on a run that completed', async () => {
+    const h = makeHarness();
+    await h.service.startBackup({ trigger: 'scheduled' });
+    (await h.firstDump()).finish();
+    await h.settled;
+    await tick();
+
+    expect(h.notifyPermissionHolders).not.toHaveBeenCalled();
+  });
+
+  it('raises NOTHING when the failure row could not even be written', async () => {
+    // The row is still `running` from the table's point of view, so the stale
+    // sweep will settle it and raise the event with a `stale` outcome. Raising
+    // it here as well would mail two contradictory failure notices for one
+    // failure.
+    const h = makeHarness();
+    await h.service.startBackup({ trigger: 'scheduled' });
+
+    h.prisma.databaseBackupRun.update.mockRejectedValue(new Error('database is down'));
+
+    (await h.firstDump()).die(new Error('pg_dump exited with code 1'));
+    await tick();
+    await tick();
+
+    expect(h.notifyPermissionHolders).not.toHaveBeenCalled();
+  });
+
+  // ---------------------------------------------------------------------------
+  // CONTAINMENT — the #288 acceptance criterion
+  // ---------------------------------------------------------------------------
+
+  it('a THROWING notifier does not stop the run being recorded as failed', async () => {
+    const h = makeHarness({
+      notifyImpl: () => {
+        throw new Error('the notifier exploded');
+      },
+    });
+
+    await h.service.startBackup({ trigger: 'scheduled' });
+    (await h.firstDump()).die(new Error('pg_dump exited with code 1'));
+
+    const row = await h.settled;
+    await tick();
+
+    expect(row.status).toBe('failed');
+    expect(row.lastError).toContain('pg_dump exited with code 1');
+  });
+
+  it('a notifier that REJECTS does not stop the run being recorded as failed either', async () => {
+    const h = makeHarness({
+      notifyImpl: async () => {
+        throw new Error('dispatch blew up');
+      },
+    });
+
+    await h.service.startBackup({ trigger: 'scheduled' });
+    (await h.firstDump()).die(new Error('pg_dump exited with code 1'));
+
+    const row = await h.settled;
+    await tick();
+
+    expect(row.status).toBe('failed');
+  });
+
+  it('a THROWING notifier does not stop a SUCCESSFUL run either — it is never reached', async () => {
+    const h = makeHarness({
+      notifyImpl: () => {
+        throw new Error('the notifier exploded');
+      },
+    });
+
+    await h.service.startBackup({ trigger: 'scheduled' });
+    (await h.firstDump()).finish();
+
+    const row = await h.settled;
+    await tick();
+
+    expect(row.status).toBe('completed');
   });
 });
 

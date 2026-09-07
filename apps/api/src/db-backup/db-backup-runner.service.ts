@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { Readable, Transform } from 'node:stream';
 
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   DatabaseBackupRun,
   DatabaseBackupTrigger,
@@ -24,6 +25,9 @@ import {
   BACKUP_CONTENT_TYPE,
   buildBackupStorageKey,
 } from './db-backup-storage';
+import { PERMISSIONS } from '../common/constants/roles.constants';
+import type { BackupFailedEmailData } from '../email';
+import { NotificationsService } from '../notifications/notifications.service';
 import { DatabaseBackupRetentionService } from './db-backup-retention.service';
 import {
   DatabaseBackupAlreadyRunningError,
@@ -419,6 +423,11 @@ export class DatabaseBackupRunnerService {
     // fork can wire up so that nothing ever deletes an archive — and that
     // failure is invisible until the bucket is full.
     private readonly retention: DatabaseBackupRetentionService,
+    // #288 (epic #254). REQUIRED, not an optional seam: a runner that could be
+    // constructed without a notifier is a runner a fork can wire so that a
+    // failed backup is silent, which is the failure this event exists for.
+    private readonly notifications: NotificationsService,
+    private readonly config: ConfigService,
     @Optional() @Inject(DB_BACKUP_ENGINE) engine?: DatabaseBackupEngine,
     @Optional() @Inject(DB_BACKUP_TIMERS) timers?: BackupTimers
   ) {
@@ -872,8 +881,10 @@ export class DatabaseBackupRunnerService {
   ): Promise<void> {
     this.logger.error(`Database backup run ${runId} failed: ${error.message}`);
 
+    let failed: DatabaseBackupRun;
+
     try {
-      await this.prisma.databaseBackupRun.update({
+      failed = await this.prisma.databaseBackupRun.update({
         where: { id: runId },
         data: {
           status: 'failed',
@@ -894,7 +905,84 @@ export class DatabaseBackupRunnerService {
         `Could not record the failure of database backup run ${runId}; the stale ` +
           `sweep will settle it: ${toError(writeError).message}`
       );
+
+      // ⚠ NO NOTIFICATION ON THIS BRANCH, DELIBERATELY. Nothing has been
+      // recorded, so the run is still `running` from the table's point of view,
+      // and the stale sweep will settle it and raise the event with a `stale`
+      // outcome. Raising it here as well would mail two failure notices for one
+      // failure, and the second one would contradict the row.
+      return;
     }
+
+    // ⚠ AFTER THE COMMIT, AND OUTSIDE ANY TRANSACTION. The `failed` row above
+    // is the fact; this is the report of it, and the report must not be able to
+    // change or delay the fact. `notifyPermissionHolders` is detached and never
+    // rejects, and the `void` is what says so at the call site.
+    this.announceFailure(failed, 'failed');
+  }
+
+  /**
+   * Raise `db_backup.backup_failed` for a settled run. Never throws.
+   *
+   * SHARED WITH THE STALE SWEEP in shape but not in code — the sweep
+   * (`tasks/db-backup-schedule.task.ts`) writes its own rows and raises its own
+   * event, because it is a different process settling a run this one never saw.
+   * What IS shared is the event key, the permission and the template; the two
+   * differ only in `outcome`, which is exactly the field that exists to record
+   * that difference.
+   */
+  private announceFailure(
+    run: DatabaseBackupRun,
+    outcome: BackupFailedEmailData['outcome']
+  ): void {
+    try {
+      // ANNOTATED WITH THE TEMPLATE'S TYPE: `notifyPermissionHolders` takes
+      // `data: unknown`, so this is the only place the shape is checked.
+      const payload: BackupFailedEmailData = {
+        runId: run.id,
+        outcome,
+        error: run.lastError,
+        startedAt: run.startedAt,
+        failedAt: run.finishedAt ?? new Date(),
+        trigger: run.trigger,
+        appUrl: this.appUrl(),
+      };
+
+      // `db_backup:read` — the exact string `db-backup.controller.ts` enforces.
+      //
+      // ⚠ `.catch()` DESPITE THE DISPATCHER CONTRACTING NEVER TO REJECT: that
+      // contract is `NotificationsService`'s, not this file's, and an unhandled
+      // rejection on a detached backup-failure path has nobody to report it to.
+      // The `try/catch` around this block cannot see a rejected promise.
+      void this.notifications
+        .notifyPermissionHolders(
+          'db_backup.backup_failed',
+          PERMISSIONS.DB_BACKUP_READ,
+          payload
+        )
+        .catch((error: unknown) => {
+          this.logger.error(
+            `Dispatching 'db_backup.backup_failed' for run ${run.id} rejected, ` +
+              `which the dispatcher contracts never to do: ${toError(error).message}`
+          );
+        });
+    } catch (error) {
+      this.logger.error(
+        `Could not raise 'db_backup.backup_failed' for run ${run.id}; the run's ` +
+          `${outcome} row is unaffected: ${toError(error).message}`
+      );
+    }
+  }
+
+  /**
+   * The application root, trailing slashes trimmed, or `undefined`.
+   *
+   * Same shape as `UsersService.appUrl()`; `undefined` makes the template omit
+   * its CTA rather than render a button that goes nowhere.
+   */
+  private appUrl(): string | undefined {
+    const appUrl = this.config.get<string>('appUrl');
+    return appUrl ? appUrl.replace(/\/+$/, '') : undefined;
   }
 
   /**
