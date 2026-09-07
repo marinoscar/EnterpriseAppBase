@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { Readable, Transform } from 'node:stream';
@@ -553,8 +553,29 @@ interface CarriedSelfLink {
   preRestoreBackupId: string;
 }
 
-/** An `audit_events` row written into the promoted database, after the renames. */
+/**
+ * An `audit_events` row written into the promoted database, after the renames.
+ *
+ * ⚠ THE `id` IS GENERATED HERE, not by the database. `audit_events.id` lost its
+ * server-side default in `20260831014110_drop_stale_uuid_defaults` — every
+ * other id in this application is generated client-side by Prisma — so an
+ * INSERT that leaves the column out raises a NOT NULL violation. It is carried
+ * on the row rather than minted at the moment of the INSERT for the same reason
+ * every other value here is: {@link CarriedCatalog} is the complete description
+ * of what the swap will write, and {@link DatabaseRestoreService.reinsertCatalog}
+ * only binds what it was given.
+ *
+ * FRESHLY GENERATED, NOT PRESERVED, and that is the difference from
+ * {@link CarriedRun.id}. A run is an EXISTING row read out of the database
+ * being displaced, so carrying it over must preserve its identity or the
+ * promoted copy would be a duplicate. This audit row has no original: nothing
+ * ever wrote `db_restore:complete` anywhere — {@link exportCatalog}'s caller
+ * builds it in memory precisely so it lands only in the database that survives
+ * the swap. There is no id to preserve, so a new one is correct.
+ */
 interface CarriedAudit {
+  /** A v4 UUID. See the note above: `audit_events` has no server-side default. */
+  id: string;
   actorUserId: string | null;
   action: string;
   targetType: string;
@@ -654,10 +675,25 @@ SET pre_restore_backup_id = (SELECT id FROM database_backup_runs WHERE id = $2::
 WHERE id = $1::uuid
 `.trim();
 
-/** The completion audit row, written into the promoted database. */
+/**
+ * The completion audit row, written into the promoted database.
+ *
+ * ⚠ `id` IS SUPPLIED, exactly as {@link CARRY_RUN_SQL} supplies it — see
+ * {@link CarriedAudit} for where the value comes from and why it is a new one.
+ * Omitting it relied on a server-side default that
+ * `20260831014110_drop_stale_uuid_defaults` removed, which made this INSERT
+ * fail on every real restore; {@link DatabaseRestoreService.reinsertCatalog}
+ * never throws, so the only trace was a `CRITICAL` log line and the record of
+ * the restore was missing from the one database anybody would look in (#337).
+ *
+ * The actor goes through the same subselect as {@link CARRY_RUN_SQL}'s two user
+ * FKs, and for the same reason: the promoted database's `users` is the
+ * ARCHIVE's, so an administrator created after the backup was taken is not in
+ * it, and a plain value would raise a foreign-key violation.
+ */
 const CARRY_AUDIT_SQL = `
-INSERT INTO audit_events (actor_user_id, action, target_type, target_id, meta)
-VALUES ((SELECT id FROM users WHERE id = $1::uuid), $2, $3, $4, $5::jsonb)
+INSERT INTO audit_events (id, actor_user_id, action, target_type, target_id, meta)
+VALUES ($1::uuid, (SELECT id FROM users WHERE id = $2::uuid), $3, $4, $5, $6::jsonb)
 `.trim();
 
 /** Tables in a non-system schema — the "did anything actually arrive" check. */
@@ -1536,7 +1572,8 @@ export class DatabaseRestoreService {
       restoreOldDb: string | null;
       swappedAt: string | null;
       preRestoreBackupId: string | null;
-      audit: CarriedAudit;
+      /** Without its `id`: this function mints it. See {@link CarriedAudit}. */
+      audit: Omit<CarriedAudit, 'id'>;
     }
   ): Promise<CarriedCatalog> {
     const rows = await this.prisma.databaseBackupRun.findMany({
@@ -1590,7 +1627,7 @@ export class DatabaseRestoreService {
       if (link !== null) selfLinks.push({ id: row.id, preRestoreBackupId: link });
     }
 
-    return { runs, selfLinks, audit: postSwap.audit };
+    return { runs, selfLinks, audit: { id: randomUUID(), ...postSwap.audit } };
   }
 
   /**
@@ -1657,6 +1694,7 @@ export class DatabaseRestoreService {
           }
 
           await client.query(CARRY_AUDIT_SQL, [
+            catalog.audit.id,
             catalog.audit.actorUserId,
             catalog.audit.action,
             catalog.audit.targetType,
