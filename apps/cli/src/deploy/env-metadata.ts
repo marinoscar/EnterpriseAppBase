@@ -146,8 +146,11 @@ export const ENV_METADATA: Readonly<Record<string, EnvVarMetadata>> = {
 
   // --- Database ------------------------------------------------------------
   // Asked explicitly rather than defaulted: .env.example says `localhost`
-  // while base.compose.yml falls back to `db`, and no compose file defines a
-  // `db` service. Inheriting either would be wrong.
+  // while base.compose.yml falls back to `db`, and which of the two is right
+  // depends on where the process runs, not on the deployment. `db` is a compose
+  // service name that only resolves INSIDE the stack (devdb.compose.yml defines
+  // it); `localhost` only works from the host. Inheriting either blindly would
+  // be wrong for the other case.
   POSTGRES_HOST: { essential: true },
   POSTGRES_PORT: { validate: validatePort },
   POSTGRES_USER: { essential: true },

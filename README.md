@@ -108,6 +108,19 @@ host, a managed instance). If you don't already have one, add the opt-in
 docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml up
 ```
 
+> **First run on a new machine:** `base.compose.yml` attaches the API to an
+> external Docker network named `devnet`, so the very first `docker compose up`
+> on a host fails with *network devnet declared as external, but could not be
+> found* until it exists. Create it once per machine:
+>
+> ```bash
+> docker network create devnet
+> ```
+>
+> It exists so that several applications built from this template can share one
+> PostgreSQL container on a development host. You need it even when you are not
+> sharing anything — the network is declared unconditionally.
+
 Already running your own PostgreSQL 16? Point the `POSTGRES_*` variables in
 `.env` at it and leave the overlay out:
 
