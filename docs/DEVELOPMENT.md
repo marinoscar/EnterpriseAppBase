@@ -620,7 +620,7 @@ const response = await request(app.getHttpServer())
 1. Create DTO with Zod schema
 2. Add controller method with guards
 3. Implement service method with business logic
-4. Add OpenAPI decorators for documentation (see [`docs/specs/api-documentation.md`](specs/api-documentation.md))
+4. Add OpenAPI decorators for documentation (see [API.md § How the document is built](API.md#how-the-document-is-built))
 5. Write tests (unit + integration)
 6. Update API.md documentation
 

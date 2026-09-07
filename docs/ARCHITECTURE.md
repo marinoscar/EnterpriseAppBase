@@ -191,7 +191,7 @@ All components served from the same base URL via Nginx reverse proxy:
 - **Consistent**: Standardized response format for success and errors
 - **Documented**: Every endpoint documented with OpenAPI decorators; the published
   document is assembled in `apps/api/src/openapi/` and linted by Spectral in CI
-  (see [`docs/specs/api-documentation.md`](specs/api-documentation.md))
+  (see [API.md § How the document is built](API.md#how-the-document-is-built))
 
 ### 3.5 Observable by Design
 
