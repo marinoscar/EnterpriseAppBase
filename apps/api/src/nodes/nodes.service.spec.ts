@@ -46,6 +46,7 @@ import { z } from 'zod';
 
 import { JobClaimService } from '../jobs/job-claim.service';
 import { JobHandlerRegistry } from '../jobs/job-handler.registry';
+import { JobLeaseService } from '../jobs/job-lease.service';
 import { JobTerminalService } from '../jobs/job-terminal.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { createMockPrismaService, MockPrismaService } from '../../test/mocks/prisma.mock';
@@ -162,6 +163,14 @@ describe('NodesService', () => {
       config,
       claims as unknown as JobClaimService,
       terminal as unknown as JobTerminalService,
+      // THE REAL SERVICE OVER THE SAME PRISMA STUB, not a mock (#347). The
+      // point of moving the renewal guard into `JobLeaseService` is that this
+      // endpoint stops carrying its own copy — a mocked renewer would let a
+      // future refactor drop `leaseExpiresAt: { gt: now }` from the shared
+      // predicate with this suite still green, which is the one thing these
+      // cases exist to prevent. The assertions below still read
+      // `prisma.job.updateMany`, because that is still where the write lands.
+      new JobLeaseService(prisma as unknown as PrismaService),
       registry
     );
   });
@@ -597,6 +606,12 @@ describe('NodesService', () => {
         claimedByNodeId: NODE_ID,
         status: 'running',
       });
+      // And the clause that makes the guard a guard rather than a filter: a
+      // lease that has ALREADY passed may not be renewed, because by then the
+      // reaper may have handed the row to somebody else.
+      expect(
+        (prisma.job.updateMany as jest.Mock).mock.calls[0][0].where.leaseExpiresAt.gt
+      ).toBeInstanceOf(Date);
     });
 
     it('409s once the lease has expired, and writes nothing', async () => {

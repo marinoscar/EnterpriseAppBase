@@ -42,6 +42,7 @@ import { Job, PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 
 import { JobClaimService } from '../../src/jobs/job-claim.service';
+import { JobLeaseService } from '../../src/jobs/job-lease.service';
 import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
 import { JobTerminalService } from '../../src/jobs/job-terminal.service';
 import { NodesService } from '../../src/nodes/nodes.service';
@@ -118,6 +119,8 @@ describeWithDb('A node and the in-process worker claiming concurrently (real Pos
       // Never reached: this suite claims and never settles. Passing a stub
       // rather than a real one keeps the suite's failure surface to the claim.
       {} as unknown as JobTerminalService,
+      // Never reached either: this suite claims and never renews.
+      {} as unknown as JobLeaseService,
       registry
     );
 

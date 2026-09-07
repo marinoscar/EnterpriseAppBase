@@ -10,6 +10,7 @@ import { JobAdminService } from './job-admin.service';
 import { JobInsightsService } from './job-insights.service';
 import { JobClaimService } from './job-claim.service';
 import { JobHandlerRegistry } from './job-handler.registry';
+import { JobLeaseService } from './job-lease.service';
 import { JobStuckService } from './job-stuck.service';
 import { JobTerminalService } from './job-terminal.service';
 import { JobWorker } from './job.worker';
@@ -121,6 +122,16 @@ import { TempFileJanitorTask } from './tasks/temp-file-janitor.task';
 // own terminal update" the obviously wrong path rather than the only
 // available one, the same argument `JobClaimService` makes for the claim.
 //
+// `JobLeaseService` is exported for the same reason `JobClaimService` is, and
+// it is the third member of that set (#347): claiming a row, KEEPING it, and
+// settling it are the three writes an executor makes, and both executors —
+// the in-process worker and the node control plane — must make each of them
+// with the same statement. Renewal was the one of the three that had no shared
+// implementation, so the in-process worker simply did not do it, and every job
+// that ran longer than the stuck threshold was reaped mid-run and executed
+// twice. Exporting it makes "write your own lease update" the obviously wrong
+// path rather than the only available one.
+//
 // `ProviderThrottleService` is exported because a fork's handler needs it
 // twice: once at `onModuleInit` to map its job type to a provider key, and
 // once around the provider call itself to `acquire()` the gate. Neither is
@@ -182,6 +193,7 @@ import { TempFileJanitorTask } from './tasks/temp-file-janitor.task';
     JobHistoryPurgeHandler,
     JobsService,
     JobClaimService,
+    JobLeaseService,
     ProviderThrottleService,
     JobTerminalService,
     JobStuckService,
@@ -197,6 +209,7 @@ import { TempFileJanitorTask } from './tasks/temp-file-janitor.task';
     JobHistoryPurgeHandler,
     JobsService,
     JobClaimService,
+    JobLeaseService,
     ProviderThrottleService,
     JobTerminalService,
     JobStuckService,

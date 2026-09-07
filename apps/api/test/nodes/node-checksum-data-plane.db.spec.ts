@@ -60,6 +60,7 @@ import { Readable } from 'node:stream';
 
 import { ExampleChecksumHandler } from '../../src/jobs/handlers/example-checksum.handler';
 import { JobClaimService } from '../../src/jobs/job-claim.service';
+import { JobLeaseService } from '../../src/jobs/job-lease.service';
 import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
 import { JobTerminalService } from '../../src/jobs/job-terminal.service';
 import { JobsService } from '../../src/jobs/jobs.service';
@@ -301,6 +302,9 @@ describeWithDb('example.checksum end to end on a worker node (real Postgres)', (
         new EventEmitter2(),
         registry
       ),
+      // The real lease service over the same client (#347): renewal is a real
+      // write on the row this suite is exercising, so a stub would hide it.
+      new JobLeaseService(service),
       registry
     );
     dataPlane = new NodeDataPlaneService(service, config, nodes, storage);

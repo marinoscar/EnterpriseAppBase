@@ -37,6 +37,7 @@ import { Job, PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 
 import { JobClaimService } from '../../src/jobs/job-claim.service';
+import { JobLeaseService } from '../../src/jobs/job-lease.service';
 import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
 import { JobTerminalService } from '../../src/jobs/job-terminal.service';
 import { ProviderThrottleService } from '../../src/jobs/provider-throttle.service';
@@ -126,7 +127,17 @@ describeWithDb('The node lease boundary (real Postgres)', () => {
       registry
     );
 
-    nodes = new NodesService(prismaService, config, claims, terminal, registry);
+    nodes = new NodesService(
+      prismaService,
+      config,
+      claims,
+      terminal,
+      // THE REAL SERVICE (#347). This suite is about the lease boundary
+      // itself, so the renewal write must be the shipped one — the guard it
+      // carries is exactly what these cases probe.
+      new JobLeaseService(prismaService),
+      registry
+    );
   });
 
   afterEach(async () => {

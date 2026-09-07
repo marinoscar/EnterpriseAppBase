@@ -124,8 +124,13 @@ import { Job, NodeStatus, Prisma, WorkerNode } from '@prisma/client';
 import { z } from 'zod';
 
 import { JobClaimService } from '../jobs/job-claim.service';
-import { buildClaimLeases, resolveJobProfile } from '../jobs/job-execution-profile';
+import {
+  buildClaimLeases,
+  resolveJobProfile,
+  resolveRenewIntervalMs,
+} from '../jobs/job-execution-profile';
 import { JobHandlerRegistry } from '../jobs/job-handler.registry';
+import { JobLeaseService } from '../jobs/job-lease.service';
 import { jobTypeLabel } from '../jobs/job-type-labels';
 import { JobSettleOutcome, JobTerminalService } from '../jobs/job-terminal.service';
 import { resolveJobLeaseMs } from '../jobs/job.worker';
@@ -226,6 +231,10 @@ export class NodesService {
     private readonly config: ConfigService,
     private readonly claims: JobClaimService,
     private readonly terminal: JobTerminalService,
+    // The renewal half of the claim (#347), shared verbatim with the
+    // in-process worker. See `renewLease` for why the guard it carries must
+    // not be written twice.
+    private readonly leases: JobLeaseService,
     private readonly registry: JobHandlerRegistry
   ) {}
 
@@ -580,6 +589,37 @@ export class NodesService {
   }
 
   /**
+   * How often a node should renew the lease on a job of `type`, in
+   * milliseconds — the server's answer, derived from the very lease the claim
+   * granted.
+   *
+   * ⚠ THE SERVER DERIVES THIS, NOT THE NODE, for the same reason the server
+   * derives the lease itself (see `claimJobs`): the renewal cadence and the
+   * lease are one arithmetic relationship, and letting the two ends compute
+   * their halves independently is how a node ends up renewing every 30 seconds
+   * against a lease it was never told about — or, worse, less often than the
+   * lease it holds, losing jobs it is actively running while doing everything
+   * right. `resolveRenewIntervalMs` is the one derivation, and it is a third
+   * of the lease so two consecutive missed renewals still cost nothing.
+   *
+   * The practical case that made this worth a wire field (#347): a type
+   * declaring a six-hour `maxRuntimeMs` takes a six-hour lease, and the CLI's
+   * shipped `DEFAULT_LEASE_RENEW_MS` of 30 seconds would spend 720 round trips
+   * on it to no purpose whatsoever.
+   *
+   * ADDITIVE AND BACKWARD-COMPATIBLE on both ends: a node that ignores the
+   * field keeps its own cadence and stays correct, and this method is total —
+   * an unregistered type falls back through `resolveJobProfile`/
+   * `resolveJobLeaseMs` to the deployment-wide lease exactly as the claim
+   * would have.
+   */
+  renewIntervalMsFor(type: string): number {
+    return resolveRenewIntervalMs(
+      resolveJobLeaseMs(this.config, resolveJobProfile(this.registry.get(type)))
+    );
+  }
+
+  /**
    * Extends the lease on a job this node is still legitimately holding.
    *
    * ⚠ THE WRITE RE-ASSERTS THE GUARD IN ITS OWN `WHERE` CLAUSE rather than
@@ -591,6 +631,21 @@ export class NodesService {
    * no longer running. `updateMany` with the ownership conditions makes the
    * check and the write the same statement; a zero count means the state
    * moved, which is a 409 exactly as a stale read would have been.
+   *
+   * ⚠ THAT GUARD NOW LIVES IN `JobLeaseService.heldLeaseWhere` (#347), NOT
+   * HERE, and moving it there was the point of that issue rather than tidying.
+   * The in-process worker renews too now, and "a lease that has already
+   * expired may not be renewed, because another executor may own the row" is a
+   * claim about the queue's invariants, not about this endpoint. Written twice
+   * it drifts exactly once — somebody relaxes the expiry predicate on one side
+   * to stop a flaky node losing jobs, and from then on that side can resurrect
+   * a lease on a row the reaper has already given away. This is the same
+   * argument `resolveJobLeaseMs` makes about deriving the lease: one function,
+   * one rule, both executors.
+   *
+   * The 409 stays here, because it is the only part that is about HTTP: the
+   * shared service answers `false`, and only a caller who has a remote client
+   * waiting turns that into a status code.
    */
   async renewLease(
     userId: string,
@@ -607,17 +662,12 @@ export class NodesService {
       Date.now() + resolveJobLeaseMs(this.config, resolveJobProfile(this.registry.get(job.type)))
     );
 
-    const { count } = await this.prisma.job.updateMany({
-      where: {
-        id: job.id,
-        claimedByNodeId: nodeId,
-        status: 'running',
-        leaseExpiresAt: { gt: new Date() },
-      },
-      data: { leaseExpiresAt },
-    });
+    // `renewUntil`, not `renew`: the instant written to the row has to be the
+    // instant reported in the response, or the node schedules its next
+    // renewal against a deadline the reaper does not read.
+    const held = await this.leases.renewUntil(job.id, leaseExpiresAt, nodeId);
 
-    if (count === 0) {
+    if (!held) {
       throw this.notHeldByNode(jobId, nodeId);
     }
 
