@@ -1,4 +1,11 @@
-# Enterprise Application Foundation
+<!-- The title and the sentence below the badge are the product's identity.
+     `node scripts/rename.mjs --name "..."` rewrites both, together with the
+     identity strings no runtime read can reach. See docs/RENAMING.md.
+
+     If the title below still reads like a placeholder, this fork has not been
+     renamed yet. -->
+
+# My App
 
 [![CI](https://github.com/marinoscar/EnterpriseAppBase/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/marinoscar/EnterpriseAppBase/actions/workflows/ci.yml)
 
@@ -41,7 +48,25 @@ A production-grade full-stack application foundation built with React, NestJS, a
 
 - Node.js 24+ (see `.nvmrc`; enforced by the `engines` field)
 - Docker Desktop
+- PostgreSQL 16, reachable from the API container — `base.compose.yml` deliberately has no `db` service (see Quick Start step 3 for the easy path)
 - Google OAuth credentials (from [Google Cloud Console](https://console.cloud.google.com))
+
+## Starting a new project from this template
+
+This repository is a template, not a finished product — a production-grade
+foundation (auth, RBAC, settings, observability, a background job queue,
+worker nodes) meant to be forked and renamed rather than deployed as-is.
+Rebranding it — product name, repo, brand colours, and every identity string
+that can't derive from a single manifest at runtime — is one command:
+
+```bash
+node scripts/rename.mjs --name "Your Product Name" --repo you/your-repo --theme '#7c3aed'
+```
+
+See **[docs/RENAMING.md](docs/RENAMING.md)** for the full guide: what the
+command touches, what it deliberately leaves alone, and the handful of
+manual steps (redoing the visual-test baselines, moving OAuth redirect URIs)
+that no codemod can do for you.
 
 ## Quick Start
 
@@ -72,19 +97,51 @@ GOOGLE_CLIENT_SECRET=your-client-secret
 
 ### 3. Start Application
 
+PostgreSQL is required, and it is **not** part of the base stack —
+`base.compose.yml` deliberately declares only `nginx`, `api`, and `web`, so a
+bundled database is never fighting a Postgres this repo doesn't own (a shared
+host, a managed instance). If you don't already have one, add the opt-in
+`devdb.compose.yml` overlay as a third `-f`:
+
 ```bash
 # From infra/compose directory
+docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml up
+```
+
+> **First run on a new machine:** `base.compose.yml` attaches the API to an
+> external Docker network named `devnet`, so the very first `docker compose up`
+> on a host fails with *network devnet declared as external, but could not be
+> found* until it exists. Create it once per machine:
+>
+> ```bash
+> docker network create devnet
+> ```
+>
+> It exists so that several applications built from this template can share one
+> PostgreSQL container on a development host. You need it even when you are not
+> sharing anything — the network is declared unconditionally.
+
+Already running your own PostgreSQL 16? Point the `POSTGRES_*` variables in
+`.env` at it and leave the overlay out:
+
+```bash
 docker compose -f base.compose.yml -f dev.compose.yml up
 ```
 
-### 4. Seed Database (CRITICAL - Must run before first login)
+### 4. Apply the Database Schema (CRITICAL - nothing works before this)
 
 ```bash
-# In a new terminal
-docker compose exec api sh
-cd /app/apps/api
-npx tsx prisma/seed.ts
-exit
+docker compose exec api npm run prisma:migrate
+```
+
+The API **does not migrate on startup**, deliberately — its container command is
+`node dist/main` and nothing else. A fresh database therefore has no tables at
+all until this runs, and the seed in the next step fails against it.
+
+### 5. Seed Database (CRITICAL - Must run before first login)
+
+```bash
+docker compose exec api npm run prisma:seed
 ```
 
 **Why seeding is required:**
@@ -92,13 +149,13 @@ exit
 - Creates permissions (users:read, users:write, etc.)
 - Without seeds, first login will fail with "Default role not found"
 
-### 5. Access Application
+### 6. Access Application
 
 - **Frontend**: http://localhost:3535
 - **API**: http://localhost:3535/api
 - **Swagger Docs**: http://localhost:3535/api/docs
 
-### 6. First Login
+### 7. First Login
 
 The first user to login with email matching `INITIAL_ADMIN_EMAIL` (from `.env`) will automatically be granted the **admin** role. All subsequent users get **viewer** role by default.
 
@@ -216,6 +273,7 @@ EnterpriseAppBase/
 - **[DEVICE-AUTH.md](docs/DEVICE-AUTH.md)** - Device Authorization Flow guide and integration examples
 - **[API.md](docs/API.md)** - Complete API reference
 - **[Deploying to a VPS](docs/deployment/vps.md)** - Operator runbook for `appctl deploy` (install, update, status on a real server); command reference in [`apps/cli/README.md`](apps/cli/README.md#deploying-to-a-server)
+- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** - Comprehensive system architecture and design decisions
 - **[Feature Specs](docs/specs/)** - Individual feature specifications — the design and rationale behind each major feature
 
 ## API Documentation
@@ -319,9 +377,7 @@ See [DEVELOPMENT.md](docs/DEVELOPMENT.md) for detailed guidance.
 Before your first login, you MUST seed the database:
 
 ```bash
-docker compose exec api sh
-cd /app/apps/api
-npx tsx prisma/seed.ts
+docker compose exec api npm run prisma:seed
 ```
 
 This creates roles, permissions, and default settings. Without seeding, OAuth login will fail.
@@ -351,7 +407,7 @@ If you're not the first admin, ask an existing admin to add your email to the al
 ### Database connection error
 **Solution:**
 1. Ensure containers are running: `docker compose ps`
-2. Verify the `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` values in `.env` point to a reachable PostgreSQL instance (the compose stack no longer bundles a `db` service, so PostgreSQL must be running separately)
+2. Verify the `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` values in `.env` point to a reachable PostgreSQL instance — the compose stack has no bundled `db` service (see Quick Start step 3), so either add the `devdb.compose.yml` overlay or confirm your own instance is reachable
 3. Restart the API container: `docker compose restart api`
 
 ### Port already in use

@@ -14,7 +14,8 @@
   },
   "files": [
     "index.js",
-    "index.d.ts"
+    "index.d.ts",
+    "identity.json"
   ],
   "scripts": {
     "typecheck": "echo 'No TypeScript sources (hand-written index.d.ts) - nothing to check'",

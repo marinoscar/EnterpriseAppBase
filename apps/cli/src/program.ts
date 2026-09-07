@@ -4,6 +4,7 @@ import { CLI_DISPLAY_NAME, CLI_NAME } from './branding.js';
 import { registerApiCommand } from './commands/api.js';
 import { registerConfigCommand } from './commands/config.js';
 import { registerDeployCommand } from './commands/deploy.js';
+import { registerInitCommand } from './commands/init.js';
 import { registerLoginCommand } from './commands/login.js';
 import { registerNodeCommand } from './commands/node.js';
 import { EXIT, exitCodeFor, formatError } from './errors.js';
@@ -63,7 +64,11 @@ export function buildProgram(): Command {
 
   // Registered here rather than in each command's own module so there is one
   // list of what this CLI can do, in the order it is shown in `--help`.
-  // `login` first: it is the only command that works before you have run it.
+  // `init` first: it is the only command that works before the application
+  // this CLI talks to can be started at all (#344), which puts it one step
+  // earlier than `login`.
+  registerInitCommand(program);
+  // `login` next: it is the only command that works before you have run it.
   // `api` second: it is the one people actually came for.
   registerLoginCommand(program);
   registerApiCommand(program);
