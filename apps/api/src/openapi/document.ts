@@ -10,7 +10,7 @@
 // alike, so the document CI lints is the document users get.
 // =============================================================================
 
-import { APP_NAME } from '@app/shared';
+import { APP_NAME, REPO_URL } from '@app/shared';
 import type { INestApplication } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import type { OpenAPIObject } from '@nestjs/swagger';
@@ -56,18 +56,21 @@ export function buildOpenApiConfig(version: string = resolveApiVersion()) {
     // so a schema-validating consumer (and Spectral) rightly fails on them.
     // Scalar renders 3.1 natively.
     .setOpenAPIVersion('3.1.0')
-    // The name is the product's and follows `APP_NAME`; the URL is this
-    // repository's and deliberately does not — a fork renames its product long
-    // before (or without ever) moving its source, so deriving the URL from the
-    // name would point readers at a repository that does not exist.
-    .setContact(
-      APP_NAME,
-      'https://github.com/marinoscar/EnterpriseAppBase',
-      '',
-    )
+    // The name is the product's and follows `APP_NAME`; the URL is the
+    // repository's and deliberately does not derive from the name — a fork
+    // renames its product long before (or without ever) moving its source, so
+    // building the URL out of the name would point readers at a repository that
+    // does not exist. `REPO_URL` is the separate fact, from `@app/shared`.
+    //
+    // Derived rather than restated because this pair is PUBLISHED: both land in
+    // `/api/openapi.json`, which is what a consumer imports into Postman or
+    // generates an SDK from. A literal left behind by a fork does not merely go
+    // stale locally — it hands that fork's API consumers somebody else's
+    // repository as the place to read the docs and file issues.
+    .setContact(APP_NAME, REPO_URL, '')
     .setExternalDoc(
       'Architecture and operations documentation',
-      'https://github.com/marinoscar/EnterpriseAppBase/tree/main/docs',
+      `${REPO_URL}/tree/main/docs`,
     )
     // Same-origin: the UI is served at `/`, this API under `/api`, so a
     // relative server URL is correct for every deployment without templating.
