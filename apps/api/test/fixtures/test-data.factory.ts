@@ -101,6 +101,29 @@ export const mockPermissions = {
     name: 'broadcasts:write',
     description: 'Compose, schedule, cancel and send notification broadcasts',
   },
+  // Database backup (#283, epic #254). Seeded to Admin ONLY in
+  // `prisma/seed-data.ts`, and mirrored that way below — a fixture that were
+  // more generous than the seed would make an integration test asserting that a
+  // viewer is refused pass for the wrong reason.
+  //
+  // `db_backup:restore` is listed even though no route enforces it yet: it IS
+  // seeded to Admin today, and the fixture's job is to mirror the seed rather
+  // than to mirror the routes. #285 is the issue that gives it a controller.
+  dbBackupRead: {
+    id: randomUUID(),
+    name: 'db_backup:read',
+    description: 'View backup schedule, history and status',
+  },
+  dbBackupWrite: {
+    id: randomUUID(),
+    name: 'db_backup:write',
+    description: 'Configure the backup schedule and run a backup',
+  },
+  dbBackupRestore: {
+    id: randomUUID(),
+    name: 'db_backup:restore',
+    description: 'Restore the database from a backup',
+  },
 };
 
 export const mockRoles = {
@@ -398,6 +421,9 @@ export const rolePermissionsMap = {
     mockPermissions.nodesWrite,
     mockPermissions.broadcastsRead,
     mockPermissions.broadcastsWrite,
+    mockPermissions.dbBackupRead,
+    mockPermissions.dbBackupWrite,
+    mockPermissions.dbBackupRestore,
   ],
   contributor: [
     mockPermissions.userSettingsRead,
