@@ -1,7 +1,9 @@
 <!-- The title and the sentence below the badge are the product's identity.
-     `node scripts/rename.mjs --name "..."` rewrites both; see docs/RENAMING.md.
-     "My App" is the template's placeholder — if you are reading it in a fork,
-     the rename has not been run yet. -->
+     `node scripts/rename.mjs --name "..."` rewrites both, together with the
+     identity strings no runtime read can reach. See docs/RENAMING.md.
+
+     If the title below still reads like a placeholder, this fork has not been
+     renamed yet. -->
 
 # My App
 

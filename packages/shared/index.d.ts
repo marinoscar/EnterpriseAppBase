@@ -22,7 +22,7 @@ export declare const THEME_COLOR: string;
 export declare const BACKGROUND_COLOR: string;
 
 /**
- * `APP_NAME` as a lowercase hyphenated token (`'My App'` -> `'my-app'`), for
+ * `APP_NAME` as a lowercase hyphenated token (`'Some Name'` -> `'some-name'`), for
  * the contexts where spaces and capitals are wrong.
  *
  * Typed `string`, not a literal — see the note on `APP_NAME`.

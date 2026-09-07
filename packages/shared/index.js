@@ -183,7 +183,7 @@ function slugify(name) {
 }
 
 /**
- * `APP_NAME` reduced to a lowercase hyphenated token: `'My App'` -> `'my-app'`.
+ * `APP_NAME` reduced to a lowercase hyphenated token: `'Some Name'` -> `'some-name'`.
  *
  * For the places that need the name in a context where spaces and capitals are
  * wrong — today that is the OpenTelemetry service name (`${APP_SLUG}-api`),

@@ -808,7 +808,7 @@ the CLI banner, the browser wordmark and the email templates together:
 ```json
 // packages/shared/identity.json
 {
-  "productName": "My App"
+  "productName": "Your Product Name"
 }
 ```
 

@@ -323,13 +323,19 @@ function writeManifest(next, { dryRun }) {
  * the CURRENT name (which `template-identity.test.ts` does).
  */
 function residualScan(old, next) {
+  // The theme colour is deliberately NOT scanned for. Unlike a product name it
+  // is an ambiguous token: `#1976d2` legitimately appears in an OAuth button, in
+  // contrast-ratio test fixtures and in doc comments that use it as an example,
+  // so scanning for it produces half a dozen false positives on every run and
+  // trains the reader to skim past the list. The two places that genuinely must
+  // follow it are the SVGs, which have explicit anchors above and a dedicated
+  // assertion in template-identity.test.ts.
   const stale = [
     [old.productName, next.productName],
     [old.repoSlug, next.repoSlug],
     [old.repoName, next.repoName],
     [old.serviceName, next.serviceName],
     [old.testDb, next.testDb],
-    [old.themeColor, next.themeColor],
   ].filter(([o, n]) => o !== n).map(([o]) => o);
 
   if (stale.length === 0) return [];
@@ -348,14 +354,29 @@ function residualScan(old, next) {
   const exempt = new Set(['CHANGELOG.md', ...DO_NOT_RENAME.map(([f]) => f)]);
   const findings = [];
 
+  // Match on word boundaries rather than as a bare substring, so a product name
+  // does not flag a longer word that merely starts with it (a product called
+  // "Bit" would otherwise flag every "Bitmap" in the repository). `\b` is only meaningful next to a word character, so it is
+  // applied per end of the pattern.
+  const patterns = stale.map((value) => {
+    const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const lead = /^\w/.test(value) ? '\\b' : '';
+    const tail = /\w$/.test(value) ? '\\b' : '';
+    return new RegExp(`${lead}${escaped}${tail}`);
+  });
+
   for (const file of files) {
     if (exempt.has(file)) continue;
     if (/\.(png|ico|jpg|jpeg|gif|woff2?|ttf|pdf|zip)$/i.test(file)) continue;
+    // Test files hold identity literals ON PURPOSE — as assertions that a name
+    // is absent, or as sample inputs to a slugify rule. Same carve-out, and the
+    // same reason, as template-identity.test.ts and env-prefix.test.ts.
+    if (/\.(test|spec)\.[cm]?[jt]sx?$/.test(file)) continue;
     let text;
     try { text = readFileSync(join(REPO_ROOT, file), 'utf8'); } catch { continue; }
     text.split('\n').forEach((line, i) => {
-      for (const value of stale) {
-        if (line.includes(value)) findings.push(`${file}:${i + 1}: ${line.trim().slice(0, 120)}`);
+      for (const pattern of patterns) {
+        if (pattern.test(line)) findings.push(`${file}:${i + 1}: ${line.trim().slice(0, 120)}`);
       }
     });
   }
