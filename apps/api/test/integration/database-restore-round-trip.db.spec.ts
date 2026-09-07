@@ -420,29 +420,24 @@ describeWithDb('Database restore orchestration against real Postgres', () => {
         expect.arrayContaining(['db_restore:start', 'db_restore:swap'])
       );
 
-      // ⚠ GENUINE DEFECT, DOCUMENTED HERE RATHER THAN WORKED AROUND (found by
-      // this suite, not fixed by it — that is `backend-dev`'s to fix).
-      // `db_restore:complete` is meant to be the one audit row written INTO
-      // the promoted database (`reinsertCatalog`, via `CARRY_AUDIT_SQL`), and
-      // it is currently NEVER written there: `CARRY_AUDIT_SQL`'s INSERT omits
-      // the `id` column and relies on a database-level DEFAULT that
-      // migration `20260831014110_drop_stale_uuid_defaults` deliberately
-      // dropped from `audit_events.id` (along with ten other tables) —
-      // Prisma now generates every one of those ids CLIENT-SIDE, which this
-      // raw-SQL insert never does. The result is a NOT NULL violation on
-      // every real restore, caught (by design — `reinsertCatalog` "NEVER
-      // THROWS") and only logged as `CRITICAL`, so the restore itself still
-      // succeeds and this failure is otherwise silent. `CARRY_RUN_SQL`,
-      // right next to it, does not have this bug — it supplies `id` as
-      // `$1::uuid` explicitly, which is exactly the fix `CARRY_AUDIT_SQL`
-      // needs too (e.g. `INSERT INTO audit_events (id, actor_user_id, ...)
-      // VALUES (gen_random_uuid(), ...)`).
+      // `db_restore:complete` is the one audit row written INTO the promoted
+      // database (`reinsertCatalog`, via `CARRY_AUDIT_SQL`), after the
+      // renames. It is the evidence the restore happened, in the only
+      // database anybody will open again — so its absence would be invisible:
+      // `reinsertCatalog` NEVER THROWS by design, and a failed carry-over is
+      // only a `CRITICAL` log line while the restore still reports success.
+      // That is exactly what #337 was — the INSERT omitted `id`, relying on a
+      // database-level DEFAULT that `20260831014110_drop_stale_uuid_defaults`
+      // dropped from `audit_events.id`, and this row was silently lost on
+      // every real restore.
       const promotedAudit = await withAdminConnection({ ...env.adminConnection, database: dbName }, (client) =>
-        client.query('SELECT action FROM audit_events WHERE target_id = $1::text ORDER BY id', [
-          knownRun.id,
-        ])
+        client.query(
+          'SELECT id, action, target_id FROM audit_events WHERE target_id = $1::text ORDER BY id',
+          [knownRun.id]
+        )
       );
-      expect(promotedAudit.rows).toHaveLength(0);
+      expect(promotedAudit.rows.map((row) => row.action as string)).toEqual(['db_restore:complete']);
+      expect(promotedAudit.rows[0].id).toEqual(expect.any(String));
 
       // The promoted database really is the replayed archive, not an empty
       // shell that merely carried the catalog over: it boots (a real,
