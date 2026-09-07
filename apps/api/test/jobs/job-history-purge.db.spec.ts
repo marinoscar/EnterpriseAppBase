@@ -37,6 +37,13 @@ const { describeWithDb } = resolveDbSuite('job-history-purge.db.spec');
 const RETENTION_DAYS = 30;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+// Reads the clock on every call. A seeder that derives more than one field of
+// the SAME row from `daysAgo(...)` — e.g. `startedAt` and `finishedAt`, whose
+// difference is asserted to equal an exact `durationMs` — MUST call this once
+// and reuse the result. Calling it twice for one row lets the millisecond
+// tick between the two reads, which silently inflates that row's derived
+// duration by 1ms and made `sumDurationMs` assertions flake under load (see
+// issue #263 follow-up: "conserves lifetime totals across a purge").
 const daysAgo = (days: number): Date => new Date(Date.now() - days * DAY_MS);
 
 /** The job row the handler is "running as"; only its id is ever read. */
@@ -173,27 +180,37 @@ describeWithDb('JobHistoryPurgeHandler (real Postgres)', () => {
   }
 
   /** A succeeded row that finished `days` ago, having taken `durationMs`. */
-  const succeeded = (type: string, days: number, durationMs: number) =>
-    seed({
+  const succeeded = (type: string, days: number, durationMs: number) => {
+    // One clock read for the whole row: `startedAt` and `finishedAt` are
+    // subtracted from each other to recover `durationMs` exactly, so both
+    // (and `createdAt`, compared against them for ordering) must come from
+    // the same instant — see the comment at `daysAgo` above.
+    const at = daysAgo(days);
+
+    return seed({
       type,
       status: 'succeeded',
       attempts: 1,
-      createdAt: daysAgo(days),
-      startedAt: new Date(daysAgo(days).getTime() - durationMs),
-      finishedAt: daysAgo(days),
+      createdAt: at,
+      startedAt: new Date(at.getTime() - durationMs),
+      finishedAt: at,
     });
+  };
 
   /** A failed row that finished `days` ago. */
-  const failed = (type: string, days: number) =>
-    seed({
+  const failed = (type: string, days: number) => {
+    const at = daysAgo(days); // single read — see the comment at `daysAgo`.
+
+    return seed({
       type,
       status: 'failed',
       attempts: 3,
-      createdAt: daysAgo(days),
-      startedAt: daysAgo(days),
-      finishedAt: daysAgo(days),
+      createdAt: at,
+      startedAt: at,
+      finishedAt: at,
       lastError: 'nope',
     });
+  };
 
   const rollupFor = (type: string) => client.jobStatsRollup.findUnique({ where: { type } });
 
@@ -231,12 +248,13 @@ describeWithDb('JobHistoryPurgeHandler (real Postgres)', () => {
       status: 'pending',
       createdAt: daysAgo(RETENTION_DAYS * 10),
     });
+    const runningAt = daysAgo(RETENTION_DAYS * 10); // single read for both fields below.
     const running = await seed({
       type,
       status: 'running',
       attempts: 1,
-      createdAt: daysAgo(RETENTION_DAYS * 10),
-      startedAt: daysAgo(RETENTION_DAYS * 10),
+      createdAt: runningAt,
+      startedAt: runningAt,
     });
 
     await handler.process(PURGE_JOB);
