@@ -43,6 +43,15 @@ model User {
   pushSubscriptions      PushSubscription[]      @relation("UserPushSubscriptions")
   workerNodes            WorkerNode[]            @relation("UserWorkerNodes")
   nodeCredentials        NodeCredential[]        @relation("UserNodeCredentials")
+  // Two relations to ONE table, deliberately (#281, epic #254): a
+  // `database_backup_runs` row records both "who asked for this backup" and,
+  // once Phase 7 restores from it, "who restored it". They are different acts
+  // by (usually) different people at different times, so they are different
+  // columns and therefore different relation names. See the block comment
+  // above `DatabaseBackupRun` for why the restore audit lives on the backup's
+  // own row rather than in a second table.
+  databaseBackupRuns     DatabaseBackupRun[]     @relation("UserDatabaseBackupRuns")
+  databaseRestores       DatabaseBackupRun[]     @relation("UserDatabaseRestores")
   broadcastsCreated      NotificationBroadcast[] @relation("BroadcastAuthor")
 
   @@map("users")
@@ -1549,4 +1558,282 @@ model NodeCredential {
   // `@@index([userId])` for the identical query shape.
   @@index([userId])
   @@map("node_credentials")
+}
+
+// =============================================================================
+// Database Backup Runs (issue #281, epic #254)
+// =============================================================================
+//
+// One row per attempt to dump this deployment's PostgreSQL database into
+// object storage — and, from Phase 7 onwards, per attempt to restore FROM one.
+// `DatabaseBackupRunnerService` (`src/db-backup/db-backup-runner.service.ts`)
+// is the only writer of the backup half; the columns in the restore-audit
+// group are declared here now and written by #285.
+//
+// -----------------------------------------------------------------------------
+// ### Why this is not a queue job
+// -----------------------------------------------------------------------------
+//
+// This epic ships a perfectly good job queue (`Job`, above), and a backup is
+// obviously "background work". It is STILL not a queue job, and the reason is
+// not aesthetic — putting it on the queue corrupts backups:
+//
+//   1. `jobs.stuckThresholdMinutes` DEFAULTS TO 30 MINUTES. A dump of a real
+//      production database routinely runs longer than that. The lease reaper
+//      (`JobStuckResetTask`) would see a `running` job whose lease had
+//      expired, conclude its executor had died, and RESET IT TO `pending` —
+//      while `pg_dump` was still streaming. The next claim starts a SECOND
+//      `pg_dump`, writing to the SAME derived storage key as the first, and
+//      two processes interleave their output into one object. The backup that
+//      results is unrestorable, and nothing reports an error: both runs can
+//      exit 0.
+//   2. THE IN-PROCESS WORKER HAS NO LEASE-RENEWAL PATH. `JobWorker` claims
+//      with a lease and never extends it, so the reaper's verdict above is
+//      not a rare race — it is unconditional for any job that outlives the
+//      threshold. A remote node renews; the in-process worker, which is what
+//      a single-container deployment has, does not.
+//   3. A JOB HAS `attempts` AND A RETRY BUDGET. Automatically re-running a
+//      failed multi-gigabyte dump is exactly the wrong behaviour: it burns
+//      hours of I/O on a database that is probably already unwell, and the
+//      correct retry for a backup is "the next scheduled one", tomorrow.
+//
+// So this table has its OWN heartbeat (`lastHeartbeatAt`, written every ~20s
+// with live `bytesWritten`), its OWN staleness policy
+// (`databaseBackup.runStaleMinutes`, an operator-set number of MINUTES that
+// starts at 120 rather than 30) and its OWN terminal states. ⚠ DO NOT MIGRATE
+// THIS ONTO THE QUEUE. If a future issue wants the queue to *trigger* a
+// backup, the job may call `startBackup()` and return immediately — but the
+// dump's lifetime must never be a job's lifetime.
+//
+// -----------------------------------------------------------------------------
+// THE SINGLE-ACTIVE-RUN GUARD IS A PARTIAL UNIQUE INDEX, NOT APPLICATION CODE
+// -----------------------------------------------------------------------------
+//
+// `database_backup_runs_active_uniq_idx` (hand-written in
+// `prisma/migrations/20260907120000_add_database_backup_runs/migration.sql`)
+// is a UNIQUE index on `status` restricted to `status IN ('pending','running')`.
+// It is what makes "at most one backup at a time" true ACROSS REPLICAS.
+//
+// REJECTED: a `findFirst({ where: { status: 'running' } })` before the insert.
+// It is a check-then-act race, and it is racy exactly when it matters — a
+// scheduled tick on replica A and an admin's manual click on replica B, in
+// the same second. Both would see no active run, both would insert, and two
+// `pg_dump` processes would stream into two objects while the settings say
+// one backup a night. Only the database can make "is one already active"
+// atomic with the insert that would violate it.
+//
+// The loser's Prisma `P2002` becomes a typed `DatabaseBackupAlreadyRunningError`
+// carrying the winner's run id, which #282/#283 turn into a 409.
+//
+// ⚠ PRISMA CANNOT EXPRESS THIS INDEX — INTENTIONAL SCHEMA DRIFT. The schema
+// language has no syntax for a partial index, exactly as recorded above the
+// `Job` model for `jobs_active_dedup_uniq_idx` and its two siblings. So
+// `prisma migrate dev`/`diff` will not regenerate it and, if anyone diffs this
+// schema against a live database, will want to DROP it. That drift is
+// deliberate and permanent: do not "fix" it, and do not try to force it into
+// `@@unique` syntax that does not exist. The migration file carries the same
+// warning next to the statement itself.
+//
+// ⚠ WHAT THE INDEX ADMITS, PRECISELY. A unique index on `status` filtered to
+// two values permits at most one `pending` row AND at most one `running` row.
+// `DatabaseBackupRunnerService` inserts its claim directly as `running` and
+// never writes `pending`, so today that ceiling is exactly one active run.
+// `pending` exists in the enum as a declared lifecycle state (claimed, dump
+// not yet spawned) and is covered by the predicate so that a future path which
+// does insert one is still arbitrated by the database rather than by code. A
+// future path that needs BOTH states populated at once must first tighten this
+// index to a constant expression — it must not add an application-side check.
+//
+// -----------------------------------------------------------------------------
+// WHY THE RESTORE AUDIT LIVES ON THE BACKUP'S OWN ROW
+// -----------------------------------------------------------------------------
+//
+// `restoreStatus`, `restoreError`, `restoredAt`, `restoredById`,
+// `restoreScratchDb`, `restoreOldDb`, `swappedAt` and `preRestoreBackupId` are
+// all nullable and all belong to Phase 7. They are columns on THIS table
+// rather than a `database_restore_runs` table because A RESTORE IS ALWAYS
+// DEFINED IN TERMS OF EXACTLY ONE BACKUP: there is no restore without an
+// archive to restore, no archive is restored twice concurrently, and every
+// question anyone asks about a restore ("which dump was this?", "how big was
+// it?", "what migration was the schema on?") is answered by the backup's own
+// columns. A separate table would buy a join on a strict 1:1 relationship and
+// would let the two rows disagree about which archive was replayed.
+//
+// The cost is honest: a backup restored twice (a restore that failed, then
+// retried) overwrites the first attempt's audit fields. That is the correct
+// trade — the interesting record is the state of the LAST restore, and the
+// full history of attempts is in `audit_events`.
+//
+// `preRestoreBackupId` is a SELF-FK: before a restore swaps a database away,
+// #285 takes a `pre_restore` backup, and this column points the restore at the
+// safety net it took. `onDelete: SetNull`, so pruning that safety backup by
+// retention never deletes the restore record that referenced it.
+model DatabaseBackupRun {
+  id String @id @default(uuid()) @db.Uuid
+
+  // `pending` = claimed, dump not yet spawned. `running` = a `pg_dump` is
+  // streaming. `completed` = uploaded AND verified (see `verifiedAt`).
+  // `failed` = terminal, `lastError` says why. `stale` = the run's heartbeat
+  // stopped for longer than `databaseBackup.runStaleMinutes` and #282's sweep
+  // gave up on it — DISTINCT from `failed` on purpose, because nothing
+  // observed this run fail; the process holding it disappeared, and an
+  // operator reading the list needs to be able to tell "the dump errored"
+  // from "the container went away mid-dump".
+  status DatabaseBackupStatus @default(pending)
+
+  // `manual` = an administrator clicked. `scheduled` = #282's cron.
+  // `pre_restore` = the safety backup #285 takes immediately before swapping
+  // a restored database into place. No default: a run with no known origin is
+  // a run nobody can attribute, and every caller knows which it is.
+  trigger DatabaseBackupTrigger
+
+  // NULL until the dump is claimed / until it settles. `lastHeartbeatAt` is
+  // the liveness signal this table has INSTEAD of a job lease — see the
+  // "Why this is not a queue job" block above.
+  startedAt       DateTime? @map("started_at") @db.Timestamptz
+  finishedAt      DateTime? @map("finished_at") @db.Timestamptz
+  lastHeartbeatAt DateTime? @map("last_heartbeat_at") @db.Timestamptz
+
+  // BigInt, both of them, and NOT `Int`. A PostgreSQL dump crossing 2 GiB is
+  // ordinary, and `Int` is a signed 32-bit column that overflows at 2147483647
+  // bytes — the failure would be a write error on the LARGEST backups, i.e.
+  // exactly the deployments this feature exists for, and it would surface as
+  // a failed run rather than as a wrong number.
+  //
+  // ⚠ A `BigInt` field is the JS `bigint` primitive, which `JSON.stringify`
+  // REFUSES to serialise. #283's response DTO must convert these two to
+  // `string` (or `Number`) explicitly — see the note above `JobStatsRollup`
+  // for the same hazard, decided the other way there because that column is a
+  // running average and this one is a byte count that must stay exact.
+  //
+  // `bytesWritten` is LIVE PROGRESS, rewritten by the heartbeat while the dump
+  // streams; `sizeBytes` is the final size, written once at completion. They
+  // converge on success and deliberately do not on a failure, where the
+  // difference is "how far did it get".
+  bytesWritten BigInt @default(0) @map("bytes_written")
+  sizeBytes    BigInt @default(0) @map("size_bytes")
+
+  // The storage triple: WHICH provider, WHICH key, WHICH bucket. All three
+  // are recorded rather than derived on read, because all three can change
+  // under a deployment (a bucket rename, a provider swap) and a backup that
+  // cannot say where it was written is a backup nobody can restore. The key
+  // is chosen by the SERVER (`buildBackupStorageKey`), never by a caller.
+  storageProvider String @map("storage_provider")
+  storageKey      String @map("storage_key")
+  bucket          String
+
+  // `pg_dump`'s archive format — `custom` (`-Fc`) for everything this
+  // repository writes. Stored so a future format change does not make old
+  // archives unreadable-by-inspection: `pg_restore` needs to know, and
+  // guessing from the key's extension is not knowing.
+  format String
+
+  // sha256 of the archive, computed IN THE SAME SINGLE PASS as `sizeBytes`
+  // while the bytes stream past on their way to storage — the archive is
+  // never buffered and never read twice. NULL until the upload completes.
+  checksumSha256 String? @map("checksum_sha256")
+
+  // The audit trio: what produced this archive. All three nullable because
+  // each is read best-effort and NONE of them may fail a backup — a run that
+  // could not read the server version is still a valid backup.
+  //
+  //   `dbVersion`     — the PostgreSQL server version this was dumped from.
+  //                     A restore onto an older major will not work, and this
+  //                     is the only place that fact is recorded.
+  //   `appVersion`    — the application build (`resolveApiVersion()`).
+  //   `migrationName` — the newest applied `_prisma_migrations` row. THE most
+  //                     important of the three for a restore: it says which
+  //                     schema the archive contains, so an operator can tell
+  //                     before replaying it whether the running code will
+  //                     understand what comes back.
+  dbVersion     String? @map("db_version")
+  appVersion    String? @map("app_version")
+  migrationName String? @map("migration_name")
+
+  // Set when the UPLOADED OBJECT was streamed back out of storage and read by
+  // `pg_restore --list` with a non-empty table of contents. A run is never
+  // `completed` without it: the checksum proves what we sent, this proves what
+  // arrived is a readable archive.
+  verifiedAt DateTime? @map("verified_at") @db.Timestamptz
+
+  lastError String? @map("last_error")
+
+  // NULL for a `scheduled` run — nobody asked for it, a timer did. `SetNull`
+  // rather than `Cascade`, matching `AuditEvent.actorUserId` and
+  // `Credential.updatedByUser`: this is a HISTORY RECORD, and deleting an
+  // administrator's account must never delete the record that a backup was
+  // taken. Contrast `WorkerNode.createdBy`, which cascades because a node is
+  // live inventory rather than history.
+  createdById String? @map("created_by_id") @db.Uuid
+  createdBy   User?   @relation("UserDatabaseBackupRuns", fields: [createdById], references: [id], onDelete: SetNull)
+
+  // ---------------------------------------------------------------------------
+  // Restore audit (Phase 7 / #285) — declared now, written later. See the
+  // "WHY THE RESTORE AUDIT LIVES ON THE BACKUP'S OWN ROW" block above.
+  // ---------------------------------------------------------------------------
+
+  // A plain string, not an enum, for the same reason `Job.executor` is one: a
+  // small closed set owned by code rather than by this table's own state
+  // machine, and adding a state to it must not cost a migration. NULL means
+  // "this backup has never been restored".
+  restoreStatus String? @map("restore_status")
+  restoreError  String? @map("restore_error")
+
+  restoredAt   DateTime? @map("restored_at") @db.Timestamptz
+  restoredById String?   @map("restored_by_id") @db.Uuid
+  restoredBy   User?     @relation("UserDatabaseRestores", fields: [restoredById], references: [id], onDelete: SetNull)
+
+  // The names of the two databases a swap-style restore creates and displaces:
+  // the scratch database the archive was replayed into, and the original that
+  // was renamed out of the way. Recorded as NAMES because after the swap they
+  // are the only handle an operator has on either — `databaseBackup
+  // .restoreRollbackMode` decides whether the displaced one survives, and
+  // `oldDatabaseRetentionHours` decides for how long.
+  restoreScratchDb String?   @map("restore_scratch_db")
+  restoreOldDb     String?   @map("restore_old_db")
+  swappedAt        DateTime? @map("swapped_at") @db.Timestamptz
+
+  // The `pre_restore` backup taken immediately before this row's archive was
+  // swapped in — the way back. `SetNull` so retention pruning that safety
+  // backup never deletes the restore record pointing at it.
+  preRestoreBackupId String?             @map("pre_restore_backup_id") @db.Uuid
+  preRestoreBackup   DatabaseBackupRun?  @relation("PreRestoreBackup", fields: [preRestoreBackupId], references: [id], onDelete: SetNull)
+  // The back-reference Prisma requires for the self-relation above. Nothing
+  // reads it today; it exists because a named relation needs both sides.
+  restoresUsingThis  DatabaseBackupRun[] @relation("PreRestoreBackup")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  // The queries #282 and #283 issue, and nothing speculative:
+  //
+  //   - the admin list and the retention sweep are both "newest first", which
+  //     is `createdAt DESC`;
+  //   - `startedAt DESC` answers "when did backups actually run", which is a
+  //     different question from "when were they requested" for any run that
+  //     waited or never started at all;
+  //   - `[status]` backs the stale sweep (`status = 'running'`) and the
+  //     active-run lookup that turns a P2002 into an id;
+  //   - `[status, createdAt DESC]` is the retention query — "the completed
+  //     runs, newest first, keep N" — which neither single-column index
+  //     answers without a sort.
+  @@index([createdAt(sort: Desc)])
+  @@index([startedAt(sort: Desc)])
+  @@index([status])
+  @@index([status, createdAt(sort: Desc)])
+  @@map("database_backup_runs")
+}
+
+enum DatabaseBackupStatus {
+  pending
+  running
+  completed
+  failed
+  stale
+}
+
+enum DatabaseBackupTrigger {
+  manual
+  scheduled
+  pre_restore
 }

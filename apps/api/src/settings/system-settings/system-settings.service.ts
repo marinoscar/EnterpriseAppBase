@@ -24,6 +24,7 @@ import {
   type SystemMaintenanceValue,
   type SystemJobsValue,
   type SystemNodesValue,
+  type SystemDatabaseBackupValue,
 } from '../../common/schemas/settings.schema';
 
 const SETTINGS_KEY = 'global';
@@ -789,6 +790,40 @@ export class SystemSettingsService {
     });
 
     return this.readKnownSettings(row?.value).nodes;
+  }
+
+  /**
+   * The database-backup policy — schedule, retention, compression, the stale
+   * window and the storage-provider name (#281, epic #254).
+   *
+   * A NARROW ACCESSOR RATHER THAN `getSettings()`, for exactly the three
+   * reasons `getJobsPolicy` above gives, and each of them bites harder here:
+   *
+   *   1. IT DOES NOT CREATE THE ROW. Its callers are #282's scheduler tick and
+   *      `DatabaseBackupRunnerService.startBackup`. A cron materialising a
+   *      settings row as a side effect of deciding whether to take a backup is
+   *      a write nobody asked for — and it would happen on every tick of a
+   *      deployment that has backups switched off.
+   *   2. IT RETURNS ONLY THIS BLOCK. The runner needs three numbers and a
+   *      provider name; handing it the whole settings blob, including the open
+   *      `features` map, widens what a background process holds for no reason.
+   *   3. IT IS THE ONE READ PATH FOR THESE VALUES. `compressionLevel` reaches
+   *      `pg_dump`'s argv and `runStaleMinutes` becomes the dump's SIGKILL
+   *      deadline; a second read path is how the schedule an operator sees and
+   *      the schedule that runs start to differ.
+   *
+   * Degrades exactly as every other read here does: a missing row, a `null`
+   * value or a malformed one yields `DEFAULT_SYSTEM_SETTINGS.databaseBackup`
+   * through `readKnownSettings`, so a damaged row cannot be the reason a
+   * deployment stops taking backups — it falls back to the shipped policy.
+   */
+  async getDatabaseBackupPolicy(): Promise<SystemDatabaseBackupValue> {
+    const row = await this.prisma.systemSettings.findUnique({
+      where: { key: SETTINGS_KEY },
+      select: { value: true },
+    });
+
+    return this.readKnownSettings(row?.value).databaseBackup;
   }
 
   /**
