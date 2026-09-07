@@ -106,9 +106,11 @@ export const mockPermissions = {
   // more generous than the seed would make an integration test asserting that a
   // viewer is refused pass for the wrong reason.
   //
-  // `db_backup:restore` is listed even though no route enforces it yet: it IS
-  // seeded to Admin today, and the fixture's job is to mirror the seed rather
-  // than to mirror the routes. #285 is the issue that gives it a controller.
+  // `db_backup:restore` gates the two routes that replace the production
+  // database (#286) and nothing else; it is seeded to Admin like the other two.
+  // A spec that needs the OPPOSITE — an Admin who may schedule backups but must
+  // NOT be able to restore — narrows this fixture per request rather than
+  // weakening it here, because the fixture's job is to mirror the seed.
   dbBackupRead: {
     id: randomUUID(),
     name: 'db_backup:read',

@@ -502,7 +502,7 @@ describe('DatabaseRestorePreflightService', () => {
       if (result.outcome !== 'blocked') throw new Error('unreachable');
       expect(result.block.gateId).toBe('schema_compatibility');
       expect(result.block.overridable).toBe(true);
-      expect(result.block.overrideParameter).toBe('overrideSchemaMismatch');
+      expect(result.block.overrideParameter).toBe('overrideSchemaCheck');
       expect(result.block.message).toContain('rolls the schema back');
     });
 
