@@ -414,6 +414,64 @@ above. Don't restate any of that here; extend those three instead.
 - `GET /api/pat` - List current user's tokens
 - `DELETE /api/pat/{id}` - Revoke a token
 
+### Jobs — the background queue (Admin-only)
+Six literal routes plus the `insights` pair, all under `/api/admin/jobs`; see
+[`docs/specs/job-queue.md`](docs/specs/job-queue.md). `jobs:read` for the four
+reads, `jobs:write` for the four writes (`insights/reset-history` included —
+it destroys unrecoverable rollup history, not a job).
+- `GET /api/admin/jobs/stats` - Totals, per-status/per-type breakdown, `stuckRunning` and its threshold
+- `GET /api/admin/jobs/insights?windowDays=` - Throughput, duration percentiles, per-type ETA, lifetime totals (max 90 days)
+- `POST /api/admin/jobs/insights/reset-history` - Clear the `job_stats_rollup` accumulators (live jobs untouched)
+- `POST /api/admin/jobs/retry-failed` - Requeue every failed job, optionally one `type` (max 500/call)
+- `POST /api/admin/jobs/reset-stuck` - Run the lease reaper on demand (`olderThanMinutes` overrides the system setting)
+- `GET /api/admin/jobs` - List jobs, paginated and filterable (payloads not included)
+- `POST /api/admin/jobs/{id}/retry` - Requeue one job (400 if it is currently running)
+- `DELETE /api/admin/jobs/{id}` - Delete one job (400 if it is currently running)
+
+### Worker Nodes — the fleet that executes jobs remotely
+Three surfaces; see [`docs/specs/worker-nodes.md`](docs/specs/worker-nodes.md).
+`nodes:read` for every read, `nodes:write` for every write (minting a signed
+URL and claiming a job both count as writes — see the spec for why).
+
+**`/api/nodes/*`** — what a node talks to. Reachable by a `nod_` credential
+(the *only* prefix that credential family can reach) or by a session/PAT
+holding `nodes:*`; scoped to the caller's own nodes.
+- `POST /api/nodes/register` - Register, or reattach to an existing `(owner, name)` row (200, not 201 — see `reattached`)
+- `GET /api/nodes/job-types` - Node-eligible job types, each with its result JSON Schema
+- `GET /api/nodes` - List the caller's nodes
+- `GET /api/nodes/{id}` - Get one node
+- `POST /api/nodes/{id}/deregister` - Mark offline (does not requeue held jobs)
+- `POST /api/nodes/{id}/heartbeat` - Liveness + optional capability/concurrency refresh
+- `POST /api/nodes/{id}/claim` - Claim up to `concurrency` runnable jobs under a lease
+- `POST /api/nodes/{id}/jobs/{jobId}/renew` - Extend the lease
+- `POST /api/nodes/{id}/jobs/{jobId}/download-url` - Signed GET for the job's input object (data plane; bytes never touch this API)
+- `POST /api/nodes/{id}/jobs/{jobId}/upload-url` - Signed PUT plus the server-chosen key (data plane)
+- `POST /api/nodes/{id}/jobs/{jobId}/result` - Submit a validated result; settles the job
+- `POST /api/nodes/{id}/jobs/{jobId}/failure` - Report a failure (`rateLimited` defers rather than charging an attempt)
+
+**`/api/node-credentials`** — minting/revoking `nod_…` bearer credentials.
+Deliberately **not** reachable by a `nod_` credential itself (only a session
+or `pat_` token), so a leaked node token can never mint another.
+- `POST /api/node-credentials` - Mint a credential; the raw token is shown exactly once
+- `GET /api/node-credentials` - List the caller's credentials, masked
+- `DELETE /api/node-credentials/{id}` - Revoke (effective on the node's next request)
+
+**`/api/admin/nodes/*`** (Admin-only) — the whole fleet, every owner, deliberately
+on a *different* prefix so it sits outside the `nod_` allowlist by construction.
+- `GET /api/admin/nodes` - Every node, with owner email and derived health
+- `GET /api/admin/nodes/{id}` - One node, whoever owns it
+- `DELETE /api/admin/nodes/{id}` - Delete the node record (jobs are unclaimed, not deleted)
+- `GET /api/admin/nodes/credentials` - Every node credential, with its owner
+- `DELETE /api/admin/nodes/credentials/{id}` - Revoke any credential, whoever owns it
+
+### Maintenance (Admin-only)
+No dedicated permission — this *is* a system setting, stored in the
+`maintenance` namespace and gated by the same pair every other system setting
+uses. See [`docs/specs/maintenance-mode.md`](docs/specs/maintenance-mode.md)
+and [`docs/runbooks/maintenance-mode.md`](docs/runbooks/maintenance-mode.md).
+- `GET /api/admin/maintenance` - Effective state plus each contributing layer (`system_settings:read`)
+- `PUT /api/admin/maintenance` - Open or close the window (`system_settings:write`)
+
 ### Database Backup (Admin-only)
 - `GET /api/admin/db-backup/config` - Backup policy, computed `nextRunAt`, active run id
 - `PUT /api/admin/db-backup/config` - Update the policy (partial; every field optional)
@@ -445,6 +503,18 @@ above. Don't restate any of that here; extend those three instead.
 - `allowlist:read/write` - Allowlist management (Admin only)
 - `storage:read/write/delete` - Storage object access (own objects)
 - `storage:read_any/write_any/delete_any` - Storage object access (all objects, Admin only)
+- `jobs:read/write` - Background job queue: inspect vs. retry/reset/delete
+- `nodes:read/write` - Worker node fleet: audit vs. register/claim/revoke. **Split from
+  `jobs:*`, not folded into it** — "what work is queued" and "which machines are attached
+  to this deployment" are different questions, and a Settings UI Pattern rule 3 card gated
+  on `jobs:read` would be advertising a permission the nodes controller never checks
+- `db_backup:read/write/restore` - Database backup: inspect vs. schedule/trigger/cancel/delete
+  vs. **restore or roll back**. `:restore` is a **third**, deliberately separate permission —
+  not part of `:write` — because scheduling a nightly dump and replacing the live database
+  are not the same authority, and a deployment must be able to grant the first to someone
+  it does not trust with the second. Folding it into `:write` would let every existing
+  `db_backup:write` holder silently acquire the ability to roll back production
+- `broadcasts:read/write` - Admin notification broadcasts (epic #319)
 
 ## Database Tables
 
@@ -461,6 +531,54 @@ above. Don't restate any of that here; extend those three instead.
 - `storage_objects` - File metadata, status, storage references
 - `storage_object_chunks` - Multipart upload chunk tracking
 - `personal_access_tokens` - User-created long-lived API tokens (hashed)
+- `jobs` - The background queue (epic #254). `subject_type`/`subject_id` are both plain
+  `text`, nullable, no FK either way — a job's subject is polymorphic (a storage object
+  today, something else tomorrow), and a fork's own tables cannot be enumerated by a
+  Prisma relation. `attempts` is charged **at claim time**, not on completion or failure —
+  see `job-claim.service.ts` — so a process that dies mid-run (OOM kill, hard crash) still
+  bounds its retries; a job read inside `process()` always sees its own attempt already
+  counted. Two indexes exist **only** in `migration.sql`, not in `schema.prisma`, because
+  Prisma cannot express a partial unique index: `jobs_active_dedup_uniq_idx` (`dedup_key`
+  `WHERE status IN ('pending','running') AND dedup_key IS NOT NULL`) is the actual dedup
+  enforcement, and `database_backup_runs_active_uniq_idx` below is its counterpart. This is
+  deliberate, intentional schema drift — do not "fix" it by adding a `@@unique` to the model.
+- `job_stats_rollup` - One row per job type, incrementally accumulating succeeded/failed
+  counts and duration sums so lifetime stats survive the history purge. `sumDurationMs` is
+  `Float`, not `BigInt`, to avoid crashing `JSON.stringify` at read time.
+- `worker_nodes` - Registered worker node fleet (epic #254): identity, declared
+  `eligibleTypes`/`concurrency`, operator `status` (`online`/`draining`/`offline`/`disabled`).
+  Health is never stored — it is derived from `lastHeartbeatAt` at read time.
+- `node_credentials` - `nod_…` bearer credentials a worker node authenticates with. Mirrors
+  `personal_access_tokens`' hash/prefix/show-once shape, minus a mandatory expiry (a node
+  runs unattended for months; revocation, not a clock, is the control).
+- `database_backup_runs` - One row per backup/restore attempt, with its own heartbeat and
+  stale window — **not** a `jobs` row, because the lease reaper's `stuckThresholdMinutes`
+  (default 30 min) would reset a legitimately multi-hour `pg_dump`/restore to pending and
+  start a second one against the same storage key. At most one active run (`pending` or
+  `running`) is enforced by `database_backup_runs_active_uniq_idx`, the same
+  raw-SQL-only partial unique index pattern as `jobs` above — never by a `findFirst`
+  before the insert, which cannot close the race a concurrent request needs closed.
+
+## Operations Admin Settings Group
+
+A third `ADMIN_SECTIONS` group (`apps/web/src/config/adminSections.tsx`),
+alongside `General` and `Access` — issue #266, epic #254. `General` is
+configuration an administrator *sets*; `Operations` is the running system: work
+in flight, the machines executing it, and the copies of the data taken while it
+ran. Five cards at `/admin/settings/*`, each gated on the exact permission its
+controller enforces (Settings UI Pattern rule 3):
+
+- **Jobs** (`/admin/settings/jobs`, `jobs:read`) and **Job Insights**
+  (`/admin/settings/jobs/insights`, `jobs:read`, nested under Jobs)
+- **Worker Nodes** (`/admin/settings/workers`, `nodes:read`)
+- **Database Backup** (`/admin/settings/db-backup`, `db_backup:read`)
+- **Broadcasts** (`/admin/settings/broadcasts`, `broadcasts:read`, epic #319)
+
+All five read permissions are seeded Admin-only, so writes are gated inside
+each page (disabling controls) rather than by a second card permission — the
+card gate is about reachability, the page gates content. `Maintenance` is a
+`General` card, not an `Operations` one — it is a system setting, not a
+running-system view.
 
 ## Access Control: Email Allowlist
 
@@ -533,6 +651,26 @@ Note: `DATABASE_URL` is constructed automatically from these variables at runtim
 - `DEVICE_TOKEN_EXPIRY_DAYS` - Token lifetime for device sessions in days (default: 7)
 - `DEVICE_PAT_EXPIRY_DAYS` - Lifetime of the PAT minted when a device (e.g. the CLI) requests `clientInfo.tokenType: "pat"`, in days; clamped to 1-999 (default: 90)
 - `SECRETS_ENCRYPTION_KEY` - Base64-encoded 32-byte AES-256 key (generate with `openssl rand -base64 32`) that encrypts runtime-configured credentials (e.g. an SMTP password an admin enters through the app) before they are stored in the `credentials` table. Optional until a credential is stored; see `docs/runbooks/rotate-secrets-encryption-key.md`. Note: credentials configured at runtime through the UI/API live encrypted in the database, not in the environment — unlike every other secret in this section.
+
+**Background Job Queue** (all bare/unprefixed, like `POSTGRES_*` — API-side vars never take
+the CLI's `APPCTL_` prefix; see `infra/compose/.env.example` for the full comments):
+- `JOBS_MAX_ATTEMPTS` - Attempts before a job is permanently `failed`, charged at claim time (default: 3)
+- `JOBS_RETRY_BASE_MS` / `JOBS_RETRY_MAX_MS` - Retry backoff bounds, doubling with jitter (default: 2000 / 60000)
+- `JOBS_RATELIMIT_MAX_HITS` - Times a job may be provider-rate-limited before giving up — a budget separate from `JOBS_MAX_ATTEMPTS` (default: 10)
+- `JOBS_RATELIMIT_BASE_MS` / `JOBS_RATELIMIT_MAX_MS` - Rate-limit deferral backoff bounds (default: 30000 / 900000)
+- `JOBS_WORKER_CONCURRENCY` - Jobs this process runs at once; fixed at startup (default: 2)
+- `JOBS_POLL_MS` - Idle poll interval before asking for work again (default: 5000)
+- `JOBS_WORKER_MODE` - `all` (every type — the default), `system` (only types that cannot run on a node), or `off` (enqueue only); an unrecognised value warns and behaves as `all`
+- `JOBS_JOB_TIMEOUT_MS` - Per-job timeout before the slot is freed and the job retries/fails (0 disables; default: 600000)
+- `JOBS_SYSTEM_MODE_EXTRA_TYPES` - Comma-separated node-eligible types the `system` worker mode should claim anyway (unset by default; leave unset unless using `system` mode)
+- `JOBS_REAPER_ENABLED` - Whether this process reclaims jobs abandoned by a dead executor; independent of `JOBS_WORKER_MODE`. Only the literal `false` turns it off (default: on)
+
+**Worker Node Fleet:**
+- `NODE_STALE_OFFLINE_ENABLED` - Whether this process marks a node offline once its heartbeat is older than `nodes.staleHeartbeatSeconds × nodes.offlineStaleMultiplier`. Only the literal `false` turns it off (default: on)
+- `NODE_OFFLINE_PRUNE_ENABLED` - Whether this process forgets offline nodes past `nodes.offlineRetentionDays` (their jobs are unclaimed, not deleted). Depends on the sweep above being on. Only the literal `false` turns it off (default: on)
+
+**Maintenance Mode:**
+- `MAINTENANCE_MODE` - Environment override that outranks the persisted setting. Set to `true` to force the window open even if the app cannot start (a pre-migration deploy), or to `false` to force it shut (recovery from a window opened with `allowAdmins` false). Only the literal strings `'true'`/`'false'` count; anything else (including unset) means "no override, use the stored setting". Requires an application restart to take effect. See `docs/runbooks/maintenance-mode.md`. ⚠️ Document a value for this variable as prose ("set to `true`"), never as an inline `# MAINTENANCE_MODE=true` example — `apps/cli`'s `parseEnvExample` reads *any* commented `# KEY=value` line in `infra/compose/.env.example` as declaring an optional variable, so an illustrative assignment inside prose registers as a second declaration and fails the CLI's env-spec test. `infra/compose/.env.example` already carries exactly one commented default (`# MAINTENANCE_MODE=false`) and a comment stating this rule — do not add a second commented line for this key.
 
 **Database Backup:**
 - `DB_BACKUP_SCHEDULE_ENABLED` - Whether this process runs the backup scheduler: a ten-minute cron that releases runs whose heartbeat stopped and starts a backup when the configured schedule has come due. Defaults to on; only the literal `false` turns it off, and it is deliberately independent of `JOBS_WORKER_MODE` — a backup is not queue work, so an API running as a pure control plane must still back its database up. Everything about the schedule itself (enabled, frequency, time of day, timezone, retention count, stale window) is a `databaseBackup` system setting, not an environment variable. See `docs/specs/database-backup.md`.
@@ -613,6 +751,113 @@ settings hub makes on its own axis (epic #109, wired end to end by #128).
 Live examples of all three steps: `AuthService.handleGoogleLogin`
 (`user.welcome`), `AllowlistService.addEmail` (`allowlist.invitation`), and
 `UsersService.updateUserRoles` (`security.role_changed`, mandatory).
+
+Epic #254's four operational events (`jobs.job_failed`, `nodes.node_offline`,
+`db_backup.backup_failed`, `db_backup.restore_completed` — the last one
+`mandatory: true`) are worked examples of this same recipe, registered in
+`notification-events.ts` beside the ones above; see the events' own
+in-file comments and `docs/specs/browser-notifications.md`'s operational-events
+section for why no roll-up/digest exists for `jobs.job_failed`.
+
+### Adding a Job Type
+
+One class, self-register, add to your module, enqueue — the same "one
+registry entry" shape as Adding a Notification above, and no migration:
+`Job.type` is a plain string column precisely so a new handler costs zero
+schema change (epic #254). Full recipe, with a live node-eligible example, is
+[`apps/api/src/jobs/handlers/README.md`](apps/api/src/jobs/handlers/README.md);
+this is the summary.
+
+1. **Implement `JobHandler`** (`apps/api/src/jobs/job-handler.interface.ts`):
+   a `readonly type` string (dotted, lowercase, product-neutral, e.g.
+   `'export.csv'` — **permanent** once jobs of that type exist) and an async
+   `process(job): Promise<void>`. **Throw to fail** — there is no result
+   object; a thrown error becomes `Job.lastError` plus a retry, a normal
+   return means the work committed and is durable. Be idempotent where you
+   can: the queue is at-least-once, never exactly-once.
+
+2. **Self-register** from `onModuleInit()`:
+   ```ts
+   onModuleInit(): void {
+     this.registry.register(this);
+   }
+   ```
+   There is no decorator and no central dispatch table — this one line is the
+   entire mechanism. A duplicate `type` overwrites the earlier registration
+   and logs a warning (a fork deliberately shadowing a framework handler).
+
+3. **Add it as a provider** in the module that owns the feature, importing
+   `JobsModule` for the registry:
+   ```ts
+   @Module({ imports: [JobsModule], providers: [MyHandler] })
+   export class MyFeatureModule {}
+   ```
+
+4. **Enqueue** via `JobsService` (exported by `JobsModule`):
+   ```ts
+   await this.jobs.enqueue({
+     type: 'my-feature.do-the-thing',
+     reason: 'upload',
+     subjectType: 'storage_object',
+     subjectId: object.id,
+     payload: { objectId: object.id },
+   });
+   ```
+   `payload` is opaque JSONB — keep it to identifiers, not copies of data, so
+   a job run minutes later re-reads current state. Enqueueing the same
+   `type` + subject twice is deduplicated for free while an earlier job is
+   `pending`/`running`; pass `skipDedup: true` when several jobs against the
+   same subject are legitimately distinct work.
+
+The type then **appears in the admin dashboard automatically** —
+`JobHandlerRegistry.types()` drives it, no migration, no enum, no queue
+wiring. Add a friendly label in `job-type-labels.ts` if you want one (optional
+polish; an unmapped type renders as its raw string, never blank).
+
+**Node eligibility — what makes a type node-eligible, precisely:** a handler
+carries **both** `nodeResultSchema` (a Zod schema validating what a remote
+worker node posts back) and `persistNodeResult(job, result): Promise<void>`
+(writes an *already-validated* result down — persist only, never
+recomputation, never a second call to whatever provider the node used), or
+**neither** — never exactly one; a schema with no persist function describes
+a payload nobody can store, and a persist function with no schema would trust
+an unvalidated remote body. There is deliberately no `nodeEligible: boolean`
+flag: deriving eligibility from the two members makes an inconsistent state
+unrepresentable, and `JobHandlerRegistry.serverOnlyTypes()` is that
+derivation — it is what the `system` worker mode and the node claim endpoint
+both read, so a type missing either member is one **no node can ever claim**.
+
+`example-echo.handler.ts` and `example-checksum.handler.ts` are the two
+worked examples, and the difference between them **is** the eligibility
+line above: `example.echo` is server-only — it implements only `process`,
+logs its payload, and returns. `example.checksum` (#269) implements both
+`process` (server path) *and* `nodeResultSchema` +
+`persistNodeResult` (node path), routing both through one private write
+method so a job's stored result cannot depend on which executor claimed it —
+that "one write, two paths" shape is the one thing to copy when writing a
+node-eligible handler of your own. See
+[`docs/specs/job-queue.md`](docs/specs/job-queue.md) and
+[`docs/specs/worker-nodes.md`](docs/specs/worker-nodes.md) for the full design
+— the claim's `FOR UPDATE SKIP LOCKED`, the lease, the data plane's presigned
+URLs, and the rejected alternatives.
+
+### Worker Node Fleet, Maintenance Mode
+
+Distributed worker nodes (server + CLI + container + TUI) and the maintenance
+window are the rest of epic #254 (issues #257, #266–#282). Nothing about
+either needs restating here beyond the endpoint groups, permissions, tables
+and environment variables already listed above in their own sections. The
+design (registration, the claim/lease/data-plane mechanics, capability
+probing, heap tuning, the fleet health sweep) is
+[`docs/specs/worker-nodes.md`](docs/specs/worker-nodes.md); the operator guide
+is [`docs/deployment/worker-nodes.md`](docs/deployment/worker-nodes.md); the
+CLI's `node` command reference is
+[`apps/cli/README.md`](apps/cli/README.md#running-a-worker-node). Maintenance
+mode's design (why no new permission, the environment/memory/persisted layer
+precedence, the `allowAdmins: false` break-glass) is
+[`docs/specs/maintenance-mode.md`](docs/specs/maintenance-mode.md); the
+operator runbook is
+[`docs/runbooks/maintenance-mode.md`](docs/runbooks/maintenance-mode.md).
 
 ### Browser Notifications and Web Push
 

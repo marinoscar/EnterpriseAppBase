@@ -69,7 +69,10 @@ docker compose --env-file .env.worker -f worker.compose.yml up -d --scale worker
 
 That is the whole configuration. Each replica registers as its own node and
 they load-balance through the database — nothing coordinates them, and nothing
-needs to.
+needs to. Every variable either file may set —
+[generated from `WORKER_ENV`](../../apps/cli/README.md#worker-environment-variables),
+never hand-copied — is in `apps/cli/README.md`'s own reference; this guide
+does not restate it.
 
 > **Leave `APPCTL_NODE_NAME` and `APPCTL_NODE_ID` empty when scaling.** Setting
 > either makes every replica reattach to the same node row, and the server's

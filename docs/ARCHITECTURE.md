@@ -21,10 +21,11 @@ This document provides a comprehensive architectural overview of the Enterprise 
 9. [Frontend Architecture](#9-frontend-architecture)
 10. [Infrastructure Architecture](#10-infrastructure-architecture)
 11. [Observability Architecture](#11-observability-architecture)
-12. [Testing Architecture](#12-testing-architecture)
-13. [Agent-Based Development Model](#13-agent-based-development-model)
-14. [Development Workflows](#14-development-workflows)
-15. [Appendices](#15-appendices)
+12. [Background Job Queue & Worker Fleet](#12-background-job-queue--worker-fleet)
+13. [Testing Architecture](#13-testing-architecture)
+14. [Agent-Based Development Model](#14-agent-based-development-model)
+15. [Development Workflows](#15-development-workflows)
+16. [Appendices](#16-appendices)
 
 ---
 
@@ -1154,9 +1155,131 @@ Request → Nginx → API → Database
 
 ---
 
-## 12. Testing Architecture
+## 12. Background Job Queue & Worker Fleet
 
-### 12.1 Testing Strategy Overview
+Epic #254 adds a Postgres-backed generic work queue and, optionally, a fleet
+of distributed worker nodes that execute the same job types the API server
+does. Full design and rejected alternatives:
+[`docs/specs/job-queue.md`](specs/job-queue.md) and
+[`docs/specs/worker-nodes.md`](specs/worker-nodes.md). This section covers
+the one property that makes the two composable: **the executor is
+interchangeable and the queue does not know or care which one ran a job.**
+
+### 12.1 The claim: `FOR UPDATE SKIP LOCKED`
+
+Every job execution path — the in-process worker pool and a remote node's
+`POST /nodes/:id/claim` — goes through one atomic claim statement:
+
+```sql
+UPDATE jobs
+SET status = 'running', started_at = now(), scheduled_for = NULL,
+    attempts = attempts + 1, claimed_by_node_id = $1, executor = $2,
+    lease_expires_at = now() + ($3 * interval '1 millisecond')
+WHERE id IN (
+  SELECT id FROM jobs
+  WHERE status = 'pending' AND (scheduled_for IS NULL OR scheduled_for <= now())
+    AND (type = ANY($4) OR $4 IS NULL)
+  ORDER BY priority ASC, created_at ASC
+  FOR UPDATE SKIP LOCKED
+  LIMIT $5
+)
+RETURNING *;
+```
+
+`SKIP LOCKED` is what makes concurrent claimants safe with **no coordination
+between them**: two workers racing this statement each lock a disjoint set of
+candidate rows and never block on each other or return the same row twice.
+There is no queue broker, no message bus and no distributed lock — the
+`jobs` table's row locks *are* the coordination primitive, and it is why a
+deployment scales its execution capacity by starting more claimants (worker
+pool slots, node processes) and telling none of them about the others.
+
+`attempts` is incremented **in this same statement** — charged at claim time,
+not on completion or failure. A job that takes its whole process down with it
+(OOM kill, hard crash) still bounds its retries, because the counter was
+already charged before the crash could happen; charging on failure would let
+exactly the failures that never reach a failure handler retry forever. See
+`job-claim.service.ts` and the `jobs` table entry in `CLAUDE.md`.
+
+### 12.2 Two executors, one handler, no branching
+
+```mermaid
+flowchart LR
+    subgraph Server["API server process"]
+        WP["In-process worker pool<br/>(JOBS_WORKER_CONCURRENCY slots)"]
+    end
+    subgraph Node["Remote worker node (appctl node start)"]
+        NC["Claim loop"]
+    end
+    DB[("jobs table<br/>(PostgreSQL)")]
+    H["JobHandler.process()<br/>— the SAME class either way"]
+
+    WP -- "claim (SKIP LOCKED)" --> DB
+    NC -- "POST /nodes/:id/claim<br/>(same claim, over HTTP)" --> DB
+    DB -- "runnable rows" --> WP
+    DB -- "runnable rows" --> NC
+    WP --> H
+    NC -. "node-eligible types only:<br/>nodeResultSchema +<br/>persistNodeResult" .-> H
+```
+
+A `JobHandler` (`apps/api/src/jobs/job-handler.interface.ts`) is written once.
+The in-process worker pool calls `process(job)` directly. A node has no
+database access, so a node-eligible handler's `process()` still runs — on the
+server, for a deployment with no nodes — while its `nodeResultSchema` +
+`persistNodeResult` pair lets the *same work* be computed on a node instead
+and posted back for the server to persist. **There is no `if (isNode)`
+branch anywhere in a handler or in the claim path** — a node is an option a
+deployment can add, never a requirement any handler must plan around. See
+`CLAUDE.md`'s "Adding a Job Type" recipe and
+`apps/api/src/jobs/handlers/README.md` for what that split looks like in a
+real handler (`example-checksum.handler.ts`).
+
+The node's data plane is a second, deliberate asymmetry: a node fetches and
+writes job input/output **directly against the storage provider** through
+short-lived presigned URLs the server mints on demand
+(`POST /nodes/:id/jobs/:jobId/download-url` / `…/upload-url`) — bytes never
+transit the API, and a node never holds a storage credential. The in-process
+worker, by contrast, reads and writes storage through the server's own
+credentialed client. Same job type, same result, two different paths to the
+bytes — because only one of the two executors is a machine this deployment
+may not fully control.
+
+### 12.3 The lease
+
+A claimed job is not just `running` — it carries `lease_expires_at`, derived
+by the server from `JOBS_JOB_TIMEOUT_MS` and **not negotiable by either
+executor** (a node cannot request its own lease length; see
+`docs/specs/worker-nodes.md` for why that would let one bad actor park every
+row it claims). Both executors renew the lease while work is in progress (a
+node explicitly, via `POST …/renew`; the in-process worker implicitly, by
+holding the row for the duration of `process()`). A lease reaper —
+`JOBS_REAPER_ENABLED`, independent of `JOBS_WORKER_MODE` so a pure
+control-plane API still reaps for its fleet — sweeps jobs whose lease expired
+with no settlement: still-retryable jobs are requeued, jobs that have spent
+their attempt budget are permanently failed. This is the same mechanism
+whether the abandoning executor was a killed API replica or a worker node
+that lost power; the queue does not distinguish the two.
+
+### 12.4 The deliberate absence of Redis
+
+This template already requires PostgreSQL as its primary datastore.
+Requiring a **second** datastore — Redis, RabbitMQ, or an equivalent — on a
+template's default execution path is a real adoption cost: another service
+to run, secure, back up and monitor, for every fork, before the first
+background job runs. `FOR UPDATE SKIP LOCKED` gets the queue's one
+hard requirement (two claimants must never receive the same row) from
+PostgreSQL's own MVCC row-locking, at the cost of a claim being a table scan
+under lock contention rather than an in-memory dequeue — a trade this
+template makes deliberately, because the volume a *template's default path*
+needs to sustain is not the volume a purpose-built message broker exists for.
+A fork whose queue outgrows this design is free to add Redis; the point is
+that doing so is not the price of entry for the first job type.
+
+---
+
+## 13. Testing Architecture
+
+### 13.1 Testing Strategy Overview
 
 The project uses a **mocked database approach** for all tests by default. This provides fast, isolated tests without requiring a running PostgreSQL instance.
 
@@ -1187,7 +1310,7 @@ The project uses a **mocked database approach** for all tests by default. This p
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 12.2 Backend Test Structure
+### 13.2 Backend Test Structure
 
 ```
 apps/api/
@@ -1247,7 +1370,7 @@ apps/api/
         └── device-auth.integration.spec.ts
 ```
 
-### 12.3 Backend Mocking Strategy
+### 13.3 Backend Mocking Strategy
 
 #### Prisma Mocking with jest-mock-extended
 
@@ -1325,7 +1448,7 @@ describe('Auth Controller (Integration)', () => {
 });
 ```
 
-### 12.4 Frontend Test Structure
+### 13.4 Frontend Test Structure
 
 ```
 apps/web/src/
@@ -1362,7 +1485,7 @@ apps/web/src/
         └── api.test.ts
 ```
 
-### 12.5 Frontend Mocking Strategy
+### 13.5 Frontend Mocking Strategy
 
 #### MSW (Mock Service Worker)
 
@@ -1442,7 +1565,7 @@ export function renderWithProviders(ui: React.ReactElement, options = {}) {
 }
 ```
 
-### 12.6 Test Commands
+### 13.6 Test Commands
 
 #### Backend
 
@@ -1470,7 +1593,7 @@ npm run test:ui             # Open Vitest UI (browser-based)
 npm run test:ci             # CI mode (coverage + JUnit reporter)
 ```
 
-### 12.7 Test Configuration
+### 13.7 Test Configuration
 
 #### Backend (Jest)
 
@@ -1507,7 +1630,7 @@ export default defineConfig({
 });
 ```
 
-### 12.8 Key Testing Patterns
+### 13.8 Key Testing Patterns
 
 | Pattern | Backend | Frontend |
 |---------|---------|----------|
@@ -1518,7 +1641,7 @@ export default defineConfig({
 | **Async Handling** | `async/await` with Jest | `waitFor()` from RTL |
 | **User Interactions** | N/A | `userEvent` from @testing-library |
 
-### 12.9 Important Notes
+### 13.9 Important Notes
 
 1. **No Real Database Required**: All tests run with mocked Prisma - no PostgreSQL needed
 2. **Test File Naming**:
@@ -1531,9 +1654,9 @@ export default defineConfig({
 
 ---
 
-## 13. Agent-Based Development Model
+## 14. Agent-Based Development Model
 
-### 13.1 Specialized Agents
+### 14.1 Specialized Agents
 
 This project uses specialized AI coding agents for different domains:
 
@@ -1545,7 +1668,7 @@ This project uses specialized AI coding agents for different domains:
 | `testing-dev` | `.claude/agents/testing-dev.md` | Quality | Jest, Supertest, Vitest, RTL, type checking |
 | `docs-dev` | `.claude/agents/docs-dev.md` | Documentation | Architecture, API, security docs |
 
-### 13.2 Agent Invocation Rules
+### 14.2 Agent Invocation Rules
 
 **MANDATORY**: All development tasks MUST be delegated to the appropriate agent.
 
@@ -1557,7 +1680,7 @@ This project uses specialized AI coding agents for different domains:
 | Write tests | `testing-dev` | "Add integration tests for auth" |
 | Update docs | `docs-dev` | "Document new endpoint in API.md" |
 
-### 13.3 Multi-Agent Workflow
+### 14.3 Multi-Agent Workflow
 
 For features spanning multiple domains, invoke agents sequentially:
 
@@ -1571,7 +1694,7 @@ Feature: "Add user notification preferences"
 5. docs-dev      → Update documentation
 ```
 
-### 13.4 Agent Context
+### 14.4 Agent Context
 
 Each agent has full context of:
 - System specification document
@@ -1580,7 +1703,7 @@ Each agent has full context of:
 - Security requirements
 - Testing standards
 
-### 13.5 Orchestration Responsibilities
+### 14.5 Orchestration Responsibilities
 
 The orchestrating agent (Claude) handles:
 - Reading files to understand context
@@ -1598,9 +1721,9 @@ The orchestrating agent (Claude) handles:
 
 ---
 
-## 14. Development Workflows
+## 15. Development Workflows
 
-### 14.1 Local Development Setup
+### 15.1 Local Development Setup
 
 ```bash
 # 1. Clone repository
@@ -1626,7 +1749,7 @@ exit
 # API reference: http://localhost:3535/api/docs
 ```
 
-### 14.2 Database Changes
+### 15.2 Database Changes
 
 ```bash
 # 1. Modify schema
@@ -1643,7 +1766,7 @@ npm run prisma:generate
 # Edit apps/api/prisma/seed.ts
 ```
 
-### 14.3 Adding New Features
+### 15.3 Adding New Features
 
 1. **Plan**: Identify which agents are needed
 2. **Database**: Schema changes via `database-dev`
@@ -1652,9 +1775,9 @@ npm run prisma:generate
 5. **Testing**: Test coverage via `testing-dev`
 6. **Documentation**: Updates via `docs-dev`
 
-### 14.4 Testing
+### 15.4 Testing
 
-See [Section 12: Testing Architecture](#12-testing-architecture) for comprehensive testing documentation.
+See [Section 13: Testing Architecture](#13-testing-architecture) for comprehensive testing documentation.
 
 ```bash
 # Backend tests (all use mocked database)
@@ -1677,9 +1800,9 @@ cd apps/web && npm run typecheck
 
 ---
 
-## 15. Appendices
+## 16. Appendices
 
-### 15.1 Quick Reference
+### 16.1 Quick Reference
 
 #### Service URLs (Development)
 
@@ -1710,7 +1833,7 @@ cd apps/api && npm test
 cd apps/web && npm test
 ```
 
-### 15.2 Related Documents
+### 16.2 Related Documents
 
 | Document | Purpose |
 |----------|---------|
@@ -1722,7 +1845,7 @@ cd apps/web && npm test
 | [DEVICE-AUTH.md](DEVICE-AUTH.md) | Device authorization guide |
 | [CLAUDE.md](../CLAUDE.md) | AI assistant guidance |
 
-### 15.3 Specification Index
+### 16.3 Specification Index
 
 Implementation specs in `docs/specs/`:
 
@@ -1741,3 +1864,4 @@ Implementation specs in `docs/specs/`:
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 1.0 | January 2026 | AI Assistant | Initial comprehensive architecture document |
+| 1.1 | September 2026 | AI Assistant | Added §12 Background Job Queue & Worker Fleet (epic #254); renumbered §12–15 to §13–16 |

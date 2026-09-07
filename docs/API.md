@@ -1351,6 +1351,650 @@ The storage system provides file upload and management capabilities with support
 
 ---
 
+### Jobs (Background Queue)
+
+**All routes require Admin role, split `jobs:read` (the four reads below) / `jobs:write` (the four writes)** — see [`docs/specs/job-queue.md`](specs/job-queue.md) for the queue's design (the atomic `FOR UPDATE SKIP LOCKED` claim, retry/rate-limit budgets, the lease reaper) and rejected alternatives; this section documents only the request/response contract.
+
+Every literal route below (`stats`, `insights`, `insights/reset-history`, `retry-failed`, `reset-stuck`) is matched before `:id` — Nest matches in declaration order, and reordering would make e.g. `POST /admin/jobs/reset-stuck` a 400 malformed-UUID error instead of running the sweep.
+
+#### GET /admin/jobs/stats
+Queue summary: totals, a per-status and per-type breakdown, how many pending jobs are in backoff, and how many running jobs the lease reaper would reclaim right now. Cached in-process for ~2 seconds.
+
+**Response:**
+```json
+{
+  "data": {
+    "total": 1024,
+    "byStatus": { "pending": 12, "running": 3, "succeeded": 990, "failed": 19 },
+    "byType": [
+      { "type": "example.checksum", "label": "Example: Checksum", "total": 500, "byStatus": { "pending": 2, "running": 1, "succeeded": 490, "failed": 7 } }
+    ],
+    "scheduled": 4,
+    "stuckRunning": 0,
+    "stuckThresholdMinutes": 30,
+    "generatedAt": "2024-01-01T00:00:00.000Z"
+  }
+}
+```
+
+**Note:** `byStatus` keys are always present, zero included — "no failures" and "the key is missing" are the same thing on the wire. `stuckRunning` is counted with the reaper's own predicate against `stuckThresholdMinutes`, so this number and what `reset-stuck` would touch can never disagree.
+
+---
+
+#### GET /admin/jobs/insights?windowDays=
+Throughput and completion estimates the summary cannot answer: duration percentiles over a bounded window (default 7 days, max 90), a per-type ETA, and all-time totals merged from `job_stats_rollup`. Computed on demand from pure `SELECT`s — no snapshot table, no background refresh.
+
+**Query Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `windowDays` | number | 7 | 1–90. Rejected with 400 if out of range, not silently clamped. |
+
+**Response (abridged):**
+```json
+{
+  "data": {
+    "windowDays": 7,
+    "generatedAt": "2024-01-01T00:00:00.000Z",
+    "concurrency": 2,
+    "live": { "total": 15, "byStatus": { "...": "..." }, "byType": ["..."], "scheduled": 4, "rateLimited": 0, "retried": 1 },
+    "history": {
+      "windowStart": "2023-12-25T00:00:00.000Z",
+      "throughputSince": "2023-12-31T23:00:00.000Z",
+      "overall": { "samples": 490, "avgMs": 820, "p50Ms": 700, "p95Ms": 2100, "throughputPerMin": 3.2 },
+      "byType": ["..."]
+    },
+    "eta": [
+      { "type": "example.checksum", "label": "Example: Checksum", "pending": 2, "running": 1, "remaining": 3, "avgMs": 820, "basis": "live", "estimatedMs": 1230 }
+    ],
+    "lifetime": [
+      { "type": "example.checksum", "label": "Example: Checksum", "succeeded": 5400, "failed": 22, "total": 5422, "avgMs": 810, "durationSamples": 5400 }
+    ]
+  }
+}
+```
+
+**Note:** `avgMs`/`p50Ms`/`p95Ms` are `null`, never `0`, when a type has no succeeded jobs in the window — `0` would be multiplied into an ETA and turn "no data" into "already done". `basis` says where an ETA's average came from: `live` (this type's own history), `partial` (the overall average, borrowed), or `none` (a shipped constant placeholder). `lifetime` has counts and averages only — percentiles cannot be reconstructed from purged rows.
+
+**Error Cases:**
+- 400 Bad Request - `windowDays` out of range
+
+---
+
+#### POST /admin/jobs/insights/reset-history
+Deletes every `job_stats_rollup` row (one per job type) and returns how many were removed. Live job rows are untouched — no job is deleted or changes state. On the write side despite touching no job, because a corrupted or fictional rollup is otherwise unrecoverable: the rows that would disprove it were already purged.
+
+**Response:**
+```json
+{ "data": { "reset": 4 } }
+```
+
+---
+
+#### POST /admin/jobs/retry-failed
+Moves failed jobs back to `pending` with attempt and rate-limit budgets reset. Idempotent, capped at 500 rows per call.
+
+**Request Body:**
+```json
+{ "type": "example.checksum" }
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `type` | string | No | Restrict the sweep to one job type. Omitted retries every failed job. |
+
+**Response:**
+```json
+{ "data": { "retried": 42, "skipped": 3, "remaining": 0 } }
+```
+
+**Note:** `skipped` counts jobs whose deduplication key is already held by a pending/running job — the work it describes is already queued.
+
+---
+
+#### POST /admin/jobs/reset-stuck
+Runs the lease reaper on demand: running jobs whose claim aged out, or whose lease expired, are requeued; those that have spent their attempt budget are permanently failed.
+
+**Request Body (optional, empty body allowed):**
+```json
+{ "olderThanMinutes": 45 }
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `olderThanMinutes` | number | No | Overrides the `jobs.stuckThresholdMinutes` system setting for this call only. |
+
+**Response:**
+```json
+{ "data": { "requeued": 1, "failed": 0, "thresholdMinutes": 30 } }
+```
+
+---
+
+#### GET /admin/jobs
+List jobs, newest first, filterable and paginated. Payloads are **not** included (unbounded JSONB in a paginated list is the shape that cannot be made safe — see the spec).
+
+**Query Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `page` | number | 1 | Page number |
+| `pageSize` | number | 20 | Items per page (max 100) |
+| `status` | enum | - | `pending`, `running`, `succeeded`, `failed` |
+| `type` | string | - | Exact job type |
+| `subjectType` / `subjectId` | string | - | What the job is about |
+| `scheduled` | `'true'`\|`'false'` | - | `true` selects pending jobs in backoff and **overrides** `status` |
+| `processedWithin` | enum | - | Filters on `finishedAt` (falling back to `createdAt`) |
+
+**Response:**
+```json
+{
+  "data": {
+    "items": [
+      {
+        "id": "uuid",
+        "type": "example.checksum",
+        "typeLabel": "Example: Checksum",
+        "subjectType": "storage_object",
+        "subjectId": "uuid",
+        "dedupKey": null,
+        "status": "succeeded",
+        "reason": "upload",
+        "priority": 0,
+        "providerKey": null,
+        "modelVersion": null,
+        "attempts": 1,
+        "lastError": null,
+        "createdAt": "2024-01-01T00:00:00.000Z",
+        "startedAt": "2024-01-01T00:00:01.000Z",
+        "finishedAt": "2024-01-01T00:00:02.000Z",
+        "scheduledFor": null,
+        "rateLimitedAt": null,
+        "rateLimitHits": 0,
+        "claimedByNodeId": null,
+        "leaseExpiresAt": null,
+        "executor": "server"
+      }
+    ],
+    "total": 1024,
+    "page": 1,
+    "pageSize": 20,
+    "totalPages": 52
+  }
+}
+```
+
+**Note:** `attempts` counts attempts **started**, charged at claim time — never 0 for a job that has run at least once.
+
+---
+
+#### POST /admin/jobs/:id/retry
+Resets one job to `pending` with its attempt count, error, schedule and claim all cleared.
+
+**Parameters:** `id` (UUID)
+
+**Response:** the job, in the shape above.
+
+**Error Cases:**
+- 400 Bad Request - The job is `running` and cannot be retried (use `reset-stuck` if its executor is gone)
+- 404 Not Found - Job not found
+- 409 Conflict - Another pending/running job already holds this job's deduplication key
+
+---
+
+#### DELETE /admin/jobs/:id
+Deletes the row.
+
+**Parameters:** `id` (UUID)
+
+**Response:** HTTP 204 No Content
+
+**Error Cases:**
+- 400 Bad Request - The job is `running` and cannot be deleted
+- 404 Not Found - Job not found
+
+---
+
+### Worker Nodes
+
+Distributed execution for node-eligible job types. See [`docs/specs/worker-nodes.md`](specs/worker-nodes.md) for the control/data-plane split, the lease, and why `nodes:*` is a permission pair separate from `jobs:*`. Three route groups, each with a different caller and a different blast radius.
+
+#### `/api/nodes/*` — what a node talks to
+
+**`nodes:read`** for the two GETs, **`nodes:write`** for everything else. Reachable by a `nod_…` node credential (the *only* path prefix that credential family can reach — `JwtAuthGuard`'s allowlist) or by a session/PAT holding `nodes:*`; every route is scoped to the caller's own nodes.
+
+##### POST /nodes/register
+Register, or reattach to, this machine's row. Idempotent on `(owner, name)` — registering an existing name refreshes hostname, platform, CLI version, eligible types and concurrency rather than creating a second row. Always **200**, never 201 — `reattached` in the body says which happened, so a client never branches on status code to learn it.
+
+**Request Body:**
+```json
+{
+  "name": "worker-1",
+  "hostname": "worker-1.local",
+  "platform": "linux-x64",
+  "cliVersion": "1.2.0",
+  "eligibleTypes": ["example.checksum"],
+  "concurrency": 4
+}
+```
+
+**Response:**
+```json
+{
+  "data": {
+    "node": {
+      "id": "uuid",
+      "name": "worker-1",
+      "hostname": "worker-1.local",
+      "platform": "linux-x64",
+      "cliVersion": "1.2.0",
+      "eligibleTypes": ["example.checksum"],
+      "concurrency": 4,
+      "status": "online",
+      "capabilities": null,
+      "registeredAt": "2024-01-01T00:00:00.000Z",
+      "lastHeartbeatAt": null
+    },
+    "reattached": false
+  }
+}
+```
+
+---
+
+##### GET /nodes/job-types
+Every node-eligible job type (both `nodeResultSchema` and `persistNodeResult` present on the handler), each with its result contract as JSON Schema — generated from the server's own Zod definition, never a hand-copied one.
+
+**Response:**
+```json
+{ "data": { "types": [{ "type": "example.checksum", "resultSchema": { "type": "object", "...": "..." } }] } }
+```
+
+---
+
+##### GET /nodes
+List the caller's own nodes. **Response:** `{ "data": [ <node>, ... ] }` — plain array, not paginated.
+
+##### GET /nodes/:id
+One node the caller owns. 404 if it does not exist.
+
+##### POST /nodes/:id/deregister
+Marks `offline`. Deliberately does **not** requeue jobs the node holds — nothing proves a shutting-down process actually stopped. Held jobs return through the lease reaper once their lease expires.
+
+##### POST /nodes/:id/heartbeat
+Liveness, plus an optional live refresh of `capabilities`/`concurrency`/`status` (`online`/`offline` only — `draining`/`disabled` are operator-only and a heartbeat can never clear either).
+
+##### POST /nodes/:id/claim
+Claims up to the node's `concurrency` runnable jobs under a server-derived lease, through the same atomic claim the in-process worker uses. Requested `types` are intersected with the node's registered `eligibleTypes` (a node may narrow, never widen). A `draining` node gets an empty list; a `disabled` one gets 403.
+
+**Request Body:**
+```json
+{ "types": ["example.checksum"], "limit": 4 }
+```
+
+**Response:**
+```json
+{
+  "data": {
+    "jobs": [
+      {
+        "job": { "id": "uuid", "type": "example.checksum", "subjectType": "storage_object", "subjectId": "uuid", "priority": 0, "attempts": 1, "startedAt": "2024-01-01T00:00:00.000Z", "leaseExpiresAt": "2024-01-01T00:10:00.000Z" },
+        "params": { "objectId": "uuid" }
+      }
+    ]
+  }
+}
+```
+
+**Note:** An empty `jobs` array is the common, non-error answer. Presigned data-plane URLs are **not** included here — see `download-url`/`upload-url` below; minting them at claim time would spend a short expiry on the wrong clock.
+
+##### POST /nodes/:id/jobs/:jobId/renew
+Extends the lease by the server's lease interval. `409` once the lease has already expired.
+
+##### POST /nodes/:id/jobs/:jobId/download-url
+Signed **GET** for the job's input object, fetched directly from the storage provider — bytes never pass through this API. `409` on an expired lease; `422` when the job names no resolvable input (permanent — report `failure`, do not retry).
+
+##### POST /nodes/:id/jobs/:jobId/upload-url
+Signed **PUT** for one whole object, plus **the key the server chose** — a node-supplied `key` is refused with 400 (a signed PUT is an unconditional overwrite; a node-chosen key is a write primitive over the whole bucket).
+
+##### POST /nodes/:id/jobs/:jobId/result
+Submits a result, validated against the handler's `nodeResultSchema` and persisted through `persistNodeResult`. `400` on a type mismatch, a non-node-persistable type, or a schema failure; `409` on an expired lease (nothing persisted); `500` if persisting threw (the server already settled the job through its own failure path — do not resubmit).
+
+**Response:**
+```json
+{ "data": { "jobId": "uuid", "outcome": "succeeded", "willRetry": false } }
+```
+
+##### POST /nodes/:id/jobs/:jobId/failure
+Reports a failure through the same terminal state machine a thrown error in `process()` uses. `rateLimited: true` defers rather than charging an attempt.
+
+**Request Body:**
+```json
+{ "error": "provider returned 429", "rateLimited": true, "retryAfterMs": 30000 }
+```
+
+**Response:** same `JobSettlementResponseDto` shape as `result` above. `willRetry` in the response is the **server's** decision — a `willRetry` sent in the request is advisory only.
+
+---
+
+#### `/api/node-credentials` — minting and revoking worker credentials
+
+Deliberately **unreachable by a `nod_` credential itself** — only a session or `pat_` token — so a leaked node token can never mint another one. `nodes:write` for create/revoke, `nodes:read` for the list (not a bare `@Auth()` the way `GET /api/pat` is: this is fleet inventory, an operational question about the deployment, not a private one about the caller).
+
+##### POST /node-credentials
+Mints a `nod_…` credential and returns it **in full, exactly once**.
+
+**Request Body:**
+```json
+{ "name": "worker-1 prod credential", "expiresInDays": 90 }
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | Yes | 1–100 characters |
+| `expiresInDays` | number | No | 1–3650. Omitted means **never expires** — the intended default for an unattended node; revocation, not a clock, is the control. |
+
+**Response:**
+```json
+{
+  "data": {
+    "token": "nod_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    "id": "uuid",
+    "name": "worker-1 prod credential",
+    "tokenPrefix": "nod_1a2b",
+    "expiresAt": null,
+    "createdAt": "2024-01-01T00:00:00.000Z"
+  }
+}
+```
+
+##### GET /node-credentials
+Lists the caller's own credentials, masked (`tokenPrefix` only — never the token, never the stored hash). **Response:** `{ "data": [ <credential, minus token>, ... ] }`.
+
+##### DELETE /node-credentials/:id
+Revokes a credential. Takes effect on the node's very next request — nothing cached, no TTL. **Response:** HTTP 204. `404` for not found, not yours, or already revoked (deliberately indistinguishable).
+
+---
+
+#### `/api/admin/nodes/*` — the whole fleet (Admin-only)
+
+`nodes:read` for the three reads, `nodes:write` for the two deletes. Mounted on a **different prefix** than `/api/nodes` so it sits outside the `nod_` allowlist by construction — these routes expose another operator's email and can delete anyone's node or credential. The `credentials` literals are matched before `:id` (Nest declaration order) — see the spec for why.
+
+##### GET /admin/nodes
+Every node in the deployment, with owner and per-status job counts. **Response:** `{ "data": [ <node + owner + jobCounts + health>, ... ] }`.
+
+**Note:** `status` is operator state; `health` (`healthy`/`stale`/`offline`) is **derived** from `lastHeartbeatAt` at read time, never stored — read the two together, not one instead of the other.
+
+##### GET /admin/nodes/:id
+One node, whoever owns it. 404 if none; never 403 — an administrator's scope is the whole deployment.
+
+##### DELETE /admin/nodes/:id
+Deletes the node record. Jobs are **not** deleted — `claimedByNodeId` is cleared and the lease reaper picks them up normally. Does **not** revoke the node's credential (the same token could register a new node).
+
+##### GET /admin/nodes/credentials
+Every node credential in the deployment, with its owner. Revoked credentials are included (`revokedAt` set) — part of the audit trail.
+
+##### DELETE /admin/nodes/credentials/:id
+Revokes any credential, whoever owns it. `404` if already revoked.
+
+---
+
+### Maintenance
+
+**No dedicated permission** — this is a system setting (`system_settings:read`/`system_settings:write`), stored in the `maintenance` namespace. See [`docs/specs/maintenance-mode.md`](specs/maintenance-mode.md) and [`docs/runbooks/maintenance-mode.md`](runbooks/maintenance-mode.md). Both routes are exempt from the maintenance guard itself (`@AllowDuringMaintenance()`), so the switch that turns a window off is always reachable — `@Auth()` still applies underneath.
+
+#### GET /admin/maintenance
+Effective state, plus each contributing layer (`env`, `memory`, `persisted`) so an operator can see which one is deciding the answer.
+
+**Requires:** `system_settings:read`
+
+**Response:**
+```json
+{
+  "data": {
+    "enabled": false,
+    "message": "This service is temporarily unavailable for scheduled maintenance. Please try again shortly.",
+    "allowAdmins": true,
+    "startedAt": null,
+    "startedById": null,
+    "source": "persisted",
+    "layers": {
+      "env": { "present": false, "enabled": null },
+      "memory": { "present": false, "override": null },
+      "persisted": { "readable": true, "value": { "enabled": false, "message": "...", "allowAdmins": true, "startedAt": null, "startedById": null } }
+    }
+  }
+}
+```
+
+#### PUT /admin/maintenance
+Opens or closes the window. Writes the persisted `maintenance` namespace and records an audit event; opening stamps `startedAt`/`startedById`, closing clears both. An environment override (`MAINTENANCE_MODE`), if present, still outranks whatever this writes — check `source` in the response.
+
+**Requires:** `system_settings:write`
+
+**Request Body:**
+```json
+{ "enabled": true, "message": "Deploying a database migration.", "allowAdmins": true }
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `enabled` | boolean | Yes | The only required field. |
+| `message` | string | No | Omitted keeps whatever message is stored. |
+| `allowAdmins` | boolean | No | ⚠ `false` locks administrators out too — the break-glass is `MAINTENANCE_MODE=false` in the environment, not this endpoint. |
+
+**Response:** same shape as `GET` above, reflecting the write.
+
+**Error Cases:**
+- 400 Bad Request - Validation error
+
+---
+
+### Database Backup (Admin-only)
+
+Three permissions: `db_backup:read` (config read, list, single get, download), `db_backup:write` (config write, manual trigger, cancel, delete), and `db_backup:restore` — **deliberately separate from `db_backup:write`** — for restore and rollback. See [`docs/specs/database-backup.md`](specs/database-backup.md) and [`docs/specs/database-restore.md`](specs/database-restore.md) for the streaming/verification contract, the pre-flight gates, and the rejected alternatives; this section documents only the request/response contract. Literal routes (`config`, `runs`) are matched before `runs/:id`.
+
+#### GET /admin/db-backup/config
+The stored `databaseBackup` settings namespace plus two fields computed on every read: `nextRunAt` (projected in UTC by the same function the scheduler uses; `null` when disabled, also `null` — with a 200, not an error — when the stored timezone can't be resolved) and `activeRunId` (a display value only, never a pre-flight check — the partial unique index is the real arbiter of "is one already running").
+
+**Requires:** `db_backup:read`
+
+**Response:**
+```json
+{
+  "data": {
+    "enabled": true,
+    "frequency": "daily",
+    "dayOfWeek": 0,
+    "dayOfMonth": 1,
+    "timeOfDay": "03:00",
+    "timezone": "UTC",
+    "retentionCount": 14,
+    "storageProvider": "s3",
+    "runStaleMinutes": 120,
+    "compressionLevel": 6,
+    "restoreRollbackMode": "retain_database",
+    "oldDatabaseRetentionHours": 72,
+    "nextRunAt": "2024-01-02T03:00:00.000Z",
+    "activeRunId": null
+  }
+}
+```
+
+#### PUT /admin/db-backup/config
+Partial update — every field optional; unknown timezone is refused with 400 **at save time**, before anything is written.
+
+**Requires:** `db_backup:write`
+
+**Request Body:** any subset of the fields in the `GET` response above (excluding the two computed ones).
+
+**Response:** the config, in the shape above.
+
+---
+
+#### POST /admin/db-backup/runs
+Takes a backup now (`trigger: 'manual'`). Returns as soon as the run row is created — the dump streams in the background.
+
+**Requires:** `db_backup:write`
+
+**Response:**
+```json
+{ "data": { "id": "uuid", "status": "running", "trigger": "manual", "startedAt": "2024-01-01T00:00:00.000Z", "...": "..." } }
+```
+
+**Error Cases:**
+- 409 Conflict - A run is already active (`details.activeRunId`)
+
+---
+
+#### GET /admin/db-backup/runs
+Paginated, newest first.
+
+**Requires:** `db_backup:read`
+
+**Query Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `page` | number | 1 | Page number |
+| `pageSize` | number | 20 | Items per page (max 100) |
+| `status` | enum | - | `pending`, `running`, `completed`, `failed`, `stale` |
+| `trigger` | enum | - | `manual`, `scheduled`, `pre_restore` |
+
+**Response:**
+```json
+{
+  "data": {
+    "items": [
+      {
+        "id": "uuid",
+        "status": "completed",
+        "trigger": "scheduled",
+        "startedAt": "2024-01-01T03:00:00.000Z",
+        "finishedAt": "2024-01-01T03:04:12.000Z",
+        "sizeBytes": "1073741824",
+        "bytesWritten": "1073741824",
+        "storageKey": "backups/2024-01-01T03-00-00.dump",
+        "error": null,
+        "restoreStatus": null,
+        "restoreError": null,
+        "restoredAt": null,
+        "restoredById": null,
+        "restoreScratchDb": null,
+        "restoreOldDb": null,
+        "swappedAt": null,
+        "preRestoreBackupId": null
+      }
+    ],
+    "total": 30,
+    "page": 1,
+    "pageSize": 20,
+    "totalPages": 2
+  }
+}
+```
+
+**Note:** `sizeBytes`/`bytesWritten` are published as **decimal strings**, not numbers — both are `BigInt` columns (a dump can exceed 2 GiB, well past a 32-bit column and past `Number`'s safe-integer precision), so a JSON number would silently lose precision above 2^53. `restoreStatus` and its sibling columns are `null` until a restore is started against this run (#286); poll them via `GET runs/{id}` while `restoreStatus` cycles `restoring` → `verifying` → `swapping` → `completed`/`failed`.
+
+---
+
+#### GET /admin/db-backup/runs/:id
+One run, same shape as above — for progress polling.
+
+**Requires:** `db_backup:read`
+
+#### GET /admin/db-backup/runs/:id/download
+A short-lived signed URL for the archive.
+
+**Requires:** `db_backup:read` (a read, despite being the single most powerful thing on this controller — its short expiry, not a fourth permission, is what makes that acceptable)
+
+**Response:**
+```json
+{ "data": { "url": "https://...", "expiresIn": 300 } }
+```
+
+#### DELETE /admin/db-backup/runs/:id
+Deletes the object, then the row.
+
+**Requires:** `db_backup:write`
+
+**Response:** `{ "data": { "objectDeleted": true } }` — `false` (row still deleted) when the object was already gone.
+
+#### POST /admin/db-backup/runs/:id/cancel
+Cancels a running backup.
+
+**Requires:** `db_backup:write`
+
+**Response:** `{ "data": { "result": "signalled" } }` — or `"not_running_here"` when this process is not the one holding the run (another API replica is).
+
+**Error Cases:**
+- 400 Bad Request - The run has already settled
+
+---
+
+#### POST /admin/db-backup/runs/:id/restore
+Restores the database from this backup. **The status code is not the answer — `mode` is; all three normal outcomes are 200.**
+
+**Requires:** `db_backup:restore` (not `db_backup:write` — a deliberately separate grant; see above)
+
+**Request Body:**
+```json
+{ "confirmation": "RESTORE" }
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `confirmation` | literal `"RESTORE"` | Yes | Checked by the global validation pipe before any handler code runs. A missing/wrong value is a 400 that starts **nothing** — no lookup, no probe, no download. |
+| `overrideSchemaCheck` | boolean | No (default `false`) | Proceeds past a schema-compatibility mismatch. Set only after reading a `blocked` response's `preflight.archiveMigration`/`liveMigration`. |
+
+**Response — `mode: "running"`:** the gates passed and the restore is under way in the background (it takes hours — poll `GET runs/{id}`, watching `restoreStatus`).
+```json
+{ "data": { "mode": "running", "runId": "uuid", "scratchDatabase": "app_restore_scratch", "oldDatabase": "app_old_20240101", "preflight": { "...": "..." } } }
+```
+
+**Response — `mode: "guided"`:** a capability gate failed (e.g. managed PostgreSQL denying `CREATEDB`). Not an error — the deliverable is a paste-ready command block for a human to run by hand.
+```json
+{ "data": { "mode": "guided", "runId": "uuid", "guidance": { "reason": "...", "commands": "psql ...", "runbook": "docs/runbooks/database-restore.md" }, "preflight": { "...": "..." } } }
+```
+
+**Response — `mode: "blocked"`:** a gate refused and nothing was started.
+```json
+{ "data": { "mode": "blocked", "runId": "uuid", "block": { "gateId": "schema_compatibility", "message": "...", "overridable": true, "overrideParameter": "overrideSchemaCheck" }, "preflight": { "...": "..." } } }
+```
+
+**Error Cases:**
+- 400 Bad Request - Missing/wrong `confirmation`, or the run is not restorable
+- 404 Not Found - Run not found
+- 409 Conflict - Another restore/backup is already active (`details.activeRunId`)
+
+---
+
+#### POST /admin/db-backup/runs/:id/rollback
+Undoes a completed restore. Same "mode is the answer, all three are 200" contract.
+
+**Requires:** `db_backup:restore`
+
+**Request Body:**
+```json
+{ "confirmation": "ROLLBACK" }
+```
+
+`confirmation` must be the literal `"ROLLBACK"` — a different word from the restore route's on purpose, so a body copied from one route to the other is refused rather than silently accepted.
+
+**Response — `mode: "renamed"`** (`retain_database` mode): the retained pre-swap database was renamed back into place. ⚠ **The process exits moments after this response is flushed** — its connection pool is bound to a database just renamed out from under it; expect the next request to fail until the supervisor restarts the process.
+```json
+{ "data": { "mode": "renamed", "runId": "uuid", "promoted": "app", "parked": "app_restore_scratch", "detail": "..." } }
+```
+
+**Response — `mode: "restore_started"`** (`drop_database`/`pre_restore_dump` mode): rolling back is itself a multi-hour restore, from the automatic pre-restore backup.
+```json
+{ "data": { "mode": "restore_started", "runId": "uuid", "preRestoreRunId": "uuid", "detail": "..." } }
+```
+
+**Response — `mode: "unavailable"`:** nothing left to roll back to (the retained database's retention window passed, or none was taken). Reported honestly as a 200, not a failure.
+```json
+{ "data": { "mode": "unavailable", "runId": "uuid", "detail": "..." } }
+```
+
+---
+
 ### Notification Broadcasts
 
 **All routes require Admin role (`broadcasts:read` or `broadcasts:write` permissions)**
