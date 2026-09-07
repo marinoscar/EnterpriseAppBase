@@ -141,6 +141,29 @@
 // guard on a value a handler computed — which is why a failure there is a
 // 500, not a 400: the fault is in a handler, not in anything a node sent.
 //
+// -----------------------------------------------------------------------------
+// `nodeSecretBroker` — PRESENCE IS THE DECLARATION, AGAIN (#349, epic #345)
+// -----------------------------------------------------------------------------
+//
+// The node plane's founding constraint is that a node holds NO credentials
+// (`docs/specs/worker-nodes.md` §8), which is why it could only ever run pure
+// compute over presigned bytes. Some work genuinely needs one — a `pg_dump`
+// needs a database connection — so a handler may carry a BROKER: an object
+// that mints a short-lived, job-scoped credential and can destroy it again.
+//
+// It follows the same rule as node eligibility above, and for the same reason.
+// The broker's PRESENCE is the declaration; there is no `requiresSecret:
+// 'postgres'` string and no central switch in the nodes module mapping such a
+// string onto an implementation. That switch is exactly the central dispatch
+// table this file exists to abolish, and it makes an inconsistent state
+// representable — a type naming a secret nobody can mint — which is the same
+// defect a `nodeEligible: boolean` flag has. Hanging the implementation itself
+// off the handler leaves nothing to set inconsistently.
+//
+// `job-secret-broker.ts` carries the full argument, including the three
+// rejected ways of getting a credential onto a node and why the material is
+// never persisted in any form.
+//
 // REJECTED: a `readonly keyPrefix: string` on the handler. It covers a prefix
 // and not the `buildBackupStorageKey(at, runId)` SHAPE, and — the part that
 // kills it — it cannot create the artifact row the key's `runId` comes from.
@@ -154,6 +177,7 @@ import { Job } from '@prisma/client';
 import type { z } from 'zod';
 
 import type { JobExecutionProfile } from './job-execution-profile';
+import type { JobSecretBroker } from './job-secret-broker';
 
 /**
  * DI token for job handlers.
@@ -289,4 +313,31 @@ export interface JobHandler {
    * and the node's correct response is the same as for any other refusal.
    */
   deriveOutputKey?(job: Job): Promise<string>;
+
+  /**
+   * Mints the short-lived credential a REMOTE executor of this type needs, and
+   * destroys it again.
+   *
+   * OPTIONAL, AND OMITTING IT IS THE NORMAL ANSWER — almost every job type is
+   * pure compute over presigned bytes and needs no credential at all. Its
+   * PRESENCE is the declaration that this type does, exactly as the presence of
+   * `nodeResultSchema` + `persistNodeResult` is the declaration that the type is
+   * node-eligible; there is no `requiresSecret` string and no switch keyed on
+   * one (see the file header, and `job-secret-broker.ts` for the whole
+   * argument).
+   *
+   * ⚠ A BROKER IS NOT A PERMISSION TO USE ONE. Whether a node in THIS
+   * deployment may hold a credential to THIS database is a trust-boundary
+   * decision an administrator makes, not one a handler makes: it is the
+   * `nodes.jobSecretBrokerEnabled` system setting, default OFF. With it off,
+   * `POST /api/nodes/:id/jobs/:jobId/secret` refuses with a named reason AND
+   * the type is filtered out of the node claim, so a node never even sees the
+   * job. That filter is a runtime intersection, never a mutation of the
+   * registry — see `NodesService.nodeEligibleTypes`.
+   *
+   * ⚠ NOTHING IT RETURNS MAY BE PERSISTED EXCEPT THE HANDLE. The material is
+   * serialised into one HTTP response and dropped; `job_node_secrets` has no
+   * column that could hold it. See `IssuedJobSecret`.
+   */
+  readonly nodeSecretBroker?: JobSecretBroker;
 }
