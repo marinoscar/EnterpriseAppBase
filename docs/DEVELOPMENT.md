@@ -92,7 +92,19 @@ This application uses **Fastify** as the HTTP adapter, not Express. This has imp
    docker compose -f base.compose.yml -f dev.compose.yml up
    ```
 
-4. **IMPORTANT: Run database seeds**
+4. **IMPORTANT: Apply the database schema**
+
+   The API **does not migrate on startup**, and that is deliberate — its
+   container command is `node dist/main` and nothing else, so a fresh database
+   has no tables until you run:
+
+   ```bash
+   docker compose exec api npm run prisma:migrate
+   ```
+
+   Skipping it makes the seed below fail against an empty database.
+
+5. **IMPORTANT: Run database seeds**
 
    Before your first login, you MUST seed the database with roles and permissions:
 
@@ -106,7 +118,7 @@ This application uses **Fastify** as the HTTP adapter, not Express. This has imp
    - Without seeds, user creation will fail with "Default role not found"
    - Seeds are idempotent - safe to run multiple times
 
-5. **Access the application**
+6. **Access the application**
    - Frontend: http://localhost:3535
    - API: http://localhost:3535/api
    - API reference: http://localhost:3535/api/docs

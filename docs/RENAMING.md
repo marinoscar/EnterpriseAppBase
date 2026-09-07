@@ -316,9 +316,191 @@ tracked too, so `git checkout .` reverts them along with everything else.
 
 ## Starting a whole new project
 
-Renaming is one part of turning this template into your own project, not
-the whole of it. A `/new-project` bootstrap — resetting the dev database,
-generating fresh environment secrets, pruning demo content, and resetting
-the release/changelog history — is tracked separately as issue #344 and
-isn't built yet. This section will be filled in once that work lands; for
-now, renaming via this guide is the complete story.
+Renaming (above) is the first step of turning this template into your own
+project, not the whole of it. What follows is the rest of the bootstrap:
+getting a database, getting the app running, and deciding what a fork keeps
+from the template versus what it eventually sheds.
+[`.claude/skills/new-project/SKILL.md`](../.claude/skills/new-project/SKILL.md)
+walks an agent through this same sequence with the same checkpoints — this
+section is its human-facing twin, not a second, conflicting version of it.
+
+### 1. Rename first
+
+Do the rename in the [TL;DR](#tldr) above before anything below. Everything
+past this point assumes `identity.json` already describes your product,
+because `scripts/new-project.mjs`'s own safety check (step 6) refuses to run
+against a checkout that still looks like the template.
+
+### 2. Generate a local environment: `npm run setup`
+
+```bash
+npm run setup
+```
+
+This builds the CLI and runs `appctl init` — the deploy wizard pointed at
+your own machine. It exists because `cp .env.example .env` produces a file
+whose three secrets are the literal placeholder string
+`your-super-secret-key-min-32-characters-long` and whose Google credentials
+don't exist:
+
+- **`JWT_SECRET`, `COOKIE_SECRET` and `SECRETS_ENCRYPTION_KEY`** are
+  generated with the CSPRNG. They are never prompted for, and re-running
+  with `--force` never regenerates one that's already set — replacing
+  `JWT_SECRET` on a re-run would invalidate every session and refresh token
+  you're holding, for no reason you asked for.
+- It asks about the database and Google OAuth interactively, then writes
+  **`infra/compose/.env`, at mode `0600`, and nothing else.** It never
+  modifies `.env.example` — that file stays the validated template every
+  other command reads its own questions from.
+
+Useful flags:
+
+- `--non-interactive` — never prompt: generate the secrets, take every
+  default, and leave OAuth blank. For a scripted checkout or CI; you still
+  fill in OAuth by hand afterward.
+- `--admin-email <email>` — set `INITIAL_ADMIN_EMAIL` without being asked
+  for it.
+- `--force` — update an existing `.env` in place. It fills in whatever is
+  missing while keeping every value already set, secrets included — a
+  top-up, not a reset.
+
+### 3. The three things nothing can generate
+
+`npm run setup` cannot manufacture these, and skipping any one of them fails
+in its own specific, memorable way:
+
+- **`INITIAL_ADMIN_EMAIL`.** Leave it empty and nobody can log in — not
+  "log in without admin rights", *at all*. The allowlist refuses every
+  address that isn't already on it, and this is the one address that
+  bypasses that check on first login.
+- **Google OAuth — required, not optional.** The API does not start without
+  `GOOGLE_CLIENT_ID`; the literal failure is `OAuth2Strategy requires a
+  clientID option`, thrown before the process gets anywhere near listening
+  on a port. Get `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` from the
+  [Google Cloud Console](https://console.cloud.google.com), with the
+  redirect URI set to `<APP_URL>/api/auth/google/callback`.
+- **A PostgreSQL to point at.** There is deliberately no `db` service in
+  `base.compose.yml` — see `infra/compose/devdb.compose.yml`'s own header
+  for why baking one in would be wrong for a host that's already running
+  Postgres for other applications built from this template. Either use the
+  opt-in overlay (step 5) or point `POSTGRES_*` in `.env` at an instance you
+  already run.
+
+### 4. Create the shared Docker network, once per machine
+
+```bash
+docker network create devnet
+```
+
+`base.compose.yml` declares `devnet` as `external: true`, so the very first
+`docker compose up` on a fresh machine fails with *network devnet declared
+as external, but could not be found* until this exists. It's a one-time
+step per machine, not per project — it exists so several applications built
+from this template can share one PostgreSQL container on a shared host, and
+you need it even when you aren't sharing anything, because the network is
+declared unconditionally.
+
+### 5. Bring it up, migrate, seed
+
+```bash
+docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml up
+npm run prisma:migrate --workspace=api
+npm run prisma:seed --workspace=api
+```
+
+Leave `-f devdb.compose.yml` off if `.env`'s `POSTGRES_*` variables already
+point at a database you run yourself.
+
+**Do not invent a variant of the last two commands.** Running
+`apps/api/prisma/seed.ts` directly — or any form of `npx prisma db seed`
+that bypasses the npm script — fails, because `DATABASE_URL` is constructed
+by `scripts/prisma-env.js` from the individual `POSTGRES_*` variables; it is
+not an environment variable anywhere in the stack. A skipped seed doesn't
+fail loudly at seed time, either — it surfaces later, at first login, as
+"Default role not found", which reads like a bug in the app rather than a
+missing setup step.
+
+Confirm you can actually log in at `http://localhost:3535` with the
+`INITIAL_ADMIN_EMAIL` address before moving on — that round trip is the
+real acceptance test for everything above.
+
+### 6. Reset what a fork inherits: `scripts/new-project.mjs`
+
+`scripts/rename.mjs` changes the *identity*. `scripts/new-project.mjs`
+changes the *state* — the release history, the version numbers, the
+licence — the things that are true of the template and false of the
+product built from it.
+
+It refuses `--reset-release` and `--license` if this still looks like the
+template: it compares `identity.json`'s `repoSlug` against the checkout's
+`git remote get-url origin` and dies if they still match, so a `--force`
+habit picked up from the rename step can't wipe out the template's own
+release history by accident. `--force` skips that check for the rare case
+where you really are working in the template itself, or the remote hasn't
+been re-pointed yet.
+
+```bash
+node scripts/new-project.mjs --reset-release --license mit --holder "Your Name or Company"
+```
+
+- `--reset-release` resets `CHANGELOG.md` to `[Unreleased]` + `[0.1.0]` and
+  sets all four workspace `package.json` versions to `0.1.0`.
+- `--license <id>` writes a `LICENSE` file and replaces the README's
+  `[Your License Here]` placeholder. Only `mit` and `proprietary` are built
+  in — not because those are the only licences that exist, but because
+  embedding the full text of every licence choice would make this script
+  mostly licence text. For anything else (Apache-2.0, BSD, GPL, ...), copy
+  the official text from https://choosealicense.com into `./LICENSE`
+  yourself; nothing else in the repository depends on which you pick.
+- Which licence to use is a decision for you to make; the script has no
+  default and won't guess.
+
+### 7. Walk the audit
+
+```bash
+node scripts/new-project.mjs --audit
+```
+
+This is the default action when no other flag is given, and it changes
+nothing — it only reports. Each item is a judgement call to present, not to
+action silently.
+
+**The one to get right — and the most important paragraph in this
+section — is that the audit recommends KEEPING the example job handlers,
+and that recommendation is correct.** `example-echo.handler.ts` and
+`example-checksum.handler.ts` look like disposable demo code. They are not.
+`example.checksum` is the canonical **node-eligible** job type — the only
+handler in the codebase implementing both `process` and
+`nodeResultSchema`/`persistNodeResult` together — and the jobs and
+worker-node test suites use it and `example.echo` as fixtures across
+roughly 27 files. Their coupling to production code is two registrations
+and some comments; their coupling to the test suite is real and deep.
+Deleting them on a bootstrap pass hands a new project a broken test suite
+in its first hour, which is the worst possible introduction to a codebase.
+If you genuinely want them gone, that's a deliberate refactor with its own
+issue and a green suite before and after — never a step you take because a
+bootstrap checklist told you to.
+
+The audit's other items — the stub `deploy.yml` staging/production jobs,
+`docs/specs/` carrying the template's own issue numbers, the Prisma
+migrations inherited from the template — are ordinary "fine to leave, here's
+what to know" defaults, not action items.
+
+### 8. The one-way steps — only if you mean it
+
+None of these are part of the bootstrap above, and none should happen on
+your own initiative. Each is irreversible in a way `git checkout .` cannot
+undo, so give each its own explicit decision and its own commit:
+
+- **Squashing the migrations into a single initial migration.** Only safe
+  *before* any environment — including your own laptop's dev database — has
+  run them. Do it afterward and you desynchronise every deployed database's
+  `_prisma_migrations` table against the migration history in the repo.
+- **Resetting git history** (`rm -rf .git && git init`, or equivalent).
+  Discards everything, including the rename commit and everything from this
+  bootstrap. Confirm it's pushed somewhere, or genuinely disposable, first.
+- **Filling in or deleting `deploy.yml`'s stub staging/production jobs.**
+  They currently target a placeholder domain via `echo` and expect GitHub
+  Environments named `staging` and `production` to exist. The image build
+  above them already follows the fork automatically; only the deploy steps
+  need a decision.

@@ -128,7 +128,17 @@ Already running your own PostgreSQL 16? Point the `POSTGRES_*` variables in
 docker compose -f base.compose.yml -f dev.compose.yml up
 ```
 
-### 4. Seed Database (CRITICAL - Must run before first login)
+### 4. Apply the Database Schema (CRITICAL - nothing works before this)
+
+```bash
+docker compose exec api npm run prisma:migrate
+```
+
+The API **does not migrate on startup**, deliberately — its container command is
+`node dist/main` and nothing else. A fresh database therefore has no tables at
+all until this runs, and the seed in the next step fails against it.
+
+### 5. Seed Database (CRITICAL - Must run before first login)
 
 ```bash
 docker compose exec api npm run prisma:seed
@@ -139,13 +149,13 @@ docker compose exec api npm run prisma:seed
 - Creates permissions (users:read, users:write, etc.)
 - Without seeds, first login will fail with "Default role not found"
 
-### 5. Access Application
+### 6. Access Application
 
 - **Frontend**: http://localhost:3535
 - **API**: http://localhost:3535/api
 - **Swagger Docs**: http://localhost:3535/api/docs
 
-### 6. First Login
+### 7. First Login
 
 The first user to login with email matching `INITIAL_ADMIN_EMAIL` (from `.env`) will automatically be granted the **admin** role. All subsequent users get **viewer** role by default.
 
