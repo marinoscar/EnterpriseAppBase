@@ -27,7 +27,30 @@ WORKDIR /app
 # megabytes of build-only files into the base stage that every later stage
 # inherits, including production, and it is what the failing `apk add` in #203
 # choked on.
-RUN apk add --no-cache openssl
+#
+# `postgresql17-client` is pg_dump and pg_restore, for the database backup and
+# restore (epic #254, issue #280). It lands in the BASE stage, not just in
+# production, because `development` and `production` both descend from it and
+# a backup that only works in one of them is a backup nobody exercises until
+# the night it is needed.
+#
+# THE MAJOR IS PINNED EXPLICITLY, and that is the whole point of this line.
+# The floating `postgresql-client` meta-package tracks whatever major the
+# Alpine release underneath `node:24-alpine` currently ships, so a base-image
+# refresh - something nobody reviews as a database change - can move the
+# client backwards or forwards without a single line of this repository
+# changing. `pg_dump` REFUSES to dump a server newer than itself, and the
+# application's PostgreSQL is external to this compose stack (there is no `db`
+# service in infra/compose/base.compose.yml), so client and server majors
+# drift independently. The resulting failure is silent, total and permanent:
+# every backup from that moment on exits non-zero, and the first person to
+# find out is whoever needed a restore.
+#
+# The pinned number here is asserted against MIN_PG_CLIENT_MAJOR in
+# src/db-backup/pg-version.util.ts by test/pg-client-version.spec.ts - moving
+# one without the other fails the suite. See
+# docs/runbooks/postgres-client-version.md for how to bump the pair.
+RUN apk add --no-cache openssl postgresql17-client
 
 # -----------------------------------------------------------------------------
 # Dependencies stage
