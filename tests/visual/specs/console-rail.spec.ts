@@ -14,10 +14,13 @@ import { harnessUrl, waitForInter } from '../support/harness';
  * from `ADMIN_SECTIONS`' three section labels.
  *
  * The `Operations` assertions below are the point of this spec catching #266
- * at all: a card registered with `disabled: true` and no `path` (Worker Nodes,
- * Database Backup) must NOT appear as a rail link, while its live siblings
- * must — "declared in the IA" and "reachable from the rail" are two different
- * statements, and the rail is where conflating them shows up.
+ * at all: a card registered with `disabled: true` and no `path` must NOT appear
+ * as a rail link, while its live siblings must — "declared in the IA" and
+ * "reachable from the rail" are two different statements, and the rail is where
+ * conflating them shows up. Both of the group's originally-inert cards have
+ * since been flipped (Worker Nodes by #271, Database Backup by #287), and each
+ * flip ADDED a rail row — which is the same assertion from the other side, and
+ * why the baseline moved with each.
  *
  * Scoped to the `nav` element rather than a full-page screenshot: this spec
  * exists to pin the rail's own content, and scoping keeps it independent of
@@ -47,9 +50,11 @@ test('Console rail: Back to library + General/Access/Operations groups @ lg', as
   // card from `disabled` to routed reaches all three consumers of the registry,
   // not just the hub.
   await expect(rail.getByRole('link', { name: 'Worker Nodes' })).toBeVisible();
-  // Still registered but not yet routed: declared in the IA, deliberately not a
-  // link. `NavigationRail` skips any card with `!card.path || card.disabled`.
-  await expect(rail.getByRole('link', { name: 'Database Backup' })).toHaveCount(0);
+  // Live since #287, the epic's last issue — and the row appearing here is the
+  // whole reason `NavigationRail` was left to key on `!card.path ||
+  // card.disabled` rather than on a second list: flipping two fields in the
+  // registry is what makes the rail draw it.
+  await expect(rail.getByRole('link', { name: 'Database Backup' })).toBeVisible();
 
   await expect(rail).toHaveScreenshot('console-rail-lg-expanded.png');
 });
