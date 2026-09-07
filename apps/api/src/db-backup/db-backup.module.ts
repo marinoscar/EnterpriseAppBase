@@ -2,12 +2,14 @@ import { Module } from '@nestjs/common';
 
 import { SettingsModule } from '../settings/settings.module';
 import { StorageProvidersModule } from '../storage/providers/storage-providers.module';
+import { DatabaseBackupAdminService } from './db-backup-admin.service';
 import { DatabaseBackupRetentionService } from './db-backup-retention.service';
 import { DatabaseBackupRunnerService } from './db-backup-runner.service';
+import { DatabaseBackupController } from './db-backup.controller';
 import { DatabaseBackupScheduleTask } from './tasks/db-backup-schedule.task';
 
 // =============================================================================
-// DbBackupModule (issues #281 and #282, epic #254)
+// DbBackupModule (issues #281, #282 and #283, epic #254)
 // =============================================================================
 //
 // The backup engine and nothing else. #280 shipped the pure utilities this
@@ -82,13 +84,41 @@ import { DatabaseBackupScheduleTask } from './tasks/db-backup-schedule.task';
 // `DatabaseBackupScheduleTask` is a provider and NOT exported: nothing outside
 // this module should be reaching into a cron handler, and the two operations
 // it owns are already reachable through the services it composes.
+//
+// -----------------------------------------------------------------------------
+// #283 ADDS THE ADMIN SURFACE, AND IT IS A THIRD SERVICE RATHER THAN A FOURTH
+// METHOD ON THE RUNNER
+// -----------------------------------------------------------------------------
+//
+// `DatabaseBackupController` binds to `DatabaseBackupAdminService`, which reads
+// the run table, projects the schedule, writes the policy through
+// `SystemSettingsService` and DELEGATES the two dangerous operations — claiming
+// a run and cancelling one — to the runner. Splitting it out follows the
+// precedent `JobAdminService` set beside `JobsService`: what is split is the
+// WORK, not the surface. The runner exists to spawn a child process and stream
+// its output into a bucket under a set of guarantees its header spends 150
+// lines stating; an admin service exists to page through rows and turn typed
+// failures into status codes. Folding the second into the first would put HTTP
+// concerns inside the file that must stay legible as a streaming contract, and
+// would give a cron-driven engine a reason to import `@nestjs/common`'s
+// exceptions.
+//
+// The admin service is a PROVIDER AND NOT EXPORTED: it is the controller's,
+// and anything else that needs to start a backup must go through the runner,
+// which is the one writer of this table.
+//
+// `DatabaseBackupAdminService` injects `STORAGE_PROVIDER` directly, exactly as
+// the runner and the retention sweep do, so the `StorageProvidersModule` import
+// above now serves three consumers rather than two.
 // =============================================================================
 
 @Module({
   imports: [SettingsModule, StorageProvidersModule],
+  controllers: [DatabaseBackupController],
   providers: [
     DatabaseBackupRunnerService,
     DatabaseBackupRetentionService,
+    DatabaseBackupAdminService,
     DatabaseBackupScheduleTask,
   ],
   exports: [DatabaseBackupRunnerService, DatabaseBackupRetentionService],
