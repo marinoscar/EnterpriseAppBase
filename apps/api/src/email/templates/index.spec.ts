@@ -77,6 +77,48 @@ const SAMPLE_DATA: { [K in EmailTemplateName]: EmailTemplateDataMap[K] } = {
     link: '/announcements/42',
     critical: true,
   },
+  // #288's four operational templates (epic #254). THE HOSTILE FRAGMENTS ARE
+  // PLACED WITH CARE, because the contract loop below imposes two requirements
+  // at once: the `<script>` payload must reach BOTH the html part (escaped) and
+  // the text part (verbatim), and the SUBJECT must carry no markup at all. So
+  // in every payload here the hostile values go in fields the body renders and
+  // the subject does not — `error`, `executor`, `nodeName`, `triggeredBy` — and
+  // the fields that DO reach a subject line (`jobType`) are benign.
+  'job-failed': {
+    jobId: 'job-1',
+    // Reaches the subject, so it stays benign on purpose.
+    jobType: 'admin.broadcast.chunk',
+    error: '<script>alert(document.cookie)</script>',
+    attempts: 5,
+    executor: '"><img src=x onerror=alert(1)>',
+    failedAt: new Date('2026-01-01T00:00:00.000Z'),
+    appUrl: 'https://app.example.com',
+  },
+  'node-offline': {
+    nodeId: 'node-1',
+    nodeName: '<script>alert(document.cookie)</script>',
+    lastHeartbeatAt: new Date('2026-01-01T00:00:00.000Z'),
+    markedOfflineAt: new Date('2026-01-01T00:06:00.000Z'),
+    staleAfterMinutes: 6,
+    appUrl: 'https://app.example.com',
+  },
+  'backup-failed': {
+    runId: '"><img src=x onerror=alert(1)>',
+    outcome: 'failed',
+    error: '<script>alert(document.cookie)</script>',
+    startedAt: new Date('2026-01-01T00:00:00.000Z'),
+    failedAt: new Date('2026-01-01T00:10:00.000Z'),
+    trigger: 'scheduled',
+    appUrl: 'https://app.example.com',
+  },
+  'restore-completed': {
+    runId: '"><img src=x onerror=alert(1)>',
+    backupTakenAt: new Date('2026-01-01T00:00:00.000Z'),
+    completedAt: new Date('2026-01-02T00:00:00.000Z'),
+    triggeredBy: '<script>alert(document.cookie)</script>@example.com',
+    preRestoreBackupId: 'run-pre-restore',
+    appUrl: 'https://app.example.com',
+  },
 };
 
 function render(name: EmailTemplateName): RenderedEmail {

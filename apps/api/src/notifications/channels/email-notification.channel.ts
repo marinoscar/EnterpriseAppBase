@@ -100,6 +100,14 @@ export const EVENT_EMAIL_TEMPLATES: Partial<Record<string, EmailTemplateName>> =
     // exactly as legal as it is correct.
     'admin.broadcast': 'broadcast',
     'admin.broadcast_critical': 'broadcast',
+    // The four operational events (#288, epic #254). One template each: unlike
+    // the broadcast pair above, these four say genuinely different things, and
+    // the only shape they share is the detail table their layouts happen to
+    // use.
+    'jobs.job_failed': 'job-failed',
+    'nodes.node_offline': 'node-offline',
+    'db_backup.backup_failed': 'backup-failed',
+    'db_backup.restore_completed': 'restore-completed',
   };
 
 @Injectable()

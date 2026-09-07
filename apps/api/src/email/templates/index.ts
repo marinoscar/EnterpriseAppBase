@@ -4,6 +4,19 @@ import {
   allowlistInvitationEmail,
 } from './allowlist-invitation.email';
 import { type BroadcastEmailData, broadcastEmail } from './broadcast.email';
+import {
+  type BackupFailedEmailData,
+  backupFailedEmail,
+} from './backup-failed.email';
+import { type JobFailedEmailData, jobFailedEmail } from './job-failed.email';
+import {
+  type NodeOfflineEmailData,
+  nodeOfflineEmail,
+} from './node-offline.email';
+import {
+  type RestoreCompletedEmailData,
+  restoreCompletedEmail,
+} from './restore-completed.email';
 import { type RoleChangedEmailData, roleChangedEmail } from './role-changed.email';
 import { type TestEmailData, testEmail } from './test-email.email';
 import { type UserWelcomeEmailData, userWelcomeEmail } from './user-welcome.email';
@@ -72,6 +85,16 @@ export interface EmailTemplateDataMap {
   // typed. Its data type carries no recipient, because a broadcast reads the
   // same for everybody — see broadcast.email.ts.
   broadcast: BroadcastEmailData;
+
+  // #288 (epic #254). The four OPERATIONAL messages. What sets them apart from
+  // every entry above is the recipient: these are addressed to whoever holds an
+  // administrative permission, not to a user something happened to — see
+  // `NotificationsService.notifyPermissionHolders`. Their payloads are
+  // correspondingly free of any per-recipient field.
+  'job-failed': JobFailedEmailData;
+  'node-offline': NodeOfflineEmailData;
+  'backup-failed': BackupFailedEmailData;
+  'restore-completed': RestoreCompletedEmailData;
 }
 
 /**
@@ -104,6 +127,10 @@ export const EMAIL_TEMPLATES: {
   'allowlist-invitation': allowlistInvitationEmail,
   'role-changed': roleChangedEmail,
   broadcast: broadcastEmail,
+  'job-failed': jobFailedEmail,
+  'node-offline': nodeOfflineEmail,
+  'backup-failed': backupFailedEmail,
+  'restore-completed': restoreCompletedEmail,
 };
 
 /**
@@ -213,6 +240,15 @@ export { roleChangedEmail } from './role-changed.email';
 // whether a recipient may mute them, not in how the message reads.
 export { broadcastEmail } from './broadcast.email';
 
+// The four operational templates (#288). Exported individually as well as
+// through the registry, for the same reason as everything above: a call site
+// that knows statically which message it is building gets its payload type
+// checked by name.
+export { jobFailedEmail } from './job-failed.email';
+export { nodeOfflineEmail } from './node-offline.email';
+export { backupFailedEmail } from './backup-failed.email';
+export { restoreCompletedEmail } from './restore-completed.email';
+
 export type { PlainTextOptions, RenderLayoutOptions } from './layout';
 export type { EmailTemplate, RenderedEmail } from './email-template.types';
 export type { TestEmailData } from './test-email.email';
@@ -226,3 +262,14 @@ export type { UserWelcomeEmailData } from './user-welcome.email';
 export type { AllowlistInvitationEmailData } from './allowlist-invitation.email';
 export type { RoleChangedEmailData } from './role-changed.email';
 export type { BroadcastEmailData } from './broadcast.email';
+
+// The operational payload types (#288). Same contract as the ones above: the
+// `notifyPermissionHolders` call site that annotates its payload with one of
+// these is the only place the shape is checked at all.
+export type { JobFailedEmailData } from './job-failed.email';
+export type { NodeOfflineEmailData } from './node-offline.email';
+export type {
+  BackupFailedEmailData,
+  BackupFailureOutcome,
+} from './backup-failed.email';
+export type { RestoreCompletedEmailData } from './restore-completed.email';
