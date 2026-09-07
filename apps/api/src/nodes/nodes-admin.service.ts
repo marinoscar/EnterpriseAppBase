@@ -72,8 +72,14 @@ import { PrismaService } from '../prisma/prisma.service';
  * The column on `User` is `displayName`; the wire field is `owner.name`. The
  * two names are deliberately different and `toAdminNodeDto` maps between them
  * — selecting `name` here is not a fix, it is a Prisma validation error.
+ *
+ * Exported (not module-private) so
+ * `test/nodes/worker-node-model-fields.spec.ts` can assert its keys are real
+ * `User` scalar columns without duplicating this literal — issue #340 was
+ * exactly this select naming a column, `name`, that does not exist, and every
+ * existing test mocked `PrismaService` so nothing caught it.
  */
-const OWNER_SELECT = { select: { id: true, email: true, displayName: true } } as const;
+export const OWNER_SELECT = { select: { id: true, email: true, displayName: true } } as const;
 
 /** A node row with its owner joined — what both read paths load. */
 type NodeWithOwner = WorkerNode & {

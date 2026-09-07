@@ -26,6 +26,14 @@ import type { PrismaService } from '../prisma/prisma.service';
 
 const POLICY = { staleHeartbeatSeconds: 90, offlineStaleMultiplier: 4, offlineRetentionDays: 30 };
 
+// The wire shape (`owner.name`) and what Prisma actually returns for
+// `OWNER_SELECT`/`CREDENTIAL_OWNER_SELECT` (`displayName`) are deliberately
+// different — see the comment on `OWNER_SELECT` in `nodes-admin.service.ts`.
+// Issue #340 was these two rows silently matching each other because the
+// select used to (wrongly) ask for `name` too; keeping them as two separate
+// constants here is what makes that particular bug reappear as a failing
+// assertion instead of a fixture that quietly agrees with broken code.
+const OWNER_ROW = { id: 'owner-1', email: 'ops@example.test', displayName: 'Ops' };
 const OWNER = { id: 'owner-1', email: 'ops@example.test', name: 'Ops' };
 
 function nodeRow(id: string, overrides: Record<string, unknown> = {}) {
@@ -41,8 +49,8 @@ function nodeRow(id: string, overrides: Record<string, unknown> = {}) {
     capabilities: null,
     registeredAt: new Date('2026-01-01T00:00:00.000Z'),
     lastHeartbeatAt: new Date(Date.now() - 10_000),
-    createdById: OWNER.id,
-    createdBy: OWNER,
+    createdById: OWNER_ROW.id,
+    createdBy: OWNER_ROW,
     ...overrides,
   };
 }
@@ -230,7 +238,7 @@ describe('NodesAdminService', () => {
           lastUsedAt: new Date('2026-03-01T00:00:00.000Z'),
           createdAt: new Date('2026-01-01T00:00:00.000Z'),
           revokedAt: null,
-          user: OWNER,
+          user: OWNER_ROW,
         },
       ]);
 
