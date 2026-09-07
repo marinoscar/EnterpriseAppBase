@@ -19,6 +19,7 @@ import { NodeCredentialModule } from './nodes/node-credential.module';
 import { NodesModule } from './nodes/nodes.module';
 import { CredentialsModule } from './credentials/credentials.module';
 import { EmailModule } from './email/email.module';
+import { BroadcastsModule } from './notifications/broadcasts/broadcasts.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { JobsModule } from './jobs/jobs.module';
 import { LoggerModule } from './common/logger/logger.module';
@@ -92,6 +93,16 @@ import configuration from './config/configuration';
     // so a broken channel graph — a duplicate channel registration, a missing
     // transport — fails at boot rather than at the first notification.
     NotificationsModule,
+    // Admin notification broadcasts -- the fan-out half (#323, epic #319): the
+    // `admin.broadcast.start` and `admin.broadcast.chunk` job handlers, which
+    // turn one composed announcement into a chunked, resumable send to every
+    // active user over the existing dispatcher. Registered here for the reason
+    // `NotificationsModule` and `JobsModule` above are: a handler's only
+    // wiring is the `registry.register(this)` in its own `onModuleInit`, so
+    // being in the graph IS the registration, and a broken one fails at boot
+    // rather than the first time an admin presses Send. The admin API (#324)
+    // and page (#325) land on top of this module later.
+    BroadcastsModule,
     // Background job queue (#259, epic #254): the handler contract, the
     // handler registry and one worked example handler. Registered here even
     // though nothing enqueues, claims or runs a job yet (#260-#263 add

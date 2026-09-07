@@ -59,6 +59,16 @@ export const JOB_TYPE_LABELS: Readonly<Record<string, string>> = {
   // #263) — the first real job type this template ships, and one a fork
   // should keep: deleting it stops history being trimmed.
   'job.history.purge': 'Job history purge',
+  // The two halves of an admin broadcast fan-out (#323, epic #319). Labelled
+  // as a PAIR because that is how they appear in the dashboard: one start row
+  // per broadcast followed by a chain of chunk rows, all sharing the
+  // `notification_broadcast` subject. The phrasing keeps them adjacent when
+  // the type column is sorted, and says which end of the fan-out a row is —
+  // the distinction an operator actually needs at 2am, since a failed start
+  // means nobody was reached and a failed chunk means the send stopped part
+  // way and will resume from its cursor.
+  'admin.broadcast.start': 'Broadcast start',
+  'admin.broadcast.chunk': 'Broadcast delivery',
 };
 
 /**
