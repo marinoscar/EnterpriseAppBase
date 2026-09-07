@@ -1,12 +1,15 @@
 // =============================================================================
-// /api/admin/db-backup — the backup subsystem's admin routes (issue #283)
+// /api/admin/db-backup — the backup subsystem's admin routes (issues #283, #286)
 // =============================================================================
 // (epic #254)
 //
-// Eight routes over one service, mounted under `admin/`. The controller does
+// Ten routes over one service, mounted under `admin/`: eight that manage
+// backups (#283) and two that RESTORE from one (#286). The controller does
 // nothing but bind, document and authorize; every decision about what a request
 // MEANS lives in `db-backup-admin.service.ts`, and every decision about what a
-// backup IS lives further down still, in `db-backup-runner.service.ts`.
+// backup IS lives further down still, in `db-backup-runner.service.ts`. The one
+// exception is stated below and argued there: the restore pair's error mapping
+// is here on purpose.
 //
 // MOUNTED AT `admin/db-backup` AND NOT AT `db-backup`, for the reason
 // `NodesAdminController` gives about its own prefix: `JwtAuthGuard` treats
@@ -22,9 +25,9 @@
 //
 // Nest matches routes in DECLARATION ORDER, not by specificity. So the order
 // below is: `config` (GET, PUT) and `runs` (POST, GET) first, and only then the
-// parameterised block — `runs/:id/download`, `runs/:id/cancel`, `runs/:id`
-// (GET) and `runs/:id` (DELETE), deepest first inside that block for the same
-// reason.
+// parameterised block — `runs/:id/download`, `runs/:id/cancel`,
+// `runs/:id/restore`, `runs/:id/rollback`, `runs/:id` (GET) and `runs/:id`
+// (DELETE), deepest first inside that block for the same reason.
 //
 // BE HONEST ABOUT TODAY: the literals here are one segment past the prefix
 // (`config`) or one (`runs`), while every parameterised route is two or three
@@ -46,23 +49,64 @@
 // fails a test rather than a production incident.
 //
 // -----------------------------------------------------------------------------
-// TWO PERMISSIONS, SPLIT ON READ VERSUS WRITE — AND NOT THREE
+// ⚠ TWO OF THESE TEN ROUTES ARE THE ONE PLACE IN THIS APPLICATION WHERE A
+// MIS-FIRED OR RETRIED REQUEST IS AN OUTAGE RATHER THAN A DUPLICATE ROW
+// -----------------------------------------------------------------------------
+//
+// `POST runs/:id/restore` and `POST runs/:id/rollback` (#286) replace the
+// production database. Every other write in this API, sent twice, costs at
+// worst a wasted row. These cost the deployment. Three consequences run through
+// everything below and are not negotiable:
+//
+//   1. A TYPED CONFIRMATION LITERAL, checked by the global validation pipe
+//      before any handler code runs. `{"confirmation":"RESTORE"}` and
+//      `{"confirmation":"ROLLBACK"}` — deliberately different words, so a body
+//      copied from one route to the other is refused. A missing or wrong
+//      confirmation is a `400` HAVING STARTED NOTHING: no run lookup, no
+//      cluster probe, no download. `dto/db-backup-restore.dto.ts` argues at
+//      length why a boolean `confirm: true` was rejected.
+//   2. THE STATUS CODE IS NOT THE ANSWER; `mode` IS. Each route has THREE
+//      NORMAL OUTCOMES and all of them are `200`. In particular `guided` — the
+//      capability-gate path that hands back a paste-ready command block — MUST
+//      NOT be an error status: it is the expected answer on managed PostgreSQL
+//      that denies `CREATEDB`, and a 4xx would tell an operator mid-incident
+//      that their platform is unsupported when it is not.
+//   3. THE ERROR MAPPING LIVES HERE, IN THIS FILE, and that is a departure from
+//      the other eight routes whose service raises `NotFoundException` itself.
+//      `DatabaseBackupAdminService`'s restore pair throws DOMAIN errors instead,
+//      because the restore path is reached from more than the HTTP layer — a
+//      rollback in `pre_restore_dump` mode re-enters `startRestore` from inside
+//      a running restore, where there is no request to answer — and a framework
+//      exception raised there would be an HTTP object with nowhere to go. The
+//      mapping is: not-found → 404, not-allowed → 400, and the
+//      `already_running` RESULT → 409 carrying `details.activeRunId`.
+//
+// -----------------------------------------------------------------------------
+// THREE PERMISSIONS, AND THE THIRD IS WITHHELD ON PURPOSE
 // -----------------------------------------------------------------------------
 //
 // `db_backup:read` for the config read, the list, the single get and the
 // download; `db_backup:write` for the config write, the manual trigger, the
-// cancel and the delete. Both additionally gated on the Admin role, matching
+// cancel and the delete; `db_backup:restore` — AND NOT `db_backup:write` — for
+// the restore and the rollback.
+//
+// ⚠ THE SPLIT IS THE WHOLE POINT OF THE THIRD PERMISSION. Scheduling backups
+// and replacing the production database are not the same authority, and a
+// deployment must be able to grant the first to somebody it does not trust with
+// the second: an operator who configures the nightly dump, an on-call engineer
+// who takes an ad-hoc backup before a deploy. Folding restore under
+// `db_backup:write` would spend the one permission whose entire purpose is to
+// be granted separately and on purpose, and it would do so invisibly — every
+// existing holder of `db_backup:write` would silently acquire the ability to
+// replace the database. There is an explicit test that drives both routes as a
+// user holding `db_backup:write` and expects `403`.
+//
+// All three are additionally gated on the Admin role, matching
 // `job-admin.controller.ts` and `nodes-admin.controller.ts`: the ROLE admits,
 // the PERMISSION is what the guard checks. These exact strings are the API's
 // half of the contract a settings card's `permission` field must mirror byte
 // for byte (CLAUDE.md, Settings UI Pattern rule 3), so they must not be
 // approximated on the other side.
-//
-// `db_backup:restore` — the third permission seeded in `prisma/seed-data.ts` —
-// appears NOWHERE in this file, and that is deliberate rather than an
-// oversight. It gates #285's restore, which renames the live database and
-// restarts the process; folding any route here under it would spend the one
-// permission whose whole purpose is to be granted separately and on purpose.
 //
 // THE DOWNLOAD SITS ON THE READ SIDE, which is worth stating because it is the
 // most powerful thing on this controller: the URL it returns is a
@@ -75,12 +119,15 @@
 // =============================================================================
 
 import {
+  BadRequestException,
   Body,
+  ConflictException,
   Controller,
   Delete,
   Get,
   HttpCode,
   HttpStatus,
+  NotFoundException,
   Param,
   ParseUUIDPipe,
   Post,
@@ -95,6 +142,10 @@ import { PERMISSIONS, ROLES } from '../common/constants/roles.constants';
 import { ApiDataResponse } from '../common/decorators/api-data-response.decorator';
 import { DatabaseBackupAdminService } from './db-backup-admin.service';
 import {
+  DatabaseRestoreNotAllowedError,
+  DatabaseRestoreRunNotFoundError,
+} from './db-backup.errors';
+import {
   BackupDownloadUrlDto,
   CancelBackupResultDto,
   DeleteBackupResultDto,
@@ -104,6 +155,14 @@ import {
   UpdateDatabaseBackupConfigDto,
 } from './dto/db-backup-config.dto';
 import { BackupRunListQueryDto } from './dto/db-backup-list-query.dto';
+import {
+  ROLLBACK_RESPONSE_DTOS,
+  RollbackRestoreRequestDto,
+  START_RESTORE_RESPONSE_DTOS,
+  StartRestoreRequestDto,
+  toRollbackResponse,
+  toStartRestoreResponse,
+} from './dto/db-backup-restore.dto';
 import {
   BACKUP_STATUSES,
   BACKUP_TRIGGERS,
@@ -293,6 +352,155 @@ export class DatabaseBackupController {
     return this.backups.cancelRun(id);
   }
 
+  // ---------------------------------------------------------------------------
+  // ⚠ The two destructive routes (#286). Read this file's header first.
+  // ---------------------------------------------------------------------------
+
+  @Post('runs/:id/restore')
+  @Auth({ roles: [ROLES.ADMIN], permissions: [PERMISSIONS.DB_BACKUP_RESTORE] })
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Restore the database from this backup',
+    description:
+      'REPLACES THE PRODUCTION DATABASE. Requires `db_backup:restore`, which is a SEPARATE ' +
+      'permission from `db_backup:write` precisely so it can be withheld from someone who ' +
+      'may schedule backups but must not be able to replace the database.\n\n' +
+      'The body must be exactly `{"confirmation":"RESTORE"}` (plus an optional ' +
+      '`overrideSchemaCheck`). The literal is the safety feature: a retried, replayed or ' +
+      'mis-fired POST cannot reconstruct it by accident, and a missing or wrong confirmation ' +
+      'is a `400` that starts NOTHING — no pre-flight, no download, no row.\n\n' +
+      'Returns as soon as the cheap pre-flight gates have run. ⚠ READ `mode`, NOT ONLY THE ' +
+      'STATUS CODE: all three normal outcomes are `200`.\n\n' +
+      '`running` — the gates passed and the restore is under way in the background. It takes ' +
+      'HOURS (every index is rebuilt from the archive), so poll `GET runs/{id}` and watch ' +
+      '`restoreStatus`: `restoring` → `verifying` → `swapping` → `completed`/`failed`. The ' +
+      'application serves normally throughout; the only destructive window is two catalog ' +
+      'renames long, and the process exits at the end of it so its connection pool can be ' +
+      'rebuilt — a restart policy is a hard prerequisite.\n\n' +
+      '`guided` — a CAPABILITY gate failed (typically the role lacks `CREATEDB`, which ' +
+      'managed PostgreSQL routinely denies). Nothing was started. This is NOT an error: the ' +
+      'body carries a complete, paste-ready command block with real names, hosts and ports, ' +
+      'plus a runbook path, so the same restore can be performed by hand with a superuser.\n\n' +
+      '`blocked` — the schema-compatibility gate refused. Nothing was started. Compare ' +
+      '`preflight.archiveMigration` with `preflight.liveMigration` and, if you accept the ' +
+      'mismatch, re-send with `overrideSchemaCheck: true`. ⚠ That flag unblocks THAT GATE ' +
+      'AND NOTHING ELSE — it can never bypass a capability gate, because no amount of ' +
+      'accepting makes a role without `CREATEDB` able to create a database.\n\n' +
+      '`preflight.gates` lists EVERY gate that ran, including the ones that passed, so an ' +
+      'operator can see what was checked rather than only what failed.',
+  })
+  @ApiParam({ name: 'id', type: String, format: 'uuid' })
+  @ApiDataResponse(START_RESTORE_RESPONSE_DTOS, {
+    description: 'One of `running`, `guided` or `blocked`; read `mode`',
+  })
+  @ApiResponse({
+    status: 400,
+    description:
+      'The confirmation was missing or wrong (nothing was started), or the run is not a ' +
+      'completed backup',
+  })
+  @ApiResponse({ status: 404, description: 'No such run' })
+  @ApiResponse({
+    status: 409,
+    description: 'A restore is already in flight; see `details.activeRunId`',
+  })
+  async restore(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: StartRestoreRequestDto,
+    @CurrentUser('id') userId: string
+  ): Promise<unknown> {
+    // `dto.confirmation` is NOT re-checked here, and looking for the check is
+    // the natural reaction to reading this method. It has already happened:
+    // `confirmation` is a Zod literal on the DTO and the global
+    // `ZodValidationPipe` rejects anything else before this body executes. A
+    // second check would be dead code that implied the first one was not
+    // trusted; the integration spec asserts the real one by proving the service
+    // is never reached on a bad confirmation.
+    try {
+      const result = await this.backups.startRestore(id, {
+        overrideSchemaCheck: dto.overrideSchemaCheck,
+        actorUserId: userId,
+      });
+
+      if (result.outcome === 'already_running') {
+        // ⚠ `activeRunId` GOES UNDER `details`. At the top level the exception
+        // filter would drop it before the body reached the client, and the
+        // operator who just clicked would be told "one is already running" with
+        // no way to find out which. Same rule, same reason, as `POST runs`.
+        throw new ConflictException({
+          message:
+            `A database restore is already in flight (backup run ${result.runId}). Wait for ` +
+            'it to finish, or poll that run to see where it is.',
+          details: {
+            activeRunId: result.runId,
+            reason: 'restore_already_running',
+          },
+        });
+      }
+
+      return toStartRestoreResponse(result);
+    } catch (error) {
+      throw this.toHttp(error);
+    }
+  }
+
+  @Post('runs/:id/rollback')
+  @Auth({ roles: [ROLES.ADMIN], permissions: [PERMISSIONS.DB_BACKUP_RESTORE] })
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Undo the restore that was performed from this backup',
+    description:
+      'Requires `db_backup:restore`, the same separate permission the restore route uses. ' +
+      'The body must be exactly `{"confirmation":"ROLLBACK"}` — a DIFFERENT word from the ' +
+      'restore route\'s, so a body copied from one to the other is refused rather than ' +
+      'silently accepted.\n\n' +
+      '⚠ READ `mode`: the two routes back are not comparable in cost, and which one you got ' +
+      'is the single most important fact in the response.\n\n' +
+      '`renamed` — `retain_database` mode. The database the restore displaced was renamed ' +
+      'back into place. SECONDS. This is what paying roughly double the PostgreSQL volume ' +
+      'during `oldDatabaseRetentionHours` buys.\n\n' +
+      '`restore_started` — `pre_restore_dump` mode. There was no database to rename, so this ' +
+      'delegated into the restore path against the safety backup taken immediately before ' +
+      'the swap, WITH THE SCHEMA CHECK OVERRIDDEN (that dump came from the schema the code ' +
+      'was running moments earlier, so a compatibility block would be spurious). HOURS. Poll ' +
+      '`GET runs/{preRestoreRunId}`, not this run.\n\n' +
+      '`unavailable` — the retained database has passed its retention window and been ' +
+      'dropped, and there is no completed pre-restore backup to fall back on. Reported ' +
+      'honestly as a `200` rather than as a failure: nothing went wrong just now, the ' +
+      'rollback window simply closed, and retrying will not change it. Restoring some other ' +
+      'archive is a new restore, not a rollback.',
+  })
+  @ApiParam({ name: 'id', type: String, format: 'uuid' })
+  @ApiDataResponse(ROLLBACK_RESPONSE_DTOS, {
+    description: 'One of `renamed`, `restore_started` or `unavailable`; read `mode`',
+  })
+  @ApiResponse({
+    status: 400,
+    description:
+      'The confirmation was missing or wrong (nothing was started), or this run was never ' +
+      'restored so there is no swap to undo',
+  })
+  @ApiResponse({ status: 404, description: 'No such run' })
+  @ApiResponse({
+    status: 409,
+    description: 'A restore is already in flight; see `details.activeRunId`',
+  })
+  async rollback(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() _dto: RollbackRestoreRequestDto,
+    @CurrentUser('id') userId: string
+  ): Promise<unknown> {
+    // `_dto` is bound and never read ON PURPOSE. Binding it is what makes the
+    // pipe validate `confirmation`; the value itself carries no information
+    // beyond "the caller typed the word", which the literal has already proved.
+    // Dropping the parameter would drop the safety check with it.
+    try {
+      return toRollbackResponse(await this.backups.rollbackRestore(id, userId));
+    } catch (error) {
+      throw this.toHttp(error);
+    }
+  }
+
   @Get('runs/:id')
   @Auth({ roles: [ROLES.ADMIN], permissions: [PERMISSIONS.DB_BACKUP_READ] })
   @ApiOperation({
@@ -339,5 +547,54 @@ export class DatabaseBackupController {
   @ApiResponse({ status: 404, description: 'No such run' })
   async remove(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
     return this.backups.deleteRun(id);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Error mapping for the two restore routes
+  // ---------------------------------------------------------------------------
+
+  /**
+   * The restore path's domain errors, as HTTP.
+   *
+   * ⚠ THIS MAPPING LIVES IN THE CONTROLLER BECAUSE THE SERVICE IS CALLED FROM
+   * MORE THAN THE HTTP LAYER. `DatabaseRestoreService.rollback` re-enters
+   * `startRestore` from inside a running restore in `pre_restore_dump` mode,
+   * where the request that began everything was answered hours ago; #287 will
+   * reach the same code again. A `NotFoundException` raised down there would be
+   * a framework object on a path with no response to attach it to — it would be
+   * caught, logged as an unexpected failure, and mean nothing. Keeping the
+   * errors as domain types lets every caller decide for itself, and keeps all
+   * of this surface's status-code policy in one screen next to the OpenAPI
+   * annotations that publish it.
+   *
+   * Anything not recognised is RETHROWN UNCHANGED, which matters: the
+   * `ConflictException` the restore handler raises for `already_running` passes
+   * straight through here rather than being flattened into a 500 by a
+   * catch-all.
+   *
+   * The identifying data goes under `details` and nowhere else — the exception
+   * filter rebuilds every body from `message` and `details` alone, so a
+   * top-level field is silently dropped before the client sees it. See
+   * `db-backup-admin.service.ts`'s header.
+   */
+  private toHttp(error: unknown): unknown {
+    if (error instanceof DatabaseRestoreRunNotFoundError) {
+      return new NotFoundException({
+        message: error.message,
+        details: { runId: error.runId, reason: 'backup_run_not_found' },
+      });
+    }
+
+    if (error instanceof DatabaseRestoreNotAllowedError) {
+      // A 400 rather than a 409: nothing is in conflict and nothing is broken.
+      // The request named a row that is not a thing this operation acts on, and
+      // no amount of waiting or retrying changes that.
+      return new BadRequestException({
+        message: error.message,
+        details: { runId: error.runId, reason: error.reason },
+      });
+    }
+
+    return error;
   }
 }
