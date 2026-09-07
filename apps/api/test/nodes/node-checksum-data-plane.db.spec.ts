@@ -71,6 +71,8 @@ import { ProviderThrottleService } from '../../src/jobs/provider-throttle.servic
 import { ClaimJobsDto, NodeJobResultDto } from '../../src/nodes/dto/node-control-plane.dto';
 import { NodeUploadUrlDto } from '../../src/nodes/dto/node-data-plane.dto';
 import { NodeDataPlaneService } from '../../src/nodes/node-data-plane.service';
+import { DEFAULT_SYSTEM_SETTINGS } from '../../src/common/types/settings.types';
+import { NodeLifecycleService } from '../../src/nodes/node-lifecycle.service';
 import { NodesService } from '../../src/nodes/nodes.service';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import type {
@@ -355,7 +357,14 @@ describeWithDb('example.checksum end to end on a worker node (real Postgres)', (
       // The real lease service over the same client (#347): renewal is a real
       // write on the row this suite is exercising, so a stub would hide it.
       new JobLeaseService(service),
-      registry
+      registry,
+      // The narrow settings accessor (#349), stubbed to the shipped default
+      // (`jobSecretBrokerEnabled: false`). No handler in this suite declares a
+      // broker, so the claim-time filter it drives is a no-op — but the claim
+      // now reads it, so it must be present.
+      {
+        getPolicy: async () => ({ ...DEFAULT_SYSTEM_SETTINGS.nodes }),
+      } as unknown as NodeLifecycleService
     );
     dataPlane = new NodeDataPlaneService(service, config, nodes, storage, registry);
 
@@ -501,7 +510,8 @@ describeWithDb('example.checksum end to end on a worker node (real Postgres)', (
       subjectId: object.id,
     });
 
-    expect(nodes.listNodeEligibleJobTypes().map((entry) => entry.type)).toContain(JOB_TYPE);
+    const published = await nodes.listNodeEligibleJobTypes();
+    expect(published.map((entry) => entry.type)).toContain(JOB_TYPE);
     await expect(claimOne()).resolves.toHaveLength(1);
   });
 

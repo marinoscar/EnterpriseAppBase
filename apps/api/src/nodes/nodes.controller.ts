@@ -82,6 +82,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   HttpCode,
   HttpStatus,
   Param,
@@ -115,7 +116,12 @@ import {
   NodeUploadUrlDto,
   NodeUploadUrlResponseDto,
 } from './dto/node-data-plane.dto';
+import {
+  NodeJobSecretRequestDto,
+  NodeJobSecretResponseDto,
+} from './dto/node-job-secret.dto';
 import { NodeDataPlaneService } from './node-data-plane.service';
+import { NodeSecretBrokerService } from './node-secret-broker.service';
 import { NodesService } from './nodes.service';
 
 @ApiTags('Worker Nodes')
@@ -123,7 +129,8 @@ import { NodesService } from './nodes.service';
 export class NodesController {
   constructor(
     private readonly nodes: NodesService,
-    private readonly dataPlane: NodeDataPlaneService
+    private readonly dataPlane: NodeDataPlaneService,
+    private readonly secrets: NodeSecretBrokerService
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -170,8 +177,11 @@ export class NodesController {
       'list to edit.',
   })
   @ApiResponse({ status: 200, description: 'The node-eligible types', type: NodeJobTypesResponseDto })
-  listJobTypes(): NodeJobTypesResponseDto {
-    return { types: this.nodes.listNodeEligibleJobTypes() };
+  async listJobTypes(): Promise<NodeJobTypesResponseDto> {
+    // ASYNC SINCE #349: the list is intersected with this deployment's
+    // `nodes.jobSecretBrokerEnabled` setting, so a type that needs a per-job
+    // credential does not appear where the deployment does not issue them.
+    return { types: await this.nodes.listNodeEligibleJobTypes() };
   }
 
   @Get()
@@ -384,6 +394,61 @@ export class NodesController {
     @CurrentUser('id') userId: string
   ): Promise<NodeUploadUrlResponseDto> {
     return this.dataPlane.createUploadTarget(userId, id, jobId, dto);
+  }
+
+  // ---------------------------------------------------------------------------
+  // The secret broker (#349, epic #345) — the ONE credential a job may need,
+  // bounded by the lease the node is already renewing, revoked on settlement.
+  //
+  // ⚠ NO AUTH-GUARD CHANGE WAS REQUIRED, AND THAT IS WORTH VERIFYING RATHER
+  // THAN ASSUMING. `JwtAuthGuard` admits a `nod_` credential on `/api/nodes`
+  // and every path beneath it (see this file's header and #267), so this route
+  // — mounted on the same controller, under the same prefix — is inside that
+  // allowlist by construction. Nothing about the allowlist was touched, and
+  // nothing should be: the moment a credential route needed a new prefix
+  // admitted, the blast radius of a leaked worker token would have grown.
+  // `nodes:write`, like every other mint on this controller, for the reason the
+  // header gives about `download-url`: handing out a capability scoped by a
+  // live lease is not the shape of anything a read-only auditor should do.
+  // ---------------------------------------------------------------------------
+
+  @Post(':id/jobs/:jobId/secret')
+  @Auth({ permissions: [PERMISSIONS.NODES_WRITE] })
+  @HttpCode(HttpStatus.OK)
+  // Belt and braces over `POST` already being uncacheable. What comes back is
+  // not a scoped URL but a credential, and an intermediary that decided to be
+  // clever is one nobody would find out about.
+  @Header('Cache-Control', 'no-store')
+  @ApiOperation({
+    summary: 'Obtain the short-lived credential for a held job',
+    description:
+      'Returns the ONE credential this job’s type declares it needs, valid no longer than ' +
+      'this job’s LEASE — the node is already renewing that lease, and the server does not ' +
+      'mint a second clock. ⚠ HOLD IT IN MEMORY ONLY: it is returned once, it is revoked ' +
+      'when the job settles, and a node must never write it to disk, to an environment ' +
+      'variable, or to a log. Re-callable while the lease is live — the same grant is ' +
+      'extended, never a second one issued. Send an EMPTY BODY: any field is refused with ' +
+      '`400`, because a node may not request a secret it was not assigned. `403` (with ' +
+      '`details.reason`) when this deployment does not issue per-job credentials at all; ' +
+      '`404` when this job’s type declares no broker, which will not change on a retry; ' +
+      '`409` once the lease has expired — drop the work; `503` when the broker exists but ' +
+      'cannot mint right now, carrying the operator-facing `remedy` in `details`.',
+  })
+  @ApiParam({ name: 'id', type: String, format: 'uuid' })
+  @ApiParam({ name: 'jobId', type: String, format: 'uuid' })
+  @ApiResponse({ status: 200, description: 'The credential, returned once', type: NodeJobSecretResponseDto })
+  @ApiResponse({ status: 400, description: 'The request body carried a field a node may not set' })
+  @ApiResponse({ status: 403, description: 'This deployment does not issue per-job credentials' })
+  @ApiResponse({ status: 404, description: 'This job’s type declares no secret broker' })
+  @ApiResponse({ status: 409, description: 'This node no longer holds the job with a live lease' })
+  @ApiResponse({ status: 503, description: 'The broker cannot mint a credential in this deployment' })
+  async issueSecret(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('jobId', ParseUUIDPipe) jobId: string,
+    @Body() dto: NodeJobSecretRequestDto,
+    @CurrentUser('id') userId: string
+  ): Promise<NodeJobSecretResponseDto> {
+    return this.secrets.issueForJob(userId, id, jobId, dto);
   }
 
   @Post(':id/jobs/:jobId/result')

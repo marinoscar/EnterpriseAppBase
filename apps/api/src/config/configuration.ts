@@ -206,9 +206,22 @@ export default () => {
   // switch says: the prune selects `offline` rows, and without the sweep a
   // crashed node never reaches that status. The pair is ordered, not
   // independent.
+  //
+  // `secretSweepEnabled` (#349, epic #345) is the third of the same kind, and
+  // its default matters more than the other two. It gates the sweep that
+  // revokes per-job credentials the settle-event path missed — and that path
+  // STRUCTURALLY CANNOT cover three cases (a job reaped by an `updateMany`
+  // that emits nothing, a replica that died between settling and revoking, a
+  // `write-failed` terminal outcome), so this is not belt-and-braces. Switched
+  // off, a deployment accumulates live database credentials nobody destroys
+  // until each one's own expiry catches up. Note it does NOT gate whether
+  // credentials may be issued at all: that is the `nodes.jobSecretBrokerEnabled`
+  // SYSTEM SETTING, because it is a decision about the deployment's trust
+  // boundary rather than about which replica runs a timer.
   nodes: {
     staleOfflineEnabled: process.env.NODE_STALE_OFFLINE_ENABLED !== 'false',
     offlinePruneEnabled: process.env.NODE_OFFLINE_PRUNE_ENABLED !== 'false',
+    secretSweepEnabled: process.env.NODE_SECRET_SWEEP_ENABLED !== 'false',
   },
 
   // Database backup scheduling (#282). ONE switch, and — like the two groups

@@ -48,6 +48,7 @@ import { JobClaimService } from '../jobs/job-claim.service';
 import { JobHandlerRegistry } from '../jobs/job-handler.registry';
 import { JobLeaseService } from '../jobs/job-lease.service';
 import { JobTerminalService } from '../jobs/job-terminal.service';
+import { DEFAULT_SYSTEM_SETTINGS } from '../common/types/settings.types';
 import { PrismaService } from '../prisma/prisma.service';
 import { createMockPrismaService, MockPrismaService } from '../../test/mocks/prisma.mock';
 import {
@@ -57,6 +58,7 @@ import {
   NodeJobResultDto,
   RegisterNodeDto,
 } from './dto/node-control-plane.dto';
+import { NodeLifecycleService } from './node-lifecycle.service';
 import { NodesService } from './nodes.service';
 
 describe('NodesService', () => {
@@ -171,7 +173,16 @@ describe('NodesService', () => {
       // cases exist to prevent. The assertions below still read
       // `prisma.job.updateMany`, because that is still where the write lands.
       new JobLeaseService(prisma as unknown as PrismaService),
-      registry
+      registry,
+      // The narrow settings accessor (#349). Stubbed to the SHIPPED DEFAULT —
+      // brokering off — because that is what a deployment that has never
+      // touched the setting reads, and because this suite's types carry no
+      // broker, so the filter it drives is a no-op here by construction.
+      {
+        getPolicy: jest.fn().mockResolvedValue({
+          ...DEFAULT_SYSTEM_SETTINGS.nodes,
+        }),
+      } as unknown as NodeLifecycleService
     );
   });
 
@@ -805,7 +816,7 @@ describe('NodesService', () => {
       // The same derivation the claim uses, published. A server-only type
       // appearing here would tell a client to build a node for work this
       // server could never store a result for.
-      const types = service.listNodeEligibleJobTypes().map((entry) => entry.type);
+      const types = (await service.listNodeEligibleJobTypes()).map((entry) => entry.type);
 
       expect(types).toContain(NODE_TYPE);
       expect(types).not.toContain(SERVER_TYPE);
@@ -815,7 +826,7 @@ describe('NodesService', () => {
       // Generated from the very object `submitResult` parses against, which is
       // the entire point: a client cannot validate against a definition this
       // server stopped using.
-      const [entry] = service.listNodeEligibleJobTypes();
+      const [entry] = await service.listNodeEligibleJobTypes();
 
       expect(entry.resultSchema).toMatchObject({
         type: 'object',
@@ -837,9 +848,9 @@ describe('NodesService', () => {
         persistNodeResult: async () => undefined,
       });
 
-      const entry = service
-        .listNodeEligibleJobTypes()
-        .find((candidate) => candidate.type === 'test.unrepresentable');
+      const entry = (await service.listNodeEligibleJobTypes()).find(
+        (candidate) => candidate.type === 'test.unrepresentable'
+      );
 
       expect(entry).toBeDefined();
       // Still LISTED — it is still claimable; only its contract is unpublishable.

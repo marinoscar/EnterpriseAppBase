@@ -45,6 +45,8 @@ import { JobClaimService } from '../../src/jobs/job-claim.service';
 import { JobLeaseService } from '../../src/jobs/job-lease.service';
 import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
 import { JobTerminalService } from '../../src/jobs/job-terminal.service';
+import { DEFAULT_SYSTEM_SETTINGS } from '../../src/common/types/settings.types';
+import { NodeLifecycleService } from '../../src/nodes/node-lifecycle.service';
 import { NodesService } from '../../src/nodes/nodes.service';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import { ClaimJobsDto } from '../../src/nodes/dto/node-control-plane.dto';
@@ -121,7 +123,14 @@ describeWithDb('A node and the in-process worker claiming concurrently (real Pos
       {} as unknown as JobTerminalService,
       // Never reached either: this suite claims and never renews.
       {} as unknown as JobLeaseService,
-      registry
+      registry,
+      // The narrow settings accessor (#349), stubbed to the shipped default
+      // (`jobSecretBrokerEnabled: false`). No handler in this suite declares a
+      // broker, so the claim-time filter it drives is a no-op — but the claim
+      // now reads it, so it must be present.
+      {
+        getPolicy: async () => ({ ...DEFAULT_SYSTEM_SETTINGS.nodes }),
+      } as unknown as NodeLifecycleService
     );
 
     serverClaimer = new JobClaimService(serverClient as unknown as PrismaService);

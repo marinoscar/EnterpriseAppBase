@@ -142,6 +142,7 @@ import {
   NodeJobResultDto,
   RegisterNodeDto,
 } from './dto/node-control-plane.dto';
+import { NodeLifecycleService } from './node-lifecycle.service';
 
 /**
  * How recently a node must have heartbeated for a re-register to be WORTH
@@ -235,7 +236,14 @@ export class NodesService {
     // in-process worker. See `renewLease` for why the guard it carries must
     // not be written twice.
     private readonly leases: JobLeaseService,
-    private readonly registry: JobHandlerRegistry
+    private readonly registry: JobHandlerRegistry,
+    // The narrow `nodes` settings accessor (#349). Injected for exactly one
+    // field — `jobSecretBrokerEnabled` — read at CLAIM time so a deployment
+    // that has not opened its trust boundary never hands a node a job whose
+    // type would demand a credential. The same accessor the two fleet crons
+    // read their thresholds through, so there is one read path for the
+    // namespace rather than a second query written here.
+    private readonly lifecycle: NodeLifecycleService
   ) {}
 
   // ===========================================================================
@@ -553,7 +561,7 @@ export class NodesService {
       );
     }
 
-    const nodeEligible = new Set(this.nodeEligibleTypes());
+    const nodeEligible = new Set(await this.nodeEligibleTypes());
     const eligibleTypes = withinRegistration.filter((type) => nodeEligible.has(type));
 
     const serverOnly = withinRegistration.filter((type) => !nodeEligible.has(type));
@@ -860,8 +868,10 @@ export class NodesService {
    * let the server answer", which is true and actionable. The type is still
    * listed, because it is still claimable.
    */
-  listNodeEligibleJobTypes(): NodeEligibleJobType[] {
-    return this.nodeEligibleTypes().map((type) => ({
+  async listNodeEligibleJobTypes(): Promise<NodeEligibleJobType[]> {
+    const types = await this.nodeEligibleTypes();
+
+    return types.map((type) => ({
       type,
       label: jobTypeLabel(type),
       resultSchema: this.toPublishableSchema(type),
@@ -1014,11 +1024,55 @@ export class NodesService {
    * header). Computing it as "everything minus server-only" rather than
    * re-testing the two members means this file cannot disagree with the
    * registry about what node-eligible means.
+   *
+   * ⚠ THE SECRET-BROKER FILTER IS A RUNTIME CLAIM-TIME INTERSECTION, NEVER A
+   * MUTATION OF THE REGISTRY (#349, epic #345). A type whose handler carries a
+   * `nodeSecretBroker` is node-eligible — permanently, structurally, because
+   * its handler says so — and this method does not change that fact, it
+   * declines to OFFER the type while `nodes.jobSecretBrokerEnabled` is off.
+   * Node eligibility stays DERIVED from the handler's members; a deployment
+   * says "not here" without touching a handler, without a flag, and without a
+   * second list of types.
+   *
+   * That sentence is here rather than only in the spec because the shortcut is
+   * so tempting: unregistering the handler, or setting some `nodeEligible =
+   * false` on it, would produce the same claim behaviour in one line — and
+   * would make the answer to "can this type run on a node" depend on a runtime
+   * setting, which is exactly the disagreement `job-handler.interface.ts`'s
+   * header spends a section making unrepresentable. A deployment's policy and
+   * a type's capability are different facts, and they are intersected here, at
+   * the moment of the claim, where the intersection is visible.
+   *
+   * ASYNC SINCE #349, and the settings read is the reason. It is a single
+   * narrow accessor per claim (the same one the fleet crons use), on a path
+   * that already does several queries; it is not cached, because a cache is how
+   * "the administrator switched brokering off" takes effect at some unspecified
+   * later time.
    */
-  private nodeEligibleTypes(): string[] {
+  private async nodeEligibleTypes(): Promise<string[]> {
     const serverOnly = new Set(this.registry.serverOnlyTypes());
+    const eligible = this.registry.types().filter((type) => !serverOnly.has(type));
 
-    return this.registry.types().filter((type) => !serverOnly.has(type));
+    const policy = await this.lifecycle.getPolicy();
+
+    if (policy.jobSecretBrokerEnabled) {
+      return eligible;
+    }
+
+    const needsSecret = eligible.filter(
+      (type) => this.registry.get(type)?.nodeSecretBroker !== undefined
+    );
+
+    if (needsSecret.length > 0) {
+      this.logger.debug(
+        `Withholding type(s) that need a per-job credential from the node plane because ` +
+          `nodes.jobSecretBrokerEnabled is off: [${needsSecret.join(', ')}]`
+      );
+    }
+
+    return eligible.filter(
+      (type) => this.registry.get(type)?.nodeSecretBroker === undefined
+    );
   }
 
   /** Whether a settled outcome means the job is coming back. */
