@@ -11,19 +11,30 @@ concurrency:
   cancel-in-progress: true
 
 # =============================================================================
-# Deliberately ONE job for build/test, not several concurrent ones.
+# ONE job for typecheck + API/CLI test/build, not several concurrent ones —
+# but the web suite is pulled out into its own sharded matrix below. Read
+# both halves of this note before changing either.
 #
-# Splitting the web suite into its own job was tried and measured, and it is
-# slower. Across measured runs the suite takes 71-95s inside this job but
-# 118-131s in a fresh one — the ranges do not overlap, though runner variance
-# is real and the point estimates should not be trusted too precisely. The
-# likely cause is that here it inherits a filesystem page cache already warmed
-# by npm ci, the typechecks and the API tests; `import` is the metric that
-# inflates most (54s -> 100s). Overall wall clock went 144s -> 152-159s.
+# Historical finding, still true for typecheck/API/CLI: splitting *those*
+# into their own job was tried and measured, and it was slower. Across
+# measured runs they took 71-95s inside this job but 118-131s in a fresh
+# one — the likely cause is that here they inherit a filesystem page cache
+# already warmed by npm ci; `import` is the metric that inflated most
+# (54s -> 100s) when isolated. Ruled out along the way: the scoped install
+# is not the cause (a full install in a separate job is still 118s), and it
+# is not job contention (three jobs behaved the same as four).
 #
-# Ruled out along the way: the scoped install is not the cause (a full install
-# in a separate job is still 118s), and it is not job contention (three jobs
-# behaved the same as four).
+# That finding no longer applies to the web suite itself. Measured on three
+# consecutive `main` runs (2026-09-07), `test:run --workspace=web` alone
+# took 202-218s — more than every other job in this workflow COMBINED
+# (openapi ~50s, smoke ~100s, visual ~90s), and it ran serially after
+# typecheck and the API suite, making `Build & Test` a ~6 minute job while
+# every sibling job finished in under 2 minutes. That was not true when the
+# note above was written (the suite was 71-95s then); it has roughly
+# tripled since. Losing the warm-cache benefit this note documents is a
+# real, small cost — but it no longer outweighs the win of running that
+# work on additional runners' CPUs in parallel instead of one runner's CPU
+# serially. See the `web-test` job below.
 # =============================================================================
 
 jobs:
@@ -50,7 +61,6 @@ jobs:
       - run: npm run typecheck --workspace=cli
 
       - run: npm test --workspace=api
-      - run: npm run test:run --workspace=web
       - run: npm run test:run --workspace=cli
 
       # The CLI is the one workspace whose BUILD is the deliverable — the `bin`
@@ -60,6 +70,33 @@ jobs:
       # import extension, or a rootDir slip that emits dist/src/cli.js and
       # leaves the `bin` path dangling. (issue #140, epic #110)
       - run: npm run build --workspace=cli
+
+  web-test:
+    name: Web Tests (shard ${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    # No `needs:` — runs concurrently with `build`, like `openapi`/`smoke`/
+    # `visual` do. Split out of `Build & Test` and sharded across 4 runners
+    # (see the note atop this file) because this suite alone now costs more
+    # wall clock than every other job in the workflow combined, and each
+    # shard gets its own runner's CPUs rather than contending with
+    # typecheck/API-test on one. This job needs neither `prisma generate`
+    # nor any API build step — the web workspace never imports
+    # `@prisma/client` or compiled API output.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - run: npm run test:run --workspace=web -- --shard=${{ matrix.shard }}/4
 
   openapi:
     name: OpenAPI
@@ -98,11 +135,11 @@ jobs:
     #
     # WHY THIS IS A SEPARATE JOB, given the note at the top of this file
     # -------------------------------------------------------------------------
-    # That note records a measured result: moving the *web test suite* into its
-    # own job made it slower (71-95s -> 118-131s), plausibly from losing a page
-    # cache the earlier steps had warmed. It is a real finding, and the default
-    # here should be one job. This job is the deliberate exception, because the
-    # measurement does not transfer:
+    # That note records a measured result: moving typecheck/API-test work into
+    # its own job made it slower (71-95s -> 118-131s), plausibly from losing a
+    # page cache the earlier steps had warmed. It is a real finding, and the
+    # default for that work should be one job. This job is the deliberate
+    # exception, because the measurement does not transfer:
     #
     #   - That split duplicated `npm ci` to run *the same* work somewhere else,
     #     so its cost was pure overhead. This job runs work that exists nowhere
@@ -246,7 +283,7 @@ jobs:
     # WHY A DEDICATED CONTAINER, PINNED TO AN EXACT PLAYWRIGHT BUILD
     # -------------------------------------------------------------------------
     # This job asserts PIXELS, not DOM state — the one kind of assertion
-    # nothing else in this workflow makes. `Build & Test` runs the Vitest+RTL
+    # nothing else in this workflow makes. `web-test` runs the Vitest+RTL
     # suite against jsdom, which has no layout engine at all (no
     # `offsetWidth`, no wrapping, no font metrics), so it structurally cannot
     # catch a layout regression like #105 (a destination rendered in the wrong
