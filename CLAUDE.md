@@ -676,6 +676,22 @@ is documented in full in
 [`docs/runbooks/postgres-client-version.md`](docs/runbooks/postgres-client-version.md).
 Don't restate either here; extend those two instead.
 
+Restoring one is the other half, and it has two rules of its own. **No
+pre-flight path may create, drop or rename anything** — an operator asks "can
+I restore this?" precisely when they have not decided to. And **the cluster
+admin connection lives outside the Prisma pool**, on the `postgres`
+maintenance database: those pooled connections are exactly what must be gone
+before a rename can succeed, and a database cannot be renamed from a session
+connected to it. A capability gate that fails (managed PostgreSQL denying
+`CREATEDB` is the ordinary case) answers with a ready-to-paste command block
+rather than a 4xx — that `guided` outcome is a designed-in path, not a
+fallback. The gates, the three outcomes, the identifier and name-builder
+rules, and the rejected alternatives are in
+[`docs/specs/database-restore.md`](docs/specs/database-restore.md); the
+operator procedure, written to be usable with the application down, is
+[`docs/runbooks/database-restore.md`](docs/runbooks/database-restore.md).
+Extend those two rather than restating them here.
+
 ## Specialized Subagents (MANDATORY)
 
 **CRITICAL REQUIREMENT**: This project uses specialized subagents for all development work. You MUST delegate tasks to the appropriate subagent. Do NOT attempt to perform development tasks directly without using the designated agent.
