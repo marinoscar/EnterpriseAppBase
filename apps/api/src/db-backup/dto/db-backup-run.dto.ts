@@ -52,16 +52,25 @@
 // something about the response.
 //
 // -----------------------------------------------------------------------------
-// THE PHASE 7 RESTORE COLUMNS ARE DELIBERATELY NOT PUBLISHED
+// THE RESTORE COLUMNS ARE PUBLISHED BY #286, AND NOT BEFORE
 // -----------------------------------------------------------------------------
 //
 // `restoreStatus`, `restoreError`, `restoredAt`, `restoredById`,
-// `restoreScratchDb`, `restoreOldDb`, `swappedAt` and `preRestoreBackupId` are
-// declared in `schema.prisma` and are written by nobody until #285. Publishing
-// them now would put eight fields into a documented contract whose only
-// possible value today is `null`, and a client written against that would have
-// no way to tell "no restore has happened" from "this build does not implement
-// restore". #285 adds them along with the routes that give them meaning.
+// `restoreScratchDb`, `restoreOldDb`, `swappedAt` and `preRestoreBackupId` sat
+// in `schema.prisma` unpublished through #283 and #285 for a stated reason:
+// eight fields whose only possible value was `null` would have been a
+// documented contract a client could not distinguish from "this build does not
+// implement restore".
+//
+// #286 IS THE ISSUE THAT MAKES THEM MEAN SOMETHING, and it does so by
+// necessity rather than by choice: `POST runs/:id/restore` returns as soon as
+// the cheap pre-flight gates have run and the restore then takes HOURS, so the
+// contract it publishes is "poll `GET runs/{id}`". That promise is unkeepable
+// while the polling endpoint does not carry `restoreStatus` — the caller would
+// be told to watch a field that is not in the response. So they are published
+// here, in the ONE projection every run path already goes through, rather than
+// hand-rolled into the restore routes' own bodies where the list and the single
+// get could not see them.
 // =============================================================================
 
 import { DatabaseBackupRun, DatabaseBackupStatus, DatabaseBackupTrigger } from '@prisma/client';
@@ -97,6 +106,31 @@ export const BACKUP_TRIGGERS = [
 ] as const satisfies readonly DatabaseBackupTrigger[];
 
 export type BackupTriggerName = (typeof BACKUP_TRIGGERS)[number];
+
+/**
+ * The six values `database_backup_runs.restore_status` can hold.
+ *
+ * ⚠ NO `satisfies` GUARD IS POSSIBLE HERE, and that is a property of the
+ * column rather than an oversight: `restore_status` is a plain `text` in
+ * `schema.prisma`, not a Postgres enum, precisely so that adding `rolled_back`
+ * cost no migration. There is therefore no generated union for the compiler to
+ * check this tuple against.
+ *
+ * Re-derived rather than imported from `database-restore.service.ts` so that a
+ * DTO file does not depend on a service — the same discipline
+ * {@link ACTIVE_BACKUP_STATUSES} follows — and `db-backup-restore.dto.spec.ts`
+ * asserts the two lists agree, so they cannot drift apart in silence.
+ */
+export const RESTORE_STATUSES = [
+  'restoring',
+  'verifying',
+  'swapping',
+  'completed',
+  'failed',
+  'rolled_back',
+] as const;
+
+export type RestoreStatusName = (typeof RESTORE_STATUSES)[number];
 
 /**
  * `never` unless every member of `Enum` appears in `Listed`.
@@ -206,6 +240,71 @@ export const backupRunSchema = z.object({
    */
   createdById: z.uuid().nullable(),
 
+  // -------------------------------------------------------------------------
+  // The restore columns (#285's work, published by #286's endpoints)
+  // -------------------------------------------------------------------------
+
+  /**
+   * ⚠ THE PROGRESS FIELD FOR A RESTORE, and the one `POST runs/:id/restore`
+   * tells its caller to poll.
+   *
+   * `null` on every run nobody has ever restored, which is almost all of them.
+   * Once a restore starts it walks `restoring` → `verifying` → `swapping` →
+   * `completed`, or stops at `failed`; `rolled_back` is a restore that was
+   * swapped in and then undone.
+   *
+   * `restoring` covers everything from the archive download to the last byte
+   * `pg_restore` writes — the phase measured in hours — because a `pg_restore`
+   * in flight reports nothing a caller could poll and inventing finer states
+   * that all mean "still restoring" would be dishonest precision.
+   *
+   * ⚠ THE SWAP ENDS IN `process.exit(0)`. A poller will therefore usually see
+   * `swapping` and then a connection error, and read `completed` only after the
+   * supervisor has restarted the process. That is success, not failure — see
+   * `docs/specs/database-restore.md` §8.8.
+   */
+  restoreStatus: z.enum(RESTORE_STATUSES).nullable(),
+
+  /** Why a restore failed, verbatim. `null` on a restore that has not failed. */
+  restoreError: z.string().nullable(),
+
+  /** When the restore finished. `null` while it is still running. */
+  restoredAt: z.iso.datetime().nullable(),
+
+  /** The administrator who asked for the restore. `null` for an internal delegation. */
+  restoredById: z.uuid().nullable(),
+
+  /**
+   * The database the archive was replayed into, before the swap renamed it into
+   * place. Recorded so a failed restore leaves a name a human can drop.
+   */
+  restoreScratchDb: z.string().nullable(),
+
+  /**
+   * What the live database was renamed to at the swap.
+   *
+   * ⚠ IN `retain_database` MODE THIS IS THE WAY BACK. `POST runs/:id/rollback`
+   * renames exactly this database back into place — in seconds — for as long as
+   * it survives `databaseBackup.oldDatabaseRetentionHours`. `null` once the
+   * retention sweep has dropped it, which is precisely when a rollback answers
+   * `unavailable`.
+   */
+  restoreOldDb: z.string().nullable(),
+
+  /** When the two renames completed. The moment the deployment changed databases. */
+  swappedAt: z.iso.datetime().nullable(),
+
+  /**
+   * The `pre_restore` safety backup taken immediately before this restore's
+   * swap, when one was taken.
+   *
+   * ⚠ IN `pre_restore_dump` MODE THIS IS THE WAY BACK, and it is the run a
+   * rollback's `restore_started` mode tells you to poll — not this one. `null`
+   * in `retain_database` mode, where the retained database serves that purpose
+   * far more cheaply.
+   */
+  preRestoreBackupId: z.uuid().nullable(),
+
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
 });
@@ -263,7 +362,38 @@ export function toRunDto(run: DatabaseBackupRun): BackupRunResponse {
     lastHeartbeatAt: isoOrNull(run.lastHeartbeatAt),
 
     createdById: run.createdById,
+
+    // The restore columns. `restoreStatus` is a plain string column in
+    // `schema.prisma` (deliberately — see `RESTORE_STATUSES`), so it is
+    // narrowed here rather than trusted: a value the enum does not list would
+    // otherwise reach the wire and fail this DTO's own schema at the boundary
+    // of a subsystem where a wrong answer is destructive.
+    restoreStatus: toRestoreStatus(run.restoreStatus),
+    restoreError: run.restoreError,
+    restoredAt: isoOrNull(run.restoredAt),
+    restoredById: run.restoredById,
+    restoreScratchDb: run.restoreScratchDb,
+    restoreOldDb: run.restoreOldDb,
+    swappedAt: isoOrNull(run.swappedAt),
+    preRestoreBackupId: run.preRestoreBackupId,
+
     createdAt: run.createdAt.toISOString(),
     updatedAt: run.updatedAt.toISOString(),
   };
+}
+
+/**
+ * The stored `restore_status` string, narrowed to {@link RESTORE_STATUSES}.
+ *
+ * Anything unrecognised becomes `null` rather than being passed through. The
+ * column is a plain `text` — which is why `rolled_back` cost no migration — so
+ * a value written by a newer build, or by hand during an incident, is a real
+ * possibility. Publishing it verbatim would put a string outside the documented
+ * enum into a response a client narrows on; `null` reads as "no restore state
+ * this build understands", which is true.
+ */
+function toRestoreStatus(value: string | null): RestoreStatusName | null {
+  return value !== null && (RESTORE_STATUSES as readonly string[]).includes(value)
+    ? (value as RestoreStatusName)
+    : null;
 }

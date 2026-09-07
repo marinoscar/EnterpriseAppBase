@@ -134,6 +134,23 @@ export const PREFLIGHT_PROBE_TIMEOUT_MS = 15_000;
  */
 export const GUIDED_RESTORE_JOBS = 4;
 
+/**
+ * The REQUEST FIELD that clears the schema-compatibility block.
+ *
+ * ⚠ IT IS THE API'S FIELD NAME, NOT THIS SERVICE'S OPTION NAME, and the
+ * difference is the whole point. {@link RestoreBlock.overrideParameter} exists
+ * to tell a CLIENT which field to set on its next request, so publishing the
+ * internal option name (`overrideSchemaMismatch`) would hand an operator a
+ * parameter the endpoint rejects — the most frustrating possible failure, where
+ * the server has said exactly what to do and refuses when you do it.
+ *
+ * Declared here rather than in #286's DTO so that this service, which is what
+ * actually emits the block, owns the string; the DTO imports it and ties its
+ * own schema to it at compile time (`RestoreOverrideFieldIsReal`) and at run
+ * time in its spec, so the two cannot drift into naming different things.
+ */
+export const RESTORE_SCHEMA_OVERRIDE_FIELD = 'overrideSchemaCheck';
+
 // -----------------------------------------------------------------------------
 // The result model
 // -----------------------------------------------------------------------------
@@ -561,7 +578,7 @@ export class DatabaseRestorePreflightService {
           gateId: overridable.id,
           message: overridable.detail,
           overridable: true,
-          overrideParameter: 'overrideSchemaMismatch',
+          overrideParameter: RESTORE_SCHEMA_OVERRIDE_FIELD,
         },
       };
     }

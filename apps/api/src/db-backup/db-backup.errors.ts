@@ -280,3 +280,61 @@ export class DatabaseRestoreVerificationError extends Error {
     Object.setPrototypeOf(this, DatabaseRestoreVerificationError.prototype);
   }
 }
+
+// -----------------------------------------------------------------------------
+// The restore ENDPOINTS' refusals (issue #286)
+// -----------------------------------------------------------------------------
+//
+// Both of the next two are raised by `DatabaseBackupAdminService` BEFORE
+// anything is asked of `DatabaseRestoreService`, and both are typed rather than
+// thrown as `NotFoundException`/`BadRequestException` for the reason
+// `db-backup.controller.ts` states where it maps them: the restore path is
+// reached from more than the HTTP layer — the rollback delegation reaches it
+// from inside a running restore — and a framework exception raised there would
+// be an HTTP object travelling a code path with no request attached to answer.
+// Keeping them domain errors keeps every status-code decision in one readable
+// block next to the OpenAPI annotations that publish it.
+
+/**
+ * There is no `database_backup_runs` row with that id.
+ *
+ * → `404`. The id goes in `details` and nowhere else, because the exception
+ * filter rebuilds the body from `message` and `details` alone.
+ */
+export class DatabaseRestoreRunNotFoundError extends Error {
+  constructor(readonly runId: string) {
+    super(`Database backup run ${runId} was not found.`);
+    this.name = 'DatabaseRestoreRunNotFoundError';
+    Object.setPrototypeOf(this, DatabaseRestoreRunNotFoundError.prototype);
+  }
+}
+
+/**
+ * The row exists but is not something this operation may act on.
+ *
+ * → `400`, and the two live cases are worth spelling out because neither is a
+ * defect in the request's SHAPE:
+ *
+ *   - RESTORING A RUN THAT IS NOT `completed`. Only a completed run has a whole
+ *     archive that was read back and proved readable. A `running` run's object
+ *     is half written; a `failed` run's partial object was deleted by the
+ *     failure path. Either would download without error and restore nothing —
+ *     after hours, into a scratch database, having already taken a safety dump.
+ *     This is the same rule `getDownloadUrl` enforces, for the same reason.
+ *   - ROLLING BACK A RUN THAT WAS NEVER RESTORED. There is no swap to undo, and
+ *     "roll back" against such a row is not a rollback but a first restore
+ *     wearing the wrong word.
+ *
+ * `reason` is a stable machine-readable token; `message` is the sentence.
+ */
+export class DatabaseRestoreNotAllowedError extends Error {
+  constructor(
+    readonly runId: string,
+    readonly reason: string,
+    message: string
+  ) {
+    super(message);
+    this.name = 'DatabaseRestoreNotAllowedError';
+    Object.setPrototypeOf(this, DatabaseRestoreNotAllowedError.prototype);
+  }
+}
