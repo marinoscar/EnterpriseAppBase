@@ -209,14 +209,14 @@ EnterpriseAppBase/
 
 ## Documentation
 
+- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** - System architecture, request lifecycle, and design decisions
 - **[DEVELOPMENT.md](docs/DEVELOPMENT.md)** - Development setup, common patterns, and troubleshooting
 - **[SECURITY-ARCHITECTURE.md](docs/SECURITY-ARCHITECTURE.md)** - Security design and implementation
 - **[TESTING.md](docs/TESTING.md)** - Testing strategy and best practices
 - **[DEVICE-AUTH.md](docs/DEVICE-AUTH.md)** - Device Authorization Flow guide and integration examples
 - **[API.md](docs/API.md)** - Complete API reference
 - **[Deploying to a VPS](docs/deployment/vps.md)** - Operator runbook for `appctl deploy` (install, update, status on a real server); command reference in [`apps/cli/README.md`](apps/cli/README.md#deploying-to-a-server)
-- **[System Specification](docs/System_Specification_Document.md)** - Complete project specification
-- **[Feature Specs](docs/specs/)** - Individual feature specifications
+- **[Feature Specs](docs/specs/)** - Individual feature specifications — the design and rationale behind each major feature
 
 ## API Documentation
 

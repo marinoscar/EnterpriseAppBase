@@ -191,7 +191,7 @@ All components served from the same base URL via Nginx reverse proxy:
 - **Consistent**: Standardized response format for success and errors
 - **Documented**: Every endpoint documented with OpenAPI decorators; the published
   document is assembled in `apps/api/src/openapi/` and linted by Spectral in CI
-  (see [`docs/specs/api-documentation.md`](specs/api-documentation.md))
+  (see [API.md § How the document is built](API.md#how-the-document-is-built))
 
 ### 3.5 Observable by Design
 
@@ -308,7 +308,6 @@ EnterpriseAppBase/
 │   ├── DEVELOPMENT.md                # Development guide
 │   ├── TESTING.md                    # Testing guide
 │   ├── DEVICE-AUTH.md                # Device auth guide
-│   ├── System_Specification_Document.md  # Full specification
 │   └── specs/                        # Implementation specifications
 │       ├── 01-project-setup.md
 │       ├── 02-database-schema.md
@@ -1837,7 +1836,7 @@ cd apps/web && npm test
 
 | Document | Purpose |
 |----------|---------|
-| [System_Specification_Document.md](System_Specification_Document.md) | Full system requirements |
+| [specs/](specs/) | Design and rationale for each major feature — the closest thing to a full system specification |
 | [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md) | Detailed security documentation |
 | [API.md](API.md) | API endpoint reference |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Development guide |
@@ -1847,15 +1846,21 @@ cd apps/web && npm test
 
 ### 16.3 Specification Index
 
-Implementation specs in `docs/specs/`:
+Design specs in `docs/specs/`, one per feature rather than one per project
+phase — each explains why that feature is shaped the way it is, its rejected
+alternatives, and (where relevant) an operator runbook it defers to:
 
-| Phase | Specs | Description |
-|-------|-------|-------------|
-| Foundation | 01-03 | Project setup, database schema, seeds |
-| API Core | 04-07 | NestJS setup, OAuth, JWT, RBAC |
-| API Features | 08-12 | Users, settings, health, observability |
-| Frontend | 13-18 | React setup, pages, components |
-| Testing | 19-24 | Test frameworks, unit/integration tests |
+| Spec | Description |
+|------|-------------|
+| [settings-ui.md](specs/settings-ui.md) | The registry-driven settings hub — why a settings page is a registry entry and not a route, the five coupled breakpoint gates, accessibility requirements |
+| [job-queue.md](specs/job-queue.md) | The background job queue — handler contract, claim/lease mechanics, retry and rate-limit budgets, the admin surface |
+| [worker-nodes.md](specs/worker-nodes.md) | The remote worker node fleet — registration, the claim/lease/data-plane mechanics, capability probing, fleet health |
+| [maintenance-mode.md](specs/maintenance-mode.md) | The maintenance window — the three-layer override precedence, the database restore swap it exists for |
+| [database-backup.md](specs/database-backup.md) | Database backups — the streaming `pg_dump` contract, the dedicated run table, why a backup is not a queue job |
+| [database-restore.md](specs/database-restore.md) | Database restore and rollback — the pre-flight gates, the three outcomes, the maintenance-window coordination |
+| [browser-notifications.md](specs/browser-notifications.md) | OS-level browser notifications and Web Push — the service worker, the notification capability model, the admin kill switch |
+| [notification-broadcasts.md](specs/notification-broadcasts.md) | Admin notification broadcasts — composing and sending an announcement to every user, the fan-out job types |
+| [vps-deploy.md](specs/vps-deploy.md) | `appctl deploy` — VPS installation and update design, why it runs on the VPS with no SSH client in the CLI |
 
 ---
 

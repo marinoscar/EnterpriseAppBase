@@ -2378,7 +2378,50 @@ OpenAPI 3.1 document at `/api/openapi.json`. It allows you to:
 - Authenticate with one click via "Authorize with my session" (exchanges your existing browser
   session for an access token), a personal access token, or a device authorization grant
 
-See [`docs/specs/api-documentation.md`](specs/api-documentation.md) for how the document is built.
+### How the document is built
+
+Everything that shapes `/api/openapi.json` lives in `apps/api/src/openapi/` rather than in
+`main.ts`, so it can be built by a test harness and by `scripts/dump-openapi.ts` (the `openapi:dump`
+npm script) without booting a listening server — the document CI lints is the document users get.
+
+- **`document.ts`** builds the base document with Nest's `SwaggerModule.createDocument`, then runs
+  it through a fixed pipeline of enrichment passes (`rbac-docs.ts`, `data-envelope.ts`,
+  `tags.ts`, `nullable.ts`, in that order — order matters, since later passes must see what
+  earlier ones added). **`version.ts`** resolves the version stamped into `info.version`
+  (`APP_VERSION`, then `npm_package_version`, then `apps/api/package.json`, never throwing).
+  **`description.ts`** builds the Markdown intro shown at the top of the page and inside the
+  downloaded spec itself.
+- **`rbac-docs.ts`** renders each operation's `@Auth()` metadata (roles, permissions) into the
+  **Requires:** line appended to its description — generated from the same decorator the guards
+  read, so the documented requirement cannot drift from the enforced one.
+- **`tags.ts`** is the single declaration of every `@ApiTags(...)` name, its description, and which
+  sidebar section it belongs to, emitted as the `x-tagGroups` vendor extension Scalar reads to
+  render the sectioned sidebar. A tag used by a controller but not declared here, or declared here
+  and used by nobody, fails a test rather than silently rendering wrong.
+- **`data-envelope.ts`** rewrites every documented 2xx JSON response to match what the global
+  `TransformInterceptor` actually sends (`{ data, meta }`), since a handler's declared return type
+  and its wire shape are two different things once that interceptor runs. **`nullable.ts`** rewrites
+  `@ApiProperty({ nullable: true })`'s OpenAPI 3.0 spelling into the 3.1 type union the published
+  document (3.1, driven by zod v4's JSON Schema 2020-12 output) actually requires.
+- **`docs-page.ts`** renders the `/api/docs` page itself — a hand-written template rather than the
+  `@scalar/nestjs-api-reference` package, because the one-click session auth below has to resolve a
+  token before Scalar mounts, which that package's fixed template does not expose a seam for. See
+  [One-click session auth](#one-click-session-auth) below.
+- The Spectral lint (`npm run openapi:lint` against `.spectral.yaml`, run in CI via `openapi:dump`
+  then `openapi:lint`) fails the build on a missing or duplicated operation id, an undeclared tag,
+  or anything else that would quietly degrade the reference page.
+
+#### One-click session auth
+
+Landing on `/api/docs` while already signed in authorizes it automatically, with no manual token
+step. The page's inline script (`buildDocsAuthScript` in `docs-page.ts`) runs before Scalar mounts:
+it calls `POST /api/auth/refresh` with `credentials: 'include'` — required even same-origin, since
+the refresh cookie is scoped to `/api/auth` — reads the access token out of the response envelope
+(`body.data.accessToken`), and passes it to Scalar as a pre-authorized `securitySchemes` entry for
+the `JWT-auth` scheme, rather than poking it into Scalar's internal store after the fact. A failed
+or missing session leaves the reference unauthorized with a status message rather than blocking the
+page; reloading after signing in re-runs the exchange, which is also how a 15-minute-old token gets
+refreshed — there is no separate "re-authorize" action.
 
 ---
 
