@@ -63,17 +63,28 @@ export default () => {
   //
   // Read exactly like `google` above: plain `process.env`, no default, no
   // validation at this layer. `undefined` is the correct value for a
-  // deployment that has not generated keys — `PushSubscriptionService.isEnabled`
-  // is what turns "these are unset" into "Web Push is off", not this file.
+  // deployment that has not generated keys.
+  //
+  // AS OF #355, THIS IS A FALLBACK, NOT THE ONLY SOURCE. Web Push is now also
+  // admin-UI-configurable at runtime (`PushConfigController`/
+  // `PushConfigService`, a `webPush` `system_settings` row plus a
+  // `push_vapid` credential); `PushConfigService.resolveActiveVapidConfig()`
+  // is the ONE place that decides which of the two — the runtime config or
+  // these env vars — is actually active, and it prefers the runtime config
+  // whenever one has ever been saved. These three keys stay here, read
+  // exactly as before, purely so a deployment that never touches the new
+  // admin page keeps working with zero action required.
   //
   // Deliberately NOT run through `common/crypto/secret-cipher.ts` /
   // `SECRETS_ENCRYPTION_KEY`, for the same reason `google.clientSecret` isn't:
   // that machinery encrypts credentials an ADMIN ENTERS AT RUNTIME through the
-  // app before they land in the `credentials` table. A VAPID key pair is
-  // generated once at deploy time (`npx web-push generate-vapid-keys`) and
-  // supplied as an environment variable, exactly like `GOOGLE_CLIENT_SECRET` —
-  // there is no runtime entry path for it, so there is nothing for that cipher
-  // to do here.
+  // app before they land in the `credentials` table — which, as of #355, a
+  // VAPID private key can now also be, through `PushConfigService` (that path
+  // uses the credential store directly, not this cipher — see
+  // `push-vapid-credential.constants.ts`). A key pair supplied through THIS
+  // env var instead is deploy-time config, exactly like `GOOGLE_CLIENT_SECRET`
+  // — there is no runtime entry path for these three specific variables, so
+  // there is nothing for that cipher to do here.
   push: {
     vapidPublicKey: process.env.VAPID_PUBLIC_KEY,
     vapidPrivateKey: process.env.VAPID_PRIVATE_KEY,

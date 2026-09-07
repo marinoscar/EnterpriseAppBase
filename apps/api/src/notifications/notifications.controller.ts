@@ -187,13 +187,13 @@ export class NotificationsController {
       'the OS toast. Per-event suppression is deliberately not listed here — it travels with ' +
       'each notification as `toast` on the SSE stream, so a long-lived tab holding a cached ' +
       'copy of this response can never re-enable something an administrator has muted.\n\n' +
-      '`pushEnabled` reflects whether THIS DEPLOYMENT has a VAPID key pair configured ' +
-      '(`VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY`) — it says nothing about this user’s own ' +
-      'subscription state. When `true`, `vapidPublicKey` carries the public key a client needs ' +
-      'to call `pushManager.subscribe`; a client should not attempt that call while `pushEnabled` ' +
-      'is `false`. Still not a delivery switch in the #230 sense: #229 (this) is the subscription ' +
-      'store; #230 is the (separate, future) channel that actually sends a push to a stored ' +
-      'subscription.',
+      '`pushEnabled` reflects whether THIS DEPLOYMENT currently has an ACTIVE VAPID key pair — ' +
+      'an admin-configured one from `/admin/push-config` (`PushConfigService` ' +
+      '.resolveActiveVapidConfig()`, #355) when one exists and is enabled, falling back to the ' +
+      '`VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` env vars only when no admin configuration has ever ' +
+      'been saved. It says nothing about this user’s own subscription state. When `true`, ' +
+      '`vapidPublicKey` carries the public key a client needs to call `pushManager.subscribe`; a ' +
+      'client should not attempt that call while `pushEnabled` is `false`.',
   })
   @ApiDataResponse(NotificationConfigDto, {
     description: 'This deployment’s notification capabilities',
@@ -201,13 +201,21 @@ export class NotificationsController {
   async config(): Promise<NotificationConfigResponse> {
     const policy = await this.policy.getPolicy();
 
+    // Both now resolve the ACTIVE key pair through `PushConfigService`
+    // (#355): an admin-configured, enabled one from `/admin/push-config`
+    // when it exists, else the deploy-time env vars, else neither — see
+    // `PushSubscriptionService.isEnabled`/`.getVapidPublicKey` for the
+    // one-line delegation and `PushConfigService.resolveActiveVapidConfig`
+    // for the full precedence.
+    const [pushEnabled, vapidPublicKey] = await Promise.all([
+      this.pushSubscriptions.isEnabled(),
+      this.pushSubscriptions.getVapidPublicKey(),
+    ]);
+
     return {
       browserEnabled: policy.browserEnabled,
-      // Real values as of #229: true/non-null exactly when this deployment's
-      // environment carries a VAPID key pair. #230 (the delivery channel) is
-      // what makes a stored subscription actually receive anything.
-      pushEnabled: this.pushSubscriptions.isEnabled(),
-      vapidPublicKey: this.pushSubscriptions.getVapidPublicKey(),
+      pushEnabled,
+      vapidPublicKey,
     };
   }
 

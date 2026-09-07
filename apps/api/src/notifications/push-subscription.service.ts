@@ -4,18 +4,18 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 
 import { PrismaService } from '../prisma/prisma.service';
+import { PushConfigService } from './push-config.service';
 import type { PushSubscribeRequest } from './dto/push-subscription.dto';
 
 // =============================================================================
-// PushSubscriptionService (issue #229, epic #215)
+// PushSubscriptionService (issue #229, epic #215; #355 made it async)
 // =============================================================================
 //
 // Storage for the browser's `PushSubscription` object, keyed by its endpoint.
-// This is the write/delete half of #229; #230 is the (separate, future) sender
-// that actually reads these rows and pushes to them.
+// This is the write/delete half of #229; `PushNotificationChannel` is the
+// sender that actually reads these rows and pushes to them.
 //
 // Decomposed out of the module the same way `NotificationStoreService`,
 // `NotificationStreamService` and `NotificationPolicyService` are: a provider
@@ -23,21 +23,35 @@ import type { PushSubscribeRequest } from './dto/push-subscription.dto';
 // `notifications.module.ts` for why none of the four are exported.
 //
 // -----------------------------------------------------------------------------
-// `isEnabled()` REQUIRES PUBLIC + PRIVATE, NOT `VAPID_SUBJECT`
+// `isEnabled()`/`getVapidPublicKey()` NOW DELEGATE TO `PushConfigService`
+// (#355), AND ARE THEREFORE `async`
+// -----------------------------------------------------------------------------
+//
+// Before #355 these read `ConfigService` directly — Web Push was env-var-only,
+// so a synchronous config lookup was the whole story. Now the ACTIVE key pair
+// can come from a runtime-editable `system_settings` row (DB) or, absent one,
+// from those same env vars — `PushConfigService.resolveActiveVapidConfig()` is
+// the ONE place that precedence is implemented (see its own header for the
+// four-case order), and it is necessarily a DB read, hence `Promise`-returning.
+// Both methods here are now thin `async` wrappers over it, so this class stays
+// the single source callers use without re-deriving the precedence themselves.
+//
+// -----------------------------------------------------------------------------
+// `isEnabled()` REQUIRES PUBLIC + PRIVATE, NOT A SUBJECT
 // -----------------------------------------------------------------------------
 //
 // A public key with no private key is useless: nothing on this server could
-// sign a push, so accepting subscriptions would just accumulate rows #230 can
-// never deliver to. Both halves of the key pair are therefore required.
+// sign a push, so accepting subscriptions would just accumulate rows nothing
+// can ever deliver to. Both halves of the key pair are therefore required —
+// which is exactly what `resolveActiveVapidConfig()` returning non-`null`
+// already guarantees, so this method is just "did that resolve to something".
 //
-// `VAPID_SUBJECT` is different in kind — it is contact metadata (a `mailto:`
-// or `https:` URL) that `web-push` puts in the VAPID JWT so a push service
-// operator has somewhere to reach the sender of unwanted traffic. It affects
-// how nicely #230 behaves toward push services, not whether signing is
-// possible at all, so its absence does not belong in the same gate as a
-// missing key. (#230, when it lands, is free to warn or refuse to send with no
-// subject configured — that is a delivery-time concern, not a subscription-time
-// one.)
+// The VAPID subject is different in kind — contact metadata `web-push` puts
+// in the VAPID JWT so a push service operator has somewhere to reach the
+// sender of unwanted traffic. It affects how nicely `PushNotificationChannel`
+// behaves toward push services, not whether signing is possible at all, so its
+// absence does not belong in this gate; `resolveActiveVapidConfig()` already
+// substitutes a generic fallback when none is configured.
 // =============================================================================
 
 @Injectable()
@@ -46,26 +60,25 @@ export class PushSubscriptionService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly config: ConfigService,
+    private readonly pushConfig: PushConfigService,
   ) {}
 
   /**
    * Whether this deployment has enough VAPID configuration to accept push
-   * subscriptions at all. See the file header for why `VAPID_SUBJECT` is not
-   * part of this check.
+   * subscriptions at all. See the file header for why a subject is not part
+   * of this check, and for why this is now `async`.
    */
-  isEnabled(): boolean {
-    const publicKey = this.config.get<string>('push.vapidPublicKey');
-    const privateKey = this.config.get<string>('push.vapidPrivateKey');
-    return Boolean(publicKey) && Boolean(privateKey);
+  async isEnabled(): Promise<boolean> {
+    return (await this.pushConfig.resolveActiveVapidConfig()) !== null;
   }
 
   /**
    * The VAPID public key a client needs to call `pushManager.subscribe`, or
-   * `null` when this deployment has none configured.
+   * `null` when this deployment has none active right now.
    */
-  getVapidPublicKey(): string | null {
-    return this.config.get<string>('push.vapidPublicKey') ?? null;
+  async getVapidPublicKey(): Promise<string | null> {
+    const active = await this.pushConfig.resolveActiveVapidConfig();
+    return active?.publicKey ?? null;
   }
 
   /**
@@ -91,7 +104,7 @@ export class PushSubscriptionService {
     dto: PushSubscribeRequest,
     userAgent: string | undefined,
   ): Promise<{ id: string; endpoint: string; createdAt: Date }> {
-    if (!this.isEnabled()) {
+    if (!(await this.isEnabled())) {
       // ConflictException (409): the closest existing vocabulary in this
       // codebase for "this state prevents the operation" (see
       // `allowlist.service.ts`'s duplicate-email check and the settings

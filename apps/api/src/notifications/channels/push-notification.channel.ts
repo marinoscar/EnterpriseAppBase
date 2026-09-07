@@ -1,11 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import * as webpush from 'web-push';
 import { WebPushError } from 'web-push';
 
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { describeThrown } from '../describe-thrown';
+import { PushConfigService } from '../push-config.service';
 import type { NotificationChannel } from '../notification-events';
 import type {
   BrowserNotificationContent,
@@ -137,7 +137,7 @@ export class PushNotificationChannel implements NotificationChannelSender {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly config: ConfigService,
+    private readonly pushConfig: PushConfigService,
   ) {}
 
   /**
@@ -246,43 +246,32 @@ export class PushNotificationChannel implements NotificationChannelSender {
     };
     const serializedPayload = JSON.stringify(payload);
 
-    const vapidPublicKey = this.config.get<string>('push.vapidPublicKey');
-    const vapidPrivateKey = this.config.get<string>('push.vapidPrivateKey');
-    const vapidSubject = this.config.get<string>('push.vapidSubject');
-
-    // Registration (see notifications.module.ts) already guarantees both
-    // keys are present whenever this channel is even reachable — but
-    // asserting it again here, rather than trusting the caller, means a
-    // programming error in the registration wiring fails as a recorded
-    // delivery error instead of a `sendNotification` call throwing a
+    // ONE call, ONE source of truth for "what VAPID key pair is active right
+    // now" — see `PushConfigService.resolveActiveVapidConfig`'s own header
+    // for the full env/DB precedence (#355). This channel used to read three
+    // `ConfigService` keys directly, which only ever reflected the deploy-time
+    // env vars; now the same call also picks up an admin-configured, runtime
+    // key pair with no restart.
+    //
+    // Registration (see notifications.module.ts) means this channel is always
+    // reachable now, regardless of configuration — so `null` here is the
+    // ORDINARY "this deployment has not turned Web Push on" case, not a
+    // programming error, and it is reported as an honest, admin-actionable
+    // failed delivery rather than a `sendNotification` call throwing a
     // TypeError three lines further down for a reason nobody logged.
-    if (!vapidPublicKey || !vapidPrivateKey) {
+    const active = await this.pushConfig.resolveActiveVapidConfig();
+
+    if (!active) {
       return {
         success: false,
-        error: 'Push channel invoked with no VAPID keys configured',
+        error: 'Web Push is not configured or is disabled on this deployment',
       };
     }
 
-    // `web-push`'s types require a non-empty `subject` string in
-    // `vapidDetails` — there is no way to omit it and still pass a
-    // publicKey/privateKey pair. `VAPID_SUBJECT` is genuinely optional
-    // deploy-time config (see configuration.ts), so a deployment that set the
-    // two keys but not the subject still gets a working send: a generic
-    // `mailto:` is the value `web-push`'s own README uses as its example, and
-    // its only effect is what a push SERVICE operator sees if this
-    // deployment's traffic looks abusive — never something a user notices.
-    // Warned once per missing-subject delivery, not failed, because refusing
-    // to send over a purely advertisory contact field would be a strange
-    // trade against "sent it, minus a nicety".
-    if (!vapidSubject) {
-      this.logger.warn(
-        'VAPID_SUBJECT is not configured; falling back to a generic mailto: subject for this delivery.',
-      );
-    }
     const vapidDetails = {
-      subject: vapidSubject ?? 'mailto:admin@example.com',
-      publicKey: vapidPublicKey,
-      privateKey: vapidPrivateKey,
+      subject: active.subject,
+      publicKey: active.publicKey,
+      privateKey: active.privateKey,
     };
 
     // `Promise.allSettled`, NEVER `Promise.all` — one dead endpoint among

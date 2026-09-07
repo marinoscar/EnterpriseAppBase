@@ -1,4 +1,14 @@
-import { Body, Controller, Get, Headers, HttpCode, HttpStatus, Post, Put } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Headers,
+  HttpCode,
+  HttpStatus,
+  Post,
+  Put,
+} from '@nestjs/common';
 import { ApiHeader, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { Auth } from '../auth/decorators/auth.decorator';
@@ -7,19 +17,23 @@ import { PERMISSIONS } from '../common/constants/roles.constants';
 import { PushConfigService } from './push-config.service';
 import { GeneratePushConfigDto } from './dto/generate-push-config.dto';
 import { PushConfigResponseDto } from './dto/push-config-response.dto';
+import {
+  RemovePushConfigDto,
+  RotatePushConfigDto,
+} from './dto/push-config-confirmation.dto';
 import { UpdatePushConfigDto } from './dto/update-push-config.dto';
 
 // =============================================================================
 // PushConfigController (issue #355)
 // =============================================================================
 //
-// The HTTP surface behind `/admin/settings/push`. THIS COMMIT: GET, PUT and
-// generate. `rotate`/`remove` — the two typed-confirmation, destructive
-// actions — land in the next commit alongside their DTOs' actual use.
+// The HTTP surface behind `/admin/settings/push`. Five operations:
 //
 //   GET    /api/admin/push-config           push:read
 //   PUT    /api/admin/push-config           push:write
 //   POST   /api/admin/push-config/generate  push:write
+//   POST   /api/admin/push-config/rotate    push:write
+//   DELETE /api/admin/push-config           push:write
 //
 // `push:read`/`push:write` RATHER THAN `system_settings:*`, deliberately —
 // see `roles.constants.ts` for the full reasoning (generating/rotating key
@@ -132,5 +146,61 @@ export class PushConfigController {
     @CurrentUser('id') userId: string,
   ) {
     return this.pushConfig.generate(dto, userId);
+  }
+
+  @Post('rotate')
+  @Auth({ permissions: [PERMISSIONS.PUSH_WRITE] })
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Rotate the VAPID key pair (Admin only)',
+    description:
+      'Generates a fresh VAPID key pair and replaces the stored one. **Disruptive**: ' +
+      'every existing push subscriber stops receiving pushes until their browser next ' +
+      'calls `pushManager.subscribe` against the new public key (typically on next app ' +
+      'open). `enabled` is left exactly as it was — rotating is not a decision about ' +
+      'whether push should be on.\n\n' +
+      'Requires the typed confirmation `{ "confirmation": "ROTATE" }` — see this ' +
+      "endpoint's request schema. A body copied from the remove endpoint's confirmation " +
+      'is rejected: the two use deliberately different words.\n\n' +
+      '**`400` if nothing is configured yet** — use the generate action for a first key ' +
+      'pair.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'The rotated configuration',
+    type: PushConfigResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Missing/incorrect confirmation, or nothing is configured yet',
+  })
+  async rotate(
+    @Body() dto: RotatePushConfigDto,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.pushConfig.rotate(dto, userId);
+  }
+
+  @Delete()
+  @Auth({ permissions: [PERMISSIONS.PUSH_WRITE] })
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Remove the Web Push configuration (Admin only)',
+    description:
+      'Deletes both the stored VAPID private-key credential and the `webPush` settings ' +
+      'row. **Destructive and immediate** — every existing push subscription becomes ' +
+      'unusable, and there is no way to bring the same key pair back; a subsequent ' +
+      '`generate` mints an entirely new one.\n\n' +
+      'Requires the typed confirmation `{ "confirmation": "REMOVE" }` — deliberately a ' +
+      "different word from the rotate endpoint's, so a body copied from one to the other " +
+      'is rejected rather than silently accepted.',
+  })
+  @ApiResponse({ status: 204, description: 'Configuration removed' })
+  @ApiResponse({ status: 400, description: 'Missing or incorrect confirmation' })
+  async remove(
+    @Body() dto: RemovePushConfigDto,
+    @CurrentUser('id') userId: string,
+  ): Promise<void> {
+    await this.pushConfig.remove(dto, userId);
   }
 }
