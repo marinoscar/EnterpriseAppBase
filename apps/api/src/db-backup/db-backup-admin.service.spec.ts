@@ -168,7 +168,12 @@ interface HarnessOptions {
   policy?: Partial<SystemDatabaseBackupValue>;
   rows?: DatabaseBackupRun[];
   storageDelete?: (key: string) => Promise<void>;
-  startBackup?: (input: unknown) => Promise<DatabaseBackupRun>;
+  /**
+   * #351: the runner now ENQUEUES rather than claiming. The double returns
+   * `{ run, job }` because that is what `queueBackup` returns — the admin
+   * service logs the job id and answers with the run.
+   */
+  queueBackup?: (input: unknown) => Promise<{ run: DatabaseBackupRun; job: { id: string } }>;
   cancel?: () => { outcome: 'signalled' | 'not_running_here'; runId: string };
   /** What the (substituted) restore engine answers. #286's two routes. */
   startRestore?: (
@@ -255,7 +260,12 @@ function harness(options: HarnessOptions = {}) {
         throw new DatabaseBackupStorageProviderError(trimmed, 's3');
       }
     }),
-    startBackup: jest.fn(options.startBackup ?? (async () => run({ status: 'running' }))),
+    queueBackup: jest.fn(
+      options.queueBackup ??
+        // `pending`, not `running`: nothing has started until a worker claims
+        // the job, and #351 made the row say so.
+        (async () => ({ run: run({ status: 'pending' }), job: { id: 'job-1' } }))
+    ),
     cancel: jest.fn(options.cancel ?? (() => ({ outcome: 'signalled', runId: RUN_ID }))),
   } as unknown as DatabaseBackupRunnerService;
 
@@ -525,7 +535,7 @@ describe('DatabaseBackupAdminService', () => {
 
       const result = await service.startRun(USER_ID);
 
-      expect(runner.startBackup).toHaveBeenCalledWith({
+      expect(runner.queueBackup).toHaveBeenCalledWith({
         trigger: 'manual',
         createdById: USER_ID,
       });
@@ -534,7 +544,7 @@ describe('DatabaseBackupAdminService', () => {
 
     it('turns a claim conflict into a 409 carrying the active id under `details`', async () => {
       const { service } = harness({
-        startBackup: async () => {
+        queueBackup: async () => {
           throw new DatabaseBackupAlreadyRunningError('other-run');
         },
       });
@@ -549,7 +559,7 @@ describe('DatabaseBackupAdminService', () => {
 
     it('turns a misconfigured storage provider into a 400, not a 500', async () => {
       const { service } = harness({
-        startBackup: async () => {
+        queueBackup: async () => {
           throw new DatabaseBackupStorageProviderError('gcs', 's3');
         },
       });
@@ -560,7 +570,7 @@ describe('DatabaseBackupAdminService', () => {
     it('lets an unrecognised failure propagate untouched', async () => {
       const boom = new Error('the database is on fire');
       const { service } = harness({
-        startBackup: async () => {
+        queueBackup: async () => {
           throw boom;
         },
       });

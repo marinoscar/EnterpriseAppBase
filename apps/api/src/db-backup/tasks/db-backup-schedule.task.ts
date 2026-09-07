@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import type { DatabaseBackupTrigger } from '@prisma/client';
+import type { DatabaseBackupStatus, DatabaseBackupTrigger } from '@prisma/client';
 
 import { PERMISSIONS } from '../../common/constants/roles.constants';
 import type { BackupFailedEmailData } from '../../email';
@@ -78,16 +78,23 @@ import {
 // -----------------------------------------------------------------------------
 //
 // The line that is not in this file matters as much as the ones that are:
-// there is no `if (workerMode === 'off') return`. This is not a queue worker —
-// see the "Why this is not a queue job" block in `schema.prisma` — and a
-// backup is not work a worker node could take. `JOBS_WORKER_MODE=off` says
-// "this process executes no queued jobs"; it does not say "this deployment's
+// there is no `if (workerMode === 'off') return`. This is not a queue worker,
+// and #351 did not make it one — what this tick does is DECIDE a backup is due
+// and ENQUEUE it; a worker takes the dump. `JOBS_WORKER_MODE=off` says "this
+// process executes no queued jobs"; it does not say "this deployment's
 // database does not need backing up". A pure control plane in front of an
 // external node fleet is still the only process with a database connection at
-// all, so gating backups on its willingness to run jobs would mean that
-// deployment silently never backs up. That is the same precedent
+// all, so gating the schedule on its willingness to run jobs would mean that
+// deployment silently never even QUEUES a backup. That is the same precedent
 // `JOBS_REAPER_ENABLED` and `NODE_STALE_OFFLINE_ENABLED` already set: an
 // always-on maintenance cron with a switch of its own.
+//
+// ⚠ THE HONEST CAVEAT SINCE #351: with `JOBS_WORKER_MODE=off` this tick queues
+// backups that nothing will execute. `system` mode does execute them
+// (`db.backup.run` is server-only by derivation, so that mode claims it); only
+// `off` does not. Those unclaimed `pending` run rows would hold the single
+// active backup slot forever, which is precisely the third arm the sweep below
+// now carries.
 //
 // The switch DEFAULTS TO ON and only the literal `false` turns it off, for the
 // reason every kill switch here fails open: a deployment whose backups
@@ -332,7 +339,7 @@ export class DatabaseBackupScheduleTask {
    * right — it burns hours of I/O on a database that is probably already
    * unwell, and it does it unattended, repeatedly, at whatever hour the first
    * attempt died. The retry for a backup is the next scheduled run, which is
-   * the same answer `schema.prisma` gives for why this is not a queue job.
+   * the same answer the handler's `maxAttempts: 1` profile gives (#351).
    *
    * `stale` is also distinct from `failed` on purpose: nothing OBSERVED these
    * runs fail. The process holding them disappeared, and an operator reading
@@ -349,49 +356,89 @@ export class DatabaseBackupScheduleTask {
 
     const candidates = await this.prisma.databaseBackupRun.findMany({
       where: {
-        // `running` only. `pending` is in the active index's predicate but the
-        // runner never writes it (see `claimRun`: the claim and the start are
-        // one act), so there is nothing here to sweep today. ⚠ A future path
-        // that DOES insert a `pending` row must extend this predicate with it,
-        // or that row holds the active slot with no heartbeat that could ever
-        // age it out.
-        status: 'running',
+        // ⚠ THREE ARMS, AND THE THIRD IS NEW IN #351. The predicate used to
+        // read `status: 'running'` with a note that "a future path that DOES
+        // insert a `pending` row must extend this predicate with it, or that
+        // row holds the active slot with no heartbeat that could ever age it
+        // out". `queueBackup` is that path — a queued backup's run row is
+        // written `pending` and stays that way until a worker claims its job —
+        // so the arm is now here.
         OR: [
           // The ordinary case: it was beating and stopped.
-          { lastHeartbeatAt: { lt: cutoff } },
+          { status: 'running', lastHeartbeatAt: { lt: cutoff } },
           // THE ZOMBIE THAT NEVER BEAT — a process that died between the claim
           // and its first progress write. `NULL < cutoff` is NULL in SQL and
           // never true, so the first arm cannot see it, and without this arm
           // the row holds the active slot FOREVER. `startedAt` is the
           // substitute age, and the claim always sets it. Same two-armed
           // defence the queue's lease reaper uses.
-          { lastHeartbeatAt: null, startedAt: { lt: cutoff } },
+          { status: 'running', lastHeartbeatAt: null, startedAt: { lt: cutoff } },
+          // THE QUEUED BACKUP NOBODY EVER CLAIMED. `createdAt` is the age —
+          // not `startedAt`, which is NULL by definition on a `pending` row,
+          // and not `lastHeartbeatAt`, which is NULL for the same reason: this
+          // row has never claimed anything started, and a sweep that inferred
+          // an age from a column the row deliberately left empty would be
+          // reading its own default.
+          //
+          // WHAT IT ACTUALLY CATCHES: a job an administrator deleted from
+          // `GET /api/admin/jobs` (the FK's `SetNull` releases the link and
+          // leaves this row `pending` forever), a job queued on a deployment
+          // whose worker is off (`JOBS_WORKER_MODE=off`), and a job that
+          // permanently failed before its handler ever ran. Each of those
+          // leaves a row that HOLDS THE SINGLE ACTIVE SLOT with nothing coming
+          // to settle it — which, under the tightened index, blocks every
+          // backup this deployment would ever take again.
+          //
+          // The window is `runStaleMinutes` (120 by default), so an ordinary
+          // queue delay never trips it: a backup that has sat unclaimed for two
+          // hours is not a backup that is about to run.
+          { status: 'pending', createdAt: { lt: cutoff } },
         ],
       },
       // `startedAt` and `trigger` join the projection for #288: they are what
       // `db_backup.backup_failed` renders, and reading them here — in the query
       // the sweep was making anyway — is cheaper and less racy than a second
-      // read after the row has been rewritten.
+      // read after the row has been rewritten. `status` joins it for #351: the
+      // compare-and-swap below has to re-assert THE STATUS THIS ROW WAS READ
+      // WITH, and a literal `'running'` there would silently skip every
+      // `pending` candidate the arm above just found.
       select: {
         id: true,
+        status: true,
         storageKey: true,
         startedAt: true,
         trigger: true,
       },
     });
 
-    // ONE COPY OF THE EXPLANATION, written to the row AND carried into the
-    // notification (#288). Two copies would be two places to reword, and the
-    // email quoting something the row does not say is worse than no email.
-    const staleMessage =
-      `The run stopped heartbeating for more than ${policy.runStaleMinutes} ` +
-      'minute(s) (databaseBackup.runStaleMinutes) and was given up on. Nothing ' +
-      'observed it fail: the process executing it went away. It is not retried ' +
-      'automatically; the next scheduled backup is the retry.';
+    // ONE COPY OF THE EXPLANATION PER CASE, written to the row AND carried
+    // into the notification (#288). Two copies of either would be two places
+    // to reword, and the email quoting something the row does not say is worse
+    // than no email.
+    //
+    // ⚠ TWO MESSAGES, NOT ONE, because the two states fail for genuinely
+    // different reasons and an operator fixes them in different places: a
+    // `running` row was executing somewhere and that somewhere went away; a
+    // `pending` row was never picked up at all, which is a statement about the
+    // QUEUE (no worker, a deleted job) and not about any dump. Flattening them
+    // into "stopped heartbeating" would send somebody looking through
+    // `pg_dump` logs for a process that never existed.
+    const staleMessage = (status: DatabaseBackupStatus): string =>
+      status === 'pending'
+        ? `The run was queued but no worker claimed its job within ` +
+          `${policy.runStaleMinutes} minute(s) (databaseBackup.runStaleMinutes), so it was ` +
+          'given up on to free the single active backup slot. No dump was ever started. ' +
+          'Check that a worker is running (JOBS_WORKER_MODE) and that the job was not ' +
+          'deleted; the next scheduled backup is the retry.'
+        : `The run stopped heartbeating for more than ${policy.runStaleMinutes} ` +
+          'minute(s) (databaseBackup.runStaleMinutes) and was given up on. Nothing ' +
+          'observed it fail: the process executing it went away. It is not retried ' +
+          'automatically; the next scheduled backup is the retry.';
 
     let released = 0;
 
     for (const candidate of candidates) {
+      const message = staleMessage(candidate.status);
       // ⚠ THE ROW TRANSITION HAPPENS FIRST, AND THE ROW *IS* THE GUARD.
       //
       // A conditional `updateMany` re-asserting `status: 'running'`, not an
@@ -402,12 +449,19 @@ export class DatabaseBackupScheduleTask {
       // stomped: overwriting a `completed` row with `stale` would discard a
       // perfectly good verified backup's record, and (worse) the object
       // cleanup below would then delete the archive it points at.
+      //
+      // ⚠ `candidate.status`, NOT THE LITERAL `'running'` IT USED TO BE. The
+      // guard's job is to re-assert the state the row was READ in, so that a
+      // row which moved on since is left alone — and since #351 that state can
+      // be `pending` as well. A hard-coded `'running'` here would make every
+      // `pending` candidate `count === 0` and the sweep would quietly free
+      // nothing, which is the failure mode that looks exactly like working.
       const { count } = await this.prisma.databaseBackupRun.updateMany({
-        where: { id: candidate.id, status: 'running' },
+        where: { id: candidate.id, status: candidate.status },
         data: {
           status: 'stale',
           finishedAt: now,
-          lastError: staleMessage,
+          lastError: message,
         },
       });
 
@@ -432,7 +486,7 @@ export class DatabaseBackupScheduleTask {
       // of the failure should not wait on the tidying-up of a partial archive.
       // `notifyPermissionHolders` is detached and never rejects, so this costs
       // the sweep nothing and cannot fail it.
-      this.announceStale(candidate, staleMessage, now);
+      this.announceStale(candidate, message, now);
 
       // ⚠ AND OBJECT CLEANUP FOLLOWS, NEVER PRECEDES.
       //
@@ -596,6 +650,21 @@ export class DatabaseBackupScheduleTask {
     // anti-double-fire rule, in one indexed query against `startedAt DESC`.
     // `startedAt: { not: null }` because a row that never started says nothing
     // about whether a window was covered.
+    //
+    // ⚠ #351 MADE `startedAt` NULL FOR A WHILE, AND THIS QUERY IS DELIBERATELY
+    // UNCHANGED. A queued backup's run row is created `pending` with no
+    // `startedAt`, and stays that way until a worker claims the job — so
+    // between the enqueue and the claim this query cannot see it, and a tick
+    // in that window will decide the boundary is still uncovered and fire
+    // again. That is safe, and fixing it here would be worse than the problem:
+    // the second fire is collapsed by the queue's CONSTANT dedup key (the
+    // enqueue returns the job already in flight, `queueBackup` raises
+    // `DatabaseBackupAlreadyRunningError`, and the branch below stands down at
+    // debug level). Widening this predicate to count `pending` rows would mean
+    // a run row that never gets claimed — a job deleted by an administrator,
+    // say — could silently suppress every scheduled backup that came after it,
+    // which is the failure this subsystem must not have. A row that never
+    // started still says nothing about whether a window was covered.
     const latest = await this.prisma.databaseBackupRun.findFirst({
       where: { startedAt: { not: null } },
       orderBy: { startedAt: 'desc' },
@@ -612,7 +681,7 @@ export class DatabaseBackupScheduleTask {
     }
 
     try {
-      const run = await this.runner.startBackup({
+      const { run, job } = await this.runner.queueBackup({
         trigger: 'scheduled',
         // No `createdById`. A timer has no user, and attributing this to the
         // last administrator who logged in would put a name on an action
@@ -620,7 +689,7 @@ export class DatabaseBackupScheduleTask {
       });
 
       this.logger.log(
-        `Started scheduled database backup ${run.id} for the ` +
+        `Queued scheduled database backup ${run.id} (job ${job.id}) for the ` +
           `${boundary.toISOString()} boundary (${expression} in ${policy.timezone}).`
       );
 

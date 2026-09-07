@@ -68,6 +68,7 @@ import {
   type AdminConnection,
 } from '../../src/db-backup/admin-connection.util';
 import { DatabaseBackupRunnerService } from '../../src/db-backup/db-backup-runner.service';
+import type { JobsService } from '../../src/jobs/jobs.service';
 import type { DatabaseBackupRetentionService } from '../../src/db-backup/db-backup-retention.service';
 import { ACTIVE_STORAGE_PROVIDER_ID, BACKUP_ARCHIVE_FORMAT } from '../../src/db-backup/db-backup-storage';
 import {
@@ -165,6 +166,18 @@ async function buildEnvironment(dbName: string): Promise<Environment> {
     },
   } as unknown as NotificationsService;
 
+  // ⚠ THE QUEUE SEAM THROWS IF IT IS EVER REACHED, DELIBERATELY. This suite
+  // exercises the `pre_restore` safety dump, which goes through `startBackup`
+  // and has NO job by design (#351): a restore must not wait on a worker slot,
+  // on `JOBS_WORKER_MODE`, or on this process still polling the queue seconds
+  // from now. A stub that quietly succeeded would let a refactor route the
+  // pre-restore dump through `queueBackup` with nothing here noticing.
+  const jobsStub = {
+    enqueueWithin: async () => {
+      throw new Error('the pre_restore dump must not enqueue a job');
+    },
+  } as unknown as JobsService;
+
   const runner = new DatabaseBackupRunnerService(
     prisma as unknown as PrismaService,
     settingsStub,
@@ -172,6 +185,7 @@ async function buildEnvironment(dbName: string): Promise<Environment> {
     retentionStub,
     notifications,
     configStub,
+    jobsStub,
     engineForConnection(pgConnectionFor(dbName))
   );
 

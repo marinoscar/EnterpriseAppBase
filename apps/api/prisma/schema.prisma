@@ -1577,12 +1577,13 @@ model NodeCredential {
 // group are declared here now and written by #285.
 //
 // -----------------------------------------------------------------------------
-// ### Why this is not a queue job
+// ### Why this WAS not a queue job, and why it now is (issue #351, epic #345)
 // -----------------------------------------------------------------------------
 //
-// This epic ships a perfectly good job queue (`Job`, above), and a backup is
-// obviously "background work". It is STILL not a queue job, and the reason is
-// not aesthetic — putting it on the queue corrupts backups:
+// ⚠ THIS SECTION USED TO SAY "DO NOT MIGRATE THIS ONTO THE QUEUE". It has
+// been migrated, deliberately, and the history is kept because the three
+// objections were correct and a reader needs to know WHERE EACH IS NOW
+// ANSWERED rather than assume they were waved away.
 //
 //   1. `jobs.stuckThresholdMinutes` DEFAULTS TO 30 MINUTES. A dump of a real
 //      production database routinely runs longer than that. The lease reaper
@@ -1590,26 +1591,42 @@ model NodeCredential {
 //      expired, conclude its executor had died, and RESET IT TO `pending` —
 //      while `pg_dump` was still streaming. The next claim starts a SECOND
 //      `pg_dump`, writing to the SAME derived storage key as the first, and
-//      two processes interleave their output into one object. The backup that
-//      results is unrestorable, and nothing reports an error: both runs can
-//      exit 0.
-//   2. THE IN-PROCESS WORKER HAS NO LEASE-RENEWAL PATH. `JobWorker` claims
-//      with a lease and never extends it, so the reaper's verdict above is
-//      not a rare race — it is unconditional for any job that outlives the
-//      threshold. A remote node renews; the in-process worker, which is what
-//      a single-container deployment has, does not.
+//      two processes interleave their output into one object.
+//      → ANSWERED BY #346's PER-TYPE PROFILES. `db.backup.run` declares
+//      `maxRuntimeMs: 6h`, and the claim's lease is DERIVED from that ceiling
+//      (`resolveJobLeaseMs`), never declared beside it — so a lease shorter
+//      than the permitted runtime is unrepresentable rather than merely
+//      avoided.
+//   2. THE IN-PROCESS WORKER HAS NO LEASE-RENEWAL PATH. `JobWorker` claimed
+//      with a lease and never extended it, so the reaper's verdict above was
+//      not a rare race but unconditional for any long job.
+//      → ANSWERED BY #347. The worker renews on a ticker (lease ÷ 3) for
+//      exactly as long as `process()` runs.
 //   3. A JOB HAS `attempts` AND A RETRY BUDGET. Automatically re-running a
 //      failed multi-gigabyte dump is exactly the wrong behaviour: it burns
 //      hours of I/O on a database that is probably already unwell, and the
 //      correct retry for a backup is "the next scheduled one", tomorrow.
+//      → ANSWERED BY `maxAttempts: 1` on the same profile. The policy did not
+//      change; what changed is that `JobStuckService`'s give-up phase now
+//      ENFORCES it, instead of it holding by the accident of there being no
+//      queue to disagree.
 //
-// So this table has its OWN heartbeat (`lastHeartbeatAt`, written every ~20s
-// with live `bytesWritten`), its OWN staleness policy
-// (`databaseBackup.runStaleMinutes`, an operator-set number of MINUTES that
-// starts at 120 rather than 30) and its OWN terminal states. ⚠ DO NOT MIGRATE
-// THIS ONTO THE QUEUE. If a future issue wants the queue to *trigger* a
-// backup, the job may call `startBackup()` and return immediately — but the
-// dump's lifetime must never be a job's lifetime.
+// This table still has its OWN heartbeat (`lastHeartbeatAt`, written every
+// ~20s with live `bytesWritten`), its OWN staleness policy
+// (`databaseBackup.runStaleMinutes`) and its OWN terminal states, and all
+// three are still load-bearing — but their jobs have narrowed. The heartbeat
+// is now PROGRESS REPORTING for the UI (the lease is the liveness signal),
+// and the stale sweep is the backstop for the one path that still has no job:
+// the `pre_restore` safety dump, which `DatabaseRestoreService` takes through
+// `startBackup` because a restore must not wait on a worker slot.
+//
+// ⚠ THE TWO ROWS ARE NOT REDUNDANT. The `jobs` row answers who asked, when,
+// which executor, which attempt and what error; this row answers what was
+// PRODUCED — key, bucket, bytes, checksum, `verifiedAt`, the db/app/migration
+// audit and the restore audit. They also have independent lifetimes: a job is
+// purged by `job.history.purge` on a retention schedule that has nothing to do
+// with how long the archive is kept, which is exactly why `jobId` is
+// `onDelete: SetNull` and not `Cascade`.
 //
 // -----------------------------------------------------------------------------
 // THE SINGLE-ACTIVE-RUN GUARD IS A PARTIAL UNIQUE INDEX, NOT APPLICATION CODE

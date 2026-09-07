@@ -14,11 +14,13 @@
 // WHAT THIS SERVICE IS NOT ALLOWED TO REIMPLEMENT
 // -----------------------------------------------------------------------------
 //
-//   - THE CLAIM. `POST runs` calls `DatabaseBackupRunnerService.startBackup`
-//     and nothing else. The single-active-run index is only a guarantee if
-//     there is ONE writer of this table (`db-backup.module.ts` says so where it
-//     exports the runner), and an admin path that inserted its own row would be
-//     a second writer racing the scheduler on another replica.
+//   - THE CLAIM. `POST runs` calls `DatabaseBackupRunnerService.queueBackup`
+//     and nothing else (`startBackup` before #351 moved the dump onto the
+//     queue). The single-active-run index is only a guarantee if there is ONE
+//     writer of this table (`db-backup.module.ts` says so where it exports the
+//     runner), and an admin path that inserted its own row — or that enqueued
+//     its own `db.backup.run` job beside one — would be a second writer racing
+//     the scheduler on another replica.
 //   - THE SCHEDULE. `nextRunAt` is `nextFireAt` from `schedule.util.ts`, the
 //     same pure function `previousFireBoundary` sits beside and that #282's
 //     cron uses to decide what was due. A second projection of "when does this
@@ -381,26 +383,38 @@ export class DatabaseBackupAdminService {
   /**
    * Takes a backup now.
    *
-   * AWAITS THE CLAIM AND NOTHING MORE. `startBackup` returns as soon as the row
-   * is inserted and the dump is streaming, so this responds in milliseconds
-   * with a real run id — which is the only shape that works: a multi-gigabyte
-   * dump takes tens of minutes, and every reverse proxy in front of this
-   * process has a response timeout measured in seconds. A synchronous handler
-   * would 504 on exactly the databases worth backing up, and the operator's
-   * retry would be refused by the single-active index while the first dump —
-   * which nobody is now watching — carried on. Poll `GET runs/:id` for
-   * progress.
+   * AWAITS THE ENQUEUE AND NOTHING MORE. `queueBackup` writes the
+   * `db.backup.run` job and its `pending` run row in one transaction and
+   * returns, so this responds in milliseconds with a real run id — which is
+   * the only shape that works: a multi-gigabyte dump takes tens of minutes,
+   * and every reverse proxy in front of this process has a response timeout
+   * measured in seconds. A synchronous handler would 504 on exactly the
+   * databases worth backing up, and the operator's retry would be refused by
+   * the single-active index while the first dump — which nobody is now
+   * watching — carried on. Poll `GET runs/:id` for progress.
    *
-   * @throws 409 carrying `details.activeRunId` when the slot is taken.
+   * ⚠ THE RESPONSE SHAPE IS UNCHANGED BY #351, AND ONE FIELD IN IT NOW MEANS
+   * SOMETHING MORE HONEST. The run comes back `pending` rather than `running`,
+   * because a worker has not claimed the job yet and nothing has in fact
+   * started; the handler writes `running` and `startedAt` at the moment a dump
+   * genuinely begins. `pending` was always in `ACTIVE_BACKUP_STATUSES` and in
+   * the DTO's status enum, so no client contract moves — what moves is that
+   * the row stops asserting a `pg_dump` exists before one does.
+   *
+   * @throws 409 carrying `details.activeRunId` when the slot is taken —
+   * whether it was the queue's dedup index or the run table's single-active
+   * index that refused. Both arrive here as the same typed error.
    */
   async startRun(userId: string): Promise<BackupRunResponse> {
     try {
-      const run = await this.runner.startBackup({
+      const { run, job } = await this.runner.queueBackup({
         trigger: 'manual',
         createdById: userId,
       });
 
-      this.logger.log(`Manual database backup ${run.id} started by user ${userId}.`);
+      this.logger.log(
+        `Manual database backup ${run.id} queued by user ${userId} as job ${job.id}.`
+      );
 
       return toRunDto(run);
     } catch (error) {
@@ -612,7 +626,8 @@ export class DatabaseBackupAdminService {
         outcome: 'signalled',
         detail:
           'The dump process was stopped and its upload torn down. The run settles as ' +
-          'failed, with its partial archive deleted; poll it to watch that happen.',
+          'failed, with its partial archive deleted, and its `db.backup.run` job settles ' +
+          'as failed with it; poll the run to watch that happen.',
       };
     }
 
@@ -626,9 +641,10 @@ export class DatabaseBackupAdminService {
       outcome: 'not_running_here',
       detail:
         'Nothing was stopped. A dump is cancelled by signalling its child process, and only ' +
-        'the API instance that started it holds that handle — so this run is either ' +
-        'executing on another instance or has just settled. Re-read the run: if it is still ' +
-        'running, the staleness sweep will release the slot once its heartbeat stops.',
+        'the instance running it holds that handle — so this run has not been claimed by a ' +
+        'worker yet, is executing on another instance, or has just settled. Re-read the ' +
+        'run: a pending one has no dump to stop and can be cancelled once it starts, and a ' +
+        'running one is released by the staleness sweep once its heartbeat stops.',
     };
   }
 

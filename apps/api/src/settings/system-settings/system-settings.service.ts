@@ -800,7 +800,8 @@ export class SystemSettingsService {
    * reasons `getJobsPolicy` above gives, and each of them bites harder here:
    *
    *   1. IT DOES NOT CREATE THE ROW. Its callers are #282's scheduler tick and
-   *      `DatabaseBackupRunnerService.startBackup`. A cron materialising a
+   *      `DatabaseBackupRunnerService`'s three entry points (`queueBackup`,
+   *      `runQueuedBackup` and `startBackup`). A cron materialising a
    *      settings row as a side effect of deciding whether to take a backup is
    *      a write nobody asked for — and it would happen on every tick of a
    *      deployment that has backups switched off.

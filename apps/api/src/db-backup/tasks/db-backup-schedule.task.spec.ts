@@ -52,6 +52,12 @@ interface RunRow {
   storageKey: string;
   startedAt: Date | null;
   lastHeartbeatAt: Date | null;
+  /**
+   * #351: the age a `pending` row is swept by. A queued run has neither a
+   * start nor a heartbeat — that is what `pending` MEANS — so `createdAt` is
+   * the only column that can say how long it has held the active slot.
+   */
+  createdAt?: Date | null;
   finishedAt?: Date;
   lastError?: string;
   /** #288: projected by the sweep's read and rendered by the notification. */
@@ -62,8 +68,8 @@ interface HarnessOptions {
   policy?: Partial<SystemDatabaseBackupValue>;
   config?: Record<string, unknown>;
   rows?: RunRow[];
-  /** Replaces the default `startBackup`, e.g. to make it reject. */
-  startBackupImpl?: () => Promise<{ id: string }>;
+  /** Replaces the default `queueBackup`, e.g. to make it reject. */
+  queueBackupImpl?: () => Promise<{ run: { id: string }; job: { id: string } }>;
   deleteImpl?: (key: string) => Promise<void>;
   /** Rows this table pretends were mutated by somebody else between read and write. */
   settleDuringSweep?: string[];
@@ -80,14 +86,30 @@ function makeHarness(options: HarnessOptions = {}) {
   const table = new Map((options.rows ?? []).map((row) => [row.id, { ...row }]));
   const settleDuring = new Set(options.settleDuringSweep ?? []);
 
+  /**
+   * The sweep's predicate, evaluated arm by arm.
+   *
+   * ⚠ `status` MOVED INSIDE THE ARMS in #351 — the sweep no longer asks for
+   * one status with three age tests, it asks for two statuses each with its
+   * own age column (`lastHeartbeatAt`/`startedAt` for `running`, `createdAt`
+   * for `pending`). This double follows that shape literally rather than
+   * approximating it, so a predicate that stopped matching pending rows would
+   * fail here rather than pass by accident.
+   */
   const findMany = jest.fn(async (args: any) => {
     const { where } = args;
 
     return [...table.values()]
-      .filter((row) => {
-        if (row.status !== where.status) return false;
+      .filter((row) =>
+        where.OR.some((arm: any) => {
+          if (row.status !== arm.status) return false;
 
-        return where.OR.some((arm: any) => {
+          // The queued-but-never-claimed arm: aged by `createdAt`, because a
+          // pending row has neither a heartbeat nor a start.
+          if (arm.createdAt !== undefined) {
+            return row.createdAt != null && row.createdAt < arm.createdAt.lt;
+          }
+
           if (arm.lastHeartbeatAt === null) {
             return row.lastHeartbeatAt === null && row.startedAt !== null
               ? row.startedAt < arm.startedAt.lt
@@ -95,8 +117,8 @@ function makeHarness(options: HarnessOptions = {}) {
           }
 
           return row.lastHeartbeatAt !== null && row.lastHeartbeatAt < arm.lastHeartbeatAt.lt;
-        });
-      })
+        })
+      )
       .map((row) => ({ ...row }));
   });
 
@@ -144,25 +166,42 @@ function makeHarness(options: HarnessOptions = {}) {
   let tickNow = new Date(0);
   let claimed = 0;
 
-  const startBackup = jest.fn(
-    options.startBackupImpl ??
+  /**
+   * #351: the scheduler ENQUEUES now — `queueBackup`, not `startBackup`.
+   *
+   * ⚠ THE DOUBLE MODELS A WORKER CLAIMING THE JOB IMMEDIATELY, which is why
+   * the row it writes is `running` with a `startedAt`. That is deliberate and
+   * it is what keeps every boundary test in this file testing THE BOUNDARY
+   * RULE rather than the queue: the anti-double-fire query asks "has a run
+   * STARTED since this boundary", and a double that left the row `pending`
+   * forever would make each of those tests fail for a reason that has nothing
+   * to do with the schedule arithmetic they exist to pin.
+   *
+   * The genuinely-unclaimed window — a `pending` row that covers no boundary,
+   * and the dedup conflict that stops the second fire — is covered
+   * separately, by `ignores a row that never started` and by the
+   * already-running group below.
+   */
+  const queueBackup = jest.fn(
+    options.queueBackupImpl ??
       (async () => {
-        calls.push('startBackup');
+        calls.push('queueBackup');
         claimed += 1;
         const id = `run-${claimed}`;
         table.set(id, {
           id,
           status: 'running',
           storageKey: `backups/${id}.dump`,
+          createdAt: tickNow,
           startedAt: tickNow,
           lastHeartbeatAt: tickNow,
         });
 
-        return { id };
+        return { run: { id }, job: { id: `job-${claimed}` } };
       })
   );
 
-  const runner = { startBackup } as unknown as DatabaseBackupRunnerService;
+  const runner = { queueBackup } as unknown as DatabaseBackupRunnerService;
 
   const deleteObject = jest.fn(async (key: string) => {
     calls.push(`object:${key}`);
@@ -225,7 +264,7 @@ function makeHarness(options: HarnessOptions = {}) {
     findMany,
     updateMany,
     findFirst,
-    startBackup,
+    queueBackup,
     deleteObject,
     configGet,
     dropExpiredOldDatabases,
@@ -273,8 +312,30 @@ function runningRow(id: string, overrides: Partial<RunRow> = {}): RunRow {
     id,
     status: 'running',
     storageKey: `backups/${id}.dump`,
+    createdAt: new Date('2026-09-07T02:00:00.000Z'),
     startedAt: new Date('2026-09-07T02:00:00.000Z'),
     lastHeartbeatAt: new Date('2026-09-07T02:00:20.000Z'),
+    trigger: 'scheduled',
+    ...overrides,
+  };
+}
+
+/**
+ * #351: a run that was QUEUED and never claimed.
+ *
+ * `startedAt` and `lastHeartbeatAt` are NULL because that is what `pending`
+ * means — nothing has started, so nothing has beaten. `createdAt` is the only
+ * column that can say how long this row has been holding the single active
+ * slot, which is exactly why the sweep's third arm reads it.
+ */
+function pendingRow(id: string, overrides: Partial<RunRow> = {}): RunRow {
+  return {
+    id,
+    status: 'pending',
+    storageKey: `backups/${id}.dump`,
+    createdAt: new Date('2026-09-07T02:00:00.000Z'),
+    startedAt: null,
+    lastHeartbeatAt: null,
     trigger: 'scheduled',
     ...overrides,
   };
@@ -296,7 +357,7 @@ describe('exactly one run per boundary', () => {
     const h = makeHarness();
 
     await expect(h.fireAt('2026-09-07T02:03:00.000Z')).resolves.toBe('fired');
-    expect(h.startBackup).toHaveBeenCalledWith({ trigger: 'scheduled' });
+    expect(h.queueBackup).toHaveBeenCalledWith({ trigger: 'scheduled' });
   });
 
   it('does not fire before the window opens', async () => {
@@ -313,7 +374,7 @@ describe('exactly one run per boundary', () => {
     });
 
     await expect(h.fireAt('2026-09-07T01:50:00.000Z')).resolves.toBe('not_due');
-    expect(h.startBackup).not.toHaveBeenCalled();
+    expect(h.queueBackup).not.toHaveBeenCalled();
   });
 
   it('stands down for the rest of the window: two ticks inside one window fire once', async () => {
@@ -323,7 +384,7 @@ describe('exactly one run per boundary', () => {
     await expect(h.fireAt('2026-09-07T02:13:00.000Z')).resolves.toBe('not_due');
     await expect(h.fireAt('2026-09-07T23:59:00.000Z')).resolves.toBe('not_due');
 
-    expect(h.startBackup).toHaveBeenCalledTimes(1);
+    expect(h.queueBackup).toHaveBeenCalledTimes(1);
   });
 
   it('STILL FIRES when the tick is late — a missed window is recovered, not lost', async () => {
@@ -341,7 +402,7 @@ describe('exactly one run per boundary', () => {
     await expect(h.fireAt('2026-09-08T01:00:00.000Z')).resolves.toBe('not_due');
     await expect(h.fireAt('2026-09-08T02:01:00.000Z')).resolves.toBe('fired');
 
-    expect(h.startBackup).toHaveBeenCalledTimes(2);
+    expect(h.queueBackup).toHaveBeenCalledTimes(2);
   });
 
   it('survives a restart with no persisted state: a fresh instance reaches the same verdict', async () => {
@@ -357,7 +418,7 @@ describe('exactly one run per boundary', () => {
     await expect(h.fireAtWith(afterRestart, '2026-09-07T02:23:00.000Z')).resolves.toBe(
       'not_due'
     );
-    expect(h.startBackup).toHaveBeenCalledTimes(1);
+    expect(h.queueBackup).toHaveBeenCalledTimes(1);
   });
 
   it('counts a MANUAL backup as covering the window', async () => {
@@ -417,7 +478,7 @@ describe('the configured timezone, not the server\'s', () => {
     });
 
     await expect(h.fireAt('2026-06-15T03:00:00.000Z')).resolves.toBe('not_due');
-    expect(h.startBackup).not.toHaveBeenCalled();
+    expect(h.queueBackup).not.toHaveBeenCalled();
   });
 
   it('fires at the operator\'s 02:00, which is 06:00 UTC in New York in summer', async () => {
@@ -466,7 +527,7 @@ describe('daylight saving, in both directions', () => {
     // And it does not fire a second time for the same civil day.
     await expect(h.fireAt('2026-03-08T07:45:00.000Z')).resolves.toBe('not_due');
 
-    expect(h.startBackup).toHaveBeenCalledTimes(1);
+    expect(h.queueBackup).toHaveBeenCalledTimes(1);
   });
 
   it('spring forward: the interval to the next fire is 23 hours, not a drifted 24', async () => {
@@ -483,7 +544,7 @@ describe('daylight saving, in both directions', () => {
     await expect(h.fireAt('2026-03-08T06:00:00.000Z')).resolves.toBe('not_due');
     await expect(h.fireAt('2026-03-08T07:01:00.000Z')).resolves.toBe('fired');
 
-    expect(h.startBackup).toHaveBeenCalledTimes(2);
+    expect(h.queueBackup).toHaveBeenCalledTimes(2);
   });
 
   it('fall back: an ambiguous 01:30 fires on the FIRST pass of the clock and not the second', async () => {
@@ -499,7 +560,7 @@ describe('daylight saving, in both directions', () => {
     await expect(h.fireAt('2026-11-01T06:35:00.000Z')).resolves.toBe('not_due');
     await expect(h.fireAt('2026-11-01T07:00:00.000Z')).resolves.toBe('not_due');
 
-    expect(h.startBackup).toHaveBeenCalledTimes(1);
+    expect(h.queueBackup).toHaveBeenCalledTimes(1);
   });
 
   it('fall back: the next day\'s boundary is still 01:30 local, now an hour later in UTC', async () => {
@@ -520,7 +581,7 @@ describe('an unusable timezone', () => {
     const h = makeHarness({ policy: { timezone: 'Mars/Olympus_Mons' } });
 
     await expect(h.fireAt('2026-09-07T02:03:00.000Z')).resolves.toBe('bad_timezone');
-    expect(h.startBackup).not.toHaveBeenCalled();
+    expect(h.queueBackup).not.toHaveBeenCalled();
     // It does not even reach the table: there is no boundary to compare against.
     expect(h.findFirst).not.toHaveBeenCalled();
   });
@@ -571,7 +632,7 @@ describe('the disabled setting', () => {
     const h = makeHarness({ policy: { enabled: false } });
 
     await expect(h.fireAt('2026-09-07T02:03:00.000Z')).resolves.toBe('disabled');
-    expect(h.startBackup).not.toHaveBeenCalled();
+    expect(h.queueBackup).not.toHaveBeenCalled();
   });
 
   it('STILL SWEEPS when scheduled backups are disabled', async () => {
@@ -606,7 +667,7 @@ describe('the disabled setting', () => {
     expect(h.calls).toEqual([
       'row:orphan',
       'object:backups/orphan.dump',
-      'startBackup',
+      'queueBackup',
       // #285's retained-database sweep, which always runs last.
       'dropExpiredOldDatabases',
     ]);
@@ -626,6 +687,78 @@ describe('the stale sweep', () => {
     expect(row?.status).toBe('stale');
     expect(row?.finishedAt).toEqual(new Date('2026-09-07T05:00:00.000Z'));
     expect(row?.lastError).toContain('120');
+  });
+
+  // ---------------------------------------------------------------------------
+  // #351: the arm the original predicate's own ⚠ demanded once `pending` rows
+  // became real
+  // ---------------------------------------------------------------------------
+
+  it('releases a QUEUED run no worker ever claimed, aging it by createdAt', async () => {
+    // The failure this arm exists for: a `pending` row holds the single active
+    // slot under the tightened index, and it has no heartbeat that could ever
+    // age it out. Without this, one deleted job — or one deployment with
+    // JOBS_WORKER_MODE=off — blocks every backup that deployment would ever
+    // take again.
+    const h = makeHarness({ rows: [pendingRow('never-claimed')] });
+
+    await expect(h.sweepAt('2026-09-07T05:00:00.000Z')).resolves.toBe(1);
+    expect(h.table.get('never-claimed')?.status).toBe('stale');
+  });
+
+  it('leaves a queued run inside the window alone — an ordinary queue delay is not staleness', async () => {
+    const h = makeHarness({
+      rows: [pendingRow('just-queued', { createdAt: new Date('2026-09-07T04:59:00.000Z') })],
+    });
+
+    await expect(h.sweepAt('2026-09-07T05:00:00.000Z')).resolves.toBe(0);
+    expect(h.table.get('just-queued')?.status).toBe('pending');
+  });
+
+  it('tells a queued run apart from an abandoned dump in the reason it records', async () => {
+    // ⚠ TWO MESSAGES, NOT ONE. An operator fixes these in different places: a
+    // `running` row was executing somewhere that went away; a `pending` row
+    // was never picked up, which is a statement about the QUEUE and not about
+    // any dump. Flattening both into "stopped heartbeating" would send
+    // somebody hunting through `pg_dump` logs for a process that never existed.
+    const h = makeHarness({
+      rows: [pendingRow('never-claimed'), runningRow('zombie')],
+    });
+
+    await expect(h.sweepAt('2026-09-07T05:00:00.000Z')).resolves.toBe(2);
+
+    expect(h.table.get('never-claimed')?.lastError).toContain('no worker claimed its job');
+    expect(h.table.get('never-claimed')?.lastError).toContain('No dump was ever started');
+    expect(h.table.get('zombie')?.lastError).toContain('stopped heartbeating');
+  });
+
+  it('guards the pending transition on `pending`, not on the old literal `running`', async () => {
+    // The regression this pins is the one that looks exactly like working: a
+    // hard-coded `status: 'running'` in the compare-and-swap would make every
+    // pending candidate `count === 0`, and the sweep would report freeing
+    // nothing while quietly leaving the slot blocked.
+    const h = makeHarness({ rows: [pendingRow('never-claimed')] });
+
+    await h.sweepAt('2026-09-07T05:00:00.000Z');
+
+    expect(h.updateMany.mock.calls[0][0].where).toEqual({
+      id: 'never-claimed',
+      status: 'pending',
+    });
+  });
+
+  it('leaves a queued run alone if it moved on between the sweep\'s read and its write', async () => {
+    // Same race the `running` guard covers, from the other side. A `pending`
+    // row can move on in exactly the way that matters here — a worker claims
+    // it and the dump runs to completion — and the conditional update must
+    // then match nothing, so the sweep cannot stamp `stale` over a backup that
+    // succeeded while it was deciding.
+    const h = makeHarness({
+      rows: [pendingRow('claimed-mid-sweep')],
+      settleDuringSweep: ['claimed-mid-sweep'],
+    });
+
+    await expect(h.sweepAt('2026-09-07T05:00:00.000Z')).resolves.toBe(0);
   });
 
   it('leaves a run whose heartbeat is still inside the window alone', async () => {
@@ -706,7 +839,7 @@ describe('the stale sweep', () => {
 
     await h.sweepAt('2026-09-07T06:00:00.000Z');
 
-    expect(h.startBackup).not.toHaveBeenCalled();
+    expect(h.queueBackup).not.toHaveBeenCalled();
     expect(h.table.get('zombie')?.status).toBe('stale');
     expect(h.updateMany).toHaveBeenCalledTimes(1);
   });
@@ -847,7 +980,7 @@ describe('the already-running guard', () => {
     const debug = jest.spyOn(Logger.prototype, 'debug').mockImplementation(() => undefined);
     const error = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
     const h = makeHarness({
-      startBackupImpl: async () => {
+      queueBackupImpl: async () => {
         throw new DatabaseBackupAlreadyRunningError('other-replica-run');
       },
     });
@@ -864,7 +997,7 @@ describe('the already-running guard', () => {
 
   it('lets any other claim failure stay loud', async () => {
     const h = makeHarness({
-      startBackupImpl: async () => {
+      queueBackupImpl: async () => {
         throw new Error('databaseBackup.storageProvider is "gcs"');
       },
     });
@@ -879,7 +1012,7 @@ describe('the cron wrapper', () => {
 
     await h.task.handleCron();
 
-    expect(h.startBackup).not.toHaveBeenCalled();
+    expect(h.queueBackup).not.toHaveBeenCalled();
     expect(h.findMany).not.toHaveBeenCalled();
   });
 
@@ -888,7 +1021,7 @@ describe('the cron wrapper', () => {
 
     await h.task.handleCron();
 
-    expect(h.startBackup).toHaveBeenCalledTimes(1);
+    expect(h.queueBackup).toHaveBeenCalledTimes(1);
   });
 
   it('IS NOT AFFECTED BY THE JOB WORKER MODE', async () => {
@@ -903,7 +1036,7 @@ describe('the cron wrapper', () => {
 
     await h.task.handleCron();
 
-    expect(h.startBackup).toHaveBeenCalledTimes(1);
+    expect(h.queueBackup).toHaveBeenCalledTimes(1);
     // It never even asks.
     expect(h.configGet.mock.calls.map((call) => call[0])).toEqual(['dbBackup.scheduleEnabled']);
   });
@@ -915,21 +1048,21 @@ describe('the cron wrapper', () => {
     });
     const h = makeHarness({
       policy: ALWAYS_DUE,
-      startBackupImpl: async () => {
+      queueBackupImpl: async () => {
         await gate;
 
-        return { id: 'slow' };
+        return { run: { id: 'slow' }, job: { id: 'job-slow' } };
       },
     });
 
     const first = h.task.handleCron();
-    await waitFor(() => h.startBackup.mock.calls.length === 1, 'the first tick to claim');
+    await waitFor(() => h.queueBackup.mock.calls.length === 1, 'the first tick to claim');
 
-    // The first tick is still inside `startBackup`; the second must not run a
+    // The first tick is still inside `queueBackup`; the second must not run a
     // second boundary check against the same unchanged table.
     await h.task.handleCron();
 
-    expect(h.startBackup).toHaveBeenCalledTimes(1);
+    expect(h.queueBackup).toHaveBeenCalledTimes(1);
 
     release();
     await first;
@@ -940,7 +1073,7 @@ describe('the cron wrapper', () => {
     // the one failure this whole file exists not to have.
     const h = makeHarness({
       policy: ALWAYS_DUE,
-      startBackupImpl: async () => {
+      queueBackupImpl: async () => {
         throw new Error('connection reset');
       },
     });
@@ -948,7 +1081,7 @@ describe('the cron wrapper', () => {
     await expect(h.task.handleCron()).resolves.toBeUndefined();
     await expect(h.task.handleCron()).resolves.toBeUndefined();
 
-    expect(h.startBackup).toHaveBeenCalledTimes(2);
+    expect(h.queueBackup).toHaveBeenCalledTimes(2);
   });
 
   it('never rejects out of the cron handler', async () => {
@@ -969,7 +1102,7 @@ describe('the cron wrapper', () => {
 
     await h.task.handleCron();
 
-    expect(h.startBackup).toHaveBeenCalledTimes(1);
+    expect(h.queueBackup).toHaveBeenCalledTimes(1);
   });
 
   // ---------------------------------------------------------------------------
@@ -999,7 +1132,7 @@ describe('the cron wrapper', () => {
 
     await h.task.handleCron();
 
-    expect(h.calls).toEqual(['startBackup', 'dropExpiredOldDatabases']);
+    expect(h.calls).toEqual(['queueBackup', 'dropExpiredOldDatabases']);
   });
 
   it('does not sweep at all when the scheduler is switched off', async () => {
@@ -1021,6 +1154,6 @@ describe('the cron wrapper', () => {
     await expect(h.task.handleCron()).resolves.toBeUndefined();
 
     // ...and the duties in front of it still happened.
-    expect(h.startBackup).toHaveBeenCalledTimes(1);
+    expect(h.queueBackup).toHaveBeenCalledTimes(1);
   });
 });

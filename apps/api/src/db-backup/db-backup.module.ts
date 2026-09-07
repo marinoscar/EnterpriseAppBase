@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { MaintenanceModule } from '../common/maintenance/maintenance.module';
+import { JobsModule } from '../jobs/jobs.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { SettingsModule } from '../settings/settings.module';
 import { StorageProvidersModule } from '../storage/providers/storage-providers.module';
@@ -9,6 +10,7 @@ import { DatabaseBackupAdminService } from './db-backup-admin.service';
 import { DatabaseBackupRetentionService } from './db-backup-retention.service';
 import { DatabaseBackupRunnerService } from './db-backup-runner.service';
 import { DatabaseBackupController } from './db-backup.controller';
+import { DatabaseBackupRunHandler } from './handlers/db-backup-run.handler';
 import { DatabaseRestorePreflightService } from './restore-preflight.service';
 import { DatabaseBackupScheduleTask } from './tasks/db-backup-schedule.task';
 
@@ -205,12 +207,41 @@ import { DatabaseBackupScheduleTask } from './tasks/db-backup-schedule.task';
 // site: the post-restore answer to "who can act on this?" is the correct one.
 // =============================================================================
 
+// -----------------------------------------------------------------------------
+// #351 (EPIC #345) ADDS `JobsModule`, AND THE DUMP BECOMES A QUEUE JOB
+// -----------------------------------------------------------------------------
+//
+// Imported for exactly two things, both narrow: `JobsService` (the runner
+// enqueues `db.backup.run` from `queueBackup`) and `JobHandlerRegistry` (the
+// new handler self-registers with it). The direction stays acyclic, which is
+// the property that makes this import safe at all: `JobsModule` reaches
+// `PrismaModule`, `SettingsModule`, `StorageProvidersModule` and
+// `NotificationsModule`, and NOTHING in the queue reaches back into backups —
+// the queue does not know this type exists, which is precisely the promise of
+// the one-class extension point.
+//
+// `DatabaseBackupRunHandler` is a provider here rather than in `JobsModule`
+// for the reason step 3 of `jobs/handlers/README.md` gives: a handler belongs
+// to the module that owns the FEATURE, and the queue's own module provides
+// only the handlers that belong to no feature (`example.echo`,
+// `example.checksum`, `job.history.purge`). It is NOT exported: registration
+// happens through its own `onModuleInit`, so nothing outside this module ever
+// needs to resolve it, and a handler reachable from elsewhere is an invitation
+// to call `process()` directly and bypass the lease the worker is holding.
+//
+// ⚠ THE RUNNER IS STILL THE ONE WRITER OF `database_backup_runs`, and the
+// handler changes nothing about that: it delegates to `runQueuedBackup` and
+// holds no Prisma client of its own. Two writers of that table would make the
+// single-active-run index a coincidence rather than a guarantee.
+// =============================================================================
+
 @Module({
   imports: [
     SettingsModule,
     StorageProvidersModule,
     MaintenanceModule,
     NotificationsModule,
+    JobsModule,
   ],
   controllers: [DatabaseBackupController],
   providers: [
@@ -218,6 +249,7 @@ import { DatabaseBackupScheduleTask } from './tasks/db-backup-schedule.task';
     DatabaseBackupRetentionService,
     DatabaseBackupAdminService,
     DatabaseBackupScheduleTask,
+    DatabaseBackupRunHandler,
     DatabaseRestorePreflightService,
     DatabaseRestoreService,
   ],

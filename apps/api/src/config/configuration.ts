@@ -205,12 +205,20 @@ export default () => {
   // window are all system settings an administrator edits at runtime, because
   // they are decisions about a deployment rather than about a process.
   //
-  // ⚠ DELIBERATELY NOT `JOBS_WORKER_MODE`. Taking a backup is not queue work
-  // (see the "Why this is not a queue job" block in `schema.prisma`), and an
-  // API running as a pure control plane in front of an external node fleet is
-  // still the only component with a database connection — so gating backups on
-  // its willingness to execute jobs would leave that deployment's database
-  // backed up by nobody.
+  // ⚠ DELIBERATELY NOT `JOBS_WORKER_MODE`, AND STILL NOT SINCE #351 MADE THE
+  // DUMP A QUEUE JOB. This switch governs whether this process runs the
+  // ten-minute cron that DECIDES a backup is due and enqueues it — a decision
+  // about the deployment's schedule, not about the queue. An API running as a
+  // pure control plane in front of an external node fleet is still the only
+  // component with a database connection, so gating the schedule on its
+  // willingness to execute jobs would leave that deployment's database backed
+  // up by nobody.
+  //
+  // What DOES depend on the worker is the execution: `db.backup.run` is
+  // server-only by derivation, so `JOBS_WORKER_MODE=system` claims it and
+  // `off` does not. An enqueue-only deployment therefore queues backups it
+  // never takes, which is what `off` means and is why the stale sweep now ages
+  // out `pending` run rows.
   //
   // DEFAULTS TO ON, and only the literal string turns it off. A deployment
   // whose backups silently stopped because of a typo in an env file is

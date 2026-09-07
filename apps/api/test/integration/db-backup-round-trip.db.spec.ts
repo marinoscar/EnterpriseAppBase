@@ -19,6 +19,16 @@
 // local disk (`TmpDirStorageProvider`), and it backs up THIS suite's own
 // reachable database.
 //
+// ⚠ IT NOW DRIVES THROUGH THE QUEUE, NOT AROUND IT (issue #351, epic #345).
+// The dump is a `db.backup.run` job, so proving "a backup completes" by
+// calling the runner directly would prove it about a path production no
+// longer takes. Every backup in this file goes enqueue → REAL claim
+// (`JobClaimService`, `FOR UPDATE SKIP LOCKED`, `attempts` charged, the lease
+// derived from the handler's own six-hour profile) → the REAL handler →
+// REAL settle (`JobTerminalService`). The only piece deliberately left out is
+// `JobWorker`'s poll timer, which is a loop around exactly the two calls this
+// file makes by hand and which `job.worker.spec.ts` already owns.
+//
 // THE ASSERTION THAT MATTERS IS NOT `status === 'completed'`. Asserting only
 // that proves the bookkeeping — see this file's own runner's header, "VERIFY
 // WHAT ARRIVED, NOT WHAT WE SENT". This suite additionally, and
@@ -49,13 +59,23 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { ConfigService } from '@nestjs/config';
-import { PrismaClient } from '@prisma/client';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { Job, PrismaClient } from '@prisma/client';
 
 import { DEFAULT_SYSTEM_SETTINGS } from '../../src/common/types/settings.types';
 import {
+  BACKUP_JOB_TYPE,
   DatabaseBackupRunnerService,
   type DatabaseBackupEngine,
 } from '../../src/db-backup/db-backup-runner.service';
+import { DatabaseBackupAlreadyRunningError } from '../../src/db-backup/db-backup.errors';
+import { DatabaseBackupRunHandler } from '../../src/db-backup/handlers/db-backup-run.handler';
+import { buildClaimLeases } from '../../src/jobs/job-execution-profile';
+import { JobClaimService } from '../../src/jobs/job-claim.service';
+import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
+import { JobTerminalService } from '../../src/jobs/job-terminal.service';
+import { JobsService } from '../../src/jobs/jobs.service';
+import { ProviderThrottleService } from '../../src/jobs/provider-throttle.service';
 import { spawnPgDump } from '../../src/db-backup/pg-dump.util';
 import { readTocEntryCount } from '../../src/db-backup/pg-restore.util';
 import { checkPgClientVersion, readServerVersionNumWithPgClient } from '../../src/db-backup/pg-version.util';
@@ -94,9 +114,15 @@ describeWithDb('A real pg_dump round trip through the backup engine', () => {
   let baseDir: string;
   let storage: TmpDirStorageProvider;
   let runner: DatabaseBackupRunnerService;
+  let claimer: JobClaimService;
+  let terminal: JobTerminalService;
+  let registry: JobHandlerRegistry;
+  let config: ConfigService;
 
   /** Every backup run this suite creates, so cleanup is exact and exhaustive. */
   const createdRunIds: string[] = [];
+  /** Every `db.backup.run` job it queued, likewise. */
+  const createdJobIds: string[] = [];
 
   beforeAll(async () => {
     prisma = createDbClient();
@@ -123,7 +149,22 @@ describeWithDb('A real pg_dump round trip through the backup engine', () => {
       notifyPermissionHolders: async () => undefined,
     } as unknown as NotificationsService;
 
-    const config = { get: () => undefined } as unknown as ConfigService;
+    // The deployment-wide job defaults. Nothing here should govern
+    // `db.backup.run` — the handler's own profile does — and the assertions
+    // below say so.
+    config = {
+      get: (key: string) =>
+        key === 'jobs.maxAttempts' ? 3 : key === 'jobs.jobTimeoutMs' ? 600_000 : undefined,
+    } as unknown as ConfigService;
+
+    // ⚠ THE REAL QUEUE, NOT A DOUBLE. #351 made the dump a `db.backup.run`
+    // job, and a suite that kept calling the runner directly would still pass
+    // while proving nothing about the path production now takes: the enqueue,
+    // the claim, the handler, the settle. All four are real here, against real
+    // Postgres, and only the CLOCK of the worker's poll loop is missing —
+    // `JobWorker` itself is a timer around exactly the two calls this file
+    // makes by hand.
+    const jobs = new JobsService(prisma as unknown as PrismaService);
 
     runner = new DatabaseBackupRunnerService(
       prisma as unknown as PrismaService,
@@ -132,11 +173,24 @@ describeWithDb('A real pg_dump round trip through the backup engine', () => {
       retention,
       notifications,
       config,
+      jobs,
       // The REAL engine (real `pg_dump`, real `pg_restore --list`) — see
       // `realEngineWithoutDatabaseUrl`'s own comment for why the `env`
       // override is the only thing that differs from production's.
       realEngineWithoutDatabaseUrl()
       // No timers override: the real (unref'd) heartbeat timer.
+    );
+
+    registry = new JobHandlerRegistry();
+    new DatabaseBackupRunHandler(registry, runner).onModuleInit();
+
+    claimer = new JobClaimService(prisma as unknown as PrismaService);
+    terminal = new JobTerminalService(
+      prisma as unknown as PrismaService,
+      config,
+      new ProviderThrottleService(config),
+      new EventEmitter2(),
+      registry
     );
   });
 
@@ -144,6 +198,14 @@ describeWithDb('A real pg_dump round trip through the backup engine', () => {
     if (createdRunIds.length > 0) {
       await prisma.databaseBackupRun.deleteMany({ where: { id: { in: createdRunIds } } });
       createdRunIds.length = 0;
+    }
+
+    // AFTER the runs, always: `job_id` is `onDelete: SetNull`, so deleting a
+    // job first would silently unlink a run row this suite still means to
+    // assert on.
+    if (createdJobIds.length > 0) {
+      await prisma.job.deleteMany({ where: { id: { in: createdJobIds } } });
+      createdJobIds.length = 0;
     }
   });
 
@@ -168,13 +230,76 @@ describeWithDb('A real pg_dump round trip through the backup engine', () => {
     }
   }
 
+  /**
+   * The whole production path for one backup: enqueue, claim, run, settle.
+   *
+   * ⚠ THE CLAIM IS THE REAL ONE (`FOR UPDATE SKIP LOCKED`, `attempts`
+   * incremented, the lease applied from the type's own profile), and the
+   * settle is the real `JobTerminalService`. What is NOT here is `JobWorker`'s
+   * poll timer, which is the only part of the worker this file would be
+   * testing twice — `job.worker.spec.ts` owns it.
+   */
+  async function takeQueuedBackup(): Promise<{ job: Job; runId: string }> {
+    const queued = await runner.queueBackup({ trigger: 'manual', createdById: null });
+    createdRunIds.push(queued.run.id);
+    createdJobIds.push(queued.job.id);
+
+    // Queued, and nothing has started: the run row does not claim a `pg_dump`
+    // exists before one does.
+    expect(queued.run.status).toBe('pending');
+    expect(queued.run.startedAt).toBeNull();
+    expect(queued.job.type).toBe(BACKUP_JOB_TYPE);
+
+    const [claimed] = await claimer.claim({
+      nodeId: null,
+      executor: 'server',
+      eligibleTypes: [BACKUP_JOB_TYPE],
+      limit: 1,
+      leases: buildClaimLeases(config, registry, [BACKUP_JOB_TYPE]),
+    });
+
+    expect(claimed?.id).toBe(queued.job.id);
+    // ⚠ THE LEASE IS THE PROFILE'S, NOT THE DEPLOYMENT DEFAULT'S. This is the
+    // objection that used to make a backup unsafe as a queue job: a 30-minute
+    // reaper deadline over a multi-hour dump. The claim's lease must sit past
+    // the six-hour ceiling, not past ten minutes.
+    const leaseMs = (claimed.leaseExpiresAt as Date).getTime() - Date.now();
+    expect(leaseMs).toBeGreaterThan(6 * 60 * 60 * 1000);
+
+    const handler = registry.get(BACKUP_JOB_TYPE);
+    expect(handler).toBeDefined();
+
+    await handler!.process(claimed);
+
+    // ⚠ THE ASSERTION #351 EXISTS FOR, AND THE ONE A THIN WRAPPER WOULD FAIL.
+    // `process()` has RETURNED, and the run is ALREADY `completed` and already
+    // verified — the job's lifetime is the dump's lifetime, so there is no
+    // window in which a `succeeded` job describes a dump still streaming.
+    const onReturn = await prisma.databaseBackupRun.findUniqueOrThrow({
+      where: { id: queued.run.id },
+    });
+    expect(onReturn.status).toBe('completed');
+    expect(onReturn.verifiedAt).not.toBeNull();
+
+    await terminal.completeSucceeded(claimed);
+
+    return { job: claimed, runId: queued.run.id };
+  }
+
   it('produces a `completed` run whose stored object is a real, independently-verifiable archive', async () => {
-    const claimed = await runner.startBackup({ trigger: 'manual', createdById: null });
-    createdRunIds.push(claimed.id);
+    const { job, runId } = await takeQueuedBackup();
 
-    expect(claimed.status).toBe('running');
+    const settled = await awaitSettled(runId);
 
-    const settled = await awaitSettled(claimed.id);
+    // The two rows, and the link between them. `job_id` is what lets a run
+    // found in this table be traced back to who asked for it and which attempt
+    // produced it; `succeeded` is what makes the backup visible in
+    // `GET /api/admin/jobs` and in insights at all.
+    expect(settled.jobId).toBe(job.id);
+    const settledJob = await prisma.job.findUniqueOrThrow({ where: { id: job.id } });
+    expect(settledJob.status).toBe('succeeded');
+    // One attempt, charged at claim time, and never a second one.
+    expect(settledJob.attempts).toBe(1);
 
     // --- The bookkeeping half ------------------------------------------------
     expect(settled.status).toBe('completed');
@@ -211,11 +336,73 @@ describeWithDb('A real pg_dump round trip through the backup engine', () => {
     expect(tocEntries).toBeGreaterThan(0);
   });
 
-  it('records provenance: db version, app version and the migration ledger name', async () => {
-    const claimed = await runner.startBackup({ trigger: 'manual', createdById: null });
-    createdRunIds.push(claimed.id);
+  it('never auto-retries a failed dump: one attempt, terminally failed, nothing rescheduled', async () => {
+    // ⚠ THE THIRD OBJECTION, PROVEN AGAINST REAL POSTGRES WITH THE REAL
+    // PROFILE. `JobTerminalService` reads `maxAttempts` through
+    // `resolveMaxAttempts(config, registry.get(type))`, so what decides this
+    // is the handler's own `maxAttempts: 1` and not the deployment default of
+    // 3 that `config` above deliberately reports. A backup that failed must
+    // not be re-run unattended against a database that is probably already
+    // unwell; the retry is the next scheduled one.
+    const queued = await runner.queueBackup({ trigger: 'manual', createdById: null });
+    createdRunIds.push(queued.run.id);
+    createdJobIds.push(queued.job.id);
 
-    const settled = await awaitSettled(claimed.id);
+    const [claimed] = await claimer.claim({
+      nodeId: null,
+      executor: 'server',
+      eligibleTypes: [BACKUP_JOB_TYPE],
+      limit: 1,
+      leases: buildClaimLeases(config, registry, [BACKUP_JOB_TYPE]),
+    });
+
+    // The dump is not run at all here: what is under test is what the queue
+    // does with a failure, and spawning a real `pg_dump` only to break it
+    // would test `pg_dump`.
+    await terminal.completeFailed(claimed, new Error('pg_dump exited 1'));
+
+    const settledJob = await prisma.job.findUniqueOrThrow({ where: { id: claimed.id } });
+    expect(settledJob.status).toBe('failed');
+    expect(settledJob.attempts).toBe(1);
+    // Not 'pending' with a backoff: `scheduled_for` is what a retry would be
+    // written as, and there must not be one.
+    expect(settledJob.scheduledFor).toBeNull();
+    expect(settledJob.lastError).toContain('pg_dump exited 1');
+
+    // ⚠ THE RUN ROW IS STILL `pending`, AND THAT IS A REAL STATE RATHER THAN
+    // AN OVERSIGHT. This job failed before its handler ever touched the row,
+    // so nothing wrote a terminal status onto it — and under the tightened
+    // `database_backup_runs_active_uniq_idx` that leftover row HOLDS THE
+    // SINGLE ACTIVE SLOT across `pending` and `running` combined. Both halves
+    // are asserted, because the second is what the stale sweep's new `pending`
+    // arm exists to resolve.
+    const stranded = await prisma.databaseBackupRun.findUniqueOrThrow({
+      where: { id: queued.run.id },
+    });
+    expect(stranded.status).toBe('pending');
+
+    await expect(
+      runner.queueBackup({ trigger: 'scheduled', createdById: null })
+    ).rejects.toBeInstanceOf(DatabaseBackupAlreadyRunningError);
+
+    // Released the way `releaseStaleRuns` releases it (aged by `createdAt`,
+    // since a pending row has neither a start nor a heartbeat) — and the next
+    // backup queues normally, with a fresh job under the same dedup key.
+    await prisma.databaseBackupRun.update({
+      where: { id: queued.run.id },
+      data: { status: 'stale' },
+    });
+
+    const next = await runner.queueBackup({ trigger: 'scheduled', createdById: null });
+    createdRunIds.push(next.run.id);
+    createdJobIds.push(next.job.id);
+    expect(next.job.id).not.toBe(claimed.id);
+  });
+
+  it('records provenance: db version, app version and the migration ledger name', async () => {
+    const { runId } = await takeQueuedBackup();
+
+    const settled = await awaitSettled(runId);
 
     expect(settled.status).toBe('completed');
     expect(settled.dbVersion).not.toBeNull();

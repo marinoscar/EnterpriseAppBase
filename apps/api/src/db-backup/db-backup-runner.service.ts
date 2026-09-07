@@ -7,9 +7,12 @@ import { ConfigService } from '@nestjs/config';
 import {
   DatabaseBackupRun,
   DatabaseBackupTrigger,
+  Job,
   Prisma,
 } from '@prisma/client';
 
+import { buildDedupKey } from '../jobs/job-keys';
+import { isActiveDedupConflict, JobsService } from '../jobs/jobs.service';
 import { resolveApiVersion } from '../openapi/version';
 import { PrismaService } from '../prisma/prisma.service';
 import { SystemSettingsService } from '../settings/system-settings/system-settings.service';
@@ -54,23 +57,57 @@ import {
 // five is a failure this template has to not have.
 //
 // -----------------------------------------------------------------------------
-// 1. THE CLAIM IS AWAITED; THE DUMP IS DETACHED
+// 1. THE DUMP IS A QUEUE JOB, AND THE JOB'S LIFETIME IS THE DUMP'S LIFETIME
+//    (issue #351, epic #345)
 // -----------------------------------------------------------------------------
 //
-// `startBackup` awaits the INSERT — so its caller gets a real run id or a
-// clean `DatabaseBackupAlreadyRunningError` (#283's 409) — and then returns
-// while the dump is still running. It has to: a multi-gigabyte dump takes
-// tens of minutes, and every reverse proxy between the browser and this
-// process has a response timeout measured in seconds. A synchronous
-// `POST /backups` would 504 on exactly the databases worth backing up, and the
-// operator would retry, and the retry would be refused by the single-active
-// index while the first dump — which nobody is now watching — carried on.
+// It did not used to be. Until #351 `startBackup` awaited an INSERT and then
+// fired `void this.executeRun(...)`: the dump had no job type, appeared in
+// neither `GET /api/admin/jobs` nor insights, occupied no worker slot, and
+// could not run anywhere but the API process. `schema.prisma` gave three
+// reasons for that, and #346/#347 removed all three:
 //
-// ⚠ THE DETACHED PROMISE CARRIES A TERMINAL `.catch()`. Without one, an
-// EXPECTED failure (the dump exits non-zero; the bucket refuses the write)
-// becomes an unhandled promise rejection, and an unhandled rejection
-// TERMINATES the Node process by default. A failed backup must not be able to
-// take the API down with it.
+//   1. "The 30-minute reaper would requeue a running dump" → answered by a
+//      per-type PROFILE. `db.backup.run` declares `maxRuntimeMs: 6h`, and the
+//      lease is DERIVED from it (`resolveJobLeaseMs`), so the reaper's
+//      deadline is longer than the ceiling by construction.
+//   2. "The in-process worker never renews its lease" → answered by #347.
+//      `JobWorker` renews on a ticker for as long as `process()` runs.
+//   3. "A retry budget would re-run a failed multi-gigabyte dump" → answered
+//      by `maxAttempts: 1` in that same profile. The correct retry for a
+//      backup is still the next scheduled one; the difference is that the
+//      QUEUE now knows that, and `JobStuckService`'s give-up phase enforces
+//      it rather than the absence of a queue enforcing it by accident.
+//
+// So there are now TWO entry points into this file, and the difference
+// between them is exactly which of them owns a `jobs` row:
+//
+//   `queueBackup`  — the normal path (#283's endpoint, #282's cron). Writes a
+//                    `jobs` row and a `pending` run row IN ONE TRANSACTION and
+//                    returns; a worker claims the job and calls
+//                    `runQueuedBackup`, which is where the dump actually
+//                    happens, AWAITED.
+//   `startBackup`  — the ONE remaining detached path: the `pre_restore` safety
+//                    dump (`DatabaseRestoreService`). It takes a backup while
+//                    a restore is mid-flight, so it must not depend on a
+//                    worker slot being free, on `JOBS_WORKER_MODE`, or on this
+//                    process still polling the queue seconds from now. It
+//                    claims `running` directly, with no job.
+//
+// ⚠ THE DETACHED PROMISE (`startBackup` only) CARRIES A TERMINAL `.catch()`.
+// Without one, an EXPECTED failure (the dump exits non-zero; the bucket
+// refuses the write) becomes an unhandled promise rejection, and an unhandled
+// rejection TERMINATES the Node process by default. A failed backup must not
+// be able to take the API down with it. `runQueuedBackup` needs no such guard
+// and deliberately has none: it has a caller — the worker — whose entire job
+// is to turn a rejection into a settled row.
+//
+// ⚠ WHY `executeRun` RETURNS AN OUTCOME RATHER THAN THROWING. It records
+// every failure it anticipates on the run row and returns; the decision to
+// FAIL THE JOB belongs to `runQueuedBackup`, which rethrows the recorded
+// error. Had `executeRun` simply kept swallowing, the queued path would
+// report `succeeded` for a job whose run row said `failed` — a job row that
+// lies, which is worse than no job row at all.
 //
 // -----------------------------------------------------------------------------
 // 2. THE VERSION CHECK RUNS BEFORE A SINGLE BYTE IS DUMPED
@@ -152,21 +189,32 @@ import {
 //
 // THERE IS NO AUTOMATIC RETRY. Re-running a failed multi-gigabyte dump burns
 // hours of I/O on a database that is probably already unwell; the retry for a
-// backup is the next scheduled run. See the `### Why this is not a queue job`
-// block in `schema.prisma`.
+// backup is the next scheduled run. That is now `maxAttempts: 1` on the
+// handler's profile rather than the absence of a queue — see
+// `handlers/db-backup-run.handler.ts`.
 // =============================================================================
 
 /**
  * How often the heartbeat writes `lastHeartbeatAt` and the live
  * `bytesWritten`.
  *
- * TWENTY SECONDS, and the number is bounded on both sides by things that
- * already exist. `databaseBackup.runStaleMinutes` starts at 120 and its
- * minimum is 1, so the interval must be comfortably under a minute or a
- * legitimately short run could be swept as stale between two beats. At the
- * other end each beat is one indexed UPDATE by primary key, so a tighter
- * interval would be affordable but pointless: the progress bar it feeds is
- * read by a human.
+ * ⚠ THIS IS PROGRESS REPORTING, NOT THE LIVENESS SIGNAL — that changed in
+ * #351 and the distinction matters when tuning it. While the dump was
+ * detached, this beat was the ONLY evidence a run was still alive, and #282's
+ * stale sweep was the only thing that could settle an abandoned one. The dump
+ * is now a queue job, and #347's LEASE RENEWAL is what says "the executor is
+ * still there": the worker renews on a ticker derived from the type's
+ * `maxRuntimeMs`, and `JobStuckService` reaps a lease that stops being
+ * renewed. What this beat still owns — and nothing else does — is
+ * `bytesWritten`, the number the admin UI's progress bar reads.
+ *
+ * TWENTY SECONDS, and the number is still bounded on both sides by things
+ * that already exist. `databaseBackup.runStaleMinutes` starts at 120 and its
+ * minimum is 1, so the interval must stay comfortably under a minute: the
+ * stale sweep remains the backstop for the `pre_restore` path, which has no
+ * job and therefore no lease. At the other end each beat is one indexed
+ * UPDATE by primary key, so a tighter interval would be affordable but
+ * pointless: the progress bar it feeds is read by a human.
  *
  * A CONSTANT, not an environment variable. Nothing an operator could set here
  * would be a better answer than "well inside the smallest stale window", and a
@@ -203,6 +251,57 @@ const ACTIVE_RUN_COLUMN_NAME = 'status';
 /** The statuses the index's predicate covers — "an active run". */
 export const ACTIVE_RUN_STATUSES = ['pending', 'running'] as const;
 
+/**
+ * The `Job.type` a queued dump runs under (issue #351, epic #345).
+ *
+ * DECLARED HERE RATHER THAN IN THE HANDLER, and the direction is the reason:
+ * this file ENQUEUES the job and the handler EXECUTES it, so the handler can
+ * import the runner but the runner must never import the handler (that would
+ * be a cycle, and a module-evaluation-order one at that). The single
+ * definition therefore lives on the enqueueing side, and
+ * `handlers/db-backup-run.handler.ts` imports it for its `type`.
+ *
+ * ⚠ PERMANENT once jobs of this type exist, exactly as
+ * `JobHandler.type` says: `jobs` rows outlive the handler that produced them,
+ * so renaming this string orphans every historical row and every job already
+ * queued under the old name.
+ */
+export const BACKUP_JOB_TYPE = 'db.backup.run';
+
+/**
+ * The one dedup key EVERY backup enqueue uses.
+ *
+ * CONSTANT, and that is the entire single-active-backup guard at the queue
+ * layer. A backup has no subject — there is one database and one archive per
+ * run — so `buildDedupKey` folds the null subject pair away and every caller
+ * lands on the same string. `jobs_active_dedup_uniq_idx` then makes a second
+ * enqueue while one is `pending`/`running` a P2002, which is exactly what
+ * BOTH callers want: the scheduler stands down, and #283's endpoint reports
+ * "already running" with the winner's run id.
+ *
+ * Derived through `buildDedupKey` rather than written out as a literal,
+ * because the index enforces uniqueness over whatever string the enqueue path
+ * puts in the column — and a literal here that drifted from the builder would
+ * silently stop colliding with the rows it is supposed to collide with.
+ */
+export const BACKUP_JOB_DEDUP_KEY = buildDedupKey(BACKUP_JOB_TYPE, null, null);
+
+/**
+ * What a `db.backup.run` job carries.
+ *
+ * IDENTIFIERS AND PROVENANCE ONLY, per the queue's payload rule. It exists
+ * for ONE narrow case: a handler that finds no run row for its job (see
+ * `runQueuedBackup`) has to create one, and `trigger` has no default —
+ * a run nobody can attribute is a run nobody can explain. On the ordinary
+ * path the run row already exists and this payload is never read, which is
+ * why it carries nothing else: everything an operator wants about a backup
+ * lives on `database_backup_runs`, not in opaque JSONB.
+ */
+export interface BackupJobPayload {
+  trigger: DatabaseBackupTrigger;
+  createdById: string | null;
+}
+
 /** What a caller may say about the backup it wants taken. */
 export interface StartBackupInput {
   /** Why this run exists. No default: an unattributable run is a run nobody can explain. */
@@ -217,6 +316,28 @@ export interface StartBackupInput {
    */
   createdById?: string | null;
 }
+
+/** A queued backup: the job that will execute it, and the row it will fill in. */
+export interface QueuedBackup {
+  /** `pending`, with its server-chosen `storageKey` already set. */
+  run: DatabaseBackupRun;
+  /** The `db.backup.run` row a worker will claim. */
+  job: Job;
+}
+
+/**
+ * How a dump ended, as a VALUE rather than as a thrown error.
+ *
+ * `executeRun` records every failure it anticipates on the run row and then
+ * returns one of these, because its two callers need opposite things from the
+ * same code: the detached `pre_restore` path must not reject (there is nobody
+ * left to tell), and the queued path MUST reject (the worker settles the job
+ * from that rejection). Returning the outcome lets each caller decide, rather
+ * than having the engine guess which of the two it is serving.
+ */
+export type BackupRunOutcome =
+  | { status: 'completed' }
+  | { status: 'failed'; error: Error };
 
 /**
  * What `cancel` actually managed to do.
@@ -399,6 +520,30 @@ function toError(value: unknown): Error {
   return value instanceof Error ? value : new Error(String(value));
 }
 
+/**
+ * The trigger and actor a `db.backup.run` job carries, DEFENSIVELY.
+ *
+ * `Job.payload` is opaque JSONB written by an earlier process — possibly an
+ * earlier BUILD of this application, possibly by hand — so it is parsed, not
+ * cast. The fallback is `manual` with no actor rather than a throw: this is
+ * only reached when a job has no run row at all (see `resolveRunForJob`), and
+ * refusing to take a backup because its provenance is unreadable would trade
+ * a missing audit field for a missing backup.
+ */
+function readBackupJobPayload(job: Job): StartBackupInput {
+  const payload = (job.payload ?? {}) as Partial<BackupJobPayload>;
+
+  const trigger: DatabaseBackupTrigger =
+    payload.trigger === 'scheduled' || payload.trigger === 'pre_restore'
+      ? payload.trigger
+      : 'manual';
+
+  return {
+    trigger,
+    createdById: typeof payload.createdById === 'string' ? payload.createdById : null,
+  };
+}
+
 @Injectable()
 export class DatabaseBackupRunnerService {
   private readonly logger = new Logger(DatabaseBackupRunnerService.name);
@@ -428,6 +573,12 @@ export class DatabaseBackupRunnerService {
     // failed backup is silent, which is the failure this event exists for.
     private readonly notifications: NotificationsService,
     private readonly config: ConfigService,
+    // #351 (epic #345). REQUIRED, like the two above it and for the same kind
+    // of reason: a runner that could be constructed without the queue is a
+    // runner a fork can wire so that `queueBackup` has nothing to enqueue
+    // into, and the failure would be "backups silently stop happening" — the
+    // one failure mode this subsystem must not have.
+    private readonly jobs: JobsService,
     @Optional() @Inject(DB_BACKUP_ENGINE) engine?: DatabaseBackupEngine,
     @Optional() @Inject(DB_BACKUP_TIMERS) timers?: BackupTimers
   ) {
@@ -451,8 +602,209 @@ export class DatabaseBackupRunnerService {
   }
 
   /**
-   * Takes a backup: claims the single active slot, then streams the dump into
-   * storage in the background.
+   * Queues a backup: writes the `jobs` row and its `pending` run row, and
+   * returns. A worker claims the job and `runQueuedBackup` takes the dump.
+   *
+   * THE NORMAL PATH — #283's `POST /api/admin/db-backup/runs` and #282's cron
+   * both come through here. Only the `pre_restore` dump still uses
+   * {@link startBackup}.
+   *
+   * ---------------------------------------------------------------------------
+   * ⚠ BOTH INSERTS ARE ONE TRANSACTION. THIS IS THE PART TO READ.
+   * ---------------------------------------------------------------------------
+   *
+   * The endpoint must keep answering with a real run id immediately (its 202
+   * shape and `GET /runs/{id}` polling are unchanged), so the run row is
+   * created at ENQUEUE time as `pending` and the handler flips it to `running`
+   * when a worker actually claims it. That is strictly more honest than the
+   * old behaviour, which reported `running` before anything ran. It also
+   * creates two rows that must agree, and there are exactly three ways for
+   * two rows written separately to disagree. All three are made
+   * UNREPRESENTABLE by putting both inserts in ONE COMMIT:
+   *
+   *   1. A CLAIMED JOB WITH NO RUN ROW. A worker can claim within
+   *      milliseconds of the enqueue. Insert the job first and there is a real
+   *      window in which the handler resolves its run and finds nothing.
+   *      Inside one transaction the job row is invisible to every other
+   *      session — the claim's `FOR UPDATE SKIP LOCKED` included — until the
+   *      same commit that publishes the run row. The window has no duration
+   *      because it has no state.
+   *   2. AN ORPHAN `pending` RUN ROW. Insert the run row first and a failed
+   *      enqueue (or a process death between the two statements) leaves a
+   *      `pending` row behind. That is not a cosmetic leak: the TIGHTENED
+   *      `database_backup_runs_active_uniq_idx` admits exactly ONE active row
+   *      across `pending` and `running` COMBINED, so a leaked row blocks every
+   *      future backup — manual and scheduled — until somebody deletes it by
+   *      hand. A rolled-back transaction leaves nothing at all.
+   *   3. A RUN ROW WHOSE `job_id` WAS FILLED IN AFTERWARDS. Insert-then-UPDATE
+   *      reintroduces (1) for the length of the gap. The `jobId` is written
+   *      BY THE INSERT, never by a second statement.
+   *
+   * REJECTED: two statements with compensating deletes ("insert the run,
+   * enqueue, delete the run if the enqueue throws"). The compensation is
+   * itself a write that can fail, and its failure mode is precisely (2) —
+   * the leak that blocks every future backup. A rollback the database
+   * performs cannot fail in that way.
+   *
+   * REJECTED: `JobsService.enqueue` inside the transaction. Its
+   * catch-the-P2002-and-re-read loop cannot run there at all — Postgres aborts
+   * a transaction at the first failed statement — which is why
+   * `enqueueWithin` exists and why the conflict is resolved out here, after
+   * the transaction has ended.
+   *
+   * ⚠ THE ORDER OF THE TWO INSERTS INSIDE THE TRANSACTION IS NOT LOAD-BEARING
+   * (that is the point of a transaction), but the job goes first anyway so
+   * that its id can be written onto the run row by the insert rather than by
+   * an update. See (3).
+   *
+   * @throws {DatabaseBackupAlreadyRunningError} when either guard refused —
+   * the queue's dedup index (a backup job is already in flight) or the run
+   * table's single-active index (a `pre_restore` dump, say) — carrying the id
+   * of the run that won where one can be identified.
+   * @throws {DatabaseBackupStorageProviderError} when the configured provider
+   * is not the active one. Raised BEFORE anything is written, so a
+   * misconfigured provider is a clean 400 at request time and not a job that
+   * fails an hour later.
+   */
+  async queueBackup(input: StartBackupInput): Promise<QueuedBackup> {
+    const policy = await this.settings.getDatabaseBackupPolicy();
+
+    // BEFORE the transaction, exactly as it was before the claim: there is
+    // nothing to record about a backup that was never allowed to start, and a
+    // `failed` row (or a failed job) per attempt would bury the real history
+    // under configuration noise.
+    this.assertStorageProviderUsable(policy.storageProvider);
+
+    const bucket = this.storage.getBucket();
+
+    for (let attempt = 1; attempt <= CLAIM_MAX_ATTEMPTS; attempt += 1) {
+      // Generated HERE, for the reason `claimRun` gives: the storage key
+      // embeds it. The timestamp the key is built from is the ENQUEUE time
+      // rather than the start time, which is only a naming detail — the uuid
+      // is what makes the key unique, and a key that named a start time would
+      // have to be rewritten when the worker claimed it.
+      const id = randomUUID();
+      const queuedAt = new Date();
+
+      try {
+        return await this.prisma.$transaction(async (tx) => {
+          const job = await this.jobs.enqueueWithin(tx, {
+            type: BACKUP_JOB_TYPE,
+            // `backfill`, reused rather than extended — the same choice the
+            // broadcast fan-out made. `JobReason` is a Prisma enum, so a
+            // `backup` member would be a migration plus web-side churn for a
+            // display string, and the thing it would say is already said
+            // precisely by `DatabaseBackupRun.trigger`
+            // (`manual`/`scheduled`/`pre_restore`).
+            reason: 'backfill',
+            // No subject, which is what makes the dedup key constant — see
+            // BACKUP_JOB_DEDUP_KEY. Dedup is deliberately left ON.
+            payload: {
+              trigger: input.trigger,
+              createdById: input.createdById ?? null,
+            } satisfies BackupJobPayload,
+          });
+
+          const run = await tx.databaseBackupRun.create({
+            data: {
+              ...this.buildRunData(input, { id, bucket, at: queuedAt }),
+              jobId: job.id,
+              // `pending`: nothing has started. `startedAt` and
+              // `lastHeartbeatAt` are deliberately left NULL — the sweep in
+              // `db-backup-schedule.task.ts` ages a pending row by `createdAt`
+              // precisely because a row that never started must not be able to
+              // claim it did.
+              status: 'pending',
+            },
+          });
+
+          return { run, job };
+        });
+      } catch (error) {
+        const winner = await this.resolveQueueConflict(error);
+
+        if (winner !== 'retry') throw winner;
+
+        // Whichever guard fired, the row that held the slot SETTLED between
+        // the failed insert and the lookup, so nothing is active any more and
+        // reporting "already running" would be false. Loop and insert again —
+        // with a fresh run id and key, because the old ones were never stored.
+        this.logger.debug(
+          `The backup slot was released between a conflicting enqueue and the lookup ` +
+            `(attempt ${attempt}/${CLAIM_MAX_ATTEMPTS}); retrying.`
+        );
+      }
+    }
+
+    // Every attempt collided and every lookup came back empty: something is
+    // churning backups faster than this loop can insert between them. An
+    // honest "not now" with no id beats a spin.
+    throw new DatabaseBackupAlreadyRunningError(null);
+  }
+
+  /**
+   * Classifies a failed {@link queueBackup} transaction.
+   *
+   * Returns the error to throw, or the literal `'retry'` when the conflict
+   * has already resolved itself and the caller should insert again.
+   *
+   * ⚠ IT RUNS AFTER THE TRANSACTION HAS ROLLED BACK, never inside it — see
+   * `JobsService.enqueueWithin` for why an aborted transaction can execute no
+   * further statement. Both discriminators are the EXISTING exported ones
+   * (`isActiveDedupConflict`, `isActiveRunConflict`), so anything neither
+   * positively recognises propagates untouched: a genuine constraint bug must
+   * stay loud rather than be reported as an ordinary busy signal.
+   */
+  private async resolveQueueConflict(error: unknown): Promise<Error | 'retry'> {
+    if (isActiveDedupConflict(error)) {
+      // The queue's guard fired: a `db.backup.run` job is already pending or
+      // running. Its run row was written in the SAME commit as the job, so if
+      // the job is there the run is there too — which is what lets a 409 carry
+      // a real run id rather than a bare "one is already running".
+      const active = await this.prisma.job.findFirst({
+        where: { dedupKey: BACKUP_JOB_DEDUP_KEY, status: { in: ['pending', 'running'] } },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true, backupRun: { select: { id: true } } },
+      });
+
+      if (active === null) return 'retry';
+
+      // ⚠ `?? null`, NOT a throw. The link can legitimately be absent: an
+      // administrator deleting the run row (#283's `DELETE /runs/{id}`) leaves
+      // the job, and `job.history.purge` deleting the job sets `job_id` back
+      // to NULL on the run. "A backup is already queued, and here is no id"
+      // is still a true and useful 409; inventing an error because the audit
+      // link is missing would turn a survivable state into a 500.
+      return new DatabaseBackupAlreadyRunningError(active.backupRun?.id ?? null);
+    }
+
+    if (isActiveRunConflict(error)) {
+      // The run table's own guard fired. The commonest cause is the ONE path
+      // that still creates a run outside the queue — the `pre_restore` dump —
+      // and the next commonest is a `pending` row whose job was deleted from
+      // under it. Either way the correct answer is the same 409 the manual
+      // path has always given.
+      const activeRunId = await this.findActiveRunId();
+
+      return activeRunId === null
+        ? 'retry'
+        : new DatabaseBackupAlreadyRunningError(activeRunId);
+    }
+
+    return toError(error);
+  }
+
+  /**
+   * Takes a backup WITHOUT a job: claims the single active slot as `running`,
+   * then streams the dump into storage in the background.
+   *
+   * ⚠ ONE CALLER REMAINS, AND IT IS NOT A LEGACY ONE. `DatabaseRestoreService`
+   * takes the `pre_restore` safety dump through here, deliberately outside the
+   * queue: it runs in the middle of a restore, and making it wait for a worker
+   * slot would make the safety net depend on `JOBS_WORKER_MODE`, on the queue
+   * being drained, and on this process still polling seconds from now — three
+   * things that are least trustworthy at exactly the moment a database is
+   * being replaced. Everything else must use {@link queueBackup}.
    *
    * @returns the freshly claimed run, ALREADY `running` and with its
    * server-chosen `storageKey` set. The dump has not finished — see property 1
@@ -488,6 +840,158 @@ export class DatabaseBackupRunnerService {
     });
 
     return run;
+  }
+
+  /**
+   * Takes the dump a `db.backup.run` job was queued for, AWAITED.
+   *
+   * THE JOB'S LIFETIME IS THE DUMP'S LIFETIME — this method returns when
+   * `pg_dump` has finished, the archive has been uploaded, and the stored
+   * object has been read back and verified. That is the whole point of #351:
+   * a handler that returned early would buy a dashboard row and nothing else
+   * (no lease, no slot accounting, no timeout, no possibility of node
+   * execution). `handlers/db-backup-run.handler.ts` calls exactly this and
+   * does nothing else.
+   *
+   * ---------------------------------------------------------------------------
+   * IT IS AUTHORITATIVE ABOUT THE RUN ROW, AND IT IS IDEMPOTENT
+   * ---------------------------------------------------------------------------
+   *
+   * `job_id` is `@unique`, so "the run for this job" is a single lookup that
+   * CANNOT return two rows — the resolution below is not a heuristic. What it
+   * finds decides what happens:
+   *
+   *   - `pending` (the ordinary case) → flipped to `running` with `startedAt`
+   *     and a seeded heartbeat. Only now has anything actually started, which
+   *     is why the row did not claim otherwise before.
+   *   - `running` → adopted with a warning. Unreachable while the profile says
+   *     `maxAttempts: 1` (the reaper's give-up phase fails such a job rather
+   *     than requeueing it), but a fork that raises that budget makes it
+   *     reachable, and stranding the row would be worse than re-dumping to a
+   *     key that is overwritten anyway.
+   *   - `completed` → returns without doing anything. The queue is
+   *     at-least-once; re-running a job whose work is already durable must be
+   *     a no-op, not a second dump.
+   *   - `failed` / `stale` → throws. Something already gave up on this run
+   *     (an operator, or the stale sweep), and it is no longer holding the
+   *     active slot — so re-dumping could run alongside a backup started since.
+   *   - NOTHING AT ALL → creates the row, from the job's payload. `queueBackup`
+   *     makes this unreachable for jobs it queued (both rows land in one
+   *     commit), so it covers the paths that are not `queueBackup`: a job
+   *     enqueued by hand, or a run row an administrator deleted while its job
+   *     was still queued. Failing the job there would be a worse answer than
+   *     taking the backup that was asked for.
+   *
+   * @throws whatever the dump failed with, AFTER `executeRun` has recorded it
+   * on the run row. The worker turns that into `Job.lastError` and — with
+   * `maxAttempts: 1` — a terminal `failed`, never a retry.
+   */
+  async runQueuedBackup(job: Job): Promise<void> {
+    // Read FRESH rather than carried in the payload: the job may have been
+    // queued hours ago (a busy worker, a paused queue), and the compression
+    // level, the stale window and the storage provider are all settings an
+    // administrator may have changed since. Same rule the payload comment
+    // states — carry identifiers, re-read state.
+    const policy = await this.settings.getDatabaseBackupPolicy();
+
+    // Re-asserted here as well as in `queueBackup`, and not redundantly: the
+    // provider can be reconfigured between the enqueue and the claim, and a
+    // dump written with the wrong provider is a backup nobody can find. It
+    // throws, which fails the job with a legible reason.
+    this.assertStorageProviderUsable(policy.storageProvider);
+
+    const run = await this.resolveRunForJob(job);
+
+    // Already `completed` — see the idempotency note above.
+    if (run === null) return;
+
+    const outcome = await this.executeRun(run, policy);
+
+    if (outcome.status === 'failed') {
+      // ⚠ RETHROWN, DELIBERATELY, EVEN THOUGH THE RUN ROW ALREADY SAYS
+      // `failed`. The two rows record different facts — the run says what the
+      // archive is, the job says what the executor did — and a job that
+      // reported `succeeded` for a dump that failed would be a row that LIES,
+      // which is strictly worse than the detached behaviour it replaced. It
+      // also makes `GET /api/admin/jobs` and insights tell the truth about
+      // backup failures, which is half of why this type exists.
+      throw outcome.error;
+    }
+  }
+
+  /**
+   * The run row this job owns, made ready to execute — or `null` when the work
+   * is already done. See {@link runQueuedBackup} for the full decision table.
+   */
+  private async resolveRunForJob(job: Job): Promise<DatabaseBackupRun | null> {
+    // ONE lookup on a UNIQUE column. Not a `findFirst` with an ordering, which
+    // would be a way of coping with duplicates the schema makes impossible.
+    const existing = await this.prisma.databaseBackupRun.findUnique({
+      where: { jobId: job.id },
+    });
+
+    const startedAt = new Date();
+
+    if (existing !== null) {
+      if (existing.status === 'completed') {
+        this.logger.log(
+          `Job ${job.id} (${BACKUP_JOB_TYPE}) is for backup run ${existing.id}, which has ` +
+            'already completed; nothing to do.'
+        );
+
+        return null;
+      }
+
+      if (existing.status !== 'pending' && existing.status !== 'running') {
+        throw new Error(
+          `Backup run ${existing.id} is already "${existing.status}", so job ${job.id} will ` +
+            'not re-take it: the run no longer holds the single active slot, and dumping now ' +
+            'could run alongside a backup started since it was abandoned.'
+        );
+      }
+
+      if (existing.status === 'running') {
+        this.logger.warn(
+          `Backup run ${existing.id} was already "running" when job ${job.id} claimed it; ` +
+            'its previous executor did not settle it. Re-taking the dump to the same key.'
+        );
+      }
+
+      return this.prisma.databaseBackupRun.update({
+        where: { id: existing.id },
+        data: {
+          status: 'running',
+          // The FIRST start is the one worth keeping — see the `running`
+          // branch above, which is the only way this is ever already set.
+          startedAt: existing.startedAt ?? startedAt,
+          // Seeded so the stale sweep has a baseline from the first moment:
+          // a `running` run whose heartbeat is NULL is indistinguishable from
+          // one that never started.
+          lastHeartbeatAt: startedAt,
+        },
+      });
+    }
+
+    // No row. Create one — the run id is generated here because the storage
+    // key embeds it, exactly as in `claimRun` and `queueBackup`.
+    const payload = readBackupJobPayload(job);
+
+    this.logger.warn(
+      `Job ${job.id} (${BACKUP_JOB_TYPE}) has no backup run row; creating one from its ` +
+        'payload. This is expected only for a job that was not queued by `queueBackup`.'
+    );
+
+    const id = randomUUID();
+
+    return this.prisma.databaseBackupRun.create({
+      data: {
+        ...this.buildRunData(payload, { id, bucket: this.storage.getBucket(), at: startedAt }),
+        jobId: job.id,
+        status: 'running',
+        startedAt,
+        lastHeartbeatAt: startedAt,
+      },
+    });
   }
 
   /**
@@ -540,30 +1044,20 @@ export class DatabaseBackupRunnerService {
       const id = randomUUID();
       const startedAt = new Date();
 
-      // ⚠ `Unchecked` INPUT, DELIBERATELY. `createdById` is a real relation
-      // (`createdBy`), and Prisma's *Checked* create input stops accepting the
-      // raw scalar the moment a scalar FK is promoted to one — it wants
-      // `createdBy: { connect: { id } }` instead, which cannot express "and
-      // also null". The unchecked variant takes the column as written, which is
-      // what a nullable audit FK wants.
       const data: Prisma.DatabaseBackupRunUncheckedCreateInput = {
-        id,
-        // Claimed directly as `running`, never as `pending`: the claim and the
-        // start are one act, so a separate `pending` phase would be a state
-        // nothing ever observes and a second write to leave behind on a crash.
-        // See the schema's note on exactly what the index admits.
+        ...this.buildRunData(input, { id, bucket, at: startedAt }),
+        // Claimed directly as `running`, never as `pending`: on THIS path
+        // (the `pre_restore` dump) the claim and the start are one act, so a
+        // separate `pending` phase would be a state nothing ever observes and
+        // a second write to leave behind on a crash. `queueBackup` is the path
+        // that legitimately writes `pending`, because there the claim and the
+        // start are genuinely different moments — a worker sits between them.
         status: 'running',
-        trigger: input.trigger,
         startedAt,
         // Seeded at the claim so the stale sweep has a baseline from the first
         // moment: a run whose heartbeat is NULL is indistinguishable from one
         // that never started.
         lastHeartbeatAt: startedAt,
-        storageProvider: ACTIVE_STORAGE_PROVIDER_ID,
-        storageKey: buildBackupStorageKey(startedAt, id),
-        bucket,
-        format: BACKUP_ARCHIVE_FORMAT,
-        createdById: input.createdById ?? null,
       };
 
       try {
@@ -599,6 +1093,39 @@ export class DatabaseBackupRunnerService {
     throw new DatabaseBackupAlreadyRunningError(null);
   }
 
+  /**
+   * The columns every new run row carries, whichever path creates it.
+   *
+   * ONE BUILDER, THREE CALLERS (`claimRun`, `queueBackup`,
+   * `resolveRunForJob`), and the reason is the storage triple: provider, key
+   * and bucket are chosen by the SERVER and must be chosen the same way every
+   * time, or two paths produce archives that a restore looks for in different
+   * places. What it deliberately does NOT set is the lifecycle trio —
+   * `status`, `startedAt`, `lastHeartbeatAt` — because that is precisely where
+   * the three callers legitimately differ.
+   *
+   * ⚠ `Unchecked` INPUT, DELIBERATELY. `createdById` is a real relation
+   * (`createdBy`), and Prisma's *Checked* create input stops accepting the raw
+   * scalar the moment a scalar FK is promoted to one — it wants
+   * `createdBy: { connect: { id } }` instead, which cannot express "and also
+   * null". The unchecked variant takes the column as written, which is what a
+   * nullable audit FK wants.
+   */
+  private buildRunData(
+    input: StartBackupInput,
+    args: { id: string; bucket: string; at: Date }
+  ): Prisma.DatabaseBackupRunUncheckedCreateInput {
+    return {
+      id: args.id,
+      trigger: input.trigger,
+      storageProvider: ACTIVE_STORAGE_PROVIDER_ID,
+      storageKey: buildBackupStorageKey(args.at, args.id),
+      bucket: args.bucket,
+      format: BACKUP_ARCHIVE_FORMAT,
+      createdById: input.createdById ?? null,
+    };
+  }
+
   /** The id of whichever run currently occupies the active slot, or `null`. */
   private async findActiveRunId(): Promise<string | null> {
     const row = await this.prisma.databaseBackupRun.findFirst({
@@ -612,12 +1139,19 @@ export class DatabaseBackupRunnerService {
 
   /**
    * The dump itself. NEVER REJECTS for a failure it anticipates — it records
-   * the failure on the run instead, because there is no caller left to tell.
+   * the failure on the run and REPORTS it as a {@link BackupRunOutcome},
+   * because one of its two callers has nobody left to tell and the other must
+   * fail a job.
+   *
+   * ⚠ THE RETURN VALUE IS NOT A SECOND RECORD OF THE FAILURE. The run row is
+   * written first and is the durable fact; this is how the caller learns of
+   * it. `startBackup` discards it (detached, nobody to tell);
+   * `runQueuedBackup` rethrows `error` so the worker settles the job.
    */
   private async executeRun(
     run: DatabaseBackupRun,
     policy: SystemDatabaseBackupValue
-  ): Promise<void> {
+  ): Promise<BackupRunOutcome> {
     const { id: runId, storageKey } = run;
     const handle: ActiveRunHandle = { cancelled: false, abort: () => undefined };
     this.active.set(runId, handle);
@@ -815,10 +1349,21 @@ export class DatabaseBackupRunnerService {
             `itself is fine; storage was not reclaimed): ${toError(error).message}`
         );
       }
+
+      return { status: 'completed' };
     } catch (error) {
       // ORDER MATTERS. Delete first — see property 5 in the header.
+      const failure = toError(error);
+
       await this.deletePartialObject(storageKey);
-      await this.markFailed(runId, toError(error), progress.bytes, audit);
+      await this.markFailed(runId, failure, progress.bytes, audit);
+
+      // ⚠ RETURNED, NOT RETHROWN, and the `finally` below still runs either
+      // way. Rethrowing here would make the detached `pre_restore` path
+      // reject, which is the unhandled-rejection hazard property 1 spends a
+      // paragraph on; `runQueuedBackup` is where this becomes a throw, and it
+      // is a throw with a caller.
+      return { status: 'failed', error: failure };
     } finally {
       // ALWAYS. A heartbeat that outlives its run would keep writing
       // `lastHeartbeatAt` to a settled row forever, which is precisely the

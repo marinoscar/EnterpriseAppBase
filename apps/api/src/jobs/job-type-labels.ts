@@ -69,6 +69,12 @@ export const JOB_TYPE_LABELS: Readonly<Record<string, string>> = {
   // way and will resume from its cursor.
   'admin.broadcast.start': 'Broadcast start',
   'admin.broadcast.chunk': 'Broadcast delivery',
+  // The database dump itself (`db-backup/handlers/db-backup-run.handler.ts`,
+  // #351, epic #345) — a job whose lifetime IS a `pg_dump`'s lifetime, and
+  // the one type in this table an operator is most likely to be reading the
+  // dashboard because of. "Database backup" and not "Database backup run":
+  // the row is the run, so the noun is already carried by the table.
+  'db.backup.run': 'Database backup',
 };
 
 /**

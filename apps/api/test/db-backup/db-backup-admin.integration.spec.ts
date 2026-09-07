@@ -83,6 +83,8 @@ import {
 } from '../helpers/auth-mock.helper';
 
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
+/** #351: the `db.backup.run` job the enqueue creates alongside the run row. */
+const JOB_ID = '11111111-1111-4111-8111-1111111111bb';
 const OTHER_RUN_ID = '33333333-3333-4333-8333-333333333333';
 const STORAGE_KEY = 'database-backups/app/2026/09/app-20260907T020000Z-run.dump';
 
@@ -171,7 +173,10 @@ describe('Admin database-backup API (Integration)', () => {
 
   const runner = {
     assertStorageProviderUsable: jest.fn(),
-    startBackup: jest.fn(),
+    // #351: the endpoint ENQUEUES now. The double answers with the pair
+    // `queueBackup` returns — a `pending` run row and the `db.backup.run` job
+    // a worker will claim.
+    queueBackup: jest.fn(),
     cancel: jest.fn(),
   };
 
@@ -216,8 +221,11 @@ describe('Admin database-backup API (Integration)', () => {
     // pure helper it forwards to has its own tests in
     // `src/db-backup/db-backup-storage.spec.ts`.
     runner.assertStorageProviderUsable.mockImplementation(() => undefined);
-    runner.startBackup.mockReset();
-    runner.startBackup.mockResolvedValue(backupRow({ status: 'running' }));
+    runner.queueBackup.mockReset();
+    runner.queueBackup.mockResolvedValue({
+      run: backupRow({ status: 'pending' }),
+      job: { id: JOB_ID },
+    });
     runner.cancel.mockReset();
     runner.cancel.mockReturnValue({ outcome: 'signalled', runId: RUN_ID });
 
@@ -267,7 +275,7 @@ describe('Admin database-backup API (Integration)', () => {
         .send({})
         .expect(202);
 
-      expect(runner.startBackup).toHaveBeenCalledWith({
+      expect(runner.queueBackup).toHaveBeenCalledWith({
         trigger: 'manual',
         createdById: admin.id,
       });
@@ -372,11 +380,11 @@ describe('Admin database-backup API (Integration)', () => {
       // The single-active-run slot, as the partial unique index enforces it:
       // the first claim wins and every later one is refused BY NAME.
       let claimed: string | null = null;
-      runner.startBackup.mockImplementation(async () => {
+      runner.queueBackup.mockImplementation(async () => {
         if (claimed !== null) throw new DatabaseBackupAlreadyRunningError(claimed);
         claimed = RUN_ID;
 
-        return backupRow({ status: 'running' });
+        return { run: backupRow({ status: 'pending' }), job: { id: JOB_ID } };
       });
 
       const first = await request(server())
@@ -388,7 +396,13 @@ describe('Admin database-backup API (Integration)', () => {
       // A REAL id, not a job ticket or a boolean: the caller has something to
       // poll the moment the response lands.
       expect(first.body.data.id).toBe(RUN_ID);
-      expect(first.body.data.status).toBe('running');
+      // ⚠ `pending`, NOT `running`, since #351 — and the change is a
+      // correction rather than a regression. The row is created at ENQUEUE
+      // time and the handler writes `running` when a worker actually claims
+      // the job, so the endpoint no longer asserts that a `pg_dump` exists
+      // before one does. `pending` was always in the DTO's status enum and in
+      // `ACTIVE_BACKUP_STATUSES`, so no client contract moved.
+      expect(first.body.data.status).toBe('pending');
 
       const second = await request(server())
         .post('/api/admin/db-backup/runs')
@@ -425,7 +439,7 @@ describe('Admin database-backup API (Integration)', () => {
       const { DatabaseBackupStorageProviderError } = await import(
         '../../src/db-backup/db-backup.errors'
       );
-      runner.startBackup.mockRejectedValue(
+      runner.queueBackup.mockRejectedValue(
         new DatabaseBackupStorageProviderError('gcs', 's3')
       );
 
