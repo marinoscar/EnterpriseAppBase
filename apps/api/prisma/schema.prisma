@@ -29,20 +29,21 @@ model User {
   identities             UserIdentity[]
   userRoles              UserRole[]
   userSettings           UserSettings?
-  auditEvents            AuditEvent[]           @relation("ActorEvents")
-  settingsUpdates        SystemSettings[]       @relation("SettingsUpdater")
-  refreshTokens          RefreshToken[]         @relation("UserRefreshTokens")
-  allowlistEntriesAdded  AllowedEmail[]         @relation("AllowlistAddedBy")
-  allowlistEntry         AllowedEmail?          @relation("AllowlistClaimedBy")
-  deviceCodes            DeviceCode[]           @relation("UserDeviceCodes")
-  storageObjects         StorageObject[]        @relation("UserStorageObjects")
-  personalAccessTokens   PersonalAccessToken[]  @relation("UserPersonalAccessTokens")
-  credentialUpdates      Credential[]           @relation("CredentialUpdatedBy")
-  notificationDeliveries NotificationDelivery[] @relation("UserNotificationDeliveries")
-  notifications          Notification[]         @relation("UserNotifications")
-  pushSubscriptions      PushSubscription[]     @relation("UserPushSubscriptions")
-  workerNodes            WorkerNode[]           @relation("UserWorkerNodes")
-  nodeCredentials        NodeCredential[]       @relation("UserNodeCredentials")
+  auditEvents            AuditEvent[]            @relation("ActorEvents")
+  settingsUpdates        SystemSettings[]        @relation("SettingsUpdater")
+  refreshTokens          RefreshToken[]          @relation("UserRefreshTokens")
+  allowlistEntriesAdded  AllowedEmail[]          @relation("AllowlistAddedBy")
+  allowlistEntry         AllowedEmail?           @relation("AllowlistClaimedBy")
+  deviceCodes            DeviceCode[]            @relation("UserDeviceCodes")
+  storageObjects         StorageObject[]         @relation("UserStorageObjects")
+  personalAccessTokens   PersonalAccessToken[]   @relation("UserPersonalAccessTokens")
+  credentialUpdates      Credential[]            @relation("CredentialUpdatedBy")
+  notificationDeliveries NotificationDelivery[]  @relation("UserNotificationDeliveries")
+  notifications          Notification[]          @relation("UserNotifications")
+  pushSubscriptions      PushSubscription[]      @relation("UserPushSubscriptions")
+  workerNodes            WorkerNode[]            @relation("UserWorkerNodes")
+  nodeCredentials        NodeCredential[]        @relation("UserNodeCredentials")
+  broadcastsCreated      NotificationBroadcast[] @relation("BroadcastAuthor")
 
   @@map("users")
 }
@@ -723,6 +724,257 @@ model PushSubscription {
   // already covers lookup/upsert by endpoint).
   @@index([userId])
   @@map("push_subscriptions")
+}
+
+// =============================================================================
+// Notification Broadcasts (issue #320, epic #319)
+// =============================================================================
+//
+// One row per admin-composed message announced to every user in the
+// deployment — "we're doing maintenance Saturday", "new feature shipped" —
+// scheduled, sent (or canceled), and never re-editable once it has started.
+// This issue is schema only: the compose/schedule/cancel endpoints, the job
+// handler that actually fans a broadcast out over `notify()`, and the admin
+// UI all arrive in later issues of #319. What is here is the row a later
+// issue's job reads from and writes progress back to.
+//
+// -----------------------------------------------------------------------------
+// WHY A TABLE AT ALL — REJECTED: living entirely inside `Job.payload`
+// -----------------------------------------------------------------------------
+// The obvious shortcut is to skip this table and let a broadcast be nothing
+// but the `payload` JSON of a `'broadcast.send'` job (#255 already gives
+// every job a JSONB payload for free). Two things rule that out:
+//
+//   - Job history is pruned INDEPENDENTLY of this table's business value.
+//     `job-history-purge` (#263) deletes old `jobs` rows on a retention
+//     schedule that exists to keep the QUEUE small, not to preserve what an
+//     admin once announced. A broadcast composed ninety days ago is still
+//     something "what did we tell our users, and when" needs to answer long
+//     after the job that sent it has aged out — living only in `payload`
+//     means that answer silently disappears on a retention sweep nobody
+//     doing the asking even knows runs.
+//   - The admin broadcast list page (a later issue in #319) would be
+//     QUERYING THE QUEUE FOR BUSINESS DATA — filtering and paging `jobs` by a
+//     `type` string and reading business fields back out of an opaque JSONB
+//     blob never meant to be a list-page's row shape. `jobs` is
+//     infrastructure for background work in general; a broadcast is a
+//     first-class thing the product has, with its own status, its own
+//     progress counters, and its own list page. It gets its own table for the
+//     same reason `notifications` (#127) is not "SSE events kept in a JSONB
+//     column somewhere" — the durable record IS the feature, not a
+//     side-effect of how the delivery mechanism happens to be implemented.
+//
+// A `'broadcast.send'` job still exists and still references one of these
+// rows (by id, in its `payload`) to actually run the fan-out — this table is
+// not a replacement for the queue, only for using the queue's own history as
+// the system of record.
+//
+// -----------------------------------------------------------------------------
+// channels — String[], not a Prisma enum
+// -----------------------------------------------------------------------------
+// Mirrors `NotificationDelivery.channel`'s deliberate plain-string choice
+// (see that column's own block comment above), one level up: a broadcast can
+// target more than one channel at once, so this is `channels String[]`
+// rather than a single string, but the "why not an enum" reasoning is
+// identical. `NOTIFICATION_CHANNELS` (`notification-events.ts`) is a
+// code-owned, growing array specifically so adding `'push'`-style channels
+// later costs one edit to that array. A Postgres enum on this column would
+// reintroduce exactly the migration that array exists to avoid, and would
+// leave the set of valid channels living in two places that could disagree.
+//
+// -----------------------------------------------------------------------------
+// title / body — composed and frozen at write time, not templated at read
+// time
+// -----------------------------------------------------------------------------
+// Same contract as `Notification.title`/`.body` (#127): what an admin typed
+// (or the compose form rendered from it) is a fact about what was announced,
+// stored as that fact, not as a template reference re-rendered later. The
+// alternative — store a template key plus a data blob and render in the
+// list page — means editing copy elsewhere in the app silently rewrites what
+// this broadcast is remembered as having said, and a broadcast survives any
+// future rename or removal of whatever generated its text.
+//
+// -----------------------------------------------------------------------------
+// status — `NotificationBroadcastStatus`, matching `NotificationDeliveryStatus`'s
+// naming, and carrying one member NOTHING IN THIS EPIC CAN REACH YET
+// -----------------------------------------------------------------------------
+// The enum is prefixed `NotificationBroadcast…` rather than plain
+// `BroadcastStatus` to match the existing `NotificationDeliveryStatus`
+// naming convention on the sibling tables in this section, rather than
+// inventing a shorter name unique to this model.
+//
+// `draft` IS NOT REACHABLE BY ANY ROUTE #319 BUILDS. No compose endpoint in
+// this epic writes a row with that status, and no later issue's handler
+// reads one. It is here anyway, on purpose, because adding a value to a
+// Postgres enum type is a migration, and `ALTER TYPE ... ADD VALUE` cannot
+// run inside the same transaction Prisma wraps a migration in (Postgres
+// forbids using a freshly added enum value in the transaction that added
+// it). A future "save and finish composing later" feature is a one-line
+// product ask that would otherwise cost a migration on a table with live
+// data; paying for the enum slot now, while it is free, buys that escape
+// hatch later for nothing. DO NOT DELETE `draft` AS "unused" — it is
+// deliberately dead code, not leftover code.
+//
+// -----------------------------------------------------------------------------
+// cursorUserId / audienceCutoff — the resume point AND the frozen audience
+// for a chunked, cursor-resumable fan-out
+// -----------------------------------------------------------------------------
+// A broadcast fans out to every user in the deployment, which can be far
+// more than one job execution should hold open in a single transaction or a
+// single lease window. #323's handler processes users in chunks and, after
+// each chunk commits, writes that chunk's last id to `cursorUserId` so a
+// retried or resumed run picks up exactly where the previous attempt left
+// off instead of restarting from user zero (or, worse, re-sending to
+// everyone already done).
+//
+// `audienceCutoff` IS THE MOST IMPORTANT FIELD ON THIS MODEL, because a
+// cursor alone does not define a stable audience to page through — it only
+// defines a position. Stamped ONCE, when the fan-out starts (`status` moves
+// to `sending`), it is the timestamp every chunk's query filters
+// `users.createdAt` against (`createdAt <= audienceCutoff`), combined with
+// `WHERE id > cursorUserId ORDER BY id ASC` for the page itself. That
+// combination buys two things at once, with no new index on `users`:
+//
+//   - A FROZEN AUDIENCE. Without a cutoff, a fan-out that takes long enough
+//     for new signups to land mid-run would keep discovering new rows to
+//     page through — the query keeps changing under it. A broadcast could
+//     then fail to terminate under sustained signups, or (worse) a user who
+//     signed up during the run could receive it depending on exactly when
+//     their row was inserted relative to the currently-processing chunk.
+//     Freezing the boundary at start time makes the set of eligible users
+//     fixed the moment sending begins.
+//   - A REPLAYABLE "WHO GOT THIS" QUERY. `users.id ASC` is the only
+//     ordering that is both STABLE and TOTAL — the primary key never
+//     changes for a row and no two rows share a value — so re-running
+//     `WHERE createdAt <= audienceCutoff ORDER BY id ASC` after the fact
+//     reproduces the exact same page sequence the fan-out actually walked,
+//     which `cursorUserId` alone (paging on a column with no recorded
+//     boundary) cannot promise once the run has finished. `createdAt` is
+//     deliberately NOT used as the paging column for this same reason in
+//     reverse: two users can share a timestamp (a bulk import, an unlucky
+//     race), and a page boundary drawn on a non-unique column can silently
+//     skip or repeat a user at that boundary.
+//
+// This defines two windows precisely, and both are intentional, not edge
+// cases to patch later:
+//   - A user created between the broadcast's `createdAt` (composed/
+//     scheduled) and `startedAt` (fan-out begins) IS INCLUDED — the rule
+//     this model implements is "everyone who exists once sending starts",
+//     not "everyone who existed when an admin clicked compose".
+//   - A user created between `startedAt` and the run's last chunk is
+//     EXCLUDED — they signed up after the audience was frozen, and by
+//     definition are not behind the cursor a resumed run would recheck.
+//
+// -----------------------------------------------------------------------------
+// createdById — onDelete: SetNull (and the one-line cost of adding this FK)
+// -----------------------------------------------------------------------------
+// Same reasoning as `AuditEvent.actorUserId` (and `NotificationDelivery
+// .user`, and `Credential.updatedByUser`): this column is an audit trail,
+// not a live reference. Deleting the admin who composed a broadcast must not
+// delete the record of what they announced to every user in the deployment
+// — if anything, that is exactly the record an incident review is most
+// likely to need after the admin account in question no longer exists.
+// Nothing about the broadcast's own meaning depends on the admin row still
+// existing, so the FK is nulled, never cascaded. Worth naming plainly: adding
+// a foreign key to `users` takes a brief `ACCESS SHARE`-class lock on that
+// table while the constraint is validated. At this schema's scale that is
+// not something an operator needs to plan a maintenance window around, but
+// it is a real, if trivial, cost of this migration and not a free action.
+//
+// -----------------------------------------------------------------------------
+// Indexes — exactly the two queries this table is known to serve
+// -----------------------------------------------------------------------------
+//   - [status, scheduledFor]: "WHAT IS PENDING" — the scheduler's own query,
+//     equality on `status = 'scheduled'` ordered/filtered by `scheduledFor`,
+//     for finding due broadcasts to start and upcoming ones to display.
+//   - [createdAt desc]: the admin list page's default order, "most recently
+//     composed first" — same reasoning as `Job`'s and `Notification`'s own
+//     `createdAt(sort: Desc)` indexes, for the same reason: a plain ascending
+//     index makes Postgres walk it backwards for the only page anyone loads.
+//
+// -----------------------------------------------------------------------------
+// REJECTED: a `notification_broadcast_recipients` join table
+// -----------------------------------------------------------------------------
+// The exact-tracking alternative — one row per (broadcast, user) pair,
+// recording per-recipient delivery outcome the way `notification_deliveries`
+// does per (event, user) — was considered and rejected for this issue.  It is
+// UNBOUNDED GROWTH keyed to the size of the user base on every single
+// broadcast sent (a deployment with 50,000 users sending one broadcast a
+// week is 2.6 million new rows a year for that feature alone), for a
+// marginal gain over what `cursorUserId`/`audienceCutoff` plus the two
+// counters below already give: the queue's own at-least-once contract (see
+// `JobHandler`'s own block comment) already bounds a replay to AT MOST ONE
+// CHUNK — the fan-out resumes from the last committed cursor, so
+// re-processing is inherently limited to users near the boundary, not the
+// whole broadcast. `recipientsTargeted`/`recipientsDispatched` answer "how
+// many were meant to get this, how many did we attempt" at the aggregate
+// level a broadcast's own admin view actually needs; per-recipient
+// per-channel success/failure already lives in `notification_deliveries` —
+// this table must not become a second, weaker copy of that record — and
+// per-recipient READ-RECEIPT tracking is a different, much heavier feature
+// that nothing in #319 asks for.
+// =============================================================================
+
+model NotificationBroadcast {
+  id       String   @id @default(uuid()) @db.Uuid
+  title    String
+  body     String   @db.Text
+  link     String?
+  ctaLabel String?  @map("cta_label")
+  eventKey String   @map("event_key")
+  channels String[]
+
+  status NotificationBroadcastStatus @default(scheduled)
+
+  scheduledFor DateTime? @map("scheduled_for") @db.Timestamptz
+  startedAt    DateTime? @map("started_at") @db.Timestamptz
+  finishedAt   DateTime? @map("finished_at") @db.Timestamptz
+  canceledAt   DateTime? @map("canceled_at") @db.Timestamptz
+
+  // The frozen audience boundary and the paging cursor into it — see the
+  // block comment above for the full mechanism; the two are read together.
+  audienceCutoff DateTime? @map("audience_cutoff") @db.Timestamptz
+  cursorUserId   String?   @map("cursor_user_id") @db.Uuid
+
+  // A snapshot, not a live count: how many users matched `audienceCutoff`
+  // the moment the fan-out started. Nullable because it does not exist
+  // until sending begins (a `scheduled`/`draft` broadcast has no audience
+  // yet). It can legitimately end up HIGHER than `recipientsDispatched` if
+  // users are deactivated mid-flight and the handler skips them — this
+  // column means "targeted at send time", never "should have received it".
+  recipientsTargeted Int? @map("recipients_targeted")
+
+  // How many recipients the fan-out has ATTEMPTED so far — incremented per
+  // dispatch attempt, not per success. Per-channel success/failure is
+  // already recorded, per attempt, in `notification_deliveries`; this
+  // column exists only so the admin list/detail view has a cheap aggregate
+  // progress number without joining or scanning that table, not as a
+  // second, weaker copy of what it already tracks.
+  recipientsDispatched Int @default(0) @map("recipients_dispatched")
+
+  lastError String? @map("last_error") @db.Text
+
+  createdById String?  @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  createdBy User? @relation("BroadcastAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([status, scheduledFor])
+  @@index([createdAt(sort: Desc)])
+  @@map("notification_broadcasts")
+}
+
+enum NotificationBroadcastStatus {
+  // Not reachable by any route in #319 — see the block comment above for why
+  // this dead value exists on purpose. Do not remove it as unused.
+  draft
+  scheduled
+  sending
+  sent
+  canceled
+  failed
 }
 
 // =============================================================================
