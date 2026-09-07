@@ -3,8 +3,8 @@
 > Epic #254, Phase 6 (#280 the `pg_*` process wrappers, the client/server
 > version guard and the schedule translation; #281 the `DatabaseBackupRun`
 > model, the single-active-run index, the streaming `pg_dump` engine and this
-> document; **#282** the scheduler, the retention rules and the staleness
-> sweep).
+> document; #282 the scheduler, the retention rules and the staleness sweep;
+> **#283** the admin API).
 > Implemented in
 > `apps/api/prisma/schema.prisma` (the `DatabaseBackupRun` model and its two
 > enums),
@@ -17,22 +17,27 @@
 > `apps/api/src/db-backup/db-backup.errors.ts`,
 > `apps/api/src/db-backup/db-backup-runner.service.ts`,
 > `apps/api/src/db-backup/db-backup-retention.service.ts`,
-> `apps/api/src/db-backup/tasks/db-backup-schedule.task.ts` and
-> `apps/api/src/db-backup/db-backup.module.ts`.
+> `apps/api/src/db-backup/tasks/db-backup-schedule.task.ts`,
+> `apps/api/src/db-backup/db-backup.module.ts`,
+> `apps/api/src/db-backup/db-backup.controller.ts`,
+> `apps/api/src/db-backup/db-backup-admin.service.ts` and
+> `apps/api/src/db-backup/dto/`.
 >
 > **On what is merged today.** §1–§3 describe the table and the guard that
 > makes "one backup at a time" true. §4–§8 describe the engine: the claim, the
 > streaming contract, verification, the heartbeat, failure ordering and
 > cancellation. §9 describes the storage-provider constraint. §10–§12 describe
 > the caller #282 added: the scheduler and its boundary rule, retention's two
-> clocks, and the staleness sweep. §13 lists the rejected alternatives, §14 the
-> verification.
+> clocks, and the staleness sweep. §13 describes the admin API #283 added.
+> §14 lists the rejected alternatives, §15 the verification.
 >
-> **What is still missing is the admin API.** #283 adds the endpoints that let
-> an administrator see the run list, take a backup by hand and cancel one;
-> #285 adds restore. Backups themselves happen from #282 onward: with
-> `databaseBackup.enabled` turned on, a deployment takes and prunes them with
-> no human in the loop.
+> **Restore is what is still missing.** #285 adds it: the scratch-database
+> replay, the swap, and the `restore*` columns already declared on the model
+> (§1) and deliberately left unpublished by the admin API's run DTO (§13).
+> Everything else is in place — with `databaseBackup.enabled` turned on, a
+> deployment takes and prunes backups with no human in the loop (#282 onward),
+> and an administrator can inspect, trigger, cancel, download and delete them
+> by hand (#283, §13).
 
 ## Why this is not a queue job
 
@@ -602,7 +607,258 @@ already unwell, unattended, at whatever hour the first attempt died. **The
 retry for a backup is the next scheduled run** — the same answer this document
 gives for why a backup is not a queue job.
 
-## 13. Rejected alternatives
+## 13. The admin API
+
+Eight routes, one controller (`db-backup.controller.ts`), one service
+(`db-backup-admin.service.ts`), mounted at `admin/db-backup`. The controller
+does nothing but bind, document and authorize; every decision about what a
+request *means* lives in the service, and every decision about what a backup
+*is* stays in the runner (§4–§9) and the scheduler/retention/sweep (§10–§12).
+Deliberately, this layer reimplements none of those: `POST runs` calls
+`DatabaseBackupRunnerService.startBackup` and nothing else, `nextRunAt` is the
+same `nextFireAt` the scheduler projects with, and `PUT config` writes through
+`SystemSettingsService.patchSettings` — a second copy of any of the three
+would give the API and the engine two opinions about one question.
+
+### 13.1 Two permissions, split on read versus write — and a third withheld
+
+`db_backup:read` gates the config read, the run list, the single-run get and
+the download; `db_backup:write` gates the config write, the manual trigger,
+cancel and delete. Both are additionally gated on the Admin role, matching
+`job-admin.controller.ts` and `nodes-admin.controller.ts`: the role admits,
+the permission is what the guard checks.
+
+`db_backup:restore` — seeded in `prisma/seed-data.ts` — appears nowhere in
+this controller, and that is deliberate rather than an oversight. It is
+Phase 7's, gating #285's restore, which renames the live database and
+restarts the process. It is kept separate from `db_backup:write` precisely so
+it *can* be withheld: an administrator trusted to schedule and take backups is
+not automatically trusted to overwrite the running database with one. Folding
+restore under `write` would spend the one permission whose entire purpose is
+to be granted on its own.
+
+The download sits on the *read* side despite being the most powerful thing on
+the controller — the URL it returns is a credential-free capability over a
+complete copy of the database. It is still a read (it changes nothing), and
+`db_backup:read` is seeded Admin-only, which is what makes that acceptable.
+
+### 13.2 `nextRunAt` is computed, and never written
+
+`GET config` publishes a `nextRunAt` that is not a column and is not derived
+from one — it is `nextFireAt` (§10, `schedule.util.ts`) run fresh on every
+read, the same pure function the scheduler itself uses to decide what is due.
+The reason is the same one that motivates most of this document: a bad
+schedule should fail at the moment someone can still do something about it,
+not in a cron tick nobody is watching. Publishing the actual next-fire instant
+lets an administrator confirm a schedule means what they think it means
+immediately, instead of waiting a day (or a month, for a monthly schedule) to
+find out it fires at the wrong hour.
+
+It is a bounded day-by-day walk over **civil dates** in the configured zone,
+converting each candidate to UTC independently — the same reason §10.4 gives
+for why the scheduler itself contains no timezone arithmetic: "the same local
+time tomorrow" is not a fixed number of milliseconds across a DST boundary, it
+is 23 or 25 hours, and a projection that added `86_400_000`ms would drift by
+an hour twice a year and stay drifted.
+
+It is `null` in two different situations, and a client should say "not
+scheduled" for both rather than guessing which: `enabled` is `false`, or the
+stored `timezone` is one this runtime cannot resolve. The second case is the
+one worth dwelling on. `PUT config` refuses an unresolvable timezone at write
+time (§13.4), so a stored value that fails to project can only predate that
+check — a seed, a restored settings blob, a hand-edited row. A naive read path
+would 500 on it, and the 500 would land on exactly the screen an administrator
+needs in order to *fix* the timezone. So the read path degrades: a projection
+failure becomes `null` plus a logged warning, never an exception, precisely so
+the repair tool stays reachable. The write path keeps the throw — see §13.4 —
+because refusing a bad value at save time is what makes the read path's
+graceful `null` a rare case instead of the common one.
+
+### 13.3 `PUT config` delegates to `SystemSettingsService.patchSettings`
+
+There is exactly one writer of the `system_settings` row in this application,
+and this route is not a second one. `patchSettings` owns the merge, the
+unknown-key preservation, and the row's version counter; a Prisma update
+issued from here instead would be a second writer racing that owner over the
+same JSONB column, with no way for either to know about the other's unmodeled
+keys. `MaintenanceModeService.setMaintenance` makes the identical argument for
+the identical reason.
+
+The response is not assembled from the patch that was just applied — it is
+produced by calling `getConfig()` again, a **re-read**. `patchSettings` merges
+and may normalise, so the stored row is the thing every other reader will see;
+publishing this service's own idea of the merge would be a second projection
+of the same question. Going back through `getConfig` also means the write's
+response and a subsequent read's response are the *same* object by
+construction, so a client can apply one to state it holds for the other
+without wondering whether the two agree.
+
+### 13.4 The timezone check ignores `enabled`, on purpose
+
+`updateConfig` validates the timezone by *performing* the real projection —
+`nextFireAt` against the patched policy — and discarding the result; it is
+called for the throw. Validating through the real seam rather than against a
+hand-kept list of IANA names means the runtime's own timezone data is the
+authority on what it can schedule against, and a timezone that saves is by
+construction a timezone that schedules.
+
+The check runs **whether or not `enabled` is true**, and this is not the
+obvious choice — `computeNextRunAt` (the read path, §13.2) short-circuits to
+`null` for a disabled schedule, and an implementation that reused that
+short-circuit for validation would only ever check a timezone while backups
+were already on. That is backwards for the ordinary order of events: an
+administrator configures the schedule — hour, frequency, timezone — *before*
+switching it on, often on the same screen where they are still deciding
+whether to enable it at all. A validator gated on `enabled` would accept a bad
+zone during exactly that step, save it cleanly, and the failure would surface
+weeks later, the first night someone flips the switch — separated from its
+cause by however long that took. This was caught by a test during
+implementation, not by inspection (`refuses an unknown timezone EVEN WHILE
+BACKUPS ARE DISABLED`, `db-backup-admin.service.spec.ts`), and it is the
+reason `updateConfig` calls `nextFireAt` itself rather than routing through
+`computeNextRunAt`.
+
+### 13.5 Machine-readable error data lives under `details`, and nowhere else
+
+`common/filters/http-exception.filter.ts` rebuilds every error body from a
+**fixed key allowlist** — it reads `message` and `details` off the thrown
+payload, *derives* `code` from the status (discarding any the exception
+supplied), and adds `statusCode`, `timestamp` and `path` itself. A field
+placed at the top level of a thrown payload is therefore silently dropped and
+never reaches the client.
+
+This matters most for `POST runs`' `409`, whose entire value to the caller is
+the id of the run already in flight: `{ activeRunId }` at the top level
+vanishes; `{ details: { activeRunId } }` survives. Every thrown payload in
+this controller's service follows the same shape — `message` plus `details`,
+nothing else — for that reason.
+
+**This is a live gotcha in this codebase, stated as a rule:** `exception
+.getResponse()` returns the payload *before* the filter has touched it, so a
+test that asserts against `getResponse()` proves nothing about what actually
+reaches the client — it would pass unchanged even if a field were moved to the
+top level and silently started being dropped. Assertions have to go through
+the real filter. `test/db-backup/db-backup-admin.integration.spec.ts` drives
+every route through the real Nest router and the real
+`HttpExceptionFilter` rather than calling the service directly, for exactly
+this reason.
+
+### 13.6 `sizeBytes`/`bytesWritten` go through one `toRunDto`, always
+
+`bytesWritten` and `sizeBytes` are `BigInt` columns (§1), and `JSON.stringify`
+does not coerce a `bigint` — it throws `TypeError: Do not know how to
+serialize a BigInt`, at send time, inside the framework's serializer, after
+the query ran and the status code was already chosen. A handler that returns
+a raw Prisma row from this table is a handler that throws on its way out the
+door.
+
+The failure is invisible to an ordinary unit test that object-compares its
+result: `expect(run.sizeBytes).toBe(12n)` is true, `toEqual` on the whole row
+is true, and nothing in that assertion path ever serialises anything. The
+defect shows up only when a real response is turned into bytes — which is why
+`toRunDto` (`dto/db-backup-run.dto.ts`) is the one function every path
+returning a run goes through (the list, the single get, the manual trigger),
+converting both BigInts with `.toString()` — exact at any magnitude, unlike
+`Number()`, which starts rounding above 2^53 — and publishing them as decimal
+strings rather than JSON numbers. And it is why this spec's own integration
+tests `JSON.stringify` a real response carrying genuinely large values instead
+of trusting an object comparison: `db-backup-admin.integration.spec.ts`'s
+"BigInt columns reach the client as exact decimal strings" suite exists
+specifically to catch what a `toEqual`-based test cannot.
+
+### 13.7 Deletion is object-then-row, and best-effort on the object
+
+`DELETE runs/:id` deletes the archive from storage first and the row second —
+the same order §11.1 gives for retention, and for the same reason: the row is
+the only index of what exists in the bucket, so deleting it first and then
+failing the object delete leaves a multi-gigabyte orphan nothing will ever
+look for again, billed forever. In this order the worst case is the opposite
+and it is harmless — an object already gone while the row remains, visible
+and re-prunable.
+
+The object delete is **best-effort**, reported as `objectDeleted`. `false`
+means storage had nothing to remove or refused to remove it; the row is
+deleted regardless. Failing the whole request over an already-missing object
+would strand an administrator with a row they cannot delete for a reason that
+is not theirs to fix.
+
+A `pending` or `running` row is **refused** with a 400, not deleted. That row
+holds the single-active-run slot and its bytes are still being written;
+deleting it would not stop the dump, which would carry on streaming into a key
+whose row is now gone — an orphan created *on purpose*, with the active slot
+freed so a second dump could start beside the first. The route directs the
+caller to cancel first, which settles the run through the ordinary failure
+path (§8) and deletes the partial object as a side effect.
+
+### 13.8 `download` returns a signed URL, not a proxied stream
+
+`GET runs/:id/download` returns a short-lived pre-signed URL from
+`StorageProvider.getSignedDownloadUrl`, the same method `ObjectsService
+.getDownloadUrl` already uses for ordinary user files — this is the same
+answer at a larger scale, not a new one. Streaming the archive back through
+this process as the response body was rejected on more than taste: the
+archive is, by definition, the size of the whole database, and a multi-GB
+response would sit inside Nginx buffering, proxy read timeouts and
+load-balancer idle limits that are configured for ordinary requests, not a
+transfer that can run for hours; it would also occupy an application worker
+for the duration, degrading the API for every other caller while one
+administrator downloads one backup.
+
+Refused with a `400` unless the run is `completed`: a running run's object is
+half-written, and a failed or stale run's partial object was already deleted
+by the failure path (§8) — either URL would sign a key that produces a file
+that is not a restorable archive, or does not exist at all. The URL expires in
+`BACKUP_DOWNLOAD_URL_EXPIRY_SECONDS` (five minutes) because it is a
+credential-free capability over a complete copy of the database — the window
+in which a leaked link (browser history, a chat message, a proxy log) is still
+usable. That expiry is checked when the download *starts*, not throughout the
+transfer, so a slow multi-gigabyte fetch that began inside the window
+completes however long it takes.
+
+### 13.9 `cancel` reports honestly when it holds no handle
+
+Cancellation works through a **process-local** child-process handle (§8): only
+the API replica that spawned the `pg_dump` can signal it. When the replica
+serving the request is not that one — the run belongs to another replica, or
+it settled in the moment before the request landed — `cancel` returns `{
+outcome: 'not_running_here' }` rather than reporting success.
+
+That answer is a **`200`**, not a `409` or a `503`, and deliberately so:
+nothing about the request was wrong. The run exists, the caller is permitted
+to cancel it, and the server understood and acted on exactly what it could act
+on. What is true is that *this process* holds no handle, and the operator's
+correct next step is not to retry — retrying would hit the same replica or a
+different one with the same absence of a handle — it is to wait for the
+staleness sweep (§12) to release the slot once the run's heartbeat stops, or
+to reach whichever replica does hold it. A `409` would suggest a conflict to
+resolve; a `503` would suggest the server is unwell. Neither is true, so
+neither is used — the response's `outcome` and `detail` carry the honest
+answer instead of forcing it through a status code that does not fit it.
+
+### 13.10 Route declaration order
+
+Nest matches routes in **declaration order**, not by specificity. Every
+literal route (`config`, `runs`) is declared above every parameterised one
+(`runs/:id`, `runs/:id/download`, `runs/:id/cancel`), and within the
+parameterised block the deepest paths come first, matching the rule
+`job-admin.controller.ts` and `nodes-admin.controller.ts` both already state.
+
+Today, transposing any two methods in this file would not actually break
+anything — the literals here sit one segment past the prefix (`config`) or one
+(`runs`), while every parameterised route is two or three segments
+(`runs/:id`, `runs/:id/download`), so nothing currently collides. That is a
+property of the *current* route table, not a rule to lean on, and it is
+exactly the reasoning that produces the bug the next time somebody adds
+`@Get(':id')` at the prefix root, or a `runs/:id/:x` route that would silently
+swallow `runs/latest`. The rule that survives is "every literal above every
+parameterised route," full stop — not "every literal that would currently
+shadow something." `db-backup-admin.integration.spec.ts`'s "literal routes
+resolve before the parameterised ones" suite drives `GET config`, `POST runs`
+and `GET runs` through the real router and asserts each resolved as its own
+handler, so re-ordering these methods fails a test rather than surfacing as a
+production incident the day someone adds a colliding route.
+
+## 14. Rejected alternatives
 
 **Run the backup as a queue job.** See the section at the top. Two concurrent
 `pg_dump` processes writing one key, and no error.
@@ -697,9 +953,44 @@ meaning different things on the same page. See §11.
 running with no new backup to justify what it removes. Retention is a
 consequence of a backup succeeding, so it runs where that is known.
 
-## 14. Verification
+**Blocking `POST runs` until the dump finishes.** The synchronous shape a REST
+client would expect by default, and unworkable for the same reason a
+synchronous handler cannot exist anywhere else in this subsystem: a
+multi-gigabyte dump routinely outlives any reverse-proxy timeout, so the
+request would 504 on exactly the databases worth backing up, the caller would
+retry, and the retry would be refused by the active index while the first
+dump — now unwatched by anyone — carried on regardless. See §4 for the
+identical argument at the engine layer.
 
-### 14.1 #281: the model, the guard and the engine
+**A top-level `activeRunId` on the `409`.** The obvious way to hand the
+caller the id of the run already in flight, and silently stripped by
+`HttpExceptionFilter`, which rebuilds every error body from `message` and
+`details` only. A caller would see "a backup is already running" with no way
+to find out which. See §13.5.
+
+**Row-then-object deletion.** Delete the database row first, then the storage
+object. A crash or a refused delete between the two leaves a multi-gigabyte
+object that nothing anywhere points at — the row was the only index of what
+exists in the bucket, and it is now gone. See §13.7 and §11.1 for the same
+argument made twice, once here and once for retention.
+
+**Proxying the archive through the API.** Streaming the object back as the
+`download` response body instead of returning a signed URL. It puts a
+response the size of the whole database through the application server and
+every reverse proxy in front of it — none of them configured for a transfer
+that can run for hours — and occupies a worker for its entire duration,
+degrading the API for every other caller while one archive downloads. See
+§13.8.
+
+**Trusting object-comparison tests for the `BigInt` columns.** `expect(run
+.sizeBytes).toBe(12n)` and a `toEqual` on the whole row both pass while the
+real endpoint throws `TypeError: Do not know how to serialize a BigInt` on an
+actual request — the assertion path never serialises anything, so it proves
+nothing about the wire. See §13.6.
+
+## 15. Verification
+
+### 15.1 #281: the model, the guard and the engine
 
 | Claim | Covered by |
 |---|---|
@@ -725,7 +1016,7 @@ consequence of a backup succeeding, so it runs where that is known.
 | The audit trio is recorded on completed **and** failed runs, and an audit read failure never fails a backup | `src/db-backup/db-backup-runner.service.spec.ts` |
 
 
-### 14.2 #282: scheduling, retention and the sweep
+### 15.2 #282: scheduling, retention and the sweep
 
 | Claim | Covered by |
 |---|---|
@@ -754,7 +1045,24 @@ consequence of a backup succeeding, so it runs where that is known.
 | Retention never throws, and reports what it managed when one rule fails | `src/db-backup/db-backup-retention.service.spec.ts` |
 | Pruning happens **after** verification **and after** the `completed` write, never on a failure, and never turns a verified backup into a failed run | `src/db-backup/db-backup-runner.service.spec.ts` |
 
-### 14.3 The limits of both
+### 15.3 #283: the admin API
+
+| Claim | Covered by |
+|---|---|
+| Literal routes (`config`, `runs`) resolve before parameterised ones (`runs/:id`, ...) through the real router | `test/db-backup/db-backup-admin.integration.spec.ts` |
+| A run's `bytesWritten`/`sizeBytes` reach the client as exact decimal strings — asserted on the serialised body, not on an object comparison — for the single get, the list, **and** the manual trigger | `test/db-backup/db-backup-admin.integration.spec.ts` |
+| `POST runs` returns promptly with a real run id, then answers a concurrent caller with a `409` carrying `details.activeRunId` | `test/db-backup/db-backup-admin.integration.spec.ts` |
+| A `storageProvider` naming a provider this deployment lacks is a clean `400`, both from `POST runs` and from `PUT config` | `test/db-backup/db-backup-admin.integration.spec.ts` |
+| `GET config` projects `nextRunAt` when enabled, is `null` when disabled, and reports the run holding the active slot | `test/db-backup/db-backup-admin.integration.spec.ts` |
+| `PUT config` accepts a partial body and writes through the settings service; an unknown timezone is refused with a `400` **at save time**, before anything is written; the global validation pipe still enforces the settings schema itself | `test/db-backup/db-backup-admin.integration.spec.ts` |
+| The timezone check runs **even while `enabled` is false** — the case a validator gated on `enabled` would miss | `src/db-backup/db-backup-admin.service.spec.ts` — the test that caught the bug during implementation; see §13.4 |
+| `GET runs/:id/download` returns a bounded-expiry signed URL for a completed run, and `404`s for a run that does not exist | `test/db-backup/db-backup-admin.integration.spec.ts` |
+| `DELETE runs/:id` deletes the object before the row, and reports `objectDeleted: false` (while still deleting the row) for an object that is already gone | `test/db-backup/db-backup-admin.integration.spec.ts` |
+| `POST runs/:id/cancel` reports `signalled` when this process holds the handle, reports `not_running_here` honestly when it does not, and `400`s a run that already settled | `test/db-backup/db-backup-admin.integration.spec.ts` |
+| `db_backup:read` gates the reads, `db_backup:write` gates the five writes, and **`db_backup:restore` is spent nowhere in this controller** | `test/db-backup/db-backup-admin.integration.spec.ts` — the permission-split suite, including the explicit "never spends `db_backup:restore`" assertion |
+| An unauthenticated caller is refused on every route | `test/db-backup/db-backup-admin.integration.spec.ts` |
+
+### 15.4 The limits of all three
 
 Be honest about them. Nothing here runs a real `pg_dump` against a real
 database — the engine seam stands in for both, so what is proved is that this
@@ -773,3 +1081,11 @@ the `where` clauses are emulated, so an `orderBy`/`skip` that Prisma would
 reject at runtime would pass here. The queries are the ones the declared
 indexes exist for (`[status, createdAt DESC]` and `[startedAt DESC]`), which is
 the check that would have caught a shape the table cannot answer.
+
+#283's admin-API suite runs against the real Nest router and the real
+`HttpExceptionFilter` (§13.5), which is what makes its `409`/`400` assertions
+mean something — but it still runs against the same mocked engine seam as
+#281 and #282: no test here spawns a real `pg_dump` either, so what these
+tests prove is that the HTTP surface reports the engine's state honestly, not
+that the engine itself is correct. That question is answered by §15.1 and
+§15.2.
