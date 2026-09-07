@@ -9,6 +9,7 @@ import {
   type StorageProvider,
 } from '../../storage/providers/storage-provider.interface';
 import type { SystemDatabaseBackupValue } from '../../common/schemas/settings.schema';
+import { DatabaseRestoreService } from '../database-restore.service';
 import { DatabaseBackupRunnerService } from '../db-backup-runner.service';
 import { DatabaseBackupAlreadyRunningError } from '../db-backup.errors';
 import {
@@ -22,12 +23,35 @@ import {
 // =============================================================================
 //
 // #281 shipped an engine with no caller. This is the caller. Every ten
-// minutes it does exactly two things, in this order:
+// minutes it does exactly three things, in this order:
 //
 //   1. RELEASE STALE RUNS — a run whose heartbeat stopped is given up on and
 //      marked `stale`, which frees the single-active-run slot.
 //   2. FIRE A DUE BACKUP — if the schedule says one should have started and
 //      none has, start one.
+//   3. DROP EXPIRED RETAINED DATABASES (#285) — a `<live>_old_<ts>` database a
+//      restore displaced, past `databaseBackup.oldDatabaseRetentionHours`.
+//
+// -----------------------------------------------------------------------------
+// WHY THE THIRD DUTY IS HERE AND NOT ON A `@Cron` OF ITS OWN
+// -----------------------------------------------------------------------------
+//
+// A retained database is a FULL SECOND COPY of the production database, kept so
+// that rolling a restore back costs one rename instead of a multi-hour replay.
+// Something has to drop it when the window closes, and the choice was between a
+// timer of its own and a third duty in a tick that already exists.
+//
+// This tick, for three reasons. The window is measured in HOURS, so a
+// ten-minute poll is already an order of magnitude finer than it needs to be. A
+// second timer would be a second, unsynchronised thing dropping databases in
+// this subsystem — the same argument `DbBackupModule` makes for why retention
+// is not its own `@Cron`. And this handler already owns the pattern the sweep
+// needs: one `now` for the whole tick, one policy read, one swallowing `catch`
+// per duty so a failure in one does not cost the others.
+//
+// It goes LAST because it is the only duty that is pure housekeeping. Nothing
+// waits on it, and a backup that is due must not be delayed behind a `DROP
+// DATABASE` waiting on a session somebody left open.
 //
 // -----------------------------------------------------------------------------
 // WHY THE SWEEP GOES FIRST
@@ -199,7 +223,12 @@ export class DatabaseBackupScheduleTask {
     private readonly settings: SystemSettingsService,
     private readonly runner: DatabaseBackupRunnerService,
     @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
-    private readonly config: ConfigService
+    private readonly config: ConfigService,
+    // #285's retained-database sweep. Injected rather than reimplemented here:
+    // the restore service owns the admin connection, the identifier rules and
+    // the seam, and a second place that issues `DROP DATABASE` is a second place
+    // to get the guard wrong.
+    private readonly restore: DatabaseRestoreService
   ) {}
 
   @Cron(CronExpression.EVERY_10_MINUTES)
@@ -250,6 +279,25 @@ export class DatabaseBackupScheduleTask {
       }
 
       await this.fireDueBackup(policy, now);
+
+      // LAST, and wrapped on its own like the sweep above it. Pure
+      // housekeeping: nothing waits on it, and a `DROP DATABASE` blocked by a
+      // session somebody left open must not be able to cost tonight's backup.
+      try {
+        const dropped = await this.restore.dropExpiredOldDatabases(policy, now);
+
+        if (dropped > 0) {
+          this.logger.warn(
+            `Dropped ${dropped} database(s) displaced by a restore and past ` +
+              `${policy.oldDatabaseRetentionHours}h; rolling those restores back now means ` +
+              'restoring an archive rather than renaming a database'
+          );
+        }
+      } catch (error) {
+        this.logger.error(
+          `The retained-database sweep failed: ${toError(error).message}`
+        );
+      }
     } catch (error) {
       // SWALLOWED, like every other scheduled task here. A throw out of a
       // `@Cron` handler is an unhandled rejection, and an unhandled rejection
