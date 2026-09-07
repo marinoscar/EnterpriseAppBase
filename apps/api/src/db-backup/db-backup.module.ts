@@ -6,10 +6,11 @@ import { DatabaseBackupAdminService } from './db-backup-admin.service';
 import { DatabaseBackupRetentionService } from './db-backup-retention.service';
 import { DatabaseBackupRunnerService } from './db-backup-runner.service';
 import { DatabaseBackupController } from './db-backup.controller';
+import { DatabaseRestorePreflightService } from './restore-preflight.service';
 import { DatabaseBackupScheduleTask } from './tasks/db-backup-schedule.task';
 
 // =============================================================================
-// DbBackupModule (issues #281, #282 and #283, epic #254)
+// DbBackupModule (issues #281, #282, #283 and #284, epic #254)
 // =============================================================================
 //
 // The backup engine and nothing else. #280 shipped the pure utilities this
@@ -110,6 +111,31 @@ import { DatabaseBackupScheduleTask } from './tasks/db-backup-schedule.task';
 // `DatabaseBackupAdminService` injects `STORAGE_PROVIDER` directly, exactly as
 // the runner and the retention sweep do, so the `StorageProvidersModule` import
 // above now serves three consumers rather than two.
+//
+// -----------------------------------------------------------------------------
+// #284 ADDS RESTORE PRE-FLIGHT, AND IT ADDS NO ROUTE
+// -----------------------------------------------------------------------------
+//
+// `DatabaseRestorePreflightService` answers "can this archive be restored, and
+// what will it cost?" without creating, dropping or renaming anything. It is a
+// PROVIDER AND NOT EXPORTED, and it is NOT wired to a controller here: #286
+// owns the restore endpoints, and a service reachable over HTTP before the
+// route that authorizes it exists is a surface nobody has reviewed.
+//
+// It needs no new import. `SettingsModule` already supplies
+// `SystemSettingsService` (it reads `restoreRollbackMode`), `PrismaModule` is
+// `@Global()`, and every cluster call goes through a short-lived `pg.Client`
+// that is deliberately OUTSIDE the Prisma pool — see
+// `admin-connection.util.ts` for the two structural reasons. Notably it does
+// NOT take `StorageProvidersModule`: pre-flight never touches the archive's
+// bytes, because verifying them means downloading gigabytes and that belongs
+// to #285's asynchronous run, not to an HTTP request.
+//
+// `RESTORE_PREFLIGHT_SEAM` and `RESTORE_ADMIN_CLIENT_FACTORY` are OPTIONAL
+// tokens left unbound, for the identical reason `DB_BACKUP_ENGINE` and
+// `DB_BACKUP_TIMERS` are: the application always probes a real cluster, and a
+// stubbed cluster connection in production is a restore subsystem that reports
+// a clean pre-flight against nothing at all.
 // =============================================================================
 
 @Module({
@@ -120,6 +146,7 @@ import { DatabaseBackupScheduleTask } from './tasks/db-backup-schedule.task';
     DatabaseBackupRetentionService,
     DatabaseBackupAdminService,
     DatabaseBackupScheduleTask,
+    DatabaseRestorePreflightService,
   ],
   exports: [DatabaseBackupRunnerService, DatabaseBackupRetentionService],
 })
