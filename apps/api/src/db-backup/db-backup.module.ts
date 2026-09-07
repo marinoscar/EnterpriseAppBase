@@ -2,10 +2,12 @@ import { Module } from '@nestjs/common';
 
 import { SettingsModule } from '../settings/settings.module';
 import { StorageProvidersModule } from '../storage/providers/storage-providers.module';
+import { DatabaseBackupRetentionService } from './db-backup-retention.service';
 import { DatabaseBackupRunnerService } from './db-backup-runner.service';
+import { DatabaseBackupScheduleTask } from './tasks/db-backup-schedule.task';
 
 // =============================================================================
-// DbBackupModule (issue #281, epic #254)
+// DbBackupModule (issues #281 and #282, epic #254)
 // =============================================================================
 //
 // The backup engine and nothing else. #280 shipped the pure utilities this
@@ -15,13 +17,23 @@ import { DatabaseBackupRunnerService } from './db-backup-runner.service';
 // thing here that does — it needs Prisma, the system settings and the active
 // storage provider.
 //
-// Registered in `app.module.ts` even though NOTHING TRIGGERS A BACKUP YET
-// (#282 adds the scheduler and the retention/stale sweeps, #283 the admin
-// API), for the same reason `JobsModule` was registered before anything
-// enqueued: a broken provider graph then fails at boot, where it is one line
-// in a startup log, rather than at 02:00 on the first night backups were
-// switched on. It costs nothing at runtime — no timer is started and no query
-// is issued until someone calls `startBackup`.
+// Registered in `app.module.ts` for the same reason `JobsModule` was
+// registered before anything enqueued: a broken provider graph fails at boot,
+// where it is one line in a startup log, rather than at 02:00 on the first
+// night backups were switched on.
+//
+// #282 added the caller the engine was missing. `DatabaseBackupScheduleTask`
+// is a `@Cron` provider — `ScheduleModule.forRoot()` in `app.module.ts` is
+// what makes it fire, exactly as it does for `JobStuckResetTask` in
+// `JobsModule` and `NodeStaleOfflineTask` in `NodesModule` — so from here on
+// this module DOES start a timer at boot. It still issues no query until a
+// tick runs, and the tick is gated by `DB_BACKUP_SCHEDULE_ENABLED`.
+//
+// `DatabaseBackupRetentionService` is a plain provider, and it is deliberately
+// NOT a second `@Cron`. Pruning happens only after a backup has been taken and
+// verified (see the runner's success path), so a timer of its own would be a
+// second, unsynchronised deleter of archives with no new backup to justify
+// what it removes.
 //
 // -----------------------------------------------------------------------------
 // WHAT IT IMPORTS, AND WHY EACH
@@ -61,12 +73,24 @@ import { DatabaseBackupRunnerService } from './db-backup-runner.service';
 // `DatabaseBackupRunnerService` IS exported: #282's scheduler and #283's admin
 // controller both drive it, and both must go through THE SAME claim — the
 // single-active-run index is only a guarantee if there is one writer of this
-// table.
+// table. `DatabaseBackupRetentionService` is exported for the same reason in
+// the other direction: #283's admin surface needs to be able to report and
+// re-run retention, and a second implementation of "which archives may be
+// deleted" is the kind of duplicate that ends with two rules disagreeing about
+// a `pre_restore` dump.
+//
+// `DatabaseBackupScheduleTask` is a provider and NOT exported: nothing outside
+// this module should be reaching into a cron handler, and the two operations
+// it owns are already reachable through the services it composes.
 // =============================================================================
 
 @Module({
   imports: [SettingsModule, StorageProvidersModule],
-  providers: [DatabaseBackupRunnerService],
-  exports: [DatabaseBackupRunnerService],
+  providers: [
+    DatabaseBackupRunnerService,
+    DatabaseBackupRetentionService,
+    DatabaseBackupScheduleTask,
+  ],
+  exports: [DatabaseBackupRunnerService, DatabaseBackupRetentionService],
 })
 export class DbBackupModule {}

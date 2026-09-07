@@ -199,6 +199,28 @@ export default () => {
     offlinePruneEnabled: process.env.NODE_OFFLINE_PRUNE_ENABLED !== 'false',
   },
 
+  // Database backup scheduling (#282). ONE switch, and — like the two groups
+  // above — it decides whether THIS PROCESS runs the timer, never what the
+  // policy is: the schedule, the timezone, the retention count and the stale
+  // window are all system settings an administrator edits at runtime, because
+  // they are decisions about a deployment rather than about a process.
+  //
+  // ⚠ DELIBERATELY NOT `JOBS_WORKER_MODE`. Taking a backup is not queue work
+  // (see the "Why this is not a queue job" block in `schema.prisma`), and an
+  // API running as a pure control plane in front of an external node fleet is
+  // still the only component with a database connection — so gating backups on
+  // its willingness to execute jobs would leave that deployment's database
+  // backed up by nobody.
+  //
+  // DEFAULTS TO ON, and only the literal string turns it off. A deployment
+  // whose backups silently stopped because of a typo in an env file is
+  // indistinguishable from one that is being backed up, right up until
+  // somebody needs a restore — which makes fail-open the only defensible
+  // direction here. See `db-backup/tasks/db-backup-schedule.task.ts`.
+  dbBackup: {
+    scheduleEnabled: process.env.DB_BACKUP_SCHEDULE_ENABLED !== 'false',
+  },
+
   // Observability
   otel: {
     enabled: process.env.OTEL_ENABLED === 'true',

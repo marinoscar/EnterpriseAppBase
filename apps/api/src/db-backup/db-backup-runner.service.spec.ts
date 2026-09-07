@@ -17,6 +17,10 @@ import {
   type BackupTimers,
   type DatabaseBackupEngine,
 } from './db-backup-runner.service';
+import type {
+  BackupPruneResult,
+  DatabaseBackupRetentionService,
+} from './db-backup-retention.service';
 import { BACKUP_KEY_PREFIX } from './db-backup-storage';
 import {
   DatabaseBackupAlreadyRunningError,
@@ -158,6 +162,8 @@ interface HarnessOptions {
   timers?: BackupTimers;
   /** A back-pressure-honouring stdout for the dump, instead of the push-driven default. */
   dumpStdout?: Readable;
+  /** What retention reports, or an error it (contractually cannot) throw. */
+  pruneImpl?: () => Promise<BackupPruneResult>;
 }
 
 function makeHarness(options: HarnessOptions = {}) {
@@ -261,6 +267,21 @@ function makeHarness(options: HarnessOptions = {}) {
       }) as unknown as StorageProvider['delete']),
   };
 
+  // Retention is a real collaborator rather than a seam (#282): the runner
+  // cannot be constructed without one, on purpose. What is asserted through
+  // this double is WHEN it is called, not what it deletes — the two rules
+  // themselves are covered in `db-backup-retention.service.spec.ts`.
+  const retention = {
+    prune: jest.fn(async () => {
+      order.push('prune');
+
+      return (
+        options.pruneImpl?.() ??
+        ({ prunedByCount: 0, prunedByAge: 0, keptAfterFailedDelete: 0 } as BackupPruneResult)
+      );
+    }),
+  };
+
   const engine: DatabaseBackupEngine = {
     startDump: jest.fn(() => {
       order.push('startDump');
@@ -300,6 +321,7 @@ function makeHarness(options: HarnessOptions = {}) {
     prisma as unknown as PrismaService,
     settings as unknown as SystemSettingsService,
     storage as unknown as StorageProvider,
+    retention as unknown as DatabaseBackupRetentionService,
     engine,
     timers
   );
@@ -309,6 +331,7 @@ function makeHarness(options: HarnessOptions = {}) {
     prisma,
     settings,
     storage,
+    retention,
     engine,
     order,
     rows,
@@ -975,5 +998,68 @@ describe('the audit trio', () => {
     expect(row.status).toBe('completed');
     expect(row.dbVersion).toBeNull();
     expect(row.migrationName).toBeNull();
+  });
+});
+
+describe('retention is wired to the success path (#282)', () => {
+  it('prunes AFTER the run is marked completed, so the new backup counts as one of the N', async () => {
+    const h = makeHarness();
+
+    await h.service.startBackup({ trigger: 'scheduled' });
+    (await h.firstDump()).finish();
+    await h.settled;
+    await waitFor(() => h.order.includes('prune'), 'retention to run');
+
+    expect(h.retention.prune).toHaveBeenCalledTimes(1);
+    // The ordering IS the criterion. Pruning before the `completed` write
+    // would leave this run uncounted by the count rule and evict one more old
+    // backup than retention asked for.
+    expect(h.order.indexOf('update:completed')).toBeLessThan(h.order.indexOf('prune'));
+    // And after verification, not before: a run that is about to fail
+    // `pg_restore --list` must never get to delete the last known-good backup
+    // on its way out.
+    expect(h.order.indexOf('readTocEntryCount')).toBeLessThan(h.order.indexOf('prune'));
+  });
+
+  it('does not prune when the dump fails — old archives matter most exactly then', async () => {
+    const h = makeHarness();
+
+    await h.service.startBackup({ trigger: 'scheduled' });
+    (await h.firstDump()).die(new Error('pg_dump exited 1'));
+    const row = await h.settled;
+    // Give the failure path every chance to do something it should not.
+    await tick();
+    await tick();
+
+    expect(row.status).toBe('failed');
+    expect(h.retention.prune).not.toHaveBeenCalled();
+  });
+
+  it('does not prune when verification fails', async () => {
+    const h = makeHarness({ tocEntries: 0 });
+
+    await h.service.startBackup({ trigger: 'manual' });
+    (await h.firstDump()).finish();
+    const row = await h.settled;
+    await tick();
+
+    expect(row.status).toBe('failed');
+    expect(h.retention.prune).not.toHaveBeenCalled();
+  });
+
+  it('never lets a retention failure turn a verified backup into a failed run', async () => {
+    // `prune` swallows by contract; this proves the runner does not depend on
+    // that contract holding, because the archive has already been proven good
+    // and nothing about storage housekeeping may take that away.
+    const h = makeHarness();
+    h.retention.prune.mockRejectedValue(new Error('bucket unreachable'));
+
+    await h.service.startBackup({ trigger: 'scheduled' });
+    (await h.firstDump()).finish();
+    const row = await h.settled;
+    await tick();
+
+    expect(row.status).toBe('completed');
+    expect(h.storage.delete).not.toHaveBeenCalled();
   });
 });
