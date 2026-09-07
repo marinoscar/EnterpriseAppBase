@@ -12,8 +12,9 @@
 //   - `apps/web`                                (raw literals, no constant)
 //
 // ...and they had already drifted to three different strings. Renaming meant
-// grepping three packages and hoping. Now it is the ONE LINE at the bottom of
-// this file.
+// grepping three packages and hoping. Now it is ONE FIELD in `identity.json`
+// beside this file -- or, better, `node scripts/rename.mjs`, which also carries
+// the identity strings that cannot be read at runtime. See docs/RENAMING.md.
 //
 // -----------------------------------------------------------------------------
 // WHY THIS PACKAGE IS PLAIN JAVASCRIPT WITH A HAND-WRITTEN .d.ts
@@ -59,10 +60,40 @@
 //
 // =============================================================================
 
+// -----------------------------------------------------------------------------
+// WHY THE VALUES LIVE IN identity.json AND NOT IN THIS FILE
+// -----------------------------------------------------------------------------
+//
+// Two reasons, both practical:
+//
+//   - `apps/web/scripts/generate-icons.py` is Python. It paints THEME_COLOR and
+//     BACKGROUND_COLOR into committed PNGs and cannot parse JavaScript, so
+//     before this manifest existed it carried its OWN copy of both hex values
+//     with nothing keeping the two in sync. JSON is the one format every
+//     consumer here can read.
+//   - `scripts/rename.mjs` rewrites these values. This file is 200 lines of
+//     dense prose with the values buried in the middle of it; a regex codemod
+//     over it is a codemod that will one day eat a comment. `JSON.parse` ->
+//     mutate -> `JSON.stringify` cannot.
+//
+// It sits INSIDE this package rather than at the repository root because all
+// three Dockerfiles copy an enumerated list of root files plus `packages/shared`
+// as a whole directory (`COPY packages/shared ./packages/shared/`). A root-level
+// manifest would be absent from every image, and since the api and cli
+// production stages are `COPY --from=deps /app ./`, the images would BUILD GREEN
+// and die at container boot with `Cannot find module`. No CI job builds images
+// and `smoke` boots from the workspace checkout, so nothing would catch it.
+//
+// =============================================================================
+
+const identity = require('./identity.json');
+
 /**
  * The application's display name.
  *
- * ▲ THIS IS THE LINE YOU EDIT TO REBRAND A FORK. There is no second copy.
+ * ▲ THIS IS A REBRAND POINT: `productName` in `identity.json`. There is no
+ * second copy. Prefer `node scripts/rename.mjs --name "..."`, which changes it
+ * together with the identity strings no runtime read can reach.
  *
  * Every user-visible surface derives from it rather than restating it — see
  * README.md in this folder for the current consumer list. Two of them append a
@@ -75,12 +106,13 @@
  * change, so the baselines must be regenerated in the pinned container — see
  * this folder's README for the exact command.
  */
-exports.APP_NAME = 'My App';
+exports.APP_NAME = identity.productName;
 
 /**
  * The brand's primary colour, as a CSS hex string.
  *
- * ▲ THIS IS A REBRAND POINT. It lives here rather than in the MUI theme because
+ * ▲ THIS IS A REBRAND POINT: `themeColor` in `identity.json`. It lives here
+ * rather than in the MUI theme because
  * two kinds of consumer need it and only one of them can import a theme:
  *
  *   - `apps/web/src/theme/light.ts` reads it as `palette.primary.main`, so it
@@ -99,12 +131,13 @@ exports.APP_NAME = 'My App';
  * parsed by the platform rather than by a CSS engine, and the 3-digit shorthand
  * and `rgb()` forms are not reliably accepted there.
  */
-exports.THEME_COLOR = '#1976d2';
+exports.THEME_COLOR = identity.themeColor;
 
 /**
  * The colour painted behind the application before it has rendered anything.
  *
- * ▲ THIS IS A REBRAND POINT. It is the web app manifest's `background_color`:
+ * ▲ THIS IS A REBRAND POINT: `backgroundColor` in `identity.json`. It is the
+ * web app manifest's `background_color`:
  * the splash screen an installed PWA shows while it launches, and the ground
  * under the document during first paint.
  *
@@ -115,4 +148,4 @@ exports.THEME_COLOR = '#1976d2';
  * on — which makes the handover from splash to app invisible in the default
  * case rather than in neither.
  */
-exports.BACKGROUND_COLOR = '#ffffff';
+exports.BACKGROUND_COLOR = identity.backgroundColor;
