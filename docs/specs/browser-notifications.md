@@ -802,9 +802,9 @@ codebase: a subscriber's browser has to call `pushManager.subscribe` again
 through whatever flow does that (for example, toggling notifications off and
 back on), and nothing makes that happen automatically just because the app is
 reopened. Do not soften either the API docs or the dialog copy to "reopening
-the app fixes it" — see [the runbook's rotation
-section](../runbooks/vapid-keys.md#4-rotating-vapid-keys) for the full
-verification behind that claim.
+the app fixes it" — see [the runbook's recovery-mechanics
+reference](../runbooks/vapid-keys.md#4-recovery-mechanics-reference) for the
+full verification behind that claim.
 
 ## Rejected alternatives
 
