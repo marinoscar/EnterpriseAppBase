@@ -116,6 +116,8 @@
 import { Job } from '@prisma/client';
 import type { z } from 'zod';
 
+import type { JobExecutionProfile } from './job-execution-profile';
+
 /**
  * DI token for job handlers.
  *
@@ -157,6 +159,30 @@ export interface JobHandler {
    * exactly-once.
    */
   process(job: Job): Promise<void>;
+
+  /**
+   * How this type is allowed to run, when the deployment-wide defaults are
+   * wrong for it.
+   *
+   * OPTIONAL, AND OMITTING IT IS THE NORMAL ANSWER. A handler with no profile
+   * runs on `JOBS_JOB_TIMEOUT_MS` and `JOBS_MAX_ATTEMPTS` exactly as every
+   * handler did before profiles existed. Declare one only when this type is
+   * genuinely unlike the rest of the queue — a job that legitimately runs for
+   * hours, or one that must never be automatically retried.
+   *
+   * ⚠ TWO NUMBERS, AND THERE WILL ONLY EVER BE TWO. You may not declare a
+   * lease length here, and you may not declare a renewal interval: those are
+   * DERIVED from `maxRuntimeMs` (`resolveJobLeaseMs`,
+   * `resolveRenewIntervalMs`) precisely because they are the values that can
+   * DISAGREE with it. A lease shorter than the runtime ceiling is a job that
+   * reaps itself into duplicate execution; a renewal interval at or above the
+   * lease is a renewal that always arrives too late. Deriving them makes both
+   * states unrepresentable — the same argument this file's header already
+   * makes against a `nodeEligible` flag, applied to durations. See
+   * `job-execution-profile.ts` for the full version, and do not add a third
+   * field to that interface.
+   */
+  readonly profile?: JobExecutionProfile;
 
   /**
    * Validates the result a remote worker node posts back for this job type.
