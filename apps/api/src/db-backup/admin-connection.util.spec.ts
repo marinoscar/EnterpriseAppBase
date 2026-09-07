@@ -27,6 +27,7 @@ import {
   DEFAULT_MAINTENANCE_DATABASE,
   FALLBACK_MAINTENANCE_DATABASE,
   InvalidDatabaseIdentifierError,
+  InvalidSqlLiteralError,
   MAX_IDENTIFIER_BYTES,
   buildOldDatabaseName,
   buildScratchDatabaseName,
@@ -35,8 +36,11 @@ import {
   databaseExists,
   dropDatabase,
   probeCreateDatabasePrivilege,
+  probeCreateRolePrivilege,
   probePgExtensionAvailable,
   quoteIdentifier,
+  quoteLiteral,
+  quoteTimestampLiteral,
   readDataDirectory,
   readDatabaseSizeBytes,
   renameDatabase,
@@ -282,6 +286,86 @@ describe('quoteIdentifier', () => {
   });
 });
 
+describe('quoteLiteral', () => {
+  it('quotes a value drawn from the generated alphabet', () => {
+    expect(quoteLiteral('aB9')).toBe("'aB9'");
+    expect(quoteLiteral('A'.repeat(43))).toBe(`'${'A'.repeat(43)}'`);
+  });
+
+  it.each([
+    ['a single quote', "pa'ss"],
+    ['a doubled quote', "pa''ss"],
+    ['a statement terminator', "pass'; DROP ROLE appuser; --"],
+    ['a backslash', 'pa\\ss'],
+    ['a dollar quote', 'pa$$ss'],
+    ['a space', 'pa ss'],
+    ['a hyphen', 'pa-ss'],
+    ['a plus (base64)', 'pa+ss'],
+    ['a slash (base64)', 'pa/ss'],
+    ['an equals (base64 padding)', 'pass='],
+    ['a newline', 'pa\nss'],
+    ['a carriage return', 'pa\rss'],
+    ['a NUL', 'pa\u0000ss'],
+    ['a tab', 'pa\tss'],
+    ['non-ASCII', 'pásswörd'],
+    ['a combining mark', 'pass\u0301'],
+    ['an empty string', ''],
+  ])('THROWS on %s rather than escaping it', (_label, value) => {
+    // ⚠ THE POINT OF THE WHOLE FUNCTION. The standard escape (doubling `'`) is
+    // correct and accepts every string, which leaves every reader auditing an
+    // escape function forever. The only caller GENERATES its input over
+    // `[A-Za-z0-9]`, so a value that fails this did not come from the
+    // generator, and running it is never the right answer.
+    expect(() => quoteLiteral(value)).toThrow(InvalidSqlLiteralError);
+  });
+
+  it('never names the rejected value, because the only literal here is a password', () => {
+    const secret = "hunter2'; DROP ROLE appuser; --";
+
+    try {
+      quoteLiteral(secret, 'role password');
+      throw new Error('expected a throw');
+    } catch (error) {
+      const message = (error as Error).message;
+
+      // The KIND is named so the log is useful; the material is not, so the
+      // log is not a credential store. See InvalidSqlLiteralError's header.
+      expect(message).toContain('role password');
+      expect(message).not.toContain('hunter2');
+      expect(message).not.toContain(secret);
+    }
+  });
+
+  it('rejects a non-string, so a stray null cannot become the literal "null"', () => {
+    expect(() => quoteLiteral(undefined as unknown as string)).toThrow(InvalidSqlLiteralError);
+    expect(() => quoteLiteral(null as unknown as string)).toThrow(InvalidSqlLiteralError);
+  });
+});
+
+describe('quoteTimestampLiteral', () => {
+  it('emits an ISO-8601 instant PostgreSQL parses as timestamptz', () => {
+    expect(quoteTimestampLiteral(new Date('2026-09-07T12:00:00.000Z'))).toBe(
+      "'2026-09-07T12:00:00.000Z'"
+    );
+  });
+
+  it('takes a Date and never a string — the parameter type IS the guard', () => {
+    // There is no overload that accepts text, so there is no path by which a
+    // caller-supplied string reaches a `VALID UNTIL` literal. The runtime
+    // checks below exist for JavaScript callers and for our own bugs.
+    expect(() => quoteTimestampLiteral('2026-09-07' as unknown as Date)).toThrow(
+      InvalidSqlLiteralError
+    );
+    expect(() => quoteTimestampLiteral(new Date(Number.NaN))).toThrow(InvalidSqlLiteralError);
+  });
+
+  it('rejects an instant outside the four-digit-year range', () => {
+    // `toISOString` renders these as `+275760-09-13T00:00:00.000Z`. An expiry a
+    // quarter of a million years out is a bug, not a grant.
+    expect(() => quoteTimestampLiteral(new Date(8.64e15))).toThrow(InvalidSqlLiteralError);
+  });
+});
+
 describe('the derived database names', () => {
   it('appends the suffix and the UTC timestamp', () => {
     expect(buildScratchDatabaseName('appdb', AT)).toBe('appdb_restore_20260907T120000Z');
@@ -344,6 +428,36 @@ describe('the cluster reads', () => {
     const client = fakeClient(() => []);
 
     await expect(probeCreateDatabasePrivilege(client)).resolves.toBe(false);
+  });
+
+  it('probes CREATEROLE rather than assuming it (#350)', async () => {
+    const client = fakeClient(() => [{ can_create: true }]);
+
+    await expect(probeCreateRolePrivilege(client)).resolves.toBe(true);
+    // `rolsuper OR rolcreaterole` — a superuser creates roles without the
+    // attribute being set, exactly as it creates databases without CREATEDB.
+    expect(client.queries[0].text).toContain('rolsuper OR rolcreaterole');
+    expect(client.queries[0].text).toContain('current_user');
+  });
+
+  it('reports a role without CREATEROLE as false — the ordinary managed-PostgreSQL answer', async () => {
+    const client = fakeClient(() => [{ can_create: false }]);
+
+    // NOT a throw. It is a verdict the broker turns into `guided`, because
+    // this is a configuration and not a fault.
+    await expect(probeCreateRolePrivilege(client)).resolves.toBe(false);
+  });
+
+  it('creates nothing while probing CREATEROLE', async () => {
+    const client = fakeClient(() => [{ can_create: true }]);
+
+    await probeCreateRolePrivilege(client);
+
+    // ⚠ Asking "could you mint one?" must never mint one — the same rule the
+    // restore pre-flight follows, and the reason a probe with side effects
+    // leaves a half-made grant nobody recorded.
+    expect(client.queries).toHaveLength(1);
+    expect(client.queries[0].text).toMatch(/^SELECT/);
   });
 
   it('asks the server catalog whether an extension can be created', async () => {

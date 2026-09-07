@@ -105,16 +105,38 @@ export const OLD_SUFFIX = '_old_';
  */
 const SAFE_IDENTIFIER_PATTERN = /^[A-Za-z_][A-Za-z0-9_$]*$/;
 
+/**
+ * String literals this module will quote: ASCII letters and digits, nothing
+ * else, at least one character.
+ *
+ * ⚠ THIS IS DELIBERATELY NARROWER THAN "WHAT POSTGRESQL ACCEPTS IN A STRING".
+ * It is not a general-purpose escaper and must never become one — see
+ * {@link quoteLiteral} for the whole argument. It describes exactly one thing:
+ * the alphabet `PgJobRoleBroker` GENERATES its passwords over.
+ */
+const SAFE_LITERAL_PATTERN = /^[A-Za-z0-9]+$/;
+
+/**
+ * The one timestamp shape {@link quoteTimestampLiteral} will emit.
+ *
+ * `Date.prototype.toISOString`'s output for every year 1000-9999, which is
+ * every instant this application can be asked about. A year outside that range
+ * renders as `+275760-09-13T00:00:00.000Z`, which this rejects — an expiry a
+ * quarter of a million years out is a bug, not a grant.
+ */
+const ISO_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
 // -----------------------------------------------------------------------------
 // Errors
 // -----------------------------------------------------------------------------
 //
 // These are NOT in `db-backup.errors.ts`, and the split is deliberate: that
 // file enumerates the ways a BACKUP can be refused or fail, each of which some
-// caller turns into a status code. Neither of these is a restore verdict —
+// caller turns into a status code. None of these is a restore verdict —
 // pre-flight reports its refusals as VERDICTS in a result object, never as
-// exceptions (that is the whole point of the `guided` outcome). These two are
-// what is left over: a programming error and an infrastructure hang.
+// exceptions (that is the whole point of the `guided` outcome), and #350's
+// role broker reports its own the same way. These three are what is left over:
+// two programming errors and an infrastructure hang.
 
 /**
  * An identifier failed {@link SAFE_IDENTIFIER_PATTERN}.
@@ -133,6 +155,35 @@ export class InvalidDatabaseIdentifierError extends Error {
     );
     this.name = 'InvalidDatabaseIdentifierError';
     Object.setPrototypeOf(this, InvalidDatabaseIdentifierError.prototype);
+  }
+}
+
+/**
+ * A value failed {@link SAFE_LITERAL_PATTERN} or {@link ISO_TIMESTAMP_PATTERN}
+ * on its way into a SQL string literal.
+ *
+ * ⚠ THE OFFENDING VALUE IS NOT IN THE MESSAGE, AND MUST NEVER BE. The only
+ * literal this application interpolates is a GENERATED DATABASE PASSWORD
+ * (`CREATE ROLE ... PASSWORD '<pw>'` cannot be parameterised — see
+ * {@link quoteLiteral}), so the one thing a helpful "received: ..." would
+ * achieve is putting live credential material into a log line, an error
+ * response and every aggregator downstream of both. `what` names the KIND of
+ * literal that was rejected and nothing about its contents.
+ *
+ * Thrown, never reported: a rejection here means the generator produced
+ * something outside its own alphabet, which is a programming error and not a
+ * condition any operator can act on.
+ */
+export class InvalidSqlLiteralError extends Error {
+  constructor(readonly what: string) {
+    super(
+      `A ${what} this application was about to put into a SQL string literal is not one it ` +
+        'will interpolate. Generated literals are ASCII letters and digits only, and ' +
+        'timestamps are ISO-8601 instants; the value itself is deliberately not reported, ' +
+        'because the only literal this application interpolates is a credential.'
+    );
+    this.name = 'InvalidSqlLiteralError';
+    Object.setPrototypeOf(this, InvalidSqlLiteralError.prototype);
   }
 }
 
@@ -400,6 +451,85 @@ export function quoteIdentifier(identifier: string): string {
 }
 
 /**
+ * Quotes a GENERATED string literal for DDL, THROWING on any character outside
+ * `[A-Za-z0-9]` rather than escaping it.
+ *
+ * ⚠ WHY A LITERAL IS INTERPOLATED AT ALL, WHICH IS THE FIRST THING TO CHECK.
+ * `CREATE ROLE ... PASSWORD $1` is a syntax error for the same reason
+ * `CREATE DATABASE $1` is: bind parameters carry VALUES into a plan, and the
+ * `CREATE ROLE` grammar wants an `Sconst` — a literal string in the statement
+ * text. There is no `ALTER ROLE` form that takes a parameter either. So a
+ * password reaches PostgreSQL by being written into the statement, once, here,
+ * and this function is the only thing between the generator and arbitrary SQL.
+ *
+ * IT REJECTS RATHER THAN ESCAPES, and unlike {@link quoteIdentifier} — where
+ * the same argument is about an operator's `POSTGRES_DB` — here it costs
+ * literally nothing, because THE ONLY CALLER GENERATES ITS OWN INPUT.
+ * `PgJobRoleBroker` builds a password over exactly this alphabet from
+ * `randomBytes`; a value that fails this check did not come from that
+ * generator, and no amount of correct escaping makes running it a good idea.
+ *
+ * REJECTED: `value.replace(/'/g, "''")`, the standard doubling escape. It is
+ * CORRECT — and that is the problem with it. It accepts every string, so the
+ * safety of every statement built with it depends forever on a reader being
+ * able to prove the escape function is right about every case: embedded NULs,
+ * invalid UTF-8, a backslash under a `standard_conforming_strings` that some
+ * managed provider set to `off`, a dollar-quoted tail. An allowlist has the
+ * opposite failure mode — the worst it can do is refuse a legal value, loudly,
+ * from a code path we own — and it turns a class of injection bug into a state
+ * that cannot be represented rather than one that is handled.
+ *
+ * ⚠ THE REJECTED VALUE IS NEVER NAMED, in the error or in a log. See
+ * {@link InvalidSqlLiteralError}: the only literal this application
+ * interpolates is a live database password.
+ *
+ * @param what what KIND of literal this is, for the error message only.
+ */
+export function quoteLiteral(value: string, what = 'literal'): string {
+  if (typeof value !== 'string' || !SAFE_LITERAL_PATTERN.test(value)) {
+    throw new InvalidSqlLiteralError(what);
+  }
+
+  return `'${value}'`;
+}
+
+/**
+ * Quotes an instant for `VALID UNTIL`, TAKING A `Date` AND NEVER A STRING.
+ *
+ * ⚠ THE PARAMETER TYPE IS THE SECURITY PROPERTY. `VALID UNTIL` is another
+ * `Sconst` — it cannot be parameterised — so an expiry is interpolated exactly
+ * like a password is. But an ISO-8601 instant contains `-`, `:`, `.`, `T` and
+ * `Z`, so it cannot go through {@link quoteLiteral}'s alphabet, and widening
+ * that alphabet to admit them would weaken the one guard the password depends
+ * on. Taking a `Date` instead removes the question: there is no caller-supplied
+ * STRING anywhere on this path, the text is produced by
+ * `Date.prototype.toISOString`, and the pattern check below is a belt-and-braces
+ * assertion about our own formatter rather than a filter on someone's input.
+ *
+ * REJECTED: a `quoteLiteral(value, PATTERN)` overload taking the caller's own
+ * regular expression. That makes the alphabet a parameter — which is to say it
+ * makes the guard something each call site re-decides, and the call site that
+ * gets it wrong is the one nobody reviews.
+ *
+ * PostgreSQL parses `2026-09-07T12:00:00.000Z` as a `timestamptz` (ISO 8601,
+ * `T` separator, `Z` meaning UTC), so no local-timezone assumption is made
+ * anywhere: the grant expires at an instant, not at a wall-clock reading.
+ */
+export function quoteTimestampLiteral(at: Date): string {
+  if (!(at instanceof Date) || Number.isNaN(at.getTime())) {
+    throw new InvalidSqlLiteralError('timestamp');
+  }
+
+  const iso = at.toISOString();
+
+  if (!ISO_TIMESTAMP_PATTERN.test(iso)) {
+    throw new InvalidSqlLiteralError('timestamp');
+  }
+
+  return `'${iso}'`;
+}
+
+/**
  * `<base>_restore_<timestamp>` / `<base>_old_<timestamp>`, TRIMMING THE BASE.
  *
  * ⚠ THE SUFFIX MUST SURVIVE, AND THE SERVER WOULD TRIM THE OTHER END. Postgres
@@ -473,6 +603,46 @@ export function buildOldDatabaseName(liveDatabase: string, at: Date): string {
 export async function probeCreateDatabasePrivilege(client: AdminQueryClient): Promise<boolean> {
   const result = await client.query(
     'SELECT (rolsuper OR rolcreatedb) AS can_create FROM pg_roles WHERE rolname = current_user'
+  );
+
+  return result.rows[0]?.can_create === true;
+}
+
+/**
+ * Whether the connected role may `CREATE ROLE` (issue #350, epic #345).
+ *
+ * THE DIRECT SIBLING OF {@link probeCreateDatabasePrivilege}, and it exists for
+ * the same reason one query lower down the same file: managed PostgreSQL
+ * withholds role management from application roles as a matter of course,
+ * because the provider owns it. `PgJobRoleBroker` mints a per-job login role,
+ * so on those platforms it simply cannot — and that is the ORDINARY case, not
+ * a fault. Probing turns it into a `guided` verdict an operator can act on
+ * before a backup is ever offered to a node, instead of a driver error at 2am
+ * on a machine they cannot see.
+ *
+ * `rolsuper OR rolcreaterole`, because a superuser creates roles without the
+ * attribute being set — the same shape, and the same reasoning, as the
+ * `CREATEDB` probe. `current_user` rather than the configured user name: `SET
+ * ROLE`, a pooler, or a `DATABASE_URL` override can all make the session's role
+ * something other than what the environment says.
+ *
+ * ⚠ A READ. It creates nothing, exactly as `JobSecretBroker.usable()` is
+ * contracted to create nothing — asking "could you mint one?" must never be a
+ * step that mints one, or every refused request leaves a half-made grant nobody
+ * recorded.
+ *
+ * NOT SUFFICIENT ON ITS OWN, and worth saying because it is easy to read this
+ * as the whole gate: `CREATEROLE` lets a role be created, and the grants that
+ * follow (`GRANT CONNECT`, `GRANT SELECT ON ALL TABLES`) need the granting role
+ * to hold those privileges WITH GRANT OPTION or to own the objects. In the
+ * ordinary deployment the application role owns its own schema, so holding
+ * `CREATEROLE` is the only part that is ever missing; a deployment where it is
+ * not gets a real error from the `GRANT`, which the broker surfaces as a
+ * refusal rather than as a half-privileged role.
+ */
+export async function probeCreateRolePrivilege(client: AdminQueryClient): Promise<boolean> {
+  const result = await client.query(
+    'SELECT (rolsuper OR rolcreaterole) AS can_create FROM pg_roles WHERE rolname = current_user'
   );
 
   return result.rows[0]?.can_create === true;
