@@ -14,7 +14,7 @@
 // that is missing.
 // =============================================================================
 
-import { APP_NAME } from '@app/shared';
+import { APP_NAME, REPO_URL } from '@app/shared';
 
 /**
  * Builds the Markdown intro.
@@ -167,6 +167,6 @@ Deactivated users are rejected at authentication time regardless of their roles.
 ## Further reading
 
 Architecture, security and operations documentation lives in the repository under
-[\`docs/\`](https://github.com/marinoscar/EnterpriseAppBase/tree/main/docs).
+[\`docs/\`](${REPO_URL}/tree/main/docs).
 `.trim();
 }
