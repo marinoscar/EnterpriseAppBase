@@ -2293,7 +2293,9 @@ throws, and a filesystem sweep.
 
 | Claim | Covered by |
 |---|---|
-| `stuckRunningWhere` carries all three signals, OR'd, with the lease compared against `now` and the ages against the threshold | `src/jobs/job-stuck.service.spec.ts` |
+| `stuckRunningWhere` carries all four signals, OR'd, each compared against its own instant (ages against the threshold, an expired lease against `now`, an implausible one against the lease horizon), and no age clause ever matches a leased row | `src/jobs/job-stuck.service.spec.ts`, and against real rows in `test/jobs/job-lease-renewal.db.spec.ts` |
+| A continuously renewed job is never requeued at any age; renewal refuses an expired lease, a requeued row and a row a node now holds | `test/jobs/job-lease-renewal.db.spec.ts`, `src/jobs/job-lease.service.spec.ts` |
+| The in-process worker renews for the whole of `process()`, on the type's own lease, and its ticker is cancelled by `stop()` | `src/jobs/job.worker.spec.ts` |
 | The give-up phase runs one row at a time so each message names that job's attempts; neither phase writes `attempts` | `src/jobs/job-stuck.service.spec.ts` |
 | A settings read that throws falls back to the shipped threshold; a missing `jobs.maxAttempts` falls back to 3 rather than `NaN` | `src/jobs/job-stuck.service.spec.ts` |
 | The reaper runs under **every** worker mode, including `off`, and stops only for `JOBS_REAPER_ENABLED=false` | `src/jobs/tasks/job-stuck-reset.task.spec.ts` |

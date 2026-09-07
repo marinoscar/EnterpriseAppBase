@@ -58,11 +58,22 @@ taste — putting it on the queue corrupts backups.
    same derived storage key as the first, and two processes interleave their
    output into one object. The archive that results restores nothing, and
    nothing reports an error: both runs can exit 0.
-2. **The in-process worker has no lease-renewal path.** `JobWorker` claims
-   with a lease and never extends it, so point 1 is not a rare race — it is
-   unconditional for any job that outlives the threshold. A remote node
-   renews; the in-process worker, which is what a single-container deployment
-   has, does not.
+2. ~~**The in-process worker has no lease-renewal path.**~~ **ANSWERED BY
+   #347** (epic #345), and recorded here rather than deleted because it was
+   true when this spec was written and the fix is what changed it. `JobWorker`
+   used to claim with a lease and never extend it, which made point 1 not a
+   rare race but *unconditional* for any job outliving the threshold — a
+   remote node renewed, and the in-process worker a single-container
+   deployment actually runs did not. It now renews for the whole of
+   `process()` through `JobLeaseService`, the same service the node plane
+   renews through, and the reaper no longer judges a **leased** row by its
+   age at all (`docs/ARCHITECTURE.md` §12.3). Point 1's mechanism is
+   correspondingly narrowed: a live `pg_dump` that keeps renewing is not
+   reset to `pending`.
+
+   Whether that makes a backup safe to *migrate* onto the queue is a separate
+   question this spec does not answer — point 3 stands on its own, and the
+   paragraph below still governs.
 3. **A job has an attempt budget and automatic retry.** Re-running a failed
    multi-gigabyte dump burns hours of I/O on a database that is probably
    already unwell. The correct retry for a backup is *the next scheduled

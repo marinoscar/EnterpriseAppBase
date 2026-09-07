@@ -1247,18 +1247,50 @@ may not fully control.
 ### 12.3 The lease
 
 A claimed job is not just `running` — it carries `lease_expires_at`, derived
-by the server from `JOBS_JOB_TIMEOUT_MS` and **not negotiable by either
-executor** (a node cannot request its own lease length; see
-`docs/specs/worker-nodes.md` for why that would let one bad actor park every
-row it claims). Both executors renew the lease while work is in progress (a
-node explicitly, via `POST …/renew`; the in-process worker implicitly, by
-holding the row for the duration of `process()`). A lease reaper —
-`JOBS_REAPER_ENABLED`, independent of `JOBS_WORKER_MODE` so a pure
-control-plane API still reaps for its fleet — sweeps jobs whose lease expired
-with no settlement: still-retryable jobs are requeued, jobs that have spent
-their attempt budget are permanently failed. This is the same mechanism
-whether the abandoning executor was a killed API replica or a worker node
-that lost power; the queue does not distinguish the two.
+by the server from the job type's own `maxRuntimeMs` where it declares one and
+from `JOBS_JOB_TIMEOUT_MS` otherwise, and **not negotiable by either executor**
+(a node cannot request its own lease length; see `docs/specs/worker-nodes.md`
+for why that would let one bad actor park every row it claims).
+
+**Both executors renew the lease explicitly, through the same code.** A node
+calls `POST …/renew` on a cadence the server hands it with each assignment
+(`renewIntervalMs`, a third of that job's lease); the in-process worker runs a
+ticker on the same derived interval for the whole of `process()`. Both reach
+`JobLeaseService.renew`, whose guard — the row must still be `running`, still
+held by the caller, and its lease must not yet have passed — is written once
+rather than once per executor. A renewal that finds the row is no longer the
+caller's stops the ticker and logs at `error`: the work continues, because
+JavaScript cannot cancel a promise mid-`await`, but a worker that has lost the
+row does not go on re-forging the queue's view of it.
+
+This is a correctness requirement, not an optimisation. Until issue #347 the
+in-process worker wrote a lease at claim time and never touched the row again,
+and the reaper's aged-claim signal requeued any job that had been running
+longer than `jobs.stuckThresholdMinutes` regardless of its lease — so every
+handler that outran that threshold was started a second time, concurrently,
+with nothing in the logs.
+
+A lease reaper — `JOBS_REAPER_ENABLED`, independent of `JOBS_WORKER_MODE` so a
+pure control-plane API still reaps for its fleet — sweeps abandoned `running`
+rows on **four** OR'd signals, evaluated against one set of instants per sweep:
+
+1. **aged and unleased** — `started_at` older than the threshold with no lease
+   at all (a fork's own claim path, a hand-inserted row, a pre-lease
+   migration). Age is consulted only where there is no lease to consult
+   instead, which is what makes a renewing job safe at any age.
+2. **zombie** — `running` with no `started_at` and no lease, aged by
+   `created_at`; invisible to every other signal, and stuck forever without
+   this one.
+3. **dead owner** — the lease has passed. The fastest and most precise signal,
+   and the only one that does not wait out the threshold.
+4. **implausible lease** — a lease further out than the longest lease any
+   registered handler could legitimately ask for, which is what still catches a
+   clock jump or a corrupt write now that signals 1 and 2 ignore leased rows.
+
+Still-retryable jobs are requeued, jobs that have spent their attempt budget
+are permanently failed. This is the same mechanism whether the abandoning
+executor was a killed API replica or a worker node that lost power; the queue
+does not distinguish the two.
 
 ### 12.4 The deliberate absence of Redis
 
