@@ -94,6 +94,18 @@
 // persist function describes a payload nobody can store, and a persist
 // function with no schema would trust an unvalidated remote body. Do not add
 // one of them here ahead of the other.
+//
+// -----------------------------------------------------------------------------
+// #350 ADDS THE CREDENTIAL, WHICH IS A DIFFERENT FACT FROM ELIGIBILITY
+// -----------------------------------------------------------------------------
+//
+// `nodeSecretBroker` (below) declares that a REMOTE executor of this type needs
+// a database credential and names the thing that mints it. It changes nothing
+// about the paragraph above: a broker is not `nodeResultSchema`, this type is
+// still in `serverOnlyTypes()`, and no node can claim it until #352. The two
+// halves land separately on purpose — the broker is the half that needed a real
+// PostgreSQL to review (`pg-job-role.broker.db.spec.ts` dumps the database as
+// the minted role), and it is inert until the result contract exists.
 // =============================================================================
 
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
@@ -106,6 +118,8 @@ import {
 import { JobHandler } from '../../jobs/job-handler.interface';
 import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
 import type { JobExecutionProfile } from '../../jobs/job-execution-profile';
+import type { JobSecretBroker } from '../../jobs/job-secret-broker';
+import { PgJobRoleBroker } from '../pg-job-role.broker';
 
 /**
  * The wall-clock ceiling for one dump, in milliseconds.
@@ -151,10 +165,42 @@ export class DatabaseBackupRunHandler implements JobHandler, OnModuleInit {
     maxAttempts: 1,
   };
 
+  /**
+   * The credential a REMOTE executor of this type needs — the first broker
+   * registered anywhere in this repository (#350, epic #345).
+   *
+   * ⚠ PRESENCE IS THE DECLARATION, exactly as it is for `nodeResultSchema` +
+   * `persistNodeResult`. There is no `requiresSecret: 'postgres'` string and no
+   * switch keyed on one; hanging the implementation itself off the handler is
+   * what makes "a type that names a secret nobody can mint" unrepresentable.
+   * See `job-secret-broker.ts`'s header for the whole argument.
+   *
+   * ⚠ THIS DOES NOT MAKE THE TYPE NODE-ELIGIBLE, AND THE TWO ARE INDEPENDENT
+   * FACTS. Eligibility is derived from `nodeResultSchema` + `persistNodeResult`,
+   * which #352 adds; until then `JobHandlerRegistry.serverOnlyTypes()` still
+   * contains this type and no node can claim it. Declaring the broker first is
+   * deliberate — it is the half that needs a real PostgreSQL to review, and it
+   * is inert until the other half lands.
+   *
+   * ⚠ NOR IS IT PERMISSION TO USE ONE. Whether a node in THIS deployment may
+   * hold a credential to THIS database is an administrator's trust-boundary
+   * decision: `nodes.jobSecretBrokerEnabled`, default OFF. With it off the type
+   * is withheld from the claim entirely (`NodesService.nodeEligibleTypes`) and
+   * the secret route refuses with a named reason.
+   *
+   * Injected rather than constructed here so the broker is a normal provider
+   * with a substitutable cluster seam — and so that exactly one instance exists,
+   * which is what makes its `CREATEROLE` probe cache mean anything.
+   */
+  readonly nodeSecretBroker: JobSecretBroker;
+
   constructor(
     private readonly registry: JobHandlerRegistry,
-    private readonly runner: DatabaseBackupRunnerService
-  ) {}
+    private readonly runner: DatabaseBackupRunnerService,
+    broker: PgJobRoleBroker
+  ) {
+    this.nodeSecretBroker = broker;
+  }
 
   /** Self-registration — the only wiring a handler needs. */
   onModuleInit(): void {

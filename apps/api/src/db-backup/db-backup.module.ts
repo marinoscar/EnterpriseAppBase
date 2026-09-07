@@ -11,6 +11,7 @@ import { DatabaseBackupRetentionService } from './db-backup-retention.service';
 import { DatabaseBackupRunnerService } from './db-backup-runner.service';
 import { DatabaseBackupController } from './db-backup.controller';
 import { DatabaseBackupRunHandler } from './handlers/db-backup-run.handler';
+import { PgJobRoleBroker } from './pg-job-role.broker';
 import { DatabaseRestorePreflightService } from './restore-preflight.service';
 import { DatabaseBackupScheduleTask } from './tasks/db-backup-schedule.task';
 
@@ -233,6 +234,31 @@ import { DatabaseBackupScheduleTask } from './tasks/db-backup-schedule.task';
 // handler changes nothing about that: it delegates to `runQueuedBackup` and
 // holds no Prisma client of its own. Two writers of that table would make the
 // single-active-run index a coincidence rather than a guarantee.
+//
+// -----------------------------------------------------------------------------
+// #350 (EPIC #345) ADDS `PgJobRoleBroker`, THE FIRST `JobSecretBroker` ANYWHERE
+// -----------------------------------------------------------------------------
+//
+// A provider, injected into `DatabaseBackupRunHandler` (which exposes it as
+// `nodeSecretBroker`) and into `DatabaseBackupAdminService` (which exposes its
+// pre-flight over HTTP). It needs NO new import: everything it does goes through
+// a short-lived `pg.Client` outside the Prisma pool, the same way the restore
+// path does, and `PG_JOB_ROLE_SEAM` joins the list of OPTIONAL tokens
+// deliberately left unbound for exactly the reason `RESTORE_PREFLIGHT_SEAM` is
+// — a stubbed cluster in production is a broker that reports minting
+// credentials it never made.
+//
+// ⚠ ONE INSTANCE, AND THAT IS LOAD-BEARING RATHER THAN INCIDENTAL. Nest
+// providers are singletons per module, and the broker caches its `CREATEROLE`
+// probe for a minute (`USABLE_CACHE_MS`) precisely so a polling fleet does not
+// re-probe per node per tick. Constructing a broker inside the handler instead
+// would give the cache one owner per construction, which is a cache that never
+// hits.
+//
+// It is NOT exported. The two consumers are both in this module, and a broker
+// reachable from elsewhere is an invitation to mint a database credential
+// outside the one route that authorises it (`POST /api/nodes/:id/jobs/:jobId
+// /secret`, gated on the hold guard, the opt-in setting and `usable()`).
 // =============================================================================
 
 @Module({
@@ -250,6 +276,7 @@ import { DatabaseBackupScheduleTask } from './tasks/db-backup-schedule.task';
     DatabaseBackupAdminService,
     DatabaseBackupScheduleTask,
     DatabaseBackupRunHandler,
+    PgJobRoleBroker,
     DatabaseRestorePreflightService,
     DatabaseRestoreService,
   ],

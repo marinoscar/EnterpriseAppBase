@@ -142,6 +142,44 @@ import { NodesService } from './nodes.service';
  * deployment this number is never reached, because the settle-event path has
  * already revoked almost everything before the sweep runs.
  */
+/**
+ * How far past the job's lease a credential is asked to stay valid, in
+ * milliseconds — a CLOCK-SKEW ALLOWANCE, and not a grace period on the node's
+ * authorization.
+ *
+ * ⚠ THE TWO DEADLINES ARE EVALUATED BY DIFFERENT CLOCKS, AND THAT IS THE WHOLE
+ * REASON THIS NUMBER EXISTS. The lease is computed and enforced here, on this
+ * process's clock; a credential's expiry is enforced by the BACKEND that issued
+ * it — PostgreSQL checks `VALID UNTIL` against the database server's own clock
+ * at authentication time. A credential set to expire at exactly the lease
+ * deadline therefore dies EARLY on any deployment whose database clock runs
+ * even slightly ahead, and it dies part-way through the work rather than
+ * before it: an authentication failure in the middle of a multi-hour dump,
+ * which is both the most expensive place to fail and the hardest to attribute.
+ *
+ * Sixty seconds is far beyond any plausible NTP skew and far below anything an
+ * attacker could use. It does not extend a node's authority: the node is
+ * renewing its lease continuously while it works (#347), the settle listener
+ * revokes on the terminal write, and the sweeper's predicate is the hold
+ * guard's complement — so the practical lifetime of a credential remains
+ * "until the node stops", plus a minute during which nothing will accept the
+ * job as held anyway.
+ *
+ * ⚠ IT LIVES HERE, AND NOT IN ANY BROKER, ON PURPOSE. `JobSecretBroker.issue`
+ * is contracted to honour `until` EXACTLY — "a broker may grant LESS ... it
+ * must not grant more" — and a broker that quietly added its own overhang would
+ * make that sentence false for the first implementation that shipped, which is
+ * how a contract stops being load-bearing. Worse, every future broker would
+ * then pick its own unspecified overhang. How long a credential should live is
+ * one decision, and this is the one funnel every broker is reached through, so
+ * it is taken once, here, and every broker gets the allowance for free.
+ *
+ * `IssuedJobSecret.expiresAt` still reports what the broker actually managed to
+ * set, so the sweeper's own `row.expiresAt > now` check sees the truth rather
+ * than the request.
+ */
+export const SECRET_CLOCK_SKEW_ALLOWANCE_MS = 60_000;
+
 const SWEEP_BATCH_SIZE = 200;
 
 /** What one sweep did, for the cron's log line. */
@@ -192,11 +230,15 @@ export class NodeSecretBrokerService {
    * and revocation — which knows exactly one handle — would clean up exactly
    * one of them.
    *
-   * The credential's validity is the JOB'S LEASE EXPIRY. Not a duration
-   * configured here, not one the node asked for: the node is already renewing
-   * that lease (#347), so the credential rides a clock that is maintained for
-   * other reasons and that stops the instant the node stops. A second clock
-   * could only disagree with it, and the disagreement would be silent.
+   * The credential's validity is the JOB'S LEASE EXPIRY, plus
+   * {@link SECRET_CLOCK_SKEW_ALLOWANCE_MS}. Not a duration configured by a
+   * broker, not one the node asked for: the node is already renewing that lease
+   * (#347), so the credential rides a clock that is maintained for other
+   * reasons and that stops the instant the node stops. A second clock could
+   * only disagree with it, and the disagreement would be silent. The allowance
+   * is not a second clock either — it is a tolerance on the fact that the
+   * credential's deadline is enforced by the BACKEND's clock and the lease by
+   * ours; see the constant for why it is taken here rather than by each broker.
    */
   async issueForJob(
     userId: string,
@@ -234,10 +276,14 @@ export class NodeSecretBrokerService {
     // 5. Could the broker mint anything, in this deployment, right now?
     await this.assertUsable(job, broker);
 
-    // The credential's clock IS the lease. `assertJobHeldByNode` proved this is
-    // non-null and in the future, so the non-null assertion here is discharged
-    // by the guard rather than assumed.
-    const until = job.leaseExpiresAt as Date;
+    // The credential's clock IS the lease, plus the clock-skew allowance above
+    // — the one place in this system that decides how long a job credential
+    // lives. `assertJobHeldByNode` proved `leaseExpiresAt` is non-null and in
+    // the future, so the non-null assertion here is discharged by the guard
+    // rather than assumed.
+    const until = new Date(
+      (job.leaseExpiresAt as Date).getTime() + SECRET_CLOCK_SKEW_ALLOWANCE_MS
+    );
 
     const issued = await broker.issue(job, until);
 

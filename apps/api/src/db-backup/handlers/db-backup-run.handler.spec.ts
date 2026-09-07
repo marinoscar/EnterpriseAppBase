@@ -38,6 +38,7 @@ import { LEASE_GRACE_MS, resolveJobLeaseMs } from '../../jobs/job.worker';
 import { JOB_TYPE_LABELS } from '../../jobs/job-type-labels';
 import { BACKUP_JOB_TYPE } from '../db-backup-runner.service';
 import type { DatabaseBackupRunnerService } from '../db-backup-runner.service';
+import { PG_JOB_ROLE_KIND, PgJobRoleBroker } from '../pg-job-role.broker';
 import { BACKUP_JOB_MAX_RUNTIME_MS, DatabaseBackupRunHandler } from './db-backup-run.handler';
 
 describe('DatabaseBackupRunHandler', () => {
@@ -45,6 +46,7 @@ describe('DatabaseBackupRunHandler', () => {
 
   let registry: JobHandlerRegistry;
   let runQueuedBackup: jest.Mock;
+  let broker: PgJobRoleBroker;
   let handler: DatabaseBackupRunHandler;
 
   /** The deployment-wide defaults, i.e. what this type must NOT be governed by. */
@@ -57,9 +59,18 @@ describe('DatabaseBackupRunHandler', () => {
   beforeEach(() => {
     registry = new JobHandlerRegistry();
     runQueuedBackup = jest.fn(async () => undefined);
-    handler = new DatabaseBackupRunHandler(registry, {
-      runQueuedBackup,
-    } as unknown as DatabaseBackupRunnerService);
+    broker = {
+      kind: PG_JOB_ROLE_KIND,
+      usable: jest.fn(async () => ({ ok: true as const })),
+      issue: jest.fn(),
+      revoke: jest.fn(),
+    } as unknown as PgJobRoleBroker;
+
+    handler = new DatabaseBackupRunHandler(
+      registry,
+      { runQueuedBackup } as unknown as DatabaseBackupRunnerService,
+      broker
+    );
   });
 
   it('registers itself under the type the runner enqueues, and only from onModuleInit', () => {
@@ -140,6 +151,42 @@ describe('DatabaseBackupRunHandler', () => {
       runQueuedBackup.mockRejectedValue(boom);
 
       await expect(handler.process(job)).rejects.toBe(boom);
+    });
+  });
+
+  describe('the per-job credential (#350)', () => {
+    it('declares the injected broker as `nodeSecretBroker` — presence IS the declaration', () => {
+      handler.onModuleInit();
+
+      const registered = registry.get(BACKUP_JOB_TYPE) as JobHandler;
+
+      // Read back through the registry, because the registry is what
+      // `NodeSecretBrokerService` asks: a broker the handler holds but does not
+      // expose is a credential nothing can mint.
+      expect(registered.nodeSecretBroker).toBe(broker);
+      expect(registered.nodeSecretBroker?.kind).toBe(PG_JOB_ROLE_KIND);
+    });
+
+    it('does NOT make the type node-eligible — the broker and the two node members are independent facts', () => {
+      handler.onModuleInit();
+
+      const registered = registry.get(BACKUP_JOB_TYPE) as JobHandler;
+
+      // ⚠ THE ASSERTION #350 MOST NEEDS. Declaring a credential is not
+      // declaring that a node can run the work: eligibility is DERIVED from
+      // `nodeResultSchema` + `persistNodeResult` (#352), and until those exist
+      // a node with a valid `nod_` credential still cannot claim this type.
+      expect(registered.nodeSecretBroker).toBeDefined();
+      expect(registry.serverOnlyTypes()).toContain(BACKUP_JOB_TYPE);
+    });
+
+    it('does not touch the broker at registration time — no probe at boot', () => {
+      handler.onModuleInit();
+
+      // `usable()` opens a connection to the cluster. Calling it from a
+      // lifecycle hook would make every boot depend on PostgreSQL answering a
+      // privilege question nobody has asked yet.
+      expect(broker.usable).not.toHaveBeenCalled();
     });
   });
 
