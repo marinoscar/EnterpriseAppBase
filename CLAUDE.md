@@ -617,6 +617,32 @@ Generating, enabling, rotating, and disabling VAPID keys is
 [`docs/runbooks/vapid-keys.md`](docs/runbooks/vapid-keys.md). Don't restate
 either here; extend those two instead.
 
+### Database Backups
+
+A backup is **not** a queue job, and must not become one — `jobs
+.stuckThresholdMinutes` defaults to 30 minutes, so the lease reaper would
+reset a legitimately long dump to `pending` and a **second `pg_dump`** would
+start against the same storage key. `database_backup_runs` is a dedicated
+table with its own heartbeat, its own stale window
+(`databaseBackup.runStaleMinutes`) and its own terminal states. Two more
+rules that are easy to break by accident: **at most one active run at a time
+is enforced by a partial UNIQUE index** (`database_backup_runs_active_uniq_idx`),
+never by a `findFirst` before the insert — Prisma cannot express that index,
+so it lives hand-written in the migration and is intentional schema drift; and
+**the archive is never buffered** — `pg_dump`'s stdout streams straight into
+object storage through a metering `Transform`, with both the upload and the
+dump's exit code awaited, because either one alone will happily report success
+on a truncated archive.
+
+The design (the model, why the restore audit lives on the backup's own row,
+the streaming contract, the read-it-back verification, the failure ordering,
+cancellation, the storage-provider constraint, and the rejected alternatives)
+is documented in full in
+[`docs/specs/database-backup.md`](docs/specs/database-backup.md). Diagnosing a
+`pg_dump` client/server version mismatch is
+[`docs/runbooks/postgres-client-version.md`](docs/runbooks/postgres-client-version.md).
+Don't restate either here; extend those two instead.
+
 ## Specialized Subagents (MANDATORY)
 
 **CRITICAL REQUIREMENT**: This project uses specialized subagents for all development work. You MUST delegate tasks to the appropriate subagent. Do NOT attempt to perform development tasks directly without using the designated agent.
