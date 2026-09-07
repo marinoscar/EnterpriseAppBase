@@ -31,6 +31,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaClient } from '@prisma/client';
 
 import { DEFAULT_SYSTEM_SETTINGS } from '../../src/common/types/settings.types';
+import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
 import { JobStuckService } from '../../src/jobs/job-stuck.service';
 import { NodeLifecycleService } from '../../src/nodes/node-lifecycle.service';
 import { NodeOfflinePruneTask } from '../../src/nodes/tasks/node-offline-prune.task';
@@ -96,7 +97,7 @@ describeWithDb('Worker-node fleet lifecycle (real Postgres)', () => {
 
     sweep = new NodeStaleOfflineTask(prismaService, lifecycle, config, notifications);
     prune = new NodeOfflinePruneTask(prismaService, lifecycle, config);
-    reaper = new JobStuckService(prismaService, config, settings);
+    reaper = new JobStuckService(prismaService, config, settings, new JobHandlerRegistry());
   });
 
   afterEach(async () => {

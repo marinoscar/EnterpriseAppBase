@@ -23,12 +23,15 @@
 // mock.
 // =============================================================================
 
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Job, Prisma } from '@prisma/client';
 
 import { JobClock } from './job-clock';
 import { JobSettledEvent, JOB_SETTLED_EVENT } from './events/job-settled.event';
+import { resetJobProfileWarnings } from './job-execution-profile';
+import { JobHandlerRegistry } from './job-handler.registry';
 import { JobTerminalService } from './job-terminal.service';
 import { ProviderThrottleService } from './provider-throttle.service';
 import { RateLimitError } from './rate-limit.error';
@@ -105,6 +108,7 @@ describe('JobTerminalService', () => {
   let update: jest.Mock;
   let emit: jest.Mock;
   let throttle: jest.Mocked<Pick<ProviderThrottleService, 'trip' | 'recordSuccess'>>;
+  let registry: JobHandlerRegistry;
   let service: JobTerminalService;
 
   /** The `data` payload of the Nth `prisma.job.update` call. */
@@ -121,12 +125,19 @@ describe('JobTerminalService', () => {
 
     emit = jest.fn();
     throttle = { trip: jest.fn(), recordSuccess: jest.fn() };
+    // EMPTY BY DEFAULT, which is the shape every pre-#346 case assumes: no
+    // handler registered means no profile, means the deployment-wide
+    // `jobs.maxAttempts` — exactly what this service read before profiles
+    // existed.
+    registry = new JobHandlerRegistry();
+    resetJobProfileWarnings();
 
     service = new JobTerminalService(
       { job: { update } } as unknown as PrismaService,
       { get: (key: string) => CONFIG_VALUES[key] } as unknown as ConfigService,
       throttle as unknown as ProviderThrottleService,
       { emit } as unknown as EventEmitter2,
+      registry,
       clock,
       RAND_FLOOR
     );
@@ -749,6 +760,93 @@ describe('JobTerminalService', () => {
   });
 
   // ===========================================================================
+  // Per-type attempt budgets (#346)
+  // ===========================================================================
+  describe('per-type attempt budgets', () => {
+    /** Registers a handler for `vision.describe` carrying `maxAttempts`. */
+    function profiled(maxAttempts: number): void {
+      registry.register({
+        type: 'vision.describe',
+        profile: { maxRuntimeMs: 30_000, maxAttempts },
+        process: async () => undefined,
+      });
+    }
+
+    it('FAILS a maxAttempts:1 job on its first failure instead of retrying it', async () => {
+      // The whole reason the budget is per type. `attempts` is charged at
+      // claim time, so a job in its first run already reads `attempts: 1`; a
+      // budget of 1 must make that the last one. Judged against the
+      // deployment-wide 3 this same row would have been given a backoff and
+      // run again — automatic retry for work whose author said there must not
+      // be one.
+      profiled(1);
+
+      await expect(
+        service.completeFailed(runningJob({ attempts: 1 }), new Error('kaboom'))
+      ).resolves.toBe('failed');
+
+      // Terminal, and with no backoff scheduled — the two halves of "not
+      // retried".
+      expect(written()).toMatchObject({ status: 'failed', scheduledFor: null });
+      expect(written().finishedAt).toBeInstanceOf(Date);
+    });
+
+    it('retries beyond the deployment-wide budget when the type asks for more', async () => {
+      // The other direction, and it has to work too, or "per type" would only
+      // ever mean "fewer".
+      profiled(6);
+
+      await expect(
+        service.completeFailed(runningJob({ attempts: 4 }), new Error('kaboom'))
+      ).resolves.toBe('retry-scheduled');
+
+      expect(written()).toMatchObject({ status: 'pending' });
+    });
+
+    it('quotes the type’s own budget in the retry log, not the deployment’s', async () => {
+      const log = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+      profiled(6);
+
+      await service.completeFailed(runningJob({ attempts: 4 }), new Error('kaboom'));
+
+      expect(String(log.mock.calls.at(-1)?.[0])).toContain('4/6');
+    });
+
+    it('leaves a type with NO profile on the deployment-wide budget', async () => {
+      // The regression guard for every deployment that did not ask for this:
+      // nothing registered, so `attempts: 1` of 3 still schedules a retry.
+      await expect(
+        service.completeFailed(runningJob({ attempts: 1 }), new Error('kaboom'))
+      ).resolves.toBe('retry-scheduled');
+    });
+
+    it('ignores an unusable profile and uses the deployment-wide budget', async () => {
+      registry.register({
+        type: 'vision.describe',
+        profile: { maxRuntimeMs: 30_000, maxAttempts: 0 },
+        process: async () => undefined,
+      });
+
+      // A budget of 0 describes a job that may never be claimed, which is not
+      // a retry policy. It degrades to 3, so attempt 1 still retries.
+      await expect(
+        service.completeFailed(runningJob({ attempts: 1 }), new Error('kaboom'))
+      ).resolves.toBe('retry-scheduled');
+    });
+
+    it('does not consult the profile on the rate-limit path', async () => {
+      // A 429 is "not now", not an attempt at the work — it defers and
+      // un-charges the attempt regardless of any budget, so even a
+      // maxAttempts:1 type is deferred rather than failed.
+      profiled(1);
+
+      await expect(
+        service.completeFailed(runningJob({ attempts: 1 }), new RateLimitError('429'))
+      ).resolves.toBe('rate-limit-deferred');
+    });
+  });
+
+  // ===========================================================================
   // Config fallbacks
   // ===========================================================================
   describe('missing configuration', () => {
@@ -758,6 +856,7 @@ describe('JobTerminalService', () => {
         { get: () => undefined } as unknown as ConfigService,
         throttle as unknown as ProviderThrottleService,
         { emit } as unknown as EventEmitter2,
+        registry,
         clock,
         RAND_FLOOR
       );
@@ -790,6 +889,7 @@ describe('JobTerminalService', () => {
         { get: (key: string) => CONFIG_VALUES[key] } as unknown as ConfigService,
         realThrottle,
         { emit } as unknown as EventEmitter2,
+        registry,
         clock,
         RAND_FLOOR
       );
@@ -823,6 +923,7 @@ describe('JobTerminalService', () => {
         { get: (key: string) => CONFIG_VALUES[key] } as unknown as ConfigService,
         realThrottle,
         { emit } as unknown as EventEmitter2,
+        registry,
         clock,
         RAND_FLOOR
       );

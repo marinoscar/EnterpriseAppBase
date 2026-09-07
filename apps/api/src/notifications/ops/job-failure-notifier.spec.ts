@@ -5,6 +5,7 @@ import type { Job } from '@prisma/client';
 
 import { JobFailureNotifier } from './job-failure-notifier';
 import { NotificationsService } from '../notifications.service';
+import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
 import { JobTerminalService } from '../../jobs/job-terminal.service';
 import { ProviderThrottleService } from '../../jobs/provider-throttle.service';
 import { RateLimitError } from '../../jobs/rate-limit.error';
@@ -138,6 +139,7 @@ describe('JobFailureNotifier, wired to the real settled event', () => {
         recordSuccess: jest.fn(),
       } as unknown as ProviderThrottleService,
       module.get(EventEmitter2),
+      new JobHandlerRegistry(),
       fakeClock(),
       () => 0,
     );

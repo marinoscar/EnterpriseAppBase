@@ -12,8 +12,12 @@
 // settings fallbacks that only happen when a read throws.
 // =============================================================================
 
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { JobExecutionProfile, resetJobProfileWarnings } from './job-execution-profile';
+import { JobHandler } from './job-handler.interface';
+import { JobHandlerRegistry } from './job-handler.registry';
 import { JobStuckService, stuckRunningWhere } from './job-stuck.service';
 import { DEFAULT_SYSTEM_SETTINGS } from '../common/types/settings.types';
 import type { PrismaService } from '../prisma/prisma.service';
@@ -27,6 +31,13 @@ function makeService(overrides: {
   updateMany?: jest.Mock;
   config?: Record<string, unknown>;
   jobsPolicy?: jest.Mock;
+  /**
+   * Handlers to register before the sweep. EMPTY BY DEFAULT, which is the
+   * shape every pre-#346 case assumes: nothing registered means no profile
+   * anywhere, means one budget group, means the exact two queries this
+   * service has always issued.
+   */
+  handlers?: JobHandler[];
 }) {
   const findMany = overrides.findMany ?? jest.fn().mockResolvedValue([]);
   const updateMany = overrides.updateMany ?? jest.fn().mockResolvedValue({ count: 0 });
@@ -46,12 +57,24 @@ function makeService(overrides: {
       }),
   } as unknown as SystemSettingsService;
 
+  const registry = new JobHandlerRegistry();
+
+  for (const handler of overrides.handlers ?? []) {
+    registry.register(handler);
+  }
+
   return {
-    service: new JobStuckService(prisma, config, systemSettings),
+    service: new JobStuckService(prisma, config, systemSettings, registry),
     findMany,
     updateMany,
     systemSettings,
+    registry,
   };
+}
+
+/** A handler that exists only to carry (or not carry) a profile. */
+function handler(type: string, profile?: JobExecutionProfile): JobHandler {
+  return { type, profile, process: async () => undefined };
 }
 
 describe('stuckRunningWhere', () => {
@@ -269,6 +292,191 @@ describe('JobStuckService.resetStuck', () => {
 
     expect(failWhere.OR).toEqual(readWhere.OR);
     expect(requeueWhere.OR).toEqual(readWhere.OR);
+  });
+
+  // ===========================================================================
+  // Per-type attempt budgets (#346)
+  // ===========================================================================
+
+  describe('per-type attempt budgets', () => {
+    beforeEach(() => {
+      resetJobProfileWarnings();
+      jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+      jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('issues exactly ONE requeue sweep, with no type filter, when nothing is profiled', async () => {
+      // THE REGRESSION GUARD FOR EVERY DEPLOYMENT THAT DID NOT ASK FOR THIS.
+      // The reaper's query shape is unchanged: one `updateMany`, the same
+      // `attempts: { lt: 3 }`, and — crucially — no `type` clause at all, so
+      // rows of a type this process does not register are still reaped.
+      const updateMany = jest.fn().mockResolvedValue({ count: 2 });
+      const { service } = makeService({ updateMany, handlers: [handler('plain.type')] });
+
+      await expect(service.resetStuck()).resolves.toEqual({ reset: 2, failed: 0 });
+
+      expect(updateMany).toHaveBeenCalledTimes(1);
+
+      const [requeue] = updateMany.mock.calls[0] as [{ where: Record<string, unknown> }];
+
+      expect(requeue.where).toMatchObject({ status: 'running', attempts: { lt: 3 } });
+      expect(requeue.where).not.toHaveProperty('type');
+    });
+
+    it('NEVER REQUEUES a maxAttempts:1 job — the retry the profile forbids', async () => {
+      // The bug this exists to prevent, stated as a test. `attempts` is
+      // charged at claim time, so a one-attempt job whose executor died sits
+      // at `attempts: 1`. Judged against the deployment-wide 3 the reaper
+      // would decide it still had budget and requeue it — resurrecting the
+      // automatic retry the profile forbids, on the one path nobody watches.
+      const updateMany = jest.fn().mockResolvedValue({ count: 0 });
+      const { service } = makeService({
+        updateMany,
+        handlers: [handler('never.retry', { maxRuntimeMs: 30_000, maxAttempts: 1 })],
+      });
+
+      await service.resetStuck();
+
+      // Nothing was over budget, so every `updateMany` here is a requeue
+      // sweep: the fallback group first, then one per override.
+      const sweeps = updateMany.mock.calls.map(
+        ([call]) => (call as { where: Record<string, unknown> }).where
+      );
+
+      expect(sweeps).toHaveLength(2);
+
+      // The profiled type is compared against ITS OWN budget...
+      expect(sweeps[1]).toMatchObject({
+        type: { in: ['never.retry'] },
+        attempts: { lt: 1 },
+      });
+
+      // ...and the fallback sweep EXCLUDES it, so the deployment-wide 3
+      // cannot pick it up through the other query instead. Without this
+      // exclusion the whole thing is decorative: the row would be requeued
+      // anyway, just by a different statement.
+      expect(sweeps[0]).toMatchObject({
+        type: { notIn: ['never.retry'] },
+        attempts: { lt: 3 },
+      });
+    });
+
+    it('FAILS a maxAttempts:1 job the reaper finds, naming its own budget', async () => {
+      const findMany = jest
+        .fn()
+        .mockResolvedValue([{ id: 'job-a', type: 'never.retry', attempts: 1 }]);
+      const updateMany = jest.fn().mockResolvedValue({ count: 1 });
+      const { service } = makeService({
+        findMany,
+        updateMany,
+        handlers: [handler('never.retry', { maxRuntimeMs: 30_000, maxAttempts: 1 })],
+      });
+
+      const result = await service.resetStuck();
+
+      expect(result.failed).toBe(1);
+
+      const [failCall] = updateMany.mock.calls[0] as [{ data: Record<string, unknown> }];
+
+      expect(failCall.data).toMatchObject({ status: 'failed' });
+      // The quoted cap is THIS type's, not the deployment's 3.
+      expect(String(failCall.data.lastError)).toContain('after 1 attempt(s)');
+      expect(String(failCall.data.lastError)).toContain('(1)');
+    });
+
+    it('reads the give-up set as the union of every budget in play', async () => {
+      // One query, not one per group: the read is where the two phases agree
+      // about which rows are over budget, and it has to see all of them.
+      const findMany = jest.fn().mockResolvedValue([]);
+      const { service } = makeService({
+        findMany,
+        handlers: [
+          handler('plain.type'),
+          handler('never.retry', { maxRuntimeMs: 30_000, maxAttempts: 1 }),
+          handler('stubborn.type', { maxRuntimeMs: 30_000, maxAttempts: 9 }),
+        ],
+      });
+
+      await service.resetStuck();
+
+      const where = findMany.mock.calls[0][0].where as {
+        AND: [{ OR: Array<Record<string, unknown>> }];
+      };
+
+      // `AND`, not a second top-level `OR`: the three recovery signals and
+      // the budget union must BOTH hold, not either.
+      expect(where.AND[0].OR).toEqual(
+        expect.arrayContaining([
+          { type: { notIn: expect.arrayContaining(['never.retry', 'stubborn.type']) }, attempts: { gte: 3 } },
+          { type: { in: ['never.retry'] }, attempts: { gte: 1 } },
+          { type: { in: ['stubborn.type'] }, attempts: { gte: 9 } },
+        ])
+      );
+    });
+
+    it('groups types that share a budget into ONE sweep', async () => {
+      // Bounded by the number of DISTINCT budgets, not by the number of types
+      // and certainly not by the size of the stuck set.
+      const updateMany = jest.fn().mockResolvedValue({ count: 0 });
+      const { service } = makeService({
+        updateMany,
+        handlers: [
+          handler('a.once', { maxRuntimeMs: 1_000, maxAttempts: 1 }),
+          handler('b.once', { maxRuntimeMs: 2_000, maxAttempts: 1 }),
+          handler('c.plain'),
+        ],
+      });
+
+      await service.resetStuck();
+
+      // One fallback sweep plus one for the shared budget of 1.
+      expect(updateMany).toHaveBeenCalledTimes(2);
+    });
+
+    it('treats a profile that restates the deployment default as no override', async () => {
+      // Otherwise a handler could accidentally cost the whole process the
+      // single-query fast path while changing nothing.
+      const updateMany = jest.fn().mockResolvedValue({ count: 0 });
+      const { service } = makeService({
+        updateMany,
+        handlers: [handler('same.as.default', { maxRuntimeMs: 30_000, maxAttempts: 3 })],
+      });
+
+      await service.resetStuck();
+
+      expect(updateMany).toHaveBeenCalledTimes(1);
+      expect((updateMany.mock.calls[0][0] as { where: object }).where).not.toHaveProperty('type');
+    });
+
+    it('ignores an unusable profile and keeps the single-sweep shape', async () => {
+      const updateMany = jest.fn().mockResolvedValue({ count: 0 });
+      const { service } = makeService({
+        updateMany,
+        handlers: [handler('bad.type', { maxRuntimeMs: 1_000, maxAttempts: 0 })],
+      });
+
+      await service.resetStuck();
+
+      expect(updateMany).toHaveBeenCalledTimes(1);
+      expect((updateMany.mock.calls[0][0] as { where: object }).where).not.toHaveProperty('type');
+    });
+
+    it('sums the requeue counts across every sweep', async () => {
+      const updateMany = jest
+        .fn()
+        .mockResolvedValueOnce({ count: 5 })
+        .mockResolvedValueOnce({ count: 2 });
+      const { service } = makeService({
+        updateMany,
+        handlers: [handler('never.retry', { maxRuntimeMs: 1_000, maxAttempts: 1 })],
+      });
+
+      await expect(service.resetStuck()).resolves.toEqual({ reset: 7, failed: 0 });
+    });
   });
 
   it('counts only the give-up updates that actually matched a row', async () => {

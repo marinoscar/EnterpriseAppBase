@@ -58,6 +58,7 @@ import { PrismaClient, Prisma } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 
 import { JobClaimService } from '../../src/jobs/job-claim.service';
+import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
 import { JobStuckService } from '../../src/jobs/job-stuck.service';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import type { SystemSettingsService } from '../../src/settings/system-settings/system-settings.service';
@@ -129,7 +130,7 @@ describeWithDb('Two executors and the reaper, against real Postgres', () => {
       executor: 'server' as const,
       eligibleTypes: [type],
       limit,
-      leaseMs: LEASE_MS,
+      leases: [{ type: type, leaseMs: LEASE_MS }],
     });
 
     // Draw two at a time, ONE FROM EACH CLAIMER, SIMULTANEOUSLY, until the
@@ -179,7 +180,12 @@ describeWithDb('Two executors and the reaper, against real Postgres', () => {
       }),
     } as unknown as SystemSettingsService;
 
-    const reaper = new JobStuckService(clientA as unknown as PrismaService, config, settings);
+    const reaper = new JobStuckService(
+      clientA as unknown as PrismaService,
+      config,
+      settings,
+      new JobHandlerRegistry()
+    );
 
     await clientA.job.create({ data: { type, reason: 'backfill' } });
 
@@ -194,7 +200,7 @@ describeWithDb('Two executors and the reaper, against real Postgres', () => {
         executor: 'server',
         eligibleTypes: [type],
         limit: 1,
-        leaseMs: SHORT_LEASE_MS,
+        leases: [{ type: type, leaseMs: SHORT_LEASE_MS }],
       });
 
       expect(claimed).toBeDefined();

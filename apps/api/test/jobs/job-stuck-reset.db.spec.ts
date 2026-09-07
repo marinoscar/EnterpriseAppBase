@@ -23,6 +23,7 @@
 import { ConfigService } from '@nestjs/config';
 import { Prisma, PrismaClient } from '@prisma/client';
 
+import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
 import { JobStuckService } from '../../src/jobs/job-stuck.service';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import type { SystemSettingsService } from '../../src/settings/system-settings/system-settings.service';
@@ -56,7 +57,14 @@ function stuckServiceFor(client: PrismaClient): JobStuckService {
     }),
   } as unknown as SystemSettingsService;
 
-  return new JobStuckService(client as unknown as PrismaService, config, systemSettings);
+  return new JobStuckService(
+    client as unknown as PrismaService,
+    config,
+    systemSettings,
+    // No handler registered means no execution profile anywhere, which is the
+    // single-budget shape the reaper has always had (#346).
+    new JobHandlerRegistry()
+  );
 }
 
 describeWithDb('JobStuckService.resetStuck (real Postgres)', () => {

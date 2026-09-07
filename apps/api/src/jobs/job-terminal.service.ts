@@ -74,6 +74,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { computeBackoffMs, JOB_RANDOM } from './backoff.util';
 import { JobSettledEvent, JOB_SETTLED_EVENT } from './events/job-settled.event';
 import { JobClock, JOB_CLOCK, systemJobClock } from './job-clock';
+import { resolveMaxAttempts } from './job-execution-profile';
+import { JobHandlerRegistry } from './job-handler.registry';
 import { ProviderThrottleService } from './provider-throttle.service';
 import { classifyRateLimit, RateLimitError } from './rate-limit.error';
 
@@ -184,6 +186,12 @@ export class JobTerminalService {
     private readonly config: ConfigService,
     private readonly throttle: ProviderThrottleService,
     private readonly events: EventEmitter2,
+    // Injected for ONE question: what is this job type's attempt budget
+    // (#346). The registry is the only place a `JobExecutionProfile` can come
+    // from, and `resolveMaxAttempts` is the only reader of it — see
+    // `retryOrFail`, and `JobStuckService`, which asks the same question about
+    // a job whose executor never reported back.
+    private readonly registry: JobHandlerRegistry,
     // Both OPTIONAL and unprovided in `JobsModule`: production always gets
     // the real clock and `Math.random`. See `job-clock.ts` and
     // `backoff.util.ts`.
@@ -421,7 +429,14 @@ export class JobTerminalService {
 
   /** The ORDINARY branch: retry against `attempts`, or fail permanently. */
   private async retryOrFail(job: Job, message: string, now: Date): Promise<JobSettleOutcome> {
-    const maxAttempts = this.configNumber('jobs.maxAttempts', 3);
+    // PER TYPE, not the deployment-wide number (#346). A handler declaring
+    // `maxAttempts: 1` is saying this work must never be retried
+    // automatically, and this is the branch that has to honour it: with a
+    // budget of 1 the comparison below is false on the first attempt, so the
+    // job goes straight to `failPermanently` and no backoff is ever scheduled.
+    // `JobStuckService` reads the same number through the same function for
+    // the case where the executor died instead of reporting back.
+    const maxAttempts = resolveMaxAttempts(this.config, this.registry.get(job.type));
 
     // `job.attempts` already INCLUDES the attempt that just failed (charged
     // at claim time), so `<` is the correct comparison: with a budget of 3,

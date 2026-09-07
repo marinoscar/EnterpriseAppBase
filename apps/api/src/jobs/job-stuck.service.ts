@@ -68,6 +68,20 @@
 // Charge `attempts` on failure instead and this phase becomes unimplementable
 // — there is nothing to compare against — which is why that decision and this
 // one are the same decision seen from two ends.
+//
+// -----------------------------------------------------------------------------
+// ⚠ THE BUDGET IT COMPARES AGAINST IS PER TYPE (#346)
+// -----------------------------------------------------------------------------
+//
+// A job type may declare its own `maxAttempts` (`JobExecutionProfile`), and
+// `maxAttempts: 1` means "never automatically retried". `JobTerminalService`
+// honours that for a job that reported back — but this file is the path for
+// the job that DIDN'T, and the two must reach the same conclusion or the
+// profile is worth nothing: a one-attempt job whose executor died would be
+// found here, judged against the deployment-wide default, and requeued,
+// running a second time for work whose author said it must not. Both paths
+// therefore read the budget through the SAME `resolveMaxAttempts`, and both
+// phases below group by it. See `attemptBudgets`.
 // =============================================================================
 
 import { Injectable, Logger } from '@nestjs/common';
@@ -77,6 +91,8 @@ import { Prisma } from '@prisma/client';
 import { DEFAULT_SYSTEM_SETTINGS } from '../common/types/settings.types';
 import { PrismaService } from '../prisma/prisma.service';
 import { SystemSettingsService } from '../settings/system-settings/system-settings.service';
+import { resolveMaxAttempts } from './job-execution-profile';
+import { JobHandlerRegistry } from './job-handler.registry';
 
 /** What `resetStuck` did, split by which phase claimed each row. */
 export interface ResetStuckResult {
@@ -154,7 +170,12 @@ export class JobStuckService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
-    private readonly systemSettings: SystemSettingsService
+    private readonly systemSettings: SystemSettingsService,
+    // Injected for ONE question, the same one `JobTerminalService` injects it
+    // for: what is this job type's attempt budget (#346). See
+    // `attemptBudgets` below for why the reaper cannot be allowed to answer it
+    // with the deployment-wide number.
+    private readonly registry: JobHandlerRegistry
   ) {}
 
   /**
@@ -194,10 +215,11 @@ export class JobStuckService {
   /**
    * Reclaims every abandoned `running` job, in TWO PHASES.
    *
-   * PHASE 1 — GIVE UP. Rows at or over `JOBS_MAX_ATTEMPTS` are marked
-   * `failed`. These have already been started that many times and have killed
-   * their executor every time; another requeue buys nothing but another crash.
-   * See the file header for why this phase is only implementable at all.
+   * PHASE 1 — GIVE UP. Rows at or over THEIR OWN TYPE'S attempt budget are
+   * marked `failed`. These have already been started that many times and have
+   * killed their executor every time; another requeue buys nothing but another
+   * crash. See the file header for why this phase is only implementable at
+   * all, and `attemptBudgets` for why the budget is per type.
    *
    * Done ONE ROW AT A TIME, deliberately, and not as a single `updateMany`.
    * The message written to `lastError` names THAT job's own attempt count
@@ -210,8 +232,11 @@ export class JobStuckService {
    *
    * PHASE 2 — REQUEUE. Rows still under budget go back to `pending` with the
    * claim, the lease and the executor released, so any worker (this server,
-   * another replica, a node) may take them. One `updateMany`, because every
-   * row gets the same treatment and the same message.
+   * another replica, a node) may take them. ONE `updateMany` PER DISTINCT
+   * BUDGET — one in total for a deployment where no handler declares a
+   * profile, which is the shape this phase has always had — because every row
+   * in a group gets the same treatment and the same message, and only the
+   * number they are compared against differs.
    *
    * `attempts` IS NOT TOUCHED BY EITHER PHASE. It was charged at claim time
    * and the attempt genuinely happened — the executor started the work and
@@ -236,17 +261,44 @@ export class JobStuckService {
     const threshold = new Date(now.getTime() - minutes * 60_000);
     const where = stuckRunningWhere(threshold, now);
 
-    const maxAttempts = this.configNumber('jobs.maxAttempts', 3);
+    const budgets = this.attemptBudgets();
 
     // ---- Phase 1: the rows that have spent their budget -------------------
+    //
+    // One read, whose `where` is the UNION of "over budget" across every
+    // distinct budget in play. With no profiles declared there is exactly one
+    // group and this is the same single `attempts: { gte: n }` clause it has
+    // always been; the OR'd form only appears once a type actually asks for a
+    // different number, so nothing about the ordinary deployment's query
+    // changes. `AND` rather than a second top-level `OR`, because `where`
+    // already carries one (the three recovery signals) and they must both
+    // hold, not either.
     const exhausted = await this.prisma.job.findMany({
-      where: { ...where, attempts: { gte: maxAttempts } },
+      where:
+        budgets.length === 1
+          ? { ...where, attempts: { gte: budgets[0].maxAttempts } }
+          : {
+              ...where,
+              AND: [
+                {
+                  OR: budgets.map((budget) => ({
+                    ...budget.typeFilter,
+                    attempts: { gte: budget.maxAttempts },
+                  })),
+                },
+              ],
+            },
       select: { id: true, type: true, attempts: true },
     });
 
     let failed = 0;
 
     for (const row of exhausted) {
+      // THIS ROW'S OWN budget, for this row's own message — the phase already
+      // runs one update per row so that "after N attempt(s)" is true, and the
+      // cap quoted beside it has to be true in the same way.
+      const maxAttempts = resolveMaxAttempts(this.config, this.registry.get(row.type));
+
       // The `where` is re-applied alongside the id rather than updating by id
       // alone: between the read above and this write the job may have been
       // settled by an executor that was alive after all (a long GC pause, a
@@ -285,53 +337,121 @@ export class JobStuckService {
     // ---- Phase 2: the rows that still have budget -------------------------
     //
     // The same `where` and the same `now`, so a row can match exactly one
-    // phase: phase 1 took `attempts >= maxAttempts`, this takes the rest.
-    const requeued = await this.prisma.job.updateMany({
-      where: { ...where, attempts: { lt: maxAttempts } },
-      data: {
-        status: 'pending',
-        // Release every live ownership assertion. `executor` IS cleared here,
-        // unlike on the terminal path: this row is going to be claimed again,
-        // possibly by the other side entirely, and a stale "node" on a job the
-        // server is about to run is a lie rather than history.
-        claimedByNodeId: null,
-        leaseExpiresAt: null,
-        executor: null,
-        // Eligible immediately — the job has already waited out the whole
-        // stuck threshold, which is longer than any retry backoff would be.
-        scheduledFor: null,
-        finishedAt: null,
-        lastError:
-          'Abandoned by its executor and requeued by the lease reaper. ' +
-          'Its attempt was already charged at claim time.',
-        // `startedAt` is left as it was: the next claim overwrites it, and
-        // until then it records when the run that died began.
-      },
-    });
+    // phase: phase 1 took `attempts >= its budget`, this takes the rest.
+    //
+    // ⚠ THE COMPARISON MUST BE PER TYPE, AND THIS IS THE SWEEP WHERE GETTING
+    // IT WRONG UNDOES THE PROFILE ENTIRELY. A type declaring `maxAttempts: 1`
+    // is saying it must never be retried automatically. The terminal path
+    // honours that for a job that reported back — but the reaper's whole
+    // purpose is the job that DIDN'T, and if this sweep judged it against the
+    // deployment-wide 3 it would find a one-attempt job sitting at
+    // `attempts: 1`, decide it still has budget, and REQUEUE it: the exact
+    // automatic retry the profile forbids, resurrected on the one path nobody
+    // is watching, for work whose author said it must not run twice. One
+    // `updateMany` per distinct budget is what closes that.
+    //
+    // Bounded by the number of REGISTERED TYPES (single digits), not by the
+    // size of the stuck set, because the groups come from the registry rather
+    // than from the rows: a sweep that found ten thousand abandoned jobs still
+    // issues one update per distinct budget.
+    let reset = 0;
 
-    if (requeued.count > 0 || failed > 0) {
+    for (const budget of budgets) {
+      const requeued = await this.prisma.job.updateMany({
+        where: { ...where, ...budget.typeFilter, attempts: { lt: budget.maxAttempts } },
+        data: {
+          status: 'pending',
+          // Release every live ownership assertion. `executor` IS cleared here,
+          // unlike on the terminal path: this row is going to be claimed again,
+          // possibly by the other side entirely, and a stale "node" on a job the
+          // server is about to run is a lie rather than history.
+          claimedByNodeId: null,
+          leaseExpiresAt: null,
+          executor: null,
+          // Eligible immediately — the job has already waited out the whole
+          // stuck threshold, which is longer than any retry backoff would be.
+          scheduledFor: null,
+          finishedAt: null,
+          lastError:
+            'Abandoned by its executor and requeued by the lease reaper. ' +
+            'Its attempt was already charged at claim time.',
+          // `startedAt` is left as it was: the next claim overwrites it, and
+          // until then it records when the run that died began.
+        },
+      });
+
+      reset += requeued.count;
+    }
+
+    if (reset > 0 || failed > 0) {
       this.logger.log(
-        `Lease reaper: ${requeued.count} job(s) requeued, ${failed} failed ` +
+        `Lease reaper: ${reset} job(s) requeued, ${failed} failed ` +
           `permanently (stuck threshold ${minutes} minute(s)).`
       );
     }
 
-    return { reset: requeued.count, failed };
+    return { reset, failed };
   }
 
   /**
-   * A numeric setting with a defensive fallback, the same shape (and for the
-   * same reason) as `JobTerminalService.configNumber`: this service is also
-   * constructed directly in unit tests with a stub `ConfigService`, and a
-   * missing key must degrade to the shipped behaviour rather than to `NaN` —
-   * which would make every `attempts` comparison below false and silently turn
-   * the give-up phase off.
+   * The distinct attempt budgets in play, each with the types it governs.
+   *
+   * GROUPED BY BUDGET RATHER THAN BY TYPE, which is the same answer expressed
+   * in the fewest queries: types sharing a number share an `updateMany`, and
+   * in the overwhelmingly common case — no handler in the process declares a
+   * profile at all — there is exactly ONE group carrying no type filter
+   * whatsoever, so both phases issue precisely the query they issued before
+   * profiles existed. That is not an optimisation; it is the guarantee that
+   * this change is invisible to a deployment that did not ask for it.
+   *
+   * The FIRST entry is always the fallback group, and it is expressed as
+   * "every type EXCEPT the ones with a budget of their own" rather than as an
+   * explicit list. A `jobs` row can legitimately name a type this process does
+   * not register — a handler that was removed, a type only some deployments
+   * register, a row from a fork — and such a row must still be reaped. An
+   * `in` list built from `registry.types()` would silently exclude every one
+   * of them, quietly making the reaper blind to exactly the rows most likely
+   * to be abandoned.
    */
-  private configNumber(key: string, fallback: number): number {
-    const value = this.config.get<number>(key);
+  private attemptBudgets(): Array<{
+    typeFilter: Prisma.JobWhereInput;
+    maxAttempts: number;
+  }> {
+    const fallback = resolveMaxAttempts(this.config, undefined);
+    const overrides = new Map<number, string[]>();
 
-    return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+    for (const type of this.registry.types()) {
+      const budget = resolveMaxAttempts(this.config, this.registry.get(type));
+
+      // A profile that happens to restate the deployment default is not an
+      // override — folding it in keeps the single-group fast path intact.
+      if (budget === fallback) {
+        continue;
+      }
+
+      const bucket = overrides.get(budget);
+
+      if (bucket) {
+        bucket.push(type);
+      } else {
+        overrides.set(budget, [type]);
+      }
+    }
+
+    const overridden = [...overrides.values()].flat();
+
+    return [
+      {
+        typeFilter: overridden.length > 0 ? { type: { notIn: overridden } } : {},
+        maxAttempts: fallback,
+      },
+      ...[...overrides.entries()].map(([maxAttempts, types]) => ({
+        typeFilter: { type: { in: types } } as Prisma.JobWhereInput,
+        maxAttempts,
+      })),
+    ];
   }
+
 }
 
 /** Whatever was thrown, rendered for a log line. */
