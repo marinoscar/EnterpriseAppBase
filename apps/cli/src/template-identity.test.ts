@@ -255,7 +255,20 @@ function findOffenders(files: string[], patterns: { value: string; re: RegExp }[
 
 describe('no stale identity literal outside the allowlist (issue #343, epic #341)', () => {
   const identity = readManifest();
-  const [owner, repoName] = identity.repoSlug.split('/');
+
+  // `split` is typed as possibly-sparse under `noUncheckedIndexedAccess`, so the
+  // halves have to be narrowed rather than asserted. Throwing here is the right
+  // failure: a repoSlug that is not `owner/name` means the guard would silently
+  // scan for `undefined` and pass while protecting nothing, which is the one
+  // outcome this file exists to prevent. The shape test above covers the same
+  // ground with a readable message; this is the belt to its braces.
+  const slugParts = identity.repoSlug.split('/');
+  const [owner, repoName] = slugParts;
+  if (slugParts.length !== 2 || !owner || !repoName) {
+    throw new Error(
+      `identity.json repoSlug must be "owner/name", got ${JSON.stringify(identity.repoSlug)}`,
+    );
+  }
 
   const patterns = [
     { value: identity.productName, re: wordBoundaryPattern(identity.productName) },
