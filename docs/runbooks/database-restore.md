@@ -9,6 +9,8 @@ Source of truth for every claim below:
 
 - `apps/api/src/db-backup/restore-preflight.service.ts` — the seven gates, the
   three outcomes, and the command block the `guided` outcome produces.
+- `apps/api/src/db-backup/database-restore.service.ts` — the automated restore:
+  the scratch-database replay, the swap, the catalog carry-over and rollback.
 - `apps/api/src/db-backup/admin-connection.util.ts` — the maintenance
   connection, the identifier rules and the scratch/old name builders.
 - `apps/api/src/db-backup/pg-restore.util.ts` — the `pg_restore` flags, and why
@@ -18,11 +20,20 @@ Source of truth for every claim below:
 - `docs/specs/database-restore.md` — the design, and the rejected alternatives.
 - `docs/specs/database-backup.md` — where the archives come from.
 
-**What exists today (#284).** The application can *tell you* whether a restore
-would work, and hand you a complete command block when it cannot do it for you.
-**It cannot yet perform the restore itself** — the scratch-database replay and
-the swap are #285. Until then, section 4 is the procedure, and it is the whole
-procedure.
+**Which procedure you want.**
+
+- **The API is serving.** The application can perform the restore itself, and
+  roll it back. That is **section 8**, and it is the path to prefer: it takes
+  the safety backup, verifies the archive, replays into a scratch database while
+  the application stays up, and swaps in seconds. #286 adds the endpoints that
+  start it and #287 the dialog; until they land it is reachable only from code.
+- **The API is not serving, or the pre-flight came back `guided`.** Section 4 is
+  the procedure, by hand, from a shell. It is the same sequence, with you
+  issuing the statements.
+
+Sections 1-3 (what to know first, what the pre-flight tells you, disk space)
+apply to both. So do the two prerequisites in **section 7** — get those wrong
+and a *successful* restore leaves the application down.
 
 ---
 
@@ -299,6 +310,23 @@ Then either finish the swap (`ALTER DATABASE "<scratch>" RENAME TO "<live>";`)
 or undo it (`ALTER DATABASE "<old>" RENAME TO "<live>";`). Undoing is always
 safe: `<old>` is the original database, untouched.
 
+**If the automated restore was the one that got here**, it already tried to undo
+it for you, and the log line says which of the two states you are in:
+
+- *"The original database was renamed back into place"* — nothing is wrong with
+  the deployment any more. The application is on the database it started on and
+  the process is still running; the restore's row says `failed` with the reason.
+  **The scratch database is deliberately left in place**: it is a complete,
+  verified restore that cost hours, and the failure was a rename you can retry
+  by hand in seconds. Find out what held the rename off (section 5.4), then
+  either finish the swap by hand or start the restore again.
+- *"CRITICAL: ... THERE IS NOW NO DATABASE NAMED `<live>`"* — the recovery
+  rename failed too. **Nothing has been deleted** — the log line names both
+  databases — and the process is deliberately still running, in a maintenance
+  window it will not close, so callers get a 503 instead of connection errors.
+  Fix it with the two statements above; the application recovers as soon as
+  there is a database under the live name again (restart it to be sure).
+
 ### 5.3 The restore was wrong (bad archive, wrong point in time)
 
 While `<old>` still exists — **seconds**:
@@ -318,6 +346,34 @@ Something is still connected. Re-run the `pg_terminate_backend` statement, and
 check for the things that reconnect on their own: a second API replica, a
 worker, a pooler (PgBouncer will reopen server connections immediately), a
 metrics exporter, an open `psql`.
+
+### 5.5 The restore succeeded but the backup list is empty (or stale)
+
+Look for **"CRITICAL: the restore succeeded but its backup catalog could not be
+carried into ..."** in the log. The restore itself is fine — the data is the
+archive's, the application is serving — but `database_backup_runs` is now the
+copy that was inside the archive, so any backup taken after that archive, and
+the record of this restore, are missing.
+
+- **The archives themselves are untouched** in object storage. Nothing was lost
+  that a backup is for.
+- **The displaced database has to be dropped by hand**, because the row that
+  named it is gone and the retention sweep only ever drops databases it has a
+  row for (section 9.3). Find it and drop it once you are satisfied:
+
+```bash
+psql --host=<db host> --username=<admin role> --dbname=postgres \
+  -c "SELECT datname, pg_size_pretty(pg_database_size(datname)) FROM pg_database WHERE datname LIKE '%_old_%';"
+```
+
+- **Take a backup now.** It re-establishes a current row and a current archive.
+
+### 5.6 The restore finished and the application never came back
+
+The swap ends in `process.exit(0)` on purpose — see section 7.1. If nothing
+restarted the process, that is the missing restart policy, not a failed restore:
+the database under `<live>` is the restored one and it is correct. Start the
+service, then fix the restart policy before restoring again.
 
 ## 6. Restoring across a schema boundary
 
@@ -349,7 +405,9 @@ at a database that no longer exists under that name, and cannot be trusted to
 keep serving. Exiting hands the problem to the supervisor.
 
 **Without a supervisor that restarts it, a *successful* restore leaves the
-application down.** Make sure the API service has:
+application down.** `infra/compose/prod.compose.yml` already sets this on the
+API service, with a comment saying why; a deployment that composes its own
+services needs the equivalent:
 
 ```yaml
 services:
@@ -387,7 +445,124 @@ address, but it cannot enforce this: it counts a bastion host and a `psql`
 window too, and it cannot see two replicas behind one NAT at all. It is a hint.
 You are the check.
 
-## 8. Related
+## 8. The automated restore
+
+What the application does for you when the pre-flight came back `ok`. **The
+application serves normally throughout steps 1-5**, however long they take; the
+only window in which it is unavailable is the swap, and that is seconds.
+
+| # | Phase | `restore_status` | Roughly how long |
+| --- | --- | --- | --- |
+| 1 | Download the archive; re-verify its checksum and table of contents | `restoring` | minutes |
+| 2 | Take a `pre_restore` safety backup (**only** in `pre_restore_dump` mode) | `restoring` | as long as a backup |
+| 3 | `CREATE DATABASE <live>_restore_<ts>` | `restoring` | instant |
+| 4 | `pg_restore -j 4` into it | `restoring` | **hours** — every index is rebuilt |
+| 5 | Verify the restored database has tables and a migration ledger | `verifying` | seconds |
+| 6 | Maintenance window, two renames, catalog carry-over, `exit(0)` | `swapping` | **seconds** |
+| — | Done | `completed` / `failed` | |
+
+### 8.1 Before you press it
+
+- **Satisfy section 7.** A restart policy and a single replica. The swap exits
+  the process on purpose, and nothing else will bring it back.
+- **Know which mode you are in** (section 3). `retain_database` keeps the
+  displaced database and buys a rollback measured in *seconds*;
+  `pre_restore_dump` takes a full safety dump instead and buys one measured in
+  *hours*. The pre-flight reports the **effective** mode, which disk pressure
+  may have downgraded.
+- **Expect it to take hours** and to look like nothing is happening. It is
+  rebuilding every index in the database. Watch `restore_status`, not the clock.
+
+### 8.2 While it runs
+
+Poll the run (`GET /api/admin/db-backup/runs/<run id>` once #286 lands) or read
+the row:
+
+```bash
+psql --host=<db host> --username=<db user> --dbname=<live> -c \
+  "SELECT restore_status, restore_error, restore_scratch_db, restore_old_db, swapped_at
+   FROM database_backup_runs WHERE id = '<run id>';"
+```
+
+**Anything up to and including `verifying` is harmless if it fails.** A failure
+in those phases leaves the live database completely untouched, drops the scratch
+database, records `failed` with the reason, and the application never stops
+serving. The archive in storage is not modified by any of this.
+
+There is deliberately **no cancel button** for a restore in those phases — the
+only thing it would stop is work on a scratch database nothing depends on, and a
+"cancel" that an operator could press during the swap would be a way to
+interrupt the two renames. If you must stop one, stopping the process is safe up
+until `swapping`: the scratch database is left behind for you to drop, and the
+row is settled by nothing (it stays `restoring`, which is honest — the process
+executing it went away).
+
+### 8.3 After it finishes
+
+The process **exits and is restarted by the supervisor**. Then:
+
+1. `curl -fsS http://localhost:3535/api/health/ready`
+2. Log in and look at real data.
+3. **If the pre-flight reported a schema mismatch, run the migrations now.** The
+   restored database is at the *archive's* migration; the application is not
+   going to do this for you, deliberately.
+
+   ```bash
+   cd apps/api && npm run prisma:migrate
+   ```
+4. **Do not delete anything until you have looked.** Under `retain_database` the
+   displaced database is your way back until
+   `databaseBackup.oldDatabaseRetentionHours` passes.
+
+The audit trail is split across two databases and that is expected: the
+`db_restore:start` and `db_restore:swap` rows were written while the *old*
+database was still live, so they are in `<live>_old_<ts>`. The
+`db_restore:complete` row is in the database you are now running on, and its
+`meta` carries the whole timeline.
+
+## 9. Rolling a restore back
+
+### 9.1 `retain_database` — seconds
+
+The displaced database is still there, so the rollback is two renames: the
+restored database is parked under a fresh `<live>_restore_<ts>` and the original
+is promoted back. The process exits afterwards, exactly as the restore does, and
+the supervisor restarts it.
+
+By hand, the same thing:
+
+```sql
+ALTER DATABASE "<live>" RENAME TO "<a fresh scratch name>";
+ALTER DATABASE "<old>"  RENAME TO "<live>";
+```
+
+The parked database is **never dropped automatically** — it is the restore you
+just undid, and you may want to look at it. Drop it yourself when you are done.
+
+### 9.2 `pre_restore_dump` — hours
+
+There is no database to rename. The rollback restores the `pre_restore` archive,
+which means running the whole of section 8 again against a different backup —
+**and it is a full restore, with a full restore's cost**. The schema check is
+overridden for it automatically, and that is correct rather than a shortcut:
+that dump came from the schema the code was running moments before the restore,
+so the gate would block on a mismatch that exists *only because* the thing you
+are undoing happened.
+
+### 9.3 When neither exists
+
+Past `oldDatabaseRetentionHours` the displaced database has been dropped, and if
+there was no `pre_restore` backup there is nothing left to roll back to. That is
+reported as **unavailable rather than as a failure**, because nothing went wrong
+just now — the rollback window closed. Restoring any other archive from here is
+a new restore, not a rollback.
+
+The sweep that drops those databases runs inside the backup scheduler's
+ten-minute tick and only ever drops a database **this application recorded
+displacing**. A `<live>_old_<ts>` you created by hand following section 4 is
+never touched — which also means it is never cleaned up. Drop it yourself.
+
+## 10. Related
 
 - `docs/specs/database-restore.md` — why the admin connection is outside the
   Prisma pool, why `guided` is a normal outcome, and what was rejected.

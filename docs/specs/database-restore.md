@@ -1,21 +1,24 @@
 # Database Restore
 
 > Epic #254, Phase 7 (**#284** the cluster admin connection and the pre-flight
-> gates — what is merged today; #285 the scratch-database restore and the
-> atomic swap; #286 the HTTP endpoints; #287 the administrator's dialog).
+> gates; **#285** the scratch-database restore, the atomic swap and rollback —
+> both merged; #286 the HTTP endpoints; #287 the administrator's dialog).
 > Implemented in
 > `apps/api/src/db-backup/admin-connection.util.ts`,
 > `apps/api/src/db-backup/restore-preflight.service.ts`,
-> `apps/api/src/db-backup/migration-state.util.ts` and
+> `apps/api/src/db-backup/database-restore.service.ts`,
+> `apps/api/src/db-backup/migration-state.util.ts`,
+> `apps/api/src/db-backup/tasks/db-backup-schedule.task.ts` and
 > `apps/api/src/db-backup/db-backup.module.ts`, over the `restore*` columns
 > `apps/api/prisma/schema.prisma` already declares on `DatabaseBackupRun` (see
-> `docs/specs/database-backup.md` §1.1 — this issue adds no migration).
+> `docs/specs/database-backup.md` §1.1 — **neither issue adds a migration**).
 >
-> **Be honest about what exists.** #284 ships the *knowing*, not the *doing*.
-> Everything below §1–§7 is merged and tested. **There is no restore yet:**
-> nothing in this repository creates, drops or renames a database, no route
-> accepts a restore request, and the `restore_status` column is still written
-> by nobody. §8 says what #285 adds and what it will depend on.
+> **Be honest about what exists.** §1–§7 are the pre-flight: the *knowing*. §8
+> is the restore itself: the *doing*. Both are merged and tested. **What is
+> still missing is the way in** — no route accepts a restore request and no
+> dialog offers one, so today `DatabaseRestoreService` is a provider bound to
+> nothing, reachable only from the scheduled sweep it owns. #286 adds the
+> endpoints; #287 adds the dialog.
 >
 > The backup half — the model, the streaming `pg_dump` engine, retention, the
 > schedule and the admin API — is `docs/specs/database-backup.md`. The
@@ -405,7 +408,7 @@ could tell.
 
 **No migration.** The `restore*` columns were declared by #281.
 
-## 7. Rejected alternatives
+## 7. Rejected alternatives (the pre-flight)
 
 **Assuming `CREATEDB`.** The natural shortcut: the application connects as an
 owner, so of course it can create a database. It cannot, on any managed
@@ -456,30 +459,470 @@ cannot run — and answering it as an error would tell an operator on managed
 PostgreSQL that their platform is unsupported. It is a normal outcome carrying
 a different set of instructions. See §3.
 
-## 8. What #285 adds, and what it will need from the operator
+## 8. The restore itself (#285)
 
-Not merged. Recorded here so this document is honest about the shape of the
-thing the gates are gating:
+`DatabaseRestoreService`. One property shapes every decision in it:
 
-1. Verify the archive (phase one of the async run — see §5).
-2. Take a `pre_restore` backup; point the restore row at it via
-   `pre_restore_backup_id`.
-3. `CREATE DATABASE <live>_restore_<ts>`, `pg_restore --exit-on-error` into it.
-4. Open the maintenance window, terminate the live database's sessions, and
-   swap with two renames.
-5. Keep or drop the displaced database per the **effective** rollback mode this
-   pre-flight computed.
+> **The application serves normally throughout the entire restore, and the only
+> destructive window is two catalog updates long.**
 
-Two prerequisites an operator has to satisfy in advance, both documented in
-`docs/runbooks/database-restore.md`:
+```
+1. Download the archive to a seekable temp file; re-verify checksum and TOC.
+2. (pre_restore_dump mode) take a fresh safety backup.
+3. CREATE DATABASE <live>_restore_<ts>
+4. pg_restore -j N into it   ← the app is FULLY UP for this entire phase
+5. Verify the restored database.
+6. Swap, in seconds.
+```
 
-- **A restart policy** (`restart: unless-stopped`, or a Kubernetes equivalent).
-  The swap ends in `process.exit(0)` — a process whose database was renamed
-  under it cannot be trusted to keep serving — so without a supervisor that
-  restarts it, a **successful** restore leaves the application down.
-- **A single API replica.** The maintenance flag is per-process. Other replicas
-  keep serving, get terminated mid-request by the swap, and then talk to a
-  renamed database. The `replicas` gate warns about this; it cannot enforce it.
+Steps 1–5 take as long as they take — on any database worth backing up, hours —
+and the application is up for all of them. **A failure at any point before the
+rename leaves the live database completely untouched and drops the scratch
+database.**
+
+### 8.1 Why `pg_restore --clean` against the live database is rejected outright
+
+It is the obvious implementation, and the reason it is refused is written into
+the service as a comment so that it is not proposed again.
+
+`--clean` emits a `DROP` for every object in the archive before recreating it.
+Those objects include `database_backup_runs` — **the table tracking the
+restore's own progress** — and `system_settings`, and `users`. When it fails
+midway (an extension the server does not have, a client older than the server, a
+network blip at 40 GB) what is left is a live database with half its tables
+dropped: an application that cannot boot, no admin UI to look at, no catalog to
+say what happened, and no way back except another restore of the archive that
+just failed.
+
+The destructive window is not the swap. It is **the whole restore**.
+
+And a restore *is* slow, for a reason no amount of tuning removes: a `pg_dump`
+archive stores `CREATE INDEX`, not index data, so **every index in the database
+is rebuilt from scratch on the way in**. That single fact is what makes "replay
+somewhere else, then rename" not merely safer but the only sane shape — a window
+measured in hours must not be a window in which the application is broken.
+
+### 8.2 The archive is downloaded to a file, and re-verified
+
+**Downloaded, not streamed.** `pg_restore -j N` *seeks*: parallel restore hands
+different table-data members to different workers, which means jumping around
+the archive, which a pipe cannot do — `pg_restore` rejects `-j` with a stdin
+source outright. Streaming the object straight into `pg_restore` would forfeit
+**all** parallelism on the phase that dominates the runtime, to save a temp file
+on a host that is about to hold a second copy of the whole database anyway.
+
+The file carries `JOB_TEMP_PREFIX` — the application's janitor-swept prefix from
+`apps/api/src/jobs/job-temp.ts` — so a SIGKILL between the download and the
+delete cannot leak it forever. That import reaches into the job queue on
+purpose, and it is the one case where copying the prefix would be wrong:
+`db-backup-storage.ts` deliberately duplicated `job-temp.ts`'s slugifier because
+it only needed the same *shape*; this needs the same *value*, because a file
+whose prefix merely resembles the janitor's is a file the janitor never sweeps.
+
+**The file is deleted before the swap, not after it**, because the process does
+not come back from the swap. The `finally` is the safety net for the failure
+paths.
+
+**Re-verification is against the bytes as they are now.** #281 already proved
+the object was a readable archive whose checksum matched — *at upload time*,
+possibly months ago. This proves it still is, which catches bit-rot, a storage
+lifecycle rule that moved the object to a tier that returned something else, a
+truncated download, and a proxy that ended a transfer early. Trusting the stored
+checksum is trusting a measurement of a file nobody has looked at since, and the
+moment you would find out it was wrong is after the swap.
+
+Both checks run, because they catch different things: the checksum proves the
+bytes are unchanged and cannot tell you they are a valid archive; the table of
+contents proves `pg_restore` can read them and there is something in there to
+restore, and cannot tell you they are the *right* bytes. A failure raises
+`DatabaseRestoreArchiveError` **before `CREATE DATABASE`**, so a corrupt archive
+costs a download and nothing else.
+
+### 8.3 The safety backup, and why it is awaited
+
+Taken only in **`pre_restore_dump`** mode — the *effective* mode the pre-flight
+computed, which disk pressure may have downgraded to (§2.4). Under
+`retain_database` the way back is the displaced database itself, and a full dump
+as well would add hours to duplicate a guarantee the restore already has.
+
+It goes through `DatabaseBackupRunnerService.startBackup`, not through a second
+claim path, so the single-active-run index stays a guarantee. That method is
+**detached by contract** — it returns the moment the row is claimed, with
+`pg_dump` still streaming — so the restore polls the row until it settles.
+Swapping while that dump was in flight would rename the database out from under
+it and leave a truncated "safety" archive: a way back that does not work,
+discovered at the only moment it is ever used.
+
+A safety backup that does not complete **abandons the restore**, before anything
+has been created.
+
+### 8.4 Verification of the restored database
+
+`--exit-on-error` proves no statement failed. It cannot prove the archive
+contained statements worth running — the same gap
+`DatabaseBackupVerificationError` closes on the other side of the round trip.
+Two checks, deliberately cheap:
+
+- **At least one ordinary table** outside the system schemas. Zero means the
+  replay produced an empty database.
+- **A non-empty `_prisma_migrations`.** A database with tables but no migration
+  ledger is not one this application can boot against, and it is what a restore
+  of somebody else's archive looks like.
+
+It deliberately does **not** re-read "the newest applied migration".
+`migration-state.util.ts` is emphatic that exactly one query answers that
+question, because the pre-flight's schema gate compares its two callers'
+answers; a third reader would be a third chance for the rule to drift. The
+archive's migration is already on the run row and was already gated.
+
+### 8.5 The swap
+
+```ts
+await writeRestoreState(runId, { restoreStatus: 'swapping' });
+const catalog = await exportCatalog(runId, { /* post-swap audit values already applied */ });
+
+await maintenance.setInMemoryOverride({ enabled: true, message, allowAdmins: false });
+
+await withAdminConnection(pg, async (client) => {
+  await prisma.$disconnect().catch(() => {});
+  await terminateConnections(client, pg.database);
+
+  await renameDatabase(client, pg.database, oldDb);
+  try {
+    await renameDatabase(client, scratchDb, pg.database);
+  } catch (err) {
+    // The only genuinely dangerous moment in the design.
+    await renameDatabase(client, oldDb, pg.database).catch(logCritical);
+    throw err;
+  }
+
+  await reinsertCatalog(pg, catalog);
+});
+
+exitProcess(0);   // rebuild the connection pool
+```
+
+**Between the two renames there is no database under the live name at all.**
+That is why traffic must already be stopped before the first rename, and why the
+maintenance window is opened with **`allowAdmins: false`**:
+
+- The **persisted** maintenance flag lives *inside* the database being renamed,
+  so during those seconds it is unreadable. `MaintenanceModeService` has an
+  **in-memory override layer for exactly this caller** and says so in its own
+  header (`apps/api/src/common/maintenance/maintenance-mode.service.ts`); the
+  restore swap is the only thing in the repository that sets it.
+- `allowAdmins: true` would be actively wrong here rather than merely generous.
+  An admin request during the window does not get "access to a degraded system";
+  it gets a connection attempt against a database that momentarily does not
+  exist.
+
+**The window is not closed on the success path.** `process.exit(0)` is the
+release: closing it first would open a gap in which the process served requests
+through a connection pool it is about to tear down.
+
+`prisma.$disconnect()` before `terminateConnections` is a courtesy that makes
+the termination smaller and quieter; the termination is the part that is not
+optional, because a rename fails while *any* session is attached — a pooler, a
+metrics exporter, an open `psql` window, a replica that should not be running.
+
+### 8.6 The inner recovery — the one genuinely dangerous moment
+
+If the second rename fails, the original is renamed back. That `catch` is the
+single most important one in this subsystem and it has its own tests, in both
+the unit suite and the real-Postgres suite.
+
+What it cannot do is guarantee success. `DatabaseRestoreSwapError` carries
+`originalRestored`, and the two cases are handled differently:
+
+| `originalRestored` | State | What the service does |
+|---|---|---|
+| `true` | The deployment is on the database it started on; the restore simply did not happen. | Closes the maintenance window (there is a working database to serve from, and a window nothing will ever close is an outage of its own), records the failure, **does not exit** — a recovered swap must not turn a contained failure into an outage. |
+| `false` | There is no database under the live name. | **Leaves the window open** — an orderly 503 beats five hundred stack traces against a database that is not there — logs CRITICAL with both names, and leaves the process up so its logs survive. A human finishes or undoes the swap by hand (runbook §5.2). |
+
+**The scratch database is kept when the swap failed**, and dropped for every
+failure before it. By that point it is a complete, verified restore that cost
+hours to build, and the failure was a rename — something an operator retries by
+hand in seconds. Dropping it would turn a recoverable five-second problem into
+another multi-hour replay, unattended.
+
+### 8.7 Catalog carry-over
+
+The restored database contains `database_backup_runs` **as of backup time**.
+Swap it in naively and this restore's own record, every backup taken since the
+archive was made, and the `pre_restore` safety dump taken ten minutes ago all
+cease to exist — including the row that says where the way back is stored.
+
+So the rows are exported **before** the rename and re-inserted **after** it. Four
+rules, each closing a specific failure:
+
+1. **This run's post-swap audit values are applied during the export**, not
+   written to the live row. Writing "restore completed" into the database this
+   restore is about to rename away would put the record of the operation in the
+   one database nobody will ever open again.
+2. **The two user FKs go through a subselect.** `created_by_id` and
+   `restored_by_id` reference `users(id)`, and the promoted database's `users`
+   table is the *archive's* — an administrator created after the backup does not
+   exist in it. A plain value raises a foreign-key violation that aborts the
+   **whole** carry-over, losing every backup record to preserve one attribution.
+   `(SELECT id FROM users WHERE id = $n)` yields NULL instead, which is exactly
+   what the column already means for a scheduled run and what `onDelete:
+   SetNull` already declares for an actor who goes away.
+3. **`ON CONFLICT (id) DO UPDATE`, never `DO NOTHING`.** Most ids *already
+   exist* in the promoted database with stale contents, so `DO NOTHING` would
+   silently keep the stale copy — including a `restore_status` from an older
+   restore — and the carry-over would appear to work while changing nothing.
+4. **The self-FK is a second pass.** `pre_restore_backup_id` points at another
+   row in the same table; set during the insert it can reference a row that is
+   not there yet. Applied afterwards, every referent is present. It goes through
+   a subselect too, for the same reason as rule 2.
+
+The rows go in through a session attached to the **live name** — a second
+connection, because the outer one is attached to the maintenance database
+precisely so it could do the renaming.
+
+**`reinsertCatalog` never throws**, and that is a safety property rather than
+laziness. By the time it runs both renames have succeeded and the swap is
+irreversible; a throw would travel to the failure handler, which would try to
+drop a scratch database that no longer exists under that name and write a
+`failed` status into a database that no longer holds that row — and it would
+tempt a future change to "roll the swap back", which at that point would mean
+discarding a database the deployment is already serving from. Losing the backup
+catalog is bad. Undoing a successful restore to avoid losing it would be worse.
+The failure logs CRITICAL and names what has to be done by hand.
+
+### 8.8 Migration roll-forward, and the exit
+
+**`_prisma_migrations` also comes from the archive**, so after the swap the
+restored database is at the *archive's* migration. That is precisely what the
+`schema_compatibility` gate detects and what `prisma migrate deploy` fixes. **It
+is documented and not run automatically:** a migration is a schema change
+against data an operator has just decided to trust, and running it unattended
+inside a restore would make one irreversible act into two.
+
+**The restore ends in `process.exit(0)`.** The connection pool is bound to a
+database that has just been renamed out from under it, and every pooled session
+was terminated to allow that rename. There is no API that rebuilds a Prisma pool
+in place, and a process holding stale sessions to a database that no longer
+exists under that name cannot be trusted to serve. Exiting hands the problem to
+the supervisor, which is the one component that can solve it. It is behind
+`DatabaseRestoreSeam.exitProcess` so the suite can assert it without killing the
+Jest worker.
+
+This makes the two operator prerequisites hard requirements rather than advice:
+
+- **A restart policy** (`restart: unless-stopped`, or a Kubernetes Deployment).
+  Without a supervisor that restarts it, a **successful** restore leaves the
+  application down.
+- **A single API replica.** The maintenance flag is per-process, so any other
+  replica keeps serving traffic, gets terminated mid-request, and then talks to
+  a renamed database.
+
+Both are pre-flight warnings (§2.5) and runbook prerequisites (§7 of
+`docs/runbooks/database-restore.md`), and the service's own header points at
+them. Neither can be enforced from code.
+
+### 8.9 Rollback, and why the two modes are not comparable
+
+`DatabaseRestoreService.rollback` returns a discriminated result rather than a
+boolean, because the honest answer has three cases and the two successful ones
+differ by three orders of magnitude:
+
+| Outcome | When | Cost |
+|---|---|---|
+| `renamed` | The retained `<live>_old_<ts>` still exists. | **Seconds.** Two renames. This is the entire justification for paying roughly double the PostgreSQL volume during the retention window. |
+| `restore_started` | It is gone, but a completed `pre_restore` backup exists. | **Hours.** It delegates back into `startRestore` against that archive, gates and all. |
+| `unavailable` | Neither. | Nothing. Reported honestly — nothing failed, the rollback window simply closed. |
+
+The rename path is the swap **with the names exchanged**: the bad restore is
+parked under a fresh `<live>_restore_<ts>` and the retained original is
+promoted. It reuses `renameSwap`, so the inner recovery exists in exactly one
+place; writing it twice would mean the most dangerous `catch` in the repository
+had two implementations, one of which would eventually be wrong. It **never
+drops the database it parks** — that is the restore being undone, and an
+operator who rolled back at 3am may still want to look at it.
+
+**The rollback carries the catalog over too.** The retained database's
+`database_backup_runs` is as of the moment *before* the restore, so without a
+carry-over the rollback would delete every backup record created since —
+including the `pre_restore` dump's, which under some configurations is the only
+remaining way back from the thing being undone. It marks this run
+`restore_status: 'rolled_back'`, which cost no migration: the column is a plain
+string for exactly this reason.
+
+**The delegated restore overrides the schema gate.** The `pre_restore` dump was
+taken from the schema this code was running moments before the restore, so the
+live migration it would be compared against is the *archive's* — the gate would
+block on a mismatch that exists only because the thing being undone happened.
+That block would be spurious, and it would fire at the exact moment an operator
+needs the way back.
+
+**The rollback's exit is delayed** by a few hundred milliseconds, unlike the
+restore's. A restore's swap runs detached and the request that started it was
+answered hours earlier; a rollback is fast enough that its HTTP caller is still
+holding the connection, and exiting mid-response would show an operator a
+network error for an operation that succeeded.
+
+### 8.10 Dropping a retained database, and why it is row-driven
+
+`DatabaseRestoreService.dropExpiredOldDatabases` drops `<live>_old_<ts>`
+databases whose `oldDatabaseRetentionHours` window has passed. It runs as a
+**third duty in `DatabaseBackupScheduleTask`'s existing ten-minute tick**, not
+as a `@Cron` of its own: the window is measured in hours so a ten-minute poll is
+already an order of magnitude finer than it needs to be, a second timer would be
+a second unsynchronised deleter of databases (the same argument `DbBackupModule`
+already makes for retention), and that handler already owns the pattern the
+sweep needs — one `now` for the whole tick, one policy read, one swallowing
+`catch` per duty. It goes **last**, because it is pure housekeeping and a backup
+that is due must not wait behind a `DROP DATABASE` blocked by a session somebody
+left open.
+
+**It is row-driven, not name-driven, and that is a deliberate refusal.** Sweeping
+`pg_database` for anything matching the `<live>_old_` prefix would be
+self-healing and would also drop databases this application never created —
+specifically the one an operator makes by hand following #284's guided command
+block, which uses exactly that name and which the runbook tells them to keep
+until they have verified the restore. An unattended cron that deletes a full
+copy of a production database nobody in this system recorded creating is not a
+trade worth making for tidiness.
+
+The cost is honest and is in the runbook: if the catalog carry-over failed, the
+row naming the displaced database is gone and nothing will ever drop it by
+itself.
+
+Two more rules: `swappedAt` and not `restoredAt` is the clock (an in-flight
+restore has a `restoreOldDb` and a NULL `swappedAt`, and `NULL < cutoff` is never
+true, so an in-flight restore can never be swept), and a **semantic guard**
+refuses to drop a name equal to the live or maintenance database.
+`quoteIdentifier` makes the statement safe to *send*; this makes it safe to
+*mean*, so a hand-edited row cannot have a cron drop the database the
+application is serving from.
+
+### 8.11 Progress, and the audit trail
+
+`restore_status` moves `restoring` → `verifying` → `swapping` →
+`completed`/`failed` (plus `rolled_back`), and #286's `GET /runs/:id` polls it.
+`restoring` covers everything from the download to the last byte `pg_restore`
+writes, because splitting it further would imply a progress signal this design
+does not have: a `pg_restore` in flight reports nothing a caller could poll, and
+finer states that all mean "still restoring" would be dishonest precision. Every
+progress write **swallows its own failure** — abandoning a two-hour replay
+because one status UPDATE failed would be a self-inflicted outage.
+
+Four `audit_events` rows, and **where each one lands matters**:
+
+| Action | Written | Lands in |
+|---|---|---|
+| `db_restore:start` | at the beginning | the pre-swap database (survives in `<live>_old_<ts>`) |
+| `db_restore:swap` | immediately before the renames | the pre-swap database |
+| `db_restore:complete` | after the renames, through the carry-over | **the promoted database**, with the whole timeline in `meta` |
+| `db_restore:failed` | on any failure before the swap settles | the live database, which was never renamed |
+
+The split is unavoidable — the first two are written while the pre-swap database
+*is* the live database — which is exactly why the completion row carries the
+whole timeline rather than a delta: the promoted database must hold one complete
+record of the operation without needing the displaced one. `db_restore:failed`
+is not in the issue's list of three and earns its place anyway: a restore that
+failed is the one an operator greps for, and without it the only trace in that
+table is a `db_restore:start` with nothing after it, indistinguishable from a
+restore that is still running.
+
+### 8.12 Wiring
+
+`DatabaseRestoreService` is a **provider in `DbBackupModule`, not exported, and
+bound to no controller** — the same discipline the pre-flight follows, for a
+stronger reason: a service that can replace the production database must not be
+reachable over HTTP before the route that authorizes it has been reviewed. #286
+owns that route.
+
+The one new module import is **`MaintenanceModule`**, and it is not optional: it
+is where the in-memory override lives, and without it the swap would have no way
+to hold traffic back at the only moment it must. `MaintenanceModule` is not
+`@Global()` (unlike `PrismaModule`), it exports `MaintenanceModeService`
+explicitly, and the dependency direction stays acyclic — maintenance depends on
+settings and JWT, and on nothing in `db-backup`.
+
+`DATABASE_RESTORE_SEAM` joins `DB_BACKUP_ENGINE`, `DB_BACKUP_TIMERS`,
+`RESTORE_PREFLIGHT_SEAM` and `RESTORE_ADMIN_CLIENT_FACTORY` as an **optional
+token deliberately left unbound**, and it is the most important member of that
+list: it carries `exitProcess`, and a bound stub in production would leave a
+process serving requests through a connection pool pointed at a database that
+has been renamed away.
+
+**The pre-flight runs inside `startRestore`**, not only in #286's endpoint. The
+duplication is deliberate: the gates are the difference between "a restore that
+fails" and "a restore that destroys a database", and a service that trusted its
+caller to have run them would be one refactor — or one new caller, such as this
+file's own rollback path — away from a restore with no gates at all. The cost is
+a handful of catalog reads.
+
+**A second concurrent restore is refused by a process-local guard**, and it is
+honestly labelled as one. There is no database constraint that could express
+"one restore at a time", because a restore's state lives on the row of the
+*backup* it replays and two restores are two different rows. The real exclusion
+is the single-replica prerequisite; the guard is for the case where that
+prerequisite is met and an operator double-clicks.
+
+**No migration.** The `restore*` columns were declared by #281.
+
+### 8.13 Rejected alternatives (the restore)
+
+**In-place `pg_restore --clean`.** The obvious implementation. It drops every
+object in the archive — including the table tracking the restore's own progress
+— and a failure midway leaves a live database with half its tables gone, no UI,
+no catalog and no way back. The destructive window becomes the whole restore.
+See §8.1.
+
+**Streaming the archive into `pg_restore` instead of downloading it.** It looks
+like the same discipline the backup engine applies to `pg_dump`, and it is not:
+`pg_restore -j` needs to seek, a pipe cannot, and `pg_restore` refuses the
+combination. Streaming would forfeit all parallelism on the phase that dominates
+the runtime — to save a temp file on a host that is about to hold a second copy
+of the whole database. See §8.2.
+
+**Trusting the backup-time checksum.** It was a true measurement of the object
+*when it was written*. Between then and now the archive has sat in storage
+through lifecycle transitions, and the download itself can truncate. The
+re-verification costs one hash of bytes that are being written to disk anyway,
+and the alternative is finding out after the swap. See §8.2.
+
+**Skipping the catalog carry-over.** The restored database has a
+`database_backup_runs` table, so it looks like nothing is lost. What is lost is
+every backup taken since the archive — including the `pre_restore` dump that is
+the way back from the restore that is happening right now. See §8.7.
+
+**Writing the restore's "completed" audit fields to the live row before the
+swap.** The natural place to record success, and it records it in the one
+database nobody will ever open again. The values are applied during the export
+instead. See §8.7.
+
+**Not exiting after the swap.** The process would keep serving from a connection
+pool bound to a database that has been renamed away, with every pooled session
+already terminated. There is no API that repoints a Prisma pool. The exit is
+what makes a restart policy a prerequisite rather than a nicety. See §8.8.
+
+**Running `prisma migrate deploy` automatically after the swap.** Tempting,
+because the schema gate has already identified the mismatch and the command is
+known. It would make one irreversible act into two, unattended, against data an
+operator has only just decided to trust. It is documented as a step instead. See
+§8.8.
+
+**A name-prefix sweep for retained databases.** Self-healing, and it would drop
+databases this application never created — including the `<live>_old_<ts>` an
+operator makes by hand following the guided command block, which the runbook
+tells them to keep. Row-driven has the better failure mode: a leak, which is
+loud, rather than a deletion, which is not. See §8.10.
+
+**A `@Cron` of its own for that sweep.** A second unsynchronised deleter of
+databases in a subsystem that already decided once not to have one, for a window
+measured in hours. See §8.10.
+
+**Dropping the scratch database when the swap fails.** It is the same cleanup
+every earlier phase performs, and here it would discard a complete, verified
+restore that took hours, because a rename failed. See §8.6.
+
+**Letting `reinsertCatalog` throw.** It would reach a failure handler that
+assumes the swap did not happen, and it would invite a future "roll the swap
+back" that discards a database the deployment is already serving from. See §8.7.
 
 ## 9. Verification
 
@@ -501,18 +944,41 @@ Two prerequisites an operator has to satisfy in advance, both documented in
 | The replica heuristic warns and never blocks | `src/db-backup/restore-preflight.service.spec.ts` |
 | **No pre-flight path creates, drops or renames anything**, on every outcome — asserted with spies *and* against the SQL the cluster received | `src/db-backup/restore-preflight.service.spec.ts` |
 | All reads happen in one session; an unreachable cluster is a verdict, not a throw; the archive is never fetched | `src/db-backup/restore-preflight.service.spec.ts` |
+| A failure injected at **each** phase before the rename leaves the live database untouched and drops the scratch database — asserted against the SQL the cluster received, not only with spies | `src/db-backup/database-restore.service.spec.ts` |
+| **A failed second rename renames the original back**; the window is closed when it worked and left **open** when it did not; the scratch database is kept | `src/db-backup/database-restore.service.spec.ts` |
+| The catalog carry-over preserves this run's record and every newer backup, applies the post-swap audit values, resolves user FKs through a subselect and the self-FK in a second pass | `src/db-backup/database-restore.service.spec.ts` |
+| A failed carry-over never undoes a successful swap | `src/db-backup/database-restore.service.spec.ts` |
+| Maintenance mode is opened in memory with **`allowAdmins: false`** and released by the exit rather than before it | `src/db-backup/database-restore.service.spec.ts` |
+| Checksum and TOC are re-verified against the **downloaded** bytes; a corrupt archive fails before anything is created | `src/db-backup/database-restore.service.spec.ts` |
+| The temp file carries the janitor-swept prefix and is removed on success **and** failure | `src/db-backup/database-restore.service.spec.ts` |
+| `process.exit` is behind an injectable seam | `src/db-backup/database-restore.service.spec.ts` |
+| Rollback: `renamed` in retain mode, `restore_started` (schema check overridden) in dump mode, `unavailable` when neither exists | `src/db-backup/database-restore.service.spec.ts` |
+| The retained-database sweep is row-driven, refuses the live and maintenance databases, and survives one database that will not drop | `src/db-backup/database-restore.service.spec.ts` |
+| The sweep runs last in the schedule tick, on the tick's own clock, and its failure costs neither other duty | `src/db-backup/tasks/db-backup-schedule.task.spec.ts` |
+| **Against a real cluster**: create/rename/rename-back/drop; a rename onto a taken name is refused; the inner recovery restores the original; `withAdminConnection` leaves no session behind; a subselect FK yields NULL instead of aborting; the self-FK needs the second pass | `src/db-backup/database-restore.db.spec.ts` |
 
 ### 9.1 The limits
 
-Be honest about them. **Nothing here talks to a real PostgreSQL.** The seam
-stands in for the cluster, so what is proved is that this service asks the
-right questions and reports the answers correctly — not that
-`pg_available_extensions` behaves as assumed on every provider, nor that
-`SHOW data_directory` fails in exactly the way the disk gate expects. The
-identifier rules are proved against the *documented* 63-byte limit, not against
-a server.
+Be honest about them.
+
+**The pre-flight suite talks to no real PostgreSQL.** The seam stands in for the
+cluster, so what is proved is that the service asks the right questions and
+reports the answers correctly — not that `pg_available_extensions` behaves as
+assumed on every provider, nor that `SHOW data_directory` fails in exactly the
+way the disk gate expects. The identifier rules are proved against the
+*documented* 63-byte limit, not against a server.
+
+**The restore suite drives the whole sequence against a fake cluster**, which is
+the only way to test something that takes hours and ends in `process.exit`.
+`database-restore.db.spec.ts` closes the gap that matters most — it proves
+against a real server that a rename onto a taken name is refused (the
+precondition that makes the inner recovery meaningful), that the recovery
+sequence works, that no session is left behind, and that a subselect FK degrades
+to NULL. What is still *not* proved anywhere is an end-to-end restore of a real
+archive into a real database: that needs `pg_dump`, `pg_restore`, gigabytes and
+a spare cluster, and it is what a staging rehearsal is for. The runbook says so.
 
 And the whole point of the pre-flight is that it is a prediction. A clean `ok`
-means every question that could be asked cheaply was asked and answered well;
-it does not mean the restore will succeed. That is what #285's `pre_restore`
-backup is for.
+means every question that could be asked cheaply was asked and answered well; it
+does not mean the restore will succeed. That is what the `pre_restore` backup
+and the retained database are for.
