@@ -50,6 +50,23 @@ A production-grade full-stack application foundation built with React, NestJS, a
 - Docker Desktop
 - Google OAuth credentials (from [Google Cloud Console](https://console.cloud.google.com))
 
+## Starting a new project from this template
+
+This repository is a template, not a finished product — a production-grade
+foundation (auth, RBAC, settings, observability, a background job queue,
+worker nodes) meant to be forked and renamed rather than deployed as-is.
+Rebranding it — product name, repo, brand colours, and every identity string
+that can't derive from a single manifest at runtime — is one command:
+
+```bash
+node scripts/rename.mjs --name "Your Product Name" --repo you/your-repo --theme '#7c3aed'
+```
+
+See **[docs/RENAMING.md](docs/RENAMING.md)** for the full guide: what the
+command touches, what it deliberately leaves alone, and the handful of
+manual steps (redoing the visual-test baselines, moving OAuth redirect URIs)
+that no codemod can do for you.
+
 ## Quick Start
 
 ### 1. Clone and Configure
