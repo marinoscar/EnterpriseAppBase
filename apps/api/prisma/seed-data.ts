@@ -88,6 +88,21 @@ export const PERMISSIONS = [
   { name: 'db_backup:read', description: 'View backup schedule, history and status' },
   { name: 'db_backup:write', description: 'Configure the backup schedule and run a backup' },
   { name: 'db_backup:restore', description: 'Restore the database from a backup' },
+
+  // Notification broadcasts — admin messages fanned out to every user
+  // (#320, epic #319). A separate pair from `system_settings:*`: broadcasting
+  // is not editing the settings document, it's a one-way message to every
+  // account in the deployment, so it gets its own controller-enforced
+  // permission rather than mirroring one nothing in that controller checks.
+  // Plural, matching `jobs:*`/`nodes:*`/`users:*` for a collection resource.
+  {
+    name: 'broadcasts:read',
+    description: 'View notification broadcasts and their delivery history',
+  },
+  {
+    name: 'broadcasts:write',
+    description: 'Compose, schedule, cancel and send notification broadcasts',
+  },
 ] as const;
 
 // Role to permissions mapping
@@ -119,6 +134,12 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     'db_backup:read',
     'db_backup:write',
     'db_backup:restore',
+    // #320, epic #319 — ADMIN ONLY, same reasoning as the jobs/nodes/backup
+    // trio just above: broadcasting reaches every user in the deployment, so
+    // it starts as narrow as the other operational surfaces here and can be
+    // widened later without a migration, since these are rows.
+    'broadcasts:read',
+    'broadcasts:write',
   ],
   contributor: [
     'user_settings:read',
