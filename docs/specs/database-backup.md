@@ -614,7 +614,10 @@ gives for why a backup is not a queue job.
 ## 13. The admin API
 
 Eight routes, one controller (`db-backup.controller.ts`), one service
-(`db-backup-admin.service.ts`), mounted at `admin/db-backup`. The controller
+(`db-backup-admin.service.ts`), mounted at `admin/db-backup`. Two more routes
+live on that same controller and are **not** described here — `runs/{id}/restore`
+and `runs/{id}/rollback`, which replace the production database and are
+documented in full in `docs/specs/database-restore.md` §9. The controller
 does nothing but bind, document and authorize; every decision about what a
 request *means* lives in the service, and every decision about what a backup
 *is* stays in the runner (§4–§9) and the scheduler/retention/sweep (§10–§12).
@@ -632,14 +635,17 @@ cancel and delete. Both are additionally gated on the Admin role, matching
 `job-admin.controller.ts` and `nodes-admin.controller.ts`: the role admits,
 the permission is what the guard checks.
 
-`db_backup:restore` — seeded in `prisma/seed-data.ts` — appears nowhere in
-this controller, and that is deliberate rather than an oversight. It is
-Phase 7's, gating #285's restore, which renames the live database and
-restarts the process. It is kept separate from `db_backup:write` precisely so
-it *can* be withheld: an administrator trusted to schedule and take backups is
-not automatically trusted to overwrite the running database with one. Folding
-restore under `write` would spend the one permission whose entire purpose is
-to be granted on its own.
+`db_backup:restore` gates **none of the eight routes above**, and that is
+deliberate rather than an oversight. It belongs to Phase 7's restore pair
+(#286), which renames the live database and restarts the process. It is kept
+separate from `db_backup:write` precisely so it *can* be withheld: an
+administrator trusted to schedule and take backups is not automatically
+trusted to overwrite the running database with one. Folding restore under
+`write` would spend the one permission whose entire purpose is to be granted
+on its own — and would do so invisibly, since every existing holder of
+`db_backup:write` would acquire it. See `docs/specs/database-restore.md` §9.1,
+which drives both restore routes as a caller holding only `db_backup:write`
+and expects `403`.
 
 The download sits on the *read* side despite being the most powerful thing on
 the controller — the URL it returns is a credential-free capability over a
@@ -1063,7 +1069,7 @@ nothing about the wire. See §13.6.
 | `GET runs/:id/download` returns a bounded-expiry signed URL for a completed run, and `404`s for a run that does not exist | `test/db-backup/db-backup-admin.integration.spec.ts` |
 | `DELETE runs/:id` deletes the object before the row, and reports `objectDeleted: false` (while still deleting the row) for an object that is already gone | `test/db-backup/db-backup-admin.integration.spec.ts` |
 | `POST runs/:id/cancel` reports `signalled` when this process holds the handle, reports `not_running_here` honestly when it does not, and `400`s a run that already settled | `test/db-backup/db-backup-admin.integration.spec.ts` |
-| `db_backup:read` gates the reads, `db_backup:write` gates the five writes, and **`db_backup:restore` is spent nowhere in this controller** | `test/db-backup/db-backup-admin.integration.spec.ts` — the permission-split suite, including the explicit "never spends `db_backup:restore`" assertion |
+| `db_backup:read` gates the reads, `db_backup:write` gates the five writes, and **`db_backup:restore` is spent on none of these eight routes** (it gates the restore pair — `docs/specs/database-restore.md` §9.1) | `test/db-backup/db-backup-admin.integration.spec.ts` — the permission-split suite, including the explicit "never spends `db_backup:restore`" assertion |
 | An unauthenticated caller is refused on every route | `test/db-backup/db-backup-admin.integration.spec.ts` |
 
 ### 15.4 The limits of all three

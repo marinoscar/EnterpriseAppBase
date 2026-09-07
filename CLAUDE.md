@@ -423,6 +423,8 @@ above. Don't restate any of that here; extend those three instead.
 - `GET /api/admin/db-backup/runs/{id}/download` - Signed, short-lived archive URL
 - `DELETE /api/admin/db-backup/runs/{id}` - Delete a run and its archive
 - `POST /api/admin/db-backup/runs/{id}/cancel` - Cancel a running backup
+- `POST /api/admin/db-backup/runs/{id}/restore` - Restore the database from this backup (`db_backup:restore`; body `{"confirmation":"RESTORE"}`; three normal `mode`s: `running`/`guided`/`blocked`)
+- `POST /api/admin/db-backup/runs/{id}/rollback` - Undo that restore (`db_backup:restore`; body `{"confirmation":"ROLLBACK"}`; three normal `mode`s: `renamed`/`restore_started`/`unavailable`)
 
 ### Health
 - `GET /api/health/live` - Liveness check
