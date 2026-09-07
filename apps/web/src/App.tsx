@@ -53,6 +53,8 @@ const EmailSettingsPage = lazy(() => import('./pages/Admin/EmailSettingsPage'));
 const NotificationSettingsPage = lazy(
   () => import('./pages/Admin/NotificationSettingsPage'),
 );
+// Issue #355 — runtime-configurable Web Push (VAPID) key management.
+const PushConfigPage = lazy(() => import('./pages/Admin/PushConfigPage'));
 // Issue #258, epic #254 — the maintenance window's switch and its layers.
 // `Admin`-prefixed locally to keep it distinct from `pages/MaintenancePage`,
 // which is the screen a BLOCKED user sees rather than the page that opens and
@@ -320,6 +322,26 @@ function AppRoutes() {
                         fallback={<Navigate to="/" replace />}
                       >
                         <NotificationSettingsPage />
+                      </RequirePermission>
+                    }
+                  />
+                  {/* Issue #355. Same permission string the `Web Push` card
+                      declares in `config/adminSections.tsx`, which is the
+                      same string the API's push-config controller enforces on
+                      its GET — the invariant `destinations.test.ts` asserts
+                      for every card. `push:read` and not `:write`: generating,
+                      rotating, enabling/disabling and removing all need
+                      `push:write`, which the page disables without it, but
+                      the configuration is worth READING for anyone diagnosing
+                      why push notifications are not arriving. */}
+                  <Route
+                    path="/admin/settings/push"
+                    element={
+                      <RequirePermission
+                        permission="push:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <PushConfigPage />
                       </RequirePermission>
                     }
                   />
