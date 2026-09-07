@@ -60,6 +60,23 @@ const SAMPLE_DATA: { [K in EmailTemplateName]: EmailTemplateDataMap[K] } = {
     changedAt: new Date('2026-01-01T00:00:00.000Z'),
     appUrl: 'https://app.example.com',
   },
+  // #322's broadcast. The hostile fragments go in the BODY and not in the
+  // title, because this template's subject is the title verbatim and the
+  // contract loop below (rightly) requires a subject with no markup in it —
+  // an escaped subject would mail the recipient a literal `&lt;`. The body is
+  // the field an administrator types into anyway, so it is also the honest
+  // place to aim the payload. See broadcast.email.spec.ts for the escaping
+  // assertions specific to this template.
+  broadcast: {
+    title: 'Planned maintenance this Saturday',
+    body:
+      '<script>alert(document.cookie)</script>\n\n' +
+      '"><img src=x onerror=alert(1)>',
+    ctaLabel: 'Read the status page',
+    ctaUrl: 'https://status.example.com/incident/42',
+    link: '/announcements/42',
+    critical: true,
+  },
 };
 
 function render(name: EmailTemplateName): RenderedEmail {

@@ -47,6 +47,9 @@ import WorkHistoryOutlinedIcon from '@mui/icons-material/WorkHistoryOutlined';
 import QueryStatsIcon from '@mui/icons-material/QueryStats';
 import DnsOutlinedIcon from '@mui/icons-material/DnsOutlined';
 import BackupOutlinedIcon from '@mui/icons-material/BackupOutlined';
+// Broadcasts (#325, epic #319) — the one Operations card that is not a view
+// onto machinery, but an action taken through it.
+import CampaignOutlinedIcon from '@mui/icons-material/CampaignOutlined';
 
 /**
  * One settings page, fully described for every surface that draws it.
@@ -359,6 +362,37 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
         Icon: BackupOutlinedIcon,
         permission: 'db_backup:read',
         disabled: true,
+      },
+      {
+        // Issue #325, epic #319. `broadcasts:read` is the literal string
+        // `notifications/broadcasts/broadcasts.controller.ts` enforces on its
+        // audience count, its list and its detail read
+        // (`PERMISSIONS.BROADCASTS_READ`) — the registry never invents a
+        // permission, it mirrors one. Composing, scheduling, cancelling,
+        // deleting and test-sending need `broadcasts:write`, which the PAGE
+        // gates internally by disabling its controls: the card gate is about
+        // REACHABILITY, and "what has been announced, and is anything queued to
+        // go out" is worth reading for anyone answering "did everyone get told".
+        //
+        // OPERATIONS, NOT GENERAL, per this section's own header. General holds
+        // values an administrator SETS, which then sit there; a broadcast is
+        // work you dispatch and then watch — it has a status, a progress
+        // counter and a cancel — and it belongs one card away from Jobs, where
+        // its fan-out becomes visible.
+        //
+        // ⚠ NOT THE SAME PAGE AS General → Notifications, and the descriptions
+        // are written to keep them apart. That card is the deployment-wide KILL
+        // SWITCH: it decides whether browser notifications may be raised at all
+        // and which events are suppressed. This one composes and sends a single
+        // announcement to every user. Confusing the two during an incident is
+        // the difference between silencing every notification in the product
+        // and telling everybody what is happening.
+        title: 'Broadcasts',
+        description:
+          'Write an announcement and send it to every active user now or at a scheduled time, then watch it go out.',
+        Icon: CampaignOutlinedIcon,
+        path: '/admin/settings/broadcasts',
+        permission: 'broadcasts:read',
       },
     ],
   },

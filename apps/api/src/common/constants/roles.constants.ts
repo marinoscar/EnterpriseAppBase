@@ -70,6 +70,25 @@ export const PERMISSIONS = {
   DB_BACKUP_READ: 'db_backup:read',
   DB_BACKUP_WRITE: 'db_backup:write',
   DB_BACKUP_RESTORE: 'db_backup:restore',
+
+  // Notification broadcasts — admin messages fanned out to every user
+  // (#320, epic #319).
+  //
+  // DELIBERATELY SPLIT FROM `system_settings:*`, not folded into it, for the
+  // same reason `nodes:*` is split from `jobs:*` above. Sending a message to
+  // every user in the deployment is not editing the settings document — it
+  // is a one-way broadcast with its own audience, its own history, and no
+  // "current value" to read back the way a settings blob has. The Settings
+  // UI Pattern (CLAUDE.md rule 3) requires a hub card's `permission` to be
+  // the exact string its controller enforces, so a Broadcasts card gated on
+  // `system_settings:read` would mirror a permission its controller never
+  // checks — the hub would decide reachability on evidence unrelated to
+  // whether the request behind it will actually be authorized.
+  //
+  // Plural, matching this file's own convention for collection resources
+  // (`jobs:*`, `nodes:*`, `users:*`) rather than the singular `broadcast:*`.
+  BROADCASTS_READ: 'broadcasts:read',
+  BROADCASTS_WRITE: 'broadcasts:write',
 } as const;
 
 export type PermissionName = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

@@ -280,6 +280,27 @@ export function isChannelEnabled(
  * the dispatcher's business and depends on runtime wiring, whereas this file is
  * pure.
  *
+ * NOR BY A PER-DISPATCH CHANNEL SUBSET (#321), AND THAT IS A DECISION, NOT AN
+ * OMISSION. `NotifyOptions.channels` lets one send be restricted to a subset
+ * ("this announcement goes by email only"). It is applied by
+ * `NotificationsService.dispatch()`, as a set intersection against whatever
+ * THIS function returned — never as a parameter here. Two reasons, either
+ * sufficient:
+ *
+ *   * This function is SHARED WITH `GET /api/notifications/events`, which
+ *     builds the per-user preferences matrix. That endpoint has no per-dispatch
+ *     subset and never will; a parameter for one would be a dispatch-time
+ *     concept living in the function the preferences page calls, and the next
+ *     caller would eventually pass it from the wrong side.
+ *   * Intersecting AFTER resolution is what makes "the subset can only ever
+ *     narrow" structurally true. Were it a third filter inside this function,
+ *     "it cannot resurrect a channel the policy or the user removed" would
+ *     become a property of the order of statements in this body — something to
+ *     re-verify on every future edit — rather than something with no code path
+ *     to violate.
+ *
+ * See `NotifyOptions` in notification.types.ts for the full contract.
+ *
  * THE POLICY FILTER IS SHARED WITH `GET /api/notifications/events`, which calls
  * `policyChannels` directly. That is the whole point of it living in one
  * function: the dispatcher and the preferences matrix cannot end up with two

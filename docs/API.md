@@ -1351,6 +1351,272 @@ The storage system provides file upload and management capabilities with support
 
 ---
 
+### Notification Broadcasts
+
+**All routes require Admin role (`broadcasts:read` or `broadcasts:write` permissions)**
+
+Send a message to every active user — composed in the app, sent immediately or scheduled for later. See [`docs/specs/notification-broadcasts.md`](specs/notification-broadcasts.md) for the fan-out mechanism, the audience definition, and why several of these routes behave the way they do; this section documents only the request/response contract.
+
+Every literal route below (`/audience`, `/test`) is matched before `/:id` — Nest matches routes in declaration order, and reordering them would make `GET /admin/broadcasts/audience` 400 as a malformed UUID instead of returning a count.
+
+#### GET /admin/broadcasts/audience
+Count the active users a broadcast created right now would target — the same predicate the fan-out itself pages with, so this number cannot disagree with what a send later reports.
+
+**Response:**
+```json
+{
+  "data": {
+    "activeUsers": 1284
+  }
+}
+```
+
+---
+
+#### POST /admin/broadcasts/test
+Dispatch the composition to the **calling admin only**, over the channels selected. Writes no broadcast row and queues no job — nothing appears in the list and nobody else is contacted. There is no recipient field; the endpoint always sends to the authenticated caller.
+
+**Requires:** `broadcasts:write` permission
+
+**Request Body:** same shape as `POST /admin/broadcasts` below. `scheduledFor`, if present, is accepted and ignored — a test send has no schedule.
+
+**Response:**
+```json
+{
+  "data": {
+    "eventKey": "admin.broadcast",
+    "channels": ["email", "browser"],
+    "sentToUserId": "uuid"
+  }
+}
+```
+
+A 200 means the dispatch was attempted, not that every channel succeeded — per-channel outcomes are recorded as delivery rows, exactly as for a real send.
+
+**Error Cases:**
+- 400 Bad Request - Validation error (see `POST /admin/broadcasts` for the full rule set)
+
+---
+
+#### GET /admin/broadcasts
+List broadcasts, newest first, optionally filtered by status.
+
+**Query Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `page` | number | 1 | Page number |
+| `pageSize` | number | 20 | Items per page (max 100) |
+| `status` | enum | - | Filter by lifecycle status: `draft`, `scheduled`, `sending`, `sent`, `canceled`, `failed` |
+
+**Response:**
+```json
+{
+  "data": {
+    "items": [
+      {
+        "id": "uuid",
+        "title": "Planned maintenance this Saturday",
+        "body": "We will be performing scheduled maintenance...",
+        "link": "/status",
+        "ctaLabel": "View status page",
+        "eventKey": "admin.broadcast",
+        "channels": ["email", "browser"],
+        "status": "sent",
+        "scheduledFor": null,
+        "startedAt": "2024-01-01T00:00:00.000Z",
+        "finishedAt": "2024-01-01T00:05:00.000Z",
+        "canceledAt": null,
+        "audienceCutoff": "2024-01-01T00:00:00.000Z",
+        "recipientsTargeted": 1284,
+        "recipientsDispatched": 1284,
+        "lastError": null,
+        "createdById": "uuid",
+        "createdAt": "2024-01-01T00:00:00.000Z",
+        "updatedAt": "2024-01-01T00:05:00.000Z"
+      }
+    ],
+    "total": 12,
+    "page": 1,
+    "pageSize": 20,
+    "totalPages": 1
+  }
+}
+```
+
+**Note:** `draft` is a real status value even though no route in this API can currently produce it — see the spec's schema section for why the enum carries it anyway.
+
+---
+
+#### POST /admin/broadcasts
+Compose and queue a broadcast. Records it as `scheduled` and enqueues its fan-out; omit `scheduledFor` to send as soon as the queue claims the job, or supply a future timestamp to schedule it.
+
+**Requires:** `broadcasts:write` permission
+
+**Request Body:**
+```json
+{
+  "title": "Planned maintenance this Saturday",
+  "body": "We will be performing scheduled maintenance on Saturday from 2am to 4am UTC.\n\nExpect brief interruptions during this window.",
+  "link": "/status",
+  "ctaLabel": "View status page",
+  "channels": ["email", "browser"],
+  "scheduledFor": "2024-01-06T02:00:00.000Z",
+  "critical": false
+}
+```
+
+**Fields:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `title` | string | Yes | 1–120 characters. Becomes the email subject and the notification headline. |
+| `body` | string | Yes | 1–2000 characters. Plain text; blank lines separate paragraphs, everything is escaped on render. |
+| `link` | string | No | Root-relative only (starts with `/`, not `//`; no control characters or spaces). Destination for the call-to-action. |
+| `ctaLabel` | string | No | 1–40 characters. Requires `link` to be present. |
+| `channels` | string[] | Yes | Non-empty, duplicate-free subset of `email`, `browser`, `push`. Narrows what this send delivers over. |
+| `scheduledFor` | string (ISO 8601, offset required) | No | Must be strictly in the future. Absent means send immediately. |
+| `critical` | boolean | No (default `false`) | Marks this as unmuteable (`admin.broadcast_critical`). **Requires `channels` to include `browser`** — the durable in-app notification is the only record a recipient can go back and read. |
+
+**Response:**
+```json
+{
+  "data": {
+    "broadcast": {
+      "id": "uuid",
+      "title": "Planned maintenance this Saturday",
+      "body": "We will be performing scheduled maintenance...",
+      "link": "/status",
+      "ctaLabel": "View status page",
+      "eventKey": "admin.broadcast",
+      "channels": ["email", "browser"],
+      "status": "scheduled",
+      "scheduledFor": "2024-01-06T02:00:00.000Z",
+      "startedAt": null,
+      "finishedAt": null,
+      "canceledAt": null,
+      "audienceCutoff": null,
+      "recipientsTargeted": null,
+      "recipientsDispatched": 0,
+      "lastError": null,
+      "createdById": "uuid",
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z"
+    },
+    "warnings": []
+  }
+}
+```
+
+**Note:** `eventKey` is always derived server-side from `critical` (`admin.broadcast` or `admin.broadcast_critical`) — it cannot be set by the client, and any `eventKey` in the request body is ignored. `warnings` is a non-fatal array, populated (but the broadcast still created) when `browser` is selected while the deployment-wide browser kill switch is currently off.
+
+**Error Cases:**
+- 400 Bad Request - Validation error, including: title/body/link/ctaLabel over length, empty or duplicate `channels`, `ctaLabel` without `link`, `scheduledFor` not in the future, or `critical: true` without `browser` in `channels`
+
+---
+
+#### GET /admin/broadcasts/:id
+Get one broadcast, including an approximate delivery breakdown.
+
+**Parameters:**
+- `id` (UUID) - Broadcast ID
+
+**Response:**
+```json
+{
+  "data": {
+    "id": "uuid",
+    "title": "Planned maintenance this Saturday",
+    "body": "We will be performing scheduled maintenance...",
+    "link": "/status",
+    "ctaLabel": "View status page",
+    "eventKey": "admin.broadcast",
+    "channels": ["email", "browser"],
+    "status": "sent",
+    "scheduledFor": null,
+    "startedAt": "2024-01-01T00:00:00.000Z",
+    "finishedAt": "2024-01-01T00:05:00.000Z",
+    "canceledAt": null,
+    "audienceCutoff": "2024-01-01T00:00:00.000Z",
+    "recipientsTargeted": 1284,
+    "recipientsDispatched": 1284,
+    "lastError": null,
+    "createdById": "uuid",
+    "createdAt": "2024-01-01T00:00:00.000Z",
+    "updatedAt": "2024-01-01T00:05:00.000Z",
+    "approximateDeliveryAttempts": [
+      { "channel": "email", "status": "sent", "count": 1270 },
+      { "channel": "email", "status": "failed", "count": 14 },
+      { "channel": "browser", "status": "sent", "count": 1284 }
+    ]
+  }
+}
+```
+
+**Note:** `approximateDeliveryAttempts` is exactly that — approximate. It is computed by grouping `notification_deliveries` rows for this broadcast's `eventKey` within `[startedAt, finishedAt ?? now]`, and a second broadcast raised under the same event key during this window would contribute to the same total. Empty for a broadcast that has not started sending.
+
+**Error Cases:**
+- 404 Not Found - Broadcast not found
+
+---
+
+#### POST /admin/broadcasts/:id/cancel
+Cancel a scheduled or in-flight broadcast — the only recall mechanism this feature has.
+
+**Requires:** `broadcasts:write` permission
+
+**Parameters:**
+- `id` (UUID) - Broadcast ID
+
+**Response:**
+```json
+{
+  "data": {
+    "id": "uuid",
+    "title": "Planned maintenance this Saturday",
+    "body": "We will be performing scheduled maintenance...",
+    "link": "/status",
+    "ctaLabel": "View status page",
+    "eventKey": "admin.broadcast",
+    "channels": ["email", "browser"],
+    "status": "canceled",
+    "scheduledFor": null,
+    "startedAt": "2024-01-01T00:00:00.000Z",
+    "finishedAt": null,
+    "canceledAt": "2024-01-01T00:02:00.000Z",
+    "audienceCutoff": "2024-01-01T00:00:00.000Z",
+    "recipientsTargeted": 1284,
+    "recipientsDispatched": 340,
+    "lastError": null,
+    "createdById": "uuid",
+    "createdAt": "2024-01-01T00:00:00.000Z",
+    "updatedAt": "2024-01-01T00:02:00.000Z"
+  }
+}
+```
+
+**Note:** ⚠ Cancelling a broadcast that is already `sending` may still let one in-flight chunk (up to 200 recipients) go out — the fan-out only re-checks status between batches. Cancel stops everything after that point; it cannot recall what has already been sent. The row and any queued job rows are kept, not deleted.
+
+**Error Cases:**
+- 404 Not Found - Broadcast not found
+- 409 Conflict - The broadcast is not `scheduled` or `sending` (already `sent`, `canceled`, or `failed`)
+
+---
+
+#### DELETE /admin/broadcasts/:id
+Delete a broadcast's record.
+
+**Requires:** `broadcasts:write` permission
+
+**Parameters:**
+- `id` (UUID) - Broadcast ID
+
+**Response:** HTTP 204 No Content
+
+**Error Cases:**
+- 404 Not Found - Broadcast not found
+- 409 Conflict - The broadcast is currently `sending` (cancel it first)
+
+---
+
 ### Health
 
 **Public endpoints** - Used for Kubernetes liveness/readiness probes.

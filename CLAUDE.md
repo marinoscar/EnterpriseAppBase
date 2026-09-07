@@ -617,6 +617,26 @@ Generating, enabling, rotating, and disabling VAPID keys is
 [`docs/runbooks/vapid-keys.md`](docs/runbooks/vapid-keys.md). Don't restate
 either here; extend those two instead.
 
+### Admin Notification Broadcasts
+
+Sending a message to every active user — composed in the app, sent now or
+scheduled, over whichever of email/in-app/push the deployment supports — is
+epic #319 (issues #320–#325), gated by the `broadcasts:read` /
+`broadcasts:write` permission pair, raised through two registry events
+(`admin.broadcast`, muteable; `admin.broadcast_critical`, `mandatory: true`),
+and fanned out over two job types (`admin.broadcast.start`,
+`admin.broadcast.chunk`) rather than a new scheduler or a second notification
+system. The admin API lives under `/api/admin/broadcasts`; the settings
+surface is the `Broadcasts` card at `/admin/settings/broadcasts`. The design
+decisions this rests on (why two event keys and not a per-send flag, why the
+per-broadcast channel choice can only narrow and where the `critical ⇒
+browser` rule is actually enforced, why the audience is frozen at a cutoff,
+why fan-out chunks must be enqueued with `skipDedup: true`, why `notifyNow()`
+exists beside the detached `notify()`) are documented in full, with
+rationale and rejected alternatives, in
+[`docs/specs/notification-broadcasts.md`](docs/specs/notification-broadcasts.md).
+Don't restate any of that here; extend that file instead.
+
 ### Database Backups
 
 A backup is **not** a queue job, and must not become one — `jobs

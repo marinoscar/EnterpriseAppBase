@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 
-import type { RoleChangedEmailData } from '../../email';
+import type { BroadcastEmailData, RoleChangedEmailData } from '../../email';
 import { PrismaService } from '../../prisma/prisma.service';
 import { describeThrown } from '../describe-thrown';
 import type { NotificationChannel } from '../notification-events';
@@ -113,15 +113,70 @@ function formatRoles(roles: string[]): string {
 }
 
 /**
+ * The browser/push rendering of an administrator's broadcast (#322, epic #319).
+ *
+ * A PROJECTION AND NOTHING MORE — and every one of the things it does not do
+ * is done for it, one layer down:
+ *
+ *   * It does NOT truncate. The channel applies `MAX_TITLE_LENGTH` /
+ *     `MAX_BODY_LENGTH` once, to the values it both stores and publishes, so a
+ *     second cap here would be a second chance for the row and the toast to
+ *     disagree about what the message said.
+ *   * It does NOT validate the link. `sanitizeLink` runs in the channel, at
+ *     write time, for the reasons set out on that function — a template that
+ *     pre-checked would move a security control away from the boundary that
+ *     enforces it.
+ *   * It does NOT escape. These destinations are a bell row and an OS toast,
+ *     both of which render plain text and neither of which will ever parse
+ *     markup from this payload. The escaping belongs to the email half, which
+ *     is the only channel emitting HTML.
+ *
+ * It does not branch on `critical` either. The email adds a "you cannot turn
+ * this off" footer because a mailbox has no other place to say it; a toast has
+ * two short lines, and spending one of them on preference mechanics rather than
+ * on the administrator's message would be a poor trade.
+ *
+ * PUSH NEEDS NO SEPARATE REGISTRATION: `push-notification.channel.ts` imports
+ * `EVENT_BROWSER_TEMPLATES` and `sanitizeLink` from this file, so one entry
+ * serves both channels — do not add a third map.
+ *
+ * The parameter is typed `never` by `BrowserNotificationTemplate` and cast at
+ * the top, the same boundary the channel's `render` describes at length: the
+ * map is reached with an unchecked `data: unknown`, and a payload that does not
+ * match is a recorded delivery failure inside the channel's try/catch, never a
+ * thrown broadcast.
+ */
+const broadcastBrowserTemplate = (data: never): BrowserNotificationContent => {
+  const { title, body, link } = data as BroadcastEmailData;
+
+  // THE ONE THING A PURE PROJECTION STILL HAS TO DO: fail INSIDE the template.
+  //
+  // `render` below wraps this call in a try/catch, but `truncate` and
+  // `sanitizeLink` run AFTER it returns, outside that catch. Every other
+  // template happens to touch its payload's fields and therefore throws inside
+  // the catch on a malformed one; a projection touches nothing, so a payload
+  // with no `title` would sail through here and throw in `truncate` instead —
+  // past the containment that turns a bad payload into a recorded delivery
+  // failure, and straight into the caller. Checking the shape here is what
+  // keeps this template's failure mode identical to the others'.
+  if (typeof title !== 'string' || typeof body !== 'string') {
+    throw new TypeError(
+      'A broadcast payload needs a string `title` and a string `body`.',
+    );
+  }
+
+  return { title, body, link };
+};
+
+/**
  * Notification event key -> its browser renderer.
  *
  * -----------------------------------------------------------------------------
- * FILLED BY #128 — AND ONLY FOR THE ONE EVENT THAT DECLARES THE `browser`
- * CHANNEL.
+ * FILLED BY #128 — AND ONLY FOR THE EVENTS THAT DECLARE THE `browser` CHANNEL.
  * -----------------------------------------------------------------------------
  *
- * `security.role_changed` is the sole entry, and the two absences are
- * deliberate rather than unfinished work:
+ * `security.role_changed` (#128) and the two broadcast keys (#322) are the
+ * entries, and the two absences are deliberate rather than unfinished work:
  *
  *   * `user.welcome` is email-only. It would fire while the user is looking at
  *     the very page that welcomes them — a toast with no reader.
@@ -170,6 +225,12 @@ export const EVENT_BROWSER_TEMPLATES: Partial<
       // useless path.
     };
   },
+
+  // Both broadcast keys share ONE renderer (#322), for the same reason they
+  // share one email template: they differ in whether a recipient may mute
+  // them, not in what the message says.
+  'admin.broadcast': broadcastBrowserTemplate,
+  'admin.broadcast_critical': broadcastBrowserTemplate,
 };
 
 /** Length caps applied before the row is written. See {@link truncate}. */

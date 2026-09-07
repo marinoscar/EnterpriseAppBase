@@ -71,6 +71,12 @@ export const mockAdminUser: MockUser = {
     'db_backup:read',
     'db_backup:write',
     'db_backup:restore',
+    // Present because the seeded `admin` role grants them (#320, epic #319).
+    // Without these, every test rendering the real Console surface would
+    // silently be testing a hub with no `Broadcasts` card — a user that cannot
+    // exist, asserted against as though it could.
+    'broadcasts:read',
+    'broadcasts:write',
   ],
   isActive: true,
   createdAt: new Date().toISOString(),

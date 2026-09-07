@@ -84,6 +84,16 @@ describe('seed data', () => {
         expect(seeded.has(permission)).toBe(true);
       }
     });
+
+    it('seeds the broadcasts permissions this epic introduces (#320)', () => {
+      const seeded = new Set<string>(
+        PERMISSIONS.map((permission) => permission.name),
+      );
+
+      for (const permission of ['broadcasts:read', 'broadcasts:write']) {
+        expect(seeded.has(permission)).toBe(true);
+      }
+    });
   });
 
   describe('role-permission mappings', () => {
@@ -152,6 +162,24 @@ describe('seed data', () => {
         .flatMap(([role, permissions]) =>
           permissions
             .filter((permission) => operations.includes(permission))
+            .map((permission) => `${role}: ${permission}`),
+        );
+
+      expect(leaked).toEqual([]);
+    });
+
+    it('grants the broadcasts permissions to Admin and to nobody else (#320)', () => {
+      const broadcasts = ['broadcasts:read', 'broadcasts:write'];
+
+      for (const permission of broadcasts) {
+        expect(ROLE_PERMISSIONS.admin).toContain(permission);
+      }
+
+      const leaked = Object.entries(ROLE_PERMISSIONS)
+        .filter(([role]) => role !== 'admin')
+        .flatMap(([role, permissions]) =>
+          permissions
+            .filter((permission) => broadcasts.includes(permission))
             .map((permission) => `${role}: ${permission}`),
         );
 

@@ -86,6 +86,21 @@ export const mockPermissions = {
     name: 'nodes:write',
     description: 'Register, drain and remove worker nodes',
   },
+  // Admin notification broadcasts (#320/#324, epic #319). Seeded to Admin ONLY
+  // in `prisma/seed-data.ts` and mirrored that way below: a broadcast reaches
+  // every active user in the deployment, so an integration test that expects a
+  // viewer to be refused these routes must be testing the real grant rather
+  // than a fixture that happened to be generous.
+  broadcastsRead: {
+    id: randomUUID(),
+    name: 'broadcasts:read',
+    description: 'View notification broadcasts and their delivery history',
+  },
+  broadcastsWrite: {
+    id: randomUUID(),
+    name: 'broadcasts:write',
+    description: 'Compose, schedule, cancel and send notification broadcasts',
+  },
 };
 
 export const mockRoles = {
@@ -381,6 +396,8 @@ export const rolePermissionsMap = {
     mockPermissions.jobsWrite,
     mockPermissions.nodesRead,
     mockPermissions.nodesWrite,
+    mockPermissions.broadcastsRead,
+    mockPermissions.broadcastsWrite,
   ],
   contributor: [
     mockPermissions.userSettingsRead,

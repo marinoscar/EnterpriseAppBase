@@ -67,6 +67,8 @@ export {
   userWelcomeEmail,
   allowlistInvitationEmail,
   roleChangedEmail,
+  // The admin-composed broadcast template (#322, epic #319).
+  broadcastEmail,
 } from './templates';
 export {
   SmtpEmailProvider,
@@ -89,6 +91,9 @@ export type {
   UserWelcomeEmailData,
   AllowlistInvitationEmailData,
   RoleChangedEmailData,
+  // #322's payload. Also the type the BROWSER and PUSH channels project from,
+  // since one `notify()` call carries one payload to every channel.
+  BroadcastEmailData,
 } from './templates';
 export type { EmailProvider } from './providers/email-provider.interface';
 export type {

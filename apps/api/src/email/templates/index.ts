@@ -3,6 +3,7 @@ import {
   type AllowlistInvitationEmailData,
   allowlistInvitationEmail,
 } from './allowlist-invitation.email';
+import { type BroadcastEmailData, broadcastEmail } from './broadcast.email';
 import { type RoleChangedEmailData, roleChangedEmail } from './role-changed.email';
 import { type TestEmailData, testEmail } from './test-email.email';
 import { type UserWelcomeEmailData, userWelcomeEmail } from './user-welcome.email';
@@ -66,6 +67,11 @@ export interface EmailTemplateDataMap {
   'user-welcome': UserWelcomeEmailData;
   'allowlist-invitation': AllowlistInvitationEmailData;
   'role-changed': RoleChangedEmailData;
+  // #322 (epic #319). The odd one out: every entry above renders content this
+  // codebase wrote, and this one renders a title and body an administrator
+  // typed. Its data type carries no recipient, because a broadcast reads the
+  // same for everybody — see broadcast.email.ts.
+  broadcast: BroadcastEmailData;
 }
 
 /**
@@ -97,6 +103,7 @@ export const EMAIL_TEMPLATES: {
   'user-welcome': userWelcomeEmail,
   'allowlist-invitation': allowlistInvitationEmail,
   'role-changed': roleChangedEmail,
+  broadcast: broadcastEmail,
 };
 
 /**
@@ -201,6 +208,11 @@ export { userWelcomeEmail } from './user-welcome.email';
 export { allowlistInvitationEmail } from './allowlist-invitation.email';
 export { roleChangedEmail } from './role-changed.email';
 
+// The admin-composed broadcast (#322). Registered under ONE name for BOTH
+// `admin.broadcast` and `admin.broadcast_critical` — the two keys differ in
+// whether a recipient may mute them, not in how the message reads.
+export { broadcastEmail } from './broadcast.email';
+
 export type { PlainTextOptions, RenderLayoutOptions } from './layout';
 export type { EmailTemplate, RenderedEmail } from './email-template.types';
 export type { TestEmailData } from './test-email.email';
@@ -213,3 +225,4 @@ export type { TestEmailData } from './test-email.email';
 export type { UserWelcomeEmailData } from './user-welcome.email';
 export type { AllowlistInvitationEmailData } from './allowlist-invitation.email';
 export type { RoleChangedEmailData } from './role-changed.email';
+export type { BroadcastEmailData } from './broadcast.email';

@@ -90,6 +90,16 @@ export const EVENT_EMAIL_TEMPLATES: Partial<Record<string, EmailTemplateName>> =
     'user.welcome': 'user-welcome',
     'allowlist.invitation': 'allowlist-invitation',
     'security.role_changed': 'role-changed',
+    // ONE TEMPLATE, TWO KEYS (#322, epic #319). `admin.broadcast` and
+    // `admin.broadcast_critical` differ in whether a recipient may MUTE them —
+    // `mandatory` on the second — not in how the message reads, and the copy
+    // they render was typed by an administrator either way. A second template
+    // would be a copy of the first that drifts from it, so the `critical` flag
+    // in the payload adds the one footer line that differs. This map is
+    // `Partial<Record<string, ...>>`, so two keys pointing at one name is
+    // exactly as legal as it is correct.
+    'admin.broadcast': 'broadcast',
+    'admin.broadcast_critical': 'broadcast',
   };
 
 @Injectable()
