@@ -414,6 +414,16 @@ above. Don't restate any of that here; extend those three instead.
 - `GET /api/pat` - List current user's tokens
 - `DELETE /api/pat/{id}` - Revoke a token
 
+### Database Backup (Admin-only)
+- `GET /api/admin/db-backup/config` - Backup policy, computed `nextRunAt`, active run id
+- `PUT /api/admin/db-backup/config` - Update the policy (partial; every field optional)
+- `POST /api/admin/db-backup/runs` - Take a backup now (returns immediately; 409 if one is running)
+- `GET /api/admin/db-backup/runs` - List runs (paginated, newest first)
+- `GET /api/admin/db-backup/runs/{id}` - Get one run (progress polling)
+- `GET /api/admin/db-backup/runs/{id}/download` - Signed, short-lived archive URL
+- `DELETE /api/admin/db-backup/runs/{id}` - Delete a run and its archive
+- `POST /api/admin/db-backup/runs/{id}/cancel` - Cancel a running backup
+
 ### Health
 - `GET /api/health/live` - Liveness check
 - `GET /api/health/ready` - Readiness check (includes DB)
