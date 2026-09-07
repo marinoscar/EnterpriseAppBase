@@ -24,6 +24,7 @@ import {
   BACKUP_CONTENT_TYPE,
   buildBackupStorageKey,
 } from './db-backup-storage';
+import { DatabaseBackupRetentionService } from './db-backup-retention.service';
 import {
   DatabaseBackupAlreadyRunningError,
   DatabaseBackupCancelledError,
@@ -412,6 +413,11 @@ export class DatabaseBackupRunnerService {
     // the interactive object API would give every backup a user-facing object
     // record that an administrator could delete by hand.
     @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
+    // Retention is a REQUIRED collaborator, not an optional seam like the two
+    // below it. A runner that could be constructed without one is a runner a
+    // fork can wire up so that nothing ever deletes an archive — and that
+    // failure is invisible until the bucket is full.
+    private readonly retention: DatabaseBackupRetentionService,
     @Optional() @Inject(DB_BACKUP_ENGINE) engine?: DatabaseBackupEngine,
     @Optional() @Inject(DB_BACKUP_TIMERS) timers?: BackupTimers
   ) {
@@ -754,6 +760,51 @@ export class DatabaseBackupRunnerService {
         `Database backup run ${runId} completed: ${progress.bytes} bytes at "${storageKey}" ` +
           `(${tocEntries} archive entries verified).`
       );
+
+      // -----------------------------------------------------------------------
+      // PRUNE HERE, AND NOWHERE ELSE ON THIS PATH.
+      // -----------------------------------------------------------------------
+      //
+      // AFTER VERIFICATION, because retention deletes older archives and this
+      // one is only a replacement for them once it has been proven to be a
+      // readable archive. Pruning before the `pg_restore --list` check would
+      // let a run that is about to fail verification delete the last known-good
+      // backup on its way out — the single worst thing this subsystem could do.
+      //
+      // AFTER THE `completed` UPDATE, not before it, and the reason is an
+      // off-by-one that is easy to ship: the count rule keeps the newest N
+      // `completed` runs, so a prune that ran while this row still said
+      // `running` would not count it, and would evict one MORE old backup than
+      // retention asked for — a deployment set to keep 7 would drift to 6.
+      //
+      // ONLY ON SUCCESS. There is no prune in the `catch` below and none in
+      // the `finally`. A failed backup is exactly when the old archives matter
+      // most; deleting one because the night's dump died would be the failure
+      // mode of a backup system that makes things worse under stress.
+      //
+      // ⚠ WRAPPED IN ITS OWN `try`, AND THAT IS NOT BELT-AND-BRACES. `prune`
+      // swallows its own failures by contract, but this call sits INSIDE the
+      // `try` whose `catch` deletes the object and marks the run `failed`. If
+      // that contract were ever broken — one refactor, one `throw` added to a
+      // helper — an exception here would travel to that handler and DELETE THE
+      // ARCHIVE THIS RUN HAD JUST PROVEN GOOD, then record the run as a
+      // failure. Storage housekeeping must not be able to reach the failure
+      // path of the backup it is housekeeping for.
+      try {
+        const pruned = await this.retention.prune();
+
+        if (pruned.prunedByCount > 0 || pruned.prunedByAge > 0) {
+          this.logger.log(
+            `Retention removed ${pruned.prunedByCount} expired backup(s) and ` +
+              `${pruned.prunedByAge} expired pre-restore backup(s).`
+          );
+        }
+      } catch (error) {
+        this.logger.warn(
+          `Retention failed after database backup run ${runId} completed (the backup ` +
+            `itself is fine; storage was not reclaimed): ${toError(error).message}`
+        );
+      }
     } catch (error) {
       // ORDER MATTERS. Delete first — see property 5 in the header.
       await this.deletePartialObject(storageKey);
