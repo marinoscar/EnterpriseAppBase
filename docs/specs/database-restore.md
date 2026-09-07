@@ -1,8 +1,9 @@
 # Database Restore
 
 > Epic #254, Phase 7 (**#284** the cluster admin connection and the pre-flight
-> gates; **#285** the scratch-database restore, the atomic swap and rollback —
-> both merged; #286 the HTTP endpoints; #287 the administrator's dialog).
+> gates; **#285** the scratch-database restore, the atomic swap and rollback;
+> **#286** the HTTP endpoints; **#287** the administrator's dialog and the page
+> it lives on — all four merged). Phases 6 and 7 of epic #254 are complete.
 > Implemented in
 > `apps/api/src/db-backup/admin-connection.util.ts`,
 > `apps/api/src/db-backup/restore-preflight.service.ts`,
@@ -14,14 +15,22 @@
 > `apps/api/src/db-backup/dto/db-backup-restore.dto.ts` and
 > `apps/api/src/db-backup/db-backup.module.ts`, over the `restore*` columns
 > `apps/api/prisma/schema.prisma` already declares on `DatabaseBackupRun` (see
-> `docs/specs/database-backup.md` §1.1 — **neither issue adds a migration**).
+> `docs/specs/database-backup.md` §1.1 — **neither issue adds a migration**);
+> and, on the operator-facing side, in
+> `apps/web/src/pages/Admin/DbBackupPage.tsx`,
+> `apps/web/src/components/admin/DbBackupRestoreDialog.tsx`,
+> `apps/web/src/components/admin/DbBackupConfigPanel.tsx`,
+> `apps/web/src/pages/Admin/dbBackupTable.tsx`,
+> `apps/web/src/hooks/useDbBackup.ts` and
+> `apps/web/src/services/dbBackup.ts`.
 >
 > **Be honest about what exists.** §1–§7 are the pre-flight: the *knowing*. §8
-> is the restore itself: the *doing*. §10 is the way in: two HTTP routes, their
-> typed confirmation, and the six response `mode`s they publish. All three are
-> merged and tested. **What is still missing is the dialog** — an operator can
-> reach a restore with `curl` or the CLI but not from a screen, so #287 remains
-> open.
+> is the restore itself: the *doing*. §9 is the way in: two HTTP routes, their
+> typed confirmation, and the six response `mode`s they publish. §10 is the
+> operator interface: the dialog that drives those two routes, and the page it
+> lives on. All four are merged and tested — an operator can reach a restore
+> from `curl`, the CLI, or a screen, and the last of those carries the same
+> safety machinery as the first two rather than a thinner copy of it.
 >
 > The backup half — the model, the streaming `pg_dump` engine, retention, the
 > schedule and the admin API — is `docs/specs/database-backup.md`. The
@@ -175,10 +184,10 @@ use for them.
 ## 2. The gates
 
 Seven, evaluated in one round and **all seven reported**, including the ones
-that passed. #287's dialog renders the whole list: an operator about to replace
-their production database is entitled to see what was checked, and a gate that
-returns nothing when it is happy leaves no way to tell "checked, fine" from
-"never ran".
+that passed. #287's dialog renders the whole list (§10.2): an operator about to
+replace their production database is entitled to see what was checked, and a
+gate that returns nothing when it is happy leaves no way to tell "checked,
+fine" from "never ran".
 
 | Gate | Kind | On failure |
 |---|---|---|
@@ -1172,7 +1181,262 @@ started nothing, so answering `202` for them would be a lie, and answering
 
 **Putting the mapping in the service.** See §9.8.
 
-## 10. Verification
+## 10. The operator interface (#287)
+
+`DbBackupPage.tsx` (the route and its row actions), `DbBackupRestoreDialog.tsx`
+(the confirmation), `DbBackupConfigPanel.tsx` (the policy form),
+`dbBackupTable.tsx` (the run history's column contract) and
+`hooks/useDbBackup.ts` / `services/dbBackup.ts` (the fetch and predicate
+layer). This is a design spec, not a walkthrough — the screens themselves are
+ordinary MUI. What is worth writing down is the same property §9 opens with,
+carried one layer further out:
+
+> **A mis-fired click here is an outage, not a duplicate row.**
+
+The API refuses to be a source of ambiguity (§9.2). Everything below is the
+interface making sure a click that reaches the API was never ambiguous in the
+first place.
+
+### 10.1 One dialog serves both restore and rollback
+
+`DbBackupRestoreDialog` takes an `intent` of `'restore'` or `'rollback'`
+rather than existing as two components. A restore and a rollback need exactly
+the same three things — a plain statement of the consequence, an
+acknowledgement of it, and a typed confirmation literal — and both answer with
+a `mode` that has to be rendered rather than collapsed into "it worked"
+(§9.4). Two components would be two copies of that machinery, and **the
+second copy is where the acknowledgement quietly stops gating the button** —
+a bug that costs nothing to introduce and nothing to miss in review, because
+the working copy still passes every test. `intent` selects the copy that is
+shown and the literal that is required; nothing else forks.
+
+### 10.2 Consent is gated on what exists at the moment it is asked for
+
+The issue asked for the confirm control to stay disabled until the pre-flight
+verdicts had been seen. There is no dry-run endpoint to make that literally
+true: `POST runs/{id}/restore` runs the gates itself (§9.3), deliberately, so
+that no caller can reach a restore with no gates by forgetting to run them
+first. The verdicts therefore arrive **on the response**, not before it — on
+all three restore outcomes, `running` included (§9.4) — which means a control
+gated on "the verdicts have been seen" cannot exist before the request that
+produces them has already been sent once.
+
+So the dialog implements the issue's intent at the two points where verdicts
+actually exist to gate on:
+
+1. **The first confirm** is gated on the *consequences*, not the gates: an
+   explicit acknowledgement whose label states plainly that the application
+   will restart, plus the typed literal. That is the only information that
+   exists before the request is sent, and it is the information that decides
+   whether the restore is *wanted* — the gates decide only whether it is
+   *possible*, and that answer does not exist yet.
+2. **Every confirm after that** — in practice the schema override offered
+   after a `blocked` outcome — is gated on the verdicts, now on screen,
+   through a *second* acknowledgement that names the mismatch specifically,
+   **and** on the literal being typed again. The field is cleared the moment
+   the block arrives, so the override — a different, more dangerous request
+   than the one that was refused — cannot inherit the consent given to the
+   request that failed.
+
+Every gate is rendered whatever its verdict, passes included: an operator
+about to replace a production database is entitled to see what was *checked*,
+not only what objected (§2), and each carries its own action item so a
+`guided` outcome's two or three findings do not collapse into one string with
+one remedy.
+
+### 10.3 The typed literal exists so the button cannot fire by accident
+
+The confirm buttons stay disabled until the typed field matches the API's own
+literal exactly — `RESTORE` or `ROLLBACK`, uppercase, no fuzzing (§9.2, §9.10)
+— in addition to the acknowledgement checkbox. The literal buys the interface
+nothing the checkbox does not already buy in terms of information; what it
+buys is that **a stray click cannot fire it**. A checkbox is reproduced by a
+drag, a double-click, a keyboard mis-navigation; retyping a whole word is not.
+The dialog also resets both fields to nothing on every open — keyed on the
+dialog opening, the run's id, and the intent — so a second, different archive
+never inherits a literal typed for the first, and resets them again across the
+override for the same reason. A mis-fired restore is an outage (§9), so the
+control asks for the one input that a slip of the mouse cannot produce.
+
+### 10.4 `guided` is rendered as an answer, not a failure
+
+A capability gate failing — almost always a role without `CREATEDB`, which
+managed PostgreSQL routinely denies (§2.1) — is a `200` carrying a complete,
+paste-ready command block (§4) and a runbook path. The dialog renders that
+outcome at `info` severity, never `error` or `warning`, and its own copy says
+so in words: *nothing has been started and nothing has changed.* Rendering it
+in the error palette would tell an operator, in the middle of an incident,
+that their platform is unsupported — at the exact moment the screen is
+handing them the working alternative. The likely reaction to a red banner is
+retrying or filing a bug, and both are worse than reading the block, so
+nothing about this outcome earns red.
+
+The command block itself is copy-affordanced and independently selectable —
+selectable even when the copy button's `navigator.clipboard` call fails, which
+is a real failure mode handled the same way `NodeCredentialRevealDialog`
+handles it — rather than a raw block of text an operator has to select by hand
+during an incident.
+
+### 10.5 The runbook is rendered as a path, not a link
+
+`guidance.runbook` comes back from the API as a repository-relative path
+(`docs/runbooks/…`), and the dialog renders it as monospace text, never as an
+`<a href>`. Turning it into a link would require inventing a host and a
+branch — nothing in a deployment's configuration says what either is — and
+that is the same discipline the command block itself is held to: §4 requires
+every name in it to be derived from the deployment's own configuration, never
+invented, because nothing in this template may hard-code a repository name. A
+link that resolves against the wrong host, or 404s because the repository is
+private, is a worse failure than a plain path handed to an operator who is, at
+that moment, already standing in the checkout it names.
+
+### 10.6 Preconditions are disabled controls, carrying their reason
+
+Every row action reads a predicate from `services/dbBackup.ts` —
+`isBackupDownloadable`, `isBackupRestorable`, `isBackupCancelable`,
+`isBackupDeletable`, `isRollbackAvailable` — that mirrors the precondition the
+corresponding endpoint enforces (§9.8), and a failed predicate disables the
+control rather than removing it. This is not a rule invented for this page: it
+is the one `UserList` states and `JobsPage`, `WorkersPage` and
+`BroadcastsPage` already follow, for the same reason everywhere it is stated —
+**the action set must not change shape from row to row**, or an operator
+comparing notes with a colleague concludes a feature is missing rather than
+that a precondition is unmet or a permission is absent. The tests assert
+`aria-disabled` on the control, not its absence, because those are different
+claims and only one of them is true here.
+
+`stale` is the sharpest case. Nobody knows how a stale run ended — it stopped
+heartbeating and the sweep released its slot (`database-backup.md` §12) — so
+its archive may be truncated, and the row is deliberately neither downloadable
+nor restorable. That is the exact case where a UI that "helpfully" allowed it
+would hand an operator a corrupt restore in the middle of an incident.
+
+### 10.7 The mid-swap outage is rendered as the expected sequence
+
+This is the one page in the application that deliberately takes the API down
+(§8.5, §8.8). The observable sequence at the end of a successful restore is:
+
+1. requests fail with **no response at all** — the process has exited;
+2. then `503` carrying the maintenance marker — something is listening again,
+   and the window is still open;
+3. then success.
+
+Step 2 is handled centrally and needs nothing from this page: `services/api.ts`
+recognises the marker on the one error path every request shares, and
+`MaintenanceGate` swaps the subtree for the maintenance screen, whose "Try
+again" clears the block and remounts. Step 1 is what `DbBackupPage` has to get
+right on its own, because a transport failure with *no response at all* is, on
+the wire, indistinguishable from a backend that is actually broken.
+
+The page tracks whether a restart is *expected* — set the moment a restore's
+response comes back `running`, or a run in the visible list is mid-restore —
+and while that flag is set, an unreachable API renders at `info` severity:
+*"This is the expected last step, not a failure."* The flag is **sticky
+across the outage on purpose**, cleared only by the first successful read that
+shows nothing in flight, never merely by the API answering again: the restore
+keeps the application serving normally for hours before the swap (§8), so an
+ordinary successful read partway through that window proves nothing about
+whether the restart has already happened. Showing "Failed to load backup
+runs" at the exact moment an operator is watching their own database being
+replaced would be the one thing capable of making them doubt a screen that is
+working exactly as designed.
+
+### 10.8 The rollback-mode downgrade is surfaced before the decision it changes
+
+The dialog reads the rollback plan from the pre-flight response, not from the
+saved policy, because the two can differ: a short disk downgrades the
+*effective* mode even when `retain_database` is configured (§2.4). When the
+plan is downgraded the dialog renders a dedicated warning — that rolling back
+will now take hours, not seconds — rather than folding the fact into the
+general gate list. It is called out on its own because it is the single fact
+on the whole screen most likely to change the decision an operator is
+mid-way through making: the difference between a rollback that is a rename and
+one that is a multi-hour restore is exactly the number an operator needs
+before pressing the button, not after.
+
+### 10.9 Byte fields are strings end to end
+
+`sizeBytes` and `bytesWritten` arrive from the API as decimal strings, because
+they back `BigInt` columns and the API itself never lets one reach the wire as
+a JSON number (`database-backup.md` §13.6). Nothing on this page widens either
+back to a JavaScript `number` and stores the result: the formatter that turns
+a byte count into a label takes the string and parses it only to choose a unit
+and round a display value, and the value held in state and re-rendered stays
+the string the API sent. A `Number()` cast would silently lose precision above
+2^53 bytes — a magnitude this application will not produce today, but the
+column is `int8` precisely so that ceiling is never revisited, and a display
+layer that reintroduced it would quietly undo the reason the column is a
+`BigInt` in the first place. A run still writing shows its live
+`bytesWritten` rather than a final `sizeBytes` of `'0'`, which is the only
+honest number to print while a dump is streaming — `sizeBytes` is not set
+until the archive is closed.
+
+### 10.10 What the policy form deliberately leaves out
+
+The config panel edits every field of the stored policy except two:
+`storageProvider` and `runStaleMinutes`.
+
+`storageProvider` must either equal the deployment's active provider or be
+left empty, meaning "whatever is active" — a free-text field over it is a way
+to break tonight's backup with a typo and no offsetting benefit, since there
+is nothing useful an operator can set it *to* other than the value it already
+resolves to. `runStaleMinutes` is the sweep threshold that decides when an
+unheard-from run is called `stale` (`database-backup.md` §12) — an internal
+timing constant, not a policy an operator has a standing view on.
+
+Both remain editable, deliberately, through Admin → General → Advanced
+(JSON) — the escape hatch that surface exists for. Leaving them off this form
+is not the same as making them unreachable; it is refusing to give a typo the
+same production-breaking blast radius as a labelled input.
+
+### 10.11 A visible side effect: six baselines moved
+
+Flipping the `Database Backup` card in `adminSections.tsx` from `disabled`
+(a "Coming soon" chip, no `CardActionArea`) to routed reflows two things that
+have nothing to do with backups. MUI equalises row height across a card grid
+to the tallest card in the row, and the chip was what made the disabled card
+the tallest; removing it changes every card's rendered height in that row.
+And `NavigationRail` skips any card carrying no `path` or `disabled: true`, so
+a card invisible to the rail until now claims a row in it. Both are real
+layout changes with no bug behind them, so six pixel baselines — across
+`admin-hub.spec.ts`, `console-rail.spec.ts` and `hub-search.spec.ts` in
+`tests/visual/` — moved and were regenerated alongside this issue.
+
+### 10.12 Rejected alternatives (the operator interface)
+
+**A single confirm button.** The obvious shape once an acknowledgement
+checkbox already exists on screen — why also ask for a typed word? Because the
+destructive action here deserves the same friction the API itself imposes
+(§9.2, §9.10): a checkbox is reproduced by a mis-click in a way that retyping
+a whole word is not.
+
+**Hiding the pre-flight warnings until something fails.** It reads as more
+reassuring collapsed — a clean screen until there is a problem to report. But
+the warnings — the replica count, the disk-downgrade notice, the schema
+comparison — are exactly what an operator needs *before* deciding, not after
+they have already committed (§2, §9.4). Collapsing them would answer the
+question nobody is asking ("is something broken?") instead of the one that
+matters ("what will happen if I press this?").
+
+**Treating `guided` as an error.** Rejected at the API layer first (§3, §9.5)
+and rejected again here for the identical reason: an operator on managed
+PostgreSQL is not on an unsupported platform, and a red banner would say
+otherwise at the worst possible moment to say it.
+
+**Treating the mid-swap outage as a generic transport error.** The
+straightforward implementation — any failed fetch renders "Failed to load" —
+and the one moment on this entire page where that message would do the most
+damage: exactly when an operator is watching their own database midway
+through being replaced. See §10.7.
+
+**A separate rollback dialog.** Restore and rollback share the entire safety
+machinery — the acknowledgement, the typed literal, the outcome rendering. A
+second component is where that machinery eventually drifts: the day somebody
+fixes a bug in one copy and not the other is the day the acknowledgement
+stops gating the button in exactly one of the two places that needed it most.
+See §10.1.
+
+## 11. Verification
 
 | Claim | Covered by |
 |---|---|
@@ -1215,7 +1479,7 @@ started nothing, so answering `202` for them would be a lie, and answering
 | `GET runs/{id}` publishes `restoreStatus` and the other restore columns, narrows an unrecognised stored value to `null`, and the DTO's status list agrees with the service's | `src/db-backup/dto/db-backup-restore.dto.spec.ts` |
 | The admin service forwards the row, the actor and the override; refuses a non-`completed` run and a never-restored run **without reaching the engine**; raises typed errors rather than framework exceptions | `src/db-backup/db-backup-admin.service.spec.ts` |
 
-### 10.1 The limits
+### 11.1 The limits
 
 Be honest about them.
 
