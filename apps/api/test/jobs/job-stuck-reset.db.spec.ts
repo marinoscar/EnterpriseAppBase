@@ -71,10 +71,53 @@ describeWithDb('JobStuckService.resetStuck (real Postgres)', () => {
   let typeCounter = 0;
   const nextType = (): string => `${TYPE_PREFIX}${(typeCounter += 1)}`;
 
+  // Two real `WorkerNode` rows (not one) — see the `seed()` comment below for
+  // why a real row is required at all. Two distinct ids because the "DEAD
+  // OWNER" test and the "requeues ... with its claim ... released" test each
+  // stage a job claimed by its OWN dead node; sharing one row would still
+  // pass, but it would blur the fact that these are two independent node
+  // failures, not the same node twice.
+  const OWNER_EMAIL = `${TYPE_PREFIX}owner@example.test`;
+  let ownerId: string;
+  let deadOwnerNodeId: string;
+  let requeuedNodeId: string;
+
   beforeAll(async () => {
     client = createDbClient();
     await client.$connect();
     stuck = stuckServiceFor(client);
+
+    const owner = await client.user.create({
+      data: { email: OWNER_EMAIL, displayName: 'job-stuck-reset suite' },
+    });
+    ownerId = owner.id;
+
+    const [deadOwnerNode, requeuedNode] = await Promise.all([
+      client.workerNode.create({
+        data: {
+          name: `${TYPE_PREFIX}dead-owner-node`,
+          hostname: 'job-stuck-reset-suite-box',
+          platform: 'linux-x64',
+          cliVersion: '0.0.0-test',
+          eligibleTypes: [],
+          concurrency: 1,
+          createdById: ownerId,
+        },
+      }),
+      client.workerNode.create({
+        data: {
+          name: `${TYPE_PREFIX}requeued-node`,
+          hostname: 'job-stuck-reset-suite-box',
+          platform: 'linux-x64',
+          cliVersion: '0.0.0-test',
+          eligibleTypes: [],
+          concurrency: 1,
+          createdById: ownerId,
+        },
+      }),
+    ]);
+    deadOwnerNodeId = deadOwnerNode.id;
+    requeuedNodeId = requeuedNode.id;
   });
 
   afterEach(async () => {
@@ -82,7 +125,12 @@ describeWithDb('JobStuckService.resetStuck (real Postgres)', () => {
   });
 
   afterAll(async () => {
+    // Jobs before the nodes before the owner: `jobs.claimed_by_node_id` FKs
+    // to `worker_nodes`, which FKs to `users` — the reverse order would trip
+    // the very constraint these fixtures exist to satisfy.
     await client?.job.deleteMany({ where: { type: { startsWith: TYPE_PREFIX } } });
+    await client?.workerNode.deleteMany({ where: { name: { startsWith: TYPE_PREFIX } } });
+    await client?.user.deleteMany({ where: { email: OWNER_EMAIL } });
     await client?.$disconnect();
   });
 
@@ -94,12 +142,27 @@ describeWithDb('JobStuckService.resetStuck (real Postgres)', () => {
    * that a node was holding when it died. Since #267 wired
    * `Job.claimedByNode` as a real relation, Prisma's *Checked*
    * `JobCreateInput` no longer exposes that scalar at all; it exposes only
-   * `claimedByNode: { connect: ... }`, which would force these tests to
-   * create a real `WorkerNode` row purely to satisfy the type. That is the
-   * wrong shape for this suite: `resetStuck` never reads the node, only the
-   * column, and the FK is nullable so a NULL stays legal. `Unchecked` is
-   * Prisma's own name for "I am writing the foreign key myself", which is
-   * exactly what these fixtures do.
+   * `claimedByNode: { connect: ... }`, so `Unchecked` — Prisma's own name for
+   * "I am writing the foreign key myself" — is still the right input type for
+   * these fixtures to use.
+   *
+   * WHAT IS **NOT** TRUE, though this file used to say it: "the FK is
+   * nullable so a NULL stays legal" does NOT license writing a non-null,
+   * made-up UUID here. A nullable foreign key still enforces referential
+   * integrity for every non-NULL value — Postgres does not special-case
+   * "the column merely happens to be nullable" — so a hand-invented id such
+   * as `'11111111-1111-4111-8111-111111111111'` violates
+   * `jobs_claimed_by_node_id_fkey` exactly as any other dangling reference
+   * would. That mistaken reasoning is precisely what left this suite RED on
+   * `main` from #267 until this fix: every case below that sets
+   * `claimedByNodeId` now points at `deadOwnerNodeId` or `requeuedNodeId`, a
+   * real `WorkerNode` row created in `beforeAll` — never a literal string.
+   * The row deliberately never heartbeats, which is exactly right: the point
+   * of these cases is a job whose owning node is dead or has let its lease
+   * expire, not one that is healthy, so a real-but-silent node row is the
+   * correct fixture, not a contradiction of it. Do not go back to a literal
+   * UUID here; if a new case needs a node id, create (or reuse) a real
+   * `WorkerNode` row instead.
    */
   async function seed(data: Omit<Prisma.JobUncheckedCreateInput, 'reason'>): Promise<string> {
     const row = await client.job.create({
@@ -164,7 +227,7 @@ describeWithDb('JobStuckService.resetStuck (real Postgres)', () => {
       attempts: 1,
       startedAt: new Date(),
       leaseExpiresAt: minutesAgo(1),
-      claimedByNodeId: '11111111-1111-4111-8111-111111111111',
+      claimedByNodeId: deadOwnerNodeId,
       executor: 'node',
     });
 
@@ -218,7 +281,7 @@ describeWithDb('JobStuckService.resetStuck (real Postgres)', () => {
       attempts: MAX_ATTEMPTS - 1,
       startedAt: minutesAgo(THRESHOLD_MINUTES + 1),
       leaseExpiresAt: minutesAgo(1),
-      claimedByNodeId: '22222222-2222-4222-8222-222222222222',
+      claimedByNodeId: requeuedNodeId,
       executor: 'node',
       finishedAt: null,
     });
