@@ -35,6 +35,7 @@ export const systemSettingsResponseSchema = z.object({
     staleHeartbeatSeconds: z.number(),
     offlineStaleMultiplier: z.number(),
     offlineRetentionDays: z.number(),
+    jobSecretBrokerEnabled: z.boolean(),
   }),
   databaseBackup: z.object({
     enabled: z.boolean(),

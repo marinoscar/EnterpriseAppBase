@@ -205,6 +205,11 @@ export const DEFAULT_SYSTEM_SETTINGS = {
     staleHeartbeatSeconds: 90,
     offlineStaleMultiplier: 4,
     offlineRetentionDays: 30,
+    // OFF, and the default is the point (#349, epic #345): a fresh deployment
+    // does not hand its worker fleet credentials to its own database because
+    // somebody registered a node. An administrator opens that trust boundary
+    // deliberately.
+    jobSecretBrokerEnabled: false,
   },
   databaseBackup: {
     enabled: false,

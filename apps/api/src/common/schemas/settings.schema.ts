@@ -196,11 +196,22 @@ export type SystemJobsValue = z.infer<typeof systemJobsSchema>;
  * duration, so the two cannot be configured into contradicting each other);
  * `offlineRetentionDays` is how long an offline node's record is kept before
  * it is forgotten.
+ *
+ * `jobSecretBrokerEnabled` (#349, epic #345) is the trust-boundary switch: may
+ * a node in this deployment be handed a short-lived credential for the job it
+ * is running? DEFAULT FALSE, and it is a SYSTEM SETTING rather than an
+ * environment variable on purpose — whether a machine the deployment may not
+ * own may hold a credential to this deployment's database is a decision an
+ * administrator makes on the page where the fleet is managed, not one that
+ * hides in a container's env file where nobody reviewing the fleet can see it.
+ * Off means the endpoint refuses with a named reason AND every type carrying a
+ * broker is filtered out of the node claim, so a node never sees the job.
  */
 export const systemNodesSchema = z.object({
   staleHeartbeatSeconds: z.number().int().min(5).max(86400),
   offlineStaleMultiplier: z.number().int().min(1).max(100),
   offlineRetentionDays: z.number().int().min(1).max(3650),
+  jobSecretBrokerEnabled: z.boolean(),
 });
 
 export type SystemNodesValue = z.infer<typeof systemNodesSchema>;
@@ -317,6 +328,7 @@ export const systemNodesPatchSchema = z.object({
   staleHeartbeatSeconds: z.number().int().min(5).max(86400).optional(),
   offlineStaleMultiplier: z.number().int().min(1).max(100).optional(),
   offlineRetentionDays: z.number().int().min(1).max(3650).optional(),
+  jobSecretBrokerEnabled: z.boolean().optional(),
 });
 
 export const systemDatabaseBackupPatchSchema = z.object({

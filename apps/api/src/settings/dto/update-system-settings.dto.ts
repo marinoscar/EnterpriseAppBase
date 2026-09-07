@@ -74,6 +74,7 @@ const nodesSettingsSchema = z.object({
   staleHeartbeatSeconds: z.number().int().min(5).max(86400),
   offlineStaleMultiplier: z.number().int().min(1).max(100),
   offlineRetentionDays: z.number().int().min(1).max(3650),
+  jobSecretBrokerEnabled: z.boolean(),
 });
 
 const databaseBackupSettingsSchema = z.object({
@@ -166,6 +167,7 @@ export const patchSystemSettingsSchema = z.object({
       staleHeartbeatSeconds: z.number().int().min(5).max(86400).optional(),
       offlineStaleMultiplier: z.number().int().min(1).max(100).optional(),
       offlineRetentionDays: z.number().int().min(1).max(3650).optional(),
+      jobSecretBrokerEnabled: z.boolean().optional(),
     })
     .optional(),
   databaseBackup: z

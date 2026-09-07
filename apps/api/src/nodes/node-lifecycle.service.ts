@@ -166,6 +166,14 @@ export class NodeLifecycleService {
         staleHeartbeatSeconds: positive(policy?.staleHeartbeatSeconds, defaults.staleHeartbeatSeconds),
         offlineStaleMultiplier: positive(policy?.offlineStaleMultiplier, defaults.offlineStaleMultiplier),
         offlineRetentionDays: positive(policy?.offlineRetentionDays, defaults.offlineRetentionDays),
+        // ⚠ FAIL-CLOSED, UNLIKE ITS THREE NEIGHBOURS (#349, epic #345). The
+        // other three degrade to the SHIPPED value, because sweeping on the
+        // default window beats not sweeping. This one degrades to `false`,
+        // because the safe answer to "may a node hold a credential to this
+        // database?" when the stored setting is unreadable is no. Only a
+        // literal `true` enables it; anything else — a missing key, a string
+        // `"true"`, a number — is off.
+        jobSecretBrokerEnabled: policy?.jobSecretBrokerEnabled === true,
       };
     } catch (error) {
       this.logger.warn(

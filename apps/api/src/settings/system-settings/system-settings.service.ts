@@ -1007,6 +1007,9 @@ export class SystemSettingsService {
         offlineRetentionDays:
           dto.nodes?.offlineRetentionDays ??
           currentValue.nodes.offlineRetentionDays,
+        jobSecretBrokerEnabled:
+          dto.nodes?.jobSecretBrokerEnabled ??
+          currentValue.nodes.jobSecretBrokerEnabled,
       },
       databaseBackup: {
         enabled: dto.databaseBackup?.enabled ?? currentValue.databaseBackup.enabled,
