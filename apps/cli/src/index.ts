@@ -233,6 +233,29 @@ export type {
   WizardSummaryRow,
 } from './deploy/env-wizard.js';
 
+// The LOCAL half of that same wizard (#344): `appctl init` bootstraps a fresh
+// checkout by pointing the deploy machinery at this machine instead of a VPS.
+// Exported because the profile is pure - the metadata resolver, the spec
+// adjustments and the next-step rendering are all decidable without a
+// filesystem.
+export { runInit, formatNextSteps } from './init/run-init.js';
+export type { InitOptions, InitResult } from './init/run-init.js';
+export {
+  BLANK_OK_KEYS,
+  COMPOSE_DB_HOST,
+  ENV_FILE_RELATIVE_PATH,
+  ENV_TEMPLATE_RELATIVE_PATH,
+  GENERATED_KEYS,
+  PROMPTED_KEYS,
+  REQUIRED_TO_RUN,
+  callbackUrlFor,
+  findRepoRoot,
+  isComposeInternalHost,
+  localMetadataFor,
+  localSpecs,
+  unattendedLocalAnswers,
+} from './init/local-profile.js';
+
 // The doctor check registry (#176). One ordered list: `doctor` renders it and
 // install/update run its `required` subset as preflight, rather than each
 // keeping a second list that drifts.

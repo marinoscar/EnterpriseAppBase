@@ -44,6 +44,21 @@ export interface EnvVarMetadata {
   group?: EnvGroup;
   /** Never written at all, whatever the template says. */
   never?: boolean;
+  /**
+   * An EMPTY value is an acceptable answer for this key.
+   *
+   * Nothing in ENV_METADATA below sets it, and the VPS path is unchanged by
+   * its existence: a deployment that cannot reach its own OAuth provider is
+   * not a deployment. It exists for the LOCAL profile in `init/` (issue #344),
+   * where `GOOGLE_CLIENT_ID` may legitimately be filled in later - the clone
+   * is being set up, not served - and an unattended run must produce a file
+   * rather than an error listing the credentials nobody has yet.
+   *
+   * Blank SKIPS validation; a value that is present must still validate. That
+   * asymmetry is the whole point: "not configured yet" and "configured wrong"
+   * are different states and only the first one is allowed through.
+   */
+  allowBlank?: boolean;
 }
 
 /** 32 bytes from the CSPRNG. Never Math.random, and never a shelled-out openssl:
