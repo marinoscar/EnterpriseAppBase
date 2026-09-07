@@ -108,7 +108,10 @@ export interface NodeCredentialListRow {
  * `undefined` the day somebody reused the owner-scoped query.
  */
 export interface AdminNodeCredentialRow extends NodeCredentialListRow {
-  user: { id: string; email: string; name: string | null };
+  // The column on `User` is `displayName`; the admin DTO exposes it as
+  // `owner.name` (see `NodesAdminService.listCredentials`, which does the
+  // mapping). Renaming this back to `name` breaks the select, not the DTO.
+  user: { id: string; email: string; displayName: string | null };
 }
 
 /** The show-once shape returned by {@link NodeCredentialService.createCredential}. */
@@ -297,7 +300,7 @@ export class NodeCredentialService {
         lastUsedAt: true,
         createdAt: true,
         revokedAt: true,
-        user: { select: { id: true, email: true, name: true } },
+        user: { select: { id: true, email: true, displayName: true } },
       },
     });
   }
