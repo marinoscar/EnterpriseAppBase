@@ -219,6 +219,53 @@ export function isActiveDedupConflict(error: unknown): boolean {
   return false;
 }
 
+/**
+ * The `dedup_key` an enqueue of `input` participates under, or `null`.
+ *
+ * NULL for `skipDedup`, which is what makes the opt-out free — see the file
+ * header. THE ONLY PLACE the queue decides WHETHER a job participates in
+ * dedup; `buildDedupKey` decides only what the key looks like. Factored out
+ * of `enqueue` so `enqueueWithin` cannot answer that question differently:
+ * two entry points computing "does this job dedup?" separately is precisely
+ * how one of them ends up inserting a NULL key that the index then declines
+ * to defend.
+ */
+function resolveDedupKey(input: EnqueueJobInput): string | null {
+  return input.skipDedup
+    ? null
+    : buildDedupKey(input.type, input.subjectType, input.subjectId);
+}
+
+/**
+ * The row both enqueue paths insert.
+ *
+ * ONE BUILDER, TWO CALLERS, for the same reason `buildDedupKey` is one
+ * function with two readers: `enqueue` and `enqueueWithin` differ ONLY in
+ * which client executes the insert and in what they do with a conflict. A
+ * second literal here would let the two paths drift on `priority`,
+ * `scheduledFor` or the `payload` coalesce — a divergence that shows up as
+ * "the same work behaves differently depending on which caller queued it",
+ * which is the hardest kind of queue bug to see.
+ */
+function buildJobCreateData(
+  input: EnqueueJobInput,
+  dedupKey: string | null
+): Prisma.JobCreateInput {
+  return {
+    type: input.type,
+    reason: input.reason,
+    subjectType: input.subjectType ?? null,
+    subjectId: input.subjectId ?? null,
+    dedupKey,
+    // `undefined` means "let the column default apply" in Prisma, which is
+    // what we want for both of these: `priority` defaults to 0, and a NULL
+    // `scheduled_for` is what makes a job eligible immediately.
+    priority: input.priority ?? undefined,
+    scheduledFor: input.scheduledFor ?? undefined,
+    payload: input.payload === undefined || input.payload === null ? undefined : input.payload,
+  };
+}
+
 @Injectable()
 export class JobsService {
   private readonly logger = new Logger(JobsService.name);
@@ -244,27 +291,8 @@ export class JobsService {
    * `skipDedup: true`.
    */
   async enqueue(input: EnqueueJobInput): Promise<Job> {
-    // NULL for `skipDedup`, which is what makes the opt-out free — see the
-    // file header. Note this is the ONLY place the queue decides whether a
-    // job participates in dedup; `buildDedupKey` decides only what the key
-    // looks like.
-    const dedupKey = input.skipDedup
-      ? null
-      : buildDedupKey(input.type, input.subjectType, input.subjectId);
-
-    const data: Prisma.JobCreateInput = {
-      type: input.type,
-      reason: input.reason,
-      subjectType: input.subjectType ?? null,
-      subjectId: input.subjectId ?? null,
-      dedupKey,
-      // `undefined` means "let the column default apply" in Prisma, which is
-      // what we want for both of these: `priority` defaults to 0, and a NULL
-      // `scheduled_for` is what makes a job eligible immediately.
-      priority: input.priority ?? undefined,
-      scheduledFor: input.scheduledFor ?? undefined,
-      payload: input.payload === undefined || input.payload === null ? undefined : input.payload,
-    };
+    const dedupKey = resolveDedupKey(input);
+    const data = buildJobCreateData(input, dedupKey);
 
     let lastConflict: unknown;
 
@@ -331,6 +359,47 @@ export class JobsService {
     );
 
     throw lastConflict;
+  }
+
+  /**
+   * Inserts a job INSIDE A TRANSACTION THE CALLER ALREADY OWNS, letting a
+   * dedup conflict PROPAGATE instead of collapsing onto the job in flight.
+   *
+   * -------------------------------------------------------------------------
+   * WHY THIS EXISTS AT ALL, GIVEN `enqueue` DIRECTLY ABOVE IT
+   * -------------------------------------------------------------------------
+   *
+   * `enqueue` is the right answer for every caller whose job row is the only
+   * row it writes. It is the WRONG answer for a caller that must create a
+   * `jobs` row AND a row in its own table as one atomic act — the shape
+   * `db.backup.run` needs (epic #345, issue #351), where a
+   * `database_backup_runs` row is written `pending` in the same commit as the
+   * job that will execute it. Two separate statements there admit two failures
+   * that this template cannot pay for, and the backup runner's own header
+   * spells out why each is unacceptable.
+   *
+   * ⚠ IT DOES NOT RETRY, AND IT DOES NOT SWALLOW THE P2002. Both are forced,
+   * not stylistic. Postgres ABORTS A TRANSACTION at the first failed
+   * statement: every subsequent statement on that connection raises
+   * `25P02 current transaction is aborted` until the transaction ends. So
+   * `enqueue`'s catch-the-conflict-and-re-read loop is not merely unnecessary
+   * here — IT CANNOT WORK, because the re-read would run on a connection that
+   * has already given up. (Prisma exposes no SAVEPOINT, which is the only
+   * thing that would make partial recovery inside a transaction possible.)
+   *
+   * The contract is therefore: the conflict rolls the CALLER'S whole
+   * transaction back — which is exactly what a caller wants, since its own
+   * row must not exist for a job that was never created — and the caller
+   * resolves the conflict AFTER the transaction has ended, with
+   * {@link isActiveDedupConflict} and a fresh read. `queueBackup` in
+   * `db-backup-runner.service.ts` is the worked example.
+   *
+   * @throws the raw Prisma `P2002` when an active job already holds the same
+   * dedup key. Callers must classify it with {@link isActiveDedupConflict}
+   * rather than assuming every failure here is a duplicate.
+   */
+  async enqueueWithin(tx: Prisma.TransactionClient, input: EnqueueJobInput): Promise<Job> {
+    return tx.job.create({ data: buildJobCreateData(input, resolveDedupKey(input)) });
   }
 
   /**
