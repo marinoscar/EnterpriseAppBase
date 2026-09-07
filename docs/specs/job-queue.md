@@ -1984,6 +1984,18 @@ a handler can be) and `handlers/job-history-purge.handler.ts` (§7.5), which is
 the same four steps applied to work that actually does something: a settings
 read, a batched loop, a transaction, and a scheduling task that enqueues it.
 
+## Notifying somebody a job gave up
+
+A job that exhausts its retry budget raises `jobs.job_failed`, addressed to
+whoever holds `jobs:read`. Nothing in this document changes for it: the event
+is raised by a **listener** on `job.settled`
+(`apps/api/src/notifications/ops/job-failure-notifier.ts`), registered on the
+notifications side of the seam precisely so `JobsModule` keeps no dependency on
+notifications and `JobTerminalService` keeps no outbound side effect. Why a
+listener, why the audience is a permission, and why an ordinary retry or
+deferral raises nothing are in
+[`browser-notifications.md` §10](browser-notifications.md#10-operational-events-an-audience-that-is-a-permission-not-a-user).
+
 ## Rejected alternatives
 
 - **Redis / BullMQ.** A second datastore on a template's default path, paid

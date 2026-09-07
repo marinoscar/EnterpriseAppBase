@@ -868,6 +868,19 @@ and `GET runs` through the real router and asserts each resolved as its own
 handler, so re-ordering these methods fails a test rather than surfacing as a
 production incident the day someone adds a colliding route.
 
+## 13.1 Notifying somebody a backup failed
+
+Both give-up paths raise `db_backup.backup_failed` to whoever holds
+`db_backup:read`, after the terminal row has committed and outside any
+transaction: the runner's own `markFailed` with `outcome: 'failed'`, and the
+stale sweep with `outcome: 'stale'`. The two are the same message about the
+same missing recovery point and differ only in that field, because an operator
+chases them in completely different places — a dump's stderr, versus a host
+that disappeared. A completed **restore** raises `db_backup.restore_completed`,
+which is `mandatory` and is `await`ed before the swap's `process.exit(0)`; that
+ordering is load-bearing and is argued in
+[`browser-notifications.md` §10.3](browser-notifications.md#103-the-two-orderings-that-are-easy-to-break).
+
 ## 14. Rejected alternatives
 
 **Run the backup as a queue job.** See the section at the top. Two concurrent

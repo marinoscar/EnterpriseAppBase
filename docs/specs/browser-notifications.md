@@ -32,6 +32,13 @@
 > the `ios-needs-install` capability state), not components verified against
 > this checkout. Re-verify those two sections once those branches merge.
 
+> **Section 10 is not part of epic #215.** It documents the four operational
+> events and the permission-addressed recipient rule added by issue #288 (epic
+> #254). It lives here because this is the document that owns the shared
+> notification framework's server side — the event registry, the admin policy,
+> and the channel maps — and because the rule it establishes is a dispatcher
+> rule rather than a jobs, fleet or backup one.
+
 ## Why this shape, and not the obvious one
 
 Three verified facts drive every decision below, and each rules out the
@@ -506,6 +513,176 @@ a deployment with no VAPID keys accumulate a permanently-red
 `notification_deliveries` row for every event that later declares `push` — a
 worse failure than the channel not existing at all, per the module's own
 comment.
+
+## 10. Operational events: an audience that is a permission, not a user
+
+> Issue #288, epic #254. Scoped here, in the framework document, rather than
+> in `job-queue.md`, `worker-nodes.md` or `database-backup.md`, because the
+> four events below span all three and the rule they establish belongs to the
+> dispatcher. Implemented in `apps/api/src/notifications/notification-events.ts`,
+> `apps/api/src/notifications/notifications.service.ts`,
+> `apps/api/src/notifications/ops/job-failure-notifier.ts`,
+> `apps/api/src/email/templates/{job-failed,node-offline,backup-failed,restore-completed}.email.ts`.
+> **No migration, no table, no endpoint** — the point of the exercise.
+
+### 10.1 The four events
+
+| Key | Channels | Default | Raised by |
+|---|---|---|---|
+| `jobs.job_failed` | email | on | `JobFailureNotifier`, listening on `job.settled` |
+| `nodes.node_offline` | email, browser | on | `NodeStaleOfflineTask.sweep()` |
+| `db_backup.backup_failed` | email, browser | on | `DatabaseBackupRunnerService.markFailed` and `DatabaseBackupScheduleTask.releaseStaleRuns` |
+| `db_backup.restore_completed` | email, browser | on, **`mandatory: true`** | `DatabaseRestoreService.swap()` |
+
+Three of the four are muteable and one is not, and the split is the same one
+`security.role_changed` draws. A *failure* is something an operator may
+reasonably decide to watch in an alerting stack instead and silence here. A
+*completed restore* is not: the live database has just been replaced with the
+contents of an archive, every write made after that archive was taken is gone,
+and the process that did it exits immediately afterwards. Silence is itself
+the risk, so the event is unmuteable and its template says so in its own
+footer — a mailbox has no other place to explain why a message arrived that
+the preferences page will not let you switch off.
+
+**`jobs.job_failed` is email-only, and that is not an unfinished browser
+template.** Section 5's rule applies: the durable row is the product and the
+toast is a decoration on top of it, so a `browser` entry is only worth having
+when there is somewhere for the row to lead. A failed job's detail is a filter
+on the jobs list rather than a page, and a bell row whose click target cannot
+show the thing it is about is worse than no bell row. The other three each
+have a real destination — `/admin/settings/workers` and
+`/admin/settings/db-backup`, the exact paths their cards declare in
+`apps/web/src/config/adminSections.tsx` — and that is why they carry a `link`
+and it does not. `EVENT_BROWSER_TEMPLATES` has no entry for `jobs.job_failed`,
+which agrees with the registry rather than shadowing it.
+
+**`jobs.job_failed` is terminal-only.** It is raised on `status === 'failed'`,
+which `JobTerminalService` writes from exactly two places: the attempt budget
+running out (or a caller declaring the job unrunnable), and the rate-limit
+give-up past `jobs.rateLimitMaxHits`. An ordinary retry and an ordinary
+deferral write `status: 'pending'` and **emit nothing at all**, so "terminal
+only" is a property of the emitter rather than something the listener
+reconstructs.
+
+### 10.2 The recipient rule: `notifyPermissionHolders`
+
+Every entry point the framework had before #288 resolves **one** recipient the
+caller already knows — `notify` a user id, `notifyAddress` an email address —
+because the events they were built for are facts *about a person*. A job that
+exhausted its retries, a worker that stopped heartbeating and a backup that
+never finished are facts about the **deployment**, and the question "who
+should hear about this?" has no user id in it.
+
+The answer is **whoever can act on it**, which in this application is spelled
+as a permission:
+
+```ts
+await this.notifications.notifyPermissionHolders(
+  'db_backup.backup_failed',
+  PERMISSIONS.DB_BACKUP_READ,
+  payload,
+);
+```
+
+It resolves **active** users (`isActive: true`) holding that permission through
+any of their roles, in one indexed query selecting only `id`, and then fans out
+through the same `dispatchToUser` that `notify` uses — so the preference gate,
+the `mandatory` override, the admin policy of section 5, the delivery rows and
+the per-channel containment are the *same code*, not a parallel implementation
+of them. That is the argument `notifyAddress` already makes: a new way of
+*building* a recipient is safe; a new way of *delivering* to one is a second
+place the gate can be forgotten.
+
+**Why a permission and not a role.** "Send it to the Admin role" is one string
+shorter and wrong for the reason the Settings UI Pattern gives for a card's
+`permission` field: a role is a bundle somebody else owns. A deployment that
+adds an `Operator` role holding `db_backup:read`, or splits `Admin` in two, has
+changed who can act on a failed backup — and a role-addressed notification
+would keep mailing the old bundle silently, with nothing to fail and nothing to
+notice. Passing the permission means the audience for "your backup failed" is,
+by construction, the set of people `db-backup.controller.ts` would let look at
+the backup. Grant a role the permission and its holders start receiving it;
+revoke it and they stop. Nothing in the notifications code changes for either.
+
+**Only active users, and note this is the opposite of `loadRecipient`'s rule.**
+`loadRecipient` deliberately does *not* filter on `isActive`, because there the
+account is the **subject** of the event and dropping it would silently defeat a
+`mandatory` notification aimed at exactly the accounts an incident review cares
+about. Here the account is a candidate **audience** for somebody else's
+incident, and an audience of people who cannot sign in is not an audience.
+
+**Zero recipients is a `debug` log and a no-op**, not a warning: a deployment
+that runs no worker nodes legitimately has nobody holding `nodes:read`, and a
+warning on every ten-minute sweep is how a log stops being read. **A failing
+recipient query is a log line too** — never an exception. Every call site of
+this method is already a failure path, and a throw would turn one failure into
+two.
+
+`NotifyPermissionHoldersOptions` adds one field to `NotifyOptions`:
+`alsoNotifyUserIds`, unioned with the holders and **de-duplicated by user id**
+before anything is dispatched. It exists for the restore, whose audience is
+"everyone holding `db_backup:read`, plus the operator who triggered it" — an
+operator who may hold `db_backup:restore` through some other role. Sending that
+as two calls would deliver twice to anyone in both sets, and de-duplication is
+impossible once the dispatches have been detached.
+
+### 10.3 The two orderings that are easy to break
+
+**The job listener is a bystander, deliberately.** `jobs.job_failed` is raised
+by `JobFailureNotifier`, an `@OnEvent(JOB_SETTLED_EVENT)` provider registered
+in `NotificationsModule` — not by a `notify()` call inside
+`JobTerminalService`. Two reasons: wiring `JobsModule` (imported by
+`NodesModule`, `BroadcastsModule` and the app root) to `NotificationsModule`
+points a heavy graph at the module every feature enqueues through and invites a
+cycle the next contributor "fixes" with `forwardRef`; and `JobTerminalService`
+is the terminal chokepoint whose own writes are swallowed on purpose so an
+exception cannot strand a worker slot. `EventEmitter2` dispatches
+**synchronously**, so the handler calls the detached entry point, never awaits,
+and wraps its body in `try`/`catch` — it runs inside the worker's completion
+path and must not block or throw. The import of
+`jobs/events/job-settled.event.ts` is a plain file import (that file imports
+only `@prisma/client`) and adds nothing to the provider graph; if it ever grows
+an import of its own, that argument stops holding.
+
+**The restore notification is `await`ed, and must stay between the rename and
+the exit.** `DatabaseRestoreService.swap()` ends in `process.exit(0)` so a
+supervisor can start a process whose connection pool is built against the
+promoted database. A detached dispatch raised just before that exit is simply
+dropped — `schedule()` puts the work on a microtask, the process ends, and the
+shutdown drain never runs because nothing is shutting Nest down. For a
+`mandatory` event that is the worst possible failure: wired, green in every
+registry and template test, and delivering nothing in production on the only
+path that matters. So the swap calls **`notifyPermissionHoldersNow`**, the
+awaited sibling, and its position is load-bearing in both directions:
+
+- **After `renameSwap`**, because Prisma is pointed at the live database *by
+  name* and that name now resolves to the promoted database — so the
+  `notification_deliveries` and `notifications` rows land in the database the
+  operator will actually open, and the recipients are resolved from the
+  restored `users`/`user_roles`, which is the correct post-restore answer to
+  "who can act on this?". The actor's address is looked up there too, and may
+  legitimately not exist: an operator whose account was created after the
+  archive was taken genuinely is not in it, which the template renders as "Not
+  recorded" rather than as a failure.
+- **Before `exitProcess`**, which is the whole reason it is awaited.
+
+`notifyPermissionHoldersNow` never rejects (same `runContained` containment as
+every other entry point), so awaiting it cannot turn a completed restore into a
+recorded failure — which would be especially bad here, because that failure
+lands in `executeRestore`'s `catch`, which would then try to drop a scratch
+database that has already been promoted to live.
+
+### 10.4 Roll-up is deliberately not built
+
+A fork whose queue carries thousands of a single job type will want these
+digested — one message an hour saying "412 `vision.describe` jobs failed"
+rather than 412 messages. That is a real need and this template does not have
+it: nothing shipped here can produce that volume, and a roll-up nobody needs is
+a second scheduler, a second piece of state to reconcile, and a second way for
+a failure notice to arrive late. Build it in the fork that has the volume, and
+build it as a batching layer in front of `notifyPermissionHolders` rather than
+as a fifth entry point on `NotificationsService` — the gate must stay in one
+place.
 
 ## Rejected alternatives
 
