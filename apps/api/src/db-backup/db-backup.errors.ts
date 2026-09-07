@@ -153,3 +153,130 @@ export class DatabaseBackupCancelledError extends Error {
     Object.setPrototypeOf(this, DatabaseBackupCancelledError.prototype);
   }
 }
+
+// =============================================================================
+// Typed restore failures (issue #285, epic #254)
+// =============================================================================
+//
+// The restore half of this subsystem, added below rather than in a file of its
+// own because a caller catching "something in the database backup subsystem
+// went wrong" should not have to import from two places to enumerate it.
+//
+// ⚠ MOST RESTORE FAILURES ARE NOT THROWN TO A CALLER AT ALL. A restore runs
+// DETACHED — the HTTP request that started it is long since answered — so a
+// failure is RECORDED on the run's `restore_status`/`restore_error` columns and
+// polled, exactly as a backup's failure is recorded on `status`/`last_error`.
+// The three classes below exist because each is a distinct thing a human has to
+// be able to tell apart in a log line or a poll response, not because some
+// controller catches them:
+//
+//   - `DatabaseRestoreArchiveError`      → the downloaded bytes are not the
+//     bytes that were backed up, or are not a readable archive. It is raised
+//     BEFORE anything is created, which is the property that makes it cheap.
+//   - `DatabaseRestoreVerificationError` → the replay exited 0 and produced
+//     something this application could not run on. Raised before the swap.
+//   - `DatabaseRestoreSwapError`         → the second rename failed. This is the
+//     one genuinely dangerous moment in the design, and the error carries the
+//     only fact that matters afterwards: whether the original database is back
+//     under its own name.
+//
+// ⚠ THERE IS DELIBERATELY NO `AlreadyRunning` ERROR HERE, unlike the backup
+// half. "A restore is already running" is a NORMAL, EXPECTED answer that #286
+// turns into a 409 without anything having gone wrong, so it is a variant of
+// `StartRestoreResult` rather than an exception — the same call
+// `CancelBackupResult` makes. It is also only ever PROCESS-LOCAL: a restore's
+// state lives on the row of the BACKUP it replays, so two restores are two
+// different rows and no database constraint could arbitrate them. An error class
+// would have implied a guarantee this design does not have.
+// =============================================================================
+
+/**
+ * The archive that came back out of storage is not the archive that was put in,
+ * or is not readable at all.
+ *
+ * ⚠ THE CHECK IS AGAINST THE BYTES AS THEY ARE NOW, and that is the entire
+ * point of re-running it. #281 already proved the object was a readable archive
+ * whose checksum matched AT UPLOAD TIME; this proves it still is, months later,
+ * after a storage lifecycle transition, a bit-rot event, or a download that was
+ * silently truncated by a proxy. Trusting the recorded checksum would be
+ * trusting a measurement of a file nobody has looked at since.
+ *
+ * It is raised BEFORE `CREATE DATABASE`, so a corrupt archive costs a download
+ * and nothing else — no scratch database, no dropped anything, the live
+ * database untouched.
+ */
+export class DatabaseRestoreArchiveError extends Error {
+  constructor(
+    readonly storageKey: string,
+    readonly reason: string
+  ) {
+    super(
+      `The backup archive at "${storageKey}" did not survive re-verification: ${reason} ` +
+        'Nothing was created and the live database was not touched. Choose another backup, ' +
+        'or restore this one by hand from a copy you have verified yourself.'
+    );
+    this.name = 'DatabaseRestoreArchiveError';
+    Object.setPrototypeOf(this, DatabaseRestoreArchiveError.prototype);
+  }
+}
+
+/**
+ * The restored database could not be renamed into place.
+ *
+ * ⚠ `originalRestored` IS THE ONLY FACT THAT MATTERS WHEN THIS IS READ.
+ * Between the two renames of a swap there is NO DATABASE UNDER THE LIVE NAME at
+ * all. The inner recovery renames the original back, and:
+ *
+ *   - `true`  — the recovery worked. The deployment is on the database it
+ *     started on, nothing was lost, and the restore simply did not happen.
+ *   - `false` — the recovery ALSO failed. There is no database under the live
+ *     name, the application cannot boot, and a human must finish or undo the
+ *     swap by hand. That is the state `docs/runbooks/database-restore.md` §5.2
+ *     exists for, and it is why this flag is on the error rather than only in a
+ *     log line.
+ */
+export class DatabaseRestoreSwapError extends Error {
+  constructor(
+    readonly liveDatabase: string,
+    readonly originalRestored: boolean,
+    readonly cause: Error
+  ) {
+    super(
+      originalRestored
+        ? `The restored database could not be renamed to "${liveDatabase}" (${cause.message}). ` +
+            'The original database was renamed back into place, so this deployment is running ' +
+            'on exactly the data it had before the restore was attempted.'
+        : `The restored database could not be renamed to "${liveDatabase}" (${cause.message}), ` +
+            'AND THE ORIGINAL COULD NOT BE RENAMED BACK. There is currently no database under ' +
+            `"${liveDatabase}". Nothing has been deleted - both databases still exist under ` +
+            'their other names. Finish or undo the swap by hand: see section 5.2 of ' +
+            'docs/runbooks/database-restore.md.'
+    );
+    this.name = 'DatabaseRestoreSwapError';
+    Object.setPrototypeOf(this, DatabaseRestoreSwapError.prototype);
+  }
+}
+
+/**
+ * The scratch database was replayed into, `pg_restore` exited 0, and what came
+ * out is not something this application can run on.
+ *
+ * The counterpart to `DatabaseBackupVerificationError` on the other side of the
+ * round trip, and it exists for the same reason: an exit code is not evidence.
+ * `pg_restore --exit-on-error` proves no statement failed; it does not prove the
+ * archive contained any statements worth running. Raised BEFORE the swap, so a
+ * failure here costs a scratch database that is then dropped.
+ */
+export class DatabaseRestoreVerificationError extends Error {
+  constructor(
+    readonly scratchDatabase: string,
+    readonly reason: string
+  ) {
+    super(
+      `The restored database "${scratchDatabase}" failed verification: ${reason} It was NOT ` +
+        'swapped into place and has been dropped; the live database was never touched.'
+    );
+    this.name = 'DatabaseRestoreVerificationError';
+    Object.setPrototypeOf(this, DatabaseRestoreVerificationError.prototype);
+  }
+}

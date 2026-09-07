@@ -1768,14 +1768,21 @@ model DatabaseBackupRun {
   createdBy   User?   @relation("UserDatabaseBackupRuns", fields: [createdById], references: [id], onDelete: SetNull)
 
   // ---------------------------------------------------------------------------
-  // Restore audit (Phase 7 / #285) — declared now, written later. See the
-  // "WHY THE RESTORE AUDIT LIVES ON THE BACKUP'S OWN ROW" block above.
+  // Restore audit (Phase 7). Declared by #281, written by #285's
+  // `DatabaseRestoreService`. See the "WHY THE RESTORE AUDIT LIVES ON THE
+  // BACKUP'S OWN ROW" block above.
   // ---------------------------------------------------------------------------
 
   // A plain string, not an enum, for the same reason `Job.executor` is one: a
   // small closed set owned by code rather than by this table's own state
   // machine, and adding a state to it must not cost a migration. NULL means
   // "this backup has never been restored".
+  //
+  // `restoring` -> `verifying` -> `swapping` -> `completed` | `failed`, plus
+  // `rolled_back` for a restore that was swapped in and then undone. That last
+  // one is the argument for the column being a string: it was added by #285
+  // without a migration. The set lives in `RESTORE_STATUSES`
+  // (`src/db-backup/database-restore.service.ts`).
   restoreStatus String? @map("restore_status")
   restoreError  String? @map("restore_error")
 
