@@ -171,6 +171,7 @@ import {
   DatabaseRestoreNotAllowedError,
   DatabaseRestoreRunNotFoundError,
 } from './db-backup.errors';
+import { PgJobRoleBroker } from './pg-job-role.broker';
 import { backupScheduleToCron, InvalidTimezoneError, nextFireAt } from './schedule.util';
 import {
   ACTIVE_BACKUP_STATUSES,
@@ -182,6 +183,7 @@ import type {
   DatabaseBackupConfigResponse,
   UpdateDatabaseBackupConfig,
 } from './dto/db-backup-config.dto';
+import type { NodeCredentialPreflight } from './dto/db-backup-node-credential.dto';
 import type {
   BackupDownloadUrl,
   CancelBackupResult,
@@ -244,7 +246,14 @@ export class DatabaseBackupAdminService {
     // interactive object API would give every archive a user-facing object
     // record an administrator could delete outside the retention policy that
     // owns its lifetime.
-    @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider
+    @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
+    // The PostgreSQL job-role broker (#350, epic #345), for ONE read: whether
+    // this deployment could mint a node credential. Injected whole rather than
+    // reimplemented, so the verdict an administrator reads and the verdict a
+    // node's request is refused with come from the same probe — a second
+    // implementation of "can we CREATE ROLE?" is how a screen starts saying yes
+    // while the claim path says no.
+    private readonly jobRoles: PgJobRoleBroker
   ) {}
 
   // =========================================================================
@@ -269,6 +278,47 @@ export class DatabaseBackupAdminService {
       ...policy,
       nextRunAt: this.projectNextRunAt(policy, now)?.toISOString() ?? null,
       activeRunId,
+    };
+  }
+
+  /**
+   * Whether this deployment can hand a worker node a database credential, and
+   * what to run if it cannot.
+   *
+   * ⚠ A READ THAT CHANGES NOTHING, and the same rule
+   * `docs/specs/database-restore.md` states for a restore pre-flight applies
+   * here for the same reason: an administrator asks "could this work?" exactly
+   * when they have not decided to switch it on. The broker's `usable()` contract
+   * forbids side effects and `pg-job-role.broker.spec.ts` asserts no DDL is
+   * issued.
+   *
+   * TWO INDEPENDENT FACTS, REPORTED SEPARATELY — see
+   * `db-backup-node-credential.dto.ts` for why. The CAPABILITY comes from the
+   * broker (a live `CREATEROLE` probe against the cluster); the POLICY comes
+   * from the `nodes` settings namespace, through the same narrow accessor the
+   * fleet crons and the claim path read, so there is exactly one read path for
+   * "may a node hold a credential here".
+   *
+   * ⚠ `=== true`, MATCHING `NodeLifecycleService.getPolicy`'s FAIL-CLOSED RULE.
+   * A missing key, a string `"true"` or a number all mean OFF: the safe answer
+   * to "may a node hold a credential to this database?" when the stored setting
+   * is not a literal `true` is no, and this screen must report the same answer
+   * the claim path acts on rather than a friendlier one.
+   */
+  async getNodeCredentialPreflight(): Promise<NodeCredentialPreflight> {
+    const [verdict, nodes] = await Promise.all([
+      this.jobRoles.preflight(),
+      this.settings.getNodesPolicy(),
+    ]);
+
+    return {
+      outcome: verdict.outcome,
+      kind: verdict.kind,
+      databaseRole: verdict.databaseRole,
+      targetDatabase: verdict.targetDatabase,
+      brokerEnabled: nodes?.jobSecretBrokerEnabled === true,
+      detail: verdict.detail,
+      guidance: verdict.outcome === 'guided' ? verdict.guidance : null,
     };
   }
 

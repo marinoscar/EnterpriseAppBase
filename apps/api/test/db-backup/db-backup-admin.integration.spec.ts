@@ -67,6 +67,7 @@ import { ROLES_KEY } from '../../src/auth/decorators/roles.decorator';
 import { DatabaseBackupController } from '../../src/db-backup/db-backup.controller';
 import { BACKUP_DOWNLOAD_URL_EXPIRY_SECONDS } from '../../src/db-backup/db-backup-admin.service';
 import { DatabaseBackupRunnerService } from '../../src/db-backup/db-backup-runner.service';
+import { PgJobRoleBroker } from '../../src/db-backup/pg-job-role.broker';
 import { DatabaseBackupAlreadyRunningError } from '../../src/db-backup/db-backup.errors';
 import { STORAGE_PROVIDER } from '../../src/storage/providers/storage-provider.interface';
 import {
@@ -185,12 +186,27 @@ describe('Admin database-backup API (Integration)', () => {
     getSignedDownloadUrl: jest.fn(),
   };
 
+  /**
+   * The #350 job-role broker, substituted for the same reason the runner and
+   * the storage provider are: it opens a real `pg.Client` to a real cluster,
+   * and a suite that needed one is a suite CI skips.
+   * `src/db-backup/pg-job-role.broker.db.spec.ts` owns the cluster behaviour.
+   */
+  const jobRoles = {
+    preflight: jest.fn(),
+    usable: jest.fn(),
+    issue: jest.fn(),
+    revoke: jest.fn(),
+    kind: 'postgres.readonly',
+  };
+
   beforeAll(async () => {
     context = await createTestApp({
       useMockDatabase: true,
       overrideProviders: [
         { provide: DatabaseBackupRunnerService, useValue: runner },
         { provide: STORAGE_PROVIDER, useValue: storage },
+        { provide: PgJobRoleBroker, useValue: jobRoles },
       ],
     });
   }, 60000);
@@ -235,6 +251,15 @@ describe('Admin database-backup API (Integration)', () => {
     });
     storage.getSignedDownloadUrl.mockReset();
     storage.getSignedDownloadUrl.mockResolvedValue('https://storage.example/key?signed');
+
+    jobRoles.preflight.mockReset();
+    jobRoles.preflight.mockResolvedValue({
+      outcome: 'ok',
+      kind: 'postgres.readonly',
+      databaseRole: 'appuser',
+      targetDatabase: 'appdb',
+      detail: 'This deployment may create roles.',
+    });
   });
 
   const server = () => context.app.getHttpServer();
@@ -280,6 +305,27 @@ describe('Admin database-backup API (Integration)', () => {
         createdById: admin.id,
       });
       expect(response.body.data.id).toBe(RUN_ID);
+    });
+
+    it('reads GET /admin/db-backup/node-credential-preflight as itself, not as a run id (#350)', async () => {
+      const admin = await createMockAdminUser(context);
+
+      const response = await request(server())
+        .get('/api/admin/db-backup/node-credential-preflight')
+        .set(authHeader(admin.accessToken))
+        .expect(200);
+
+      // Hyphens and all — if a `@Get(':id')` were ever declared at the prefix
+      // root above it, this would be captured as an id and `ParseUUIDPipe`
+      // would answer `400 Validation failed (uuid is expected)`.
+      expect(response.body.data).toMatchObject({
+        outcome: 'ok',
+        kind: 'postgres.readonly',
+        databaseRole: 'appuser',
+        targetDatabase: 'appdb',
+        guidance: null,
+      });
+      expect(response.body.data).toHaveProperty('brokerEnabled');
     });
 
     it('reads GET /admin/db-backup/runs as the list, not as a run id', async () => {
@@ -757,6 +803,44 @@ describe('Admin database-backup API (Integration)', () => {
   });
 
   // =========================================================================
+  // ⚠ `guided` is a 200 (#350)
+  // =========================================================================
+
+  describe('the node-credential pre-flight refuses with a verdict, never a status code', () => {
+    it('answers 200 with the command block when this deployment cannot CREATE ROLE', async () => {
+      const admin = await createMockAdminUser(context);
+      jobRoles.preflight.mockResolvedValue({
+        outcome: 'guided',
+        kind: 'postgres.readonly',
+        databaseRole: 'appuser',
+        targetDatabase: 'appdb',
+        detail: 'This deployment\'s database role ("appuser") may not CREATE ROLE.',
+        guidance: {
+          reason: 'no CREATEROLE',
+          commands: 'ALTER ROLE "appuser" CREATEROLE;',
+          runbook: 'docs/runbooks/node-job-secrets.md',
+        },
+      });
+
+      const response = await request(server())
+        .get('/api/admin/db-backup/node-credential-preflight')
+        .set(authHeader(admin.accessToken))
+        // ⚠ 200. Managed PostgreSQL withholding CREATEROLE is the ORDINARY
+        // configuration; a 4xx would tell an administrator their platform is
+        // unsupported when it is not, and a 5xx would say something is broken
+        // when nothing is. The same argument the restore pair's `guided` mode
+        // makes one file over.
+        .expect(200);
+
+      expect(response.body.data.outcome).toBe('guided');
+      // The remedy survives the response pipeline verbatim — it is the part a
+      // person pastes into a terminal.
+      expect(response.body.data.guidance.commands).toBe('ALTER ROLE "appuser" CREATEROLE;');
+      expect(response.body.data.guidance.runbook).toBe('docs/runbooks/node-job-secrets.md');
+    });
+  });
+
+  // =========================================================================
   // RBAC — the decorators, and the guards that enforce them
   // =========================================================================
 
@@ -779,6 +863,8 @@ describe('Admin database-backup API (Integration)', () => {
       ['updateConfig', 'db_backup:write'],
       ['startRun', 'db_backup:write'],
       ['listRuns', 'db_backup:read'],
+      // A probe that creates nothing sits on the READ side.
+      ['getNodeCredentialPreflight', 'db_backup:read'],
       ['download', 'db_backup:read'],
       ['cancel', 'db_backup:write'],
       ['getRun', 'db_backup:read'],
@@ -810,6 +896,7 @@ describe('Admin database-backup API (Integration)', () => {
     it.each([
       ['get', '/api/admin/db-backup/config'],
       ['get', '/api/admin/db-backup/runs'],
+      ['get', '/api/admin/db-backup/node-credential-preflight'],
       ['get', `/api/admin/db-backup/runs/${RUN_ID}`],
       ['get', `/api/admin/db-backup/runs/${RUN_ID}/download`],
       ['post', '/api/admin/db-backup/runs'],

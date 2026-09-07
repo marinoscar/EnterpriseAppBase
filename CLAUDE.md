@@ -473,6 +473,12 @@ and [`docs/runbooks/maintenance-mode.md`](docs/runbooks/maintenance-mode.md).
 - `PUT /api/admin/maintenance` - Open or close the window (`system_settings:write`)
 
 ### Database Backup (Admin-only)
+- `GET /api/admin/db-backup/node-credential-preflight` - Whether a worker node can be handed a
+  short-lived, SELECT-only database credential to take a backup (`db_backup:read`). Two
+  independent facts: `outcome` is the **capability** (a live `CREATEROLE` probe), `brokerEnabled`
+  is the **policy** (`nodes.jobSecretBrokerEnabled`). ⚠ `outcome: "guided"` is a **200** carrying
+  paste-ready SQL, never a 4xx — managed PostgreSQL denying `CREATEROLE` is the ordinary case.
+  See [`docs/runbooks/node-job-secrets.md`](docs/runbooks/node-job-secrets.md)
 - `GET /api/admin/db-backup/config` - Backup policy, computed `nextRunAt`, active run id
 - `PUT /api/admin/db-backup/config` - Update the policy (partial; every field optional)
 - `POST /api/admin/db-backup/runs` - Take a backup now (returns immediately; 409 if one is running)
@@ -941,6 +947,22 @@ is documented in full in
 `pg_dump` client/server version mismatch is
 [`docs/runbooks/postgres-client-version.md`](docs/runbooks/postgres-client-version.md).
 Don't restate either here; extend those two instead.
+
+Running the dump on a worker node needs a database connection, and no amount of
+presigning produces one. `db-backup/pg-job-role.broker.ts` is the first
+`JobSecretBroker` in this repository (epic #345): per job it mints a
+`appjob_<job>_<random>` login role holding `CONNECT` + `USAGE` + `SELECT` and
+nothing else, `VALID UNTIL` the job's lease + 60s, through `withAdminConnection`
+outside the Prisma pool. `pg_dump` **does not need `SUPERUSER`** — `--no-owner
+--no-acl` keeps ownership and grants out of the archive, so a SELECT-only role
+produces the same bytes. Three layers bound a grant: the settle listener, the
+sweeper, and `VALID UNTIL`, which PostgreSQL enforces itself and which no
+switched-off cron can miss. A role without `CREATEROLE` is the **ordinary**
+managed-PostgreSQL case and answers `guided` with paste-ready SQL, never a 4xx.
+A node also needs a **network route** to PostgreSQL; there is deliberately no
+tunnelling, because that would put the API in the data path the presigned-URL
+data plane exists to keep it out of. Operator guide:
+[`docs/runbooks/node-job-secrets.md`](docs/runbooks/node-job-secrets.md).
 
 Restoring one is the other half, and it has two rules of its own. **No
 pre-flight path may create, drop or rename anything** — an operator asks "can

@@ -78,6 +78,7 @@ import { JobsService } from '../../src/jobs/jobs.service';
 import { ProviderThrottleService } from '../../src/jobs/provider-throttle.service';
 import { spawnPgDump } from '../../src/db-backup/pg-dump.util';
 import { readTocEntryCount } from '../../src/db-backup/pg-restore.util';
+import { PgJobRoleBroker } from '../../src/db-backup/pg-job-role.broker';
 import { checkPgClientVersion, readServerVersionNumWithPgClient } from '../../src/db-backup/pg-version.util';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import type { DatabaseBackupRetentionService } from '../../src/db-backup/db-backup-retention.service';
@@ -182,7 +183,15 @@ describeWithDb('A real pg_dump round trip through the backup engine', () => {
     );
 
     registry = new JobHandlerRegistry();
-    new DatabaseBackupRunHandler(registry, runner).onModuleInit();
+    // ⚠ THE REAL BROKER, AND IT IS NEVER CALLED ON THIS PATH (#350). A
+    // `db.backup.run` claimed by THIS process dumps with the application's own
+    // credentials; the broker exists for a REMOTE executor, which reaches it
+    // through `POST /api/nodes/:id/jobs/:jobId/secret` and not through
+    // `process()`. Passing the real one rather than a double is the cheaper
+    // honesty: if `process()` ever grew a call to it, this suite would mint a
+    // role against the real cluster instead of quietly satisfying a stub.
+    // Its cluster behaviour is `src/db-backup/pg-job-role.broker.db.spec.ts`.
+    new DatabaseBackupRunHandler(registry, runner, new PgJobRoleBroker()).onModuleInit();
 
     claimer = new JobClaimService(prisma as unknown as PrismaService);
     terminal = new JobTerminalService(

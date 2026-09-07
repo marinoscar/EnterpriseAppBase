@@ -39,6 +39,7 @@ import { z } from 'zod';
 
 import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
 import type { IssuedJobSecret, JobSecretUsability } from '../../src/jobs/job-secret-broker';
+import { SECRET_CLOCK_SKEW_ALLOWANCE_MS } from '../../src/nodes/node-secret-broker.service';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import { authHeader, createMockAdminUser, createMockViewerUser } from '../helpers/auth-mock.helper';
 import { closeTestApp, createTestApp, TestContext } from '../helpers/test-app.helper';
@@ -273,11 +274,46 @@ describe('Worker node per-job secret broker (Integration)', () => {
         .send({})
         .expect(200);
 
-      // The `until` the broker was asked for IS the lease expiry. A second
-      // clock here — a configured TTL, a node-requested duration — is what this
-      // assertion exists to refuse.
-      expect(issue.mock.calls[0][1]).toEqual(leaseExpiresAt);
-      expect(response.body.data.expiresAt).toBe(leaseExpiresAt.toISOString());
+      // The `until` the broker was asked for IS the lease expiry, plus the
+      // clock-skew allowance and NOTHING else. A second clock here — a
+      // configured TTL, a node-requested duration, a per-broker overhang — is
+      // what this assertion exists to refuse.
+      const expected = new Date(leaseExpiresAt.getTime() + SECRET_CLOCK_SKEW_ALLOWANCE_MS);
+
+      expect(issue.mock.calls[0][1]).toEqual(expected);
+      expect(response.body.data.expiresAt).toBe(expected.toISOString());
+    });
+
+    it('adds the skew allowance HERE, so no broker has to — and so none may', async () => {
+      const leaseExpiresAt = new Date(Date.now() + 123_000);
+      const admin = await createMockAdminUser(context);
+      givenHeldJob(admin.id, { leaseExpiresAt });
+
+      await request(server())
+        .post(secretPath)
+        .set(authHeader(admin.accessToken))
+        .send({})
+        .expect(200);
+
+      const until = issue.mock.calls[0][1];
+
+      // ⚠ THE PAIR THAT KEEPS `JobSecretBroker.issue`'s CONTRACT TRUE. The
+      // contract says a broker may grant LESS than `until` and must not grant
+      // more; a credential's expiry is nonetheless enforced by the BACKEND's
+      // clock while the lease is enforced by ours, so SOMETHING has to absorb
+      // the skew. It is absorbed at this one funnel, ahead of every broker,
+      // rather than by each broker padding `until` behind the caller's back —
+      // which would make the contract false for its first implementation and
+      // leave every later broker to invent its own unspecified overhang.
+      //
+      // `until` is therefore STRICTLY LATER than the raw lease...
+      expect(until.getTime()).toBeGreaterThan(leaseExpiresAt.getTime());
+      // ...by exactly the allowance, and by nothing that drifts.
+      expect(until.getTime() - leaseExpiresAt.getTime()).toBe(SECRET_CLOCK_SKEW_ALLOWANCE_MS);
+
+      // The mirror assertion — that a broker hands back exactly the instant it
+      // was given — is `src/db-backup/pg-job-role.broker.spec.ts` and, against
+      // a real catalog, `pg-job-role.broker.db.spec.ts`.
     });
 
     it('records the HANDLE, and nothing that could be the material', async () => {
