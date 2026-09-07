@@ -19,6 +19,7 @@ import {
   type NotificationChannelSender,
   type NotificationDispatchContext,
   type NotificationRecipient,
+  type NotifyOptions,
 } from './notification.types';
 
 // =============================================================================
@@ -28,6 +29,13 @@ import {
 // ONE ENTRY POINT: `notify(eventKey, userId, data)`. It resolves the event
 // from the registry (#121), resolves the user's per-channel preference, and
 // fans out to each enabled channel, recording what happened.
+//
+// Three public methods now share that ONE resolution point rather than
+// multiplying it: `notify` (the detached default), `notifyAddress` (#128 — a
+// second way of BUILDING a recipient, for somebody with no account yet), and
+// `notifyNow` (#321 — the same dispatch, awaited, for a job handler that must
+// not return before its work has committed). All three converge on the private
+// `dispatch()`, which is the only place a preference or a policy is consulted.
 //
 // The alternative — emit an event and let each channel subscribe — is more
 // decoupled and scatters the preference gate across subscribers, where one of
@@ -81,8 +89,11 @@ import {
 //
 // Structurally, not by inspection. `notify` itself does exactly two things
 // that could fail — a synchronous map lookup, and handing a closure to
-// `schedule` — and `schedule` attaches a `.catch()` before the promise can
-// reject. Every layer below it is separately defensive: the channel contract
+// `schedule` — and `schedule` routes it through `runContained`, which attaches
+// a `.catch()` before the promise can reject. `notifyNow` (#321, below) makes
+// the same promise by calling the SAME `runContained`, not a second try/catch
+// of its own: one guarantee, one implementation, so it cannot be weakened on
+// one path only. Every layer below it is separately defensive: the channel contract
 // returns failures instead of throwing, the delivery service swallows its own
 // database errors, and `deliverOne` wraps every channel call in a `try`/`catch`
 // regardless. The point of the redundancy is that the guarantee must survive a
@@ -183,8 +194,18 @@ export class NotificationsService implements OnModuleDestroy {
    * @param userId the recipient's account.
    * @param data the event's payload, passed to the channel's template
    *        untouched. Never logged.
+   * @param options per-dispatch options (#321). Today that is a
+   *        NARROWING-ONLY channel subset — see {@link NotifyOptions}, which
+   *        states at length what it cannot do. OMITTING IT REPRODUCES THE
+   *        PRE-#321 BEHAVIOUR EXACTLY, which is why the existing call sites
+   *        did not move.
    */
-  async notify(eventKey: string, userId: string, data: unknown): Promise<void> {
+  async notify(
+    eventKey: string,
+    userId: string,
+    data: unknown,
+    options?: NotifyOptions,
+  ): Promise<void> {
     const event = findEvent(eventKey);
 
     if (!event) {
@@ -199,7 +220,96 @@ export class NotificationsService implements OnModuleDestroy {
     }
 
     this.schedule(() =>
-      this.dispatchToUser(event, userId, data),
+      this.dispatchToUser(event, userId, data, options),
+    );
+  }
+
+  /**
+   * Raise a notification for one user and AWAIT ITS DELIVERY.
+   *
+   * The awaited sibling of {@link notify}: same registry lookup, same recipient
+   * resolution, same single gate in `dispatch()`, same never-rejects
+   * containment. The ONE difference is that it does not detach — when this
+   * promise resolves, every channel has been attempted and every delivery row
+   * has been written.
+   *
+   * ---------------------------------------------------------------------------
+   * WHY THIS EXISTS, BECAUSE IT IS THE DECISION MOST LIKELY TO BE UNDONE
+   * ---------------------------------------------------------------------------
+   *
+   * A reader who has just absorbed this file's header — which argues at length
+   * that dispatch SHOULD be detached — will reasonably ask why there is now a
+   * method that isn't, and be tempted to delete it in favour of `notify`. Here
+   * is the answer, so that deletion is at least an informed one.
+   *
+   * The caller this exists for is a JOB HANDLER (epic #254; the broadcast
+   * fan-out of epic #319 is the first). `JobHandler.process` is contracted so
+   * that "returning normally means the work is done and durable; do not return
+   * before the writes this job is responsible for have committed"
+   * (`apps/api/src/jobs/job-handler.interface.ts`). A handler built on
+   * `notify()` would violate that contract three ways at once:
+   *
+   *   1. It would leave N dispatches in flight AFTER `process()` returned.
+   *   2. The worker would then mark the job row `succeeded` for work that had
+   *      not happened — the queue's record would assert a lie, which is worse
+   *      than a failure, because a failure retries and a lie does not.
+   *   3. A SIGTERM would drop everything past the {@link SHUTDOWN_DRAIN_MS}
+   *      5 s drain, with no job row left claiming responsibility for it.
+   *
+   * AND `flush()` IS NOT A SUBSTITUTE, which is the other reflex worth heading
+   * off. `flush()` awaits every dispatch in flight — including every unrelated
+   * one raised by any concurrent request — and it LOOPS until the set drains.
+   * Under a broadcast that set is being refilled continuously, so the loop has
+   * no bound: a handler awaiting it would be waiting on other people's work,
+   * for an unbounded time, and would still have no per-dispatch outcome.
+   *
+   * ---------------------------------------------------------------------------
+   * WHEN NOT TO USE IT
+   * ---------------------------------------------------------------------------
+   *
+   * NEVER FROM A REQUEST PATH. This is the "plain inline-and-awaited" shape the
+   * header rejects: it puts a mail server's latency inside an HTTP request, and
+   * a hung transport holds a Fastify request open for its full timeout. It is
+   * for BACKGROUND WORKERS that own their own concurrency and need backpressure
+   * — which is exactly the property a chunked fan-out wants and a controller
+   * does not. If you are in a controller or a service called by one, use
+   * {@link notify}.
+   *
+   * NEVER REJECTS, by the same mechanism as `notify`: both route their work
+   * through {@link runContained}. A dispatch failure is a log line and, where
+   * one could be written, a `notification_deliveries` row — never an exception
+   * reaching the job handler, which would fail and retry the whole job over one
+   * recipient's bad mailbox.
+   *
+   * It is deliberately NOT tracked in {@link inFlight}: that set exists so an
+   * orderly shutdown can drain work NOBODY IS AWAITING. This work has an
+   * awaiting owner by definition, and that owner — not this service — decides
+   * what to do about it on shutdown.
+   *
+   * @param eventKey a key from `NOTIFICATION_EVENTS`. Unknown is a no-op that
+   *        records nothing, exactly as in `notify`.
+   * @param userId the recipient's account.
+   * @param data the event's payload, passed to the template untouched.
+   * @param options the narrowing-only per-dispatch options; see
+   *        {@link NotifyOptions}.
+   */
+  async notifyNow(
+    eventKey: string,
+    userId: string,
+    data: unknown,
+    options?: NotifyOptions,
+  ): Promise<void> {
+    const event = findEvent(eventKey);
+
+    if (!event) {
+      this.logger.debug(
+        `Ignoring notification for unknown event '${eventKey}'.`,
+      );
+      return;
+    }
+
+    await this.runContained(() =>
+      this.dispatchToUser(event, userId, data, options),
     );
   }
 
@@ -262,11 +372,17 @@ export class NotificationsService implements OnModuleDestroy {
    *        the allowlist stores addresses lower-cased while `users.email`
    *        holds whatever the OAuth provider returned.
    * @param data the event's payload, passed to the template untouched.
+   * @param options the narrowing-only per-dispatch options (#321), carried
+   *        here as well as on {@link notify} so the two public paths cannot
+   *        end up with different capabilities — the divergence this method's
+   *        whole design (one gate, two ways of building a recipient) exists to
+   *        avoid. See {@link NotifyOptions}.
    */
   async notifyAddress(
     eventKey: string,
     email: string,
     data: unknown,
+    options?: NotifyOptions,
   ): Promise<void> {
     const event = findEvent(eventKey);
 
@@ -277,7 +393,7 @@ export class NotificationsService implements OnModuleDestroy {
       return;
     }
 
-    this.schedule(() => this.dispatchToAddress(event, email, data));
+    this.schedule(() => this.dispatchToAddress(event, email, data, options));
   }
 
   /**
@@ -350,33 +466,57 @@ export class NotificationsService implements OnModuleDestroy {
    * an enqueue is the entire change if a durable queue is ever justified;
    * `notify` and `dispatchToUser` do not move.
    *
-   * `Promise.resolve().then(work)` rather than calling `work()` directly:
-   * invoking it here would run its synchronous prefix inside the caller's
-   * turn, which is a small lie about "does not block the caller" and a large
-   * one if somebody later adds a synchronous statement to the top of
-   * `dispatchToUser`. Deferring makes the guarantee independent of what the
-   * work happens to do first.
-   *
-   * The `.catch()` is attached to the promise that is STORED, so there is no
-   * window in which an unhandled rejection can escape — this is the mechanism
-   * behind `notify`'s never-throws guarantee.
+   * The deferral and the never-throws containment both live in
+   * {@link runContained}, which this shares with the awaited `notifyNow` path
+   * (#321) so the two cannot drift apart. What is left HERE is the part that
+   * is genuinely about detaching: the promise is stored in `inFlight` — the
+   * already-contained one, so there is no window in which an unhandled
+   * rejection can escape — and removed when it settles, which is what lets the
+   * shutdown drain finish work whose caller is long gone.
    */
   private schedule(work: () => Promise<void>): void {
-    const task = Promise.resolve()
-      .then(work)
-      .catch((err: unknown) => {
-        // Reaching here means something below threw despite every layer being
-        // written not to. That is a bug worth an `error`, and it is still
-        // contained: the caller returned long ago.
-        this.logger.error(
-          `Notification dispatch failed unexpectedly: ${describeThrown(err)}`,
-        );
-      });
+    const task = this.runContained(work);
 
     this.inFlight.add(task);
     void task.finally(() => {
       this.inFlight.delete(task);
     });
+  }
+
+  /**
+   * Run a unit of work such that its promise CANNOT REJECT.
+   *
+   * ONE COPY OF THE NEVER-THROWS GUARANTEE, shared by the detached path
+   * ({@link schedule}, and so `notify`/`notifyAddress`) and the awaited one
+   * ({@link notifyNow}). Both make the identical promise to their callers, and
+   * a promise made in two places is a promise that can be weakened in one of
+   * them — a `catch` narrowed here, a rethrow added there — with the two
+   * entry points then differing in a way no test of either would notice. So
+   * they share this rather than each holding a try/catch of their own.
+   *
+   * Note what is NOT here: `inFlight` bookkeeping. Whether a dispatch is
+   * tracked for the shutdown drain depends on whether anybody is awaiting it,
+   * which is the caller's question, not this function's — see `notifyNow` for
+   * why it opts out.
+   *
+   * `Promise.resolve().then(work)` rather than calling `work()` here for the
+   * reason {@link schedule} gives: it keeps the deferral independent of what
+   * the work happens to do synchronously first. For `notifyNow`, where the
+   * caller is awaiting anyway, the extra microtask is invisible.
+   */
+  private runContained(work: () => Promise<void>): Promise<void> {
+    return Promise.resolve()
+      .then(work)
+      .catch((err: unknown) => {
+        // Reaching here means something below threw despite every layer being
+        // written not to. That is a bug worth an `error`, and it is still
+        // contained: on the detached path the caller returned long ago, and on
+        // the awaited path the caller gets a resolved promise rather than a
+        // rejection that would fail an entire job over one recipient.
+        this.logger.error(
+          `Notification dispatch failed unexpectedly: ${describeThrown(err)}`,
+        );
+      });
   }
 
   /**
@@ -392,6 +532,7 @@ export class NotificationsService implements OnModuleDestroy {
     event: NotificationEventDef,
     userId: string,
     data: unknown,
+    options?: NotifyOptions,
   ): Promise<void> {
     const user = await this.loadRecipient(userId);
 
@@ -407,7 +548,7 @@ export class NotificationsService implements OnModuleDestroy {
       return;
     }
 
-    await this.dispatch(event, user, data);
+    await this.dispatch(event, user, data, options);
   }
 
   /**
@@ -422,6 +563,7 @@ export class NotificationsService implements OnModuleDestroy {
     event: NotificationEventDef,
     email: string,
     data: unknown,
+    options?: NotifyOptions,
   ): Promise<void> {
     let existing: { id: string } | null;
 
@@ -452,7 +594,7 @@ export class NotificationsService implements OnModuleDestroy {
 
     if (existing) {
       // A real account. Ordinary path, ordinary preference resolution.
-      await this.dispatchToUser(event, existing.id, data);
+      await this.dispatchToUser(event, existing.id, data, options);
       return;
     }
 
@@ -466,6 +608,7 @@ export class NotificationsService implements OnModuleDestroy {
       event,
       { userId: null, email, preferences: {} },
       data,
+      options,
     );
   }
 
@@ -530,6 +673,7 @@ export class NotificationsService implements OnModuleDestroy {
     event: NotificationEventDef,
     recipient: NotificationRecipient,
     data: unknown,
+    options?: NotifyOptions,
   ): Promise<void> {
     // THE ADMIN GATE (#226), read ONCE per dispatch and carried in the context
     // below. Both halves of the browser decision — which channels to fan out to,
@@ -545,14 +689,61 @@ export class NotificationsService implements OnModuleDestroy {
     // THE GATE. `resolveChannels` applies the admin policy, then the sparse
     // absent-key contract and the `mandatory` override; nothing else in this
     // file consults a preference or a policy. One resolution point, one gate.
-    const channels = resolveChannels(event, recipient.preferences, policy);
+    let channels = resolveChannels(event, recipient.preferences, policy);
+
+    // -------------------------------------------------------------------------
+    // THE PER-DISPATCH NARROWING (#321, epic #319) — AND WHY IT IS *HERE*
+    // -------------------------------------------------------------------------
+    //
+    // An admin composing a broadcast picks the medium ("email only"), and that
+    // choice has to reach the dispatcher somehow. It arrives as
+    // `NotifyOptions.channels` and is applied RIGHT HERE: as a set intersection
+    // against the list the gate above already produced, and before the
+    // every-channel-muted check below.
+    //
+    // NOT BY WIDENING `resolveChannels`, WHICH IS THE LOAD-BEARING PART.
+    // `resolveChannels` is a PURE FUNCTION SHARED WITH
+    // `GET /api/notifications/events` — the endpoint that builds the per-user
+    // preferences matrix, which has no per-dispatch subset and never will.
+    // Adding the parameter there would put a dispatch-time concept into the
+    // function the preferences page calls, and would invite the next caller to
+    // pass it from the wrong side of that seam.
+    //
+    // Intersecting an ALREADY-RESOLVED list is also what makes "this can only
+    // ever narrow" STRUCTURALLY TRUE rather than a property someone has to
+    // re-verify every time this file changes: there is no path from here by
+    // which a channel `resolveChannels` did not return can be delivered over.
+    // A requested channel the event does not declare, one the admin policy
+    // dropped, one the user muted — each is simply an element with nothing to
+    // intersect with.
+    //
+    // AND IT PERMITS NARROWING A `mandatory` EVENT, DELIBERATELY. That looks
+    // like a hole in the flag and is not: `mandatory` binds the RECIPIENT, not
+    // the sender. It means "the user may not mute this", not "the sender may
+    // not choose a medium" — an admin picking email for an announcement is not
+    // a user opting out of it. The rule that a CRITICAL broadcast must include
+    // the in-app channel is a composition rule about one product surface, so it
+    // is enforced in the admin API's DTO (#324), not here.
+    //
+    // Say the consequence plainly rather than leaving it implied: a future call
+    // site that bypasses that DTO could send `admin.broadcast_critical`
+    // email-only, and no durable in-app record of it would exist. If that
+    // becomes a real risk — a second composer, a scripted sender — the answer
+    // is a check at THAT entry point, not a special case in this intersection,
+    // which would make `mandatory` mean two different things in two files.
+    if (options?.channels) {
+      const requested = new Set(options.channels);
+      channels = channels.filter((channel) => requested.has(channel));
+    }
 
     if (channels.length === 0) {
-      // Every channel muted. No rows: nothing was attempted, and recording a
-      // "we did not try" row per muted event would fill the table with the
-      // absence of activity.
+      // Every channel muted — or narrowed away to nothing by `options.channels`
+      // above, which lands here on purpose rather than in a branch of its own:
+      // "nothing left to deliver over" is one outcome however it was reached.
+      // No rows: nothing was attempted, and recording a "we did not try" row
+      // per muted event would fill the table with the absence of activity.
       this.logger.debug(
-        `'${event.key}' is disabled on every channel for user ` +
+        `'${event.key}' resolved to no enabled channel for user ` +
           `${recipient.userId ?? '(no account)'}.`,
       );
       return;

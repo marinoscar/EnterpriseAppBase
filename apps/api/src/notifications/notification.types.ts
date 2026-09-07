@@ -67,6 +67,60 @@ export interface NotificationRecipient {
 }
 
 /**
+ * Per-dispatch options for {@link NotificationsService.notify} and
+ * {@link NotificationsService.notifyNow} (#321, epic #319).
+ *
+ * -----------------------------------------------------------------------------
+ * THIS NARROWS. IT CAN ONLY EVER REMOVE.
+ * -----------------------------------------------------------------------------
+ *
+ * Read that as the whole contract, because every other reading of it is a
+ * security hole. The option is applied as a SET INTERSECTION against the list
+ * `resolveChannels` already produced — after the admin policy filter, after the
+ * user-preference filter — so there is no path by which it can yield a channel
+ * `resolveChannels` did not return. Concretely, it:
+ *
+ *   * CANNOT ADD a channel the event does not declare in
+ *     `NOTIFICATION_EVENTS`. Naming one is not an error, it is simply an
+ *     element the intersection drops.
+ *   * CANNOT RESURRECT a channel the deployment-wide admin policy dropped
+ *     (`policyChannels`, notification-policy.ts). Requesting `browser` with the
+ *     kill switch off yields no browser delivery.
+ *   * CANNOT RESURRECT a channel the user muted (`isChannelEnabled`,
+ *     notification-preferences.ts). A stored `false` still wins.
+ *
+ * An empty intersection is a legitimate outcome and means the same thing as
+ * "every channel muted": nothing is attempted, no delivery row is written, and
+ * nothing throws.
+ *
+ * WHY IT IS NOT A "FINAL CHANNEL LIST". Letting a caller state the channels
+ * outright — overriding resolution rather than intersecting with it — would let
+ * that caller step around the kill switch and the preference gate, which is
+ * precisely what having one resolution point in `dispatch()` exists to make
+ * impossible. The narrowing direction is the reason this option can be offered
+ * to a caller at all.
+ *
+ * OMITTING IT REPRODUCES TODAY'S BEHAVIOUR EXACTLY. That is why the existing
+ * `notify()` call sites (`auth.service.ts`, `users.service.ts`,
+ * `allowlist.service.ts`) are untouched by #321.
+ */
+export interface NotifyOptions {
+  /**
+   * Deliver over these channels only.
+   *
+   * `readonly` because nothing downstream may sort or splice a caller's array,
+   * and because the dispatcher only ever reads membership from it.
+   *
+   * Absent means "no restriction" — NOT "no channels". An explicitly empty
+   * array, by contrast, genuinely means no channels, and resolves to the
+   * every-channel-muted path. The two are different requests and are treated
+   * differently on purpose: `undefined` is the absence of an opinion, `[]` is
+   * an opinion.
+   */
+  channels?: readonly NotificationChannel[];
+}
+
+/**
  * Everything a channel needs to render and deliver one notification.
  */
 export interface NotificationDispatchContext {

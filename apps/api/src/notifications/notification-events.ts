@@ -255,6 +255,64 @@ export const NOTIFICATION_EVENTS: NotificationEventDef[] = [
     // nobody outside the admin console can tell. Not silenceable.
     mandatory: true,
   },
+
+  // ===========================================================================
+  // ADMIN BROADCASTS (#321, epic #319) — TWO KEYS, AND WHY NOT ONE
+  // ===========================================================================
+  //
+  // The obvious alternative is a single `admin.broadcast` event whose composer
+  // sets an "important" flag per send. It was rejected, and the reason is
+  // structural rather than stylistic.
+  //
+  // `mandatory` is a STATIC REGISTRY PROPERTY, and it is not decoration: both
+  // `isChannelEnabled` (notification-preferences.ts) and `policyChannels`
+  // (notification-policy.ts) BRANCH ON IT, and each branch is a gate — the
+  // first decides whether a stored user preference may mute this event at all,
+  // the second whether an operator's deployment-wide kill switch may. Making
+  // the flag dynamic would push a PER-SEND value into the gate that decides
+  // whether a user may mute an event at all, which is to say: whoever composes
+  // a message would be handed the switch that overrides the recipient's
+  // preferences. That is the exact coupling `mandatory` exists to keep out of
+  // reach of anything but this file.
+  //
+  // Two keys is also THE ONLY REPRESENTATION UNDER WHICH THE PREFERENCES
+  // MATRIX CAN SHOW BOTH: a muteable row the user may switch off, and an
+  // unmuteable one rendered disabled with its reason (#126). One key carrying a
+  // per-send flag has exactly one row, and that row has to lie in one direction
+  // or the other — it either offers a toggle that some sends ignore, or hides a
+  // toggle that most sends would honour.
+  //
+  // The pair is otherwise deliberately identical: same channels, same default.
+  // The ONLY difference between them is who is in charge of muting them.
+  // ===========================================================================
+  {
+    key: 'admin.broadcast',
+    label: 'Announcements',
+    description:
+      'Occasional messages an administrator sends to everyone using this application.',
+    // All three channels: a broadcast has no shape of its own, so the medium is
+    // the admin's choice per send — expressed as a NARROWING of this list (see
+    // `NotifyOptions` in notification.types.ts), never as a widening of it.
+    channels: ['email', 'browser', 'push'],
+    defaultEnabled: true,
+  },
+  {
+    key: 'admin.broadcast_critical',
+    label: 'Important announcements',
+    description:
+      'Messages an administrator has marked as important — service interruptions, security notices and anything else everyone needs to see. These cannot be turned off.',
+    channels: ['email', 'browser', 'push'],
+    defaultEnabled: true,
+    // A service interruption or a security notice nobody receives is the
+    // failure this flag exists for, and it is the same argument
+    // `security.role_changed` makes: silence is itself the risk.
+    //
+    // Note what this does NOT constrain: `mandatory` binds the RECIPIENT, not
+    // the sender. An admin may still choose to send a critical broadcast over a
+    // subset of channels — see `dispatch()` in notifications.service.ts, which
+    // permits narrowing a mandatory event on purpose and says why.
+    mandatory: true,
+  },
 ];
 
 /**
