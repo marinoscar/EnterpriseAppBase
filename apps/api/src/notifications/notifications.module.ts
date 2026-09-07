@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { CredentialsModule } from '../credentials/credentials.module';
 import { EmailModule } from '../email/email.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { SettingsModule } from '../settings/settings.module';
@@ -13,6 +14,8 @@ import { NotificationStreamService } from './notification-stream.service';
 import { NotificationsController } from './notifications.controller';
 import { NotificationsService } from './notifications.service';
 import { JobFailureNotifier } from './ops/job-failure-notifier';
+import { PushConfigController } from './push-config.controller';
+import { PushConfigService } from './push-config.service';
 import { PushSubscriptionService } from './push-subscription.service';
 import {
   NOTIFICATION_CHANNEL_SENDERS,
@@ -129,8 +132,16 @@ import {
     // the dispatcher degrades a malformed `system_settings` row exactly as the
     // admin API does instead of re-deriving those rules.
     SettingsModule,
+    // The VAPID private key's only home (#355, scaffolded here — see
+    // `push-config.service.ts`). Imported explicitly, exactly like
+    // `EmailModule` above and for the identical reason: `CredentialsModule`
+    // is deliberately not `@Global()` because it can reach a
+    // plaintext-returning service (`CredentialsService.getSecret`), so every
+    // consumer of it shows up in a diff. `PushConfigService` is the consumer
+    // here.
+    CredentialsModule,
   ],
-  controllers: [NotificationsController],
+  controllers: [NotificationsController, PushConfigController],
   providers: [
     NotificationsService,
     NotificationDeliveryService,
@@ -151,6 +162,12 @@ import {
     // and "should the dispatcher ever try to push", because they are the same
     // underlying fact (this deployment has, or has not, generated VAPID keys).
     PushSubscriptionService,
+    // The runtime-configurable Web Push admin surface (#355), scaffolded
+    // here — see `push-config.service.ts` for what it will grow into over
+    // the next few commits. Exported so other providers in this module (and,
+    // in future, other modules) can read the same "is push actually active"
+    // answer.
+    PushConfigService,
     EmailNotificationChannel,
     BrowserNotificationChannel,
     // #288's queue listener (epic #254). A PROVIDER AND NOT AN EXPORT, and it
@@ -197,12 +214,15 @@ import {
       ],
     },
   ],
-  // ONLY the dispatcher is exported. `NotificationDeliveryService`, the store,
-  // the stream and the channels are internals: a feature that wants to notify
-  // someone calls `notify`, and must not be able to write a delivery record for
-  // a send that did not happen, push to a user's open tabs without a durable
-  // row, or reach past the preference gate by invoking a channel directly. That
-  // gate is only a gate if there is no way around it.
-  exports: [NotificationsService],
+  // `NotificationsService` and `PushConfigService` are exported.
+  // `NotificationDeliveryService`, the store, the stream and the channels stay
+  // internal: a feature that wants to notify someone calls `notify`, and must
+  // not be able to write a delivery record for a send that did not happen,
+  // push to a user's open tabs without a durable row, or reach past the
+  // preference gate by invoking a channel directly. That gate is only a gate
+  // if there is no way around it. `PushConfigService` is different in kind —
+  // it is the admin configuration surface itself, not a delivery internal — so
+  // it is exported like `NotificationsService`.
+  exports: [NotificationsService, PushConfigService],
 })
 export class NotificationsModule {}
