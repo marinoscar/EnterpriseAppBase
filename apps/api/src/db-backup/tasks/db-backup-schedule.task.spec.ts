@@ -5,6 +5,7 @@ import type { PrismaService } from '../../prisma/prisma.service';
 import type { SystemSettingsService } from '../../settings/system-settings/system-settings.service';
 import type { StorageProvider } from '../../storage/providers/storage-provider.interface';
 import type { SystemDatabaseBackupValue } from '../../common/schemas/settings.schema';
+import type { DatabaseRestoreService } from '../database-restore.service';
 import type { DatabaseBackupRunnerService } from '../db-backup-runner.service';
 import { DatabaseBackupAlreadyRunningError } from '../db-backup.errors';
 import { DatabaseBackupScheduleTask } from './db-backup-schedule.task';
@@ -63,6 +64,8 @@ interface HarnessOptions {
   deleteImpl?: (key: string) => Promise<void>;
   /** Rows this table pretends were mutated by somebody else between read and write. */
   settleDuringSweep?: string[];
+  /** Replaces #285's retained-database sweep, e.g. to make it reject. */
+  dropExpiredImpl?: (policy: SystemDatabaseBackupValue, now: Date) => Promise<number>;
 }
 
 function makeHarness(options: HarnessOptions = {}) {
@@ -166,8 +169,25 @@ function makeHarness(options: HarnessOptions = {}) {
   const configGet = jest.fn((key: string) => (options.config ?? {})[key]);
   const config = { get: configGet } as unknown as ConfigService;
 
+  /**
+   * #285's retained-database sweep, stubbed. It has its own suite
+   * (`database-restore.service.spec.ts`); what matters HERE is only that the
+   * tick calls it, that it goes last, and that its failure does not cost the
+   * two duties in front of it.
+   */
+  const dropExpiredOldDatabases = jest.fn(
+    options.dropExpiredImpl ??
+      (async (_policy: SystemDatabaseBackupValue, _now: Date) => {
+        calls.push('dropExpiredOldDatabases');
+
+        return 0;
+      })
+  );
+
+  const restore = { dropExpiredOldDatabases } as unknown as DatabaseRestoreService;
+
   const build = () =>
-    new DatabaseBackupScheduleTask(prisma, settings, runner, storage, config);
+    new DatabaseBackupScheduleTask(prisma, settings, runner, storage, config, restore);
 
   const task = build();
 
@@ -185,6 +205,7 @@ function makeHarness(options: HarnessOptions = {}) {
     startBackup,
     deleteObject,
     configGet,
+    dropExpiredOldDatabases,
     /** One tick's firing decision at a pinned instant. */
     async fireAt(iso: string) {
       tickNow = new Date(iso);
@@ -562,6 +583,8 @@ describe('the disabled setting', () => {
       'row:orphan',
       'object:backups/orphan.dump',
       'startBackup',
+      // #285's retained-database sweep, which always runs last.
+      'dropExpiredOldDatabases',
     ]);
   });
 });
@@ -802,6 +825,58 @@ describe('the cron wrapper', () => {
 
     await h.task.handleCron();
 
+    expect(h.startBackup).toHaveBeenCalledTimes(1);
+  });
+
+  // ---------------------------------------------------------------------------
+  // #285's third duty: dropping a database a restore displaced
+  // ---------------------------------------------------------------------------
+
+  it('sweeps retained databases in the same tick, with the tick\'s own policy and clock', async () => {
+    const h = makeHarness({ policy: ALWAYS_DUE });
+
+    await h.task.handleCron();
+
+    expect(h.dropExpiredOldDatabases).toHaveBeenCalledTimes(1);
+
+    const [policy, now] = h.dropExpiredOldDatabases.mock.calls[0];
+
+    // ONE `now` FOR THE WHOLE TICK. A sweep judging its cutoff against a
+    // second clock read could disagree with the stale sweep about what "now"
+    // was, which is exactly the confusion the single `now` exists to prevent.
+    expect(policy.oldDatabaseRetentionHours).toBe(ALWAYS_DUE.oldDatabaseRetentionHours ?? 48);
+    expect(now).toBeInstanceOf(Date);
+  });
+
+  it('runs the sweep LAST, after the stale sweep and the fire', async () => {
+    // Pure housekeeping: nothing waits on it, and a DROP DATABASE blocked by a
+    // session somebody left open must never delay a backup that is due.
+    const h = makeHarness({ policy: ALWAYS_DUE });
+
+    await h.task.handleCron();
+
+    expect(h.calls).toEqual(['startBackup', 'dropExpiredOldDatabases']);
+  });
+
+  it('does not sweep at all when the scheduler is switched off', async () => {
+    const h = makeHarness({ config: { 'dbBackup.scheduleEnabled': false } });
+
+    await h.task.handleCron();
+
+    expect(h.dropExpiredOldDatabases).not.toHaveBeenCalled();
+  });
+
+  it('a failed retained-database sweep does not reject out of the tick', async () => {
+    const h = makeHarness({
+      policy: ALWAYS_DUE,
+      dropExpiredImpl: async (): Promise<number> => {
+        throw new Error('database "appdb_old_20260907T120000Z" is being accessed by other users');
+      },
+    });
+
+    await expect(h.task.handleCron()).resolves.toBeUndefined();
+
+    // ...and the duties in front of it still happened.
     expect(h.startBackup).toHaveBeenCalledTimes(1);
   });
 });
