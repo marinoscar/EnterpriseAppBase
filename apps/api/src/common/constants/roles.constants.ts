@@ -89,6 +89,24 @@ export const PERMISSIONS = {
   // (`jobs:*`, `nodes:*`, `users:*`) rather than the singular `broadcast:*`.
   BROADCASTS_READ: 'broadcasts:read',
   BROADCASTS_WRITE: 'broadcasts:write',
+
+  // Web Push (VAPID) configuration — runtime key generation/rotation
+  // (#355).
+  //
+  // DELIBERATELY SPLIT FROM `system_settings:*`, not folded into it, for the
+  // same reason `nodes:*` is split from `jobs:*` and `broadcasts:*` from
+  // `system_settings:*` above. Generating or rotating VAPID key material has
+  // a real, described blast radius that a routine settings edit does not:
+  // every existing push subscriber goes dark until their browser next
+  // resubscribes against the new public key. Folding this into
+  // `system_settings:write` would mean anyone trusted to flip a feature flag
+  // is also trusted to knock out push delivery for the entire user base. The
+  // Settings UI Pattern (CLAUDE.md rule 3) requires a hub card's
+  // `permission` to be the exact string its controller enforces, so a Push
+  // Configuration card gated on `system_settings:*` would mirror a
+  // permission `PushConfigController` never checks.
+  PUSH_READ: 'push:read',
+  PUSH_WRITE: 'push:write',
 } as const;
 
 export type PermissionName = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
