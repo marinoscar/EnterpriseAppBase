@@ -34,9 +34,12 @@ import { Logger } from '@nestjs/common';
 import { Readable } from 'node:stream';
 import type { DatabaseBackupRun } from '@prisma/client';
 
+import type { ConfigService } from '@nestjs/config';
+
 import type { MaintenanceModeService } from '../common/maintenance/maintenance-mode.service';
 import type { SystemDatabaseBackupValue } from '../common/schemas/settings.schema';
 import { JOB_TEMP_PREFIX } from '../jobs/job-temp';
+import type { NotificationsService } from '../notifications/notifications.service';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { SystemSettingsService } from '../settings/system-settings/system-settings.service';
 import type { StorageProvider } from '../storage/providers/storage-provider.interface';
@@ -195,6 +198,12 @@ interface HarnessOptions {
   /** Rows the retained-database sweep finds. Distinguished from the catalog read. */
   sweepRows?: Array<{ id: string; restoreOldDb: string | null; swappedAt: Date }>;
   startBackupError?: Error;
+  /** #288: what `ConfigService.get('appUrl')` returns. */
+  appUrl?: string;
+  /** #288: the actor's row as the RESTORED database holds it. `null` = not there. */
+  actorRow?: { email: string } | null;
+  /** #288: a notifier that misbehaves, for the containment assertions. */
+  notifyImpl?: () => Promise<void>;
 }
 
 function makeHarness(options: HarnessOptions = {}) {
@@ -311,9 +320,18 @@ function makeHarness(options: HarnessOptions = {}) {
 
   const disconnect = jest.fn(async () => undefined);
 
+  // #288: `resolveActorEmail` reads the actor out of the RESTORED database,
+  // after the swap. `options.actorRow` lets a test model the case that matters —
+  // an operator whose account was created after the archive was taken and
+  // therefore does not exist in it.
+  const userFindUnique = jest.fn(async () =>
+    options.actorRow === undefined ? { email: 'ops@example.com' } : options.actorRow
+  );
+
   const prisma = {
     databaseBackupRun: { update, findMany, findUnique },
     auditEvent: { create: auditCreate },
+    user: { findUnique: userFindUnique },
     $disconnect: disconnect,
   } as unknown as PrismaService;
 
@@ -378,6 +396,27 @@ function makeHarness(options: HarnessOptions = {}) {
     exitProcess,
   };
 
+  // #288's notifier. `notifyPermissionHoldersNow` is AWAITED by `swap()`, and
+  // `order` records when it ran — the ordering assertions are the whole point:
+  // it must land after the renames and before `exitProcess`.
+  // Records the SQL the cluster had seen at the moment it was called, which is
+  // how the ordering assertions pin it AFTER the renames without needing a
+  // second event log.
+  const notifyAtSql: string[][] = [];
+  const notifyPermissionHoldersNow: jest.Mock = jest.fn(async (..._args: unknown[]) => {
+    notifyAtSql.push([...sql]);
+
+    if (options.notifyImpl) await options.notifyImpl();
+  });
+  const notifications = {
+    notifyPermissionHoldersNow,
+    notifyPermissionHolders: jest.fn(async () => undefined),
+  } as unknown as NotificationsService;
+
+  const config = {
+    get: jest.fn((key: string) => (key === 'appUrl' ? options.appUrl : undefined)),
+  } as unknown as ConfigService;
+
   const service = new DatabaseRestoreService(
     prisma,
     settings,
@@ -385,11 +424,15 @@ function makeHarness(options: HarnessOptions = {}) {
     preflight,
     runner,
     maintenance,
+    notifications,
+    config,
     seam
   );
 
   return {
     service,
+    notifyPermissionHoldersNow,
+    notifyAtSql,
     seam,
     sql,
     cluster,
@@ -772,6 +815,157 @@ describe('the swap', () => {
     const override = h.setInMemoryOverride.mock.calls[0][0] as { message: string };
     expect(override.message).toMatch(/database restore/i);
     expect(override.message).not.toMatch(/appdb/i);
+  });
+});
+
+// ===========================================================================
+// `db_backup.restore_completed` (#288, epic #254)
+// ===========================================================================
+//
+// THE ORDERING IS THE FEATURE HERE. A detached dispatch raised before
+// `exitProcess` would be dropped outright, and the event is `mandatory: true` —
+// so the failure would be a notification that looks wired, passes every
+// registry and template test, and delivers nothing in production on the one
+// path that matters. These tests pin the two halves of the fix: it is AWAITED,
+// and it happens between the renames and the exit.
+
+describe('the completed restore raises db_backup.restore_completed', () => {
+  it('raises it exactly once, on the AWAITED entry point', async () => {
+    const h = makeHarness();
+    await runRestore(h);
+
+    expect(h.notifyPermissionHoldersNow).toHaveBeenCalledTimes(1);
+    expect(h.notifyPermissionHoldersNow.mock.calls[0][0]).toBe(
+      'db_backup.restore_completed'
+    );
+    // `db_backup:read` — the exact string `db-backup.controller.ts` enforces.
+    expect(h.notifyPermissionHoldersNow.mock.calls[0][1]).toBe('db_backup:read');
+  });
+
+  it('⚠ raises it AFTER the renames and BEFORE the exit', async () => {
+    // The whole point. `notifyAtSql` records the statements the cluster had
+    // seen at the moment the notifier was called, so "after the renames" is
+    // asserted against the SQL rather than against a second event log.
+    const h = makeHarness();
+    await runRestore(h);
+
+    const atNotify = h.notifyAtSql[0] ?? [];
+    const renamesSeen = atNotify.filter((text) => /ALTER DATABASE/.test(text));
+
+    // BOTH renames had already happened: the live database was parked and the
+    // scratch database was promoted. So the delivery rows this writes land in
+    // the RESTORED database, which is the one an operator will open.
+    expect(renamesSeen).toHaveLength(2);
+
+    // And the process had not exited yet.
+    expect(h.exitProcess).toHaveBeenCalledTimes(1);
+    expect(
+      h.notifyPermissionHoldersNow.mock.invocationCallOrder[0]
+    ).toBeLessThan(h.exitProcess.mock.invocationCallOrder[0]);
+  });
+
+  it('⚠ is AWAITED: a slow dispatch delays the exit rather than being dropped by it', async () => {
+    let released: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      released = resolve;
+    });
+
+    const h = makeHarness({ notifyImpl: () => gate });
+
+    const started = h.service.startRestore(backupRow(), { actorUserId: ACTOR });
+
+    await waitFor(
+      () => h.notifyPermissionHoldersNow.mock.calls.length > 0,
+      'the restore to reach the notification'
+    );
+
+    // Held inside the notifier: the exit has NOT happened. A detached dispatch
+    // would already have been abandoned here.
+    expect(h.exitProcess).not.toHaveBeenCalled();
+
+    released();
+    await started;
+    await waitFor(() => h.exitProcess.mock.calls.length > 0, 'the exit');
+
+    expect(h.exitProcess).toHaveBeenCalledWith(0);
+  });
+
+  it('adds the actor to the audience rather than sending them a second message', async () => {
+    const h = makeHarness();
+    await runRestore(h);
+
+    expect(h.notifyPermissionHoldersNow.mock.calls[0][3]).toEqual({
+      alsoNotifyUserIds: [ACTOR],
+    });
+  });
+
+  it('passes no extra recipients when there was no actor', async () => {
+    const h = makeHarness();
+    await h.service.startRestore(backupRow(), {});
+    await waitFor(() => h.exitProcess.mock.calls.length > 0, 'the restore to settle');
+
+    expect(h.notifyPermissionHoldersNow.mock.calls[0][3]).toEqual({
+      alsoNotifyUserIds: [],
+    });
+  });
+
+  it("reports the SOURCE BACKUP'S startedAt as the cut-off, not its finishedAt", async () => {
+    // `pg_dump` snapshots when it STARTS, so the state the database now holds
+    // is the state at the start of that run. `finishedAt` would overstate it by
+    // however long the dump took.
+    const h = makeHarness();
+    const run = backupRow();
+    await runRestore(h, run);
+
+    const payload = h.notifyPermissionHoldersNow.mock.calls[0][2];
+
+    expect(payload).toMatchObject({
+      runId: run.id,
+      backupTakenAt: run.startedAt,
+      triggeredBy: 'ops@example.com',
+    });
+    expect(payload.completedAt).toBeInstanceOf(Date);
+  });
+
+  it('reports the actor as unknown when their account does not exist in the restored database', async () => {
+    // Not an error: an operator whose account was created after the archive was
+    // taken genuinely is not in it, and that is a true and rather important
+    // fact about the state the deployment is now in.
+    const h = makeHarness({ actorRow: null });
+    await runRestore(h);
+
+    expect(h.notifyPermissionHoldersNow.mock.calls[0][2].triggeredBy).toBeNull();
+  });
+
+  // ---------------------------------------------------------------------------
+  // CONTAINMENT — the #288 acceptance criterion
+  // ---------------------------------------------------------------------------
+
+  it('a THROWING notifier does not fail the restore, and the process still exits 0', async () => {
+    const h = makeHarness({
+      notifyImpl: async () => {
+        throw new Error('the notifier exploded');
+      },
+    });
+
+    await runRestore(h);
+
+    // The swap happened, the process exited, and the run was NOT recorded as
+    // failed — which is the outcome an uncontained throw would produce, because
+    // it would land in `executeRestore`'s catch and try to drop a scratch
+    // database that has already been promoted to live.
+    expect(renames(h)).toHaveLength(2);
+    expect(h.exitProcess).toHaveBeenCalledWith(0);
+    expect(h.finalStatus()).not.toBe('failed');
+  });
+
+  it('raises NOTHING when the restore failed before the swap', async () => {
+    const h = makeHarness({ restoreError: new Error('pg_restore exited with code 1') });
+
+    await runRestore(h);
+
+    expect(h.finalStatus()).toBe('failed');
+    expect(h.notifyPermissionHoldersNow).not.toHaveBeenCalled();
   });
 });
 

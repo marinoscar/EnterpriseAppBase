@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { MaintenanceModule } from '../common/maintenance/maintenance.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { SettingsModule } from '../settings/settings.module';
 import { StorageProvidersModule } from '../storage/providers/storage-providers.module';
 import { DatabaseRestoreService } from './database-restore.service';
@@ -176,8 +177,41 @@ import { DatabaseBackupScheduleTask } from './tasks/db-backup-schedule.task';
 // not to have.
 // =============================================================================
 
+// -----------------------------------------------------------------------------
+// #288 ADDS `NotificationsModule`, AND THREE CALL SITES BEHIND IT
+// -----------------------------------------------------------------------------
+//
+// Imported for `NotificationsService`'s permission-addressed entry points, used
+// from three places in this module and nowhere else:
+//
+//   - `DatabaseBackupRunnerService.markFailed` — a run that reported an error.
+//   - `DatabaseBackupScheduleTask.releaseStaleRuns` — a run whose executing
+//     process went away. Both raise `db_backup.backup_failed`, differing only
+//     in the payload's `outcome`, because an operator chases the two in
+//     completely different places.
+//   - `DatabaseRestoreService.swap` — `db_backup.restore_completed`, and the
+//     ONE case in this repository that must use the AWAITED
+//     `notifyPermissionHoldersNow`: the swap ends in `process.exit(0)`, which
+//     would drop a detached dispatch outright. That call site carries the full
+//     argument; do not "tidy" it into the detached form.
+//
+// The direction is acyclic, like every other import here: `NotificationsModule`
+// reaches `PrismaModule`, `EmailModule` and `SettingsModule`, and none of those
+// reaches back into backups.
+//
+// ⚠ THE RECIPIENTS ARE `db_backup:read` HOLDERS, resolved from the database —
+// which for the restore notification means the RESTORED database, because the
+// dispatch happens after the swap. That is deliberate and is argued at the call
+// site: the post-restore answer to "who can act on this?" is the correct one.
+// =============================================================================
+
 @Module({
-  imports: [SettingsModule, StorageProvidersModule, MaintenanceModule],
+  imports: [
+    SettingsModule,
+    StorageProvidersModule,
+    MaintenanceModule,
+    NotificationsModule,
+  ],
   controllers: [DatabaseBackupController],
   providers: [
     DatabaseBackupRunnerService,

@@ -99,6 +99,26 @@
 // all, and a feature module that could inject it could read or delete any
 // node in the deployment.
 //
+// -----------------------------------------------------------------------------
+// `NotificationsModule` (#288, epic #254), AND WHY IT IS NOT A CYCLE
+// -----------------------------------------------------------------------------
+//
+// Imported for exactly one method: `NotificationsService
+// .notifyPermissionHolders`, which `NodeStaleOfflineTask` calls once per node
+// its sweep flips to `offline`. The direction is one-way, like every other
+// import here — `NotificationsModule`'s own graph is `PrismaModule`,
+// `EmailModule` and `SettingsModule`, and not one of those reaches back into
+// nodes or into `JobsModule`.
+//
+// Note the contrast with #288's OTHER call site. `jobs.job_failed` deliberately
+// does NOT wire `JobsModule` to notifications: it is raised by a listener on
+// the global event emitter, registered on the notifications side
+// (`notifications/ops/job-failure-notifier.ts`), precisely because `JobsModule`
+// is imported by this module and by the app root, and pointing it at the
+// notifier is the edge that would eventually close a cycle. A cron task in a
+// leaf module has no such risk, which is why this one is a plain import and
+// that one is not.
+//
 // `PrismaModule` is not imported here: it is `@Global()`. `ConfigService`
 // likewise, via `ConfigModule.forRoot({ isGlobal: true })`.
 // =============================================================================
@@ -106,6 +126,7 @@
 import { Module } from '@nestjs/common';
 
 import { JobsModule } from '../jobs/jobs.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { SettingsModule } from '../settings/settings.module';
 import { StorageProvidersModule } from '../storage/providers/storage-providers.module';
 import { NodeDataPlaneService } from './node-data-plane.service';
@@ -118,7 +139,12 @@ import { NodeOfflinePruneTask } from './tasks/node-offline-prune.task';
 import { NodeStaleOfflineTask } from './tasks/node-stale-offline.task';
 
 @Module({
-  imports: [JobsModule, SettingsModule, StorageProvidersModule],
+  imports: [
+    JobsModule,
+    SettingsModule,
+    StorageProvidersModule,
+    NotificationsModule,
+  ],
   controllers: [NodesController, NodesAdminController],
   providers: [
     NodesService,

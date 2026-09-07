@@ -12,6 +12,7 @@ import { NotificationStoreService } from './notification-store.service';
 import { NotificationStreamService } from './notification-stream.service';
 import { NotificationsController } from './notifications.controller';
 import { NotificationsService } from './notifications.service';
+import { JobFailureNotifier } from './ops/job-failure-notifier';
 import { PushSubscriptionService } from './push-subscription.service';
 import {
   NOTIFICATION_CHANNEL_SENDERS,
@@ -152,6 +153,13 @@ import {
     PushSubscriptionService,
     EmailNotificationChannel,
     BrowserNotificationChannel,
+    // #288's queue listener (epic #254). A PROVIDER AND NOT AN EXPORT, and it
+    // lives on THIS side of the seam deliberately: it subscribes to
+    // `job.settled` through the global `EventEmitter2` rather than being called
+    // by `JobsModule`, so the queue keeps no dependency on notifications and
+    // this module keeps none on the queue. See the file's own header for why a
+    // listener rather than a `notify()` inside `JobTerminalService`.
+    JobFailureNotifier,
     // Always a provider — see the file header block on why Nest must be able
     // to construct this regardless of configuration — but see the factory
     // immediately below for why it is not unconditionally in the array it

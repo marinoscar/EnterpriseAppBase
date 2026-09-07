@@ -89,6 +89,9 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 
+import { PERMISSIONS } from '../../common/constants/roles.constants';
+import type { NodeOfflineEmailData } from '../../email';
+import { NotificationsService } from '../../notifications/notifications.service';
 import { NodeLifecycleService } from '../node-lifecycle.service';
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -99,7 +102,11 @@ export class NodeStaleOfflineTask {
   constructor(
     private readonly prisma: PrismaService,
     private readonly lifecycle: NodeLifecycleService,
-    private readonly config: ConfigService
+    private readonly config: ConfigService,
+    // #288 (epic #254). `NodesModule` imports `NotificationsModule` for this
+    // one method. The direction is one-way and acyclic: notifications reach
+    // Prisma, email and settings, and none of those reaches nodes.
+    private readonly notifications: NotificationsService
   ) {}
 
   @Cron(CronExpression.EVERY_10_MINUTES)
@@ -166,7 +173,23 @@ export class NodeStaleOfflineTask {
     const now = new Date();
     const cutoff = this.lifecycle.staleCutoff(policy, now);
 
-    const { count } = await this.prisma.workerNode.updateMany({
+    // ⚠ `updateManyAndReturn`, NOT `updateMany` — AND IT IS STILL ONE STATEMENT.
+    //
+    // #288 needs to raise `nodes.node_offline` once per node that ACTUALLY
+    // FLIPPED, naming it and saying when it was last heard from, and neither
+    // the name nor "did this tick flip it?" is derivable from an `updateMany`
+    // count. The header above rejects reading the candidates first and updating
+    // them one at a time, and that rejection stands: it would replace an atomic
+    // statement with a read-then-write race between replicas, and both replicas
+    // would then have to guess which rows were theirs.
+    //
+    // `UPDATE ... RETURNING` has neither problem. The `where` still re-asserts
+    // everything the sweep cares about, so it is still idempotent and still
+    // safe to run concurrently — two replicas ticking together produce one
+    // winner and one EMPTY ARRAY, rather than one winner and one no-op count.
+    // That is exactly the "which rows did I change?" answer the notification
+    // needs, and it is the reason the transition can stay a single statement.
+    const transitioned = await this.prisma.workerNode.updateManyAndReturn({
       where: {
         // `disabled` and `offline` are deliberately absent — see the header.
         status: { in: ['online', 'draining'] },
@@ -176,9 +199,101 @@ export class NodeStaleOfflineTask {
         ],
       },
       data: { status: 'offline' },
+      // Only what the message renders. A sweep is not a page.
+      select: { id: true, name: true, lastHeartbeatAt: true },
     });
 
-    return count;
+    // ⚠ AFTER THE WRITE HAS COMMITTED, AND OUTSIDE ANY TRANSACTION.
+    //
+    // The statement above is the sweep. Everything below is reporting, it is
+    // fire-and-forget, and it must not be able to affect either — which is why
+    // `notifyPermissionHolders` is called (never awaited for delivery, never
+    // able to reject) and why the whole loop sits behind a `try` of its own. A
+    // notifier that threw here would abort `sweep()` AFTER the rows had already
+    // been flipped, and the caller would log "fleet sweep failed" about a sweep
+    // that succeeded.
+    this.announceOffline(transitioned, policy.staleHeartbeatSeconds * policy.offlineStaleMultiplier);
+
+    return transitioned.length;
+  }
+
+  /**
+   * Raise `nodes.node_offline` once per node this tick actually flipped.
+   *
+   * NEVER THROWS, and never delays the sweep. `notifyPermissionHolders` is the
+   * DETACHED entry point: it schedules the audience query and every send and
+   * returns, so a mail server having a bad day cannot slow a ten-minute cron or
+   * hold a database connection while it does.
+   *
+   * ONE MESSAGE PER NODE, not one summarising the batch. The reader's next
+   * action is per node ("is that one meant to be up?"), and a digest that says
+   * "3 nodes went offline" makes them go and look up which three — which is the
+   * work the notification was supposed to save.
+   */
+  private announceOffline(
+    nodes: ReadonlyArray<{ id: string; name: string; lastHeartbeatAt: Date | null }>,
+    staleAfterSeconds: number
+  ): void {
+    if (nodes.length === 0) return;
+
+    const markedOfflineAt = new Date();
+    const appUrl = this.appUrl();
+
+    try {
+      for (const node of nodes) {
+        // ANNOTATED WITH THE TEMPLATE'S OWN TYPE ON PURPOSE:
+        // `notifyPermissionHolders` takes `data: unknown`, so this annotation
+        // is the ONLY place the payload's shape is checked at all.
+        const payload: NodeOfflineEmailData = {
+          nodeId: node.id,
+          nodeName: node.name,
+          lastHeartbeatAt: node.lastHeartbeatAt,
+          markedOfflineAt,
+          staleAfterMinutes: Math.max(1, Math.round(staleAfterSeconds / 60)),
+          appUrl,
+        };
+
+        // THE AUDIENCE IS `nodes:read` — the exact string
+        // `nodes-admin.controller.ts` enforces, so the people told about a dead
+        // node are by construction the people the API would let look at it.
+        // ⚠ `.catch()` DESPITE THE DISPATCHER CONTRACTING NEVER TO REJECT.
+        // That contract belongs to `NotificationsService`, not here, and an
+        // unhandled rejection inside a `@Cron` tick has no caller to surface
+        // it — it becomes a process-level `unhandledRejection` attributed to a
+        // sweep that succeeded. The `try/catch` around this loop cannot see a
+        // rejected promise; only this can.
+        void this.notifications
+          .notifyPermissionHolders(
+            'nodes.node_offline',
+            PERMISSIONS.NODES_READ,
+            payload
+          )
+          .catch((error: unknown) => {
+            this.logger.error(
+              `Dispatching 'nodes.node_offline' for ${node.id} rejected, which ` +
+                `the dispatcher contracts never to do: ` +
+                `${error instanceof Error ? error.message : String(error)}`
+            );
+          });
+      }
+    } catch (error) {
+      this.logger.error(
+        `Could not raise 'nodes.node_offline'; the ${nodes.length} node(s) are ` +
+          `still marked offline: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  /**
+   * The application root, trailing slashes trimmed, or `undefined`.
+   *
+   * Same shape as `UsersService.appUrl()`. `undefined` rather than a guess: the
+   * template omits its CTA entirely rather than rendering a button that goes
+   * nowhere.
+   */
+  private appUrl(): string | undefined {
+    const appUrl = this.config.get<string>('appUrl');
+    return appUrl ? appUrl.replace(/\/+$/, '') : undefined;
   }
 
   /**
