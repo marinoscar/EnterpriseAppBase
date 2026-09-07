@@ -15,10 +15,10 @@ import { harnessUrl, waitForInter } from '../support/harness';
  *     `isCompactWindow` gate) with no rail at all (`Layout`'s `showRail` gate)
  *     and the compact back-arrow `AppBar` in its place.
  *
- * `ADMIN_SECTIONS` (`apps/web/src/config/adminSections.tsx`) has 3 groups / 12
+ * `ADMIN_SECTIONS` (`apps/web/src/config/adminSections.tsx`) has 3 groups / 13
  * cards total — General (System, Appearance, Feature Flags, Email,
  * Notifications, Maintenance, Advanced (JSON)), Access (Users & Allowlist) and
- * Operations (Jobs, Job Insights, Worker Nodes, Database Backup) — so
+ * Operations (Jobs, Job Insights, Worker Nodes, Database Backup, Broadcasts) — so
  * "3-up"/"2-up" describes the CSS grid's column count at that width, not the
  * number of sections.
  *
@@ -84,9 +84,11 @@ test.describe('Admin settings hub', () => {
     // Below `sm` there is no rail at all (`Layout`'s `showRail` gate) — the
     // hub itself becomes the navigation.
     // `exact: true` is load-bearing, not tidiness: accessible-name matching is
-    // substring-based by default, and the Operations group's disabled
-    // "Database Backup — Coming soon" card contains "Back". Without it this
-    // resolves to two elements and fails on strict mode.
+    // substring-based by default, and the Operations group's "Database Backup"
+    // row contains "Back". Without it this resolves to two elements and fails
+    // on strict mode. Still true after #287 routed that card — losing its
+    // "Coming soon" chip changed the row's name, not the substring that
+    // collides.
     await expect(page.getByRole('button', { name: 'Back', exact: true })).toBeVisible();
     await expect(page.locator('main').getByText('Advanced (JSON)')).toBeVisible();
 

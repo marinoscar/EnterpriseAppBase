@@ -67,6 +67,10 @@ const JobInsightsPage = lazy(() => import('./pages/Admin/JobInsightsPage'));
 // hosts as a section. Lazy for the same reason: two DataTables and two dialogs
 // that nobody who never opens the Console will ever mount.
 const WorkersPage = lazy(() => import('./pages/Admin/WorkersPage'));
+// Issue #287, epic #254 — the backup policy, the run history and the restore
+// dialog. Lazy for the same reason: a DataTable, a policy form and the restore
+// dialog that nobody who never opens the Console will ever mount.
+const DbBackupPage = lazy(() => import('./pages/Admin/DbBackupPage'));
 // Issue #325, epic #319 — the admin broadcast list and its composer. Lazy for
 // the same reason: a DataTable, a composer dialog and a detail dialog that
 // nobody who never opens the Console will ever mount.
@@ -405,6 +409,35 @@ function AppRoutes() {
                         fallback={<Navigate to="/" replace />}
                       >
                         <WorkersPage />
+                      </RequirePermission>
+                    }
+                  />
+                  {/* Issue #287, epic #254. Guarded EXACTLY as the Jobs and
+                      Workers routes above are, and on `db_backup:read` — the
+                      literal string `db-backup/db-backup.controller.ts`
+                      enforces on its config read, its run list and its run
+                      detail (`PERMISSIONS.DB_BACKUP_READ`), and the same one
+                      the `Database Backup` card declares (the invariant
+                      `destinations.test.ts` asserts for every card).
+
+                      THREE PERMISSIONS BEHIND THIS ONE ROUTE, and only the
+                      first is a reachability gate. Scheduling, cancelling and
+                      deleting need `db_backup:write`; restoring and rolling
+                      back need `db_backup:restore`, which the API keeps
+                      SEPARATE from `write` precisely so it can be withheld from
+                      someone who may schedule backups but must not be able to
+                      replace the database. The PAGE gates both internally by
+                      disabling its controls — widening this route gate to
+                      either would make the page unreachable for the read-only
+                      admin it is most useful to during an incident. */}
+                  <Route
+                    path="/admin/settings/db-backup"
+                    element={
+                      <RequirePermission
+                        permission="db_backup:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <DbBackupPage />
                       </RequirePermission>
                     }
                   />

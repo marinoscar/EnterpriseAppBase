@@ -459,21 +459,37 @@ describe('the Operations group (#266)', () => {
     // `App.tsx` declares, byte for byte — a card pointing anywhere else would
     // send the click to the `*` catch-all and land on the home page.
     expect(cardsByTitle.get('Worker Nodes')?.path).toBe('/admin/settings/workers');
+    // #287 flipped the last one, for the same reason and with the same rule:
+    // the path is the route `App.tsx` declares, byte for byte.
+    expect(cardsByTitle.get('Database Backup')?.path).toBe('/admin/settings/db-backup');
   });
 
-  it('leaves the unbuilt card non-navigable rather than linking to a 404', () => {
-    for (const title of ['Database Backup']) {
-      const card = cardsByTitle.get(title);
-      expect(card?.disabled, `${title} must be inert`).toBe(true);
-      // No `path` AND `disabled`: the rail skips on either, the hub renders an
-      // inert card on either, and a path to an unrouted page would send a
-      // click to `App.tsx`'s `*` catch-all and land on the home page.
-      expect(card?.path, `${title} must declare no route`).toBeUndefined();
+  it('has no inert card left — every page the group declared has shipped', () => {
+    // #287 flipped the last one. The `disabled: true` + no-`path` contract
+    // still matters and is asserted below for whatever is declared ahead of its
+    // page NEXT; today the group is fully routed, which is the state it was
+    // declared in advance to reach.
+    for (const card of operations?.cards ?? []) {
+      expect(card.disabled, `${card.title} must not be inert`).toBeUndefined();
+      expect(card.path, `${card.title} must declare a route`).toBeTruthy();
+    }
+  });
+
+  it('keeps the two fields coupled for any card declared ahead of its page', () => {
+    // The rail skips on either field and the hub renders an inert card on
+    // either, so a card that has one without the other is a card the two
+    // consumers disagree about: `disabled` with a `path` is a rail row that
+    // vanishes, and a `path` with no page sends a click to `App.tsx`'s `*`
+    // catch-all and lands the operator on the home page with no explanation.
+    for (const card of ADMIN_SECTIONS.flatMap((section) => section.cards)) {
+      if (card.disabled) {
+        expect(card.path, `${card.title} is inert and must declare no route`).toBeUndefined();
+      }
     }
   });
 
   it('leaves the shipped cards navigable', () => {
-    for (const title of ['Jobs', 'Job Insights', 'Worker Nodes']) {
+    for (const title of ['Jobs', 'Job Insights', 'Worker Nodes', 'Database Backup']) {
       expect(cardsByTitle.get(title)?.disabled).toBeUndefined();
     }
   });
@@ -507,6 +523,10 @@ describe('the Operations group (#266)', () => {
     );
     const broadcastsController = readFileSync(
       resolve(API_SRC, 'notifications/broadcasts/broadcasts.controller.ts'),
+      'utf8',
+    );
+    const dbBackupController = readFileSync(
+      resolve(API_SRC, 'db-backup/db-backup.controller.ts'),
       'utf8',
     );
 
@@ -550,6 +570,18 @@ describe('the Operations group (#266)', () => {
       expect(card?.permission).toBe('db_backup:read');
       expect(card?.permission).not.toBe('system_settings:read');
       expect(rolesConstants).toContain("DB_BACKUP_READ: 'db_backup:read'");
+      // And the controller really does enforce it — the mechanical half of
+      // CLAUDE.md Settings UI Pattern rule 3, now that the card is routed and
+      // the string gates a page somebody can actually open (#287).
+      expect(dbBackupController).toContain('PERMISSIONS.DB_BACKUP_READ');
+      // The THIRD permission is what the split is for: restoring is deliberately
+      // not `db_backup:write`, so it can be withheld from someone who may
+      // schedule backups but must not be able to replace the database. The card
+      // must NOT mirror it — a reachability gate on `restore` would hide the
+      // history from the read-only admin the page is most useful to.
+      expect(rolesConstants).toContain("DB_BACKUP_RESTORE: 'db_backup:restore'");
+      expect(dbBackupController).toContain('PERMISSIONS.DB_BACKUP_RESTORE');
+      expect(card?.permission).not.toBe('db_backup:restore');
     });
   });
 
@@ -593,11 +625,28 @@ describe('the Operations group (#266)', () => {
       ]);
     });
 
-    it('still shows the inert cards to whoever holds their permission — inert is not hidden', () => {
+    it('shows every Operations card to whoever holds its permission', () => {
       const result = visibleSettingsSections(ADMIN_SECTIONS, () => true);
 
       expect(titlesOf(result)).toContain('Worker Nodes');
       expect(titlesOf(result)).toContain('Database Backup');
+    });
+
+    it('shows Database Backup to a db_backup:read holder and to nobody else', () => {
+      // The whole reason the API reserves a dedicated triple: backup access is
+      // grantable without the settings document, so the card must not appear
+      // for a `system_settings:read` admin who was never given it.
+      const withBackup = visibleSettingsSections(
+        ADMIN_SECTIONS,
+        (permission) => permission === 'db_backup:read',
+      );
+      expect(titlesOf(withBackup)).toEqual(['Database Backup']);
+
+      const settingsOnly = visibleSettingsSections(
+        ADMIN_SECTIONS,
+        (permission) => permission === 'system_settings:read',
+      );
+      expect(titlesOf(settingsOnly)).not.toContain('Database Backup');
     });
 
     it('matches Operations cards by title in the hub search', () => {
@@ -630,11 +679,19 @@ describe('the Operations group (#266)', () => {
       expect(titleFor('/admin/settings/jobs-archive')).toBe(ADMIN_HUB_TITLE);
     });
 
-    it('falls back to the hub title for the unrouted cards’ presumed paths', () => {
-      // They declare no `path`, so nothing claims these — which is the same
-      // answer the hub gives, and not a title for a page that does not exist.
+    it('resolves the backup route to Database Backup (#287)', () => {
+      expect(titleFor('/admin/settings/db-backup')).toBe('Database Backup');
+    });
+
+    it('falls back to the hub title for paths no card claims', () => {
+      // Neither of these is any card's `path` — the two pages live at
+      // `/admin/settings/workers` and `/admin/settings/db-backup` — so nothing
+      // claims them, which is the same answer the hub gives and not a title for
+      // a page that does not exist.
       expect(titleFor('/admin/settings/nodes')).toBe(ADMIN_HUB_TITLE);
       expect(titleFor('/admin/settings/backup')).toBe(ADMIN_HUB_TITLE);
+      // And the segment-boundary rule holds around the new path too.
+      expect(titleFor('/admin/settings/db-backup-archive')).toBe(ADMIN_HUB_TITLE);
     });
   });
 });
