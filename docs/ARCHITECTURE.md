@@ -308,7 +308,6 @@ EnterpriseAppBase/
 │   ├── DEVELOPMENT.md                # Development guide
 │   ├── TESTING.md                    # Testing guide
 │   ├── DEVICE-AUTH.md                # Device auth guide
-│   ├── System_Specification_Document.md  # Full specification
 │   └── specs/                        # Implementation specifications
 │       ├── 01-project-setup.md
 │       ├── 02-database-schema.md
@@ -1837,7 +1836,7 @@ cd apps/web && npm test
 
 | Document | Purpose |
 |----------|---------|
-| [System_Specification_Document.md](System_Specification_Document.md) | Full system requirements |
+| [specs/](specs/) | Design and rationale for each major feature — the closest thing to a full system specification |
 | [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md) | Detailed security documentation |
 | [API.md](API.md) | API endpoint reference |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Development guide |
