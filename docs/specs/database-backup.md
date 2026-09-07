@@ -31,9 +31,12 @@
 > clocks, and the staleness sweep. §13 describes the admin API #283 added.
 > §14 lists the rejected alternatives, §15 the verification.
 >
-> **Restore is what is still missing.** #285 adds it: the scratch-database
-> replay, the swap, and the `restore*` columns already declared on the model
-> (§1) and deliberately left unpublished by the admin API's run DTO (§13).
+> **Restore is what is still missing.** Phase 7 adds it, and it has a document
+> of its own: [`database-restore.md`](database-restore.md). #284 has landed the
+> pre-flight gates and the cluster admin connection there; #285 adds the
+> scratch-database replay and the swap, which finally write the `restore*`
+> columns already declared on the model (§1) and deliberately left unpublished
+> by the admin API's run DTO (§13).
 > Everything else is in place — with `databaseBackup.enabled` turned on, a
 > deployment takes and prunes backups with no human in the loop (#282 onward),
 > and an administrator can inspect, trigger, cancel, download and delete them

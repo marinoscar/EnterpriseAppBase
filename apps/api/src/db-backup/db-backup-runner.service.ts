@@ -31,6 +31,7 @@ import {
   DatabaseBackupClientVersionError,
   DatabaseBackupVerificationError,
 } from './db-backup.errors';
+import { readLatestAppliedMigration } from './migration-state.util';
 import { spawnPgDump, type PgProcess } from './pg-dump.util';
 import { readTocEntryCount } from './pg-restore.util';
 import {
@@ -926,24 +927,14 @@ export class DatabaseBackupRunnerService {
    * contains, so an operator can tell — before replaying it — whether the code
    * that is running will understand what comes back.
    *
-   * `rolled_back_at IS NULL` because a rolled-back migration is one whose
-   * schema change is NOT in this database, and naming it would be worse than
-   * naming nothing. Best-effort, like the version above.
+   * ⚠ THE QUERY LIVES IN `migration-state.util.ts` AND IS SHARED WITH #284's
+   * RESTORE PRE-FLIGHT, which compares the value recorded here against the one
+   * live at restore time. Two copies of "the newest applied migration" — one
+   * that excludes rolled-back rows and one that does not, say — would make that
+   * comparison meaningless: the gate would block restores of compatible
+   * archives, or pass an incompatible one. Best-effort, like the version above.
    */
   private async readLatestMigrationName(): Promise<string | null> {
-    try {
-      const rows = await this.prisma.$queryRaw<Array<{ migration_name: unknown }>>`
-        SELECT migration_name
-        FROM _prisma_migrations
-        WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL
-        ORDER BY finished_at DESC
-        LIMIT 1
-      `;
-      const value = rows[0]?.migration_name;
-
-      return typeof value === 'string' && value.length > 0 ? value : null;
-    } catch {
-      return null;
-    }
+    return readLatestAppliedMigration(this.prisma);
   }
 }
