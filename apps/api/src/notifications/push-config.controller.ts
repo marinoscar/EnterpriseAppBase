@@ -183,24 +183,30 @@ export class PushConfigController {
 
   @Delete()
   @Auth({ permissions: [PERMISSIONS.PUSH_WRITE] })
-  @HttpCode(HttpStatus.NO_CONTENT)
+  @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Remove the Web Push configuration (Admin only)',
     description:
       'Deletes both the stored VAPID private-key credential and the `webPush` settings ' +
-      'row. **Destructive and immediate** — every existing push subscription becomes ' +
-      'unusable, and there is no way to bring the same key pair back; a subsequent ' +
-      '`generate` mints an entirely new one.\n\n' +
+      'row, then returns the resulting (empty) configuration — the same shape GET/PUT/ ' +
+      'generate/rotate all return, so a client can render the post-removal state without ' +
+      'a follow-up GET. **Destructive and immediate** — every existing push subscription ' +
+      'becomes unusable, and there is no way to bring the same key pair back; a ' +
+      'subsequent `generate` mints an entirely new one.\n\n' +
       'Requires the typed confirmation `{ "confirmation": "REMOVE" }` — deliberately a ' +
       "different word from the rotate endpoint's, so a body copied from one to the other " +
       'is rejected rather than silently accepted.',
   })
-  @ApiResponse({ status: 204, description: 'Configuration removed' })
+  @ApiResponse({
+    status: 200,
+    description: 'The resulting (now empty) configuration',
+    type: PushConfigResponseDto,
+  })
   @ApiResponse({ status: 400, description: 'Missing or incorrect confirmation' })
   async remove(
     @Body() dto: RemovePushConfigDto,
     @CurrentUser('id') userId: string,
-  ): Promise<void> {
-    await this.pushConfig.remove(dto, userId);
+  ) {
+    return this.pushConfig.remove(dto, userId);
   }
 }

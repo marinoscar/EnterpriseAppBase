@@ -562,7 +562,10 @@ export class PushConfigService {
    * deployment also has set — reactivating push on stale deploy-time keys
    * the admin just asked to remove.
    */
-  async remove(_input: RemovePushConfigInput, userId: string): Promise<void> {
+  async remove(
+    _input: RemovePushConfigInput,
+    userId: string,
+  ): Promise<PushConfigAdminView> {
     await this.credentials.deleteSecret(
       PUSH_VAPID_CREDENTIAL_PURPOSE,
       PUSH_VAPID_CREDENTIAL_NAME,
@@ -577,6 +580,13 @@ export class PushConfigService {
     }
 
     this.logger.log(`Web Push configuration removed by user ${userId}`);
+
+    // Returns the resulting (now-empty) view rather than `void` — the admin
+    // page's action handlers all render the response of every write directly
+    // (`setConfig(await <action>())`), matching generate/rotate/update. A
+    // bare 204 here would be the one action that leaves the page holding
+    // `undefined` instead of the post-action truth.
+    return this.describeForAdmin();
   }
 
   // ---------------------------------------------------------------------------
