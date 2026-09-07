@@ -38,6 +38,14 @@
 > notification framework's server side — the event registry, the admin policy,
 > and the channel maps — and because the rule it establishes is a dispatcher
 > rule rather than a jobs, fleet or backup one.
+>
+> **Section 11 is not part of epic #215 either.** It documents issue #355 —
+> runtime-configurable VAPID keys, generated/rotated/enabled/disabled from the
+> admin UI with no restart — which supersedes Section 9's original
+> deploy-time-only description of how the push channel becomes active. It
+> lives here rather than in a separate spec because it changes nothing about
+> the channel itself (fan-out, failure handling, the id it mints all still
+> apply unchanged), only how the key pair backing it is sourced.
 
 ## Why this shape, and not the obvious one
 
@@ -498,21 +506,29 @@ require a non-empty subject string but the field is purely advisory contact
 metadata for a push-service operator — refusing to send over a missing
 nicety would be a strange trade against "sent it, minus a courtesy."
 
-**The channel is conditionally registered, not conditionally functional.**
-`notifications.module.ts`'s factory (`notifications.module.ts:160-190`)
-constructs `PushNotificationChannel` unconditionally (Nest DI must be able to
-build it regardless) but only pushes it into the `NOTIFICATION_CHANNEL_SENDERS`
-array when `PushSubscriptionService.isEnabled()` — both VAPID keys present —
-returns `true`. This decision is made **once**, when the array is built at
-module construction, not per request: enabling Web Push on a running
-deployment requires an API restart, because the factory that decides array
-membership does not re-run on its own (see
-[the VAPID runbook](../runbooks/vapid-keys.md) for the operational
-consequence). Registering the channel unconditionally instead would have made
-a deployment with no VAPID keys accumulate a permanently-red
-`notification_deliveries` row for every event that later declares `push` — a
-worse failure than the channel not existing at all, per the module's own
-comment.
+**The channel is always registered, exactly like `email`/`browser` — see
+Section 11 for why that changed.** Until issue #355,
+`notifications.module.ts`'s factory pushed `PushNotificationChannel` into the
+`NOTIFICATION_CHANNEL_SENDERS` array only when
+`PushSubscriptionService.isEnabled()` — both VAPID keys present — returned
+`true` **at boot**, because a deployment with no VAPID keys would otherwise
+accumulate a permanently-red `notification_deliveries` row for every event
+that declares `push`, with no admin remedy to fix it. #355 removes exactly
+that premise: Web Push configuration is now admin-UI-configurable at runtime
+(`PushConfigController`/`PushConfigService`, Section 11), so the module now
+registers `push` unconditionally, the same pattern `email` already
+established (`email.module.ts:31-39`) — an unconfigured channel produces an
+honest, admin-actionable *failed* delivery row that an operator can see and
+fix from the Push Configuration settings page, rather than the channel
+silently not existing. `PushNotificationChannel`'s existing defensive guard
+(no active VAPID config → `{ success: false, error }`) is now the real,
+always-live gate, backed by `PushConfigService.resolveActiveVapidConfig()`
+(Section 11's four-case precedence) rather than a boot-time
+`ConfigService.get` read. `PushSubscriptionService.isEnabled()` is unchanged
+in what it gates: whether a browser may *subscribe* at all
+(`POST /notifications/push/subscriptions` still 409s with no active VAPID
+config) — only the question of whether unconfigured deliveries are visible or
+silently absent has changed.
 
 ## 10. Operational events: an audience that is a permission, not a user
 
@@ -683,6 +699,112 @@ a failure notice to arrive late. Build it in the fork that has the volume, and
 build it as a batching layer in front of `notifyPermissionHolders` rather than
 as a fifth entry point on `NotificationsService` — the gate must stay in one
 place.
+
+## 11. Runtime-configurable VAPID keys: the admin surface (issue #355)
+
+> Issue #355, not part of epic #215 — see the note at the top of this
+> document. Implemented in `apps/api/src/notifications/push-config.service.ts`,
+> `push-config.controller.ts`, `push-config.schema.ts`,
+> `push-vapid-credential.constants.ts`, and
+> `apps/web/src/pages/Admin/PushConfigPage.tsx`. Operator-facing procedure:
+> [`docs/runbooks/vapid-keys.md`](../runbooks/vapid-keys.md).
+
+Before this issue, turning Web Push on at all meant an operator running
+`web-push generate-vapid-keys`, setting three environment variables, and
+restarting the API — a real deploy-time-only design, and the one Section 9
+originally described. #355 overturns that: generate, store, enable/disable,
+and rotate a VAPID key pair entirely from the admin UI, live, with no
+restart, at `/admin/settings/push`.
+
+### 11.1 Storage: a settings row and a credential, split exactly like SMTP
+
+**No new Prisma model or migration.** The split mirrors
+`email-settings.service.ts`'s SMTP host/username-vs-password precedent
+exactly, and for the identical reason:
+
+- **`system_settings` row, key `'webPush'`**: `{ enabled, publicKey, subject
+  }`. All three render in full on the admin page and none is secret — a
+  public key is handed to every browser that calls `pushManager.subscribe()`
+  — so putting any of them behind the masked-hint credential store would
+  leave the settings page unable to show its own public key.
+- **One `Credential` row**, at `(purpose: 'push_vapid', name: 'default')` via
+  the existing `CredentialsService` (`push-vapid-credential.constants.ts`) —
+  holds **only** the VAPID private key. It is never returned by any endpoint;
+  the admin view carries only a masked `privateKeyStatus` (`configured`,
+  `hint`, `updatedAt`, `updatedByUserId`), the same shape
+  `SmtpPasswordStatus` already established for the SMTP password.
+
+### 11.2 The env fallback, and its one asymmetry
+
+`PushConfigService.resolveActiveVapidConfig()` is the one place both
+`PushSubscriptionService` and `PushNotificationChannel` ask "what VAPID key
+pair, if any, is active right now." Four cases, in order:
+
+1. **No `webPush` row at all** → fall back to `VAPID_PUBLIC_KEY` /
+   `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` env vars. A deployment that has never
+   opened the admin page keeps working exactly as it did before #355, zero
+   action required.
+2. **Row exists, `enabled: true`, both a public key and the private-key
+   credential present** → the DB wins, even over env vars that are still set.
+   Once an admin has touched the UI, it is the source of truth.
+3. **Row exists, `enabled: false`** → push is off, full stop, **no env
+   fallback**. This is the one intentional asymmetry in the precedence: an
+   explicit disable must be able to override a stale env var, or "disable"
+   would not actually disable anything on a deployment that also has env vars
+   set.
+4. **Row `enabled: true` but the private-key credential is missing**
+   (corruption, a hand edit, a botched migration) → treated as disabled,
+   logged loudly. Never silently reverts to env — that would mask a real data
+   problem as ordinary "not configured".
+
+### 11.3 The five endpoints
+
+All under `/api/admin/push-config`, a controller of its own — same reasoning
+as `EmailSettingsController` staying apart from `SystemSettingsController`:
+this surface writes a settings row and a credential the rest of
+`NotificationsController` has no reason to touch.
+
+| Method | Path | Permission | Effect |
+|---|---|---|---|
+| GET | `/api/admin/push-config` | `push:read` | Configuration plus masked `privateKeyStatus` |
+| PUT | `/api/admin/push-config` | `push:write` | Flip `{ enabled, subject }` — does not manufacture keys |
+| POST | `/api/admin/push-config/generate` | `push:write` | First-time key generation; sets `enabled: true` |
+| POST | `/api/admin/push-config/rotate` | `push:write` | Replace the key pair; `enabled` unchanged |
+| DELETE | `/api/admin/push-config` | `push:write` | Delete both the credential and the settings row |
+
+Full request/response shapes: [`docs/API.md`](../API.md#push-configuration-admin-only).
+
+`push:read`/`push:write` is a permission pair of its own, **not** a reuse of
+`system_settings:*` — generating or rotating key material has a real,
+described blast radius (every existing subscriber goes dark until it
+re-subscribes) that should not ride along with routine settings edits, the
+same reasoning that split `broadcasts:*` and `nodes:*` out from
+`system_settings:*`/`jobs:*` rather than folding them in.
+
+### 11.4 `ROTATE`/`REMOVE`: two typed confirmations, deliberately different words
+
+`rotate` and `remove` are both destructive — every existing push subscriber
+goes dark — so both require a typed confirmation literal in the request body,
+mirroring `db-backup`'s `RESTORE`/`ROLLBACK` pattern exactly. The two
+literals are **different words on purpose**: a confirmation body copied from
+one route to the other (`rotate`'s `{ "confirmation": "ROTATE" }` posted to
+`remove`, or vice versa) is rejected rather than silently accepted, because
+the two actions have different recovery stories — `rotate` leaves a key pair
+in place (a different one), `remove` leaves none. The frontend's
+`PushConfigConfirmDialog` mirrors this at the UI layer: the typed text is
+cleared every time the dialog opens or `action` changes, so a value typed for
+one dialog can never carry over and satisfy the other.
+
+**The stated consequence is deliberately modest, and must stay that way.**
+Both the runbook and `PushConfigConfirmDialog`'s own header are explicit that
+there is **no** client-side re-subscribe-on-reopen mechanism anywhere in this
+codebase: a subscriber's browser has to call `pushManager.subscribe` again
+through whatever flow does that (for example, toggling notifications off and
+back on), and nothing makes that happen automatically just because the app is
+reopened. Do not soften either the API docs or the dialog copy to "reopening
+the app fixes it" — see [the runbook's rotation
+section](../runbooks/vapid-keys.md#4-rotating-vapid-keys) for the full
+verification behind that claim.
 
 ## Rejected alternatives
 
