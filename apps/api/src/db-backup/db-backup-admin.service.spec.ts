@@ -11,10 +11,19 @@ import {
 } from './db-backup-admin.service';
 import type { DatabaseBackupRunnerService } from './db-backup-runner.service';
 import { ACTIVE_RUN_STATUSES } from './db-backup-runner.service';
+import type {
+  DatabaseRestoreService,
+  RestoreRollbackResult,
+  StartRestoreOptions,
+  StartRestoreResult,
+} from './database-restore.service';
 import {
   DatabaseBackupAlreadyRunningError,
   DatabaseBackupStorageProviderError,
+  DatabaseRestoreNotAllowedError,
+  DatabaseRestoreRunNotFoundError,
 } from './db-backup.errors';
+import type { RestorePreflightResult } from './restore-preflight.service';
 import { ACTIVE_BACKUP_STATUSES, toRunDto } from './dto/db-backup-run.dto';
 
 // =============================================================================
@@ -57,6 +66,61 @@ const POLICY: SystemDatabaseBackupValue = {
 
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
 const USER_ID = '22222222-2222-4222-8222-222222222222';
+const PRE_RESTORE_ID = '44444444-4444-4444-8444-444444444444';
+
+/**
+ * A pre-flight verdict, in whichever of the three shapes a case needs.
+ *
+ * Hand-built rather than produced by the real service: what these tests are
+ * about is what the ADMIN service does with a verdict, and probing a cluster to
+ * obtain one would make every case here depend on a live PostgreSQL.
+ */
+function preflight(outcome: 'ok' | 'guided' | 'blocked'): RestorePreflightResult {
+  const base = {
+    runId: RUN_ID,
+    targetDatabase: 'appdb',
+    scratchDatabase: 'appdb_restore_20260907T030000Z',
+    oldDatabase: 'appdb_old_20260907T030000Z',
+    gates: [],
+    rollback: {
+      configured: 'retain_database' as const,
+      effective: 'retain_database' as const,
+      downgraded: false,
+      reason: null,
+    },
+    archiveMigration: '20260907120000_add_database_backup_runs',
+    liveMigration: '20260907120000_add_database_backup_runs',
+    databaseSizeBytes: '1024',
+    freeDiskBytes: null,
+  };
+
+  if (outcome === 'guided') {
+    return {
+      ...base,
+      outcome: 'guided',
+      guidance: {
+        reason: 'The connecting role lacks CREATEDB.',
+        commands: 'createdb ...',
+        runbook: 'docs/runbooks/database-restore.md',
+      },
+    };
+  }
+
+  if (outcome === 'blocked') {
+    return {
+      ...base,
+      outcome: 'blocked',
+      block: {
+        gateId: 'schema_compatibility',
+        message: 'The archive predates the live schema.',
+        overridable: true,
+        overrideParameter: 'overrideSchemaCheck',
+      },
+    };
+  }
+
+  return { ...base, outcome: 'ok' };
+}
 
 /**
  * A run row with genuinely large `BigInt` values.
@@ -106,6 +170,15 @@ interface HarnessOptions {
   storageDelete?: (key: string) => Promise<void>;
   startBackup?: (input: unknown) => Promise<DatabaseBackupRun>;
   cancel?: () => { outcome: 'signalled' | 'not_running_here'; runId: string };
+  /** What the (substituted) restore engine answers. #286's two routes. */
+  startRestore?: (
+    run: DatabaseBackupRun,
+    options: StartRestoreOptions
+  ) => Promise<StartRestoreResult>;
+  rollback?: (
+    run: DatabaseBackupRun,
+    actorUserId: string | null
+  ) => Promise<RestoreRollbackResult>;
 }
 
 function harness(options: HarnessOptions = {}) {
@@ -186,9 +259,37 @@ function harness(options: HarnessOptions = {}) {
     cancel: jest.fn(options.cancel ?? (() => ({ outcome: 'signalled', runId: RUN_ID }))),
   } as unknown as DatabaseBackupRunnerService;
 
-  const service = new DatabaseBackupAdminService(prisma, settings, runner, storage);
+  // ⚠ THE RESTORE ENGINE IS SUBSTITUTED, and it has to be: the real one creates
+  // databases, spawns `pg_restore` and ends by calling `process.exit`. What is
+  // being proven here is what the ADMIN service decides before and after it —
+  // the lookup, the `completed`-only rule, the actor, and the exact options it
+  // forwards. `database-restore.service.spec.ts` proves the engine itself
+  // against its own seam.
+  const restore = {
+    startRestore: jest.fn(
+      options.startRestore ??
+        (async (row: DatabaseBackupRun) => ({
+          outcome: 'started' as const,
+          runId: row.id,
+          scratchDatabase: 'appdb_restore_20260907T030000Z',
+          oldDatabase: 'appdb_old_20260907T030000Z',
+          preflight: preflight('ok'),
+        }))
+    ),
+    rollback: jest.fn(
+      options.rollback ??
+        (async (row: DatabaseBackupRun) => ({
+          outcome: 'renamed' as const,
+          runId: row.id,
+          promoted: 'appdb_old_20260907T030000Z',
+          parked: 'appdb_restore_20260907T040000Z',
+        }))
+    ),
+  } as unknown as DatabaseRestoreService;
 
-  return { service, prisma, settings, storage, runner, calls, patches, stored, rows };
+  const service = new DatabaseBackupAdminService(prisma, settings, runner, restore, storage);
+
+  return { service, prisma, settings, storage, runner, restore, calls, patches, stored, rows };
 }
 
 describe('DatabaseBackupAdminService', () => {
@@ -708,6 +809,199 @@ describe('DatabaseBackupAdminService', () => {
       const { service } = harness({ rows: [] });
 
       await expect(service.cancelRun(RUN_ID)).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+
+  // =========================================================================
+  // ⚠ Restore (#286) — the one surface where a mis-fire is an outage
+  // =========================================================================
+
+  describe('startRestore', () => {
+    it('forwards the row, the actor and the override to the restore engine', async () => {
+      const { service, restore } = harness();
+
+      const result = await service.startRestore(RUN_ID, {
+        overrideSchemaCheck: false,
+        actorUserId: USER_ID,
+      });
+
+      expect(result).toMatchObject({ outcome: 'started', runId: RUN_ID });
+
+      // The ROW, not the id: #284 and #285 both contract to take a row and
+      // answer a question about it. The lookup is this service's job.
+      const [row, options] = (restore.startRestore as jest.Mock).mock.calls[0];
+      expect(row.id).toBe(RUN_ID);
+      expect(options).toEqual({ actorUserId: USER_ID, overrideSchemaMismatch: false });
+    });
+
+    it('maps overrideSchemaCheck onto the engine\'s overrideSchemaMismatch option', async () => {
+      const { service, restore } = harness();
+
+      await service.startRestore(RUN_ID, { overrideSchemaCheck: true, actorUserId: USER_ID });
+
+      // The names differ because they answer different questions — the request
+      // field says what the operator is waiving, the option says what the
+      // pre-flight compares — and this is the ONE place that knows both. A
+      // rename on either side that skipped this mapping would produce a request
+      // that silently did nothing.
+      expect((restore.startRestore as jest.Mock).mock.calls[0][1]).toEqual({
+        actorUserId: USER_ID,
+        overrideSchemaMismatch: true,
+      });
+    });
+
+    it('returns the refusal whole, so a guided verdict keeps its command block', async () => {
+      const { service } = harness({
+        startRestore: async () => ({ outcome: 'refused', preflight: preflight('guided') }),
+      });
+
+      const result = await service.startRestore(RUN_ID, {
+        overrideSchemaCheck: false,
+        actorUserId: USER_ID,
+      });
+
+      expect(result.outcome).toBe('refused');
+      // Not flattened to a message: the command block IS the deliverable on
+      // this path, and a service that reduced it to "refused" would make the
+      // guided outcome useless.
+      expect(result).toMatchObject({
+        preflight: { outcome: 'guided', guidance: { commands: 'createdb ...' } },
+      });
+    });
+
+    it('passes the already_running result through rather than throwing', async () => {
+      const { service } = harness({
+        startRestore: async () => ({ outcome: 'already_running', runId: RUN_ID }),
+      });
+
+      // A RESULT, not an exception — nothing has gone wrong. The controller
+      // turns it into a 409 carrying `details.activeRunId`; see
+      // `db-backup.errors.ts` for why there is deliberately no error class.
+      await expect(
+        service.startRestore(RUN_ID, { overrideSchemaCheck: false, actorUserId: USER_ID })
+      ).resolves.toEqual({ outcome: 'already_running', runId: RUN_ID });
+    });
+
+    it.each(['running', 'failed', 'stale', 'pending'] as const)(
+      'refuses a %s run and never reaches the engine',
+      async (status) => {
+        const { service, restore } = harness({ rows: [run({ status })] });
+
+        await expect(
+          service.startRestore(RUN_ID, { overrideSchemaCheck: false, actorUserId: USER_ID })
+        ).rejects.toBeInstanceOf(DatabaseRestoreNotAllowedError);
+
+        // The check is worth more than the throw: a run whose object is half
+        // written or already deleted would be downloaded without complaint and
+        // would restore nothing, after hours and after a safety dump.
+        expect(restore.startRestore).not.toHaveBeenCalled();
+      }
+    );
+
+    it('raises the TYPED not-found error, not a framework exception', async () => {
+      const { service, restore } = harness({ rows: [] });
+
+      const error = await service
+        .startRestore(RUN_ID, { overrideSchemaCheck: false, actorUserId: USER_ID })
+        .catch((e: unknown) => e);
+
+      // ⚠ NOT a `NotFoundException`. The restore path is entered from more than
+      // the HTTP layer, so the status code is the controller's decision — see
+      // this service's header.
+      expect(error).toBeInstanceOf(DatabaseRestoreRunNotFoundError);
+      expect(error).not.toBeInstanceOf(NotFoundException);
+      expect((error as DatabaseRestoreRunNotFoundError).runId).toBe(RUN_ID);
+      expect(restore.startRestore).not.toHaveBeenCalled();
+    });
+
+    it('does not re-run the pre-flight itself', async () => {
+      const { service, restore } = harness();
+
+      await service.startRestore(RUN_ID, { overrideSchemaCheck: false, actorUserId: USER_ID });
+
+      // The gates run exactly once, inside the engine, deliberately: a service
+      // that ran them here as well would be one refactor away from a caller
+      // that runs them nowhere.
+      expect(restore.startRestore).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('rollbackRestore', () => {
+    /** A run that HAS been restored, which is the precondition for a rollback. */
+    const restored = (overrides: Partial<DatabaseBackupRun> = {}) =>
+      run({
+        restoreStatus: 'completed',
+        restoredAt: new Date('2026-09-07T03:30:00.000Z'),
+        restoredById: USER_ID,
+        restoreOldDb: 'appdb_old_20260907T030000Z',
+        swappedAt: new Date('2026-09-07T03:30:00.000Z'),
+        ...overrides,
+      });
+
+    it('renames in retain mode and reports it as such', async () => {
+      const { service, restore } = harness({ rows: [restored()] });
+
+      const result = await service.rollbackRestore(RUN_ID, USER_ID);
+
+      expect(result).toMatchObject({ outcome: 'renamed', promoted: 'appdb_old_20260907T030000Z' });
+      expect((restore.rollback as jest.Mock).mock.calls[0][1]).toBe(USER_ID);
+    });
+
+    it('reports restore_started when the retained database is gone but a dump is not', async () => {
+      const { service } = harness({
+        rows: [restored({ restoreOldDb: null, preRestoreBackupId: PRE_RESTORE_ID })],
+        rollback: async (row) => ({
+          outcome: 'restore_started',
+          runId: row.id,
+          preRestoreRunId: PRE_RESTORE_ID,
+        }),
+      });
+
+      // The two routes back are not comparable — seconds versus hours — which
+      // is the entire reason this is a discriminated result and not a boolean.
+      await expect(service.rollbackRestore(RUN_ID, USER_ID)).resolves.toEqual({
+        outcome: 'restore_started',
+        runId: RUN_ID,
+        preRestoreRunId: PRE_RESTORE_ID,
+      });
+    });
+
+    it('reports unavailable — not a failure — when the window has closed', async () => {
+      const { service } = harness({
+        rows: [restored({ restoreOldDb: 'appdb_old_20260907T030000Z' })],
+        rollback: async (row) => ({
+          outcome: 'unavailable',
+          runId: row.id,
+          reason: 'The displaced database has been dropped.',
+        }),
+      });
+
+      const result = await service.rollbackRestore(RUN_ID, USER_ID);
+
+      // Nothing went wrong just now; the retention window simply passed. An
+      // operator needs that as a fact rather than as an error to retry.
+      expect(result).toMatchObject({ outcome: 'unavailable' });
+    });
+
+    it('refuses a run that was never restored, and never reaches the engine', async () => {
+      const { service, restore } = harness({ rows: [run({ restoreStatus: null })] });
+
+      const error = await service.rollbackRestore(RUN_ID, USER_ID).catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(DatabaseRestoreNotAllowedError);
+      // `unavailable` would have been the wrong answer: it means the way back
+      // expired, which is a fact about a restore that happened.
+      expect((error as DatabaseRestoreNotAllowedError).reason).toBe('restore_never_ran');
+      expect(restore.rollback).not.toHaveBeenCalled();
+    });
+
+    it('raises the TYPED not-found error for a run that does not exist', async () => {
+      const { service } = harness({ rows: [] });
+
+      await expect(service.rollbackRestore(RUN_ID, USER_ID)).rejects.toBeInstanceOf(
+        DatabaseRestoreRunNotFoundError
+      );
     });
   });
 

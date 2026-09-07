@@ -780,9 +780,16 @@ describe('Admin database-backup API (Integration)', () => {
       expect(Reflect.getMetadata(ROLES_KEY, target)).toEqual(['admin']);
     });
 
-    it('never spends db_backup:restore, which belongs to the restore work', () => {
+    it('never spends db_backup:restore on a route that only manages backups', () => {
       const declared = EXPECTED.map(([, permission]) => permission);
 
+      // The third permission belongs to `runs/:id/restore` and
+      // `runs/:id/rollback` (#286) and to nothing else. Its whole purpose is to
+      // be granted separately, so a config read or a manual backup quietly
+      // acquiring it would be a real regression — see
+      // `db-backup-restore.integration.spec.ts` for the other half of the
+      // split, which drives those two routes as a caller holding only
+      // `db_backup:write` and expects 403.
       expect(declared).not.toContain('db_backup:restore');
     });
 

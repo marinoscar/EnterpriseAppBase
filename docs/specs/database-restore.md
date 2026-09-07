@@ -8,17 +8,20 @@
 > `apps/api/src/db-backup/restore-preflight.service.ts`,
 > `apps/api/src/db-backup/database-restore.service.ts`,
 > `apps/api/src/db-backup/migration-state.util.ts`,
-> `apps/api/src/db-backup/tasks/db-backup-schedule.task.ts` and
+> `apps/api/src/db-backup/tasks/db-backup-schedule.task.ts`,
+> `apps/api/src/db-backup/db-backup.controller.ts`,
+> `apps/api/src/db-backup/db-backup-admin.service.ts`,
+> `apps/api/src/db-backup/dto/db-backup-restore.dto.ts` and
 > `apps/api/src/db-backup/db-backup.module.ts`, over the `restore*` columns
 > `apps/api/prisma/schema.prisma` already declares on `DatabaseBackupRun` (see
 > `docs/specs/database-backup.md` §1.1 — **neither issue adds a migration**).
 >
 > **Be honest about what exists.** §1–§7 are the pre-flight: the *knowing*. §8
-> is the restore itself: the *doing*. Both are merged and tested. **What is
-> still missing is the way in** — no route accepts a restore request and no
-> dialog offers one, so today `DatabaseRestoreService` is a provider bound to
-> nothing, reachable only from the scheduled sweep it owns. #286 adds the
-> endpoints; #287 adds the dialog.
+> is the restore itself: the *doing*. §10 is the way in: two HTTP routes, their
+> typed confirmation, and the six response `mode`s they publish. All three are
+> merged and tested. **What is still missing is the dialog** — an operator can
+> reach a restore with `curl` or the CLI but not from a screen, so #287 remains
+> open.
 >
 > The backup half — the model, the streaming `pg_dump` engine, retention, the
 > schedule and the admin API — is `docs/specs/database-backup.md`. The
@@ -924,7 +927,252 @@ restore that took hours, because a rename failed. See §8.6.
 assumes the swap did not happen, and it would invite a future "roll the swap
 back" that discards a database the deployment is already serving from. See §8.7.
 
-## 9. Verification
+## 9. The endpoints (#286)
+
+Two routes on the controller `docs/specs/database-backup.md` already describes,
+and one property that is true of nothing else in this application:
+
+> **A mis-fired or retried request here is an outage, not a duplicate row.**
+
+Every other write in this API, sent twice, costs at worst a wasted row — a
+second backup is refused by the single-active index, a second job is a second
+job. A second restore replaces the production database. Everything below follows
+from that sentence.
+
+```
+POST /api/admin/db-backup/runs/{id}/restore    { "confirmation": "RESTORE",
+                                                 "overrideSchemaCheck"?: boolean }
+POST /api/admin/db-backup/runs/{id}/rollback   { "confirmation": "ROLLBACK" }
+```
+
+### 9.1 The permission is `db_backup:restore`, and deliberately not `db_backup:write`
+
+Scheduling backups and replacing the production database are **not the same
+authority**. A deployment must be able to grant the first to somebody it does
+not trust with the second — the operator who configures the nightly dump, the
+on-call engineer who takes an ad-hoc backup before a deploy — and that is the
+entire reason `prisma/seed-data.ts` seeds a third permission.
+
+Folding these two routes under `db_backup:write` would spend it, and would do so
+*invisibly*: every existing holder of `db_backup:write` would silently acquire
+the ability to replace the database. The split is asserted twice, in ways that
+catch different mistakes — as decorator metadata (a route that had drifted to
+`db_backup:write` would still refuse a viewer and pass every request-level test)
+and by driving both routes as an **Admin holding only `db_backup:write`** and
+expecting `403`.
+
+Both are additionally gated on the Admin role, matching every other admin
+controller: the role admits, the permission is what the guard checks.
+
+### 9.2 The typed confirmation literal is the safety feature
+
+The body must carry `"confirmation": "RESTORE"` — the exact string, uppercase,
+matched literally. A missing, empty, misspelt or lower-case value is a **`400`
+that has started nothing**: no pre-flight, no run lookup, no download, no row.
+The literal is a Zod literal on the DTO, so the global validation pipe refuses
+the request before the handler body executes; the test for it asserts not only
+the status but that **the restore service was never called**.
+
+The rollback route requires a **different word**, `ROLLBACK`, so that a body
+copied from one route to the other is refused rather than silently accepted. In
+`pre_restore_dump` mode a rollback *is* a multi-hour restore, so confusing the
+two is not a harmless mistake.
+
+`overrideSchemaCheck` is optional and defaults to `false`, so an ordinary
+restore body is exactly `{"confirmation":"RESTORE"}` — nobody has to send a flag
+in order *not* to override something.
+
+### 9.3 It returns as soon as the cheap gates have run
+
+A restore rebuilds every index in the database from the archive (§8.1), so it
+takes hours, while every reverse proxy in front of this process has a response
+timeout measured in seconds. The response therefore lands the moment the
+pre-flight has decided, and the restore continues detached. The caller polls
+`GET runs/{id}` and watches `restoreStatus`: `restoring` → `verifying` →
+`swapping` → `completed`/`failed`.
+
+That promise is what makes #286 the issue that **publishes the `restore*`
+columns** on the run DTO. They were declared by #281 and left unpublished
+through #283 and #285 on the stated grounds that eight always-`null` fields are
+a contract a client cannot distinguish from "this build has no restore". An
+endpoint that tells its caller to watch `restoreStatus` cannot leave
+`restoreStatus` out of the polling response.
+
+Expect the poll to see `swapping` and then a connection error, and to read
+`completed` only after the supervisor has restarted the process. That is
+success, not failure (§8.8).
+
+### 9.4 Three normal outcomes per route, keyed by `mode` — and `mode` is the answer
+
+Both routes answer **`200` on all six normal outcomes**, and the discriminator
+is the `mode` field. This is the contract `CancelBackupResultDto` already
+states for its `outcome`, forced by the same fact: the honest answer has more
+than one shape and a status code cannot carry the difference.
+
+**Restore.**
+
+| `mode` | What happened | Body carries |
+|---|---|---|
+| `running` | Gates passed; the restore is under way in the background. | `runId`, `scratchDatabase`, `oldDatabase`, `preflight` |
+| `guided` | A capability gate failed. **Nothing was started.** | `runId`, `guidance { reason, commands, runbook }`, `preflight` |
+| `blocked` | The schema gate refused. **Nothing was started.** | `runId`, `block { gateId, message, overridable, overrideParameter }`, `preflight` |
+
+**Rollback.**
+
+| `mode` | What happened | Cost |
+|---|---|---|
+| `renamed` | `retain_database`: the retained pre-swap database was renamed back. | **Seconds** |
+| `restore_started` | `pre_restore_dump`: delegated into the restore path against the safety archive, **with the schema check overridden**. | **Hours** |
+| `unavailable` | The retained database is gone and no pre-restore backup exists. | — |
+
+`preflight` carries the whole verdict — every gate that ran, *including the ones
+that passed*, plus the rollback plan, both migration names and the size
+readings — because an operator about to replace their production database is
+entitled to see what was checked, not only what failed. `guidance` and `block`
+are hoisted next to the `mode` that selects them rather than repeated inside
+`preflight`, so a client narrows once and a multi-line command block is never
+sent twice in one body.
+
+### 9.5 `guided` must not be an error status
+
+This is the single most important decision in the pair. A `guided` result means
+a **capability** gate failed — nearly always `CREATEDB`, which managed
+PostgreSQL routinely denies — and the body carries a complete, paste-ready
+command block plus a runbook path so the same restore can be performed by hand
+with a superuser.
+
+A `4xx` would tell an operator, **in the middle of an incident**, that their
+platform is unsupported. It is not: it is a platform this design planned for
+(§3, §4). The block is asserted to be *complete* — real host, real port, real
+user, real database names, real run id, and no `<placeholder>` anywhere —
+because a command block with a placeholder in it is not a deliverable, it is
+homework.
+
+`blocked` is likewise a `200`: the caller's next move is to re-send with
+`overrideSchemaCheck: true`, which is an answer rather than a failure.
+
+### 9.6 The override unblocks exactly one gate
+
+`overrideSchemaCheck` clears the **schema compatibility** gate and nothing else.
+The distinction is not a policy choice:
+
+* A schema mismatch is a **judgement**. "This archive predates two migrations; I
+  accept that and will run `prisma migrate deploy` afterwards" is a sentence an
+  operator is entitled to say.
+* A capability failure is a **statement of fact**. No amount of accepting makes
+  a role without `CREATEDB` able to create a database. An override that silenced
+  it would not enable a restore; it would start one that dies at
+  `CREATE DATABASE`, having already downloaded the whole archive.
+
+There is an explicit **negative** test: a request carrying
+`overrideSchemaCheck: true` against a cluster whose role lacks `CREATEDB` still
+answers `guided`, and the assertion confirms the flag *was* forwarded rather
+than the request having been ignored.
+
+The request field's name is not invented by the DTO. `restore-preflight.service
+.ts` exports `RESTORE_SCHEMA_OVERRIDE_FIELD` and emits it as
+`block.overrideParameter`, whose whole purpose is to tell a client which field
+to set; the DTO ties its schema to that constant at compile time and again at
+run time in its spec. Publishing the service's *internal* option name
+(`overrideSchemaMismatch`) would have handed an operator a parameter the
+endpoint rejects — the most frustrating possible failure, where the server has
+said exactly what to do and refuses when you do it.
+
+### 9.7 The 409, and where its payload has to live
+
+A second restore while one is in flight is a **`409`** carrying the id of the
+run that is already running at **`details.activeRunId`** — the same envelope
+rule §2 of `docs/specs/database-backup.md` states for `POST runs`, and for the
+same reason: `HttpExceptionFilter` rebuilds every error body from a fixed key
+allowlist (`message` and `details` off the payload, `code` derived from the
+status), so a field written at the *top level* of a thrown payload is silently
+dropped and never reaches the client.
+
+And `exception.getResponse()` returns the payload **before** the filter has
+touched it, so a unit assertion on it proves nothing about the wire — it would
+pass identically with the filter deleted *and* with the field in the position
+that does not survive. It is therefore asserted through the real router and the
+real filter, together with the negative half: nothing survives at the top level.
+
+Note what this 409 is *not*. It is a **result** from the restore service, not an
+exception (§8.12), and it is process-local: a restore's state lives on the row
+of the backup it replays, so no database constraint could arbitrate two restores
+of two different archives. The real exclusion is the single-replica
+prerequisite; this is the in-process half of it.
+
+### 9.8 The error mapping lives in the controller
+
+`DatabaseBackupAdminService`'s two restore methods throw **domain** errors —
+`DatabaseRestoreRunNotFoundError` and `DatabaseRestoreNotAllowedError` — and the
+controller maps them: **not-found → 404, not-allowed → 400**, with the
+`already_running` result → 409. This is a deliberate inconsistency with the
+other eight routes on that controller, whose service raises
+`NotFoundException` itself:
+
+* **The restore path is reached from more than the HTTP layer.** A rollback in
+  `pre_restore_dump` mode re-enters `startRestore` from inside a running
+  restore, where the request that began everything was answered hours ago. A
+  framework exception raised there is an HTTP object travelling a code path with
+  nothing to send it to.
+* **It keeps every status-code decision for these two routes in one screen**,
+  next to the OpenAPI annotations that publish them. For the one surface where a
+  mis-fired request is an outage, "which answers are errors and which are
+  normal" is worth being able to read at a glance.
+
+`not-allowed` covers two cases, neither of which is a defect in the request's
+*shape*: restoring a run that is not `completed` (only a completed run has a
+whole archive that was read back and proved readable — the same rule
+`getDownloadUrl` enforces, and it matters more here, because a bad restore costs
+hours and a safety dump before the archive is found unreadable), and rolling
+back a run that was never restored. The second is a `400` rather than an
+`unavailable`: `unavailable` means "the way back expired", which is a fact about
+a restore that *happened*.
+
+### 9.9 Route ordering
+
+Both are `runs/:id/…` routes on a controller whose every literal route must be
+declared above every parameterised one — Nest matches in declaration order, not
+by specificity, and the failure it produces has no boot error and no log line.
+They sit inside the parameterised block, deepest first, alongside
+`runs/:id/download` and `runs/:id/cancel` and above `runs/:id`.
+
+### 9.10 Rejected alternatives (the endpoints)
+
+**A boolean `confirm: true`.** The obvious shape, and the reason the literal
+exists. A boolean is reproduced by a browser or proxy replaying a POST it
+believes idempotent, by a `curl` line copied out of a runbook or a chat, by a
+client library retrying on a socket timeout — which is exactly when a restore is
+in flight and answering slowly — and by a double-click on a button whose first
+response has not arrived. In all four the body is identical to the deliberate
+one and the server cannot tell them apart. `{"confirmation":"RESTORE"}` can
+still be replayed *deliberately*, which is the point: a replay of that body is a
+decision somebody made.
+
+**Blocking until the restore completes.** It would make the response
+unambiguous, and it would be an HTTP request measured in hours. Every proxy in
+the stack would give up long before it finished, on exactly the databases worth
+restoring, and the operator's retry would meet the 409 while the first restore —
+which nobody is now watching — carried on. The same argument `POST runs` makes
+for backups, only more so.
+
+**Treating `guided` as an error.** A `4xx` would tell an operator on managed
+PostgreSQL that their platform is unsupported, mid-incident, when the body they
+were sent is a complete working alternative. See §9.5.
+
+**A single override flag covering every gate.** One `force: true` would be
+simpler to document and would turn the one deliberate escape hatch in this
+subsystem into a way to skip all of it. A capability gate is a statement of
+fact, not a policy to override: silencing it starts a restore that fails at
+`CREATE DATABASE` after downloading the whole archive. See §9.6.
+
+**Distinct status codes per outcome (`202` for `running`, `409` for `blocked`).**
+`202` is genuinely the right shape for `running` — but `guided` and `blocked`
+started nothing, so answering `202` for them would be a lie, and answering
+`4xx` reopens §9.5. One status, one discriminator, documented: read `mode`.
+
+**Putting the mapping in the service.** See §9.8.
+
+## 10. Verification
 
 | Claim | Covered by |
 |---|---|
@@ -956,8 +1204,18 @@ back" that discards a database the deployment is already serving from. See §8.7
 | The retained-database sweep is row-driven, refuses the live and maintenance databases, and survives one database that will not drop | `src/db-backup/database-restore.service.spec.ts` |
 | The sweep runs last in the schedule tick, on the tick's own clock, and its failure costs neither other duty | `src/db-backup/tasks/db-backup-schedule.task.spec.ts` |
 | **Against a real cluster**: create/rename/rename-back/drop; a rename onto a taken name is refused; the inner recovery restores the original; `withAdminConnection` leaves no session behind; a subselect FK yields NULL instead of aborting; the self-FK needs the second pass | `src/db-backup/database-restore.db.spec.ts` |
+| A missing, empty, lower-case, misspelt, boolean or wrong-word `confirmation` is a **400 that never reaches the restore service** — asserted with a spy on every case, on both routes | `test/db-backup/db-backup-restore.integration.spec.ts` |
+| All three restore `mode`s come back with the documented shape; `guided` arrives with a **200** and a command block containing the real host, port, user, both database names and the run id, and **no placeholder** | `test/db-backup/db-backup-restore.integration.spec.ts` |
+| `overrideSchemaCheck` unblocks the schema gate (and the flag reaches the service as `overrideSchemaMismatch`), and **cannot** unblock a capability gate — the negative asserts the flag *was* forwarded | `test/db-backup/db-backup-restore.integration.spec.ts` |
+| A second concurrent restore is a **409 whose `details.activeRunId` survives the real exception filter**, with nothing left at the top level | `test/db-backup/db-backup-restore.integration.spec.ts` |
+| Rollback returns `renamed` in retain mode; `restore_started` in dump mode, **driving the restore with the schema check overridden**; `unavailable` past the retention window as a **200, not a 500** | `test/db-backup/db-backup-restore.integration.spec.ts` |
+| Both routes require **`db_backup:restore`** and not `db_backup:write` — asserted as decorator metadata *and* by driving both as an Admin holding only `db_backup:write` (403), with a positive control | `test/db-backup/db-backup-restore.integration.spec.ts` |
+| A run that does not exist is a 404 with the id under `details`; a run that is not `completed` is a 400; a run that was never restored cannot be rolled back | `test/db-backup/db-backup-restore.integration.spec.ts` |
+| Each typed result maps to exactly one `mode`; `guidance`/`block` are hoisted and not duplicated inside `preflight`; a gate's internal field cannot leak | `src/db-backup/dto/db-backup-restore.dto.spec.ts` |
+| `GET runs/{id}` publishes `restoreStatus` and the other restore columns, narrows an unrecognised stored value to `null`, and the DTO's status list agrees with the service's | `src/db-backup/dto/db-backup-restore.dto.spec.ts` |
+| The admin service forwards the row, the actor and the override; refuses a non-`completed` run and a never-restored run **without reaching the engine**; raises typed errors rather than framework exceptions | `src/db-backup/db-backup-admin.service.spec.ts` |
 
-### 9.1 The limits
+### 10.1 The limits
 
 Be honest about them.
 

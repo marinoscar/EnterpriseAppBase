@@ -38,6 +38,35 @@
 //     settings form and a backup engine start disagreeing about where archives
 //     go — the one kind of wrong in this subsystem that is only ever discovered
 //     during a restore.
+//   - THE RESTORE, AND THE GATES (#286). `startRestore` and `rollbackRestore`
+//     call `DatabaseRestoreService` and add exactly three things #284 and #285
+//     both say belong here: the run lookup, the `completed`-only rule, and the
+//     actor. They do NOT re-run the pre-flight — `DatabaseRestoreService
+//     .startRestore` runs it itself, deliberately, so that no caller can reach
+//     a restore with no gates by forgetting to.
+//
+// -----------------------------------------------------------------------------
+// ⚠ THE TWO RESTORE METHODS THROW DOMAIN ERRORS, NOT HTTP EXCEPTIONS (#286)
+// -----------------------------------------------------------------------------
+//
+// Every other method in this file raises `NotFoundException` and
+// `BadRequestException` directly, and that stays right for them. The restore
+// pair is different and deliberately inconsistent with its neighbours:
+//
+//   - THE RESTORE PATH IS REACHED FROM MORE THAN THE HTTP LAYER. A rollback in
+//     `pre_restore_dump` mode re-enters `startRestore` from inside a running
+//     restore, with no request to answer; #287 will reach it again. A framework
+//     exception raised on that path is an HTTP object travelling a code path
+//     that has nowhere to send it.
+//   - IT KEEPS EVERY STATUS-CODE DECISION FOR THESE TWO ROUTES IN ONE READABLE
+//     BLOCK, next to the OpenAPI annotations that publish it. For the one
+//     surface in this application where a mis-fired request is an outage rather
+//     than a duplicate row, "which answers are errors and which are normal" is
+//     worth being able to read in a single screen.
+//
+// `db-backup.controller.ts` does the mapping: not-found → 404, not-allowed →
+// 400, and the `already_running` RESULT (not an error — see
+// `db-backup.errors.ts`) → 409 with `details.activeRunId`.
 //
 // -----------------------------------------------------------------------------
 // TWO PRE-WRITE VALIDATIONS ON `PUT config`, AND BOTH EARN THEIR KEEP
@@ -129,9 +158,16 @@ import {
   type StorageProvider,
 } from '../storage/providers/storage-provider.interface';
 import { DatabaseBackupRunnerService } from './db-backup-runner.service';
+import { DatabaseRestoreService } from './database-restore.service';
+import type {
+  RestoreRollbackResult,
+  StartRestoreResult,
+} from './database-restore.service';
 import {
   DatabaseBackupAlreadyRunningError,
   DatabaseBackupStorageProviderError,
+  DatabaseRestoreNotAllowedError,
+  DatabaseRestoreRunNotFoundError,
 } from './db-backup.errors';
 import { backupScheduleToCron, InvalidTimezoneError, nextFireAt } from './schedule.util';
 import {
@@ -195,6 +231,11 @@ export class DatabaseBackupAdminService {
     private readonly prisma: PrismaService,
     private readonly settings: SystemSettingsService,
     private readonly runner: DatabaseBackupRunnerService,
+    // The restore engine, injected whole. This service adds the run lookup, the
+    // `completed`-only rule and the actor; it re-decides nothing about HOW a
+    // restore happens, for the same reason it does not reimplement the claim or
+    // the schedule (see this file's header).
+    private readonly restore: DatabaseRestoreService,
     // The ACTIVE provider, injected directly rather than through
     // `ObjectsService`, exactly as the runner and the retention sweep inject
     // it: a backup is not a `storage_objects` row, and routing it through the
@@ -592,8 +633,153 @@ export class DatabaseBackupAdminService {
   }
 
   // =========================================================================
+  // Restore and rollback (issue #286)
+  // =========================================================================
+
+  /**
+   * Runs the pre-flight and, if the gates permit it, starts the restore.
+   *
+   * ⚠ RETURNS AS SOON AS THE CHEAP GATES HAVE RUN. The restore itself is
+   * DETACHED and takes hours — it downloads the archive, rebuilds every index
+   * in the database from scratch and only then swaps — so awaiting it here
+   * would produce an HTTP request measured in hours, which every proxy in the
+   * stack would give up on long before it finished. The caller polls
+   * `GET runs/{id}` and watches `restoreStatus`.
+   *
+   * ⚠ THE CONFIRMATION LITERAL IS CHECKED BY THE PIPE, NOT HERE, AND THAT IS
+   * WHY NOTHING RUNS ON A BAD ONE. `StartRestoreRequestDto` declares
+   * `confirmation` as a Zod literal, so a missing, misspelt or lower-case value
+   * is rejected by the global `ZodValidationPipe` before this method is
+   * entered — no run lookup, no cluster probe, no download. The integration
+   * spec asserts exactly that: on a bad confirmation the restore service is
+   * never called at all.
+   *
+   * ⚠ WHAT THIS METHOD ADDS THAT `DatabaseRestoreService` DOES NOT: the run
+   * lookup, the `completed`-only rule, and the actor. #284 and #285 both say in
+   * their headers that those belong here — they take a ROW and answer a
+   * question about it, exactly as `getDownloadUrl` does.
+   *
+   * It does NOT re-run the gates, and must not: `startRestore` runs the
+   * pre-flight itself, deliberately, so that no caller can reach a restore with
+   * no gates by forgetting to.
+   *
+   * @throws {DatabaseRestoreRunNotFoundError} mapped to 404 by the controller.
+   * @throws {DatabaseRestoreNotAllowedError} mapped to 400 by the controller.
+   */
+  async startRestore(
+    id: string,
+    options: { overrideSchemaCheck: boolean; actorUserId: string }
+  ): Promise<StartRestoreResult> {
+    const run = await this.requireRestorableRun(id);
+
+    this.logger.warn(
+      `Database restore of backup run ${run.id} requested by user ${options.actorUserId} ` +
+        `(overrideSchemaCheck=${options.overrideSchemaCheck}).`
+    );
+
+    return this.restore.startRestore(run, {
+      actorUserId: options.actorUserId,
+      // The endpoint's field name maps onto the service's option name here, in
+      // the ONE place that knows both. The names differ because they answer
+      // different questions: the request field says what the operator is
+      // waiving, the option says what the pre-flight compares.
+      overrideSchemaMismatch: options.overrideSchemaCheck,
+    });
+  }
+
+  /**
+   * Undoes a restore, by whichever of the two routes this deployment still has.
+   *
+   * ⚠ THE TWO ROUTES ARE NOT COMPARABLE IN COST, which is why the result is a
+   * discriminated union and not a boolean. `retain_database` renames a database
+   * back and is done in SECONDS. `pre_restore_dump` has nothing to rename, so
+   * it delegates into the restore path against the safety archive and takes
+   * HOURS. An operator choosing to press this must be told which they got, and
+   * the response's `mode` is where.
+   *
+   * A run that has never been restored is refused with a 400 rather than
+   * answered `unavailable`: `unavailable` means "the way back has expired",
+   * which is a fact about a restore that happened, and reporting it for a
+   * backup nobody ever restored would be a different sentence wearing the same
+   * word.
+   *
+   * @throws {DatabaseRestoreRunNotFoundError} mapped to 404 by the controller.
+   * @throws {DatabaseRestoreNotAllowedError} mapped to 400 by the controller.
+   */
+  async rollbackRestore(id: string, actorUserId: string): Promise<RestoreRollbackResult> {
+    const run = await this.requireRunForRestore(id);
+
+    if (run.restoreStatus === null) {
+      throw new DatabaseRestoreNotAllowedError(
+        id,
+        'restore_never_ran',
+        `Database backup run ${id} has never been restored, so there is nothing to roll ` +
+          'back. Rolling back undoes a swap that happened; restoring this archive would be a ' +
+          'new restore, which is a different request.'
+      );
+    }
+
+    this.logger.warn(
+      `Rollback of the restore of backup run ${run.id} requested by user ${actorUserId}.`
+    );
+
+    return this.restore.rollback(run, actorUserId);
+  }
+
+  // =========================================================================
   // Internals
   // =========================================================================
+
+  /**
+   * One `completed` run, or a typed refusal.
+   *
+   * The `completed`-only rule is the SAME ONE `getDownloadUrl` enforces, and it
+   * matters more here. A `running` run's object is half written and a `failed`
+   * run's partial object was deleted by the failure path — either would be
+   * downloaded without complaint and would restore nothing, but where a bad
+   * download costs a wasted click, a bad restore costs hours, a safety dump and
+   * a scratch database before the archive is found to be unreadable.
+   *
+   * (The archive's BYTES are still re-verified by the restore itself, before
+   * anything is created. This check is about the row; that one is about the
+   * object. Neither replaces the other.)
+   */
+  private async requireRestorableRun(id: string): Promise<DatabaseBackupRun> {
+    const run = await this.requireRunForRestore(id);
+
+    if (run.status !== 'completed') {
+      throw new DatabaseRestoreNotAllowedError(
+        id,
+        'backup_not_completed',
+        `Database backup run ${id} is "${run.status}" and cannot be restored. Only a ` +
+          'completed run has a whole archive that was read back and proved readable; a ' +
+          "running run's object is half written, and a failed one's was deleted."
+      );
+    }
+
+    return run;
+  }
+
+  /**
+   * One run, or the TYPED not-found error the restore routes' controller maps.
+   *
+   * A second lookup rather than a shared one with {@link requireRun}, and the
+   * three duplicated lines are the cheap half of the trade. `requireRun` throws
+   * a `NotFoundException` — a framework object — which is right for #283's
+   * eight routes and wrong here: the restore path is reached from more than the
+   * HTTP layer (the rollback delegation enters it from inside a running
+   * restore, with no request to answer), and every status-code decision for
+   * these two routes deliberately lives in one block in the controller. Making
+   * `requireRun` throw a domain error instead would have turned all eight of
+   * those routes into 500s unless each grew its own mapping.
+   */
+  private async requireRunForRestore(id: string): Promise<DatabaseBackupRun> {
+    const run = await this.prisma.databaseBackupRun.findUnique({ where: { id } });
+
+    if (run === null) throw new DatabaseRestoreRunNotFoundError(id);
+
+    return run;
+  }
 
   /** One run or a 404. Every route that takes an `:id` starts here. */
   private async requireRun(id: string): Promise<DatabaseBackupRun> {

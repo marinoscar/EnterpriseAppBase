@@ -80,10 +80,45 @@ const NESTED_META_SCHEMA = {
  * @ApiDataResponse(ObjectResponseDto, { pagination: 'nested' })
  */
 export function ApiDataResponse(
-  model: Type<unknown>,
+  model: Type<unknown> | readonly Type<unknown>[],
   options: ApiDataResponseOptions = {},
 ) {
   const { status = 200, description, isArray = false, pagination } = options;
+
+  // An ARRAY of models means the payload is one of several shapes, published as
+  // `oneOf`. It exists for a discriminated union — a handler whose honest answer
+  // has more than one shape, keyed by a literal field the client narrows on
+  // (`POST /admin/db-backup/runs/{id}/restore`'s `mode`, #286).
+  //
+  // ⚠ IT MUST GO THROUGH THIS DECORATOR RATHER THAN A BARE `@ApiResponse`.
+  // `openapi/data-envelope.ts` deliberately leaves composed schemas (`oneOf`,
+  // `allOf`, `anyOf`) alone rather than guessing at them, so a hand-written
+  // `oneOf` response would be published WITHOUT the `{ data: … }` envelope the
+  // global interceptor actually adds. Building the envelope here — as every
+  // other branch below already does — is what keeps the document truthful.
+  if (Array.isArray(model)) {
+    const models = model as readonly Type<unknown>[];
+
+    return applyDecorators(
+      ApiExtraModels(...models),
+      ApiResponse({
+        status,
+        description,
+        schema: {
+          type: 'object',
+          required: ['data'],
+          properties: {
+            data: { oneOf: models.map((m) => ({ $ref: getSchemaPath(m) })) },
+          },
+        } as SchemaObject,
+      }),
+    );
+  }
+
+  // `Array.isArray` does not narrow a union whose array member is `readonly`,
+  // so the single-model branches below take a locally-narrowed alias rather than
+  // repeating a cast at each of their five uses.
+  const single = model as Type<unknown>;
 
   let dataSchema: Record<string, unknown>;
 
@@ -91,22 +126,22 @@ export function ApiDataResponse(
     dataSchema = {
       type: 'object',
       required: ['items', 'total', 'page', 'pageSize', 'totalPages'],
-      properties: { items: ITEMS(model), ...FLAT_COUNTS },
+      properties: { items: ITEMS(single), ...FLAT_COUNTS },
     };
   } else if (pagination === 'nested') {
     dataSchema = {
       type: 'object',
       required: ['items', 'meta'],
-      properties: { items: ITEMS(model), meta: NESTED_META_SCHEMA },
+      properties: { items: ITEMS(single), meta: NESTED_META_SCHEMA },
     };
   } else if (isArray) {
-    dataSchema = ITEMS(model);
+    dataSchema = ITEMS(single);
   } else {
-    dataSchema = { $ref: getSchemaPath(model) };
+    dataSchema = { $ref: getSchemaPath(single) };
   }
 
   return applyDecorators(
-    ApiExtraModels(model),
+    ApiExtraModels(single),
     ApiResponse({
       status,
       description,

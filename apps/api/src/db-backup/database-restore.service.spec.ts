@@ -1021,7 +1021,7 @@ describe('starting a restore', () => {
           gateId: 'schema_compatibility',
           message: 'the archive predates the running code',
           overridable: true,
-          overrideParameter: 'overrideSchemaMismatch',
+          overrideParameter: 'overrideSchemaCheck',
         },
       } as RestorePreflightResult,
     });
@@ -1039,7 +1039,7 @@ describe('starting a restore', () => {
           gateId: 'schema_compatibility',
           message: 'the archive predates the running code',
           overridable: true,
-          overrideParameter: 'overrideSchemaMismatch',
+          overrideParameter: 'overrideSchemaCheck',
         },
       } as RestorePreflightResult,
     });
