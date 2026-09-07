@@ -1910,3 +1910,94 @@ enum DatabaseBackupTrigger {
   scheduled
   pre_restore
 }
+
+// =============================================================================
+// Job Node Secrets (issue #349, epic #345)
+// =============================================================================
+//
+// THE AUDIT RECORD OF A CREDENTIAL A WORKER NODE ONCE HELD — and, precisely,
+// NOT the credential. A node has no database access and no storage credentials
+// by design (`docs/specs/worker-nodes.md` §8); epic #345 needs it to run work
+// that genuinely requires one (a `pg_dump` needs a connection), so the server
+// mints one per job, hands it over once, and destroys it on settlement. This
+// table exists so that "which node held a credential to this deployment's
+// database, of what kind, from when until when, and was it revoked" is a
+// question with an answer.
+//
+// -----------------------------------------------------------------------------
+// ⚠ THERE IS NO COLUMN HERE CAPABLE OF HOLDING SECRET MATERIAL, AND THERE MUST
+// NEVER BE — NOT PLAINTEXT, NOT ENCRYPTED
+// -----------------------------------------------------------------------------
+//
+// `handle` is an IDENTIFIER for the grant — a role name, a token id — and it is
+// what `JobSecretBroker.revoke(handle)` takes. It is never the password. The
+// material itself is serialised into exactly one HTTP response
+// (`POST /api/nodes/:id/jobs/:jobId/secret`) and then dropped; nothing in this
+// process, this database, or any backup of it retains a copy.
+//
+// REJECTED: an `encryptedMaterial` column, reusing `SECRETS_ENCRYPTION_KEY` the
+// way the `credentials` table does. A credential that can be re-read is a
+// credential that can be STOLEN TWICE, and nothing needs to re-read this one:
+// the node received it once, and revocation is by handle rather than by
+// presenting the secret back. `credentials` stores material because an SMTP
+// password must be replayed on every send; a job credential must not be
+// replayed at all. Storing it — even encrypted — would buy nothing and would
+// put a live database password into this table, into every `pg_dump` of it,
+// and into every copy of that dump, protected by a key that lives in the same
+// deployment. That is the owner's rule for epic #345 expressed in schema rather
+// than in a convention somebody can forget.
+//
+// -----------------------------------------------------------------------------
+// `@@unique([jobId, kind])` — ONE CREDENTIAL PER JOB, EVER
+// -----------------------------------------------------------------------------
+//
+// A node asks for its secret more than once as a matter of course: a process
+// restarted while holding the lease, a response lost on the way back, a retry
+// of the same job. Every one of those calls must land on the SAME grant,
+// extended — never on a second one, because the revocation paths know exactly
+// one handle per (job, kind) and a sibling grant would be one nothing ever
+// destroys. The unique index makes the second row unrepresentable; the broker's
+// own `issue` idempotence (see `job-secret-broker.ts`) is the other half.
+//
+// `@@index([expiresAt])` backs the sweeper, which scans unrevoked grants whose
+// own clock has lapsed. See `NodeSecretBrokerService.sweep` for why the sweeper
+// is NOT redundant with the settle-event revoker: three real cases emit no
+// event at all.
+//
+// NO RELATIONS, DELIBERATELY. `jobId` and `nodeId` are plain UUID columns with
+// no foreign key either way, for two reasons. `jobs` rows are deleted on a
+// retention schedule (`job.history.purge`) that has nothing to do with a
+// grant's lifetime, and a cascade from that purge would silently erase the
+// audit record of a credential — which is the one thing this table is for. And
+// a grant must stay revocable by handle after its job row is gone, which is
+// why the sweeper resolves a broker by `kind` rather than by the job's `type`.
+model JobNodeSecret {
+  id String @id @default(uuid()) @db.Uuid
+
+  jobId  String @map("job_id") @db.Uuid
+  nodeId String @map("node_id") @db.Uuid
+
+  // Which broker minted this — `JobSecretBroker.kind`, e.g.
+  // `'postgres.readonly'`. Also how the revocation paths find their way back
+  // to the broker that can destroy the grant. A plain string, not an enum, for
+  // the same reason `Job.type` is: a fork's broker must cost zero migrations.
+  kind String
+
+  // The grant's identifier. ⚠ THE ROLE NAME. NEVER THE PASSWORD. See the block
+  // comment above.
+  handle String
+
+  issuedAt  DateTime  @default(now()) @map("issued_at") @db.Timestamptz
+  // The credential's own backstop, bounded by the job's lease (never a second
+  // clock of its own — see `JobSecretBroker.issue`). It is what makes a grant
+  // worthless if BOTH revocation paths somehow miss it.
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz
+  // NULL means the grant is still live as far as this server knows. Set by
+  // whichever revocation path got there first; both tolerate the other having
+  // won.
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz
+
+  @@unique([jobId, kind])
+  @@index([expiresAt])
+  @@map("job_node_secrets")
+}

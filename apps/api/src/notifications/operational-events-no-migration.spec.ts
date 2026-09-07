@@ -43,6 +43,9 @@ const MIGRATIONS_AT_288 = [
   '20260907120000_add_database_backup_runs',
   '20260907130000_add_notification_broadcasts',
   '20260907140000_add_backup_run_job_link',
+  // #349 (epic #345): the per-job secret broker's handle ledger. A schema
+  // change, and deliberately not one about notifications — see the ⚠ above.
+  '20260907150000_add_job_node_secrets',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');
