@@ -68,7 +68,13 @@ describe('Admin fleet plane (Integration)', () => {
       registeredAt: new Date('2026-01-01T00:00:00.000Z'),
       lastHeartbeatAt: new Date(),
       createdById: 'owner-1',
-      createdBy: { id: 'owner-1', email: 'ops@example.test', name: 'Ops' },
+      // This mocks what Prisma actually returns for `OWNER_SELECT`: the
+      // column is `displayName` (issue #340 — the code used to select the
+      // non-existent `name` and this fixture used to match that bug, which is
+      // exactly why the mock-Prisma suite didn't catch it). The wire field is
+      // still `owner.name` — `toAdminNodeDto` maps `displayName` -> `name` —
+      // so assertions below deliberately keep checking `owner.name`.
+      createdBy: { id: 'owner-1', email: 'ops@example.test', displayName: 'Ops' },
       ...overrides,
     };
   }
@@ -82,7 +88,10 @@ describe('Admin fleet plane (Integration)', () => {
       lastUsedAt: null,
       createdAt: new Date('2026-01-01T00:00:00.000Z'),
       revokedAt: null,
-      user: { id: 'owner-1', email: 'ops@example.test', name: 'Ops' },
+      // Same asymmetry as `nodeRow` above: `CREDENTIAL_OWNER_SELECT` reads
+      // `displayName` off `User`; `listCredentials` maps it to `owner.name`
+      // on the wire.
+      user: { id: 'owner-1', email: 'ops@example.test', displayName: 'Ops' },
       ...overrides,
     };
   }

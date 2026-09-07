@@ -741,7 +741,7 @@ if __name__ == '__main__':
 `/api/docs` serves a [Scalar](https://scalar.com) reference, not Swagger UI. Landing on it while
 already signed in authorizes it automatically — it exchanges your browser session for an access
 token before the page mounts, so there's no manual token step in that case. See
-[`docs/specs/api-documentation.md`](specs/api-documentation.md#72-one-click-session-auth) for how
+[API.md § One-click session auth](API.md#one-click-session-auth) for how
 that exchange works.
 
 To authorize the reference with the device flow instead — e.g. from a signed-out browser or a
