@@ -25,6 +25,7 @@ import { JobClaimService, ClaimOptions } from './job-claim.service';
 import { JobClock } from './job-clock';
 import { JobHandler } from './job-handler.interface';
 import { JobHandlerRegistry } from './job-handler.registry';
+import { JobLeaseService } from './job-lease.service';
 import { JobTerminalService } from './job-terminal.service';
 import { resetJobProfileWarnings } from './job-execution-profile';
 import { JobTimeoutError, JobWorker, resetUnknownWorkerModeWarning } from './job.worker';
@@ -111,6 +112,8 @@ interface Harness {
   completeSucceeded: jest.Mock;
   completeFailed: jest.Mock;
   acquire: jest.Mock;
+  /** `JobLeaseService.renew` (#347) — resolves `true` unless a case says otherwise. */
+  renew: jest.Mock;
   warn: jest.SpyInstance;
   error: jest.SpyInstance;
 }
@@ -122,13 +125,15 @@ function makeWorker(config: WorkerConfig = {}, throttle?: ProviderThrottleServic
   const completeSucceeded = jest.fn().mockResolvedValue('succeeded');
   const completeFailed = jest.fn().mockResolvedValue('failed');
   const acquire = jest.fn().mockResolvedValue(0);
+  const renew = jest.fn().mockResolvedValue(true);
 
   const worker = new JobWorker(
     stubConfig(config),
     registry,
     { claim } as unknown as JobClaimService,
     { completeSucceeded, completeFailed } as unknown as JobTerminalService,
-    throttle ?? ({ acquire } as unknown as ProviderThrottleService)
+    throttle ?? ({ acquire } as unknown as ProviderThrottleService),
+    { renew } as unknown as JobLeaseService
   );
 
   return {
@@ -138,6 +143,7 @@ function makeWorker(config: WorkerConfig = {}, throttle?: ProviderThrottleServic
     completeSucceeded,
     completeFailed,
     acquire,
+    renew,
     warn: jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined),
     error: jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined),
   };
@@ -834,6 +840,253 @@ describe('JobWorker', () => {
   // ---------------------------------------------------------------------------
   // Independent slots
   // ---------------------------------------------------------------------------
+
+  // ---------------------------------------------------------------------------
+  // Lease renewal (#347)
+  // ---------------------------------------------------------------------------
+
+  describe('lease renewal', () => {
+    // FAKE TIMERS, BECAUSE THE FLOOR IS FIVE SECONDS. `resolveRenewIntervalMs`
+    // clamps to `[5s, 60s]` on purpose (a short lease must not produce a
+    // renewal storm), so a real-timer test of "it renews twice" would sit
+    // there for two minutes. What is being asserted is a schedule, and a
+    // schedule is exactly the thing fake timers are honest about.
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('renews on a schedule for the whole of process(), and stops when it ends', async () => {
+      jest.useFakeTimers();
+
+      // Timeouts disabled → the unbounded one-hour lease → a 60s interval
+      // (the clamp's ceiling, since an hour divided by three is far past it).
+      const { worker, registry, renew } = makeWorker({ 'jobs.jobTimeoutMs': 0 });
+
+      let finish: () => void = () => undefined;
+      registry.register(
+        handler(
+          'test.long',
+          () =>
+            new Promise<void>((resolve) => {
+              finish = resolve;
+            })
+        )
+      );
+
+      const run = worker.runJob(claimedJob('test.long'));
+
+      // NOTHING YET. The first renewal is due one interval in, not at claim
+      // time — the claim already wrote a lease.
+      await jest.advanceTimersByTimeAsync(59_000);
+      expect(renew).not.toHaveBeenCalled();
+
+      await jest.advanceTimersByTimeAsync(1_000);
+      expect(renew).toHaveBeenCalledTimes(1);
+
+      // THE ARGUMENTS ARE THE CONTRACT: the job's own id, the SAME lease the
+      // claim took, and a `null` node id (this worker claimed as `server`).
+      expect(renew).toHaveBeenCalledWith('job-test.long', 3_600_000, null);
+
+      // It keeps going — a job that renewed once and stopped is a job the
+      // reaper takes away a lease later.
+      await jest.advanceTimersByTimeAsync(60_000);
+      expect(renew).toHaveBeenCalledTimes(2);
+
+      finish();
+      await expect(run).resolves.toBe('succeeded');
+
+      // AND IT STOPS. A ticker left running would renew a settled row, and
+      // (once the terminal write lands) log a false "no longer held" alarm.
+      const settled = renew.mock.calls.length;
+      await jest.advanceTimersByTimeAsync(5 * 60_000);
+      expect(renew).toHaveBeenCalledTimes(settled);
+    });
+
+    it('renews on the TYPE’s lease when it has a profile, not the deployment’s', async () => {
+      jest.useFakeTimers();
+
+      // The deployment says 30s (→ a 90s lease → a 30s interval). The type
+      // says "no ceiling" (→ the one-hour lease → a 60s interval). If the
+      // ticker read the global, it would fire at 30s; if it reads the profile
+      // — as the CLAIM did — the first renewal lands at 60s carrying the
+      // hour-long lease. Renewing a six-hour job with a ten-minute extension
+      // is the exact failure mode #346's profiles exist to make impossible.
+      const { worker, registry, renew } = makeWorker({ 'jobs.jobTimeoutMs': 30_000 });
+
+      let finish: () => void = () => undefined;
+      registry.register({
+        type: 'test.profiled',
+        profile: { maxRuntimeMs: 0, maxAttempts: 3 },
+        process: () =>
+          new Promise<void>((resolve) => {
+            finish = resolve;
+          }),
+      });
+
+      const run = worker.runJob(claimedJob('test.profiled'));
+
+      await jest.advanceTimersByTimeAsync(30_000);
+      expect(renew).not.toHaveBeenCalled();
+
+      await jest.advanceTimersByTimeAsync(30_000);
+      expect(renew).toHaveBeenCalledWith('job-test.profiled', 3_600_000, null);
+
+      finish();
+      await run;
+    });
+
+    it('stops renewing, at error, once the row is no longer held', async () => {
+      jest.useFakeTimers();
+
+      const { worker, registry, renew, error } = makeWorker({ 'jobs.jobTimeoutMs': 0 });
+      renew.mockResolvedValue(false);
+
+      let finish: () => void = () => undefined;
+      registry.register(
+        handler(
+          'test.lost',
+          () =>
+            new Promise<void>((resolve) => {
+              finish = resolve;
+            })
+        )
+      );
+
+      const run = worker.runJob(claimedJob('test.lost'));
+
+      await jest.advanceTimersByTimeAsync(60_000);
+      expect(renew).toHaveBeenCalledTimes(1);
+
+      // ONE renewal, then silence: a worker that has lost the row must not go
+      // on re-forging the queue's view of it.
+      await jest.advanceTimersByTimeAsync(5 * 60_000);
+      expect(renew).toHaveBeenCalledTimes(1);
+
+      expect(
+        error.mock.calls.some((call) => String(call[0]).includes('no longer held by this worker'))
+      ).toBe(true);
+
+      // AND THE WORK RUNS ON. JavaScript cannot cancel a promise mid-await
+      // (`withTimeout` says the same), so the honest outcome is that this
+      // attempt finishes and reports; making the pre-existing at-least-once
+      // reality visible is the whole of what this changes.
+      finish();
+      await expect(run).resolves.toBe('succeeded');
+    });
+
+    it('treats a transient database failure as a retry, not a lost lease', async () => {
+      jest.useFakeTimers();
+
+      const { worker, registry, renew, warn } = makeWorker({ 'jobs.jobTimeoutMs': 0 });
+      renew.mockRejectedValueOnce(new Error('connection reset')).mockResolvedValue(true);
+
+      let finish: () => void = () => undefined;
+      registry.register(
+        handler(
+          'test.flaky',
+          () =>
+            new Promise<void>((resolve) => {
+              finish = resolve;
+            })
+        )
+      );
+
+      const run = worker.runJob(claimedJob('test.flaky'));
+
+      await jest.advanceTimersByTimeAsync(60_000);
+      expect(renew).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls.some((call) => String(call[0]).includes('Could not renew'))).toBe(
+        true
+      );
+
+      // The lease is three intervals long by construction, so one failure
+      // costs nothing and giving up on it would lose a healthy job.
+      await jest.advanceTimersByTimeAsync(60_000);
+      expect(renew).toHaveBeenCalledTimes(2);
+
+      finish();
+      await run;
+    });
+
+    it('does not renew across a provider cooldown, which holds nothing', async () => {
+      jest.useFakeTimers();
+
+      // The ticker starts AFTER `throttle.acquire` resolves. A slot parked in
+      // a cooldown is not running anything, and extending a lease over a wait
+      // is exactly the "held but idle" state a lease exists to expose.
+      let releaseThrottle: () => void = () => undefined;
+      const acquire = jest.fn(
+        () =>
+          new Promise<number>((resolve) => {
+            releaseThrottle = () => resolve(0);
+          })
+      );
+
+      const { worker, registry, renew } = makeWorker({ 'jobs.jobTimeoutMs': 0 }, {
+        acquire,
+      } as unknown as ProviderThrottleService);
+
+      let finish: () => void = () => undefined;
+      registry.register(
+        handler(
+          'test.throttled',
+          () =>
+            new Promise<void>((resolve) => {
+              finish = resolve;
+            })
+        )
+      );
+
+      const run = worker.runJob(claimedJob('test.throttled'));
+
+      await jest.advanceTimersByTimeAsync(5 * 60_000);
+      expect(renew).not.toHaveBeenCalled();
+
+      releaseThrottle();
+      await jest.advanceTimersByTimeAsync(60_000);
+      expect(renew).toHaveBeenCalledTimes(1);
+
+      finish();
+      await run;
+    });
+
+    it('registers the ticker in the shutdown timer set, so stop() cancels it', async () => {
+      jest.useFakeTimers();
+
+      // THE `PendingTimer` CONTRACT, and the reason the ticker is not a bare
+      // `setInterval`: a renewal timer must never hold a closing process open,
+      // and `stop()` must kill it in milliseconds rather than after a full
+      // interval.
+      const { worker, registry, renew } = makeWorker({ 'jobs.jobTimeoutMs': 0 });
+      const timers = (worker as unknown as { timers: Set<unknown> }).timers;
+
+      let finish: () => void = () => undefined;
+      registry.register(
+        handler(
+          'test.shutdown',
+          () =>
+            new Promise<void>((resolve) => {
+              finish = resolve;
+            })
+        )
+      );
+
+      const run = worker.runJob(claimedJob('test.shutdown'));
+      await jest.advanceTimersByTimeAsync(0);
+
+      expect(timers.size).toBe(1);
+
+      await worker.stop();
+
+      expect(timers.size).toBe(0);
+
+      await jest.advanceTimersByTimeAsync(10 * 60_000);
+      expect(renew).not.toHaveBeenCalled();
+
+      finish();
+      await run;
+    });
+  });
 
   describe('independent slot loops', () => {
     it('does not let a slow job in one slot delay a fast job in another', async () => {

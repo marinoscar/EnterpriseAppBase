@@ -75,8 +75,13 @@
 //   5. `throttle.acquire(job.type)` — wait out any cooldown a sibling slot's
 //      429 already discovered, but only where a provider key resolves; for
 //      the overwhelming majority of job types this costs nothing at all.
-//   6. `withTimeout(handler.process(job), JOBS_JOB_TIMEOUT_MS)`.
-//   7. Settle through `JobTerminalService`, never by writing a row here.
+//   6. Start the LEASE RENEWAL TICKER (#347) and keep it running for the
+//      whole of `process()`. Without it the reaper hands this very job to a
+//      second executor the moment it passes the stuck threshold; see
+//      `startLeaseRenewal`.
+//   7. `withTimeout(handler.process(job), JOBS_JOB_TIMEOUT_MS)`.
+//   8. Stop the ticker, then settle through `JobTerminalService`, never by
+//      writing a row here.
 // =============================================================================
 
 import {
@@ -96,8 +101,10 @@ import {
   JobExecutionProfile,
   buildClaimLeases,
   resolveJobProfile,
+  resolveRenewIntervalMs,
 } from './job-execution-profile';
 import { JobHandler } from './job-handler.interface';
+import { JobLeaseService } from './job-lease.service';
 import { JobHandlerRegistry } from './job-handler.registry';
 import { JobSettleOutcome, JobTerminalService } from './job-terminal.service';
 import { ProviderThrottleService } from './provider-throttle.service';
@@ -134,8 +141,14 @@ const DEFAULT_JOB_TIMEOUT_MS = 600_000;
  * lease reaper (#263) requeues jobs that are still running perfectly well —
  * producing duplicate work that looks like a queue bug and is really a typo.
  * Deriving it makes that state unrepresentable.
+ *
+ * EXPORTED SINCE #347 for a second, non-obvious use: the reaper's
+ * "implausible lease" clause. `resolveLeaseHorizonMs` adds this same grace on
+ * top of the longest lease any registered handler could ask for, so the
+ * ceiling the reaper judges a lease against and the grace a claim was given
+ * are the same number rather than two that merely happen to agree today.
  */
-const LEASE_GRACE_MS = 60_000;
+export const LEASE_GRACE_MS = 60_000;
 
 /**
  * The lease used when per-job timeouts are DISABLED (`JOBS_JOB_TIMEOUT_MS=0`).
@@ -346,6 +359,13 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
     private readonly claims: JobClaimService,
     private readonly terminal: JobTerminalService,
     private readonly throttle: ProviderThrottleService,
+    // The keep-alive half of the claim (#347). The worker writes NOTHING to
+    // the `jobs` table itself — the file header's first promise — and a
+    // renewal is a write, so it goes through a service exactly as the claim
+    // and the settle do. It is also the service the node control plane
+    // renews through, which is the whole reason it exists as a service
+    // rather than as a private `updateMany` here.
+    private readonly leases: JobLeaseService,
     // OPTIONAL and unprovided in `JobsModule`, exactly as in
     // `JobTerminalService` — production always gets the real clock. Only
     // `now()` is taken from it here; the sleeps are local timers because they
@@ -676,10 +696,41 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
       // (no map hit, no await, no timer) for any type with no provider key,
       // which is every type this framework ships.
       await this.throttle.acquire(job.type);
-
-      await this.withTimeout(handler.process(job), this.timeoutMs(handler), job);
     } catch (error) {
       return this.terminal.completeFailed(job, error);
+    }
+
+    // ⚠ THE TICKER STARTS AFTER THE THROTTLE AND BEFORE THE WORK, and both
+    // halves of that are deliberate. After, because a slot parked in a
+    // provider cooldown is not running anything and has nothing to keep
+    // alive — renewing there would extend a lease over a wait, which is
+    // exactly the "held but idle" state a lease exists to expose. Before,
+    // because the FIRST renewal is due one interval into `process()`, and a
+    // ticker started after the work would be started after the work finished.
+    const renewal = this.startLeaseRenewal(job, handler);
+
+    // A BOX RATHER THAN A BARE `unknown`, so the `finally` below can stop the
+    // ticker BEFORE the terminal write without `return`-ing out of the try
+    // (which would run the `finally` only after `completeFailed` had already
+    // awaited). `undefined` is a value a handler may legitimately throw, so
+    // "did it throw" cannot be `failure !== undefined` on the error itself.
+    let failure: { error: unknown } | null = null;
+
+    try {
+      await this.withTimeout(handler.process(job), this.timeoutMs(handler), job);
+    } catch (error) {
+      failure = { error };
+    } finally {
+      // STOP RENEWING BEFORE SETTLING. A tick that fired between the work
+      // finishing and `JobTerminalService` writing the terminal row would
+      // find the row still `running` and legitimately extend a lease on a job
+      // that is over — harmless, but it would also log an alarming "no longer
+      // held" line for every job whose settle happened to land first.
+      renewal.stop();
+    }
+
+    if (failure) {
+      return this.terminal.completeFailed(job, failure.error);
     }
 
     this.logger.debug(
@@ -691,6 +742,151 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
     // about work that actually completed. (`completeSucceeded` is written not
     // to throw; this is about not encoding the opposite assumption here.)
     return this.terminal.completeSucceeded(job);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Lease renewal (#347)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Keeps this worker's claim on `job` alive for as long as `process()` runs,
+   * and returns the handle that stops it.
+   *
+   * -----------------------------------------------------------------------
+   * WHY THIS EXISTS AT ALL
+   * -----------------------------------------------------------------------
+   *
+   * The claim wrote `lease_expires_at` and, until #347, nothing ever wrote it
+   * again. `docs/ARCHITECTURE.md` claimed the in-process worker renewed
+   * "implicitly, by holding the row for the duration of `process()`" — but
+   * holding a row is not a thing a Node process does, and nothing was held.
+   * The reaper's aged-claim signal then requeued any job that had been running
+   * longer than `jobs.stuckThresholdMinutes` (default 30) regardless, a second
+   * executor claimed it, and the same work ran twice at once. Renewal here and
+   * the reaper's narrowed signals over in `job-stuck.service.ts` are two halves
+   * of one fix: neither is safe without the other.
+   *
+   * -----------------------------------------------------------------------
+   * A SELF-RESCHEDULING `setTimeout`, NOT A `setInterval`
+   * -----------------------------------------------------------------------
+   *
+   * Every timer this class owns goes through `track()` — `unref`'d, registered
+   * in `this.timers`, and therefore cancelled by `stop()` — and `track()` is a
+   * `setTimeout`. That is not an accident to work around: an interval whose
+   * callback is async can overlap itself when the database is slow, stacking
+   * renewals on a row that is already being renewed. Chaining the next tick
+   * from the end of the previous one makes overlap unrepresentable, and it
+   * inherits the shutdown machinery the file header already argues for
+   * (`PendingTimer`): a renewal timer must never hold a closing process open,
+   * and `stop()` must cancel it in milliseconds rather than after an interval.
+   *
+   * -----------------------------------------------------------------------
+   * ⚠ WHAT A `false` RENEWAL MEANS, AND WHY THE WORK KEEPS GOING
+   * -----------------------------------------------------------------------
+   *
+   * `false` says the row is no longer this worker's: reaped and reclaimed,
+   * settled by something else, or its lease already expired. The ticker stops
+   * and says so at `error`, naming the job.
+   *
+   * THE WORK ITSELF IS NOT CANCELLED, because JavaScript cannot cancel it —
+   * `withTimeout` already spends a paragraph on this, and the honest answer is
+   * the same one: there is no way to stop a promise mid-`await`. What the
+   * ticker CAN do is refuse to keep re-forging the queue's view of a row this
+   * worker has already lost, which is the difference between a duplicate
+   * execution the queue knows about and one it has been told is fine.
+   *
+   * This does not introduce a hazard; it makes a pre-existing one VISIBLE. The
+   * queue has always been at-least-once (§4.5), and before #347 this exact
+   * situation — two executors on one row — happened silently on every job that
+   * outran the stuck threshold, with nothing in the logs at all. An `error`
+   * line naming the job is strictly more than there was.
+   */
+  private startLeaseRenewal(job: Job, handler: JobHandler): { stop: () => void } {
+    // THE SAME LEASE THE CLAIM TOOK, resolved through the same function from
+    // the same profile. A renewal derived from anything else — the global
+    // timeout while the claim used a profile, say — would hand a six-hour type
+    // a ten-minute extension and have the reaper take the job away from a
+    // worker that is renewing exactly on schedule.
+    const leaseMs = resolveJobLeaseMs(this.config, resolveJobProfile(handler));
+    const intervalMs = resolveRenewIntervalMs(leaseMs);
+
+    let entry: PendingTimer | undefined;
+    let stopped = false;
+
+    const schedule = (): void => {
+      if (stopped) {
+        return;
+      }
+
+      entry = this.track(
+        intervalMs,
+        () => void tick(),
+        // Shutdown cancelled the timer. Stop for good rather than
+        // rescheduling: `stop()` has already decided this process is leaving,
+        // and the row it was renewing is exactly what the lease reaper exists
+        // to pick up (see `SHUTDOWN_GRACE_MS`).
+        () => {
+          stopped = true;
+        }
+      );
+    };
+
+    const tick = async (): Promise<void> => {
+      if (stopped) {
+        return;
+      }
+
+      let held: boolean;
+
+      try {
+        // `null` node id: this worker claimed as `executor: 'server'` with no
+        // node, so the row it may renew is one no node holds. If the reaper
+        // requeued it and a NODE took it, this renewal correctly stops
+        // landing — see `heldLeaseWhere`.
+        held = await this.leases.renew(job.id, leaseMs, null);
+      } catch (error) {
+        // A TRANSIENT DATABASE FAILURE IS NOT A LOST LEASE. The lease is
+        // three renewal intervals long by construction
+        // (`RENEW_INTERVAL_DIVISOR`), precisely so two consecutive failures
+        // cost nothing, so the right response to one is to try again on the
+        // next tick rather than to give up on a job that is running fine.
+        this.logger.warn(
+          `Could not renew the lease on job ${job.id} (${job.type}): ${describe(error)}. ` +
+            `Retrying in ${intervalMs}ms.`
+        );
+
+        schedule();
+
+        return;
+      }
+
+      if (!held) {
+        stopped = true;
+
+        this.logger.error(
+          `Job ${job.id} (${job.type}) is no longer held by this worker: its lease could ` +
+            'not be renewed, so the row was reaped, settled, or claimed by another ' +
+            'executor. This worker will finish the work it started (JavaScript cannot ' +
+            'cancel it) but will stop renewing, and whatever it reports may be refused.'
+        );
+
+        return;
+      }
+
+      schedule();
+    };
+
+    schedule();
+
+    return {
+      stop: () => {
+        stopped = true;
+
+        if (entry) {
+          this.clear(entry);
+        }
+      },
+    };
   }
 
   // ---------------------------------------------------------------------------
