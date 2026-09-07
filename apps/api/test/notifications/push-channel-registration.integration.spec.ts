@@ -11,17 +11,31 @@ import {
 } from '../../src/notifications/notification.types';
 
 // =============================================================================
-// Conditional registration of PushNotificationChannel (issue #230, epic #215)
+// Unconditional registration of PushNotificationChannel (issue #355)
 // =============================================================================
 //
-// `notifications.module.ts`'s factory is the ENTIRE effect of #230's feature
-// gate: `PushNotificationChannel` is only pushed into the
-// `NOTIFICATION_CHANNEL_SENDERS` array when `PushSubscriptionService.
-// isEnabled()` is true (both VAPID keys configured). This is exercised over a
-// REAL, fully-wired `NotificationsModule` (via the full `AppModule`, mocked
-// Prisma only) rather than a hand-built test module with the four providers
-// reimplemented, so a drift between this test and the real factory wiring is
-// structurally impossible — there is only one factory, and this is it.
+// UNTIL #355, `notifications.module.ts`'s factory pushed
+// `PushNotificationChannel` into the `NOTIFICATION_CHANNEL_SENDERS` array only
+// when `PushSubscriptionService.isEnabled()` was true (both VAPID env vars
+// configured) AT BOOT — see this file's git history for that suite. #355
+// REMOVED the premise that made that the right call: Web Push configuration
+// is now admin-UI-configurable at RUNTIME through `PushConfigController`/
+// `PushConfigService`, with no restart, so a deployment that has not yet
+// generated a key pair has a real, in-app remedy rather than a channel that
+// silently does not exist. `push` now follows the exact same pattern
+// `email`/`browser` already do: unconditional registration, with
+// `PushNotificationChannel`'s own defensive guard (an unresolved VAPID
+// config -> `{ success: false, error }`, now backed by
+// `PushConfigService.resolveActiveVapidConfig()`) as the real, always-live
+// gate. See `notifications.module.ts`'s own header comment for the full
+// reasoning, and `src/notifications/channels/push-notification.channel.spec.ts`
+// for proof of the honest-failed-delivery behaviour this enables.
+//
+// This is exercised over a REAL, fully-wired `NotificationsModule` (via the
+// full `AppModule`, mocked Prisma only) rather than a hand-built test module
+// with the providers reimplemented, so a drift between this test and the real
+// factory wiring is structurally impossible — there is only one factory, and
+// this is it.
 //
 // `NOTIFICATION_CHANNEL_SENDERS` is NOT exported from `NotificationsModule`
 // (see that file's header: exporting internals would let a feature reach past
@@ -31,17 +45,6 @@ import {
 // searches the whole compiled container rather than only what the root module
 // exports, which is exactly what a white-box test of an internal wiring
 // decision needs.
-//
-// `configuration()` (`src/config/configuration.ts`) reads
-// `process.env.VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` directly, and
-// `ConfigModule.forRoot({ load: [configuration] })` calls it once per module
-// compilation — so setting the env vars BEFORE `createTestApp()` and
-// restoring them in `afterAll` is enough to drive the two cases through two
-// independently-compiled app instances. `.env.test` (loaded once by
-// `test/setup.ts`) declares neither key, which is why the "disabled" describe
-// block needs no setup of its own — see `push-subscriptions.integration.spec.
-// ts`'s header comment, which documents the same default for the sibling
-// suite.
 // =============================================================================
 
 function channelsOf(context: TestContext): string[] {
@@ -52,8 +55,8 @@ function channelsOf(context: TestContext): string[] {
   return senders.map((sender) => sender.channel);
 }
 
-describe('NOTIFICATION_CHANNEL_SENDERS: push channel gating (#230)', () => {
-  describe('no VAPID keys configured (the default test environment)', () => {
+describe('NOTIFICATION_CHANNEL_SENDERS: push is unconditionally registered (#355)', () => {
+  describe('no VAPID configuration anywhere (env vars unset, no admin-configured row)', () => {
     let context: TestContext;
 
     beforeAll(async () => {
@@ -75,18 +78,24 @@ describe('NOTIFICATION_CHANNEL_SENDERS: push channel gating (#230)', () => {
       setupBaseMocks();
     });
 
-    it('does not include "push" in the resolved channel senders', () => {
-      expect(channelsOf(context)).not.toContain('push');
+    it('STILL includes "push" in the resolved channel senders — registration no longer depends on configuration', () => {
+      expect(channelsOf(context)).toContain('push');
     });
 
-    it('still includes "email" and "browser" — the gate is push-specific', () => {
+    it('includes "email" and "browser" too — push joins them rather than replacing the gate', () => {
       const channels = channelsOf(context);
       expect(channels).toContain('email');
       expect(channels).toContain('browser');
     });
+
+    it('registers exactly one sender per channel — no duplicate push entry', () => {
+      const channels = channelsOf(context);
+      expect(channels.filter((c) => c === 'push')).toHaveLength(1);
+      expect(channels.sort()).toEqual(['browser', 'email', 'push']);
+    });
   });
 
-  describe('both VAPID keys configured', () => {
+  describe('legacy env vars ARE configured (a pre-#355 deployment that never touches the admin UI)', () => {
     let context: TestContext;
 
     beforeAll(async () => {
@@ -108,41 +117,8 @@ describe('NOTIFICATION_CHANNEL_SENDERS: push channel gating (#230)', () => {
       setupBaseMocks();
     });
 
-    it('includes "push" in the resolved channel senders', () => {
+    it('includes "push" — the same as with no env vars, since registration is no longer gated on them', () => {
       expect(channelsOf(context)).toContain('push');
-    });
-
-    it('registers exactly one sender per channel — no duplicate push entry', () => {
-      const channels = channelsOf(context);
-      expect(channels.filter((c) => c === 'push')).toHaveLength(1);
-      expect(channels.sort()).toEqual(['browser', 'email', 'push']);
-    });
-  });
-
-  describe('only one of the two VAPID keys configured', () => {
-    let context: TestContext;
-
-    beforeAll(async () => {
-      process.env.VAPID_PUBLIC_KEY = 'test-public-key';
-      delete process.env.VAPID_PRIVATE_KEY;
-
-      context = await createTestApp({ useMockDatabase: true });
-    });
-
-    afterAll(async () => {
-      delete process.env.VAPID_PUBLIC_KEY;
-      delete process.env.VAPID_PRIVATE_KEY;
-
-      await closeTestApp(context);
-    });
-
-    beforeEach(() => {
-      resetPrismaMock();
-      setupBaseMocks();
-    });
-
-    it('does not include "push" — a public key with no private key cannot sign anything', () => {
-      expect(channelsOf(context)).not.toContain('push');
     });
   });
 });
