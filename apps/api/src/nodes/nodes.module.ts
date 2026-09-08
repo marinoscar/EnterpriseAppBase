@@ -170,6 +170,8 @@ import { NodesAdminService } from './nodes-admin.service';
 import { NodesController } from './nodes.controller';
 import { NodesService } from './nodes.service';
 import { NodeSecretRevoker } from './ops/node-secret-revoker';
+import { NodeFleetPruneHandler } from './handlers/node-fleet-prune.handler';
+import { NodeFleetSweepHandler } from './handlers/node-fleet-sweep.handler';
 import { NodeOfflinePruneTask } from './tasks/node-offline-prune.task';
 import { NodeSecretSweepTask } from './tasks/node-secret-sweep.task';
 import { NodeStaleOfflineTask } from './tasks/node-stale-offline.task';
@@ -190,6 +192,10 @@ import { NodeStaleOfflineTask } from './tasks/node-stale-offline.task';
     NodeLifecycleService,
     NodeStaleOfflineTask,
     NodeOfflinePruneTask,
+    // #353 (epic #345): the two fleet sweeps are queue jobs now. The tasks
+    // above only enqueue; these two do the work on a worker slot.
+    NodeFleetSweepHandler,
+    NodeFleetPruneHandler,
     NodeSecretSweepTask,
     NodeSecretRevoker,
   ],

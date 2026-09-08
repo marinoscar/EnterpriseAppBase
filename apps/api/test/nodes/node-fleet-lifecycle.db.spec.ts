@@ -28,14 +28,14 @@
 // =============================================================================
 
 import { ConfigService } from '@nestjs/config';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, type Job } from '@prisma/client';
 
 import { DEFAULT_SYSTEM_SETTINGS } from '../../src/common/types/settings.types';
 import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
 import { JobStuckService } from '../../src/jobs/job-stuck.service';
 import { NodeLifecycleService } from '../../src/nodes/node-lifecycle.service';
-import { NodeOfflinePruneTask } from '../../src/nodes/tasks/node-offline-prune.task';
-import { NodeStaleOfflineTask } from '../../src/nodes/tasks/node-stale-offline.task';
+import { NodeFleetPruneHandler } from '../../src/nodes/handlers/node-fleet-prune.handler';
+import { NodeFleetSweepHandler } from '../../src/nodes/handlers/node-fleet-sweep.handler';
 import type { NotificationsService } from '../../src/notifications/notifications.service';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import type { SystemSettingsService } from '../../src/settings/system-settings/system-settings.service';
@@ -51,8 +51,11 @@ const POLICY = DEFAULT_SYSTEM_SETTINGS.nodes;
 
 describeWithDb('Worker-node fleet lifecycle (real Postgres)', () => {
   let prisma: PrismaClient;
-  let sweep: NodeStaleOfflineTask;
-  let prune: NodeOfflinePruneTask;
+  /** The row a worker hands `process`. Only `id` is read, for the log lines. */
+  const FLEET_JOB = { id: 'job-fleet' } as Job;
+
+  let sweep: NodeFleetSweepHandler;
+  let prune: NodeFleetPruneHandler;
   let reaper: JobStuckService;
 
   /** Every row this suite creates is prefixed, so cleanup deletes only its own. */
@@ -95,8 +98,14 @@ describeWithDb('Worker-node fleet lifecycle (real Postgres)', () => {
       notifyPermissionHolders: async () => undefined,
     } as unknown as NotificationsService;
 
-    sweep = new NodeStaleOfflineTask(prismaService, lifecycle, config, notifications);
-    prune = new NodeOfflinePruneTask(prismaService, lifecycle, config);
+    // ⚠ #353 (epic #345) MOVED BOTH SWEEPS ONTO HANDLERS. This suite is about
+    // what real Postgres does to the rows, which is a property of the work and
+    // not of what schedules it, so it follows the code: the two tasks now only
+    // enqueue.
+    const registry = new JobHandlerRegistry();
+
+    sweep = new NodeFleetSweepHandler(registry, prismaService, lifecycle, config, notifications);
+    prune = new NodeFleetPruneHandler(registry, prismaService, lifecycle);
     reaper = new JobStuckService(prismaService, config, settings, new JobHandlerRegistry());
   });
 
@@ -151,7 +160,7 @@ describeWithDb('Worker-node fleet lifecycle (real Postgres)', () => {
     const silent = await makeNode('silent', { lastHeartbeatAt: ago(60 * 60 * SECOND) });
     const alive = await makeNode('alive', { lastHeartbeatAt: ago(5 * SECOND) });
 
-    await sweep.handleCron();
+    await sweep.process(FLEET_JOB);
 
     expect(await statusOf(silent)).toBe('offline');
     expect(await statusOf(alive)).toBe('online');
@@ -169,7 +178,7 @@ describeWithDb('Worker-node fleet lifecycle (real Postgres)', () => {
       lastHeartbeatAt: null,
     });
 
-    await sweep.handleCron();
+    await sweep.process(FLEET_JOB);
 
     expect(await statusOf(stale)).toBe('offline');
     expect(await statusOf(fresh)).toBe('online');
@@ -181,7 +190,7 @@ describeWithDb('Worker-node fleet lifecycle (real Postgres)', () => {
       lastHeartbeatAt: ago(60 * DAY),
     });
 
-    await sweep.handleCron();
+    await sweep.process(FLEET_JOB);
 
     expect(await statusOf(disabled)).toBe('disabled');
   });
@@ -198,7 +207,7 @@ describeWithDb('Worker-node fleet lifecycle (real Postgres)', () => {
     await expect(prune.prune()).resolves.toEqual({ deleted: 0, skippedBusy: 0 });
     expect(await statusOf(crashed)).toBe('online');
 
-    await sweep.handleCron();
+    await sweep.process(FLEET_JOB);
     expect(await statusOf(crashed)).toBe('offline');
 
     await expect(prune.prune()).resolves.toEqual({ deleted: 1, skippedBusy: 0 });
