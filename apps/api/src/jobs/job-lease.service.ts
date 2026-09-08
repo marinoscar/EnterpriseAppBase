@@ -150,7 +150,8 @@ export interface LeaseHolder {
  * reaped, and then claims J again has an old renewal ticker that can still
  * extend its own NEW lease, because `claimedByNodeId` is the same node in both
  * runs. It is the same shape as #361, one node short of it, and it is tracked
- * separately.
+ * as #364, which also has to decide whether `assertJobHeldByNode` threads the
+ * token through `result` and `failure` at the same time.
  *
  * ⚠ ROLLING DEPLOYS. A replica still running pre-#361 code emits no token
  * clause at all, so during a rolling deploy it can extend a new replica's

@@ -1324,8 +1324,11 @@ and worth stating plainly rather than leaving for someone to rediscover: **one**
 node that claims job J, stalls past its lease, is reaped, and then claims J
 again has an old renewal ticker that can still extend its own *new* lease,
 because `claimedByNodeId` is the same node in both runs. It is the same shape
-as the two-replica hole above, one node short of it, and it is tracked
-separately from #361.
+as the two-replica hole above, one node short of it, and it is tracked as
+#364 — which also has to settle whether `assertJobHeldByNode` threads the
+token through `result` and `failure` at the same time, since the same
+ambiguity lets a stale slot's result submission settle a job its own later
+claim is still running.
 
 **Rolling deploys narrow the hole rather than closing it outright.** A replica
 still running pre-#361 code emits no `claim_token` clause at all, so for as
