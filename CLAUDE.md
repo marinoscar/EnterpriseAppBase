@@ -643,6 +643,18 @@ and [`docs/runbooks/vapid-keys.md`](docs/runbooks/vapid-keys.md).
   `WHERE status IN ('pending','running') AND dedup_key IS NOT NULL`) is the actual dedup
   enforcement, and `database_backup_runs_active_uniq_idx` below is its counterpart. This is
   deliberate, intentional schema drift — do not "fix" it by adding a `@@unique` to the model.
+  `claim_token` (nullable `uuid`, no default, no index; issue #361) identifies **one claim**
+  of a row, not one kind of claimant — `claimedByNodeId: null` alone can't tell two API
+  replicas apart, so a replica whose job was reaped and re-claimed by another replica could
+  extend that other replica's lease without knowing it lost the row. Minted fresh, per row,
+  by the claim statement itself (`gen_random_uuid()`, never a bound parameter); non-null
+  **exactly while the row is claimed** — every un-claim path (settle, the lease reaper, a
+  retry reset) clears it alongside `claimedByNodeId`/`leaseExpiresAt`. Not published by the
+  admin job list (`JOB_LIST_SELECT` omits it, same as `payload`) — it is internal ownership
+  machinery, not something an operator reads. The node control plane is deliberately **not**
+  token-matched (it already reads the row it would compare against, so the check would be a
+  tautology); see `docs/specs/job-queue.md` §6.9 for the full argument, the residual node-side
+  hole, and why a rolling deploy only narrows rather than closes it.
 - `job_stats_rollup` - One row per job type, incrementally accumulating succeeded/failed
   counts and duration sums so lifetime stats survive the history purge. `sumDurationMs` is
   `Float`, not `BigInt`, to avoid crashing `JSON.stringify` at read time.

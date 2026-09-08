@@ -1170,20 +1170,32 @@ Every job execution path — the in-process worker pool and a remote node's
 `POST /nodes/:id/claim` — goes through one atomic claim statement:
 
 ```sql
-UPDATE jobs
-SET status = 'running', started_at = now(), scheduled_for = NULL,
-    attempts = attempts + 1, claimed_by_node_id = $1, executor = $2,
-    lease_expires_at = now() + ($3 * interval '1 millisecond')
-WHERE id IN (
+WITH picked AS MATERIALIZED (
   SELECT id FROM jobs
   WHERE status = 'pending' AND (scheduled_for IS NULL OR scheduled_for <= now())
-    AND (type = ANY($4) OR $4 IS NULL)
+    AND type = ANY($1)
   ORDER BY priority ASC, created_at ASC
   FOR UPDATE SKIP LOCKED
-  LIMIT $5
+  LIMIT $2
 )
+UPDATE jobs SET
+  status = 'running', started_at = now(), scheduled_for = NULL,
+  attempts = attempts + 1, claimed_by_node_id = $3, executor = $4,
+  claim_token = gen_random_uuid(), -- minted per row, by the statement (#361)
+  lease_expires_at = now() + (l.lease_ms * interval '1 millisecond')
+FROM picked p, unnest($1, $5) AS l(type, lease_ms) -- one lease per TYPE (#346)
+WHERE jobs.id = p.id AND jobs.type = l.type
 RETURNING *;
 ```
+
+The `MATERIALIZED` CTE above is load-bearing, not a style choice: once a
+`FROM` clause is present, folding `picked` back into a plain `id IN (SELECT …)`
+lets Postgres re-evaluate that subquery per outer row, and each re-evaluation
+takes its own `FOR UPDATE SKIP LOCKED` locks — so the claim can silently
+return more rows than `LIMIT` asked for, and it is plan-dependent, so it looks
+correct on whatever data it happens to be tried against. See
+`job-claim.service.ts`'s `⚠⚠ THE ROW PICK IS A MATERIALIZED CTE` header
+section for the measurements and the regression tests.
 
 `SKIP LOCKED` is what makes concurrent claimants safe with **no coordination
 between them**: two workers racing this statement each lock a disjoint set of
@@ -1257,10 +1269,16 @@ calls `POST …/renew` on a cadence the server hands it with each assignment
 ticker on the same derived interval for the whole of `process()`. Both reach
 `JobLeaseService.renew`, whose guard — the row must still be `running`, still
 held by the caller, and its lease must not yet have passed — is written once
-rather than once per executor. A renewal that finds the row is no longer the
-caller's stops the ticker and logs at `error`: the work continues, because
-JavaScript cannot cancel a promise mid-`await`, but a worker that has lost the
-row does not go on re-forging the queue's view of it.
+rather than once per executor. For the in-process worker, "held by the
+caller" is checked per **claim**, not merely per executor kind: `jobs
+.claim_token`, minted fresh by the claim statement, is what tells one API
+replica's claim apart from another's after a job is reaped and re-claimed
+(issue #361) — see `docs/specs/job-queue.md` §6.9 for the two-replica hole
+this closes and the one narrower hole (a node re-claiming its own reaped job)
+that is deliberately left open and tracked separately. A renewal that finds
+the row is no longer the caller's stops the ticker and logs at `error`: the
+work continues, because JavaScript cannot cancel a promise mid-`await`, but a
+worker that has lost the row does not go on re-forging the queue's view of it.
 
 This is a correctness requirement, not an optimisation. Until issue #347 the
 in-process worker wrote a lease at claim time and never touched the row again,
