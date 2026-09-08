@@ -673,7 +673,10 @@ export class NodesService {
     // `renewUntil`, not `renew`: the instant written to the row has to be the
     // instant reported in the response, or the node schedules its next
     // renewal against a deadline the reaper does not read.
-    const held = await this.leases.renewUntil(job.id, leaseExpiresAt, nodeId);
+    // `{ nodeId }` ONLY — no `claimToken`, on purpose. This method already read
+    // the job row, so a token taken from it and matched against it would be a
+    // tautology; see the node-plane paragraph in `heldLeaseWhere` (#361).
+    const held = await this.leases.renewUntil(job.id, leaseExpiresAt, { nodeId });
 
     if (!held) {
       throw this.notHeldByNode(jobId, nodeId);

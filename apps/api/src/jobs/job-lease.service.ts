@@ -70,8 +70,23 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 /**
+ * Identifies WHICH CLAIM is asking to renew.
+ *
+ * Both members are optional and both are three-valued (see `heldLeaseWhere`).
+ * The empty object — no constraint on either — is the "any holder" case, which
+ * exists for a fork's own executor rather than for anything in this repo.
+ */
+export interface LeaseHolder {
+  /** The worker node holding the row, or `null` for the API server itself. */
+  nodeId?: string | null;
+
+  /** The `jobs.claim_token` this claimant was handed when it took the row. */
+  claimToken?: string | null;
+}
+
+/**
  * The rows a renewal may legitimately touch: this job, still `running`, with
- * a lease that has NOT yet expired, held by the executor doing the asking.
+ * a lease that has NOT yet expired, held by the claim doing the asking.
  *
  * ⚠ `leaseExpiresAt: { gt: now }` IS THE LOAD-BEARING CLAUSE, and the one a
  * future reader will be tempted to relax. Once the lease has passed, the
@@ -83,33 +98,74 @@ import { PrismaService } from '../prisma/prisma.service';
  * NULL, never true), which is correct for a different reason: a row with no
  * lease was never leased to anybody, so there is nothing to EXTEND.
  *
- * `nodeId` is deliberately THREE-VALUED, and the distinction is not
+ * `holder.nodeId` is deliberately THREE-VALUED, and the distinction is not
  * decoration:
  *
  *   - a node id — the node plane: only that node may renew.
  *   - `null` — the in-process worker: only a row claimed by no node may be
  *     renewed. If the reaper requeued this row and a NODE took it, the
  *     worker's renewals stop landing, which is exactly right.
- *   - `undefined` — no ownership constraint at all. No production caller
- *     passes this today; it exists so a fork's own executor (a second server
- *     process with a claim path of its own) is not forced to lie about which
- *     node holds a row in order to renew it.
+ *   - `undefined` — no node constraint at all. No production caller passes
+ *     this today; it exists so a fork's own executor (a second server process
+ *     with a claim path of its own) is not forced to lie about which node
+ *     holds a row in order to renew it.
  *
- * ⚠ WHAT THIS PREDICATE CANNOT DISTINGUISH, stated plainly rather than left
- * for somebody to discover: two SERVER processes. If replica A's job is
- * reaped and replica B claims it, both see `claimedByNodeId: null` and a live
- * lease, so A's next renewal succeeds and extends B's lease. Closing that
- * would need a per-claim token column on `jobs` — a schema change and a
- * migration, deliberately out of scope here. It is strictly better than the
- * status quo (where A never renews at all and B is guaranteed to be reaped
- * too), and the queue's at-least-once contract already covers the outcome.
+ * `holder.claimToken` is three-valued FOR THE SAME REASON, and it is what
+ * makes this predicate identify a CLAIM rather than a KIND OF CLAIMANT
+ * (#361):
+ *
+ *   - a token string — only that exact claim may renew. `jobs.claim_token` is
+ *     minted per row by the claim statement (`job-claim.service.ts`), so a
+ *     second claim of the same row by the same process carries a different
+ *     token and the first claim's renewals stop landing.
+ *   - `null` — Prisma renders this `claim_token IS NULL`, matching only a row
+ *     carrying no token. Legitimate and total rather than a degenerate case:
+ *     it is what a claim taken before this column existed looks like.
+ *   - `undefined` — no token constraint at all. This is what the node plane
+ *     passes, deliberately; see below.
+ *
+ * -----------------------------------------------------------------------------
+ * ⚠ WHAT THIS PREDICATE DOES AND DOES NOT DISTINGUISH
+ * -----------------------------------------------------------------------------
+ *
+ * TWO SERVER REPLICAS ARE NOW TOLD APART, and that was the point of #361.
+ * Every API replica claims with `claimedByNodeId: null`, so before the token
+ * two replicas produced an identical predicate: if replica A's job was reaped
+ * and replica B claimed it, A's next renewal extended B's lease and A never
+ * learned it had lost the row. B's claim now overwrites `claim_token`, so A's
+ * renewal matches zero rows and correctly answers `false`.
+ *
+ * ⚠ THE NODE PLANE IS DELIBERATELY NOT TOKEN-MATCHED. This is a decision, not
+ * an omission, and the reason is that a token constraint there would be
+ * vacuous: `NodesService.renewLease` READS THE JOB ROW from the database and
+ * would have to take the token from that row, so matching a `where` clause
+ * against a value just read from the row being matched always passes. It
+ * would look like a guard and guarantee nothing — safety theatre rather than
+ * safety. For a node to prove WHICH claim it holds, the token has to cross the
+ * wire (returned by the claim response, sent back on renew), which is a
+ * node-protocol change with a CLI half to it.
+ *
+ * ⚠ THE RESIDUAL HOLE THAT LEAVES, stated plainly rather than left for
+ * somebody to discover: ONE node that claims job J, stalls past its lease, is
+ * reaped, and then claims J again has an old renewal ticker that can still
+ * extend its own NEW lease, because `claimedByNodeId` is the same node in both
+ * runs. It is the same shape as #361, one node short of it, and it is tracked
+ * separately.
+ *
+ * ⚠ ROLLING DEPLOYS. A replica still running pre-#361 code emits no token
+ * clause at all, so during a rolling deploy it can extend a new replica's
+ * lease exactly as before. The hole closes when the last old replica is gone;
+ * nothing here can close it earlier.
  */
-export function heldLeaseWhere(jobId: string, nodeId?: string | null): Prisma.JobWhereInput {
+export function heldLeaseWhere(jobId: string, holder: LeaseHolder = {}): Prisma.JobWhereInput {
+  const { nodeId, claimToken } = holder;
+
   return {
     id: jobId,
     status: 'running',
     leaseExpiresAt: { gt: new Date() },
     ...(nodeId !== undefined ? { claimedByNodeId: nodeId } : {}),
+    ...(claimToken !== undefined ? { claimToken } : {}),
   };
 }
 
@@ -121,15 +177,16 @@ export class JobLeaseService {
    * Pushes the lease on `jobId` out by `leaseMs` from now.
    *
    * Returns `true` when the row was still held and the write landed, `false`
-   * when it was not — reaped, settled, or taken by another executor. FALSE IS
+   * when it was not — reaped, settled, or taken by another claim (including
+   * another server replica, which `holder.claimToken` is what detects). FALSE IS
    * NOT AN ERROR AND MUST NOT THROW: both callers are on a keep-alive path
    * with real work in flight, and the correct response to "you no longer own
    * this row" is to stop renewing and say so, not to fail the work that is
    * still running. (The node plane converts the `false` into a 409 of its
    * own, because there a remote caller is waiting for an answer.)
    */
-  async renew(jobId: string, leaseMs: number, nodeId?: string | null): Promise<boolean> {
-    return this.renewUntil(jobId, new Date(Date.now() + leaseMs), nodeId);
+  async renew(jobId: string, leaseMs: number, holder: LeaseHolder = {}): Promise<boolean> {
+    return this.renewUntil(jobId, new Date(Date.now() + leaseMs), holder);
   }
 
   /**
@@ -146,10 +203,10 @@ export class JobLeaseService {
   async renewUntil(
     jobId: string,
     leaseExpiresAt: Date,
-    nodeId?: string | null
+    holder: LeaseHolder = {}
   ): Promise<boolean> {
     const { count } = await this.prisma.job.updateMany({
-      where: heldLeaseWhere(jobId, nodeId),
+      where: heldLeaseWhere(jobId, holder),
       data: { leaseExpiresAt },
     });
 
