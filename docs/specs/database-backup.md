@@ -383,18 +383,30 @@ has to change shape for that, which is why the column exists now.
 ## 10. Scheduling
 
 A single `@Cron` provider, `DatabaseBackupScheduleTask`, ticking **every ten
-minutes**. Each tick does two things, in this order:
+minutes**. Each tick does three things, in this order:
 
-1. **Release stale runs** (§12).
-2. **Fire a due backup**, if one is due.
+1. **Queue the housekeeping sweep** — `db.backup.sweep`, which releases stale
+   runs (§12) and then prunes by retention (§11).
+2. **Fire a due backup**, if one is due — which is itself an enqueue of
+   `db.backup.run` (§4).
+3. **Queue the retained-database drop** — `db.restore.old-db-drop`, for a
+   `<live>_old_<ts>` database a restore displaced.
 
-The order matters and is not cosmetic. The sweep is what frees the
-single-active-run slot; if the fire went first it would collide with a zombie
-row left by a container that vanished mid-dump, log "already running", and
-push tonight's backup to the next tick — ten minutes of delay bought by
-nothing but statement order. The two calls are wrapped separately, so a failing
-sweep still lets the fire happen and vice versa: they share a tick, not a
-transaction.
+⚠ **Only duty 2 still decides anything in this tick.** #353 (epic #345) moved
+duties 1 and 3 out of the cron body and onto handlers — see
+`docs/specs/job-queue.md` §7.10 for the rule and its exemptions. The tick now
+reads the policy, evaluates the boundary, and queues; it deletes nothing, drops
+nothing and reports nothing.
+
+The order still matters, and one property of it genuinely weakened. The sweep
+is what frees the single-active-run slot, so it is queued first and a worker may
+well have released the slot by the time the fire runs — but that is no longer
+guaranteed *within the tick*, and a tick that finds a zombie may still log
+"already running" and stand down. **The backup is delayed, never lost, and by at
+most ten minutes**: the anti-double-fire rule (§10.2) is stateless and
+recomputed from the boundary every tick, which is the same property that
+recovers a window missed by a process that was down. Duty 3 goes last because
+nothing waits on it, exactly as it did when it ran inline.
 
 ### 10.1 Why a ten-minute poll rather than the operator's own cron
 
@@ -573,10 +585,12 @@ One failure is permanent and silent, the other transient and loud. So a failed
 object delete **keeps the row**; giving up on it would convert the second
 failure into the first.
 
-### 11.2 Pruning runs only after a successful backup, and never throws
+### 11.2 Pruning is queued only after a successful backup, and never throws
 
-The call sits in the runner's success path, and its position there is three
-separate decisions:
+Since #353 the runner does not prune — it **enqueues `db.backup.sweep`**, whose
+handler prunes on a worker slot. Every ordering constraint below survives the
+move unchanged (a job cannot be claimed before the write it was enqueued after
+has committed), and the enqueue sits in exactly the position the call used to:
 
 - **After verification**, because retention deletes older archives and this one
   is only a replacement for them once `pg_restore --list` has proven it
@@ -589,11 +603,14 @@ separate decisions:
 - **Only on success.** There is no prune in the failure path. A failed backup
   is exactly when the old archives matter most.
 
-`prune()` swallows its own failures by contract, and the call site wraps it in
-a second `try` anyway — because that call sits inside the `try` whose `catch`
-deletes the object and marks the run failed. If the contract were ever broken
-by a refactor, an exception there would delete the archive the run had just
-proven good. A missed prune costs storage; a thrown one would cost the backup.
+The fourth constraint used to be defended by a nested `try`: the call sat inside
+the `try` whose `catch` deletes the object and marks the run failed, so an
+exception escaping retention would have deleted the archive the run had just
+proven good. That is now **structural** — the prune happens in a different job,
+on a different worker slot, after this job has settled, and no code path
+connects it to the backup's failure handler. The `try` stays anyway, because the
+*enqueue* is still a database write inside that same `try`. A missed prune costs
+storage; a thrown one would cost the backup.
 
 ## 12. The staleness sweep
 

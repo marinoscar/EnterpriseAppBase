@@ -1284,8 +1284,9 @@ just after a tick hold its dedup key for most of an hour.
 `job.history.purge` is the first job type in this repository that does real
 work, and the queue's own housekeeping is deliberately the first customer of
 the queue. The nightly task **enqueues** it; the handler does the deleting on a
-worker slot. That indirection is the whole difference from the three older
-cleanup crons this document opens by criticising:
+worker slot. That indirection was, when #263 shipped, the whole difference from
+the three older cleanup crons this repository shipped with — and §7.10 is
+where those three (and five more) ended up:
 
 - it is **observable** — a purge that ran is a row with a status, a duration,
   an attempt count and a `lastError`, in the same admin list as everything else;
@@ -1454,6 +1455,73 @@ age limit from the job timeout, and the purge's schedule from the fact that
 retention is measured in days. A knob for each would be four more ways to
 produce a configuration that contradicts itself, which is the same argument
 §6.5 makes for deriving the lease from the timeout rather than configuring it.
+
+### 7.10 All long-running work is a job — the rule, the exemptions, the limit
+
+> #353, epic #345. `apps/api/test/jobs/cron-enqueue-only.spec.ts` is the
+> executable form of this section.
+
+§7.5 makes the argument for one job type. Epic #345 decision 1 generalises it:
+**every long-running activity in this application is a queue job.** #351 and
+#352 moved the database dump; #353 moved the rest — the restore, the backup
+subsystem's stale release and retention prune, the retained-database drop, the
+stale-upload sweep, the token and device-code cleanups, and both fleet sweeps.
+Nine types, eight of them former `@Cron` bodies and one a detached promise.
+
+The shape is always the same, and it is `JobHistoryPurgeTask`'s: **the cron
+decides whether work is due and enqueues it; a handler does the work.** A cron
+body that still deletes rows itself is the regression, and it is invisible from
+inside the file that causes it — the deletion works, nothing crashes, and the
+only symptom is that the work is missing from `GET /api/admin/jobs`, occupies no
+worker slot, has no timeout, gets no retry, and answers "did it run last night?"
+with a log grep.
+
+**What "long-running" means, so this does not read as a loophole.** It means
+work with a **duration worth accounting for**: a sweep over a table, a dump, a
+network round trip per row, anything that can take minutes or fail in a way
+somebody needs to see. It does **not** mean every asynchronous call.
+Fire-and-forget notification dispatch — `void this.notifications
+.notifyPermissionHolders(...)` and the delivery channels behind it — stays
+exactly as it is and is deliberately **not** on the exemption list below,
+because it is not an exception to the rule: a queue row per email buys nothing,
+the dispatcher already contracts never to reject, and its failures are recorded
+as `notification_deliveries` rows rather than lost.
+
+**The exemptions. Three, and adding a fourth means editing this list and the
+array in `cron-enqueue-only.spec.ts` in a pull request that argues for it.**
+
+| Cron | Why it must not be a job |
+|---|---|
+| `jobs/tasks/job-stuck-reset.task.ts` | The lease reaper is **what recovers abandoned jobs**. Recovery that depends on the thing it recovers is not recovery: a queue wedged badly enough to strand a reaper job is exactly the queue that needs reaping. |
+| `jobs/tasks/temp-file-janitor.task.ts` | It cleans up after a SIGKILLed worker and sweeps **this process's local disk** (§7.8). A node — or another replica — claiming that job would sweep the wrong filesystem and leave the full one untouched. |
+| `nodes/tasks/node-secret-sweep.task.ts` | It destroys the short-lived PostgreSQL roles brokered to worker nodes (#349), and its own header lists three cases the settle-event path structurally cannot cover — the first being "a job settled by the reaper". Making credential revocation depend on the queue means a wedged queue leaks live database credentials for as long as it stays wedged. The reaper's argument, applied to a security control. |
+
+**The honest cost, stated once.** Every converted type is server-only by
+derivation (§2), so a `JOBS_WORKER_MODE=system` process still runs all of them
+and only `off` does not — and a deployment that executes no jobs at all has
+already accepted that its housekeeping happens elsewhere. The kill switches
+(`NODE_STALE_OFFLINE_ENABLED`, `NODE_OFFLINE_PRUNE_ENABLED`,
+`DB_BACKUP_SCHEDULE_ENABLED`) stayed with the **scheduling** decision, in the
+task, and are deliberately not re-asked in the handler: a job that reached a
+worker was queued by a process that had already decided to do the work, and
+re-asking would let a job queued by one replica be silently dropped by another.
+
+**One behaviour genuinely changed, and it is worth knowing about.** The backup
+scheduler's tick used to release stale runs *inline and first*, so a zombie
+found at 02:00 freed the single-active-run slot in time for the same tick's
+backup to fire. The release is now `db.backup.sweep`, so that tick may still hit
+`already_running` and stand down. The backup is **delayed, never lost, and by at
+most ten minutes**: the anti-double-fire rule is stateless and recomputed from
+the boundary every tick, which is the same property that recovers a window
+missed by a process that was down.
+
+**The limit of the test, stated rather than hidden.**
+`cron-enqueue-only.spec.ts` reads the *body* of every `@Cron` method and
+requires it to queue something and to contain none of the markers of doing work
+itself. It does not follow calls into helper methods — a cron calling
+`this.fireDueBackup(...)` is trusted, and that method's own spec is what pins
+that it only enqueues. It is a tripwire on the shape of a cron body, not a proof
+about the whole call graph.
 
 ## 8. The admin surface
 
