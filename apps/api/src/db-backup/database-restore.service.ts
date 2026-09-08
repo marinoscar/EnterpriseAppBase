@@ -770,18 +770,33 @@ interface CarriedCatalog {
  * exist. `lease_expires_at` and `scheduled_for` are NULL for the reason
  * `completeSucceeded` clears them: a terminal row must not appear to be held by
  * anybody.
+ *
+ * ⚠ `claim_token` IS WRITTEN NULL ON BOTH PATHS, and the CONFLICT path is the
+ * one that needed saying (#361). The column is non-null exactly while a row is
+ * held under a claim, and the promoted database's `jobs` is the ARCHIVE's — so
+ * this id usually already exists there as it stood at dump time: `running`,
+ * with a live token. Settling that row while leaving the token would leave an
+ * ownership assertion on a terminal row, which is the state the invariant rules
+ * out. It is an INVARIANT REPAIR rather than a live hazard — `heldLeaseWhere`
+ * also demands `status = 'running'` and an unexpired lease, both of which this
+ * statement clears, so no renewal could match such a row; see
+ * `job-lease.service.ts` for that argument. The invariant is nonetheless what
+ * the next reader will reason from, and a column that is only USUALLY
+ * non-null-iff-claimed is worth less than one that always is. On the INSERT
+ * path the NULL was already correct by omission; it is spelled out beside
+ * `scheduled_for` and `claimed_by_node_id` so the statement says what it means.
  */
 const CARRY_JOB_SQL = `
 INSERT INTO jobs (
   id, type, subject_type, subject_id, dedup_key, status, reason, priority,
   payload, attempts, last_error, created_at, started_at, finished_at,
   scheduled_for, rate_limited_at, rate_limit_hits, claimed_by_node_id,
-  lease_expires_at, executor
+  claim_token, lease_expires_at, executor
 ) VALUES (
   $1::uuid, $2, $3, $4, $5, 'succeeded'::"JobStatus", $6::"JobReason", $7::int,
   $8::jsonb, $9::int, $10, $11::timestamptz, $12::timestamptz, $13::timestamptz,
   NULL, NULL, 0, NULL,
-  NULL, $14
+  NULL, NULL, $14
 )
 ON CONFLICT (id) DO UPDATE SET
   type = EXCLUDED.type,
@@ -800,6 +815,7 @@ ON CONFLICT (id) DO UPDATE SET
   scheduled_for = NULL,
   rate_limited_at = NULL,
   claimed_by_node_id = NULL,
+  claim_token = NULL,
   lease_expires_at = NULL,
   executor = EXCLUDED.executor
 `.trim();
