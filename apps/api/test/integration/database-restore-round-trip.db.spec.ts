@@ -261,6 +261,11 @@ async function runQueuedRestore(
       // Charged AT CLAIM TIME, exactly as `JobClaimService` charges it.
       attempts: { increment: 1 },
       executor: 'server',
+      // Minted at claim time too (#361): the real claim statement writes
+      // `claim_token = gen_random_uuid()`, and the column is non-null EXACTLY
+      // while the row is held. A hand-rolled claim that left it null would let
+      // the carry-over's `claim_token = NULL` pass for free.
+      claimToken: randomUUID(),
       leaseExpiresAt: new Date(Date.now() + 6 * 60 * 60 * 1000),
     },
   });
@@ -483,7 +488,7 @@ describeWithDb('Database restore orchestration against real Postgres', () => {
         (client) =>
           client.query(
             'SELECT status::text, attempts, lease_expires_at, claimed_by_node_id, ' +
-              'finished_at, executor FROM jobs WHERE type = $1 AND subject_id = $2',
+              'claim_token, finished_at, executor FROM jobs WHERE type = $1 AND subject_id = $2',
             [DB_RESTORE_RUN_TYPE, knownRun.id]
           )
       );
@@ -496,6 +501,10 @@ describeWithDb('Database restore orchestration against real Postgres', () => {
         // lease is what the reaper reads.
         lease_expires_at: null,
         claimed_by_node_id: null,
+        // Cleared with them (#361): `claim_token` is non-null exactly while
+        // the row is held under a claim, so a settled row carrying one is an
+        // ownership assertion nobody holds.
+        claim_token: null,
         executor: 'server',
       });
       expect(carriedJob.rows[0].finished_at).not.toBeNull();
@@ -569,6 +578,139 @@ describeWithDb('Database restore orchestration against real Postgres', () => {
       );
       expect(afterRollback.rows[0].restore_status).toBe('rolled_back');
     }, 60_000);
+  });
+
+  // ===========================================================================
+  // The carry's ON CONFLICT path, which is the common one.
+  //
+  // The promoted database's `jobs` table is the ARCHIVE's, so the restore's own
+  // job id is normally ALREADY THERE — as it stood when the dump was taken. If
+  // it was `running` then, that copy carries a live `claim_token`, and
+  // `claim_token` is non-null EXACTLY while a row is held under a claim (#361).
+  // `CARRY_JOB_SQL`'s upsert settles the row, so it has to clear the token with
+  // the lease and the node id or it leaves an ownership assertion on a terminal
+  // row.
+  //
+  // Reproducing that against real Postgres needs an archive taken AFTER the
+  // restore job was claimed, which is what this block builds: claim the job,
+  // dump, then repoint the run at the dump it now appears in. (`executeRestoreJob`
+  // re-reads the run row by id precisely so its storage key and checksum are the
+  // current ones — see its header.)
+  // ===========================================================================
+
+  describe('carrying a job row the archive already holds as running', () => {
+    const dbName = `${PREFIX}live_conflict`;
+    let env: Environment;
+
+    beforeAll(async () => {
+      await trackAndCreate(dbName);
+      migrateDeploy(dbName);
+      env = await buildEnvironment(dbName);
+    }, 60_000);
+
+    afterAll(async () => {
+      await env?.prisma?.$disconnect().catch(() => undefined);
+      if (env?.tmpDir) await cleanupTmpDir(env.tmpDir);
+    }, 30_000);
+
+    it('settles it and clears the claim token the archive carried', async () => {
+      const restoreService = env.makeRestoreService();
+
+      // An archive taken BEFORE the restore job exists, only so there is a
+      // valid run row to start a restore from. It is not the one replayed.
+      const seed = await takeKnownBackup(env);
+      const target = await cloneRun(env.prisma, seed);
+
+      const started = await restoreService.startRestore(target, { actorUserId: null });
+      expect(started.outcome).toBe('started');
+      if (started.outcome !== 'started') return;
+
+      track(started.scratchDatabase);
+      track(started.oldDatabase);
+
+      const queued = await env.prisma.job.findFirstOrThrow({
+        where: { type: DB_RESTORE_RUN_TYPE, subjectId: target.id, status: 'pending' },
+      });
+
+      // The claim, by hand, exactly as `runQueuedRestore` does it — but kept
+      // here because the dump has to happen between the claim and the execute.
+      const claimed = await env.prisma.job.update({
+        where: { id: queued.id },
+        data: {
+          status: 'running',
+          startedAt: new Date(),
+          attempts: { increment: 1 },
+          executor: 'server',
+          claimToken: randomUUID(),
+          leaseExpiresAt: new Date(Date.now() + 6 * 60 * 60 * 1000),
+        },
+      });
+
+      // ⚠ THE CONTROL, and the test is worth little without it. Nothing in the
+      // carry touches this row, so finding it `running` WITH ITS TOKEN in the
+      // promoted database is the proof that the archive preserved claim tokens
+      // — and therefore that the restore's own row was in there holding one,
+      // and that the NULL below came from the upsert rather than from the row
+      // simply being absent.
+      const sentinel = await env.prisma.job.create({
+        data: {
+          type: 'example.echo',
+          reason: 'rerun',
+          status: 'running',
+          executor: 'server',
+          claimToken: randomUUID(),
+          leaseExpiresAt: new Date(Date.now() + 6 * 60 * 60 * 1000),
+        },
+      });
+
+      // The archive that WILL be replayed: taken now, so it contains both jobs
+      // rows above exactly as they stand.
+      const snapshot = await takeKnownBackup(env);
+
+      await env.prisma.databaseBackupRun.update({
+        where: { id: target.id },
+        data: {
+          storageProvider: snapshot.storageProvider,
+          storageKey: snapshot.storageKey,
+          bucket: snapshot.bucket,
+          format: snapshot.format,
+          checksumSha256: snapshot.checksumSha256,
+          sizeBytes: snapshot.sizeBytes,
+          bytesWritten: snapshot.bytesWritten,
+          dbVersion: snapshot.dbVersion,
+          appVersion: snapshot.appVersion,
+          migrationName: snapshot.migrationName,
+        },
+      });
+
+      await restoreService.executeRestoreJob(claimed);
+
+      const outcome = await pollRestoreOutcome(env.adminConnection, dbName, target.id);
+      expect(outcome.restore_status).toBe('completed');
+      expect(outcome.restore_error).toBeNull();
+
+      const rows = await withAdminConnection({ ...env.adminConnection, database: dbName }, (client) =>
+        client.query(
+          'SELECT id, status::text, claim_token, lease_expires_at, claimed_by_node_id ' +
+            'FROM jobs WHERE id = ANY($1::uuid[]) ORDER BY id',
+          [[claimed.id, sentinel.id]]
+        )
+      );
+
+      const byId = new Map(rows.rows.map((row) => [row.id as string, row]));
+
+      expect(byId.get(sentinel.id)).toMatchObject({
+        status: 'running',
+        claim_token: sentinel.claimToken,
+      });
+
+      expect(byId.get(claimed.id)).toMatchObject({
+        status: 'succeeded',
+        claim_token: null,
+        lease_expires_at: null,
+        claimed_by_node_id: null,
+      });
+    }, 120_000);
   });
 
   // ===========================================================================
