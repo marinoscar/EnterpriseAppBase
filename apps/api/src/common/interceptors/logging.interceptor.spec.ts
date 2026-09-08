@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ExecutionContext, CallHandler, Logger } from '@nestjs/common';
+import { SSE_METADATA } from '@nestjs/common/constants';
 import { LoggingInterceptor } from './logging.interceptor';
 import { of, throwError } from 'rxjs';
 import { FastifyRequest } from 'fastify';
@@ -306,6 +307,91 @@ describe('LoggingInterceptor', () => {
           expect(mockLogger).toHaveBeenCalled();
           done();
         },
+      });
+    });
+  });
+
+  // ===========================================================================
+  // SSE handlers: logged ONCE at open, never per emission (issue #127, epic #109)
+  // ===========================================================================
+  //
+  // Synthetic handler carrying Nest's own `SSE_METADATA`, per the same
+  // "prove the guard generically" requirement as the transform interceptor's
+  // suite — this is not tied to `NotificationsController.stream`.
+  // ===========================================================================
+
+  describe('SSE handlers via SSE_METADATA', () => {
+    function createMockSseContext(
+      method: string,
+      url: string,
+      handler: () => void,
+    ): ExecutionContext {
+      const mockRequest: Partial<FastifyRequest> = { method, url };
+
+      return {
+        switchToHttp: () => ({
+          getRequest: () => mockRequest as FastifyRequest,
+          getResponse: () => ({}),
+        }),
+        getClass: () => jest.fn(),
+        getHandler: () => handler,
+      } as any;
+    }
+
+    it('logs exactly once, at open, even when the handler emits multiple values', (done) => {
+      function sseHandler() {}
+      Reflect.defineMetadata(SSE_METADATA, true, sseHandler);
+
+      const context = createMockSseContext('GET', '/api/notifications/stream', sseHandler);
+      const callHandler = {
+        handle: () => of({ comment: 'connected' }, { comment: 'heartbeat' }, { comment: 'heartbeat' }),
+      } as CallHandler;
+
+      const results: any[] = [];
+      interceptor.intercept(context, callHandler).subscribe({
+        next: (value) => results.push(value),
+        complete: () => {
+          expect(results).toHaveLength(3);
+          // ONE log call, not one per emission — in contrast to the non-SSE
+          // "multiple emissions" test above, which logs once per emission
+          // via tap().
+          expect(mockLogger).toHaveBeenCalledTimes(1);
+          const logMessage = mockLogger.mock.calls[0][0];
+          expect(logMessage).toContain('GET');
+          expect(logMessage).toContain('/api/notifications/stream');
+          expect(logMessage).toContain('SSE stream opened');
+          done();
+        },
+      });
+    });
+
+    it('does not include a duration in the SSE open log (no "Nms" per-emission timing)', (done) => {
+      function sseHandler() {}
+      Reflect.defineMetadata(SSE_METADATA, true, sseHandler);
+
+      const context = createMockSseContext('GET', '/api/notifications/stream', sseHandler);
+      const callHandler = { handle: () => of({ comment: 'connected' }) } as CallHandler;
+
+      interceptor.intercept(context, callHandler).subscribe(() => {
+        const logMessage = mockLogger.mock.calls[0][0];
+        expect(logMessage).not.toMatch(/\d+ms/);
+        done();
+      });
+    });
+
+    it('a non-SSE handler on the same route shape logs once per subscription-completion, for contrast', (done) => {
+      function plainHandler() {}
+      // Deliberately no SSE_METADATA.
+
+      const context = createMockSseContext('GET', '/api/notifications', plainHandler);
+      const callHandler = createMockCallHandler({ items: [] });
+
+      interceptor.intercept(context, callHandler).subscribe(() => {
+        const logMessage = mockLogger.mock.calls[0][0];
+        // The ordinary path reports elapsed time; the SSE path never does.
+        expect(logMessage).toMatch(/\d+ms/);
+        expect(logMessage).not.toContain('SSE stream opened');
+        done();
       });
     });
   });

@@ -54,6 +54,34 @@ export const mockAdminUser: MockUser = {
     'users:read',
     'users:write',
     'rbac:manage',
+    // Present because the seeded `admin` role grants them
+    // (apps/api/prisma/seed.ts). The Allowlist tab gates on `allowlist:read`,
+    // so an admin fixture missing it would test a user that cannot exist.
+    'allowlist:read',
+    'allowlist:write',
+    // Present for the same reason as the allowlist pair above: the seeded
+    // `admin` role grants the whole operations set (#256, epic #254), so an
+    // admin fixture without them would be a user that cannot exist — and any
+    // test rendering the real Console surface with this fixture would silently
+    // be testing a hub with no `Operations` group.
+    'jobs:read',
+    'jobs:write',
+    'nodes:read',
+    'nodes:write',
+    'db_backup:read',
+    'db_backup:write',
+    'db_backup:restore',
+    // Present because the seeded `admin` role grants them (#320, epic #319).
+    // Without these, every test rendering the real Console surface would
+    // silently be testing a hub with no `Broadcasts` card — a user that cannot
+    // exist, asserted against as though it could.
+    'broadcasts:read',
+    'broadcasts:write',
+    // Present because the seeded `admin` role grants them (#355). Without
+    // these, every test rendering the real Console surface would silently be
+    // testing a hub with no `Web Push` card — a user that cannot exist.
+    'push:read',
+    'push:write',
   ],
   isActive: true,
   createdAt: new Date().toISOString(),

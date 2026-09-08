@@ -1,6 +1,13 @@
 import { trace, SpanKind, SpanStatusCode } from '@opentelemetry/api';
+import { resolveServiceName } from '../otel/service-name';
 
-const tracer = trace.getTracer('enterprise-app-api');
+// Was a bare `'enterprise-app-api'` literal with no environment read at all, so
+// setting `OTEL_SERVICE_NAME` moved the SDK resource, the config and the logs
+// while these spans kept the template's name. `getTracer` conventionally takes
+// the instrumentation-library name rather than the service name; that existing
+// conflation is preserved on purpose so current dashboards keep working — see
+// `common/otel/service-name.ts`.
+const tracer = trace.getTracer(resolveServiceName());
 
 /**
  * Decorator to add tracing to a method

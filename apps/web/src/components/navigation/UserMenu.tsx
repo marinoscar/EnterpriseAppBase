@@ -10,14 +10,11 @@ import {
   Typography,
   Box,
 } from '@mui/material';
-import {
-  Settings as SettingsIcon,
-  AdminPanelSettings as AdminIcon,
-  Logout as LogoutIcon,
-} from '@mui/icons-material';
+import { Logout as LogoutIcon } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePermissions } from '../../hooks/usePermissions';
+import { DESTINATIONS, isDestinationVisible } from '../../config/destinations';
 
 export function UserMenu() {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
@@ -46,6 +43,19 @@ export function UserMenu() {
   };
 
   if (!user) return null;
+
+  // Paths, labels, icons and gates all come from the destination table rather
+  // than being spelled out again here. This menu used to hardcode `/settings`
+  // and `/admin/settings` and gate the latter on `system_settings:read` while
+  // the sidebar gated the same page on the `admin` ROLE — the two disagreed for
+  // any Contributor granted that permission. There is now one answer.
+  //
+  // Home is dropped: the brand in the AppBar already routes there, and a menu
+  // row duplicating on-screen chrome is the exact bloat this epic removes.
+  const menuDestinations = DESTINATIONS.filter(
+    (destination) =>
+      destination.key !== 'home' && isDestinationVisible(destination, hasPermission),
+  );
 
   const initials = user.displayName
     ?.split(' ')
@@ -80,8 +90,8 @@ export function UserMenu() {
         onClick={handleClose}
         transformOrigin={{ horizontal: 'right', vertical: 'top' }}
         anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
-        PaperProps={{
-          sx: { minWidth: 200, mt: 1 },
+        slotProps={{
+          paper: { sx: { minWidth: 200, mt: 1 } },
         }}
       >
         {/* User Info Header */}
@@ -97,21 +107,17 @@ export function UserMenu() {
         <Divider />
 
         {/* Navigation Items */}
-        <MenuItem onClick={() => handleNavigate('/settings')}>
-          <ListItemIcon>
-            <SettingsIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText>Settings</ListItemText>
-        </MenuItem>
-
-        {hasPermission('system_settings:read') && (
-          <MenuItem onClick={() => handleNavigate('/admin/settings')}>
+        {menuDestinations.map((destination) => (
+          <MenuItem
+            key={destination.key}
+            onClick={() => handleNavigate(destination.path)}
+          >
             <ListItemIcon>
-              <AdminIcon fontSize="small" />
+              <destination.Icon fontSize="small" />
             </ListItemIcon>
-            <ListItemText>System Settings</ListItemText>
+            <ListItemText>{destination.label}</ListItemText>
           </MenuItem>
-        )}
+        ))}
 
         <Divider />
 

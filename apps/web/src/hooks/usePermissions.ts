@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 
 export function usePermissions() {
@@ -12,25 +12,44 @@ export function usePermissions() {
     return new Set(user?.roles?.map((r) => r.name) || []);
   }, [user?.roles]);
 
-  const hasPermission = (permission: string): boolean => {
-    return permissions.has(permission);
-  };
+  // These predicates are wrapped in useCallback so their identity is stable
+  // across renders: callers key useMemo/useEffect on them (e.g. row action
+  // lists, navigation destination filtering), and a fresh identity per render
+  // would rebuild that work on every tick. Behaviour is unchanged.
+  const hasPermission = useCallback(
+    (permission: string): boolean => {
+      return permissions.has(permission);
+    },
+    [permissions],
+  );
 
-  const hasAnyPermission = (...perms: string[]): boolean => {
-    return perms.some((p) => permissions.has(p));
-  };
+  const hasAnyPermission = useCallback(
+    (...perms: string[]): boolean => {
+      return perms.some((p) => permissions.has(p));
+    },
+    [permissions],
+  );
 
-  const hasAllPermissions = (...perms: string[]): boolean => {
-    return perms.every((p) => permissions.has(p));
-  };
+  const hasAllPermissions = useCallback(
+    (...perms: string[]): boolean => {
+      return perms.every((p) => permissions.has(p));
+    },
+    [permissions],
+  );
 
-  const hasRole = (role: string): boolean => {
-    return roles.has(role);
-  };
+  const hasRole = useCallback(
+    (role: string): boolean => {
+      return roles.has(role);
+    },
+    [roles],
+  );
 
-  const hasAnyRole = (...roleList: string[]): boolean => {
-    return roleList.some((r) => roles.has(r));
-  };
+  const hasAnyRole = useCallback(
+    (...roleList: string[]): boolean => {
+      return roleList.some((r) => roles.has(r));
+    },
+    [roles],
+  );
 
   const isAdmin = useMemo(() => {
     return roles.has('admin');

@@ -59,6 +59,88 @@ export const mockPermissions = {
     name: 'allowlist:write',
     description: 'Modify allowlist',
   },
+  // The background queue's admin surface (#264, epic #254). Seeded to Admin
+  // only in `prisma/seed-data.ts`, and mirrored that way below.
+  jobsRead: {
+    id: randomUUID(),
+    name: 'jobs:read',
+    description: 'View queued, running and completed jobs',
+  },
+  jobsWrite: {
+    id: randomUUID(),
+    name: 'jobs:write',
+    description: 'Enqueue, retry and cancel jobs',
+  },
+  // The worker fleet (#267, epic #254). Split from `jobs:*` deliberately —
+  // see `common/constants/roles.constants.ts` — and, like the queue's pair,
+  // seeded to Admin ONLY in `prisma/seed-data.ts`. Mirrored that way below so
+  // an integration test that expects a viewer to be refused a node surface is
+  // testing the real grant and not a fixture that happened to be generous.
+  nodesRead: {
+    id: randomUUID(),
+    name: 'nodes:read',
+    description: 'View worker nodes and their health',
+  },
+  nodesWrite: {
+    id: randomUUID(),
+    name: 'nodes:write',
+    description: 'Register, drain and remove worker nodes',
+  },
+  // Admin notification broadcasts (#320/#324, epic #319). Seeded to Admin ONLY
+  // in `prisma/seed-data.ts` and mirrored that way below: a broadcast reaches
+  // every active user in the deployment, so an integration test that expects a
+  // viewer to be refused these routes must be testing the real grant rather
+  // than a fixture that happened to be generous.
+  broadcastsRead: {
+    id: randomUUID(),
+    name: 'broadcasts:read',
+    description: 'View notification broadcasts and their delivery history',
+  },
+  broadcastsWrite: {
+    id: randomUUID(),
+    name: 'broadcasts:write',
+    description: 'Compose, schedule, cancel and send notification broadcasts',
+  },
+  // Database backup (#283, epic #254). Seeded to Admin ONLY in
+  // `prisma/seed-data.ts`, and mirrored that way below — a fixture that were
+  // more generous than the seed would make an integration test asserting that a
+  // viewer is refused pass for the wrong reason.
+  //
+  // `db_backup:restore` gates the two routes that replace the production
+  // database (#286) and nothing else; it is seeded to Admin like the other two.
+  // A spec that needs the OPPOSITE — an Admin who may schedule backups but must
+  // NOT be able to restore — narrows this fixture per request rather than
+  // weakening it here, because the fixture's job is to mirror the seed.
+  dbBackupRead: {
+    id: randomUUID(),
+    name: 'db_backup:read',
+    description: 'View backup schedule, history and status',
+  },
+  dbBackupWrite: {
+    id: randomUUID(),
+    name: 'db_backup:write',
+    description: 'Configure the backup schedule and run a backup',
+  },
+  dbBackupRestore: {
+    id: randomUUID(),
+    name: 'db_backup:restore',
+    description: 'Restore the database from a backup',
+  },
+  // Runtime-configurable Web Push (VAPID) admin UI (#355). Seeded to Admin
+  // ONLY in `prisma/seed-data.ts`, and mirrored that way below — split from
+  // `system_settings:*` deliberately (see `common/constants/roles.constants.ts`),
+  // so a fixture that granted it more broadly than the seed would make an
+  // integration test asserting a viewer is refused pass for the wrong reason.
+  pushRead: {
+    id: randomUUID(),
+    name: 'push:read',
+    description: 'View the Web Push (VAPID) configuration',
+  },
+  pushWrite: {
+    id: randomUUID(),
+    name: 'push:write',
+    description: 'Generate, rotate, enable/disable and remove the Web Push key pair',
+  },
 };
 
 export const mockRoles = {
@@ -240,7 +322,6 @@ export function createMockSystemSettings(
     key = 'default',
     value = {
       ui: { allowUserThemeOverride: true },
-      security: { jwtAccessTtlMinutes: 15, refreshTtlDays: 14 },
       features: {},
     },
     version = 1,
@@ -351,6 +432,17 @@ export const rolePermissionsMap = {
     mockPermissions.rbacManage,
     mockPermissions.allowlistRead,
     mockPermissions.allowlistWrite,
+    mockPermissions.jobsRead,
+    mockPermissions.jobsWrite,
+    mockPermissions.nodesRead,
+    mockPermissions.nodesWrite,
+    mockPermissions.broadcastsRead,
+    mockPermissions.broadcastsWrite,
+    mockPermissions.dbBackupRead,
+    mockPermissions.dbBackupWrite,
+    mockPermissions.dbBackupRestore,
+    mockPermissions.pushRead,
+    mockPermissions.pushWrite,
   ],
   contributor: [
     mockPermissions.userSettingsRead,

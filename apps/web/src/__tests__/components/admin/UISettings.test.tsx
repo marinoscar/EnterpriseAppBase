@@ -65,7 +65,7 @@ describe('UISettings', () => {
         { wrapperOptions: { user: mockAdminUser } }
       );
 
-      const switchElement = screen.getByRole('checkbox', {
+      const switchElement = screen.getByRole('switch', {
         name: /allow users to override system theme/i,
       });
       expect(switchElement).toBeChecked();
@@ -80,7 +80,7 @@ describe('UISettings', () => {
         { wrapperOptions: { user: mockAdminUser } }
       );
 
-      const switchElement = screen.getByRole('checkbox', {
+      const switchElement = screen.getByRole('switch', {
         name: /allow users to override system theme/i,
       });
       expect(switchElement).not.toBeChecked();
@@ -113,7 +113,7 @@ describe('UISettings', () => {
       rerender(<UISettings settings={newSettings} onSave={mockOnSave} />);
 
       await waitFor(() => {
-        const switchElement = screen.getByRole('checkbox', {
+        const switchElement = screen.getByRole('switch', {
           name: /allow users to override system theme/i,
         });
         expect(switchElement).not.toBeChecked();
@@ -130,7 +130,7 @@ describe('UISettings', () => {
         { wrapperOptions: { user: mockAdminUser } }
       );
 
-      const switchElement = screen.getByRole('checkbox', {
+      const switchElement = screen.getByRole('switch', {
         name: /allow users to override system theme/i,
       });
 
@@ -149,7 +149,7 @@ describe('UISettings', () => {
         { wrapperOptions: { user: mockAdminUser } }
       );
 
-      const switchElement = screen.getByRole('checkbox', {
+      const switchElement = screen.getByRole('switch', {
         name: /allow users to override system theme/i,
       });
       const saveButton = screen.getByRole('button', {
@@ -171,7 +171,7 @@ describe('UISettings', () => {
         { wrapperOptions: { user: mockAdminUser } }
       );
 
-      const switchElement = screen.getByRole('checkbox', {
+      const switchElement = screen.getByRole('switch', {
         name: /allow users to override system theme/i,
       });
       const saveButton = screen.getByRole('button', {
@@ -197,7 +197,7 @@ describe('UISettings', () => {
         { wrapperOptions: { user: mockAdminUser } }
       );
 
-      const switchElement = screen.getByRole('checkbox', {
+      const switchElement = screen.getByRole('switch', {
         name: /allow users to override system theme/i,
       });
       const saveButton = screen.getByRole('button', {
@@ -222,7 +222,7 @@ describe('UISettings', () => {
         { wrapperOptions: { user: mockAdminUser } }
       );
 
-      const switchElement = screen.getByRole('checkbox', {
+      const switchElement = screen.getByRole('switch', {
         name: /allow users to override system theme/i,
       });
       const saveButton = screen.getByRole('button', {
@@ -248,7 +248,7 @@ describe('UISettings', () => {
         { wrapperOptions: { user: mockAdminUser } }
       );
 
-      const switchElement = screen.getByRole('checkbox', {
+      const switchElement = screen.getByRole('switch', {
         name: /allow users to override system theme/i,
       });
       const saveButton = screen.getByRole('button', {
@@ -278,7 +278,7 @@ describe('UISettings', () => {
         { wrapperOptions: { user: mockAdminUser } }
       );
 
-      const switchElement = screen.getByRole('checkbox', {
+      const switchElement = screen.getByRole('switch', {
         name: /allow users to override system theme/i,
       });
       const saveButton = screen.getByRole('button', {
@@ -304,7 +304,7 @@ describe('UISettings', () => {
         { wrapperOptions: { user: mockAdminUser } }
       );
 
-      const switchElement = screen.getByRole('checkbox', {
+      const switchElement = screen.getByRole('switch', {
         name: /allow users to override system theme/i,
       });
       const saveButton = screen.getByRole('button', {
@@ -326,7 +326,7 @@ describe('UISettings', () => {
         { wrapperOptions: { user: mockAdminUser } }
       );
 
-      const switchElement = screen.getByRole('checkbox', {
+      const switchElement = screen.getByRole('switch', {
         name: /allow users to override system theme/i,
       });
       const saveButton = screen.getByRole('button', {
@@ -357,7 +357,7 @@ describe('UISettings', () => {
         { wrapperOptions: { user: mockAdminUser } }
       );
 
-      const switchElement = screen.getByRole('checkbox', {
+      const switchElement = screen.getByRole('switch', {
         name: /allow users to override system theme/i,
       });
       const saveButton = screen.getByRole('button', {
@@ -394,7 +394,7 @@ describe('UISettings', () => {
         { wrapperOptions: { user: mockAdminUser } }
       );
 
-      const switchElement = screen.getByRole('checkbox', {
+      const switchElement = screen.getByRole('switch', {
         name: /allow users to override system theme/i,
       });
       const saveButton = screen.getByRole('button', {
@@ -429,7 +429,7 @@ describe('UISettings', () => {
         { wrapperOptions: { user: mockAdminUser } }
       );
 
-      const switchElement = screen.getByRole('checkbox', {
+      const switchElement = screen.getByRole('switch', {
         name: /allow users to override system theme/i,
       });
       expect(switchElement).toBeDisabled();
@@ -459,7 +459,7 @@ describe('UISettings', () => {
         { wrapperOptions: { user: mockAdminUser } }
       );
 
-      const switchElement = screen.getByRole('checkbox', {
+      const switchElement = screen.getByRole('switch', {
         name: /allow users to override system theme/i,
       });
 
@@ -491,7 +491,7 @@ describe('UISettings', () => {
         { wrapperOptions: { user: mockAdminUser } }
       );
 
-      const switchElement = screen.getByRole('checkbox', {
+      const switchElement = screen.getByRole('switch', {
         name: /allow users to override system theme/i,
       });
       expect(switchElement).not.toBeDisabled();
@@ -503,7 +503,7 @@ describe('UISettings', () => {
         { wrapperOptions: { user: mockAdminUser } }
       );
 
-      const switchElement = screen.getByRole('checkbox', {
+      const switchElement = screen.getByRole('switch', {
         name: /allow users to override system theme/i,
       });
       expect(switchElement).not.toBeDisabled();
@@ -519,7 +519,7 @@ describe('UISettings', () => {
         { wrapperOptions: { user: mockAdminUser } }
       );
 
-      const switchElement = screen.getByRole('checkbox', {
+      const switchElement = screen.getByRole('switch', {
         name: /allow users to override system theme/i,
       });
       const saveButton = screen.getByRole('button', {
@@ -547,7 +547,7 @@ describe('UISettings', () => {
         { wrapperOptions: { user: mockAdminUser } }
       );
 
-      const switchElement = screen.getByRole('checkbox', {
+      const switchElement = screen.getByRole('switch', {
         name: /allow users to override system theme/i,
       });
       const saveButton = screen.getByRole('button', {
@@ -578,7 +578,7 @@ describe('UISettings', () => {
         { wrapperOptions: { user: mockAdminUser } }
       );
 
-      const switchElement = screen.getByRole('checkbox', {
+      const switchElement = screen.getByRole('switch', {
         name: /allow users to override system theme/i,
       });
 
@@ -613,7 +613,7 @@ describe('UISettings', () => {
         { wrapperOptions: { user: mockAdminUser } }
       );
 
-      const switchElement = screen.getByRole('checkbox', {
+      const switchElement = screen.getByRole('switch', {
         name: /allow users to override system theme/i,
       });
       const saveButton = screen.getByRole('button', {
@@ -653,7 +653,7 @@ describe('UISettings', () => {
       );
 
       // Change from true to false
-      const switchElement = screen.getByRole('checkbox', {
+      const switchElement = screen.getByRole('switch', {
         name: /allow users to override system theme/i,
       });
       await user.click(switchElement);

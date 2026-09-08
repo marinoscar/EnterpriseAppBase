@@ -21,7 +21,6 @@ export function SystemSettingsEditor({
 }: SystemSettingsEditorProps) {
   const editableSettings = {
     ui: settings.ui,
-    security: settings.security,
     features: settings.features,
   };
 
@@ -46,23 +45,6 @@ export function SystemSettingsEditor({
 
       if (parsed.ui && typeof parsed.ui.allowUserThemeOverride !== 'boolean') {
         throw new Error('ui.allowUserThemeOverride must be a boolean');
-      }
-
-      if (parsed.security) {
-        if (
-          typeof parsed.security.jwtAccessTtlMinutes !== 'number' ||
-          parsed.security.jwtAccessTtlMinutes < 1 ||
-          parsed.security.jwtAccessTtlMinutes > 60
-        ) {
-          throw new Error('security.jwtAccessTtlMinutes must be 1-60');
-        }
-        if (
-          typeof parsed.security.refreshTtlDays !== 'number' ||
-          parsed.security.refreshTtlDays < 1 ||
-          parsed.security.refreshTtlDays > 90
-        ) {
-          throw new Error('security.refreshTtlDays must be 1-90');
-        }
       }
 
       setError(null);

@@ -3,6 +3,7 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { render, mockUser, mockAdminUser } from '../../utils/test-utils';
 import { QuickActions } from '../../../components/home/QuickActions';
+import { DESTINATIONS } from '../../../config/destinations';
 
 // Mock useNavigate from react-router-dom
 const mockNavigate = vi.fn();
@@ -74,8 +75,9 @@ describe('QuickActions', () => {
     it('should render buttons in a grid layout', () => {
       const { container } = render(<QuickActions />);
 
-      const gridItems = container.querySelectorAll('.MuiGrid-item');
-      expect(gridItems.length).toBeGreaterThan(0);
+      // In MUI 9 Grid v2, items no longer use MuiGrid-item; use MuiGrid-container instead
+      const gridContainer = container.querySelector('.MuiGrid-container');
+      expect(gridContainer).toBeInTheDocument();
     });
   });
 
@@ -106,7 +108,7 @@ describe('QuickActions', () => {
       expect(iconContainer).toBeInTheDocument();
     });
 
-    it('should display AdminPanelSettingsIcon for System Settings (admin only)', () => {
+    it('should display AdminPanelSettingsIcon for Console (admin only)', () => {
       mockUsePermissions.mockReturnValue({
         permissions: new Set(['system_settings:read']),
         roles: new Set(['admin']),
@@ -122,13 +124,13 @@ describe('QuickActions', () => {
         wrapperOptions: { user: mockAdminUser },
       });
 
-      const systemSettingsButton = screen.getByRole('button', {
-        name: /system settings configure application settings/i,
+      const consoleButton = screen.getByRole('button', {
+        name: /console manage users and application settings/i,
       });
-      expect(systemSettingsButton).toBeInTheDocument();
+      expect(consoleButton).toBeInTheDocument();
 
       // Icon should be rendered within the button
-      const iconContainer = systemSettingsButton.querySelector('svg');
+      const iconContainer = consoleButton.querySelector('svg');
       expect(iconContainer).toBeInTheDocument();
     });
 
@@ -155,7 +157,7 @@ describe('QuickActions', () => {
       expect(mockNavigate).toHaveBeenCalledWith('/settings');
     });
 
-    it('should navigate to /settings#theme when Theme is clicked', async () => {
+    it('should navigate to /settings/appearance when Theme is clicked', async () => {
       const user = userEvent.setup();
 
       render(<QuickActions />);
@@ -165,10 +167,10 @@ describe('QuickActions', () => {
       });
       await user.click(themeButton);
 
-      expect(mockNavigate).toHaveBeenCalledWith('/settings#theme');
+      expect(mockNavigate).toHaveBeenCalledWith('/settings/appearance');
     });
 
-    it('should navigate to /admin/settings when System Settings is clicked (admin)', async () => {
+    it('should navigate to /admin/settings when Console is clicked (admin)', async () => {
       const user = userEvent.setup();
 
       mockUsePermissions.mockReturnValue({
@@ -186,26 +188,26 @@ describe('QuickActions', () => {
         wrapperOptions: { user: mockAdminUser },
       });
 
-      const systemSettingsButton = screen.getByRole('button', {
-        name: /system settings configure application settings/i,
+      const consoleButton = screen.getByRole('button', {
+        name: /console manage users and application settings/i,
       });
-      await user.click(systemSettingsButton);
+      await user.click(consoleButton);
 
       expect(mockNavigate).toHaveBeenCalledWith('/admin/settings');
     });
   });
 
   describe('Permission-Based Filtering', () => {
-    it('should NOT show System Settings for non-admin users', () => {
+    it('should NOT show Console for non-admin users', () => {
       render(<QuickActions />, {
         wrapperOptions: { user: mockUser },
       });
 
-      expect(screen.queryByText(/^system settings$/i)).not.toBeInTheDocument();
-      expect(screen.queryByText(/configure application settings/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/^console$/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/manage users and application settings/i)).not.toBeInTheDocument();
     });
 
-    it('should show System Settings for users with system_settings:read permission', () => {
+    it('should show Console for users with system_settings:read permission', () => {
       mockUsePermissions.mockReturnValue({
         permissions: new Set(['system_settings:read']),
         roles: new Set(['admin']),
@@ -221,11 +223,11 @@ describe('QuickActions', () => {
         wrapperOptions: { user: mockAdminUser },
       });
 
-      expect(screen.getByText(/^system settings$/i)).toBeInTheDocument();
-      expect(screen.getByText(/configure application settings/i)).toBeInTheDocument();
+      expect(screen.getByText(/^console$/i)).toBeInTheDocument();
+      expect(screen.getByText(/manage users and application settings/i)).toBeInTheDocument();
     });
 
-    it('should NOT show System Settings if user lacks required permission', () => {
+    it('should NOT show Console if user lacks required permission', () => {
       mockUsePermissions.mockReturnValue({
         permissions: new Set(['user_settings:read', 'user_settings:write']),
         roles: new Set(['contributor']),
@@ -240,7 +242,7 @@ describe('QuickActions', () => {
 
       render(<QuickActions />);
 
-      expect(screen.queryByText(/^system settings$/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/^console$/i)).not.toBeInTheDocument();
     });
 
     it('should filter actions based on permission checks', () => {
@@ -262,7 +264,7 @@ describe('QuickActions', () => {
       expect(screen.getByText(/^theme$/i)).toBeInTheDocument();
 
       // Actions requiring permissions should not show
-      expect(screen.queryByText(/^system settings$/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/^console$/i)).not.toBeInTheDocument();
     });
   });
 
@@ -280,7 +282,7 @@ describe('QuickActions', () => {
 
       expect(screen.getByText(/^user settings$/i)).toBeInTheDocument();
       expect(screen.getByText(/^theme$/i)).toBeInTheDocument();
-      expect(screen.queryByText(/^system settings$/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/^console$/i)).not.toBeInTheDocument();
     });
 
     it('should display only basic actions for Contributor role', () => {
@@ -308,10 +310,10 @@ describe('QuickActions', () => {
 
       expect(screen.getByText(/^user settings$/i)).toBeInTheDocument();
       expect(screen.getByText(/^theme$/i)).toBeInTheDocument();
-      expect(screen.queryByText(/^system settings$/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/^console$/i)).not.toBeInTheDocument();
     });
 
-    it('should display all actions including System Settings for Admin role', () => {
+    it('should display all actions including Console for Admin role', () => {
       mockUsePermissions.mockReturnValue({
         permissions: new Set([
           'user_settings:read',
@@ -340,7 +342,7 @@ describe('QuickActions', () => {
 
       expect(screen.getByText(/^user settings$/i)).toBeInTheDocument();
       expect(screen.getByText(/^theme$/i)).toBeInTheDocument();
-      expect(screen.getByText(/^system settings$/i)).toBeInTheDocument();
+      expect(screen.getByText(/^console$/i)).toBeInTheDocument();
     });
   });
 
@@ -369,7 +371,7 @@ describe('QuickActions', () => {
       expect(screen.getByText(/customize your display preferences/i)).toBeInTheDocument();
     });
 
-    it('should display correct title for System Settings (admin)', () => {
+    it('should display correct title for Console (admin)', () => {
       mockUsePermissions.mockReturnValue({
         permissions: new Set(['system_settings:read']),
         roles: new Set(['admin']),
@@ -385,10 +387,10 @@ describe('QuickActions', () => {
         wrapperOptions: { user: mockAdminUser },
       });
 
-      expect(screen.getByText(/^system settings$/i)).toBeInTheDocument();
+      expect(screen.getByText(/^console$/i)).toBeInTheDocument();
     });
 
-    it('should display correct description for System Settings (admin)', () => {
+    it('should display correct description for Console (admin)', () => {
       mockUsePermissions.mockReturnValue({
         permissions: new Set(['system_settings:read']),
         roles: new Set(['admin']),
@@ -404,7 +406,7 @@ describe('QuickActions', () => {
         wrapperOptions: { user: mockAdminUser },
       });
 
-      expect(screen.getByText(/configure application settings/i)).toBeInTheDocument();
+      expect(screen.getByText(/manage users and application settings/i)).toBeInTheDocument();
     });
   });
 
@@ -455,9 +457,12 @@ describe('QuickActions', () => {
     it('should render each action in a Grid item', () => {
       const { container } = render(<QuickActions />);
 
-      const gridItems = container.querySelectorAll('.MuiGrid-item');
+      // In MUI 9 Grid v2, items use size-based classes instead of MuiGrid-item.
+      // Check the grid container has the expected number of direct children.
+      const gridContainer = container.querySelector('.MuiGrid-container');
+      expect(gridContainer).toBeInTheDocument();
       // At minimum: User Settings + Theme (2 items for non-admin)
-      expect(gridItems.length).toBeGreaterThanOrEqual(2);
+      expect(gridContainer?.children.length).toBeGreaterThanOrEqual(2);
     });
 
     it('should render three grid items for admin users', () => {
@@ -476,9 +481,11 @@ describe('QuickActions', () => {
         wrapperOptions: { user: mockAdminUser },
       });
 
-      const gridItems = container.querySelectorAll('.MuiGrid-item');
-      // User Settings + Theme + System Settings = 3 items
-      expect(gridItems.length).toBe(3);
+      // In MUI 9 Grid v2, items use size-based classes instead of MuiGrid-item.
+      const gridContainer = container.querySelector('.MuiGrid-container');
+      expect(gridContainer).toBeInTheDocument();
+      // User Settings + Theme + Console = 3 items
+      expect(gridContainer?.children.length).toBe(3);
     });
   });
 
@@ -512,7 +519,7 @@ describe('QuickActions', () => {
       });
 
       expect(screen.getByRole('button', {
-        name: /system settings/i,
+        name: /console/i,
       })).toBeInTheDocument();
     });
 
@@ -540,10 +547,10 @@ describe('QuickActions', () => {
 
       // Click Theme
       await user.click(screen.getByRole('button', { name: /theme/i }));
-      expect(mockNavigate).toHaveBeenLastCalledWith('/settings#theme');
+      expect(mockNavigate).toHaveBeenLastCalledWith('/settings/appearance');
 
-      // Click System Settings
-      await user.click(screen.getByRole('button', { name: /system settings/i }));
+      // Click Console
+      await user.click(screen.getByRole('button', { name: /console/i }));
       expect(mockNavigate).toHaveBeenLastCalledWith('/admin/settings');
     });
   });
@@ -647,6 +654,88 @@ describe('QuickActions', () => {
 
       // Button should still be in the document after navigation
       expect(userSettingsButton).toBeInTheDocument();
+    });
+  });
+
+  describe('Sourced from the destination table', () => {
+    /**
+     * Issue #55. These actions used to carry their own copy of `/settings` and
+     * `/admin/settings`, plus a hybrid gate: a `permission` field beside a dead
+     * `adminOnly` field no entry ever set. That was one of three inconsistent
+     * gating idioms in the app, and their disagreement is the bug this closes.
+     *
+     * Everything except the description prose now comes from
+     * `config/destinations.ts`, so these tests check the WIRING rather than
+     * restating the table's contents.
+     */
+    function setPermissions(granted: string[], isAdmin = false) {
+      mockUsePermissions.mockReturnValue({
+        permissions: new Set(granted),
+        roles: new Set(isAdmin ? ['admin'] : ['viewer']),
+        hasPermission: (perm: string) => granted.includes(perm),
+        hasAnyPermission: vi.fn(),
+        hasAllPermissions: vi.fn(),
+        hasRole: vi.fn(),
+        hasAnyRole: vi.fn(),
+        isAdmin,
+      });
+    }
+
+    it('shows Console to a user holding users:read alone', () => {
+      // Previously impossible: this surface had no admin-users entry at all,
+      // so the page was reachable only by typing the URL. Since #92 the entry
+      // is `Console`, gated on EITHER admin permission — so `users:read` alone
+      // must produce it.
+      setPermissions(['users:read'], true);
+
+      render(<QuickActions />, { wrapperOptions: { user: mockAdminUser } });
+
+      expect(screen.getByRole('button', { name: /console/i })).toBeInTheDocument();
+    });
+
+    it('shows Console to a user holding system_settings:read alone', () => {
+      // The other half of the same `anyPermission` gate.
+      setPermissions(['system_settings:read'], true);
+
+      render(<QuickActions />, { wrapperOptions: { user: mockAdminUser } });
+
+      expect(screen.getByRole('button', { name: /console/i })).toBeInTheDocument();
+    });
+
+    it('gates on permission alone — the admin role grants nothing by itself', () => {
+      // The dead `adminOnly` field is gone. A user with the `admin` role and no
+      // permissions sees exactly what a viewer sees.
+      setPermissions([], true);
+
+      render(<QuickActions />, { wrapperOptions: { user: mockAdminUser } });
+
+      expect(screen.queryByRole('button', { name: /console/i })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /user settings/i })).toBeInTheDocument();
+    });
+
+    it('takes each action path from the destination table, not a local copy', () => {
+      setPermissions(['users:read', 'system_settings:read'], true);
+
+      render(<QuickActions />, { wrapperOptions: { user: mockAdminUser } });
+
+      for (const destination of DESTINATIONS) {
+        if (destination.key === 'home') continue;
+        expect(
+          screen.getByRole('button', { name: new RegExp(destination.label, 'i') }),
+          `${destination.label} missing from Quick Actions`,
+        ).toBeInTheDocument();
+      }
+    });
+
+    it('keeps Theme as a deep link that rides on User Settings visibility', () => {
+      // Theme is not a destination — it has no rail row and no bottom-bar tab —
+      // so it lives here and inherits its parent's visibility.
+      setPermissions([]);
+
+      render(<QuickActions />);
+
+      expect(screen.getByRole('button', { name: /theme/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /user settings/i })).toBeInTheDocument();
     });
   });
 });

@@ -6,10 +6,11 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { createHash, randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AdminBootstrapService } from '../common/services/admin-bootstrap.service';
 import { AllowlistService } from '../allowlist/allowlist.service';
+import { DatabaseSeedException } from '../common/exceptions/database-seed.exception';
 import { DEFAULT_ROLE } from '../common/constants/roles.constants';
 import { DEFAULT_USER_SETTINGS } from '../common/types/settings.types';
 import { GoogleProfile } from './strategies/google.strategy';
@@ -17,6 +18,8 @@ import { JwtPayload } from './strategies/jwt.strategy';
 import { AuthenticatedUser } from './interfaces/authenticated-user.interface';
 import { TokenResponseDto } from './dto/auth-user.dto';
 import { AuthProviderDto } from './dto/auth-provider.dto';
+import { NotificationsService } from '../notifications/notifications.service';
+import type { UserWelcomeEmailData } from '../email';
 
 export interface FullTokenResponse {
   accessToken: string;
@@ -34,6 +37,7 @@ export class AuthService {
     private readonly configService: ConfigService,
     private readonly adminBootstrapService: AdminBootstrapService,
     private readonly allowlistService: AllowlistService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /**
@@ -88,6 +92,12 @@ export class AuthService {
 
     let user = identity?.user || null;
 
+    // Set ONLY on the branch below that actually inserts a user row. This is
+    // the fire-once condition for `user.welcome` (#128) — see the trigger at
+    // the end of this method for why the notification is raised there and not
+    // inside the branch.
+    let userWasCreated = false;
+
     if (!user) {
       // Check if user exists by email (identity linking case)
       const existingUser = await this.prisma.user.findUnique({
@@ -127,6 +137,7 @@ export class AuthService {
         // Create new user with identity
         this.logger.log(`Creating new user: ${profile.email}`);
         user = await this.createNewUser(profile);
+        userWasCreated = true;
 
         // Mark email as claimed in allowlist
         await this.allowlistService.markEmailClaimed(email, user.id);
@@ -152,6 +163,56 @@ export class AuthService {
     const tokens = await this.generateFullTokens(user);
 
     this.logger.log(`Login successful for user: ${user.email}`);
+
+    // -------------------------------------------------------------------------
+    // Trigger: `user.welcome` (#128, epic #109)
+    // -------------------------------------------------------------------------
+    //
+    // FIRES ONCE PER ACCOUNT, and the guarantee is structural rather than a
+    // check on some "welcomed" column. `userWasCreated` is set on exactly one
+    // branch above: the one reached only when NO identity matched
+    // (provider + subject) AND no user matched by email — i.e. the branch that
+    // runs `INSERT INTO users`. Every subsequent login resolves an identity and
+    // never enters it, and the identity-LINKING case (an existing account
+    // adding a second provider) is a different branch that does not set the
+    // flag, correctly: that user already has an account and was welcomed when
+    // it was made.
+    //
+    // AND ONLY AFTER THE ROW IS COMMITTED. `createNewUser` wraps its inserts in
+    // `prisma.$transaction`, and that promise has resolved — the transaction
+    // has committed — before it returns. So by the time this line runs, the
+    // user, its identity, its default role and its `user_settings` row are all
+    // durable. That matters concretely: the dispatcher reads BOTH `users.email`
+    // (for the address) and `user_settings.value` (for preferences) on its own
+    // connection, outside any transaction of ours. Raising this inside
+    // `createNewUser`'s transaction would have the dispatch race a row it
+    // cannot see, and `loadRecipient` would log "user not found" and deliver
+    // nothing.
+    //
+    // RAISED HERE, AT THE END, RATHER THAN IN THE CREATION BRANCH. Between the
+    // insert and this point the method can still refuse the login — the
+    // `isActive` check, or a failure generating tokens. Welcoming somebody to
+    // an application they were just refused entry to is a worse message than
+    // no message. The flag carries the fire-once condition down to the point
+    // where the login is known to have succeeded.
+    //
+    // CONTAINED: `notify` never rejects and never joins a transaction, so a
+    // mail outage cannot fail the login. It also returns before anything is
+    // rendered or sent, so it adds no latency to the OAuth callback.
+    if (userWasCreated) {
+      const appUrl = this.configService.get<string>('appUrl');
+      const payload: UserWelcomeEmailData = {
+        recipientEmail: user.email,
+        // Optional fields spread in conditionally rather than assigned
+        // `undefined` — same convention as the notification channels.
+        ...(profile.displayName ? { recipientName: profile.displayName } : {}),
+        roles: user.userRoles.map((ur) => ur.role.name),
+        ...(appUrl ? { appUrl: appUrl.replace(/\/+$/, '') } : {}),
+      };
+
+      await this.notifications.notify('user.welcome', user.id, payload);
+    }
+
     return tokens;
   }
 
@@ -177,7 +238,14 @@ export class AuthService {
     });
 
     if (!defaultRole) {
-      throw new Error('Default role not found - run seeds first');
+      this.logger.error(
+        `CRITICAL: Default role "${DEFAULT_ROLE}" not found in database. ` +
+          'Database seeds have not been run. Cannot create new users.',
+      );
+      throw new DatabaseSeedException(
+        `Role "${DEFAULT_ROLE}"`,
+        'npm run prisma:seed',
+      );
     }
 
     // Create user with identity, role, and settings in transaction
@@ -234,22 +302,27 @@ export class AuthService {
           where: { name: 'admin' },
         });
 
-        if (adminRole) {
-          await tx.userRole.upsert({
-            where: {
-              userId_roleId: {
-                userId: newUser.id,
-                roleId: adminRole.id,
-              },
-            },
-            update: {},
-            create: {
+        if (!adminRole) {
+          this.logger.error(
+            'CRITICAL: Admin role not found in database. Database seeds have not been run.',
+          );
+          throw new DatabaseSeedException('Role "admin"', 'npm run prisma:seed');
+        }
+
+        await tx.userRole.upsert({
+          where: {
+            userId_roleId: {
               userId: newUser.id,
               roleId: adminRole.id,
             },
-          });
-          this.logger.log(`Admin role assigned to user: ${newUser.id}`);
-        }
+          },
+          update: {},
+          create: {
+            userId: newUser.id,
+            roleId: adminRole.id,
+          },
+        });
+        this.logger.log(`Admin role assigned to user: ${newUser.id}`);
 
         // Reload user with admin role included
         const userWithAdmin = await tx.user.findUnique({
@@ -315,13 +388,16 @@ export class AuthService {
   /**
    * Generate both access and refresh tokens
    */
-  async generateFullTokens(user: {
-    id: string;
-    email: string;
-    userRoles: Array<{ role: { name: string } }>;
-  }): Promise<FullTokenResponse> {
-    const accessToken = this.generateAccessToken(user);
-    const refreshToken = await this.createRefreshToken(user.id);
+  async generateFullTokens(
+    user: {
+      id: string;
+      email: string;
+      userRoles: Array<{ role: { name: string } }>;
+    },
+    options?: { accessTtlMinutes?: number; refreshTtlDays?: number },
+  ): Promise<FullTokenResponse> {
+    const accessToken = this.generateAccessToken(user, options?.accessTtlMinutes);
+    const refreshToken = await this.createRefreshToken(user.id, options?.refreshTtlDays);
 
     return {
       accessToken: accessToken.token,
@@ -333,11 +409,14 @@ export class AuthService {
   /**
    * Generate access token only
    */
-  private generateAccessToken(user: {
-    id: string;
-    email: string;
-    userRoles: Array<{ role: { name: string } }>;
-  }) {
+  private generateAccessToken(
+    user: {
+      id: string;
+      email: string;
+      userRoles: Array<{ role: { name: string } }>;
+    },
+    ttlMinutesOverride?: number,
+  ) {
     const roles = user.userRoles.map((ur) => ur.role.name);
 
     const payload: JwtPayload = {
@@ -346,13 +425,12 @@ export class AuthService {
       roles,
     };
 
-    const accessTtlMinutes = this.configService.get<number>(
-      'jwt.accessTtlMinutes',
-      15,
-    );
+    const accessTtlMinutes =
+      ttlMinutesOverride ??
+      this.configService.get<number>('jwt.accessTtlMinutes', 15);
 
     return {
-      token: this.jwtService.sign(payload),
+      token: this.jwtService.sign(payload, { expiresIn: `${accessTtlMinutes}m` }),
       expiresIn: accessTtlMinutes * 60,
     };
   }
@@ -360,11 +438,10 @@ export class AuthService {
   /**
    * Create a new refresh token
    */
-  private async createRefreshToken(userId: string): Promise<string> {
-    const refreshTtlDays = this.configService.get<number>(
-      'jwt.refreshTtlDays',
-      14,
-    );
+  private async createRefreshToken(userId: string, ttlDaysOverride?: number): Promise<string> {
+    const refreshTtlDays =
+      ttlDaysOverride ??
+      this.configService.get<number>('jwt.refreshTtlDays', 14);
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + refreshTtlDays);
 

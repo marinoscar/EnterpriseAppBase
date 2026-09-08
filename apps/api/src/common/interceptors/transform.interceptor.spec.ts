@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ExecutionContext, CallHandler } from '@nestjs/common';
+import { SSE_METADATA } from '@nestjs/common/constants';
 import { TransformInterceptor, ApiResponse } from './transform.interceptor';
 import { of } from 'rxjs';
 
@@ -432,6 +433,91 @@ describe('TransformInterceptor', () => {
           subscription2Complete = true;
           if (subscription1Complete) done();
         },
+      });
+    });
+  });
+
+  // ===========================================================================
+  // SSE bypass (issue #127, epic #109)
+  // ===========================================================================
+  //
+  // `@Sse()` handlers are flagged with Nest's own `SSE_METADATA` reflection.
+  // When that metadata is present, the interceptor must return `next.handle()`
+  // completely untouched — no envelope, no `meta.timestamp` — because an SSE
+  // Observable emits many `MessageEvent`s over the lifetime of the connection
+  // and this `map()` would otherwise run once PER EMISSION, not once per
+  // response.
+  //
+  // The guard is proven generically here, against a synthetic handler carrying
+  // `SSE_METADATA`, rather than against the real `NotificationsController.stream`
+  // route — the property under test is "any handler flagged this way is
+  // bypassed", not "this one route is fine".
+  // ===========================================================================
+
+  describe('SSE bypass via SSE_METADATA', () => {
+    function createMockContextWithHandler(handler: () => void): ExecutionContext {
+      return {
+        switchToHttp: () => ({
+          getRequest: () => ({}),
+          getResponse: () => ({}),
+        }),
+        getClass: () => jest.fn(),
+        getHandler: () => handler,
+      } as any;
+    }
+
+    it('passes a comment-only message through completely unwrapped (no data/meta added)', (done) => {
+      function sseHandler() {}
+      Reflect.defineMetadata(SSE_METADATA, true, sseHandler);
+
+      const context = createMockContextWithHandler(sseHandler);
+      const heartbeat = { comment: 'heartbeat' };
+      const callHandler = createMockCallHandler(heartbeat);
+
+      interceptor.intercept(context, callHandler).subscribe((result: any) => {
+        // It IS the original object, not `{ data: { comment: 'heartbeat' } }`.
+        expect(result).toBe(heartbeat);
+        expect(result).toEqual({ comment: 'heartbeat' });
+        expect(result).not.toHaveProperty('data');
+        expect(result).not.toHaveProperty('meta');
+        done();
+      });
+    });
+
+    it('passes a normal data-carrying message through untouched, byte-for-byte identical to the input', (done) => {
+      function sseHandler() {}
+      Reflect.defineMetadata(SSE_METADATA, true, sseHandler);
+
+      const context = createMockContextWithHandler(sseHandler);
+      const message = {
+        type: 'notification',
+        data: { id: 'n-1', eventKey: 'security.role_changed' },
+      };
+      const callHandler = createMockCallHandler(message);
+
+      interceptor.intercept(context, callHandler).subscribe((result: any) => {
+        expect(result).toBe(message);
+        expect(result).not.toHaveProperty('meta');
+        done();
+      });
+    });
+
+    it('contrasts with a non-SSE handler: the SAME comment-only-shaped object WOULD get enveloped there', (done) => {
+      function plainHandler() {}
+      // Deliberately no SSE_METADATA on this handler.
+
+      const context = createMockContextWithHandler(plainHandler);
+      const commentShaped = { comment: 'heartbeat' };
+      const callHandler = createMockCallHandler(commentShaped);
+
+      interceptor.intercept(context, callHandler).subscribe((result: any) => {
+        expect(result).toHaveProperty('data');
+        expect(result).toHaveProperty('meta');
+        expect(result.data).toEqual({ comment: 'heartbeat' });
+        // Proves the guard, not luck: without SSE_METADATA the exact same
+        // shaped payload IS wrapped, whereas the SSE-flagged handler above
+        // left it alone.
+        done();
       });
     });
   });

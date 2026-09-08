@@ -5,7 +5,10 @@ import {
   closeTestApp,
 } from '../helpers/test-app.helper';
 import { resetPrismaMock } from '../mocks/prisma.mock';
-import { setupBaseMocks } from '../fixtures/mock-setup.helper';
+import {
+  setupBaseMocks,
+  setupMockUserSettings,
+} from '../fixtures/mock-setup.helper';
 import {
   createMockTestUser,
   createMockViewerUser,
@@ -15,6 +18,7 @@ import {
   DEFAULT_USER_SETTINGS,
   UserSettingsValue,
 } from '../../src/common/types/settings.types';
+import { DATA_TABLE_MAX_ID_LENGTH } from '../../src/common/schemas/user-settings-namespaces.schema';
 
 describe('User Settings Integration', () => {
   let context: TestContext;
@@ -508,6 +512,203 @@ describe('User Settings Integration', () => {
       expect(response.body.data.profile.customImageUrl).toBe(
         'https://example.com/custom.jpg',
       );
+    });
+  });
+
+  // ===========================================================================
+  // dataTables / navigation namespaces
+  // ===========================================================================
+  //
+  // NOTE: this suite does not have a real database available in this
+  // environment (or in CI, per the existing suites in this file) - it drives
+  // real HTTP requests through the Nest app via supertest against a
+  // *stateful* mocked PrismaService (see setupUserSettingsMocks in
+  // ../fixtures/mock-setup.helper.ts). That mock's findUnique/update both
+  // read and write the same in-memory registry keyed by userId, which is
+  // exactly what makes a PATCH-then-GET round trip meaningful here: the
+  // value returned by GET is the value the service's own merge logic
+  // actually produced and asked Prisma to persist - not a canned response.
+  //
+  // Deliberately NOT nested inside `describe('PATCH /api/user-settings', ...)`
+  // above: that block's beforeEach replaces userSettings.findUnique with a
+  // one-shot `mockResolvedValue`, which would break the registry chain a
+  // round trip depends on.
+  describe('dataTables and navigation namespaces', () => {
+    describe('round trip (PATCH then GET)', () => {
+      it('persists dataTables through PATCH and returns it on a subsequent GET (regression: this payload used to be dropped three separate times)', async () => {
+        const user = await createMockTestUser(context);
+        setupMockUserSettings(user.id, DEFAULT_USER_SETTINGS);
+
+        await request(context.app.getHttpServer())
+          .patch('/api/user-settings')
+          .set(authHeader(user.accessToken))
+          .send({ dataTables: { x: { pageSize: 25 } } })
+          .expect(200);
+
+        const response = await request(context.app.getHttpServer())
+          .get('/api/user-settings')
+          .set(authHeader(user.accessToken))
+          .expect(200);
+
+        expect(response.body.data.dataTables).toEqual({
+          x: { pageSize: 25 },
+        });
+      });
+
+      it('persists navigation.railCollapsed through PATCH and returns it on a subsequent GET', async () => {
+        const user = await createMockTestUser(context);
+        setupMockUserSettings(user.id, DEFAULT_USER_SETTINGS);
+
+        await request(context.app.getHttpServer())
+          .patch('/api/user-settings')
+          .set(authHeader(user.accessToken))
+          .send({ navigation: { railCollapsed: true } })
+          .expect(200);
+
+        const response = await request(context.app.getHttpServer())
+          .get('/api/user-settings')
+          .set(authHeader(user.accessToken))
+          .expect(200);
+
+        expect(response.body.data.navigation).toEqual({
+          railCollapsed: true,
+        });
+      });
+
+      it('patching a second table entry leaves the first untouched', async () => {
+        const user = await createMockTestUser(context);
+        setupMockUserSettings(user.id, DEFAULT_USER_SETTINGS);
+
+        await request(context.app.getHttpServer())
+          .patch('/api/user-settings')
+          .set(authHeader(user.accessToken))
+          .send({ dataTables: { jobs: { pageSize: 10 } } })
+          .expect(200);
+
+        await request(context.app.getHttpServer())
+          .patch('/api/user-settings')
+          .set(authHeader(user.accessToken))
+          .send({ dataTables: { users: { density: 'compact' } } })
+          .expect(200);
+
+        const response = await request(context.app.getHttpServer())
+          .get('/api/user-settings')
+          .set(authHeader(user.accessToken))
+          .expect(200);
+
+        expect(response.body.data.dataTables).toEqual({
+          jobs: { pageSize: 10 },
+          users: { density: 'compact' },
+        });
+      });
+
+      it('patching an entry to null deletes only that entry', async () => {
+        const user = await createMockTestUser(context);
+        setupMockUserSettings(user.id, DEFAULT_USER_SETTINGS);
+
+        await request(context.app.getHttpServer())
+          .patch('/api/user-settings')
+          .set(authHeader(user.accessToken))
+          .send({
+            dataTables: {
+              jobs: { pageSize: 10 },
+              users: { density: 'compact' },
+            },
+          })
+          .expect(200);
+
+        await request(context.app.getHttpServer())
+          .patch('/api/user-settings')
+          .set(authHeader(user.accessToken))
+          .send({ dataTables: { jobs: null } })
+          .expect(200);
+
+        const response = await request(context.app.getHttpServer())
+          .get('/api/user-settings')
+          .set(authHeader(user.accessToken))
+          .expect(200);
+
+        expect(response.body.data.dataTables).toEqual({
+          users: { density: 'compact' },
+        });
+      });
+    });
+
+    describe('rejections return 400, not 500', () => {
+      const invalidDataTablesPatches: Array<[string, unknown]> = [
+        ['tableId with an uppercase letter', { Jobs: { pageSize: 10 } }],
+        ['tableId with a leading hyphen', { '-jobs': { pageSize: 10 } }],
+        ['tableId with punctuation', { 'jobs!': { pageSize: 10 } }],
+        [
+          'tableId longer than the max length',
+          { [`${'a'.repeat(DATA_TABLE_MAX_ID_LENGTH + 1)}`]: {} },
+        ],
+        [
+          'more than 60 visible columns',
+          {
+            jobs: {
+              visibleColumns: Array.from({ length: 61 }, (_, i) => `c${i}`),
+            },
+          },
+        ],
+        ['pageSize of 0', { jobs: { pageSize: 0 } }],
+        ['pageSize of 501', { jobs: { pageSize: 501 } }],
+        ['a misspelled key (desnity)', { jobs: { desnity: 'compact' } }],
+        [
+          'an individually-nulled entry field ({ sort: null })',
+          { jobs: { sort: null } },
+        ],
+      ];
+
+      it.each(invalidDataTablesPatches)(
+        'rejects a dataTables patch with %s',
+        async (_label, dataTables) => {
+          const user = await createMockTestUser(context);
+          setupMockUserSettings(user.id, DEFAULT_USER_SETTINGS);
+
+          const response = await request(context.app.getHttpServer())
+            .patch('/api/user-settings')
+            .set(authHeader(user.accessToken))
+            .send({ dataTables })
+            .expect(400);
+
+          expect(response.status).toBe(400);
+        },
+      );
+
+      it('rejects a navigation patch with a misspelled key', async () => {
+        const user = await createMockTestUser(context);
+        setupMockUserSettings(user.id, DEFAULT_USER_SETTINGS);
+
+        await request(context.app.getHttpServer())
+          .patch('/api/user-settings')
+          .set(authHeader(user.accessToken))
+          .send({ navigation: { railCollpsed: true } })
+          .expect(400);
+      });
+
+      it('returns 400 (not 500) when a patch pushes the stored table count over the cap', async () => {
+        const user = await createMockTestUser(context);
+        const existing = Object.fromEntries(
+          Array.from({ length: 39 }, (_, i) => [`table${i}`, {}]),
+        );
+        setupMockUserSettings(user.id, {
+          ...DEFAULT_USER_SETTINGS,
+          dataTables: existing,
+        });
+
+        const newEntries = Object.fromEntries(
+          Array.from({ length: 3 }, (_, i) => [`newtable${i}`, {}]),
+        );
+
+        const response = await request(context.app.getHttpServer())
+          .patch('/api/user-settings')
+          .set(authHeader(user.accessToken))
+          .send({ dataTables: newEntries })
+          .expect(400);
+
+        expect(response.status).toBe(400);
+      });
     });
   });
 

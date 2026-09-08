@@ -164,7 +164,7 @@ npm run prisma:migrate
 
 **Error: "Connection timeout" or "Can't reach database"**
 - Check that environment variables are set correctly
-- Verify database is running: `docker compose ps db`
+- Verify database is running and accessible
 - Test connection: `psql -h $POSTGRES_HOST -p $POSTGRES_PORT -U $POSTGRES_USER -d $POSTGRES_DB`
 
 **Error: "Authentication failed"**

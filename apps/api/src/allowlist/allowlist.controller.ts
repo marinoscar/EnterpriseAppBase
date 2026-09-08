@@ -19,11 +19,13 @@ import {
 } from '@nestjs/swagger';
 
 import { AllowlistService } from './allowlist.service';
+import { ApiDataResponse } from '../common/decorators/api-data-response.decorator';
 import { Auth } from '../auth/decorators/auth.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { PERMISSIONS } from '../common/constants/roles.constants';
 import { AddEmailDto } from './dto/add-email.dto';
 import { AllowlistQueryDto } from './dto/allowlist-query.dto';
+import { AllowlistEntryDto } from './dto/allowlist-response.dto';
 
 @ApiTags('Allowlist')
 @Controller('allowlist')
@@ -39,7 +41,10 @@ export class AllowlistController {
   @ApiQuery({ name: 'status', required: false, enum: ['all', 'pending', 'claimed'] })
   @ApiQuery({ name: 'sortBy', required: false, enum: ['email', 'addedAt', 'claimedAt'] })
   @ApiQuery({ name: 'sortOrder', required: false, enum: ['asc', 'desc'] })
-  @ApiResponse({ status: 200, description: 'Paginated allowlist' })
+  @ApiDataResponse(AllowlistEntryDto, {
+    pagination: 'flat',
+    description: 'Paginated allowlist',
+  })
   async listAllowedEmails(@Query() query: AllowlistQueryDto) {
     return this.allowlistService.listAllowedEmails(query);
   }
@@ -47,7 +52,10 @@ export class AllowlistController {
   @Post()
   @Auth({ permissions: [PERMISSIONS.ALLOWLIST_WRITE] })
   @ApiOperation({ summary: 'Add email to allowlist (Admin only)' })
-  @ApiResponse({ status: 201, description: 'Email added to allowlist' })
+  @ApiDataResponse(AllowlistEntryDto, {
+    status: 201,
+    description: 'Email added to allowlist',
+  })
   @ApiResponse({ status: 409, description: 'Email already in allowlist' })
   async addEmail(
     @Body() dto: AddEmailDto,

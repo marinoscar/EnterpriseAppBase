@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api, ApiError } from '../services/api';
 import { SystemSettings } from '../types';
+import { useIsMounted } from './useIsMounted';
 
 interface UseSystemSettingsReturn {
   settings: SystemSettings | null;
@@ -17,24 +18,30 @@ export function useSystemSettings(): UseSystemSettingsReturn {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  // Every `setState` past an `await` is guarded: a request that settles after
+  // the component is gone must not schedule an update on it. Only the state
+  // write is skipped — what these functions return or throw is unchanged.
+  const isMounted = useIsMounted();
 
   const fetchSettings = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
       const data = await api.get<SystemSettings>('/system-settings');
-      setSettings(data);
+      if (isMounted()) setSettings(data);
     } catch (err) {
-      if (err instanceof ApiError && err.status === 403) {
-        setError('You do not have permission to view system settings');
-      } else {
-        const message = err instanceof ApiError ? err.message : 'Failed to load settings';
-        setError(message);
+      if (isMounted()) {
+        if (err instanceof ApiError && err.status === 403) {
+          setError('You do not have permission to view system settings');
+        } else {
+          const message = err instanceof ApiError ? err.message : 'Failed to load settings';
+          setError(message);
+        }
       }
     } finally {
-      setIsLoading(false);
+      if (isMounted()) setIsLoading(false);
     }
-  }, []);
+  }, [isMounted]);
 
   useEffect(() => {
     fetchSettings();
@@ -54,20 +61,20 @@ export function useSystemSettings(): UseSystemSettingsReturn {
           },
         });
 
-        setSettings(data);
+        if (isMounted()) setSettings(data);
       } catch (err) {
         if (err instanceof ApiError && err.status === 409) {
           await fetchSettings();
           throw new Error('Settings were updated elsewhere. Please review and try again.');
         }
         const message = err instanceof ApiError ? err.message : 'Failed to save settings';
-        setError(message);
+        if (isMounted()) setError(message);
         throw err;
       } finally {
-        setIsSaving(false);
+        if (isMounted()) setIsSaving(false);
       }
     },
-    [settings, fetchSettings],
+    [settings, fetchSettings, isMounted],
   );
 
   const replaceSettings = useCallback(
@@ -77,16 +84,16 @@ export function useSystemSettings(): UseSystemSettingsReturn {
         setError(null);
 
         const data = await api.put<SystemSettings>('/system-settings', newSettings);
-        setSettings(data);
+        if (isMounted()) setSettings(data);
       } catch (err) {
         const message = err instanceof ApiError ? err.message : 'Failed to save settings';
-        setError(message);
+        if (isMounted()) setError(message);
         throw err;
       } finally {
-        setIsSaving(false);
+        if (isMounted()) setIsSaving(false);
       }
     },
-    [],
+    [isMounted],
   );
 
   return {
