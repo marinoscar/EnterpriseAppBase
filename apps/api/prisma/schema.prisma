@@ -1115,6 +1115,22 @@ enum NotificationBroadcastStatus {
 // what happens to a JOB when its claiming NODE is deleted).
 //
 // -----------------------------------------------------------------------------
+// claimToken — per-claim identity, closing the two-replica lease hole
+// (issue #361)
+// -----------------------------------------------------------------------------
+// `claimedByNodeId` distinguishes a node's claim from the server's, but every
+// API replica claims with `claimedByNodeId: null` — so two different server
+// replicas produce an IDENTICAL `heldLeaseWhere` predicate for the same job,
+// and one replica's renewal cannot be told apart from another's. `claimToken`
+// is minted fresh per claim (not per process, not per batch — see the field
+// comment below for why that distinction matters) and is the extra predicate
+// that makes a specific claim, not just a specific kind of claimant,
+// checkable. Nullable with no default, same as `claimedByNodeId` and
+// `leaseExpiresAt`: `NULL` iff not currently claimed, no backfill, no index —
+// see the migration header (`20260908120000_add_job_claim_token`) for the
+// full argument, which this comment does not restate.
+//
+// -----------------------------------------------------------------------------
 // sumDurationMs on JobStatsRollup — Float (double precision), NOT BigInt
 // -----------------------------------------------------------------------------
 // REJECTED: BigInt. Prisma maps a BigInt column to the JS `bigint` primitive,
@@ -1225,6 +1241,32 @@ model Job {
   // not this table's own state machine" reasoning as
   // NotificationDelivery.channel above.
   executor        String?
+
+  // The identity of ONE CLAIM, not one KIND of claimant (issue #361). Minted
+  // fresh by the claim statement itself (`gen_random_uuid()` in
+  // `job-claim.service.ts`) every time a job is claimed, so "do I still hold
+  // this row" is answerable without reference to who is asking —
+  // `claimedByNodeId` distinguishes a node's claim from the server's, but
+  // every server replica claims with `claimedByNodeId: null`, which makes
+  // two different replicas holding the SAME job at different times
+  // indistinguishable from each other. A token minted per row closes that:
+  // it must be minted PER CLAIM, not once per claiming process or per batch,
+  // because a process-level token has the identical defect one level up — it
+  // cannot tell one process apart from itself across two separate claims of
+  // the same job (claim, lose it to the reaper, claim it again).
+  //
+  // Non-null exactly while the row is claimed — the same "non-null iff held"
+  // invariant `claimedByNodeId`/`leaseExpiresAt` already carry. The claim
+  // writes it alongside them; every un-claim path (settle, the lease reaper,
+  // a retry reset) clears it in the same statement that clears them, never
+  // on its own.
+  //
+  // Deliberately NOT exposed by the admin API — `JOB_LIST_SELECT`
+  // (`job-admin.service.ts`) omits it. It is internal ownership machinery
+  // with no operator-facing meaning; an admin reading the job list cares
+  // which node holds a job, not which of that node's (or the server's)
+  // claims it currently is.
+  claimToken String? @map("claim_token") @db.Uuid
 
   // The `database_backup_runs` row this job produced, when `type` is
   // `'db.backup.run'` (epic #345, issue #351). See `DatabaseBackupRun.jobId`
