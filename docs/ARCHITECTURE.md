@@ -1275,7 +1275,7 @@ caller" is checked per **claim**, not merely per executor kind: `jobs
 replica's claim apart from another's after a job is reaped and re-claimed
 (issue #361) — see `docs/specs/job-queue.md` §6.9 for the two-replica hole
 this closes and the one narrower hole (a node re-claiming its own reaped job)
-that is deliberately left open and tracked separately. A renewal that finds
+that is deliberately left open and tracked as #364. A renewal that finds
 the row is no longer the caller's stops the ticker and logs at `error`: the
 work continues, because JavaScript cannot cancel a promise mid-`await`, but a
 worker that has lost the row does not go on re-forging the queue's view of it.
