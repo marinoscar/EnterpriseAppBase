@@ -173,6 +173,32 @@
 // can execute a plan. They were confirmed to FAIL against the pre-fix shape.
 //
 // -----------------------------------------------------------------------------
+// ⚠ `claim_token` IS MINTED BY THE STATEMENT, PER ROW — NOT BOUND AS A
+// ⚠ PARAMETER. DO NOT "CLEAN THIS UP" INTO A `${uuid}` PLACEHOLDER (#361)
+// -----------------------------------------------------------------------------
+//
+// Every other value in this statement is a bound parameter, on purpose, so
+// `gen_random_uuid()` sitting in the SQL text looks like an oversight. It is
+// not, and the difference is the whole point of the column.
+//
+// A token identifies THIS CLAIM OF THIS ROW. A single value bound once and
+// sent with the statement would give every row in one batch the SAME token —
+// which identifies the claiming PROCESS, not the claim. That is precisely the
+// defect `claimedByNodeId` already has one level up, re-created one level
+// down: a worker that claims job J, stalls, loses J to the reaper, and then
+// claims J again would carry the same token across both runs and be unable to
+// tell itself apart from itself. A per-process token closes nothing.
+//
+// `gen_random_uuid()` is VOLATILE, so PostgreSQL evaluates it once per updated
+// row rather than folding it to a constant — which is exactly the semantics
+// wanted here, and is not something a placeholder can express. It has been
+// built in since PostgreSQL 13 (no `pgcrypto` extension needed) and this repo
+// targets 16.
+//
+// Nothing caller-supplied goes anywhere near it: the function name is a fixed
+// literal in the template, so this is not an interpolation of any kind.
+//
+// -----------------------------------------------------------------------------
 // EVERY `RETURNING` COLUMN IS ALIASED TO ITS camelCase PRISMA FIELD
 // -----------------------------------------------------------------------------
 //
@@ -295,6 +321,7 @@ export const JOB_CLAIM_COLUMNS: Readonly<Record<keyof Job, string>> = {
   rateLimitedAt: 'rate_limited_at',
   rateLimitHits: 'rate_limit_hits',
   claimedByNodeId: 'claimed_by_node_id',
+  claimToken: 'claim_token',
   leaseExpiresAt: 'lease_expires_at',
   executor: 'executor',
 };
@@ -437,6 +464,10 @@ export class JobClaimService {
         scheduled_for = NULL,
         attempts = attempts + 1,
         claimed_by_node_id = ${nodeId}::uuid,
+        -- Minted here, by the server, once per updated row. See the file
+        -- header: a bound parameter would give the whole batch one token and
+        -- would identify the process rather than the claim.
+        claim_token = gen_random_uuid(),
         executor = ${executor},
         lease_expires_at = now() + (l.lease_ms::double precision * interval '1 millisecond')
       FROM picked p, unnest(${types}::text[], ${leaseValues}::double precision[]) AS l(type, lease_ms)
