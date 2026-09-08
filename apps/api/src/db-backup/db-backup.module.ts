@@ -11,6 +11,9 @@ import { DatabaseBackupRetentionService } from './db-backup-retention.service';
 import { DatabaseBackupRunnerService } from './db-backup-runner.service';
 import { DatabaseBackupController } from './db-backup.controller';
 import { DatabaseBackupRunHandler } from './handlers/db-backup-run.handler';
+import { DatabaseBackupSweepHandler } from './handlers/db-backup-sweep.handler';
+import { DatabaseRestoreOldDbDropHandler } from './handlers/db-restore-old-db-drop.handler';
+import { DatabaseRestoreRunHandler } from './handlers/db-restore-run.handler';
 import { PgJobRoleBroker } from './pg-job-role.broker';
 import { DatabaseRestorePreflightService } from './restore-preflight.service';
 import { DatabaseBackupScheduleTask } from './tasks/db-backup-schedule.task';
@@ -276,6 +279,12 @@ import { DatabaseBackupScheduleTask } from './tasks/db-backup-schedule.task';
     DatabaseBackupAdminService,
     DatabaseBackupScheduleTask,
     DatabaseBackupRunHandler,
+    // #353 (epic #345): the three remaining long-running activities in this
+    // subsystem, each now a queue job with a handler of its own. The schedule
+    // task enqueues the first two; `startRestore` enqueues the third.
+    DatabaseBackupSweepHandler,
+    DatabaseRestoreOldDbDropHandler,
+    DatabaseRestoreRunHandler,
     PgJobRoleBroker,
     DatabaseRestorePreflightService,
     DatabaseRestoreService,

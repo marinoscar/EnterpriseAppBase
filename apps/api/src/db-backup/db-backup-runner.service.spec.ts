@@ -24,10 +24,7 @@ import {
   type BackupTimers,
   type DatabaseBackupEngine,
 } from './db-backup-runner.service';
-import type {
-  BackupPruneResult,
-  DatabaseBackupRetentionService,
-} from './db-backup-retention.service';
+import { DB_BACKUP_SWEEP_TYPE } from './handlers/db-backup-sweep.handler';
 import { BACKUP_KEY_PREFIX } from './db-backup-storage';
 import {
   DatabaseBackupAlreadyRunningError,
@@ -172,8 +169,6 @@ interface HarnessOptions {
   timers?: BackupTimers;
   /** A back-pressure-honouring stdout for the dump, instead of the push-driven default. */
   dumpStdout?: Readable;
-  /** What retention reports, or an error it (contractually cannot) throw. */
-  pruneImpl?: () => Promise<BackupPruneResult>;
   /** #288: what `ConfigService.get('appUrl')` returns. */
   appUrl?: string;
   /** #288: a notifier that misbehaves, for the containment assertions. */
@@ -262,7 +257,13 @@ function makeHarness(options: HarnessOptions = {}) {
     },
     // #351: the queue's side of `resolveQueueConflict`.
     job: {
-      findFirst: jest.fn(async () => {
+      findFirst: jest.fn(async (args: { where?: { type?: string } } = {}) => {
+        // #353: two callers now. `resolveQueueConflict` asks about
+        // `db.backup.run`; `enqueueHousekeepingJob` asks about
+        // `db.backup.sweep` before queueing retention. Only the first is what
+        // `activeBackupJob` describes.
+        if (args.where?.type === DB_BACKUP_SWEEP_TYPE) return null;
+
         order.push('job.findFirst');
         return options.activeBackupJob ?? null;
       }),
@@ -321,7 +322,21 @@ function makeHarness(options: HarnessOptions = {}) {
 
     return job;
   });
-  const jobs = { enqueueWithin } as unknown as JobsService;
+  /**
+   * #353: retention is no longer awaited inside `completeRun` — it is a
+   * `db.backup.sweep` job. This double stands in for that enqueue, and
+   * `order.push('sweep')` is what every ordering assertion below now reads.
+   */
+  const enqueueSweep = jest.fn(async (input: Record<string, unknown>) => {
+    if (input.type === DB_BACKUP_SWEEP_TYPE) order.push('sweep');
+
+    const failure = enqueueFailures.shift();
+    if (failure !== undefined) throw failure;
+
+    return { id: `job-${jobRows.length + 1}`, ...input };
+  });
+
+  const jobs = { enqueueWithin, enqueue: enqueueSweep } as unknown as JobsService;
 
   const settings = {
     getDatabaseBackupPolicy: jest.fn(async () => ({ ...POLICY, ...options.policy })),
@@ -355,21 +370,6 @@ function makeHarness(options: HarnessOptions = {}) {
       (jest.fn(async () => {
         order.push('delete');
       }) as unknown as StorageProvider['delete']),
-  };
-
-  // Retention is a real collaborator rather than a seam (#282): the runner
-  // cannot be constructed without one, on purpose. What is asserted through
-  // this double is WHEN it is called, not what it deletes — the two rules
-  // themselves are covered in `db-backup-retention.service.spec.ts`.
-  const retention = {
-    prune: jest.fn(async () => {
-      order.push('prune');
-
-      return (
-        options.pruneImpl?.() ??
-        ({ prunedByCount: 0, prunedByAge: 0, keptAfterFailedDelete: 0 } as BackupPruneResult)
-      );
-    }),
   };
 
   const engine: DatabaseBackupEngine = {
@@ -425,7 +425,6 @@ function makeHarness(options: HarnessOptions = {}) {
     prisma as unknown as PrismaService,
     settings as unknown as SystemSettingsService,
     storage as unknown as StorageProvider,
-    retention as unknown as DatabaseBackupRetentionService,
     notifications,
     config,
     jobs,
@@ -436,10 +435,10 @@ function makeHarness(options: HarnessOptions = {}) {
   return {
     service,
     notifyPermissionHolders,
+    enqueueSweep,
     prisma,
     settings,
     storage,
-    retention,
     engine,
     jobs,
     enqueueWithin,
@@ -1233,27 +1232,34 @@ describe('the audit trio', () => {
   });
 });
 
-describe('retention is wired to the success path (#282)', () => {
-  it('prunes AFTER the run is marked completed, so the new backup counts as one of the N', async () => {
+describe('retention is wired to the success path (#282, queued since #353)', () => {
+  // ⚠ THE CRITERION IS UNCHANGED; THE OBSERVABLE IS. Retention used to be
+  // `await this.retention.prune()` inside `completeRun`; since #353 it is an
+  // enqueue of `db.backup.sweep`, whose handler prunes on a worker slot. Every
+  // ordering rule these cases pin still has to hold — a job cannot be claimed
+  // before the write it was enqueued after has committed — so what moved is
+  // which call is asserted, not what is being proven.
+  it('queues the sweep AFTER the run is marked completed, so the new backup counts as one of the N', async () => {
     const h = makeHarness();
 
     await h.service.startBackup({ trigger: 'scheduled' });
     (await h.firstDump()).finish();
     await h.settled;
-    await waitFor(() => h.order.includes('prune'), 'retention to run');
+    await waitFor(() => h.order.includes('sweep'), 'retention to be queued');
 
-    expect(h.retention.prune).toHaveBeenCalledTimes(1);
-    // The ordering IS the criterion. Pruning before the `completed` write
+    expect(h.enqueueSweep).toHaveBeenCalledTimes(1);
+    expect(h.enqueueSweep.mock.calls[0][0]).toMatchObject({ type: 'db.backup.sweep' });
+    // The ordering IS the criterion. Queueing before the `completed` write
     // would leave this run uncounted by the count rule and evict one more old
     // backup than retention asked for.
-    expect(h.order.indexOf('update:completed')).toBeLessThan(h.order.indexOf('prune'));
+    expect(h.order.indexOf('update:completed')).toBeLessThan(h.order.indexOf('sweep'));
     // And after verification, not before: a run that is about to fail
     // `pg_restore --list` must never get to delete the last known-good backup
     // on its way out.
-    expect(h.order.indexOf('readTocEntryCount')).toBeLessThan(h.order.indexOf('prune'));
+    expect(h.order.indexOf('readTocEntryCount')).toBeLessThan(h.order.indexOf('sweep'));
   });
 
-  it('does not prune when the dump fails — old archives matter most exactly then', async () => {
+  it('does not queue the sweep when the dump fails — old archives matter most exactly then', async () => {
     const h = makeHarness();
 
     await h.service.startBackup({ trigger: 'scheduled' });
@@ -1264,10 +1270,10 @@ describe('retention is wired to the success path (#282)', () => {
     await tick();
 
     expect(row.status).toBe('failed');
-    expect(h.retention.prune).not.toHaveBeenCalled();
+    expect(h.enqueueSweep).not.toHaveBeenCalled();
   });
 
-  it('does not prune when verification fails', async () => {
+  it('does not queue the sweep when verification fails', async () => {
     const h = makeHarness({ tocEntries: 0 });
 
     await h.service.startBackup({ trigger: 'manual' });
@@ -1276,15 +1282,16 @@ describe('retention is wired to the success path (#282)', () => {
     await tick();
 
     expect(row.status).toBe('failed');
-    expect(h.retention.prune).not.toHaveBeenCalled();
+    expect(h.enqueueSweep).not.toHaveBeenCalled();
   });
 
-  it('never lets a retention failure turn a verified backup into a failed run', async () => {
-    // `prune` swallows by contract; this proves the runner does not depend on
-    // that contract holding, because the archive has already been proven good
-    // and nothing about storage housekeeping may take that away.
+  it('never lets a failed retention enqueue turn a verified backup into a failed run', async () => {
+    // Since #353 retention cannot reach this failure path at all — it runs in
+    // another job — but the ENQUEUE is still a write inside `executeRun`'s
+    // `try`, and storage housekeeping must not be able to fail a backup whose
+    // archive has already been proven good.
     const h = makeHarness();
-    h.retention.prune.mockRejectedValue(new Error('bucket unreachable'));
+    h.enqueueSweep.mockRejectedValue(new Error('queue unreachable'));
 
     await h.service.startBackup({ trigger: 'scheduled' });
     (await h.firstDump()).finish();
@@ -1840,7 +1847,9 @@ describe('completeNodeRun: one write, two paths', () => {
       'download',
       'readTocEntryCount',
       'update:completed',
-      'prune',
+      // #353: retention is queued, not awaited, and still strictly after the
+      // verified completing write.
+      'sweep',
     ]);
   });
 
@@ -1890,7 +1899,7 @@ describe('completeNodeRun: one write, two paths', () => {
     expect(h.order).not.toContain('download');
   });
 
-  it('does not prune on any failure — old archives matter most when tonight’s backup failed', async () => {
+  it('does not queue the sweep on any failure — old archives matter most when tonight’s backup failed', async () => {
     const h = makeHarness({ tocEntries: 0 });
     seedNodeRun(h);
 
@@ -1898,7 +1907,7 @@ describe('completeNodeRun: one write, two paths', () => {
       DatabaseBackupVerificationError
     );
 
-    expect(h.retention.prune).not.toHaveBeenCalled();
+    expect(h.enqueueSweep).not.toHaveBeenCalled();
   });
 
   it('treats a resubmitted result for an already-completed run as a no-op', async () => {

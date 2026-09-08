@@ -82,7 +82,6 @@ import { readTocEntryCount } from '../../src/db-backup/pg-restore.util';
 import { PgJobRoleBroker } from '../../src/db-backup/pg-job-role.broker';
 import { checkPgClientVersion, readServerVersionNumWithPgClient } from '../../src/db-backup/pg-version.util';
 import type { PrismaService } from '../../src/prisma/prisma.service';
-import type { DatabaseBackupRetentionService } from '../../src/db-backup/db-backup-retention.service';
 import type { NotificationsService } from '../../src/notifications/notifications.service';
 import type { SystemSettingsService } from '../../src/settings/system-settings/system-settings.service';
 import { cleanupTmpDir, TmpDirStorageProvider } from '../helpers/tmp-storage-provider.helper';
@@ -140,15 +139,16 @@ describeWithDb('A real pg_dump round trip through the backup engine', () => {
     } as unknown as SystemSettingsService;
     settingsService = settings;
 
-    // Retention is STUBBED, deliberately: the real service prunes by count
-    // across EVERY `completed` row in `database_backup_runs`, which in a
-    // database shared with the other `*.db.spec.ts` suites (and, locally, a
+    // ⚠ RETENTION IS NOT A COLLABORATOR OF THE RUNNER ANY MORE (#353, epic
+    // #345). It used to be stubbed here, deliberately: the real service prunes
+    // by count across EVERY `completed` row in `database_backup_runs`, which in
+    // a database shared with the other `*.db.spec.ts` suites (and, locally, a
     // developer's own data) could delete a backup this suite did not create.
-    // What is under test here is the dump/upload/verify path, not retention
-    // — `db-backup-retention.service.spec.ts` already owns that.
-    const retention = {
-      prune: async () => ({ prunedByCount: 0, prunedByAge: 0 }),
-    } as unknown as DatabaseBackupRetentionService;
+    // The runner now ENQUEUES `db.backup.sweep` instead of pruning, so the
+    // hazard is gone with the stub: this suite's real `JobsService` writes a
+    // pending row that nothing in this file claims, and the sweep's own rules
+    // are covered by `db-backup-sweep.handler.spec.ts` and
+    // `db-backup-retention.service.spec.ts`.
 
     const notifications = {
       notifyPermissionHolders: async () => undefined,
@@ -175,7 +175,6 @@ describeWithDb('A real pg_dump round trip through the backup engine', () => {
       prisma as unknown as PrismaService,
       settings,
       storage,
-      retention,
       notifications,
       config,
       jobs,

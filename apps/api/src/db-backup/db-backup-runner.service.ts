@@ -12,7 +12,9 @@ import {
 } from '@prisma/client';
 
 import type { DbBackupRunResult } from '../jobs/contracts/db-backup-run.contract';
+import { enqueueHousekeepingJob } from '../jobs/housekeeping.enqueue';
 import { buildDedupKey } from '../jobs/job-keys';
+import { DB_BACKUP_SWEEP_TYPE } from './handlers/db-backup-sweep.handler';
 import { isActiveDedupConflict, JobsService } from '../jobs/jobs.service';
 import { resolveApiVersion } from '../openapi/version';
 import { PrismaService } from '../prisma/prisma.service';
@@ -32,7 +34,6 @@ import {
 import { PERMISSIONS } from '../common/constants/roles.constants';
 import type { BackupFailedEmailData } from '../email';
 import { NotificationsService } from '../notifications/notifications.service';
-import { DatabaseBackupRetentionService } from './db-backup-retention.service';
 import {
   DatabaseBackupAlreadyRunningError,
   DatabaseBackupCancelledError,
@@ -606,7 +607,6 @@ export class DatabaseBackupRunnerService {
     // below it. A runner that could be constructed without one is a runner a
     // fork can wire up so that nothing ever deletes an archive — and that
     // failure is invisible until the bucket is full.
-    private readonly retention: DatabaseBackupRetentionService,
     // #288 (epic #254). REQUIRED, not an optional seam: a runner that could be
     // constructed without a notifier is a runner a fork can wire so that a
     // failed backup is silent, which is the failure this event exists for.
@@ -1377,8 +1377,8 @@ export class DatabaseBackupRunnerService {
   // ===========================================================================
 
   /**
-   * Marks a run `completed`: the terminal write, plus the retention prune that
-   * may only ever follow it.
+   * Marks a run `completed`: the terminal write, plus the enqueue of the
+   * retention prune that may only ever follow it.
    *
    * ⚠ BOTH EXECUTION PATHS COME THROUGH HERE, AND THAT IS THE POINT.
    * `executeRun` calls it with what THIS process streamed and hashed;
@@ -1396,9 +1396,10 @@ export class DatabaseBackupRunnerService {
    * called without a server-side read-back is the day `verified_at` stops
    * meaning anything.
    *
-   * The prune lives here rather than at the two call sites for the reason the
-   * long comment below gives four times over: every one of its ordering
-   * constraints is a property of "a run just completed", not of who ran it.
+   * The prune's ENQUEUE lives here rather than at the two call sites for the
+   * reason the long comment below gives four times over: every one of its
+   * ordering constraints is a property of "a run just completed", not of who
+   * ran it.
    */
   private async completeRun(input: {
     runId: string;
@@ -1441,12 +1442,19 @@ export class DatabaseBackupRunnerService {
     );
 
     // -------------------------------------------------------------------------
-    // PRUNE HERE, AND NOWHERE ELSE.
+    // QUEUE THE PRUNE HERE, AND NOWHERE ELSE (#353, epic #345).
     // -------------------------------------------------------------------------
+    //
+    // This used to `await this.retention.prune()`. It now enqueues
+    // `db.backup.sweep`, whose handler does the pruning on a worker slot — the
+    // last piece of long-running work in this subsystem that was still running
+    // detached from the queue. ALL THREE ORDERING CONSTRAINTS THAT GOVERNED THE
+    // INLINE CALL STILL GOVERN THE ENQUEUE, and they are why this statement is
+    // exactly here:
     //
     // AFTER VERIFICATION, because retention deletes older archives and this one
     // is only a replacement for them once it has been proven to be a readable
-    // archive. Pruning before the `pg_restore --list` check would let a run
+    // archive. Enqueueing before the `pg_restore --list` check would let a run
     // that is about to fail verification delete the last known-good backup on
     // its way out — the single worst thing this subsystem could do.
     //
@@ -1454,34 +1462,38 @@ export class DatabaseBackupRunnerService {
     // off-by-one that is easy to ship: the count rule keeps the newest N
     // `completed` runs, so a prune that ran while this row still said `running`
     // would not count it, and would evict one MORE old backup than retention
-    // asked for — a deployment set to keep 7 would drift to 6.
+    // asked for — a deployment set to keep 7 would drift to 6. A job cannot be
+    // claimed before the write it was enqueued after has committed, so the
+    // constraint holds across the move.
     //
-    // ONLY ON SUCCESS. There is no prune on any failure path. A failed backup
+    // ONLY ON SUCCESS. There is no enqueue on any failure path. A failed backup
     // is exactly when the old archives matter most; deleting one because the
     // night's dump died would be the failure mode of a backup system that makes
     // things worse under stress.
     //
-    // ⚠ WRAPPED IN ITS OWN `try`, AND THAT IS NOT BELT-AND-BRACES. `prune`
-    // swallows its own failures by contract, but this method is called from
-    // INSIDE `executeRun`'s `try`, whose `catch` deletes the object and marks
-    // the run `failed`. If that contract were ever broken — one refactor, one
-    // `throw` added to a helper — an exception here would travel to that
-    // handler and DELETE THE ARCHIVE THIS RUN HAD JUST PROVEN GOOD, then record
-    // the run as a failure. Storage housekeeping must not be able to reach the
-    // failure path of the backup it is housekeeping for.
+    // ⚠ THE FOURTH CONSTRAINT IS NOW STRUCTURAL RATHER THAN DEFENDED BY A
+    // `try`. The inline call was wrapped because this method runs INSIDE
+    // `executeRun`'s `try`, whose `catch` deletes the object and marks the run
+    // `failed`: a `throw` escaping retention would have DELETED THE ARCHIVE THIS
+    // RUN HAD JUST PROVEN GOOD. The prune now happens in a different job, on a
+    // different worker slot, after this job has settled — there is no longer any
+    // code path by which retention can reach the backup's failure handler. The
+    // `try` stays anyway, because the ENQUEUE is still a database write inside
+    // that same `try`, and storage housekeeping must not be able to fail a
+    // verified backup for any reason at all.
     try {
-      const pruned = await this.retention.prune();
-
-      if (pruned.prunedByCount > 0 || pruned.prunedByAge > 0) {
-        this.logger.log(
-          `Retention removed ${pruned.prunedByCount} expired backup(s) and ` +
-            `${pruned.prunedByAge} expired pre-restore backup(s).`
-        );
-      }
+      await enqueueHousekeepingJob({
+        jobs: this.jobs,
+        prisma: this.prisma,
+        logger: this.logger,
+        type: DB_BACKUP_SWEEP_TYPE,
+        what: 'database backup sweep',
+      });
     } catch (error) {
       this.logger.warn(
-        `Retention failed after database backup run ${runId} completed (the backup ` +
-          `itself is fine; storage was not reclaimed): ${toError(error).message}`
+        `Could not queue retention after database backup run ${runId} completed (the ` +
+          `backup itself is fine; storage will be reclaimed by the scheduler's next ` +
+          `tick): ${toError(error).message}`
       );
     }
   }

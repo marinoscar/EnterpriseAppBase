@@ -3,17 +3,26 @@ import type { ConfigService } from '@nestjs/config';
 
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { SystemSettingsService } from '../../settings/system-settings/system-settings.service';
-import type { StorageProvider } from '../../storage/providers/storage-provider.interface';
 import type { SystemDatabaseBackupValue } from '../../common/schemas/settings.schema';
-import type { NotificationsService } from '../../notifications/notifications.service';
-import type { DatabaseRestoreService } from '../database-restore.service';
+import type { JobsService } from '../../jobs/jobs.service';
 import type { DatabaseBackupRunnerService } from '../db-backup-runner.service';
+import { DB_BACKUP_SWEEP_TYPE } from '../handlers/db-backup-sweep.handler';
+import { DB_RESTORE_OLD_DB_DROP_TYPE } from '../handlers/db-restore-old-db-drop.handler';
 import { DatabaseBackupAlreadyRunningError } from '../db-backup.errors';
 import { DatabaseBackupScheduleTask } from './db-backup-schedule.task';
 
 // =============================================================================
-// The scheduler's and the sweep's acceptance criteria (issue #282, epic #254)
+// The scheduler's acceptance criteria (issue #282, narrowed by #353)
 // =============================================================================
+//
+// ⚠ THE SWEEP'S CRITERIA ARE NOT HERE ANY MORE, AND THAT IS THE POINT. #353
+// (epic #345) moved the stale release and the retained-database drop out of
+// this tick and into `db.backup.sweep` and `db.restore.old-db-drop`; every
+// assertion about what they release, record and report moved intact to
+// `handlers/db-backup-sweep.handler.spec.ts`. What is left here is the half
+// that genuinely belongs to a scheduler — the boundary rule, the timezone, DST,
+// the kill switch, the overlap guard — plus the new criterion that the other
+// two duties are ENQUEUED rather than performed.
 //
 // NO WALL CLOCK ANYWHERE IN THIS FILE, and no fake timers either. `now` is a
 // parameter of `releaseStaleRuns` and `fireDueBackup`, which is exactly why
@@ -61,39 +70,18 @@ interface RunRow {
   createdAt?: Date | null;
   finishedAt?: Date;
   lastError?: string;
-  /** #288: projected by the sweep's read and rendered by the notification. */
-  trigger?: string;
-  /**
-   * #352: the queue job that is executing this run, if one is.
-   *
-   * The sweep asks the JOB whether an executor still holds it, because a
-   * backup taken on a worker node cannot write a heartbeat to this database
-   * at all. A row with no `jobId` (every `pre_restore` dump, and everything
-   * older than #351) is swept on its heartbeat exactly as it always was.
-   */
-  jobId?: string | null;
 }
 
 interface HarnessOptions {
   policy?: Partial<SystemDatabaseBackupValue>;
-  /**
-   * #352: job ids the queue reports as `running` with a lease that has NOT
-   * expired. The sweep must leave their runs alone whatever the heartbeat
-   * says — that is how a node-executed dump survives a stale window it has no
-   * way to write to.
-   */
-  liveJobs?: string[];
   config?: Record<string, unknown>;
   rows?: RunRow[];
   /** Replaces the default `queueBackup`, e.g. to make it reject. */
   queueBackupImpl?: () => Promise<{ run: { id: string }; job: { id: string } }>;
-  deleteImpl?: (key: string) => Promise<void>;
-  /** Rows this table pretends were mutated by somebody else between read and write. */
-  settleDuringSweep?: string[];
-  /** Replaces #285's retained-database sweep, e.g. to make it reject. */
-  dropExpiredImpl?: (policy: SystemDatabaseBackupValue, now: Date) => Promise<number>;
-  /** #288: a notifier that misbehaves, for the containment assertions. */
-  notifyImpl?: () => Promise<void>;
+  /** #353: makes one of the housekeeping enqueues misbehave. */
+  enqueueImpl?: (input: Record<string, unknown>) => Promise<void>;
+  /** #353: what the housekeeping guard reports as already in flight. */
+  activeHousekeepingJob?: { id: string; status: string } | null;
 }
 
 function makeHarness(options: HarnessOptions = {}) {
@@ -101,61 +89,6 @@ function makeHarness(options: HarnessOptions = {}) {
   /** Every side effect in the order it happened, for the ordering assertions. */
   const calls: string[] = [];
   const table = new Map((options.rows ?? []).map((row) => [row.id, { ...row }]));
-  const settleDuring = new Set(options.settleDuringSweep ?? []);
-
-  /**
-   * The sweep's predicate, evaluated arm by arm.
-   *
-   * ⚠ `status` MOVED INSIDE THE ARMS in #351 — the sweep no longer asks for
-   * one status with three age tests, it asks for two statuses each with its
-   * own age column (`lastHeartbeatAt`/`startedAt` for `running`, `createdAt`
-   * for `pending`). This double follows that shape literally rather than
-   * approximating it, so a predicate that stopped matching pending rows would
-   * fail here rather than pass by accident.
-   */
-  const findMany = jest.fn(async (args: any) => {
-    const { where } = args;
-
-    return [...table.values()]
-      .filter((row) =>
-        where.OR.some((arm: any) => {
-          if (row.status !== arm.status) return false;
-
-          // The queued-but-never-claimed arm: aged by `createdAt`, because a
-          // pending row has neither a heartbeat nor a start.
-          if (arm.createdAt !== undefined) {
-            return row.createdAt != null && row.createdAt < arm.createdAt.lt;
-          }
-
-          if (arm.lastHeartbeatAt === null) {
-            return row.lastHeartbeatAt === null && row.startedAt !== null
-              ? row.startedAt < arm.startedAt.lt
-              : false;
-          }
-
-          return row.lastHeartbeatAt !== null && row.lastHeartbeatAt < arm.lastHeartbeatAt.lt;
-        })
-      )
-      .map((row) => ({ ...row }));
-  });
-
-  const updateMany = jest.fn(
-    async ({ where, data }: { where: any; data: Record<string, unknown> }) => {
-      calls.push(`row:${where.id}`);
-
-      const row = table.get(where.id);
-
-      // The race the conditional `where` exists for: this row finished
-      // between the sweep's read and its write.
-      if (settleDuring.has(where.id) && row !== undefined) row.status = 'completed';
-
-      if (row === undefined || row.status !== where.status) return { count: 0 };
-
-      Object.assign(row, data);
-
-      return { count: 1 };
-    }
-  );
 
   /** The newest `startedAt` in the table — the real query's answer. */
   const findFirst = jest.fn(async ({ where }: any) => {
@@ -171,27 +104,10 @@ function makeHarness(options: HarnessOptions = {}) {
     return { id: candidates[0].id, startedAt: candidates[0].startedAt };
   });
 
-  /**
-   * The queue's side of the sweep (#352): which of these jobs is still held.
-   *
-   * Deliberately asserts the PREDICATE rather than just returning the set —
-   * "held" means `status: 'running'` AND a lease in the future, and a sweep
-   * that dropped either half would either leak (never sweeping an abandoned
-   * node run) or lose data (sweeping a live one).
-   */
-  const liveJobs = new Set(options.liveJobs ?? []);
-  const jobFindMany = jest.fn(async ({ where }: any) => {
-    if (where.status !== 'running') throw new Error('expected the held-lease predicate');
-    if (where.leaseExpiresAt?.gt === undefined) throw new Error('expected a lease check');
-
-    return (where.id.in as string[])
-      .filter((id) => liveJobs.has(id))
-      .map((id) => ({ id }));
-  });
-
   const prisma = {
-    databaseBackupRun: { findMany, updateMany, findFirst },
-    job: { findMany: jobFindMany },
+    databaseBackupRun: { findFirst },
+    // #353: `enqueueHousekeepingJob`'s "is one already in flight?" guard.
+    job: { findFirst: jest.fn(async () => options.activeHousekeepingJob ?? null) },
   } as unknown as PrismaService;
 
   const settings = {
@@ -239,72 +155,41 @@ function makeHarness(options: HarnessOptions = {}) {
 
   const runner = { queueBackup } as unknown as DatabaseBackupRunnerService;
 
-  const deleteObject = jest.fn(async (key: string) => {
-    calls.push(`object:${key}`);
-    if (options.deleteImpl) await options.deleteImpl(key);
-  });
-
-  const storage = { delete: deleteObject } as unknown as StorageProvider;
-
   const configGet = jest.fn((key: string) => (options.config ?? {})[key]);
   const config = { get: configGet } as unknown as ConfigService;
 
   /**
-   * #285's retained-database sweep, stubbed. It has its own suite
-   * (`database-restore.service.spec.ts`); what matters HERE is only that the
-   * tick calls it, that it goes last, and that its failure does not cost the
-   * two duties in front of it.
+   * The queue (#353). The tick's two housekeeping duties are enqueues now, so
+   * this double is what every assertion about them reads. `job.findFirst` is the
+   * cheap "one already in flight?" guard `enqueueHousekeepingJob` makes first.
    */
-  const dropExpiredOldDatabases = jest.fn(
-    options.dropExpiredImpl ??
-      (async (_policy: SystemDatabaseBackupValue, _now: Date) => {
-        calls.push('dropExpiredOldDatabases');
+  const enqueue = jest.fn(async (input: Record<string, unknown>) => {
+    calls.push(`enqueue:${String(input.type)}`);
 
-        return 0;
-      })
-  );
+    if (options.enqueueImpl) await options.enqueueImpl(input);
 
-  const restore = { dropExpiredOldDatabases } as unknown as DatabaseRestoreService;
-
-  // #288's notifier. A jest mock, so the containment assertions can make it
-  // throw and still require the sweep to finish.
-  const notifyPermissionHolders: jest.Mock = jest.fn(async (..._args: unknown[]) => {
-    if (options.notifyImpl) await options.notifyImpl();
+    return { id: `housekeeping-${calls.length}`, ...input };
   });
-  const notifications = {
-    notifyPermissionHolders,
-  } as unknown as NotificationsService;
+
+  const jobs = { enqueue } as unknown as JobsService;
 
   const build = () =>
-    new DatabaseBackupScheduleTask(
-      prisma,
-      settings,
-      runner,
-      storage,
-      config,
-      restore,
-      notifications
-    );
+    new DatabaseBackupScheduleTask(prisma, settings, runner, config, jobs);
 
   const task = build();
 
   return {
     task,
-    notifyPermissionHolders,
+    enqueue,
     /** A fresh instance over the SAME table — the restart simulation. */
     restart: build,
     policy,
     prisma,
     calls,
     table,
-    findMany,
-    updateMany,
     findFirst,
-    jobFindMany,
     queueBackup,
-    deleteObject,
     configGet,
-    dropExpiredOldDatabases,
     /** One tick's firing decision at a pinned instant. */
     async fireAt(iso: string) {
       tickNow = new Date(iso);
@@ -316,9 +201,6 @@ function makeHarness(options: HarnessOptions = {}) {
       tickNow = new Date(iso);
 
       return instance.fireDueBackup(policy, tickNow);
-    },
-    async sweepAt(iso: string) {
-      return task.releaseStaleRuns(policy, new Date(iso));
     },
   };
 }
@@ -342,40 +224,6 @@ async function waitFor(condition: () => boolean, label: string): Promise<void> {
   }
 
   throw new Error(`timed out waiting for: ${label}`);
-}
-
-function runningRow(id: string, overrides: Partial<RunRow> = {}): RunRow {
-  return {
-    id,
-    status: 'running',
-    storageKey: `backups/${id}.dump`,
-    createdAt: new Date('2026-09-07T02:00:00.000Z'),
-    startedAt: new Date('2026-09-07T02:00:00.000Z'),
-    lastHeartbeatAt: new Date('2026-09-07T02:00:20.000Z'),
-    trigger: 'scheduled',
-    ...overrides,
-  };
-}
-
-/**
- * #351: a run that was QUEUED and never claimed.
- *
- * `startedAt` and `lastHeartbeatAt` are NULL because that is what `pending`
- * means — nothing has started, so nothing has beaten. `createdAt` is the only
- * column that can say how long this row has been holding the single active
- * slot, which is exactly why the sweep's third arm reads it.
- */
-function pendingRow(id: string, overrides: Partial<RunRow> = {}): RunRow {
-  return {
-    id,
-    status: 'pending',
-    storageKey: `backups/${id}.dump`,
-    createdAt: new Date('2026-09-07T02:00:00.000Z'),
-    startedAt: null,
-    lastHeartbeatAt: null,
-    trigger: 'scheduled',
-    ...overrides,
-  };
 }
 
 beforeAll(() => {
@@ -672,411 +520,40 @@ describe('the disabled setting', () => {
     expect(h.queueBackup).not.toHaveBeenCalled();
   });
 
-  it('STILL SWEEPS when scheduled backups are disabled', async () => {
+  it('STILL QUEUES THE SWEEP when scheduled backups are disabled', async () => {
     // ⚠ A run orphaned before the setting was flipped still holds the single
-    // active slot. Skipping the sweep would make every later MANUAL backup
-    // fail with "already running" for a schedule nobody is using.
-    const h = makeHarness({
-      policy: { enabled: false },
-      rows: [runningRow('orphan', { lastHeartbeatAt: new Date('2026-09-07T02:00:00.000Z') })],
-    });
-
-    await expect(h.sweepAt('2026-09-07T06:00:00.000Z')).resolves.toBe(1);
-    expect(h.table.get('orphan')?.status).toBe('stale');
-  });
-
-  it('sweeps before it fires, so a zombie does not cost an extra tick', async () => {
-    const h = makeHarness({
-      policy: ALWAYS_DUE,
-      rows: [
-        runningRow('orphan', {
-          // Long dead, and long enough ago that it covers no current boundary.
-          startedAt: new Date('2020-01-01T00:00:00.000Z'),
-          lastHeartbeatAt: new Date('2020-01-01T00:00:00.000Z'),
-        }),
-      ],
-    });
+    // active slot. Skipping the sweep would make every later MANUAL backup fail
+    // with "already running" for a schedule nobody is using. Only the FIRING is
+    // gated on `databaseBackup.enabled`; the housekeeping is not.
+    const h = makeHarness({ policy: { enabled: false } });
 
     await h.task.handleCron();
 
-    // The sweep's row transition happened, and the claim happened after it —
-    // in ONE tick, not two.
+    expect(h.queueBackup).not.toHaveBeenCalled();
     expect(h.calls).toEqual([
-      'row:orphan',
-      'object:backups/orphan.dump',
-      'queueBackup',
-      // #285's retained-database sweep, which always runs last.
-      'dropExpiredOldDatabases',
+      `enqueue:${DB_BACKUP_SWEEP_TYPE}`,
+      `enqueue:${DB_RESTORE_OLD_DB_DROP_TYPE}`,
     ]);
   });
-});
 
-describe('the stale sweep', () => {
-  it('releases a run whose heartbeat stopped, and frees the slot', async () => {
-    const h = makeHarness({
-      rows: [runningRow('zombie', { lastHeartbeatAt: new Date('2026-09-07T02:00:20.000Z') })],
-    });
-
-    // runStaleMinutes is 120, so 05:00 is well past.
-    await expect(h.sweepAt('2026-09-07T05:00:00.000Z')).resolves.toBe(1);
-
-    const row = h.table.get('zombie');
-    expect(row?.status).toBe('stale');
-    expect(row?.finishedAt).toEqual(new Date('2026-09-07T05:00:00.000Z'));
-    expect(row?.lastError).toContain('120');
-  });
-
-  // ---------------------------------------------------------------------------
-  // #351: the arm the original predicate's own ⚠ demanded once `pending` rows
-  // became real
-  // ---------------------------------------------------------------------------
-
-  it('releases a QUEUED run no worker ever claimed, aging it by createdAt', async () => {
-    // The failure this arm exists for: a `pending` row holds the single active
-    // slot under the tightened index, and it has no heartbeat that could ever
-    // age it out. Without this, one deleted job — or one deployment with
-    // JOBS_WORKER_MODE=off — blocks every backup that deployment would ever
-    // take again.
-    const h = makeHarness({ rows: [pendingRow('never-claimed')] });
-
-    await expect(h.sweepAt('2026-09-07T05:00:00.000Z')).resolves.toBe(1);
-    expect(h.table.get('never-claimed')?.status).toBe('stale');
-  });
-
-  it('leaves a queued run inside the window alone — an ordinary queue delay is not staleness', async () => {
-    const h = makeHarness({
-      rows: [pendingRow('just-queued', { createdAt: new Date('2026-09-07T04:59:00.000Z') })],
-    });
-
-    await expect(h.sweepAt('2026-09-07T05:00:00.000Z')).resolves.toBe(0);
-    expect(h.table.get('just-queued')?.status).toBe('pending');
-  });
-
-  it('tells a queued run apart from an abandoned dump in the reason it records', async () => {
-    // ⚠ TWO MESSAGES, NOT ONE. An operator fixes these in different places: a
-    // `running` row was executing somewhere that went away; a `pending` row
-    // was never picked up, which is a statement about the QUEUE and not about
-    // any dump. Flattening both into "stopped heartbeating" would send
-    // somebody hunting through `pg_dump` logs for a process that never existed.
-    const h = makeHarness({
-      rows: [pendingRow('never-claimed'), runningRow('zombie')],
-    });
-
-    await expect(h.sweepAt('2026-09-07T05:00:00.000Z')).resolves.toBe(2);
-
-    expect(h.table.get('never-claimed')?.lastError).toContain('no worker claimed its job');
-    expect(h.table.get('never-claimed')?.lastError).toContain('No dump was ever started');
-    expect(h.table.get('zombie')?.lastError).toContain('stopped heartbeating');
-  });
-
-  it('guards the pending transition on `pending`, not on the old literal `running`', async () => {
-    // The regression this pins is the one that looks exactly like working: a
-    // hard-coded `status: 'running'` in the compare-and-swap would make every
-    // pending candidate `count === 0`, and the sweep would report freeing
-    // nothing while quietly leaving the slot blocked.
-    const h = makeHarness({ rows: [pendingRow('never-claimed')] });
-
-    await h.sweepAt('2026-09-07T05:00:00.000Z');
-
-    expect(h.updateMany.mock.calls[0][0].where).toEqual({
-      id: 'never-claimed',
-      status: 'pending',
-    });
-  });
-
-  it('leaves a queued run alone if it moved on between the sweep\'s read and its write', async () => {
-    // Same race the `running` guard covers, from the other side. A `pending`
-    // row can move on in exactly the way that matters here — a worker claims
-    // it and the dump runs to completion — and the conditional update must
-    // then match nothing, so the sweep cannot stamp `stale` over a backup that
-    // succeeded while it was deciding.
-    const h = makeHarness({
-      rows: [pendingRow('claimed-mid-sweep')],
-      settleDuringSweep: ['claimed-mid-sweep'],
-    });
-
-    await expect(h.sweepAt('2026-09-07T05:00:00.000Z')).resolves.toBe(0);
-  });
-
-  it('leaves a run whose heartbeat is still inside the window alone', async () => {
-    const h = makeHarness({
-      rows: [runningRow('healthy', { lastHeartbeatAt: new Date('2026-09-07T04:59:00.000Z') })],
-    });
-
-    await expect(h.sweepAt('2026-09-07T05:00:00.000Z')).resolves.toBe(0);
-    expect(h.table.get('healthy')?.status).toBe('running');
-  });
-
-  it('ages a zombie with a NULL heartbeat by startedAt', async () => {
-    // A process that died between the claim and its first progress write.
-    // `NULL < cutoff` is NULL in SQL, never true, so without the second arm
-    // this row holds the active slot forever.
-    const h = makeHarness({
-      rows: [
-        runningRow('never-beat', {
-          lastHeartbeatAt: null,
-          startedAt: new Date('2026-09-07T02:00:00.000Z'),
-        }),
-      ],
-    });
-
-    await expect(h.sweepAt('2026-09-07T05:00:00.000Z')).resolves.toBe(1);
-    expect(h.table.get('never-beat')?.status).toBe('stale');
-  });
-
-  it('guards the transition on status: running, so a run that finished in the race is NOT stomped', async () => {
-    // The read and the write are not atomic. The interesting case is a dump
-    // whose heartbeat was starved by a lock wait and that then completed
-    // normally: `count === 0`, and overwriting it would discard a verified
-    // backup's record AND delete the archive it points at.
-    const h = makeHarness({
-      rows: [runningRow('racer', { lastHeartbeatAt: new Date('2026-09-07T02:00:00.000Z') })],
-      settleDuringSweep: ['racer'],
-    });
-
-    await expect(h.sweepAt('2026-09-07T06:00:00.000Z')).resolves.toBe(0);
-
-    expect(h.table.get('racer')?.status).toBe('completed');
-    // And — the part that matters most — its object was never deleted.
-    expect(h.deleteObject).not.toHaveBeenCalled();
-    expect(h.updateMany.mock.calls[0][0].where).toEqual({ id: 'racer', status: 'running' });
-  });
-
-  it('transitions the ROW FIRST and cleans the object SECOND', async () => {
-    // The row is the guard. Deleting the object first and then dying would
-    // leave a `running` row holding the slot and pointing at nothing.
-    const h = makeHarness({
-      rows: [runningRow('zombie', { lastHeartbeatAt: new Date('2026-09-07T02:00:00.000Z') })],
-    });
-
-    await h.sweepAt('2026-09-07T06:00:00.000Z');
-
-    expect(h.calls).toEqual(['row:zombie', 'object:backups/zombie.dump']);
-  });
-
-  it('still counts the release when the object delete fails', async () => {
-    // A visible stale row naming an orphaned object beats an invisible
-    // billable one — and the slot, which is the part that had to happen, is
-    // free either way.
-    const h = makeHarness({
-      rows: [runningRow('zombie', { lastHeartbeatAt: new Date('2026-09-07T02:00:00.000Z') })],
-      deleteImpl: async () => {
-        throw new Error('AccessDenied');
-      },
-    });
-
-    await expect(h.sweepAt('2026-09-07T06:00:00.000Z')).resolves.toBe(1);
-    expect(h.table.get('zombie')?.status).toBe('stale');
-  });
-
-  it('never re-queues a stale run: the next scheduled backup is the retry', async () => {
-    const h = makeHarness({
-      rows: [runningRow('zombie', { lastHeartbeatAt: new Date('2026-09-07T02:00:00.000Z') })],
-    });
-
-    await h.sweepAt('2026-09-07T06:00:00.000Z');
-
-    expect(h.queueBackup).not.toHaveBeenCalled();
-    expect(h.table.get('zombie')?.status).toBe('stale');
-    expect(h.updateMany).toHaveBeenCalledTimes(1);
-  });
-
-  it('uses runStaleMinutes as the window', async () => {
-    const h = makeHarness({
-      policy: { runStaleMinutes: 30 },
-      rows: [runningRow('zombie', { lastHeartbeatAt: new Date('2026-09-07T02:00:00.000Z') })],
-    });
-
-    await expect(h.sweepAt('2026-09-07T02:20:00.000Z')).resolves.toBe(0);
-    await expect(h.sweepAt('2026-09-07T02:40:00.000Z')).resolves.toBe(1);
-  });
-
-  // ===========================================================================
-  // A run whose JOB is still leased is not stale (#352, epic #345)
-  // ===========================================================================
-  //
-  // THE FAILURE THESE PREVENT IS DATA LOSS, not untidiness. A backup taken on
-  // a worker node cannot write `lastHeartbeatAt` — a node has no database
-  // access at all — so after `runStaleMinutes` the sweep would mark a
-  // perfectly healthy run `stale`, DELETE THE ARCHIVE THE NODE IS STILL
-  // UPLOADING, and then refuse the result when it arrived. The liveness signal
-  // for a remote executor is the one it is already maintaining: the job's
-  // lease.
-
-  it('leaves a `running` run alone while its job is still held under a live lease', async () => {
-    const h = makeHarness({
-      rows: [
-        runningRow('on-a-node', {
-          jobId: 'job-1',
-          // Written once, when the node asked for its upload target, and never
-          // again — which is exactly what a node-executed run looks like.
-          lastHeartbeatAt: new Date('2026-09-07T02:00:20.000Z'),
-        }),
-      ],
-      liveJobs: ['job-1'],
-    });
-
-    await expect(h.sweepAt('2026-09-07T05:00:00.000Z')).resolves.toBe(0);
-
-    expect(h.table.get('on-a-node')?.status).toBe('running');
-    // AND THE ARCHIVE IS STILL THERE. This is the assertion that matters: the
-    // sweep deletes the object of every run it transitions.
-    expect(h.deleteObject).not.toHaveBeenCalled();
-    expect(h.notifyPermissionHolders).not.toHaveBeenCalled();
-  });
-
-  it('leaves a `pending` run alone while its job is still held — the node has claimed but not yet uploaded', async () => {
-    const h = makeHarness({
-      rows: [pendingRow('queued-on-a-node', { jobId: 'job-2' })],
-      liveJobs: ['job-2'],
-    });
-
-    await expect(h.sweepAt('2026-09-07T05:00:00.000Z')).resolves.toBe(0);
-    expect(h.table.get('queued-on-a-node')?.status).toBe('pending');
-  });
-
-  it('sweeps it the moment the lease is gone — a node that died is still a run to give up on', async () => {
-    const h = makeHarness({
-      rows: [runningRow('abandoned', { jobId: 'job-3' })],
-      // `liveJobs` is empty: the queue reports the job as no longer held,
-      // which is what an expired lease or a settled job looks like.
-    });
-
-    await expect(h.sweepAt('2026-09-07T05:00:00.000Z')).resolves.toBe(1);
-    expect(h.table.get('abandoned')?.status).toBe('stale');
-  });
-
-  it('asks the queue nothing when no candidate has a job — every pre-#351 run and every pre-restore dump', async () => {
-    const h = makeHarness({
-      rows: [runningRow('no-job', { lastHeartbeatAt: new Date('2026-09-07T02:00:20.000Z') })],
-    });
-
-    await expect(h.sweepAt('2026-09-07T05:00:00.000Z')).resolves.toBe(1);
-
-    // Not "returns an empty set" — makes NO QUERY. A sweep that asked the jobs
-    // table once per tick on a deployment that has never run a queued backup
-    // would be a query nobody could explain.
-    expect(h.jobFindMany).not.toHaveBeenCalled();
-  });
-});
-
-// =============================================================================
-// `db_backup.backup_failed` from the STALE side (#288, epic #254)
-// =============================================================================
-
-describe('the stale sweep raises db_backup.backup_failed', () => {
-  it('raises it once per run it actually transitioned', async () => {
-    const h = makeHarness({
-      rows: [
-        runningRow('zombie-a', { lastHeartbeatAt: new Date('2026-09-07T02:00:00.000Z') }),
-        runningRow('zombie-b', { lastHeartbeatAt: new Date('2026-09-07T02:00:00.000Z') }),
-      ],
-    });
-
-    await expect(h.sweepAt('2026-09-07T05:00:00.000Z')).resolves.toBe(2);
-
-    expect(h.notifyPermissionHolders).toHaveBeenCalledTimes(2);
-    expect(h.notifyPermissionHolders.mock.calls[0][0]).toBe('db_backup.backup_failed');
-    // `db_backup:read` — the exact string `db-backup.controller.ts` enforces,
-    // and the same one the runner's own failure path uses.
-    expect(h.notifyPermissionHolders.mock.calls[0][1]).toBe('db_backup:read');
-  });
-
-  it("carries outcome 'stale', not 'failed' — nothing observed this run break", async () => {
-    // An operator chases the two in completely different places: a dump's
-    // stderr versus a host that disappeared. Flattening both into "backup
-    // failed" sends them to the wrong one.
-    const h = makeHarness({
-      rows: [runningRow('zombie', { lastHeartbeatAt: new Date('2026-09-07T02:00:00.000Z') })],
-    });
-
-    await h.sweepAt('2026-09-07T05:00:00.000Z');
-
-    const payload = h.notifyPermissionHolders.mock.calls[0][2];
-
-    expect(payload).toMatchObject({
-      runId: 'zombie',
-      outcome: 'stale',
-      trigger: 'scheduled',
-      failedAt: new Date('2026-09-07T05:00:00.000Z'),
-    });
-  });
-
-  it('quotes the SAME explanation the row was given, rather than a second wording of it', async () => {
-    const h = makeHarness({
-      rows: [runningRow('zombie', { lastHeartbeatAt: new Date('2026-09-07T02:00:00.000Z') })],
-    });
-
-    await h.sweepAt('2026-09-07T05:00:00.000Z');
-
-    expect(h.notifyPermissionHolders.mock.calls[0][2].error).toBe(
-      h.table.get('zombie')?.lastError,
-    );
-  });
-
-  it('raises NOTHING for a run that settled between the read and the write', async () => {
-    // `count === 0`: somebody else transitioned it, and one settled run must
-    // raise exactly one notification however many replicas are sweeping.
-    const h = makeHarness({
-      rows: [runningRow('racer', { lastHeartbeatAt: new Date('2026-09-07T02:00:00.000Z') })],
-      settleDuringSweep: ['racer'],
-    });
-
-    await expect(h.sweepAt('2026-09-07T05:00:00.000Z')).resolves.toBe(0);
-
-    expect(h.notifyPermissionHolders).not.toHaveBeenCalled();
-  });
-
-  it('raises NOTHING when every run is still heartbeating', async () => {
-    const h = makeHarness({
-      rows: [runningRow('healthy', { lastHeartbeatAt: new Date('2026-09-07T04:59:00.000Z') })],
-    });
-
-    await expect(h.sweepAt('2026-09-07T05:00:00.000Z')).resolves.toBe(0);
-
-    expect(h.notifyPermissionHolders).not.toHaveBeenCalled();
-  });
-
-  // ---------------------------------------------------------------------------
-  // CONTAINMENT — the #288 acceptance criterion
-  // ---------------------------------------------------------------------------
-
-  it('a THROWING notifier does not fail the sweep, and the slot is still freed', async () => {
-    const h = makeHarness({
-      rows: [runningRow('zombie', { lastHeartbeatAt: new Date('2026-09-07T02:00:00.000Z') })],
-      notifyImpl: () => {
-        throw new Error('the notifier exploded');
-      },
-    });
-
-    await expect(h.sweepAt('2026-09-07T05:00:00.000Z')).resolves.toBe(1);
-
-    expect(h.table.get('zombie')?.status).toBe('stale');
-  });
-
-  it('a THROWING notifier does not stop the object cleanup that follows it', async () => {
-    const h = makeHarness({
-      rows: [runningRow('zombie', { lastHeartbeatAt: new Date('2026-09-07T02:00:00.000Z') })],
-      notifyImpl: () => {
-        throw new Error('the notifier exploded');
-      },
-    });
-
-    await h.sweepAt('2026-09-07T05:00:00.000Z');
-
-    expect(h.deleteObject).toHaveBeenCalledWith('backups/zombie.dump');
-  });
-
-  it('a notifier that REJECTS does not fail the cron tick', async () => {
-    const h = makeHarness({
-      rows: [runningRow('zombie', { lastHeartbeatAt: new Date('2026-09-07T02:00:00.000Z') })],
-      notifyImpl: async () => {
-        throw new Error('dispatch blew up');
-      },
-    });
-
-    await expect(h.task.handleCron()).resolves.toBeUndefined();
-    expect(h.table.get('zombie')?.status).toBe('stale');
+  it('queues the sweep BEFORE it fires, so a released slot is available as soon as it can be', async () => {
+    // ⚠ #353 WEAKENED THIS PROPERTY AND THE ASSERTION SAYS SO. The sweep used
+    // to run inline and free the slot within the tick; it is now a job, so a
+    // zombie found here may still cost this tick's fire an `already_running`
+    // and be picked up by the next one — at most ten minutes later, because the
+    // boundary rule is stateless and recomputed every tick. What is still true,
+    // and what this pins, is the ORDER: the sweep is queued first, so a worker
+    // has the longest possible head start.
+    const h = makeHarness({ policy: ALWAYS_DUE });
+
+    await h.task.handleCron();
+
+    expect(h.calls).toEqual([
+      `enqueue:${DB_BACKUP_SWEEP_TYPE}`,
+      'queueBackup',
+      // The retained-database drop, which always goes last.
+      `enqueue:${DB_RESTORE_OLD_DB_DROP_TYPE}`,
+    ]);
   });
 });
 
@@ -1118,7 +595,7 @@ describe('the cron wrapper', () => {
     await h.task.handleCron();
 
     expect(h.queueBackup).not.toHaveBeenCalled();
-    expect(h.findMany).not.toHaveBeenCalled();
+    expect(h.enqueue).not.toHaveBeenCalled();
   });
 
   it('runs when the switch is unset, so a typo fails open into "keep backing up"', async () => {
@@ -1191,19 +668,23 @@ describe('the cron wrapper', () => {
 
   it('never rejects out of the cron handler', async () => {
     const h = makeHarness();
-    (h.prisma.databaseBackupRun.findMany as jest.Mock).mockRejectedValue(
+    (h.prisma.databaseBackupRun.findFirst as jest.Mock).mockRejectedValue(
       new Error('statement timeout')
     );
 
     await expect(h.task.handleCron()).resolves.toBeUndefined();
   });
 
-  it('a failed sweep does not also cost tonight\'s backup', async () => {
-    // The two are separate duties that happen to share a tick.
-    const h = makeHarness({ policy: ALWAYS_DUE });
-    (h.prisma.databaseBackupRun.findMany as jest.Mock).mockRejectedValue(
-      new Error('statement timeout')
-    );
+  it('a failed sweep ENQUEUE does not also cost tonight\'s backup', async () => {
+    // The three are separate duties that happen to share a tick, and
+    // `enqueueHousekeepingJob` swallows its own failures precisely so one of
+    // them cannot take the others down.
+    const h = makeHarness({
+      policy: ALWAYS_DUE,
+      enqueueImpl: async (input) => {
+        if (input.type === DB_BACKUP_SWEEP_TYPE) throw new Error('statement timeout');
+      },
+    });
 
     await h.task.handleCron();
 
@@ -1211,48 +692,50 @@ describe('the cron wrapper', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // #285's third duty: dropping a database a restore displaced
+  // #353: the two duties this tick no longer performs
   // ---------------------------------------------------------------------------
 
-  it('sweeps retained databases in the same tick, with the tick\'s own policy and clock', async () => {
+  it('QUEUES the sweep and the retained-database drop instead of doing either', async () => {
     const h = makeHarness({ policy: ALWAYS_DUE });
 
     await h.task.handleCron();
 
-    expect(h.dropExpiredOldDatabases).toHaveBeenCalledTimes(1);
+    const types = h.enqueue.mock.calls.map((call) => call[0].type);
 
-    const [policy, now] = h.dropExpiredOldDatabases.mock.calls[0];
-
-    // ONE `now` FOR THE WHOLE TICK. A sweep judging its cutoff against a
-    // second clock read could disagree with the stale sweep about what "now"
-    // was, which is exactly the confusion the single `now` exists to prevent.
-    expect(policy.oldDatabaseRetentionHours).toBe(ALWAYS_DUE.oldDatabaseRetentionHours ?? 48);
-    expect(now).toBeInstanceOf(Date);
+    expect(types).toEqual([DB_BACKUP_SWEEP_TYPE, DB_RESTORE_OLD_DB_DROP_TYPE]);
+    // Both GLOBAL and both low priority: constant dedup keys, and housekeeping
+    // that never outranks a user-facing job.
+    for (const call of h.enqueue.mock.calls) {
+      expect(call[0]).toMatchObject({ reason: 'backfill', priority: 100 });
+      expect(call[0].subjectId).toBeUndefined();
+    }
   });
 
-  it('runs the sweep LAST, after the stale sweep and the fire', async () => {
-    // Pure housekeeping: nothing waits on it, and a DROP DATABASE blocked by a
-    // session somebody left open must never delay a backup that is due.
+  it('queues the retained-database drop LAST, after the fire', async () => {
+    // Pure housekeeping: nothing waits on it, and a `DROP DATABASE` blocked by
+    // a session somebody left open must never delay a backup that is due.
     const h = makeHarness({ policy: ALWAYS_DUE });
 
     await h.task.handleCron();
 
-    expect(h.calls).toEqual(['queueBackup', 'dropExpiredOldDatabases']);
+    expect(h.calls.indexOf('queueBackup')).toBeLessThan(
+      h.calls.indexOf(`enqueue:${DB_RESTORE_OLD_DB_DROP_TYPE}`)
+    );
   });
 
-  it('does not sweep at all when the scheduler is switched off', async () => {
+  it('queues neither when the scheduler is switched off', async () => {
     const h = makeHarness({ config: { 'dbBackup.scheduleEnabled': false } });
 
     await h.task.handleCron();
 
-    expect(h.dropExpiredOldDatabases).not.toHaveBeenCalled();
+    expect(h.enqueue).not.toHaveBeenCalled();
   });
 
-  it('a failed retained-database sweep does not reject out of the tick', async () => {
+  it('a failed retained-database enqueue does not reject out of the tick', async () => {
     const h = makeHarness({
       policy: ALWAYS_DUE,
-      dropExpiredImpl: async (): Promise<number> => {
-        throw new Error('database "appdb_old_20260907T120000Z" is being accessed by other users');
+      enqueueImpl: async (input) => {
+        if (input.type === DB_RESTORE_OLD_DB_DROP_TYPE) throw new Error('statement timeout');
       },
     });
 

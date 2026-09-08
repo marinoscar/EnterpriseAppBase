@@ -32,7 +32,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Logger } from '@nestjs/common';
 import { Readable } from 'node:stream';
-import type { DatabaseBackupRun } from '@prisma/client';
+import type { DatabaseBackupRun, Job } from '@prisma/client';
 
 import type { ConfigService } from '@nestjs/config';
 
@@ -40,6 +40,7 @@ import type { MaintenanceModeService } from '../common/maintenance/maintenance-m
 import type { SystemDatabaseBackupValue } from '../common/schemas/settings.schema';
 import { JOB_TEMP_PREFIX } from '../jobs/job-temp';
 import type { NotificationsService } from '../notifications/notifications.service';
+import type { JobsService } from '../jobs/jobs.service';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { SystemSettingsService } from '../settings/system-settings/system-settings.service';
 import type { StorageProvider } from '../storage/providers/storage-provider.interface';
@@ -172,6 +173,12 @@ function okPreflight(overrides: PreflightOverrides = {}): RestorePreflightResult
 // ---------------------------------------------------------------------------
 
 interface HarnessOptions {
+  /**
+   * #353: what `startRestore`'s durable guard finds already queued. `null`
+   * (the default) means nothing is.
+   */
+  queuedRestoreJob?: { id: string; subjectId: string | null } | null;
+
   /** Databases the fake cluster starts with. The live one is always there. */
   databases?: string[];
   policy?: Partial<SystemDatabaseBackupValue>;
@@ -216,6 +223,8 @@ function makeHarness(options: HarnessOptions = {}) {
   const carried: unknown[][] = [];
   const selfLinks: unknown[][] = [];
   const carriedAudit: unknown[][] = [];
+  /** #353: the restore's own settled `jobs` row, carried with the catalog. */
+  const carriedJobs: unknown[][] = [];
 
   let statementFailures = 0;
 
@@ -269,6 +278,12 @@ function makeHarness(options: HarnessOptions = {}) {
         return { rows: [{ count: String(options.restoredMigrations ?? 7) }] };
       }
 
+      if (text.startsWith('INSERT INTO jobs')) {
+        // #353: the restore's own settled job row, carried across the rename.
+        carriedJobs.push(values ?? []);
+        return { rows: [] };
+      }
+
       if (text.startsWith('INSERT INTO database_backup_runs')) {
         carried.push(values ?? []);
         return { rows: [] };
@@ -305,14 +320,36 @@ function makeHarness(options: HarnessOptions = {}) {
       : options.catalogRows ?? [backupRow()]
   );
 
-  // Two callers, told apart by `select`: `awaitBackupSettled` asks only for a
-  // status, the rollback delegation reads the whole row.
+  /**
+   * Runs a test has handed to `startRestore`, keyed by id (#353).
+   *
+   * `executeRestoreJob` RE-READS the row by id rather than trusting the payload
+   * — the payload carries identifiers, not copies — so a harness that always
+   * answered with a default row would silently discard whatever a test set up
+   * (a mismatched checksum, a missing migration name). `runRestore` registers
+   * the row it started with here.
+   */
+  const startedRuns = new Map<string, DatabaseBackupRun>();
+
+  // Three callers now, told apart by `select` and by the map above:
+  // `awaitBackupSettled` asks only for a status, `executeRestoreJob` re-reads a
+  // row this test started, and the rollback delegation reads the pre-restore
+  // dump's row (which no test starts, so it falls through to the default).
   const findUnique = jest.fn(
     async ({ where, select }: { where: { id: string }; select?: unknown }) =>
       select === undefined
-        ? backupRow({ id: where.id, trigger: 'pre_restore' })
+        ? startedRuns.get(where.id) ?? backupRow({ id: where.id, trigger: 'pre_restore' })
         : { status: options.preRestoreStatus ?? 'completed' }
   );
+
+  /**
+   * #353: `startRestore`'s durable "is a restore already queued?" guard.
+   *
+   * Defaults to `null` (nothing queued). `options.queuedRestoreJob` is how the
+   * concurrency test models a restore queued by a PREVIOUS process — the case
+   * the process-local flag structurally cannot see.
+   */
+  const jobFindFirst = jest.fn(async () => options.queuedRestoreJob ?? null);
 
   const auditCreate = jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
     auditRows.push(data);
@@ -331,6 +368,7 @@ function makeHarness(options: HarnessOptions = {}) {
 
   const prisma = {
     databaseBackupRun: { update, findMany, findUnique },
+    job: { findFirst: jobFindFirst },
     auditEvent: { create: auditCreate },
     user: { findUnique: userFindUnique },
     $disconnect: disconnect,
@@ -418,6 +456,41 @@ function makeHarness(options: HarnessOptions = {}) {
     get: jest.fn((key: string) => (key === 'appUrl' ? options.appUrl : undefined)),
   } as unknown as ConfigService;
 
+  /**
+   * #353: the queue. `startRestore` ENQUEUES now — it no longer runs anything —
+   * so this double is both the assertion surface for what it queued and the
+   * source of the `Job` row `runRestore` then executes.
+   */
+  const queuedJobs: Job[] = [];
+  const enqueue = jest.fn(async (input: Record<string, unknown>) => {
+    const job = {
+      id: `job-restore-${queuedJobs.length + 1}`,
+      type: input.type as string,
+      subjectType: (input.subjectType as string) ?? null,
+      subjectId: (input.subjectId as string) ?? null,
+      dedupKey: `${String(input.type)}::${String(input.subjectId ?? '')}`,
+      status: 'running',
+      reason: input.reason as string,
+      priority: (input.priority as number) ?? 0,
+      payload: input.payload ?? null,
+      // Charged AT CLAIM TIME, so a job reaching a handler already shows 1.
+      attempts: 1,
+      lastError: null,
+      createdAt: new Date('2026-09-07T11:59:00.000Z'),
+      startedAt: new Date('2026-09-07T12:00:00.000Z'),
+      finishedAt: null,
+      executor: 'server',
+      claimedByNodeId: null,
+      leaseExpiresAt: new Date('2026-09-07T18:00:00.000Z'),
+    } as unknown as Job;
+
+    queuedJobs.push(job);
+
+    return job;
+  });
+
+  const jobs = { enqueue } as unknown as JobsService;
+
   const service = new DatabaseRestoreService(
     prisma,
     settings,
@@ -427,11 +500,17 @@ function makeHarness(options: HarnessOptions = {}) {
     maintenance,
     notifications,
     config,
+    jobs,
     seam
   );
 
   return {
     service,
+    enqueue,
+    queuedJobs,
+    jobFindFirst,
+    startedRuns,
+    carriedJobs,
     notifyPermissionHoldersNow,
     notifyAtSql,
     seam,
@@ -470,14 +549,26 @@ function makeHarness(options: HarnessOptions = {}) {
 
 type Harness = ReturnType<typeof makeHarness>;
 
-/** Drives a restore to completion (or failure) and returns the start verdict. */
+/**
+ * Drives a restore to completion (or failure) and returns the start verdict.
+ *
+ * ⚠ TWO STEPS SINCE #353, AND THE SPLIT IS THE CONVERSION. `startRestore` runs
+ * the gates and ENQUEUES; a worker then calls `executeRestoreJob`. This helper
+ * does both back to back so every criterion below reads exactly as it did when
+ * the work was detached — the only difference being that the failure path now
+ * rejects (the queue's `lastError` is written from that throw), which is why it
+ * is caught here rather than in fifty individual cases.
+ */
 async function runRestore(h: Harness, run = backupRow()) {
+  h.startedRuns.set(run.id, run);
+
   const result = await h.service.startRestore(run, { actorUserId: ACTOR });
 
-  await waitFor(
-    () => h.exitProcess.mock.calls.length > 0 || h.finalStatus() === 'failed',
-    'the restore to settle'
-  );
+  const job = h.queuedJobs[h.queuedJobs.length - 1];
+
+  if (job !== undefined) {
+    await h.service.executeRestoreJob(job).catch(() => undefined);
+  }
 
   return result;
 }
@@ -896,8 +987,15 @@ describe('the completed restore raises db_backup.restore_completed', () => {
     });
 
     const h = makeHarness({ notifyImpl: () => gate });
+    const run = backupRow();
+    h.startedRuns.set(run.id, run);
 
-    const started = h.service.startRestore(backupRow(), { actorUserId: ACTOR });
+    await h.service.startRestore(run, { actorUserId: ACTOR });
+
+    // ⚠ THE JOB IS EXECUTED WITHOUT AWAITING IT HERE, which is the only way to
+    // hold the restore mid-notification: since #353 the work happens inside
+    // `executeRestoreJob`, and a worker is what awaits it.
+    const executing = h.service.executeRestoreJob(h.queuedJobs[0]);
 
     await waitFor(
       () => h.notifyPermissionHoldersNow.mock.calls.length > 0,
@@ -909,8 +1007,7 @@ describe('the completed restore raises db_backup.restore_completed', () => {
     expect(h.exitProcess).not.toHaveBeenCalled();
 
     released();
-    await started;
-    await waitFor(() => h.exitProcess.mock.calls.length > 0, 'the exit');
+    await executing;
 
     expect(h.exitProcess).toHaveBeenCalledWith(0);
   });
@@ -926,8 +1023,11 @@ describe('the completed restore raises db_backup.restore_completed', () => {
 
   it('passes no extra recipients when there was no actor', async () => {
     const h = makeHarness();
-    await h.service.startRestore(backupRow(), {});
-    await waitFor(() => h.exitProcess.mock.calls.length > 0, 'the restore to settle');
+    const run = backupRow();
+    h.startedRuns.set(run.id, run);
+
+    await h.service.startRestore(run, {});
+    await h.service.executeRestoreJob(h.queuedJobs[0]);
 
     expect(h.notifyPermissionHoldersNow.mock.calls[0][3]).toEqual({
       alsoNotifyUserIds: [],
@@ -1188,6 +1288,181 @@ describe('catalog carry-over', () => {
 });
 
 // ===========================================================================
+// ===========================================================================
+// ⚠ THE JOB ROW MUST NOT LIE (#353, epic #345)
+// ===========================================================================
+//
+// THE HAZARD, IN FULL. `process()` never returns on the success path, because
+// the swap ends in `exitProcess(0)` so a supervisor can rebuild the connection
+// pool against the promoted database. The worker's `completeSucceeded`
+// therefore never runs. Left alone that produces:
+//
+//   1. a `jobs` row stuck `running` with a live lease;
+//   2. a restarted API whose reaper finds the expired lease;
+//   3. `maxAttempts: 1`, so the reaper FAILS the row rather than requeueing it.
+//
+// Step 3 is the right protection — a requeued restore would replay a restore
+// that already succeeded — but it records a successful restore as `failed`.
+//
+// The fix is that the terminal write rides with the CATALOG CARRY: it is
+// decided before the renames, written after both of them, into the PROMOTED
+// database, immediately before the exit. These cases pin every part of that
+// sentence, because each part is separately losable by a future refactor.
+// ===========================================================================
+
+describe('the restore settles its own job row', () => {
+  /** The settled job row the carry inserted, as bound parameters. */
+  const carriedJob = (h: Harness): unknown[] => {
+    expect(h.carriedJobs).toHaveLength(1);
+
+    return h.carriedJobs[0];
+  };
+
+  it('writes the job SUCCEEDED — not running, and not failed', async () => {
+    const h = makeHarness();
+
+    await runRestore(h);
+
+    // The status is a LITERAL in `CARRY_JOB_SQL`, not a parameter, precisely so
+    // no caller can carry a job row in any other state.
+    const insert = h
+      .statements()
+      .find((text) => text.startsWith('INSERT INTO jobs'));
+
+    expect(insert).toBeDefined();
+    expect(insert).toContain(`'succeeded'::"JobStatus"`);
+    expect(insert).not.toContain('running');
+    expect(carriedJob(h)[0]).toBe(h.queuedJobs[0].id);
+  });
+
+  it('releases the lease and the claim, exactly as completeSucceeded would', async () => {
+    // A terminal row must not appear to be held by anybody: a lease left in the
+    // future is what the reaper reads, and a claim left set points at a node.
+    const h = makeHarness();
+
+    await runRestore(h);
+
+    const insert = h.statements().find((text) => text.startsWith('INSERT INTO jobs')) ?? '';
+
+    expect(insert).toMatch(/lease_expires_at = NULL/);
+    expect(insert).toMatch(/claimed_by_node_id = NULL/);
+    // `claimed_by_node_id` is not even a parameter — see `CARRY_JOB_SQL`: the
+    // promoted database's `worker_nodes` is the ARCHIVE's, so binding a node id
+    // could raise a foreign-key violation and abort the whole carry.
+    expect(carriedJob(h)).toHaveLength(14);
+  });
+
+  it('stamps finished_at with the SWAP instant, so the run and the job agree', async () => {
+    const h = makeHarness();
+
+    await runRestore(h);
+
+    const finishedAt = carriedJob(h)[12] as string;
+    const swappedAt = (h.carried[0] ?? [])[25] as string;
+
+    expect(finishedAt).toBe(swappedAt);
+  });
+
+  it('carries it into the PROMOTED database, after BOTH renames', async () => {
+    // Written before the swap it would land in the database about to be renamed
+    // away; written after only one rename there would be no database to write
+    // to at all.
+    const h = makeHarness();
+
+    await runRestore(h);
+
+    const statements = h.statements();
+    const jobInsert = statements.findIndex((text) => text.startsWith('INSERT INTO jobs'));
+    const renamesBefore = statements
+      .slice(0, jobInsert)
+      .filter((text) => /^ALTER DATABASE/.test(text));
+
+    expect(renamesBefore).toHaveLength(2);
+  });
+
+  it('writes it BEFORE the exit', async () => {
+    const h = makeHarness();
+
+    await runRestore(h);
+
+    // The exit is the last thing that happens, and the row is durable by then.
+    expect(h.exitProcess).toHaveBeenCalledWith(0);
+    expect(h.carriedJobs).toHaveLength(1);
+  });
+
+  it('writes it FIRST in the carry, ahead of the records only a human reads', async () => {
+    // Everything else in the carry is read by a person later; this row is ACTED
+    // ON by a machine on the next process start. If the session dies part way
+    // through, this is the value most worth having landed.
+    const h = makeHarness();
+
+    await runRestore(h);
+
+    const statements = h.statements();
+
+    expect(statements.findIndex((text) => text.startsWith('INSERT INTO jobs'))).toBeLessThan(
+      statements.findIndex((text) => text.startsWith('INSERT INTO database_backup_runs'))
+    );
+  });
+
+  it('carries NOTHING when the second rename failed — the restore did not happen', async () => {
+    // ⚠ THE CASE THAT MAKES "IF AND ONLY IF" TRUE. The original is renamed back
+    // and the deployment is serving from it; a `succeeded` job row here would
+    // claim a restore that was undone.
+    const h = makeHarness({
+      failStatement: {
+        pattern: /RENAME TO/,
+        error: new Error('source database is being accessed by other users'),
+        // The SECOND rename — the one that promotes the scratch database.
+        onCall: 2,
+      },
+    });
+
+    await runRestore(h);
+
+    expect(h.carriedJobs).toEqual([]);
+    expect(h.exitProcess).not.toHaveBeenCalled();
+    expect(h.finalStatus()).toBe('failed');
+  });
+
+  it('carries nothing when the restore failed before the swap', async () => {
+    const h = makeHarness({ restoreError: new Error('pg_restore exited 1') });
+
+    await runRestore(h);
+
+    expect(h.carriedJobs).toEqual([]);
+    expect(h.finalStatus()).toBe('failed');
+  });
+
+  it('FAILS the job when the restore failed, rather than returning normally', async () => {
+    // The other half of "the row must not lie": `executeRestore` used to swallow
+    // anticipated failures because nothing was listening. A handler that
+    // returned normally after a failed restore would be settled `succeeded`.
+    const h = makeHarness({ restoreError: new Error('pg_restore exited 1') });
+    const run = backupRow();
+    h.startedRuns.set(run.id, run);
+
+    await h.service.startRestore(run, { actorUserId: ACTOR });
+
+    await expect(h.service.executeRestoreJob(h.queuedJobs[0])).rejects.toThrow(
+      'pg_restore exited 1'
+    );
+    // ...and the run row still carries the operator's account of what happened.
+    expect(h.finalStatus()).toBe('failed');
+  });
+
+  it('refuses a job whose payload cannot be read, without touching anything', async () => {
+    const h = makeHarness();
+
+    await expect(
+      h.service.executeRestoreJob({ id: 'job-x', payload: { runId: 'r' } } as never)
+    ).rejects.toThrow(/payload/);
+
+    expect(h.statements()).toEqual([]);
+    expect(h.stateWrites).toEqual([]);
+  });
+});
+
 describe('the temp file', () => {
   it('carries the janitor-swept prefix', () => {
     // A file whose prefix merely RESEMBLES the janitor's is a file the janitor
@@ -1295,29 +1570,85 @@ describe('starting a restore', () => {
     });
   });
 
-  it('refuses a second concurrent restore in this process', async () => {
+  // ---------------------------------------------------------------------------
+  // THE THREE GUARDS (#353, epic #345)
+  // ---------------------------------------------------------------------------
+  //
+  // Making the restore a queue job did NOT collapse concurrency control onto the
+  // active-dedup index, and these two cases are why: that index folds the
+  // SUBJECT into the key, so it refuses a second restore of the SAME archive and
+  // permits a second restore of a DIFFERENT one — which is the catastrophe.
+  // What each guard closes is argued in `startRestore`; what is pinned here is
+  // that both of the ones this service owns actually refuse.
+
+  it('refuses a double-click while the pre-flight is still running', async () => {
+    // The process-local flag's whole job, and the one window nothing else can
+    // cover: it is set before the pre-flight's several round trips and read
+    // synchronously, so two overlapping requests cannot both reach the enqueue.
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const h = makeHarness({ restoreGate: gate, restoreError: new Error('released') });
 
-    const first = await h.service.startRestore(backupRow(), { actorUserId: ACTOR });
-    expect(first.outcome).toBe('started');
+    const h = makeHarness();
+    h.check.mockImplementation(async () => {
+      await gate;
 
-    await waitFor(() => h.runPgRestore.mock.calls.length === 1, 'the first replay to start');
+      return okPreflight();
+    });
 
-    // A second restore would replay an archive into a database the first one is
-    // about to rename.
+    const first = h.service.startRestore(backupRow(), { actorUserId: ACTOR });
+
+    await waitFor(() => h.check.mock.calls.length === 1, 'the pre-flight to start');
+
     const second = await h.service.startRestore(backupRow(), { actorUserId: ACTOR });
+
     expect(second.outcome).toBe('already_running');
     expect((second as { runId: string }).runId).toBe(backupRow().id);
+    // The second request never even ran the gates.
+    expect(h.check).toHaveBeenCalledTimes(1);
 
     release();
-    await waitFor(() => h.finalStatus() === 'failed', 'the first restore to settle');
+    await first;
 
-    // ...and the slot is released once it settles.
-    expect(h.runPgRestore).toHaveBeenCalledTimes(1);
+    // ...and exactly one restore was queued.
+    expect(h.enqueue).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a restore ANOTHER process queued, which the flag cannot see', async () => {
+    // ⚠ THE GUARD THE PROCESS-LOCAL FLAG STRUCTURALLY CANNOT BE. A restore
+    // queued before this process started — or by a second replica — is
+    // invisible to an in-memory field, and it is type-wide rather than
+    // subject-wide, so it is also the only guard that refuses a second restore
+    // of a DIFFERENT archive.
+    const h = makeHarness({
+      queuedRestoreJob: { id: 'job-restore-0', subjectId: 'some-other-run' },
+    });
+
+    const result = await h.service.startRestore(backupRow(), { actorUserId: ACTOR });
+
+    expect(result.outcome).toBe('already_running');
+    expect((result as { runId: string }).runId).toBe('some-other-run');
+    // Nothing was gated, nothing was queued, nothing was written.
+    expect(h.check).not.toHaveBeenCalled();
+    expect(h.enqueue).not.toHaveBeenCalled();
+    expect(h.stateWrites).toEqual([]);
+  });
+
+  it('releases the process-local flag once the job is queued, not when it finishes', async () => {
+    // ⚠ #353 CHANGED THIS, AND GETTING IT WRONG IS A DURABLE OUTAGE. The flag
+    // used to be handed to the detached body; now this method's work ends at the
+    // enqueue, so holding it any longer would mean a restore that failed at 3am
+    // left this replica refusing every later restore until somebody restarted it.
+    const h = makeHarness();
+
+    await h.service.startRestore(backupRow(), { actorUserId: ACTOR });
+
+    // Nothing has executed the job, so the only thing that could refuse a second
+    // attempt is the durable guard — which this harness reports as empty.
+    const second = await h.service.startRestore(backupRow(), { actorUserId: ACTOR });
+
+    expect(second.outcome).toBe('started');
   });
 
   it('puts process.exit behind the seam so a test can assert it', async () => {
@@ -1414,7 +1745,19 @@ describe('rollback', () => {
       expect.objectContaining({ overrideSchemaMismatch: true })
     );
 
-    await waitFor(() => h.finalStatus() === 'failed', 'the delegated restore to settle');
+    // ⚠ THE DELEGATION IS AN ENQUEUE SINCE #353, NOT A DETACHED REPLAY. What
+    // `restore_started` now promises is that a `db.restore.run` job exists —
+    // and running it here proves the queued plan is executable rather than
+    // merely queued.
+    expect(h.enqueue).toHaveBeenCalledTimes(1);
+    expect(h.enqueue.mock.calls[0][0]).toMatchObject({
+      type: 'db.restore.run',
+      subjectId: 'pre-restore-run',
+    });
+
+    await h.service.executeRestoreJob(h.queuedJobs[0]).catch(() => undefined);
+
+    expect(h.finalStatus()).toBe('failed');
   });
 
   it('reports unavailable — honestly — when neither route exists', async () => {
