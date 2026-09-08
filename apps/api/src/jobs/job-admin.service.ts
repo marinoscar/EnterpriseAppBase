@@ -141,8 +141,13 @@ export interface JobListResult {
   totalPages: number;
 }
 
-/** A row as the list publishes it: the projection below, plus `typeLabel`. */
-export type JobListItem = Omit<Job, 'payload'> & { typeLabel: string };
+/**
+ * A row as the list publishes it: the projection below, plus `typeLabel`.
+ *
+ * The omission list must match `JOB_LIST_SELECT`'s — see that constant for why
+ * `payload` and `claimToken` are the two columns this API does not publish.
+ */
+export type JobListItem = Omit<Job, 'payload' | 'claimToken'> & { typeLabel: string };
 
 export interface RetryFailedResult {
   retried: number;
@@ -157,13 +162,23 @@ export interface ResetStuckAdminResult {
 }
 
 /**
- * Every `Job` column EXCEPT `payload`.
+ * Every `Job` column EXCEPT `payload` and `claimToken`.
  *
  * Written out rather than expressed as an omission because Prisma's `select`
  * has no "everything but" form — and writing it out is what makes the
  * exclusion visible at the query, where a future reader adding a column will
  * see that a choice was made. The reasoning for leaving `payload` out is in
  * `dto/job-response.dto.ts`.
+ *
+ * `claimToken` (#361) is left out because it is INTERNAL OWNERSHIP MACHINERY
+ * with no operator-facing meaning: an admin reading this table wants to know
+ * WHICH EXECUTOR holds a job (`claimedByNodeId`, `executor`) and until when
+ * (`leaseExpiresAt`), never which of that executor's successive claims it
+ * currently is. A random uuid answers no question anybody asks of this list.
+ * The `satisfies` clause below is what forces that call to be made out loud:
+ * a column added to `Job` fails to compile here until it is either selected or
+ * named in the `Omit`, so "not published" is always a decision and never a
+ * default.
  */
 const JOB_LIST_SELECT = {
   id: true,
@@ -187,7 +202,7 @@ const JOB_LIST_SELECT = {
   claimedByNodeId: true,
   leaseExpiresAt: true,
   executor: true,
-} as const satisfies Record<keyof Omit<Job, 'payload'>, true>;
+} as const satisfies Record<keyof Omit<Job, 'payload' | 'claimToken'>, true>;
 
 /**
  * The complete reset a retry writes, as ONE object shared by the single-row
@@ -251,6 +266,7 @@ const RETRY_RESET = {
   rateLimitHits: 0,
   rateLimitedAt: null,
   claimedByNodeId: null,
+  claimToken: null,
   leaseExpiresAt: null,
   executor: null,
 } as const satisfies Prisma.JobUncheckedUpdateManyInput;

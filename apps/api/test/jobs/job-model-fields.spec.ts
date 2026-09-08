@@ -47,6 +47,7 @@ describe('Prisma.JobScalarFieldEnum', () => {
       'rateLimitedAt',
       'rateLimitHits',
       'claimedByNodeId',
+      'claimToken',
       'leaseExpiresAt',
       'executor',
     ].sort();
