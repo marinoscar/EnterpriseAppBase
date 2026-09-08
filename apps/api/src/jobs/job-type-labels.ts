@@ -75,6 +75,30 @@ export const JOB_TYPE_LABELS: Readonly<Record<string, string>> = {
   // dashboard because of. "Database backup" and not "Database backup run":
   // the row is the run, so the noun is already carried by the table.
   'db.backup.run': 'Database backup',
+  // -------------------------------------------------------------------------
+  // #353 (epic #345): the rest of "all long-running work is a job". Eight types
+  // that were `@Cron` bodies or detached promises until this issue, labelled as
+  // groups because that is how they read in a dashboard filtered by type.
+  // -------------------------------------------------------------------------
+  // The restore. The one row in this table an operator is reading the dashboard
+  // at 3am BECAUSE of, so it says what it does rather than naming a subsystem:
+  // this job replaces the live database.
+  'db.restore.run': 'Database restore',
+  // The backup subsystem's two housekeeping sweeps. Phrased so they sort
+  // adjacent to `db.backup.run` and to each other, and so the difference is
+  // legible: one tidies RUNS AND ARCHIVES, the other drops a DATABASE a restore
+  // displaced.
+  'db.backup.sweep': 'Backup sweep',
+  'db.restore.old-db-drop': 'Restore cleanup',
+  // The three oldest cleanup crons in this repository, converted together.
+  'storage.cleanup.stale-uploads': 'Stale upload cleanup',
+  'auth.token.cleanup': 'Token cleanup',
+  'device-auth.code.cleanup': 'Device code cleanup',
+  // The fleet's own lifecycle, in the order it happens: a silent node is marked
+  // offline, and an offline node is eventually forgotten. "Sweep" and "prune"
+  // are the words the handlers, the settings and the runbook already use.
+  'nodes.fleet.sweep': 'Fleet sweep',
+  'nodes.fleet.prune': 'Fleet prune',
 };
 
 /**
