@@ -443,12 +443,7 @@ pathological case into a visible error rather than a hang.
 ### 4.4 The claim is one statement
 
 ```sql
-UPDATE jobs SET
-  status = 'running', started_at = now(), scheduled_for = NULL,
-  attempts = attempts + 1,
-  claimed_by_node_id = $nodeId::uuid, executor = $executor,
-  lease_expires_at = now() + ($leaseMs * interval '1 millisecond')
-WHERE id IN (
+WITH picked AS MATERIALIZED (
   SELECT id FROM jobs
   WHERE status = 'pending'
     AND (scheduled_for IS NULL OR scheduled_for <= now())
@@ -457,17 +452,44 @@ WHERE id IN (
   FOR UPDATE SKIP LOCKED
   LIMIT $limit
 )
+UPDATE jobs SET
+  status = 'running', started_at = now(), scheduled_for = NULL,
+  attempts = attempts + 1,
+  claimed_by_node_id = $nodeId::uuid, executor = $executor,
+  -- Minted by the statement itself, per updated row — see §6.9 and the
+  -- `20260908120000_add_job_claim_token` migration header. NOT a bound
+  -- parameter: a placeholder would give the whole batch one token.
+  claim_token = gen_random_uuid(),
+  -- One lease per TYPE, not one for the whole batch (#346) — see §5.10.
+  lease_expires_at = now() + (l.lease_ms * interval '1 millisecond')
+FROM picked p, unnest($types::text[], $leaseValues::double precision[]) AS l(type, lease_ms)
+WHERE jobs.id = p.id AND jobs.type = l.type
 RETURNING …
 ```
 
-The inner `SELECT` picks eligible rows and locks them, skipping any row
-another transaction already holds; the outer `UPDATE` marks exactly those rows
-`running` and hands them back. There is no window between "I chose this row"
-and "I own this row" in which a second claimer can choose it too, because
-there is no gap between the two — they are the same statement, in the same
-implicit transaction.
+The `picked` CTE picks eligible rows and locks them, skipping any row another
+transaction already holds; the `UPDATE`, joined against `picked` and against
+the `(type, lease_ms)` pairs `unnest` turns the per-type lease list into,
+marks exactly those rows `running` and gives each one *its own type's* lease.
+There is no window between "I chose this row" and "I own this row" in which a
+second claimer can choose it too, because there is no gap between the two —
+they are the same statement, in the same implicit transaction.
 
-`ClaimOptions` is `{ nodeId, executor, eligibleTypes, limit, leaseMs }`, and
+**⚠ `MATERIALIZED` is load-bearing, not stylistic.** Folding `picked` back into
+a plain `id IN (SELECT …)` is the shape this claim used before #346, and it is
+now a documented bug rather than an alternative: once a `FROM` clause is
+present (the `unnest` join, needed for a per-type lease), Postgres is free to
+re-evaluate that subquery once per outer row, and each re-evaluation takes its
+own `FOR UPDATE SKIP LOCKED` locks — so `LIMIT` stops being a limit. It is
+plan-dependent, so it can look correct against whatever data it happens to be
+tried on and only breaks under a plan nobody in the room has run. See
+`job-claim.service.ts`'s `⚠⚠ THE ROW PICK IS A MATERIALIZED CTE` header
+section for the measurements and `test/jobs/job-claim.db.spec.ts` for the
+regression test, which must stay a database test for the same reason.
+
+`ClaimOptions` is `{ nodeId, executor, eligibleTypes, limit, leases }`, where
+`leases` is `Array<{ type, leaseMs }>` — one lease per eligible type, built by
+`buildClaimLeases` (§5.10) rather than a single deployment-wide number — and
 this method is **shared verbatim** by both claimers in this epic: the
 in-process worker (#262) and the node control plane (#268). That is why the
 options carry `nodeId` and `executor` rather than the service knowing which
@@ -719,17 +741,24 @@ The two branches are therefore:
   retries after attempts 1 and 2 and fails on 3 — and a type declaring
   `maxAttempts: 1` fails on its first.
 
-Every branch releases the claim (`claimedByNodeId`) and the lease
-(`leaseExpiresAt`), and every branch records the error message in `lastError`
-(truncated at 2000 characters — some SDKs embed a whole response body in a
-message, and the admin job list renders this string).
+Every branch releases the claim (`claimedByNodeId`, `claimToken`) and the
+lease (`leaseExpiresAt`), and every branch records the error message in
+`lastError` (truncated at 2000 characters — some SDKs embed a whole response
+body in a message, and the admin job list renders this string).
 
-**`executor` is deliberately never cleared.** `succeeded` and `failed` are
+**`executor` is deliberately never cleared; `claimToken` is deliberately
+always cleared, on every branch, alongside it.** `succeeded` and `failed` are
 terminal, so there is no stale ownership to null out, and *which side ran the
-job* is exactly the kind of thing worth still knowing later. `lastError` is
-likewise left alone on success: on a job that succeeded on its third attempt,
-the message from attempt two is the only surviving explanation of why it took
-three.
+job* is exactly the kind of thing worth still knowing later — `executor` is
+audit and survives for that reason. `claimToken` (#361) is not audit: it is
+the identity of *one claim* of the row, and its invariant is "non-null exactly
+while the row is claimed" (§6.9), so a settled row — whichever way it
+settled — carries none, full stop. A random uuid left sitting on a terminal
+row would record nothing a human could later read anything into; keeping it
+would buy no history at all while contradicting the one invariant the column
+exists to hold. `lastError` is likewise left alone on success: on a job that
+succeeded on its third attempt, the message from attempt two is the only
+surviving explanation of why it took three.
 
 ### 5.4 The un-charge is an absolute value, not a decrement
 
@@ -1216,7 +1245,7 @@ away from the log line that explains it.
 Nothing should reach it: it has no method a feature module wants, and a module
 that could inject it could stop the pool.
 
-### 6.9 In-process lease renewal, and what it cannot distinguish (#347, epic #345)
+### 6.9 In-process lease renewal, and the per-claim token that makes it safe across replicas (#347, #361, epic #345)
 
 A claim writes `lease_expires_at` once. Until #347 nothing in the in-process
 worker ever wrote it again — `NodesService.renewLease` was the queue's only
@@ -1236,34 +1265,74 @@ profile — a renewal derived from anything else could hand a six-hour type a
 ten-minute extension).
 
 **The guard is a `WHERE` clause on the write itself, never a read-then-write.**
-`heldLeaseWhere(jobId, nodeId)` demands the row still be `running`, its lease
-not yet expired, and — when a caller passes one — held by that specific node;
-`updateMany` makes the check and the write one statement, so a count of zero
-is the only honest answer to "did the state move between my read and my
-write". A renewal that finds the row no longer its own **stops renewing and
-logs at `error`**, naming the job: the work itself is not cancelled (§6.5
-already spends a paragraph on why JavaScript cannot cancel a promise
-mid-`await`), but a worker that has lost the row must not keep re-forging the
-queue's view of it. This does not introduce a hazard — the queue has always
-been at-least-once (§4.5) — it makes a pre-existing one **visible**: before
-#347 two executors on one row happened silently every time a job outran the
-threshold.
+`heldLeaseWhere(jobId, holder)` demands the row still be `running` and its
+lease not yet expired; `updateMany` makes the check and the write one
+statement, so a count of zero is the only honest answer to "did the state move
+between my read and my write". A renewal that finds the row no longer its own
+**stops renewing and logs at `error`**, naming the job: the work itself is not
+cancelled (§6.5 already spends a paragraph on why JavaScript cannot cancel a
+promise mid-`await`), but a worker that has lost the row must not keep
+re-forging the queue's view of it. This does not introduce a hazard — the
+queue has always been at-least-once (§4.5) — it makes a pre-existing one
+**visible**: before #347 two executors on one row happened silently every
+time a job outran the threshold.
 
-**⚠ What the guard cannot distinguish, stated plainly (#361): two SERVER
-processes.** `nodeId` in `heldLeaseWhere` is deliberately three-valued — a
-node id (only that node may renew), `null` (only a row claimed by no node —
+**⚠ What #347's guard could not distinguish: two SERVER processes, and #361 is
+what closed it.** `holder` (`LeaseHolder`, `job-lease.service.ts`) carries two
+independently three-valued fields, `nodeId` and `claimToken`. `nodeId` alone —
+a node id (only that node may renew), `null` (only a row claimed by no node —
 i.e. the in-process worker's own claim — may be renewed), or `undefined` (no
-ownership constraint, for a fork's own executor). But if replica A's job is
-reaped and replica B claims it, **both** see `claimedByNodeId: null` and a
-live lease, so A's next renewal succeeds and silently extends **B's** lease.
-Closing that would need a per-claim token column on `jobs` — a schema change
-deliberately out of scope for #347. It is still strictly better than the
-status quo it replaced (where A never renewed at all and B was guaranteed to
-be reaped too regardless), and the queue's at-least-once contract already
-covers the remaining outcome: at worst, one job's lease is extended by two
-processes that both believe they hold it, which is a duplicate-execution risk
-the queue already tolerates everywhere else, not a new one this closes badly.
-See `job-lease.service.ts`'s own header for the full argument.
+ownership constraint, for a fork's own executor) — is what #347 shipped with,
+and it identifies a **kind** of claimant, not a **claim**: every API replica
+claims with `claimedByNodeId: null`, so if replica A's job is reaped and
+replica B claims it, both produce the identical predicate, and A's next
+renewal matched it and silently extended **B's** lease. A never learned it had
+lost the row.
+
+`jobs.claim_token` (nullable `uuid`, no default, no index — the migration
+header for `20260908120000_add_job_claim_token` carries the full argument) is
+the fix: minted fresh by the claim statement itself, **per row**, not per
+claiming process and not per batch (a token bound once per claim would just
+move the same defect down one level — a worker that claims job J, loses it to
+the reaper, and claims J again could not tell that second claim apart from the
+first). `job.claimToken` — the value the claiming statement's own `RETURNING`
+handed back — is what `JobWorker.startLeaseRenewal` now passes as
+`holder.claimToken` on every tick. Replica B's claim overwrites the row's
+token, so replica A's renewal, still carrying the token from *its* claim, now
+matches zero rows and correctly answers `false`. Two server replicas are told
+apart, which was the whole point.
+
+**The invariant, stated once so it does not have to be re-derived at every
+call site: `claim_token IS NOT NULL` exactly while the row is claimed.** The
+claim statement writes it in the same statement that writes
+`claimed_by_node_id` and `lease_expires_at`; every un-claim path — the
+terminal writes (§5.1, §5.3), both lease-reaper phases (§7.2), and the admin
+retry reset (§8.5) — clears it in the same write that clears those two, never
+on its own. `executor` is the one exception on the terminal path, and
+deliberately so: it is audit ("which side ran this job"), while a random uuid
+records nothing worth keeping, so it is cleared everywhere the claim itself is
+released — see §5.3 and §8.5 for exactly which fields survive which reset.
+
+**⚠ The node plane is deliberately NOT token-matched, and this is a decision,
+not an oversight.** `NodesService.renewLease` already reads the job row before
+renewing, so a token taken from that row and matched back against it would
+always pass — it would look like a guard and check nothing. For a node to
+prove *which* claim it holds, the token has to cross the wire (returned by the
+claim response, sent back on renew), which is a node-protocol change with a
+CLI half to it and is out of scope here. The residual hole that leaves is real
+and worth stating plainly rather than leaving for someone to rediscover: **one**
+node that claims job J, stalls past its lease, is reaped, and then claims J
+again has an old renewal ticker that can still extend its own *new* lease,
+because `claimedByNodeId` is the same node in both runs. It is the same shape
+as the two-replica hole above, one node short of it, and it is tracked
+separately from #361.
+
+**Rolling deploys narrow the hole rather than closing it outright.** A replica
+still running pre-#361 code emits no `claim_token` clause at all, so for as
+long as one old replica is still up it can extend a new replica's lease
+exactly as before. The window closes for good once the last old replica has
+rolled off — the ordinary shape of any predicate change during a rolling
+deploy, and not a reason to change this design.
 
 **A renewal failure is not treated as a lost lease.** The renewal interval is
 one third of the lease by construction, so two consecutive database blips
@@ -1870,9 +1939,9 @@ otherwise show `undefined` exactly when everything is fine.
 
 A retry writes: `status: 'pending'`, `attempts: 0`, `lastError: null`,
 `startedAt`/`finishedAt`/`scheduledFor` null, `rateLimitHits: 0`,
-`rateLimitedAt` null, and `claimedByNodeId`/`leaseExpiresAt`/`executor`
-cleared. One shared object serves both the single-row and the bulk path,
-because "retry" must mean the same thing however it was asked for — a bulk
+`rateLimitedAt` null, and `claimedByNodeId`/`claimToken`/`leaseExpiresAt`/
+`executor` cleared. One shared object serves both the single-row and the bulk
+path, because "retry" must mean the same thing however it was asked for — a bulk
 sweep that forgot `leaseExpiresAt` would requeue rows the reaper then
 immediately reclaims as stuck, a loop between two subsystems that only appears
 under load and only in the path written second.
@@ -1886,7 +1955,11 @@ cleared for the same reason: a retry is an operator overriding the backoff they
 can see on the screen. `executor` **is** cleared, as §7.2's requeue phase
 clears it and unlike the terminal path which keeps it as history — this row is
 going to run again, possibly on the other side, and a stale `executor` on a
-pending row is a lie rather than a record.
+pending row is a lie rather than a record. `claimToken` (#361) is cleared for
+a plainer reason that applies on every reset path, including the terminal one
+that keeps `executor`: its invariant is "non-null exactly while the row is
+claimed" (§6.9), and a row going back to `pending` — retried, requeued, or
+freshly enqueued — is by definition not claimed by anybody yet.
 
 `dedupKey` is deliberately **not** cleared. See §8.6.
 
@@ -1992,9 +2065,10 @@ This is the load-bearing property of the whole section, and it is stated in the
 service's file header in the same words.
 
 The endpoint reports on a table a worker pool is actively claiming rows out of.
-The claim (§4.4) is an `UPDATE … WHERE id IN (SELECT … FOR UPDATE SKIP LOCKED)`:
-it takes `ROW EXCLUSIVE` on `jobs` and holds row locks for the life of its
-transaction. Anything here that took a conflicting lock would not merely be
+The claim (§4.4) is a `WITH picked AS MATERIALIZED (SELECT … FOR UPDATE SKIP
+LOCKED) UPDATE … FROM picked`: it takes `ROW EXCLUSIVE` on `jobs` and holds
+row locks for the life of its transaction. Anything here that took a
+conflicting lock would not merely be
 slow — **it would block the queue it is reporting on**, and it would do so
 exactly when an operator opens the dashboard, which is exactly when the queue
 is already in trouble. A monitoring surface that can stall the thing it
@@ -2559,6 +2633,7 @@ throws, and a filesystem sweep.
 |---|---|
 | `stuckRunningWhere` carries all four signals, OR'd, each compared against its own instant (ages against the threshold, an expired lease against `now`, an implausible one against the lease horizon), and no age clause ever matches a leased row | `src/jobs/job-stuck.service.spec.ts`, and against real rows in `test/jobs/job-lease-renewal.db.spec.ts` |
 | A continuously renewed job is never requeued at any age; renewal refuses an expired lease, a requeued row and a row a node now holds | `test/jobs/job-lease-renewal.db.spec.ts`, `src/jobs/job-lease.service.spec.ts` |
+| A renewal presenting a `claimToken` that is no longer on the row is refused — the two-replica case #361 exists to close (§6.9) — and a settled or reaped row always carries `claim_token: null` | `test/jobs/job-lease-renewal.db.spec.ts`, `test/jobs/job-claim.db.spec.ts`, `src/jobs/job-lease.service.spec.ts` |
 | The in-process worker renews for the whole of `process()`, on the type's own lease, and its ticker is cancelled by `stop()` | `src/jobs/job.worker.spec.ts` |
 | The give-up phase runs one row at a time so each message names that job's attempts; neither phase writes `attempts` | `src/jobs/job-stuck.service.spec.ts` |
 | A settings read that throws falls back to the shipped threshold; a missing `jobs.maxAttempts` falls back to 3 rather than `NaN` | `src/jobs/job-stuck.service.spec.ts` |
