@@ -218,6 +218,13 @@ export class JobTerminalService {
    * "did this succeed before or after we moved this type to nodes?"). The
    * claim and the lease ARE cleared, because those two are live ownership
    * assertions and a terminal row must not appear to be held by anybody.
+   *
+   * ⚠ `claimToken` IS NOT COVERED BY THAT EXCEPTION and is cleared with the
+   * rest (#361). `executor` survives because it is AUDIT — it says something
+   * a human can read months later. A random uuid records nothing about what
+   * ran, so keeping it would buy no history at all while leaving a terminal
+   * row carrying a live ownership assertion. Its invariant is "non-null
+   * exactly while the row is claimed"; a settled row is not claimed.
    */
   async completeSucceeded(job: Job): Promise<JobSettleOutcome> {
     this.throttle.recordSuccess(job.type);
@@ -229,6 +236,7 @@ export class JobTerminalService {
       // Release the claim and the lease — see the note above about
       // `executor` NOT being in this list.
       claimedByNodeId: null,
+      claimToken: null,
       leaseExpiresAt: null,
       // `lastError` is deliberately left alone: on a job that succeeded on
       // its third attempt, the message from attempt two is the only surviving
@@ -354,6 +362,7 @@ export class JobTerminalService {
         rateLimitedAt: now,
         scheduledFor: null,
         claimedByNodeId: null,
+        claimToken: null,
         leaseExpiresAt: null,
       });
 
@@ -407,6 +416,7 @@ export class JobTerminalService {
       // Release the claim: this job is going back in the queue and may be
       // picked up by a different worker, or a different machine entirely.
       claimedByNodeId: null,
+      claimToken: null,
       leaseExpiresAt: null,
       finishedAt: null,
     });
@@ -454,6 +464,7 @@ export class JobTerminalService {
         scheduledFor: new Date(now.getTime() + delayMs),
         lastError: message,
         claimedByNodeId: null,
+        claimToken: null,
         leaseExpiresAt: null,
         finishedAt: null,
       });
@@ -507,6 +518,7 @@ export class JobTerminalService {
       lastError: message,
       scheduledFor: null,
       claimedByNodeId: null,
+      claimToken: null,
       leaseExpiresAt: null,
       // `executor` kept, for the same reason as on success.
     });
