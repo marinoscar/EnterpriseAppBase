@@ -1352,6 +1352,26 @@ describe('the restore settles its own job row', () => {
     expect(carriedJob(h)).toHaveLength(14);
   });
 
+  it('clears the claim token on BOTH paths — the insert and the upsert', async () => {
+    // `jobs.claim_token` is non-null exactly while the row is held under a
+    // claim (#361), so a settled row carrying one is a lie about ownership.
+    // The ON CONFLICT path is the one that can actually produce it: the
+    // promoted database's `jobs` is the ARCHIVE's, so this id is usually
+    // already there as it stood at dump time — `running`, with a live token.
+    const h = makeHarness();
+
+    await runRestore(h);
+
+    const insert = h.statements().find((text) => text.startsWith('INSERT INTO jobs')) ?? '';
+    const [inserted, upserted] = insert.split('ON CONFLICT');
+
+    expect(inserted).toContain('claim_token');
+    expect(upserted).toMatch(/claim_token = NULL/);
+    // A literal, not a bound parameter — exactly like `claimed_by_node_id`
+    // above, which is why the argument list is still fourteen long.
+    expect(carriedJob(h)).toHaveLength(14);
+  });
+
   it('stamps finished_at with the SWAP instant, so the run and the job agree', async () => {
     const h = makeHarness();
 
