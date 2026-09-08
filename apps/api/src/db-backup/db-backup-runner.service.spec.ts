@@ -2,10 +2,11 @@ import { createHash } from 'node:crypto';
 import { Readable } from 'node:stream';
 
 import { Logger } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, type Job } from '@prisma/client';
 
 import type { ConfigService } from '@nestjs/config';
 
+import type { DbBackupRunResult } from '../jobs/contracts/db-backup-run.contract';
 import { ACTIVE_DEDUP_INDEX_NAME, type JobsService } from '../jobs/jobs.service';
 import type { NotificationsService } from '../notifications/notifications.service';
 import type { PrismaService } from '../prisma/prisma.service';
@@ -153,6 +154,7 @@ const POLICY: SystemDatabaseBackupValue = {
   compressionLevel: 6,
   restoreRollbackMode: 'retain_database',
   oldDatabaseRetentionHours: 48,
+  nodeOffloadEnabled: false,
 };
 
 interface HarnessOptions {
@@ -1633,5 +1635,297 @@ describe('runQueuedBackup: the job\'s lifetime IS the dump\'s lifetime', () => {
     // Queued but unclaimed: there is no child process to signal, and saying
     // otherwise would tell an operator their dump had stopped.
     expect(h.service.cancel(run.id)).toEqual({ outcome: 'not_running_here', runId: run.id });
+  });
+});
+
+// =============================================================================
+// The node path: `resolveNodeOutputKey` and `completeNodeRun` (#352, epic #345)
+// =============================================================================
+//
+// FOUR PROPERTIES, and the first is the one every other one exists to protect:
+//
+//   1. BOTH EXECUTORS PRODUCE THE SAME ROW. `executeRun` and `completeNodeRun`
+//      go through one private `completeRun`, so a backup's stored state cannot
+//      depend on which machine took it.
+//   2. THE KEY IS THE SERVER'S. A node may only report the key it was handed;
+//      anything else is refused, not corrected.
+//   3. VERIFICATION IS SERVER-SIDE, ALWAYS. `verified_at` is written because
+//      THIS process read the object back out of the bucket, never because a
+//      node said so.
+//   4. `bytes` SURVIVES 2^53. The decimal-string wire type is only worth
+//      having if the value reaches the column exact.
+// =============================================================================
+
+/** A `db.backup.run` job row, as a node would be holding it. */
+const NODE_JOB = { id: 'job-node-1', type: BACKUP_JOB_TYPE } as unknown as Job;
+
+/** What a node reports. Overridden per test. */
+function nodeResult(overrides: Partial<DbBackupRunResult> = {}): DbBackupRunResult {
+  return {
+    storageKey: 'backups/2026/09/07/run-node.dump',
+    bytes: '1048576',
+    sha256: 'b'.repeat(64),
+    pgDumpVersion: 'pg_dump (PostgreSQL) 17.2',
+    dbVersion: 'PostgreSQL 17.4',
+    migrationName: '20260907160000_add_backup_run_pg_dump_version',
+    startedAt: '2026-09-07T02:00:00.000Z',
+    finishedAt: '2026-09-07T02:12:00.000Z',
+    ...overrides,
+  };
+}
+
+/** A run row a node is executing, seeded straight into the fake table. */
+function seedNodeRun(
+  h: ReturnType<typeof makeHarness>,
+  overrides: Record<string, unknown> = {}
+): Record<string, unknown> {
+  const row = {
+    id: 'run-node',
+    jobId: NODE_JOB.id,
+    status: 'running',
+    trigger: 'manual',
+    storageProvider: 's3',
+    storageKey: 'backups/2026/09/07/run-node.dump',
+    bucket: 'test-bucket',
+    format: 'custom',
+    bytesWritten: 0n,
+    dbVersion: null,
+    appVersion: null,
+    migrationName: null,
+    pgDumpVersion: null,
+    startedAt: new Date('2026-09-07T02:00:00.000Z'),
+    lastHeartbeatAt: new Date('2026-09-07T02:00:00.000Z'),
+    ...overrides,
+  };
+
+  h.rows.set(row.id as string, row);
+
+  return row;
+}
+
+describe('resolveNodeOutputKey: the server chooses where a node writes', () => {
+  it('returns the run’s recorded key — never a node-outputs path', async () => {
+    const h = makeHarness();
+    seedNodeRun(h);
+
+    await expect(h.service.resolveNodeOutputKey(NODE_JOB)).resolves.toBe(
+      'backups/2026/09/07/run-node.dump'
+    );
+  });
+
+  it('is idempotent: a node that asks twice gets ONE key, not a second archive', async () => {
+    const h = makeHarness();
+    seedNodeRun(h, { status: 'pending', startedAt: null, lastHeartbeatAt: null });
+
+    const first = await h.service.resolveNodeOutputKey(NODE_JOB);
+    const second = await h.service.resolveNodeOutputKey(NODE_JOB);
+
+    expect(second).toBe(first);
+  });
+
+  it('flips `pending` to `running` on the first ask — the only moment the server learns a node has started', async () => {
+    const h = makeHarness();
+    seedNodeRun(h, { status: 'pending', startedAt: null, lastHeartbeatAt: null });
+
+    await h.service.resolveNodeOutputKey(NODE_JOB);
+
+    const row = h.rows.get('run-node');
+    expect(row?.status).toBe('running');
+    // `startedAt` is what the failure notification and every duration render;
+    // leaving it NULL would make a node-taken dump look like it never began.
+    expect(row?.startedAt).toBeInstanceOf(Date);
+    expect(row?.lastHeartbeatAt).toBeInstanceOf(Date);
+  });
+
+  it('does not re-write a row that is already running — the second ask only reads', async () => {
+    const h = makeHarness();
+    seedNodeRun(h);
+    h.prisma.databaseBackupRun.update.mockClear();
+
+    await h.service.resolveNodeOutputKey(NODE_JOB);
+
+    expect(h.prisma.databaseBackupRun.update).not.toHaveBeenCalled();
+  });
+
+  it('refuses when the job has no run row: there is nowhere legitimate for those bytes to go', async () => {
+    const h = makeHarness();
+
+    await expect(h.service.resolveNodeOutputKey(NODE_JOB)).rejects.toThrow(
+      /no backup run row/
+    );
+  });
+
+  it('refuses once the run has settled — a completed archive is not an upload target', async () => {
+    const h = makeHarness();
+    seedNodeRun(h, { status: 'completed' });
+
+    await expect(h.service.resolveNodeOutputKey(NODE_JOB)).rejects.toThrow(/already "completed"/);
+  });
+});
+
+describe('completeNodeRun: one write, two paths', () => {
+  it('writes the SAME terminal row shape the server path writes', async () => {
+    // The server path, for comparison — a real dump through the real engine.
+    const server = makeHarness();
+    await server.service.startBackup({ trigger: 'manual' });
+    (await server.firstDump()).push(Buffer.from('archive'));
+    (await server.firstDump()).finish();
+    const serverRow = await server.settled;
+
+    // The node path, with the numbers a node reported rather than ones this
+    // process measured.
+    const node = makeHarness();
+    seedNodeRun(node);
+    await node.service.completeNodeRun(NODE_JOB, nodeResult());
+    const nodeRow = node.rows.get('run-node') as Record<string, unknown>;
+
+    // ⚠ THE PROPERTY THIS WHOLE FILE'S NODE SECTION EXISTS FOR: the set of
+    // columns a completion writes is identical, so nothing downstream — the
+    // restore path, the retention sweep, the admin list — has to ask which
+    // executor produced a row before trusting it.
+    const terminal = (row: Record<string, unknown>) => ({
+      status: row.status,
+      hasFinishedAt: row.finishedAt instanceof Date,
+      hasVerifiedAt: row.verifiedAt instanceof Date,
+      bytesMatchSize: row.bytesWritten === row.sizeBytes,
+      checksumIsHex: /^[0-9a-f]{64}$/.test(row.checksumSha256 as string),
+      lastError: row.lastError,
+      hasAppVersion: typeof row.appVersion === 'string',
+    });
+
+    expect(terminal(nodeRow)).toEqual(terminal(serverRow));
+    expect(nodeRow.status).toBe('completed');
+  });
+
+  it('records the node’s provenance, including which pg_dump wrote the archive', async () => {
+    const h = makeHarness();
+    seedNodeRun(h);
+
+    await h.service.completeNodeRun(NODE_JOB, nodeResult());
+
+    const row = h.rows.get('run-node');
+    expect(row?.dbVersion).toBe('PostgreSQL 17.4');
+    expect(row?.pgDumpVersion).toBe('pg_dump (PostgreSQL) 17.2');
+    expect(row?.migrationName).toBe('20260907160000_add_backup_run_pg_dump_version');
+    // `appVersion` is THIS process's build, deliberately — it records which
+    // application wrote the row, not which binary wrote the file.
+    expect(typeof row?.appVersion).toBe('string');
+  });
+
+  it('round-trips a byte count above 2^53 into the BigInt columns, exactly', async () => {
+    const h = makeHarness();
+    seedNodeRun(h);
+
+    // 2^53 + 1: the first integer JSON's number type cannot represent.
+    await h.service.completeNodeRun(NODE_JOB, nodeResult({ bytes: '9007199254740993' }));
+
+    const row = h.rows.get('run-node');
+    expect(row?.sizeBytes).toBe(9007199254740993n);
+    expect(row?.bytesWritten).toBe(9007199254740993n);
+    // What sending it as a JSON number would have stored instead.
+    expect(BigInt(Number('9007199254740993'))).not.toBe(row?.sizeBytes);
+  });
+
+  it('VERIFIES SERVER-SIDE before it writes: download, read the TOC, then complete', async () => {
+    const h = makeHarness();
+    seedNodeRun(h);
+
+    await h.service.completeNodeRun(NODE_JOB, nodeResult());
+
+    // The order is the assertion. `verified_at` may only be written after this
+    // process has read what the BUCKET holds — a node vouching for its own
+    // upload is not evidence (§6 of docs/specs/database-backup.md).
+    expect(h.order).toEqual([
+      'findUnique',
+      'download',
+      'readTocEntryCount',
+      'update:completed',
+      'prune',
+    ]);
+  });
+
+  it('fails the run when the stored archive has an EMPTY table of contents', async () => {
+    const h = makeHarness({ tocEntries: 0 });
+    seedNodeRun(h);
+
+    await expect(h.service.completeNodeRun(NODE_JOB, nodeResult())).rejects.toBeInstanceOf(
+      DatabaseBackupVerificationError
+    );
+
+    const row = h.rows.get('run-node');
+    expect(row?.status).toBe('failed');
+    expect(row?.verifiedAt).toBeUndefined();
+    // The object goes first, exactly as on the server's failure path: a
+    // `failed` run must never leave an archive nothing points at.
+    expect(h.order).toContain('delete');
+    expect(h.order.indexOf('delete')).toBeLessThan(h.order.indexOf('update:failed'));
+  });
+
+  it('fails the run when the archive cannot be read back at all', async () => {
+    const h = makeHarness({
+      downloadImpl: jest.fn(async () => {
+        throw new Error('NoSuchKey');
+      }) as unknown as StorageProvider['download'],
+    });
+    seedNodeRun(h);
+
+    await expect(h.service.completeNodeRun(NODE_JOB, nodeResult())).rejects.toThrow('NoSuchKey');
+    expect(h.rows.get('run-node')?.status).toBe('failed');
+  });
+
+  it('REFUSES a key the server did not hand out, and records nothing about it', async () => {
+    const h = makeHarness();
+    seedNodeRun(h);
+
+    await expect(
+      h.service.completeNodeRun(NODE_JOB, nodeResult({ storageKey: 'backups/somebody-else.dump' }))
+    ).rejects.toThrow(/may only report the key the server handed it/);
+
+    const row = h.rows.get('run-node');
+    expect(row?.status).toBe('failed');
+    expect(row?.checksumSha256).toBeUndefined();
+    // ⚠ AND IT NEVER LOOKED AT THE BYTES. A mismatch is refused before any
+    // download, so a result naming an arbitrary key cannot make this server
+    // fetch an arbitrary object.
+    expect(h.order).not.toContain('download');
+  });
+
+  it('does not prune on any failure — old archives matter most when tonight’s backup failed', async () => {
+    const h = makeHarness({ tocEntries: 0 });
+    seedNodeRun(h);
+
+    await expect(h.service.completeNodeRun(NODE_JOB, nodeResult())).rejects.toBeInstanceOf(
+      DatabaseBackupVerificationError
+    );
+
+    expect(h.retention.prune).not.toHaveBeenCalled();
+  });
+
+  it('treats a resubmitted result for an already-completed run as a no-op', async () => {
+    const h = makeHarness();
+    seedNodeRun(h, { status: 'completed' });
+
+    // A node whose result reached us but whose response was lost sends it
+    // again. The work is done; refusing would fail a job whose archive is
+    // sitting verified in the bucket.
+    await expect(h.service.completeNodeRun(NODE_JOB, nodeResult())).resolves.toBeUndefined();
+    expect(h.order).toEqual(['findUnique']);
+  });
+
+  it('refuses a result for a run that was given up on', async () => {
+    const h = makeHarness();
+    seedNodeRun(h, { status: 'stale' });
+
+    await expect(h.service.completeNodeRun(NODE_JOB, nodeResult())).rejects.toThrow(
+      /no longer holds the active backup slot/
+    );
+  });
+
+  it('refuses a result for a job with no run row', async () => {
+    const h = makeHarness();
+
+    await expect(h.service.completeNodeRun(NODE_JOB, nodeResult())).rejects.toThrow(
+      /no backup run row/
+    );
   });
 });

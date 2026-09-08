@@ -224,6 +224,11 @@ export const DEFAULT_SYSTEM_SETTINGS = {
     compressionLevel: 6,
     restoreRollbackMode: 'retain_database',
     oldDatabaseRetentionHours: 48,
+    // OFF (#352, epic #345). Node offload needs TWO deliberate decisions —
+    // this one and `nodes.jobSecretBrokerEnabled` above — because "these
+    // machines may hold a short-lived credential" and "the whole database may
+    // be dumped somewhere other than the API server" are different questions.
+    nodeOffloadEnabled: false,
   },
   maintenance: {
     enabled: false,

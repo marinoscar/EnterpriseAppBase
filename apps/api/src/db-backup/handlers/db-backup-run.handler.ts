@@ -82,34 +82,67 @@
 // lifetime, which is the entire point.
 //
 // -----------------------------------------------------------------------------
-// ⚠ NOT NODE-ELIGIBLE, AND NOT BY OVERSIGHT
+// NODE-ELIGIBLE SINCE #352 — ALL THREE MEMBERS, TOGETHER
 // -----------------------------------------------------------------------------
 //
-// There is no `nodeResultSchema`, no `persistNodeResult` and no
-// `deriveOutputKey` here, so `JobHandlerRegistry.serverOnlyTypes()` derives
-// this type as server-only and no node can claim it — which is correct for
-// today: a worker node has no database credentials and no `pg_dump`. Issue
-// #352 adds all three together, because the eligibility rule
-// (`job-handler.interface.ts`) is BOTH members or NEITHER: a schema with no
-// persist function describes a payload nobody can store, and a persist
-// function with no schema would trust an unvalidated remote body. Do not add
-// one of them here ahead of the other.
+// `nodeResultSchema` + `persistNodeResult` + `deriveOutputKey` landed in ONE
+// change, and the eligibility rule in `job-handler.interface.ts` is why: BOTH
+// members or NEITHER. Exactly one of the pair means server-only by derivation
+// — a schema with no persist function describes a payload nobody can store,
+// and a persist function with no schema would trust an unvalidated remote
+// body. `deriveOutputKey` joins them because without it the data plane would
+// sign an upload to `node-outputs/<jobId>/<uuid>`, and an archive there is one
+// the retention sweep, the download endpoint and the restore path cannot find:
+// `database_backup_runs.storage_key` is how every one of them looks it up. A
+// node-eligible backup that wrote to the wrong key would not be a feature,
+// it would be a backup you cannot restore.
+//
+// All three delegate to `DatabaseBackupRunnerService`, which stays THE ONE
+// WRITER of `database_backup_runs` (`db-backup.module.ts` says so, and the
+// single-active-run index is only a guarantee while that holds). In
+// particular `persistNodeResult` reaches the same private `completeRun` that
+// the server path's `executeRun` uses — `example-checksum.handler.ts`'s "one
+// write, two paths", applied to the row a restore reads.
+//
+// ⚠ WHAT `persistNodeResult` DOES NOT DO IS THE INTERESTING PART. It does not
+// re-hash the archive and it does not recompute its size — that would make the
+// node's work decorative, which `job-handler.interface.ts` forbids. It DOES
+// download the stored object and read its table of contents, because
+// VERIFICATION IS NOT PART OF THE NODE'S WORK: §6 of
+// docs/specs/database-backup.md defines verification as "what the bucket
+// holds", and a node attesting to its own upload is the machine with the least
+// reason to be trusted vouching for the one fact this subsystem rests on.
 //
 // -----------------------------------------------------------------------------
-// #350 ADDS THE CREDENTIAL, WHICH IS A DIFFERENT FACT FROM ELIGIBILITY
+// ⚠ ELIGIBLE IS NOT THE SAME AS OFFERED — THREE GATES, ALL AT CLAIM TIME
 // -----------------------------------------------------------------------------
 //
-// `nodeSecretBroker` (below) declares that a REMOTE executor of this type needs
-// a database credential and names the thing that mints it. It changes nothing
-// about the paragraph above: a broker is not `nodeResultSchema`, this type is
-// still in `serverOnlyTypes()`, and no node can claim it until #352. The two
-// halves land separately on purpose — the broker is the half that needed a real
-// PostgreSQL to review (`pg-job-role.broker.db.spec.ts` dumps the database as
-// the minted role), and it is inert until the result contract exists.
+// This type is node-eligible permanently and structurally, because the members
+// above say so. Whether a NODE IS EVER OFFERED IT is a separate, runtime
+// question with three independent answers, all intersected in
+// `NodesService.nodeEligibleTypes` and none of them touching the registry:
+//
+//   1. `nodes.jobSecretBrokerEnabled` — may the broker issue anything at all?
+//   2. `nodeSecretBroker.usable()` — CAN it, on this database, right now?
+//      (managed PostgreSQL denying CREATEROLE is the ordinary case)
+//   3. `databaseBackup.nodeOffloadEnabled` — may THIS workload leave the
+//      server? That is `nodeOffloadEnabled()` below.
+//
+// With any of the three saying no, the type is withheld from the claim and the
+// in-process worker takes the backup — exactly what happened before #352. A
+// node never sees the job, so there is no half-state where a node holds a
+// backup it cannot get a credential for.
+//
 // =============================================================================
 
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Job } from '@prisma/client';
+
+import {
+  dbBackupRunResultSchema,
+  type DbBackupRunResult,
+} from '../../jobs/contracts/db-backup-run.contract';
+import { SystemSettingsService } from '../../settings/system-settings/system-settings.service';
 
 import {
   BACKUP_JOB_TYPE,
@@ -194,9 +227,21 @@ export class DatabaseBackupRunHandler implements JobHandler, OnModuleInit {
    */
   readonly nodeSecretBroker: JobSecretBroker;
 
+  /**
+   * THE FIRST OF THE TWO MEMBERS THAT MAKE THIS TYPE NODE-ELIGIBLE (#352).
+   *
+   * It lives in `jobs/contracts/` rather than inline because a second reader
+   * needs it: `GET /api/nodes/job-types` converts it with `z.toJSONSchema()`
+   * so a worker validates against the server's own definition before it
+   * submits. Its header is where the `bytes`-as-a-decimal-string argument
+   * lives, which is the one field of the eight nobody should change casually.
+   */
+  readonly nodeResultSchema = dbBackupRunResultSchema;
+
   constructor(
     private readonly registry: JobHandlerRegistry,
     private readonly runner: DatabaseBackupRunnerService,
+    private readonly settings: SystemSettingsService,
     broker: PgJobRoleBroker
   ) {
     this.nodeSecretBroker = broker;
@@ -221,5 +266,88 @@ export class DatabaseBackupRunHandler implements JobHandler, OnModuleInit {
     this.logger.log(`Taking a database backup for job ${job.id}.`);
 
     await this.runner.runQueuedBackup(job);
+  }
+
+  // ===========================================================================
+  // The node path (#352, epic #345)
+  // ===========================================================================
+
+  /**
+   * Where a node must write this job's archive: the run's OWN key.
+   *
+   * Delegated whole to the runner, which re-reads the run by `jobId` (a
+   * `@unique` column, so at most one row can be found) and returns the key it
+   * recorded at creation. That is what makes this IDEMPOTENT — the one hard
+   * requirement `JobHandler.deriveOutputKey` states, because a node asks for
+   * its upload URL again after a timed-out transfer, a lost response or a
+   * restart, and a derivation that minted something new each time would leave
+   * a second archive that no row points at.
+   *
+   * Note what this is NOT: it is not the node choosing a key. The value is
+   * computed in this process, from the job row, by the feature that owns the
+   * artifact. A node-supplied `key` is refused with a 400 long before this
+   * runs.
+   */
+  deriveOutputKey(job: Job): Promise<string> {
+    return this.runner.resolveNodeOutputKey(job);
+  }
+
+  /**
+   * THE SECOND MEMBER THAT MAKES THIS TYPE NODE-ELIGIBLE: records a backup a
+   * node took, after this server has read the archive back out of the bucket.
+   *
+   * ⚠ IT PARSES AGAIN, DELIBERATELY, and not out of distrust for
+   * `NodesService.submitResult` (which has already parsed against the same
+   * schema). The interface hands this method `result: unknown` because the
+   * value came from off-machine, so narrowing is the only way to touch a field
+   * at all — and re-parsing rather than casting means a future caller that
+   * forgets to validate cannot write an arbitrary object into
+   * `database_backup_runs` through this method. The cost is one schema parse
+   * of an eight-field object, once per backup.
+   *
+   * Everything else is the runner's, including the key check, the server-side
+   * verification and the shared completing write. See
+   * `DatabaseBackupRunnerService.completeNodeRun`.
+   */
+  async persistNodeResult(job: Job, result: unknown): Promise<void> {
+    const parsed: DbBackupRunResult = this.nodeResultSchema.parse(result);
+
+    await this.runner.completeNodeRun(job, parsed);
+  }
+
+  /**
+   * May a node take this deployment's backups today?
+   *
+   * `databaseBackup.nodeOffloadEnabled`, default FALSE — read HERE rather than
+   * in `NodesService` for the reason `JobHandler.nodeOffloadEnabled` gives: a
+   * `if (type === BACKUP_JOB_TYPE)` in the nodes module would be a central
+   * dispatch table keyed on job type, and it would make that module depend on
+   * this feature's settings shape. The handler owns the type, so the handler
+   * answers the question.
+   *
+   * ⚠ READ PER CLAIM, NOT CACHED AND NOT READ AT STARTUP. The value is an
+   * administrator's decision, and a cached copy is how "we turned node offload
+   * off" takes effect at some unspecified later time — which for this
+   * particular switch means an unwanted multi-gigabyte dump on a machine
+   * somebody has just decided not to trust.
+   *
+   * A settings read that FAILS returns `false`: withholding the type falls
+   * back to the in-process worker, which is the behaviour this deployment had
+   * before node offload existed and is never worse than not backing up.
+   */
+  async nodeOffloadEnabled(): Promise<boolean> {
+    try {
+      const policy = await this.settings.getDatabaseBackupPolicy();
+
+      return policy.nodeOffloadEnabled;
+    } catch (error) {
+      this.logger.warn(
+        `Could not read databaseBackup.nodeOffloadEnabled; withholding ${BACKUP_JOB_TYPE} ` +
+          `from the node plane and leaving the backup to the in-process worker: ` +
+          `${error instanceof Error ? error.message : String(error)}`
+      );
+
+      return false;
+    }
   }
 }

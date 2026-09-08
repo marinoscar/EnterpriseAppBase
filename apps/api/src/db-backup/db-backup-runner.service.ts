@@ -11,6 +11,7 @@ import {
   Prisma,
 } from '@prisma/client';
 
+import type { DbBackupRunResult } from '../jobs/contracts/db-backup-run.contract';
 import { buildDedupKey } from '../jobs/job-keys';
 import { isActiveDedupConflict, JobsService } from '../jobs/jobs.service';
 import { resolveApiVersion } from '../openapi/version';
@@ -243,6 +244,20 @@ const CLAIM_MAX_ATTEMPTS = 3;
  * repeated here because a P2002 has to be attributed to *this* constraint and
  * not to some other unique constraint a fork may add to the table.
  */
+/**
+ * How far a worker node's reported finish time may be from this server's clock
+ * before the completing write logs a warning.
+ *
+ * FIVE MINUTES, and it is a WARNING AND NOTHING ELSE — never a refusal. A
+ * skewed clock does not make an archive less valid, and refusing a verified
+ * multi-gigabyte backup over NTP would be the wrong trade by a wide margin.
+ * The reason it is worth a line in the log at all is that the node's lease
+ * renewal (#347) runs on the very same clock, so a node this far out is a node
+ * whose next long job may lose its claim for reasons nobody will connect to
+ * the time.
+ */
+export const NODE_CLOCK_SKEW_WARN_MS = 5 * 60 * 1000;
+
 export const ACTIVE_RUN_INDEX_NAME = 'database_backup_runs_active_uniq_idx';
 
 /** The physical column and the Prisma field the index is built over. */
@@ -323,6 +338,30 @@ export interface QueuedBackup {
   run: DatabaseBackupRun;
   /** The `db.backup.run` row a worker will claim. */
   job: Job;
+}
+
+/**
+ * The provenance every terminal write carries — success or failure alike.
+ *
+ * ONE TYPE BECAUSE THERE ARE NOW TWO EXECUTORS. `executeRun` fills it from
+ * this process (the API image's `pg_dump`, this server's Prisma connection);
+ * `completeNodeRun` fills it from a worker node's reported result, where the
+ * three dump-side facts are things ONLY the node can know. A shared type is
+ * what stops the two paths from writing different subsets of the same audit
+ * block — see `completeRun`.
+ *
+ * All four are nullable-by-nature and NONE of them may fail a backup: a run
+ * that could not read the server version is still a valid archive. `appVersion`
+ * is the one exception in practice — it is this process's own build and is
+ * always available — and it is deliberately the API's version on BOTH paths,
+ * because it records which application wrote the row, not which binary wrote
+ * the file. That is what `pgDumpVersion` is for.
+ */
+export interface BackupRunAudit {
+  dbVersion: string | null;
+  appVersion: string;
+  migrationName: string | null;
+  pgDumpVersion: string | null;
 }
 
 /**
@@ -1165,10 +1204,11 @@ export class DatabaseBackupRunnerService {
     // update happens — so a FAILED run carries it too. Which server, which
     // build and (most importantly) which schema produced this archive is
     // exactly what someone reading a failure at 3am needs.
-    const audit = {
-      dbVersion: null as string | null,
+    const audit: BackupRunAudit = {
+      dbVersion: null,
       appVersion: resolveApiVersion(),
-      migrationName: null as string | null,
+      migrationName: null,
+      pgDumpVersion: null,
     };
 
     let heartbeat: NodeJS.Timeout | undefined;
@@ -1189,6 +1229,14 @@ export class DatabaseBackupRunnerService {
       // `pg-version.util.ts`'s header.
       if (version.status === 'unknown') this.logger.warn(version.message);
       if (version.warning !== undefined) this.logger.warn(version.warning);
+
+      // WHICH CLIENT WROTE THIS ARCHIVE (#352). On this path it is the API
+      // image's own `pg_dump`, which is not news — but the node path records
+      // the same column from a binary nobody here can inspect, and a column
+      // that is populated on one path and empty on the other is a column
+      // nobody trusts. `version.client` is the raw `--version` banner, or
+      // `null` when it could not be read, which never fails a backup.
+      audit.pgDumpVersion = version.client ?? null;
 
       audit.dbVersion = await this.readServerVersion();
       audit.migrationName = await this.readLatestMigrationName();
@@ -1281,74 +1329,25 @@ export class DatabaseBackupRunnerService {
         throw new DatabaseBackupVerificationError(storageKey, tocEntries);
       }
 
-      const finishedAt = new Date();
-
-      await this.prisma.databaseBackupRun.update({
-        where: { id: runId },
-        data: {
-          status: 'completed',
-          finishedAt,
-          lastHeartbeatAt: finishedAt,
-          // They converge here and only here: `bytesWritten` was live progress,
-          // `sizeBytes` is the final answer.
-          bytesWritten: progress.bytes,
-          sizeBytes: progress.bytes,
-          checksumSha256: hash.digest('hex'),
-          verifiedAt: finishedAt,
-          lastError: null,
-          ...audit,
-        },
+      // ⚠ THE COMPLETING WRITE IS A SHARED METHOD, AND THAT IS THE #352 RULE.
+      // `completeNodeRun` — the path where a WORKER NODE ran the dump — calls
+      // the very same `completeRun` with the numbers the node reported, so a
+      // run's stored state cannot depend on which executor produced it. Inline
+      // this update again and the two paths start drifting on the day somebody
+      // fixes a bug in one of them. See `example-checksum.handler.ts` for the
+      // same shape one level up.
+      await this.completeRun({
+        runId,
+        storageKey,
+        // `bytesWritten` and `sizeBytes` converge here and only here: one was
+        // live progress, the other is the final answer.
+        bytes: progress.bytes,
+        checksumSha256: hash.digest('hex'),
+        tocEntries,
+        executor: 'server',
+        audit,
+        at: new Date(),
       });
-
-      this.logger.log(
-        `Database backup run ${runId} completed: ${progress.bytes} bytes at "${storageKey}" ` +
-          `(${tocEntries} archive entries verified).`
-      );
-
-      // -----------------------------------------------------------------------
-      // PRUNE HERE, AND NOWHERE ELSE ON THIS PATH.
-      // -----------------------------------------------------------------------
-      //
-      // AFTER VERIFICATION, because retention deletes older archives and this
-      // one is only a replacement for them once it has been proven to be a
-      // readable archive. Pruning before the `pg_restore --list` check would
-      // let a run that is about to fail verification delete the last known-good
-      // backup on its way out — the single worst thing this subsystem could do.
-      //
-      // AFTER THE `completed` UPDATE, not before it, and the reason is an
-      // off-by-one that is easy to ship: the count rule keeps the newest N
-      // `completed` runs, so a prune that ran while this row still said
-      // `running` would not count it, and would evict one MORE old backup than
-      // retention asked for — a deployment set to keep 7 would drift to 6.
-      //
-      // ONLY ON SUCCESS. There is no prune in the `catch` below and none in
-      // the `finally`. A failed backup is exactly when the old archives matter
-      // most; deleting one because the night's dump died would be the failure
-      // mode of a backup system that makes things worse under stress.
-      //
-      // ⚠ WRAPPED IN ITS OWN `try`, AND THAT IS NOT BELT-AND-BRACES. `prune`
-      // swallows its own failures by contract, but this call sits INSIDE the
-      // `try` whose `catch` deletes the object and marks the run `failed`. If
-      // that contract were ever broken — one refactor, one `throw` added to a
-      // helper — an exception here would travel to that handler and DELETE THE
-      // ARCHIVE THIS RUN HAD JUST PROVEN GOOD, then record the run as a
-      // failure. Storage housekeeping must not be able to reach the failure
-      // path of the backup it is housekeeping for.
-      try {
-        const pruned = await this.retention.prune();
-
-        if (pruned.prunedByCount > 0 || pruned.prunedByAge > 0) {
-          this.logger.log(
-            `Retention removed ${pruned.prunedByCount} expired backup(s) and ` +
-              `${pruned.prunedByAge} expired pre-restore backup(s).`
-          );
-        }
-      } catch (error) {
-        this.logger.warn(
-          `Retention failed after database backup run ${runId} completed (the backup ` +
-            `itself is fine; storage was not reclaimed): ${toError(error).message}`
-        );
-      }
 
       return { status: 'completed' };
     } catch (error) {
@@ -1371,6 +1370,395 @@ export class DatabaseBackupRunnerService {
       if (heartbeat !== undefined) this.timers.clearInterval(heartbeat);
       this.active.delete(runId);
     }
+  }
+
+  // ===========================================================================
+  // The completing write — ONE METHOD, TWO EXECUTORS (#352, epic #345)
+  // ===========================================================================
+
+  /**
+   * Marks a run `completed`: the terminal write, plus the retention prune that
+   * may only ever follow it.
+   *
+   * ⚠ BOTH EXECUTION PATHS COME THROUGH HERE, AND THAT IS THE POINT.
+   * `executeRun` calls it with what THIS process streamed and hashed;
+   * {@link completeNodeRun} calls it with what a worker node reported and this
+   * server then verified. A run's stored state therefore cannot depend on
+   * which executor produced it — the same "one write, two paths" rule
+   * `example-checksum.handler.ts` states for a node-eligible handler, applied
+   * to the row that a restore later reads.
+   *
+   * ⚠ IT ASSUMES VERIFICATION HAS ALREADY HAPPENED, and takes `tocEntries` as
+   * the evidence rather than the trust: both callers download the STORED
+   * object and count its table of contents before calling, and `verifiedAt` is
+   * written here precisely because it is unreachable without having done so.
+   * Do not add a `skipVerification` parameter; the day this method can be
+   * called without a server-side read-back is the day `verified_at` stops
+   * meaning anything.
+   *
+   * The prune lives here rather than at the two call sites for the reason the
+   * long comment below gives four times over: every one of its ordering
+   * constraints is a property of "a run just completed", not of who ran it.
+   */
+  private async completeRun(input: {
+    runId: string;
+    storageKey: string;
+    bytes: bigint;
+    checksumSha256: string;
+    /** From `pg_restore --list` over the STORED object. Recorded in the log, not the row. */
+    tocEntries: number;
+    /** Which executor produced the archive. Log-only — the job row is the durable record. */
+    executor: 'server' | 'node';
+    audit: BackupRunAudit;
+    /** The instant this run settled AND was verified. One clock, this server's. */
+    at: Date;
+  }): Promise<void> {
+    const { runId, storageKey, bytes, executor, at } = input;
+
+    await this.prisma.databaseBackupRun.update({
+      where: { id: runId },
+      data: {
+        status: 'completed',
+        finishedAt: at,
+        lastHeartbeatAt: at,
+        bytesWritten: bytes,
+        sizeBytes: bytes,
+        checksumSha256: input.checksumSha256,
+        // ⚠ THE SERVER'S OWN READ-BACK IS WHAT SETS THIS, on both paths. A
+        // node reporting `verified: true` would be the machine with the least
+        // reason to be trusted attesting to the one fact this subsystem rests
+        // on; see §6 of docs/specs/database-backup.md and the result
+        // contract's header.
+        verifiedAt: at,
+        lastError: null,
+        ...input.audit,
+      },
+    });
+
+    this.logger.log(
+      `Database backup run ${runId} completed on the ${executor}: ${bytes} bytes at ` +
+        `"${storageKey}" (${input.tocEntries} archive entries verified).`
+    );
+
+    // -------------------------------------------------------------------------
+    // PRUNE HERE, AND NOWHERE ELSE.
+    // -------------------------------------------------------------------------
+    //
+    // AFTER VERIFICATION, because retention deletes older archives and this one
+    // is only a replacement for them once it has been proven to be a readable
+    // archive. Pruning before the `pg_restore --list` check would let a run
+    // that is about to fail verification delete the last known-good backup on
+    // its way out — the single worst thing this subsystem could do.
+    //
+    // AFTER THE `completed` UPDATE, not before it, and the reason is an
+    // off-by-one that is easy to ship: the count rule keeps the newest N
+    // `completed` runs, so a prune that ran while this row still said `running`
+    // would not count it, and would evict one MORE old backup than retention
+    // asked for — a deployment set to keep 7 would drift to 6.
+    //
+    // ONLY ON SUCCESS. There is no prune on any failure path. A failed backup
+    // is exactly when the old archives matter most; deleting one because the
+    // night's dump died would be the failure mode of a backup system that makes
+    // things worse under stress.
+    //
+    // ⚠ WRAPPED IN ITS OWN `try`, AND THAT IS NOT BELT-AND-BRACES. `prune`
+    // swallows its own failures by contract, but this method is called from
+    // INSIDE `executeRun`'s `try`, whose `catch` deletes the object and marks
+    // the run `failed`. If that contract were ever broken — one refactor, one
+    // `throw` added to a helper — an exception here would travel to that
+    // handler and DELETE THE ARCHIVE THIS RUN HAD JUST PROVEN GOOD, then record
+    // the run as a failure. Storage housekeeping must not be able to reach the
+    // failure path of the backup it is housekeeping for.
+    try {
+      const pruned = await this.retention.prune();
+
+      if (pruned.prunedByCount > 0 || pruned.prunedByAge > 0) {
+        this.logger.log(
+          `Retention removed ${pruned.prunedByCount} expired backup(s) and ` +
+            `${pruned.prunedByAge} expired pre-restore backup(s).`
+        );
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Retention failed after database backup run ${runId} completed (the backup ` +
+          `itself is fine; storage was not reclaimed): ${toError(error).message}`
+      );
+    }
+  }
+
+  // ===========================================================================
+  // The node path (#352, epic #345)
+  // ===========================================================================
+
+  /**
+   * Where a worker node must write this job's archive — the run's OWN key,
+   * re-read by `jobId`.
+   *
+   * This is what `DatabaseBackupRunHandler.deriveOutputKey` delegates to, and
+   * it exists because the data plane's default (`node-outputs/<jobId>/<uuid>`)
+   * is exactly wrong for this artifact: `database_backup_runs.storage_key` is
+   * what the retention sweep, the download endpoint and the whole restore path
+   * look the archive up by, so a backup written anywhere else is a backup none
+   * of them can find.
+   *
+   * ⚠ IDEMPOTENT BY CONSTRUCTION, NOT BY CONVENTION. A node asks for its
+   * upload URL more than once as a matter of course (a timed-out transfer, a
+   * lost response, a process restarted while holding the lease), and every one
+   * of those calls must yield the SAME key or a retry silently writes a second
+   * archive that no row points at. The key is read back from the run row, and
+   * `DatabaseBackupRun.jobId` is `@unique`, so "there is at most one to find"
+   * is enforced by the database rather than remembered by this method.
+   *
+   * ⚠ IT ALSO FLIPS `pending` → `running`, AND THAT IS DELIBERATE. This
+   * request is the ONLY moment the server learns that a remote executor has
+   * actually begun dumping: on the node path nothing else writes to the row
+   * between the claim and the result. Leaving it `pending` would mean the
+   * admin list reports "queued" for a dump that has been streaming for twenty
+   * minutes, and `startedAt` — which the failure notification and every
+   * duration render — would stay NULL. The flip is idempotent: a second call
+   * finds `running` and only reads.
+   *
+   * @throws when there is no run row for this job, or when the run has already
+   * settled. Both fail the upload-URL request (a 500 the node reports as a job
+   * failure), which is the correct answer: there is nowhere legitimate for
+   * those bytes to go, and signing a URL anyway would put an unreferenced
+   * archive in the bucket.
+   */
+  async resolveNodeOutputKey(job: Job): Promise<string> {
+    const run = await this.prisma.databaseBackupRun.findUnique({
+      where: { jobId: job.id },
+    });
+
+    if (run === null) {
+      throw new Error(
+        `Job ${job.id} (${BACKUP_JOB_TYPE}) has no backup run row, so there is no key for a ` +
+          'node to write to. Refusing to sign an upload.'
+      );
+    }
+
+    if (run.status !== 'pending' && run.status !== 'running') {
+      throw new Error(
+        `Backup run ${run.id} is already "${run.status}", so job ${job.id} may not be handed ` +
+          'an upload URL: the run no longer holds the active slot and its archive is settled.'
+      );
+    }
+
+    if (run.status === 'pending') {
+      const startedAt = new Date();
+
+      await this.prisma.databaseBackupRun.update({
+        where: { id: run.id },
+        data: {
+          status: 'running',
+          startedAt,
+          // Seeded so #282's stale sweep has a baseline from the first moment.
+          // On this path it is never advanced again — a node has no database
+          // access and cannot heartbeat — which is exactly why that sweep
+          // consults the JOB's lease before giving up on a run; see
+          // `DatabaseBackupScheduleTask.releaseStaleRuns`.
+          lastHeartbeatAt: startedAt,
+        },
+      });
+
+      this.logger.log(
+        `Backup run ${run.id} is being taken by a worker node for job ${job.id}; it asked ` +
+          `for its upload target, so the dump has started.`
+      );
+    }
+
+    return run.storageKey;
+  }
+
+  /**
+   * Writes down a backup a WORKER NODE took — after this server has read the
+   * uploaded archive back and proven it is one.
+   *
+   * This is the whole of `DatabaseBackupRunHandler.persistNodeResult`, and the
+   * order of its four steps is the design:
+   *
+   *   1. FIND THE RUN by `jobId` (one lookup on a UNIQUE column, which cannot
+   *      return two rows).
+   *   2. REFUSE A KEY WE DID NOT HAND OUT. A node may only report the key
+   *      `resolveNodeOutputKey` gave it. Anything else is either a confused
+   *      executor or an attempt to point this deployment's restore path at
+   *      bytes of somebody else's choosing, and neither is something to
+   *      "correct" by trusting the node's spelling.
+   *   3. VERIFY SERVER-SIDE, ALWAYS. `download(key)` → `readTocEntryCount` →
+   *      `> 0`. The node's `sha256` is recorded as THE NODE'S CLAIM about what
+   *      it streamed; `verifiedAt` is set only because THIS process read the
+   *      object back out of the bucket. §6 of docs/specs/database-backup.md
+   *      already settled that verification means "what the bucket holds", and
+   *      the cost — one download per backup — is the cost this path already
+   *      pays on the server.
+   *   4. WRITE THROUGH {@link completeRun}, the same method `executeRun` uses.
+   *
+   * ⚠ THIS IS NOT A SECOND DUMP ENGINE AND MUST NOT BECOME ONE. It does not
+   * re-hash the archive, does not recompute the size, and does not "fix" a
+   * digest it dislikes — `job-handler.interface.ts` states why (the moment the
+   * server redoes the work, the node's answer is decorative and the reason for
+   * the node plane is gone). The read-back is not a recomputation of the
+   * node's result: it is the one check whose whole point is that it must not
+   * be delegated.
+   *
+   * FAILURE GOES THROUGH THE ORDINARY FAILURE PATH — delete the partial
+   * object, then mark the run `failed` — for the reason property 5 of this
+   * file's header gives: a `failed` run must never leave an object behind, or
+   * the bucket accumulates archives that nothing points at and retention has
+   * no row to prune them by. The throw then reaches `NodesService.submitResult`,
+   * which settles the JOB as failed. Both rows end up telling the truth.
+   */
+  async completeNodeRun(job: Job, result: DbBackupRunResult): Promise<void> {
+    const run = await this.prisma.databaseBackupRun.findUnique({
+      where: { jobId: job.id },
+    });
+
+    if (run === null) {
+      throw new Error(
+        `Job ${job.id} (${BACKUP_JOB_TYPE}) has no backup run row, so there is nothing to ` +
+          'record a node-taken backup against.'
+      );
+    }
+
+    // IDEMPOTENT RESUBMISSION. A node whose result reached us but whose
+    // response was lost will send the identical result again; the work is done
+    // and the row says so. Refusing here would fail a job whose archive is
+    // sitting verified in the bucket.
+    if (run.status === 'completed') {
+      this.logger.log(
+        `Backup run ${run.id} is already completed; job ${job.id}'s node result is a ` +
+          'resubmission and was ignored.'
+      );
+
+      return;
+    }
+
+    if (run.status !== 'pending' && run.status !== 'running') {
+      throw new Error(
+        `Backup run ${run.id} is "${run.status}", so job ${job.id}'s node result will not be ` +
+          'recorded: the run was given up on and no longer holds the active backup slot.'
+      );
+    }
+
+    // ⚠ STEP 2. Compared against the row, never against a recomputed template:
+    // the key was chosen once, at run creation, and the row is the only place
+    // it lives.
+    if (result.storageKey !== run.storageKey) {
+      await this.failNodeRun(
+        run,
+        new Error(
+          `The node reported storage key "${result.storageKey}" but backup run ${run.id} was ` +
+            `assigned "${run.storageKey}". A node may only report the key the server handed ` +
+            'it; nothing was recorded.'
+        )
+      );
+
+      // Unreachable — `failNodeRun` always throws. Kept so the control flow is
+      // readable without following the helper.
+      return;
+    }
+
+    const bytes = BigInt(result.bytes);
+
+    // ⚠ STEP 3. `readTocEntryCount` reads the STORED object, not the node's
+    // report of it. An upload that was truncated by a dead transfer, an
+    // archive `pg_dump` never finished writing, and a key the node uploaded
+    // nothing to all fail here — which is the entire reason this step is not
+    // the node's to perform.
+    let tocEntries: number;
+
+    try {
+      const stored = await this.storage.download(run.storageKey);
+      tocEntries = await this.engine.readTocEntryCount(stored);
+    } catch (error) {
+      await this.failNodeRun(run, toError(error));
+
+      return;
+    }
+
+    if (tocEntries <= 0) {
+      await this.failNodeRun(
+        run,
+        new DatabaseBackupVerificationError(run.storageKey, tocEntries)
+      );
+
+      return;
+    }
+
+    // The node's own view of the dump, kept in the LOG and out of the row.
+    //
+    // REJECTED: writing `result.startedAt`/`finishedAt` into `started_at` and
+    // `finished_at`. Those two columns are this server's record of the run's
+    // lifetime — the claim, and the settle that follows a verified read-back —
+    // and a remote clock in them would make a run's duration depend on the
+    // executor's NTP configuration, produce `finishedAt < startedAt` for a
+    // node running a few seconds behind, and put a value in a column every
+    // list, notification and duration render already reads on the server's
+    // clock. The node's window is still worth having: it is the only measure
+    // of how long the dump ITSELF took, because this process sees only the
+    // claim and the settle.
+    const at = new Date();
+    const skewMs = Math.abs(at.getTime() - Date.parse(result.finishedAt));
+
+    if (Number.isFinite(skewMs) && skewMs > NODE_CLOCK_SKEW_WARN_MS) {
+      this.logger.warn(
+        `Node-reported finish time for backup run ${run.id} is ${Math.round(skewMs / 1000)}s ` +
+          `away from this server's clock. The archive is fine — the row is written on this ` +
+          `server's clock — but a node whose clock is far out is worth checking, because its ` +
+          `lease arithmetic runs on the same one.`
+      );
+    }
+
+    await this.completeRun({
+      runId: run.id,
+      storageKey: run.storageKey,
+      bytes,
+      checksumSha256: result.sha256,
+      tocEntries,
+      executor: 'node',
+      audit: {
+        // The three facts only the executor could know...
+        dbVersion: result.dbVersion,
+        migrationName: result.migrationName,
+        pgDumpVersion: result.pgDumpVersion,
+        // ...and the one only this process can: which application build wrote
+        // the row. Deliberately NOT the node's CLI version — that is a
+        // property of the executor, and `Job.executor` plus the node's own id
+        // already record which machine ran it.
+        appVersion: resolveApiVersion(),
+      },
+      at,
+    });
+
+    this.logger.log(
+      `Backup run ${run.id} was taken by a worker node for job ${job.id}: the node reports it ` +
+        `dumped from ${result.startedAt} to ${result.finishedAt} (${bytes} bytes, sha256 ` +
+        `${result.sha256.slice(0, 12)}…).`
+    );
+  }
+
+  /**
+   * The node path's failure path: delete, mark, throw.
+   *
+   * ALWAYS THROWS, and the throw is the contract — `persistNodeResult` failing
+   * is how `NodesService.submitResult` learns to settle the job as failed. A
+   * variant that returned quietly would leave a `failed` run row under a
+   * `succeeded` job, which is precisely the pair of rows that must never
+   * disagree.
+   *
+   * The DELETE comes first, for the reason `executeRun`'s catch does the same:
+   * a `failed` run that leaves its object behind is an archive nothing points
+   * at and retention has no row to prune it by.
+   */
+  private async failNodeRun(run: DatabaseBackupRun, error: Error): Promise<never> {
+    await this.deletePartialObject(run.storageKey);
+    await this.markFailed(run.id, error, run.bytesWritten, {
+      dbVersion: run.dbVersion,
+      appVersion: run.appVersion ?? resolveApiVersion(),
+      migrationName: run.migrationName,
+      pgDumpVersion: run.pgDumpVersion,
+    });
+
+    throw error;
   }
 
   /**
@@ -1422,7 +1810,7 @@ export class DatabaseBackupRunnerService {
     runId: string,
     error: Error,
     bytes: bigint,
-    audit: { dbVersion: string | null; appVersion: string; migrationName: string | null }
+    audit: BackupRunAudit
   ): Promise<void> {
     this.logger.error(`Database backup run ${runId} failed: ${error.message}`);
 

@@ -92,6 +92,7 @@ const databaseBackupSettingsSchema = z.object({
   compressionLevel: z.number().int().min(0).max(9),
   restoreRollbackMode: z.enum(['retain_database', 'drop_database']),
   oldDatabaseRetentionHours: z.number().int().min(1).max(8760),
+  nodeOffloadEnabled: z.boolean(),
 });
 
 const maintenanceSettingsSchema = z.object({
@@ -189,6 +190,7 @@ export const patchSystemSettingsSchema = z.object({
         .enum(['retain_database', 'drop_database'])
         .optional(),
       oldDatabaseRetentionHours: z.number().int().min(1).max(8760).optional(),
+      nodeOffloadEnabled: z.boolean().optional(),
     })
     .optional(),
   // `startedAt` and `startedById` are `.nullable().optional()`: `null` clears

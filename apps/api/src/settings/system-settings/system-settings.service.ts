@@ -1041,6 +1041,9 @@ export class SystemSettingsService {
         oldDatabaseRetentionHours:
           dto.databaseBackup?.oldDatabaseRetentionHours ??
           currentValue.databaseBackup.oldDatabaseRetentionHours,
+        nodeOffloadEnabled:
+          dto.databaseBackup?.nodeOffloadEnabled ??
+          currentValue.databaseBackup.nodeOffloadEnabled,
       },
       maintenance: {
         enabled: dto.maintenance?.enabled ?? currentValue.maintenance.enabled,

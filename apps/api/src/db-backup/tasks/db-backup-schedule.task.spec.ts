@@ -44,6 +44,7 @@ const POLICY: SystemDatabaseBackupValue = {
   compressionLevel: 6,
   restoreRollbackMode: 'retain_database',
   oldDatabaseRetentionHours: 48,
+  nodeOffloadEnabled: false,
 };
 
 interface RunRow {
@@ -62,10 +63,26 @@ interface RunRow {
   lastError?: string;
   /** #288: projected by the sweep's read and rendered by the notification. */
   trigger?: string;
+  /**
+   * #352: the queue job that is executing this run, if one is.
+   *
+   * The sweep asks the JOB whether an executor still holds it, because a
+   * backup taken on a worker node cannot write a heartbeat to this database
+   * at all. A row with no `jobId` (every `pre_restore` dump, and everything
+   * older than #351) is swept on its heartbeat exactly as it always was.
+   */
+  jobId?: string | null;
 }
 
 interface HarnessOptions {
   policy?: Partial<SystemDatabaseBackupValue>;
+  /**
+   * #352: job ids the queue reports as `running` with a lease that has NOT
+   * expired. The sweep must leave their runs alone whatever the heartbeat
+   * says — that is how a node-executed dump survives a stale window it has no
+   * way to write to.
+   */
+  liveJobs?: string[];
   config?: Record<string, unknown>;
   rows?: RunRow[];
   /** Replaces the default `queueBackup`, e.g. to make it reject. */
@@ -154,8 +171,27 @@ function makeHarness(options: HarnessOptions = {}) {
     return { id: candidates[0].id, startedAt: candidates[0].startedAt };
   });
 
+  /**
+   * The queue's side of the sweep (#352): which of these jobs is still held.
+   *
+   * Deliberately asserts the PREDICATE rather than just returning the set —
+   * "held" means `status: 'running'` AND a lease in the future, and a sweep
+   * that dropped either half would either leak (never sweeping an abandoned
+   * node run) or lose data (sweeping a live one).
+   */
+  const liveJobs = new Set(options.liveJobs ?? []);
+  const jobFindMany = jest.fn(async ({ where }: any) => {
+    if (where.status !== 'running') throw new Error('expected the held-lease predicate');
+    if (where.leaseExpiresAt?.gt === undefined) throw new Error('expected a lease check');
+
+    return (where.id.in as string[])
+      .filter((id) => liveJobs.has(id))
+      .map((id) => ({ id }));
+  });
+
   const prisma = {
     databaseBackupRun: { findMany, updateMany, findFirst },
+    job: { findMany: jobFindMany },
   } as unknown as PrismaService;
 
   const settings = {
@@ -264,6 +300,7 @@ function makeHarness(options: HarnessOptions = {}) {
     findMany,
     updateMany,
     findFirst,
+    jobFindMany,
     queueBackup,
     deleteObject,
     configGet,
@@ -852,6 +889,74 @@ describe('the stale sweep', () => {
 
     await expect(h.sweepAt('2026-09-07T02:20:00.000Z')).resolves.toBe(0);
     await expect(h.sweepAt('2026-09-07T02:40:00.000Z')).resolves.toBe(1);
+  });
+
+  // ===========================================================================
+  // A run whose JOB is still leased is not stale (#352, epic #345)
+  // ===========================================================================
+  //
+  // THE FAILURE THESE PREVENT IS DATA LOSS, not untidiness. A backup taken on
+  // a worker node cannot write `lastHeartbeatAt` — a node has no database
+  // access at all — so after `runStaleMinutes` the sweep would mark a
+  // perfectly healthy run `stale`, DELETE THE ARCHIVE THE NODE IS STILL
+  // UPLOADING, and then refuse the result when it arrived. The liveness signal
+  // for a remote executor is the one it is already maintaining: the job's
+  // lease.
+
+  it('leaves a `running` run alone while its job is still held under a live lease', async () => {
+    const h = makeHarness({
+      rows: [
+        runningRow('on-a-node', {
+          jobId: 'job-1',
+          // Written once, when the node asked for its upload target, and never
+          // again — which is exactly what a node-executed run looks like.
+          lastHeartbeatAt: new Date('2026-09-07T02:00:20.000Z'),
+        }),
+      ],
+      liveJobs: ['job-1'],
+    });
+
+    await expect(h.sweepAt('2026-09-07T05:00:00.000Z')).resolves.toBe(0);
+
+    expect(h.table.get('on-a-node')?.status).toBe('running');
+    // AND THE ARCHIVE IS STILL THERE. This is the assertion that matters: the
+    // sweep deletes the object of every run it transitions.
+    expect(h.deleteObject).not.toHaveBeenCalled();
+    expect(h.notifyPermissionHolders).not.toHaveBeenCalled();
+  });
+
+  it('leaves a `pending` run alone while its job is still held — the node has claimed but not yet uploaded', async () => {
+    const h = makeHarness({
+      rows: [pendingRow('queued-on-a-node', { jobId: 'job-2' })],
+      liveJobs: ['job-2'],
+    });
+
+    await expect(h.sweepAt('2026-09-07T05:00:00.000Z')).resolves.toBe(0);
+    expect(h.table.get('queued-on-a-node')?.status).toBe('pending');
+  });
+
+  it('sweeps it the moment the lease is gone — a node that died is still a run to give up on', async () => {
+    const h = makeHarness({
+      rows: [runningRow('abandoned', { jobId: 'job-3' })],
+      // `liveJobs` is empty: the queue reports the job as no longer held,
+      // which is what an expired lease or a settled job looks like.
+    });
+
+    await expect(h.sweepAt('2026-09-07T05:00:00.000Z')).resolves.toBe(1);
+    expect(h.table.get('abandoned')?.status).toBe('stale');
+  });
+
+  it('asks the queue nothing when no candidate has a job — every pre-#351 run and every pre-restore dump', async () => {
+    const h = makeHarness({
+      rows: [runningRow('no-job', { lastHeartbeatAt: new Date('2026-09-07T02:00:20.000Z') })],
+    });
+
+    await expect(h.sweepAt('2026-09-07T05:00:00.000Z')).resolves.toBe(1);
+
+    // Not "returns an empty set" — makes NO QUERY. A sweep that asked the jobs
+    // table once per tick on a deployment that has never run a queued backup
+    // would be a query nobody could explain.
+    expect(h.jobFindMany).not.toHaveBeenCalled();
   });
 });
 

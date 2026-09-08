@@ -243,6 +243,29 @@ export const BACKUP_TIME_OF_DAY_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
  * `oldDatabaseRetentionHours`), `drop_database` does not. The default is to
  * retain, because the failure mode of retaining is disk and the failure mode
  * of dropping is a restore from the wrong dump with nothing to go back to.
+ *
+ * `nodeOffloadEnabled` (#352, epic #345) decides whether `db.backup.run` may be
+ * claimed by a WORKER NODE at all. DEFAULT FALSE, and it is deliberately a
+ * SECOND switch rather than a reuse of `nodes.jobSecretBrokerEnabled`, because
+ * the two answer different questions and a deployment can genuinely want one
+ * without the other:
+ *
+ *   - `nodes.jobSecretBrokerEnabled` — MAY THE BROKER ISSUE ANYTHING AT ALL?
+ *     A statement about the fleet: are these machines inside the trust
+ *     boundary for short-lived credentials of any kind?
+ *   - `databaseBackup.nodeOffloadEnabled` — MAY *THIS* TYPE LEAVE THE SERVER?
+ *     A statement about one workload: is dumping the whole database on a
+ *     machine that is not the API server what this deployment wants, given
+ *     that the node needs a network route to PostgreSQL and the archive's
+ *     bytes will cross whatever network sits between them?
+ *
+ * Collapsing them would mean enabling brokering for any future type — a
+ * fork's own `nodeSecretBroker` — silently enables shipping the database
+ * dump off-box too, which is not a decision anybody made. Both must be true,
+ * AND the broker must report itself usable, before the type is offered to a
+ * node; see `NodesService.nodeEligibleTypes`. Off (either one) means the type
+ * is withheld from the claim and the in-process worker takes the backup, which
+ * is exactly what happened before node offload existed.
  */
 export const systemDatabaseBackupSchema = z.object({
   enabled: z.boolean(),
@@ -259,6 +282,7 @@ export const systemDatabaseBackupSchema = z.object({
   compressionLevel: z.number().int().min(0).max(9),
   restoreRollbackMode: z.enum(['retain_database', 'drop_database']),
   oldDatabaseRetentionHours: z.number().int().min(1).max(8760),
+  nodeOffloadEnabled: z.boolean(),
 });
 
 export type SystemDatabaseBackupValue = z.infer<
@@ -349,6 +373,7 @@ export const systemDatabaseBackupPatchSchema = z.object({
     .enum(['retain_database', 'drop_database'])
     .optional(),
   oldDatabaseRetentionHours: z.number().int().min(1).max(8760).optional(),
+  nodeOffloadEnabled: z.boolean().optional(),
 });
 
 export const systemMaintenancePatchSchema = z.object({

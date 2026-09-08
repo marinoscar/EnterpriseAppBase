@@ -408,8 +408,46 @@ export class DatabaseBackupScheduleTask {
         storageKey: true,
         startedAt: true,
         trigger: true,
+        // #352: the run's job, so the sweep can ask whether an executor is
+        // still holding it. See `withLiveExecutor` for why this is not
+        // optional politeness.
+        jobId: true,
       },
     });
+
+    // ⚠ A RUN WHOSE JOB IS STILL LEASED IS NOT STALE, WHATEVER ITS HEARTBEAT
+    // SAYS (#352, epic #345).
+    //
+    // The heartbeat above is the liveness signal of a dump running IN THIS
+    // PROCESS: `executeRun` writes it every 20 seconds while `pg_dump`
+    // streams. A dump running ON A WORKER NODE cannot write it at all — a node
+    // has no database access, which is the entire premise of the node plane —
+    // so on that path the row's `lastHeartbeatAt` is written once, when the
+    // node asks for its upload target, and then never again.
+    //
+    // Without this filter the sweep would mark a perfectly healthy node-run
+    // backup `stale` after `runStaleMinutes`, DELETE THE ARCHIVE THE NODE IS
+    // STILL UPLOADING, and then refuse the node's result because the run had
+    // settled — a data-losing failure that only appears on the deployments
+    // slow enough to need node offload in the first place.
+    //
+    // The right liveness signal for a remotely executed run is the one the
+    // executor is already maintaining: THE JOB'S LEASE (#347). A node renews
+    // it on a ticker for exactly as long as it is working, and the queue's own
+    // reaper is what handles an executor that stops. So the sweep asks the job
+    // — and it asks for BOTH executors, not just nodes, because "an executor
+    // still holds this work" is the same fact whoever holds it: an in-process
+    // dump whose heartbeat was starved by a lock wait is equally not abandoned
+    // while its worker is renewing.
+    //
+    // REJECTED: having the node heartbeat the run through a new endpoint. That
+    // is a second liveness clock for the same fact, and two clocks disagree —
+    // the node would be renewing a lease AND poking a heartbeat, and the day
+    // one of them failed the other would say everything was fine.
+    // REJECTED: skipping only `pending` rows with a live job. It would leave
+    // the far worse case — a node that has started dumping, so the row says
+    // `running` — exposed for exactly as long as the dump takes.
+    const live = await this.withLiveExecutor(candidates, now);
 
     // ONE COPY OF THE EXPLANATION PER CASE, written to the row AND carried
     // into the notification (#288). Two copies of either would be two places
@@ -438,6 +476,17 @@ export class DatabaseBackupScheduleTask {
     let released = 0;
 
     for (const candidate of candidates) {
+      if (candidate.jobId !== null && live.has(candidate.jobId)) {
+        this.logger.debug(
+          `Database backup run ${candidate.id} has not heartbeated, but its job ` +
+            `${candidate.jobId} is still held under a live lease; leaving it alone. This is ` +
+            'the ordinary shape of a backup being taken by a worker node, which cannot write ' +
+            'to this database at all.'
+        );
+
+        continue;
+      }
+
       const message = staleMessage(candidate.status);
       // ⚠ THE ROW TRANSITION HAPPENS FIRST, AND THE ROW *IS* THE GUARD.
       //
@@ -513,6 +562,48 @@ export class DatabaseBackupScheduleTask {
     }
 
     return released;
+  }
+
+  /**
+   * Of these candidates' jobs, the ids that an executor still holds under a
+   * LIVE lease.
+   *
+   * ONE QUERY FOR THE WHOLE BATCH, and it reads the queue's own columns rather
+   * than re-deriving anything: `status: 'running'` plus `leaseExpiresAt > now`
+   * is precisely what `JobLeaseService` means by "held", and it is the same
+   * predicate the queue's reaper uses to decide the opposite question. A
+   * second definition of "leased" here would be a second thing to keep in
+   * step with #347.
+   *
+   * Returns an EMPTY SET when nothing qualifies — including when no candidate
+   * has a job at all, in which case there is no query to make. Every run that
+   * predates #351, and every `pre_restore` dump, has `jobId === null` and is
+   * swept exactly as it always was.
+   */
+  private async withLiveExecutor(
+    candidates: readonly { jobId: string | null | undefined }[],
+    now: Date
+  ): Promise<Set<string>> {
+    // `typeof`, not `!== null`: the column is `string | null` on a real row,
+    // and this stays total for any caller passing a projection that simply has
+    // not selected it — a missing job id must mean "ask nothing", never "ask
+    // about undefined".
+    const jobIds = candidates
+      .map((candidate) => candidate.jobId)
+      .filter((jobId): jobId is string => typeof jobId === 'string' && jobId.length > 0);
+
+    if (jobIds.length === 0) return new Set();
+
+    const held = await this.prisma.job.findMany({
+      where: {
+        id: { in: jobIds },
+        status: 'running',
+        leaseExpiresAt: { gt: now },
+      },
+      select: { id: true },
+    });
+
+    return new Set(held.map((job) => job.id));
   }
 
   /**

@@ -184,6 +184,12 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettingsValue = {
     compressionLevel: 6,
     restoreRollbackMode: 'retain_database',
     oldDatabaseRetentionHours: 48,
+    // OFF, like `nodes.jobSecretBrokerEnabled` and for a related-but-distinct
+    // reason (#352, epic #345): a fresh deployment does not ship its entire
+    // database off the API server because somebody registered a worker node.
+    // Both switches must be on, and the credential broker must report itself
+    // usable, before `db.backup.run` is offered to a node at all.
+    nodeOffloadEnabled: false,
   },
   maintenance: {
     enabled: false,

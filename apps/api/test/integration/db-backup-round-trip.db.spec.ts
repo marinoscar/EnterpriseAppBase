@@ -56,6 +56,7 @@
 
 import { createHash, randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
+import { Transform } from 'node:stream';
 import { join } from 'node:path';
 
 import { ConfigService } from '@nestjs/config';
@@ -119,6 +120,8 @@ describeWithDb('A real pg_dump round trip through the backup engine', () => {
   let terminal: JobTerminalService;
   let registry: JobHandlerRegistry;
   let config: ConfigService;
+  let handler: DatabaseBackupRunHandler;
+  let settingsService: SystemSettingsService;
 
   /** Every backup run this suite creates, so cleanup is exact and exhaustive. */
   const createdRunIds: string[] = [];
@@ -135,6 +138,7 @@ describeWithDb('A real pg_dump round trip through the backup engine', () => {
     const settings = {
       getDatabaseBackupPolicy: async () => DEFAULT_SYSTEM_SETTINGS.databaseBackup,
     } as unknown as SystemSettingsService;
+    settingsService = settings;
 
     // Retention is STUBBED, deliberately: the real service prunes by count
     // across EVERY `completed` row in `database_backup_runs`, which in a
@@ -191,7 +195,16 @@ describeWithDb('A real pg_dump round trip through the backup engine', () => {
     // honesty: if `process()` ever grew a call to it, this suite would mint a
     // role against the real cluster instead of quietly satisfying a stub.
     // Its cluster behaviour is `src/db-backup/pg-job-role.broker.db.spec.ts`.
-    new DatabaseBackupRunHandler(registry, runner, new PgJobRoleBroker()).onModuleInit();
+    handler = new DatabaseBackupRunHandler(
+      registry,
+      runner,
+      // #352: the handler reads `databaseBackup.nodeOffloadEnabled` through
+      // this to answer `nodeOffloadEnabled()`. The same stub the runner uses,
+      // so both halves see one policy.
+      settings,
+      new PgJobRoleBroker()
+    );
+    handler.onModuleInit();
 
     claimer = new JobClaimService(prisma as unknown as PrismaService);
     terminal = new JobTerminalService(
@@ -417,5 +430,214 @@ describeWithDb('A real pg_dump round trip through the backup engine', () => {
     expect(settled.dbVersion).not.toBeNull();
     expect(settled.appVersion).not.toBeNull();
     expect(settled.migrationName).not.toBeNull();
+    // #352: which `pg_dump` wrote the archive. On this path it is the client
+    // in this image; on the node path it is the node's, reported back — and a
+    // column populated on one path and empty on the other is a column nobody
+    // trusts.
+    expect(settled.pgDumpVersion).not.toBeNull();
+  });
+
+  // ===========================================================================
+  // The NODE path, against the same real binaries (#352, epic #345)
+  // ===========================================================================
+  //
+  // ⚠ WHAT THIS PROVES THAT NO UNIT TEST CAN. `db-backup-runner.service.spec.ts`
+  // asserts that both executors reach one `completeRun` against a fake engine
+  // and a fake bucket. This asserts the thing that actually matters to an
+  // operator: an archive produced the way a NODE produces it — a real
+  // `pg_dump`, streamed to the run's own key, reported back over the result
+  // contract — is verified by the SERVER with a real `pg_restore --list`, and
+  // lands as a row indistinguishable from one this process dumped itself.
+  //
+  // The "node" here is the last few lines of `apps/cli`'s executor, inlined:
+  // ask for the key, stream a dump into it, hash and count as the bytes pass,
+  // report. Its own half is unit-tested in `apps/cli`; what could only be
+  // wrong across the boundary is whether the two halves agree, which is this.
+
+  /** Streams a real `pg_dump` into `key`, exactly as the CLI executor does. */
+  async function dumpToKeyLikeANode(key: string): Promise<{ bytes: bigint; sha256: string }> {
+    const dump = realEngineWithoutDatabaseUrl().startDump({
+      compressionLevel: DEFAULT_SYSTEM_SETTINGS.databaseBackup.compressionLevel,
+      timeoutMs: 120_000,
+    });
+
+    const hash = createHash('sha256');
+    let bytes = 0n;
+
+    const meter = new Transform({
+      transform(chunk: Buffer, _encoding, callback) {
+        hash.update(chunk);
+        bytes += BigInt(chunk.length);
+        callback(null, chunk);
+      },
+    });
+
+    dump.stdout.pipe(meter);
+
+    // Both halves, exactly as the executor awaits them: a dump that died
+    // mid-archive ends its stdout, and the upload alone would call that a
+    // success.
+    await Promise.all([
+      storage.upload(key, meter, { mimeType: 'application/octet-stream' }),
+      dump.done,
+    ]);
+
+    return { bytes, sha256: hash.digest('hex') };
+  }
+
+  it('accepts a node-taken backup: real archive, server-side verification, one row shape', async () => {
+    const queued = await runner.queueBackup({ trigger: 'manual', createdById: null });
+    createdRunIds.push(queued.run.id);
+    createdJobIds.push(queued.job.id);
+
+    const [claimed] = await claimer.claim({
+      nodeId: null,
+      executor: 'server',
+      eligibleTypes: [BACKUP_JOB_TYPE],
+      limit: 1,
+      leases: buildClaimLeases(config, registry, [BACKUP_JOB_TYPE]),
+    });
+
+    // 1. The node asks where to write. The server answers with the RUN'S OWN
+    //    key — not `node-outputs/…`, which is where the data plane's default
+    //    would have put an archive the restore path could never find.
+    const key = await handler.deriveOutputKey(claimed);
+    expect(key).toBe(queued.run.storageKey);
+
+    // …and asking twice yields the same key rather than a second archive.
+    expect(await handler.deriveOutputKey(claimed)).toBe(key);
+
+    // The row moved to `running` on the first ask: that request is the only
+    // moment this server learns a remote executor has begun.
+    const started = await prisma.databaseBackupRun.findUniqueOrThrow({
+      where: { id: queued.run.id },
+    });
+    expect(started.status).toBe('running');
+    expect(started.startedAt).not.toBeNull();
+
+    // 2. The node dumps and uploads. Nothing about this touches the run row.
+    const produced = await dumpToKeyLikeANode(key);
+
+    // 3. The node posts its result, through the handler's own parse — the same
+    //    call `NodesService.submitResult` makes.
+    await handler.persistNodeResult(claimed, {
+      storageKey: key,
+      // ⚠ A DECIMAL STRING, all the way through to a `BigInt` column.
+      bytes: produced.bytes.toString(),
+      sha256: produced.sha256,
+      pgDumpVersion: 'pg_dump (PostgreSQL) 17.2',
+      dbVersion: 'PostgreSQL 17.4 (reported by the node)',
+      migrationName: 'reported_by_the_node',
+      startedAt: new Date(Date.now() - 60_000).toISOString(),
+      finishedAt: new Date().toISOString(),
+    });
+
+    await terminal.completeSucceeded(claimed);
+
+    const settled = await prisma.databaseBackupRun.findUniqueOrThrow({
+      where: { id: queued.run.id },
+    });
+
+    expect(settled.status).toBe('completed');
+    // ⚠ SET BY THE SERVER'S OWN READ-BACK. `persistNodeResult` downloaded the
+    // object and ran `pg_restore --list` over it; the node's word for it was
+    // never sufficient.
+    expect(settled.verifiedAt).not.toBeNull();
+    // The node's numbers, stored exactly.
+    expect(settled.sizeBytes).toBe(produced.bytes);
+    expect(settled.bytesWritten).toBe(produced.bytes);
+    expect(settled.checksumSha256).toBe(produced.sha256);
+    // The node's provenance, and the API's own app version beside it.
+    expect(settled.pgDumpVersion).toBe('pg_dump (PostgreSQL) 17.2');
+    expect(settled.migrationName).toBe('reported_by_the_node');
+    expect(settled.appVersion).not.toBeNull();
+    expect(settled.lastError).toBeNull();
+
+    // And the archive really is one: read it back INDEPENDENTLY, not through
+    // anything the runner calls.
+    const stored = await storage.download(settled.storageKey);
+    expect(await readTocEntryCount({ source: stored })).toBeGreaterThan(0);
+
+    const settledJob = await prisma.job.findUniqueOrThrow({ where: { id: claimed.id } });
+    expect(settledJob.status).toBe('succeeded');
+  });
+
+  it('REFUSES a result naming a key the server did not hand out, and fails the run', async () => {
+    const queued = await runner.queueBackup({ trigger: 'manual', createdById: null });
+    createdRunIds.push(queued.run.id);
+    createdJobIds.push(queued.job.id);
+
+    const [claimed] = await claimer.claim({
+      nodeId: null,
+      executor: 'server',
+      eligibleTypes: [BACKUP_JOB_TYPE],
+      limit: 1,
+      leases: buildClaimLeases(config, registry, [BACKUP_JOB_TYPE]),
+    });
+
+    const key = await handler.deriveOutputKey(claimed);
+    await dumpToKeyLikeANode(key);
+
+    // A node may only report the key it was given. Anything else is a confused
+    // executor or an attempt to point this deployment's restore path at bytes
+    // of somebody else's choosing — neither is corrected by trusting it.
+    await expect(
+      handler.persistNodeResult(claimed, {
+        storageKey: 'backups/somebody-elses-archive.dump',
+        bytes: '1',
+        sha256: 'c'.repeat(64),
+        pgDumpVersion: null,
+        dbVersion: null,
+        migrationName: null,
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+      })
+    ).rejects.toThrow(/may only report the key the server handed it/);
+
+    const failed = await prisma.databaseBackupRun.findUniqueOrThrow({
+      where: { id: queued.run.id },
+    });
+
+    expect(failed.status).toBe('failed');
+    expect(failed.verifiedAt).toBeNull();
+    // A `failed` run leaves no object behind, or the bucket accumulates
+    // archives nothing points at and retention has no row to prune them by.
+    //
+    // READ THROUGH THE STREAM, not just `download()`: this provider opens the
+    // file lazily, so the promise resolves for a key that is already gone and
+    // only the first read reports it. That is exactly how a real provider's
+    // 404 arrives too.
+    await expect(
+      (async () => {
+        const stream = await storage.download(key);
+        for await (const chunk of stream as AsyncIterable<Buffer>) void chunk;
+      })()
+    ).rejects.toBeDefined();
+  });
+
+  it('offers the type to a node only when this deployment has said so', async () => {
+    // `nodeOffloadEnabled()` is what `NodesService.nodeEligibleTypes` asks at
+    // claim time. The stubbed policy is `DEFAULT_SYSTEM_SETTINGS`, which ships
+    // OFF — so the shipped answer, against the real handler, is "no".
+    await expect(handler.nodeOffloadEnabled()).resolves.toBe(false);
+    expect(DEFAULT_SYSTEM_SETTINGS.databaseBackup.nodeOffloadEnabled).toBe(false);
+
+    // …and it is READ, not remembered: flipping the policy flips the answer
+    // with no restart. Restored afterwards, because this stub is shared with
+    // the runner and a leaked override would make a later case depend on the
+    // order this file happens to run in.
+    const stub = settingsService as unknown as {
+      getDatabaseBackupPolicy: () => Promise<unknown>;
+    };
+    const original = stub.getDatabaseBackupPolicy;
+    const policy = { ...DEFAULT_SYSTEM_SETTINGS.databaseBackup, nodeOffloadEnabled: true };
+
+    try {
+      stub.getDatabaseBackupPolicy = async () => policy;
+
+      await expect(handler.nodeOffloadEnabled()).resolves.toBe(true);
+    } finally {
+      stub.getDatabaseBackupPolicy = original;
+    }
   });
 });

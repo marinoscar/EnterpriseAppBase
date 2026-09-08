@@ -94,6 +94,7 @@ const POLICY: SystemDatabaseBackupValue = {
   compressionLevel: 6,
   restoreRollbackMode: 'retain_database',
   oldDatabaseRetentionHours: 48,
+  nodeOffloadEnabled: false,
 };
 
 /** The sha256 the fake storage's bytes actually hash to. Computed, never guessed. */
