@@ -58,7 +58,8 @@ import {
   NodeJobResultDto,
   RegisterNodeDto,
 } from './dto/node-control-plane.dto';
-import { NodeLifecycleService } from './node-lifecycle.service';
+import { NodeOffloadService } from '../jobs/node-offload.service';
+import type { SystemSettingsService } from '../settings/system-settings/system-settings.service';
 import { NodesService } from './nodes.service';
 
 describe('NodesService', () => {
@@ -78,6 +79,8 @@ describe('NodesService', () => {
   let terminal: { completeSucceeded: jest.Mock; completeFailed: jest.Mock };
   let registry: JobHandlerRegistry;
   let persistNodeResult: jest.Mock;
+  let offload: NodeOffloadService;
+  let getNodesPolicy: jest.Mock;
   let service: NodesService;
 
   /** A `ConfigService` that answers nothing, so every default is the shipped one. */
@@ -160,6 +163,17 @@ describe('NodesService', () => {
     });
     registry.register({ type: SERVER_TYPE, process: async () => undefined });
 
+    // ⚠ THE REAL `NodeOffloadService` (#352), over this suite's own registry.
+    // It is what decides which types a node is offered, and `JobWorker`'s
+    // `system` mode consumes its COMPLEMENT — a stub here would let the two
+    // halves of that partition drift apart with this file green. Only its
+    // settings read is faked, held so a case can change what a deployment has
+    // decided between one claim and the next.
+    getNodesPolicy = jest.fn().mockResolvedValue({ ...DEFAULT_SYSTEM_SETTINGS.nodes });
+    offload = new NodeOffloadService(registry, {
+      getNodesPolicy,
+    } as unknown as SystemSettingsService);
+
     service = new NodesService(
       prisma as unknown as PrismaService,
       config,
@@ -178,11 +192,7 @@ describe('NodesService', () => {
       // brokering off — because that is what a deployment that has never
       // touched the setting reads, and because this suite's types carry no
       // broker, so the filter it drives is a no-op here by construction.
-      {
-        getPolicy: jest.fn().mockResolvedValue({
-          ...DEFAULT_SYSTEM_SETTINGS.nodes,
-        }),
-      } as unknown as NodeLifecycleService
+      offload
     );
   });
 
@@ -855,6 +865,161 @@ describe('NodesService', () => {
       expect(entry).toBeDefined();
       // Still LISTED — it is still claimable; only its contract is unpublishable.
       expect(entry?.resultSchema).toBeNull();
+    });
+  });
+
+  // ===========================================================================
+  // The three claim-time gates (#349, #352 — epic #345)
+  // ===========================================================================
+  //
+  // A type is node-ELIGIBLE because its handler carries the two members. What
+  // a deployment OFFERS is that set intersected with three runtime answers,
+  // and none of the three mutates the registry: the handler is unchanged
+  // throughout every case below, which is exactly what each assertion pairs
+  // with its "…and it is still eligible" companion.
+
+  describe('what a deployment offers a node', () => {
+    const BROKER_TYPE = 'test.needs-credential';
+
+    /** Registers a node-eligible type carrying a broker and an offload gate. */
+    function registerGatedType(overrides: {
+      usable?: jest.Mock;
+      nodeOffloadEnabled?: jest.Mock;
+    }): { usable: jest.Mock; nodeOffloadEnabled?: jest.Mock } {
+      const usable = overrides.usable ?? jest.fn().mockResolvedValue({ ok: true });
+
+      registry.register({
+        type: BROKER_TYPE,
+        process: async () => undefined,
+        nodeResultSchema: z.object({ ok: z.boolean() }),
+        persistNodeResult: async () => undefined,
+        nodeSecretBroker: {
+          kind: 'test.postgres',
+          usable: usable as unknown as () => Promise<{ ok: true }>,
+          issue: jest.fn(),
+          revoke: jest.fn(),
+        },
+        ...(overrides.nodeOffloadEnabled
+          ? { nodeOffloadEnabled: overrides.nodeOffloadEnabled as unknown as () => Promise<boolean> }
+          : {}),
+      });
+
+      return { usable, ...(overrides.nodeOffloadEnabled ? { nodeOffloadEnabled: overrides.nodeOffloadEnabled } : {}) };
+    }
+
+    /** `nodes.jobSecretBrokerEnabled`, as the real settings accessor answers it. */
+    function givenBrokerEnabled(enabled: boolean): void {
+      getNodesPolicy.mockResolvedValue({
+        ...DEFAULT_SYSTEM_SETTINGS.nodes,
+        jobSecretBrokerEnabled: enabled,
+      });
+    }
+
+    it('withholds a broker-carrying type while `nodes.jobSecretBrokerEnabled` is off', async () => {
+      registerGatedType({});
+      givenBrokerEnabled(false);
+
+      const types = (await service.listNodeEligibleJobTypes()).map((entry) => entry.type);
+
+      expect(types).not.toContain(BROKER_TYPE);
+      // ⚠ AND THE REGISTRY IS UNTOUCHED. The type is still node-eligible;
+      // this deployment declines to offer it. A mutation here would make "can
+      // this type run on a node" depend on a setting, which is the exact
+      // disagreement `job-handler.interface.ts` makes unrepresentable.
+      expect(registry.serverOnlyTypes()).not.toContain(BROKER_TYPE);
+    });
+
+    it('does not probe the broker at all when the switch is off — no database round trip to answer a settled question', async () => {
+      const { usable } = registerGatedType({});
+      givenBrokerEnabled(false);
+
+      await service.listNodeEligibleJobTypes();
+
+      expect(usable).not.toHaveBeenCalled();
+    });
+
+    it('withholds a type whose broker reports it CANNOT mint here', async () => {
+      // The failure this prevents: the node claims, asks for its credential,
+      // gets a 503 and defers — burning a claim and a lease cycle every poll,
+      // forever, on a deployment that simply cannot mint roles (managed
+      // PostgreSQL denying CREATEROLE is the ordinary case).
+      registerGatedType({
+        usable: jest.fn().mockResolvedValue({
+          ok: false,
+          reason: 'the application role lacks CREATEROLE',
+          remedy: 'ALTER ROLE app CREATEROLE;',
+        }),
+      });
+      givenBrokerEnabled(true);
+
+      const types = (await service.listNodeEligibleJobTypes()).map((entry) => entry.type);
+
+      expect(types).not.toContain(BROKER_TYPE);
+    });
+
+    it('withholds the type — and only that type — when the probe THROWS', async () => {
+      registerGatedType({ usable: jest.fn().mockRejectedValue(new Error('ECONNREFUSED')) });
+      givenBrokerEnabled(true);
+
+      const types = (await service.listNodeEligibleJobTypes()).map((entry) => entry.type);
+
+      expect(types).not.toContain(BROKER_TYPE);
+      // A probe failure must never fail the whole claim: the node is very
+      // likely holding unrelated work that has nothing to do with this broker.
+      expect(types).toContain(NODE_TYPE);
+    });
+
+    it('withholds a type whose handler says this deployment has not enabled offload for it', async () => {
+      registerGatedType({ nodeOffloadEnabled: jest.fn().mockResolvedValue(false) });
+      givenBrokerEnabled(true);
+
+      const types = (await service.listNodeEligibleJobTypes()).map((entry) => entry.type);
+
+      expect(types).not.toContain(BROKER_TYPE);
+    });
+
+    it('asks the handler’s gate on EVERY call — an administrator’s switch is not cached here', async () => {
+      const gate = jest.fn().mockResolvedValue(true);
+      registerGatedType({ nodeOffloadEnabled: gate });
+      givenBrokerEnabled(true);
+
+      await service.listNodeEligibleJobTypes();
+      await service.listNodeEligibleJobTypes();
+
+      expect(gate).toHaveBeenCalledTimes(2);
+    });
+
+    it('offers the type when all three gates agree', async () => {
+      registerGatedType({ nodeOffloadEnabled: jest.fn().mockResolvedValue(true) });
+      givenBrokerEnabled(true);
+
+      const types = (await service.listNodeEligibleJobTypes()).map((entry) => entry.type);
+
+      expect(types).toContain(BROKER_TYPE);
+    });
+
+    it('leaves a type with NO gate and NO broker exactly as it was — the additive default', async () => {
+      givenBrokerEnabled(false);
+
+      // `NODE_TYPE` carries neither member. Every node-eligible type written
+      // before these gates existed must be offered exactly as it always was.
+      const types = (await service.listNodeEligibleJobTypes()).map((entry) => entry.type);
+
+      expect(types).toContain(NODE_TYPE);
+    });
+
+    it('withholds a gated type from the CLAIM as well as from the listing', async () => {
+      // The listing is advice; the claim is the fence. A type that appeared in
+      // neither list but was still claimable would be the worst of both.
+      registerGatedType({ nodeOffloadEnabled: jest.fn().mockResolvedValue(false) });
+      givenBrokerEnabled(true);
+      (prisma.workerNode.findUnique as jest.Mock).mockResolvedValue(
+        makeNode({ eligibleTypes: [NODE_TYPE, BROKER_TYPE] })
+      );
+
+      await service.claimJobs(USER, NODE_ID, {} as ClaimJobsDto);
+
+      expect(claims.claim.mock.calls[0][0].eligibleTypes).toEqual([NODE_TYPE]);
     });
   });
 

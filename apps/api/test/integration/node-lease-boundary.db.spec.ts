@@ -42,11 +42,12 @@ import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
 import { JobTerminalService } from '../../src/jobs/job-terminal.service';
 import { ProviderThrottleService } from '../../src/jobs/provider-throttle.service';
 import { DEFAULT_SYSTEM_SETTINGS } from '../../src/common/types/settings.types';
-import { NodeLifecycleService } from '../../src/nodes/node-lifecycle.service';
 import { NodesService } from '../../src/nodes/nodes.service';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import { ClaimJobsDto, NodeJobResultDto } from '../../src/nodes/dto/node-control-plane.dto';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
+import { NodeOffloadService } from '../../src/jobs/node-offload.service';
+import type { SystemSettingsService } from '../../src/settings/system-settings/system-settings.service';
 
 const { describeWithDb } = resolveDbSuite('node-lease-boundary.db.spec');
 
@@ -139,13 +140,16 @@ describeWithDb('The node lease boundary (real Postgres)', () => {
       // carries is exactly what these cases probe.
       new JobLeaseService(prismaService),
       registry,
-      // The narrow settings accessor (#349), stubbed to the shipped default
-      // (`jobSecretBrokerEnabled: false`). No handler in this suite declares a
-      // broker, so the claim-time filter it drives is a no-op — but the claim
-      // now reads it, so it must be present.
-      {
-        getPolicy: async () => ({ ...DEFAULT_SYSTEM_SETTINGS.nodes }),
-      } as unknown as NodeLifecycleService
+      // WHAT A NODE MAY CLAIM HERE, RIGHT NOW (#349, #352) — the REAL service
+      // over this suite's own registry, with only its settings read stubbed to
+      // the shipped default (`jobSecretBrokerEnabled: false`). No handler here
+      // declares a broker or an offload gate, so the three filters it applies
+      // are a no-op — but the claim reads it, and stubbing the service itself
+      // would hide a drift between what a node is offered and what the
+      // in-process worker's `system` mode claims as the complement.
+      new NodeOffloadService(registry, {
+        getNodesPolicy: async () => ({ ...DEFAULT_SYSTEM_SETTINGS.nodes }),
+      } as unknown as SystemSettingsService)
     );
   });
 

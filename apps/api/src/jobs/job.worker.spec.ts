@@ -30,6 +30,9 @@ import { JobTerminalService } from './job-terminal.service';
 import { resetJobProfileWarnings } from './job-execution-profile';
 import { JobTimeoutError, JobWorker, resetUnknownWorkerModeWarning } from './job.worker';
 import { ProviderThrottleService } from './provider-throttle.service';
+import { DEFAULT_SYSTEM_SETTINGS } from '../common/types/settings.types';
+import { NodeOffloadService } from './node-offload.service';
+import type { SystemSettingsService } from '../settings/system-settings/system-settings.service';
 
 /** Every worker setting, with the shipped defaults spelled out rather than imported. */
 interface WorkerConfig {
@@ -108,6 +111,10 @@ async function waitFor(predicate: () => boolean, timeoutMs = 2_000): Promise<voi
 interface Harness {
   worker: JobWorker;
   registry: JobHandlerRegistry;
+  /** The REAL service `system` mode takes its complement from (#352). */
+  offload: NodeOffloadService;
+  /** Its one faked read, so a case can open the deployment's gates. */
+  getNodesPolicy: jest.Mock;
   claim: jest.Mock;
   completeSucceeded: jest.Mock;
   completeFailed: jest.Mock;
@@ -127,18 +134,32 @@ function makeWorker(config: WorkerConfig = {}, throttle?: ProviderThrottleServic
   const acquire = jest.fn().mockResolvedValue(0);
   const renew = jest.fn().mockResolvedValue(true);
 
+  // ⚠ THE REAL `NodeOffloadService`, OVER THE SAME REGISTRY (#352), not a
+  // stub. `system` mode's list is now the COMPLEMENT of what a node may claim
+  // here, and a stubbed complement would let the two halves drift back apart
+  // with this suite green — which is the exact bug the delegation exists to
+  // make impossible. Only the settings read is faked, to the shipped default
+  // (`jobSecretBrokerEnabled: false`).
+  const getNodesPolicy = jest.fn().mockResolvedValue({ ...DEFAULT_SYSTEM_SETTINGS.nodes });
+  const offload = new NodeOffloadService(registry, {
+    getNodesPolicy,
+  } as unknown as SystemSettingsService);
+
   const worker = new JobWorker(
     stubConfig(config),
     registry,
     { claim } as unknown as JobClaimService,
     { completeSucceeded, completeFailed } as unknown as JobTerminalService,
     throttle ?? ({ acquire } as unknown as ProviderThrottleService),
-    { renew } as unknown as JobLeaseService
+    { renew } as unknown as JobLeaseService,
+    offload
   );
 
   return {
     worker,
     registry,
+    offload,
+    getNodesPolicy,
     claim,
     completeSucceeded,
     completeFailed,
@@ -187,26 +208,26 @@ describe('JobWorker', () => {
   // ---------------------------------------------------------------------------
 
   describe('worker modes', () => {
-    it('"all" claims every registered type, node-eligible ones included', () => {
+    it('"all" claims every registered type, node-eligible ones included', async () => {
       const { worker, registry } = makeWorker({ 'jobs.workerMode': 'all' });
 
       registry.register(handler('test.server-only', async () => undefined));
       registry.register(nodeEligibleHandler('test.node-eligible'));
 
       expect(worker.mode()).toBe('all');
-      expect(worker.eligibleTypes().sort()).toEqual(
+      expect((await worker.eligibleTypes()).sort()).toEqual(
         ['test.node-eligible', 'test.server-only'].sort()
       );
     });
 
-    it('"system" claims only what a node could never run', () => {
+    it('"system" claims only what a node could never run', async () => {
       const { worker, registry } = makeWorker({ 'jobs.workerMode': 'system' });
 
       registry.register(handler('test.server-only', async () => undefined));
       registry.register(nodeEligibleHandler('test.node-eligible'));
 
       expect(worker.mode()).toBe('system');
-      expect(worker.eligibleTypes()).toEqual(['test.server-only']);
+      expect(await worker.eligibleTypes()).toEqual(['test.server-only']);
     });
 
     it('"off" starts no pool at all: nothing is ever claimed', async () => {
@@ -221,7 +242,7 @@ describe('JobWorker', () => {
       await drain();
 
       expect(claim).not.toHaveBeenCalled();
-      expect(worker.eligibleTypes()).toEqual([]);
+      expect(await worker.eligibleTypes()).toEqual([]);
 
       await worker.onModuleDestroy();
     });
@@ -232,7 +253,7 @@ describe('JobWorker', () => {
       expect(worker.mode()).toBe('system');
     });
 
-    it('falls open to "all" on an unrecognised value rather than stopping work', () => {
+    it('falls open to "all" on an unrecognised value rather than stopping work', async () => {
       const { worker, registry } = makeWorker({ 'jobs.workerMode': 'sytem' });
 
       registry.register(handler('test.server-only', async () => undefined));
@@ -241,7 +262,7 @@ describe('JobWorker', () => {
       expect(worker.mode()).toBe('all');
       // The whole point of failing open: a typo must not silently stop the
       // node-eligible half of the queue.
-      expect(worker.eligibleTypes()).toHaveLength(2);
+      expect(await worker.eligibleTypes()).toHaveLength(2);
     });
 
     it('warns EXACTLY ONCE about an unrecognised value, however often it is read', () => {
@@ -282,13 +303,13 @@ describe('JobWorker', () => {
       expect(countUnknownModeWarnings()).toBe(1);
     });
 
-    it('treats a missing setting as "all"', () => {
+    it('treats a missing setting as "all"', async () => {
       const { worker, registry } = makeWorker({ 'jobs.workerMode': undefined });
 
       registry.register(nodeEligibleHandler('test.node-eligible'));
 
       expect(worker.mode()).toBe('all');
-      expect(worker.eligibleTypes()).toEqual(['test.node-eligible']);
+      expect(await worker.eligibleTypes()).toEqual(['test.node-eligible']);
     });
   });
 
@@ -297,7 +318,7 @@ describe('JobWorker', () => {
   // ---------------------------------------------------------------------------
 
   describe('systemModeEligibleTypes', () => {
-    it('adds a registered node-eligible type named in the extras', () => {
+    it('adds a registered node-eligible type named in the extras', async () => {
       const { worker, registry } = makeWorker({
         'jobs.workerMode': 'system',
         'jobs.systemModeExtraTypes': ['test.node-eligible'],
@@ -306,12 +327,12 @@ describe('JobWorker', () => {
       registry.register(handler('test.server-only', async () => undefined));
       registry.register(nodeEligibleHandler('test.node-eligible'));
 
-      expect(worker.systemModeEligibleTypes().sort()).toEqual(
+      expect((await worker.systemModeEligibleTypes()).sort()).toEqual(
         ['test.node-eligible', 'test.server-only'].sort()
       );
     });
 
-    it('accepts a raw comma-separated string as well as a parsed list', () => {
+    it('accepts a raw comma-separated string as well as a parsed list', async () => {
       const { worker, registry } = makeWorker({
         'jobs.workerMode': 'system',
         'jobs.systemModeExtraTypes': ' test.node-eligible , ',
@@ -319,10 +340,10 @@ describe('JobWorker', () => {
 
       registry.register(nodeEligibleHandler('test.node-eligible'));
 
-      expect(worker.systemModeEligibleTypes()).toEqual(['test.node-eligible']);
+      expect(await worker.systemModeEligibleTypes()).toEqual(['test.node-eligible']);
     });
 
-    it('does not duplicate a type that is already server-only', () => {
+    it('does not duplicate a type that is already server-only', async () => {
       const { worker, registry } = makeWorker({
         'jobs.workerMode': 'system',
         'jobs.systemModeExtraTypes': ['test.server-only'],
@@ -330,10 +351,10 @@ describe('JobWorker', () => {
 
       registry.register(handler('test.server-only', async () => undefined));
 
-      expect(worker.systemModeEligibleTypes()).toEqual(['test.server-only']);
+      expect(await worker.systemModeEligibleTypes()).toEqual(['test.server-only']);
     });
 
-    it('DROPS an entry no handler registers, with a warning', () => {
+    it('DROPS an entry no handler registers, with a warning', async () => {
       const { worker, registry, warn } = makeWorker({
         'jobs.workerMode': 'system',
         'jobs.systemModeExtraTypes': ['test.typo'],
@@ -343,7 +364,7 @@ describe('JobWorker', () => {
 
       // Claiming a type with no handler is not harmless: the claim succeeds
       // and the job is then failed permanently.
-      expect(worker.systemModeEligibleTypes()).toEqual(['test.server-only']);
+      expect(await worker.systemModeEligibleTypes()).toEqual(['test.server-only']);
 
       const dropped = warn.mock.calls.filter((call) =>
         String(call[0]).includes('JOBS_SYSTEM_MODE_EXTRA_TYPES')
@@ -353,14 +374,97 @@ describe('JobWorker', () => {
       expect(String(dropped[0][0])).toContain('test.typo');
     });
 
-    it('warns about a dropped entry once per type, not once per claim', () => {
+    // =========================================================================
+    // ⚠ THE PARTITION (#352, epic #345)
+    // =========================================================================
+    //
+    // `system` mode's list is the COMPLEMENT of what a node may claim here,
+    // and these cases pin that from the worker's side. The failure they exist
+    // to catch is not a wrong list — it is a HOLE: a type structurally
+    // node-eligible (so absent from `serverOnlyTypes()`) whose runtime gates
+    // are all closed (so no node may claim it) would be claimed by NOBODY, and
+    // for `db.backup.run` "nobody" means a deployment that quietly stops
+    // taking backups.
+
+    it('CLAIMS a node-eligible type whose deployment gates are closed — the hole this fix closed', async () => {
+      const { worker, registry } = makeWorker({ 'jobs.workerMode': 'system' });
+
+      registry.register(handler('test.server-only', async () => undefined));
+      // Structurally node-eligible AND gated off by this deployment, which is
+      // exactly `db.backup.run`'s shape with `nodeOffloadEnabled` false.
+      registry.register({
+        ...nodeEligibleHandler('test.gated'),
+        nodeOffloadEnabled: async () => false,
+      });
+
+      // Before this fix the base was `serverOnlyTypes()`, which does not
+      // contain `test.gated` — so this list was `['test.server-only']` and the
+      // gated type was claimed by no executor at all.
+      expect((await worker.systemModeEligibleTypes()).sort()).toEqual(
+        ['test.gated', 'test.server-only'].sort()
+      );
+    });
+
+    it('STOPS claiming it the moment the deployment opens the gate', async () => {
+      const { worker, registry } = makeWorker({ 'jobs.workerMode': 'system' });
+
+      let offloadEnabled = false;
+      registry.register({
+        ...nodeEligibleHandler('test.gated'),
+        nodeOffloadEnabled: async () => offloadEnabled,
+      });
+
+      expect(await worker.systemModeEligibleTypes()).toEqual(['test.gated']);
+
+      // The administrator turns offload on. No restart, no cached list: the
+      // fleet takes the type and this process stops claiming it, in the same
+      // process, on the next poll.
+      offloadEnabled = true;
+
+      expect(await worker.systemModeEligibleTypes()).toEqual([]);
+    });
+
+    it('is the exact complement of what a node is offered, whatever the gates say', async () => {
+      const { worker, registry, offload } = makeWorker({ 'jobs.workerMode': 'system' });
+
+      registry.register(handler('test.server-only', async () => undefined));
+      registry.register(nodeEligibleHandler('test.open'));
+      registry.register({
+        ...nodeEligibleHandler('test.gated'),
+        nodeOffloadEnabled: async () => false,
+      });
+
+      const offered = await offload.offeredTypes();
+      const claimed = await worker.systemModeEligibleTypes();
+
+      // ⚠ THE PROPERTY, STATED AS A PROPERTY: no overlap, and nothing missing.
+      // Two independently derived lists could satisfy either half alone.
+      expect(claimed.filter((type) => offered.includes(type))).toEqual([]);
+      expect([...offered, ...claimed].sort()).toEqual(registry.types().sort());
+    });
+
+    it('still lets an operator force a gated-open type back onto the server', async () => {
+      // The escape hatch is UNCHANGED by the partition fix: a fleet that is
+      // small, paused, or does not run a type is still an operator's decision,
+      // and `SKIP LOCKED` makes the overlap safe rather than merely tolerated.
+      const { worker, registry } = makeWorker({
+        'jobs.workerMode': 'system',
+        'jobs.systemModeExtraTypes': ['test.open'],
+      });
+
+      registry.register(nodeEligibleHandler('test.open'));
+
+      expect(await worker.systemModeEligibleTypes()).toEqual(['test.open']);
+    });
+
+    it('warns about a dropped entry once per type, not once per claim', async () => {
       const { worker, warn } = makeWorker({
         'jobs.workerMode': 'system',
         'jobs.systemModeExtraTypes': ['test.typo'],
       });
 
       for (let index = 0; index < 20; index += 1) {
-        worker.systemModeEligibleTypes();
+        await worker.systemModeEligibleTypes();
       }
 
       expect(

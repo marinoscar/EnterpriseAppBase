@@ -14,6 +14,7 @@ import { JobLeaseService } from './job-lease.service';
 import { JobStuckService } from './job-stuck.service';
 import { JobTerminalService } from './job-terminal.service';
 import { JobWorker } from './job.worker';
+import { NodeOffloadService } from './node-offload.service';
 import { JobsService } from './jobs.service';
 import { ProviderThrottleService } from './provider-throttle.service';
 import { JobHistoryPurgeTask } from './tasks/job-history-purge.task';
@@ -188,6 +189,13 @@ import { TempFileJanitorTask } from './tasks/temp-file-janitor.task';
     JobAdminService,
     JobInsightsService,
     JobHandlerRegistry,
+    // The one answer to "what may a node claim here, right now" (#352).
+    // EXPORTED below, because its second reader is in the nodes module: the
+    // node plane takes the set and `JobWorker`'s `system` mode takes its
+    // COMPLEMENT, which is what makes the two a partition rather than two
+    // derivations that agreed by luck until a runtime gate appeared. See
+    // `node-offload.service.ts`.
+    NodeOffloadService,
     ExampleEchoHandler,
     ExampleChecksumHandler,
     JobHistoryPurgeHandler,
@@ -204,6 +212,7 @@ import { TempFileJanitorTask } from './tasks/temp-file-janitor.task';
   ],
   exports: [
     JobHandlerRegistry,
+    NodeOffloadService,
     ExampleEchoHandler,
     ExampleChecksumHandler,
     JobHistoryPurgeHandler,

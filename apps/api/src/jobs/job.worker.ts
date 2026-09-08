@@ -108,6 +108,7 @@ import { JobLeaseService } from './job-lease.service';
 import { JobHandlerRegistry } from './job-handler.registry';
 import { JobSettleOutcome, JobTerminalService } from './job-terminal.service';
 import { ProviderThrottleService } from './provider-throttle.service';
+import { NodeOffloadService } from './node-offload.service';
 
 /**
  * Which job types this process's pool is allowed to claim.
@@ -366,6 +367,10 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
     // renews through, which is the whole reason it exists as a service
     // rather than as a private `updateMany` here.
     private readonly leases: JobLeaseService,
+    // WHAT A NODE MAY CLAIM HERE, RIGHT NOW (#352) — read by `system` mode as
+    // its COMPLEMENT. See `systemModeEligibleTypes` for the partition
+    // argument and for the hole the previous static derivation left.
+    private readonly offload: NodeOffloadService,
     // OPTIONAL and unprovided in `JobsModule`, exactly as in
     // `JobTerminalService` — production always gets the real clock. Only
     // `now()` is taken from it here; the sleeps are local timers because they
@@ -512,11 +517,16 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
    * `system` mode depend on registration order — a handler whose module
    * resolves after the worker's would be missing from a list computed once —
    * and it would make the mode a value baked into a running process rather
-   * than one read from the environment. Both reads below are in-memory (a
-   * `Map` walk and a `ConfigService` lookup), so doing this every poll costs
-   * nothing measurable next to the claim query it precedes.
+   * than one read from the environment.
+   *
+   * ASYNC SINCE #352, and `system` mode is the only reason: that mode's list
+   * is now the complement of what a NODE may claim here, which needs a
+   * settings read and (for a type carrying a credential broker) a cached
+   * capability probe. `all` and `off` still answer from memory — the `await`
+   * on those paths resolves immediately — and `claimOne` was already async, so
+   * the cost lands nowhere that was previously synchronous.
    */
-  eligibleTypes(): string[] {
+  async eligibleTypes(): Promise<string[]> {
     const mode = this.mode();
 
     if (mode === 'off') {
@@ -527,20 +537,37 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   /**
-   * `system` mode's list: everything a remote node could never run, plus the
-   * operator's explicit additions.
+   * `system` mode's list: everything NO NODE MAY CLAIM HERE RIGHT NOW, plus
+   * the operator's explicit additions.
    *
-   * The base is `registry.serverOnlyTypes()` — DERIVED from which optional
-   * members each handler carries (§2), never a second hand-maintained list
-   * that could disagree with the handlers themselves.
+   * ⚠ THE COMPLEMENT OF `NodeOffloadService.offeredTypes()`, NOT
+   * `registry.serverOnlyTypes()` (#352, epic #345) — and the difference is a
+   * data-loss bug, not a refactor. `serverOnlyTypes()` answers a STATIC
+   * question (does this handler carry the two node members?), which was the
+   * whole question until a type's eligibility acquired RUNTIME gates. From
+   * that moment the two derivations disagreed: `db.backup.run` is
+   * structurally node-eligible, so it left `serverOnlyTypes()` for every
+   * deployment forever — while the three gates that decide whether a node may
+   * actually claim it all ship OFF. A `system`-mode deployment therefore
+   * stopped claiming backups by derivation, no node was permitted to claim
+   * them either, and NOBODY RAN THE BACKUPS until an operator noticed and
+   * edited an environment variable.
    *
-   * `JOBS_SYSTEM_MODE_EXTRA_TYPES` is the escape hatch for the case the
-   * derivation cannot know about: a type that IS node-eligible but that this
-   * deployment still wants the server to claim — because its node fleet is
-   * small, or paused, or does not run that type. Overlap with the fleet is
-   * SAFE rather than tolerated: `SKIP LOCKED` means a server and a node
-   * racing for the same row produce one winner and one empty result, never a
-   * double claim (§4.4).
+   * Reading the complement of the node plane's own answer makes the two a
+   * PARTITION BY CONSTRUCTION: this process runs exactly what the fleet
+   * cannot, which is what the mode has always claimed to mean. It is the same
+   * "one function, both executors" argument `resolveJobLeaseMs` makes about
+   * leases, and the failure mode it removes is the same one — a value each
+   * side derives separately, and therefore differently.
+   *
+   * `JOBS_SYSTEM_MODE_EXTRA_TYPES` is UNCHANGED and still the escape hatch for
+   * the case no derivation can know about: a type a node CAN claim that this
+   * deployment still wants the server to run too — because its fleet is
+   * small, paused, or does not run that type. Overlap with the fleet is SAFE
+   * rather than tolerated: `SKIP LOCKED` means a server and a node racing for
+   * the same row produce one winner and one empty result, never a double
+   * claim (§4.4). What it is no longer needed for is keeping the backups
+   * running.
    *
    * An entry that is not registered in this process is DROPPED with a warning
    * rather than passed through. Claiming a type with no handler here is not a
@@ -548,9 +575,9 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
    * failed PERMANENTLY (see `runJob`). Silently destroying jobs is a far
    * worse answer to a typo than declining to claim them.
    */
-  systemModeEligibleTypes(): string[] {
+  async systemModeEligibleTypes(): Promise<string[]> {
     const registered = new Set(this.registry.types());
-    const eligible = new Set(this.registry.serverOnlyTypes());
+    const eligible = new Set(await this.offload.serverOnlyRightNow());
 
     for (const extra of this.extraTypes()) {
       if (!registered.has(extra)) {
@@ -633,7 +660,7 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
     // and that join can only be total if nothing recomputes the eligible types
     // between here and there — the mode is re-read per claim, so two calls to
     // `eligibleTypes()` could legitimately disagree.
-    const eligibleTypes = this.eligibleTypes();
+    const eligibleTypes = await this.eligibleTypes();
 
     const rows = await this.claims.claim({
       // The in-process worker is not a node: `null` node id, `server`
