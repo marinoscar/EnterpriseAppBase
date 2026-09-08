@@ -20,6 +20,7 @@ import type { PrismaService } from '../prisma/prisma.service';
 
 const JOB_ID = '3f1a0f4e-0000-4000-8000-000000000001';
 const NODE_ID = '3f1a0f4e-0000-4000-8000-0000000000aa';
+const CLAIM_TOKEN = '3f1a0f4e-0000-4000-8000-0000000000cc';
 
 function makeService(updateMany = jest.fn().mockResolvedValue({ count: 1 })) {
   const prisma = { job: { updateMany } } as unknown as PrismaService;
@@ -68,6 +69,33 @@ describe('heldLeaseWhere', () => {
     // forced to lie about one to renew.
     expect('claimedByNodeId' in heldLeaseWhere(JOB_ID)).toBe(false);
   });
+
+  // ---------------------------------------------------------------------------
+  // `claimToken` — three-valued for the same reason as `nodeId` above, and
+  // the whole of #361's fix (see this file's docstring). Covered the same way,
+  // case for case.
+  // ---------------------------------------------------------------------------
+
+  it('pins the row to a specific claim when a token is given', () => {
+    expect(heldLeaseWhere(JOB_ID, { claimToken: CLAIM_TOKEN }).claimToken).toBe(CLAIM_TOKEN);
+  });
+
+  it('pins the row to NO token when null is given — a pre-#361 claim', () => {
+    // `null` is not "unconstrained" here either: it matches only a row whose
+    // `claim_token` column is itself `NULL`, which is what a claim taken
+    // before the column existed looks like.
+    expect(heldLeaseWhere(JOB_ID, { claimToken: null }).claimToken).toBeNull();
+  });
+
+  it('omits the token clause entirely when claimToken is undefined — the node plane', () => {
+    // `NodesService.renewLease` deliberately passes no `claimToken` at all
+    // (see this file's header on why a token check there would be vacuous),
+    // so the KEY must be absent from the `where`, not merely `undefined` —
+    // Prisma would otherwise see a key and could treat it differently from a
+    // key that was never mentioned.
+    expect('claimToken' in heldLeaseWhere(JOB_ID)).toBe(false);
+    expect('claimToken' in heldLeaseWhere(JOB_ID, { nodeId: NODE_ID })).toBe(false);
+  });
 });
 
 describe('JobLeaseService.renew', () => {
@@ -85,6 +113,16 @@ describe('JobLeaseService.renew', () => {
     expect(Object.keys(whereOf(updateMany)).sort()).toEqual(
       Object.keys(heldLeaseWhere(JOB_ID, { nodeId: null })).sort()
     );
+  });
+
+  it('forwards the claim token through to the where clause', async () => {
+    const { service, updateMany } = makeService();
+
+    await expect(
+      service.renew(JOB_ID, 60_000, { nodeId: null, claimToken: CLAIM_TOKEN })
+    ).resolves.toBe(true);
+
+    expect(whereOf(updateMany).claimToken).toBe(CLAIM_TOKEN);
   });
 
   it('reports false when the row was not held — reaped, settled, or taken', async () => {
@@ -127,5 +165,19 @@ describe('JobLeaseService.renewUntil', () => {
       leaseExpiresAt: at,
     });
     expect(whereOf(updateMany).claimedByNodeId).toBe(NODE_ID);
+  });
+
+  it('forwards the claim token through to the where clause as well', async () => {
+    // `NodesService.renewLease` is the one caller of this overload, and it
+    // does not pass `claimToken` (see the file header) — but the service must
+    // still forward one if a holder ever supplies it, for the same reason
+    // `renew` above must.
+    const { service, updateMany } = makeService();
+
+    await expect(
+      service.renewUntil(JOB_ID, new Date(), { nodeId: NODE_ID, claimToken: CLAIM_TOKEN })
+    ).resolves.toBe(true);
+
+    expect(whereOf(updateMany).claimToken).toBe(CLAIM_TOKEN);
   });
 });
