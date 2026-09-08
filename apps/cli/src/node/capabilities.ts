@@ -26,14 +26,17 @@ import { arch, cpus, freemem, platform, totalmem } from 'node:os';
 // succeeded" carries no information at all.
 //
 // -----------------------------------------------------------------------------
-// THE REQUIREMENTS MAP IS NEARLY EMPTY HERE, AND THAT IS FINE
+// THE REQUIREMENTS MAP NOW HAS ONE REAL ENTRY, AND ONE EXAMPLE-SHAPED ONE
 // -----------------------------------------------------------------------------
 //
-// This template's example type hashes a stream; it needs nothing native. The
-// STRUCTURE is the deliverable — it is the documented place a fork declares
-// that its `video.transcode` type needs `ffmpeg` and must not be claimed
-// without it. Inventing requirements this repository does not have would be
-// inventing dependencies.
+// It was empty when this file was written (#276), and deliberately so: the
+// template's example type hashes a stream and needs nothing native, and
+// inventing requirements this repository did not have would have been
+// inventing dependencies. #352 gave it a genuine one — `db.backup.run` runs
+// `pg_dump` — which is also what turns this map from a documented STRUCTURE
+// into a worked example of both tiers: a required binary whose absence must
+// stop the type being declared at all, and a degradable one whose absence
+// costs two audit fields and nothing else.
 // =============================================================================
 
 /** A capability key. `binary:<name>` is the convention for an executable. */
@@ -61,10 +64,41 @@ export interface JobTypeRequirements {
 export const JOB_TYPE_REQUIREMENTS: Record<string, JobTypeRequirements> = {
   // The example type streams and hashes. No native dependency, deliberately.
   'example.checksum': { required: [], degradable: [] },
+  // ---------------------------------------------------------------------------
+  // `db.backup.run` (#352, epic #345) — the first type with a REAL requirement,
+  // and the entry this map's whole structure was written for.
+  // ---------------------------------------------------------------------------
+  //
+  // `pg_dump` is REQUIRED: without it this node cannot take a backup at all,
+  // and a node that declares the type anyway would claim the deployment's
+  // nightly dump, fail it, and — because `db.backup.run` carries
+  // `maxAttempts: 1` — PERMANENTLY fail it. That is the exact failure the
+  // self-test exists to prevent, in its most expensive form: the backup that
+  // did not happen is discovered during a restore.
+  //
+  // `psql` is DEGRADABLE, and it is the template's worked example of that tier.
+  // The executor uses it for two best-effort provenance reads (the server
+  // version and the newest applied migration). Without it the backup is taken,
+  // uploaded and verified exactly as before; two audit columns are `null`. A
+  // node that refused to run because it could not report a version string would
+  // be trading a whole backup for a label — and in practice the two binaries
+  // ship in the same `postgresql-client` package, so a node with `pg_dump` and
+  // no `psql` is a deliberately trimmed image whose owner already knows.
+  'db.backup.run': {
+    required: [binaryCapability('pg_dump')],
+    degradable: [binaryCapability('psql')],
+  },
 };
 
-/** Executables the probe looks for. A fork extends this beside its requirements. */
-export const PROBED_BINARIES: string[] = [];
+/**
+ * Executables the probe looks for. A fork extends this beside its requirements.
+ *
+ * ⚠ THIS LIST AND THE MAP ABOVE MOVE TOGETHER. A capability that is never
+ * PROBED is a capability that is never satisfied, so a requirement naming a
+ * binary missing from here would fail the self-test on every machine, however
+ * complete its install.
+ */
+export const PROBED_BINARIES: string[] = ['pg_dump', 'psql'];
 
 export interface CapabilityProbe {
   platform: string;

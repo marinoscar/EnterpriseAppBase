@@ -69,6 +69,7 @@ function fakeApi(overrides: Partial<NodeApi>): NodeApi {
     renewLease: unimplemented('renewLease'),
     downloadUrl: unimplemented('downloadUrl'),
     uploadUrl: unimplemented('uploadUrl'),
+    jobSecret: unimplemented('jobSecret'),
     submitResult: unimplemented('submitResult'),
     reportJobFailure: unimplemented('reportJobFailure'),
     ...overrides,

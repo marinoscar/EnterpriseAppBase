@@ -119,6 +119,28 @@ export interface UploadUrlResult {
   expiresAt: string;
 }
 
+/**
+ * `POST /nodes/:id/jobs/:jobId/secret` — the ONE credential a job may need.
+ *
+ * ⚠ EVERY FIELD OF `material` IS A SECRET UNTIL PROVEN OTHERWISE, and this
+ * type is deliberately not narrowed into a `PgConnection`-shaped thing here:
+ * the shape is the BROKER's business (a DSN, a token and an endpoint, a
+ * discrete host/user/password set) and the executor that asked for it is the
+ * only thing entitled to interpret it. What every caller must obey is the rule
+ * `node-job-secret.dto.ts` states on the server side and `logger.ts` enforces
+ * on this one: hold it in a local for the life of the job, never write it to
+ * the config file or the state directory, never log it, and never hand it to
+ * a child process that outlives the job.
+ */
+export interface JobSecret {
+  /** e.g. `postgres.readonly` — which broker minted this, so a client knows how to read `material`. */
+  kind: string;
+  /** ISO 8601. Bounded by this job's LEASE; there is no second clock. */
+  expiresAt: string;
+  /** The credential itself. Passed through by the API without interpretation. */
+  material: Record<string, unknown>;
+}
+
 export interface JobSettlement {
   jobId: string;
   outcome: string;
@@ -160,6 +182,12 @@ export interface NodeApi {
   renewLease(nodeId: string, jobId: string): Promise<{ jobId: string; leaseExpiresAt: string }>;
   downloadUrl(nodeId: string, jobId: string): Promise<DownloadUrlResult>;
   uploadUrl(nodeId: string, jobId: string, contentType?: string): Promise<UploadUrlResult>;
+  /**
+   * Asks for this job's credential. The request body carries NOTHING — every
+   * field of it would be a node choosing part of a credential's shape, and
+   * every one of those is the server's choice (see the server DTO's header).
+   */
+  jobSecret(nodeId: string, jobId: string): Promise<JobSecret>;
   submitResult(nodeId: string, jobId: string, type: string, result: unknown): Promise<JobSettlement>;
   reportJobFailure(nodeId: string, jobId: string, body: JobFailureReport): Promise<JobSettlement>;
 }
@@ -240,6 +268,13 @@ export class HttpNodeApi implements NodeApi, NodeCredentialApi {
       `/nodes/${seg(nodeId)}/jobs/${seg(jobId)}/upload-url`,
       contentType === undefined ? {} : { contentType },
     );
+  }
+
+  jobSecret(nodeId: string, jobId: string): Promise<JobSecret> {
+    // POST with an EMPTY body, not GET: what comes back is a credential, and a
+    // GET's URL is what every proxy log, CDN key and APM span label writes
+    // down. The server answers `Cache-Control: no-store` for the same reason.
+    return this.client.post<JobSecret>(`/nodes/${seg(nodeId)}/jobs/${seg(jobId)}/secret`, {});
   }
 
   submitResult(nodeId: string, jobId: string, type: string, result: unknown): Promise<JobSettlement> {

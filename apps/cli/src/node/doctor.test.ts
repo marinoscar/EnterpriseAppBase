@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { ApiError, NetworkError } from '../errors.js';
 import type { CapabilityProbe } from './capabilities.js';
-import { formatDoctorReport, runDoctor, type DoctorCheck } from './doctor.js';
+import { formatDoctorReport, runDoctor, splitHostPort, type DoctorCheck } from './doctor.js';
 import type { NodeApi, WorkerNode } from './node-api.js';
 import type { ResolvedNodeConfig } from './node-config.js';
 
@@ -234,5 +234,135 @@ describe('runDoctor', () => {
     expect(rendered).toContain('This machine');
     expect(rendered).toContain('The server');
     expect(rendered).toContain('The worker');
+  });
+});
+
+// =============================================================================
+// The database-backup dependencies (#352, epic #345)
+// =============================================================================
+//
+// ⚠ BOTH CHECKS ARE WARNINGS, AND THAT IS THE PROPERTY UNDER TEST. Most nodes
+// in a fleet will never run `db.backup.run`; failing `doctor` because a node
+// has no `pg_dump`, or no route to a database it is not supposed to reach,
+// would tell every one of them it is broken. A node that cannot do this work
+// must simply not declare the type.
+
+describe('the db.backup.run dependencies', () => {
+  const base = () => ({
+    config: CONFIG,
+    socketPath: join(dir, 'b.sock'),
+    pidPath: join(dir, 'b.pid'),
+    stateDir: dir,
+    api: api(async () => []),
+    readStatus: NO_DAEMON as never,
+  });
+
+  it('warns — never fails — when `pg_dump` is missing', async () => {
+    const report = await runDoctor({
+      ...base(),
+      probe: { ...PROBE, binaries: { pg_dump: false } },
+    });
+
+    expect(find(report.checks, 'pg-dump')?.status).toBe('warn');
+    expect(report.ok).toBe(true);
+  });
+
+  it('reports the client version when it is there', async () => {
+    const report = await runDoctor({
+      ...base(),
+      probe: { ...PROBE, binaries: { pg_dump: true }, capabilities: ['binary:pg_dump'] },
+      readPgDumpVersion: async () => 'pg_dump (PostgreSQL) 17.2',
+    });
+
+    const check = find(report.checks, 'pg-dump');
+    expect(check?.status).toBe('pass');
+    expect(check?.detail).toContain('17.2');
+  });
+
+  it('tells a node that DECLARES the type how to fix a missing client', async () => {
+    const report = await runDoctor({
+      ...base(),
+      config: {
+        ...CONFIG,
+        node: { ...CONFIG.node, eligibleTypes: ['db.backup.run'] },
+      },
+      probe: { ...PROBE, binaries: { pg_dump: false } },
+    });
+
+    const check = find(report.checks, 'pg-dump');
+    expect(check?.detail).toContain('db.backup.run');
+    expect(check?.action).toContain('postgresql-client');
+    // ⚠ THIS check is still only a warning — it is the pre-existing
+    // capability self-test that fails, and the distinction is the whole
+    // design: "this machine has no pg_dump" is a fact about the machine,
+    // "this node DECLARES a type it cannot run" is a fault. A node that
+    // declares the type without the binary would claim the nightly backup and
+    // permanently fail it (`maxAttempts: 1`), which is why that one is fatal.
+    expect(check?.status).toBe('warn');
+    expect(find(report.checks, 'job-capabilities')?.status).toBe('fail');
+    expect(report.ok).toBe(false);
+  });
+
+  it('SKIPS the reachability probe when no --db-host is given — a node stores no database connection', async () => {
+    const report = await runDoctor({ ...base(), probe: PROBE });
+
+    const check = find(report.checks, 'database-reachable');
+    expect(check?.status).toBe('skip');
+    expect(check?.action).toContain('--db-host');
+  });
+
+  it('passes when the host answers, and only warns when it does not', async () => {
+    const reachable = await runDoctor({
+      ...base(),
+      probe: PROBE,
+      databaseHost: 'db.internal:6543',
+      probeTcp: async (host, port) => {
+        expect(host).toBe('db.internal');
+        expect(port).toBe(6543);
+        return true;
+      },
+    });
+    expect(find(reachable.checks, 'database-reachable')?.status).toBe('pass');
+
+    const unreachable = await runDoctor({
+      ...base(),
+      probe: PROBE,
+      databaseHost: 'db.internal',
+      probeTcp: async (_host, port) => {
+        // The default port, since none was named.
+        expect(port).toBe(5432);
+        return 'connect ECONNREFUSED';
+      },
+    });
+
+    const check = find(unreachable.checks, 'database-reachable');
+    expect(check?.status).toBe('warn');
+    expect(check?.detail).toContain('ECONNREFUSED');
+    // There is deliberately no tunnelling: a node needs a real route, which
+    // for most deployments means the same private network.
+    expect(check?.action).toContain('node offload off');
+    expect(unreachable.ok).toBe(true);
+  });
+});
+
+describe('splitHostPort', () => {
+  it('reads `host`, `host:port` and a bracketed IPv6 literal', () => {
+    expect(splitHostPort('db.internal')).toEqual({ host: 'db.internal', port: 5432 });
+    expect(splitHostPort('db.internal:6543')).toEqual({ host: 'db.internal', port: 6543 });
+    expect(splitHostPort('[2001:db8::1]:6543')).toEqual({ host: '2001:db8::1', port: 6543 });
+    expect(splitHostPort('[2001:db8::1]')).toEqual({ host: '2001:db8::1', port: 5432 });
+  });
+
+  it('does not mistake a bare IPv6 address for a host and a port', () => {
+    // The bug this exists to not have: `2001:db8::1` split on the last colon
+    // is a probe of host `2001:db8:` on port NaN.
+    expect(splitHostPort('2001:db8::1')).toEqual({ host: '2001:db8::1', port: 5432 });
+  });
+
+  it('falls back to the default port rather than probing port NaN', () => {
+    expect(splitHostPort('db.internal:not-a-port')).toEqual({
+      host: 'db.internal:not-a-port',
+      port: 5432,
+    });
   });
 });
