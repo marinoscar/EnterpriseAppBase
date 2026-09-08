@@ -33,6 +33,9 @@ const { describeWithDb } = resolveDbSuite('job-claim.db.spec');
 /** Lease length used throughout; long enough that nothing expires mid-test. */
 const LEASE_MS = 60_000;
 
+/** Matches a standard uuid — enough to tell "a real value" from a typo'd literal. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * `JobClaimService` only ever touches `PrismaService.$queryRaw`, which is
  * inherited unchanged from `PrismaClient`. Constructing the real service over
@@ -558,12 +561,73 @@ describeWithDb('JobClaimService.claim (real Postgres)', () => {
     expect(claimed.claimedByNodeId).toBe(nodeId);
     expect(claimed.startedAt).toBeInstanceOf(Date);
     expect(claimed.leaseExpiresAt).toBeInstanceOf(Date);
+    // `claim_token` (#361): minted by the statement itself, not supplied by
+    // this test, so a non-null uuid is the only thing to check for here — the
+    // VALUE has no meaning on its own. Its uniqueness across rows and across
+    // successive claims of one row is what the two cases below are for.
+    expect(claimed.claimToken).toEqual(expect.any(String));
+    expect(claimed.claimToken).toMatch(UUID_RE);
 
     // `lease_expires_at = now() + leaseMs`, checked with a generous window so
     // this asserts the arithmetic happened rather than racing the clock.
     const leaseMsFromNow = (claimed.leaseExpiresAt as Date).getTime() - before;
     expect(leaseMsFromNow).toBeGreaterThan(LEASE_MS - 10_000);
     expect(leaseMsFromNow).toBeLessThan(LEASE_MS + 10_000);
+  });
+
+  it('gives every row in a multi-row claim its OWN, distinct claim_token', async () => {
+    // THE PROPERTY THAT PINS `gen_random_uuid()` BEING EVALUATED PER ROW
+    // rather than folded to one constant (#361) — exactly the way a bound
+    // parameter would collapse it, and exactly the file header's warning
+    // against binding this value. A single shared token would identify the
+    // CLAIMING STATEMENT rather than the claim of each row, which is useless
+    // for telling two rows' claims apart and is the defect `claimedByNodeId`
+    // already has one level up, re-created one level down.
+    const type = nextType();
+    await seedPending(type, 6);
+
+    const claimed = await claimerA.claim({
+      nodeId: null,
+      executor: 'server',
+      eligibleTypes: [type],
+      limit: 6,
+      leases: [{ type, leaseMs: LEASE_MS }],
+    });
+
+    expect(claimed).toHaveLength(6);
+
+    const tokens = claimed.map((job) => job.claimToken);
+
+    expect(tokens.every((token) => typeof token === 'string' && UUID_RE.test(token))).toBe(true);
+    // No two rows share a token — the set has exactly as many entries as rows.
+    expect(new Set(tokens).size).toBe(tokens.length);
+  });
+
+  it('mints a DIFFERENT claim_token on a second claim of the same row', async () => {
+    const type = nextType();
+    const [id] = await seedPending(type, 1);
+
+    const options = {
+      nodeId: null,
+      executor: 'server' as const,
+      eligibleTypes: [type],
+      limit: 1,
+      leases: [{ type, leaseMs: LEASE_MS }],
+    };
+
+    const [firstClaim] = await claimerA.claim(options);
+    expect(firstClaim.claimToken).toMatch(UUID_RE);
+
+    // Simulate the row becoming claimable again (the reaper reclaiming an
+    // expired lease, in reality — see `job-lease-renewal.db.spec.ts` for the
+    // full sequence through the real services). What matters here is only the
+    // claim statement's own behaviour on a row it is claiming for a second
+    // time.
+    await clientA.job.update({ where: { id }, data: { status: 'pending' } });
+
+    const [secondClaim] = await claimerA.claim(options);
+    expect(secondClaim.claimToken).toMatch(UUID_RE);
+    expect(secondClaim.claimToken).not.toBe(firstClaim.claimToken);
   });
 
   it('increments attempts on each successive claim of the same row', async () => {

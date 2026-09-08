@@ -30,11 +30,15 @@
 // =============================================================================
 
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma, PrismaClient } from '@prisma/client';
 
+import { JobClaimService, ClaimOptions } from '../../src/jobs/job-claim.service';
 import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
 import { JobLeaseService } from '../../src/jobs/job-lease.service';
 import { JobStuckService } from '../../src/jobs/job-stuck.service';
+import { JobTerminalService } from '../../src/jobs/job-terminal.service';
+import { ProviderThrottleService } from '../../src/jobs/provider-throttle.service';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import type { SystemSettingsService } from '../../src/settings/system-settings/system-settings.service';
 import { createDbClient, resolveDbSuite } from './db-test-support';
@@ -91,6 +95,8 @@ describeWithDb('Lease renewal vs. the lease reaper (real Postgres)', () => {
   let client: PrismaClient;
   let leases: JobLeaseService;
   let stuck: JobStuckService;
+  let claims: JobClaimService;
+  let terminal: JobTerminalService;
 
   // The same per-process scoping discipline as the other queue suites: every
   // row this file creates carries a type prefixed with this, so cleanup
@@ -120,6 +126,19 @@ describeWithDb('Lease renewal vs. the lease reaper (real Postgres)', () => {
       stubSystemSettings(),
       // Nothing registered: the single-budget, single-lease shape a
       // deployment with no execution profiles has. See `JOB_TIMEOUT_MS`.
+      new JobHandlerRegistry()
+    );
+    // The REAL claim, so the token this suite renews against is one
+    // `gen_random_uuid()` actually minted — not a hand-set column value that
+    // would prove nothing about the statement in `job-claim.service.ts`.
+    claims = new JobClaimService(client as unknown as PrismaService);
+    // The REAL terminal service, so "a settled row carries no claim token"
+    // is driven through the shipped settle path rather than a raw UPDATE.
+    terminal = new JobTerminalService(
+      client as unknown as PrismaService,
+      stubConfig(),
+      new ProviderThrottleService(stubConfig()),
+      new EventEmitter2(),
       new JobHandlerRegistry()
     );
 
@@ -403,6 +422,196 @@ describeWithDb('Lease renewal vs. the lease reaper (real Postgres)', () => {
 
     await expect(leases.renew(id, LEASE_MS, { nodeId: null })).resolves.toBe(false);
     await expect(read(id)).resolves.toMatchObject({ status: 'succeeded' });
+  });
+
+  // ===========================================================================
+  // The per-claim token (issue #361)
+  // ===========================================================================
+  //
+  // Every case above renews with `{ nodeId: null }` alone, which is exactly
+  // what let #361 happen: every API replica claims with `claimedByNodeId:
+  // null`, so `heldLeaseWhere` could not tell replica A's claim of a row from
+  // replica B's later claim of the SAME row. These cases drive a real claim,
+  // a real reap, and a real re-claim through the actual services, and check
+  // that `jobs.claim_token` is what finally tells the two apart.
+
+  it('refuses a server renewal on a row ANOTHER SERVER REPLICA has since claimed', async () => {
+    // THE #361 REGRESSION ITSELF. Replica A claims the row; A stalls past its
+    // lease; the reaper requeues it; replica B claims it; A's renewal ticker
+    // fires anyway, carrying A's OLD claim's identity. Before this issue that
+    // renewal would land on B's claim and A would never learn it had lost the
+    // row — which is precisely the "extends the wrong replica's lease" defect
+    // #361 closes.
+    const type = nextType();
+    await client.job.create({ data: { type, reason: 'backfill' } });
+
+    const claimOptions: ClaimOptions = {
+      nodeId: null,
+      executor: 'server',
+      eligibleTypes: [type],
+      limit: 1,
+      leases: [{ type, leaseMs: LEASE_MS }],
+    };
+
+    // Replica A's claim.
+    const [claimedByA] = await claims.claim(claimOptions);
+    expect(claimedByA).toBeDefined();
+    expect(claimedByA.claimToken).toEqual(expect.any(String));
+
+    // A stalls: its lease lapses, and the REAL reaper — not a hand-written
+    // UPDATE — puts the row back to `pending`. This is also what pins that
+    // the reaper clears `claim_token` on the way (see the dedicated case
+    // below): if it didn't, B's claim overwriting a stale token would still
+    // happen to prove the same thing for the wrong reason.
+    await client.job.update({
+      where: { id: claimedByA.id },
+      data: { leaseExpiresAt: minutesAgo(1) },
+    });
+    await expect(stuck.resetStuck()).resolves.toMatchObject({ reset: 1, failed: 0 });
+
+    // Replica B's claim of the SAME row.
+    const [claimedByB] = await claims.claim(claimOptions);
+    expect(claimedByB.id).toBe(claimedByA.id);
+    expect(claimedByB.claimToken).toEqual(expect.any(String));
+
+    // THE PROPERTY THE WHOLE FIX RESTS ON: two claims of one row, two
+    // different tokens.
+    expect(claimedByB.claimToken).not.toBe(claimedByA.claimToken);
+
+    // ⚠ WITHOUT THE TOKEN, EVERY ONE OF THE STEPS BELOW IS IDENTICAL FOR A AND
+    // B: same job id, same `status: 'running'`, same `claimedByNodeId: null`
+    // (both replicas are the server, neither is a node). The pre-#361 `where`
+    // — `{ id, status: 'running', leaseExpiresAt: { gt: now }, claimedByNodeId:
+    // null }` — could not distinguish A's stale renewal from a legitimate one
+    // and would have returned `true` here, extending B's lease under A's dead
+    // ticker. That is the bug this test exists to keep dead.
+    const beforeStaleRenewal = await read(claimedByA.id);
+
+    await expect(
+      leases.renew(claimedByA.id, LEASE_MS, {
+        nodeId: null,
+        claimToken: claimedByA.claimToken,
+      })
+    ).resolves.toBe(false);
+
+    // THE LEASE MUST BE EXACTLY UNCHANGED — a `false` with the lease moved
+    // anyway would be the bug wearing a passing test.
+    const afterStaleRenewal = await read(claimedByA.id);
+    expect(afterStaleRenewal.leaseExpiresAt?.getTime()).toBe(
+      beforeStaleRenewal.leaseExpiresAt?.getTime()
+    );
+
+    // ...while B's OWN renewal, carrying B's own token, still lands. The guard
+    // must refuse the stale claimant without refusing the legitimate one.
+    await expect(
+      leases.renew(claimedByB.id, LEASE_MS, {
+        nodeId: null,
+        claimToken: claimedByB.claimToken,
+      })
+    ).resolves.toBe(true);
+
+    const afterLiveRenewal = await read(claimedByB.id);
+    expect(afterLiveRenewal.leaseExpiresAt?.getTime()).toBeGreaterThan(
+      afterStaleRenewal.leaseExpiresAt?.getTime() as number
+    );
+  });
+
+  it('a worker that reclaims the same row cannot renew with its previous claim’s token', async () => {
+    // THE CASE THAT JUSTIFIES MINTING PER ROW RATHER THAN PER PROCESS. If the
+    // token identified the CLAIMING PROCESS instead of the claim, one worker
+    // reclaiming its own abandoned row after being reaped would carry the SAME
+    // token across both runs and be unable to tell its current claim from its
+    // previous, already-superseded one — reproducing #361 one process short of
+    // it, with a single claimer and nobody else involved.
+    const type = nextType();
+    await client.job.create({ data: { type, reason: 'backfill' } });
+
+    const claimOptions: ClaimOptions = {
+      nodeId: null,
+      executor: 'server',
+      eligibleTypes: [type],
+      limit: 1,
+      leases: [{ type, leaseMs: LEASE_MS }],
+    };
+
+    const [firstClaim] = await claims.claim(claimOptions);
+    const firstToken = firstClaim.claimToken;
+
+    await client.job.update({
+      where: { id: firstClaim.id },
+      data: { leaseExpiresAt: minutesAgo(1) },
+    });
+    await expect(stuck.resetStuck()).resolves.toMatchObject({ reset: 1, failed: 0 });
+
+    const [secondClaim] = await claims.claim(claimOptions);
+    const secondToken = secondClaim.claimToken;
+
+    expect(secondToken).not.toBe(firstToken);
+
+    // The FIRST claim's token no longer renews anything...
+    await expect(
+      leases.renew(firstClaim.id, LEASE_MS, { nodeId: null, claimToken: firstToken })
+    ).resolves.toBe(false);
+
+    // ...while the SECOND claim's does, over the very same row.
+    await expect(
+      leases.renew(secondClaim.id, LEASE_MS, { nodeId: null, claimToken: secondToken })
+    ).resolves.toBe(true);
+  });
+
+  it('the reaper leaves no claim token on a row it requeues', async () => {
+    // `claim_token IS NOT NULL` iff the row is currently claimed. A row the
+    // reaper hands back to `pending` is claimed by nobody, and a stray token
+    // left behind would be exactly the kind of stale identity that let #361
+    // happen in the first place — a value that still LOOKS like an active
+    // claim after the claim it named is over.
+    const type = nextType();
+    await client.job.create({ data: { type, reason: 'backfill' } });
+
+    const [claimed] = await claims.claim({
+      nodeId: null,
+      executor: 'server',
+      eligibleTypes: [type],
+      limit: 1,
+      leases: [{ type, leaseMs: LEASE_MS }],
+    });
+    expect(claimed.claimToken).toEqual(expect.any(String));
+
+    await client.job.update({
+      where: { id: claimed.id },
+      data: { leaseExpiresAt: minutesAgo(1) },
+    });
+    await expect(stuck.resetStuck()).resolves.toMatchObject({ reset: 1, failed: 0 });
+
+    await expect(read(claimed.id)).resolves.toMatchObject({
+      status: 'pending',
+      claimToken: null,
+    });
+  });
+
+  it('a settled row carries no claim token', async () => {
+    // The other half of the same invariant, driven through the REAL settle
+    // chokepoint (`JobTerminalService`) rather than a raw UPDATE: a
+    // `succeeded` row is exactly as un-claimed as a `pending` one, even though
+    // — unlike the reap above — `executor` survives on this path.
+    const type = nextType();
+    await client.job.create({ data: { type, reason: 'backfill' } });
+
+    const [claimed] = await claims.claim({
+      nodeId: null,
+      executor: 'server',
+      eligibleTypes: [type],
+      limit: 1,
+      leases: [{ type, leaseMs: LEASE_MS }],
+    });
+    expect(claimed.claimToken).toEqual(expect.any(String));
+
+    await expect(terminal.completeSucceeded(claimed)).resolves.toBe('succeeded');
+
+    await expect(read(claimed.id)).resolves.toMatchObject({
+      status: 'succeeded',
+      claimToken: null,
+    });
   });
 
   it('writes a lease the reaper then reads as live', async () => {
