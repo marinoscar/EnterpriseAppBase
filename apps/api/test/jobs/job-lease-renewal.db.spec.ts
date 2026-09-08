@@ -195,7 +195,7 @@ describeWithDb('Lease renewal vs. the lease reaper (real Postgres)', () => {
     // Ten sweeps, each after another renewal — a long job is not one sweep's
     // worth of luck.
     for (let round = 0; round < 10; round += 1) {
-      await expect(leases.renew(id, LEASE_MS, null)).resolves.toBe(true);
+      await expect(leases.renew(id, LEASE_MS, { nodeId: null })).resolves.toBe(true);
       await expect(stuck.resetStuck()).resolves.toEqual({ reset: 0, failed: 0 });
     }
 
@@ -340,7 +340,7 @@ describeWithDb('Lease renewal vs. the lease reaper (real Postgres)', () => {
       executor: 'server',
     });
 
-    await expect(leases.renew(id, LEASE_MS, null)).resolves.toBe(false);
+    await expect(leases.renew(id, LEASE_MS, { nodeId: null })).resolves.toBe(false);
 
     const row = await read(id);
     expect(row.leaseExpiresAt?.getTime()).toBeLessThan(Date.now());
@@ -362,7 +362,7 @@ describeWithDb('Lease renewal vs. the lease reaper (real Postgres)', () => {
     });
 
     await expect(stuck.resetStuck()).resolves.toMatchObject({ reset: 1 });
-    await expect(leases.renew(id, LEASE_MS, null)).resolves.toBe(false);
+    await expect(leases.renew(id, LEASE_MS, { nodeId: null })).resolves.toBe(false);
 
     await expect(read(id)).resolves.toMatchObject({
       status: 'pending',
@@ -385,9 +385,9 @@ describeWithDb('Lease renewal vs. the lease reaper (real Postgres)', () => {
       executor: 'node',
     });
 
-    await expect(leases.renew(id, LEASE_MS, null)).resolves.toBe(false);
+    await expect(leases.renew(id, LEASE_MS, { nodeId: null })).resolves.toBe(false);
     // ...while the node that actually holds it renews fine.
-    await expect(leases.renew(id, LEASE_MS, nodeId)).resolves.toBe(true);
+    await expect(leases.renew(id, LEASE_MS, { nodeId })).resolves.toBe(true);
   });
 
   it('refuses to renew a settled row', async () => {
@@ -401,7 +401,7 @@ describeWithDb('Lease renewal vs. the lease reaper (real Postgres)', () => {
       executor: 'server',
     });
 
-    await expect(leases.renew(id, LEASE_MS, null)).resolves.toBe(false);
+    await expect(leases.renew(id, LEASE_MS, { nodeId: null })).resolves.toBe(false);
     await expect(read(id)).resolves.toMatchObject({ status: 'succeeded' });
   });
 
@@ -423,7 +423,7 @@ describeWithDb('Lease renewal vs. the lease reaper (real Postgres)', () => {
     });
 
     const before = Date.now();
-    await expect(leases.renew(id, LEASE_MS, null)).resolves.toBe(true);
+    await expect(leases.renew(id, LEASE_MS, { nodeId: null })).resolves.toBe(true);
 
     const row = await read(id);
     expect(row.leaseExpiresAt?.getTime()).toBeGreaterThanOrEqual(before + LEASE_MS - 1);

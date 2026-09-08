@@ -33,7 +33,7 @@ const whereOf = (mock: jest.Mock, index = 0): Record<string, unknown> =>
 
 describe('heldLeaseWhere', () => {
   it('requires the row to be this job, running, and still inside its lease', () => {
-    const where = heldLeaseWhere(JOB_ID, null);
+    const where = heldLeaseWhere(JOB_ID, { nodeId: null });
 
     expect(where.id).toBe(JOB_ID);
     expect(where.status).toBe('running');
@@ -52,14 +52,14 @@ describe('heldLeaseWhere', () => {
   });
 
   it('pins the row to a node when a node id is given', () => {
-    expect(heldLeaseWhere(JOB_ID, NODE_ID).claimedByNodeId).toBe(NODE_ID);
+    expect(heldLeaseWhere(JOB_ID, { nodeId: NODE_ID }).claimedByNodeId).toBe(NODE_ID);
   });
 
   it('pins the row to NO node when null is given — the in-process worker', () => {
     // `null` is not "unconstrained": the worker claims as `executor: 'server'`
     // with no node, so if the reaper requeued the row and a NODE took it, the
     // worker's renewals must stop landing. `null` is what says so.
-    expect(heldLeaseWhere(JOB_ID, null).claimedByNodeId).toBeNull();
+    expect(heldLeaseWhere(JOB_ID, { nodeId: null }).claimedByNodeId).toBeNull();
   });
 
   it('omits the ownership clause entirely when the node id is undefined', () => {
@@ -75,7 +75,7 @@ describe('JobLeaseService.renew', () => {
     const { service, updateMany } = makeService();
 
     const before = Date.now();
-    await expect(service.renew(JOB_ID, 60_000, null)).resolves.toBe(true);
+    await expect(service.renew(JOB_ID, 60_000, { nodeId: null })).resolves.toBe(true);
 
     const call = updateMany.mock.calls[0][0] as { data: { leaseExpiresAt: Date } };
     expect(call.data.leaseExpiresAt.getTime()).toBeGreaterThanOrEqual(before + 60_000);
@@ -83,14 +83,14 @@ describe('JobLeaseService.renew', () => {
     // Compared against the exported predicate rather than a literal, so this
     // fails if the guard changes rather than merely if a copy of it does.
     expect(Object.keys(whereOf(updateMany)).sort()).toEqual(
-      Object.keys(heldLeaseWhere(JOB_ID, null)).sort()
+      Object.keys(heldLeaseWhere(JOB_ID, { nodeId: null })).sort()
     );
   });
 
   it('reports false when the row was not held — reaped, settled, or taken', async () => {
     const { service } = makeService(jest.fn().mockResolvedValue({ count: 0 }));
 
-    await expect(service.renew(JOB_ID, 60_000, null)).resolves.toBe(false);
+    await expect(service.renew(JOB_ID, 60_000, { nodeId: null })).resolves.toBe(false);
   });
 
   it('does not throw on a lost row: false is an answer, not a failure', async () => {
@@ -108,7 +108,7 @@ describe('JobLeaseService.renew', () => {
     // predicate someone had widened into matching several rows.
     const { service } = makeService(jest.fn().mockResolvedValue({ count: 2 }));
 
-    await expect(service.renew(JOB_ID, 1_000, null)).resolves.toBe(false);
+    await expect(service.renew(JOB_ID, 1_000, { nodeId: null })).resolves.toBe(false);
   });
 });
 
@@ -121,7 +121,7 @@ describe('JobLeaseService.renewUntil', () => {
     const { service, updateMany } = makeService();
     const at = new Date('2026-03-01T00:00:00.000Z');
 
-    await expect(service.renewUntil(JOB_ID, at, NODE_ID)).resolves.toBe(true);
+    await expect(service.renewUntil(JOB_ID, at, { nodeId: NODE_ID })).resolves.toBe(true);
 
     expect((updateMany.mock.calls[0][0] as { data: { leaseExpiresAt: Date } }).data).toEqual({
       leaseExpiresAt: at,
