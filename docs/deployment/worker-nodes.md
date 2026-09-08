@@ -137,10 +137,27 @@ against what its eligible job types declare:
   everything.
 - A missing **degradable** capability → warn and continue.
 
-This template's example job type hashes a stream and needs nothing native, so
-the requirements map ships nearly empty. That is deliberate: the **structure**
-is the deliverable, and it is the documented place a fork declares that its
-`video.transcode` type needs `ffmpeg`.
+The template's example job type hashes a stream and needs nothing native. The
+one entry that is real is the database backup:
+
+| Type | Required | Degradable |
+|---|---|---|
+| `db.backup.run` | `pg_dump` | `psql` |
+
+A node without `pg_dump` therefore never declares `db.backup.run` — which
+matters more for this type than for any other, because it is configured never
+to retry: a claim it cannot fulfil is a backup that simply did not happen.
+`psql` is degradable because it is used only to read the server version and the
+newest applied migration; without it the backup is taken, uploaded and verified
+with those two audit fields left `null`.
+
+A node also needs a **network route** to the database, which nothing on this
+machine can check for you at startup. `appctl node doctor --db-host
+db.internal:5432` probes it, as a warning rather than a failure — see
+"Health checks" in [`apps/cli/README.md`](../../apps/cli/README.md#running-a-worker-node).
+
+Beyond those, the **structure** is the deliverable, and it is the documented
+place a fork declares that its `video.transcode` type needs `ffmpeg`.
 
 ### Declaring a requirement in a fork
 

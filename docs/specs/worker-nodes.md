@@ -731,6 +731,47 @@ The cost of the chosen option is one method every implementation must provide.
 in its local provider precisely so that the day somebody adds a method without
 implementing it everywhere, a file stops compiling.
 
+## 20.1 `db.backup.run`: the second node-eligible type, and the first with a credential (#352)
+
+`example.checksum` below is the reference: pure compute over bytes a presigned
+URL handed it. The database backup is the other shape this plane has to
+support, and it exercises three things nothing else does — the per-job secret
+broker (§ the `nodes.jobSecretBrokerEnabled` sections), `deriveOutputKey`
+(§17.1), and a job whose input is not a storage object at all.
+
+Four properties are worth stating here rather than only in the backup spec,
+because they are the fleet's rules and not the backup's:
+
+1. **`requiresInput = false`, and the input is a credential instead.** The
+   executor asks `POST /nodes/:id/jobs/:jobId/secret`, holds the material in
+   one local constant, hands it to one child process through its environment,
+   and drops it. Nothing is written to the node's config file or its state
+   directory — the founding rule of §8, asserted by a test in `apps/cli`.
+2. **Eligible is not offered.** `NodeOffloadService.offeredTypes()` intersects
+   node eligibility with `nodes.jobSecretBrokerEnabled`, the broker's own
+   `usable()` probe, and the handler's `nodeOffloadEnabled()` — a new optional
+   `JobHandler` member that lets a FEATURE answer "may this workload leave the
+   server in this deployment?" without the nodes module growing a switch keyed
+   on job type. All three run at claim time; none of them mutates the registry.
+   ⚠ That set has TWO readers: this plane takes it, and `JobWorker`'s `system`
+   mode takes its COMPLEMENT, so the fleet and the API server partition the
+   queue by construction rather than by two derivations that agree only while
+   eligibility is static. See [`job-queue.md` §6.4](job-queue.md#64-system-mode-is-the-node-planes-complement--and-jobs_system_mode_extra_types)
+   for the hole that appeared the one time they were derived separately.
+3. **Verification stays on the server.** The node streams `pg_dump` into a
+   single-shot signed PUT (§20) and reports a size, a digest and the key it was
+   given; the server reads the stored object back and parses its table of
+   contents before marking anything verified. A node vouching for its own
+   upload is not evidence.
+4. **A node-executed run has no heartbeat of its own**, so the backup's stale
+   sweep asks the JOB's lease instead — the liveness signal the node is already
+   renewing (§ the lease sections). This is the general answer for any future
+   type whose server-side row has a liveness clock: one clock, and it is the
+   lease.
+
+The full design, including the two opt-in settings and why they are two, is
+[`database-backup.md` §16](database-backup.md#16-running-the-dump-on-a-worker-node-352-epic-345).
+
 ## 21. `example.checksum`: the reference node-eligible type
 
 Before #269 this template shipped **no node-eligible handler**, and the

@@ -87,6 +87,19 @@ minutes that starts at 120 rather than 30) and its own terminal states.
 *trigger* a backup, a job handler may call `startBackup()` and return
 immediately — but the dump's lifetime must never be a job's lifetime.
 
+> **Superseded by #351 and #352 (epic #345) — read this section as history,
+> and then read what changed.** The dump *is* a queue job now (`db.backup.run`),
+> and each of the three objections above was answered rather than waived: the
+> reaper deadline by a per-type `maxRuntimeMs` the lease is *derived* from, the
+> renewal gap by #347's in-process renewer, and the retry budget by
+> `maxAttempts: 1`. `database_backup_runs` did **not** become a `jobs` row —
+> everything §1 and §2 say about the table, its heartbeat and its single-active
+> guard still holds; the job is what *executes* the run. The escape hatch this
+> paragraph offered (call `startBackup()` and return) was explicitly rejected
+> when the time came, for the reason it half-anticipates: it buys a dashboard
+> row and nothing else. §16 covers the rest of it, including running the dump
+> on a worker node.
+
 ## 1. The model
 
 One row per attempt, `database_backup_runs`. The interesting groups:
@@ -1143,3 +1156,134 @@ mean something — but it still runs against the same mocked engine seam as
 tests prove is that the HTTP surface reports the engine's state honestly, not
 that the engine itself is correct. That question is answered by §15.1 and
 §15.2.
+
+## 16. Running the dump on a worker node (#352, epic #345)
+
+`db.backup.run` is **node-eligible**: a worker node can take the dump, so the
+bytes go from the database to object storage without transiting the API
+server. Everything in §5 and §6 still holds — what changes is *who* runs
+`pg_dump`, and nothing else.
+
+### 16.1 Three gates, and the type is offered only when all three agree
+
+Node eligibility is *structural* (the handler carries `nodeResultSchema` +
+`persistNodeResult`, and `deriveOutputKey` so the archive lands where the rest
+of this subsystem looks for it). Whether a node is ever **offered** the type is
+a runtime intersection performed in `NodesService.nodeEligibleTypes`:
+
+| Gate | Question | Default |
+| --- | --- | --- |
+| `nodes.jobSecretBrokerEnabled` | May the broker issue a credential **at all**? | off |
+| `databaseBackup.nodeOffloadEnabled` | May **this workload** leave the server? | off |
+| `PgJobRoleBroker.usable()` | *Can* it mint here, right now? | probed, cached ~60s |
+
+The two settings are deliberately **not** one switch. "These machines may hold
+a short-lived credential" and "the whole database may be dumped somewhere
+other than the API server" are different decisions, and a deployment can
+reasonably want the first without the second. The `usable()` gate is capability
+rather than policy: without it a node claims the job, asks for its credential,
+gets a `503` and defers — burning a claim and a lease cycle **every poll** on a
+deployment that simply cannot mint roles (managed PostgreSQL denying
+`CREATEROLE` is the ordinary case; see
+[`docs/runbooks/node-job-secrets.md`](../runbooks/node-job-secrets.md)).
+
+With any gate closed the type is withheld from the claim and the in-process
+worker takes the backup — exactly the behaviour that existed before node
+offload, **including under `JOBS_WORKER_MODE=system`**. That last part is not
+free, and it is worth knowing why:
+
+`system` mode used to mean "everything `JobHandlerRegistry.serverOnlyTypes()`
+says no node can run", which was a *static* property of a handler's members.
+Once eligibility acquired runtime gates that stopped being the same question:
+`db.backup.run` is structurally node-eligible (so it left `serverOnlyTypes()`
+for every deployment, permanently) while all three gates above ship off (so no
+node may claim it). Read separately, the two answers left a **hole** —
+neither executor claimed the type, and the deployment simply stopped taking
+backups. The fix is that `system` mode now reads the **complement of
+`NodeOffloadService.offeredTypes()`**, the very set the node plane is offered,
+so the two executors partition the queue by construction. See
+[`job-queue.md`](job-queue.md) and the service's own header.
+`JOBS_SYSTEM_MODE_EXTRA_TYPES` still exists, unchanged, for deliberately
+running a type the fleet *is* allowed to run — it is no longer load-bearing
+for anything's survival.
+
+### 16.2 The node never chooses where the archive goes
+
+`deriveOutputKey` re-reads the run by `job_id` (a `@unique` column) and returns
+the key the row already records. That is what makes it **idempotent**: a node
+asks for its upload target again after a timed-out transfer or a restarted
+process, and must get the same key, or a retry writes a second archive that no
+row points at. The node reports the key back in its result, and
+`persistNodeResult` **refuses anything else** — a result naming a different key
+is either a confused executor or an attempt to point this deployment's restore
+path at bytes of somebody else's choosing, and neither is corrected by
+trusting it.
+
+The first `deriveOutputKey` call also moves the run from `pending` to
+`running`, because on this path it is the only moment the server learns a
+remote executor has begun.
+
+### 16.3 Verification stays on the server, and is not negotiable
+
+`persistNodeResult` downloads the **stored object** and reads its table of
+contents before writing anything. The node's `sha256` is recorded as *the
+node's claim* about the bytes it streamed; `verified_at` is set only because
+this server read the archive back out of the bucket. §6 already settled that
+verification means "what the bucket holds", and a node attesting to its own
+upload is the machine with the least reason to be trusted vouching for the one
+fact this subsystem rests on. The cost is one download per backup — the same
+one the server path already pays.
+
+Both executors then write through **one private `completeRun`**, so a run's
+stored state cannot depend on which machine produced it.
+
+### 16.4 `bytes` is a decimal string, and that is load-bearing
+
+`bytes_written`/`size_bytes` are `BigInt` because a dump past 2 GiB is
+ordinary. JSON has no integers, so a size sent as a JSON **number** is exact
+only below 2^53 — the corruption would land on exactly the largest backups,
+i.e. the deployments node offload exists for. The result contract
+(`apps/api/src/jobs/contracts/db-backup-run.contract.ts`) therefore carries it
+as `^\d{1,20}$` and the handler converts once with `BigInt()`, mirroring what
+`toRunDto` already does on the way out.
+
+### 16.5 The node holds no credential it can persist
+
+The connection is brokered per job (#349/#350), bounded by the job's own lease,
+and revoked when the job settles. On the node it lives in **one local
+constant**: it never reaches `node-config.ts`, never reaches the state
+directory, and never reaches a log line —
+`apps/cli/src/node/executors/db-backup-run.test.ts` asserts all three,
+including a static check that the executor imports no config writer at all.
+
+### 16.6 A node-executed run has no heartbeat, so the sweep asks the lease
+
+A node cannot write `last_heartbeat_at`: it has no database access, which is
+the whole premise of the node plane. The stale sweep (§12) therefore skips a
+candidate whose `jobs` row is still `running` with a live lease — the liveness
+signal the executor is already maintaining (#347) — and gives up on it the
+moment that lease is gone. Without this, a healthy node-run backup would be
+marked `stale` after `runStaleMinutes`, **its archive deleted mid-upload**, and
+its result then refused.
+
+REJECTED: a second heartbeat endpoint for nodes to poke the run row. Two
+liveness clocks for one fact disagree, and the day one of them fails the other
+says everything is fine.
+
+### 16.7 What the node needs, and what `doctor` says about it
+
+`pg_dump` is a **required** capability for the type (`capabilities.ts`), so a
+node without it never declares `db.backup.run` — which matters more here than
+for any other type, because `maxAttempts: 1` means a failed claim is a backup
+that simply did not happen. `psql` is **degradable**: it is used only for two
+best-effort provenance reads (`db_version`, `migration_name`), and without it
+the backup is taken, uploaded and verified with two `null` columns.
+
+`appctl node doctor` reports both the client version and — with
+`--db-host host[:port]` — a TCP probe of the database, **as warnings, never
+failures**. A node that cannot reach the database must simply not declare the
+type; failing `doctor` would tell every node in a fleet that it is broken
+because it is not the one taking backups. There is deliberately no tunnelling:
+see [`worker-nodes.md`](worker-nodes.md) — a node needs a real network route,
+which for most deployments means sitting inside the same private network.
+

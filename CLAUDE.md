@@ -683,9 +683,9 @@ the CLI's `APPCTL_` prefix; see `infra/compose/.env.example` for the full commen
 - `JOBS_RATELIMIT_BASE_MS` / `JOBS_RATELIMIT_MAX_MS` - Rate-limit deferral backoff bounds (default: 30000 / 900000)
 - `JOBS_WORKER_CONCURRENCY` - Jobs this process runs at once; fixed at startup (default: 2)
 - `JOBS_POLL_MS` - Idle poll interval before asking for work again (default: 5000)
-- `JOBS_WORKER_MODE` - `all` (every type — the default), `system` (only types that cannot run on a node), or `off` (enqueue only); an unrecognised value warns and behaves as `all`
+- `JOBS_WORKER_MODE` - `all` (every type — the default), `system` (only types no node may claim **in this deployment right now** — the complement of `NodeOffloadService.offeredTypes()`, so a node-eligible type whose gates are closed is still claimed here), or `off` (enqueue only); an unrecognised value warns and behaves as `all`
 - `JOBS_JOB_TIMEOUT_MS` - Per-job timeout before the slot is freed and the job retries/fails (0 disables; default: 600000)
-- `JOBS_SYSTEM_MODE_EXTRA_TYPES` - Comma-separated node-eligible types the `system` worker mode should claim anyway (unset by default; leave unset unless using `system` mode)
+- `JOBS_SYSTEM_MODE_EXTRA_TYPES` - Comma-separated types the `system` worker mode should claim **in addition** to its complement — for running a type the fleet is also allowed to run (a small or paused fleet). Never needed to keep a type running at all: a node-eligible type this deployment does not offer to nodes is already in the complement. Unset by default
 - `JOBS_REAPER_ENABLED` - Whether this process reclaims jobs abandoned by a dead executor; independent of `JOBS_WORKER_MODE`. Only the literal `false` turns it off (default: on)
 
 **Worker Node Fleet:**
@@ -696,7 +696,7 @@ the CLI's `APPCTL_` prefix; see `infra/compose/.env.example` for the full commen
 - `MAINTENANCE_MODE` - Environment override that outranks the persisted setting. Set to `true` to force the window open even if the app cannot start (a pre-migration deploy), or to `false` to force it shut (recovery from a window opened with `allowAdmins` false). Only the literal strings `'true'`/`'false'` count; anything else (including unset) means "no override, use the stored setting". Requires an application restart to take effect. See `docs/runbooks/maintenance-mode.md`. ⚠️ Document a value for this variable as prose ("set to `true`"), never as an inline `# MAINTENANCE_MODE=true` example — `apps/cli`'s `parseEnvExample` reads *any* commented `# KEY=value` line in `infra/compose/.env.example` as declaring an optional variable, so an illustrative assignment inside prose registers as a second declaration and fails the CLI's env-spec test. `infra/compose/.env.example` already carries exactly one commented default (`# MAINTENANCE_MODE=false`) and a comment stating this rule — do not add a second commented line for this key.
 
 **Database Backup:**
-- `DB_BACKUP_SCHEDULE_ENABLED` - Whether this process runs the backup scheduler: a ten-minute cron that releases runs whose heartbeat stopped and starts a backup when the configured schedule has come due. Defaults to on; only the literal `false` turns it off, and it is deliberately independent of `JOBS_WORKER_MODE` — a backup is not queue work, so an API running as a pure control plane must still back its database up. Everything about the schedule itself (enabled, frequency, time of day, timezone, retention count, stale window) is a `databaseBackup` system setting, not an environment variable. See `docs/specs/database-backup.md`.
+- `DB_BACKUP_SCHEDULE_ENABLED` - Whether this process runs the backup scheduler: a ten-minute cron that releases runs whose heartbeat stopped and starts a backup when the configured schedule has come due. Defaults to on; only the literal `false` turns it off, and it is deliberately independent of `JOBS_WORKER_MODE` — a backup is not queue work, so an API running as a pure control plane must still back its database up. Everything about the schedule itself (enabled, frequency, time of day, timezone, retention count, stale window) is a `databaseBackup` system setting, not an environment variable — as is `nodeOffloadEnabled` (default **false**), which decides whether a worker node may take the dump at all. See `docs/specs/database-backup.md`.
 
 **Observability:**
 - `OTEL_ENABLED` - Enable OpenTelemetry (default: true)
@@ -924,12 +924,16 @@ Don't restate any of that here; extend that file instead.
 
 ### Database Backups
 
-A backup is **not** a queue job, and must not become one — `jobs
-.stuckThresholdMinutes` defaults to 30 minutes, so the lease reaper would
-reset a legitimately long dump to `pending` and a **second `pg_dump`** would
-start against the same storage key. `database_backup_runs` is a dedicated
-table with its own heartbeat, its own stale window
-(`databaseBackup.runStaleMinutes`) and its own terminal states. Two more
+A backup **is** a queue job (`db.backup.run`, epic #345) and may be claimed by
+a worker node — but `database_backup_runs` is still **not** a `jobs` row and
+must not become one. `jobs.stuckThresholdMinutes` defaults to 30 minutes, so a
+run kept on the queue's own clock would be reset to `pending` mid-dump and a
+**second `pg_dump`** would start against the same storage key; the job survives
+that only because `db.backup.run` declares its own `maxRuntimeMs` and the lease
+is derived from it. `database_backup_runs` remains a dedicated table with its
+own heartbeat, its own stale window (`databaseBackup.runStaleMinutes`) and its
+own terminal states — and because a node cannot write that heartbeat at all,
+the stale sweep asks the JOB's lease before giving up on a run. Two more
 rules that are easy to break by accident: **at most one active run at a time
 is enforced by a partial UNIQUE index** (`database_backup_runs_active_uniq_idx`),
 never by a `findFirst` before the insert — Prisma cannot express that index,
@@ -963,6 +967,17 @@ A node also needs a **network route** to PostgreSQL; there is deliberately no
 tunnelling, because that would put the API in the data path the presigned-URL
 data plane exists to keep it out of. Operator guide:
 [`docs/runbooks/node-job-secrets.md`](docs/runbooks/node-job-secrets.md).
+
+The type is **offered** to a node only when three things agree, all intersected
+at claim time and none of them mutating the registry: `nodes
+.jobSecretBrokerEnabled` (may the broker issue anything), `databaseBackup
+.nodeOffloadEnabled` (may this workload leave the server — default false, and a
+deliberately separate switch), and the broker's own `usable()` probe (can it
+mint here at all). Verification never moves with the work: the node reports a
+size, a digest and the key it was given, and the **server** reads the uploaded
+archive back before setting `verified_at`. `docs/specs/database-backup.md` §16
+carries the whole design, including why `bytes` crosses the wire as a decimal
+string.
 
 Restoring one is the other half, and it has two rules of its own. **No
 pre-flight path may create, drop or rename anything** — an operator asks "can

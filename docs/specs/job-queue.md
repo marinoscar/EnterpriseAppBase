@@ -979,7 +979,7 @@ claim's `eligibleTypes`.
 | Mode | Claims | When |
 |---|---|---|
 | `all` | Every registered type | The default, and the single-box posture: there is nowhere else for the work to run |
-| `system` | Only the types a node could never run (§2's derived server-only set), plus the extras below | The recommended posture once worker nodes exist — the API server stops competing with the fleet for the expensive jobs the fleet was added to take |
+| `system` | Only the types **no node may claim here, right now** (the complement of what the node plane is offered — §6.4), plus the extras below | The recommended posture once worker nodes exist — the API server stops competing with the fleet for the expensive jobs the fleet was added to take |
 | `off` | Nothing | A pure control plane: still enqueues, still serves the queue API, executes nothing |
 
 Two decisions inside that table are worth stating on their own.
@@ -994,26 +994,46 @@ because the mode is re-read on every claim — without the latch a typo would
 emit several warnings a second, forever, burying the one line an operator
 needs.
 
-**Eligible types are resolved per claim, not captured at bootstrap.** Both
-reads are in-memory (a `Map` walk and a `ConfigService` lookup), so doing it
-every poll costs nothing next to the query it precedes. Capturing once would
-make `system` mode depend on registration order — a handler whose module
-resolved after the worker's would simply be missing from a list computed once
-— which is the same class of invisible coupling explicit self-registration
-exists to avoid (§1.2).
+**Eligible types are resolved per claim, not captured at bootstrap.** `all`
+and `off` answer from memory (a `Map` walk and a `ConfigService` lookup);
+`system` additionally reads one settings row and, for a type carrying a
+credential broker, a probe the broker itself caches for ~60s — all of it next
+to a claim query that was going to run anyway. Capturing once would make
+`system` mode depend on registration order — a handler whose module resolved
+after the worker's would simply be missing from a list computed once — which
+is the same class of invisible coupling explicit self-registration exists to
+avoid (§1.2). It would also make the mode deaf to the runtime gates §6.4
+describes, which is precisely the bug that section records.
 
-### 6.4 `JOBS_SYSTEM_MODE_EXTRA_TYPES`
+### 6.4 `system` mode is the node plane's complement — and `JOBS_SYSTEM_MODE_EXTRA_TYPES`
 
-`system` mode's base list is `JobHandlerRegistry.serverOnlyTypes()` — derived
-from which optional members each handler carries (§2), never a second
-hand-maintained list that could disagree with the handlers themselves.
+`system` mode's base list is the **complement of
+`NodeOffloadService.offeredTypes()`**: every registered type that no node may
+claim *in this deployment, right now*. One function answers the question and
+the two executors read it in opposite directions, so they partition the queue
+by construction.
 
-The extras are the escape hatch for the one thing that derivation cannot know:
-a type that **is** node-eligible but that this deployment still wants the
-server to claim, because its node fleet is small, paused, or does not run that
-type. Overlap with the fleet is **safe rather than tolerated** — `SKIP LOCKED`
-means a server and a node racing for one row produce one winner and one empty
-result, never a double claim (§4.4).
+**It used to be `JobHandlerRegistry.serverOnlyTypes()`, and that was a hole.**
+`serverOnlyTypes()` answers a *static* question — does this handler carry the
+two node members? — which was the same question only while node eligibility
+was purely structural. Epic #345's `db.backup.run` broke that: it is
+structurally node-eligible (so it left `serverOnlyTypes()` for every
+deployment, forever) while the three runtime gates that decide whether a node
+may actually claim it all ship **off**. Read separately, the two derivations
+disagreed, and on a `system`-mode deployment **neither executor claimed the
+type**: the fleet was not allowed to, and the server no longer thought it had
+to. For a backup that means a deployment that silently stops taking them,
+recovered only by an operator noticing an alert and editing an environment
+variable. Deriving one list from the other makes that hole unrepresentable —
+the same argument `resolveJobLeaseMs` makes about a lease and its renewal
+interval, applied to eligibility.
+
+The extras remain, and they are now for exactly one thing: deliberately
+running a type the fleet **is** allowed to run, because its node fleet is
+small, paused, or does not run that type. They are no longer needed to keep
+anything running at all. Overlap with the fleet is **safe rather than
+tolerated** — `SKIP LOCKED` means a server and a node racing for one row
+produce one winner and one empty result, never a double claim (§4.4).
 
 An entry no handler in this process registers is **dropped with a warning**
 rather than passed through, once per type. Claiming a type with no handler is
@@ -1110,7 +1130,7 @@ same way in `infra/compose/.env.example`:
 | `JOBS_POLL_MS` | 5000 | How long an **empty** queue waits before asking again |
 | `JOBS_WORKER_MODE` | `all` | Which types this process claims (§6.3) |
 | `JOBS_JOB_TIMEOUT_MS` | 600000 | How long one job may hold a slot; `0` disables |
-| `JOBS_SYSTEM_MODE_EXTRA_TYPES` | *(empty)* | Extra types `system` mode claims anyway (§6.4) |
+| `JOBS_SYSTEM_MODE_EXTRA_TYPES` | *(empty)* | Extra types `system` mode claims **in addition** to its complement (§6.4) |
 
 `JOBS_WORKER_MODE` is stored as a plain string and validated by the worker on
 every claim rather than parsed in `configuration.ts`, because validating it
@@ -2328,6 +2348,7 @@ about Nest's phase ordering and therefore needs a real module graph:
 | `all` claims node-eligible types too; `system` claims only server-only ones; `off` claims nothing and starts no pool | `src/jobs/job.worker.spec.ts` |
 | An unrecognised mode behaves as `all` and warns **exactly once** across 50 reads and across two worker instances | `src/jobs/job.worker.spec.ts` — the module-level latch, reset per case so the assertion cannot pass vacuously |
 | `JOBS_SYSTEM_MODE_EXTRA_TYPES` adds a registered type; an unregistered entry is dropped with one warning per type | `src/jobs/job.worker.spec.ts` |
+| `system` mode claims a node-eligible type whose deployment gates are closed, and stops the moment they open — the two executors are an exact partition of the registry | `src/jobs/job.worker.spec.ts`, and end to end over the real module graph in `test/db-backup/db-backup-node-offload.integration.spec.ts` |
 | Eligible types are re-resolved per claim: a handler registered *after* the pool started appears in a later claim | `src/jobs/job.worker.spec.ts` |
 | A job exceeding its timeout frees the slot promptly and settles through `completeFailed` with a `JobTimeoutError` | `src/jobs/job.worker.spec.ts` |
 | The abandoned work rejecting later produces **no** `unhandledRejection` | `src/jobs/job.worker.spec.ts` — an explicit `process.on('unhandledRejection', …)` listener, because this is the part a bare `Promise.race` gets wrong |
