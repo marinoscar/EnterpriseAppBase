@@ -1306,6 +1306,56 @@ needs to sustain is not the volume a purpose-built message broker exists for.
 A fork whose queue outgrows this design is free to add Redis; the point is
 that doing so is not the price of entry for the first job type.
 
+### 12.5 Node offload: two executors partition the queue, not just share it
+
+§12.2 already establishes that a `JobHandler` runs unchanged on either
+executor. Epic #345 adds a second axis on top of that: whether a
+node-eligible type is *offered* to the fleet at all is a **runtime policy**,
+re-evaluated on every claim, not a fact fixed when the handler was written.
+`NodeOffloadService.offeredTypes()` intersects three independent gates —
+a deployment-wide `nodes.jobSecretBrokerEnabled` switch, a feature's own
+policy (`JobHandler.nodeOffloadEnabled()`, e.g. `databaseBackup
+.nodeOffloadEnabled`), and a broker's own `usable()` capability probe — and
+none of the three mutates the handler registry. Structural eligibility
+(§2 of [`job-queue.md`](specs/job-queue.md)) still answers "**can** this type
+ever leave the server"; this answers "**does** this deployment let it, right
+now".
+
+That second question has one consumer besides the node claim endpoint:
+`JOBS_WORKER_MODE=system` reads the **complement** of `offeredTypes()`, not a
+static "everything `serverOnlyTypes()` says no node can run". Before this
+existed, a type could be structurally node-eligible (so it left
+`serverOnlyTypes()` permanently) while every offload gate shipped off (so no
+node would ever claim it) — and the two readers, taken separately, agreed on
+nothing: `system` mode did not claim it either, and the type simply stopped
+running anywhere. Deriving `system` mode from the same set the node plane is
+offered is what makes the API server and the fleet **partition** the queue by
+construction rather than by two derivations that happen to agree while
+eligibility is static.
+
+**The per-job secret broker is the other half of what node offload had to
+solve.** A node holds no *durable* database or storage credential (§8 of
+[`worker-nodes.md`](specs/worker-nodes.md)) — presigned URLs (§12.2 above)
+answer the storage half, and a `pg_dump` for `db.backup.run` is the first type
+that needed the database half too. A handler declares the need by carrying a
+`nodeSecretBroker`; its presence is the declaration, exactly as
+`nodeResultSchema` + `persistNodeResult` declare node eligibility itself
+(`job-handler.interface.ts`). At claim time a node calls
+`POST /api/nodes/:id/jobs/:jobId/secret`, gated by `assertJobHeldByNode`
+(§12.3's lease check) and by `nodes.jobSecretBrokerEnabled`; the broker mints
+a short-lived, job-scoped credential — for `db.backup.run`, a PostgreSQL role
+with `CONNECT`+`USAGE`+`SELECT` and a `VALID UNTIL` clamped to the job's own
+lease plus a short grace — and the server records only the credential's
+**handle** in `job_node_secrets`, never its material. Three independent paths
+can end a grant: the job-settle listener, the ten-minute
+`NodeSecretSweepTask` cron (the third permanent exemption from "every
+long-running activity is a queue job" — see `CLAUDE.md` — because credential
+revocation must not depend on the queue it might itself be wedged inside),
+and `VALID UNTIL` enforced by PostgreSQL itself, which needs no cron to be
+correct. Full design, including the two separate opt-in settings and the
+`guided` capability-probe outcome for a database that cannot grant
+`CREATEROLE`: [`database-backup.md` §16](specs/database-backup.md#16-running-the-dump-on-a-worker-node-352-epic-345).
+
 ---
 
 ## 13. Testing Architecture
@@ -1888,7 +1938,7 @@ alternatives, and (where relevant) an operator runbook it defers to:
 | [job-queue.md](specs/job-queue.md) | The background job queue — handler contract, claim/lease mechanics, retry and rate-limit budgets, the admin surface |
 | [worker-nodes.md](specs/worker-nodes.md) | The remote worker node fleet — registration, the claim/lease/data-plane mechanics, capability probing, fleet health |
 | [maintenance-mode.md](specs/maintenance-mode.md) | The maintenance window — the three-layer override precedence, the database restore swap it exists for |
-| [database-backup.md](specs/database-backup.md) | Database backups — the streaming `pg_dump` contract, the dedicated run table, why a backup is not a queue job |
+| [database-backup.md](specs/database-backup.md) | Database backups — the streaming `pg_dump` contract, the dedicated run table, why the dump is now a queue job and what had to change first, running it on a worker node |
 | [database-restore.md](specs/database-restore.md) | Database restore and rollback — the pre-flight gates, the three outcomes, the maintenance-window coordination |
 | [browser-notifications.md](specs/browser-notifications.md) | OS-level browser notifications and Web Push — the service worker, the notification capability model, the admin kill switch |
 | [notification-broadcasts.md](specs/notification-broadcasts.md) | Admin notification broadcasts — composing and sending an announcement to every user, the fan-out job types |

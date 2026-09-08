@@ -153,8 +153,16 @@ polish and never a requirement.
 
 Some job types can have their expensive part computed on a **remote worker
 node** instead of on the API server: the node computes, posts a result back,
-and the server writes it down. The node has no database access and **no storage
-credentials** at all.
+and the server writes it down. The node has **no storage credentials** at all,
+ever — and no *durable* database access: a type that genuinely needs a real
+database connection (`db.backup.run`, for `pg_dump`) may declare a
+`nodeSecretBroker` that mints one short-lived, job-scoped credential per job,
+held in the node's memory only and revoked when the job settles — see
+`../job-secret-broker.ts` and
+[`docs/specs/database-backup.md` §16](../../../../../docs/specs/database-backup.md#16-running-the-dump-on-a-worker-node-352-epic-345).
+Nothing brokered this way is ever written to disk, to config, or to a log
+line; that is the rule this section's opening claim narrows to, not one it
+gives up.
 
 **A type is node-eligible if, and only if, its handler carries BOTH optional
 members:**
@@ -333,6 +341,67 @@ served as JSON Schema by `GET /api/nodes/job-types`, so a client can validate a
 result **before** posting it, against the server's own definition. See
 [`../contracts/README.md`](../contracts/README.md) — including why a shared
 `packages/job-contracts` workspace was rejected for this repository.
+
+**⚠ A byte count crosses the wire as a decimal string, never a JSON number, if
+it is backed by a `BigInt` column.** JSON has no integer type — a JSON number
+is a double, exact only below 2^53 — so a dump or export past that size would
+silently lose precision on the way in, on exactly the largest, least
+eye-checkable results. `db-backup-run.contract.ts` is the worked example:
+`bytes: z.string().regex(/^\d{1,20}$/)`, converted with `BigInt()` **once**, in
+the handler, mirroring the same rule the outgoing DTO already applies (`BigInt`
+values are stringified because `JSON.stringify` refuses to serialise them at
+all). Contrast `example-checksum.contract.ts`, whose `bytes` is a plain
+`number` — correctly, because it hashes a stored object bounded by
+`Number.MAX_SAFE_INTEGER` in any realistic deployment and writes to a JSONB
+column rather than a `BigInt` one. Copy whichever contract matches the column
+you are writing.
+
+### An execution profile (`profile`, optional)
+
+Most handlers take the deployment-wide `JOBS_JOB_TIMEOUT_MS`/`JOBS_MAX_ATTEMPTS`
+and need nothing else. Declare `readonly profile = { maxRuntimeMs, maxAttempts }`
+only when this type is genuinely unlike the rest of the queue:
+
+```ts
+readonly profile: JobExecutionProfile = {
+  maxRuntimeMs: 6 * 60 * 60 * 1000, // this type may legitimately run for hours
+  maxAttempts: 1,                   // …and must never be auto-retried
+};
+```
+
+**Exactly two numbers, and there will only ever be two.** The claim's lease
+and its renewal interval are *derived* from `maxRuntimeMs`
+(`resolveJobLeaseMs`/`resolveRenewIntervalMs` in `../job.worker.ts` and
+`../job-execution-profile.ts`) rather than declared alongside it — a lease
+shorter than the permitted runtime is a job that reaps itself into duplicate
+execution, and deriving it makes that state unrepresentable rather than merely
+avoided. Do not add a third field. `db-backup-run.handler.ts` is the worked
+example (`maxRuntimeMs: 6h`, `maxAttempts: 1` — a multi-gigabyte dump must
+never be auto-retried).
+
+### A per-job credential (`nodeSecretBroker`, optional)
+
+A node has no *durable* database access or storage credentials (§8 of
+[`docs/specs/worker-nodes.md`](../../../../../docs/specs/worker-nodes.md)), so
+almost every node-eligible type needs none. The exception is a type whose work
+genuinely requires a live connection to something this deployment guards — a
+`pg_dump` needs PostgreSQL — and for that, presence of a `nodeSecretBroker`
+member is the declaration, exactly as `nodeResultSchema` + `persistNodeResult`
+declare eligibility:
+
+```ts
+readonly nodeSecretBroker: JobSecretBroker = pgJobRoleBroker;
+```
+
+The broker mints a short-lived, job-scoped credential when a node calls
+`POST /api/nodes/:id/jobs/:jobId/secret`, bounded by the job's own lease, and
+destroys it again when the job settles or on the sweep that catches what the
+settle path cannot. **Nothing it returns may be persisted except the handle**
+— `job_node_secrets` has no column that could hold the material itself. See
+`../job-secret-broker.ts` for the full contract and
+[`docs/specs/database-backup.md` §16](../../../../../docs/specs/database-backup.md#16-running-the-dump-on-a-worker-node-352-epic-345)
+for the worked example, including the two separate opt-in settings that gate
+whether this ever reaches a node at all.
 
 ## Example Handlers
 

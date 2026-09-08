@@ -43,12 +43,17 @@
 > and an administrator can inspect, trigger, cancel, download and delete them
 > by hand (#283, §13).
 
-## Why this is not a queue job
+## Why this *is* a queue job, and what had to change first
 
 This epic ships a job queue (`docs/specs/job-queue.md`) and a worker fleet
 (`docs/specs/worker-nodes.md`), and a database backup is obviously
-"background work". It is still **not** a queue job, and the reason is not
-taste — putting it on the queue corrupts backups.
+"background work". For most of epic #254 it was still **not** a queue job,
+and the reason was not taste — putting it on the queue as it stood would have
+corrupted backups. Epic #345 (#346, #347, #351, #352) is the epic that fixed
+the queue rather than working around it, and the backup moved onto it once
+each of the three arguments below stopped being true. Read the three as they
+stood — the starting position — and then read what closed each one, because
+the fix is only convincing if the failure it prevents is still visible.
 
 1. **`jobs.stuckThresholdMinutes` defaults to 30 minutes.** A dump of a real
    production database routinely runs longer than that. `JobStuckResetTask`
@@ -58,47 +63,65 @@ taste — putting it on the queue corrupts backups.
    same derived storage key as the first, and two processes interleave their
    output into one object. The archive that results restores nothing, and
    nothing reports an error: both runs can exit 0.
-2. ~~**The in-process worker has no lease-renewal path.**~~ **ANSWERED BY
-   #347** (epic #345), and recorded here rather than deleted because it was
-   true when this spec was written and the fix is what changed it. `JobWorker`
-   used to claim with a lease and never extend it, which made point 1 not a
-   rare race but *unconditional* for any job outliving the threshold — a
-   remote node renewed, and the in-process worker a single-container
-   deployment actually runs did not. It now renews for the whole of
-   `process()` through `JobLeaseService`, the same service the node plane
-   renews through, and the reaper no longer judges a **leased** row by its
-   age at all (`docs/ARCHITECTURE.md` §12.3). Point 1's mechanism is
-   correspondingly narrowed: a live `pg_dump` that keeps renewing is not
-   reset to `pending`.
 
-   Whether that makes a backup safe to *migrate* onto the queue is a separate
-   question this spec does not answer — point 3 stands on its own, and the
-   paragraph below still governs.
+   **Answered by #346's per-type execution profiles.** `db.backup.run`
+   declares `maxRuntimeMs: 6h`, and the claim's lease is *derived* from that
+   ceiling (`resolveJobLeaseMs` = ceiling + grace) rather than declared beside
+   it — so a lease shorter than the permitted runtime is unrepresentable
+   rather than merely avoided. The 30-minute threshold itself did not change;
+   what changed is that it is no longer the number this job type's lease is
+   measured against.
+2. **The in-process worker has no lease-renewal path.** `JobWorker` claimed
+   with a lease and never extended it, which made point 1 not a rare race but
+   *unconditional* for any job outliving the threshold — a remote node
+   renewed through `POST …/renew`, and the in-process worker a
+   single-container deployment actually runs did not.
+
+   **Answered by #347.** The worker now renews for the whole of `process()`
+   through `JobLeaseService`, the same service the node plane renews through,
+   on a ticker derived from the lease itself (lease ÷ 3, so two consecutive
+   renewal failures still cost nothing). The reaper's aged-claim signal was
+   narrowed to match: age is judged only for a `running` row that carries no
+   lease at all, so a job that keeps renewing is never reset by how long it
+   has run (`docs/ARCHITECTURE.md` §12.3). A fourth reaper signal —
+   an implausibly *far-out* lease, judged against the longest lease any
+   registered handler could legitimately ask for — replaces the coverage the
+   narrowed age clause gave up; see `docs/specs/job-queue.md` §7.1 for that
+   signal and the trade-off it accepts.
 3. **A job has an attempt budget and automatic retry.** Re-running a failed
    multi-gigabyte dump burns hours of I/O on a database that is probably
-   already unwell. The correct retry for a backup is *the next scheduled
-   one*.
+   already unwell, unattended, at whatever hour the first attempt died. The
+   correct retry for a backup is *the next scheduled one*, not a queue-driven
+   second attempt minutes later.
 
-So `database_backup_runs` is a dedicated table with its own heartbeat, its own
-staleness policy (`databaseBackup.runStaleMinutes`, an operator-set number of
-minutes that starts at 120 rather than 30) and its own terminal states.
+   **Answered by the same execution profile's `maxAttempts: 1`.** The policy
+   did not change — a backup was never meant to auto-retry — what changed is
+   that `JobStuckService`'s give-up phase and the ordinary terminal path both
+   now *enforce* it per type, instead of it holding only by the accident of
+   there being no queue to disagree.
 
-**Do not migrate this onto the queue.** If a future issue wants the queue to
-*trigger* a backup, a job handler may call `startBackup()` and return
-immediately — but the dump's lifetime must never be a job's lifetime.
+None of this made `database_backup_runs` into a `jobs` row, and it was never
+going to: the two tables answer different questions and have independent
+lifetimes (§1.1, and the schema's own comment above `DatabaseBackupRun`). What
+changed is narrower and load-bearing anyway — `database_backup_runs.job_id`
+links a run to the `db.backup.run` job that is now driving it, so the row
+still carries its own heartbeat, its own staleness policy
+(`databaseBackup.runStaleMinutes`, defaulting to 120 rather than
+`jobs.stuckThresholdMinutes`'s 30) and its own terminal states, but the
+job's lease is now what the staleness sweep asks about when the run has no
+heartbeat of its own — see §16.6 for why a node-executed run cannot write one
+at all.
 
-> **Superseded by #351 and #352 (epic #345) — read this section as history,
-> and then read what changed.** The dump *is* a queue job now (`db.backup.run`),
-> and each of the three objections above was answered rather than waived: the
-> reaper deadline by a per-type `maxRuntimeMs` the lease is *derived* from, the
-> renewal gap by #347's in-process renewer, and the retry budget by
-> `maxAttempts: 1`. `database_backup_runs` did **not** become a `jobs` row —
-> everything §1 and §2 say about the table, its heartbeat and its single-active
-> guard still holds; the job is what *executes* the run. The escape hatch this
-> paragraph offered (call `startBackup()` and return) was explicitly rejected
-> when the time came, for the reason it half-anticipates: it buys a dashboard
-> row and nothing else. §16 covers the rest of it, including running the dump
-> on a worker node.
+The dump's lifetime **is** the job's lifetime now, and that is safe precisely
+because each of the three objections above names a specific mechanism that
+closed it rather than a general assurance that the queue "should be fine". A
+handler that calls `startBackup()` and returns immediately — leaving the
+dump's lifetime independent of the job's — was considered and rejected: it
+would buy a dashboard row and nothing else, none of the reaper safety, none of
+the per-type retry budget, and none of the path to running on a worker node
+that §16 depends on. §16 covers the rest of the design that followed once the
+migration was safe, including running the dump on a worker node and the
+per-job credential it needs to do that.
 
 ## 1. The model
 
@@ -490,13 +513,17 @@ already taken.
 ### 10.6 `DB_BACKUP_SCHEDULE_ENABLED`, and never the worker mode
 
 The single most important line in the task is the one that is **not** there:
-there is no `if (workerMode === 'off') return`. A backup is not queue work
-(see "Why this is not a queue job"), and `JOBS_WORKER_MODE=off` says "this
-process executes no queued jobs" — it does not say "this deployment's database
-does not need backing up". A pure control plane in front of an external node
-fleet is still the only process with a database connection at all, so gating
-backups on its willingness to run jobs would mean that deployment silently
-never backs up.
+there is no `if (workerMode === 'off') return`. This tick itself is not queue
+work — it decides a backup is due and **enqueues** `db.backup.run` (see "Why
+this *is* a queue job, and what had to change first"); a worker takes the
+dump. `JOBS_WORKER_MODE=off` says "this process executes no queued jobs" — it
+does not say "this deployment's database does not need backing up". A pure
+control plane in front of an external node fleet is still the only process
+with a database connection at all, so gating the schedule on its willingness
+to run jobs would mean that deployment silently never even *queues* a backup.
+The honest cost of that split is stated in the task's own header: with
+`JOBS_WORKER_MODE=off` this tick still queues backups that nothing executes —
+only `system` and `all` modes claim `db.backup.run`.
 
 So the only switch is `DB_BACKUP_SCHEDULE_ENABLED`, bare and unprefixed like
 `JOBS_REAPER_ENABLED` and `NODE_STALE_OFFLINE_ENABLED`, defaulting to on, with
@@ -669,8 +696,9 @@ needs to tell "the dump errored" from "the container went away mid-dump".
 Nothing restarts one automatically. Re-running a multi-gigabyte dump that just
 OOM-killed its own process burns hours of I/O on a database that is probably
 already unwell, unattended, at whatever hour the first attempt died. **The
-retry for a backup is the next scheduled run** — the same answer this document
-gives for why a backup is not a queue job.
+retry for a backup is the next scheduled run** — the same answer `db.backup.run`'s
+own `maxAttempts: 1` gives on the job side (see "Why this *is* a queue job, and
+what had to change first", above).
 
 ## 13. The admin API
 
@@ -1022,10 +1050,12 @@ old one — at exactly the moment old archives matter most. See §11.2.
 nothing points at, billed forever and invisible, versus an orphaned row that is
 visible, free and re-prunable. See §11.1 and §12.2.
 
-**Gating the scheduler on `JOBS_WORKER_MODE`.** A backup is not queue work, and
-the deployment that sets `off` — a control plane in front of a worker fleet —
-is the one whose API is the only component with a database connection. It would
-silently never back up. See §10.6.
+**Gating the scheduler on `JOBS_WORKER_MODE`.** The scheduling *tick* is not
+itself queue work — it decides a backup is due and enqueues `db.backup.run` —
+and the deployment that sets `off` — a control plane in front of a worker
+fleet — is the one whose API is the only component with a database
+connection. Gating it on the willingness to run jobs would mean that
+deployment silently never even queues a backup. See §10.6.
 
 **A `preRestoreRetentionHours` settings field.** One number, at the cost of
 `systemDatabaseBackupSchema`, the defaults, the PATCH schema, the response DTO,

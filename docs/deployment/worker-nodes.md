@@ -27,9 +27,14 @@ the others.
 | Outbound HTTPS to the application | The only network access a node needs — no inbound ports, ever |
 | An account with `nodes:read` and `nodes:write` | To enroll and register |
 
-A worker needs **no** database access, no VPN, and no inbound firewall rule. It
-downloads and uploads job data through short-lived presigned URLs the server
-issues, so it never holds storage credentials either.
+A worker needs **no persisted** database access, no VPN, and no inbound
+firewall rule. It downloads and uploads job data through short-lived presigned
+URLs the server issues, so it never holds storage credentials at all, ever.
+The one exception on the database side is `db.backup.run` (below): if your
+fleet is going to take database backups, the node needs a **network route**
+to PostgreSQL, and the credential it uses to connect is brokered per job, held
+in memory only, and never written to disk — see "Taking database backups on a
+node" further down.
 
 ## Getting a machine running
 
@@ -158,6 +163,41 @@ db.internal:5432` probes it, as a warning rather than a failure — see
 
 Beyond those, the **structure** is the deliverable, and it is the documented
 place a fork declares that its `video.transcode` type needs `ffmpeg`.
+
+### Taking database backups on a node
+
+`db.backup.run` needing a real PostgreSQL connection — not a presigned URL —
+is the one place a worker node's "no persisted database access" rule (above)
+gets an exception rather than an exemption. Three things an operator turning
+this on needs to know, none of them a code change:
+
+1. **The connection is per job, not per node.** A node never holds a database
+   password in its config file or its state directory. When it holds a
+   `db.backup.run` job it calls `POST /nodes/:id/jobs/:jobId/secret`, gets one
+   short-lived credential back, holds it in memory for the life of that job,
+   and drops it. `apps/cli/src/node/executors/db-backup-run.test.ts` asserts
+   this statically — the executor imports no config writer at all.
+2. **Two independent switches, both off by default, must both be on** before
+   any node is ever offered the job type: `nodes.jobSecretBrokerEnabled` ("may
+   this deployment broker credentials to nodes at all?") and
+   `databaseBackup.nodeOffloadEnabled` ("may *this* workload leave the API
+   server?"). They are separate on purpose — a deployment can trust its fleet
+   with credentials in general while still keeping backups on the server, or
+   vice versa. Both live in the admin UI, not in an environment variable.
+3. **The database role this API connects as needs `CREATEROLE`** to mint the
+   short-lived, read-only role each backup job uses. `GET
+   /api/admin/db-backup/node-credential-preflight` tells you, without
+   changing anything, whether it already has that grant — and if it does not
+   (the ordinary case on managed PostgreSQL, where the application role is
+   deliberately not a superuser), it hands back a paste-ready `ALTER ROLE …
+   CREATEROLE;` (or a dedicated minter role, the least-privilege option) in
+   its response rather than failing. Run one of those once, as whatever
+   account administers your database. Auditing issued roles and cleaning up
+   an orphan by hand is [`docs/runbooks/node-job-secrets.md`](../runbooks/node-job-secrets.md).
+
+Until all three are true, `db.backup.run` runs on the API server exactly as it
+did before node offload existed — nothing about turning this on is required
+to take backups at all.
 
 ### Declaring a requirement in a fork
 

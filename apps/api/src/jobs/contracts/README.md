@@ -68,3 +68,14 @@ booleans, arrays and enums. `z.date()`, `z.bigint()`, `z.custom()` and
 transforms either cannot be expressed as JSON Schema or lose their meaning on
 the way out — and the value arrives as JSON anyway, so a shape JSON cannot
 carry was never going to survive the trip.
+
+**A count backed by a `BigInt` column is a decimal string, not a number.**
+`z.bigint()` is off the table for the reason above, and a plain `z.number()`
+is exact only below 2^53 — a JSON number silently rounds above it, which lands
+the corruption on exactly the largest results a fork is likely to care about
+(a multi-gigabyte dump, an export). `db-backup-run.contract.ts`'s `bytes:
+z.string().regex(/^\d{1,20}$/)`, converted with `BigInt()` once in the
+handler, is the worked example — see its file header for the full argument,
+and contrast `example-checksum.contract.ts`'s plain `number`, which is correct
+there because that count is bounded by `Number.MAX_SAFE_INTEGER` and lands in
+a JSONB column rather than a `BigInt` one.

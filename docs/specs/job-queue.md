@@ -67,6 +67,15 @@
 > #262 adds the timer. The lifecycle constraint §1.3 places on the worker is
 > now satisfied rather than merely required, and it is verified by
 > `src/jobs/job.worker.bootstrap.spec.ts`.
+>
+> **Epic #345 extends three of the phases above rather than adding new ones.**
+> §5.10 (per-type execution profiles, #346), §6.9–6.10 (in-process lease
+> renewal and the reaper's fourth signal, #347) and §7.10 (every long-running
+> activity is a queue job, #353) are additions to Sections 5–7, made so that a
+> database backup — until then explicitly excluded, in
+> `docs/specs/database-backup.md`'s former "Why this is not a queue job" — could
+> safely become `db.backup.run`. See that document's "Why this *is* a queue
+> job, and what had to change first" for the case each addition answers.
 
 ## Why this shape, and not the obvious one
 
@@ -681,10 +690,11 @@ said nothing must not be read as a provider that said "retry immediately".
 
 ### 5.3 Two budgets, deliberately separate
 
-`attempts` (budget `JOBS_MAX_ATTEMPTS`, default 3) bounds **bugs**.
-`rateLimitHits` (budget `JOBS_RATELIMIT_MAX_HITS`, default 10) bounds
-**waiting**. Each has its own backoff constants — seconds for a retry, minutes
-for a cooldown — and each gives up independently.
+`attempts` (budget `JOBS_MAX_ATTEMPTS`, default 3 **unless the type declares
+its own** — §5.10) bounds **bugs**. `rateLimitHits` (budget
+`JOBS_RATELIMIT_MAX_HITS`, default 10, deployment-wide only — a profile does
+not touch it) bounds **waiting**. Each has its own backoff constants — seconds
+for a retry, minutes for a cooldown — and each gives up independently.
 
 **Rejected: one combined counter.** A long backfill against a rate-limited
 provider would exhaust it during the first minute of throttling and fail
@@ -701,11 +711,13 @@ The two branches are therefore:
   `failed` — only once `rateLimitHits` exceeds *its own* budget; at ten
   deferrals against a 15-minute ceiling the job has been waiting well over an
   hour, and something is wrong that waiting will not fix.
-- **Ordinary.** Retry while `attempts < JOBS_MAX_ATTEMPTS`, setting
-  `scheduledFor` from the backoff; otherwise terminal `failed`. `<` is the
-  correct comparison because `job.attempts` already includes the attempt that
-  just failed (§4.5), so a budget of 3 retries after attempts 1 and 2 and
-  fails on 3.
+- **Ordinary.** Retry while `attempts < resolveMaxAttempts(config, handler)`
+  (§5.10 — the type's own budget if it declared one, else
+  `JOBS_MAX_ATTEMPTS`), setting `scheduledFor` from the backoff; otherwise
+  terminal `failed`. `<` is the correct comparison because `job.attempts`
+  already includes the attempt that just failed (§4.5), so a budget of 3
+  retries after attempts 1 and 2 and fails on 3 — and a type declaring
+  `maxAttempts: 1` fails on its first.
 
 Every branch releases the claim (`claimedByNodeId`) and the lease
 (`leaseExpiresAt`), and every branch records the error message in `lastError`
@@ -914,6 +926,68 @@ They exist because the alternative is tests that prove nothing — a range
 assertion that passes for an off-by-a-factor-of-sixty bug, or a gate test that
 either sleeps for thirty real seconds per case or shrinks the cooldown until it
 is testing something other than the shipped behaviour.
+
+### 5.10 Per-type execution profiles (#346, epic #345)
+
+Until #346 every job in the queue shared the same two deployment-wide numbers:
+`JOBS_JOB_TIMEOUT_MS` and `JOBS_MAX_ATTEMPTS`. That is right for jobs that
+resemble each other and wrong the moment one does not — a six-second
+thumbnail and a six-hour database dump cannot share a timeout, and a type that
+must never be auto-retried cannot share a budget with one that should retry
+three times. `JobHandler.profile` (`job-execution-profile.ts`) is the escape
+hatch: an **optional** `{ maxRuntimeMs, maxAttempts }` a handler declares for
+its own type. Omitting it — the normal answer — runs exactly the code path
+that existed before profiles did.
+
+**Exactly two numbers, and there will only ever be two.** A profile may not
+declare a lease length or a renewal interval, because both are values that can
+*disagree* with `maxRuntimeMs`, and the disagreement is silent, remote and
+intermittent:
+
+- **The lease is derived**, as `maxRuntimeMs + LEASE_GRACE_MS` (or an
+  unbounded lease when `maxRuntimeMs: 0`, mirroring `JOBS_JOB_TIMEOUT_MS=0`),
+  by the same `resolveJobLeaseMs` the deployment-wide timeout already goes
+  through (§6.5) — the profile is a parameter to that one function, not a
+  second derivation beside it. A lease *shorter* than the declared runtime
+  ceiling would be a job that reaps itself into duplicate execution the
+  moment it legitimately runs long; deriving it makes that state
+  unrepresentable rather than merely avoided.
+- **The renewal interval is derived**, as the lease divided by three and
+  clamped to `[5s, 60s]` (`resolveRenewIntervalMs`, §6.9) — three so a
+  renewer may miss two consecutive intervals (a GC pause, a dropped request)
+  and still hold the job. An interval at or above the lease would be a
+  renewal that always arrives after the deadline it was meant to extend.
+
+This is the same argument §2 makes against a `nodeEligible: boolean` flag,
+applied to durations instead of capabilities: a second, independently-settable
+number that must always agree with the first is a promise a struct cannot
+keep, so the struct does not offer it. REJECTED for the same reason: a
+`retryBackoffMs`, a `priority`, a `concurrencyLimit` on the profile — each is a
+real thing somebody will want, and each can disagree with the other two.
+
+`resolveJobProfile(handler)` is the single validation point every consumer
+goes through — the lease, the timeout, and the attempt budget all ask it,
+rather than each holding its own opinion about a half-valid profile.
+`maxRuntimeMs` must be finite and `>= 0` (`0` is the legitimate "no ceiling"),
+`maxAttempts` finite and `>= 1` (a budget of `0` would describe a job that may
+never be claimed, which is not a retry policy — it is a silent way to delete
+work). An unusable profile is dropped **whole**, not field by field, and
+warned about once per type: honouring a mistyped attempt budget while
+inventing a runtime ceiling nobody chose is a stranger state than falling back
+to the deployment defaults entirely.
+
+**`resolveMaxAttempts(config, handler)` is read by *both* give-up paths, and
+it has to be.** `JobTerminalService` decides retry-or-fail for a job that
+reported back (§5.3); `JobStuckService` decides requeue-or-fail for a job
+whose executor died without reporting anything (§7.2). If only the first knew
+about per-type budgets, a `maxAttempts: 1` job the terminal path correctly
+refused to retry would be found by the reaper, judged against the global `3`,
+and **requeued** — resurrecting the exact automatic retry the profile exists
+to forbid, on the one path nobody was watching for it.
+
+`db.backup.run` is the worked example: `maxRuntimeMs: 6h`, `maxAttempts: 1`.
+See `docs/specs/database-backup.md`'s "Why this *is* a queue job" section for
+the backup-specific case each number answers.
 
 ## 6. The in-process worker and worker modes
 
@@ -1142,6 +1216,71 @@ away from the log line that explains it.
 Nothing should reach it: it has no method a feature module wants, and a module
 that could inject it could stop the pool.
 
+### 6.9 In-process lease renewal, and what it cannot distinguish (#347, epic #345)
+
+A claim writes `lease_expires_at` once. Until #347 nothing in the in-process
+worker ever wrote it again — `NodesService.renewLease` was the queue's only
+renewer, reachable only over HTTP by a remote node — so every handler that ran
+longer than `jobs.stuckThresholdMinutes` (default 30) was reaped mid-run and
+started a **second time**, concurrently, with nothing in the logs. (This is
+not hypothetical: it is exactly what made a database backup unsafe to queue —
+see `docs/specs/database-backup.md`'s "Why this *is* a queue job" section,
+argument 2.) `JobLeaseService.renew`/`renewUntil` is the fix, and it is one
+service reached by **both** executors — the node control plane calls it over
+HTTP via `POST …/renew`; `JobWorker.startLeaseRenewal` calls it directly, on a
+self-rescheduling `setTimeout` (never a bare `setInterval`, which could stack
+overlapping renewals if the database is briefly slow) ticking every
+`resolveRenewIntervalMs(leaseMs)` for as long as `process()` runs, on the
+*same* lease the claim took (`resolveJobLeaseMs` over the *same* resolved
+profile — a renewal derived from anything else could hand a six-hour type a
+ten-minute extension).
+
+**The guard is a `WHERE` clause on the write itself, never a read-then-write.**
+`heldLeaseWhere(jobId, nodeId)` demands the row still be `running`, its lease
+not yet expired, and — when a caller passes one — held by that specific node;
+`updateMany` makes the check and the write one statement, so a count of zero
+is the only honest answer to "did the state move between my read and my
+write". A renewal that finds the row no longer its own **stops renewing and
+logs at `error`**, naming the job: the work itself is not cancelled (§6.5
+already spends a paragraph on why JavaScript cannot cancel a promise
+mid-`await`), but a worker that has lost the row must not keep re-forging the
+queue's view of it. This does not introduce a hazard — the queue has always
+been at-least-once (§4.5) — it makes a pre-existing one **visible**: before
+#347 two executors on one row happened silently every time a job outran the
+threshold.
+
+**⚠ What the guard cannot distinguish, stated plainly (#361): two SERVER
+processes.** `nodeId` in `heldLeaseWhere` is deliberately three-valued — a
+node id (only that node may renew), `null` (only a row claimed by no node —
+i.e. the in-process worker's own claim — may be renewed), or `undefined` (no
+ownership constraint, for a fork's own executor). But if replica A's job is
+reaped and replica B claims it, **both** see `claimedByNodeId: null` and a
+live lease, so A's next renewal succeeds and silently extends **B's** lease.
+Closing that would need a per-claim token column on `jobs` — a schema change
+deliberately out of scope for #347. It is still strictly better than the
+status quo it replaced (where A never renewed at all and B was guaranteed to
+be reaped too regardless), and the queue's at-least-once contract already
+covers the remaining outcome: at worst, one job's lease is extended by two
+processes that both believe they hold it, which is a duplicate-execution risk
+the queue already tolerates everywhere else, not a new one this closes badly.
+See `job-lease.service.ts`'s own header for the full argument.
+
+**A renewal failure is not treated as a lost lease.** The renewal interval is
+one third of the lease by construction, so two consecutive database blips
+between ticks cost nothing; only a lease that has *actually* expired stops the
+ticker.
+
+### 6.10 The reaper's fourth signal exists because renewal narrowed the third
+
+Narrowing the reaper's age-based signal to leaseless rows only (§7.1) is what
+makes a renewing job safe at any age — but it would also silently stop
+catching an implausible lease (a bug in a fork's own claim path, a clock jump,
+a hostile write) that the old, unconditional age check caught by accident.
+`resolveLeaseHorizonMs` (`job-execution-profile.ts`) is the replacement: the
+longest lease *any registered handler could legitimately ask for*, plus one
+grace, computed fresh on every sweep rather than cached. §7.1 covers the
+signal itself and the trade-off stated honestly there.
+
 ## 7. Queue hygiene — the lease reaper, the history purge, the janitor
 
 Three things degrade on their own once the queue is real, and none of them is
@@ -1160,43 +1299,80 @@ visible from inside a single job's lifecycle:
 `tasks/job-stuck-reset.task.ts`, `handlers/job-history-purge.handler.ts` plus
 `tasks/job-history-purge.task.ts`, and `tasks/temp-file-janitor.task.ts`.
 
-### 7.1 Three recovery signals, and why each one is load-bearing
+### 7.1 Four recovery signals, and why each one is load-bearing
 
-`stuckRunningWhere(threshold, now)` is the queue's definition of "abandoned",
-and it is three OR'd clauses over `status = 'running'`:
+> Three signals through #262; #347 (epic #345) re-cut them around lease
+> renewal and added the fourth. "Time" stopped being the only thing that
+> distinguishes a healthy long-running job from a dead one, because a live
+> executor now **renews** its lease on a schedule (§6.9) — a healthy job
+> proves it is alive by evidence it produces while it works, not merely by how
+> long it has been at it.
+
+`stuckRunningWhere(threshold, now, leaseHorizon)` is the queue's definition of
+"abandoned", and it is four OR'd clauses over `status = 'running'`:
 
 ```ts
 { status: 'running', OR: [
-    { startedAt: { lt: threshold } },                   // aged
-    { startedAt: null, createdAt: { lt: threshold } },  // zombie
-    { leaseExpiresAt: { lt: now } },                    // dead owner
+    { leaseExpiresAt: null, startedAt: { lt: threshold } },                  // aged, unleased
+    { leaseExpiresAt: null, startedAt: null, createdAt: { lt: threshold } }, // zombie
+    { leaseExpiresAt: { lt: now } },                                        // dead owner
+    { leaseExpiresAt: { gt: leaseHorizon } },                               // implausible lease
 ]}
 ```
 
-- **Aged.** The ordinary case: a properly stamped claim that has been running
-  longer than any job of any type should. It is also the signal that still
-  works when `lease_expires_at` was never written — a fork's own claim path, a
-  hand-inserted row, a restored backup.
-- **Zombie.** `running` with no `startedAt` at all. It looks impossible,
-  because the claim writes `started_at = now()` in the same statement that
-  writes `status = 'running'` (§4.4), and it is exactly what a partially
-  applied write or an external control plane leaves behind. The aged clause
-  cannot see it — `NULL < threshold` is NULL, never true — and neither can the
-  lease clause if the lease was not written either, so **without this clause
-  such a row is stuck forever** and holds its dedup key with it. `createdAt` is
-  the substitute age, and it is always present.
+- **Aged and unleased.** A properly stamped claim, running longer than any job
+  of any type should, that carries **no lease at all** — a fork's own claim
+  path, a hand-inserted row, a row claimed before leases existed. **Age is now
+  consulted only where there is no lease to consult instead** — this is the
+  narrowing #347 made, and it is what makes a renewing job of any age safe:
+  a live `pg_dump` still streaming six hours in is never reaped by how long it
+  has run, only by whether it is still proving itself alive.
+- **Zombie.** `running` with no `startedAt` and no lease at all. It looks
+  impossible, because the claim writes `started_at = now()` in the same
+  statement that writes `status = 'running'` (§4.4), and it is exactly what a
+  partially applied write or an external control plane leaves behind. Neither
+  the aged clause (`NULL < threshold` is `NULL`, never true) nor the dead-owner
+  clause below can see it, so **without this clause such a row is stuck
+  forever** and holds its dedup key with it. `createdAt` is the substitute
+  age, and it is always present.
 - **Dead owner.** The fastest and most precise signal, and the only one that
   does not wait out the threshold: whoever claimed the row promised to settle
   or renew it before this instant and did not. It covers a killed API replica
   and a vanished worker node *identically*, because a lease says nothing about
   where the executor was.
+- **Implausible lease.** A lease further out than the longest lease **any
+  registered handler could legitimately ask for**, plus one grace
+  (`resolveLeaseHorizonMs`, §6.10). This signal exists **only because the
+  first one was narrowed** — before #347, the unconditional aged-claim clause
+  caught a corrupt or absurdly far-future `lease_expires_at` for free, as a
+  side effect of ignoring leases entirely. Narrowing that clause to unleased
+  rows fixed the bug (reaping jobs that were running perfectly well) and would
+  have silently reopened this one (a lease pushed absurdly far out — a clock
+  jump, a bug in a fork's own claim path, a hostile write — matching *no*
+  signal and holding its dedup key forever) without a replacement. The
+  deployment-wide lease is always folded into the maximum, even with an empty
+  registry, because a `JOBS_WORKER_MODE=off` control plane may register no
+  handlers at all and must still reap for its fleet.
 
-The two instants are deliberately different. The first two clauses ask "older
-than the threshold"; the third asks "past its deadline, **now**". Collapsing
-them to one instant either reaps live jobs (using `now` for the age) or leaves
-every expired lease sitting for another full threshold (using `threshold` for
-the deadline). Both are parameters rather than clock reads inside the function,
-so one sweep judges every row against one pair of instants.
+  **⚠ The residual risk, stated honestly rather than hidden.** This horizon
+  *moves with the process reading it*. A deployment that removes a job type
+  (or lowers its `maxRuntimeMs`, or lowers `JOBS_JOB_TIMEOUT_MS`) **shortens**
+  the horizon, and an in-flight row of that type still carrying the older,
+  longer lease may be reaped on the very next sweep. That is correct rather
+  than merely acceptable — no process in that deployment can run such a row to
+  completion any more, so requeueing it is the only outcome that is not "stuck
+  until a human notices" — but it is a real behaviour change following a
+  config edit, not a hypothetical one, and it is why the horizon is computed
+  fresh per sweep rather than cached.
+
+The two instants (`threshold`, `now`) are deliberately different from each
+other, and the horizon is a third. `threshold` asks "older than usual"; `now`
+asks "past its deadline, this instant"; `leaseHorizon` asks "further out than
+anything legitimate could be". Collapsing the first two would either reap
+live jobs (using `now` for the age) or leave every expired lease sitting for
+another full threshold (using `threshold` for the deadline). All three are
+parameters rather than clock reads inside the function, so one sweep judges
+every row against one consistent set of instants.
 
 ### 7.2 Two phases: requeue what has budget, fail what does not
 
@@ -2183,7 +2359,7 @@ deferral raises nothing are in
   reaped and re-run while it is still working, producing duplicate work. A
   lease is **renewable**, so a long job that is still alive can say so, and its
   expiry is a statement by the executor rather than a guess about it. The aged
-  clause survives as one signal of three (§7.1) precisely because it is the
+  clause survives as one signal of four (§7.1) precisely because it is the
   weak one: it is the fallback for rows whose lease was never written.
 - **Requeueing a stuck job unconditionally.** A job that kills its executor —
   an OOM kill is the ordinary way — never reaches the terminal path, so nothing

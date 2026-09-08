@@ -286,13 +286,28 @@ would simply stop matching and silently regain the bypass.
 
 ## 8. The constraint everything else follows from
 
-**A node has no database access and no storage credentials.** Every fact it
-needs arrives in an HTTP response; every fact it produces is validated before
-it is trusted. It is *authenticated* — a `nod_` credential resolves to its
-owning user — but it is not *trusted* the way an in-process caller is: it runs
-unattended on a machine this deployment may not own, its configuration is
-editable by whoever holds that machine, and it may be running an older build
-than the server it is talking to.
+**A node holds no *durable* database access and no *durable* storage
+credentials.** Every fact it needs arrives in an HTTP response; every fact it
+produces is validated before it is trusted. It is *authenticated* — a `nod_`
+credential resolves to its owning user — but it is not *trusted* the way an
+in-process caller is: it runs unattended on a machine this deployment may not
+own, its configuration is editable by whoever holds that machine, and it may
+be running an older build than the server it is talking to.
+
+**This was an absolute claim through #268/#269, and #349 (epic #345) made it
+conditional rather than dropping it.** A job type may now declare a
+`nodeSecretBroker` (§14, §20.1) that mints a short-lived, job-scoped database
+credential a node holds *in memory only* for the lifetime of one job's lease —
+`db.backup.run` is the first and, so far, only consumer, and it exists because
+`pg_dump` genuinely needs a real PostgreSQL connection that no amount of
+presigning can substitute for. What did **not** change is the durability
+claim this section exists to make: nothing brokered this way is ever written
+to a node's config file, its state directory, or a log line — see §16.5 of
+`database-backup.md` and the CLI's own static check
+(`apps/cli/src/node/executors/db-backup-run.test.ts`) that the executor
+imports no config writer at all — and storage credentials remain absolute
+with no exception: a node never holds one, brokered or otherwise, by
+construction of the presigned data plane in Part three below.
 
 That is why the request bodies are as tight as they are (a node's
 `concurrency` becomes a claim limit, so it is bounded), why the result path
@@ -455,20 +470,32 @@ care which machine its 429 was sent to.
 
 ## 14. Deliberately not ported from the source application
 
-Two things exist in the application this design was extracted from and are
-**not** here, both because they serve ML compute this template does not have:
+One thing exists in the application this design was extracted from and is
+**not** here, because it serves a problem this template does not have:
 
-* **Per-job provider-credential brokering.** There, the control plane mints a
-  short-lived provider credential per claimed job and hands it to the node.
-  Porting it would ship an unused secret-distribution path — the most
-  expensive kind of code to carry unused, because it looks load-bearing to
-  everyone who reads it later and nobody can safely delete it. A fork that
-  needs it adds it where the claim response is built, next to #269's presigned
-  URLs, which is the same seam.
 * **The model manifest.** A published list of model versions the fleet must
   agree on, so a node does not compute against a model the server will reject.
-  It is a real problem in that domain and not a problem in a template with no
-  models.
+  It is a real problem in that domain (ML compute) and not a problem in a
+  template with no models.
+
+**Per-job credential brokering used to be listed here too, as a deferred
+alternative.** It is shipped now (#349, epic #345), at exactly the seam this
+section used to point at: "next to #269's presigned URLs, where the claim
+response is built." §20.1 and §22 below cover the fleet-facing rules; the
+mechanism itself — `JobHandler.nodeSecretBroker`, `job_node_secrets`, the
+`nodes.jobSecretBrokerEnabled` opt-in, and the settle/sweep/`VALID UNTIL`
+triple that bounds a grant — is designed in full in
+[`database-backup.md` §16](database-backup.md#16-running-the-dump-on-a-worker-node-352-epic-345)
+against its first and, so far, only consumer: `db.backup.run` needs a real
+PostgreSQL connection to run `pg_dump`, and no amount of presigning produces
+one. What made the earlier deferral correct at the time still applies to
+*provider* credentials specifically — porting an ML provider's key-brokering
+path unused would have been the expensive-to-carry code this section warned
+about — but "a node never persists a job-scoped credential" was never really
+optional once a job type needed one at all, so when #351/#352 made
+`db.backup.run` a queue job, brokering stopped being deferred and became
+[MANDATORY rule 3](../../CLAUDE.md#mandatory-every-long-running-activity-is-a-queue-job)
+in `CLAUDE.md`.
 
 The presigned data-plane IO — how a node reads an input object and writes an
 output object with no storage credentials of its own — is **#269**, and it is

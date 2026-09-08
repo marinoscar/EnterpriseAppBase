@@ -1655,6 +1655,27 @@ Signed **GET** for the job's input object, fetched directly from the storage pro
 ##### POST /nodes/:id/jobs/:jobId/upload-url
 Signed **PUT** for one whole object, plus **the key the server chose** — a node-supplied `key` is refused with 400 (a signed PUT is an unconditional overwrite; a node-chosen key is a write primitive over the whole bucket).
 
+##### POST /nodes/:id/jobs/:jobId/secret
+Issues the one short-lived, job-scoped credential this job's type declares it needs (epic #345, issue #349) — e.g. the PostgreSQL role `db.backup.run` needs to run `pg_dump`. Bounded by the job's own lease (never a second clock of its own), returned **once**, and revoked when the job settles or by the periodic sweep. Send an empty body — any field is refused with `400`. Re-callable while the lease is live: the same grant is extended, never a second one issued.
+
+**Response:** `material`'s shape is the broker's own business, passed through uninterpreted — discrete fields, deliberately never a single DSN string (a `postgresql://user:pass@host/db` is one accidental log line from a leaked password).
+```json
+{
+  "data": {
+    "kind": "postgres.readonly",
+    "expiresAt": "2024-01-01T00:10:00.000Z",
+    "material": { "driver": "postgresql", "host": "db.internal", "port": 5432, "database": "appdb", "user": "appjob_ab12cd34_x7k2", "password": "...", "sslMode": "require" }
+  }
+}
+```
+
+**Error Cases:**
+- 400 Bad Request - The request body carried a field a node may not set (send an empty body)
+- 403 Forbidden - This deployment does not issue per-job credentials at all (`nodes.jobSecretBrokerEnabled` is off)
+- 404 Not Found - This job's type declares no secret broker (will not change on a retry)
+- 409 Conflict - The lease has already expired; drop the work
+- 503 Service Unavailable - The broker exists but cannot mint a credential right now, carrying an operator-facing `remedy` in `details` (a database that cannot grant `CREATEROLE` is the ordinary case — see [`docs/runbooks/node-job-secrets.md`](runbooks/node-job-secrets.md))
+
 ##### POST /nodes/:id/jobs/:jobId/result
 Submits a result, validated against the handler's `nodeResultSchema` and persisted through `persistNodeResult`. `400` on a type mismatch, a non-node-persistable type, or a schema failure; `409` on an expired lease (nothing persisted); `500` if persisting threw (the server already settled the job through its own failure path — do not resubmit).
 
@@ -1791,6 +1812,28 @@ Opens or closes the window. Writes the persisted `maintenance` namespace and rec
 ### Database Backup (Admin-only)
 
 Three permissions: `db_backup:read` (config read, list, single get, download), `db_backup:write` (config write, manual trigger, cancel, delete), and `db_backup:restore` — **deliberately separate from `db_backup:write`** — for restore and rollback. See [`docs/specs/database-backup.md`](specs/database-backup.md) and [`docs/specs/database-restore.md`](specs/database-restore.md) for the streaming/verification contract, the pre-flight gates, and the rejected alternatives; this section documents only the request/response contract. Literal routes (`config`, `runs`) are matched before `runs/:id`.
+
+#### GET /admin/db-backup/node-credential-preflight
+Whether a worker node can be handed a short-lived, SELECT-only database credential to take a backup (epic #345). Two independent facts, never conflated: `outcome` is the **capability** — a live probe of whether this database can grant `CREATEROLE` — and `brokerEnabled` is the **policy** (`nodes.jobSecretBrokerEnabled`). ⚠ `outcome: "guided"` is a **200**, never a 4xx — a managed PostgreSQL denying `CREATEROLE` is the ordinary case, not a failure, and the response carries paste-ready SQL an operator runs once to grant it. See [`docs/runbooks/node-job-secrets.md`](runbooks/node-job-secrets.md).
+
+**Requires:** `db_backup:read`
+
+**Response (`outcome: "guided"`):** `outcome` is the capability (can this deployment's role mint at all, right now), `brokerEnabled` is the policy (`nodes.jobSecretBrokerEnabled`) — an operator can face either independently of the other. `guidance` is present only when `outcome` is `"guided"`.
+```json
+{
+  "data": {
+    "outcome": "guided",
+    "kind": "postgres.readonly",
+    "databaseRole": "app_user",
+    "targetDatabase": "appdb",
+    "brokerEnabled": false,
+    "detail": "The database role this API connects as cannot grant roles (CREATEROLE); run the SQL below once to allow it.",
+    "guidance": { "reason": "current role lacks CREATEROLE", "commands": "ALTER ROLE app_user CREATEROLE;", "runbook": "docs/runbooks/node-job-secrets.md" }
+  }
+}
+```
+
+---
 
 #### GET /admin/db-backup/config
 The stored `databaseBackup` settings namespace plus two fields computed on every read: `nextRunAt` (projected in UTC by the same function the scheduler uses; `null` when disabled, also `null` — with a 200, not an error — when the stored timezone can't be resolved) and `activeRunId` (a display value only, never a pre-flight check — the partial unique index is the real arbiter of "is one already running").

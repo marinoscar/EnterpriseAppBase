@@ -1754,8 +1754,9 @@ model DatabaseBackupRun {
   trigger DatabaseBackupTrigger
 
   // NULL until the dump is claimed / until it settles. `lastHeartbeatAt` is
-  // the liveness signal this table has INSTEAD of a job lease — see the
-  // "Why this is not a queue job" block above.
+  // now PROGRESS REPORTING for the UI rather than this table's liveness
+  // signal — the job's LEASE is the liveness signal since #351/#352 — see the
+  // "Why this WAS not a queue job, and why it now is" block above.
   startedAt       DateTime? @map("started_at") @db.Timestamptz
   finishedAt      DateTime? @map("finished_at") @db.Timestamptz
   lastHeartbeatAt DateTime? @map("last_heartbeat_at") @db.Timestamptz
