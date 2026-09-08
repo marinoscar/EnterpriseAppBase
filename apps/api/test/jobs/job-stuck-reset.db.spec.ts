@@ -1,6 +1,6 @@
 // =============================================================================
-// Real-Postgres test: the lease reaper's three recovery signals (issue #263,
-// epic #254)
+// Real-Postgres test: the lease reaper's four recovery signals (issue #263,
+// epic #254; re-cut by #347)
 // =============================================================================
 //
 // `stuckRunningWhere` is a claim about WHICH ROWS POSTGRES MATCHES, and a mock
@@ -13,8 +13,18 @@
 // TypeScript type notices.
 //
 // So this suite builds each stuck shape as a real row and asks the real
-// service, one signal at a time, with the other two deliberately unable to
-// fire.
+// service, one signal at a time, with the others deliberately unable to fire.
+//
+// ⚠ SINCE #347 THE AGE SIGNALS ONLY LOOK AT UNLEASED ROWS, and several
+// fixtures below changed to say so. A `running` row carrying a LIVE lease is
+// a job whose executor is renewing on schedule, and reaping it was the defect
+// that issue fixed — so the cases that used to stage "aged, but leased" now
+// either drop the lease (they are about age) or assert the row is left alone
+// (they are about renewal). The lease horizon that clause 4 judges against is
+// derived from this suite's own config stub: no profile and no
+// `jobs.jobTimeoutMs` means the 600s default, a 660s lease, and a horizon of
+// 720s — so a fixture wanting a plausible live lease must stay well inside
+// twelve minutes, and one wanting to trip clause 4 must be far outside it.
 //
 // THIS IS A `*.db.spec.ts` FILE — see `db-test-support.ts` and
 // `job-claim.db.spec.ts`'s header for the run/skip mechanics.
@@ -23,6 +33,7 @@
 import { ConfigService } from '@nestjs/config';
 import { Prisma, PrismaClient } from '@prisma/client';
 
+import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
 import { JobStuckService } from '../../src/jobs/job-stuck.service';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import type { SystemSettingsService } from '../../src/settings/system-settings/system-settings.service';
@@ -56,7 +67,14 @@ function stuckServiceFor(client: PrismaClient): JobStuckService {
     }),
   } as unknown as SystemSettingsService;
 
-  return new JobStuckService(client as unknown as PrismaService, config, systemSettings);
+  return new JobStuckService(
+    client as unknown as PrismaService,
+    config,
+    systemSettings,
+    // No handler registered means no execution profile anywhere, which is the
+    // single-budget shape the reaper has always had (#346).
+    new JobHandlerRegistry()
+  );
 }
 
 describeWithDb('JobStuckService.resetStuck (real Postgres)', () => {
@@ -178,15 +196,69 @@ describeWithDb('JobStuckService.resetStuck (real Postgres)', () => {
   // Each of the three signals, independently
   // ===========================================================================
 
-  it('reclaims an AGED claim: startedAt older than the threshold', async () => {
-    // Signal 1 alone: the lease is still valid and `startedAt` is set, so
-    // neither of the other two signals can be what matched.
+  it('reclaims an AGED, UNLEASED claim: startedAt old, lease never written', async () => {
+    // Signal 1 alone, and #347 narrowed it to exactly this row: `startedAt`
+    // is set and old, and there is NO lease at all — a fork's own claim path,
+    // a row hand-inserted by an operator, a migration that pre-dates leases.
+    // Nothing about such a row says when its owner promised to be back, so
+    // age is the only evidence there is. (Signal 2 cannot match, `startedAt`
+    // is present; signals 3 and 4 cannot, there is no lease to compare.)
     const id = await seed({
       type: nextType(),
       status: 'running',
       attempts: 1,
       startedAt: minutesAgo(THRESHOLD_MINUTES + 5),
-      leaseExpiresAt: new Date(Date.now() + 60 * 60_000),
+      leaseExpiresAt: null,
+      claimedByNodeId: null,
+      executor: 'server',
+    });
+
+    await expect(stuck.resetStuck()).resolves.toMatchObject({ reset: 1, failed: 0 });
+    await expect(read(id)).resolves.toMatchObject({ status: 'pending' });
+  });
+
+  it('NEVER reclaims an aged claim whose lease is live — the #347 defect', async () => {
+    // THE REGRESSION THIS WHOLE ISSUE IS ABOUT, staged as a row rather than
+    // as a predicate. Before #347 this job — running for well over the
+    // threshold, with a lease its executor is plainly still extending — was
+    // requeued, a second executor claimed it, and the same work ran twice
+    // concurrently. For a database backup that is two `pg_dump`s streaming
+    // into one storage key, both exiting 0, and an unrestorable archive with
+    // no error anywhere.
+    //
+    // The age is deliberately absurd: no threshold, however small, may
+    // outrank a live lease.
+    const id = await seed({
+      type: nextType(),
+      status: 'running',
+      attempts: 1,
+      startedAt: minutesAgo(24 * 60),
+      // Inside the horizon (720s) — this is what a renewal has just written.
+      leaseExpiresAt: new Date(Date.now() + 5 * 60_000),
+      claimedByNodeId: null,
+      executor: 'server',
+    });
+
+    await expect(stuck.resetStuck()).resolves.toEqual({ reset: 0, failed: 0 });
+    // ...and not even when an operator asks for an aggressive threshold.
+    await expect(stuck.resetStuck(1)).resolves.toEqual({ reset: 0, failed: 0 });
+    await expect(read(id)).resolves.toMatchObject({ status: 'running' });
+  });
+
+  it('reclaims an IMPLAUSIBLE lease: further out than any handler could ask for', async () => {
+    // Signal 4 alone, and the clause that replaces the protection #347
+    // dropped. A thirty-day lease is not expired (signal 3 misses it) and is
+    // not absent (signals 1 and 2 miss it), so before clause 4 this row —
+    // written by a clock jump, a fork's claim path multiplying instead of
+    // adding, or a hostile write — would sit `running` forever and hold its
+    // dedup key with it. `startedAt` is recent, so nothing else can be what
+    // matched.
+    const id = await seed({
+      type: nextType(),
+      status: 'running',
+      attempts: 1,
+      startedAt: new Date(),
+      leaseExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60_000),
       claimedByNodeId: null,
       executor: 'server',
     });
@@ -241,7 +313,9 @@ describeWithDb('JobStuckService.resetStuck (real Postgres)', () => {
       status: 'running',
       attempts: 1,
       startedAt: minutesAgo(1),
-      leaseExpiresAt: new Date(Date.now() + 60 * 60_000),
+      // Well inside the 720s horizon: a lease a live executor could actually
+      // have been granted, which is the whole of what clause 4 asks.
+      leaseExpiresAt: new Date(Date.now() + 5 * 60_000),
       executor: 'server',
     });
 
@@ -377,7 +451,11 @@ describeWithDb('JobStuckService.resetStuck (real Postgres)', () => {
       status: 'running',
       attempts: 1,
       startedAt: minutesAgo(5),
-      leaseExpiresAt: new Date(Date.now() + 60 * 60_000),
+      // UNLEASED, since #347: the threshold is what governs an aged claim, and
+      // an aged claim is by definition one with no lease to judge it by. A
+      // fixture carrying a live lease here would be testing nothing — no
+      // threshold reaches a leased row any more.
+      leaseExpiresAt: null,
     });
 
     // Five minutes old: untouched at the configured 30-minute threshold...

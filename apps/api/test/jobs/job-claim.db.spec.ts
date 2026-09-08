@@ -170,14 +170,14 @@ describeWithDb('JobClaimService.claim (real Postgres)', () => {
           executor: 'server',
           eligibleTypes: [type],
           limit: 1,
-          leaseMs: LEASE_MS,
+          leases: [{ type: type, leaseMs: LEASE_MS }],
         }),
         claimerB.claim({
           nodeId: null,
           executor: 'server',
           eligibleTypes: [type],
           limit: 1,
-          leaseMs: LEASE_MS,
+          leases: [{ type: type, leaseMs: LEASE_MS }],
         }),
       ]);
 
@@ -198,7 +198,7 @@ describeWithDb('JobClaimService.claim (real Postgres)', () => {
       executor: 'server' as const,
       eligibleTypes: [type],
       limit: 4,
-      leaseMs: LEASE_MS,
+      leases: [{ type: type, leaseMs: LEASE_MS }],
     };
 
     // Eight overlapping claims — four per client, all in flight at once, with
@@ -266,7 +266,7 @@ describeWithDb('JobClaimService.claim (real Postgres)', () => {
       executor: 'server',
       eligibleTypes: [type],
       limit: 1,
-      leaseMs: LEASE_MS,
+      leases: [{ type: type, leaseMs: LEASE_MS }],
     });
     expect(first.map((job) => job.id)).toEqual([urgentButNewer.id]);
 
@@ -277,9 +277,129 @@ describeWithDb('JobClaimService.claim (real Postgres)', () => {
       executor: 'server',
       eligibleTypes: [type],
       limit: 1,
-      leaseMs: LEASE_MS,
+      leases: [{ type: type, leaseMs: LEASE_MS }],
     });
     expect(second.map((job) => job.id)).toEqual([staleButOlder.id]);
+  });
+
+  // ===========================================================================
+  // The LIMIT is a LIMIT — the #346 regression
+  // ===========================================================================
+
+  describe('the limit is honoured whatever the planner does', () => {
+    // ⚠ THIS EXISTS BECAUSE THE CLAIM ONCE VIOLATED ITS OWN `LIMIT`, and no
+    // unit test could have noticed. When #346 added `FROM unnest(…)` to carry
+    // per-type leases, the planner became free to turn the row-picking
+    // subquery from an InitPlan evaluated ONCE into a SubPlan re-evaluated PER
+    // OUTER ROW — and because that subquery holds `FOR UPDATE SKIP LOCKED`,
+    // each re-evaluation stepped over the rows the previous one had locked and
+    // returned NEW ones. Five pending rows, `limit: 2`, five rows claimed.
+    //
+    // The fix is `WITH picked AS MATERIALIZED`, which forces one evaluation.
+    // These cases are the behavioural proof of it, and they must stay here:
+    // a mocked `$queryRaw` returns whatever the test tells it to, so only a
+    // real server executing a real plan can catch this class of bug.
+    //
+    // ⚠ AND THEY ARE DELIBERATELY PLURAL. The bug was PLAN-DEPENDENT — nine
+    // rows across three types returned exactly two while five rows of one type
+    // returned all five — so one data shape proves nothing about another.
+
+    it.each([
+      ['one type, more rows than the limit', 1, 5, 2],
+      ['one type, limit of one', 1, 5, 1],
+      ['several types in one claim', 3, 4, 2],
+      ['several types, limit of one', 3, 3, 1],
+      ['more types than the limit', 5, 1, 2],
+    ])('claims exactly the limit: %s', async (_label, typeCount, perType, limit) => {
+      const types = Array.from({ length: typeCount }, () => nextType());
+
+      for (const type of types) {
+        await seedPending(type, perType);
+      }
+
+      const claimed = await claimerA.claim({
+        nodeId: null,
+        executor: 'server',
+        eligibleTypes: types,
+        limit,
+        // Distinct leases per type, so this also exercises the join the bug
+        // was introduced by rather than a degenerate single-lease case.
+        leases: types.map((type, index) => ({ type, leaseMs: LEASE_MS + index * 1_000 })),
+      });
+
+      expect(claimed).toHaveLength(limit);
+
+      // ...and exactly `limit` rows moved to `running`. `RETURNING` and the
+      // stored state must agree: a statement that updated more rows than it
+      // returned would leave the surplus claimed by nobody.
+      const running = await clientA.job.count({
+        where: { type: { in: types }, status: 'running' },
+      });
+
+      expect(running).toBe(limit);
+    });
+
+    it('stamps each claimed row with ITS OWN type’s lease in a heterogeneous claim', async () => {
+      // The other half of the same statement: the `unnest` join must attach
+      // the right lease to the right row, not merely some lease to every row.
+      const brief = nextType();
+      const long = nextType();
+
+      await seedPending(brief, 1);
+      await seedPending(long, 1);
+
+      const before = Date.now();
+
+      const claimed = await claimerA.claim({
+        nodeId: null,
+        executor: 'server',
+        eligibleTypes: [brief, long],
+        limit: 2,
+        leases: [
+          { type: brief, leaseMs: 60_000 },
+          { type: long, leaseMs: 3_600_000 },
+        ],
+      });
+
+      expect(claimed).toHaveLength(2);
+
+      // Generous windows: this asserts which lease was applied, not the
+      // clock's precision.
+      for (const job of claimed) {
+        const leaseFromNow = (job.leaseExpiresAt as Date).getTime() - before;
+        const expected = job.type === brief ? 60_000 : 3_600_000;
+
+        expect(leaseFromNow).toBeGreaterThan(expected - 10_000);
+        expect(leaseFromNow).toBeLessThan(expected + 10_000);
+      }
+    });
+
+    it('charges exactly one attempt per row, however many rows are in play', async () => {
+      // `attempts + 1` is in the claiming UPDATE, so a row updated twice by a
+      // re-evaluated plan would be charged twice — spending a poison pill's
+      // budget on a planner artefact.
+      const type = nextType();
+      await seedPending(type, 6);
+
+      await claimerA.claim({
+        nodeId: null,
+        executor: 'server',
+        eligibleTypes: [type],
+        limit: 3,
+        leases: [{ type, leaseMs: LEASE_MS }],
+      });
+
+      const rows = await clientA.job.findMany({
+        where: { type },
+        select: { status: true, attempts: true },
+      });
+
+      expect(rows.filter((row) => row.status === 'running')).toHaveLength(3);
+
+      for (const row of rows) {
+        expect(row.attempts).toBe(row.status === 'running' ? 1 : 0);
+      }
+    });
   });
 
   it('takes the oldest jobs first within one priority', async () => {
@@ -293,7 +413,7 @@ describeWithDb('JobClaimService.claim (real Postgres)', () => {
       executor: 'server',
       eligibleTypes: [type],
       limit: 2,
-      leaseMs: LEASE_MS,
+      leases: [{ type: type, leaseMs: LEASE_MS }],
     });
 
     // ⚠ ASSERTED AS A SET, DELIBERATELY. The `ORDER BY` lives in the claim's
@@ -312,7 +432,7 @@ describeWithDb('JobClaimService.claim (real Postgres)', () => {
       executor: 'server',
       eligibleTypes: [type],
       limit: 10,
-      leaseMs: LEASE_MS,
+      leases: [{ type: type, leaseMs: LEASE_MS }],
     });
     expect(rest.map((job) => job.id).sort()).toEqual(seededIds.slice(2).sort());
   });
@@ -332,7 +452,7 @@ describeWithDb('JobClaimService.claim (real Postgres)', () => {
       executor: 'server',
       eligibleTypes: [type],
       limit: 5,
-      leaseMs: LEASE_MS,
+      leases: [{ type: type, leaseMs: LEASE_MS }],
     });
     expect(tooEarly).toEqual([]);
 
@@ -349,7 +469,7 @@ describeWithDb('JobClaimService.claim (real Postgres)', () => {
       executor: 'server',
       eligibleTypes: [type],
       limit: 5,
-      leaseMs: LEASE_MS,
+      leases: [{ type: type, leaseMs: LEASE_MS }],
     });
     expect(nowEligible.map((claimedJob) => claimedJob.id)).toEqual([job.id]);
     // The claim clears the schedule, so a requeued job is not held back by a
@@ -368,7 +488,7 @@ describeWithDb('JobClaimService.claim (real Postgres)', () => {
       executor: 'server',
       eligibleTypes: [mine],
       limit: 10,
-      leaseMs: LEASE_MS,
+      leases: [{ type: mine, leaseMs: LEASE_MS }],
     });
 
     expect(claimed).toHaveLength(1);
@@ -384,7 +504,7 @@ describeWithDb('JobClaimService.claim (real Postgres)', () => {
       executor: 'server' as const,
       eligibleTypes: [type],
       limit: 5,
-      leaseMs: LEASE_MS,
+      leases: [{ type: type, leaseMs: LEASE_MS }],
     };
 
     expect(await claimerA.claim(options)).toHaveLength(1);
@@ -406,7 +526,7 @@ describeWithDb('JobClaimService.claim (real Postgres)', () => {
       executor: 'server',
       eligibleTypes: [type],
       limit: 1,
-      leaseMs: LEASE_MS,
+      leases: [{ type: type, leaseMs: LEASE_MS }],
     });
 
     // The value the CLAIM ITSELF returned — nothing has run the job, and this
@@ -430,7 +550,7 @@ describeWithDb('JobClaimService.claim (real Postgres)', () => {
       executor: 'node',
       eligibleTypes: [type],
       limit: 1,
-      leaseMs: LEASE_MS,
+      leases: [{ type: type, leaseMs: LEASE_MS }],
     });
 
     expect(claimed.status).toBe('running');
@@ -455,7 +575,7 @@ describeWithDb('JobClaimService.claim (real Postgres)', () => {
       executor: 'server' as const,
       eligibleTypes: [type],
       limit: 1,
-      leaseMs: LEASE_MS,
+      leases: [{ type: type, leaseMs: LEASE_MS }],
     };
 
     const [firstClaim] = await claimerA.claim(options);
@@ -482,7 +602,7 @@ describeWithDb('JobClaimService.claim (real Postgres)', () => {
       executor: 'server',
       eligibleTypes: [type],
       limit: 1,
-      leaseMs: LEASE_MS,
+      leases: [{ type: type, leaseMs: LEASE_MS }],
     });
 
     // The compile-time half of this guarantee is `JOB_CLAIM_COLUMNS` being
@@ -514,7 +634,7 @@ describeWithDb('JobClaimService.claim (real Postgres)', () => {
         executor: 'server',
         eligibleTypes: [],
         limit: 5,
-        leaseMs: LEASE_MS,
+        leases: [],
       })
     ).toEqual([]);
 
@@ -524,7 +644,7 @@ describeWithDb('JobClaimService.claim (real Postgres)', () => {
         executor: 'server',
         eligibleTypes: [type],
         limit: 0,
-        leaseMs: LEASE_MS,
+        leases: [{ type: type, leaseMs: LEASE_MS }],
       })
     ).toEqual([]);
 

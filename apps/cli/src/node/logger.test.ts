@@ -129,3 +129,66 @@ describe('readLogTail', () => {
     expect(formatLogRecord({ ts: 'T', level: 'warn', msg: 'hi', jobId: 'j' })).toBe('T WARN  hi {"jobId":"j"}');
   });
 });
+
+// =============================================================================
+// The per-job database credential (#352, epic #345)
+// =============================================================================
+//
+// A worker node now holds a real database password for the length of one job.
+// It lives in a local constant and is handed to one child process — see
+// `executors/db-backup-run.ts` — but "nothing logs it" has to be a property of
+// THIS file too, because the executor is not the only thing that can end up
+// holding the broker's response (an error, an engine event, a fork's own code).
+
+describe('redacting a brokered credential', () => {
+  const PASSWORD = 'p4ssw0rd-9f2c';
+
+  it('redacts the broker response wholesale, whatever shape the material has', () => {
+    // ⚠ WHOLESALE, BY KEY, and that is the point: the material's shape is the
+    // BROKER's business — discrete fields today, a token and an endpoint
+    // tomorrow — so a rule that only knew about `password` would leak the next
+    // broker's spelling.
+    const redacted = redact({
+      secret: { kind: 'postgres.readonly', material: { user: 'r', password: PASSWORD } },
+      material: { anything: PASSWORD, nested: { deeper: PASSWORD } },
+    }) as Record<string, unknown>;
+
+    expect(JSON.stringify(redacted)).not.toContain(PASSWORD);
+    expect(redacted.material).toBe(REDACTED);
+  });
+
+  it('redacts `PGPASSWORD=…` inside a MESSAGE, which no key-based rule can see', () => {
+    // The real shape: a spawn failure that echoed the child's environment, or
+    // a command an operator pasted into an issue.
+    const line = redact(
+      `spawn failed: env PGPASSWORD=${PASSWORD} pg_dump --host db.internal`,
+    ) as string;
+
+    expect(line).not.toContain(PASSWORD);
+    expect(line).toContain('PGPASSWORD=[redacted]');
+    // The rest of the line survives — a log that redacted the command too
+    // would be useless in exactly the situation it exists for.
+    expect(line).toContain('pg_dump --host db.internal');
+  });
+
+  it('redacts the password out of a `postgres://` URI an error echoed', () => {
+    // This repository never BUILDS one (`pg-job-role.broker.ts` hands over
+    // discrete fields precisely so no password is percent-encoded into a URL),
+    // but libpq will happily print one an operator configured by hand.
+    const line = redact(
+      `connection to postgresql://appjob_reader:${PASSWORD}@db.internal:5432/appdb failed`,
+    ) as string;
+
+    expect(line).not.toContain(PASSWORD);
+    expect(line).toContain('postgresql://appjob_reader:[redacted]@db.internal:5432/appdb');
+  });
+
+  it('still leaves ordinary fields alone', () => {
+    // The counter-assertion the anchored `^pat$` rule already earns: a worker's
+    // log is full of paths and patterns, and a logger that redacted them would
+    // be worse than no logger.
+    const kept = redact({ path: '/var/lib/appctl', pattern: '*.dump', host: 'db.internal' });
+
+    expect(kept).toEqual({ path: '/var/lib/appctl', pattern: '*.dump', host: 'db.internal' });
+  });
+});

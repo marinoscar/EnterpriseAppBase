@@ -3,14 +3,23 @@
 // arbiter (issue #281, epic #254)
 // =============================================================================
 //
-// `database_backup_runs_active_uniq_idx` is a PARTIAL UNIQUE index — a UNIQUE
-// on `status` restricted to `status IN ('pending','running')` — and the Prisma
-// schema language cannot express it. It exists only in
-// `prisma/migrations/20260907120000_add_database_backup_runs/migration.sql`,
-// written by hand, so nothing in `schema.prisma` proves it is applied and
-// `prisma migrate diff` will actively want to drop it. The only way to know it
-// is really there, and really doing what the comments claim, is to ask a real
-// Postgres.
+// `database_backup_runs_active_uniq_idx` is a PARTIAL UNIQUE index on the
+// CONSTANT EXPRESSION `(true)`, restricted to `status IN
+// ('pending','running')` — and the Prisma schema language cannot express
+// either a partial or an expression index. It was created in
+// `prisma/migrations/20260907120000_add_database_backup_runs/migration.sql`
+// keyed on the `status` COLUMN instead, and TIGHTENED to the constant
+// expression by
+// `prisma/migrations/20260907140000_add_backup_run_job_link/migration.sql`
+// (issue #351, epic #345) — see that migration and the block comment above
+// `DatabaseBackupRun` in `prisma/schema.prisma` for why the column-keyed form
+// admitted one `pending` row AND one `running` row AT THE SAME TIME (two
+// active runs, not one) once `pending` rows became real, and why keying on
+// `(true)` instead collapses both statuses onto the same key. Both migrations
+// are hand-written, so nothing in `schema.prisma` proves either is applied
+// and `prisma migrate diff` will actively want to drop the index. The only
+// way to know it is really there, and really doing what the comments claim,
+// is to ask a real Postgres.
 //
 // AND THE CLAIM IT BACKS IS NOT A CLAIM A MOCK CAN TEST. `db-backup-runner
 // .service.spec.ts` proves that a P2002 BECOMES a
@@ -79,7 +88,7 @@ describeWithDb('The single-active-run index (real Postgres)', () => {
     await Promise.all([a?.$disconnect(), b?.$disconnect()]);
   });
 
-  it('is actually applied, as a UNIQUE partial index with the documented predicate', async () => {
+  it('is actually applied, as a UNIQUE partial expression index with the documented predicate', async () => {
     const rows = await a.$queryRaw<Array<{ indexdef: string }>>`
       SELECT indexdef FROM pg_indexes
       WHERE tablename = 'database_backup_runs' AND indexname = ${ACTIVE_RUN_INDEX_NAME}
@@ -90,6 +99,31 @@ describeWithDb('The single-active-run index (real Postgres)', () => {
     expect(rows[0].indexdef).toContain('WHERE');
     expect(rows[0].indexdef).toContain('pending');
     expect(rows[0].indexdef).toContain('running');
+    // The tightened form: the index is built over the constant expression
+    // `(true)`, not the `status` column — this is what makes it "at most one
+    // active row across both statuses combined" rather than "at most one of
+    // each".
+    expect(rows[0].indexdef).toContain('true');
+  });
+
+  it('refuses a running run when a pending run is already active (cross-status, not same-status)', async () => {
+    // THE regression this migration exists to close: under the ORIGINAL,
+    // column-keyed index, a 'pending' row and a 'running' row had different
+    // key values and could coexist. The tightened expression index must
+    // refuse this pair exactly as it refuses two of the same status.
+    await a.databaseBackupRun.create({ data: row('pending', 'cross-pending') });
+
+    await expect(
+      b.databaseBackupRun.create({ data: row('running', 'cross-running') })
+    ).rejects.toMatchObject({ code: 'P2002' });
+  });
+
+  it('refuses a second pending run even when the first is already committed', async () => {
+    await a.databaseBackupRun.create({ data: row('pending', 'pending-first') });
+
+    await expect(
+      b.databaseBackupRun.create({ data: row('pending', 'pending-second') })
+    ).rejects.toMatchObject({ code: 'P2002' });
   });
 
   it('lets exactly ONE of two concurrent active inserts succeed', async () => {
@@ -152,5 +186,17 @@ describeWithDb('The single-active-run index (real Postgres)', () => {
 
     const count = await a.databaseBackupRun.count({ where: { bucket: MARKER } });
     expect(count).toBe(6);
+  });
+
+  it('lets a new active run start alongside any number of settled runs', async () => {
+    // Settled rows never match the predicate, so they never compete for the
+    // `(true)` key — a fresh 'pending' or 'running' insert must succeed
+    // regardless of how many completed/failed/stale rows already exist.
+    await a.databaseBackupRun.createMany({
+      data: [row('completed', 'settled-c'), row('failed', 'settled-f'), row('stale', 'settled-s')],
+    });
+
+    const active = await a.databaseBackupRun.create({ data: row('pending', 'settled-then-active') });
+    expect(active.status).toBe('pending');
   });
 });

@@ -74,6 +74,7 @@ const POLICY: SystemDatabaseBackupValue = {
   compressionLevel: 6,
   restoreRollbackMode: 'retain_database',
   oldDatabaseRetentionHours: 48,
+  nodeOffloadEnabled: false,
 };
 
 const RUN = {

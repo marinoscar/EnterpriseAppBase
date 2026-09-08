@@ -25,9 +25,14 @@ import { JobClaimService, ClaimOptions } from './job-claim.service';
 import { JobClock } from './job-clock';
 import { JobHandler } from './job-handler.interface';
 import { JobHandlerRegistry } from './job-handler.registry';
+import { JobLeaseService } from './job-lease.service';
 import { JobTerminalService } from './job-terminal.service';
+import { resetJobProfileWarnings } from './job-execution-profile';
 import { JobTimeoutError, JobWorker, resetUnknownWorkerModeWarning } from './job.worker';
 import { ProviderThrottleService } from './provider-throttle.service';
+import { DEFAULT_SYSTEM_SETTINGS } from '../common/types/settings.types';
+import { NodeOffloadService } from './node-offload.service';
+import type { SystemSettingsService } from '../settings/system-settings/system-settings.service';
 
 /** Every worker setting, with the shipped defaults spelled out rather than imported. */
 interface WorkerConfig {
@@ -106,10 +111,16 @@ async function waitFor(predicate: () => boolean, timeoutMs = 2_000): Promise<voi
 interface Harness {
   worker: JobWorker;
   registry: JobHandlerRegistry;
+  /** The REAL service `system` mode takes its complement from (#352). */
+  offload: NodeOffloadService;
+  /** Its one faked read, so a case can open the deployment's gates. */
+  getNodesPolicy: jest.Mock;
   claim: jest.Mock;
   completeSucceeded: jest.Mock;
   completeFailed: jest.Mock;
   acquire: jest.Mock;
+  /** `JobLeaseService.renew` (#347) — resolves `true` unless a case says otherwise. */
+  renew: jest.Mock;
   warn: jest.SpyInstance;
   error: jest.SpyInstance;
 }
@@ -121,22 +132,39 @@ function makeWorker(config: WorkerConfig = {}, throttle?: ProviderThrottleServic
   const completeSucceeded = jest.fn().mockResolvedValue('succeeded');
   const completeFailed = jest.fn().mockResolvedValue('failed');
   const acquire = jest.fn().mockResolvedValue(0);
+  const renew = jest.fn().mockResolvedValue(true);
+
+  // ⚠ THE REAL `NodeOffloadService`, OVER THE SAME REGISTRY (#352), not a
+  // stub. `system` mode's list is now the COMPLEMENT of what a node may claim
+  // here, and a stubbed complement would let the two halves drift back apart
+  // with this suite green — which is the exact bug the delegation exists to
+  // make impossible. Only the settings read is faked, to the shipped default
+  // (`jobSecretBrokerEnabled: false`).
+  const getNodesPolicy = jest.fn().mockResolvedValue({ ...DEFAULT_SYSTEM_SETTINGS.nodes });
+  const offload = new NodeOffloadService(registry, {
+    getNodesPolicy,
+  } as unknown as SystemSettingsService);
 
   const worker = new JobWorker(
     stubConfig(config),
     registry,
     { claim } as unknown as JobClaimService,
     { completeSucceeded, completeFailed } as unknown as JobTerminalService,
-    throttle ?? ({ acquire } as unknown as ProviderThrottleService)
+    throttle ?? ({ acquire } as unknown as ProviderThrottleService),
+    { renew } as unknown as JobLeaseService,
+    offload
   );
 
   return {
     worker,
     registry,
+    offload,
+    getNodesPolicy,
     claim,
     completeSucceeded,
     completeFailed,
     acquire,
+    renew,
     warn: jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined),
     error: jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined),
   };
@@ -180,26 +208,26 @@ describe('JobWorker', () => {
   // ---------------------------------------------------------------------------
 
   describe('worker modes', () => {
-    it('"all" claims every registered type, node-eligible ones included', () => {
+    it('"all" claims every registered type, node-eligible ones included', async () => {
       const { worker, registry } = makeWorker({ 'jobs.workerMode': 'all' });
 
       registry.register(handler('test.server-only', async () => undefined));
       registry.register(nodeEligibleHandler('test.node-eligible'));
 
       expect(worker.mode()).toBe('all');
-      expect(worker.eligibleTypes().sort()).toEqual(
+      expect((await worker.eligibleTypes()).sort()).toEqual(
         ['test.node-eligible', 'test.server-only'].sort()
       );
     });
 
-    it('"system" claims only what a node could never run', () => {
+    it('"system" claims only what a node could never run', async () => {
       const { worker, registry } = makeWorker({ 'jobs.workerMode': 'system' });
 
       registry.register(handler('test.server-only', async () => undefined));
       registry.register(nodeEligibleHandler('test.node-eligible'));
 
       expect(worker.mode()).toBe('system');
-      expect(worker.eligibleTypes()).toEqual(['test.server-only']);
+      expect(await worker.eligibleTypes()).toEqual(['test.server-only']);
     });
 
     it('"off" starts no pool at all: nothing is ever claimed', async () => {
@@ -214,7 +242,7 @@ describe('JobWorker', () => {
       await drain();
 
       expect(claim).not.toHaveBeenCalled();
-      expect(worker.eligibleTypes()).toEqual([]);
+      expect(await worker.eligibleTypes()).toEqual([]);
 
       await worker.onModuleDestroy();
     });
@@ -225,7 +253,7 @@ describe('JobWorker', () => {
       expect(worker.mode()).toBe('system');
     });
 
-    it('falls open to "all" on an unrecognised value rather than stopping work', () => {
+    it('falls open to "all" on an unrecognised value rather than stopping work', async () => {
       const { worker, registry } = makeWorker({ 'jobs.workerMode': 'sytem' });
 
       registry.register(handler('test.server-only', async () => undefined));
@@ -234,7 +262,7 @@ describe('JobWorker', () => {
       expect(worker.mode()).toBe('all');
       // The whole point of failing open: a typo must not silently stop the
       // node-eligible half of the queue.
-      expect(worker.eligibleTypes()).toHaveLength(2);
+      expect(await worker.eligibleTypes()).toHaveLength(2);
     });
 
     it('warns EXACTLY ONCE about an unrecognised value, however often it is read', () => {
@@ -275,13 +303,13 @@ describe('JobWorker', () => {
       expect(countUnknownModeWarnings()).toBe(1);
     });
 
-    it('treats a missing setting as "all"', () => {
+    it('treats a missing setting as "all"', async () => {
       const { worker, registry } = makeWorker({ 'jobs.workerMode': undefined });
 
       registry.register(nodeEligibleHandler('test.node-eligible'));
 
       expect(worker.mode()).toBe('all');
-      expect(worker.eligibleTypes()).toEqual(['test.node-eligible']);
+      expect(await worker.eligibleTypes()).toEqual(['test.node-eligible']);
     });
   });
 
@@ -290,7 +318,7 @@ describe('JobWorker', () => {
   // ---------------------------------------------------------------------------
 
   describe('systemModeEligibleTypes', () => {
-    it('adds a registered node-eligible type named in the extras', () => {
+    it('adds a registered node-eligible type named in the extras', async () => {
       const { worker, registry } = makeWorker({
         'jobs.workerMode': 'system',
         'jobs.systemModeExtraTypes': ['test.node-eligible'],
@@ -299,12 +327,12 @@ describe('JobWorker', () => {
       registry.register(handler('test.server-only', async () => undefined));
       registry.register(nodeEligibleHandler('test.node-eligible'));
 
-      expect(worker.systemModeEligibleTypes().sort()).toEqual(
+      expect((await worker.systemModeEligibleTypes()).sort()).toEqual(
         ['test.node-eligible', 'test.server-only'].sort()
       );
     });
 
-    it('accepts a raw comma-separated string as well as a parsed list', () => {
+    it('accepts a raw comma-separated string as well as a parsed list', async () => {
       const { worker, registry } = makeWorker({
         'jobs.workerMode': 'system',
         'jobs.systemModeExtraTypes': ' test.node-eligible , ',
@@ -312,10 +340,10 @@ describe('JobWorker', () => {
 
       registry.register(nodeEligibleHandler('test.node-eligible'));
 
-      expect(worker.systemModeEligibleTypes()).toEqual(['test.node-eligible']);
+      expect(await worker.systemModeEligibleTypes()).toEqual(['test.node-eligible']);
     });
 
-    it('does not duplicate a type that is already server-only', () => {
+    it('does not duplicate a type that is already server-only', async () => {
       const { worker, registry } = makeWorker({
         'jobs.workerMode': 'system',
         'jobs.systemModeExtraTypes': ['test.server-only'],
@@ -323,10 +351,10 @@ describe('JobWorker', () => {
 
       registry.register(handler('test.server-only', async () => undefined));
 
-      expect(worker.systemModeEligibleTypes()).toEqual(['test.server-only']);
+      expect(await worker.systemModeEligibleTypes()).toEqual(['test.server-only']);
     });
 
-    it('DROPS an entry no handler registers, with a warning', () => {
+    it('DROPS an entry no handler registers, with a warning', async () => {
       const { worker, registry, warn } = makeWorker({
         'jobs.workerMode': 'system',
         'jobs.systemModeExtraTypes': ['test.typo'],
@@ -336,7 +364,7 @@ describe('JobWorker', () => {
 
       // Claiming a type with no handler is not harmless: the claim succeeds
       // and the job is then failed permanently.
-      expect(worker.systemModeEligibleTypes()).toEqual(['test.server-only']);
+      expect(await worker.systemModeEligibleTypes()).toEqual(['test.server-only']);
 
       const dropped = warn.mock.calls.filter((call) =>
         String(call[0]).includes('JOBS_SYSTEM_MODE_EXTRA_TYPES')
@@ -346,14 +374,97 @@ describe('JobWorker', () => {
       expect(String(dropped[0][0])).toContain('test.typo');
     });
 
-    it('warns about a dropped entry once per type, not once per claim', () => {
+    // =========================================================================
+    // ⚠ THE PARTITION (#352, epic #345)
+    // =========================================================================
+    //
+    // `system` mode's list is the COMPLEMENT of what a node may claim here,
+    // and these cases pin that from the worker's side. The failure they exist
+    // to catch is not a wrong list — it is a HOLE: a type structurally
+    // node-eligible (so absent from `serverOnlyTypes()`) whose runtime gates
+    // are all closed (so no node may claim it) would be claimed by NOBODY, and
+    // for `db.backup.run` "nobody" means a deployment that quietly stops
+    // taking backups.
+
+    it('CLAIMS a node-eligible type whose deployment gates are closed — the hole this fix closed', async () => {
+      const { worker, registry } = makeWorker({ 'jobs.workerMode': 'system' });
+
+      registry.register(handler('test.server-only', async () => undefined));
+      // Structurally node-eligible AND gated off by this deployment, which is
+      // exactly `db.backup.run`'s shape with `nodeOffloadEnabled` false.
+      registry.register({
+        ...nodeEligibleHandler('test.gated'),
+        nodeOffloadEnabled: async () => false,
+      });
+
+      // Before this fix the base was `serverOnlyTypes()`, which does not
+      // contain `test.gated` — so this list was `['test.server-only']` and the
+      // gated type was claimed by no executor at all.
+      expect((await worker.systemModeEligibleTypes()).sort()).toEqual(
+        ['test.gated', 'test.server-only'].sort()
+      );
+    });
+
+    it('STOPS claiming it the moment the deployment opens the gate', async () => {
+      const { worker, registry } = makeWorker({ 'jobs.workerMode': 'system' });
+
+      let offloadEnabled = false;
+      registry.register({
+        ...nodeEligibleHandler('test.gated'),
+        nodeOffloadEnabled: async () => offloadEnabled,
+      });
+
+      expect(await worker.systemModeEligibleTypes()).toEqual(['test.gated']);
+
+      // The administrator turns offload on. No restart, no cached list: the
+      // fleet takes the type and this process stops claiming it, in the same
+      // process, on the next poll.
+      offloadEnabled = true;
+
+      expect(await worker.systemModeEligibleTypes()).toEqual([]);
+    });
+
+    it('is the exact complement of what a node is offered, whatever the gates say', async () => {
+      const { worker, registry, offload } = makeWorker({ 'jobs.workerMode': 'system' });
+
+      registry.register(handler('test.server-only', async () => undefined));
+      registry.register(nodeEligibleHandler('test.open'));
+      registry.register({
+        ...nodeEligibleHandler('test.gated'),
+        nodeOffloadEnabled: async () => false,
+      });
+
+      const offered = await offload.offeredTypes();
+      const claimed = await worker.systemModeEligibleTypes();
+
+      // ⚠ THE PROPERTY, STATED AS A PROPERTY: no overlap, and nothing missing.
+      // Two independently derived lists could satisfy either half alone.
+      expect(claimed.filter((type) => offered.includes(type))).toEqual([]);
+      expect([...offered, ...claimed].sort()).toEqual(registry.types().sort());
+    });
+
+    it('still lets an operator force a gated-open type back onto the server', async () => {
+      // The escape hatch is UNCHANGED by the partition fix: a fleet that is
+      // small, paused, or does not run a type is still an operator's decision,
+      // and `SKIP LOCKED` makes the overlap safe rather than merely tolerated.
+      const { worker, registry } = makeWorker({
+        'jobs.workerMode': 'system',
+        'jobs.systemModeExtraTypes': ['test.open'],
+      });
+
+      registry.register(nodeEligibleHandler('test.open'));
+
+      expect(await worker.systemModeEligibleTypes()).toEqual(['test.open']);
+    });
+
+    it('warns about a dropped entry once per type, not once per claim', async () => {
       const { worker, warn } = makeWorker({
         'jobs.workerMode': 'system',
         'jobs.systemModeExtraTypes': ['test.typo'],
       });
 
       for (let index = 0; index < 20; index += 1) {
-        worker.systemModeEligibleTypes();
+        await worker.systemModeEligibleTypes();
       }
 
       expect(
@@ -388,8 +499,11 @@ describe('JobWorker', () => {
       expect(options.nodeId).toBeNull();
       expect(options.eligibleTypes).toEqual(['test.echo']);
       // The lease is DERIVED from the timeout so it cannot be configured
-      // shorter than the run it has to outlive.
-      expect(options.leaseMs).toBeGreaterThan(30_000);
+      // shorter than the run it has to outlive. One entry per eligible type
+      // (#346), even at `limit: 1`: which type this slot ends up with is not
+      // known until the statement has run.
+      expect(options.leases).toEqual([{ type: 'test.echo', leaseMs: 90_000 }]);
+      expect(options.leases[0].leaseMs).toBeGreaterThan(30_000);
     });
 
     it('re-resolves eligible types per claim rather than capturing them at start', async () => {
@@ -429,6 +543,175 @@ describe('JobWorker', () => {
       await worker.stop();
 
       expect(String(error.mock.calls[0][0])).toContain('connection terminated');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Per-type execution profiles (#346)
+  // ---------------------------------------------------------------------------
+
+  describe('per-type execution profiles', () => {
+    /** A handler carrying a profile. */
+    function profiled(type: string, maxRuntimeMs: number, maxAttempts = 3): JobHandler {
+      return { type, profile: { maxRuntimeMs, maxAttempts }, process: async () => undefined };
+    }
+
+    beforeEach(() => {
+      resetJobProfileWarnings();
+    });
+
+    it('claims a profiled type under a lease derived from ITS ceiling', async () => {
+      const { worker, registry, claim } = makeWorker({
+        'jobs.workerConcurrency': 1,
+        'jobs.jobTimeoutMs': 30_000,
+      });
+
+      registry.register(profiled('test.slow', 7_200_000));
+
+      worker.start(1);
+      await waitFor(() => claim.mock.calls.length > 0);
+      await worker.stop();
+
+      const options = claim.mock.calls[0][0] as ClaimOptions;
+
+      // Its own ceiling plus the same grace — NOT the 30s deployment timeout
+      // this worker is otherwise configured with.
+      expect(options.leases).toEqual([{ type: 'test.slow', leaseMs: 7_260_000 }]);
+    });
+
+    it('gives each type in a heterogeneous claim its own lease', async () => {
+      // The in-process worker offers every registered type and takes whichever
+      // row is most urgent, so it cannot know which type it will get. One
+      // lease per type is what lets the statement stamp the right one.
+      const { worker, registry, claim } = makeWorker({
+        'jobs.workerConcurrency': 1,
+        'jobs.jobTimeoutMs': 30_000,
+      });
+
+      registry.register(profiled('test.slow', 7_200_000));
+      registry.register(profiled('test.brief', 5_000));
+      registry.register(handler('test.plain', async () => undefined));
+
+      worker.start(1);
+      await waitFor(() => claim.mock.calls.length > 0);
+      await worker.stop();
+
+      const options = claim.mock.calls[0][0] as ClaimOptions;
+
+      expect(options.leases).toEqual([
+        { type: 'test.slow', leaseMs: 7_260_000 },
+        { type: 'test.brief', leaseMs: 65_000 },
+        { type: 'test.plain', leaseMs: 90_000 },
+      ]);
+    });
+
+    it('covers every eligible type it offers, so the claim’s join cannot drop a row', async () => {
+      const { worker, registry, claim } = makeWorker({ 'jobs.workerConcurrency': 1 });
+
+      registry.register(profiled('test.slow', 7_200_000));
+      registry.register(handler('test.plain', async () => undefined));
+
+      worker.start(1);
+      await waitFor(() => claim.mock.calls.length > 0);
+      await worker.stop();
+
+      const options = claim.mock.calls[0][0] as ClaimOptions;
+
+      expect(options.leases.map(({ type }) => type)).toEqual(options.eligibleTypes);
+    });
+
+    it('times a profiled job out on its OWN ceiling, not the deployment’s', async () => {
+      // The lease and the timeout must read the same ceiling. A timeout taken
+      // from the global while the lease came from the profile is the
+      // self-reaping job this whole feature exists to make unrepresentable.
+      const { worker, registry, completeFailed } = makeWorker({ 'jobs.jobTimeoutMs': 600_000 });
+
+      registry.register({
+        type: 'test.hang',
+        profile: { maxRuntimeMs: 20, maxAttempts: 3 },
+        process: () => new Promise<void>(() => undefined),
+      });
+
+      const outcome = await worker.runJob(claimedJob('test.hang'));
+
+      expect(outcome).toBe('failed');
+
+      const [, error] = completeFailed.mock.calls[0];
+
+      expect(error).toBeInstanceOf(JobTimeoutError);
+      expect((error as JobTimeoutError).timeoutMs).toBe(20);
+    });
+
+    it('lets a profile of maxRuntimeMs 0 disable the timeout for that type alone', async () => {
+      const { worker, registry, completeSucceeded } = makeWorker({ 'jobs.jobTimeoutMs': 20 });
+
+      let release: () => void = () => undefined;
+      const work = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+
+      registry.register({
+        type: 'test.unbounded',
+        profile: { maxRuntimeMs: 0, maxAttempts: 3 },
+        process: () => work,
+      });
+
+      const settled = worker.runJob(claimedJob('test.unbounded'));
+
+      // Well past the 20ms deployment timeout, which does not apply here.
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      release();
+
+      await expect(settled).resolves.toBe('succeeded');
+      expect(completeSucceeded).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves an UNPROFILED type exactly as it was', async () => {
+      // The regression guard: same lease, same timeout, same everything for
+      // every handler that did not ask for a profile.
+      const { worker, registry, claim, completeFailed } = makeWorker({
+        'jobs.workerConcurrency': 1,
+        'jobs.jobTimeoutMs': 20,
+      });
+
+      registry.register(handler('test.hang', () => new Promise<void>(() => undefined)));
+
+      worker.start(1);
+      await waitFor(() => claim.mock.calls.length > 0);
+      await worker.stop();
+
+      expect((claim.mock.calls[0][0] as ClaimOptions).leases).toEqual([
+        { type: 'test.hang', leaseMs: 60_020 },
+      ]);
+
+      await worker.runJob(claimedJob('test.hang'));
+
+      expect((completeFailed.mock.calls[0][1] as JobTimeoutError).timeoutMs).toBe(20);
+    });
+
+    it('falls back to the deployment numbers when the profile is unusable', async () => {
+      const { worker, registry, claim, completeFailed } = makeWorker({
+        'jobs.workerConcurrency': 1,
+        'jobs.jobTimeoutMs': 20,
+      });
+
+      registry.register({
+        type: 'test.hang',
+        profile: { maxRuntimeMs: Number.NaN, maxAttempts: 3 },
+        process: () => new Promise<void>(() => undefined),
+      });
+
+      worker.start(1);
+      await waitFor(() => claim.mock.calls.length > 0);
+      await worker.stop();
+
+      expect((claim.mock.calls[0][0] as ClaimOptions).leases).toEqual([
+        { type: 'test.hang', leaseMs: 60_020 },
+      ]);
+
+      await worker.runJob(claimedJob('test.hang'));
+
+      expect((completeFailed.mock.calls[0][1] as JobTimeoutError).timeoutMs).toBe(20);
     });
   });
 
@@ -661,6 +944,253 @@ describe('JobWorker', () => {
   // ---------------------------------------------------------------------------
   // Independent slots
   // ---------------------------------------------------------------------------
+
+  // ---------------------------------------------------------------------------
+  // Lease renewal (#347)
+  // ---------------------------------------------------------------------------
+
+  describe('lease renewal', () => {
+    // FAKE TIMERS, BECAUSE THE FLOOR IS FIVE SECONDS. `resolveRenewIntervalMs`
+    // clamps to `[5s, 60s]` on purpose (a short lease must not produce a
+    // renewal storm), so a real-timer test of "it renews twice" would sit
+    // there for two minutes. What is being asserted is a schedule, and a
+    // schedule is exactly the thing fake timers are honest about.
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('renews on a schedule for the whole of process(), and stops when it ends', async () => {
+      jest.useFakeTimers();
+
+      // Timeouts disabled → the unbounded one-hour lease → a 60s interval
+      // (the clamp's ceiling, since an hour divided by three is far past it).
+      const { worker, registry, renew } = makeWorker({ 'jobs.jobTimeoutMs': 0 });
+
+      let finish: () => void = () => undefined;
+      registry.register(
+        handler(
+          'test.long',
+          () =>
+            new Promise<void>((resolve) => {
+              finish = resolve;
+            })
+        )
+      );
+
+      const run = worker.runJob(claimedJob('test.long'));
+
+      // NOTHING YET. The first renewal is due one interval in, not at claim
+      // time — the claim already wrote a lease.
+      await jest.advanceTimersByTimeAsync(59_000);
+      expect(renew).not.toHaveBeenCalled();
+
+      await jest.advanceTimersByTimeAsync(1_000);
+      expect(renew).toHaveBeenCalledTimes(1);
+
+      // THE ARGUMENTS ARE THE CONTRACT: the job's own id, the SAME lease the
+      // claim took, and a `null` node id (this worker claimed as `server`).
+      expect(renew).toHaveBeenCalledWith('job-test.long', 3_600_000, null);
+
+      // It keeps going — a job that renewed once and stopped is a job the
+      // reaper takes away a lease later.
+      await jest.advanceTimersByTimeAsync(60_000);
+      expect(renew).toHaveBeenCalledTimes(2);
+
+      finish();
+      await expect(run).resolves.toBe('succeeded');
+
+      // AND IT STOPS. A ticker left running would renew a settled row, and
+      // (once the terminal write lands) log a false "no longer held" alarm.
+      const settled = renew.mock.calls.length;
+      await jest.advanceTimersByTimeAsync(5 * 60_000);
+      expect(renew).toHaveBeenCalledTimes(settled);
+    });
+
+    it('renews on the TYPE’s lease when it has a profile, not the deployment’s', async () => {
+      jest.useFakeTimers();
+
+      // The deployment says 30s (→ a 90s lease → a 30s interval). The type
+      // says "no ceiling" (→ the one-hour lease → a 60s interval). If the
+      // ticker read the global, it would fire at 30s; if it reads the profile
+      // — as the CLAIM did — the first renewal lands at 60s carrying the
+      // hour-long lease. Renewing a six-hour job with a ten-minute extension
+      // is the exact failure mode #346's profiles exist to make impossible.
+      const { worker, registry, renew } = makeWorker({ 'jobs.jobTimeoutMs': 30_000 });
+
+      let finish: () => void = () => undefined;
+      registry.register({
+        type: 'test.profiled',
+        profile: { maxRuntimeMs: 0, maxAttempts: 3 },
+        process: () =>
+          new Promise<void>((resolve) => {
+            finish = resolve;
+          }),
+      });
+
+      const run = worker.runJob(claimedJob('test.profiled'));
+
+      await jest.advanceTimersByTimeAsync(30_000);
+      expect(renew).not.toHaveBeenCalled();
+
+      await jest.advanceTimersByTimeAsync(30_000);
+      expect(renew).toHaveBeenCalledWith('job-test.profiled', 3_600_000, null);
+
+      finish();
+      await run;
+    });
+
+    it('stops renewing, at error, once the row is no longer held', async () => {
+      jest.useFakeTimers();
+
+      const { worker, registry, renew, error } = makeWorker({ 'jobs.jobTimeoutMs': 0 });
+      renew.mockResolvedValue(false);
+
+      let finish: () => void = () => undefined;
+      registry.register(
+        handler(
+          'test.lost',
+          () =>
+            new Promise<void>((resolve) => {
+              finish = resolve;
+            })
+        )
+      );
+
+      const run = worker.runJob(claimedJob('test.lost'));
+
+      await jest.advanceTimersByTimeAsync(60_000);
+      expect(renew).toHaveBeenCalledTimes(1);
+
+      // ONE renewal, then silence: a worker that has lost the row must not go
+      // on re-forging the queue's view of it.
+      await jest.advanceTimersByTimeAsync(5 * 60_000);
+      expect(renew).toHaveBeenCalledTimes(1);
+
+      expect(
+        error.mock.calls.some((call) => String(call[0]).includes('no longer held by this worker'))
+      ).toBe(true);
+
+      // AND THE WORK RUNS ON. JavaScript cannot cancel a promise mid-await
+      // (`withTimeout` says the same), so the honest outcome is that this
+      // attempt finishes and reports; making the pre-existing at-least-once
+      // reality visible is the whole of what this changes.
+      finish();
+      await expect(run).resolves.toBe('succeeded');
+    });
+
+    it('treats a transient database failure as a retry, not a lost lease', async () => {
+      jest.useFakeTimers();
+
+      const { worker, registry, renew, warn } = makeWorker({ 'jobs.jobTimeoutMs': 0 });
+      renew.mockRejectedValueOnce(new Error('connection reset')).mockResolvedValue(true);
+
+      let finish: () => void = () => undefined;
+      registry.register(
+        handler(
+          'test.flaky',
+          () =>
+            new Promise<void>((resolve) => {
+              finish = resolve;
+            })
+        )
+      );
+
+      const run = worker.runJob(claimedJob('test.flaky'));
+
+      await jest.advanceTimersByTimeAsync(60_000);
+      expect(renew).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls.some((call) => String(call[0]).includes('Could not renew'))).toBe(
+        true
+      );
+
+      // The lease is three intervals long by construction, so one failure
+      // costs nothing and giving up on it would lose a healthy job.
+      await jest.advanceTimersByTimeAsync(60_000);
+      expect(renew).toHaveBeenCalledTimes(2);
+
+      finish();
+      await run;
+    });
+
+    it('does not renew across a provider cooldown, which holds nothing', async () => {
+      jest.useFakeTimers();
+
+      // The ticker starts AFTER `throttle.acquire` resolves. A slot parked in
+      // a cooldown is not running anything, and extending a lease over a wait
+      // is exactly the "held but idle" state a lease exists to expose.
+      let releaseThrottle: () => void = () => undefined;
+      const acquire = jest.fn(
+        () =>
+          new Promise<number>((resolve) => {
+            releaseThrottle = () => resolve(0);
+          })
+      );
+
+      const { worker, registry, renew } = makeWorker({ 'jobs.jobTimeoutMs': 0 }, {
+        acquire,
+      } as unknown as ProviderThrottleService);
+
+      let finish: () => void = () => undefined;
+      registry.register(
+        handler(
+          'test.throttled',
+          () =>
+            new Promise<void>((resolve) => {
+              finish = resolve;
+            })
+        )
+      );
+
+      const run = worker.runJob(claimedJob('test.throttled'));
+
+      await jest.advanceTimersByTimeAsync(5 * 60_000);
+      expect(renew).not.toHaveBeenCalled();
+
+      releaseThrottle();
+      await jest.advanceTimersByTimeAsync(60_000);
+      expect(renew).toHaveBeenCalledTimes(1);
+
+      finish();
+      await run;
+    });
+
+    it('registers the ticker in the shutdown timer set, so stop() cancels it', async () => {
+      jest.useFakeTimers();
+
+      // THE `PendingTimer` CONTRACT, and the reason the ticker is not a bare
+      // `setInterval`: a renewal timer must never hold a closing process open,
+      // and `stop()` must kill it in milliseconds rather than after a full
+      // interval.
+      const { worker, registry, renew } = makeWorker({ 'jobs.jobTimeoutMs': 0 });
+      const timers = (worker as unknown as { timers: Set<unknown> }).timers;
+
+      let finish: () => void = () => undefined;
+      registry.register(
+        handler(
+          'test.shutdown',
+          () =>
+            new Promise<void>((resolve) => {
+              finish = resolve;
+            })
+        )
+      );
+
+      const run = worker.runJob(claimedJob('test.shutdown'));
+      await jest.advanceTimersByTimeAsync(0);
+
+      expect(timers.size).toBe(1);
+
+      await worker.stop();
+
+      expect(timers.size).toBe(0);
+
+      await jest.advanceTimersByTimeAsync(10 * 60_000);
+      expect(renew).not.toHaveBeenCalled();
+
+      finish();
+      await run;
+    });
+  });
 
   describe('independent slot loops', () => {
     it('does not let a slow job in one slot delay a fast job in another', async () => {

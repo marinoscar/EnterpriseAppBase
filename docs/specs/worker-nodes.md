@@ -286,13 +286,28 @@ would simply stop matching and silently regain the bypass.
 
 ## 8. The constraint everything else follows from
 
-**A node has no database access and no storage credentials.** Every fact it
-needs arrives in an HTTP response; every fact it produces is validated before
-it is trusted. It is *authenticated* — a `nod_` credential resolves to its
-owning user — but it is not *trusted* the way an in-process caller is: it runs
-unattended on a machine this deployment may not own, its configuration is
-editable by whoever holds that machine, and it may be running an older build
-than the server it is talking to.
+**A node holds no *durable* database access and no *durable* storage
+credentials.** Every fact it needs arrives in an HTTP response; every fact it
+produces is validated before it is trusted. It is *authenticated* — a `nod_`
+credential resolves to its owning user — but it is not *trusted* the way an
+in-process caller is: it runs unattended on a machine this deployment may not
+own, its configuration is editable by whoever holds that machine, and it may
+be running an older build than the server it is talking to.
+
+**This was an absolute claim through #268/#269, and #349 (epic #345) made it
+conditional rather than dropping it.** A job type may now declare a
+`nodeSecretBroker` (§14, §20.1) that mints a short-lived, job-scoped database
+credential a node holds *in memory only* for the lifetime of one job's lease —
+`db.backup.run` is the first and, so far, only consumer, and it exists because
+`pg_dump` genuinely needs a real PostgreSQL connection that no amount of
+presigning can substitute for. What did **not** change is the durability
+claim this section exists to make: nothing brokered this way is ever written
+to a node's config file, its state directory, or a log line — see §16.5 of
+`database-backup.md` and the CLI's own static check
+(`apps/cli/src/node/executors/db-backup-run.test.ts`) that the executor
+imports no config writer at all — and storage credentials remain absolute
+with no exception: a node never holds one, brokered or otherwise, by
+construction of the presigned data plane in Part three below.
 
 That is why the request bodies are as tight as they are (a node's
 `concurrency` becomes a claim limit, so it is bounded), why the result path
@@ -455,20 +470,32 @@ care which machine its 429 was sent to.
 
 ## 14. Deliberately not ported from the source application
 
-Two things exist in the application this design was extracted from and are
-**not** here, both because they serve ML compute this template does not have:
+One thing exists in the application this design was extracted from and is
+**not** here, because it serves a problem this template does not have:
 
-* **Per-job provider-credential brokering.** There, the control plane mints a
-  short-lived provider credential per claimed job and hands it to the node.
-  Porting it would ship an unused secret-distribution path — the most
-  expensive kind of code to carry unused, because it looks load-bearing to
-  everyone who reads it later and nobody can safely delete it. A fork that
-  needs it adds it where the claim response is built, next to #269's presigned
-  URLs, which is the same seam.
 * **The model manifest.** A published list of model versions the fleet must
   agree on, so a node does not compute against a model the server will reject.
-  It is a real problem in that domain and not a problem in a template with no
-  models.
+  It is a real problem in that domain (ML compute) and not a problem in a
+  template with no models.
+
+**Per-job credential brokering used to be listed here too, as a deferred
+alternative.** It is shipped now (#349, epic #345), at exactly the seam this
+section used to point at: "next to #269's presigned URLs, where the claim
+response is built." §20.1 and §22 below cover the fleet-facing rules; the
+mechanism itself — `JobHandler.nodeSecretBroker`, `job_node_secrets`, the
+`nodes.jobSecretBrokerEnabled` opt-in, and the settle/sweep/`VALID UNTIL`
+triple that bounds a grant — is designed in full in
+[`database-backup.md` §16](database-backup.md#16-running-the-dump-on-a-worker-node-352-epic-345)
+against its first and, so far, only consumer: `db.backup.run` needs a real
+PostgreSQL connection to run `pg_dump`, and no amount of presigning produces
+one. What made the earlier deferral correct at the time still applies to
+*provider* credentials specifically — porting an ML provider's key-brokering
+path unused would have been the expensive-to-carry code this section warned
+about — but "a node never persists a job-scoped credential" was never really
+optional once a job type needed one at all, so when #351/#352 made
+`db.backup.run` a queue job, brokering stopped being deferred and became
+[MANDATORY rule 3](../../CLAUDE.md#mandatory-every-long-running-activity-is-a-queue-job)
+in `CLAUDE.md`.
 
 The presigned data-plane IO — how a node reads an input object and writes an
 output object with no storage credentials of its own — is **#269**, and it is
@@ -547,9 +574,9 @@ method out of reach.
 
 ## 17. The server chooses the upload key
 
-`node-outputs/{jobId}/{uuid}`, derived from a path parameter the router
-already validated as a UUID plus a fresh `randomUUID()`. Nothing from the
-request body reaches it. Two consequences, both load-bearing:
+The default is `node-outputs/{jobId}/{uuid}`, derived from a path parameter the
+router already validated as a UUID plus a fresh `randomUUID()`. Nothing from
+the request body reaches it. Two consequences, both load-bearing:
 
 * **A node cannot overwrite anything.** A signed PUT is an unconditional
   overwrite of exactly its key, so "the key is always new" is the whole of that
@@ -574,6 +601,60 @@ refused; a row written now would outlive all three as a `pending` object with
 nothing behind it. Recording the output is the handler's business in
 `persistNodeResult`, which is why the chosen key is returned to the node: it
 reports it back in its result.
+
+### 17.1 A type may derive its own key — and the server still chooses (#348)
+
+One prefix for the whole fleet is right for a scratch output and wrong for any
+artifact with a **required, externally-referenced location**. A database
+backup's key is `buildBackupStorageKey(at, runId)`, and its
+`database_backup_runs` row records `storage_key`/`bucket`/`format` precisely so
+the archive stays locatable across a bucket rename; the same archive written to
+`node-outputs/…` is one the retention sweep, the download endpoint and the
+restore path cannot find. With the key hard-coded in the data plane, **no such
+type could ever be node-eligible** — which is what blocked epic #345's second
+decision.
+
+So `JobHandler` gained one optional member:
+
+```ts
+deriveOutputKey?(job: Job): Promise<string>;
+```
+
+`createUploadTarget` asks the registry for the job's handler and uses its
+answer, falling back to the template above when there is no handler or no
+member. **The choice moved between two parts of the server** — from a constant
+in the data plane to the handler that owns the artifact — and the node's
+influence stays exactly zero: a caller-supplied `key` is still a `400` and is
+still refused *before* any derivation runs, the chosen key is still returned so
+the node can name it back in its result, and no `storage_objects` row is
+created at mint time.
+
+Two consequences worth stating:
+
+* **`SAFE_STORAGE_KEY` stops being defensive and becomes the guard.** It used
+  to assert a property the template already guaranteed; it now checks a value
+  application code computed. A key that fails it is refused with a **500**, not
+  a `400`, and the node gets no URL — nothing the node sent can reach that
+  string, so a `4xx` would send an operator to fix a node that behaved
+  perfectly.
+* **Idempotency is the handler's responsibility.** A node asks for an upload
+  URL more than once as a matter of course (a timed-out transfer, a lost
+  response, a restarted process holding the lease), and each call must return
+  the same key or the retry produces a second artifact while the recorded row
+  points at bytes nobody finished writing. #351 makes this structural for the
+  database backup with a `@unique` `jobId` on its run row: `deriveOutputKey`
+  re-reads by `jobId` and returns the existing key rather than creating a
+  second run. A type that derives a stable key thereby gives up the "every mint
+  is a new key" guarantee above — deliberately, for its own artifact, for its
+  own job, and for nothing else.
+
+**Rejected: a `keyPrefix` string on the handler.** It covers a prefix but not
+the `buildBackupStorageKey(at, runId)` shape, and — decisively — it cannot
+create the artifact row the key's `runId` comes from. **Rejected: minting the
+key at claim time and shipping it in the assignment**, for the same reason §18
+gives against folding signed URLs into the claim: a node claiming its whole
+`concurrency` at once would have the last job's key derived long before that
+job starts.
 
 ## 18. URLs are minted on demand, not folded into the claim
 
@@ -676,6 +757,47 @@ The cost of the chosen option is one method every implementation must provide.
 `test/nodes/node-checksum-data-plane.db.spec.ts` implements the whole interface
 in its local provider precisely so that the day somebody adds a method without
 implementing it everywhere, a file stops compiling.
+
+## 20.1 `db.backup.run`: the second node-eligible type, and the first with a credential (#352)
+
+`example.checksum` below is the reference: pure compute over bytes a presigned
+URL handed it. The database backup is the other shape this plane has to
+support, and it exercises three things nothing else does — the per-job secret
+broker (§ the `nodes.jobSecretBrokerEnabled` sections), `deriveOutputKey`
+(§17.1), and a job whose input is not a storage object at all.
+
+Four properties are worth stating here rather than only in the backup spec,
+because they are the fleet's rules and not the backup's:
+
+1. **`requiresInput = false`, and the input is a credential instead.** The
+   executor asks `POST /nodes/:id/jobs/:jobId/secret`, holds the material in
+   one local constant, hands it to one child process through its environment,
+   and drops it. Nothing is written to the node's config file or its state
+   directory — the founding rule of §8, asserted by a test in `apps/cli`.
+2. **Eligible is not offered.** `NodeOffloadService.offeredTypes()` intersects
+   node eligibility with `nodes.jobSecretBrokerEnabled`, the broker's own
+   `usable()` probe, and the handler's `nodeOffloadEnabled()` — a new optional
+   `JobHandler` member that lets a FEATURE answer "may this workload leave the
+   server in this deployment?" without the nodes module growing a switch keyed
+   on job type. All three run at claim time; none of them mutates the registry.
+   ⚠ That set has TWO readers: this plane takes it, and `JobWorker`'s `system`
+   mode takes its COMPLEMENT, so the fleet and the API server partition the
+   queue by construction rather than by two derivations that agree only while
+   eligibility is static. See [`job-queue.md` §6.4](job-queue.md#64-system-mode-is-the-node-planes-complement--and-jobs_system_mode_extra_types)
+   for the hole that appeared the one time they were derived separately.
+3. **Verification stays on the server.** The node streams `pg_dump` into a
+   single-shot signed PUT (§20) and reports a size, a digest and the key it was
+   given; the server reads the stored object back and parses its table of
+   contents before marking anything verified. A node vouching for its own
+   upload is not evidence.
+4. **A node-executed run has no heartbeat of its own**, so the backup's stale
+   sweep asks the JOB's lease instead — the liveness signal the node is already
+   renewing (§ the lease sections). This is the general answer for any future
+   type whose server-side row has a liveness clock: one clock, and it is the
+   lease.
+
+The full design, including the two opt-in settings and why they are two, is
+[`database-backup.md` §16](database-backup.md#16-running-the-dump-on-a-worker-node-352-epic-345).
 
 ## 21. `example.checksum`: the reference node-eligible type
 

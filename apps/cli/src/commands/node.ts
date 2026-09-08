@@ -417,7 +417,15 @@ export function registerNodeCommand(program: Command, ctx?: NodeCommandContext):
     .command('doctor')
     .description('Check this machine, the server, and the worker — independently')
     .option('--json', 'Emit the report as JSON on stdout')
-    .action(async (options: { json?: boolean }) => {
+    // A FLAG, NOT A STORED SETTING (#352). A worker node holds no database
+    // configuration of its own — the connection arrives per job and is dropped
+    // when the job settles — so the reachability probe takes its target from
+    // the operator asking the question, and is skipped when nobody asks.
+    .option(
+      '--db-host <host[:port]>',
+      'Also test a TCP route to this PostgreSQL server, for db.backup.run offload',
+    )
+    .action(async (options: { json?: boolean; dbHost?: string }) => {
       const stdout = ctx?.stdout ?? process.stdout;
       const stderr = ctx?.stderr ?? process.stderr;
       const configContext = contextOf(ctx);
@@ -440,6 +448,7 @@ export function registerNodeCommand(program: Command, ctx?: NodeCommandContext):
         api: HttpNodeApi.create(config.serverUrl, config.token, {
           ...(ctx?.fetch !== undefined ? { fetch: ctx.fetch } : {}),
         }),
+        ...(options.dbHost !== undefined ? { databaseHost: options.dbHost } : {}),
       });
 
       if (options.json === true) {

@@ -3,8 +3,9 @@
 // =============================================================================
 // (epic #254)
 //
-// Ten routes over one service, mounted under `admin/`: eight that manage
-// backups (#283) and two that RESTORE from one (#286). The controller does
+// Eleven routes over one service, mounted under `admin/`: eight that manage
+// backups (#283), two that RESTORE from one (#286), and one that reports
+// whether a worker node could be given a credential to take one (#350). The controller does
 // nothing but bind, document and authorize; every decision about what a request
 // MEANS lives in `db-backup-admin.service.ts`, and every decision about what a
 // backup IS lives further down still, in `db-backup-runner.service.ts`. The one
@@ -24,13 +25,15 @@
 // -----------------------------------------------------------------------------
 //
 // Nest matches routes in DECLARATION ORDER, not by specificity. So the order
-// below is: `config` (GET, PUT) and `runs` (POST, GET) first, and only then the
+// below is: `config` (GET, PUT), `runs` (POST, GET) and
+// `node-credential-preflight` (GET) first, and only then the
 // parameterised block — `runs/:id/download`, `runs/:id/cancel`,
 // `runs/:id/restore`, `runs/:id/rollback`, `runs/:id` (GET) and `runs/:id`
 // (DELETE), deepest first inside that block for the same reason.
 //
-// BE HONEST ABOUT TODAY: the literals here are one segment past the prefix
-// (`config`) or one (`runs`), while every parameterised route is two or three
+// BE HONEST ABOUT TODAY: every literal here is ONE segment past the prefix
+// (`config`, `runs`, `node-credential-preflight`), while every parameterised
+// route is two or three
 // (`runs/:id`, `runs/:id/download`), so no transposition of the methods in this
 // file would currently shadow anything. That is a property of the CURRENT route
 // table, not a rule — and it is exactly the reasoning that produces the bug the
@@ -85,8 +88,8 @@
 // THREE PERMISSIONS, AND THE THIRD IS WITHHELD ON PURPOSE
 // -----------------------------------------------------------------------------
 //
-// `db_backup:read` for the config read, the list, the single get and the
-// download; `db_backup:write` for the config write, the manual trigger, the
+// `db_backup:read` for the config read, the list, the single get, the download
+// and #350's node-credential pre-flight (a probe that creates nothing); `db_backup:write` for the config write, the manual trigger, the
 // cancel and the delete; `db_backup:restore` — AND NOT `db_backup:write` — for
 // the restore and the rollback.
 //
@@ -155,6 +158,7 @@ import {
   UpdateDatabaseBackupConfigDto,
 } from './dto/db-backup-config.dto';
 import { BackupRunListQueryDto } from './dto/db-backup-list-query.dto';
+import { NodeCredentialPreflightDto } from './dto/db-backup-node-credential.dto';
 import {
   ROLLBACK_RESPONSE_DTOS,
   RollbackRestoreRequestDto,
@@ -297,6 +301,35 @@ export class DatabaseBackupController {
   })
   async listRuns(@Query() query: BackupRunListQueryDto): Promise<unknown> {
     return this.backups.listRuns(query);
+  }
+
+  @Get('node-credential-preflight')
+  @Auth({ roles: [ROLES.ADMIN], permissions: [PERMISSIONS.DB_BACKUP_READ] })
+  @ApiOperation({
+    summary: 'Can a worker node be given a credential to take this backup?',
+    description:
+      'Answers, without changing anything, whether this deployment can hand a worker node a ' +
+      'SHORT-LIVED, SELECT-ONLY PostgreSQL role for the duration of one `db.backup.run` job — ' +
+      'the credential epic #345 needs in order to execute a dump off the API server. Two ' +
+      'independent facts come back and they mean different things: `outcome` is the ' +
+      'CAPABILITY (a live probe of whether this API\'s database role may `CREATE ROLE`), and ' +
+      '`brokerEnabled` is the POLICY (`nodes.jobSecretBrokerEnabled`, default off, which is an ' +
+      'administrator\'s decision that the fleet is inside the trust boundary). ' +
+      '⚠ `outcome: "guided"` IS A 200 AND NOT AN ERROR: managed PostgreSQL withholding ' +
+      '`CREATEROLE` from an application role is the ordinary configuration, and the honest ' +
+      'answer is two lines of SQL in `guidance.commands` — not a status code saying the ' +
+      'platform is unsupported. A deployment that declines to run them simply leaves node ' +
+      'offload off and the API keeps taking its own backups. The node also needs a NETWORK ' +
+      'ROUTE to PostgreSQL, which this endpoint cannot see and deliberately does not tunnel; ' +
+      'see the runbook named in `guidance.runbook`.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'The capability verdict, the policy, and the SQL that fixes a `guided` one',
+    type: NodeCredentialPreflightDto,
+  })
+  async getNodeCredentialPreflight(): Promise<unknown> {
+    return this.backups.getNodeCredentialPreflight();
   }
 
   // ---------------------------------------------------------------------------

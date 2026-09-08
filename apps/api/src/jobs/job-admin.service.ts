@@ -288,7 +288,8 @@ export class JobAdminService {
    *   3. the `scheduled` count uses `jobs(status, scheduled_for, priority,
    *      created_at)` — the same index the claim query walks.
    *   4. the `stuckRunning` count uses `jobs(status, lease_expires_at)` for the
-   *      lease signal.
+   *      lease signals — which since #347 are three of the predicate's four
+   *      clauses, so this count leans on that index harder than it used to.
    *
    * `total` is SUMMED FROM (1) rather than asked for as a fifth `count()`:
    * a separate count would be taken at a different instant from the breakdown
@@ -315,7 +316,17 @@ export class JobAdminService {
         where: { status: 'pending', scheduledFor: { gt: takenAt } },
       }),
       // The reaper's own predicate, called and not copied. See the header.
-      this.prisma.job.count({ where: stuckRunningWhere(threshold, takenAt) }),
+      //
+      // ⚠ THE LEASE HORIZON COMES FROM `JobStuckService` TOO (#347), not from
+      // a second derivation here. The predicate now needs three instants, and
+      // the third one depends on the registered handlers and the configured
+      // timeout — so a copy of that arithmetic living in this file would let
+      // the dashboard's `stuckRunning` tile disagree with the sweep that runs
+      // ten minutes later, which is the one number on the page whose whole
+      // value is that it predicts what the reaper is about to do.
+      this.prisma.job.count({
+        where: stuckRunningWhere(threshold, takenAt, this.stuck.leaseHorizon(takenAt)),
+      }),
     ]);
 
     const byStatus = zeroCounts();

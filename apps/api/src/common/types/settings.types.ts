@@ -161,6 +161,15 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettingsValue = {
     staleHeartbeatSeconds: 90,
     offlineStaleMultiplier: 4,
     offlineRetentionDays: 30,
+    // ⚠ OFF, AND THE DEFAULT IS THE POINT (#349, epic #345). A fresh
+    // deployment does not hand its worker fleet credentials to its own
+    // database because somebody registered a node; an administrator turns
+    // this on deliberately, having decided that those machines are inside the
+    // trust boundary. Fail-closed also means a settings row that cannot be
+    // read degrades to "no credentials for anyone", which is the safe
+    // direction — unlike the fleet's other three values, where degrading to
+    // the shipped policy is the safe direction.
+    jobSecretBrokerEnabled: false,
   },
   databaseBackup: {
     enabled: false,
@@ -175,6 +184,12 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettingsValue = {
     compressionLevel: 6,
     restoreRollbackMode: 'retain_database',
     oldDatabaseRetentionHours: 48,
+    // OFF, like `nodes.jobSecretBrokerEnabled` and for a related-but-distinct
+    // reason (#352, epic #345): a fresh deployment does not ship its entire
+    // database off the API server because somebody registered a worker node.
+    // Both switches must be on, and the credential broker must report itself
+    // usable, before `db.backup.run` is offered to a node at all.
+    nodeOffloadEnabled: false,
   },
   maintenance: {
     enabled: false,

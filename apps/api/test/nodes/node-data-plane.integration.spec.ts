@@ -415,6 +415,10 @@ describe('Worker node data plane (Integration)', () => {
 
   describe('POST /api/nodes/:id/jobs/:jobId/upload-url', () => {
     it('200, and the key is DERIVED FROM THE JOB, not from the request', async () => {
+      // Also the #348 regression fence at the HTTP level: `example.checksum`
+      // is registered by the real `JobsModule` here and does NOT implement
+      // `deriveOutputKey`, so the default template must survive that member
+      // existing — unchanged, through the router, the pipe and the envelope.
       const admin = await createMockAdminUser(context);
       givenHeldJob(admin.id);
 

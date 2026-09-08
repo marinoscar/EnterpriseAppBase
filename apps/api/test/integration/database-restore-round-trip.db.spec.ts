@@ -68,7 +68,8 @@ import {
   type AdminConnection,
 } from '../../src/db-backup/admin-connection.util';
 import { DatabaseBackupRunnerService } from '../../src/db-backup/db-backup-runner.service';
-import type { DatabaseBackupRetentionService } from '../../src/db-backup/db-backup-retention.service';
+import { JobsService } from '../../src/jobs/jobs.service';
+import { DB_RESTORE_RUN_TYPE } from '../../src/db-backup/database-restore.service';
 import { ACTIVE_STORAGE_PROVIDER_ID, BACKUP_ARCHIVE_FORMAT } from '../../src/db-backup/db-backup-storage';
 import {
   DatabaseRestoreService,
@@ -136,14 +137,6 @@ const settingsStub = {
 
 const configStub = { get: () => undefined } as unknown as ConfigService;
 
-const retentionStub = {
-  // STUBBED, not the real service: `prune()` deletes by count across every
-  // `completed` row in `database_backup_runs`, and the property under test
-  // here is the restore, not retention (`db-backup-retention.service.spec.ts`
-  // already owns that).
-  prune: async () => ({ prunedByCount: 0, prunedByAge: 0 }),
-} as unknown as DatabaseBackupRetentionService;
-
 async function buildEnvironment(dbName: string): Promise<Environment> {
   assertNeverTheSharedDatabase(dbName);
 
@@ -165,13 +158,25 @@ async function buildEnvironment(dbName: string): Promise<Environment> {
     },
   } as unknown as NotificationsService;
 
+  // ⚠ THE QUEUE SEAM THROWS IF IT IS EVER REACHED, DELIBERATELY. This suite
+  // exercises the `pre_restore` safety dump, which goes through `startBackup`
+  // and has NO job by design (#351): a restore must not wait on a worker slot,
+  // on `JOBS_WORKER_MODE`, or on this process still polling the queue seconds
+  // from now. A stub that quietly succeeded would let a refactor route the
+  // pre-restore dump through `queueBackup` with nothing here noticing.
+  const jobsStub = {
+    enqueueWithin: async () => {
+      throw new Error('the pre_restore dump must not enqueue a job');
+    },
+  } as unknown as JobsService;
+
   const runner = new DatabaseBackupRunnerService(
     prisma as unknown as PrismaService,
     settingsStub,
     storage,
-    retentionStub,
     notifications,
     configStub,
+    jobsStub,
     engineForConnection(pgConnectionFor(dbName))
   );
 
@@ -206,11 +211,68 @@ async function buildEnvironment(dbName: string): Promise<Environment> {
       maintenance,
       notifications,
       configStub,
+      // ⚠ THE REAL QUEUE (#353, epic #345), NOT THE RUNNER'S THROWING STUB.
+      // `startRestore` ENQUEUES now — it runs nothing — so a stub here would
+      // make every case in this file assert against a restore that never
+      // happened. `runQueuedRestore` below is the worker.
+      new JobsService(prisma as unknown as PrismaService),
       seam
     );
   }
 
   return { dbName, prisma, adminConnection, tmpDir, storage, runner, preflight, events, makeRestoreService };
+}
+
+/**
+ * THE WORKER, BY HAND (#353, epic #345).
+ *
+ * `startRestore` queues a `db.restore.run` job and returns; in production a
+ * `JobWorker` claims it and calls `process()`, which calls
+ * `executeRestoreJob`. This file is not testing the worker's poll loop — it is
+ * testing what the restore does to a real cluster — so it does the two things
+ * a claim does (charge the attempt, take a lease) and then executes.
+ *
+ * ⚠ IT SETTLES A FAILED JOB, AND IT MUST. `startRestore`'s durable guard
+ * refuses while ANY `db.restore.run` is `pending` or `running`, so a failed
+ * restore left `running` here would make every later case in this file come
+ * back `already_running` — which is the same thing that would happen in a
+ * deployment whose worker died, and is exactly why that guard is type-wide.
+ * The SUCCESS path is deliberately not settled here: the restore settles its
+ * own row as part of the catalog carry, which is the property the round-trip
+ * case asserts against real Postgres.
+ */
+async function runQueuedRestore(
+  env: Environment,
+  service: DatabaseRestoreService,
+  runId: string
+): Promise<void> {
+  const job = await env.prisma.job.findFirst({
+    where: { type: DB_RESTORE_RUN_TYPE, subjectId: runId, status: 'pending' },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  if (job === null) throw new Error(`no ${DB_RESTORE_RUN_TYPE} job was queued for ${runId}`);
+
+  const claimed = await env.prisma.job.update({
+    where: { id: job.id },
+    data: {
+      status: 'running',
+      startedAt: new Date(),
+      // Charged AT CLAIM TIME, exactly as `JobClaimService` charges it.
+      attempts: { increment: 1 },
+      executor: 'server',
+      leaseExpiresAt: new Date(Date.now() + 6 * 60 * 60 * 1000),
+    },
+  });
+
+  try {
+    await service.executeRestoreJob(claimed);
+  } catch {
+    await env.prisma.job.update({
+      where: { id: claimed.id },
+      data: { status: 'failed', finishedAt: new Date(), leaseExpiresAt: null },
+    });
+  }
 }
 
 /** Polls a `database_backup_runs` row (via `prisma`) until it is no longer active. */
@@ -371,6 +433,8 @@ describeWithDb('Database restore orchestration against real Postgres', () => {
       expect(started.outcome).toBe('started');
       if (started.outcome !== 'started') return;
 
+      await runQueuedRestore(env, restoreService, knownRun.id);
+
       track(started.scratchDatabase);
       track(started.oldDatabase);
 
@@ -401,6 +465,40 @@ describeWithDb('Database restore orchestration against real Postgres', () => {
         restore_scratch_db: started.scratchDatabase,
         restore_old_db: started.oldDatabase,
       });
+
+      // --- ⚠ THE RESTORE'S OWN JOB ROW, SETTLED, IN THE PROMOTED DATABASE ---
+      //
+      // THE HAZARD #353 HAD TO SOLVE, PROVEN AGAINST REAL POSTGRES. `process()`
+      // never returns on this path — the process exits inside the swap — so the
+      // worker's terminal write never runs. Left alone, the row would sit
+      // `running` with a live lease until the restarted API's reaper found it
+      // and, under `maxAttempts: 1`, marked a SUCCESSFUL restore `failed`.
+      //
+      // The terminal write therefore rides with the catalog carry
+      // (`CARRY_JOB_SQL`): decided before the renames, written after both of
+      // them, into the database that survives, before the exit. Reading it back
+      // out of the PROMOTED database is the only way to prove all four.
+      const carriedJob = await withAdminConnection(
+        { ...env.adminConnection, database: dbName },
+        (client) =>
+          client.query(
+            'SELECT status::text, attempts, lease_expires_at, claimed_by_node_id, ' +
+              'finished_at, executor FROM jobs WHERE type = $1 AND subject_id = $2',
+            [DB_RESTORE_RUN_TYPE, knownRun.id]
+          )
+      );
+
+      expect(carriedJob.rows).toHaveLength(1);
+      expect(carriedJob.rows[0]).toMatchObject({
+        status: 'succeeded',
+        // Cleared, exactly as `JobTerminalService.completeSucceeded` clears
+        // them: a terminal row must not appear to be held by anybody, and the
+        // lease is what the reaper reads.
+        lease_expires_at: null,
+        claimed_by_node_id: null,
+        executor: 'server',
+      });
+      expect(carriedJob.rows[0].finished_at).not.toBeNull();
 
       // `db_restore:start` and `db_restore:swap` are written by
       // `writeAudit()` — real `this.prisma.auditEvent.create()` calls — BEFORE
@@ -533,6 +631,8 @@ describeWithDb('Database restore orchestration against real Postgres', () => {
       expect(started.outcome).toBe('started');
       if (started.outcome !== 'started') return;
 
+      await runQueuedRestore(env, restoreService, badRun.id);
+
       const outcome = await pollRestoreOutcome(env.adminConnection, dbName, badRun.id);
       expect(outcome.restore_status).toBe('failed');
       expect(outcome.restore_error).toMatch(/sha256/i);
@@ -566,6 +666,8 @@ describeWithDb('Database restore orchestration against real Postgres', () => {
       const started = await restoreService.startRestore(run, { actorUserId: null, now });
       expect(started.outcome).toBe('started');
       if (started.outcome !== 'started') return;
+
+      await runQueuedRestore(env, restoreService, run.id);
 
       const outcome = await pollRestoreOutcome(env.adminConnection, dbName, run.id);
       expect(outcome.restore_status).toBe('failed');
@@ -606,6 +708,8 @@ describeWithDb('Database restore orchestration against real Postgres', () => {
       const started = await restoreService.startRestore(run, { actorUserId: null, now });
       expect(started.outcome).toBe('started');
       if (started.outcome !== 'started') return;
+
+      await runQueuedRestore(env, restoreService, run.id);
 
       const outcome = await pollRestoreOutcome(env.adminConnection, dbName, run.id);
       expect(outcome.restore_status).toBe('failed');
@@ -687,6 +791,8 @@ describeWithDb('Database restore orchestration against real Postgres', () => {
       const started = await restoreService.startRestore(foreignRun, { actorUserId: null, now });
       expect(started.outcome).toBe('started');
       if (started.outcome !== 'started') return;
+
+      await runQueuedRestore(env, restoreService, foreignRun.id);
 
       const outcome = await pollRestoreOutcome(env.adminConnection, dbName, foreignRun.id);
       expect(outcome.restore_status).toBe('failed');

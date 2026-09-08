@@ -75,8 +75,13 @@
 //   5. `throttle.acquire(job.type)` — wait out any cooldown a sibling slot's
 //      429 already discovered, but only where a provider key resolves; for
 //      the overwhelming majority of job types this costs nothing at all.
-//   6. `withTimeout(handler.process(job), JOBS_JOB_TIMEOUT_MS)`.
-//   7. Settle through `JobTerminalService`, never by writing a row here.
+//   6. Start the LEASE RENEWAL TICKER (#347) and keep it running for the
+//      whole of `process()`. Without it the reaper hands this very job to a
+//      second executor the moment it passes the stuck threshold; see
+//      `startLeaseRenewal`.
+//   7. `withTimeout(handler.process(job), JOBS_JOB_TIMEOUT_MS)`.
+//   8. Stop the ticker, then settle through `JobTerminalService`, never by
+//      writing a row here.
 // =============================================================================
 
 import {
@@ -92,9 +97,18 @@ import { Job } from '@prisma/client';
 
 import { JobClaimService } from './job-claim.service';
 import { JobClock, JOB_CLOCK, systemJobClock } from './job-clock';
+import {
+  JobExecutionProfile,
+  buildClaimLeases,
+  resolveJobProfile,
+  resolveRenewIntervalMs,
+} from './job-execution-profile';
+import { JobHandler } from './job-handler.interface';
+import { JobLeaseService } from './job-lease.service';
 import { JobHandlerRegistry } from './job-handler.registry';
 import { JobSettleOutcome, JobTerminalService } from './job-terminal.service';
 import { ProviderThrottleService } from './provider-throttle.service';
+import { NodeOffloadService } from './node-offload.service';
 
 /**
  * Which job types this process's pool is allowed to claim.
@@ -128,8 +142,14 @@ const DEFAULT_JOB_TIMEOUT_MS = 600_000;
  * lease reaper (#263) requeues jobs that are still running perfectly well —
  * producing duplicate work that looks like a queue bug and is really a typo.
  * Deriving it makes that state unrepresentable.
+ *
+ * EXPORTED SINCE #347 for a second, non-obvious use: the reaper's
+ * "implausible lease" clause. `resolveLeaseHorizonMs` adds this same grace on
+ * top of the longest lease any registered handler could ask for, so the
+ * ceiling the reaper judges a lease against and the grace a claim was given
+ * are the same number rather than two that merely happen to agree today.
  */
-const LEASE_GRACE_MS = 60_000;
+export const LEASE_GRACE_MS = 60_000;
 
 /**
  * The lease used when per-job timeouts are DISABLED (`JOBS_JOB_TIMEOUT_MS=0`).
@@ -225,7 +245,9 @@ export function resolveWorkerConcurrency(config: ConfigService): number {
 }
 
 /**
- * How long a claim's lease is good for, derived from `JOBS_JOB_TIMEOUT_MS`.
+ * How long a claim's lease is good for, derived from the runtime ceiling that
+ * applies to the job being claimed: the type's own `profile.maxRuntimeMs` when
+ * it declares one, and `JOBS_JOB_TIMEOUT_MS` otherwise.
  *
  * EXTRACTED FOR THE SAME REASON AS `resolveWorkerConcurrency` ABOVE, and with
  * a sharper consequence: a second claimer appeared. The node control plane
@@ -241,14 +263,30 @@ export function resolveWorkerConcurrency(config: ConfigService): number {
  * producing duplicate execution that looks exactly like a queue bug. One
  * function, one number, both executors.
  *
+ * ⚠ THE PROFILE IS A PARAMETER HERE, NOT A SECOND FUNCTION NEXT TO THIS ONE
+ * (#346). Per-type ceilings multiply the number of leases in play, and the
+ * paragraph above is the whole reason they must not multiply the number of
+ * PLACES a lease is computed: a `resolveProfiledJobLeaseMs` sitting beside
+ * this one would be two derivations again, differing at first only in which
+ * ceiling they read and then — after one of them is tuned — in the grace, in
+ * the unbounded branch, in the rounding. Everything a per-type lease changes
+ * is the value of `ceiling`; nothing it changes is the arithmetic. So the
+ * arithmetic stays here, exactly as it was, and the ceiling arrives as an
+ * argument. `buildClaimLeases` (`job-execution-profile.ts`) is the one caller
+ * both claimers use to turn a list of eligible types into a list of leases.
+ *
  * `LEASE_GRACE_MS` and `UNBOUNDED_LEASE_MS` carry the reasoning for the two
- * branches; the defensive fallback exists for the same reason as above (a
- * directly-constructed test double with a stub `ConfigService` must degrade to
- * the shipped behaviour rather than to `NaN`, which here would produce an
- * unwritable `lease_expires_at`).
+ * branches, and both are UNCHANGED by profiles: `maxRuntimeMs: 0` means "no
+ * ceiling" exactly as `JOBS_JOB_TIMEOUT_MS=0` does, and takes the same
+ * unbounded lease. The defensive fallback exists for the same reason as above
+ * (a directly-constructed test double with a stub `ConfigService` must degrade
+ * to the shipped behaviour rather than to `NaN`, which here would produce an
+ * unwritable `lease_expires_at`); a profile that arrives here has already been
+ * bounds-checked by `resolveJobProfile`, which is why this reads its field
+ * directly.
  */
-export function resolveJobLeaseMs(config: ConfigService): number {
-  const value = config.get<number>('jobs.jobTimeoutMs');
+export function resolveJobLeaseMs(config: ConfigService, profile?: JobExecutionProfile): number {
+  const value = profile ? profile.maxRuntimeMs : config.get<number>('jobs.jobTimeoutMs');
   const timeout = Math.max(
     0,
     typeof value === 'number' && Number.isFinite(value) ? value : DEFAULT_JOB_TIMEOUT_MS
@@ -322,6 +360,17 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
     private readonly claims: JobClaimService,
     private readonly terminal: JobTerminalService,
     private readonly throttle: ProviderThrottleService,
+    // The keep-alive half of the claim (#347). The worker writes NOTHING to
+    // the `jobs` table itself — the file header's first promise — and a
+    // renewal is a write, so it goes through a service exactly as the claim
+    // and the settle do. It is also the service the node control plane
+    // renews through, which is the whole reason it exists as a service
+    // rather than as a private `updateMany` here.
+    private readonly leases: JobLeaseService,
+    // WHAT A NODE MAY CLAIM HERE, RIGHT NOW (#352) — read by `system` mode as
+    // its COMPLEMENT. See `systemModeEligibleTypes` for the partition
+    // argument and for the hole the previous static derivation left.
+    private readonly offload: NodeOffloadService,
     // OPTIONAL and unprovided in `JobsModule`, exactly as in
     // `JobTerminalService` — production always gets the real clock. Only
     // `now()` is taken from it here; the sleeps are local timers because they
@@ -386,6 +435,9 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
 
     this.logger.log(
       `Job worker started: ${concurrency} slot(s), mode "${this.mode()}", ` +
+        // No handler argument: this is the DEPLOYMENT-WIDE timeout, which is
+        // the only one that exists at start time. A type carrying a profile of
+        // its own overrides it per job, and says so on the job's own log line.
         `poll ${this.pollMs()}ms, job timeout ${this.timeoutMs() || 'disabled'}`
     );
   }
@@ -465,11 +517,16 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
    * `system` mode depend on registration order — a handler whose module
    * resolves after the worker's would be missing from a list computed once —
    * and it would make the mode a value baked into a running process rather
-   * than one read from the environment. Both reads below are in-memory (a
-   * `Map` walk and a `ConfigService` lookup), so doing this every poll costs
-   * nothing measurable next to the claim query it precedes.
+   * than one read from the environment.
+   *
+   * ASYNC SINCE #352, and `system` mode is the only reason: that mode's list
+   * is now the complement of what a NODE may claim here, which needs a
+   * settings read and (for a type carrying a credential broker) a cached
+   * capability probe. `all` and `off` still answer from memory — the `await`
+   * on those paths resolves immediately — and `claimOne` was already async, so
+   * the cost lands nowhere that was previously synchronous.
    */
-  eligibleTypes(): string[] {
+  async eligibleTypes(): Promise<string[]> {
     const mode = this.mode();
 
     if (mode === 'off') {
@@ -480,20 +537,37 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   /**
-   * `system` mode's list: everything a remote node could never run, plus the
-   * operator's explicit additions.
+   * `system` mode's list: everything NO NODE MAY CLAIM HERE RIGHT NOW, plus
+   * the operator's explicit additions.
    *
-   * The base is `registry.serverOnlyTypes()` — DERIVED from which optional
-   * members each handler carries (§2), never a second hand-maintained list
-   * that could disagree with the handlers themselves.
+   * ⚠ THE COMPLEMENT OF `NodeOffloadService.offeredTypes()`, NOT
+   * `registry.serverOnlyTypes()` (#352, epic #345) — and the difference is a
+   * data-loss bug, not a refactor. `serverOnlyTypes()` answers a STATIC
+   * question (does this handler carry the two node members?), which was the
+   * whole question until a type's eligibility acquired RUNTIME gates. From
+   * that moment the two derivations disagreed: `db.backup.run` is
+   * structurally node-eligible, so it left `serverOnlyTypes()` for every
+   * deployment forever — while the three gates that decide whether a node may
+   * actually claim it all ship OFF. A `system`-mode deployment therefore
+   * stopped claiming backups by derivation, no node was permitted to claim
+   * them either, and NOBODY RAN THE BACKUPS until an operator noticed and
+   * edited an environment variable.
    *
-   * `JOBS_SYSTEM_MODE_EXTRA_TYPES` is the escape hatch for the case the
-   * derivation cannot know about: a type that IS node-eligible but that this
-   * deployment still wants the server to claim — because its node fleet is
-   * small, or paused, or does not run that type. Overlap with the fleet is
-   * SAFE rather than tolerated: `SKIP LOCKED` means a server and a node
-   * racing for the same row produce one winner and one empty result, never a
-   * double claim (§4.4).
+   * Reading the complement of the node plane's own answer makes the two a
+   * PARTITION BY CONSTRUCTION: this process runs exactly what the fleet
+   * cannot, which is what the mode has always claimed to mean. It is the same
+   * "one function, both executors" argument `resolveJobLeaseMs` makes about
+   * leases, and the failure mode it removes is the same one — a value each
+   * side derives separately, and therefore differently.
+   *
+   * `JOBS_SYSTEM_MODE_EXTRA_TYPES` is UNCHANGED and still the escape hatch for
+   * the case no derivation can know about: a type a node CAN claim that this
+   * deployment still wants the server to run too — because its fleet is
+   * small, paused, or does not run that type. Overlap with the fleet is SAFE
+   * rather than tolerated: `SKIP LOCKED` means a server and a node racing for
+   * the same row produce one winner and one empty result, never a double
+   * claim (§4.4). What it is no longer needed for is keeping the backups
+   * running.
    *
    * An entry that is not registered in this process is DROPPED with a warning
    * rather than passed through. Claiming a type with no handler here is not a
@@ -501,9 +575,9 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
    * failed PERMANENTLY (see `runJob`). Silently destroying jobs is a far
    * worse answer to a typo than declining to claim them.
    */
-  systemModeEligibleTypes(): string[] {
+  async systemModeEligibleTypes(): Promise<string[]> {
     const registered = new Set(this.registry.types());
-    const eligible = new Set(this.registry.serverOnlyTypes());
+    const eligible = new Set(await this.offload.serverOnlyRightNow());
 
     for (const extra of this.extraTypes()) {
       if (!registered.has(extra)) {
@@ -581,6 +655,13 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
 
   /** One claim, for this slot, in whatever mode is configured right now. */
   private async claimOne(): Promise<Job | undefined> {
+    // Resolved ONCE and used for both fields, so the lease list and the type
+    // list are the same list. `JobClaimService.claim` joins the two on `type`,
+    // and that join can only be total if nothing recomputes the eligible types
+    // between here and there — the mode is re-read per claim, so two calls to
+    // `eligibleTypes()` could legitimately disagree.
+    const eligibleTypes = await this.eligibleTypes();
+
     const rows = await this.claims.claim({
       // The in-process worker is not a node: `null` node id, `server`
       // executor. `JobClaimService` is shared verbatim with the node control
@@ -588,10 +669,15 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
       // the claim service knows about its caller.
       nodeId: null,
       executor: 'server',
-      eligibleTypes: this.eligibleTypes(),
+      eligibleTypes,
       // ONE. See the file header on why this is not a batch.
       limit: 1,
-      leaseMs: this.leaseMs(),
+      // PER TYPE, even claiming a single row: this slot offers every eligible
+      // type and takes whichever row is most urgent, so which type it gets —
+      // and therefore which lease is correct — is not known until the
+      // statement has run. Handing the claim one lease per type lets Postgres
+      // apply the right one to the row it actually took.
+      leases: buildClaimLeases(this.config, this.registry, eligibleTypes),
     });
 
     return rows[0];
@@ -637,10 +723,41 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
       // (no map hit, no await, no timer) for any type with no provider key,
       // which is every type this framework ships.
       await this.throttle.acquire(job.type);
-
-      await this.withTimeout(handler.process(job), this.timeoutMs(), job);
     } catch (error) {
       return this.terminal.completeFailed(job, error);
+    }
+
+    // ⚠ THE TICKER STARTS AFTER THE THROTTLE AND BEFORE THE WORK, and both
+    // halves of that are deliberate. After, because a slot parked in a
+    // provider cooldown is not running anything and has nothing to keep
+    // alive — renewing there would extend a lease over a wait, which is
+    // exactly the "held but idle" state a lease exists to expose. Before,
+    // because the FIRST renewal is due one interval into `process()`, and a
+    // ticker started after the work would be started after the work finished.
+    const renewal = this.startLeaseRenewal(job, handler);
+
+    // A BOX RATHER THAN A BARE `unknown`, so the `finally` below can stop the
+    // ticker BEFORE the terminal write without `return`-ing out of the try
+    // (which would run the `finally` only after `completeFailed` had already
+    // awaited). `undefined` is a value a handler may legitimately throw, so
+    // "did it throw" cannot be `failure !== undefined` on the error itself.
+    let failure: { error: unknown } | null = null;
+
+    try {
+      await this.withTimeout(handler.process(job), this.timeoutMs(handler), job);
+    } catch (error) {
+      failure = { error };
+    } finally {
+      // STOP RENEWING BEFORE SETTLING. A tick that fired between the work
+      // finishing and `JobTerminalService` writing the terminal row would
+      // find the row still `running` and legitimately extend a lease on a job
+      // that is over — harmless, but it would also log an alarming "no longer
+      // held" line for every job whose settle happened to land first.
+      renewal.stop();
+    }
+
+    if (failure) {
+      return this.terminal.completeFailed(job, failure.error);
     }
 
     this.logger.debug(
@@ -652,6 +769,151 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
     // about work that actually completed. (`completeSucceeded` is written not
     // to throw; this is about not encoding the opposite assumption here.)
     return this.terminal.completeSucceeded(job);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Lease renewal (#347)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Keeps this worker's claim on `job` alive for as long as `process()` runs,
+   * and returns the handle that stops it.
+   *
+   * -----------------------------------------------------------------------
+   * WHY THIS EXISTS AT ALL
+   * -----------------------------------------------------------------------
+   *
+   * The claim wrote `lease_expires_at` and, until #347, nothing ever wrote it
+   * again. `docs/ARCHITECTURE.md` claimed the in-process worker renewed
+   * "implicitly, by holding the row for the duration of `process()`" — but
+   * holding a row is not a thing a Node process does, and nothing was held.
+   * The reaper's aged-claim signal then requeued any job that had been running
+   * longer than `jobs.stuckThresholdMinutes` (default 30) regardless, a second
+   * executor claimed it, and the same work ran twice at once. Renewal here and
+   * the reaper's narrowed signals over in `job-stuck.service.ts` are two halves
+   * of one fix: neither is safe without the other.
+   *
+   * -----------------------------------------------------------------------
+   * A SELF-RESCHEDULING `setTimeout`, NOT A `setInterval`
+   * -----------------------------------------------------------------------
+   *
+   * Every timer this class owns goes through `track()` — `unref`'d, registered
+   * in `this.timers`, and therefore cancelled by `stop()` — and `track()` is a
+   * `setTimeout`. That is not an accident to work around: an interval whose
+   * callback is async can overlap itself when the database is slow, stacking
+   * renewals on a row that is already being renewed. Chaining the next tick
+   * from the end of the previous one makes overlap unrepresentable, and it
+   * inherits the shutdown machinery the file header already argues for
+   * (`PendingTimer`): a renewal timer must never hold a closing process open,
+   * and `stop()` must cancel it in milliseconds rather than after an interval.
+   *
+   * -----------------------------------------------------------------------
+   * ⚠ WHAT A `false` RENEWAL MEANS, AND WHY THE WORK KEEPS GOING
+   * -----------------------------------------------------------------------
+   *
+   * `false` says the row is no longer this worker's: reaped and reclaimed,
+   * settled by something else, or its lease already expired. The ticker stops
+   * and says so at `error`, naming the job.
+   *
+   * THE WORK ITSELF IS NOT CANCELLED, because JavaScript cannot cancel it —
+   * `withTimeout` already spends a paragraph on this, and the honest answer is
+   * the same one: there is no way to stop a promise mid-`await`. What the
+   * ticker CAN do is refuse to keep re-forging the queue's view of a row this
+   * worker has already lost, which is the difference between a duplicate
+   * execution the queue knows about and one it has been told is fine.
+   *
+   * This does not introduce a hazard; it makes a pre-existing one VISIBLE. The
+   * queue has always been at-least-once (§4.5), and before #347 this exact
+   * situation — two executors on one row — happened silently on every job that
+   * outran the stuck threshold, with nothing in the logs at all. An `error`
+   * line naming the job is strictly more than there was.
+   */
+  private startLeaseRenewal(job: Job, handler: JobHandler): { stop: () => void } {
+    // THE SAME LEASE THE CLAIM TOOK, resolved through the same function from
+    // the same profile. A renewal derived from anything else — the global
+    // timeout while the claim used a profile, say — would hand a six-hour type
+    // a ten-minute extension and have the reaper take the job away from a
+    // worker that is renewing exactly on schedule.
+    const leaseMs = resolveJobLeaseMs(this.config, resolveJobProfile(handler));
+    const intervalMs = resolveRenewIntervalMs(leaseMs);
+
+    let entry: PendingTimer | undefined;
+    let stopped = false;
+
+    const schedule = (): void => {
+      if (stopped) {
+        return;
+      }
+
+      entry = this.track(
+        intervalMs,
+        () => void tick(),
+        // Shutdown cancelled the timer. Stop for good rather than
+        // rescheduling: `stop()` has already decided this process is leaving,
+        // and the row it was renewing is exactly what the lease reaper exists
+        // to pick up (see `SHUTDOWN_GRACE_MS`).
+        () => {
+          stopped = true;
+        }
+      );
+    };
+
+    const tick = async (): Promise<void> => {
+      if (stopped) {
+        return;
+      }
+
+      let held: boolean;
+
+      try {
+        // `null` node id: this worker claimed as `executor: 'server'` with no
+        // node, so the row it may renew is one no node holds. If the reaper
+        // requeued it and a NODE took it, this renewal correctly stops
+        // landing — see `heldLeaseWhere`.
+        held = await this.leases.renew(job.id, leaseMs, null);
+      } catch (error) {
+        // A TRANSIENT DATABASE FAILURE IS NOT A LOST LEASE. The lease is
+        // three renewal intervals long by construction
+        // (`RENEW_INTERVAL_DIVISOR`), precisely so two consecutive failures
+        // cost nothing, so the right response to one is to try again on the
+        // next tick rather than to give up on a job that is running fine.
+        this.logger.warn(
+          `Could not renew the lease on job ${job.id} (${job.type}): ${describe(error)}. ` +
+            `Retrying in ${intervalMs}ms.`
+        );
+
+        schedule();
+
+        return;
+      }
+
+      if (!held) {
+        stopped = true;
+
+        this.logger.error(
+          `Job ${job.id} (${job.type}) is no longer held by this worker: its lease could ` +
+            'not be renewed, so the row was reaped, settled, or claimed by another ' +
+            'executor. This worker will finish the work it started (JavaScript cannot ' +
+            'cancel it) but will stop renewing, and whatever it reports may be refused.'
+        );
+
+        return;
+      }
+
+      schedule();
+    };
+
+    schedule();
+
+    return {
+      stop: () => {
+        stopped = true;
+
+        if (entry) {
+          this.clear(entry);
+        }
+      },
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -808,19 +1070,28 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
     return Math.max(1, this.configNumber('jobs.pollMs', DEFAULT_POLL_MS));
   }
 
-  /** `JOBS_JOB_TIMEOUT_MS` — `0` disables per-job timeouts entirely. */
-  private timeoutMs(): number {
-    return Math.max(0, this.configNumber('jobs.jobTimeoutMs', DEFAULT_JOB_TIMEOUT_MS));
-  }
-
   /**
-   * See `LEASE_GRACE_MS` for why this is derived rather than configured, and
-   * `resolveJobLeaseMs` for why the derivation is module-level: the node
-   * control plane (#268) claims through the same service and must take the
-   * same lease.
+   * The runtime ceiling for one attempt at `handler`'s type — its own
+   * `profile.maxRuntimeMs`, or `JOBS_JOB_TIMEOUT_MS`. `0` disables the
+   * per-job timeout entirely, in either source.
+   *
+   * ⚠ IT MUST READ THE SAME CEILING `resolveJobLeaseMs` DID. The lease the
+   * claim took is this number plus `LEASE_GRACE_MS`, and the only thing
+   * keeping the grace positive is that both sides consult the same profile
+   * through the same validator. A timeout resolved from the profile against a
+   * lease resolved from the global (or the reverse) is precisely the
+   * self-reaping job — one attempt still running, its lease already expired,
+   * the reaper handing a second executor the same work — that per-type
+   * profiles exist to make unrepresentable.
    */
-  private leaseMs(): number {
-    return resolveJobLeaseMs(this.config);
+  private timeoutMs(handler?: JobHandler): number {
+    const profile = resolveJobProfile(handler);
+
+    if (profile) {
+      return Math.max(0, profile.maxRuntimeMs);
+    }
+
+    return Math.max(0, this.configNumber('jobs.jobTimeoutMs', DEFAULT_JOB_TIMEOUT_MS));
   }
 
   /** `JOBS_SYSTEM_MODE_EXTRA_TYPES`, already split by `configuration.ts`. */

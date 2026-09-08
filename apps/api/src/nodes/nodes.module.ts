@@ -32,7 +32,11 @@
 //     conclusions (attempt budget, rate-limit deferral, settled event,
 //     backoff) that an in-process handler's would.
 //   - `JobHandlerRegistry` — so "which types can a node run" is derived from
-//     the handlers themselves rather than from a list somebody maintains.
+//     the handlers themselves rather than from a list somebody maintains,
+//     and (since #348) so the data plane can ask a type where its output must
+//     land instead of hard-coding one prefix for the whole fleet. Both
+//     questions are answered by the handler that owns the type, which is why
+//     neither needs a second list.
 //
 // The direction is one-way: nothing in `JobsModule` imports this module, and
 // nothing should. The queue does not need to know that nodes exist — a node
@@ -119,6 +123,35 @@
 // leaf module has no such risk, which is why this one is a plain import and
 // that one is not.
 //
+// -----------------------------------------------------------------------------
+// THE SECRET BROKER'S THREE PROVIDERS (#349, epic #345)
+// -----------------------------------------------------------------------------
+//
+// `NodeSecretBrokerService` mints and revokes the per-job credential; it is a
+// PROVIDER AND NOT AN EXPORT, for the same reason `NodeDataPlaneService` is —
+// a feature module that could inject it could mint a database credential
+// against any job it could name.
+//
+// `NodeSecretSweepTask` is a plain provider beside the other two crons, and
+// `NodeSecretRevoker` is a plain provider carrying an `@OnEvent` listener.
+// ⚠ THE PAIR IS NOT REDUNDANT — the event path structurally cannot cover a job
+// settled by the reaper's `updateMany`, a replica that died between settling
+// and revoking, or a `write-failed` outcome. Both headers carry the argument;
+// do not register one without the other.
+//
+// Note the CONTRAST with `jobs.job_failed`, whose listener lives on the
+// notifications side (`notifications/ops/job-failure-notifier.ts`) precisely to
+// avoid pointing `JobsModule` at `NotificationsModule`. The same reasoning puts
+// `NodeSecretRevoker` HERE rather than in `JobsModule`: this module already
+// imports `JobsModule`, the direction stays one-way, and
+// `jobs/events/job-settled.event.ts` imports only `@prisma/client`, so
+// subscribing to it adds a class and a string to the bundle and nothing to the
+// provider graph.
+//
+// `SettingsModule` earns a second reader here: `NodeLifecycleService.getPolicy`
+// now also carries `jobSecretBrokerEnabled`, which `NodesService` reads at
+// claim time and the broker service reads on every issue.
+//
 // `PrismaModule` is not imported here: it is `@Global()`. `ConfigService`
 // likewise, via `ConfigModule.forRoot({ isGlobal: true })`.
 // =============================================================================
@@ -131,11 +164,16 @@ import { SettingsModule } from '../settings/settings.module';
 import { StorageProvidersModule } from '../storage/providers/storage-providers.module';
 import { NodeDataPlaneService } from './node-data-plane.service';
 import { NodeLifecycleService } from './node-lifecycle.service';
+import { NodeSecretBrokerService } from './node-secret-broker.service';
 import { NodesAdminController } from './nodes-admin.controller';
 import { NodesAdminService } from './nodes-admin.service';
 import { NodesController } from './nodes.controller';
 import { NodesService } from './nodes.service';
+import { NodeSecretRevoker } from './ops/node-secret-revoker';
+import { NodeFleetPruneHandler } from './handlers/node-fleet-prune.handler';
+import { NodeFleetSweepHandler } from './handlers/node-fleet-sweep.handler';
 import { NodeOfflinePruneTask } from './tasks/node-offline-prune.task';
+import { NodeSecretSweepTask } from './tasks/node-secret-sweep.task';
 import { NodeStaleOfflineTask } from './tasks/node-stale-offline.task';
 
 @Module({
@@ -149,10 +187,17 @@ import { NodeStaleOfflineTask } from './tasks/node-stale-offline.task';
   providers: [
     NodesService,
     NodeDataPlaneService,
+    NodeSecretBrokerService,
     NodesAdminService,
     NodeLifecycleService,
     NodeStaleOfflineTask,
     NodeOfflinePruneTask,
+    // #353 (epic #345): the two fleet sweeps are queue jobs now. The tasks
+    // above only enqueue; these two do the work on a worker slot.
+    NodeFleetSweepHandler,
+    NodeFleetPruneHandler,
+    NodeSecretSweepTask,
+    NodeSecretRevoker,
   ],
 })
 export class NodesModule {}

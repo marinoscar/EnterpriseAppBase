@@ -39,9 +39,12 @@
 // =============================================================================
 
 import { ConfigService } from '@nestjs/config';
+import type { Job } from '@prisma/client';
 
-import { NodeOfflinePruneTask } from '../../src/nodes/tasks/node-offline-prune.task';
-import { NodeStaleOfflineTask } from '../../src/nodes/tasks/node-stale-offline.task';
+import type { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
+
+import { NodeFleetPruneHandler } from '../../src/nodes/handlers/node-fleet-prune.handler';
+import { NodeFleetSweepHandler } from '../../src/nodes/handlers/node-fleet-sweep.handler';
 import type { NodeLifecycleService } from '../../src/nodes/node-lifecycle.service';
 import type { NotificationsService } from '../../src/notifications/notifications.service';
 import type { PrismaService } from '../../src/prisma/prisma.service';
@@ -166,22 +169,38 @@ const lifecycle = {
 const config = { get: () => undefined } as unknown as ConfigService;
 
 /**
- * #288's notifier, stubbed. This suite is about the two crons' row semantics;
+ * #288's notifier, stubbed. This suite is about the two sweeps' row semantics;
  * what the sweep tells anybody about them is asserted in
- * `src/nodes/tasks/node-stale-offline.task.spec.ts`.
+ * `src/nodes/handlers/node-fleet-sweep.handler.spec.ts`.
  */
 const notifications = {
   notifyPermissionHolders: async () => undefined,
 } as unknown as NotificationsService;
 
+/**
+ * The registry each handler self-registers into. A stub: this suite constructs
+ * the handlers directly, so nothing is ever dispatched through it.
+ */
+const registry = { register: () => undefined } as unknown as JobHandlerRegistry;
+
+/**
+ * ⚠ #353 (epic #345) MOVED BOTH SWEEPS OFF THEIR CRONS AND ONTO HANDLERS, and
+ * this suite followed the code rather than the class names: the property it
+ * exists to pin — a crashed node is only prunable BECAUSE the sweep ran first —
+ * is a property of the two pieces of work, not of what schedules them. The
+ * tasks now merely enqueue, which is asserted in their own specs.
+ */
 function tasks(store: FakeNodeStore) {
   const prisma = store.asPrisma();
 
   return {
-    sweep: new NodeStaleOfflineTask(prisma, lifecycle, config, notifications),
-    prune: new NodeOfflinePruneTask(prisma, lifecycle, config),
+    sweep: new NodeFleetSweepHandler(registry, prisma, lifecycle, config, notifications),
+    prune: new NodeFleetPruneHandler(registry, prisma, lifecycle),
   };
 }
+
+/** The row a worker hands `process`. Only `id` is read, for the log lines. */
+const JOB = { id: 'job-fleet' } as Job;
 
 const ago = (ms: number): Date => new Date(Date.now() - ms);
 
@@ -191,7 +210,7 @@ describe('The fleet lifecycle crons, run in sequence', () => {
       { id: 'silent', status: 'online', registeredAt: ago(30 * DAY), lastHeartbeatAt: ago(20 * 60 * SECOND) },
     ]);
 
-    await tasks(store).sweep.handleCron();
+    await tasks(store).sweep.process(JOB);
 
     expect(store.nodes[0].status).toBe('offline');
   });
@@ -203,7 +222,7 @@ describe('The fleet lifecycle crons, run in sequence', () => {
       { id: 'healthy', status: 'online', registeredAt: ago(30 * DAY), lastHeartbeatAt: ago(60 * SECOND) },
     ]);
 
-    await tasks(store).sweep.handleCron();
+    await tasks(store).sweep.process(JOB);
 
     expect(store.nodes[0].status).toBe('online');
   });
@@ -217,7 +236,7 @@ describe('The fleet lifecycle crons, run in sequence', () => {
       { id: 'just-registered', status: 'online', registeredAt: ago(10 * SECOND), lastHeartbeatAt: null },
     ]);
 
-    await tasks(store).sweep.handleCron();
+    await tasks(store).sweep.process(JOB);
 
     expect(store.nodes.map((node) => node.status)).toEqual(['offline', 'online']);
   });
@@ -230,7 +249,7 @@ describe('The fleet lifecycle crons, run in sequence', () => {
       { id: 'disabled', status: 'disabled', registeredAt: ago(90 * DAY), lastHeartbeatAt: ago(60 * DAY) },
     ]);
 
-    await tasks(store).sweep.handleCron();
+    await tasks(store).sweep.process(JOB);
 
     expect(store.nodes[0].status).toBe('disabled');
   });
@@ -243,7 +262,7 @@ describe('The fleet lifecycle crons, run in sequence', () => {
       { id: 'draining', status: 'draining', registeredAt: ago(30 * DAY), lastHeartbeatAt: ago(DAY) },
     ]);
 
-    await tasks(store).sweep.handleCron();
+    await tasks(store).sweep.process(JOB);
 
     expect(store.nodes[0].status).toBe('offline');
   });
@@ -272,7 +291,7 @@ describe('The fleet lifecycle crons, run in sequence', () => {
 
     // WITH THE SWEEP FIRST: the status becomes `offline`, which is exactly the
     // input the prune selects on, and the row is then forgotten.
-    await sweep.handleCron();
+    await sweep.process(JOB);
     expect(crashed.status).toBe('offline');
 
     await expect(prune.prune()).resolves.toEqual({ deleted: 1, skippedBusy: 0 });
@@ -290,7 +309,7 @@ describe('The fleet lifecycle crons, run in sequence', () => {
     const store = new FakeNodeStore([partitioned], [job]);
     const { sweep, prune } = tasks(store);
 
-    await sweep.handleCron();
+    await sweep.process(JOB);
 
     // Deleting it would be SAFE — the FK is `SetNull` — and would still be
     // wrong: it manufactures a `running` row owned by nobody, which is the

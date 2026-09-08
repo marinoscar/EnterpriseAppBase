@@ -111,10 +111,73 @@
 // unknown` makes the same trade. The value arrives from off-machine, so it is
 // untrusted by construction, and `nodeResultSchema` is the only thing that
 // may narrow it. Parse, then use the parse's output type.
+//
+// -----------------------------------------------------------------------------
+// `deriveOutputKey` MOVES THE KEY CHOICE, IT DOES NOT SURRENDER IT (#348, epic #345)
+// -----------------------------------------------------------------------------
+//
+// `NodeDataPlaneService.createUploadTarget` used to hard-code where every
+// node-written output lands: `node-outputs/<jobId>/<uuid>`. That is exactly
+// right for a checksum's scratch output — nothing outside the job ever names
+// it — and exactly wrong for any type whose artifact has a REQUIRED,
+// EXTERNALLY-REFERENCED location. A database backup's key is
+// `buildBackupStorageKey(at, runId)` and its `database_backup_runs` row
+// records `storage_key`/`bucket`/`format` so the archive stays locatable
+// across a bucket rename; the same archive written to `node-outputs/…` is one
+// the retention sweep, the download endpoint and the restore path cannot
+// find. With one constant in the data plane, NO type whose output has a
+// required location could ever be node-eligible.
+//
+// ⚠ THE SERVER STILL CHOOSES THE KEY. This member moves that choice from a
+// constant in the data plane to the handler that OWNS the artifact — both of
+// which are this server. The node's influence stays exactly zero: a
+// caller-supplied `key` is still a 400 (`rejectCallerSuppliedFields`), the
+// chosen key is still returned so the node can name it back in its result,
+// and no `storage_objects` row is created at mint time. Nothing about the
+// data plane's posture changes; only who inside the server answers "where".
+//
+// The consequence for the data plane is that `SAFE_STORAGE_KEY` stops being
+// defensive code about a template it fully controls and becomes the real
+// guard on a value a handler computed — which is why a failure there is a
+// 500, not a 400: the fault is in a handler, not in anything a node sent.
+//
+// -----------------------------------------------------------------------------
+// `nodeSecretBroker` — PRESENCE IS THE DECLARATION, AGAIN (#349, epic #345)
+// -----------------------------------------------------------------------------
+//
+// The node plane's founding constraint is that a node holds NO credentials
+// (`docs/specs/worker-nodes.md` §8), which is why it could only ever run pure
+// compute over presigned bytes. Some work genuinely needs one — a `pg_dump`
+// needs a database connection — so a handler may carry a BROKER: an object
+// that mints a short-lived, job-scoped credential and can destroy it again.
+//
+// It follows the same rule as node eligibility above, and for the same reason.
+// The broker's PRESENCE is the declaration; there is no `requiresSecret:
+// 'postgres'` string and no central switch in the nodes module mapping such a
+// string onto an implementation. That switch is exactly the central dispatch
+// table this file exists to abolish, and it makes an inconsistent state
+// representable — a type naming a secret nobody can mint — which is the same
+// defect a `nodeEligible: boolean` flag has. Hanging the implementation itself
+// off the handler leaves nothing to set inconsistently.
+//
+// `job-secret-broker.ts` carries the full argument, including the three
+// rejected ways of getting a credential onto a node and why the material is
+// never persisted in any form.
+//
+// REJECTED: a `readonly keyPrefix: string` on the handler. It covers a prefix
+// and not the `buildBackupStorageKey(at, runId)` SHAPE, and — the part that
+// kills it — it cannot create the artifact row the key's `runId` comes from.
+// REJECTED: minting the key at claim time and shipping it in the assignment,
+// for the same reason the spec already rejects folding signed URLs into the
+// claim: a node claiming its whole `concurrency` at once would have the last
+// job's key derived long before that job starts.
 // =============================================================================
 
 import { Job } from '@prisma/client';
 import type { z } from 'zod';
+
+import type { JobExecutionProfile } from './job-execution-profile';
+import type { JobSecretBroker } from './job-secret-broker';
 
 /**
  * DI token for job handlers.
@@ -159,6 +222,30 @@ export interface JobHandler {
   process(job: Job): Promise<void>;
 
   /**
+   * How this type is allowed to run, when the deployment-wide defaults are
+   * wrong for it.
+   *
+   * OPTIONAL, AND OMITTING IT IS THE NORMAL ANSWER. A handler with no profile
+   * runs on `JOBS_JOB_TIMEOUT_MS` and `JOBS_MAX_ATTEMPTS` exactly as every
+   * handler did before profiles existed. Declare one only when this type is
+   * genuinely unlike the rest of the queue — a job that legitimately runs for
+   * hours, or one that must never be automatically retried.
+   *
+   * ⚠ TWO NUMBERS, AND THERE WILL ONLY EVER BE TWO. You may not declare a
+   * lease length here, and you may not declare a renewal interval: those are
+   * DERIVED from `maxRuntimeMs` (`resolveJobLeaseMs`,
+   * `resolveRenewIntervalMs`) precisely because they are the values that can
+   * DISAGREE with it. A lease shorter than the runtime ceiling is a job that
+   * reaps itself into duplicate execution; a renewal interval at or above the
+   * lease is a renewal that always arrives too late. Deriving them makes both
+   * states unrepresentable — the same argument this file's header already
+   * makes against a `nodeEligible` flag, applied to durations. See
+   * `job-execution-profile.ts` for the full version, and do not add a third
+   * field to that interface.
+   */
+  readonly profile?: JobExecutionProfile;
+
+  /**
    * Validates the result a remote worker node posts back for this job type.
    *
    * PRESENT ONLY ON NODE-ELIGIBLE HANDLERS, and only ever together with
@@ -187,4 +274,112 @@ export interface JobHandler {
    * Throwing here fails the job exactly as throwing from `process` does.
    */
   persistNodeResult?(job: Job, result: unknown): Promise<void>;
+
+  /**
+   * Where this type's node-written output must land, when
+   * `node-outputs/<jobId>/<uuid>` is the wrong answer.
+   *
+   * OPTIONAL, AND OMITTING IT IS THE NORMAL ANSWER. A handler that does not
+   * implement this gets the data plane's default key, unchanged — a fresh,
+   * job-attributable, never-reused location under `node-outputs/`, which is
+   * the right shape for any artifact nothing outside the job ever names.
+   * Implement it only when the artifact's location is part of its contract:
+   * a row somewhere records the key, a retention sweep lists a prefix, or a
+   * download endpoint reconstructs it. See the file header for the full
+   * argument and the two rejected alternatives.
+   *
+   * ⚠ THIS IS STILL THE SERVER CHOOSING. It runs in the API process, from the
+   * handler that owns the artifact, with the `Job` row as its only input —
+   * nothing from the node's request reaches it, and a node-supplied `key` is
+   * refused with a 400 before this is ever called.
+   *
+   * ⚠ IT MUST BE IDEMPOTENT PER JOB, and that is this member's one hard
+   * requirement. A node asks for an upload URL more than once as a matter of
+   * course: a transfer that timed out, a response lost on the way back, a
+   * process restarted while holding the lease. Every one of those calls must
+   * yield THE SAME KEY. A derivation that mints something new each time —
+   * inserting an artifact row, or interpolating `randomUUID()`/`Date.now()` —
+   * produces a second artifact per retry, and the row the rest of the system
+   * reads then points at bytes the node never finished writing. Derive from
+   * values already fixed on the job, or re-read the artifact row this job
+   * already created and return its recorded key. #351 makes that structural
+   * for the database backup with a `@unique` `jobId` on its run row, so
+   * "re-read by `jobId`, return the existing key" is enforced by the database
+   * rather than by the handler remembering to.
+   *
+   * The returned key must satisfy the data plane's `SAFE_STORAGE_KEY`; one
+   * that does not is refused server-side with a 500 and the node gets no URL
+   * at all. Throwing here fails the request the same way — no URL is minted,
+   * and the node's correct response is the same as for any other refusal.
+   */
+  deriveOutputKey?(job: Job): Promise<string>;
+
+  /**
+   * May a node run THIS type in THIS deployment, right now?
+   *
+   * OPTIONAL, AND OMITTING IT IS THE NORMAL ANSWER — a node-eligible type with
+   * no gate is offered to nodes, which is what every type before #352 did.
+   * Implement it only when a deployment must be able to say "not this
+   * workload" about a type that is structurally perfectly capable of running
+   * remotely.
+   *
+   * ⚠ IT IS A POLICY READ, NOT A DECLARATION, and that is why it is a METHOD
+   * rather than a `readonly nodeOffloadEnabled: boolean`. Everything else on
+   * this interface states a fact about the TYPE that is fixed at build time;
+   * this one asks a question whose answer an administrator changes at 3pm on a
+   * Tuesday. A boolean field would be read once at registration and be wrong
+   * from then on. `NodesService.nodeEligibleTypes` awaits this at CLAIM time,
+   * beside the two settings intersections it already performs, so a switch
+   * flipped in the admin UI takes effect on the next claim and not at the next
+   * deploy.
+   *
+   * ⚠ IT DOES NOT CHANGE NODE ELIGIBILITY. Eligibility is derived from
+   * `nodeResultSchema` + `persistNodeResult` and stays derived from them: this
+   * gate cannot make a server-only type runnable on a node, and a `false` here
+   * does not remove the type from `serverOnlyTypes()`'s complement. It decides
+   * only what THIS deployment OFFERS today — the same runtime intersection the
+   * secret-broker filter performs, and the same reason it is not a registry
+   * mutation.
+   *
+   * REJECTED: putting the deployment's answer in `NodesService` itself — a
+   * `if (type === BACKUP_JOB_TYPE) …` reading the `databaseBackup` namespace.
+   * That is the central dispatch table this file's header exists to abolish,
+   * one arm long, and it makes the nodes module depend on a feature module's
+   * settings shape. Asking the handler keeps the knowledge where the feature
+   * is: `DatabaseBackupRunHandler` reads its own `databaseBackup
+   * .nodeOffloadEnabled`, and a fork's handler reads whatever its own feature
+   * calls the same idea.
+   *
+   * Throwing is not a way to say "no": it fails the whole claim, which is a
+   * far bigger hammer than withholding one type. Report the settings read's
+   * failure as `false` if it can fail at all.
+   */
+  nodeOffloadEnabled?(): Promise<boolean>;
+
+  /**
+   * Mints the short-lived credential a REMOTE executor of this type needs, and
+   * destroys it again.
+   *
+   * OPTIONAL, AND OMITTING IT IS THE NORMAL ANSWER — almost every job type is
+   * pure compute over presigned bytes and needs no credential at all. Its
+   * PRESENCE is the declaration that this type does, exactly as the presence of
+   * `nodeResultSchema` + `persistNodeResult` is the declaration that the type is
+   * node-eligible; there is no `requiresSecret` string and no switch keyed on
+   * one (see the file header, and `job-secret-broker.ts` for the whole
+   * argument).
+   *
+   * ⚠ A BROKER IS NOT A PERMISSION TO USE ONE. Whether a node in THIS
+   * deployment may hold a credential to THIS database is a trust-boundary
+   * decision an administrator makes, not one a handler makes: it is the
+   * `nodes.jobSecretBrokerEnabled` system setting, default OFF. With it off,
+   * `POST /api/nodes/:id/jobs/:jobId/secret` refuses with a named reason AND
+   * the type is filtered out of the node claim, so a node never even sees the
+   * job. That filter is a runtime intersection, never a mutation of the
+   * registry — see `NodesService.nodeEligibleTypes`.
+   *
+   * ⚠ NOTHING IT RETURNS MAY BE PERSISTED EXCEPT THE HANDLE. The material is
+   * serialised into one HTTP response and dropped; `job_node_secrets` has no
+   * column that could hold it. See `IssuedJobSecret`.
+   */
+  readonly nodeSecretBroker?: JobSecretBroker;
 }

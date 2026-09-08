@@ -205,6 +205,11 @@ export const DEFAULT_SYSTEM_SETTINGS = {
     staleHeartbeatSeconds: 90,
     offlineStaleMultiplier: 4,
     offlineRetentionDays: 30,
+    // OFF, and the default is the point (#349, epic #345): a fresh deployment
+    // does not hand its worker fleet credentials to its own database because
+    // somebody registered a node. An administrator opens that trust boundary
+    // deliberately.
+    jobSecretBrokerEnabled: false,
   },
   databaseBackup: {
     enabled: false,
@@ -219,6 +224,11 @@ export const DEFAULT_SYSTEM_SETTINGS = {
     compressionLevel: 6,
     restoreRollbackMode: 'retain_database',
     oldDatabaseRetentionHours: 48,
+    // OFF (#352, epic #345). Node offload needs TWO deliberate decisions —
+    // this one and `nodes.jobSecretBrokerEnabled` above — because "these
+    // machines may hold a short-lived credential" and "the whole database may
+    // be dumped somewhere other than the API server" are different questions.
+    nodeOffloadEnabled: false,
   },
   maintenance: {
     enabled: false,

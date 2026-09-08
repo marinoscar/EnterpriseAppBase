@@ -44,8 +44,18 @@ import { dirname } from 'node:path';
  * make the log useless in exactly the situation it exists for. Everything else
  * is a substring match, because the real-world spellings are endless
  * (`apiKey`, `api_key`, `X-Api-Key`, `providerSecret`, `dbPassword`).
+ *
+ * `password` already covers `PGPASSWORD` (substring, case-insensitive), and
+ * `material` is added by #352: it is the exact key `POST /nodes/:id/jobs/:jobId
+ * /secret` returns a credential under, so an object logged as
+ * `{ secret }`, `{ material }` or `{ credential: response }` is redacted
+ * wholesale whatever the broker put inside it. That last property is the point
+ * — the material's SHAPE is the broker's business (a DSN today, a token and an
+ * endpoint tomorrow), so a rule that only knew about `password` would leak the
+ * next broker's spelling.
  */
-export const SENSITIVE_KEY = /^pat$|token|api[-_]?key|apikey|secret|credential|password/i;
+export const SENSITIVE_KEY =
+  /^pat$|token|api[-_]?key|apikey|secret|credential|password|^material$|^pgpassword$/i;
 
 /** What a redacted value becomes. Constant, so it cannot leak a length. */
 export const REDACTED = '[redacted]';
@@ -101,10 +111,13 @@ export function redact(value: unknown, depth = 0, seen = new WeakSet<object>()):
 /**
  * Redact secrets embedded in a string.
  *
- * Two shapes, both of which reach the log through error messages rather than
- * through a named field:
+ * FOUR shapes, every one of which reaches the log through a MESSAGE rather
+ * than through a named field — which is precisely why the key-based rule above
+ * cannot catch them:
  *   - a signed URL (any URL carrying a signature-ish query parameter)
- *   - a bare credential with a known prefix
+ *   - a bare credential with a known prefix (`pat_`, `nod_`)
+ *   - `PGPASSWORD=…`, as a spawn error or a pasted command echoes it (#352)
+ *   - a `postgres://user:password@host` URI, as libpq echoes one
  */
 function redactString(value: string): string {
   let out = value;
@@ -119,6 +132,24 @@ function redactString(value: string): string {
   // Bearer credentials this application mints. The prefixes are public (they
   // are stored unencrypted as `tokenPrefix`), the remainder is not.
   out = out.replace(/\b(pat|nod)_[A-Za-z0-9._-]{6,}/g, '$1_[redacted]');
+
+  // ⚠ `PGPASSWORD=…` IN A STRING (#352, epic #345). The key-based rule above
+  // cannot see this one: it arrives inside a MESSAGE, not a field — a spawn
+  // error that echoed the child's environment, a shell command an operator
+  // pasted into an issue, a `child_process` error naming the env it failed
+  // with. The value ends at whitespace, a quote, a comma or a semicolon,
+  // because that is where every one of those spellings ends it.
+  out = out.replace(/(PGPASSWORD\s*[=:]\s*)(?:"[^"]*"|'[^']*'|[^\s,;"']+)/gi, '$1[redacted]');
+
+  // A PostgreSQL connection URI with credentials in it. This repository never
+  // BUILDS one — `pg-job-role.broker.ts` hands over discrete fields precisely
+  // so that no password is ever percent-encoded into a URL — but a libpq error
+  // message can echo one an operator configured by hand, and it would
+  // otherwise sail past every rule above.
+  out = out.replace(
+    /(postgres(?:ql)?:\/\/[^\s:/@]+):[^\s@]+@/gi,
+    '$1:[redacted]@',
+  );
 
   return out;
 }

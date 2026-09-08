@@ -23,6 +23,8 @@ import {
   DatabaseRestoreNotAllowedError,
   DatabaseRestoreRunNotFoundError,
 } from './db-backup.errors';
+import type { JobRolePreflightResult } from './pg-job-role.broker';
+import type { PgJobRoleBroker } from './pg-job-role.broker';
 import type { RestorePreflightResult } from './restore-preflight.service';
 import { ACTIVE_BACKUP_STATUSES, toRunDto } from './dto/db-backup-run.dto';
 
@@ -62,6 +64,7 @@ const POLICY: SystemDatabaseBackupValue = {
   compressionLevel: 6,
   restoreRollbackMode: 'retain_database',
   oldDatabaseRetentionHours: 48,
+  nodeOffloadEnabled: false,
 };
 
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
@@ -168,7 +171,12 @@ interface HarnessOptions {
   policy?: Partial<SystemDatabaseBackupValue>;
   rows?: DatabaseBackupRun[];
   storageDelete?: (key: string) => Promise<void>;
-  startBackup?: (input: unknown) => Promise<DatabaseBackupRun>;
+  /**
+   * #351: the runner now ENQUEUES rather than claiming. The double returns
+   * `{ run, job }` because that is what `queueBackup` returns — the admin
+   * service logs the job id and answers with the run.
+   */
+  queueBackup?: (input: unknown) => Promise<{ run: DatabaseBackupRun; job: { id: string } }>;
   cancel?: () => { outcome: 'signalled' | 'not_running_here'; runId: string };
   /** What the (substituted) restore engine answers. #286's two routes. */
   startRestore?: (
@@ -179,6 +187,10 @@ interface HarnessOptions {
     run: DatabaseBackupRun,
     actorUserId: string | null
   ) => Promise<RestoreRollbackResult>;
+  /** #350: what the PostgreSQL job-role broker's capability probe concludes. */
+  jobRolePreflight?: () => Promise<JobRolePreflightResult>;
+  /** #350: the `nodes` policy half of the node-credential pre-flight. */
+  nodesPolicy?: Record<string, unknown> | null;
 }
 
 function harness(options: HarnessOptions = {}) {
@@ -226,6 +238,12 @@ function harness(options: HarnessOptions = {}) {
 
   const settings = {
     getDatabaseBackupPolicy: jest.fn(async () => ({ ...stored })),
+    // #350's pre-flight reads the POLICY half through this narrow accessor —
+    // the same one the fleet crons and the claim path use, so this suite
+    // exercises the real read path rather than a second one.
+    getNodesPolicy: jest.fn(async () =>
+      options.nodesPolicy === undefined ? { jobSecretBrokerEnabled: true } : options.nodesPolicy
+    ),
     patchSettings: jest.fn(async (dto: any) => {
       patches.push(dto);
       Object.assign(stored, dto.databaseBackup ?? {});
@@ -255,7 +273,12 @@ function harness(options: HarnessOptions = {}) {
         throw new DatabaseBackupStorageProviderError(trimmed, 's3');
       }
     }),
-    startBackup: jest.fn(options.startBackup ?? (async () => run({ status: 'running' }))),
+    queueBackup: jest.fn(
+      options.queueBackup ??
+        // `pending`, not `running`: nothing has started until a worker claims
+        // the job, and #351 made the row say so.
+        (async () => ({ run: run({ status: 'pending' }), job: { id: 'job-1' } }))
+    ),
     cancel: jest.fn(options.cancel ?? (() => ({ outcome: 'signalled', runId: RUN_ID }))),
   } as unknown as DatabaseBackupRunnerService;
 
@@ -287,15 +310,141 @@ function harness(options: HarnessOptions = {}) {
     ),
   } as unknown as DatabaseRestoreService;
 
-  const service = new DatabaseBackupAdminService(prisma, settings, runner, restore, storage);
+  /**
+   * The #350 job-role broker, stubbed to the CAPABLE answer.
+   *
+   * Only `getNodeCredentialPreflight` reads it, and the broker's own suites own
+   * what it decides — `pg-job-role.broker.spec.ts` for the verdict and
+   * `pg-job-role.broker.db.spec.ts` for whether the grants it hands out are
+   * really enough. What this service adds is the POLICY half and the mapping,
+   * and that is what the tests here assert.
+   */
+  const jobRoles = {
+    preflight: jest.fn(
+      options.jobRolePreflight ??
+        (async () => ({
+          outcome: 'ok' as const,
+          kind: 'postgres.readonly',
+          databaseRole: 'appuser',
+          targetDatabase: 'appdb',
+          detail: 'This deployment may create roles.',
+        }))
+    ),
+  } as unknown as PgJobRoleBroker;
 
-  return { service, prisma, settings, storage, runner, restore, calls, patches, stored, rows };
+  const service = new DatabaseBackupAdminService(
+    prisma,
+    settings,
+    runner,
+    restore,
+    storage,
+    jobRoles
+  );
+
+  return {
+    service,
+    prisma,
+    settings,
+    storage,
+    runner,
+    restore,
+    jobRoles,
+    calls,
+    patches,
+    stored,
+    rows,
+  };
 }
 
 describe('DatabaseBackupAdminService', () => {
   // =========================================================================
   // nextRunAt — the field an operator confirms a schedule with
   // =========================================================================
+
+  // =========================================================================
+  // The node-credential pre-flight (#350) — a capability and a policy, kept apart
+  // =========================================================================
+
+  describe('getNodeCredentialPreflight', () => {
+    it('reports `ok` with the broker\'s verdict and the stored policy', async () => {
+      const { service } = harness();
+
+      await expect(service.getNodeCredentialPreflight()).resolves.toEqual({
+        outcome: 'ok',
+        kind: 'postgres.readonly',
+        databaseRole: 'appuser',
+        targetDatabase: 'appdb',
+        brokerEnabled: true,
+        detail: 'This deployment may create roles.',
+        // `null` rather than absent, so a client renders one shape.
+        guidance: null,
+      });
+    });
+
+    it('carries the guided command block through untouched', async () => {
+      const { service } = harness({
+        jobRolePreflight: async () => ({
+          outcome: 'guided' as const,
+          kind: 'postgres.readonly',
+          databaseRole: 'appuser',
+          targetDatabase: 'appdb',
+          detail: 'This deployment\'s database role may not CREATE ROLE.',
+          guidance: {
+            reason: 'no CREATEROLE',
+            commands: 'ALTER ROLE "appuser" CREATEROLE;',
+            runbook: 'docs/runbooks/node-job-secrets.md',
+          },
+        }),
+      });
+
+      const result = await service.getNodeCredentialPreflight();
+
+      // ⚠ NOT AN ERROR, AND NOT REPHRASED. The remedy is the part a person
+      // pastes into a terminal; summarising it here would be how a fixable
+      // refusal becomes an outage nobody can explain.
+      expect(result.outcome).toBe('guided');
+      expect(result.guidance).toEqual({
+        reason: 'no CREATEROLE',
+        commands: 'ALTER ROLE "appuser" CREATEROLE;',
+        runbook: 'docs/runbooks/node-job-secrets.md',
+      });
+    });
+
+    it('reports the POLICY separately from the CAPABILITY — all four combinations are real', async () => {
+      const capable = await harness({ nodesPolicy: { jobSecretBrokerEnabled: false } })
+        .service.getNodeCredentialPreflight();
+
+      // Capable, but switched off: one toggle away, and an operator sent to the
+      // GRANT screen instead would be fixing something that is not broken.
+      expect(capable).toMatchObject({ outcome: 'ok', brokerEnabled: false });
+    });
+
+    it.each([
+      ['a missing key', {}],
+      ['the string "true"', { jobSecretBrokerEnabled: 'true' }],
+      ['a number', { jobSecretBrokerEnabled: 1 }],
+      ['nothing stored at all', null],
+    ])('fails closed on %s, matching what the claim path actually acts on', async (_label, policy) => {
+      const { service } = harness({ nodesPolicy: policy as Record<string, unknown> | null });
+
+      // ⚠ ONLY A LITERAL `true` ENABLES IT — `NodeLifecycleService.getPolicy`'s
+      // rule, restated here because this screen must report the same answer the
+      // claim acts on rather than a friendlier one.
+      await expect(service.getNodeCredentialPreflight()).resolves.toMatchObject({
+        brokerEnabled: false,
+      });
+    });
+
+    it('asks the broker rather than re-deciding whether the cluster can mint', async () => {
+      const { service, jobRoles } = harness();
+
+      await service.getNodeCredentialPreflight();
+
+      // A second implementation of "can we CREATE ROLE?" is how a screen starts
+      // saying yes while the claim path says no.
+      expect(jobRoles.preflight).toHaveBeenCalledTimes(1);
+    });
+  });
 
   describe('getConfig computes nextRunAt', () => {
     it('projects the next daily fire in the configured zone', async () => {
@@ -525,7 +674,7 @@ describe('DatabaseBackupAdminService', () => {
 
       const result = await service.startRun(USER_ID);
 
-      expect(runner.startBackup).toHaveBeenCalledWith({
+      expect(runner.queueBackup).toHaveBeenCalledWith({
         trigger: 'manual',
         createdById: USER_ID,
       });
@@ -534,7 +683,7 @@ describe('DatabaseBackupAdminService', () => {
 
     it('turns a claim conflict into a 409 carrying the active id under `details`', async () => {
       const { service } = harness({
-        startBackup: async () => {
+        queueBackup: async () => {
           throw new DatabaseBackupAlreadyRunningError('other-run');
         },
       });
@@ -549,7 +698,7 @@ describe('DatabaseBackupAdminService', () => {
 
     it('turns a misconfigured storage provider into a 400, not a 500', async () => {
       const { service } = harness({
-        startBackup: async () => {
+        queueBackup: async () => {
           throw new DatabaseBackupStorageProviderError('gcs', 's3');
         },
       });
@@ -560,7 +709,7 @@ describe('DatabaseBackupAdminService', () => {
     it('lets an unrecognised failure propagate untouched', async () => {
       const boom = new Error('the database is on fire');
       const { service } = harness({
-        startBackup: async () => {
+        queueBackup: async () => {
           throw boom;
         },
       });

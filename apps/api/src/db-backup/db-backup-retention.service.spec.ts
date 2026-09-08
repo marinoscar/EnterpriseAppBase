@@ -31,6 +31,7 @@ const POLICY: SystemDatabaseBackupValue = {
   compressionLevel: 6,
   restoreRollbackMode: 'retain_database',
   oldDatabaseRetentionHours: 48,
+  nodeOffloadEnabled: false,
 };
 
 const NOW = new Date('2026-09-07T12:00:00.000Z');

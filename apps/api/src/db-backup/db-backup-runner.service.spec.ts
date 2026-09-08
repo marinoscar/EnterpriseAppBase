@@ -2,10 +2,12 @@ import { createHash } from 'node:crypto';
 import { Readable } from 'node:stream';
 
 import { Logger } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, type Job } from '@prisma/client';
 
 import type { ConfigService } from '@nestjs/config';
 
+import type { DbBackupRunResult } from '../jobs/contracts/db-backup-run.contract';
+import { ACTIVE_DEDUP_INDEX_NAME, type JobsService } from '../jobs/jobs.service';
 import type { NotificationsService } from '../notifications/notifications.service';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { SystemSettingsService } from '../settings/system-settings/system-settings.service';
@@ -14,19 +16,20 @@ import type { SystemDatabaseBackupValue } from '../common/schemas/settings.schem
 import {
   ACTIVE_RUN_INDEX_NAME,
   BACKUP_HEARTBEAT_INTERVAL_MS,
+  BACKUP_JOB_DEDUP_KEY,
+  BACKUP_JOB_TYPE,
   DatabaseBackupRunnerService,
   isActiveRunConflict,
   systemBackupTimers,
   type BackupTimers,
   type DatabaseBackupEngine,
 } from './db-backup-runner.service';
-import type {
-  BackupPruneResult,
-  DatabaseBackupRetentionService,
-} from './db-backup-retention.service';
+import { DB_BACKUP_SWEEP_TYPE } from './handlers/db-backup-sweep.handler';
 import { BACKUP_KEY_PREFIX } from './db-backup-storage';
 import {
   DatabaseBackupAlreadyRunningError,
+  DatabaseBackupCancelledError,
+  DatabaseBackupVerificationError,
   DatabaseBackupStorageProviderError,
 } from './db-backup.errors';
 import type { PgProcess } from './pg-dump.util';
@@ -148,6 +151,7 @@ const POLICY: SystemDatabaseBackupValue = {
   compressionLevel: 6,
   restoreRollbackMode: 'retain_database',
   oldDatabaseRetentionHours: 48,
+  nodeOffloadEnabled: false,
 };
 
 interface HarnessOptions {
@@ -165,12 +169,16 @@ interface HarnessOptions {
   timers?: BackupTimers;
   /** A back-pressure-honouring stdout for the dump, instead of the push-driven default. */
   dumpStdout?: Readable;
-  /** What retention reports, or an error it (contractually cannot) throw. */
-  pruneImpl?: () => Promise<BackupPruneResult>;
   /** #288: what `ConfigService.get('appUrl')` returns. */
   appUrl?: string;
   /** #288: a notifier that misbehaves, for the containment assertions. */
   notifyImpl?: () => Promise<void>;
+  /** #351: errors `JobsService.enqueueWithin` throws, in order. */
+  enqueueFailures?: unknown[];
+  /** #351: what `job.findFirst` reports as the active `db.backup.run` job. */
+  activeBackupJob?: { id: string; backupRun: { id: string } | null } | null;
+  /** #351: rows `databaseBackupRun.findUnique` answers with, keyed by `jobId`. */
+  runsByJobId?: Record<string, Record<string, unknown>>;
 }
 
 function makeHarness(options: HarnessOptions = {}) {
@@ -183,10 +191,13 @@ function makeHarness(options: HarnessOptions = {}) {
 
   const dumps: ManualDump[] = [];
   const uploads: Array<{ key: string; stream: unknown; options: unknown }> = [];
+  /** #351: every `jobs` row the fake queue accepted, in order. */
+  const jobRows: Array<Record<string, unknown>> = [];
+  const enqueueFailures = [...(options.enqueueFailures ?? [])];
   /** Bytes the fake provider has actually pulled through the metering stream. */
   const progress = { uploaded: 0 };
 
-  const prisma = {
+  const prismaBase = {
     databaseBackupRun: {
       create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
         order.push('create');
@@ -226,6 +237,36 @@ function makeHarness(options: HarnessOptions = {}) {
           ? null
           : { id: options.activeRunId };
       }),
+      // #351: `resolveRunForJob`'s single lookup on the UNIQUE `job_id`.
+      findUnique: jest.fn(async ({ where }: { where: { jobId?: string; id?: string } }) => {
+        order.push('findUnique');
+
+        if (where.jobId !== undefined) {
+          const seeded = options.runsByJobId?.[where.jobId];
+          if (seeded !== undefined) return { ...seeded };
+
+          for (const row of rows.values()) {
+            if (row.jobId === where.jobId) return { ...row };
+          }
+
+          return null;
+        }
+
+        return where.id !== undefined ? (rows.get(where.id) ?? null) : null;
+      }),
+    },
+    // #351: the queue's side of `resolveQueueConflict`.
+    job: {
+      findFirst: jest.fn(async (args: { where?: { type?: string } } = {}) => {
+        // #353: two callers now. `resolveQueueConflict` asks about
+        // `db.backup.run`; `enqueueHousekeepingJob` asks about
+        // `db.backup.sweep` before queueing retention. Only the first is what
+        // `activeBackupJob` describes.
+        if (args.where?.type === DB_BACKUP_SWEEP_TYPE) return null;
+
+        order.push('job.findFirst');
+        return options.activeBackupJob ?? null;
+      }),
     },
     // Tagged-template double: the audit reads are best-effort, so answering
     // both with a plausible row proves they land on the row rather than that
@@ -239,6 +280,63 @@ function makeHarness(options: HarnessOptions = {}) {
       return [];
     }),
   };
+
+  /**
+   * #351: `$transaction` with a real ROLLBACK, not a pass-through.
+   *
+   * The fake undoes both writes when the callback throws, because the single
+   * property `queueBackup` is built on is that a failed enqueue leaves NO
+   * `pending` run row behind — and a `$transaction` double that simply ran the
+   * callback would let that regression pass with the test still green.
+   */
+  const $transaction = jest.fn(async (fn: (tx: typeof prismaBase) => Promise<unknown>) => {
+    const rowsBefore = new Map(rows);
+    const jobsBefore = jobRows.length;
+
+    try {
+      return await fn(prismaBase);
+    } catch (error) {
+      rows.clear();
+      for (const [key, value] of rowsBefore) rows.set(key, value);
+      jobRows.length = jobsBefore;
+      throw error;
+    }
+  });
+
+  const prisma = Object.assign(prismaBase, { $transaction });
+
+  /**
+   * #351: the queue seam. `enqueueWithin` deliberately does NOT collapse onto
+   * an existing job — see its own doc comment: inside a transaction it cannot,
+   * so it lets the conflict propagate and `resolveQueueConflict` deals with it
+   * after the rollback. The double mirrors exactly that.
+   */
+  const enqueueWithin = jest.fn(async (_tx: unknown, input: Record<string, unknown>) => {
+    order.push('enqueue');
+
+    const failure = enqueueFailures.shift();
+    if (failure !== undefined) throw failure;
+
+    const job = { id: `job-${jobRows.length + 1}`, ...input };
+    jobRows.push(job);
+
+    return job;
+  });
+  /**
+   * #353: retention is no longer awaited inside `completeRun` — it is a
+   * `db.backup.sweep` job. This double stands in for that enqueue, and
+   * `order.push('sweep')` is what every ordering assertion below now reads.
+   */
+  const enqueueSweep = jest.fn(async (input: Record<string, unknown>) => {
+    if (input.type === DB_BACKUP_SWEEP_TYPE) order.push('sweep');
+
+    const failure = enqueueFailures.shift();
+    if (failure !== undefined) throw failure;
+
+    return { id: `job-${jobRows.length + 1}`, ...input };
+  });
+
+  const jobs = { enqueueWithin, enqueue: enqueueSweep } as unknown as JobsService;
 
   const settings = {
     getDatabaseBackupPolicy: jest.fn(async () => ({ ...POLICY, ...options.policy })),
@@ -272,21 +370,6 @@ function makeHarness(options: HarnessOptions = {}) {
       (jest.fn(async () => {
         order.push('delete');
       }) as unknown as StorageProvider['delete']),
-  };
-
-  // Retention is a real collaborator rather than a seam (#282): the runner
-  // cannot be constructed without one, on purpose. What is asserted through
-  // this double is WHEN it is called, not what it deletes — the two rules
-  // themselves are covered in `db-backup-retention.service.spec.ts`.
-  const retention = {
-    prune: jest.fn(async () => {
-      order.push('prune');
-
-      return (
-        options.pruneImpl?.() ??
-        ({ prunedByCount: 0, prunedByAge: 0, keptAfterFailedDelete: 0 } as BackupPruneResult)
-      );
-    }),
   };
 
   const engine: DatabaseBackupEngine = {
@@ -342,9 +425,9 @@ function makeHarness(options: HarnessOptions = {}) {
     prisma as unknown as PrismaService,
     settings as unknown as SystemSettingsService,
     storage as unknown as StorageProvider,
-    retention as unknown as DatabaseBackupRetentionService,
     notifications,
     config,
+    jobs,
     engine,
     timers
   );
@@ -352,11 +435,14 @@ function makeHarness(options: HarnessOptions = {}) {
   return {
     service,
     notifyPermissionHolders,
+    enqueueSweep,
     prisma,
     settings,
     storage,
-    retention,
     engine,
+    jobs,
+    enqueueWithin,
+    jobRows,
     order,
     rows,
     dumps,
@@ -1146,27 +1232,34 @@ describe('the audit trio', () => {
   });
 });
 
-describe('retention is wired to the success path (#282)', () => {
-  it('prunes AFTER the run is marked completed, so the new backup counts as one of the N', async () => {
+describe('retention is wired to the success path (#282, queued since #353)', () => {
+  // ⚠ THE CRITERION IS UNCHANGED; THE OBSERVABLE IS. Retention used to be
+  // `await this.retention.prune()` inside `completeRun`; since #353 it is an
+  // enqueue of `db.backup.sweep`, whose handler prunes on a worker slot. Every
+  // ordering rule these cases pin still has to hold — a job cannot be claimed
+  // before the write it was enqueued after has committed — so what moved is
+  // which call is asserted, not what is being proven.
+  it('queues the sweep AFTER the run is marked completed, so the new backup counts as one of the N', async () => {
     const h = makeHarness();
 
     await h.service.startBackup({ trigger: 'scheduled' });
     (await h.firstDump()).finish();
     await h.settled;
-    await waitFor(() => h.order.includes('prune'), 'retention to run');
+    await waitFor(() => h.order.includes('sweep'), 'retention to be queued');
 
-    expect(h.retention.prune).toHaveBeenCalledTimes(1);
-    // The ordering IS the criterion. Pruning before the `completed` write
+    expect(h.enqueueSweep).toHaveBeenCalledTimes(1);
+    expect(h.enqueueSweep.mock.calls[0][0]).toMatchObject({ type: 'db.backup.sweep' });
+    // The ordering IS the criterion. Queueing before the `completed` write
     // would leave this run uncounted by the count rule and evict one more old
     // backup than retention asked for.
-    expect(h.order.indexOf('update:completed')).toBeLessThan(h.order.indexOf('prune'));
+    expect(h.order.indexOf('update:completed')).toBeLessThan(h.order.indexOf('sweep'));
     // And after verification, not before: a run that is about to fail
     // `pg_restore --list` must never get to delete the last known-good backup
     // on its way out.
-    expect(h.order.indexOf('readTocEntryCount')).toBeLessThan(h.order.indexOf('prune'));
+    expect(h.order.indexOf('readTocEntryCount')).toBeLessThan(h.order.indexOf('sweep'));
   });
 
-  it('does not prune when the dump fails — old archives matter most exactly then', async () => {
+  it('does not queue the sweep when the dump fails — old archives matter most exactly then', async () => {
     const h = makeHarness();
 
     await h.service.startBackup({ trigger: 'scheduled' });
@@ -1177,10 +1270,10 @@ describe('retention is wired to the success path (#282)', () => {
     await tick();
 
     expect(row.status).toBe('failed');
-    expect(h.retention.prune).not.toHaveBeenCalled();
+    expect(h.enqueueSweep).not.toHaveBeenCalled();
   });
 
-  it('does not prune when verification fails', async () => {
+  it('does not queue the sweep when verification fails', async () => {
     const h = makeHarness({ tocEntries: 0 });
 
     await h.service.startBackup({ trigger: 'manual' });
@@ -1189,15 +1282,16 @@ describe('retention is wired to the success path (#282)', () => {
     await tick();
 
     expect(row.status).toBe('failed');
-    expect(h.retention.prune).not.toHaveBeenCalled();
+    expect(h.enqueueSweep).not.toHaveBeenCalled();
   });
 
-  it('never lets a retention failure turn a verified backup into a failed run', async () => {
-    // `prune` swallows by contract; this proves the runner does not depend on
-    // that contract holding, because the archive has already been proven good
-    // and nothing about storage housekeeping may take that away.
+  it('never lets a failed retention enqueue turn a verified backup into a failed run', async () => {
+    // Since #353 retention cannot reach this failure path at all — it runs in
+    // another job — but the ENQUEUE is still a write inside `executeRun`'s
+    // `try`, and storage housekeeping must not be able to fail a backup whose
+    // archive has already been proven good.
     const h = makeHarness();
-    h.retention.prune.mockRejectedValue(new Error('bucket unreachable'));
+    h.enqueueSweep.mockRejectedValue(new Error('queue unreachable'));
 
     await h.service.startBackup({ trigger: 'scheduled' });
     (await h.firstDump()).finish();
@@ -1206,5 +1300,641 @@ describe('retention is wired to the success path (#282)', () => {
 
     expect(row.status).toBe('completed');
     expect(h.storage.delete).not.toHaveBeenCalled();
+  });
+});
+
+// -----------------------------------------------------------------------------
+// #351 (epic #345): the dump is a queue job
+// -----------------------------------------------------------------------------
+
+/** A P2002 shaped the way the queue's ACTIVE-DEDUP index reports it. */
+function dedupConflict(): Prisma.PrismaClientKnownRequestError {
+  return new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+    code: 'P2002',
+    clientVersion: 'test',
+    meta: {
+      modelName: 'Job',
+      driverAdapterError: {
+        name: 'DriverAdapterError',
+        cause: {
+          originalCode: '23505',
+          originalMessage:
+            `duplicate key value violates unique constraint "${ACTIVE_DEDUP_INDEX_NAME}"`,
+          kind: 'UniqueConstraintViolation',
+          constraint: { index: ACTIVE_DEDUP_INDEX_NAME },
+        },
+      },
+    },
+  });
+}
+
+describe('queueBackup: the enqueue and the run row are ONE commit', () => {
+  it('writes the job and a `pending` run row inside a single transaction', async () => {
+    const h = makeHarness();
+
+    const { run, job } = await h.service.queueBackup({
+      trigger: 'manual',
+      createdById: 'admin-1',
+    });
+
+    // The endpoint's contract: a real run id, immediately.
+    expect(run.id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(run.storageKey.startsWith(BACKUP_KEY_PREFIX)).toBe(true);
+    // ⚠ THE KEY EMBEDS THE RUN ID, and that is why the id is generated
+    // client-side on this path as well as on the claim path.
+    expect(run.storageKey).toContain(run.id);
+    expect(run.bucket).toBe('test-bucket');
+    expect(run.trigger).toBe('manual');
+    expect(run.createdById).toBe('admin-1');
+
+    // `pending`, and NOTHING claiming a dump exists yet. The old behaviour
+    // reported `running` before anything ran; this is the correction.
+    expect(run.status).toBe('pending');
+    expect(run.startedAt).toBeUndefined();
+    expect(run.lastHeartbeatAt).toBeUndefined();
+
+    // The link that makes a second run row for one job unrepresentable.
+    expect(run.jobId).toBe(job.id);
+
+    // ⚠ THE ORDER: enqueue first, then the run row — so `job_id` is written by
+    // the INSERT and never by a follow-up UPDATE. Both are inside the one
+    // `$transaction` call, which is what closes the "claimed job, no run row"
+    // window entirely.
+    expect(h.prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(h.order).toEqual(['enqueue', 'create']);
+
+    // And no dump has been started: this path only queues.
+    expect(h.order).not.toContain('startDump');
+  });
+
+  it('enqueues under the CONSTANT dedup key, with no subject and dedup left on', async () => {
+    const h = makeHarness();
+
+    await h.service.queueBackup({ trigger: 'scheduled' });
+
+    const [, input] = h.enqueueWithin.mock.calls[0];
+
+    expect(input.type).toBe(BACKUP_JOB_TYPE);
+    expect(input.subjectType).toBeUndefined();
+    expect(input.subjectId).toBeUndefined();
+    // Not opted out — the whole single-active-backup guarantee at the queue
+    // layer rests on this key being present and identical every time.
+    expect(input.skipDedup).toBeUndefined();
+    expect(BACKUP_JOB_DEDUP_KEY).toBe(`${BACKUP_JOB_TYPE}::`);
+
+    // The payload carries provenance and nothing else — identifiers, not data.
+    expect(input.payload).toEqual({ trigger: 'scheduled', createdById: null });
+  });
+
+  it('leaves NO run row behind when the enqueue conflicts — the leak that would block every future backup', async () => {
+    const h = makeHarness({
+      enqueueFailures: [dedupConflict()],
+      activeBackupJob: { id: 'job-winner', backupRun: { id: 'winner-run-id' } },
+    });
+
+    await expect(h.service.queueBackup({ trigger: 'manual' })).rejects.toMatchObject({
+      activeRunId: 'winner-run-id',
+    });
+
+    // ⚠ THE ASSERTION THIS ORDERING EXISTS FOR. A `pending` row left behind
+    // here would hold the single active slot — the tightened index admits ONE
+    // active row across `pending` and `running` combined — and every backup
+    // this deployment would ever take again would 409 until somebody deleted
+    // it by hand.
+    expect(h.rows.size).toBe(0);
+    expect(h.jobRows).toHaveLength(0);
+  });
+
+  it('turns a queue dedup conflict into a 409 carrying the WINNER\'S RUN ID, not its job id', async () => {
+    const h = makeHarness({
+      enqueueFailures: [dedupConflict()],
+      activeBackupJob: { id: 'job-winner', backupRun: { id: 'winner-run-id' } },
+    });
+
+    const error = await h.service
+      .queueBackup({ trigger: 'scheduled' })
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(DatabaseBackupAlreadyRunningError);
+    // A client polls `GET /runs/{id}`, so the id it needs is the RUN's.
+    expect((error as DatabaseBackupAlreadyRunningError).activeRunId).toBe('winner-run-id');
+  });
+
+  it('still answers 409 when the winning job has no run row to point at', async () => {
+    // Reachable: an administrator deleted the run row, or `job.history.purge`
+    // set `job_id` back to NULL. "A backup is already queued, and here is no
+    // id" is true and useful; a 500 would not be.
+    const h = makeHarness({
+      enqueueFailures: [dedupConflict()],
+      activeBackupJob: { id: 'job-winner', backupRun: null },
+    });
+
+    const error = await h.service
+      .queueBackup({ trigger: 'manual' })
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(DatabaseBackupAlreadyRunningError);
+    expect((error as DatabaseBackupAlreadyRunningError).activeRunId).toBeNull();
+  });
+
+  it('turns the RUN TABLE\'s own guard into the same 409 — the pre_restore dump is still a blocker', async () => {
+    const h = makeHarness({
+      createFailures: [adapterConflict()],
+      activeRunId: 'pre-restore-run',
+    });
+
+    const error = await h.service
+      .queueBackup({ trigger: 'scheduled' })
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(DatabaseBackupAlreadyRunningError);
+    expect((error as DatabaseBackupAlreadyRunningError).activeRunId).toBe('pre-restore-run');
+
+    // The transaction rolled back, so the job it had already inserted is gone
+    // too — there is no orphan `db.backup.run` job for a run that never
+    // existed.
+    expect(h.jobRows).toHaveLength(0);
+    expect(h.rows.size).toBe(0);
+  });
+
+  it('retries when the winner settled between the conflicting insert and the lookup', async () => {
+    // Nothing is active any more, so reporting "already running" would be
+    // false. Same bounded-retry rule `enqueue` and `claimRun` both follow.
+    const h = makeHarness({
+      enqueueFailures: [dedupConflict()],
+      activeBackupJob: null,
+    });
+
+    const { run } = await h.service.queueBackup({ trigger: 'manual' });
+
+    expect(run.status).toBe('pending');
+    expect(h.enqueueWithin).toHaveBeenCalledTimes(2);
+  });
+
+  it('lets an unrecognised failure stay loud rather than reporting it as "already running"', async () => {
+    const boom = new Error('the database is on fire');
+    const h = makeHarness({ enqueueFailures: [boom] });
+
+    await expect(h.service.queueBackup({ trigger: 'manual' })).rejects.toBe(boom);
+  });
+
+  it('refuses a misconfigured storage provider BEFORE anything is written', async () => {
+    const h = makeHarness({ policy: { storageProvider: 'gcs' } });
+
+    await expect(h.service.queueBackup({ trigger: 'manual' })).rejects.toBeInstanceOf(
+      DatabaseBackupStorageProviderError
+    );
+
+    // No job, no row, no 500 an hour later: a configuration mistake is a 400
+    // at request time.
+    expect(h.jobRows).toHaveLength(0);
+    expect(h.rows.size).toBe(0);
+    expect(h.prisma.$transaction).not.toHaveBeenCalled();
+  });
+});
+
+describe('runQueuedBackup: the job\'s lifetime IS the dump\'s lifetime', () => {
+  /** A `jobs` row as the worker hands one to `process()`. */
+  const jobRow = (overrides: Record<string, unknown> = {}) =>
+    ({
+      id: 'job-1',
+      type: BACKUP_JOB_TYPE,
+      payload: { trigger: 'manual', createdById: 'admin-1' },
+      ...overrides,
+    }) as never;
+
+  it('flips the pending row to running, takes the dump AWAITED, and completes it', async () => {
+    const h = makeHarness();
+
+    const { run, job } = await h.service.queueBackup({ trigger: 'manual' });
+
+    const running = h.service.runQueuedBackup(job as never);
+
+    // ⚠ NOT RESOLVED YET. This is the entire point of #351: a handler that
+    // returned here would buy a dashboard row and nothing else.
+    const dump = await h.firstDump();
+    expect(h.rows.get(run.id)?.status).toBe('running');
+    expect(h.rows.get(run.id)?.startedAt).toBeInstanceOf(Date);
+
+    dump.push(Buffer.from('archive-bytes'));
+    dump.finish();
+
+    await expect(running).resolves.toBeUndefined();
+
+    const settled = h.rows.get(run.id) as Record<string, unknown>;
+    expect(settled.status).toBe('completed');
+    expect(settled.jobId).toBe(job.id);
+    // `verifiedAt` semantics UNCHANGED: it is written on the same terminal
+    // update as `completed`, and only after the STORED OBJECT was downloaded
+    // and read by `readTocEntryCount`.
+    expect(settled.verifiedAt).toBeInstanceOf(Date);
+    expect(h.order.indexOf('download')).toBeLessThan(h.order.indexOf('update:completed'));
+    expect(h.order.indexOf('readTocEntryCount')).toBeLessThan(
+      h.order.indexOf('update:completed')
+    );
+  });
+
+  it('THROWS when the dump fails, so the worker settles the job as failed too', async () => {
+    // The run row records the failure, as it always did. What is new is that
+    // the failure also reaches the queue — a `succeeded` job for a `failed`
+    // dump would be a row that lies.
+    const h = makeHarness({ tocEntries: 0 });
+
+    const { run, job } = await h.service.queueBackup({ trigger: 'manual' });
+    const running = h.service.runQueuedBackup(job as never);
+
+    (await h.firstDump()).finish();
+
+    await expect(running).rejects.toBeInstanceOf(DatabaseBackupVerificationError);
+    expect(h.rows.get(run.id)?.status).toBe('failed');
+  });
+
+  it('does nothing at all when the run has already completed — the queue is at-least-once', async () => {
+    const h = makeHarness({
+      runsByJobId: { 'job-1': { id: 'done-run', status: 'completed', storageKey: 'k' } },
+    });
+
+    await expect(h.service.runQueuedBackup(jobRow())).resolves.toBeUndefined();
+
+    // No second dump of a database whose archive is already durable.
+    expect(h.order).not.toContain('startDump');
+  });
+
+  it('refuses a run something else already gave up on, rather than re-dumping beside a newer backup', async () => {
+    const h = makeHarness({
+      runsByJobId: { 'job-1': { id: 'gone-run', status: 'stale', storageKey: 'k' } },
+    });
+
+    await expect(h.service.runQueuedBackup(jobRow())).rejects.toThrow(/already "stale"/);
+    expect(h.order).not.toContain('startDump');
+  });
+
+  it('creates the run row from the payload when a job arrives without one', async () => {
+    // Unreachable for jobs `queueBackup` queued (one commit), so this covers
+    // the paths that are not `queueBackup`: a hand-enqueued job, or a run row
+    // an administrator deleted while its job was still queued.
+    const h = makeHarness();
+
+    const running = h.service.runQueuedBackup(
+      jobRow({ id: 'orphan-job', payload: { trigger: 'scheduled', createdById: null } })
+    );
+
+    const dump = await h.firstDump();
+    dump.finish();
+    await running;
+
+    const created = [...h.rows.values()][0];
+    expect(created.jobId).toBe('orphan-job');
+    expect(created.trigger).toBe('scheduled');
+    expect(created.status).toBe('completed');
+  });
+
+  it('falls back to a `manual` trigger rather than refusing an unreadable payload', async () => {
+    const h = makeHarness();
+
+    const running = h.service.runQueuedBackup(jobRow({ id: 'weird-job', payload: null }));
+    (await h.firstDump()).finish();
+    await running;
+
+    const created = [...h.rows.values()][0];
+    expect(created.trigger).toBe('manual');
+    expect(created.createdById).toBeNull();
+  });
+
+  it('re-reads the policy at claim time, not at enqueue time', async () => {
+    const h = makeHarness();
+
+    const { job } = await h.service.queueBackup({ trigger: 'manual' });
+    h.settings.getDatabaseBackupPolicy.mockClear();
+
+    const running = h.service.runQueuedBackup(job as never);
+    (await h.firstDump()).finish();
+    await running;
+
+    // A job may sit queued for hours; the compression level and the stale
+    // window it runs under must be the ones in force NOW.
+    expect(h.settings.getDatabaseBackupPolicy).toHaveBeenCalled();
+  });
+
+  it('settles the job when an operator cancels the dump it is executing', async () => {
+    const h = makeHarness();
+
+    const { run, job } = await h.service.queueBackup({ trigger: 'manual' });
+    const running = h.service.runQueuedBackup(job as never);
+
+    await h.firstDump();
+
+    expect(h.service.cancel(run.id)).toEqual({ outcome: 'signalled', runId: run.id });
+
+    // ⚠ THE REJECTION IS HOW THE JOB SETTLES. Cancellation reaches the
+    // ORDINARY failure path — partial object deleted, row marked `failed` —
+    // and then reaches the worker, so the job does not sit `running` waiting
+    // for the reaper.
+    await expect(running).rejects.toBeInstanceOf(DatabaseBackupCancelledError);
+    expect(h.rows.get(run.id)?.status).toBe('failed');
+  });
+
+  it('reports a run this process is not executing honestly, as it always did', async () => {
+    const h = makeHarness();
+
+    const { run } = await h.service.queueBackup({ trigger: 'manual' });
+
+    // Queued but unclaimed: there is no child process to signal, and saying
+    // otherwise would tell an operator their dump had stopped.
+    expect(h.service.cancel(run.id)).toEqual({ outcome: 'not_running_here', runId: run.id });
+  });
+});
+
+// =============================================================================
+// The node path: `resolveNodeOutputKey` and `completeNodeRun` (#352, epic #345)
+// =============================================================================
+//
+// FOUR PROPERTIES, and the first is the one every other one exists to protect:
+//
+//   1. BOTH EXECUTORS PRODUCE THE SAME ROW. `executeRun` and `completeNodeRun`
+//      go through one private `completeRun`, so a backup's stored state cannot
+//      depend on which machine took it.
+//   2. THE KEY IS THE SERVER'S. A node may only report the key it was handed;
+//      anything else is refused, not corrected.
+//   3. VERIFICATION IS SERVER-SIDE, ALWAYS. `verified_at` is written because
+//      THIS process read the object back out of the bucket, never because a
+//      node said so.
+//   4. `bytes` SURVIVES 2^53. The decimal-string wire type is only worth
+//      having if the value reaches the column exact.
+// =============================================================================
+
+/** A `db.backup.run` job row, as a node would be holding it. */
+const NODE_JOB = { id: 'job-node-1', type: BACKUP_JOB_TYPE } as unknown as Job;
+
+/** What a node reports. Overridden per test. */
+function nodeResult(overrides: Partial<DbBackupRunResult> = {}): DbBackupRunResult {
+  return {
+    storageKey: 'backups/2026/09/07/run-node.dump',
+    bytes: '1048576',
+    sha256: 'b'.repeat(64),
+    pgDumpVersion: 'pg_dump (PostgreSQL) 17.2',
+    dbVersion: 'PostgreSQL 17.4',
+    migrationName: '20260907160000_add_backup_run_pg_dump_version',
+    startedAt: '2026-09-07T02:00:00.000Z',
+    finishedAt: '2026-09-07T02:12:00.000Z',
+    ...overrides,
+  };
+}
+
+/** A run row a node is executing, seeded straight into the fake table. */
+function seedNodeRun(
+  h: ReturnType<typeof makeHarness>,
+  overrides: Record<string, unknown> = {}
+): Record<string, unknown> {
+  const row = {
+    id: 'run-node',
+    jobId: NODE_JOB.id,
+    status: 'running',
+    trigger: 'manual',
+    storageProvider: 's3',
+    storageKey: 'backups/2026/09/07/run-node.dump',
+    bucket: 'test-bucket',
+    format: 'custom',
+    bytesWritten: 0n,
+    dbVersion: null,
+    appVersion: null,
+    migrationName: null,
+    pgDumpVersion: null,
+    startedAt: new Date('2026-09-07T02:00:00.000Z'),
+    lastHeartbeatAt: new Date('2026-09-07T02:00:00.000Z'),
+    ...overrides,
+  };
+
+  h.rows.set(row.id as string, row);
+
+  return row;
+}
+
+describe('resolveNodeOutputKey: the server chooses where a node writes', () => {
+  it('returns the run’s recorded key — never a node-outputs path', async () => {
+    const h = makeHarness();
+    seedNodeRun(h);
+
+    await expect(h.service.resolveNodeOutputKey(NODE_JOB)).resolves.toBe(
+      'backups/2026/09/07/run-node.dump'
+    );
+  });
+
+  it('is idempotent: a node that asks twice gets ONE key, not a second archive', async () => {
+    const h = makeHarness();
+    seedNodeRun(h, { status: 'pending', startedAt: null, lastHeartbeatAt: null });
+
+    const first = await h.service.resolveNodeOutputKey(NODE_JOB);
+    const second = await h.service.resolveNodeOutputKey(NODE_JOB);
+
+    expect(second).toBe(first);
+  });
+
+  it('flips `pending` to `running` on the first ask — the only moment the server learns a node has started', async () => {
+    const h = makeHarness();
+    seedNodeRun(h, { status: 'pending', startedAt: null, lastHeartbeatAt: null });
+
+    await h.service.resolveNodeOutputKey(NODE_JOB);
+
+    const row = h.rows.get('run-node');
+    expect(row?.status).toBe('running');
+    // `startedAt` is what the failure notification and every duration render;
+    // leaving it NULL would make a node-taken dump look like it never began.
+    expect(row?.startedAt).toBeInstanceOf(Date);
+    expect(row?.lastHeartbeatAt).toBeInstanceOf(Date);
+  });
+
+  it('does not re-write a row that is already running — the second ask only reads', async () => {
+    const h = makeHarness();
+    seedNodeRun(h);
+    h.prisma.databaseBackupRun.update.mockClear();
+
+    await h.service.resolveNodeOutputKey(NODE_JOB);
+
+    expect(h.prisma.databaseBackupRun.update).not.toHaveBeenCalled();
+  });
+
+  it('refuses when the job has no run row: there is nowhere legitimate for those bytes to go', async () => {
+    const h = makeHarness();
+
+    await expect(h.service.resolveNodeOutputKey(NODE_JOB)).rejects.toThrow(
+      /no backup run row/
+    );
+  });
+
+  it('refuses once the run has settled — a completed archive is not an upload target', async () => {
+    const h = makeHarness();
+    seedNodeRun(h, { status: 'completed' });
+
+    await expect(h.service.resolveNodeOutputKey(NODE_JOB)).rejects.toThrow(/already "completed"/);
+  });
+});
+
+describe('completeNodeRun: one write, two paths', () => {
+  it('writes the SAME terminal row shape the server path writes', async () => {
+    // The server path, for comparison — a real dump through the real engine.
+    const server = makeHarness();
+    await server.service.startBackup({ trigger: 'manual' });
+    (await server.firstDump()).push(Buffer.from('archive'));
+    (await server.firstDump()).finish();
+    const serverRow = await server.settled;
+
+    // The node path, with the numbers a node reported rather than ones this
+    // process measured.
+    const node = makeHarness();
+    seedNodeRun(node);
+    await node.service.completeNodeRun(NODE_JOB, nodeResult());
+    const nodeRow = node.rows.get('run-node') as Record<string, unknown>;
+
+    // ⚠ THE PROPERTY THIS WHOLE FILE'S NODE SECTION EXISTS FOR: the set of
+    // columns a completion writes is identical, so nothing downstream — the
+    // restore path, the retention sweep, the admin list — has to ask which
+    // executor produced a row before trusting it.
+    const terminal = (row: Record<string, unknown>) => ({
+      status: row.status,
+      hasFinishedAt: row.finishedAt instanceof Date,
+      hasVerifiedAt: row.verifiedAt instanceof Date,
+      bytesMatchSize: row.bytesWritten === row.sizeBytes,
+      checksumIsHex: /^[0-9a-f]{64}$/.test(row.checksumSha256 as string),
+      lastError: row.lastError,
+      hasAppVersion: typeof row.appVersion === 'string',
+    });
+
+    expect(terminal(nodeRow)).toEqual(terminal(serverRow));
+    expect(nodeRow.status).toBe('completed');
+  });
+
+  it('records the node’s provenance, including which pg_dump wrote the archive', async () => {
+    const h = makeHarness();
+    seedNodeRun(h);
+
+    await h.service.completeNodeRun(NODE_JOB, nodeResult());
+
+    const row = h.rows.get('run-node');
+    expect(row?.dbVersion).toBe('PostgreSQL 17.4');
+    expect(row?.pgDumpVersion).toBe('pg_dump (PostgreSQL) 17.2');
+    expect(row?.migrationName).toBe('20260907160000_add_backup_run_pg_dump_version');
+    // `appVersion` is THIS process's build, deliberately — it records which
+    // application wrote the row, not which binary wrote the file.
+    expect(typeof row?.appVersion).toBe('string');
+  });
+
+  it('round-trips a byte count above 2^53 into the BigInt columns, exactly', async () => {
+    const h = makeHarness();
+    seedNodeRun(h);
+
+    // 2^53 + 1: the first integer JSON's number type cannot represent.
+    await h.service.completeNodeRun(NODE_JOB, nodeResult({ bytes: '9007199254740993' }));
+
+    const row = h.rows.get('run-node');
+    expect(row?.sizeBytes).toBe(9007199254740993n);
+    expect(row?.bytesWritten).toBe(9007199254740993n);
+    // What sending it as a JSON number would have stored instead.
+    expect(BigInt(Number('9007199254740993'))).not.toBe(row?.sizeBytes);
+  });
+
+  it('VERIFIES SERVER-SIDE before it writes: download, read the TOC, then complete', async () => {
+    const h = makeHarness();
+    seedNodeRun(h);
+
+    await h.service.completeNodeRun(NODE_JOB, nodeResult());
+
+    // The order is the assertion. `verified_at` may only be written after this
+    // process has read what the BUCKET holds — a node vouching for its own
+    // upload is not evidence (§6 of docs/specs/database-backup.md).
+    expect(h.order).toEqual([
+      'findUnique',
+      'download',
+      'readTocEntryCount',
+      'update:completed',
+      // #353: retention is queued, not awaited, and still strictly after the
+      // verified completing write.
+      'sweep',
+    ]);
+  });
+
+  it('fails the run when the stored archive has an EMPTY table of contents', async () => {
+    const h = makeHarness({ tocEntries: 0 });
+    seedNodeRun(h);
+
+    await expect(h.service.completeNodeRun(NODE_JOB, nodeResult())).rejects.toBeInstanceOf(
+      DatabaseBackupVerificationError
+    );
+
+    const row = h.rows.get('run-node');
+    expect(row?.status).toBe('failed');
+    expect(row?.verifiedAt).toBeUndefined();
+    // The object goes first, exactly as on the server's failure path: a
+    // `failed` run must never leave an archive nothing points at.
+    expect(h.order).toContain('delete');
+    expect(h.order.indexOf('delete')).toBeLessThan(h.order.indexOf('update:failed'));
+  });
+
+  it('fails the run when the archive cannot be read back at all', async () => {
+    const h = makeHarness({
+      downloadImpl: jest.fn(async () => {
+        throw new Error('NoSuchKey');
+      }) as unknown as StorageProvider['download'],
+    });
+    seedNodeRun(h);
+
+    await expect(h.service.completeNodeRun(NODE_JOB, nodeResult())).rejects.toThrow('NoSuchKey');
+    expect(h.rows.get('run-node')?.status).toBe('failed');
+  });
+
+  it('REFUSES a key the server did not hand out, and records nothing about it', async () => {
+    const h = makeHarness();
+    seedNodeRun(h);
+
+    await expect(
+      h.service.completeNodeRun(NODE_JOB, nodeResult({ storageKey: 'backups/somebody-else.dump' }))
+    ).rejects.toThrow(/may only report the key the server handed it/);
+
+    const row = h.rows.get('run-node');
+    expect(row?.status).toBe('failed');
+    expect(row?.checksumSha256).toBeUndefined();
+    // ⚠ AND IT NEVER LOOKED AT THE BYTES. A mismatch is refused before any
+    // download, so a result naming an arbitrary key cannot make this server
+    // fetch an arbitrary object.
+    expect(h.order).not.toContain('download');
+  });
+
+  it('does not queue the sweep on any failure — old archives matter most when tonight’s backup failed', async () => {
+    const h = makeHarness({ tocEntries: 0 });
+    seedNodeRun(h);
+
+    await expect(h.service.completeNodeRun(NODE_JOB, nodeResult())).rejects.toBeInstanceOf(
+      DatabaseBackupVerificationError
+    );
+
+    expect(h.enqueueSweep).not.toHaveBeenCalled();
+  });
+
+  it('treats a resubmitted result for an already-completed run as a no-op', async () => {
+    const h = makeHarness();
+    seedNodeRun(h, { status: 'completed' });
+
+    // A node whose result reached us but whose response was lost sends it
+    // again. The work is done; refusing would fail a job whose archive is
+    // sitting verified in the bucket.
+    await expect(h.service.completeNodeRun(NODE_JOB, nodeResult())).resolves.toBeUndefined();
+    expect(h.order).toEqual(['findUnique']);
+  });
+
+  it('refuses a result for a run that was given up on', async () => {
+    const h = makeHarness();
+    seedNodeRun(h, { status: 'stale' });
+
+    await expect(h.service.completeNodeRun(NODE_JOB, nodeResult())).rejects.toThrow(
+      /no longer holds the active backup slot/
+    );
+  });
+
+  it('refuses a result for a job with no run row', async () => {
+    const h = makeHarness();
+
+    await expect(h.service.completeNodeRun(NODE_JOB, nodeResult())).rejects.toThrow(
+      /no backup run row/
+    );
   });
 });

@@ -35,6 +35,7 @@ export const systemSettingsResponseSchema = z.object({
     staleHeartbeatSeconds: z.number(),
     offlineStaleMultiplier: z.number(),
     offlineRetentionDays: z.number(),
+    jobSecretBrokerEnabled: z.boolean(),
   }),
   databaseBackup: z.object({
     enabled: z.boolean(),
@@ -49,6 +50,7 @@ export const systemSettingsResponseSchema = z.object({
     compressionLevel: z.number(),
     restoreRollbackMode: z.enum(['retain_database', 'drop_database']),
     oldDatabaseRetentionHours: z.number(),
+    nodeOffloadEnabled: z.boolean(),
   }),
   maintenance: z.object({
     enabled: z.boolean(),

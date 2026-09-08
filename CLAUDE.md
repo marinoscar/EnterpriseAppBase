@@ -286,6 +286,83 @@ This section states the rules; that file explains why.
 See [`docs/specs/settings-ui.md`](docs/specs/settings-ui.md) for the full
 rationale, the rejected alternatives, and the accessibility requirements.
 
+## MANDATORY: Every Long-Running Activity Is a Queue Job
+
+Epic #345 makes three standing architecture decisions binding. They exist
+because the database backup was, until this epic, a detached promise with no
+job type, no row in `GET /api/admin/jobs`, no worker slot, and no timeout —
+and the three-argument case against ever fixing that
+(`docs/specs/database-backup.md`) turned out to be three defects in the queue,
+not properties of backups. Fixing the queue and moving the backup onto it is
+documented in full in [`docs/specs/job-queue.md`](docs/specs/job-queue.md) §7.10
+and [`docs/specs/database-backup.md`](docs/specs/database-backup.md); this
+section states the four rules that follow from it.
+
+### Core Rules (MANDATORY)
+
+1. **No long-running work outside the queue.** Any activity that outlives the
+   HTTP request or cron tick that started it MUST be a registered `JobHandler`
+   with a declared `type`, enqueued through `JobsService`. A detached
+   `void this.doSomething()`, an `@OnEvent` body that downloads or spawns, and
+   a `@Cron` body that does work inline are all violations. A `@Cron` may only
+   decide *whether* work is due and enqueue it — `apps/api/src/jobs/tasks/job-history-purge.task.ts`
+   is the reference `@Cron`, and `apps/api/src/jobs/housekeeping.enqueue.ts` is
+   the shared helper several of the converted crons enqueue through.
+
+   Three permanent exemptions, and only these three — the list lives in
+   [`docs/specs/job-queue.md` §7.10](docs/specs/job-queue.md#710-all-long-running-work-is-a-job--the-rule-the-exemptions-the-limit)
+   and `apps/api/test/jobs/cron-enqueue-only.spec.ts` is its executable form; a
+   fourth requires editing both. `jobs/tasks/job-stuck-reset.task.ts` (the
+   lease reaper — recovery that depends on the thing it recovers is not
+   recovery), `jobs/tasks/temp-file-janitor.task.ts` (it sweeps *this
+   process's* local disk, which a node or another replica claiming the job
+   could not reach), and `nodes/tasks/node-secret-sweep.task.ts` (it destroys
+   the short-lived database roles brokered to worker nodes — making
+   credential revocation depend on the queue means a wedged queue leaks live
+   credentials for as long as it stays wedged).
+
+   Not covered: fire-and-forget notification dispatch
+   (`this.notifications.notify(...)` and the delivery channels behind it).
+   "Long-running" means work with a duration worth accounting for — a sweep
+   over a table, a dump, a network round trip per row — not every asynchronous
+   call.
+
+2. **Node-eligibility is the default posture.** A new job type SHOULD carry
+   `nodeResultSchema` + `persistNodeResult` unless it genuinely cannot —
+   because it writes as it goes, reads several tables mid-computation, or
+   needs a privilege a remote machine must never hold (the database restore is
+   the canonical example: it renames the live database and stays server-only
+   permanently). Eligibility stays **derived** from those two members; there
+   is no `nodeEligible` flag and there never will be
+   (`apps/api/src/jobs/job-handler.interface.ts`). A deployment declines the
+   offload with a system setting consulted at claim time
+   (`NodeOffloadService.offeredTypes()` and a handler's own
+   `nodeOffloadEnabled()`) — never by editing the handler.
+
+3. **A node never persists a job-scoped credential.** Every secret a node
+   needs for a job is issued per job by the server through
+   `POST /api/nodes/:id/jobs/:jobId/secret`, gated by `assertJobHeldByNode`,
+   bounded by the job's own lease, held in the node's memory only, and revoked
+   when the job settles or by the sweep above. The server stores the
+   credential's **handle** in `job_node_secrets`, never its material — that
+   table has no column able to hold one. A handler declares the need by
+   carrying a `nodeSecretBroker` (`apps/api/src/jobs/job-secret-broker.ts`);
+   presence is the declaration, exactly as `nodeResultSchema` +
+   `persistNodeResult` declare eligibility. The node's own `nod_` identity
+   token is the single exception to "never persisted" — it is an identity a
+   node authenticates with, not a job-scoped grant.
+
+4. **A job type declares its execution profile, or takes the global default.**
+   `JobHandler.profile` is optional and, when present, carries exactly
+   `{ maxRuntimeMs, maxAttempts }` — **and only those two numbers**
+   (`apps/api/src/jobs/job-execution-profile.ts`). The lease, the renewal
+   interval, and the reaper's patience for an implausible lease are all
+   *derived* from `maxRuntimeMs`, so a lease that contradicts a declared
+   timeout is unrepresentable rather than merely avoided. Do not add
+   `leaseMs` or `heartbeatMs` to the profile — a declared duration that can
+   disagree with `maxRuntimeMs` is exactly the state this rule exists to rule
+   out.
+
 ## Architecture Principles
 
 1. **Separation of Concerns**: UI handles presentation only; API handles all business logic and authorization
@@ -446,6 +523,7 @@ holding `nodes:*`; scoped to the caller's own nodes.
 - `POST /api/nodes/{id}/jobs/{jobId}/renew` - Extend the lease
 - `POST /api/nodes/{id}/jobs/{jobId}/download-url` - Signed GET for the job's input object (data plane; bytes never touch this API)
 - `POST /api/nodes/{id}/jobs/{jobId}/upload-url` - Signed PUT plus the server-chosen key (data plane)
+- `POST /api/nodes/{id}/jobs/{jobId}/secret` - Issue the one short-lived, job-scoped credential this job's type declares (epic #345). Bounded by the job's lease, returned once, revoked on settlement; `403` when this deployment does not broker credentials, `404` when the type declares no broker, `503` when the broker cannot mint right now
 - `POST /api/nodes/{id}/jobs/{jobId}/result` - Submit a validated result; settles the job
 - `POST /api/nodes/{id}/jobs/{jobId}/failure` - Report a failure (`rateLimited` defers rather than charging an attempt)
 
@@ -473,6 +551,12 @@ and [`docs/runbooks/maintenance-mode.md`](docs/runbooks/maintenance-mode.md).
 - `PUT /api/admin/maintenance` - Open or close the window (`system_settings:write`)
 
 ### Database Backup (Admin-only)
+- `GET /api/admin/db-backup/node-credential-preflight` - Whether a worker node can be handed a
+  short-lived, SELECT-only database credential to take a backup (`db_backup:read`). Two
+  independent facts: `outcome` is the **capability** (a live `CREATEROLE` probe), `brokerEnabled`
+  is the **policy** (`nodes.jobSecretBrokerEnabled`). ⚠ `outcome: "guided"` is a **200** carrying
+  paste-ready SQL, never a 4xx — managed PostgreSQL denying `CREATEROLE` is the ordinary case.
+  See [`docs/runbooks/node-job-secrets.md`](docs/runbooks/node-job-secrets.md)
 - `GET /api/admin/db-backup/config` - Backup policy, computed `nextRunAt`, active run id
 - `PUT /api/admin/db-backup/config` - Update the policy (partial; every field optional)
 - `POST /api/admin/db-backup/runs` - Take a backup now (returns immediately; 409 if one is running)
@@ -568,6 +652,15 @@ and [`docs/runbooks/vapid-keys.md`](docs/runbooks/vapid-keys.md).
 - `node_credentials` - `nod_…` bearer credentials a worker node authenticates with. Mirrors
   `personal_access_tokens`' hash/prefix/show-once shape, minus a mandatory expiry (a node
   runs unattended for months; revocation, not a clock, is the control).
+- `job_node_secrets` - One row per short-lived, job-scoped credential a node has been issued
+  (epic #345, issue #349). Records the broker `kind`, the credential's **handle** (e.g. a
+  minted PostgreSQL role name) and its `expiresAt`/`revokedAt` — **never the credential's
+  material**; the table has no column that could hold one. `@@unique([jobId, kind])` makes a
+  second grant for the same job and broker unrepresentable, so a re-request while the lease
+  is live extends the existing grant instead of minting a second. Three revocation paths can
+  set `revokedAt`: the job-settle listener, `NodeSecretSweepTask`'s cron, and `VALID UNTIL`
+  itself at the database level, which is why the row's `expiresAt` is bounded by the job's
+  lease rather than being a clock of its own.
 - `database_backup_runs` - One row per backup/restore attempt, with its own heartbeat and
   stale window — **not** a `jobs` row, because the lease reaper's `stuckThresholdMinutes`
   (default 30 min) would reset a legitimately multi-hour `pg_dump`/restore to pending and
@@ -677,20 +770,21 @@ the CLI's `APPCTL_` prefix; see `infra/compose/.env.example` for the full commen
 - `JOBS_RATELIMIT_BASE_MS` / `JOBS_RATELIMIT_MAX_MS` - Rate-limit deferral backoff bounds (default: 30000 / 900000)
 - `JOBS_WORKER_CONCURRENCY` - Jobs this process runs at once; fixed at startup (default: 2)
 - `JOBS_POLL_MS` - Idle poll interval before asking for work again (default: 5000)
-- `JOBS_WORKER_MODE` - `all` (every type — the default), `system` (only types that cannot run on a node), or `off` (enqueue only); an unrecognised value warns and behaves as `all`
+- `JOBS_WORKER_MODE` - `all` (every type — the default), `system` (only types no node may claim **in this deployment right now** — the complement of `NodeOffloadService.offeredTypes()`, so a node-eligible type whose gates are closed is still claimed here), or `off` (enqueue only); an unrecognised value warns and behaves as `all`
 - `JOBS_JOB_TIMEOUT_MS` - Per-job timeout before the slot is freed and the job retries/fails (0 disables; default: 600000)
-- `JOBS_SYSTEM_MODE_EXTRA_TYPES` - Comma-separated node-eligible types the `system` worker mode should claim anyway (unset by default; leave unset unless using `system` mode)
+- `JOBS_SYSTEM_MODE_EXTRA_TYPES` - Comma-separated types the `system` worker mode should claim **in addition** to its complement — for running a type the fleet is also allowed to run (a small or paused fleet). Never needed to keep a type running at all: a node-eligible type this deployment does not offer to nodes is already in the complement. Unset by default
 - `JOBS_REAPER_ENABLED` - Whether this process reclaims jobs abandoned by a dead executor; independent of `JOBS_WORKER_MODE`. Only the literal `false` turns it off (default: on)
 
 **Worker Node Fleet:**
 - `NODE_STALE_OFFLINE_ENABLED` - Whether this process marks a node offline once its heartbeat is older than `nodes.staleHeartbeatSeconds × nodes.offlineStaleMultiplier`. Only the literal `false` turns it off (default: on)
 - `NODE_OFFLINE_PRUNE_ENABLED` - Whether this process forgets offline nodes past `nodes.offlineRetentionDays` (their jobs are unclaimed, not deleted). Depends on the sweep above being on. Only the literal `false` turns it off (default: on)
+- `NODE_SECRET_SWEEP_ENABLED` - Whether this process runs the ten-minute cron that revokes expired or orphaned per-job credentials brokered to worker nodes (epic #345, issue #349) — the third permanent job-queue exemption (see the MANDATORY rules above). Only the literal `false` turns it off (default: on). Independent of `JOBS_WORKER_MODE`, like the lease reaper, and for the same reason: a credential brokered to a node in a fleet this process does not execute jobs for still needs revoking. Whether a credential is ever brokered **at all** is the separate `nodes.jobSecretBrokerEnabled` system setting, default off — see [`docs/runbooks/node-job-secrets.md`](docs/runbooks/node-job-secrets.md)
 
 **Maintenance Mode:**
 - `MAINTENANCE_MODE` - Environment override that outranks the persisted setting. Set to `true` to force the window open even if the app cannot start (a pre-migration deploy), or to `false` to force it shut (recovery from a window opened with `allowAdmins` false). Only the literal strings `'true'`/`'false'` count; anything else (including unset) means "no override, use the stored setting". Requires an application restart to take effect. See `docs/runbooks/maintenance-mode.md`. ⚠️ Document a value for this variable as prose ("set to `true`"), never as an inline `# MAINTENANCE_MODE=true` example — `apps/cli`'s `parseEnvExample` reads *any* commented `# KEY=value` line in `infra/compose/.env.example` as declaring an optional variable, so an illustrative assignment inside prose registers as a second declaration and fails the CLI's env-spec test. `infra/compose/.env.example` already carries exactly one commented default (`# MAINTENANCE_MODE=false`) and a comment stating this rule — do not add a second commented line for this key.
 
 **Database Backup:**
-- `DB_BACKUP_SCHEDULE_ENABLED` - Whether this process runs the backup scheduler: a ten-minute cron that releases runs whose heartbeat stopped and starts a backup when the configured schedule has come due. Defaults to on; only the literal `false` turns it off, and it is deliberately independent of `JOBS_WORKER_MODE` — a backup is not queue work, so an API running as a pure control plane must still back its database up. Everything about the schedule itself (enabled, frequency, time of day, timezone, retention count, stale window) is a `databaseBackup` system setting, not an environment variable. See `docs/specs/database-backup.md`.
+- `DB_BACKUP_SCHEDULE_ENABLED` - Whether this process runs the backup scheduler: a ten-minute cron that enqueues the housekeeping sweep, starts a backup (by enqueuing `db.backup.run`) when the configured schedule has come due, and enqueues the retained-database drop. Defaults to on; only the literal `false` turns it off, and it is deliberately independent of `JOBS_WORKER_MODE` — the *tick* is not itself queue work (it only decides whether to enqueue), so an API running as a pure control plane must still queue its own backups even though `JOBS_WORKER_MODE=off` means nothing on this process will execute them. Everything about the schedule itself (enabled, frequency, time of day, timezone, retention count, stale window) is a `databaseBackup` system setting, not an environment variable — as is `nodeOffloadEnabled` (default **false**), which decides whether a worker node may take the dump at all. See `docs/specs/database-backup.md`.
 
 **Observability:**
 - `OTEL_ENABLED` - Enable OpenTelemetry (default: true)
@@ -852,7 +946,37 @@ logs its payload, and returns. `example.checksum` (#269) implements both
 `persistNodeResult` (node path), routing both through one private write
 method so a job's stored result cannot depend on which executor claimed it —
 that "one write, two paths" shape is the one thing to copy when writing a
-node-eligible handler of your own. See
+node-eligible handler of your own.
+
+Four more optional members, all on `JobHandler`, each following the same
+"presence is the declaration" rule as the pair above — implement one only
+when the default is genuinely wrong for this type (see the MANDATORY rules
+above for the first two as binding policy, not just options):
+
+- `profile?: { maxRuntimeMs, maxAttempts }` — overrides the deployment-wide
+  `JOBS_JOB_TIMEOUT_MS`/`JOBS_MAX_ATTEMPTS` for this type alone. Declare it for
+  a type that legitimately runs for hours (`maxRuntimeMs`) or must never be
+  auto-retried (`maxAttempts: 1`). The lease and its renewal interval are
+  *derived* from `maxRuntimeMs` — do not add a third field.
+- `deriveOutputKey?(job)` — overrides the node data plane's default upload key
+  (`node-outputs/<jobId>/<uuid>`) when the artifact's location is part of its
+  contract (a row records the key, a retention sweep lists a prefix). Must be
+  idempotent per job — re-derive from values already fixed on the job, or
+  re-read the row this job's first call already created.
+- `nodeOffloadEnabled?(): Promise<boolean>` — a runtime policy read (not a
+  static flag) letting a deployment say "not this workload" about a type that
+  is structurally node-eligible. Read at claim time by
+  `NodesService.nodeEligibleTypes`; never changes what `serverOnlyTypes()`
+  reports.
+- `nodeSecretBroker?: JobSecretBroker` — declares that a remote executor of
+  this type needs a credential, and how to mint/revoke one. See MANDATORY
+  rule 3 above and `apps/api/src/jobs/job-secret-broker.ts`.
+
+`db-backup/handlers/db-backup-run.handler.ts` (`db.backup.run`, epic #345) is the
+worked example that uses all four: a `profile` sized for a multi-hour dump
+with `maxAttempts: 1`, `deriveOutputKey` re-reading the backup's own run row,
+`nodeOffloadEnabled` reading `databaseBackup.nodeOffloadEnabled`, and
+`nodeSecretBroker` minting a short-lived read-only PostgreSQL role. See
 [`docs/specs/job-queue.md`](docs/specs/job-queue.md) and
 [`docs/specs/worker-nodes.md`](docs/specs/worker-nodes.md) for the full design
 — the claim's `FOR UPDATE SKIP LOCKED`, the lease, the data plane's presigned
@@ -918,12 +1042,16 @@ Don't restate any of that here; extend that file instead.
 
 ### Database Backups
 
-A backup is **not** a queue job, and must not become one — `jobs
-.stuckThresholdMinutes` defaults to 30 minutes, so the lease reaper would
-reset a legitimately long dump to `pending` and a **second `pg_dump`** would
-start against the same storage key. `database_backup_runs` is a dedicated
-table with its own heartbeat, its own stale window
-(`databaseBackup.runStaleMinutes`) and its own terminal states. Two more
+A backup **is** a queue job (`db.backup.run`, epic #345) and may be claimed by
+a worker node — but `database_backup_runs` is still **not** a `jobs` row and
+must not become one. `jobs.stuckThresholdMinutes` defaults to 30 minutes, so a
+run kept on the queue's own clock would be reset to `pending` mid-dump and a
+**second `pg_dump`** would start against the same storage key; the job survives
+that only because `db.backup.run` declares its own `maxRuntimeMs` and the lease
+is derived from it. `database_backup_runs` remains a dedicated table with its
+own heartbeat, its own stale window (`databaseBackup.runStaleMinutes`) and its
+own terminal states — and because a node cannot write that heartbeat at all,
+the stale sweep asks the JOB's lease before giving up on a run. Two more
 rules that are easy to break by accident: **at most one active run at a time
 is enforced by a partial UNIQUE index** (`database_backup_runs_active_uniq_idx`),
 never by a `findFirst` before the insert — Prisma cannot express that index,
@@ -941,6 +1069,33 @@ is documented in full in
 `pg_dump` client/server version mismatch is
 [`docs/runbooks/postgres-client-version.md`](docs/runbooks/postgres-client-version.md).
 Don't restate either here; extend those two instead.
+
+Running the dump on a worker node needs a database connection, and no amount of
+presigning produces one. `db-backup/pg-job-role.broker.ts` is the first
+`JobSecretBroker` in this repository (epic #345): per job it mints a
+`appjob_<job>_<random>` login role holding `CONNECT` + `USAGE` + `SELECT` and
+nothing else, `VALID UNTIL` the job's lease + 60s, through `withAdminConnection`
+outside the Prisma pool. `pg_dump` **does not need `SUPERUSER`** — `--no-owner
+--no-acl` keeps ownership and grants out of the archive, so a SELECT-only role
+produces the same bytes. Three layers bound a grant: the settle listener, the
+sweeper, and `VALID UNTIL`, which PostgreSQL enforces itself and which no
+switched-off cron can miss. A role without `CREATEROLE` is the **ordinary**
+managed-PostgreSQL case and answers `guided` with paste-ready SQL, never a 4xx.
+A node also needs a **network route** to PostgreSQL; there is deliberately no
+tunnelling, because that would put the API in the data path the presigned-URL
+data plane exists to keep it out of. Operator guide:
+[`docs/runbooks/node-job-secrets.md`](docs/runbooks/node-job-secrets.md).
+
+The type is **offered** to a node only when three things agree, all intersected
+at claim time and none of them mutating the registry: `nodes
+.jobSecretBrokerEnabled` (may the broker issue anything), `databaseBackup
+.nodeOffloadEnabled` (may this workload leave the server — default false, and a
+deliberately separate switch), and the broker's own `usable()` probe (can it
+mint here at all). Verification never moves with the work: the node reports a
+size, a digest and the key it was given, and the **server** reads the uploaded
+archive back before setting `verified_at`. `docs/specs/database-backup.md` §16
+carries the whole design, including why `bytes` crosses the wire as a decimal
+string.
 
 Restoring one is the other half, and it has two rules of its own. **No
 pre-flight path may create, drop or rename anything** — an operator asks "can

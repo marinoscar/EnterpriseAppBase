@@ -800,7 +800,8 @@ export class SystemSettingsService {
    * reasons `getJobsPolicy` above gives, and each of them bites harder here:
    *
    *   1. IT DOES NOT CREATE THE ROW. Its callers are #282's scheduler tick and
-   *      `DatabaseBackupRunnerService.startBackup`. A cron materialising a
+   *      `DatabaseBackupRunnerService`'s three entry points (`queueBackup`,
+   *      `runQueuedBackup` and `startBackup`). A cron materialising a
    *      settings row as a side effect of deciding whether to take a backup is
    *      a write nobody asked for — and it would happen on every tick of a
    *      deployment that has backups switched off.
@@ -1006,6 +1007,9 @@ export class SystemSettingsService {
         offlineRetentionDays:
           dto.nodes?.offlineRetentionDays ??
           currentValue.nodes.offlineRetentionDays,
+        jobSecretBrokerEnabled:
+          dto.nodes?.jobSecretBrokerEnabled ??
+          currentValue.nodes.jobSecretBrokerEnabled,
       },
       databaseBackup: {
         enabled: dto.databaseBackup?.enabled ?? currentValue.databaseBackup.enabled,
@@ -1037,6 +1041,9 @@ export class SystemSettingsService {
         oldDatabaseRetentionHours:
           dto.databaseBackup?.oldDatabaseRetentionHours ??
           currentValue.databaseBackup.oldDatabaseRetentionHours,
+        nodeOffloadEnabled:
+          dto.databaseBackup?.nodeOffloadEnabled ??
+          currentValue.databaseBackup.nodeOffloadEnabled,
       },
       maintenance: {
         enabled: dto.maintenance?.enabled ?? currentValue.maintenance.enabled,

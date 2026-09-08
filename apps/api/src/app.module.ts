@@ -131,16 +131,26 @@ import configuration from './config/configuration';
 
     // The database backup engine (#281, epic #254): the `database_backup_runs`
     // table's only writer, and the streaming `pg_dump` behind it. Registered
-    // here even though nothing triggers a backup yet (#282 adds the scheduler
-    // and the sweeps, #283 the admin API) so a broken provider graph fails at
-    // boot rather than at 02:00 on the first night backups are switched on. It
-    // starts no timer and issues no query until `startBackup` is called.
+    // here so a broken provider graph fails at boot rather than at 02:00 on
+    // the first night backups are switched on.
     //
-    // ⚠ IT IS NOT A JOB TYPE, and must not become one. See the
-    // "### Why this is not a queue job" block above `DatabaseBackupRun` in
-    // prisma/schema.prisma: the queue's 30-minute stuck threshold would reset a
-    // legitimately long dump to `pending` and start a SECOND `pg_dump` against
-    // the same storage key.
+    // ⚠ IT IS A JOB TYPE SINCE #351 (epic #345), having deliberately not been
+    // one before. `db.backup.run` is registered by `DbBackupModule`, and the
+    // dump's lifetime is the job's lifetime. The three objections the schema
+    // used to raise — the 30-minute reaper resetting a long dump, an
+    // in-process worker that never renewed its lease, and an attempt budget
+    // that would re-run a failed multi-gigabyte dump — are answered by the
+    // handler's `{ maxRuntimeMs: 6h, maxAttempts: 1 }` profile (#346) and by
+    // #347's lease renewal. See the "### Why this WAS not a queue job" block
+    // above `DatabaseBackupRun` in prisma/schema.prisma, which keeps the
+    // history rather than pretending the objections were never valid.
+    //
+    // ⚠ CONSEQUENCE FOR AN ENQUEUE-ONLY DEPLOYMENT: with
+    // `JOBS_WORKER_MODE=off` this process queues backups and never takes them.
+    // `system` mode DOES take them (the type is server-only by derivation, so
+    // that mode claims it); only `off` does not, which is what `off` means.
+    // The stale sweep's `pending` arm is what stops those unclaimed rows
+    // holding the single active backup slot forever.
     DbBackupModule,
 
     // Maintenance mode (#257, epic #254): the three-layer switch, its admin

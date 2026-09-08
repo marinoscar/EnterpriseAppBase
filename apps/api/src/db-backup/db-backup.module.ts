@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { MaintenanceModule } from '../common/maintenance/maintenance.module';
+import { JobsModule } from '../jobs/jobs.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { SettingsModule } from '../settings/settings.module';
 import { StorageProvidersModule } from '../storage/providers/storage-providers.module';
@@ -9,6 +10,11 @@ import { DatabaseBackupAdminService } from './db-backup-admin.service';
 import { DatabaseBackupRetentionService } from './db-backup-retention.service';
 import { DatabaseBackupRunnerService } from './db-backup-runner.service';
 import { DatabaseBackupController } from './db-backup.controller';
+import { DatabaseBackupRunHandler } from './handlers/db-backup-run.handler';
+import { DatabaseBackupSweepHandler } from './handlers/db-backup-sweep.handler';
+import { DatabaseRestoreOldDbDropHandler } from './handlers/db-restore-old-db-drop.handler';
+import { DatabaseRestoreRunHandler } from './handlers/db-restore-run.handler';
+import { PgJobRoleBroker } from './pg-job-role.broker';
 import { DatabaseRestorePreflightService } from './restore-preflight.service';
 import { DatabaseBackupScheduleTask } from './tasks/db-backup-schedule.task';
 
@@ -205,12 +211,66 @@ import { DatabaseBackupScheduleTask } from './tasks/db-backup-schedule.task';
 // site: the post-restore answer to "who can act on this?" is the correct one.
 // =============================================================================
 
+// -----------------------------------------------------------------------------
+// #351 (EPIC #345) ADDS `JobsModule`, AND THE DUMP BECOMES A QUEUE JOB
+// -----------------------------------------------------------------------------
+//
+// Imported for exactly two things, both narrow: `JobsService` (the runner
+// enqueues `db.backup.run` from `queueBackup`) and `JobHandlerRegistry` (the
+// new handler self-registers with it). The direction stays acyclic, which is
+// the property that makes this import safe at all: `JobsModule` reaches
+// `PrismaModule`, `SettingsModule`, `StorageProvidersModule` and
+// `NotificationsModule`, and NOTHING in the queue reaches back into backups —
+// the queue does not know this type exists, which is precisely the promise of
+// the one-class extension point.
+//
+// `DatabaseBackupRunHandler` is a provider here rather than in `JobsModule`
+// for the reason step 3 of `jobs/handlers/README.md` gives: a handler belongs
+// to the module that owns the FEATURE, and the queue's own module provides
+// only the handlers that belong to no feature (`example.echo`,
+// `example.checksum`, `job.history.purge`). It is NOT exported: registration
+// happens through its own `onModuleInit`, so nothing outside this module ever
+// needs to resolve it, and a handler reachable from elsewhere is an invitation
+// to call `process()` directly and bypass the lease the worker is holding.
+//
+// ⚠ THE RUNNER IS STILL THE ONE WRITER OF `database_backup_runs`, and the
+// handler changes nothing about that: it delegates to `runQueuedBackup` and
+// holds no Prisma client of its own. Two writers of that table would make the
+// single-active-run index a coincidence rather than a guarantee.
+//
+// -----------------------------------------------------------------------------
+// #350 (EPIC #345) ADDS `PgJobRoleBroker`, THE FIRST `JobSecretBroker` ANYWHERE
+// -----------------------------------------------------------------------------
+//
+// A provider, injected into `DatabaseBackupRunHandler` (which exposes it as
+// `nodeSecretBroker`) and into `DatabaseBackupAdminService` (which exposes its
+// pre-flight over HTTP). It needs NO new import: everything it does goes through
+// a short-lived `pg.Client` outside the Prisma pool, the same way the restore
+// path does, and `PG_JOB_ROLE_SEAM` joins the list of OPTIONAL tokens
+// deliberately left unbound for exactly the reason `RESTORE_PREFLIGHT_SEAM` is
+// — a stubbed cluster in production is a broker that reports minting
+// credentials it never made.
+//
+// ⚠ ONE INSTANCE, AND THAT IS LOAD-BEARING RATHER THAN INCIDENTAL. Nest
+// providers are singletons per module, and the broker caches its `CREATEROLE`
+// probe for a minute (`USABLE_CACHE_MS`) precisely so a polling fleet does not
+// re-probe per node per tick. Constructing a broker inside the handler instead
+// would give the cache one owner per construction, which is a cache that never
+// hits.
+//
+// It is NOT exported. The two consumers are both in this module, and a broker
+// reachable from elsewhere is an invitation to mint a database credential
+// outside the one route that authorises it (`POST /api/nodes/:id/jobs/:jobId
+// /secret`, gated on the hold guard, the opt-in setting and `usable()`).
+// =============================================================================
+
 @Module({
   imports: [
     SettingsModule,
     StorageProvidersModule,
     MaintenanceModule,
     NotificationsModule,
+    JobsModule,
   ],
   controllers: [DatabaseBackupController],
   providers: [
@@ -218,6 +278,14 @@ import { DatabaseBackupScheduleTask } from './tasks/db-backup-schedule.task';
     DatabaseBackupRetentionService,
     DatabaseBackupAdminService,
     DatabaseBackupScheduleTask,
+    DatabaseBackupRunHandler,
+    // #353 (epic #345): the three remaining long-running activities in this
+    // subsystem, each now a queue job with a handler of its own. The schedule
+    // task enqueues the first two; `startRestore` enqueues the third.
+    DatabaseBackupSweepHandler,
+    DatabaseRestoreOldDbDropHandler,
+    DatabaseRestoreRunHandler,
+    PgJobRoleBroker,
     DatabaseRestorePreflightService,
     DatabaseRestoreService,
   ],

@@ -42,12 +42,16 @@ import { Job, PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 
 import { JobClaimService } from '../../src/jobs/job-claim.service';
+import { JobLeaseService } from '../../src/jobs/job-lease.service';
 import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
 import { JobTerminalService } from '../../src/jobs/job-terminal.service';
+import { DEFAULT_SYSTEM_SETTINGS } from '../../src/common/types/settings.types';
 import { NodesService } from '../../src/nodes/nodes.service';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import { ClaimJobsDto } from '../../src/nodes/dto/node-control-plane.dto';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
+import { NodeOffloadService } from '../../src/jobs/node-offload.service';
+import type { SystemSettingsService } from '../../src/settings/system-settings/system-settings.service';
 
 const { describeWithDb } = resolveDbSuite('node-claim-contention.db.spec');
 
@@ -118,7 +122,19 @@ describeWithDb('A node and the in-process worker claiming concurrently (real Pos
       // Never reached: this suite claims and never settles. Passing a stub
       // rather than a real one keeps the suite's failure surface to the claim.
       {} as unknown as JobTerminalService,
-      registry
+      // Never reached either: this suite claims and never renews.
+      {} as unknown as JobLeaseService,
+      registry,
+      // WHAT A NODE MAY CLAIM HERE, RIGHT NOW (#349, #352) — the REAL service
+      // over this suite's own registry, with only its settings read stubbed to
+      // the shipped default (`jobSecretBrokerEnabled: false`). No handler here
+      // declares a broker or an offload gate, so the three filters it applies
+      // are a no-op — but the claim reads it, and stubbing the service itself
+      // would hide a drift between what a node is offered and what the
+      // in-process worker's `system` mode claims as the complement.
+      new NodeOffloadService(registry, {
+        getNodesPolicy: async () => ({ ...DEFAULT_SYSTEM_SETTINGS.nodes }),
+      } as unknown as SystemSettingsService)
     );
 
     serverClaimer = new JobClaimService(serverClient as unknown as PrismaService);
@@ -168,7 +184,7 @@ describeWithDb('A node and the in-process worker claiming concurrently (real Pos
       executor: 'server',
       eligibleTypes: [type],
       limit,
-      leaseMs: 60_000,
+      leases: [{ type: type, leaseMs: 60_000 }],
     });
 
   const claimAsNode = (limit: number): Promise<Job[]> =>

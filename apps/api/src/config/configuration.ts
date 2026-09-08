@@ -206,9 +206,22 @@ export default () => {
   // switch says: the prune selects `offline` rows, and without the sweep a
   // crashed node never reaches that status. The pair is ordered, not
   // independent.
+  //
+  // `secretSweepEnabled` (#349, epic #345) is the third of the same kind, and
+  // its default matters more than the other two. It gates the sweep that
+  // revokes per-job credentials the settle-event path missed — and that path
+  // STRUCTURALLY CANNOT cover three cases (a job reaped by an `updateMany`
+  // that emits nothing, a replica that died between settling and revoking, a
+  // `write-failed` terminal outcome), so this is not belt-and-braces. Switched
+  // off, a deployment accumulates live database credentials nobody destroys
+  // until each one's own expiry catches up. Note it does NOT gate whether
+  // credentials may be issued at all: that is the `nodes.jobSecretBrokerEnabled`
+  // SYSTEM SETTING, because it is a decision about the deployment's trust
+  // boundary rather than about which replica runs a timer.
   nodes: {
     staleOfflineEnabled: process.env.NODE_STALE_OFFLINE_ENABLED !== 'false',
     offlinePruneEnabled: process.env.NODE_OFFLINE_PRUNE_ENABLED !== 'false',
+    secretSweepEnabled: process.env.NODE_SECRET_SWEEP_ENABLED !== 'false',
   },
 
   // Database backup scheduling (#282). ONE switch, and — like the two groups
@@ -217,12 +230,20 @@ export default () => {
   // window are all system settings an administrator edits at runtime, because
   // they are decisions about a deployment rather than about a process.
   //
-  // ⚠ DELIBERATELY NOT `JOBS_WORKER_MODE`. Taking a backup is not queue work
-  // (see the "Why this is not a queue job" block in `schema.prisma`), and an
-  // API running as a pure control plane in front of an external node fleet is
-  // still the only component with a database connection — so gating backups on
-  // its willingness to execute jobs would leave that deployment's database
-  // backed up by nobody.
+  // ⚠ DELIBERATELY NOT `JOBS_WORKER_MODE`, AND STILL NOT SINCE #351 MADE THE
+  // DUMP A QUEUE JOB. This switch governs whether this process runs the
+  // ten-minute cron that DECIDES a backup is due and enqueues it — a decision
+  // about the deployment's schedule, not about the queue. An API running as a
+  // pure control plane in front of an external node fleet is still the only
+  // component with a database connection, so gating the schedule on its
+  // willingness to execute jobs would leave that deployment's database backed
+  // up by nobody.
+  //
+  // What DOES depend on the worker is the execution: `db.backup.run` is
+  // server-only by derivation, so `JOBS_WORKER_MODE=system` claims it and
+  // `off` does not. An enqueue-only deployment therefore queues backups it
+  // never takes, which is what `off` means and is why the stale sweep now ages
+  // out `pending` run rows.
   //
   // DEFAULTS TO ON, and only the literal string turns it off. A deployment
   // whose backups silently stopped because of a typo in an env file is

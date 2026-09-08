@@ -492,6 +492,42 @@ and the application is up for all of them. **A failure at any point before the
 rename leaves the live database completely untouched and drops the scratch
 database.**
 
+### 8.0 It is a queue job (`db.restore.run`, #353, epic #345)
+
+`startRestore` runs the gates and **enqueues**; a worker calls
+`executeRestoreJob`. Until #353 it ended in `void this.executeRestore(...)` — a
+promise nothing owned, running for hours, absent from `GET /api/admin/jobs`,
+holding no worker slot and bounded by no timeout. As a job it has a row with a
+duration and a `lastError`, a ceiling of six hours, and — the number that
+matters — **`maxAttempts: 1`**. `attempts` is charged at claim time, so a
+restore whose executor dies has already spent its only attempt and the reaper
+permanently *fails* the row rather than requeueing it. A requeued restore would
+replay a restore that may already have succeeded, which is the worst outcome
+available in this subsystem.
+
+**It is server-only by derivation and permanently so.** It carries neither
+`nodeResultSchema` nor `persistNodeResult`, so `serverOnlyTypes()` contains it
+and nothing has to enforce anything. The reason is in the handler's header: it
+renames the live database, terminates pooled connections, needs `CREATEDB`, runs
+an admin connection on the `postgres` maintenance database, and ends by exiting
+the process. None of that is work a remote machine may do.
+
+**Concurrency is three guards, and the dedup index replaces neither of the
+others.** A restore job's dedup key folds in its *subject*, so the index refuses
+a second restore of the *same* archive and permits one of a *different* archive
+— which is the catastrophe. So: the process-local `activeRestoreRunId` flag
+closes the double-click race around the pre-flight (it is the only guard that is
+not a read followed by a write); a type-wide query for a `pending`/`running`
+`db.restore.run` closes the case the flag cannot see, including a restore queued
+by a previous process or a second replica, and is the only guard that refuses a
+different archive; the index closes the same-archive race between replicas
+atomically. The single-replica prerequisite still stands.
+
+⚠ **A `pending` restore job nothing ever claims blocks later restores**, by
+design — the durable guard is type-wide. That is the honest cost of refusing
+concurrent restores across processes; an operator clears it by deleting the job
+from `GET /api/admin/jobs`.
+
 ### 8.1 Why `pg_restore --clean` against the live database is rejected outright
 
 It is the obvious implementation, and the reason it is refused is written into
@@ -608,11 +644,45 @@ await withAdminConnection(pg, async (client) => {
     throw err;
   }
 
-  await reinsertCatalog(pg, catalog);
+  await reinsertCatalog(pg, catalog);   // ← the settled `jobs` row goes first
 });
 
-exitProcess(0);   // rebuild the connection pool
+await announceRestoreCompleted(...);   // awaited; §8.5.1
+exitProcess(0);                        // rebuild the connection pool
 ```
+
+#### 8.5.1 ⚠ The job settles itself, as part of the carry
+
+`process()` **never returns on this path** — the process exits inside it — so
+the worker's terminal write never runs. Left alone that produces a `jobs` row
+stuck `running` with a live lease, which the restarted API's reaper finds and,
+under `maxAttempts: 1`, marks **`failed`**: a successful restore recorded as a
+failure. A job row that lies is not an acceptable price for a job row that
+exists.
+
+The terminal write therefore **rides with the catalog carry**, and that is the
+only place it can correctly go. After the renames, Prisma's live database name
+resolves to the *promoted* database, whose `jobs` table is the archive's; a
+`succeeded` written before the swap lands in the database about to be renamed
+away and dropped — and worse, if the second rename then failed and the original
+were put back, the row would claim a restore succeeded that did not. Written as
+part of `reinsertCatalog`, it lands **if and only if both renames succeeded**,
+into the database that survives, immediately before the exit.
+
+`CARRY_JOB_SQL` writes the shape `JobTerminalService.completeSucceeded` would
+have written: `succeeded`, `finished_at` = the swap instant, `scheduled_for`,
+`lease_expires_at` and `claimed_by_node_id` cleared, `executor` and `last_error`
+preserved. It goes **first** in the carry, ahead of the backup records, because
+it is the one carried value a *machine* acts on rather than a human reading it.
+It is an upsert rather than an insert because a `pre_restore` archive contains
+this very row as `running`, and rolling that dump back replays it.
+
+The residue, stated honestly: `reinsertCatalog` never throws, so a carry that
+fails leaves the promoted database with no settled row — and if that archive was
+a `pre_restore` dump containing the row as `running`, the reaper will fail it
+after the restart. That case already logs `CRITICAL` and is in the runbook; it
+is the same failure mode that loses the backup catalog, and the fix is the same
+one.
 
 **Between the two renames there is no database under the live name at all.**
 That is why traffic must already be stopped before the first rename, and why the

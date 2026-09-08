@@ -1246,18 +1246,50 @@ may not fully control.
 ### 12.3 The lease
 
 A claimed job is not just `running` — it carries `lease_expires_at`, derived
-by the server from `JOBS_JOB_TIMEOUT_MS` and **not negotiable by either
-executor** (a node cannot request its own lease length; see
-`docs/specs/worker-nodes.md` for why that would let one bad actor park every
-row it claims). Both executors renew the lease while work is in progress (a
-node explicitly, via `POST …/renew`; the in-process worker implicitly, by
-holding the row for the duration of `process()`). A lease reaper —
-`JOBS_REAPER_ENABLED`, independent of `JOBS_WORKER_MODE` so a pure
-control-plane API still reaps for its fleet — sweeps jobs whose lease expired
-with no settlement: still-retryable jobs are requeued, jobs that have spent
-their attempt budget are permanently failed. This is the same mechanism
-whether the abandoning executor was a killed API replica or a worker node
-that lost power; the queue does not distinguish the two.
+by the server from the job type's own `maxRuntimeMs` where it declares one and
+from `JOBS_JOB_TIMEOUT_MS` otherwise, and **not negotiable by either executor**
+(a node cannot request its own lease length; see `docs/specs/worker-nodes.md`
+for why that would let one bad actor park every row it claims).
+
+**Both executors renew the lease explicitly, through the same code.** A node
+calls `POST …/renew` on a cadence the server hands it with each assignment
+(`renewIntervalMs`, a third of that job's lease); the in-process worker runs a
+ticker on the same derived interval for the whole of `process()`. Both reach
+`JobLeaseService.renew`, whose guard — the row must still be `running`, still
+held by the caller, and its lease must not yet have passed — is written once
+rather than once per executor. A renewal that finds the row is no longer the
+caller's stops the ticker and logs at `error`: the work continues, because
+JavaScript cannot cancel a promise mid-`await`, but a worker that has lost the
+row does not go on re-forging the queue's view of it.
+
+This is a correctness requirement, not an optimisation. Until issue #347 the
+in-process worker wrote a lease at claim time and never touched the row again,
+and the reaper's aged-claim signal requeued any job that had been running
+longer than `jobs.stuckThresholdMinutes` regardless of its lease — so every
+handler that outran that threshold was started a second time, concurrently,
+with nothing in the logs.
+
+A lease reaper — `JOBS_REAPER_ENABLED`, independent of `JOBS_WORKER_MODE` so a
+pure control-plane API still reaps for its fleet — sweeps abandoned `running`
+rows on **four** OR'd signals, evaluated against one set of instants per sweep:
+
+1. **aged and unleased** — `started_at` older than the threshold with no lease
+   at all (a fork's own claim path, a hand-inserted row, a pre-lease
+   migration). Age is consulted only where there is no lease to consult
+   instead, which is what makes a renewing job safe at any age.
+2. **zombie** — `running` with no `started_at` and no lease, aged by
+   `created_at`; invisible to every other signal, and stuck forever without
+   this one.
+3. **dead owner** — the lease has passed. The fastest and most precise signal,
+   and the only one that does not wait out the threshold.
+4. **implausible lease** — a lease further out than the longest lease any
+   registered handler could legitimately ask for, which is what still catches a
+   clock jump or a corrupt write now that signals 1 and 2 ignore leased rows.
+
+Still-retryable jobs are requeued, jobs that have spent their attempt budget
+are permanently failed. This is the same mechanism whether the abandoning
+executor was a killed API replica or a worker node that lost power; the queue
+does not distinguish the two.
 
 ### 12.4 The deliberate absence of Redis
 
@@ -1273,6 +1305,56 @@ template makes deliberately, because the volume a *template's default path*
 needs to sustain is not the volume a purpose-built message broker exists for.
 A fork whose queue outgrows this design is free to add Redis; the point is
 that doing so is not the price of entry for the first job type.
+
+### 12.5 Node offload: two executors partition the queue, not just share it
+
+§12.2 already establishes that a `JobHandler` runs unchanged on either
+executor. Epic #345 adds a second axis on top of that: whether a
+node-eligible type is *offered* to the fleet at all is a **runtime policy**,
+re-evaluated on every claim, not a fact fixed when the handler was written.
+`NodeOffloadService.offeredTypes()` intersects three independent gates —
+a deployment-wide `nodes.jobSecretBrokerEnabled` switch, a feature's own
+policy (`JobHandler.nodeOffloadEnabled()`, e.g. `databaseBackup
+.nodeOffloadEnabled`), and a broker's own `usable()` capability probe — and
+none of the three mutates the handler registry. Structural eligibility
+(§2 of [`job-queue.md`](specs/job-queue.md)) still answers "**can** this type
+ever leave the server"; this answers "**does** this deployment let it, right
+now".
+
+That second question has one consumer besides the node claim endpoint:
+`JOBS_WORKER_MODE=system` reads the **complement** of `offeredTypes()`, not a
+static "everything `serverOnlyTypes()` says no node can run". Before this
+existed, a type could be structurally node-eligible (so it left
+`serverOnlyTypes()` permanently) while every offload gate shipped off (so no
+node would ever claim it) — and the two readers, taken separately, agreed on
+nothing: `system` mode did not claim it either, and the type simply stopped
+running anywhere. Deriving `system` mode from the same set the node plane is
+offered is what makes the API server and the fleet **partition** the queue by
+construction rather than by two derivations that happen to agree while
+eligibility is static.
+
+**The per-job secret broker is the other half of what node offload had to
+solve.** A node holds no *durable* database or storage credential (§8 of
+[`worker-nodes.md`](specs/worker-nodes.md)) — presigned URLs (§12.2 above)
+answer the storage half, and a `pg_dump` for `db.backup.run` is the first type
+that needed the database half too. A handler declares the need by carrying a
+`nodeSecretBroker`; its presence is the declaration, exactly as
+`nodeResultSchema` + `persistNodeResult` declare node eligibility itself
+(`job-handler.interface.ts`). At claim time a node calls
+`POST /api/nodes/:id/jobs/:jobId/secret`, gated by `assertJobHeldByNode`
+(§12.3's lease check) and by `nodes.jobSecretBrokerEnabled`; the broker mints
+a short-lived, job-scoped credential — for `db.backup.run`, a PostgreSQL role
+with `CONNECT`+`USAGE`+`SELECT` and a `VALID UNTIL` clamped to the job's own
+lease plus a short grace — and the server records only the credential's
+**handle** in `job_node_secrets`, never its material. Three independent paths
+can end a grant: the job-settle listener, the ten-minute
+`NodeSecretSweepTask` cron (the third permanent exemption from "every
+long-running activity is a queue job" — see `CLAUDE.md` — because credential
+revocation must not depend on the queue it might itself be wedged inside),
+and `VALID UNTIL` enforced by PostgreSQL itself, which needs no cron to be
+correct. Full design, including the two separate opt-in settings and the
+`guided` capability-probe outcome for a database that cannot grant
+`CREATEROLE`: [`database-backup.md` §16](specs/database-backup.md#16-running-the-dump-on-a-worker-node-352-epic-345).
 
 ---
 
@@ -1856,7 +1938,7 @@ alternatives, and (where relevant) an operator runbook it defers to:
 | [job-queue.md](specs/job-queue.md) | The background job queue — handler contract, claim/lease mechanics, retry and rate-limit budgets, the admin surface |
 | [worker-nodes.md](specs/worker-nodes.md) | The remote worker node fleet — registration, the claim/lease/data-plane mechanics, capability probing, fleet health |
 | [maintenance-mode.md](specs/maintenance-mode.md) | The maintenance window — the three-layer override precedence, the database restore swap it exists for |
-| [database-backup.md](specs/database-backup.md) | Database backups — the streaming `pg_dump` contract, the dedicated run table, why a backup is not a queue job |
+| [database-backup.md](specs/database-backup.md) | Database backups — the streaming `pg_dump` contract, the dedicated run table, why the dump is now a queue job and what had to change first, running it on a worker node |
 | [database-restore.md](specs/database-restore.md) | Database restore and rollback — the pre-flight gates, the three outcomes, the maintenance-window coordination |
 | [browser-notifications.md](specs/browser-notifications.md) | OS-level browser notifications and Web Push — the service worker, the notification capability model, the admin kill switch |
 | [notification-broadcasts.md](specs/notification-broadcasts.md) | Admin notification broadcasts — composing and sending an announcement to every user, the fan-out job types |

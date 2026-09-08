@@ -67,6 +67,7 @@ import { ROLES_KEY } from '../../src/auth/decorators/roles.decorator';
 import { DatabaseBackupController } from '../../src/db-backup/db-backup.controller';
 import { BACKUP_DOWNLOAD_URL_EXPIRY_SECONDS } from '../../src/db-backup/db-backup-admin.service';
 import { DatabaseBackupRunnerService } from '../../src/db-backup/db-backup-runner.service';
+import { PgJobRoleBroker } from '../../src/db-backup/pg-job-role.broker';
 import { DatabaseBackupAlreadyRunningError } from '../../src/db-backup/db-backup.errors';
 import { STORAGE_PROVIDER } from '../../src/storage/providers/storage-provider.interface';
 import {
@@ -83,6 +84,8 @@ import {
 } from '../helpers/auth-mock.helper';
 
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
+/** #351: the `db.backup.run` job the enqueue creates alongside the run row. */
+const JOB_ID = '11111111-1111-4111-8111-1111111111bb';
 const OTHER_RUN_ID = '33333333-3333-4333-8333-333333333333';
 const STORAGE_KEY = 'database-backups/app/2026/09/app-20260907T020000Z-run.dump';
 
@@ -171,7 +174,10 @@ describe('Admin database-backup API (Integration)', () => {
 
   const runner = {
     assertStorageProviderUsable: jest.fn(),
-    startBackup: jest.fn(),
+    // #351: the endpoint ENQUEUES now. The double answers with the pair
+    // `queueBackup` returns — a `pending` run row and the `db.backup.run` job
+    // a worker will claim.
+    queueBackup: jest.fn(),
     cancel: jest.fn(),
   };
 
@@ -180,12 +186,27 @@ describe('Admin database-backup API (Integration)', () => {
     getSignedDownloadUrl: jest.fn(),
   };
 
+  /**
+   * The #350 job-role broker, substituted for the same reason the runner and
+   * the storage provider are: it opens a real `pg.Client` to a real cluster,
+   * and a suite that needed one is a suite CI skips.
+   * `src/db-backup/pg-job-role.broker.db.spec.ts` owns the cluster behaviour.
+   */
+  const jobRoles = {
+    preflight: jest.fn(),
+    usable: jest.fn(),
+    issue: jest.fn(),
+    revoke: jest.fn(),
+    kind: 'postgres.readonly',
+  };
+
   beforeAll(async () => {
     context = await createTestApp({
       useMockDatabase: true,
       overrideProviders: [
         { provide: DatabaseBackupRunnerService, useValue: runner },
         { provide: STORAGE_PROVIDER, useValue: storage },
+        { provide: PgJobRoleBroker, useValue: jobRoles },
       ],
     });
   }, 60000);
@@ -216,8 +237,11 @@ describe('Admin database-backup API (Integration)', () => {
     // pure helper it forwards to has its own tests in
     // `src/db-backup/db-backup-storage.spec.ts`.
     runner.assertStorageProviderUsable.mockImplementation(() => undefined);
-    runner.startBackup.mockReset();
-    runner.startBackup.mockResolvedValue(backupRow({ status: 'running' }));
+    runner.queueBackup.mockReset();
+    runner.queueBackup.mockResolvedValue({
+      run: backupRow({ status: 'pending' }),
+      job: { id: JOB_ID },
+    });
     runner.cancel.mockReset();
     runner.cancel.mockReturnValue({ outcome: 'signalled', runId: RUN_ID });
 
@@ -227,6 +251,15 @@ describe('Admin database-backup API (Integration)', () => {
     });
     storage.getSignedDownloadUrl.mockReset();
     storage.getSignedDownloadUrl.mockResolvedValue('https://storage.example/key?signed');
+
+    jobRoles.preflight.mockReset();
+    jobRoles.preflight.mockResolvedValue({
+      outcome: 'ok',
+      kind: 'postgres.readonly',
+      databaseRole: 'appuser',
+      targetDatabase: 'appdb',
+      detail: 'This deployment may create roles.',
+    });
   });
 
   const server = () => context.app.getHttpServer();
@@ -267,11 +300,32 @@ describe('Admin database-backup API (Integration)', () => {
         .send({})
         .expect(202);
 
-      expect(runner.startBackup).toHaveBeenCalledWith({
+      expect(runner.queueBackup).toHaveBeenCalledWith({
         trigger: 'manual',
         createdById: admin.id,
       });
       expect(response.body.data.id).toBe(RUN_ID);
+    });
+
+    it('reads GET /admin/db-backup/node-credential-preflight as itself, not as a run id (#350)', async () => {
+      const admin = await createMockAdminUser(context);
+
+      const response = await request(server())
+        .get('/api/admin/db-backup/node-credential-preflight')
+        .set(authHeader(admin.accessToken))
+        .expect(200);
+
+      // Hyphens and all — if a `@Get(':id')` were ever declared at the prefix
+      // root above it, this would be captured as an id and `ParseUUIDPipe`
+      // would answer `400 Validation failed (uuid is expected)`.
+      expect(response.body.data).toMatchObject({
+        outcome: 'ok',
+        kind: 'postgres.readonly',
+        databaseRole: 'appuser',
+        targetDatabase: 'appdb',
+        guidance: null,
+      });
+      expect(response.body.data).toHaveProperty('brokerEnabled');
     });
 
     it('reads GET /admin/db-backup/runs as the list, not as a run id', async () => {
@@ -372,11 +426,11 @@ describe('Admin database-backup API (Integration)', () => {
       // The single-active-run slot, as the partial unique index enforces it:
       // the first claim wins and every later one is refused BY NAME.
       let claimed: string | null = null;
-      runner.startBackup.mockImplementation(async () => {
+      runner.queueBackup.mockImplementation(async () => {
         if (claimed !== null) throw new DatabaseBackupAlreadyRunningError(claimed);
         claimed = RUN_ID;
 
-        return backupRow({ status: 'running' });
+        return { run: backupRow({ status: 'pending' }), job: { id: JOB_ID } };
       });
 
       const first = await request(server())
@@ -388,7 +442,13 @@ describe('Admin database-backup API (Integration)', () => {
       // A REAL id, not a job ticket or a boolean: the caller has something to
       // poll the moment the response lands.
       expect(first.body.data.id).toBe(RUN_ID);
-      expect(first.body.data.status).toBe('running');
+      // ⚠ `pending`, NOT `running`, since #351 — and the change is a
+      // correction rather than a regression. The row is created at ENQUEUE
+      // time and the handler writes `running` when a worker actually claims
+      // the job, so the endpoint no longer asserts that a `pg_dump` exists
+      // before one does. `pending` was always in the DTO's status enum and in
+      // `ACTIVE_BACKUP_STATUSES`, so no client contract moved.
+      expect(first.body.data.status).toBe('pending');
 
       const second = await request(server())
         .post('/api/admin/db-backup/runs')
@@ -425,7 +485,7 @@ describe('Admin database-backup API (Integration)', () => {
       const { DatabaseBackupStorageProviderError } = await import(
         '../../src/db-backup/db-backup.errors'
       );
-      runner.startBackup.mockRejectedValue(
+      runner.queueBackup.mockRejectedValue(
         new DatabaseBackupStorageProviderError('gcs', 's3')
       );
 
@@ -743,6 +803,44 @@ describe('Admin database-backup API (Integration)', () => {
   });
 
   // =========================================================================
+  // ⚠ `guided` is a 200 (#350)
+  // =========================================================================
+
+  describe('the node-credential pre-flight refuses with a verdict, never a status code', () => {
+    it('answers 200 with the command block when this deployment cannot CREATE ROLE', async () => {
+      const admin = await createMockAdminUser(context);
+      jobRoles.preflight.mockResolvedValue({
+        outcome: 'guided',
+        kind: 'postgres.readonly',
+        databaseRole: 'appuser',
+        targetDatabase: 'appdb',
+        detail: 'This deployment\'s database role ("appuser") may not CREATE ROLE.',
+        guidance: {
+          reason: 'no CREATEROLE',
+          commands: 'ALTER ROLE "appuser" CREATEROLE;',
+          runbook: 'docs/runbooks/node-job-secrets.md',
+        },
+      });
+
+      const response = await request(server())
+        .get('/api/admin/db-backup/node-credential-preflight')
+        .set(authHeader(admin.accessToken))
+        // ⚠ 200. Managed PostgreSQL withholding CREATEROLE is the ORDINARY
+        // configuration; a 4xx would tell an administrator their platform is
+        // unsupported when it is not, and a 5xx would say something is broken
+        // when nothing is. The same argument the restore pair's `guided` mode
+        // makes one file over.
+        .expect(200);
+
+      expect(response.body.data.outcome).toBe('guided');
+      // The remedy survives the response pipeline verbatim — it is the part a
+      // person pastes into a terminal.
+      expect(response.body.data.guidance.commands).toBe('ALTER ROLE "appuser" CREATEROLE;');
+      expect(response.body.data.guidance.runbook).toBe('docs/runbooks/node-job-secrets.md');
+    });
+  });
+
+  // =========================================================================
   // RBAC — the decorators, and the guards that enforce them
   // =========================================================================
 
@@ -765,6 +863,8 @@ describe('Admin database-backup API (Integration)', () => {
       ['updateConfig', 'db_backup:write'],
       ['startRun', 'db_backup:write'],
       ['listRuns', 'db_backup:read'],
+      // A probe that creates nothing sits on the READ side.
+      ['getNodeCredentialPreflight', 'db_backup:read'],
       ['download', 'db_backup:read'],
       ['cancel', 'db_backup:write'],
       ['getRun', 'db_backup:read'],
@@ -796,6 +896,7 @@ describe('Admin database-backup API (Integration)', () => {
     it.each([
       ['get', '/api/admin/db-backup/config'],
       ['get', '/api/admin/db-backup/runs'],
+      ['get', '/api/admin/db-backup/node-credential-preflight'],
       ['get', `/api/admin/db-backup/runs/${RUN_ID}`],
       ['get', `/api/admin/db-backup/runs/${RUN_ID}/download`],
       ['post', '/api/admin/db-backup/runs'],

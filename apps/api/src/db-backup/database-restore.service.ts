@@ -6,12 +6,13 @@ import { pipeline } from 'node:stream/promises';
 
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { DatabaseBackupRun, Prisma } from '@prisma/client';
+import type { DatabaseBackupRun, Job, Prisma } from '@prisma/client';
 
 import { PERMISSIONS } from '../common/constants/roles.constants';
 import { MaintenanceModeService } from '../common/maintenance/maintenance-mode.service';
 import type { SystemDatabaseBackupValue } from '../common/schemas/settings.schema';
 import type { RestoreCompletedEmailData } from '../email';
+import { JobsService } from '../jobs/jobs.service';
 import { jobTempPath } from '../jobs/job-temp';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -303,6 +304,104 @@ export const RESTORE_MAINTENANCE_MESSAGE =
   'few minutes; no action is needed.';
 
 // -----------------------------------------------------------------------------
+// The queue type, and what one restore job carries (#353, epic #345)
+// -----------------------------------------------------------------------------
+
+/**
+ * The `Job.type` every restore row carries.
+ *
+ * DEFINED HERE, NOT IN THE HANDLER, for the reason `BACKUP_JOB_TYPE` is defined
+ * in the runner: the enqueueing side and the executing side must agree on this
+ * string exactly, and only one of the two can own the definition. This service
+ * enqueues, so it owns it and `handlers/db-restore-run.handler.ts` imports it.
+ *
+ * PERMANENT once rows of this type exist — `jobs` rows outlive the handler that
+ * produced them, so renaming this orphans every historical restore.
+ */
+export const DB_RESTORE_RUN_TYPE = 'db.restore.run';
+
+/**
+ * What `startRestore` writes into the job's payload, and what the handler reads
+ * back out.
+ *
+ * ⚠ THE FOUR DERIVED VALUES ARE CARRIED, NOT RECOMPUTED, and that is the one
+ * decision in this interface. `scratchDatabase`, `oldDatabase` and `startedAt`
+ * come from the PRE-FLIGHT this restore was gated by, and they have already
+ * been handed to the caller in the `started` result. Deriving them again in the
+ * handler — from a different `now`, minutes later — would produce different
+ * names, and the API response, the run row and the DDL would then name three
+ * databases. `startRestore`'s own comment already makes this argument about the
+ * pre-flight's names versus freshly derived ones; the queue simply widens the
+ * gap between the two clocks from microseconds to however long the job waits.
+ *
+ * `rollbackMode` is carried for the same reason: it is the pre-flight's
+ * EFFECTIVE mode, which disk pressure may have downgraded, and re-deciding it
+ * later could take a restore the operator was told would be reversible by
+ * rename and quietly make it reversible only by a multi-hour replay.
+ *
+ * Identifiers only, per `EnqueueJobInput.payload` — `runId` is re-read at run
+ * time so the handler works from the row's current state.
+ */
+export interface RestoreJobPayload {
+  runId: string;
+  actorUserId: string | null;
+  scratchDatabase: string;
+  oldDatabase: string;
+  rollbackMode: 'retain_database' | 'pre_restore_dump';
+  /** ISO-8601. The instant the restore was accepted, not the instant it ran. */
+  startedAt: string;
+}
+
+/**
+ * Narrows a job's opaque payload to {@link RestoreJobPayload}, or throws.
+ *
+ * THROWS RATHER THAN DEFAULTING, and this is the one place in this file where
+ * that is obviously right: every field is a database NAME or an identity, and a
+ * defaulted one would be a `CREATE DATABASE`/`ALTER DATABASE ... RENAME`
+ * against a name nobody chose. A malformed payload is a bug, and a `failed` job
+ * carrying "malformed payload" is the correct outcome — with `maxAttempts: 1`
+ * it is also a final one, so nothing retries a restore whose plan cannot be
+ * read.
+ */
+export function parseRestoreJobPayload(payload: unknown): RestoreJobPayload {
+  const value = (payload ?? {}) as Record<string, unknown>;
+
+  const str = (key: keyof RestoreJobPayload): string => {
+    const raw = value[key];
+
+    if (typeof raw !== 'string' || raw.length === 0) {
+      throw new Error(
+        `The restore job's payload is missing "${String(key)}"; it cannot be run. This ` +
+          'job was queued by a version of startRestore that wrote a different shape, or ' +
+          'the payload was edited.'
+      );
+    }
+
+    return raw;
+  };
+
+  const mode = value.rollbackMode;
+
+  if (mode !== 'retain_database' && mode !== 'pre_restore_dump') {
+    throw new Error(
+      `The restore job's payload carries an unknown rollbackMode (${String(mode)}); it ` +
+        'cannot be run.'
+    );
+  }
+
+  const actorUserId = value.actorUserId;
+
+  return {
+    runId: str('runId'),
+    actorUserId: typeof actorUserId === 'string' && actorUserId.length > 0 ? actorUserId : null,
+    scratchDatabase: str('scratchDatabase'),
+    oldDatabase: str('oldDatabase'),
+    rollbackMode: mode,
+    startedAt: str('startedAt'),
+  };
+}
+
+// -----------------------------------------------------------------------------
 // Results
 // -----------------------------------------------------------------------------
 
@@ -583,12 +682,127 @@ interface CarriedAudit {
   meta: Record<string, unknown>;
 }
 
+/**
+ * THE RESTORE'S OWN `jobs` ROW, settled, carried into the promoted database
+ * (#353, epic #345).
+ *
+ * ⚠ READ THIS BEFORE CHANGING ANYTHING ABOUT THE SWAP'S ORDERING. Making the
+ * restore a queue job creates a problem no other job type has: `process()`
+ * NEVER RETURNS, because the process exits inside it (see
+ * {@link DatabaseRestoreSeam.exitProcess} and the block comment at the exit).
+ * The worker's terminal write therefore never runs, and without something in
+ * its place the sequence is:
+ *
+ *   1. the swap succeeds and the process exits;
+ *   2. the `jobs` row is left `running` with a live lease;
+ *   3. the supervisor restarts the API, the reaper finds an expired lease, and
+ *      — because this type declares `maxAttempts: 1` — permanently FAILS it.
+ *
+ * That last step is the right protection (a REQUEUED restore would replay a
+ * restore that already succeeded, which is the worst outcome available in this
+ * subsystem), but it records a perfectly successful restore as a `failed` job.
+ * A job row that lies is not an acceptable price for a job row that exists.
+ *
+ * So the terminal write JOINS THE CATALOG CARRY. That is not a workaround; it
+ * is the only place it can correctly go, and the reason is the same one
+ * {@link exportCatalog} already gives for the run row's audit values: after the
+ * renames, Prisma's `liveDatabase` name resolves to the PROMOTED database,
+ * whose `jobs` table is the ARCHIVE's. A `succeeded` written before the swap
+ * lands in the database that is about to be renamed away and dropped — it would
+ * vanish, and worse, if the rename then FAILED and the original were put back,
+ * the row would claim a restore succeeded that did not. Writing it as part of
+ * the carry means it is written IF AND ONLY IF both renames have succeeded, into
+ * the database that survives, immediately before the exit.
+ *
+ * Everything else about this row is the shape `JobTerminalService
+ * .completeSucceeded` would have written: `succeeded`, `finished_at` stamped,
+ * `scheduled_for`, `lease_expires_at` and `claimed_by_node_id` all cleared,
+ * `executor` and `last_error` preserved. Nothing that reads a job row after the
+ * restart can tell the difference, which is the point.
+ */
+interface CarriedJob {
+  id: string;
+  type: string;
+  subjectType: string | null;
+  subjectId: string | null;
+  dedupKey: string | null;
+  reason: string;
+  priority: number;
+  payload: string | null;
+  attempts: number;
+  lastError: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string;
+  executor: string | null;
+}
+
 /** Everything that has to survive the rename, gathered before it. */
 interface CarriedCatalog {
   runs: CarriedRun[];
   selfLinks: CarriedSelfLink[];
   audit: CarriedAudit;
+  /**
+   * The restore's own job row, settled. `null` only when the restore was not
+   * run from a job at all — which no supported path produces since #353, and
+   * which the type keeps expressible so a directly-constructed test double (and
+   * any fork that calls `executeRestore` by hand) does not have to invent one.
+   */
+  job: CarriedJob | null;
 }
+
+/**
+ * The settled `jobs` row, upserted into the promoted database.
+ *
+ * ⚠ `ON CONFLICT (id) DO UPDATE`, NOT `DO NOTHING`, and it is not theoretical
+ * which case needs it. A `pre_restore` safety dump is taken DURING the restore,
+ * so that archive contains this very job row as `running` — and rolling that
+ * dump back replays it. `DO NOTHING` would keep the stale `running` copy, with
+ * its lease, and the reaper would fail it after the restart. The upsert
+ * overwrites it with the truth.
+ *
+ * ⚠ `claimed_by_node_id` IS WRITTEN NULL AND IS NOT A PARAMETER. This type is
+ * server-only permanently (see the handler's header), so there is never a node
+ * to attribute — and `jobs.claimed_by_node_id` references `worker_nodes`, whose
+ * copy in the promoted database is the ARCHIVE's. Binding a node id the archive
+ * has never heard of would raise a foreign-key violation and abort the whole
+ * carry, losing the backup catalog to preserve an attribution that does not
+ * exist. `lease_expires_at` and `scheduled_for` are NULL for the reason
+ * `completeSucceeded` clears them: a terminal row must not appear to be held by
+ * anybody.
+ */
+const CARRY_JOB_SQL = `
+INSERT INTO jobs (
+  id, type, subject_type, subject_id, dedup_key, status, reason, priority,
+  payload, attempts, last_error, created_at, started_at, finished_at,
+  scheduled_for, rate_limited_at, rate_limit_hits, claimed_by_node_id,
+  lease_expires_at, executor
+) VALUES (
+  $1::uuid, $2, $3, $4, $5, 'succeeded'::"JobStatus", $6::"JobReason", $7::int,
+  $8::jsonb, $9::int, $10, $11::timestamptz, $12::timestamptz, $13::timestamptz,
+  NULL, NULL, 0, NULL,
+  NULL, $14
+)
+ON CONFLICT (id) DO UPDATE SET
+  type = EXCLUDED.type,
+  subject_type = EXCLUDED.subject_type,
+  subject_id = EXCLUDED.subject_id,
+  dedup_key = EXCLUDED.dedup_key,
+  status = EXCLUDED.status,
+  reason = EXCLUDED.reason,
+  priority = EXCLUDED.priority,
+  payload = EXCLUDED.payload,
+  attempts = EXCLUDED.attempts,
+  last_error = EXCLUDED.last_error,
+  created_at = EXCLUDED.created_at,
+  started_at = EXCLUDED.started_at,
+  finished_at = EXCLUDED.finished_at,
+  scheduled_for = NULL,
+  rate_limited_at = NULL,
+  claimed_by_node_id = NULL,
+  lease_expires_at = NULL,
+  executor = EXCLUDED.executor
+`.trim();
 
 /**
  * Pass one: every column EXCEPT the self-FK.
@@ -712,6 +926,41 @@ SELECT CASE WHEN to_regclass('_prisma_migrations') IS NULL THEN NULL
             ELSE (SELECT count(*)::text FROM _prisma_migrations) END AS count
 `.trim();
 
+/**
+ * The settled form of the restore's own job row, ready for {@link CARRY_JOB_SQL}.
+ *
+ * A pure function of the row and the swap instant, so the whole terminal write
+ * is decided BEFORE the renames begin and {@link DatabaseRestoreService
+ * .reinsertCatalog} only binds what it was given — the same rule every other
+ * member of {@link CarriedCatalog} follows.
+ *
+ * `payload` is re-serialised to a string because `pg` binds `jsonb` from text;
+ * a `null` payload stays `null` rather than becoming the JSON literal `"null"`.
+ */
+function carryJob(job: Job | null, finishedAt: Date): CarriedJob | null {
+  if (job === null) return null;
+
+  return {
+    id: job.id,
+    type: job.type,
+    subjectType: job.subjectType,
+    subjectId: job.subjectId,
+    dedupKey: job.dedupKey,
+    reason: job.reason,
+    priority: job.priority,
+    payload: job.payload == null ? null : JSON.stringify(job.payload),
+    attempts: job.attempts,
+    // PRESERVED, not cleared: on a job that logged something on the way past,
+    // that message is the only surviving explanation of it. Same reasoning
+    // `JobTerminalService.completeSucceeded` gives for leaving it alone.
+    lastError: job.lastError,
+    createdAt: job.createdAt.toISOString(),
+    startedAt: iso(job.startedAt),
+    finishedAt: finishedAt.toISOString(),
+    executor: job.executor,
+  };
+}
+
 /** Anything thrown, as an `Error`. JavaScript lets you throw a string. */
 function toError(value: unknown): Error {
   return value instanceof Error ? value : new Error(String(value));
@@ -769,6 +1018,10 @@ export class DatabaseRestoreService {
     // database and tell nobody.
     private readonly notifications: NotificationsService,
     private readonly config: ConfigService,
+    // #353 (epic #345). A restore is queued, not detached: `startRestore`
+    // writes a `db.restore.run` row and returns, and
+    // `handlers/db-restore-run.handler.ts` executes it on a worker slot.
+    private readonly jobs: JobsService,
     @Optional() @Inject(DATABASE_RESTORE_SEAM) seam?: DatabaseRestoreSeam
   ) {
     this.seam = seam ?? defaultDatabaseRestoreSeam;
@@ -798,6 +1051,44 @@ export class DatabaseRestoreService {
   ): Promise<StartRestoreResult> {
     if (this.activeRestoreRunId !== null) {
       return { outcome: 'already_running', runId: this.activeRestoreRunId };
+    }
+
+    // ⚠ TWO GUARDS, AND THE DEDUP KEY REPLACES NEITHER OF THEM (#353).
+    //
+    // The natural reading of "the restore is a job now" is that the active-dedup
+    // unique index supersedes the process-local flag above. IT DOES NOT, and the
+    // difference matters: a `db.restore.run` job's dedup key folds in its
+    // SUBJECT, so the index guarantees at most one active restore OF ONE BACKUP
+    // RUN. Two restores of two DIFFERENT archives have two different keys and
+    // the index permits both — which is precisely the concurrent-restore
+    // catastrophe this service must not have.
+    //
+    // So the three guards divide the work, and each closes something the others
+    // cannot:
+    //
+    //   1. `activeRestoreRunId` (above) — closes the DOUBLE-CLICK race inside
+    //      one process. It is set before the pre-flight's several round trips
+    //      and read synchronously, so two overlapping requests cannot both reach
+    //      the enqueue. Nothing else in this list can do that: every other guard
+    //      is a read followed by a write.
+    //   2. THE QUERY BELOW — closes the case the flag structurally cannot: a
+    //      restore queued by a PREVIOUS PROCESS (this one restarted, or a second
+    //      replica queued it), which the flag knows nothing about. It is
+    //      type-wide, not subject-wide, so it is the only guard that refuses a
+    //      second restore of a DIFFERENT archive.
+    //   3. THE ACTIVE-DEDUP INDEX — closes the same-archive race between two
+    //      replicas, atomically, which neither of the above can.
+    //
+    // The single-replica prerequisite still stands and is still what the runbook
+    // requires; these three narrow the window inside it rather than replacing
+    // it.
+    const queued = await this.prisma.job.findFirst({
+      where: { type: DB_RESTORE_RUN_TYPE, status: { in: ['pending', 'running'] } },
+      select: { id: true, subjectId: true },
+    });
+
+    if (queued) {
+      return { outcome: 'already_running', runId: queued.subjectId ?? queued.id };
     }
 
     const now = options.now ?? this.seam.now();
@@ -832,40 +1123,115 @@ export class DatabaseRestoreService {
       // databases.
       const { scratchDatabase, oldDatabase } = preflight;
 
-      claimHandedOver = true;
+      // ⚠ QUEUED, NOT DETACHED (#353, epic #345). This used to be
+      // `void this.executeRestore(...)` with a terminal `.catch()` — the work is
+      // hours long and every proxy between a browser and this process has a
+      // response timeout measured in seconds, so it could not be awaited. A
+      // queue job answers the same problem and answers three more with it: the
+      // restore now has a row in `GET /api/admin/jobs` with a duration and a
+      // `lastError`, it holds a worker slot with a ceiling
+      // (`RESTORE_JOB_MAX_RUNTIME_MS`) rather than an unbounded promise nothing
+      // owns, and its `maxAttempts: 1` makes "never automatically retried" a
+      // property the queue ENFORCES rather than a property of not being in the
+      // queue.
+      //
+      // THE PAYLOAD CARRIES THE PRE-FLIGHT'S DECISIONS, not seeds for
+      // recomputing them — see `RestoreJobPayload` for why deriving the names
+      // again from a later clock would make the row, the API response and the
+      // DDL name three databases.
+      const job = await this.jobs.enqueue({
+        type: DB_RESTORE_RUN_TYPE,
+        // `rerun` is the closest of the three reasons: a human asked for this
+        // archive to be replayed. It is not a response to an upload and it is
+        // not scheduled maintenance.
+        reason: 'rerun',
+        // The SUBJECT is the backup being replayed, which is what makes the
+        // dedup key refuse a second restore of the same archive. See the
+        // three-guard note above for what it deliberately does NOT refuse.
+        subjectType: RESTORE_AUDIT_TARGET_TYPE,
+        subjectId: run.id,
+        // INLINE WITH `satisfies` rather than a typed local, the same shape
+        // `queueBackup` uses: `EnqueueJobInput.payload` is
+        // `Prisma.InputJsonValue`, which an object LITERAL satisfies and a
+        // named interface does not (it has no index signature). The `satisfies`
+        // is what keeps this checked against `RestoreJobPayload` anyway, which
+        // matters because `parseRestoreJobPayload` is the only other place the
+        // shape is stated.
+        payload: {
+          runId: run.id,
+          actorUserId,
+          scratchDatabase,
+          oldDatabase,
+          rollbackMode: preflight.rollback.effective,
+          startedAt: now.toISOString(),
+        } satisfies RestoreJobPayload,
+      });
 
-      // ⚠ DETACHED, WITH A TERMINAL `.catch()`, exactly as `startBackup` is. The
-      // work is hours long and every proxy between a browser and this process
-      // has a response timeout measured in seconds. `executeRestore` is written
-      // not to reject; this handler is the guard for the failures it does not
-      // anticipate, because an unhandled rejection terminates the process by
-      // default — and a process terminating in the middle of a restore is the
-      // failure mode this whole design exists to avoid.
-      void this.executeRestore({
-        run,
-        connection,
-        scratchDatabase,
-        oldDatabase,
-        actorUserId,
-        rollbackMode: preflight.rollback.effective,
-        startedAt: now,
-      })
-        .catch((error: unknown) => {
-          this.logger.error(
-            `Database restore of backup run ${run.id} failed outside its own failure ` +
-              `handling: ${toError(error).message}`
-          );
-        })
-        .finally(() => {
-          // Never reached on the success path — the process exits inside the
-          // swap — which is correct: there is nothing left to release.
-          this.activeRestoreRunId = null;
-        });
+      this.logger.warn(
+        `Queued a database restore of backup run ${run.id} as job ${job.id}. The live ` +
+          `database will be replaced by "${scratchDatabase}" and the current one parked ` +
+          `as "${oldDatabase}".`
+      );
 
       return { outcome: 'started', runId: run.id, scratchDatabase, oldDatabase, preflight };
     } finally {
-      if (!claimHandedOver) this.activeRestoreRunId = null;
+      // ⚠ ALWAYS RELEASED NOW, ON EVERY PATH, INCLUDING THE ACCEPTED ONE.
+      //
+      // Before #353 the flag was handed to the detached body and released in its
+      // `.finally()`, because the body WAS the restore. It no longer is: this
+      // method's work ends at the enqueue, and the executor is a worker that may
+      // not even be in this process. Holding the flag past the enqueue would
+      // mean a restore whose job failed at 3am left this replica refusing every
+      // later restore until somebody restarted it — a process-local flag
+      // becoming a durable outage. The durable exclusion is the queue query and
+      // the dedup index above; this flag's job is only the double-click window
+      // around the pre-flight, and that window closes here.
+      this.activeRestoreRunId = null;
     }
+  }
+
+  /**
+   * Runs a queued restore. THE HANDLER'S ONLY ENTRY POINT (#353, epic #345).
+   *
+   * ⚠ IT DOES NOT RE-RUN THE PRE-FLIGHT, and that is deliberate. The gates ran
+   * in `startRestore`, seconds ago, and their VERDICT — including the two
+   * database names and the effective rollback mode — is what the payload
+   * carries; re-running them here would derive different names from a different
+   * clock and quietly disagree with the answer the operator was already given.
+   * What this method does re-read is the RUN ROW, by id, because the payload
+   * carries identifiers rather than copies (`EnqueueJobInput.payload`) and the
+   * row's storage key and checksum must be the current ones.
+   *
+   * THROWS TO FAIL, like every handler. `executeRestore` records the failure on
+   * the run's restore columns first — that is still its contract, and it is
+   * still the only account an operator has — and then rethrows so the queue can
+   * write `lastError` and mark the row `failed`. Before #353 it swallowed,
+   * because there was no caller left to tell; now there is one.
+   */
+  async executeRestoreJob(job: Job): Promise<void> {
+    const payload = parseRestoreJobPayload(job.payload);
+
+    const run = await this.prisma.databaseBackupRun.findUnique({
+      where: { id: payload.runId },
+    });
+
+    if (run === null) {
+      throw new Error(
+        `The backup run ${payload.runId} this restore job replays no longer exists; ` +
+          'nothing has been created and nothing has been touched.'
+      );
+    }
+
+    await this.executeRestore({
+      run,
+      connection: this.seam.resolveConnection(),
+      scratchDatabase: payload.scratchDatabase,
+      oldDatabase: payload.oldDatabase,
+      actorUserId: payload.actorUserId,
+      rollbackMode: payload.rollbackMode,
+      startedAt: new Date(payload.startedAt),
+      job,
+    });
   }
 
   // =========================================================================
@@ -873,9 +1239,18 @@ export class DatabaseRestoreService {
   // =========================================================================
 
   /**
-   * The six phases. NEVER REJECTS for a failure it anticipates — it records the
-   * failure on the run's restore columns, because by this point there is no
-   * caller left to tell.
+   * The six phases.
+   *
+   * ⚠ IT RECORDS THE FAILURE AND THEN RETHROWS (#353, epic #345). Until the
+   * restore became a queue job this method NEVER REJECTED: it wrote the failure
+   * onto the run's restore columns and returned, because it was launched
+   * detached and there was no caller left to tell. There is one now — the
+   * worker running `db.restore.run` — and a handler that returned normally after
+   * a failed restore would be settled `succeeded`, which is exactly the "job row
+   * that lies" this conversion exists to avoid. The row-first ordering is
+   * unchanged and still matters: the run's `restore_status` and `restore_error`
+   * are the operator's account of what happened, and they are written before
+   * anything is rethrown, so they survive whatever the queue then decides.
    */
   private async executeRestore(context: RestoreContext): Promise<void> {
     const { run, connection, scratchDatabase, oldDatabase, actorUserId, startedAt } = context;
@@ -968,6 +1343,13 @@ export class DatabaseRestoreService {
       }
 
       await this.recordFailure(run.id, actorUserId, failure);
+
+      // ⚠ RETHROWN, AFTER THE ROW HAS BEEN WRITTEN AND THE SCRATCH DATABASE
+      // GIVEN BACK. Both of those are this method's contract and neither may be
+      // skipped by a throw travelling earlier: the queue's `lastError` is a
+      // summary, the run row is the account. Note that the temp-file cleanup in
+      // the `finally` below still runs — a rethrow does not skip it.
+      throw failure;
     } finally {
       // The safety net for every failure path. A no-op on success, where the
       // file was already removed and `tempPath` nulled.
@@ -1230,6 +1612,14 @@ export class DatabaseRestoreService {
     });
 
     const catalog = await this.exportCatalog(run.id, {
+      // ⚠ THE JOB'S TERMINAL WRITE RIDES WITH THE CATALOG (#353). See
+      // `CarriedJob`'s header: `process()` never returns on this path, so the
+      // worker's own settle never runs, and the only correct place for the
+      // terminal write is the set of rows that lands IF AND ONLY IF both
+      // renames succeed. `swappedAt` is its `finished_at` — the same instant
+      // the run row records — so the two agree about when the restore was over.
+      job: context.job ?? null,
+      finishedAt: swappedAt,
       restoreStatus: 'completed',
       restoreError: null,
       restoredAt: iso(context.startedAt),
@@ -1564,6 +1954,10 @@ export class DatabaseRestoreService {
   private async exportCatalog(
     runId: string,
     postSwap: {
+      /** The restore's job row, or `null` for a caller that is not the queue. */
+      job: Job | null;
+      /** The instant the swap happened — the job's `finished_at`. */
+      finishedAt: Date;
       restoreStatus: RestoreStatus;
       restoreError: string | null;
       restoredAt: string | null;
@@ -1627,7 +2021,12 @@ export class DatabaseRestoreService {
       if (link !== null) selfLinks.push({ id: row.id, preRestoreBackupId: link });
     }
 
-    return { runs, selfLinks, audit: { id: randomUUID(), ...postSwap.audit } };
+    return {
+      runs,
+      selfLinks,
+      audit: { id: randomUUID(), ...postSwap.audit },
+      job: carryJob(postSwap.job, postSwap.finishedAt),
+    };
   }
 
   /**
@@ -1655,6 +2054,32 @@ export class DatabaseRestoreService {
       await this.seam.withAdminConnection(
         { ...connection, database: connection.liveDatabase },
         async (client) => {
+          // ⚠ THE JOB ROW GOES FIRST, AND THE ORDER IS NOT COSMETIC. Everything
+          // else in this carry is READ by a human later; this row is ACTED ON by
+          // a machine — the lease reaper, on the very next process start. If the
+          // session dies part way through this loop, the value most worth having
+          // landed is the one that stops a successful restore being marked
+          // `failed`. `reinsertCatalog` never throws, so a failure here still
+          // leaves the backup catalog to be attempted.
+          if (catalog.job !== null) {
+            await client.query(CARRY_JOB_SQL, [
+              catalog.job.id,
+              catalog.job.type,
+              catalog.job.subjectType,
+              catalog.job.subjectId,
+              catalog.job.dedupKey,
+              catalog.job.reason,
+              catalog.job.priority,
+              catalog.job.payload,
+              catalog.job.attempts,
+              catalog.job.lastError,
+              catalog.job.createdAt,
+              catalog.job.startedAt,
+              catalog.job.finishedAt,
+              catalog.job.executor,
+            ]);
+          }
+
           for (const row of catalog.runs) {
             await client.query(CARRY_RUN_SQL, [
               row.id,
@@ -1705,15 +2130,18 @@ export class DatabaseRestoreService {
       );
 
       this.logger.log(
-        `Carried ${catalog.runs.length} backup record(s) and ${catalog.selfLinks.length} ` +
-          `pre-restore link(s) into "${connection.liveDatabase}".`
+        `Carried ${catalog.runs.length} backup record(s), ${catalog.selfLinks.length} ` +
+          `pre-restore link(s) and ${catalog.job === null ? 'no' : 'the settled'} restore ` +
+          `job row into "${connection.liveDatabase}".`
       );
     } catch (error) {
       this.logger.error(
         `CRITICAL: the restore succeeded but its backup catalog could not be carried into ` +
           `"${connection.liveDatabase}" (${toError(error).message}). The database now shows ` +
           'backups as of the archive\'s own age: any backup taken after that archive, and ' +
-          'the record of this restore itself, are missing from database_backup_runs. The ' +
+          'the record of this restore itself, are missing from database_backup_runs, and ' +
+          'the restore\'s own job row was not settled (the lease reaper will mark it ' +
+          'failed after the restart even though the restore succeeded). The ' +
           'ARCHIVES are untouched in object storage, and any displaced database has to be ' +
           'dropped by hand because nothing now records its name. See section 5 of ' +
           'docs/runbooks/database-restore.md.'
@@ -1826,6 +2254,12 @@ export class DatabaseRestoreService {
     const parkAs = buildScratchDatabaseName(connection.liveDatabase, now);
 
     const catalog = await this.exportCatalog(run.id, {
+      // NO JOB ROW ON THIS PATH. A rollback-by-rename is not a queue job — it
+      // is a synchronous admin request that renames two databases and exits —
+      // so there is nothing to settle. `finishedAt` is still supplied because
+      // the parameter is not optional; it is unused when `job` is `null`.
+      job: null,
+      finishedAt: now,
       restoreStatus: 'rolled_back',
       restoreError: null,
       restoredAt: iso(run.restoredAt),
@@ -2104,4 +2538,14 @@ interface RestoreContext {
   /** The pre-flight's EFFECTIVE mode, which disk pressure may have downgraded. */
   rollbackMode: 'retain_database' | 'pre_restore_dump';
   startedAt: Date;
+  /**
+   * The `db.restore.run` row this restore is executing under (#353).
+   *
+   * OPTIONAL ONLY FOR CALLERS THAT ARE NOT THE QUEUE — of which there are none
+   * in the application since #353. It is what {@link CarriedJob} is built from,
+   * so a context without one produces a swap that carries no settled job row;
+   * see `CarriedJob`'s header for why that would be a job row left `running`
+   * with a live lease, and why the queue path must always supply this.
+   */
+  job?: Job;
 }

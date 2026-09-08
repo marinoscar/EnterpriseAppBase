@@ -524,6 +524,22 @@ collision you want to know about.
 `GET /api/nodes/job-types`, so a typo is refused with the valid list rather
 than producing a node that registers happily and then claims nothing.
 
+**`db.backup.run` — taking the deployment's database backups here.** This node
+type is offered only when an administrator has enabled *both*
+`nodes.jobSecretBrokerEnabled` and `databaseBackup.nodeOffloadEnabled`, and the
+server can actually mint a per-job database role; until then it is absent from
+`GET /api/nodes/job-types` and the API takes its own backups. On this machine
+it needs `pg_dump` on `PATH` (a startup self-test refuses to declare the type
+without it) and a network route to the database — there is no tunnelling, by
+design. `psql` is optional: without it the backup still runs, and two audit
+fields are recorded as `null`.
+
+⚠ The database credential is fetched **per job**, held in memory for the length
+of that job, and revoked when it settles. It is never written to
+`~/.<cli>/config.json`, never written to the state directory, and never logged.
+Nothing about running this type requires you to put a database password on this
+machine.
+
 ### Inspecting the resolved settings
 
 ```bash
@@ -603,6 +619,21 @@ appctl node service uninstall
 independently — a failure in one never masks the others — and distinguishes
 "cannot reach the server" from "reached it and was refused", which look
 identical in a stack trace and have entirely different fixes.
+
+For database-backup offload (`db.backup.run`) it also reports the `pg_dump`
+client version and, with `--db-host`, a TCP probe of the database:
+
+```bash
+appctl node doctor --db-host db.internal:5432
+```
+
+Both are **warnings, never failures**. Most nodes in a fleet will never take
+the backups, and failing `doctor` on a machine that simply is not the one doing
+it would be wrong. A node that cannot reach the database must not declare the
+type — which is a `--types` decision, not a health problem. The host is a flag
+rather than a stored setting on purpose: **a worker node holds no database
+configuration at all**; the connection arrives per job, from the server, and is
+dropped when the job settles.
 
 `install-deps` ships as a **framework**, not a set of real installs: this
 template has no native dependencies, so it provides the ordered-step structure,

@@ -84,6 +84,95 @@
 //     current attempt, never excluding it.
 //
 // -----------------------------------------------------------------------------
+// THE LEASE IS PER ROW, AND IT IS STILL ONE STATEMENT (#346)
+// -----------------------------------------------------------------------------
+//
+// Per-type execution profiles gave each job type its own runtime ceiling, and
+// the claim lease is derived from that ceiling — so the rows one claim takes
+// no longer share a lease. The in-process worker takes `limit: 1` and would
+// not have noticed, but A NODE CLAIMS UP TO ITS CONCURRENCY ACROSS SEVERAL
+// TYPES IN ONE STATEMENT, and a single batch-wide number there has to be
+// either the shortest lease in the batch (which reaps a long job while it is
+// still running, and duplicates it) or the longest (which leaves a dead
+// executor's short job held for an hour). Neither is a lease; both are a
+// compromise forced by the shape of the parameter rather than by anything
+// real.
+//
+// `unnest(types, lease_ms)` turns the `{ type, leaseMs }` pairs into a
+// two-column relation the same `UPDATE` joins against, so each row gets ITS
+// OWN lease and the statement count stays at one. That last part is the
+// requirement: a per-type lease implemented as "claim, then a second UPDATE to
+// set leases" would reopen exactly the window `FOR UPDATE SKIP LOCKED` closes.
+//
+// REJECTED: a `CASE WHEN type = … THEN … END` ladder built by interpolating
+// the types into the SQL text. It is one statement too, and it works, and it
+// is the only construct in this file that would put caller-supplied strings
+// into SQL structure rather than into a placeholder — for no gain over a
+// parameterised array.
+//
+// -----------------------------------------------------------------------------
+// ⚠⚠ THE ROW PICK IS A `MATERIALIZED` CTE, NOT A SUBQUERY — AND THE `LIMIT`
+// ⚠⚠ DEPENDS ON THAT. THIS IS NOT A STYLE CHOICE.
+// -----------------------------------------------------------------------------
+//
+// THIS IS THE SUBTLEST THING IN THE FILE, it was a real bug caught only by a
+// database test, and it is invisible to every unit test that will ever be
+// written against a mocked driver. Read this before touching the shape of the
+// statement below.
+//
+// Until #346 the row selection was an uncorrelated subquery in the `WHERE`:
+//
+//     UPDATE jobs SET … WHERE id IN (SELECT … FOR UPDATE SKIP LOCKED LIMIT n)
+//
+// With no `FROM` clause, Postgres can only plan that as an InitPlan: the
+// subquery is evaluated ONCE, before the update, and its result is a fixed set
+// of ids. `LIMIT n` therefore meant n rows, always.
+//
+// Adding `FROM unnest(…)` for the per-type leases removes that guarantee. The
+// planner is now free to turn the same subquery into a SubPlan RE-EVALUATED
+// PER OUTER ROW — and each re-evaluation takes FRESH ROW LOCKS. `SKIP LOCKED`
+// then does exactly what it is for: it steps over the rows the earlier
+// evaluations already locked, so every evaluation returns a DIFFERENT set, and
+// the union of those sets is far larger than `n`. Measured on PostgreSQL 16:
+// five pending rows of one type, `LIMIT 2`, `UPDATE 5`. A worker asking for
+// one job is handed five, each one charged an attempt, four of them held by a
+// slot that will never run them.
+//
+// ⚠ AND IT IS PLAN-DEPENDENT, WHICH IS WHY IT MUST BE PINNED RATHER THAN
+// TESTED FOR. The same statement over nine rows across three types returned
+// exactly two. The bug appears or does not appear according to the row counts,
+// the statistics and the plan the planner happens to choose — so a green test
+// on one data shape proves nothing whatsoever about another, and a claim that
+// is *usually* correct is worse than one that is reliably wrong.
+//
+// `WITH picked AS MATERIALIZED (…)` removes the planner's freedom. Two things
+// are doing work there, and it is worth being precise about which is which,
+// because a future reader will otherwise delete the half that looks redundant:
+//
+//   - THE CTE, joined as `FROM picked p … WHERE jobs.id = p.id`, is what
+//     retires the `id IN (SELECT …)` shape entirely. That shape is the one
+//     measured above returning five rows for `LIMIT 2`; a join against a
+//     computed relation has no per-outer-row subquery to re-evaluate.
+//
+//   - `MATERIALIZED` pins the single evaluation EXPLICITLY rather than leaving
+//     it to the planner's inlining rules (PostgreSQL 12+ folds a plain `WITH`
+//     into the parent query under conditions that are not this file's business
+//     to track, and that can change between major versions). It is cheap, it
+//     is exact, and what it buys is that this statement's correctness stops
+//     depending on a default. Measured: with the keyword, five rows of one
+//     type at `LIMIT 2` claims exactly two, and nine rows across three types
+//     at `LIMIT 2` claims exactly two, each row carrying its own type's lease.
+//
+// So: do not fold the CTE back into the `WHERE` — that is the demonstrated
+// bug. And do not drop `MATERIALIZED` — that is the guarantee that the demo
+// stays true on a planner nobody here has run.
+//
+// The regression tests live in `test/jobs/job-claim.db.spec.ts` ("the limit is
+// honoured whatever the planner does") and they must stay DATABASE tests. A
+// mocked `$queryRaw` returns whatever the test tells it to; only a real server
+// can execute a plan. They were confirmed to FAIL against the pre-fix shape.
+//
+// -----------------------------------------------------------------------------
 // EVERY `RETURNING` COLUMN IS ALIASED TO ITS camelCase PRISMA FIELD
 // -----------------------------------------------------------------------------
 //
@@ -154,11 +243,28 @@ export interface ClaimOptions {
   limit: number;
 
   /**
-   * How long the claim is good for, in milliseconds. Written as
-   * `lease_expires_at = now() + leaseMs`, and it is what the lease reaper
-   * (#263) reads to find jobs whose claimer died holding them.
+   * How long the claim is good for, PER TYPE, in milliseconds. Written as
+   * `lease_expires_at = now() + <this type's lease>`, and it is what the lease
+   * reaper (#263) reads to find jobs whose claimer died holding them.
+   *
+   * A LIST RATHER THAN ONE NUMBER, because a claim is not homogeneous (#346).
+   * Per-type execution profiles give a type its own runtime ceiling, and the
+   * lease is derived from that ceiling — so the rows a single claim takes no
+   * longer share one. A worker node claiming up to its concurrency across
+   * several types in one statement is the case that makes this unavoidable: a
+   * single batch-wide number would have to be either the shortest lease (which
+   * reaps the long job mid-run and duplicates it) or the longest (which leaves
+   * a dead executor's short job held for hours). Neither is a lease.
+   *
+   * Build it with `buildClaimLeases` (`job-execution-profile.ts`) rather than
+   * by hand: both claimers must derive the same lease for the same type, and
+   * that function is the one place that derivation happens.
+   *
+   * ⚠ IT MUST COVER `eligibleTypes`. See `claim()` for why the join can never
+   * drop a row, and why that is a structural invariant rather than a
+   * convention a caller is asked to honour.
    */
-  leaseMs: number;
+  leases: Array<{ type: string; leaseMs: number }>;
 }
 
 /**
@@ -194,7 +300,8 @@ export const JOB_CLAIM_COLUMNS: Readonly<Record<keyof Job, string>> = {
 };
 
 /**
- * The `RETURNING` list: `created_at AS "createdAt", …` for every field above.
+ * The `RETURNING` list: `jobs.created_at AS "createdAt", …` for every field
+ * above.
  *
  * `Prisma.raw` is used because a column list is SQL structure, not a value,
  * and structure cannot be parameterised. It is safe here for a reason that
@@ -202,12 +309,38 @@ export const JOB_CLAIM_COLUMNS: Readonly<Record<keyof Job, string>> = {
  * module-level constant above, evaluated once at import time, with no path
  * from any request, argument or environment variable to this string. Every
  * genuine value in `claim()` below goes through a real placeholder.
+ *
+ * ⚠ EVERY COLUMN IS QUALIFIED `jobs.`, and it has to be (#346). The statement
+ * gained a `FROM unnest(…) AS l(type, lease_ms)` to carry per-type leases, and
+ * `l` has a column called `type` — so an unqualified `type AS "type"` in
+ * `RETURNING` is ambiguous and Postgres rejects the whole statement. Qualifying
+ * all of them rather than just that one keeps the rule "every entry in this
+ * list looks the same", so a column added to `Job` later cannot be the one
+ * that quietly reintroduces the ambiguity.
  */
 const CLAIM_RETURNING = Prisma.raw(
   Object.entries(JOB_CLAIM_COLUMNS)
-    .map(([field, column]) => `${column} AS "${field}"`)
+    .map(([field, column]) => `jobs.${column} AS "${field}"`)
     .join(', ')
 );
+
+/**
+ * The lease applied to an eligible type that `ClaimOptions.leases` somehow did
+ * not carry an entry for.
+ *
+ * UNREACHABLE THROUGH `buildClaimLeases`, which produces exactly one entry per
+ * eligible type from the same list this statement filters on. It exists
+ * because the alternative to a value here is `undefined` inside a bound
+ * `double precision[]` parameter, which fails the statement and stalls every
+ * claim in the process over one caller's mistake.
+ *
+ * An hour, matching `UNBOUNDED_LEASE_MS`, because the safe direction is LONG:
+ * a lease that is too long delays the recovery of one abandoned job by an
+ * hour, while a lease that is too short has the reaper hand still-running work
+ * to a second executor. Deferred recovery is a delay; duplicate execution is a
+ * correctness failure.
+ */
+const FALLBACK_LEASE_MS = 3_600_000;
 
 @Injectable()
 export class JobClaimService {
@@ -233,7 +366,7 @@ export class JobClaimService {
    * that are not safe.
    */
   async claim(options: ClaimOptions): Promise<Job[]> {
-    const { nodeId, executor, eligibleTypes, limit, leaseMs } = options;
+    const { nodeId, executor, eligibleTypes, limit, leases } = options;
 
     // SHORT-CIRCUIT, NOT A ROUND TRIP. Both of these are ordinary states, not
     // misconfigurations: a worker in `system` mode with no server-only
@@ -246,18 +379,58 @@ export class JobClaimService {
       return [];
     }
 
+    // THE TWO PARALLEL ARRAYS THE `unnest` JOIN IS BUILT FROM, produced by ONE
+    // WALK over ONE list (#346). That is what makes the join total rather than
+    // a convention the caller is trusted to honour: `types` is the array the
+    // inner `SELECT` filters on, `leaseValues` is filled index-by-index from
+    // the same iteration, so `l` is guaranteed to have a row for every type a
+    // claimed job can possibly have. There is no arrangement of the inputs
+    // that produces a claimed row with no lease to join against — the failure
+    // mode this shape exists to remove is a `WHERE jobs.type = l.type` that
+    // silently matches nothing and claims nothing while looking correct.
+    //
+    // DEDUPLICATED, because a duplicate type would give `l` two rows for it
+    // and leave which lease wins up to Postgres. `registry.types()` cannot
+    // repeat, but a node's stored `eligibleTypes` array is a database value a
+    // caller could have written twice, and nondeterminism is not worth
+    // inheriting from it.
+    const leaseByType = new Map(leases.map(({ type, leaseMs }) => [type, leaseMs]));
+    const types = [...new Set(eligibleTypes)];
+    const leaseValues = types.map((type) => leaseByType.get(type) ?? FALLBACK_LEASE_MS);
+
     // ONE STATEMENT. Do not split this into a SELECT and an UPDATE; the file
-    // header explains why the atomicity lives in the fact that it is one.
+    // header explains why the atomicity lives in the fact that it is one. The
+    // `WITH` below does NOT make it two — a CTE is part of the same statement,
+    // in the same implicit transaction, so the pick and the claim are still
+    // indivisible and there is still no window between "I chose this row" and
+    // "I own this row".
+    //
+    // ⚠ DO NOT FOLD THE CTE BACK INTO AN `id IN (SELECT …)` IN THE `WHERE`,
+    // and do not drop `MATERIALIZED`. With the `FROM` clause present, that
+    // subquery can be re-evaluated PER OUTER ROW, and `FOR UPDATE SKIP LOCKED`
+    // makes each re-evaluation return rows the previous one did not — so the
+    // claim silently exceeds its `LIMIT`. It is plan-dependent, so it will
+    // look fine on whatever data you happen to try it on. The file header has
+    // the measurements and points at the regression tests.
     //
     // Every value below is a real bound parameter (`Prisma.sql`'s tagged
     // template turns each `${}` into a placeholder) — nothing is interpolated
     // into the SQL text. The explicit casts are there because a placeholder
     // carries no type of its own: `::"JobStatus"` for the enum comparisons,
     // `::uuid` for the nullable node id, `::text[]` for the type list, and
-    // `::double precision` for the lease so the multiplication against
+    // `::double precision[]` for the leases so the multiplication against
     // `interval '1 millisecond'` resolves regardless of how the driver sends
-    // the number.
+    // the numbers.
     const rows = await this.prisma.$queryRaw<Job[]>(Prisma.sql`
+      WITH picked AS MATERIALIZED (
+        SELECT id FROM jobs
+        WHERE status = 'pending'::"JobStatus"
+          AND (scheduled_for IS NULL OR scheduled_for <= now())
+          AND type = ANY(${types}::text[])
+        ORDER BY priority ASC, created_at ASC
+        FOR UPDATE SKIP LOCKED
+        LIMIT ${limit}
+      )
       UPDATE jobs SET
         status = 'running'::"JobStatus",
         started_at = now(),
@@ -265,16 +438,9 @@ export class JobClaimService {
         attempts = attempts + 1,
         claimed_by_node_id = ${nodeId}::uuid,
         executor = ${executor},
-        lease_expires_at = now() + (${leaseMs}::double precision * interval '1 millisecond')
-      WHERE id IN (
-        SELECT id FROM jobs
-        WHERE status = 'pending'::"JobStatus"
-          AND (scheduled_for IS NULL OR scheduled_for <= now())
-          AND type = ANY(${eligibleTypes}::text[])
-        ORDER BY priority ASC, created_at ASC
-        FOR UPDATE SKIP LOCKED
-        LIMIT ${limit}
-      )
+        lease_expires_at = now() + (l.lease_ms::double precision * interval '1 millisecond')
+      FROM picked p, unnest(${types}::text[], ${leaseValues}::double precision[]) AS l(type, lease_ms)
+      WHERE jobs.id = p.id AND jobs.type = l.type
       RETURNING ${CLAIM_RETURNING}
     `);
 

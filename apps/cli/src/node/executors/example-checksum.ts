@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 
 import { MissingJobInputError } from '../node-errors.js';
+import { DatabaseBackupRunExecutor } from './db-backup-run.js';
 import type { JobExecutionContext, JobExecutor } from './index.js';
 
 // =============================================================================
@@ -69,7 +70,18 @@ export class ExampleChecksumExecutor implements JobExecutor {
   }
 }
 
-/** Every executor this template ships. A fork appends to this list. */
+/**
+ * Every executor this template ships. A fork appends to this list.
+ *
+ * ⚠ REGISTERED IS NOT THE SAME AS RUN. `db.backup.run` (#352) is here because
+ * this CLI knows HOW to take a database dump; whether it ever gets one is
+ * decided entirely by the server — the type is offered to a node only when the
+ * deployment has enabled both `nodes.jobSecretBrokerEnabled` and
+ * `databaseBackup.nodeOffloadEnabled` AND the credential broker reports itself
+ * usable. A node also declares the type only if `evaluateCapabilities` finds
+ * `pg_dump` on this machine. Listing the executor unconditionally is what lets
+ * all three of those decisions live where they belong.
+ */
 export function defaultExecutors(): JobExecutor[] {
-  return [new ExampleChecksumExecutor()];
+  return [new ExampleChecksumExecutor(), new DatabaseBackupRunExecutor()];
 }

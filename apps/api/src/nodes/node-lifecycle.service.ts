@@ -63,6 +63,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { SystemNodesValue } from '../common/schemas/settings.schema';
 import { DEFAULT_SYSTEM_SETTINGS } from '../common/types/settings.types';
 import { SystemSettingsService } from '../settings/system-settings/system-settings.service';
+import { readJobSecretBrokerEnabled } from '../jobs/node-offload.service';
 
 /**
  * The derived liveness verdict for one node.
@@ -166,6 +167,21 @@ export class NodeLifecycleService {
         staleHeartbeatSeconds: positive(policy?.staleHeartbeatSeconds, defaults.staleHeartbeatSeconds),
         offlineStaleMultiplier: positive(policy?.offlineStaleMultiplier, defaults.offlineStaleMultiplier),
         offlineRetentionDays: positive(policy?.offlineRetentionDays, defaults.offlineRetentionDays),
+        // ⚠ FAIL-CLOSED, UNLIKE ITS THREE NEIGHBOURS (#349, epic #345). The
+        // other three degrade to the SHIPPED value, because sweeping on the
+        // default window beats not sweeping. This one degrades to `false`,
+        // because the safe answer to "may a node hold a credential to this
+        // database?" when the stored setting is unreadable is no. Only a
+        // literal `true` enables it; anything else — a missing key, a string
+        // `"true"`, a number — is off.
+        //
+        // ⚠ THE RULE ITSELF MOVED TO `jobs/node-offload.service.ts` (#352) and
+        // is CALLED here rather than repeated. `NodeOffloadService` needs the
+        // same answer and cannot import this file (nodes imports jobs; the
+        // reverse is a cycle), and two literal `=== true` checks are how "the
+        // fleet page says brokering is off while the claim thinks it is on"
+        // starts.
+        jobSecretBrokerEnabled: readJobSecretBrokerEnabled(policy),
       };
     } catch (error) {
       this.logger.warn(

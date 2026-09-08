@@ -70,6 +70,9 @@ function api(record: { deregisters: number; claims: number }): NodeApi {
     uploadUrl: async () => {
       throw new Error('unexpected');
     },
+    jobSecret: async () => {
+      throw new Error('unexpected');
+    },
     submitResult: async () => {
       throw new Error('unexpected');
     },

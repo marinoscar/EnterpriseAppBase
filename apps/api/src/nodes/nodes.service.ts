@@ -124,7 +124,14 @@ import { Job, NodeStatus, Prisma, WorkerNode } from '@prisma/client';
 import { z } from 'zod';
 
 import { JobClaimService } from '../jobs/job-claim.service';
+import {
+  buildClaimLeases,
+  resolveJobProfile,
+  resolveRenewIntervalMs,
+} from '../jobs/job-execution-profile';
 import { JobHandlerRegistry } from '../jobs/job-handler.registry';
+import { NodeOffloadService } from '../jobs/node-offload.service';
+import { JobLeaseService } from '../jobs/job-lease.service';
 import { jobTypeLabel } from '../jobs/job-type-labels';
 import { JobSettleOutcome, JobTerminalService } from '../jobs/job-terminal.service';
 import { resolveJobLeaseMs } from '../jobs/job.worker';
@@ -225,7 +232,18 @@ export class NodesService {
     private readonly config: ConfigService,
     private readonly claims: JobClaimService,
     private readonly terminal: JobTerminalService,
-    private readonly registry: JobHandlerRegistry
+    // The renewal half of the claim (#347), shared verbatim with the
+    // in-process worker. See `renewLease` for why the guard it carries must
+    // not be written twice.
+    private readonly leases: JobLeaseService,
+    private readonly registry: JobHandlerRegistry,
+    // WHAT A NODE MAY CLAIM HERE, RIGHT NOW (#349, #352). It replaced a
+    // `NodeLifecycleService` injected for one settings field, because the
+    // question grew two more gates and — critically — acquired a SECOND
+    // READER: `JobWorker`'s `system` mode consumes the complement of this
+    // exact set. See `nodeEligibleTypes` below, and the service's own header
+    // for the partition argument.
+    private readonly offload: NodeOffloadService
   ) {}
 
   // ===========================================================================
@@ -543,7 +561,7 @@ export class NodesService {
       );
     }
 
-    const nodeEligible = new Set(this.nodeEligibleTypes());
+    const nodeEligible = new Set(await this.nodeEligibleTypes());
     const eligibleTypes = withinRegistration.filter((type) => nodeEligible.has(type));
 
     const serverOnly = withinRegistration.filter((type) => !nodeEligible.has(type));
@@ -565,8 +583,48 @@ export class NodesService {
       // Derived on the server, identically to the in-process worker's — see
       // `resolveJobLeaseMs`, and the file header on why a node does not get
       // to choose its own lease.
-      leaseMs: resolveJobLeaseMs(this.config),
+      //
+      // ONE PER TYPE, from the SAME intersected list passed as
+      // `eligibleTypes` just above (#346). This is the claim that made
+      // per-row leases necessary at all: a node takes up to its concurrency
+      // ACROSS SEVERAL TYPES in one statement, so with per-type runtime
+      // ceilings those rows do not share a lease. Built by the same
+      // `buildClaimLeases` the in-process worker calls, so the fleet and the
+      // server derive the identical lease for the identical type — the lease
+      // is the reaper's contract, not a claimer's private detail.
+      leases: buildClaimLeases(this.config, this.registry, eligibleTypes),
     });
+  }
+
+  /**
+   * How often a node should renew the lease on a job of `type`, in
+   * milliseconds — the server's answer, derived from the very lease the claim
+   * granted.
+   *
+   * ⚠ THE SERVER DERIVES THIS, NOT THE NODE, for the same reason the server
+   * derives the lease itself (see `claimJobs`): the renewal cadence and the
+   * lease are one arithmetic relationship, and letting the two ends compute
+   * their halves independently is how a node ends up renewing every 30 seconds
+   * against a lease it was never told about — or, worse, less often than the
+   * lease it holds, losing jobs it is actively running while doing everything
+   * right. `resolveRenewIntervalMs` is the one derivation, and it is a third
+   * of the lease so two consecutive missed renewals still cost nothing.
+   *
+   * The practical case that made this worth a wire field (#347): a type
+   * declaring a six-hour `maxRuntimeMs` takes a six-hour lease, and the CLI's
+   * shipped `DEFAULT_LEASE_RENEW_MS` of 30 seconds would spend 720 round trips
+   * on it to no purpose whatsoever.
+   *
+   * ADDITIVE AND BACKWARD-COMPATIBLE on both ends: a node that ignores the
+   * field keeps its own cadence and stays correct, and this method is total —
+   * an unregistered type falls back through `resolveJobProfile`/
+   * `resolveJobLeaseMs` to the deployment-wide lease exactly as the claim
+   * would have.
+   */
+  renewIntervalMsFor(type: string): number {
+    return resolveRenewIntervalMs(
+      resolveJobLeaseMs(this.config, resolveJobProfile(this.registry.get(type)))
+    );
   }
 
   /**
@@ -581,6 +639,21 @@ export class NodesService {
    * no longer running. `updateMany` with the ownership conditions makes the
    * check and the write the same statement; a zero count means the state
    * moved, which is a 409 exactly as a stale read would have been.
+   *
+   * ⚠ THAT GUARD NOW LIVES IN `JobLeaseService.heldLeaseWhere` (#347), NOT
+   * HERE, and moving it there was the point of that issue rather than tidying.
+   * The in-process worker renews too now, and "a lease that has already
+   * expired may not be renewed, because another executor may own the row" is a
+   * claim about the queue's invariants, not about this endpoint. Written twice
+   * it drifts exactly once — somebody relaxes the expiry predicate on one side
+   * to stop a flaky node losing jobs, and from then on that side can resurrect
+   * a lease on a row the reaper has already given away. This is the same
+   * argument `resolveJobLeaseMs` makes about deriving the lease: one function,
+   * one rule, both executors.
+   *
+   * The 409 stays here, because it is the only part that is about HTTP: the
+   * shared service answers `false`, and only a caller who has a remote client
+   * waiting turns that into a status code.
    */
   async renewLease(
     userId: string,
@@ -589,19 +662,20 @@ export class NodesService {
   ): Promise<{ jobId: string; leaseExpiresAt: Date }> {
     const job = await this.assertJobHeldByNode(userId, nodeId, jobId);
 
-    const leaseExpiresAt = new Date(Date.now() + resolveJobLeaseMs(this.config));
+    // The renewal grants the SAME lease the claim did, which means resolving
+    // it from the same profile: a renewal computed from the deployment-wide
+    // timeout would hand a six-hour type a ten-minute extension and have the
+    // reaper take the job away from a node that is renewing on schedule.
+    const leaseExpiresAt = new Date(
+      Date.now() + resolveJobLeaseMs(this.config, resolveJobProfile(this.registry.get(job.type)))
+    );
 
-    const { count } = await this.prisma.job.updateMany({
-      where: {
-        id: job.id,
-        claimedByNodeId: nodeId,
-        status: 'running',
-        leaseExpiresAt: { gt: new Date() },
-      },
-      data: { leaseExpiresAt },
-    });
+    // `renewUntil`, not `renew`: the instant written to the row has to be the
+    // instant reported in the response, or the node schedules its next
+    // renewal against a deadline the reaper does not read.
+    const held = await this.leases.renewUntil(job.id, leaseExpiresAt, nodeId);
 
-    if (count === 0) {
+    if (!held) {
       throw this.notHeldByNode(jobId, nodeId);
     }
 
@@ -794,8 +868,10 @@ export class NodesService {
    * let the server answer", which is true and actionable. The type is still
    * listed, because it is still claimable.
    */
-  listNodeEligibleJobTypes(): NodeEligibleJobType[] {
-    return this.nodeEligibleTypes().map((type) => ({
+  async listNodeEligibleJobTypes(): Promise<NodeEligibleJobType[]> {
+    const types = await this.nodeEligibleTypes();
+
+    return types.map((type) => ({
       type,
       label: jobTypeLabel(type),
       resultSchema: this.toPublishableSchema(type),
@@ -939,20 +1015,27 @@ export class NodesService {
   }
 
   /**
-   * The registered types a node could actually run.
+   * The registered types a node may claim in THIS deployment, right now.
    *
-   * DERIVED FROM THE REGISTRY, never from a list here: a type is
-   * node-eligible exactly when its handler carries BOTH `nodeResultSchema`
-   * and `persistNodeResult`, and `serverOnlyTypes()` is already the
-   * authoritative complement of that (see `job-handler.interface.ts`'s
-   * header). Computing it as "everything minus server-only" rather than
-   * re-testing the two members means this file cannot disagree with the
-   * registry about what node-eligible means.
+   * ⚠ DELEGATED, AND THE DELEGATION IS THE POINT (#352). This used to be
+   * derived here, and `JobWorker`'s `system` mode derived the OPPOSITE answer
+   * from `registry.serverOnlyTypes()` — two independent derivations of one
+   * question, which agreed only for as long as node eligibility was a purely
+   * static property of a handler. The moment a type's eligibility acquired
+   * runtime gates (a settings switch, a capability probe), the two answers
+   * diverged and `db.backup.run` fell into the gap: no node was allowed to
+   * claim it and the `system` worker no longer claimed it either, so on such a
+   * deployment NOBODY TOOK THE BACKUPS.
+   *
+   * `NodeOffloadService` is now the one function, and the two executors read
+   * it in opposite directions — this one takes the set, the worker takes its
+   * complement — so they partition the queue by construction. Its header
+   * carries the full argument, including why it lives in `jobs/` rather than
+   * here (the nodes module imports the jobs module; the reverse would be a
+   * cycle).
    */
-  private nodeEligibleTypes(): string[] {
-    const serverOnly = new Set(this.registry.serverOnlyTypes());
-
-    return this.registry.types().filter((type) => !serverOnly.has(type));
+  private nodeEligibleTypes(): Promise<string[]> {
+    return this.offload.offeredTypes();
   }
 
   /** Whether a settled outcome means the job is coming back. */

@@ -43,12 +43,17 @@
 > and an administrator can inspect, trigger, cancel, download and delete them
 > by hand (#283, §13).
 
-## Why this is not a queue job
+## Why this *is* a queue job, and what had to change first
 
 This epic ships a job queue (`docs/specs/job-queue.md`) and a worker fleet
 (`docs/specs/worker-nodes.md`), and a database backup is obviously
-"background work". It is still **not** a queue job, and the reason is not
-taste — putting it on the queue corrupts backups.
+"background work". For most of epic #254 it was still **not** a queue job,
+and the reason was not taste — putting it on the queue as it stood would have
+corrupted backups. Epic #345 (#346, #347, #351, #352) is the epic that fixed
+the queue rather than working around it, and the backup moved onto it once
+each of the three arguments below stopped being true. Read the three as they
+stood — the starting position — and then read what closed each one, because
+the fix is only convincing if the failure it prevents is still visible.
 
 1. **`jobs.stuckThresholdMinutes` defaults to 30 minutes.** A dump of a real
    production database routinely runs longer than that. `JobStuckResetTask`
@@ -58,23 +63,65 @@ taste — putting it on the queue corrupts backups.
    same derived storage key as the first, and two processes interleave their
    output into one object. The archive that results restores nothing, and
    nothing reports an error: both runs can exit 0.
-2. **The in-process worker has no lease-renewal path.** `JobWorker` claims
-   with a lease and never extends it, so point 1 is not a rare race — it is
-   unconditional for any job that outlives the threshold. A remote node
-   renews; the in-process worker, which is what a single-container deployment
-   has, does not.
+
+   **Answered by #346's per-type execution profiles.** `db.backup.run`
+   declares `maxRuntimeMs: 6h`, and the claim's lease is *derived* from that
+   ceiling (`resolveJobLeaseMs` = ceiling + grace) rather than declared beside
+   it — so a lease shorter than the permitted runtime is unrepresentable
+   rather than merely avoided. The 30-minute threshold itself did not change;
+   what changed is that it is no longer the number this job type's lease is
+   measured against.
+2. **The in-process worker has no lease-renewal path.** `JobWorker` claimed
+   with a lease and never extended it, which made point 1 not a rare race but
+   *unconditional* for any job outliving the threshold — a remote node
+   renewed through `POST …/renew`, and the in-process worker a
+   single-container deployment actually runs did not.
+
+   **Answered by #347.** The worker now renews for the whole of `process()`
+   through `JobLeaseService`, the same service the node plane renews through,
+   on a ticker derived from the lease itself (lease ÷ 3, so two consecutive
+   renewal failures still cost nothing). The reaper's aged-claim signal was
+   narrowed to match: age is judged only for a `running` row that carries no
+   lease at all, so a job that keeps renewing is never reset by how long it
+   has run (`docs/ARCHITECTURE.md` §12.3). A fourth reaper signal —
+   an implausibly *far-out* lease, judged against the longest lease any
+   registered handler could legitimately ask for — replaces the coverage the
+   narrowed age clause gave up; see `docs/specs/job-queue.md` §7.1 for that
+   signal and the trade-off it accepts.
 3. **A job has an attempt budget and automatic retry.** Re-running a failed
    multi-gigabyte dump burns hours of I/O on a database that is probably
-   already unwell. The correct retry for a backup is *the next scheduled
-   one*.
+   already unwell, unattended, at whatever hour the first attempt died. The
+   correct retry for a backup is *the next scheduled one*, not a queue-driven
+   second attempt minutes later.
 
-So `database_backup_runs` is a dedicated table with its own heartbeat, its own
-staleness policy (`databaseBackup.runStaleMinutes`, an operator-set number of
-minutes that starts at 120 rather than 30) and its own terminal states.
+   **Answered by the same execution profile's `maxAttempts: 1`.** The policy
+   did not change — a backup was never meant to auto-retry — what changed is
+   that `JobStuckService`'s give-up phase and the ordinary terminal path both
+   now *enforce* it per type, instead of it holding only by the accident of
+   there being no queue to disagree.
 
-**Do not migrate this onto the queue.** If a future issue wants the queue to
-*trigger* a backup, a job handler may call `startBackup()` and return
-immediately — but the dump's lifetime must never be a job's lifetime.
+None of this made `database_backup_runs` into a `jobs` row, and it was never
+going to: the two tables answer different questions and have independent
+lifetimes (§1.1, and the schema's own comment above `DatabaseBackupRun`). What
+changed is narrower and load-bearing anyway — `database_backup_runs.job_id`
+links a run to the `db.backup.run` job that is now driving it, so the row
+still carries its own heartbeat, its own staleness policy
+(`databaseBackup.runStaleMinutes`, defaulting to 120 rather than
+`jobs.stuckThresholdMinutes`'s 30) and its own terminal states, but the
+job's lease is now what the staleness sweep asks about when the run has no
+heartbeat of its own — see §16.6 for why a node-executed run cannot write one
+at all.
+
+The dump's lifetime **is** the job's lifetime now, and that is safe precisely
+because each of the three objections above names a specific mechanism that
+closed it rather than a general assurance that the queue "should be fine". A
+handler that calls `startBackup()` and returns immediately — leaving the
+dump's lifetime independent of the job's — was considered and rejected: it
+would buy a dashboard row and nothing else, none of the reaper safety, none of
+the per-type retry budget, and none of the path to running on a worker node
+that §16 depends on. §16 covers the rest of the design that followed once the
+migration was safe, including running the dump on a worker node and the
+per-job credential it needs to do that.
 
 ## 1. The model
 
@@ -122,7 +169,7 @@ retention never deletes the restore record that referenced it.
 
 ```sql
 CREATE UNIQUE INDEX "database_backup_runs_active_uniq_idx"
-  ON "database_backup_runs" ("status") WHERE "status" IN ('pending','running');
+  ON "database_backup_runs" ((true)) WHERE "status" IN ('pending','running');
 ```
 
 `DatabaseBackupRunnerService.startBackup` **inserts optimistically** and turns
@@ -140,21 +187,41 @@ active" atomic with the insert that would violate it. This is the same
 argument, and the same shape, as `jobs_active_dedup_uniq_idx`.
 
 **Prisma cannot express this index.** The schema language has no syntax for a
-partial index, so it exists only in the migration, written by hand, and
-`prisma migrate dev`/`diff` will want to drop it on the next diff. That drift
-is intentional and permanent; both the migration and the `DatabaseBackupRun`
-model carry the warning. `src/db-backup/db-backup-active-index.db.spec.ts`
+partial index *or* an expression index, so it exists only in the migration,
+written by hand, and `prisma migrate dev`/`diff` will want to drop it on the
+next diff. That drift is intentional and permanent; both the migration and the
+`DatabaseBackupRun` model carry the warning. `db-backup-active-index.db.spec.ts`
 proves against a real Postgres that it is applied and that it arbitrates.
 
-**What it admits, precisely.** A UNIQUE index on `status` filtered to two
-values permits at most one `pending` row *and* at most one `running` row. The
-runner claims directly as `running` and never writes `pending`, so today the
-ceiling is exactly one active run. `pending` exists in the enum as a declared
-lifecycle state (claimed, dump not yet spawned) and is covered by the
-predicate so a future path that does insert one is still arbitrated by the
-database. A future design that needs both states populated at once must
-**tighten** this index to a constant expression — never relax the guard into
-application code.
+**What it admits, precisely — and the tightening that happened (issue #351,
+epic #345).** The ORIGINAL index (`20260907120000_add_database_backup_runs`)
+keyed on the `status` COLUMN, filtered to two values. That permits at most one
+`pending` row *and*, independently, at most one `running` row *at the same
+time* — two active runs, not one — because a `pending` row and a `running` row
+carry different key values and so never collide with each other. That ceiling
+was harmless only as long as the runner claimed directly as `running` and
+never wrote `pending`.
+
+#351 removed that precondition: the backup became a queue job
+(`db.backup.run`), and `POST /api/admin/db-backup/runs` now enqueues the job
+and creates the run row as `pending` *before* any worker has claimed it — the
+row has to exist at enqueue time so the endpoint can return a run id and `GET
+/runs/{id}` keeps working, and `pending` is more honest than the old behaviour
+of reporting `running` before anything was. The moment `pending` rows became
+real, the column-keyed index stopped meaning "at most one active run" and
+started meaning "at most two".
+
+`prisma/migrations/20260907140000_add_backup_run_job_link/migration.sql`
+(landed alongside the `database_backup_runs.job_id` FK described in §1) drops
+and recreates the index keyed on the constant expression `(true)` instead of
+`status`, still filtered to the same two statuses. Every row matching the
+predicate — `pending` or `running`, it no longer matters which — now indexes
+to the identical key, so Postgres enforces "at most one active row, full
+stop" across both statuses combined. This is exactly the tightening this
+section always said a future path needing both states populated at once would
+require: "tighten this index to a constant expression — never relax the guard
+into application code." A `completed`, `failed` or `stale` row still never
+matches the predicate and is never constrained by this index.
 
 ## 3. Indexes
 
@@ -339,18 +406,30 @@ has to change shape for that, which is why the column exists now.
 ## 10. Scheduling
 
 A single `@Cron` provider, `DatabaseBackupScheduleTask`, ticking **every ten
-minutes**. Each tick does two things, in this order:
+minutes**. Each tick does three things, in this order:
 
-1. **Release stale runs** (§12).
-2. **Fire a due backup**, if one is due.
+1. **Queue the housekeeping sweep** — `db.backup.sweep`, which releases stale
+   runs (§12) and then prunes by retention (§11).
+2. **Fire a due backup**, if one is due — which is itself an enqueue of
+   `db.backup.run` (§4).
+3. **Queue the retained-database drop** — `db.restore.old-db-drop`, for a
+   `<live>_old_<ts>` database a restore displaced.
 
-The order matters and is not cosmetic. The sweep is what frees the
-single-active-run slot; if the fire went first it would collide with a zombie
-row left by a container that vanished mid-dump, log "already running", and
-push tonight's backup to the next tick — ten minutes of delay bought by
-nothing but statement order. The two calls are wrapped separately, so a failing
-sweep still lets the fire happen and vice versa: they share a tick, not a
-transaction.
+⚠ **Only duty 2 still decides anything in this tick.** #353 (epic #345) moved
+duties 1 and 3 out of the cron body and onto handlers — see
+`docs/specs/job-queue.md` §7.10 for the rule and its exemptions. The tick now
+reads the policy, evaluates the boundary, and queues; it deletes nothing, drops
+nothing and reports nothing.
+
+The order still matters, and one property of it genuinely weakened. The sweep
+is what frees the single-active-run slot, so it is queued first and a worker may
+well have released the slot by the time the fire runs — but that is no longer
+guaranteed *within the tick*, and a tick that finds a zombie may still log
+"already running" and stand down. **The backup is delayed, never lost, and by at
+most ten minutes**: the anti-double-fire rule (§10.2) is stateless and
+recomputed from the boundary every tick, which is the same property that
+recovers a window missed by a process that was down. Duty 3 goes last because
+nothing waits on it, exactly as it did when it ran inline.
 
 ### 10.1 Why a ten-minute poll rather than the operator's own cron
 
@@ -434,13 +513,17 @@ already taken.
 ### 10.6 `DB_BACKUP_SCHEDULE_ENABLED`, and never the worker mode
 
 The single most important line in the task is the one that is **not** there:
-there is no `if (workerMode === 'off') return`. A backup is not queue work
-(see "Why this is not a queue job"), and `JOBS_WORKER_MODE=off` says "this
-process executes no queued jobs" — it does not say "this deployment's database
-does not need backing up". A pure control plane in front of an external node
-fleet is still the only process with a database connection at all, so gating
-backups on its willingness to run jobs would mean that deployment silently
-never backs up.
+there is no `if (workerMode === 'off') return`. This tick itself is not queue
+work — it decides a backup is due and **enqueues** `db.backup.run` (see "Why
+this *is* a queue job, and what had to change first"); a worker takes the
+dump. `JOBS_WORKER_MODE=off` says "this process executes no queued jobs" — it
+does not say "this deployment's database does not need backing up". A pure
+control plane in front of an external node fleet is still the only process
+with a database connection at all, so gating the schedule on its willingness
+to run jobs would mean that deployment silently never even *queues* a backup.
+The honest cost of that split is stated in the task's own header: with
+`JOBS_WORKER_MODE=off` this tick still queues backups that nothing executes —
+only `system` and `all` modes claim `db.backup.run`.
 
 So the only switch is `DB_BACKUP_SCHEDULE_ENABLED`, bare and unprefixed like
 `JOBS_REAPER_ENABLED` and `NODE_STALE_OFFLINE_ENABLED`, defaulting to on, with
@@ -529,10 +612,12 @@ One failure is permanent and silent, the other transient and loud. So a failed
 object delete **keeps the row**; giving up on it would convert the second
 failure into the first.
 
-### 11.2 Pruning runs only after a successful backup, and never throws
+### 11.2 Pruning is queued only after a successful backup, and never throws
 
-The call sits in the runner's success path, and its position there is three
-separate decisions:
+Since #353 the runner does not prune — it **enqueues `db.backup.sweep`**, whose
+handler prunes on a worker slot. Every ordering constraint below survives the
+move unchanged (a job cannot be claimed before the write it was enqueued after
+has committed), and the enqueue sits in exactly the position the call used to:
 
 - **After verification**, because retention deletes older archives and this one
   is only a replacement for them once `pg_restore --list` has proven it
@@ -545,11 +630,14 @@ separate decisions:
 - **Only on success.** There is no prune in the failure path. A failed backup
   is exactly when the old archives matter most.
 
-`prune()` swallows its own failures by contract, and the call site wraps it in
-a second `try` anyway — because that call sits inside the `try` whose `catch`
-deletes the object and marks the run failed. If the contract were ever broken
-by a refactor, an exception there would delete the archive the run had just
-proven good. A missed prune costs storage; a thrown one would cost the backup.
+The fourth constraint used to be defended by a nested `try`: the call sat inside
+the `try` whose `catch` deletes the object and marks the run failed, so an
+exception escaping retention would have deleted the archive the run had just
+proven good. That is now **structural** — the prune happens in a different job,
+on a different worker slot, after this job has settled, and no code path
+connects it to the backup's failure handler. The `try` stays anyway, because the
+*enqueue* is still a database write inside that same `try`. A missed prune costs
+storage; a thrown one would cost the backup.
 
 ## 12. The staleness sweep
 
@@ -608,8 +696,9 @@ needs to tell "the dump errored" from "the container went away mid-dump".
 Nothing restarts one automatically. Re-running a multi-gigabyte dump that just
 OOM-killed its own process burns hours of I/O on a database that is probably
 already unwell, unattended, at whatever hour the first attempt died. **The
-retry for a backup is the next scheduled run** — the same answer this document
-gives for why a backup is not a queue job.
+retry for a backup is the next scheduled run** — the same answer `db.backup.run`'s
+own `maxAttempts: 1` gives on the job side (see "Why this *is* a queue job, and
+what had to change first", above).
 
 ## 13. The admin API
 
@@ -961,10 +1050,12 @@ old one — at exactly the moment old archives matter most. See §11.2.
 nothing points at, billed forever and invisible, versus an orphaned row that is
 visible, free and re-prunable. See §11.1 and §12.2.
 
-**Gating the scheduler on `JOBS_WORKER_MODE`.** A backup is not queue work, and
-the deployment that sets `off` — a control plane in front of a worker fleet —
-is the one whose API is the only component with a database connection. It would
-silently never back up. See §10.6.
+**Gating the scheduler on `JOBS_WORKER_MODE`.** The scheduling *tick* is not
+itself queue work — it decides a backup is due and enqueues `db.backup.run` —
+and the deployment that sets `off` — a control plane in front of a worker
+fleet — is the one whose API is the only component with a database
+connection. Gating it on the willingness to run jobs would mean that
+deployment silently never even queues a backup. See §10.6.
 
 **A `preRestoreRetentionHours` settings field.** One number, at the cost of
 `systemDatabaseBackupSchema`, the defaults, the PATCH schema, the response DTO,
@@ -1112,3 +1203,134 @@ mean something — but it still runs against the same mocked engine seam as
 tests prove is that the HTTP surface reports the engine's state honestly, not
 that the engine itself is correct. That question is answered by §15.1 and
 §15.2.
+
+## 16. Running the dump on a worker node (#352, epic #345)
+
+`db.backup.run` is **node-eligible**: a worker node can take the dump, so the
+bytes go from the database to object storage without transiting the API
+server. Everything in §5 and §6 still holds — what changes is *who* runs
+`pg_dump`, and nothing else.
+
+### 16.1 Three gates, and the type is offered only when all three agree
+
+Node eligibility is *structural* (the handler carries `nodeResultSchema` +
+`persistNodeResult`, and `deriveOutputKey` so the archive lands where the rest
+of this subsystem looks for it). Whether a node is ever **offered** the type is
+a runtime intersection performed in `NodesService.nodeEligibleTypes`:
+
+| Gate | Question | Default |
+| --- | --- | --- |
+| `nodes.jobSecretBrokerEnabled` | May the broker issue a credential **at all**? | off |
+| `databaseBackup.nodeOffloadEnabled` | May **this workload** leave the server? | off |
+| `PgJobRoleBroker.usable()` | *Can* it mint here, right now? | probed, cached ~60s |
+
+The two settings are deliberately **not** one switch. "These machines may hold
+a short-lived credential" and "the whole database may be dumped somewhere
+other than the API server" are different decisions, and a deployment can
+reasonably want the first without the second. The `usable()` gate is capability
+rather than policy: without it a node claims the job, asks for its credential,
+gets a `503` and defers — burning a claim and a lease cycle **every poll** on a
+deployment that simply cannot mint roles (managed PostgreSQL denying
+`CREATEROLE` is the ordinary case; see
+[`docs/runbooks/node-job-secrets.md`](../runbooks/node-job-secrets.md)).
+
+With any gate closed the type is withheld from the claim and the in-process
+worker takes the backup — exactly the behaviour that existed before node
+offload, **including under `JOBS_WORKER_MODE=system`**. That last part is not
+free, and it is worth knowing why:
+
+`system` mode used to mean "everything `JobHandlerRegistry.serverOnlyTypes()`
+says no node can run", which was a *static* property of a handler's members.
+Once eligibility acquired runtime gates that stopped being the same question:
+`db.backup.run` is structurally node-eligible (so it left `serverOnlyTypes()`
+for every deployment, permanently) while all three gates above ship off (so no
+node may claim it). Read separately, the two answers left a **hole** —
+neither executor claimed the type, and the deployment simply stopped taking
+backups. The fix is that `system` mode now reads the **complement of
+`NodeOffloadService.offeredTypes()`**, the very set the node plane is offered,
+so the two executors partition the queue by construction. See
+[`job-queue.md`](job-queue.md) and the service's own header.
+`JOBS_SYSTEM_MODE_EXTRA_TYPES` still exists, unchanged, for deliberately
+running a type the fleet *is* allowed to run — it is no longer load-bearing
+for anything's survival.
+
+### 16.2 The node never chooses where the archive goes
+
+`deriveOutputKey` re-reads the run by `job_id` (a `@unique` column) and returns
+the key the row already records. That is what makes it **idempotent**: a node
+asks for its upload target again after a timed-out transfer or a restarted
+process, and must get the same key, or a retry writes a second archive that no
+row points at. The node reports the key back in its result, and
+`persistNodeResult` **refuses anything else** — a result naming a different key
+is either a confused executor or an attempt to point this deployment's restore
+path at bytes of somebody else's choosing, and neither is corrected by
+trusting it.
+
+The first `deriveOutputKey` call also moves the run from `pending` to
+`running`, because on this path it is the only moment the server learns a
+remote executor has begun.
+
+### 16.3 Verification stays on the server, and is not negotiable
+
+`persistNodeResult` downloads the **stored object** and reads its table of
+contents before writing anything. The node's `sha256` is recorded as *the
+node's claim* about the bytes it streamed; `verified_at` is set only because
+this server read the archive back out of the bucket. §6 already settled that
+verification means "what the bucket holds", and a node attesting to its own
+upload is the machine with the least reason to be trusted vouching for the one
+fact this subsystem rests on. The cost is one download per backup — the same
+one the server path already pays.
+
+Both executors then write through **one private `completeRun`**, so a run's
+stored state cannot depend on which machine produced it.
+
+### 16.4 `bytes` is a decimal string, and that is load-bearing
+
+`bytes_written`/`size_bytes` are `BigInt` because a dump past 2 GiB is
+ordinary. JSON has no integers, so a size sent as a JSON **number** is exact
+only below 2^53 — the corruption would land on exactly the largest backups,
+i.e. the deployments node offload exists for. The result contract
+(`apps/api/src/jobs/contracts/db-backup-run.contract.ts`) therefore carries it
+as `^\d{1,20}$` and the handler converts once with `BigInt()`, mirroring what
+`toRunDto` already does on the way out.
+
+### 16.5 The node holds no credential it can persist
+
+The connection is brokered per job (#349/#350), bounded by the job's own lease,
+and revoked when the job settles. On the node it lives in **one local
+constant**: it never reaches `node-config.ts`, never reaches the state
+directory, and never reaches a log line —
+`apps/cli/src/node/executors/db-backup-run.test.ts` asserts all three,
+including a static check that the executor imports no config writer at all.
+
+### 16.6 A node-executed run has no heartbeat, so the sweep asks the lease
+
+A node cannot write `last_heartbeat_at`: it has no database access, which is
+the whole premise of the node plane. The stale sweep (§12) therefore skips a
+candidate whose `jobs` row is still `running` with a live lease — the liveness
+signal the executor is already maintaining (#347) — and gives up on it the
+moment that lease is gone. Without this, a healthy node-run backup would be
+marked `stale` after `runStaleMinutes`, **its archive deleted mid-upload**, and
+its result then refused.
+
+REJECTED: a second heartbeat endpoint for nodes to poke the run row. Two
+liveness clocks for one fact disagree, and the day one of them fails the other
+says everything is fine.
+
+### 16.7 What the node needs, and what `doctor` says about it
+
+`pg_dump` is a **required** capability for the type (`capabilities.ts`), so a
+node without it never declares `db.backup.run` — which matters more here than
+for any other type, because `maxAttempts: 1` means a failed claim is a backup
+that simply did not happen. `psql` is **degradable**: it is used only for two
+best-effort provenance reads (`db_version`, `migration_name`), and without it
+the backup is taken, uploaded and verified with two `null` columns.
+
+`appctl node doctor` reports both the client version and — with
+`--db-host host[:port]` — a TCP probe of the database, **as warnings, never
+failures**. A node that cannot reach the database must simply not declare the
+type; failing `doctor` would tell every node in a fleet that it is broken
+because it is not the one taking backups. There is deliberately no tunnelling:
+see [`worker-nodes.md`](worker-nodes.md) — a node needs a real network route,
+which for most deployments means sitting inside the same private network.
+

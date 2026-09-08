@@ -1,19 +1,14 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import type { DatabaseBackupTrigger } from '@prisma/client';
 
-import { PERMISSIONS } from '../../common/constants/roles.constants';
-import type { BackupFailedEmailData } from '../../email';
-import { NotificationsService } from '../../notifications/notifications.service';
+import { enqueueHousekeepingJob } from '../../jobs/housekeeping.enqueue';
+import { JobsService } from '../../jobs/jobs.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SystemSettingsService } from '../../settings/system-settings/system-settings.service';
-import {
-  STORAGE_PROVIDER,
-  type StorageProvider,
-} from '../../storage/providers/storage-provider.interface';
 import type { SystemDatabaseBackupValue } from '../../common/schemas/settings.schema';
-import { DatabaseRestoreService } from '../database-restore.service';
+import { DB_BACKUP_SWEEP_TYPE } from '../handlers/db-backup-sweep.handler';
+import { DB_RESTORE_OLD_DB_DROP_TYPE } from '../handlers/db-restore-old-db-drop.handler';
 import { DatabaseBackupRunnerService } from '../db-backup-runner.service';
 import { DatabaseBackupAlreadyRunningError } from '../db-backup.errors';
 import {
@@ -23,71 +18,76 @@ import {
 } from '../schedule.util';
 
 // =============================================================================
-// The backup scheduler and the staleness sweep (issue #282, epic #254)
+// The backup scheduler (issue #282, converted by #353, epic #345)
 // =============================================================================
 //
-// #281 shipped an engine with no caller. This is the caller. Every ten
-// minutes it does exactly three things, in this order:
+// #281 shipped an engine with no caller. This is the caller. Every ten minutes
+// it does exactly three things, in this order:
 //
-//   1. RELEASE STALE RUNS — a run whose heartbeat stopped is given up on and
-//      marked `stale`, which frees the single-active-run slot.
+//   1. QUEUE THE HOUSEKEEPING SWEEP — `db.backup.sweep`, which releases runs
+//      whose executor went away and then prunes by retention.
 //   2. FIRE A DUE BACKUP — if the schedule says one should have started and
-//      none has, start one.
-//   3. DROP EXPIRED RETAINED DATABASES (#285) — a `<live>_old_<ts>` database a
-//      restore displaced, past `databaseBackup.oldDatabaseRetentionHours`.
+//      none has, queue one.
+//   3. QUEUE THE RETAINED-DATABASE DROP — `db.restore.old-db-drop`, for
+//      `<live>_old_<ts>` databases a restore displaced (#285), past
+//      `databaseBackup.oldDatabaseRetentionHours`.
+//
+// ⚠ ONLY DUTY 2 STILL DECIDES ANYTHING HERE. Duties 1 and 3 used to run INLINE
+// in this tick and now only enqueue: the work moved to
+// `handlers/db-backup-sweep.handler.ts` and
+// `handlers/db-restore-old-db-drop.handler.ts` respectively, which is #353's
+// rule ("the cron decides whether work is due; a handler does the work")
+// applied to the last two inline duties in this subsystem. Each handler's
+// header carries its own argument; do not move that code back here.
 //
 // -----------------------------------------------------------------------------
-// WHY THE THIRD DUTY IS HERE AND NOT ON A `@Cron` OF ITS OWN
+// ⚠ THE SWEEP NO LONGER FREES THE SLOT *WITHIN* THIS TICK
 // -----------------------------------------------------------------------------
 //
-// A retained database is a FULL SECOND COPY of the production database, kept so
-// that rolling a restore back costs one rename instead of a multi-hour replay.
-// Something has to drop it when the window closes, and the choice was between a
-// timer of its own and a third duty in a tick that already exists.
+// This header used to argue that the sweep must run FIRST because it is what
+// RELEASES the slot the fire needs: `database_backup_runs_active_uniq_idx`
+// permits one active run, so a row abandoned by a container that vanished
+// mid-dump holds the slot until something transitions it, and a fire that ran
+// first would collide with that zombie and log "already running".
 //
-// This tick, for three reasons. The window is measured in HOURS, so a
-// ten-minute poll is already an order of magnitude finer than it needs to be. A
-// second timer would be a second, unsynchronised thing dropping databases in
-// this subsystem — the same argument `DbBackupModule` makes for why retention
-// is not its own `@Cron`. And this handler already owns the pattern the sweep
-// needs: one `now` for the whole tick, one policy read, one swallowing `catch`
-// per duty so a failure in one does not cost the others.
+// That argument still holds, and the ordering below still honours it as far as
+// it now can — the sweep is enqueued before the boundary is evaluated, so a
+// worker may well have released the slot by the time the fire runs. But it is
+// no longer GUARANTEED within the tick, and pretending otherwise would be the
+// kind of comment that quietly stops being true. THE BACKUP IS DELAYED, NEVER
+// LOST, AND BY AT MOST TEN MINUTES: the anti-double-fire rule below is
+// stateless and recomputed from the boundary every tick, so the next tick — with
+// the slot now free — takes the backup. "A late tick still fires" was designed
+// for a process that was down at 02:00; it covers this for the same reason.
 //
-// It goes LAST because it is the only duty that is pure housekeeping. Nothing
-// waits on it, and a backup that is due must not be delayed behind a `DROP
-// DATABASE` waiting on a session somebody left open.
-//
-// -----------------------------------------------------------------------------
-// WHY THE SWEEP GOES FIRST
-// -----------------------------------------------------------------------------
-//
-// The two are not independent: the sweep is what RELEASES the slot the fire
-// needs. `database_backup_runs_active_uniq_idx` permits one active run, so a
-// row abandoned by a container that vanished mid-dump holds the slot until
-// something transitions it. If the fire ran first it would collide with that
-// zombie, log "already running", and tonight's backup would wait for the NEXT
-// tick — ten minutes of delay bought by nothing but statement order. Sweeping
-// first means a zombie found at 02:00 is released at 02:00 and the backup
-// starts in the same tick.
-//
-// The two calls are separately wrapped, so a failing sweep still lets the fire
-// attempt happen (and vice versa). They are one tick, not one transaction.
+// Duty 3 goes LAST because it is the only one nothing else depends on, exactly
+// as it did when it ran inline.
 //
 // -----------------------------------------------------------------------------
 // GATED ON `DB_BACKUP_SCHEDULE_ENABLED`, AND NEVER ON `JOBS_WORKER_MODE`
 // -----------------------------------------------------------------------------
 //
 // The line that is not in this file matters as much as the ones that are:
-// there is no `if (workerMode === 'off') return`. This is not a queue worker —
-// see the "Why this is not a queue job" block in `schema.prisma` — and a
-// backup is not work a worker node could take. `JOBS_WORKER_MODE=off` says
-// "this process executes no queued jobs"; it does not say "this deployment's
+// there is no `if (workerMode === 'off') return`. This is not a queue worker,
+// and #351 did not make it one — what this tick does is DECIDE a backup is due
+// and ENQUEUE it; a worker takes the dump. `JOBS_WORKER_MODE=off` says "this
+// process executes no queued jobs"; it does not say "this deployment's
 // database does not need backing up". A pure control plane in front of an
 // external node fleet is still the only process with a database connection at
-// all, so gating backups on its willingness to run jobs would mean that
-// deployment silently never backs up. That is the same precedent
+// all, so gating the schedule on its willingness to run jobs would mean that
+// deployment silently never even QUEUES a backup. That is the same precedent
 // `JOBS_REAPER_ENABLED` and `NODE_STALE_OFFLINE_ENABLED` already set: an
 // always-on maintenance cron with a switch of its own.
+//
+// ⚠ THE HONEST CAVEAT SINCE #351: with `JOBS_WORKER_MODE=off` this tick queues
+// backups that nothing will execute. `system` mode does execute them
+// (`db.backup.run` is server-only by derivation, so that mode claims it); only
+// `off` does not. Those unclaimed `pending` run rows would hold the single
+// active backup slot forever, which is precisely the third arm
+// `DatabaseBackupSweepHandler.releaseStaleRuns` carries — and which, in an
+// `off` deployment, nothing would run either. `off` means "this process
+// executes no queued jobs", and since #353 that includes this subsystem's
+// housekeeping.
 //
 // The switch DEFAULTS TO ON and only the literal `false` turns it off, for the
 // reason every kill switch here fails open: a deployment whose backups
@@ -226,19 +226,13 @@ export class DatabaseBackupScheduleTask {
     private readonly prisma: PrismaService,
     private readonly settings: SystemSettingsService,
     private readonly runner: DatabaseBackupRunnerService,
-    @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
     private readonly config: ConfigService,
-    // #285's retained-database sweep. Injected rather than reimplemented here:
-    // the restore service owns the admin connection, the identifier rules and
-    // the seam, and a second place that issues `DROP DATABASE` is a second place
-    // to get the guard wrong.
-    private readonly restore: DatabaseRestoreService,
-    // #288 (epic #254). `db_backup.backup_failed` is raised from BOTH give-up
-    // paths — the runner's own `markFailed` and this sweep — because they are
-    // genuinely different events: one is a run that reported an error, the
-    // other is a run whose executing process went away and was never heard from
-    // again. The `outcome` field on the payload is what tells them apart.
-    private readonly notifications: NotificationsService
+    // #353 (epic #345). The only new collaborator: this tick queues the two
+    // housekeeping jobs it used to perform. The storage provider, the restore
+    // service and the notifier all left with the duties that needed them —
+    // which is the clearest possible statement that this class no longer
+    // deletes objects, drops databases or reports failures.
+    private readonly jobs: JobsService
   ) {}
 
   @Cron(CronExpression.EVERY_10_MINUTES)
@@ -265,49 +259,33 @@ export class DatabaseBackupScheduleTask {
     try {
       const policy = await this.settings.getDatabaseBackupPolicy();
 
-      // ONE `now` for the whole tick, so the stale cutoff and the schedule
-      // boundary are judged against the same instant — and so a test can pin
-      // it without touching the wall clock.
+      // ONE `now` for the whole tick, so the schedule boundary is judged
+      // against a single instant — and so a test can pin it without touching
+      // the wall clock.
       const now = new Date();
 
-      // SWEEP FIRST — see the header. Wrapped on its own so a failed sweep
-      // does not also cost tonight's backup: the two are separate duties that
-      // happen to share a tick.
-      try {
-        const released = await this.releaseStaleRuns(policy, now);
-
-        if (released > 0) {
-          this.logger.warn(
-            `Database backup sweep: ${released} run(s) stopped heartbeating and were ` +
-              'marked stale; the active slot is free again'
-          );
-        }
-      } catch (error) {
-        this.logger.error(
-          `The database backup stale sweep failed: ${toError(error).message}`
-        );
-      }
+      // SWEEP FIRST — see the header. The enqueue never throws, so no `try` of
+      // its own is needed any more: `enqueueHousekeepingJob` swallows and logs,
+      // which is what the wrapper around the inline sweep used to do by hand.
+      await enqueueHousekeepingJob({
+        jobs: this.jobs,
+        prisma: this.prisma,
+        logger: this.logger,
+        type: DB_BACKUP_SWEEP_TYPE,
+        what: 'database backup sweep',
+      });
 
       await this.fireDueBackup(policy, now);
 
-      // LAST, and wrapped on its own like the sweep above it. Pure
-      // housekeeping: nothing waits on it, and a `DROP DATABASE` blocked by a
-      // session somebody left open must not be able to cost tonight's backup.
-      try {
-        const dropped = await this.restore.dropExpiredOldDatabases(policy, now);
-
-        if (dropped > 0) {
-          this.logger.warn(
-            `Dropped ${dropped} database(s) displaced by a restore and past ` +
-              `${policy.oldDatabaseRetentionHours}h; rolling those restores back now means ` +
-              'restoring an archive rather than renaming a database'
-          );
-        }
-      } catch (error) {
-        this.logger.error(
-          `The retained-database sweep failed: ${toError(error).message}`
-        );
-      }
+      // LAST, because nothing waits on it — the same position it held when it
+      // ran inline, and for the same reason.
+      await enqueueHousekeepingJob({
+        jobs: this.jobs,
+        prisma: this.prisma,
+        logger: this.logger,
+        type: DB_RESTORE_OLD_DB_DROP_TYPE,
+        what: 'retained-database sweep',
+      });
     } catch (error) {
       // SWALLOWED, like every other scheduled task here. A throw out of a
       // `@Cron` handler is an unhandled rejection, and an unhandled rejection
@@ -322,215 +300,6 @@ export class DatabaseBackupScheduleTask {
       // which is the one failure this whole file exists to not have.
       this.ticking = false;
     }
-  }
-
-  /**
-   * Gives up on runs whose heartbeat stopped, freeing the active slot.
-   *
-   * ⚠ `stale` IS TERMINAL AND NOTHING RE-QUEUES IT. Automatically restarting a
-   * multi-gigabyte dump that just OOM-killed its own process is not obviously
-   * right — it burns hours of I/O on a database that is probably already
-   * unwell, and it does it unattended, repeatedly, at whatever hour the first
-   * attempt died. The retry for a backup is the next scheduled run, which is
-   * the same answer `schema.prisma` gives for why this is not a queue job.
-   *
-   * `stale` is also distinct from `failed` on purpose: nothing OBSERVED these
-   * runs fail. The process holding them disappeared, and an operator reading
-   * the list needs to be able to tell "the dump errored" from "the container
-   * went away mid-dump".
-   *
-   * Exposed as its own method so a test can drive it without going through the
-   * kill switch and the swallowing `catch`.
-   *
-   * @returns how many rows this call actually transitioned.
-   */
-  async releaseStaleRuns(policy: SystemDatabaseBackupValue, now: Date): Promise<number> {
-    const cutoff = new Date(now.getTime() - policy.runStaleMinutes * 60_000);
-
-    const candidates = await this.prisma.databaseBackupRun.findMany({
-      where: {
-        // `running` only. `pending` is in the active index's predicate but the
-        // runner never writes it (see `claimRun`: the claim and the start are
-        // one act), so there is nothing here to sweep today. ⚠ A future path
-        // that DOES insert a `pending` row must extend this predicate with it,
-        // or that row holds the active slot with no heartbeat that could ever
-        // age it out.
-        status: 'running',
-        OR: [
-          // The ordinary case: it was beating and stopped.
-          { lastHeartbeatAt: { lt: cutoff } },
-          // THE ZOMBIE THAT NEVER BEAT — a process that died between the claim
-          // and its first progress write. `NULL < cutoff` is NULL in SQL and
-          // never true, so the first arm cannot see it, and without this arm
-          // the row holds the active slot FOREVER. `startedAt` is the
-          // substitute age, and the claim always sets it. Same two-armed
-          // defence the queue's lease reaper uses.
-          { lastHeartbeatAt: null, startedAt: { lt: cutoff } },
-        ],
-      },
-      // `startedAt` and `trigger` join the projection for #288: they are what
-      // `db_backup.backup_failed` renders, and reading them here — in the query
-      // the sweep was making anyway — is cheaper and less racy than a second
-      // read after the row has been rewritten.
-      select: {
-        id: true,
-        storageKey: true,
-        startedAt: true,
-        trigger: true,
-      },
-    });
-
-    // ONE COPY OF THE EXPLANATION, written to the row AND carried into the
-    // notification (#288). Two copies would be two places to reword, and the
-    // email quoting something the row does not say is worse than no email.
-    const staleMessage =
-      `The run stopped heartbeating for more than ${policy.runStaleMinutes} ` +
-      'minute(s) (databaseBackup.runStaleMinutes) and was given up on. Nothing ' +
-      'observed it fail: the process executing it went away. It is not retried ' +
-      'automatically; the next scheduled backup is the retry.';
-
-    let released = 0;
-
-    for (const candidate of candidates) {
-      // ⚠ THE ROW TRANSITION HAPPENS FIRST, AND THE ROW *IS* THE GUARD.
-      //
-      // A conditional `updateMany` re-asserting `status: 'running'`, not an
-      // `update` by id: the read above and this write are not atomic, and the
-      // interesting case is the run that FINISHED in between — a dump whose
-      // heartbeat was starved by a lock wait, that then completed normally two
-      // seconds later. `count === 0` means exactly that, and it must NOT be
-      // stomped: overwriting a `completed` row with `stale` would discard a
-      // perfectly good verified backup's record, and (worse) the object
-      // cleanup below would then delete the archive it points at.
-      const { count } = await this.prisma.databaseBackupRun.updateMany({
-        where: { id: candidate.id, status: 'running' },
-        data: {
-          status: 'stale',
-          finishedAt: now,
-          lastError: staleMessage,
-        },
-      });
-
-      if (count === 0) {
-        this.logger.debug(
-          `Database backup run ${candidate.id} settled between the stale sweep's read ` +
-            'and its write; leaving it alone.'
-        );
-
-        continue;
-      }
-
-      released += 1;
-
-      // ⚠ AFTER THE `stale` ROW HAS COMMITTED, and only on the branch where
-      // THIS process is the one that transitioned it (`count === 1` — the
-      // `continue` above covers the replica that lost the race). One settled run
-      // raises exactly one notification however many replicas are sweeping.
-      //
-      // Before the object cleanup below, deliberately: the delete is
-      // best-effort and may take a while against a slow bucket, and the report
-      // of the failure should not wait on the tidying-up of a partial archive.
-      // `notifyPermissionHolders` is detached and never rejects, so this costs
-      // the sweep nothing and cannot fail it.
-      this.announceStale(candidate, staleMessage, now);
-
-      // ⚠ AND OBJECT CLEANUP FOLLOWS, NEVER PRECEDES.
-      //
-      // Same ordering as the runner's failure path and the retention sweep,
-      // for the same reason read the other way round: if the delete went first
-      // and this process died before the row was transitioned, the row would
-      // still say `running` and still point at an object that no longer
-      // exists — and it would keep holding the active slot. With the row
-      // first, a failed delete leaves a VISIBLE `stale` row naming an orphaned
-      // object an operator can find and remove, rather than an invisible
-      // billable one nothing points at.
-      //
-      // Best-effort, and it never fails the sweep: the slot is already free,
-      // which is the part that had to happen.
-      try {
-        await this.storage.delete(candidate.storageKey);
-      } catch (error) {
-        this.logger.warn(
-          `Marked database backup run ${candidate.id} stale but could not delete its ` +
-            `partial object "${candidate.storageKey}"; it may need removing by hand: ` +
-            `${toError(error).message}`
-        );
-      }
-    }
-
-    return released;
-  }
-
-  /**
-   * Raise `db_backup.backup_failed` for a run this sweep gave up on. Never
-   * throws.
-   *
-   * ⚠ `outcome: 'stale'` AND NOT `'failed'`, and the distinction is the whole
-   * reason the field exists. A `failed` run reported an error: something
-   * observed it break and wrote down what. A `stale` run reported nothing —
-   * the process executing it went away, and the sweep is inferring the failure
-   * from silence. An operator chasing the two looks in completely different
-   * places (a dump's stderr versus a host that disappeared), so the message
-   * says which it is rather than flattening both into "backup failed".
-   *
-   * SYNCHRONOUS AND FIRE-AND-FORGET: `notifyPermissionHolders` schedules the
-   * audience query and the sends and returns, so a ten-minute cron never waits
-   * on a mail server, and the try/catch means a notifier bug cannot abort a
-   * sweep that has already freed the active slot.
-   */
-  private announceStale(
-    run: { id: string; startedAt: Date | null; trigger: DatabaseBackupTrigger },
-    reason: string,
-    settledAt: Date
-  ): void {
-    try {
-      // ANNOTATED WITH THE TEMPLATE'S TYPE: `notifyPermissionHolders` takes
-      // `data: unknown`, so this is the only place the shape is checked.
-      const payload: BackupFailedEmailData = {
-        runId: run.id,
-        outcome: 'stale',
-        error: reason,
-        startedAt: run.startedAt,
-        failedAt: settledAt,
-        trigger: run.trigger,
-        appUrl: this.appUrl(),
-      };
-
-      // `db_backup:read` — the exact string `db-backup.controller.ts` enforces,
-      // and the same one the runner's own failure path uses.
-      // ⚠ `.catch()` DESPITE THE DISPATCHER CONTRACTING NEVER TO REJECT — same
-      // reason as everywhere else this event is raised: an unhandled rejection
-      // inside a `@Cron` tick has no caller, and the `try/catch` around this
-      // block cannot see one.
-      void this.notifications
-        .notifyPermissionHolders(
-          'db_backup.backup_failed',
-          PERMISSIONS.DB_BACKUP_READ,
-          payload
-        )
-        .catch((error: unknown) => {
-          this.logger.error(
-            `Dispatching 'db_backup.backup_failed' for run ${run.id} rejected, ` +
-              `which the dispatcher contracts never to do: ${toError(error).message}`
-          );
-        });
-    } catch (error) {
-      this.logger.error(
-        `Could not raise 'db_backup.backup_failed' for run ${run.id}; the run is ` +
-          `still marked stale and its slot is free: ${toError(error).message}`
-      );
-    }
-  }
-
-  /**
-   * The application root, trailing slashes trimmed, or `undefined`.
-   *
-   * Same shape as `UsersService.appUrl()`; `undefined` makes the template omit
-   * its CTA rather than render a button that goes nowhere.
-   */
-  private appUrl(): string | undefined {
-    const appUrl = this.config.get<string>('appUrl');
-    return appUrl ? appUrl.replace(/\/+$/, '') : undefined;
   }
 
   /**
@@ -596,6 +365,21 @@ export class DatabaseBackupScheduleTask {
     // anti-double-fire rule, in one indexed query against `startedAt DESC`.
     // `startedAt: { not: null }` because a row that never started says nothing
     // about whether a window was covered.
+    //
+    // ⚠ #351 MADE `startedAt` NULL FOR A WHILE, AND THIS QUERY IS DELIBERATELY
+    // UNCHANGED. A queued backup's run row is created `pending` with no
+    // `startedAt`, and stays that way until a worker claims the job — so
+    // between the enqueue and the claim this query cannot see it, and a tick
+    // in that window will decide the boundary is still uncovered and fire
+    // again. That is safe, and fixing it here would be worse than the problem:
+    // the second fire is collapsed by the queue's CONSTANT dedup key (the
+    // enqueue returns the job already in flight, `queueBackup` raises
+    // `DatabaseBackupAlreadyRunningError`, and the branch below stands down at
+    // debug level). Widening this predicate to count `pending` rows would mean
+    // a run row that never gets claimed — a job deleted by an administrator,
+    // say — could silently suppress every scheduled backup that came after it,
+    // which is the failure this subsystem must not have. A row that never
+    // started still says nothing about whether a window was covered.
     const latest = await this.prisma.databaseBackupRun.findFirst({
       where: { startedAt: { not: null } },
       orderBy: { startedAt: 'desc' },
@@ -612,7 +396,7 @@ export class DatabaseBackupScheduleTask {
     }
 
     try {
-      const run = await this.runner.startBackup({
+      const { run, job } = await this.runner.queueBackup({
         trigger: 'scheduled',
         // No `createdById`. A timer has no user, and attributing this to the
         // last administrator who logged in would put a name on an action
@@ -620,7 +404,7 @@ export class DatabaseBackupScheduleTask {
       });
 
       this.logger.log(
-        `Started scheduled database backup ${run.id} for the ` +
+        `Queued scheduled database backup ${run.id} (job ${job.id}) for the ` +
           `${boundary.toISOString()} boundary (${expression} in ${policy.timezone}).`
       );
 

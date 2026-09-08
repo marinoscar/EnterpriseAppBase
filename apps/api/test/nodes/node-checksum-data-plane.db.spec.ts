@@ -58,8 +58,12 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { Readable } from 'node:stream';
 
+import { z } from 'zod';
+
 import { ExampleChecksumHandler } from '../../src/jobs/handlers/example-checksum.handler';
+import type { JobHandler } from '../../src/jobs/job-handler.interface';
 import { JobClaimService } from '../../src/jobs/job-claim.service';
+import { JobLeaseService } from '../../src/jobs/job-lease.service';
 import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
 import { JobTerminalService } from '../../src/jobs/job-terminal.service';
 import { JobsService } from '../../src/jobs/jobs.service';
@@ -67,6 +71,7 @@ import { ProviderThrottleService } from '../../src/jobs/provider-throttle.servic
 import { ClaimJobsDto, NodeJobResultDto } from '../../src/nodes/dto/node-control-plane.dto';
 import { NodeUploadUrlDto } from '../../src/nodes/dto/node-data-plane.dto';
 import { NodeDataPlaneService } from '../../src/nodes/node-data-plane.service';
+import { DEFAULT_SYSTEM_SETTINGS } from '../../src/common/types/settings.types';
 import { NodesService } from '../../src/nodes/nodes.service';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import type {
@@ -80,6 +85,8 @@ import type {
 } from '../../src/storage/providers';
 import { STORAGE_OBJECT_SUBJECT_TYPE } from '../../src/storage/storage-job-input';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
+import { NodeOffloadService } from '../../src/jobs/node-offload.service';
+import type { SystemSettingsService } from '../../src/settings/system-settings/system-settings.service';
 
 const { describeWithDb } = resolveDbSuite('node-checksum-data-plane.db.spec');
 
@@ -256,12 +263,56 @@ describeWithDb('example.checksum end to end on a worker node (real Postgres)', (
   const JOB_TYPE = 'example.checksum';
   const SUBJECT_TYPE = STORAGE_OBJECT_SUBJECT_TYPE;
 
+  /**
+   * A second node-eligible type, registered only by this suite (#348).
+   *
+   * It exists because `example.checksum` is the REGRESSION side of
+   * `deriveOutputKey` — it does not implement it and must keep the exact
+   * `node-outputs/<jobId>/<uuid>` key it always had — so proving the other
+   * side needs a type that DOES. `test.`-prefixed and defined below the
+   * shipped handlers so nobody mistakes it for one, and cleaned up with the
+   * rest of this suite's rows.
+   */
+  const ARTIFACT_TYPE = 'test.derived-key.artifact';
+
+  /**
+   * A node-eligible handler that owns WHERE its artifact lands (#348).
+   *
+   * Shaped like the real case this member exists for — a database backup,
+   * whose key is recorded on a row and read back by a retention sweep, a
+   * download endpoint and a restore — reduced to the only part the data plane
+   * can observe: a key derived from the job and stable across calls.
+   *
+   * `derive` is a mutable field rather than a fixed method so the unsafe-key
+   * test can make this handler misbehave without a second registration
+   * fighting the first for the same `type`.
+   */
+  class DerivedKeyArtifactHandler implements JobHandler {
+    readonly type = ARTIFACT_TYPE;
+
+    /** Both node members or neither — this one is claimable, so: both. */
+    readonly nodeResultSchema = z.object({ key: z.string() });
+
+    /** Deterministic in the job id: the same job asks twice, gets one key. */
+    derive: (job: Job) => string = (job) => `${PREFIX}artifacts/${job.id}.bin`;
+
+    async process(): Promise<void> {}
+
+    async persistNodeResult(): Promise<void> {}
+
+    async deriveOutputKey(job: Job): Promise<string> {
+      return this.derive(job);
+    }
+  }
+
   let prisma: PrismaClient;
   let root: string;
   let storage: LocalFileStorageProvider;
 
   let jobs: JobsService;
   let nodes: NodesService;
+  let registry: JobHandlerRegistry;
+  let artifactHandler: DerivedKeyArtifactHandler;
   let dataPlane: NodeDataPlaneService;
   let handler: ExampleChecksumHandler;
 
@@ -281,13 +332,16 @@ describeWithDb('example.checksum end to end on a worker node (real Postgres)', (
     root = mkdtempSync(join(tmpdir(), 'node-checksum-'));
     storage = new LocalFileStorageProvider(root);
 
-    const registry = new JobHandlerRegistry();
+    registry = new JobHandlerRegistry();
     const service = prisma as unknown as PrismaService;
 
     handler = new ExampleChecksumHandler(registry, service, storage);
     // Self-registration, exactly as `JobsModule` triggers it — this is what
     // makes the type node-eligible and therefore claimable at all.
     handler.onModuleInit();
+
+    artifactHandler = new DerivedKeyArtifactHandler();
+    registry.register(artifactHandler);
 
     jobs = new JobsService(service);
     nodes = new NodesService(
@@ -298,11 +352,25 @@ describeWithDb('example.checksum end to end on a worker node (real Postgres)', (
         service,
         config,
         new ProviderThrottleService(config),
-        new EventEmitter2()
+        new EventEmitter2(),
+        registry
       ),
-      registry
+      // The real lease service over the same client (#347): renewal is a real
+      // write on the row this suite is exercising, so a stub would hide it.
+      new JobLeaseService(service),
+      registry,
+      // WHAT A NODE MAY CLAIM HERE, RIGHT NOW (#349, #352) — the REAL service
+      // over this suite's own registry, with only its settings read stubbed to
+      // the shipped default (`jobSecretBrokerEnabled: false`). No handler here
+      // declares a broker or an offload gate, so the three filters it applies
+      // are a no-op — but the claim reads it, and stubbing the service itself
+      // would hide a drift between what a node is offered and what the
+      // in-process worker's `system` mode claims as the complement.
+      new NodeOffloadService(registry, {
+        getNodesPolicy: async () => ({ ...DEFAULT_SYSTEM_SETTINGS.nodes }),
+      } as unknown as SystemSettingsService)
     );
-    dataPlane = new NodeDataPlaneService(service, config, nodes, storage);
+    dataPlane = new NodeDataPlaneService(service, config, nodes, storage, registry);
 
     const owner = await prisma.user.create({
       data: { email: OWNER_EMAIL, displayName: 'checksum suite' },
@@ -315,7 +383,7 @@ describeWithDb('example.checksum end to end on a worker node (real Postgres)', (
         hostname: 'checksum-box',
         platform: 'linux-x64',
         cliVersion: '0.0.0-test',
-        eligibleTypes: [JOB_TYPE],
+        eligibleTypes: [JOB_TYPE, ARTIFACT_TYPE],
         concurrency: 4,
         status: 'online',
         createdById: ownerId,
@@ -325,12 +393,12 @@ describeWithDb('example.checksum end to end on a worker node (real Postgres)', (
   });
 
   afterEach(async () => {
-    await prisma.job.deleteMany({ where: { type: JOB_TYPE, subjectType: SUBJECT_TYPE } });
+    await prisma.job.deleteMany({ where: { type: { in: [JOB_TYPE, ARTIFACT_TYPE] } } });
     await prisma.storageObject.deleteMany({ where: { name: { startsWith: PREFIX } } });
   });
 
   afterAll(async () => {
-    await prisma?.job.deleteMany({ where: { type: JOB_TYPE, subjectType: SUBJECT_TYPE } });
+    await prisma?.job.deleteMany({ where: { type: { in: [JOB_TYPE, ARTIFACT_TYPE] } } });
     await prisma?.storageObject.deleteMany({ where: { name: { startsWith: PREFIX } } });
     await prisma?.workerNode.deleteMany({ where: { name: { startsWith: PREFIX } } });
     await prisma?.user.deleteMany({ where: { email: OWNER_EMAIL } });
@@ -446,7 +514,8 @@ describeWithDb('example.checksum end to end on a worker node (real Postgres)', (
       subjectId: object.id,
     });
 
-    expect(nodes.listNodeEligibleJobTypes().map((entry) => entry.type)).toContain(JOB_TYPE);
+    const published = await nodes.listNodeEligibleJobTypes();
+    expect(published.map((entry) => entry.type)).toContain(JOB_TYPE);
     await expect(claimOne()).resolves.toHaveLength(1);
   });
 
@@ -640,6 +709,11 @@ describeWithDb('example.checksum end to end on a worker node (real Postgres)', (
     );
 
     // Derived from the JOB, plus a fresh UUID — nothing from the request.
+    //
+    // ⚠ REGRESSION FENCE FOR #348. `example.checksum` does not implement
+    // `deriveOutputKey`, and a type that does not implement it must keep this
+    // key byte-for-byte: the default is what every existing node-eligible
+    // type in every fork already writes to.
     expect(target.key).toMatch(new RegExp(`^node-outputs/${claimed.id}/[0-9a-f-]{36}$`));
 
     // The node writes with the URL alone — no key, no bucket, no credential.
@@ -674,5 +748,107 @@ describeWithDb('example.checksum end to end on a worker node (real Postgres)', (
     // The input is untouched, and still hashes to what it did before.
     const bytes = readFileSync(join(root, inputRow.storageKey));
     expect(createHash('sha256').update(bytes).digest('hex')).toBe(object.sha256);
+  });
+  // ===========================================================================
+  // Handler-derived output keys (#348, epic #345)
+  // ===========================================================================
+  //
+  // The tests above are the DEFAULT half. These are the override half, run
+  // against the same real claim, the same real lease guard and the same real
+  // signing provider — because the property that matters is not "the service
+  // returned a string", it is "the bytes a node PUT with the URL it was given
+  // are readable at the key the handler named".
+
+  /** Enqueue → claim one job of the suite's derived-key type. */
+  async function claimArtifactJob(): Promise<Job> {
+    await jobs.enqueue({ type: ARTIFACT_TYPE, reason: 'backfill' });
+    const [claimed] = await claimOne();
+    expect(claimed?.type).toBe(ARTIFACT_TYPE);
+    return claimed;
+  }
+
+  it('lets a type choose where its own output lands, and signs THAT key', async () => {
+    const claimed = await claimArtifactJob();
+
+    const target = await dataPlane.createUploadTarget(
+      ownerId,
+      nodeId,
+      claimed.id,
+      {} as NodeUploadUrlDto
+    );
+
+    // The handler's location, not `node-outputs/…`. This is the whole issue:
+    // an artifact whose key is recorded elsewhere must land where that record
+    // says, or the sweep, the download and the restore all miss it.
+    expect(target.key).toBe(`${PREFIX}artifacts/${claimed.id}.bin`);
+    expect(target.key).not.toMatch(/^node-outputs\//);
+
+    // And the node can actually write there with the URL alone — the signature
+    // covers the key the handler chose, so a service that reported one key and
+    // signed another would fail here rather than in production.
+    const payload = Buffer.from('an artifact with a required location');
+    storage.putSigned(target.url, payload);
+    expect(readFileSync(join(root, target.key))).toEqual(payload);
+  });
+
+  it('gives the same job the same key twice — a retry is not a second artifact', async () => {
+    // The lost-response case the interface documents. Two mints, one location:
+    // whatever the node finishes writing is at the key its result will name.
+    const claimed = await claimArtifactJob();
+
+    const first = await dataPlane.createUploadTarget(
+      ownerId,
+      nodeId,
+      claimed.id,
+      {} as NodeUploadUrlDto
+    );
+    const second = await dataPlane.createUploadTarget(
+      ownerId,
+      nodeId,
+      claimed.id,
+      {} as NodeUploadUrlDto
+    );
+
+    expect(second.key).toBe(first.key);
+
+    // Both URLs are usable and both address the same object, so the retry
+    // overwrites its own artifact rather than orphaning the first one.
+    storage.putSigned(first.url, Buffer.from('attempt one'));
+    storage.putSigned(second.url, Buffer.from('attempt two'));
+    expect(readFileSync(join(root, second.key)).toString()).toBe('attempt two');
+  });
+
+  it('still REFUSES a node-supplied key for a type that derives its own', async () => {
+    // #348 moved the choice between two parts of the SERVER. It did not give
+    // the node a vote, and a type having an opinion does not create one.
+    const claimed = await claimArtifactJob();
+
+    await expect(
+      dataPlane.createUploadTarget(ownerId, nodeId, claimed.id, {
+        key: `${PREFIX}artifacts/somewhere-else.bin`,
+      } as unknown as NodeUploadUrlDto)
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('refuses to sign anything when a handler derives an unsafe key', async () => {
+    // ⚠ The guard that makes this member safe to expose. `..` is not an error
+    // at a storage provider — it is a key — so the refusal has to happen here.
+    const claimed = await claimArtifactJob();
+    artifactHandler.derive = () => '../../../etc/passwd';
+
+    try {
+      const error = await dataPlane
+        .createUploadTarget(ownerId, nodeId, claimed.id, {} as NodeUploadUrlDto)
+        .catch((thrown: unknown) => thrown);
+
+      // A plain 500-shaped failure, NOT a 4xx: nothing the node sent could
+      // reach that string, so telling the node to fix its request would be a
+      // lie. And the node gets no URL at all — there is no capability to leak.
+      expect(error).toBeInstanceOf(Error);
+      expect((error as { status?: number }).status).toBeUndefined();
+      expect((error as Error).message).toContain(claimed.id);
+    } finally {
+      artifactHandler.derive = (job) => `${PREFIX}artifacts/${job.id}.bin`;
+    }
   });
 });

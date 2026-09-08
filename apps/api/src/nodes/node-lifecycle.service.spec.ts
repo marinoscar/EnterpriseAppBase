@@ -79,6 +79,8 @@ describe('NodeLifecycleService', () => {
       staleHeartbeatSeconds: 30,
       offlineStaleMultiplier: 10,
       offlineRetentionDays: 5,
+      // Absent from the stored block above, and the answer is `false` (#349).
+      jobSecretBrokerEnabled: false,
     });
     expect(getNodesPolicy).toHaveBeenCalledTimes(1);
   });
@@ -105,6 +107,53 @@ describe('NodeLifecycleService', () => {
       staleHeartbeatSeconds: 45,
       offlineStaleMultiplier: defaults.offlineStaleMultiplier,
       offlineRetentionDays: defaults.offlineRetentionDays,
+      jobSecretBrokerEnabled: false,
+    });
+  });
+
+  // ===========================================================================
+  // jobSecretBrokerEnabled — the one field that FAILS CLOSED (#349, epic #345)
+  // ===========================================================================
+
+  it.each([
+    ['the key is absent', {}],
+    ['it is the string "true"', { jobSecretBrokerEnabled: 'true' }],
+    ['it is the number 1', { jobSecretBrokerEnabled: 1 }],
+    ['it is null', { jobSecretBrokerEnabled: null }],
+    ['it is explicitly false', { jobSecretBrokerEnabled: false }],
+  ])('reads jobSecretBrokerEnabled as false when %s', async (_label, stored) => {
+    // The three numeric fields degrade to the SHIPPED value, because sweeping
+    // on the default window beats not sweeping. This one degrades to `false`,
+    // because the safe answer to "may a node hold a credential to this
+    // database?" when the stored value is not a literal `true` is no.
+    const getNodesPolicy = jest.fn().mockResolvedValue({
+      ...DEFAULT_SYSTEM_SETTINGS.nodes,
+      ...stored,
+    });
+
+    await expect(makeService(getNodesPolicy).getPolicy()).resolves.toMatchObject({
+      jobSecretBrokerEnabled: false,
+    });
+  });
+
+  it('reads jobSecretBrokerEnabled as true only for a literal true', async () => {
+    const getNodesPolicy = jest.fn().mockResolvedValue({
+      ...DEFAULT_SYSTEM_SETTINGS.nodes,
+      jobSecretBrokerEnabled: true,
+    });
+
+    await expect(makeService(getNodesPolicy).getPolicy()).resolves.toMatchObject({
+      jobSecretBrokerEnabled: true,
+    });
+  });
+
+  it('falls back to brokering OFF when the settings read throws', async () => {
+    // The fail-closed direction where it matters most: an unreadable settings
+    // row must not be the reason a fleet gains database credentials.
+    const getNodesPolicy = jest.fn().mockRejectedValue(new Error('connection reset'));
+
+    await expect(makeService(getNodesPolicy).getPolicy()).resolves.toMatchObject({
+      jobSecretBrokerEnabled: false,
     });
   });
 
@@ -113,7 +162,12 @@ describe('NodeLifecycleService', () => {
     // by construction some whole number of stale windows later than "stale",
     // in the same units, so the two cannot contradict each other.
     const service = makeService(jest.fn());
-    const policy = { staleHeartbeatSeconds: 90, offlineStaleMultiplier: 4, offlineRetentionDays: 30 };
+    const policy = {
+      staleHeartbeatSeconds: 90,
+      offlineStaleMultiplier: 4,
+      offlineRetentionDays: 30,
+      jobSecretBrokerEnabled: false,
+    };
 
     expect(service.staleCutoff(policy, NOW)).toEqual(ago(360));
     expect(service.retentionCutoff(policy, NOW)).toEqual(ago(30 * 24 * 60 * 60));

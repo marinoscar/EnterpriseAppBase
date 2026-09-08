@@ -50,8 +50,16 @@ export class DatabaseBackupAlreadyRunningError extends Error {
      * failed insert and the re-read that looks it up, at which point it has
      * dropped out of the partial index's predicate and there is no active run
      * left to name. The caller still gets a truthful "not now"; it simply
-     * cannot link to a row. See `startBackup`'s retry loop, which prefers to
-     * re-insert rather than report this.
+     * cannot link to a row. See the retry loops in `claimRun` and
+     * `queueBackup`, both of which prefer to re-insert rather than report
+     * this.
+     *
+     * ⚠ #351 ADDED A SECOND, DIFFERENT REASON FOR `null`, and it is not a
+     * race: a backup job can legitimately be in flight with no run row to
+     * point at, because an administrator deleted the row or `job.history
+     * .purge` released the `job_id` link. "A backup is already queued, and
+     * here is no id" is still true and useful; a 500 because an audit link was
+     * missing would not be.
      */
     readonly activeRunId: string | null
   ) {

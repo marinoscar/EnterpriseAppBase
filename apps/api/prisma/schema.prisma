@@ -1226,6 +1226,12 @@ model Job {
   // NotificationDelivery.channel above.
   executor        String?
 
+  // The `database_backup_runs` row this job produced, when `type` is
+  // `'db.backup.run'` (epic #345, issue #351). See `DatabaseBackupRun.jobId`
+  // for the full reasoning behind `@unique`/nullable/`SetNull` — this is
+  // just the required other half of that one-to-one relation.
+  backupRun DatabaseBackupRun?
+
   // See the block comment above ("Prisma-expressible indexes...") for why
   // these eight are declared here and three more exist only in
   // migration.sql.
@@ -1571,12 +1577,13 @@ model NodeCredential {
 // group are declared here now and written by #285.
 //
 // -----------------------------------------------------------------------------
-// ### Why this is not a queue job
+// ### Why this WAS not a queue job, and why it now is (issue #351, epic #345)
 // -----------------------------------------------------------------------------
 //
-// This epic ships a perfectly good job queue (`Job`, above), and a backup is
-// obviously "background work". It is STILL not a queue job, and the reason is
-// not aesthetic — putting it on the queue corrupts backups:
+// ⚠ THIS SECTION USED TO SAY "DO NOT MIGRATE THIS ONTO THE QUEUE". It has
+// been migrated, deliberately, and the history is kept because the three
+// objections were correct and a reader needs to know WHERE EACH IS NOW
+// ANSWERED rather than assume they were waved away.
 //
 //   1. `jobs.stuckThresholdMinutes` DEFAULTS TO 30 MINUTES. A dump of a real
 //      production database routinely runs longer than that. The lease reaper
@@ -1584,35 +1591,55 @@ model NodeCredential {
 //      expired, conclude its executor had died, and RESET IT TO `pending` —
 //      while `pg_dump` was still streaming. The next claim starts a SECOND
 //      `pg_dump`, writing to the SAME derived storage key as the first, and
-//      two processes interleave their output into one object. The backup that
-//      results is unrestorable, and nothing reports an error: both runs can
-//      exit 0.
-//   2. THE IN-PROCESS WORKER HAS NO LEASE-RENEWAL PATH. `JobWorker` claims
-//      with a lease and never extends it, so the reaper's verdict above is
-//      not a rare race — it is unconditional for any job that outlives the
-//      threshold. A remote node renews; the in-process worker, which is what
-//      a single-container deployment has, does not.
+//      two processes interleave their output into one object.
+//      → ANSWERED BY #346's PER-TYPE PROFILES. `db.backup.run` declares
+//      `maxRuntimeMs: 6h`, and the claim's lease is DERIVED from that ceiling
+//      (`resolveJobLeaseMs`), never declared beside it — so a lease shorter
+//      than the permitted runtime is unrepresentable rather than merely
+//      avoided.
+//   2. THE IN-PROCESS WORKER HAS NO LEASE-RENEWAL PATH. `JobWorker` claimed
+//      with a lease and never extended it, so the reaper's verdict above was
+//      not a rare race but unconditional for any long job.
+//      → ANSWERED BY #347. The worker renews on a ticker (lease ÷ 3) for
+//      exactly as long as `process()` runs.
 //   3. A JOB HAS `attempts` AND A RETRY BUDGET. Automatically re-running a
 //      failed multi-gigabyte dump is exactly the wrong behaviour: it burns
 //      hours of I/O on a database that is probably already unwell, and the
 //      correct retry for a backup is "the next scheduled one", tomorrow.
+//      → ANSWERED BY `maxAttempts: 1` on the same profile. The policy did not
+//      change; what changed is that `JobStuckService`'s give-up phase now
+//      ENFORCES it, instead of it holding by the accident of there being no
+//      queue to disagree.
 //
-// So this table has its OWN heartbeat (`lastHeartbeatAt`, written every ~20s
-// with live `bytesWritten`), its OWN staleness policy
-// (`databaseBackup.runStaleMinutes`, an operator-set number of MINUTES that
-// starts at 120 rather than 30) and its OWN terminal states. ⚠ DO NOT MIGRATE
-// THIS ONTO THE QUEUE. If a future issue wants the queue to *trigger* a
-// backup, the job may call `startBackup()` and return immediately — but the
-// dump's lifetime must never be a job's lifetime.
+// This table still has its OWN heartbeat (`lastHeartbeatAt`, written every
+// ~20s with live `bytesWritten`), its OWN staleness policy
+// (`databaseBackup.runStaleMinutes`) and its OWN terminal states, and all
+// three are still load-bearing — but their jobs have narrowed. The heartbeat
+// is now PROGRESS REPORTING for the UI (the lease is the liveness signal),
+// and the stale sweep is the backstop for the one path that still has no job:
+// the `pre_restore` safety dump, which `DatabaseRestoreService` takes through
+// `startBackup` because a restore must not wait on a worker slot.
+//
+// ⚠ THE TWO ROWS ARE NOT REDUNDANT. The `jobs` row answers who asked, when,
+// which executor, which attempt and what error; this row answers what was
+// PRODUCED — key, bucket, bytes, checksum, `verifiedAt`, the db/app/migration
+// audit and the restore audit. They also have independent lifetimes: a job is
+// purged by `job.history.purge` on a retention schedule that has nothing to do
+// with how long the archive is kept, which is exactly why `jobId` is
+// `onDelete: SetNull` and not `Cascade`.
 //
 // -----------------------------------------------------------------------------
 // THE SINGLE-ACTIVE-RUN GUARD IS A PARTIAL UNIQUE INDEX, NOT APPLICATION CODE
 // -----------------------------------------------------------------------------
 //
 // `database_backup_runs_active_uniq_idx` (hand-written in
-// `prisma/migrations/20260907120000_add_database_backup_runs/migration.sql`)
-// is a UNIQUE index on `status` restricted to `status IN ('pending','running')`.
-// It is what makes "at most one backup at a time" true ACROSS REPLICAS.
+// `prisma/migrations/20260907120000_add_database_backup_runs/migration.sql`,
+// TIGHTENED by
+// `prisma/migrations/<add_backup_run_job_link>/migration.sql`, epic #345,
+// issue #351 — see that migration's own header for why) is a UNIQUE index on
+// the CONSTANT EXPRESSION `(true)` restricted to `status IN
+// ('pending','running')`. It is what makes "at most one backup at a time"
+// true ACROSS REPLICAS.
 //
 // REJECTED: a `findFirst({ where: { status: 'running' } })` before the insert.
 // It is a check-then-act race, and it is racy exactly when it matters — a
@@ -1626,23 +1653,31 @@ model NodeCredential {
 // carrying the winner's run id, which #282/#283 turn into a 409.
 //
 // ⚠ PRISMA CANNOT EXPRESS THIS INDEX — INTENTIONAL SCHEMA DRIFT. The schema
-// language has no syntax for a partial index, exactly as recorded above the
-// `Job` model for `jobs_active_dedup_uniq_idx` and its two siblings. So
-// `prisma migrate dev`/`diff` will not regenerate it and, if anyone diffs this
-// schema against a live database, will want to DROP it. That drift is
-// deliberate and permanent: do not "fix" it, and do not try to force it into
-// `@@unique` syntax that does not exist. The migration file carries the same
-// warning next to the statement itself.
+// language has no syntax for a partial index OR an expression index, exactly
+// as recorded above the `Job` model for `jobs_active_dedup_uniq_idx` and its
+// two siblings. So `prisma migrate dev`/`diff` will not regenerate it and, if
+// anyone diffs this schema against a live database, will want to DROP it.
+// That drift is deliberate and permanent: do not "fix" it, and do not try to
+// force it into `@@unique` syntax that does not exist. The migration file
+// carries the same warning next to the statement itself.
 //
-// ⚠ WHAT THE INDEX ADMITS, PRECISELY. A unique index on `status` filtered to
-// two values permits at most one `pending` row AND at most one `running` row.
-// `DatabaseBackupRunnerService` inserts its claim directly as `running` and
-// never writes `pending`, so today that ceiling is exactly one active run.
-// `pending` exists in the enum as a declared lifecycle state (claimed, dump
-// not yet spawned) and is covered by the predicate so that a future path which
-// does insert one is still arbitrated by the database rather than by code. A
-// future path that needs BOTH states populated at once must first tighten this
-// index to a constant expression — it must not add an application-side check.
+// ⚠ WHAT THE INDEX ADMITS, PRECISELY, AND WHY THAT CHANGED. The ORIGINAL index
+// keyed on the `status` COLUMN, filtered to two values — that admits at most
+// one `pending` row AND at most one `running` row AT THE SAME TIME, i.e. TWO
+// active runs, not one. That was harmless only as long as
+// `DatabaseBackupRunnerService` inserted its claim directly as `running` and
+// never wrote `pending`. #351 makes the backup a queue job: `POST
+// /api/admin/db-backup/runs` now enqueues the job and creates the run row in
+// `pending` BEFORE any worker has claimed it (so the endpoint can return a run
+// id immediately and `GET /runs/{id}` keeps working), and the handler flips it
+// to `running` once claimed. The moment `pending` rows are real, the
+// column-keyed index stops meaning "at most one active run" and starts
+// meaning "at most two". Keying on `(true)` instead makes every active row —
+// whichever of the two statuses it holds — index to the SAME key, so at most
+// one can exist across both statuses COMBINED. This is the exact tightening
+// this comment always said a future path needing both states populated at
+// once would require ("tighten this index to a constant expression, never
+// move the guard into a service") — it has now happened.
 //
 // -----------------------------------------------------------------------------
 // WHY THE RESTORE AUDIT LIVES ON THE BACKUP'S OWN ROW
@@ -1671,6 +1706,37 @@ model NodeCredential {
 model DatabaseBackupRun {
   id String @id @default(uuid()) @db.Uuid
 
+  // The `jobs` row that drove this run, once the dump became a queue job
+  // (`db.backup.run`, epic #345, issue #351). Three properties, each
+  // load-bearing:
+  //
+  //   1. `@unique` is what makes a SECOND run row for one job
+  //      UNREPRESENTABLE. #348 lets a handler derive its own node upload
+  //      key, and a node may legitimately ask for that key twice (a
+  //      timed-out transfer, a lost response, a restarted process still
+  //      holding the lease). The backup's `deriveOutputKey` re-reads by
+  //      `jobId` and returns the existing key; the unique index is what
+  //      GUARANTEES there is at most one to find, rather than that being a
+  //      convention the service has to remember.
+  //
+  //   2. Nullable, ON PURPOSE. Not every run has a job: the `pre_restore`
+  //      dump `DatabaseRestoreService` takes goes through the runner
+  //      directly, with no job in between, and rows predating this
+  //      migration have no job at all. A required column would either break
+  //      the restore path or need a backfill that invents job rows for
+  //      history.
+  //
+  //   3. `onDelete: SetNull`, NOT `Cascade`. `job.history.purge` deletes
+  //      `jobs` rows on a retention schedule that is completely independent
+  //      of the archive retention. Cascade would let a routine history purge
+  //      delete the record of a backup whose archive is still in the bucket
+  //      and still restorable — the exact "deleting history must not delete
+  //      history" hazard `JobStatsRollup` already exists to avoid on the
+  //      stats side. Losing the LINK is acceptable; losing the RUN ROW is
+  //      not.
+  jobId String? @unique @map("job_id") @db.Uuid
+  job   Job?    @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
   // `pending` = claimed, dump not yet spawned. `running` = a `pg_dump` is
   // streaming. `completed` = uploaded AND verified (see `verifiedAt`).
   // `failed` = terminal, `lastError` says why. `stale` = the run's heartbeat
@@ -1688,8 +1754,9 @@ model DatabaseBackupRun {
   trigger DatabaseBackupTrigger
 
   // NULL until the dump is claimed / until it settles. `lastHeartbeatAt` is
-  // the liveness signal this table has INSTEAD of a job lease — see the
-  // "Why this is not a queue job" block above.
+  // now PROGRESS REPORTING for the UI rather than this table's liveness
+  // signal — the job's LEASE is the liveness signal since #351/#352 — see the
+  // "Why this WAS not a queue job, and why it now is" block above.
   startedAt       DateTime? @map("started_at") @db.Timestamptz
   finishedAt      DateTime? @map("finished_at") @db.Timestamptz
   lastHeartbeatAt DateTime? @map("last_heartbeat_at") @db.Timestamptz
@@ -1733,7 +1800,7 @@ model DatabaseBackupRun {
   // never buffered and never read twice. NULL until the upload completes.
   checksumSha256 String? @map("checksum_sha256")
 
-  // The audit trio: what produced this archive. All three nullable because
+  // The audit quartet: what produced this archive. All four nullable because
   // each is read best-effort and NONE of them may fail a backup — a run that
   // could not read the server version is still a valid backup.
   //
@@ -1742,13 +1809,24 @@ model DatabaseBackupRun {
   //                     is the only place that fact is recorded.
   //   `appVersion`    — the application build (`resolveApiVersion()`).
   //   `migrationName` — the newest applied `_prisma_migrations` row. THE most
-  //                     important of the three for a restore: it says which
+  //                     important of the four for a restore: it says which
   //                     schema the archive contains, so an operator can tell
   //                     before replaying it whether the running code will
   //                     understand what comes back.
+  //   `pgDumpVersion` — the `pg_dump` client that WROTE the archive (#352,
+  //                     epic #345). It was a trio until the dump could run on
+  //                     a worker node: on that path the client is a binary on
+  //                     a machine this deployment may not own and cannot
+  //                     inspect, so unless the node reports it, nothing
+  //                     anywhere records which `pg_dump` produced the file —
+  //                     and a `pg_restore` older than the `pg_dump` that wrote
+  //                     an archive simply cannot read it. The server path
+  //                     fills the same column from its own image's client, so
+  //                     the row means one thing whichever executor ran.
   dbVersion     String? @map("db_version")
   appVersion    String? @map("app_version")
   migrationName String? @map("migration_name")
+  pgDumpVersion String? @map("pg_dump_version")
 
   // Set when the UPLOADED OBJECT was streamed back out of storage and read by
   // `pg_restore --list` with a non-empty table of contents. A run is never
@@ -1843,4 +1921,95 @@ enum DatabaseBackupTrigger {
   manual
   scheduled
   pre_restore
+}
+
+// =============================================================================
+// Job Node Secrets (issue #349, epic #345)
+// =============================================================================
+//
+// THE AUDIT RECORD OF A CREDENTIAL A WORKER NODE ONCE HELD — and, precisely,
+// NOT the credential. A node has no database access and no storage credentials
+// by design (`docs/specs/worker-nodes.md` §8); epic #345 needs it to run work
+// that genuinely requires one (a `pg_dump` needs a connection), so the server
+// mints one per job, hands it over once, and destroys it on settlement. This
+// table exists so that "which node held a credential to this deployment's
+// database, of what kind, from when until when, and was it revoked" is a
+// question with an answer.
+//
+// -----------------------------------------------------------------------------
+// ⚠ THERE IS NO COLUMN HERE CAPABLE OF HOLDING SECRET MATERIAL, AND THERE MUST
+// NEVER BE — NOT PLAINTEXT, NOT ENCRYPTED
+// -----------------------------------------------------------------------------
+//
+// `handle` is an IDENTIFIER for the grant — a role name, a token id — and it is
+// what `JobSecretBroker.revoke(handle)` takes. It is never the password. The
+// material itself is serialised into exactly one HTTP response
+// (`POST /api/nodes/:id/jobs/:jobId/secret`) and then dropped; nothing in this
+// process, this database, or any backup of it retains a copy.
+//
+// REJECTED: an `encryptedMaterial` column, reusing `SECRETS_ENCRYPTION_KEY` the
+// way the `credentials` table does. A credential that can be re-read is a
+// credential that can be STOLEN TWICE, and nothing needs to re-read this one:
+// the node received it once, and revocation is by handle rather than by
+// presenting the secret back. `credentials` stores material because an SMTP
+// password must be replayed on every send; a job credential must not be
+// replayed at all. Storing it — even encrypted — would buy nothing and would
+// put a live database password into this table, into every `pg_dump` of it,
+// and into every copy of that dump, protected by a key that lives in the same
+// deployment. That is the owner's rule for epic #345 expressed in schema rather
+// than in a convention somebody can forget.
+//
+// -----------------------------------------------------------------------------
+// `@@unique([jobId, kind])` — ONE CREDENTIAL PER JOB, EVER
+// -----------------------------------------------------------------------------
+//
+// A node asks for its secret more than once as a matter of course: a process
+// restarted while holding the lease, a response lost on the way back, a retry
+// of the same job. Every one of those calls must land on the SAME grant,
+// extended — never on a second one, because the revocation paths know exactly
+// one handle per (job, kind) and a sibling grant would be one nothing ever
+// destroys. The unique index makes the second row unrepresentable; the broker's
+// own `issue` idempotence (see `job-secret-broker.ts`) is the other half.
+//
+// `@@index([expiresAt])` backs the sweeper, which scans unrevoked grants whose
+// own clock has lapsed. See `NodeSecretBrokerService.sweep` for why the sweeper
+// is NOT redundant with the settle-event revoker: three real cases emit no
+// event at all.
+//
+// NO RELATIONS, DELIBERATELY. `jobId` and `nodeId` are plain UUID columns with
+// no foreign key either way, for two reasons. `jobs` rows are deleted on a
+// retention schedule (`job.history.purge`) that has nothing to do with a
+// grant's lifetime, and a cascade from that purge would silently erase the
+// audit record of a credential — which is the one thing this table is for. And
+// a grant must stay revocable by handle after its job row is gone, which is
+// why the sweeper resolves a broker by `kind` rather than by the job's `type`.
+model JobNodeSecret {
+  id String @id @default(uuid()) @db.Uuid
+
+  jobId  String @map("job_id") @db.Uuid
+  nodeId String @map("node_id") @db.Uuid
+
+  // Which broker minted this — `JobSecretBroker.kind`, e.g.
+  // `'postgres.readonly'`. Also how the revocation paths find their way back
+  // to the broker that can destroy the grant. A plain string, not an enum, for
+  // the same reason `Job.type` is: a fork's broker must cost zero migrations.
+  kind String
+
+  // The grant's identifier. ⚠ THE ROLE NAME. NEVER THE PASSWORD. See the block
+  // comment above.
+  handle String
+
+  issuedAt  DateTime  @default(now()) @map("issued_at") @db.Timestamptz
+  // The credential's own backstop, bounded by the job's lease (never a second
+  // clock of its own — see `JobSecretBroker.issue`). It is what makes a grant
+  // worthless if BOTH revocation paths somehow miss it.
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz
+  // NULL means the grant is still live as far as this server knows. Set by
+  // whichever revocation path got there first; both tolerate the other having
+  // won.
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz
+
+  @@unique([jobId, kind])
+  @@index([expiresAt])
+  @@map("job_node_secrets")
 }

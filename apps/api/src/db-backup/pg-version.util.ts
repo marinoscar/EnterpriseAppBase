@@ -66,6 +66,20 @@ export interface PgVersionCheck {
   status: PgVersionStatus;
   clientMajor: number | null;
   serverMajor: number | null;
+  /**
+   * The RAW `pg_dump --version` banner, e.g. `pg_dump (PostgreSQL) 17.2`, or
+   * `null` when it could not be read.
+   *
+   * Added by #352 so a completed backup can record WHICH client wrote its
+   * archive (`database_backup_runs.pg_dump_version`). The parsed
+   * `clientMajor` above is what this module reasons with and is deliberately
+   * lossy — `17` says nothing about which 17.x, and a `pg_restore` failing on
+   * an archive written by a slightly newer point release is exactly the
+   * situation where the full banner is what an operator needs. Optional so
+   * every existing constructor of this shape (the specs' fakes included)
+   * still compiles; absent and `null` mean the same thing.
+   */
+  client?: string | null;
   /** Ready to log or to store as a run's error; names both versions whenever they are known. */
   message: string;
   /** Set when the pair works but something else deserves a log line. */
@@ -291,12 +305,18 @@ export async function checkPgClientVersion(
   options: CheckPgClientVersionOptions
 ): Promise<PgVersionCheck> {
   const readClient = options.readClientVersion ?? (() => readPgClientVersion());
-  const clientMajor = parsePgClientMajor(await readSafely(readClient));
+  // KEPT, not just parsed. The banner is the part a human reads; the major is
+  // the part this function compares. Reading it twice would run `pg_dump
+  // --version` twice for one backup, and the second read could disagree with
+  // the first on a host mid-upgrade.
+  const client = normaliseBanner(await readSafely(readClient));
+  const clientMajor = parsePgClientMajor(client);
   const serverMajor = serverMajorFromVersionNum(await readSafely(options.readServerVersionNum));
 
   if (clientMajor === null || serverMajor === null) {
     return {
       status: 'unknown',
+      client,
       clientMajor,
       serverMajor,
       message:
@@ -310,6 +330,7 @@ export async function checkPgClientVersion(
   if (clientMajor < serverMajor) {
     return {
       status: 'blocked',
+      client,
       clientMajor,
       serverMajor,
       message:
@@ -324,6 +345,7 @@ export async function checkPgClientVersion(
 
   return {
     status: 'ok',
+    client,
     clientMajor,
     serverMajor,
     message: `PostgreSQL client major ${clientMajor} can dump server major ${serverMajor}.`,
@@ -340,6 +362,23 @@ export async function checkPgClientVersion(
         }
       : {}),
   };
+}
+
+/**
+ * One trimmed line, bounded — or `null`.
+ *
+ * BOUNDED AT 128 CHARACTERS because this string is written to a database
+ * column and, on the node path, arrives from off-machine (the result contract
+ * caps it at the same width). `pg_dump --version` prints one short line; a
+ * wrapper script that prints a page of banner must not be able to put a page
+ * in every backup row.
+ */
+function normaliseBanner(value: string | null): string | null {
+  if (value === null) return null;
+
+  const line = value.split('\n')[0]?.trim() ?? '';
+
+  return line === '' ? null : line.slice(0, 128);
 }
 
 /** `17`, or `unknown` — used only to build messages. */

@@ -211,7 +211,7 @@ export const backupRunSchema = z.object({
    */
   verifiedAt: z.iso.datetime().nullable(),
 
-  /** Provenance, all best-effort: none of the three may fail a backup. */
+  /** Provenance, all best-effort: none of the four may fail a backup. */
   dbVersion: z.string().nullable(),
   appVersion: z.string().nullable(),
   /**
@@ -219,6 +219,17 @@ export const backupRunSchema = z.object({
    * whether the code that is running will understand what comes back.
    */
   migrationName: z.string().nullable(),
+  /**
+   * The `pg_dump` client that wrote the archive (#352).
+   *
+   * `null` for every run taken before the column existed, and for any run
+   * whose `--version` could not be read. It earns its place on the node path:
+   * there the binary lives on a machine this API cannot inspect, and
+   * `pg_restore` cannot read an archive written by a NEWER `pg_dump` — so this
+   * is the field that answers "can the machine I am restoring on read this
+   * file" before the restore rather than during it.
+   */
+  pgDumpVersion: z.string().nullable(),
 
   /** Why the run failed, verbatim. `null` on a run that has not failed. */
   lastError: z.string().nullable(),
@@ -354,6 +365,7 @@ export function toRunDto(run: DatabaseBackupRun): BackupRunResponse {
     dbVersion: run.dbVersion,
     appVersion: run.appVersion,
     migrationName: run.migrationName,
+    pgDumpVersion: run.pgDumpVersion,
 
     lastError: run.lastError,
 

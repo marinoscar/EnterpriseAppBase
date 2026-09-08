@@ -34,6 +34,8 @@ import { Job, StorageObject } from '@prisma/client';
 
 import { createMockPrismaService, MockPrismaService } from '../../test/mocks/prisma.mock';
 import { createMockStorageProvider } from '../../test/mocks/storage-provider.mock';
+import type { JobHandler } from '../jobs/job-handler.interface';
+import { JobHandlerRegistry } from '../jobs/job-handler.registry';
 import { PrismaService } from '../prisma/prisma.service';
 import type { StorageProvider } from '../storage/providers/storage-provider.interface';
 import { STORAGE_OBJECT_SUBJECT_TYPE } from '../storage/storage-job-input';
@@ -55,6 +57,7 @@ describe('NodeDataPlaneService', () => {
   let prisma: MockPrismaService;
   let storage: jest.Mocked<StorageProvider>;
   let nodes: { assertJobHeldByNode: jest.Mock };
+  let registry: JobHandlerRegistry;
   let configured: number | undefined;
   let service: NodeDataPlaneService;
 
@@ -96,6 +99,23 @@ describe('NodeDataPlaneService', () => {
 
   const uploadDto = (body: Record<string, unknown> = {}) => body as NodeUploadUrlDto;
 
+  /**
+   * Registers a handler for the job type under test.
+   *
+   * A REAL `JobHandlerRegistry`, not a `{ get: jest.fn() }` stub, because the
+   * thing being asserted below is "an OPTIONAL member is absent" — and a
+   * hand-rolled stub returning an object literal cannot be absent in the way a
+   * registered handler is. `partial` carries only what the test is about;
+   * `type` and `process` are the interface's two required members.
+   */
+  function registerHandler(partial: Partial<JobHandler> = {}): void {
+    registry.register({
+      type: 'example.checksum',
+      process: jest.fn().mockResolvedValue(undefined),
+      ...partial,
+    } as JobHandler);
+  }
+
   beforeEach(() => {
     configured = undefined;
     prisma = createMockPrismaService();
@@ -104,11 +124,14 @@ describe('NodeDataPlaneService', () => {
 
     (prisma.storageObject.findUnique as jest.Mock).mockResolvedValue(makeObject());
 
+    registry = new JobHandlerRegistry();
+
     service = new NodeDataPlaneService(
       prisma as unknown as PrismaService,
       config,
       nodes as unknown as NodesService,
-      storage
+      storage,
+      registry
     );
   });
 
@@ -282,6 +305,146 @@ describe('NodeDataPlaneService', () => {
       await service.createUploadTarget(USER, NODE_ID, JOB_ID, uploadDto());
 
       expect(prisma.storageObject.create).not.toHaveBeenCalled();
+    });
+  });
+
+  // ===========================================================================
+  // Handler-derived output keys (#348) — the choice moves, the chooser does not
+  // ===========================================================================
+  //
+  // The group above proves the DEFAULT. This one proves that a type may
+  // override where its output lands without any of the default's guarantees
+  // moving to the node: the request body still cannot reach the key, an
+  // unusable key is refused by the server rather than signed, and the value
+  // handed to the provider is the value reported back.
+  //
+  // The regression guard is the FIRST test: `example.checksum` — the type this
+  // whole data plane was built against — does not implement `deriveOutputKey`,
+  // and its key must be byte-for-byte what it was before this member existed.
+
+  describe('createUploadTarget with a handler-derived key', () => {
+    const DERIVED = 'db-backups/2026/2026-09-07T00-00-00Z-run-1.dump';
+
+    it('keeps the exact default for a handler that does not implement it', async () => {
+      // `example.checksum`'s shape: `process` only. Registered, found, asked
+      // nothing — a handler existing is not a handler having an opinion.
+      registerHandler();
+
+      const result = await service.createUploadTarget(USER, NODE_ID, JOB_ID, uploadDto());
+
+      expect(result.key).toMatch(
+        new RegExp(`^${NODE_OUTPUT_KEY_PREFIX}/${JOB_ID}/[0-9a-f-]{36}$`)
+      );
+      expect(storage.getSignedPutUrl).toHaveBeenCalledWith(result.key, expect.anything());
+    });
+
+    it('falls back to the default when the type has no handler in this process at all', async () => {
+      // A `jobs` row can legitimately name a type this process cannot run — a
+      // fork's handler that is no longer registered. That must still mint a
+      // usable target rather than throwing on the way to one.
+      const result = await service.createUploadTarget(USER, NODE_ID, JOB_ID, uploadDto());
+
+      expect(result.key).toMatch(
+        new RegExp(`^${NODE_OUTPUT_KEY_PREFIX}/${JOB_ID}/[0-9a-f-]{36}$`)
+      );
+    });
+
+    it('signs and returns the key the handler derived', async () => {
+      registerHandler({ deriveOutputKey: jest.fn().mockResolvedValue(DERIVED) });
+
+      const result = await service.createUploadTarget(USER, NODE_ID, JOB_ID, uploadDto());
+
+      // Asserted on the ARGUMENT as well as the body, for the reason this
+      // file's header gives: a service that signed one key and reported
+      // another passes any test that only reads the response.
+      expect(storage.getSignedPutUrl).toHaveBeenCalledWith(DERIVED, expect.anything());
+      expect(result.key).toBe(DERIVED);
+    });
+
+    it('hands the handler the JOB and nothing from the request', async () => {
+      const deriveOutputKey = jest.fn().mockResolvedValue(DERIVED);
+      registerHandler({ deriveOutputKey });
+
+      await service.createUploadTarget(
+        USER,
+        NODE_ID,
+        JOB_ID,
+        uploadDto({ contentType: 'application/octet-stream' })
+      );
+
+      expect(deriveOutputKey).toHaveBeenCalledTimes(1);
+      expect(deriveOutputKey).toHaveBeenCalledWith(expect.objectContaining({ id: JOB_ID }));
+      // One argument, so there is no channel by which a request field could
+      // arrive even if a future edit widened the DTO.
+      expect(deriveOutputKey.mock.calls[0]).toHaveLength(1);
+    });
+
+    it('returns the SAME key twice when the handler is idempotent', async () => {
+      // The retry case the interface documents: a lost response, a timed-out
+      // transfer, a restarted node. Two calls, one artifact — the opposite of
+      // the default's deliberately-fresh key, and the handler's responsibility
+      // rather than this service's.
+      registerHandler({ deriveOutputKey: jest.fn().mockResolvedValue(DERIVED) });
+
+      const first = await service.createUploadTarget(USER, NODE_ID, JOB_ID, uploadDto());
+      const second = await service.createUploadTarget(USER, NODE_ID, JOB_ID, uploadDto());
+
+      expect(first.key).toBe(second.key);
+    });
+
+    it('still REFUSES a node-supplied `key` before the handler is consulted', async () => {
+      // The 400 is unchanged by #348, and it comes first: a request carrying a
+      // key is refused whether or not the type has an opinion about where its
+      // output goes.
+      const deriveOutputKey = jest.fn().mockResolvedValue(DERIVED);
+      registerHandler({ deriveOutputKey });
+
+      await expect(
+        service.createUploadTarget(USER, NODE_ID, JOB_ID, uploadDto({ key: '../../etc/passwd' }))
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(deriveOutputKey).not.toHaveBeenCalled();
+      expect(storage.getSignedPutUrl).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['traversal', '../../etc/passwd'],
+      ['a leading slash', '/db-backups/absolute.dump'],
+      ['a leading dot', '.hidden/backup.dump'],
+      ['a space', 'db backups/2026/run.dump'],
+      ['the empty string', ''],
+    ])('mints NOTHING when a handler derives an unsafe key — %s', async (_label, unsafe) => {
+      // ⚠ This is the assertion that makes `deriveOutputKey` safe to expose.
+      // `..` is not an error at a storage provider, it is a key, and the
+      // object lands somewhere nobody looks.
+      registerHandler({ deriveOutputKey: jest.fn().mockResolvedValue(unsafe) });
+
+      const error = await service
+        .createUploadTarget(USER, NODE_ID, JOB_ID, uploadDto())
+        .catch((thrown: unknown) => thrown);
+
+      // A 500, NOT a 400: nothing the node sent reached that string, so a 4xx
+      // would send an operator to fix a node that behaved perfectly.
+      expect(error).toBeInstanceOf(Error);
+      expect(error).not.toBeInstanceOf(BadRequestException);
+      expect((error as Error).message).toContain(JOB_ID);
+
+      expect(storage.getSignedPutUrl).not.toHaveBeenCalled();
+    });
+
+    it('mints nothing when the derivation itself throws', async () => {
+      // A handler whose artifact row cannot be written has no key to offer.
+      // The failure must reach the caller with no capability created on the
+      // way out.
+      registerHandler({
+        deriveOutputKey: jest.fn().mockRejectedValue(new Error('no run row for this job')),
+      });
+
+      await expect(
+        service.createUploadTarget(USER, NODE_ID, JOB_ID, uploadDto())
+      ).rejects.toThrow('no run row');
+
+      expect(storage.getSignedPutUrl).not.toHaveBeenCalled();
     });
   });
 
