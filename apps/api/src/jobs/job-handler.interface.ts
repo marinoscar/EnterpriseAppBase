@@ -315,6 +315,48 @@ export interface JobHandler {
   deriveOutputKey?(job: Job): Promise<string>;
 
   /**
+   * May a node run THIS type in THIS deployment, right now?
+   *
+   * OPTIONAL, AND OMITTING IT IS THE NORMAL ANSWER — a node-eligible type with
+   * no gate is offered to nodes, which is what every type before #352 did.
+   * Implement it only when a deployment must be able to say "not this
+   * workload" about a type that is structurally perfectly capable of running
+   * remotely.
+   *
+   * ⚠ IT IS A POLICY READ, NOT A DECLARATION, and that is why it is a METHOD
+   * rather than a `readonly nodeOffloadEnabled: boolean`. Everything else on
+   * this interface states a fact about the TYPE that is fixed at build time;
+   * this one asks a question whose answer an administrator changes at 3pm on a
+   * Tuesday. A boolean field would be read once at registration and be wrong
+   * from then on. `NodesService.nodeEligibleTypes` awaits this at CLAIM time,
+   * beside the two settings intersections it already performs, so a switch
+   * flipped in the admin UI takes effect on the next claim and not at the next
+   * deploy.
+   *
+   * ⚠ IT DOES NOT CHANGE NODE ELIGIBILITY. Eligibility is derived from
+   * `nodeResultSchema` + `persistNodeResult` and stays derived from them: this
+   * gate cannot make a server-only type runnable on a node, and a `false` here
+   * does not remove the type from `serverOnlyTypes()`'s complement. It decides
+   * only what THIS deployment OFFERS today — the same runtime intersection the
+   * secret-broker filter performs, and the same reason it is not a registry
+   * mutation.
+   *
+   * REJECTED: putting the deployment's answer in `NodesService` itself — a
+   * `if (type === BACKUP_JOB_TYPE) …` reading the `databaseBackup` namespace.
+   * That is the central dispatch table this file's header exists to abolish,
+   * one arm long, and it makes the nodes module depend on a feature module's
+   * settings shape. Asking the handler keeps the knowledge where the feature
+   * is: `DatabaseBackupRunHandler` reads its own `databaseBackup
+   * .nodeOffloadEnabled`, and a fork's handler reads whatever its own feature
+   * calls the same idea.
+   *
+   * Throwing is not a way to say "no": it fails the whole claim, which is a
+   * far bigger hammer than withholding one type. Report the settings read's
+   * failure as `false` if it can fail at all.
+   */
+  nodeOffloadEnabled?(): Promise<boolean>;
+
+  /**
    * Mints the short-lived credential a REMOTE executor of this type needs, and
    * destroys it again.
    *

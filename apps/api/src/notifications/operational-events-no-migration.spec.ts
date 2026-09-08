@@ -46,6 +46,10 @@ const MIGRATIONS_AT_288 = [
   // #349 (epic #345): the per-job secret broker's handle ledger. A schema
   // change, and deliberately not one about notifications — see the ⚠ above.
   '20260907150000_add_job_node_secrets',
+  // #352 (epic #345): `database_backup_runs.pg_dump_version` — which client
+  // wrote the archive, which only matters once a machine this API cannot
+  // inspect can be the one that wrote it. Also not about notifications.
+  '20260907160000_add_backup_run_pg_dump_version',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');

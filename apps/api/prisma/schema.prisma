@@ -1799,7 +1799,7 @@ model DatabaseBackupRun {
   // never buffered and never read twice. NULL until the upload completes.
   checksumSha256 String? @map("checksum_sha256")
 
-  // The audit trio: what produced this archive. All three nullable because
+  // The audit quartet: what produced this archive. All four nullable because
   // each is read best-effort and NONE of them may fail a backup — a run that
   // could not read the server version is still a valid backup.
   //
@@ -1808,13 +1808,24 @@ model DatabaseBackupRun {
   //                     is the only place that fact is recorded.
   //   `appVersion`    — the application build (`resolveApiVersion()`).
   //   `migrationName` — the newest applied `_prisma_migrations` row. THE most
-  //                     important of the three for a restore: it says which
+  //                     important of the four for a restore: it says which
   //                     schema the archive contains, so an operator can tell
   //                     before replaying it whether the running code will
   //                     understand what comes back.
+  //   `pgDumpVersion` — the `pg_dump` client that WROTE the archive (#352,
+  //                     epic #345). It was a trio until the dump could run on
+  //                     a worker node: on that path the client is a binary on
+  //                     a machine this deployment may not own and cannot
+  //                     inspect, so unless the node reports it, nothing
+  //                     anywhere records which `pg_dump` produced the file —
+  //                     and a `pg_restore` older than the `pg_dump` that wrote
+  //                     an archive simply cannot read it. The server path
+  //                     fills the same column from its own image's client, so
+  //                     the row means one thing whichever executor ran.
   dbVersion     String? @map("db_version")
   appVersion    String? @map("app_version")
   migrationName String? @map("migration_name")
+  pgDumpVersion String? @map("pg_dump_version")
 
   // Set when the UPLOADED OBJECT was streamed back out of storage and read by
   // `pg_restore --list` with a non-empty table of contents. A run is never
