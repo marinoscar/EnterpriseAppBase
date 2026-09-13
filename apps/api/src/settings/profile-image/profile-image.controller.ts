@@ -2,20 +2,23 @@ import {
   BadRequestException,
   Controller,
   Delete,
+  Get,
   HttpCode,
   HttpStatus,
   PayloadTooLargeException,
   Post,
   Req,
+  Res,
 } from '@nestjs/common';
 import {
   ApiBody,
   ApiConsumes,
   ApiOperation,
+  ApiProduces,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { FastifyRequest } from 'fastify';
+import { FastifyReply, FastifyRequest } from 'fastify';
 
 import { Auth } from '../../auth/decorators/auth.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
@@ -23,6 +26,7 @@ import { PERMISSIONS } from '../../common/constants/roles.constants';
 import { ApiDataResponse } from '../../common/decorators/api-data-response.decorator';
 import { AVATAR_MAX_BYTES } from '../../common/profile-image/profile-image';
 import { ProfileImageService } from './profile-image.service';
+import { AvatarService } from './avatar.service';
 import { ProfileImageResponseDto } from './dto/profile-image-response.dto';
 
 const MAX_MB = AVATAR_MAX_BYTES / (1024 * 1024);
@@ -49,7 +53,53 @@ function toClientError(error: unknown): unknown {
 @ApiTags('User Settings')
 @Controller('user-settings/profile-image')
 export class ProfileImageController {
-  constructor(private readonly profileImages: ProfileImageService) {}
+  constructor(
+    private readonly profileImages: ProfileImageService,
+    private readonly avatars: AvatarService,
+  ) {}
+
+  @Get()
+  @Auth({ permissions: [PERMISSIONS.USER_SETTINGS_READ] })
+  @ApiOperation({
+    summary: 'Get your uploaded profile picture (preview)',
+    description:
+      'Streams the caller\'s stored uploaded picture (`profile.imageObjectId`) whatever ' +
+      '`profile.imageSource` is selected, so a settings UI can preview the upload option while ' +
+      '`none` or `provider` is selected. Unlike the public `/api/users/{userId}/avatar/{objectId}` ' +
+      'route it requires authentication and only ever serves the caller\'s own picture. ' +
+      '404 when no picture is uploaded or its bytes are unavailable.',
+  })
+  @ApiProduces('image/jpeg', 'image/png', 'image/gif', 'image/webp')
+  @ApiResponse({
+    status: 200,
+    description: 'Image bytes',
+    content: {
+      'image/*': { schema: { type: 'string', format: 'binary' } },
+    },
+  })
+  @ApiResponse({ status: 404, description: 'Not found' })
+  async preview(
+    @CurrentUser('id') userId: string,
+    @Res() reply: FastifyReply,
+  ) {
+    const avatar = await this.avatars.openStored(userId);
+
+    reply
+      .status(200)
+      // The stored type was determined from magic bytes at upload time.
+      .header('Content-Type', avatar.mimeType)
+      .header('X-Content-Type-Options', 'nosniff')
+      .header('Content-Disposition', 'inline')
+      .header('Content-Security-Policy', "default-src 'none'; sandbox")
+      // Per-user and changes on every upload/remove: never cached.
+      .header('Cache-Control', 'private, no-store');
+
+    if (avatar.size > BigInt(0)) {
+      reply.header('Content-Length', avatar.size.toString());
+    }
+
+    return reply.send(avatar.stream);
+  }
 
   @Post()
   @HttpCode(HttpStatus.OK)

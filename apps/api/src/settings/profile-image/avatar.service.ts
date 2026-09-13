@@ -17,7 +17,10 @@ export interface OpenedAvatar {
 }
 
 /**
- * Resolves a public avatar request to stored bytes (#367).
+ * Resolves an avatar request to stored bytes (#367).
+ *
+ * Two entry points share one lookup: `open` for the public URL and
+ * `openStored` for the owner's authenticated settings preview.
  *
  * The URL is public (an `<img>` cannot send a bearer token), so the rule for
  * serving is deliberately narrow: the object must be the avatar that user has
@@ -36,22 +39,61 @@ export class AvatarService {
     private readonly storageProvider: StorageProvider,
   ) {}
 
+  /**
+   * The public route: serves `objectId` only while it is the user's CURRENTLY
+   * selected picture (`imageSource: 'upload'` and a matching object id).
+   */
   async open(userId: string, objectId: string): Promise<OpenedAvatar> {
     if (!isUuid(userId) || !isUuid(objectId)) {
       throw this.notFound();
     }
 
-    const settings = await this.prisma.userSettings.findUnique({
-      where: { userId },
-      select: { value: true },
-    });
-    const profile = normalizeProfileSettings(
-      (settings?.value as { profile?: unknown } | null | undefined)?.profile,
-    );
+    const profile = await this.loadProfile(userId);
     if (profile.imageSource !== 'upload' || profile.imageObjectId !== objectId) {
       throw this.notFound();
     }
 
+    return this.openObject(userId, objectId);
+  }
+
+  /**
+   * The authenticated preview: serves the caller's stored uploaded picture
+   * (`profile.imageObjectId`) WHATEVER source is selected, so the settings UI
+   * can preview the picture a user could switch back to. Never reachable by
+   * anyone but the owner — `userId` comes from the authenticated principal,
+   * not the URL — which is why it may be broader than `open`.
+   */
+  async openStored(userId: string): Promise<OpenedAvatar> {
+    if (!isUuid(userId)) {
+      throw this.notFound();
+    }
+
+    const { imageObjectId } = await this.loadProfile(userId);
+    if (!imageObjectId) {
+      throw this.notFound();
+    }
+
+    return this.openObject(userId, imageObjectId);
+  }
+
+  private async loadProfile(userId: string) {
+    const settings = await this.prisma.userSettings.findUnique({
+      where: { userId },
+      select: { value: true },
+    });
+    return normalizeProfileSettings(
+      (settings?.value as { profile?: unknown } | null | undefined)?.profile,
+    );
+  }
+
+  /**
+   * Object lookup, ownership check and download shared by both entry points.
+   * Every miss is the same 404.
+   */
+  private async openObject(
+    userId: string,
+    objectId: string,
+  ): Promise<OpenedAvatar> {
     const object = await this.prisma.storageObject.findUnique({
       where: { id: objectId },
     });
