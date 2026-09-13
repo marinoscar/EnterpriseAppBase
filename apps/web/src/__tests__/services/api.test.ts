@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { server } from '../mocks/server';
-import { api, ApiError } from '../../services/api';
+import { api, ApiError, uploadProfileImage, deleteProfileImage } from '../../services/api';
 
 describe('ApiService', () => {
   beforeEach(() => {
@@ -211,6 +211,143 @@ describe('ApiService', () => {
       const result = await api.delete('/test/123');
 
       expect(result).toEqual({ deleted: '123' });
+    });
+  });
+
+  describe('postFormData (#367)', () => {
+    it('should POST the FormData body without a hand-set Content-Type', async () => {
+      let contentTypeHeader: string | null = null;
+      let receivedFile: FormDataEntryValue | null = null;
+
+      server.use(
+        http.post('*/api/upload', async ({ request }) => {
+          contentTypeHeader = request.headers.get('Content-Type');
+          const body = await request.formData();
+          receivedFile = body.get('file');
+          return HttpResponse.json({ data: { ok: true } });
+        }),
+      );
+
+      const formData = new FormData();
+      formData.append('file', new File(['bytes'], 'a.png', { type: 'image/png' }));
+
+      const result = await api.postFormData('/upload', formData);
+
+      expect(result).toEqual({ ok: true });
+      // The client must never hand-set `application/json` over a multipart
+      // body — the browser/undici writes its own `multipart/form-data;
+      // boundary=…` header, and a literal JSON type would break server parsing.
+      expect(contentTypeHeader).not.toBeNull();
+      expect(contentTypeHeader).not.toBe('application/json');
+      // Not `toBeInstanceOf(File)`, and not asserting `.name`/content: crossing
+      // jsdom's `File` (this test file's global) through MSW/undici's request
+      // parsing re-creates it in Node's own realm and loses both the filename
+      // and the readable bytes — a test-harness interop quirk, not app
+      // behavior. What's verified is what matters here: a `file` part with
+      // this field name reached the server at all.
+      expect(receivedFile).not.toBeNull();
+    });
+
+    it('should include the auth header on a FormData request', async () => {
+      let authHeader: string | null = null;
+
+      server.use(
+        http.post('*/api/upload', ({ request }) => {
+          authHeader = request.headers.get('Authorization');
+          return HttpResponse.json({ data: {} });
+        }),
+      );
+
+      api.setAccessToken('test-token');
+      await api.postFormData('/upload', new FormData());
+
+      expect(authHeader).toBe('Bearer test-token');
+    });
+
+    it('should refresh the token and retry a FormData request on 401', async () => {
+      let callCount = 0;
+      let lastAuthHeader: string | null = null;
+
+      server.use(
+        http.post('*/api/upload', ({ request }) => {
+          callCount++;
+          lastAuthHeader = request.headers.get('Authorization');
+          if (callCount === 1) {
+            return new HttpResponse(null, { status: 401 });
+          }
+          return HttpResponse.json({ data: { ok: true } });
+        }),
+        http.post('*/api/auth/refresh', () => {
+          return HttpResponse.json({ accessToken: 'refreshed-token', expiresIn: 900 });
+        }),
+      );
+
+      api.setAccessToken('expired-token');
+      const result = await api.postFormData('/upload', new FormData());
+
+      expect(result).toEqual({ ok: true });
+      expect(callCount).toBe(2);
+      expect(lastAuthHeader).toBe('Bearer refreshed-token');
+    });
+  });
+
+  describe('Profile image API (#367)', () => {
+    it('uploadProfileImage should POST the file as multipart to /user-settings/profile-image', async () => {
+      let receivedFile: FormDataEntryValue | null = null;
+
+      server.use(
+        http.post('*/api/user-settings/profile-image', async ({ request }) => {
+          const body = await request.formData();
+          receivedFile = body.get('file');
+          return HttpResponse.json({
+            data: {
+              settings: {
+                theme: 'system',
+                profile: { imageSource: 'upload', imageObjectId: 'obj-1' },
+                updatedAt: '2024-06-01T00:00:00.000Z',
+                version: 2,
+              },
+              profileImageUrl: 'https://example.com/uploaded.jpg',
+            },
+          });
+        }),
+      );
+
+      const file = new File(['bytes'], 'avatar.png', { type: 'image/png' });
+      const result = await uploadProfileImage(file);
+
+      // See the `postFormData` test above for why this only checks presence.
+      expect(receivedFile).not.toBeNull();
+      expect(result.profileImageUrl).toBe('https://example.com/uploaded.jpg');
+      expect(result.settings.profile.imageSource).toBe('upload');
+      expect(result.settings.version).toBe(2);
+    });
+
+    it('deleteProfileImage should DELETE /user-settings/profile-image', async () => {
+      let called = false;
+
+      server.use(
+        http.delete('*/api/user-settings/profile-image', () => {
+          called = true;
+          return HttpResponse.json({
+            data: {
+              settings: {
+                theme: 'system',
+                profile: { imageSource: 'provider', imageObjectId: null },
+                updatedAt: '2024-06-01T00:00:00.000Z',
+                version: 3,
+              },
+              profileImageUrl: null,
+            },
+          });
+        }),
+      );
+
+      const result = await deleteProfileImage();
+
+      expect(called).toBe(true);
+      expect(result.profileImageUrl).toBeNull();
+      expect(result.settings.profile.imageSource).toBe('provider');
     });
   });
 
