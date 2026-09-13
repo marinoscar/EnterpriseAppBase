@@ -14,13 +14,48 @@ import {
 // User Settings Schema
 // =============================================================================
 
+/**
+ * Which picture represents the user (#367).
+ *
+ *  - `none`     — no picture; clients render initials.
+ *  - `provider` — the OAuth provider's picture (`users.provider_profile_image_url`).
+ *  - `upload`   — the avatar the user uploaded, `profile.imageObjectId`.
+ */
+export const PROFILE_IMAGE_SOURCES = ['none', 'provider', 'upload'] as const;
+
+export const profileImageSourceSchema = z.enum(PROFILE_IMAGE_SOURCES);
+
+export type ProfileImageSource = z.infer<typeof profileImageSourceSchema>;
+
+/**
+ * `profile` as stored. `imageObjectId` is nullable (no avatar uploaded, or it
+ * was removed) and optional only so a PUT body may omit it — the service then
+ * keeps the stored id rather than orphaning the uploaded object. Whether the id
+ * names an avatar the caller owns is checked by `UserSettingsService`, not
+ * here: it needs the database.
+ */
+export const userProfileSettingsSchema = z.object({
+  displayName: z.string().max(100).optional(),
+  imageSource: profileImageSourceSchema,
+  imageObjectId: z.string().uuid().nullable().optional(),
+});
+
+export type UserProfileSettingsValue = z.infer<typeof userProfileSettingsSchema>;
+
+export const userProfileSettingsPatchSchema = z.object({
+  displayName: z.string().max(100).optional(),
+  imageSource: profileImageSourceSchema.optional(),
+  // `null` clears the reference; absent leaves it alone.
+  imageObjectId: z.string().uuid().nullable().optional(),
+});
+
+export type UserProfileSettingsPatchValue = z.infer<
+  typeof userProfileSettingsPatchSchema
+>;
+
 export const userSettingsSchema = z.object({
   theme: z.enum(['light', 'dark', 'system']),
-  profile: z.object({
-    displayName: z.string().max(100).optional(),
-    useProviderImage: z.boolean(),
-    customImageUrl: z.string().url().nullable().optional(),
-  }),
+  profile: userProfileSettingsSchema,
   // Optional namespaces. Absent means "use built-in defaults" — see
   // user-settings-namespaces.schema.ts for why these must never get `.default()`.
   dataTables: dataTablesSchema.optional(),
@@ -38,11 +73,7 @@ export type UserSettingsDto = z.infer<typeof userSettingsSchema>;
 // Partial schema for PATCH operations (zod v4: deepPartial removed, use manual deep partial)
 export const userSettingsPatchSchema = z.object({
   theme: z.enum(['light', 'dark', 'system']).optional(),
-  profile: z.object({
-    displayName: z.string().max(100).optional(),
-    useProviderImage: z.boolean().optional(),
-    customImageUrl: z.string().url().nullable().optional(),
-  }).optional(),
+  profile: userProfileSettingsPatchSchema.optional(),
   // The outer `.nullable()` is what lets `{ "dataTables": null }` clear the
   // whole namespace; the inner nullability (in dataTablesPatchSchema) is what
   // lets `{ "dataTables": { "jobs": null } }` delete a single entry.

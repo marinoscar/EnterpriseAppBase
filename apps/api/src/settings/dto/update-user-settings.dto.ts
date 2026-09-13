@@ -8,15 +8,18 @@ import {
   notificationsSchema,
   notificationsPatchSchema,
 } from '../../common/schemas/user-settings-namespaces.schema';
+import {
+  userProfileSettingsSchema,
+  userProfileSettingsPatchSchema,
+} from '../../common/schemas/settings.schema';
 
 // Full replacement (PUT)
 export const updateUserSettingsSchema = z.object({
   theme: z.enum(['light', 'dark', 'system']),
-  profile: z.object({
-    displayName: z.string().max(100).optional(),
-    useProviderImage: z.boolean(),
-    customImageUrl: z.string().url().nullable().optional(),
-  }),
+  // `imageSource: 'upload'` requires `imageObjectId` to name an avatar the
+  // caller uploaded (checked by the service — 400 otherwise). Omitting
+  // `imageObjectId` keeps the stored one; `null` clears it.
+  profile: userProfileSettingsSchema,
   // Optional namespaces. A PUT states the settings in full, so `null` has no
   // "delete" meaning here — omit the namespace to store nothing for it.
   dataTables: dataTablesSchema.optional(),
@@ -31,13 +34,9 @@ export class UpdateUserSettingsDto extends createZodDto(
 // Partial update (PATCH) - JSON Merge Patch style
 export const patchUserSettingsSchema = z.object({
   theme: z.enum(['light', 'dark', 'system']).optional(),
-  profile: z
-    .object({
-      displayName: z.string().max(100).optional(),
-      useProviderImage: z.boolean().optional(),
-      customImageUrl: z.string().url().nullable().optional(),
-    })
-    .optional(),
+  // Field-wise merge. Switching `imageSource` away from `upload` keeps
+  // `imageObjectId`, so switching back needs no second upload.
+  profile: userProfileSettingsPatchSchema.optional(),
   // `dataTables: null` clears the namespace; `dataTables: { jobs: null }`
   // deletes just that entry. Same pattern for `navigation`.
   dataTables: dataTablesPatchSchema.nullable().optional(),

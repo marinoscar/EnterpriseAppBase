@@ -5,6 +5,7 @@ import type {
 } from '../schemas/user-settings-namespaces.schema';
 import {
   DEFAULT_MAINTENANCE_MESSAGE,
+  type UserProfileSettingsValue,
   type SystemNotificationsValue,
   type SystemJobsValue,
   type SystemNodesValue,
@@ -21,11 +22,18 @@ import {
  */
 export interface UserSettingsValue {
   theme: 'light' | 'dark' | 'system';
-  profile: {
-    displayName?: string;
-    useProviderImage: boolean;
-    customImageUrl?: string | null;
-  };
+  /**
+   * Profile preferences (#367). `imageSource` chooses which picture represents
+   * the user: none, the OAuth provider's picture, or one they uploaded.
+   * `imageObjectId` is the uploaded avatar's `storage_objects` id and is kept
+   * when the source is switched away from `upload`, so switching back does not
+   * need a second upload. Derived from the zod schema so the two cannot drift.
+   *
+   * Rows written before #367 carry `useProviderImage`/`customImageUrl` instead;
+   * they are normalised on read by `normalizeProfileSettings`
+   * (common/profile-image/profile-image.ts), never migrated.
+   */
+  profile: UserProfileSettingsValue;
   /**
    * Per-table view preferences, keyed by table id.
    *
@@ -115,7 +123,8 @@ export interface SystemSettingsValue {
 export const DEFAULT_USER_SETTINGS: UserSettingsValue = {
   theme: 'system',
   profile: {
-    useProviderImage: true,
+    imageSource: 'provider',
+    imageObjectId: null,
   },
 };
 
