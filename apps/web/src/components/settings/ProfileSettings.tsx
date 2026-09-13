@@ -318,7 +318,10 @@ export function ProfileSettings({
                   <FormControlLabel
                     key={option.value}
                     value={option.value}
-                    disabled={option.disabled}
+                    // MUI's FormControlLabel prefers its own `disabled` over
+                    // the fieldset's, so a literal `false` here would re-enable
+                    // the option while the page is disabled or busy.
+                    disabled={controlsDisabled || option.disabled}
                     sx={{ mr: 0, my: 0.5, alignItems: 'center' }}
                     control={
                       <Radio
