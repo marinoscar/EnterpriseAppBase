@@ -163,8 +163,8 @@ interface FormProps {
 
 /**
  * Split out from the page so the render prop stays a one-liner and the editing
- * state has a component of its own to live in — the same division
- * `UISettings` / `AppearanceSettingsPage` already draw.
+ * state has a component of its own to live in: the page owns the chrome, the
+ * form owns the pending edit.
  *
  * A BATCHED SAVE, unlike `/settings/notifications`, which PATCHes on every
  * toggle. The reason is the shape of the data, not a style preference: the
@@ -183,9 +183,8 @@ function NotificationSettingsForm({ stored, canWrite, isSaving, onSave }: FormPr
   );
 
   // Re-seed from the server's answer whenever it changes — after a successful
-  // save, or after the hook re-fetches on a 409. Same discipline as
-  // `UISettings`: the stored document is the source of truth and local state is
-  // only ever a pending edit of it.
+  // save, or after the hook re-fetches on a 409. The stored document is the
+  // source of truth and local state is only ever a pending edit of it.
   useEffect(() => {
     setBrowserEnabled(stored.browserEnabled);
     setDisabledEvents(stored.disabledEvents);

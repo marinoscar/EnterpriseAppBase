@@ -12,21 +12,20 @@
  * written to end. There is still exactly one copy; it just lives here now.
  *
  * A RENDER PROP rather than an outlet or a HOC. The children need `settings`,
- * `canWrite` and `isSaving` as VALUES — `UISettings` and `FeatureFlagsList`
- * take them as props and are deliberately left untouched by this issue — and a
- * render prop hands them over without a context, without a wrapper component
+ * `canWrite` and `isSaving` as VALUES — the typed editors (today
+ * `NotificationSettingsPage`'s form) take them as props — and a render prop
+ * hands them over without a context, without a wrapper component
  * per page, and without any page being able to render before `settings` is
  * non-null. That last part is why `settings` is non-nullable in the callback's
  * argument: the null case is handled once, here, so no page repeats a
- * `settings && …` guard that TypeScript would otherwise demand of all four.
+ * `settings && …` guard that TypeScript would otherwise demand of each.
  *
  * THE PAGE-LEVEL PERMISSION CHECK IS DEFENCE, NOT THE GATE. `App.tsx` wraps
  * each route in `RequirePermission` with the same string, which is the real
  * enforcement point; this one exists for a page mounted from anywhere else, and
  * it is the check `SystemSettingsPage` already carried. `requiredPermission` is
- * a prop rather than a hardcoded `system_settings:read` because Advanced (JSON)
- * gates on `system_settings:WRITE` — a raw editor over the whole document has
- * no read-only meaning. See `config/adminSections.tsx`.
+ * a prop rather than a hardcoded `system_settings:read` so the page states the
+ * same string its route and its card in `config/adminSections.tsx` declare.
  */
 
 import { useState } from 'react';
@@ -45,7 +44,7 @@ export interface SystemSettingsSectionState {
   canWrite: boolean;
   isSaving: boolean;
   /**
-   * PATCH ONE top-level branch (`ui`, `features`, …) and raise the success
+   * PATCH ONE top-level branch (`notifications`, …) and raise the success
    * snackbar. This is the old page's `handleSave`, unchanged: a rejected save
    * is reported through the error snackbar rather than rethrown, because the
    * typed editors treat `onSave` as fire-and-forget.
@@ -54,11 +53,9 @@ export interface SystemSettingsSectionState {
   /**
    * The raw hook function: PATCHes an arbitrary partial and RETHROWS.
    *
-   * Only the JSON editor uses it, and only because it renders its own inline
-   * error `Alert` — it needs the rejection to reach its `catch`, which the
-   * snackbar path above deliberately swallows. Handing it `saveBranch` instead
-   * would leave a syntactically valid but server-rejected document looking
-   * saved in the editor while a snackbar disagreed elsewhere on the page.
+   * For an editor that renders its own inline error `Alert` and so needs the
+   * rejection to reach its `catch`, which the snackbar path above deliberately
+   * swallows. No current page uses it.
    */
   updateSettings: (updates: Partial<SystemSettings>) => Promise<void>;
 }

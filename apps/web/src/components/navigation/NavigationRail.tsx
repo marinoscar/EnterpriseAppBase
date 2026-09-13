@@ -121,7 +121,7 @@ interface RailRowProps {
    * The two callers want different things from it and a single derived value
    * cannot serve both: a destination's `label` is a navigation noun ("User
    * Settings") that reads correctly as a name, while a Console card's title is
-   * already the page's full text ("Advanced (JSON)") and must be passed through
+   * already the page's full text ("Users & Allowlist") and must be passed through
    * verbatim. Making the caller name the row means neither site is guessing,
    * and a future row that needs a name unlike its label — a count, a state —
    * has somewhere to put it instead of overloading `label`.
@@ -351,8 +351,8 @@ export function NavigationRail() {
         flexShrink: 0,
         // Load-bearing, not cosmetic: without it a long label inside the rail
         // sets a min-content floor that widens the shell past the viewport.
-        // Console mode raises the stakes — "Advanced (JSON)" and "Users &
-        // Allowlist" are longer than any destination label.
+        // Console mode raises the stakes — "Users & Allowlist" and "Database
+        // Backup" are longer than any destination label.
         minWidth: 0,
         display: 'flex',
         flexDirection: 'column',
