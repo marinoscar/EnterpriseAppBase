@@ -40,8 +40,15 @@ class ApiService {
       ...fetchOptions.headers,
     };
 
+    // A FormData body must NOT carry a hand-set Content-Type: the browser has
+    // to write `multipart/form-data; boundary=…` itself, and a literal
+    // `application/json` (or a multipart type with no boundary) makes the
+    // server unable to parse the parts.
+    const isFormData =
+      typeof FormData !== 'undefined' && fetchOptions.body instanceof FormData;
+
     // Only set Content-Type for requests with a body (Fastify 5 is strict about this)
-    if (fetchOptions.body) {
+    if (fetchOptions.body && !isFormData) {
       (headers as Record<string, string>)['Content-Type'] = 'application/json';
     }
 
@@ -61,7 +68,7 @@ class ApiService {
       if (refreshed) {
         // Update authorization header with new token and retry ONCE
         const retryHeaders: HeadersInit = {
-          'Content-Type': 'application/json',
+          ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
           ...fetchOptions.headers,
           'Authorization': `Bearer ${this.accessToken}`,
         };
@@ -194,6 +201,20 @@ class ApiService {
       ...options,
       method: 'POST',
       body: body ? JSON.stringify(body) : undefined,
+    });
+  }
+
+  /**
+   * POST a `multipart/form-data` body. Goes through the same `request()` as
+   * every other call, so the bearer token, the one-shot 401 → refresh → retry
+   * and the maintenance interception all apply. The FormData is sent as-is
+   * (never JSON-stringified) and can be re-sent on that retry.
+   */
+  postFormData<T>(endpoint: string, formData: FormData, options?: RequestOptions) {
+    return this.request<T>(endpoint, {
+      ...options,
+      method: 'POST',
+      body: formData,
     });
   }
 
