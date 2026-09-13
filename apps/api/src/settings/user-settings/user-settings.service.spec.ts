@@ -87,8 +87,8 @@ describe('UserSettingsService', () => {
         theme: 'dark',
         profile: {
           displayName: 'John Doe',
-          useProviderImage: false,
-          customImageUrl: 'https://example.com/avatar.jpg',
+          imageSource: 'none',
+          imageObjectId: null,
         },
       };
 
@@ -124,7 +124,8 @@ describe('UserSettingsService', () => {
       const newSettings: UserSettingsValue = {
         theme: 'light',
         profile: {
-          useProviderImage: true,
+          imageSource: 'provider',
+          imageObjectId: null,
         },
       };
 
@@ -153,7 +154,8 @@ describe('UserSettingsService', () => {
         theme: 'system',
         profile: {
           displayName: 'Jane Smith',
-          useProviderImage: true,
+          imageSource: 'provider',
+          imageObjectId: null,
         },
       };
 
@@ -177,7 +179,8 @@ describe('UserSettingsService', () => {
         theme: 'system',
         profile: {
           displayName: '', // Empty string
-          useProviderImage: true,
+          imageSource: 'provider',
+          imageObjectId: null,
         },
       };
 
@@ -188,7 +191,8 @@ describe('UserSettingsService', () => {
           theme: 'system',
           profile: {
             displayName: '',
-            useProviderImage: true,
+            imageSource: 'provider',
+            imageObjectId: null,
           },
         } as any,
       } as any);
@@ -208,7 +212,8 @@ describe('UserSettingsService', () => {
       const newSettings: UserSettingsValue = {
         theme: 'dark',
         profile: {
-          useProviderImage: false,
+          imageSource: 'none',
+          imageObjectId: null,
         },
       };
 
@@ -277,7 +282,8 @@ describe('UserSettingsService', () => {
           theme: DEFAULT_USER_SETTINGS.theme,
           profile: {
             displayName: 'Updated Name',
-            useProviderImage: DEFAULT_USER_SETTINGS.profile.useProviderImage,
+            imageSource: DEFAULT_USER_SETTINGS.profile.imageSource,
+            imageObjectId: DEFAULT_USER_SETTINGS.profile.imageObjectId,
           },
         } as any,
         version: 2,
@@ -288,8 +294,8 @@ describe('UserSettingsService', () => {
       const result = await service.patchSettings(mockUserId, partialUpdate);
 
       expect(result.profile.displayName).toBe('Updated Name');
-      expect(result.profile.useProviderImage).toBe(
-        DEFAULT_USER_SETTINGS.profile.useProviderImage,
+      expect(result.profile.imageSource).toBe(
+        DEFAULT_USER_SETTINGS.profile.imageSource,
       );
     });
 
@@ -306,7 +312,8 @@ describe('UserSettingsService', () => {
           theme: DEFAULT_USER_SETTINGS.theme,
           profile: {
             displayName: 'Patched Name',
-            useProviderImage: DEFAULT_USER_SETTINGS.profile.useProviderImage,
+            imageSource: DEFAULT_USER_SETTINGS.profile.imageSource,
+            imageObjectId: DEFAULT_USER_SETTINGS.profile.imageObjectId,
           },
         } as any,
         version: 2,
@@ -369,10 +376,15 @@ describe('UserSettingsService', () => {
     });
 
     it('should handle multiple profile field updates', async () => {
+      // `imageSource` and `displayName` change together; `imageObjectId`
+      // stays null throughout (source moves to `none`, not `upload`), so this
+      // does not need to satisfy `assertProfileImageReference`'s avatar check
+      // (see the dedicated `assertProfileImageReference` describe block below
+      // for that machinery).
       const partialUpdate = {
         profile: {
-          useProviderImage: false,
-          customImageUrl: 'https://example.com/custom.jpg',
+          displayName: 'Multi Update',
+          imageSource: 'none' as const,
         },
       };
 
@@ -381,8 +393,9 @@ describe('UserSettingsService', () => {
         value: {
           theme: DEFAULT_USER_SETTINGS.theme,
           profile: {
-            useProviderImage: false,
-            customImageUrl: 'https://example.com/custom.jpg',
+            displayName: 'Multi Update',
+            imageSource: 'none',
+            imageObjectId: null,
           },
         } as any,
         version: 2,
@@ -392,45 +405,215 @@ describe('UserSettingsService', () => {
 
       const result = await service.patchSettings(mockUserId, partialUpdate);
 
-      expect(result.profile.useProviderImage).toBe(false);
-      expect(result.profile.customImageUrl).toBe(
-        'https://example.com/custom.jpg',
-      );
+      expect(result.profile.imageSource).toBe('none');
+      expect(result.profile.displayName).toBe('Multi Update');
     });
   });
 
-  describe('updateProfileImage', () => {
+  describe('profile image reference validation (assertProfileImageReference, #367)', () => {
     beforeEach(() => {
       mockPrisma.userSettings.findUnique.mockResolvedValue(
         mockUserSettings as any,
       );
-      mockPrisma.userSettings.update.mockResolvedValue({
-        ...mockUserSettings,
-        version: 2,
-      } as any);
       mockPrisma.user.update.mockResolvedValue({} as any);
     });
 
-    it('should update profile image preference', async () => {
-      await service.updateProfileImage(
-        mockUserId,
-        false,
-        'https://example.com/custom.jpg',
-      );
+    const avatarObjectId = '11111111-1111-4111-8111-111111111111';
 
-      expect(mockPrisma.userSettings.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { userId: mockUserId },
-          data: expect.objectContaining({
-            value: expect.objectContaining({
-              profile: expect.objectContaining({
-                useProviderImage: false,
-                customImageUrl: 'https://example.com/custom.jpg',
-              }),
-            }),
-          }),
+    function mockValidAvatarObject(userId: string, objectId: string) {
+      mockPrisma.storageObject.findUnique.mockResolvedValue({
+        id: objectId,
+        uploadedById: userId,
+        storageKey: `avatars/${userId}/${objectId}.png`,
+        status: 'ready',
+        mimeType: 'image/png',
+        metadata: { purpose: 'avatar' },
+      } as any);
+    }
+
+    it('rejects imageSource "upload" with no imageObjectId (PATCH)', async () => {
+      await expect(
+        service.patchSettings(mockUserId, {
+          profile: { imageSource: 'upload' },
         }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(mockPrisma.userSettings.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects imageSource "upload" with no imageObjectId (PUT)', async () => {
+      await expect(
+        service.replaceSettings(mockUserId, {
+          theme: 'light',
+          profile: { imageSource: 'upload' },
+        } as any),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(mockPrisma.userSettings.upsert).not.toHaveBeenCalled();
+    });
+
+    it('accepts imageSource "upload" when imageObjectId names an avatar the caller owns', async () => {
+      mockValidAvatarObject(mockUserId, avatarObjectId);
+      mockPrisma.userSettings.update.mockResolvedValue({
+        ...mockUserSettings,
+        value: {
+          theme: DEFAULT_USER_SETTINGS.theme,
+          profile: { imageSource: 'upload', imageObjectId: avatarObjectId },
+        } as any,
+        version: 2,
+      } as any);
+
+      const result = await service.patchSettings(mockUserId, {
+        profile: { imageSource: 'upload', imageObjectId: avatarObjectId },
+      });
+
+      expect(result.profile.imageSource).toBe('upload');
+      expect(mockPrisma.storageObject.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: avatarObjectId } }),
       );
+    });
+
+    it('rejects imageObjectId pointing at an object the caller does not own', async () => {
+      mockPrisma.storageObject.findUnique.mockResolvedValue({
+        id: avatarObjectId,
+        uploadedById: 'someone-else',
+        storageKey: `avatars/someone-else/${avatarObjectId}.png`,
+        status: 'ready',
+        mimeType: 'image/png',
+        metadata: { purpose: 'avatar' },
+      } as any);
+
+      await expect(
+        service.patchSettings(mockUserId, {
+          profile: { imageSource: 'upload', imageObjectId: avatarObjectId },
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(mockPrisma.userSettings.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects an imageObjectId that is not a ready avatar (e.g. still processing)', async () => {
+      mockPrisma.storageObject.findUnique.mockResolvedValue({
+        id: avatarObjectId,
+        uploadedById: mockUserId,
+        storageKey: `avatars/${mockUserId}/${avatarObjectId}.png`,
+        status: 'processing',
+        mimeType: 'image/png',
+        metadata: { purpose: 'avatar' },
+      } as any);
+
+      await expect(
+        service.patchSettings(mockUserId, {
+          profile: { imageSource: 'upload', imageObjectId: avatarObjectId },
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('rejects an imageObjectId for an object that is not under the avatar key prefix', async () => {
+      mockPrisma.storageObject.findUnique.mockResolvedValue({
+        id: avatarObjectId,
+        uploadedById: mockUserId,
+        storageKey: `uploads/${mockUserId}/${avatarObjectId}.png`,
+        status: 'ready',
+        mimeType: 'image/png',
+        metadata: { purpose: 'avatar' },
+      } as any);
+
+      await expect(
+        service.patchSettings(mockUserId, {
+          profile: { imageSource: 'upload', imageObjectId: avatarObjectId },
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('skips the avatar check when the image fields do not change (an unrelated theme PATCH)', async () => {
+      mockPrisma.userSettings.update.mockResolvedValue({
+        ...mockUserSettings,
+        value: { theme: 'dark', profile: DEFAULT_USER_SETTINGS.profile } as any,
+        version: 2,
+      } as any);
+
+      await service.patchSettings(mockUserId, { theme: 'dark' });
+
+      expect(mockPrisma.storageObject.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('keeps the stored imageObjectId when switching source to "none" without re-checking it', async () => {
+      mockPrisma.userSettings.findUnique.mockResolvedValue({
+        ...mockUserSettings,
+        value: {
+          theme: 'system',
+          profile: { imageSource: 'upload', imageObjectId: avatarObjectId },
+        } as any,
+      } as any);
+      mockPrisma.userSettings.update.mockResolvedValue({
+        ...mockUserSettings,
+        value: {
+          theme: 'system',
+          profile: { imageSource: 'none', imageObjectId: avatarObjectId },
+        } as any,
+        version: 2,
+      } as any);
+
+      const result = await service.patchSettings(mockUserId, {
+        profile: { imageSource: 'none' },
+      });
+
+      expect(result.profile.imageSource).toBe('none');
+      expect(result.profile.imageObjectId).toBe(avatarObjectId);
+      expect(mockPrisma.storageObject.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('a PATCH omitting imageObjectId keeps the previously stored id (does not orphan it)', async () => {
+      mockPrisma.userSettings.findUnique.mockResolvedValue({
+        ...mockUserSettings,
+        value: {
+          theme: 'system',
+          profile: { imageSource: 'upload', imageObjectId: avatarObjectId },
+        } as any,
+      } as any);
+      mockPrisma.userSettings.update.mockResolvedValue({
+        ...mockUserSettings,
+        value: {
+          theme: 'system',
+          profile: { imageSource: 'upload', imageObjectId: avatarObjectId },
+        } as any,
+        version: 2,
+      } as any);
+
+      const result = await service.patchSettings(mockUserId, {
+        profile: { displayName: 'Still Uploaded' },
+      });
+
+      expect(result.profile.imageObjectId).toBe(avatarObjectId);
+      // imageObjectId is unchanged and imageSource stays "upload" (not newly
+      // set), so `needsCheck` is false — no re-validation against storage.
+      expect(mockPrisma.storageObject.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('a PUT with null imageObjectId clears it without a storage check', async () => {
+      mockPrisma.userSettings.upsert.mockResolvedValue({
+        ...mockUserSettings,
+        value: {
+          theme: 'light',
+          profile: { imageSource: 'provider', imageObjectId: null },
+        } as any,
+        version: 2,
+      } as any);
+
+      const result = await service.replaceSettings(mockUserId, {
+        theme: 'light',
+        profile: { imageSource: 'provider', imageObjectId: null },
+      } as any);
+
+      expect(result.profile.imageObjectId).toBeNull();
+      expect(mockPrisma.storageObject.findUnique).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('legacy removal: updateProfileImage no longer exists (#367)', () => {
+    it('does not expose an updateProfileImage method', () => {
+      expect((service as any).updateProfileImage).toBeUndefined();
     });
   });
 
@@ -674,7 +857,7 @@ describe('UserSettingsService', () => {
         ...mockUserSettings,
         value: {
           theme: 'system',
-          profile: { useProviderImage: true },
+          profile: { imageSource: 'provider' },
         } as any,
       } as any);
 
@@ -790,7 +973,7 @@ describe('UserSettingsService', () => {
         ...mockUserSettings,
         value: {
           theme: 'system',
-          profile: { useProviderImage: true },
+          profile: { imageSource: 'provider' },
           dataTables: buildTables(39),
         } as any,
       } as any);
@@ -814,7 +997,7 @@ describe('UserSettingsService', () => {
     it('fires on the PUT path too', async () => {
       const newSettings: UserSettingsValue = {
         theme: 'light',
-        profile: { useProviderImage: true },
+        profile: { imageSource: 'provider' },
         dataTables: buildTables(41),
       };
 
@@ -905,7 +1088,7 @@ describe('UserSettingsService', () => {
         ...mockUserSettings,
         value: {
           theme: 'system',
-          profile: { useProviderImage: true },
+          profile: { imageSource: 'provider' },
           notifications: { email: buildEvents(99) },
         } as any,
       } as any);
@@ -927,7 +1110,7 @@ describe('UserSettingsService', () => {
     it('fires on the PUT path too', async () => {
       const newSettings: UserSettingsValue = {
         theme: 'light',
-        profile: { useProviderImage: true },
+        profile: { imageSource: 'provider' },
         notifications: { email: buildEvents(101) },
       };
 
@@ -965,7 +1148,7 @@ describe('UserSettingsService', () => {
         ...mockUserSettings,
         value: {
           theme: 'system',
-          profile: { useProviderImage: true },
+          profile: { imageSource: 'provider' },
           dataTables: { jobs: { pageSize: 25 } },
           navigation: { railCollapsed: true },
           notifications: { email: { 'user.welcome': false } },
@@ -999,7 +1182,7 @@ describe('UserSettingsService', () => {
         ...mockUserSettings,
         value: {
           theme: 'system',
-          profile: { useProviderImage: true },
+          profile: { imageSource: 'provider' },
           notifications: { email: { 'user.welcome': false } },
         } as any,
       } as any);
