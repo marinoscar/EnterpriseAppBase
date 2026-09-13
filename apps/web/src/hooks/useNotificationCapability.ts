@@ -3,8 +3,9 @@
  *
  * Issue #221, epic #215. A LAYER OVER `useBrowserNotificationPermission`, never
  * a replacement for it: that hook still owns the one question the Web API
- * actually answers ("what is `Notification.permission` right now?"), it still
- * never calls `requestPermission()`, and nothing here changes either fact. This
+ * actually answers ("what is `Notification.permission` right now?"). Neither
+ * hook requests permission — since #365 the shell's `usePushSubscriptionSync`
+ * does that, once per load, when push is enabled. This
  * module adds the questions the Web API does not answer, which turn out to be
  * the ones the user needs answered.
  *
@@ -75,7 +76,7 @@
  *   5. `denied`            — the browser refused. Per-platform remedy, owned by
  *                            the user, not by this app.
  *   6. `default`           — not asked yet. The ONLY state in which the app may
- *                            offer its prompt button.
+ *                            prompt — automatically (#365) or from a button.
  *   7. `sw-unavailable`    — permission GRANTED, but no service worker
  *                            registration. Delivery may be limited; see below.
  *   8. `granted`           — permission granted and a worker is registered.
@@ -403,8 +404,9 @@ export interface UseNotificationCapabilityResult {
    * Force a re-read of everything: the permission (delegated downwards) and
    * the service worker registration.
    *
-   * Called by the prompt handler in `pages/UserNotificationsPage.tsx` in a
-   * `finally` after `Notification.requestPermission()` settles, for the reason
+   * Called by the prompt handlers in `pages/UserNotificationsPage.tsx` and
+   * `hooks/usePushSubscriptionSync.ts` in a `finally` after
+   * `Notification.requestPermission()` settles, for the reason
    * given in `useBrowserNotificationPermission`: re-reading is right in every
    * case, including the one where the user dismissed the prompt and nothing
    * changed at all.
@@ -420,8 +422,7 @@ export function useNotificationCapability(
   // THE PERMISSION IS NOT RE-DERIVED HERE. This hook consumes the existing one
   // whole — including its `visibilitychange` and Permissions API `change`
   // tracking — so there is exactly one implementation of "what does the browser
-  // say", and it remains the one with the "never requests permission" test on
-  // it.
+  // say".
   const { permission, refresh: refreshPermission } = useBrowserNotificationPermission();
 
   const [swPresence, setSwPresence] = useState<ServiceWorkerPresence>('unknown');

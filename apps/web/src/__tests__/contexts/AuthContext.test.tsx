@@ -7,6 +7,21 @@ import { AuthProvider, useAuth } from '../../contexts/AuthContext';
 import { ReactNode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 
+// Issue #365: logout drops this device's push subscription from the server
+// before it signs out, so a shared browser stops receiving the previous
+// account's pushes. Mocked here (rather than exercised through its own real
+// `navigator.serviceWorker`/`PushManager` plumbing, which
+// `pushSubscription.test.ts` already owns) so these tests are only about
+// AuthContext's OWN wiring: that it is called, in what order relative to
+// `POST /auth/logout`, and that logout still completes if it rejects.
+vi.mock('../../services/pushSubscription', () => ({
+  removePushSubscription: vi.fn().mockResolvedValue(undefined),
+}));
+
+import { removePushSubscription } from '../../services/pushSubscription';
+
+const mockRemovePushSubscription = vi.mocked(removePushSubscription);
+
 // Wrapper for hooks that need AuthProvider
 function createAuthWrapper() {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -118,6 +133,71 @@ describe('AuthContext', () => {
         await result.current.logout();
       });
 
+      expect(result.current.isAuthenticated).toBe(false);
+      expect(result.current.user).toBeNull();
+    });
+  });
+
+  describe('Push subscription cleanup on logout (#365)', () => {
+    beforeEach(() => {
+      // `vi.clearAllMocks()` above only clears call history, not a mock's
+      // resolved/rejected implementation - reassert the safe default
+      // explicitly so a previous test's `.mockRejectedValue` cannot bleed in.
+      mockRemovePushSubscription.mockResolvedValue(undefined);
+    });
+
+    it('calls removePushSubscription before POST /auth/logout, in that order', async () => {
+      const callOrder: string[] = [];
+      mockRemovePushSubscription.mockImplementation(async () => {
+        callOrder.push('removePushSubscription');
+      });
+      server.use(
+        http.post('*/api/auth/refresh', () => {
+          return HttpResponse.json({ accessToken: 'test-token', expiresIn: 900 });
+        }),
+        http.post('*/api/auth/logout', () => {
+          callOrder.push('POST /auth/logout');
+          return new HttpResponse(null, { status: 200 });
+        }),
+      );
+
+      const { result } = renderHook(() => useAuth(), {
+        wrapper: createAuthWrapper(),
+      });
+
+      await waitFor(() => {
+        expect(result.current.isAuthenticated).toBe(true);
+      });
+
+      await act(async () => {
+        await result.current.logout();
+      });
+
+      expect(callOrder).toEqual(['removePushSubscription', 'POST /auth/logout']);
+      expect(result.current.isAuthenticated).toBe(false);
+    });
+
+    it('still logs the user out even when removePushSubscription rejects', async () => {
+      mockRemovePushSubscription.mockRejectedValue(new Error('serviceWorker.ready never settled'));
+      server.use(
+        http.post('*/api/auth/refresh', () => {
+          return HttpResponse.json({ accessToken: 'test-token', expiresIn: 900 });
+        }),
+      );
+
+      const { result } = renderHook(() => useAuth(), {
+        wrapper: createAuthWrapper(),
+      });
+
+      await waitFor(() => {
+        expect(result.current.isAuthenticated).toBe(true);
+      });
+
+      await act(async () => {
+        await result.current.logout();
+      });
+
+      expect(mockRemovePushSubscription).toHaveBeenCalledTimes(1);
       expect(result.current.isAuthenticated).toBe(false);
       expect(result.current.user).toBeNull();
     });

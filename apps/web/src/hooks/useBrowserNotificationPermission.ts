@@ -6,29 +6,13 @@
  * decides whether a native notification may be raised at all. This hook is how
  * that column tells the truth.
  *
- * THIS HOOK NEVER CALLS `Notification.requestPermission()`. That is the single
- * most important line in the file.
- *
- *   * Browsers penalise sites that prompt on load — Chrome and Firefox both
- *     suppress or auto-deny prompts that are not tied to a user gesture, and
- *     Firefox requires the gesture outright.
- *   * A DENIAL IS EFFECTIVELY PERMANENT. The app cannot re-prompt and cannot
- *     undo it; only the user can, buried in browser site settings. So a prompt
- *     fired by merely opening a settings page spends a one-shot resource on a
- *     user who never asked for notifications, and the cost of losing that coin
- *     flip is that the feature is dead for that person forever.
- *
- * The prompt therefore belongs to a deliberate click, and #127 has now wired
- * one: the "Allow notifications" button in the `default`-state banner of
- * `components/settings/NotificationSettings.tsx`, whose handler lives in
- * `pages/UserNotificationsPage.tsx` and calls
- * `services/browserNotifications.ts`'s `requestBrowserNotificationPermission`.
- *
- * THAT DOES NOT CHANGE THIS FILE'S RULE. The request lives in a click handler
- * three modules away precisely so that nothing on the mount path can reach it;
- * this hook still only ever OBSERVES, and it must stay that way. If a
- * `requestPermission` call ever appears in this file, the separation that makes
- * "does anything prompt on load?" answerable by reading one file is gone.
+ * THIS HOOK NEVER CALLS `Notification.requestPermission()` — it only observes.
+ * Requesting is `services/browserNotifications.ts`'s job, and since #365 the app
+ * DOES prompt without a click: `hooks/usePushSubscriptionSync.ts` auto-prompts
+ * once per page load when the deployment has push enabled, and the app-wide
+ * banner and the settings page offer a button for browsers that ignore a
+ * gestureless request. Keeping every request out of this file means "what
+ * prompts, and when?" is answered by that one service's callers.
  *
  * WHY A HOOK RATHER THAN READING `Notification.permission` INLINE
  * ---------------------------------------------------------------
@@ -36,17 +20,20 @@
  * notifications in your browser settings", opens those settings in another tab,
  * flips the switch and comes back would otherwise still be looking at "blocked"
  * until a full reload — and would reasonably conclude the app is broken. So the
- * value is state, and it is re-read on the two signals that can indicate a
- * change:
+ * value is state, and it is re-read on the signals that can indicate a change:
  *
  *   1. The Permissions API's `change` event, where available — the exact,
  *     immediate signal.
  *   2. `visibilitychange`, as the fallback for browsers whose Permissions API
  *     does not expose `notifications` (older Safari). Coming back to the tab is
  *     precisely the moment a user who just changed the setting returns.
+ *   3. `NOTIFICATION_PERMISSION_CHANGED_EVENT` (#365), which this app fires
+ *     after its own requests settle, so every mounted instance — the shell's
+ *     banner and the settings page — updates together.
  */
 
 import { useCallback, useEffect, useState } from 'react';
+import { NOTIFICATION_PERMISSION_CHANGED_EVENT } from '../services/browserNotifications';
 
 /**
  * Permission as this app needs to reason about it.
@@ -93,9 +80,10 @@ export interface UseBrowserNotificationPermissionResult {
   /**
    * Force a re-read.
    *
-   * CALLED BY #127's PROMPT HANDLER (`UserNotificationsPage`), in a `finally`,
-   * after `Notification.requestPermission()` settles — so the banner moves to
-   * its `granted` or `denied` treatment without a reload.
+   * CALLED BY EVERY PROMPT HANDLER (`UserNotificationsPage`,
+   * `usePushSubscriptionSync`), in a `finally`, after
+   * `Notification.requestPermission()` settles — so the UI moves to its
+   * `granted` or `denied` treatment without a reload.
    *
    * Unconditional there rather than driven by the request's return value: the
    * user can dismiss the prompt without choosing (permission stays `default`)
@@ -125,6 +113,8 @@ export function useBrowserNotificationPermission(): UseBrowserNotificationPermis
       if (document.visibilityState === 'visible') refresh();
     };
     document.addEventListener('visibilitychange', onVisibility);
+    // An app-initiated request settled somewhere (#365) — see the header.
+    window.addEventListener(NOTIFICATION_PERMISSION_CHANGED_EVENT, refresh);
 
     // The Permissions API is the precise signal, and is optional in two ways:
     // the API may be absent, and `notifications` may be an unsupported name
@@ -160,6 +150,7 @@ export function useBrowserNotificationPermission(): UseBrowserNotificationPermis
     return () => {
       cancelled = true;
       document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener(NOTIFICATION_PERMISSION_CHANGED_EVENT, refresh);
       status?.removeEventListener('change', onChange);
     };
   }, [refresh]);

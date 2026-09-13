@@ -37,8 +37,30 @@ vi.mock('react-router-dom', async () => {
   };
 });
 
+// Issue #365. Mocked so this file can assert the banner mounts and is wired
+// to the hook's own `requestPermission`/`isRequestingPermission`, without
+// re-deriving the auto-prompt/boot-sync behaviour `usePushSubscriptionSync.test.ts`
+// already owns.
+vi.mock('../../../hooks/usePushSubscriptionSync', () => ({
+  usePushSubscriptionSync: vi.fn(),
+}));
+
 import { AppBar } from '../../../components/navigation/AppBar';
 import { Outlet } from 'react-router-dom';
+import { usePushSubscriptionSync } from '../../../hooks/usePushSubscriptionSync';
+
+const mockUsePushSubscriptionSync = vi.mocked(usePushSubscriptionSync);
+
+/** The pre-#365 shape: nothing to show, so every existing test below keeps
+ *  seeing no banner unless it opts in to a different mock. */
+function mockPushSyncHidden() {
+  mockUsePushSubscriptionSync.mockReturnValue({
+    config: null,
+    capability: 'unsupported',
+    requestPermission: vi.fn(),
+    isRequestingPermission: false,
+  });
+}
 
 /** Renders at `px`, driving the query-aware matchMedia mock. */
 function renderAt(px: number) {
@@ -71,6 +93,7 @@ const DESKTOP = 1400;
 describe('Layout', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockPushSyncHidden();
   });
 
   describe('Exactly one navigation surface', () => {
@@ -176,6 +199,56 @@ describe('Layout', () => {
       const shell = container.firstChild as HTMLElement;
       expect(getComputedStyle(shell).minHeight).toBe('100vh');
       expect(getComputedStyle(shell).flexDirection).toBe('column');
+    });
+  });
+
+  describe('Notification permission banner (#365)', () => {
+    it('renders the banner, fed by usePushSubscriptionSync, above the Outlet', () => {
+      mockUsePushSubscriptionSync.mockReturnValue({
+        config: { browserEnabled: true, pushEnabled: true, vapidPublicKey: 'BKey123' },
+        capability: 'default',
+        requestPermission: vi.fn(),
+        isRequestingPermission: false,
+      });
+
+      renderAt(DESKTOP);
+
+      expect(
+        screen.getByText(/notifications are not enabled on this device/i),
+      ).toBeInTheDocument();
+    });
+
+    it('wires the Enable button to the hook\'s own requestPermission', async () => {
+      const requestPermission = vi.fn();
+      mockUsePushSubscriptionSync.mockReturnValue({
+        config: { browserEnabled: true, pushEnabled: true, vapidPublicKey: 'BKey123' },
+        capability: 'default',
+        requestPermission,
+        isRequestingPermission: false,
+      });
+
+      renderAt(DESKTOP);
+
+      await act(async () => {
+        screen.getByRole('button', { name: /enable notifications/i }).click();
+      });
+
+      expect(requestPermission).toHaveBeenCalledTimes(1);
+    });
+
+    it('renders nothing when the hook reports nothing to do (the common case, e.g. granted)', () => {
+      mockUsePushSubscriptionSync.mockReturnValue({
+        config: { browserEnabled: true, pushEnabled: true, vapidPublicKey: 'BKey123' },
+        capability: 'granted',
+        requestPermission: vi.fn(),
+        isRequestingPermission: false,
+      });
+
+      renderAt(DESKTOP);
+
+      expect(
+        screen.queryByText(/notifications are not enabled on this device/i),
+      ).not.toBeInTheDocument();
     });
   });
 

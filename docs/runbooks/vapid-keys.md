@@ -194,24 +194,35 @@ special-case that response, so expect anywhere from immediate pruning to up
 to 5 silently failed deliveries per stale subscription before the row is
 cleaned up automatically.
 
-**⚠ Recovery is not automatic, and the confirmation dialog's own copy says so
-in exactly these words.** There is **no** client-side re-subscribe-on-reopen
-mechanism anywhere in this codebase, checked directly against
-`PushConfigConfirmDialog.tsx`'s header comment and
-`apps/web/src/sw.ts`'s `pushsubscriptionchange` handler: that handler only
-re-subscribes when the *browser itself* rotates a subscription out from under
-the page (a browser-initiated event, unrelated to a server-side key
-rotation) — it has no way to detect "the server changed its VAPID keys,"
-because nothing tells it that. Do not describe rotation as something that
-"heals itself the next time each user's tab loads" — it does not. What
-genuinely recovers a subscription: the ordinary subscribe flow. Once a user's
-client next calls `pushManager.subscribe({ applicationServerKey: <new public
-key> })` — which happens whenever code calls that API, for example a user
-manually toggling notifications off and back on in a UI that wires up `POST
-/api/notifications/push/subscriptions` — `PushSubscriptionService.subscribe`
-upserts by `endpoint`, replacing whatever row existed. Until that happens for
-a given browser, that subscription is dead weight that will fail every send
-and eventually prune itself via the failure-threshold mechanism above.
+**⚠ Recovery is now automatic for a still-permitted browser, since issue
+#365 — but only for one.** Before #365, there was **no** client-side
+re-subscribe-on-reopen mechanism anywhere in this codebase: `sw.ts`'s
+`pushsubscriptionchange` handler only re-subscribes when the *browser
+itself* rotates a subscription out from under the page (a browser-initiated
+event, unrelated to a server-side key rotation) — it has no way to detect
+"the server changed its VAPID keys," because nothing tells it that.
+
+Issue #365 added the missing piece: on every app boot, the client compares
+its existing subscription's `applicationServerKey` against the deployment's
+current `vapidPublicKey`. On a mismatch, it unsubscribes the stale
+subscription and calls `pushManager.subscribe({ applicationServerKey: <new
+public key> })` itself, then `POST`s the result to `POST
+/api/notifications/push/subscriptions` —
+`PushSubscriptionService.subscribe` upserts by `endpoint`, replacing whatever
+row existed. See [`docs/specs/browser-notifications.md` Section
+12](../specs/browser-notifications.md#12-the-client-subscribes-itself-and-prompts-automatically-issue-365)
+for the full mechanism.
+
+**The boundary that still needs a human:** this self-heals only a browser
+whose notification permission is still `granted` at the moment it next boots
+the app. A browser that was never granted, whose permission has since been
+revoked, or that simply never reopens the app, is still dead weight —
+nothing re-prompts a denied origin, and nothing runs this sync without a page
+load. For those cases the remedy is still manual: the
+`NotificationPermissionBanner`'s **Enable notifications** button, or a user
+toggling notifications off and back on. Until one of those happens, that
+subscription keeps failing every send and eventually prunes itself via the
+failure-threshold mechanism above.
 
 ### 2.5 Removing the configuration
 
@@ -310,19 +321,38 @@ This section is the single source both Section 2.4 (admin UI rotate/remove)
 and Section 3 (env-var changes) point back to, so the claim is checked once,
 not re-asserted per path.
 
-**As of this writing, this codebase has no client-side
-re-subscribe-on-reopen mechanism, in either path.** Verified directly against
-`apps/web/src/hooks/useNotificationCapability.ts`,
-`apps/web/src/services/browserNotifications.ts`, and
-`apps/web/src/sw.ts`'s `pushsubscriptionchange` handler: none of them detect
-"the server's active VAPID key pair changed" and re-subscribe on their own.
-The only thing that recovers a subscription is a fresh call to
-`pushManager.subscribe()` against the new public key, however that call gets
-triggered (a re-prompt flow, or a user manually toggling notifications off
-and back on). Do not write or accept documentation, UI copy, or code comments
-claiming "reopening the app re-subscribes automatically" without re-verifying
-this section first — it has been wrong before and will be wrong again the
-moment this file drifts from the code.
+**As of issue #365, this codebase has a client-side re-subscribe-on-reopen
+mechanism, in both paths — bounded by one condition.** The boot-time sync
+described in [`docs/specs/browser-notifications.md` Section
+12](../specs/browser-notifications.md#12-the-client-subscribes-itself-and-prompts-automatically-issue-365)
+runs on every app load: it reads the deployment's current `vapidPublicKey`
+from `GET /api/notifications/config`, compares it against any existing
+subscription's `applicationServerKey`, and on a mismatch unsubscribes and
+calls `pushManager.subscribe()` against the new key — then `POST`s the
+result to `POST /api/notifications/push/subscriptions`, which upserts by
+`endpoint`. This applies identically whether the active key pair came from
+the admin UI (Section 2) or the environment-variable fallback (Section 3):
+the sync reads whatever `resolveActiveVapidConfig()` currently resolves to,
+with no awareness of which path produced it.
+
+**The one condition: notification permission must still be `granted` on
+that browser.** The sync runs from page code, which can only call
+`pushManager.subscribe()` without prompting when permission is already
+`granted` — it does not itself re-prompt. A browser that was never granted,
+that has since moved to `denied`, or that simply never loads the app again,
+does **not** self-heal; it needs the manual path (the
+`NotificationPermissionBanner`'s button, or a user re-toggling notifications)
+before anything can resubscribe it. Verified directly against
+`apps/web/src/services/pushSubscription.ts` (`syncPushSubscription`,
+`subscriptionUsesKey`), `apps/web/src/hooks/usePushSubscriptionSync.ts` (what
+triggers the sync, and only while `permission === 'granted'`), and
+`apps/web/src/sw.ts`'s `pushsubscriptionchange` handler (still a
+browser-initiated-only, best-effort path, unchanged by #365 — see that spec
+section's corrected "Rejected alternatives" entry). Do not write or accept
+documentation, UI copy, or code comments claiming "reopening the app
+*always* re-subscribes"
+without the granted-permission qualifier — that is the detail most likely to
+get silently dropped when this file is next revised.
 
 ## 5. Summary checklist
 
@@ -335,9 +365,10 @@ moment this file drifts from the code.
 - [ ] `GET /api/notifications/config` confirms `pushEnabled: true` and
       `vapidPublicKey` matches
 - [ ] If rotating or removing: typed the exact confirmation literal
-      (`ROTATE`/`REMOVE`), and understood that recovery needs each
-      subscriber to re-trigger the subscribe flow manually (Section 4) — not
-      automatic, and not tied to reopening the app
+      (`ROTATE`/`REMOVE`), and understood that recovery now happens
+      automatically the next time each subscriber's browser boots the app
+      *while its notification permission is still granted* (Section 4); a
+      browser that isn't still granted needs the manual path instead
 
 **Environment-variable path (fallback, no admin UI touched):**
 - [ ] Key pair generated with `npx web-push generate-vapid-keys`

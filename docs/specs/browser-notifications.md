@@ -46,6 +46,24 @@
 > lives here rather than in a separate spec because it changes nothing about
 > the channel itself (fan-out, failure handling, the id it mints all still
 > apply unchanged), only how the key pair backing it is sourced.
+>
+> **Section 12 is not part of epic #215 either.** It documents issue #365 —
+> the client actually creating a push subscription, an automatic permission
+> prompt, an app-wide banner, and logout cleanup — none of which epic #215
+> built, despite `sw.ts`'s own `pushsubscriptionchange` comment promising "the
+> page re-syncs idempotently on every boot, which is the real mechanism." It
+> reverses Sections 4 and 6's framing of when
+> `Notification.requestPermission()` may run; see Section 12 for why, and for
+> the gesture caveat that keeps a manual path alive alongside it. Implemented
+> in `apps/web/src/services/pushSubscription.ts`,
+> `apps/web/src/hooks/usePushSubscriptionSync.ts`,
+> `apps/web/src/hooks/useBrowserNotificationPermission.ts`,
+> `apps/web/src/components/notifications/NotificationPermissionBanner.tsx`,
+> `apps/web/src/components/common/Layout.tsx`,
+> `apps/web/src/services/browserNotifications.ts`,
+> `apps/web/src/contexts/AuthContext.tsx`,
+> `apps/web/src/components/settings/NotificationSettings.tsx`, and
+> `apps/web/src/pages/UserNotificationsPage.tsx`.
 
 ## Why this shape, and not the obvious one
 
@@ -795,16 +813,231 @@ in place (a different one), `remove` leaves none. The frontend's
 cleared every time the dialog opens or `action` changes, so a value typed for
 one dialog can never carry over and satisfy the other.
 
-**The stated consequence is deliberately modest, and must stay that way.**
-Both the runbook and `PushConfigConfirmDialog`'s own header are explicit that
-there is **no** client-side re-subscribe-on-reopen mechanism anywhere in this
-codebase: a subscriber's browser has to call `pushManager.subscribe` again
-through whatever flow does that (for example, toggling notifications off and
-back on), and nothing makes that happen automatically just because the app is
-reopened. Do not soften either the API docs or the dialog copy to "reopening
-the app fixes it" — see [the runbook's recovery-mechanics
+**The stated consequence is real but, since issue #365, no longer
+open-ended.** Before #365, there was no client-side re-subscribe-on-reopen
+mechanism anywhere in this codebase, and a rotated-out subscriber stayed dead
+until a manual toggle-off-and-on. Section 12 below is the fix: the client now
+detects an `applicationServerKey` mismatch during its own boot-time sync and
+resubscribes automatically — but only for a browser whose notification
+permission is still `granted`. A browser that was never granted, or whose
+permission has since been revoked, still needs the manual path (Section
+12.1/12.5). Do not soften this further to "reopening the app always fixes
+it" — see [the runbook's recovery-mechanics
 reference](../runbooks/vapid-keys.md#4-recovery-mechanics-reference) for the
-full verification behind that claim.
+precise boundary of what self-heals and what still needs a human.
+
+## 12. The client subscribes itself, and prompts automatically (issue #365)
+
+Epic #215 built every server-side piece of Web Push — storage, the
+endpoints, the sender, the service worker's `push` handler — and stopped one
+step short of the actual subscription. Nothing under `apps/web` ever called
+`pushManager.subscribe()` from the page, and nothing ever `POST`ed the result
+to `POST /api/notifications/push/subscriptions`, so `push_subscriptions`
+stayed empty on every real deployment and every push send failed with "No
+push subscriptions for this user." Issue #365 is the missing step.
+
+### 12.1 Why "click-only" was the rule, and why it changed
+
+Sections 4 and 6 above, and this codebase's own
+`useBrowserNotificationPermission.ts` and `NotificationSettings.tsx` before
+#365, treated `Notification.requestPermission()` as something that must
+**only** ever run from a user's click on `/settings/notifications` — never on
+mount, never automatically. The reasoning was sound and has not changed: a
+denial is effectively permanent (no API re-prompts a user who has said no),
+so spending that one shot without the user having asked for anything is a
+real cost.
+
+The product owner decided that for this application push is critical enough
+that the cost is worth it: **the client now requests permission
+automatically on app load**, once per page load
+(`pushSubscription.ts`'s `claimAutoPermissionPrompt()` — a module-level flag
+that returns `true` exactly once, so React StrictMode's double effects and
+shell remounts cannot spend the shot twice). `usePushSubscriptionSync.ts`
+runs this the moment `capability === 'default'` and the deployment offers
+push (`config.pushEnabled`, itself already gated on `browserEnabled` —
+`config.browserEnabled === false` short-circuits both this and the capability
+check). This does not repeal the old reasoning — it accepts the cost
+deliberately for this one application, under the same
+`browserEnabled`/`pushEnabled` gate Section 6's manual path already used.
+
+**`useBrowserNotificationPermission.ts` itself is unchanged in spirit: it
+still never calls `requestPermission()`, only observes.** Requesting is
+still someone else's job — `services/browserNotifications.ts`'s
+`requestBrowserNotificationPermission()` — the hook's role is exactly what
+Section header says: report the truth of `Notification.permission`, re-read
+on the Permissions API's `change` event, on `visibilitychange`, and now also
+on a same-page `NOTIFICATION_PERMISSION_CHANGED_EVENT`
+(`browserNotifications.ts`) that fires after every request settles, so the
+banner and the settings page's own permission read update together
+regardless of which one asked.
+
+**The gesture caveat is why the manual path still exists.** Firefox and
+Safari require a user gesture to show the permission prompt at all — a
+gestureless `requestPermission()` call is simply ignored, no prompt appears,
+and the promise never resolves to `granted` on its own. Chrome does not
+refuse it outright but may demote a gestureless request to its "quiet"
+permission UI (a small icon in the address bar rather than an interrupting
+prompt), which most users never notice. So the automatic attempt is a
+best-effort optimization for the browsers that honor it, not a replacement
+for a gesture-driven path — which is why `NotificationPermissionBanner`
+(12.4) and `NotificationSettings.tsx`'s own button both still exist, and both
+go through the same single action described in 12.2.
+
+### 12.2 `pushSubscription.ts`: the one action every caller shares
+
+`apps/web/src/services/pushSubscription.ts` is the module all of this routes
+through — `usePushSubscriptionSync.ts`'s auto-prompt, the banner's button
+(via that hook's `requestPermission`), and `NotificationSettings.tsx`'s own
+button on `/settings/notifications` (calling the module directly, bypassing
+the hook's auto-prompt bookkeeping it has no use for). Its exports:
+
+- **`requestPermissionAndSyncPush(config)`** — asks for permission, and if
+  the result is `granted` and `config.pushEnabled`/`config.vapidPublicKey`
+  are set, starts (does not await) `syncPushSubscription`. This is the single
+  action behind the auto-prompt, the banner's **Enable notifications**
+  button, and the settings page's button.
+- **`syncPushSubscription(vapidPublicKey)`** — the boot-time sync itself
+  (12.3). De-duplicated through a module-level `inFlightSync` promise, so the
+  boot effect and a permission-grant handler racing each other share one
+  subscribe-and-`POST` rather than issuing two.
+- **`removePushSubscription()`** — logout cleanup (12.5).
+- **`claimAutoPermissionPrompt()`** — the once-per-page-load gate for the
+  auto-prompt (12.1).
+
+Nothing in this module throws; every failure is `console.warn`-logged and
+swallowed, the same contract `browserNotifications.ts` already keeps — push
+is decoration over the notification centre, never something that can break a
+page render or a login.
+
+### 12.3 Boot-time subscribe-and-sync
+
+`syncPushSubscription` runs whenever `usePushSubscriptionSync.ts`'s effect
+sees `permission === 'granted'` and a `vapidPublicKey` (i.e.
+`config.pushEnabled` is true) — on every boot, and again the instant
+permission newly becomes `granted`. It is a no-op if permission is not
+already `granted`; it never itself prompts. When it does run:
+
+1. Waits for `navigator.serviceWorker.ready`, raced against a 10-second
+   timeout (`SERVICE_WORKER_READY_TIMEOUT_MS`) — that promise never settles
+   at all when no worker has registered, so an unbounded `await` would hang
+   the sync forever on an unsupported or broken device.
+2. Reads any existing subscription via `pushManager.getSubscription()` and
+   checks it against the current key (12.4).
+3. If none exists (or the stale one was just unsubscribed), calls
+   `registration.pushManager.subscribe({ userVisibleOnly: true,
+   applicationServerKey: <current vapidPublicKey> })`.
+4. `POST`s `subscription.toJSON()` to
+   `POST /api/notifications/push/subscriptions`.
+
+Step 4 is idempotent by construction: `PushSubscriptionService.subscribe`
+upserts by `endpoint`, so running this on every boot — not just the first
+time permission is granted — is safe and cheap, and it is what makes the
+subscription self-healing rather than a one-time event a stale device can
+silently fall out of.
+
+### 12.4 Rotation detection
+
+Before subscribing, `subscriptionUsesKey()` compares an existing
+subscription's `options.applicationServerKey` against the deployment's
+current `vapidPublicKey` (converted from the URL-safe base64 the API returns
+to the raw bytes `pushManager.subscribe` wants, via `urlBase64ToUint8Array`).
+**Only a definite mismatch counts**: a browser that does not expose
+`options.applicationServerKey` at all is treated as matching, deliberately —
+re-subscribing on every boot with no way to compare keys would mint a new
+endpoint each time and orphan the previous row instead of upserting it.
+
+On a genuine mismatch — the signature of an admin having rotated keys per
+[`docs/runbooks/vapid-keys.md` Section
+2.4](../runbooks/vapid-keys.md#24-rotating-vapid-keys-what-the-rotate-button-does)
+since this browser last subscribed — `pushManager.subscribe` cannot fix it by
+itself: a `PushSubscription` is cryptographically bound to the key it was
+created under (that runbook section explains why), so the client calls
+`subscription.unsubscribe()` first, then subscribes fresh against the new key
+and syncs it as in 12.3.
+
+This is the mechanism `sw.ts`'s `pushsubscriptionchange` comment always
+pointed at and epic #215 never built (see the corrected [Rejected
+alternatives](#rejected-alternatives) entry below) — the same boot-time sync,
+run unconditionally, happens to also be the rotation recovery path, with no
+separate code for it. It only helps a browser whose permission is still
+`granted`; one that has since been denied or reset needs the manual path
+(12.1) before it can subscribe again at all.
+
+### 12.5 The app-wide banner
+
+`NotificationPermissionBanner` (`apps/web/src/components/notifications/`, not
+`components/common/`) is mounted once in the main `Layout`, directly under
+`MaintenanceBanner`, fed by the single `usePushSubscriptionSync()` call
+`Layout.tsx` owns. It renders nothing unless **all** of these hold:
+
+- the deployment offers push or plain browser notifications
+  (`config.pushEnabled || config.browserEnabled`);
+- the device's capability is one of exactly three states —
+  `default`, `denied`, or `ios-needs-install`. Every other state (`granted`,
+  `sw-unavailable`, `unsupported`, `insecure-context`, `admin-disabled`)
+  shows nothing: either there is nothing left to do, or nothing the user
+  could do about it;
+- the current route is not `/settings/notifications` (or a sub-path of it),
+  which already carries the fuller version of the same message and controls;
+- that capability has not already been dismissed this browser session.
+
+The three states, each with its own copy:
+
+- **`default`** — an **Enable notifications** button (`onRequestPermission`,
+  wired to the shell's `pushSync.requestPermission`), the gesture-driven
+  fallback from 12.1, alongside a link to the settings page.
+- **`denied`** — instructions for re-enabling notifications in the browser's
+  own site settings; the app has no API to re-prompt a denied origin.
+- **`ios-needs-install`** — the Add to Home Screen hint (Section 4's
+  capability state), since Safari on iPhone/iPad only grants notification
+  permission to an installed PWA.
+
+**Dismissal is per-state, not global**, stored in `sessionStorage` keyed by
+the dismissed capability's own name: dismissing a `default` banner hides only
+`default` for the rest of the session — if the capability then changes (a
+gestureless prompt got quietly denied, say), the banner reappears for the new
+state rather than staying hidden. This is the same "don't let a stale client
+hide a real gap" principle Section 5 uses for the SSE `toast` flag.
+
+### 12.6 Logout cleanup
+
+`AuthContext.tsx`'s `logout` calls `removePushSubscription()` **before**
+`POST /auth/logout`, so a shared or public browser does not keep receiving
+the previous user's pushes after someone else signs in on it.
+`removePushSubscription()` uses `getRegistration()` rather than `.ready`, so
+a page with no worker returns immediately instead of waiting out a timeout,
+and bounds its work to 3 seconds (`LOGOUT_UNSUBSCRIBE_TIMEOUT_MS`) so a slow
+or failing `DELETE` can never hold up signing out. It never throws — a 404
+(never registered, or already removed server-side) is swallowed the same as
+any other failure — and it deliberately leaves the **browser-side**
+subscription in place: the next sign-in's boot sync re-registers that same
+endpoint for whoever signs in next, rather than forcing every new session on
+that device to mint a fresh one.
+
+### 12.7 `NotificationSettings.tsx`'s push column gets the real value
+
+`UserNotificationsPage.tsx` passed a hardcoded `pushEnabled={false}` to
+`NotificationSettings` from the day #227 landed — a placeholder its own
+comment said would be wired "once #227 lands," which never happened. It now
+passes the real value from the same `GET /api/notifications/config` read
+Section 6 describes.
+
+The column's behavior, per `pushChannelState()`
+(`NotificationSettings.tsx`), deliberately does not collapse "push is off
+deployment-wide" and "push is on but not granted on this device" into the
+same disabled state:
+
+- **`pushEnabled === false`** — the row is disabled with the note "Not
+  available yet," phrased as a deployment setting rather than a browser
+  refusal, because the user cannot fix it and blaming their browser would
+  send them looking for a setting that does not exist.
+- **`pushEnabled === true`** — the row is **never disabled**: push is an
+  account-level preference that applies on every device the user signs into,
+  not a property of this one browser. When this particular device is not
+  `granted`/`sw-unavailable`, the switch stays interactive and the row
+  instead carries the note "Not enabled on this device" — the remedy lives in
+  the app-wide banner and the settings page's own button, not a second alert
+  here.
 
 ## Rejected alternatives
 
@@ -847,8 +1080,10 @@ that makes each one wrong:
   `handlePushSubscriptionChange` (`sw.ts:384-403`) is a **best-effort**
   resubscription only, deliberately not backed by any attempt to `POST` the
   new subscription to the API. The real mechanism is the page's own
-  idempotent re-sync on next boot, which needs no new authentication surface
-  at all.
+  idempotent re-sync on next boot — which needs no new authentication surface
+  at all, since it runs from an already-authenticated page — and which epic
+  #215 left unbuilt despite saying so in this very comment; issue #365
+  (Section 12) is what actually built it.
 
 ## Verification
 

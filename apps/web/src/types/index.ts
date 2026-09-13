@@ -64,15 +64,10 @@ export interface DataTableSettings {
  * lacks is a channel this app could not write anyway.
  *
  * `'push'` was added here in #228 (epic #215), mirroring the API's widening of
- * `NOTIFICATION_CHANNELS` in the same issue. #228 also builds the real third
+ * `NOTIFICATION_CHANNELS` in the same issue. #228 also builds the
  * preferences-matrix column for it (`pushChannelState()` in
- * `NotificationSettings.tsx`, rendered disabled with an explanation while the
- * server's `pushEnabled` is hardcoded `false`) — but no event declares `push`
- * in its `channels` yet, so that column has nothing to show and stays
- * unreached through `event.channels.map`. Real push delivery, and the first
- * event that declares this channel, are #229/#230's job, not #228's: this
- * issue is a structural widening plus the column's plumbing, not a feature
- * launch.
+ * `NotificationSettings.tsx`, disabled while the deployment's `pushEnabled` is
+ * `false`). The column only has rows for events that declare `push`.
  *
  * Rendering is nonetheless written to survive a NEWER server that declares a
  * channel this build has never heard of — see `CHANNEL_LABELS` in
@@ -311,17 +306,40 @@ export interface NotificationConfigResponse {
    */
   browserEnabled: boolean;
   /**
-   * May this client subscribe to Web Push? ALWAYS `false` TODAY — Web Push is
-   * #229/#230. Not consumed anywhere in the web app yet; #228's push column
-   * takes it as its own prop with its own placeholder value.
+   * May this client subscribe to Web Push? `true` once an administrator has
+   * generated and enabled a VAPID key pair (#355). Drives the boot-time
+   * subscription sync (`hooks/usePushSubscriptionSync.ts`, #365) and the
+   * settings page's push column.
    */
   pushEnabled: boolean;
   /**
-   * The VAPID application server key for `pushManager.subscribe`, or `null`
-   * when push is unavailable. ALWAYS `null` TODAY, for the same reason
-   * `pushEnabled` is. Unused until #229/#230.
+   * The VAPID application server key (URL-safe base64) for
+   * `pushManager.subscribe`, or `null` when push is unavailable. Changes when
+   * the key pair is rotated, which is how the sync detects a stale
+   * subscription.
    */
   vapidPublicKey: string | null;
+}
+
+/**
+ * `POST /api/notifications/push/subscriptions` body — exactly the browser's
+ * `PushSubscription.toJSON()` shape, so the client passes it through unmodified
+ * (#229, wired by #365).
+ */
+export interface PushSubscriptionPayload {
+  endpoint: string;
+  expirationTime?: number | null;
+  keys: {
+    p256dh: string;
+    auth: string;
+  };
+}
+
+/** `POST /api/notifications/push/subscriptions` response. */
+export interface PushSubscriptionResponse {
+  id: string;
+  endpoint: string;
+  createdAt: string;
 }
 
 export interface UserSettings {

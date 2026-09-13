@@ -63,7 +63,7 @@ import { useIsMounted } from '../hooks/useIsMounted';
 import { useNotificationCapability } from '../hooks/useNotificationCapability';
 import { useNotificationConfig } from '../hooks/useNotificationConfig';
 import { useNotificationEvents } from '../hooks/useNotificationEvents';
-import { requestBrowserNotificationPermission } from '../services/browserNotifications';
+import { requestPermissionAndSyncPush } from '../services/pushSubscription';
 import type { NotificationPreferencesPatch } from '../types';
 import { UserSettingsSection } from './UserSettingsSection';
 
@@ -79,9 +79,8 @@ export default function UserNotificationsPage() {
   // the render prop is only invoked once the settings document has loaded.
   const { events, isLoading, error } = useNotificationEvents();
 
-  // OBSERVED here, REQUESTED only from the click handler below. The hook itself
-  // still never prompts — it runs on mount, and a prompt on mount is the exact
-  // mistake its own header documents at length.
+  // OBSERVED here; this page requests only from the click handler below (the
+  // shell's `usePushSubscriptionSync` owns the once-per-load auto-prompt).
   //
   // #221 moved this from `useBrowserNotificationPermission` to the CAPABILITY
   // hook layered over it. Same observation, wider answer: the four permission
@@ -107,19 +106,13 @@ export default function UserNotificationsPage() {
   const [isRequestingPermission, setIsRequestingPermission] = useState(false);
 
   /**
-   * The permission prompt (#127), filling the seam #126 left in
-   * `NotificationSettings.tsx`.
+   * The "Allow notifications" button's handler (#127).
    *
-   * =========================================================================
-   * REACHABLE ONLY FROM A CLICK. THAT IS THE WHOLE DESIGN.
-   * =========================================================================
-   *
-   * Nothing on this page — no effect, no route transition, no timer — calls
-   * this. It is passed to the matrix as `onRequestPermission` and invoked by
-   * the "Allow notifications" button inside the banner that explains what it
-   * does. Browsers suppress or auto-deny gestureless prompts, and a denial is
-   * effectively permanent: the app cannot re-ask, so a prompt spent on somebody
-   * who never wanted notifications kills the feature for them for good.
+   * Nothing on THIS page calls it automatically — the once-per-load auto-prompt
+   * lives in the shell (`usePushSubscriptionSync`, #365). The button remains
+   * because Firefox and Safari ignore a gestureless request. Like the shell,
+   * it goes through `requestPermissionAndSyncPush`, so a grant here subscribes
+   * this device to push straight away when the deployment offers it.
    *
    * THE REFRESH IS IN A `finally`, and that matters more than it looks.
    * `requestBrowserNotificationPermission` resolves `null` on an unsupported or
@@ -133,7 +126,7 @@ export default function UserNotificationsPage() {
   const handleRequestPermission = useCallback(async () => {
     setIsRequestingPermission(true);
     try {
-      await requestBrowserNotificationPermission();
+      await requestPermissionAndSyncPush(notificationConfig);
     } finally {
       // Guarded: the prompt is modal and the user can navigate away from this
       // page while it is open, so both of these can land after unmount.
@@ -142,7 +135,7 @@ export default function UserNotificationsPage() {
         refreshPermission();
       }
     }
-  }, [isMounted, refreshPermission]);
+  }, [isMounted, notificationConfig, refreshPermission]);
 
   return (
     <UserSettingsSection title={PAGE_TITLE} description={PAGE_DESCRIPTION}>
@@ -178,17 +171,9 @@ export default function UserNotificationsPage() {
             // driven by `isRequestingPermission`.
             onRequestPermission={() => void handleRequestPermission()}
             isRequestingPermission={isRequestingPermission}
-            // PLACEHOLDER, MATCHING THE SERVER'S CURRENT HARDCODED VALUE
-            // (issue #228, epic #215). `GET /api/notifications/config`
-            // already exists and returns `pushEnabled: false` unconditionally
-            // — Web Push isn't implemented until #229/#230 — but wiring that
-            // fetch into this page is issue #227's scope, not this one's.
-            // Passing the literal here is deliberate rather than omitting the
-            // prop (`NotificationSettings` defaults it to `false` too, for
-            // the same reason): it makes the placeholder visible at the call
-            // site instead of buried in the component's default. #227
-            // replaces this with the real fetched value.
-            pushEnabled={false}
+            // #365: the real value. `false` while the config is still loading,
+            // matching the component's own default.
+            pushEnabled={notificationConfig?.pushEnabled ?? false}
             onToggle={(channel, event, value) => {
               // The single-key patch. Built with a computed key so the channel
               // comes from the control that was clicked rather than from a

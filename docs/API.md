@@ -964,14 +964,19 @@ Get system-wide settings.
 | `version` | number | Version number for optimistic concurrency control |
 
 `GET /notifications/config` exposes just the `browserEnabled` half of this
-policy — `{ browserEnabled, pushEnabled: false, vapidPublicKey: null }` — to
-any authenticated user, with no `system_settings:read` requirement, since a
-non-admin (e.g. a viewer) cannot call `GET /system-settings` directly but
-still needs to know whether browser notifications are enabled deployment-wide.
-`pushEnabled` and `vapidPublicKey` are placeholders for future push-notification
-support (issues #229/#230) and are always `false`/`null` today. `disabledEvents`
-is deliberately not exposed here — per-event suppression travels with each
-event as the stream's `toast` flag instead.
+policy, plus the Web Push half added by #229/#230/#355 —
+`{ browserEnabled, pushEnabled, vapidPublicKey }` — to any authenticated
+user, with no `system_settings:read` requirement, since a non-admin (e.g. a
+viewer) cannot call `GET /system-settings` directly but still needs to know
+whether notifications are enabled deployment-wide. `pushEnabled` reflects
+whether an active VAPID key pair is currently configured (admin UI or
+environment fallback — see `docs/runbooks/vapid-keys.md`), and
+`vapidPublicKey` carries that key pair's public half when one is active, so
+the web client can pass it to `pushManager.subscribe()` (issue #365; see
+`docs/specs/browser-notifications.md` Section 12). Both are `false`/`null`
+only when no VAPID configuration is active, not unconditionally.
+`disabledEvents` is deliberately not exposed here — per-event suppression
+travels with each event as the stream's `toast` flag instead.
 
 ---
 

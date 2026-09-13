@@ -248,6 +248,8 @@ import type {
   EmailTestResult,
   NotificationEventDef,
   NotificationConfigResponse,
+  PushSubscriptionPayload,
+  PushSubscriptionResponse,
   AppNotification,
   NotificationListResponse,
   UnreadCountResponse,
@@ -484,6 +486,29 @@ export async function getNotificationEvents(): Promise<NotificationEventDef[]> {
  */
 export async function getNotificationConfig(): Promise<NotificationConfigResponse> {
   return api.get<NotificationConfigResponse>('/notifications/config');
+}
+
+/**
+ * Register (or refresh) this browser's push subscription for the caller (#365).
+ *
+ * Upserted by `endpoint` server-side, so calling this on every boot is the
+ * self-heal, not a duplicate. `409` when the deployment has push disabled.
+ */
+export async function subscribePushNotifications(
+  subscription: PushSubscriptionPayload,
+): Promise<PushSubscriptionResponse> {
+  return api.post<PushSubscriptionResponse>('/notifications/push/subscriptions', subscription);
+}
+
+/**
+ * Remove this browser's push subscription for the caller (#365). A `DELETE`
+ * with a JSON body: the endpoint URL is the only handle on the row. `404` when
+ * the caller has no such subscription.
+ */
+export async function unsubscribePushNotifications(endpoint: string): Promise<void> {
+  return api.delete<void>('/notifications/push/subscriptions', {
+    body: JSON.stringify({ endpoint }),
+  });
 }
 
 // Notification centre API — issue #127, epic #109.

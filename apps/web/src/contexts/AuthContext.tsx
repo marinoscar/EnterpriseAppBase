@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { api, ApiError } from '../services/api';
+import { removePushSubscription } from '../services/pushSubscription';
 import { User, AuthProvider as AuthProviderType } from '../types';
 
 interface AuthContextValue {
@@ -103,6 +104,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const logout = useCallback(async () => {
     try {
+      // #365: drop this device's push subscription while the access token is
+      // still valid, so the signed-out account stops receiving pushes here.
+      // Best-effort, bounded to a few seconds, and never throws.
+      await removePushSubscription();
       await api.post('/auth/logout');
     } catch (error) {
       console.error('Logout error:', error);
