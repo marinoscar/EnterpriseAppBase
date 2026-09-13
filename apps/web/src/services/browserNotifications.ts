@@ -24,12 +24,26 @@
  * one.
  *
  * SEPARATED FROM `hooks/useBrowserNotificationPermission.ts` ON PURPOSE. That
- * hook OBSERVES permission and must never request it — it runs on mount, and a
- * request on mount is the exact mistake described below. This module ACTS, and
- * every function in it is reachable only from a user gesture or from an event
- * that has already arrived. Keeping the two apart is what makes "does anything
- * prompt on load?" answerable by looking at one file's callers.
+ * hook only OBSERVES permission; this module ACTS. "What prompts, and when?"
+ * is answered by this file's callers — see `requestBrowserNotificationPermission`.
  */
+
+/**
+ * Dispatched on `window` after every permission request settles, so every
+ * mounted `useBrowserNotificationPermission` re-reads at once — the app-wide
+ * banner and the settings page stay in agreement whichever of them (or the
+ * auto-prompt) asked. Browsers without a Permissions API `change` event for
+ * notifications would otherwise wait for the next `visibilitychange`.
+ */
+export const NOTIFICATION_PERMISSION_CHANGED_EVENT = 'app:notification-permission-changed';
+
+function announcePermissionChanged(): void {
+  try {
+    window.dispatchEvent(new Event(NOTIFICATION_PERMISSION_CHANGED_EVENT));
+  } catch {
+    // Nothing listening can be helped by a throw here.
+  }
+}
 
 import type { AppNotification } from '../types';
 
@@ -49,31 +63,27 @@ function isSupported(): boolean {
 }
 
 /**
- * Ask the browser for permission. **Call this only from a user gesture.**
+ * Ask the browser for permission.
  *
  * =============================================================================
- * WHY THE CALL SITE MATTERS MORE THAN THIS FUNCTION DOES
+ * WHO CALLS THIS (#365)
  * =============================================================================
  *
- * There is exactly ONE caller, and it is a click handler on the "Allow
- * notifications" button inside the explanatory banner on
- * `/settings/notifications` (`components/settings/NotificationSettings.tsx`,
- * wired by `pages/UserNotificationsPage.tsx`). That is not a stylistic
- * preference:
+ * Always through `requestPermissionAndSyncPush` (`services/pushSubscription.ts`),
+ * from three places:
  *
- *   * A DENIAL IS EFFECTIVELY PERMANENT. The app cannot re-prompt and cannot
- *     undo it; only the user can, buried in browser site settings. The prompt
- *     is a ONE-SHOT RESOURCE, and spending it on somebody who never asked for
- *     notifications kills the feature for that person for good.
- *   * Browsers actively penalise prompts with no user gesture. Chrome
- *     suppresses them into a quiet UI, Firefox requires the gesture outright and
- *     auto-dismisses without one, and Safari throws. So a prompt on mount is not
- *     merely rude — it frequently does not even reach the user, while still
- *     burning the coin.
+ *   * THE AUTO-PROMPT — `hooks/usePushSubscriptionSync.ts`, once per page load,
+ *     only when the deployment has push enabled and the device is `default`.
+ *     A product decision (#365) that reverses the earlier click-only rule:
+ *     push is worthless without permission, so the shell asks up front.
+ *   * The app-wide `NotificationPermissionBanner`'s "Enable notifications"
+ *     button.
+ *   * The "Allow notifications" button on `/settings/notifications`.
  *
- * DO NOT CALL THIS FROM AN EFFECT, A ROUTE TRANSITION, A TIMER, OR ON MOUNT.
- * If a second call site ever seems necessary, it must be a second deliberate
- * click, not a second automatic trigger.
+ * The buttons still matter after the auto-prompt: Firefox ignores a request
+ * with no user gesture, Safari may throw, and Chrome can demote it to a quiet
+ * UI. A denial remains effectively permanent — only the user can undo it in
+ * site settings — so nothing may call this in a loop or on every render.
  *
  * @returns the resulting permission, or `null` when the browser has no usable
  *          `Notification` API. The caller should refresh its permission state
@@ -102,6 +112,8 @@ export async function requestBrowserNotificationPermission(): Promise<
     // worth surfacing: the permission state is unchanged, and the banner that
     // prompted the click already explains what is going on.
     return null;
+  } finally {
+    announcePermissionChanged();
   }
 }
 
