@@ -223,13 +223,22 @@ describe('ApiService', () => {
   describe('postFormData (#367)', () => {
     it('should POST the FormData body without a hand-set Content-Type', async () => {
       let contentTypeHeader: string | null = null;
-      let receivedFile: FormDataEntryValue | null = null;
+      let rawBody = '';
 
       server.use(
         http.post('*/api/upload', async ({ request }) => {
           contentTypeHeader = request.headers.get('Content-Type');
-          const body = await request.formData();
-          receivedFile = body.get('file');
+          // Not `await request.formData()`: on Node 24, undici's multipart
+          // parser asserts every parsed field is either a USVString or an
+          // undici-realm `File`. The `File` this test constructs is jsdom's
+          // (this test file's global, since these are jsdom-environment
+          // vitest tests) — a different realm — so that assertion throws
+          // (`webidl.is.File(value)` is falsy) and MSW turns it into a 500.
+          // Node 22's undici was more lenient. This is a test-harness
+          // cross-realm interop bug, not app behavior, so read the raw body
+          // instead and assert on what's realm-independent: the
+          // Content-Type header and the raw multipart part header.
+          rawBody = await request.text();
           return HttpResponse.json({ data: { ok: true } });
         }),
       );
@@ -245,13 +254,17 @@ describe('ApiService', () => {
       // boundary=…` header, and a literal JSON type would break server parsing.
       expect(contentTypeHeader).not.toBeNull();
       expect(contentTypeHeader).not.toBe('application/json');
-      // Not `toBeInstanceOf(File)`, and not asserting `.name`/content: crossing
-      // jsdom's `File` (this test file's global) through MSW/undici's request
-      // parsing re-creates it in Node's own realm and loses both the filename
-      // and the readable bytes — a test-harness interop quirk, not app
-      // behavior. What's verified is what matters here: a `file` part with
-      // this field name reached the server at all.
-      expect(receivedFile).not.toBeNull();
+      expect(contentTypeHeader).toMatch(/^multipart\/form-data; boundary=/);
+      // Realm-independent structural check: a `file` part with this field
+      // name reached the server at all. See the note above for why this
+      // doesn't go through `request.formData()`. Deliberately not asserting
+      // on filename or byte content: constructing the `File` via jsdom (this
+      // test file's global) and sending it through undici's `fetch` already
+      // loses both by the time the request leaves the client — the filename
+      // becomes the generic `"blob"` and the body content becomes the
+      // literal text `undefined` — so those fields aren't reliable to assert
+      // on across environments, only the field's presence is.
+      expect(rawBody).toContain('Content-Disposition: form-data; name="file"');
     });
 
     it('should include the auth header on a FormData request', async () => {
@@ -299,12 +312,15 @@ describe('ApiService', () => {
 
   describe('Profile image API (#367)', () => {
     it('uploadProfileImage should POST the file as multipart to /user-settings/profile-image', async () => {
-      let receivedFile: FormDataEntryValue | null = null;
+      let rawBody = '';
 
       server.use(
         http.post('*/api/user-settings/profile-image', async ({ request }) => {
-          const body = await request.formData();
-          receivedFile = body.get('file');
+          // Not `await request.formData()`: see the `postFormData` test
+          // above for why (Node 24 undici's cross-realm `File` assertion
+          // against this test file's jsdom `File`). Read the raw multipart
+          // body instead and assert on the realm-independent part header.
+          rawBody = await request.text();
           return HttpResponse.json({
             data: {
               settings: {
@@ -322,8 +338,10 @@ describe('ApiService', () => {
       const file = new File(['bytes'], 'avatar.png', { type: 'image/png' });
       const result = await uploadProfileImage(file);
 
-      // See the `postFormData` test above for why this only checks presence.
-      expect(receivedFile).not.toBeNull();
+      // See the `postFormData` test above for why this only checks presence
+      // via the raw body (not filename/content) rather than a parsed
+      // FormData value.
+      expect(rawBody).toContain('Content-Disposition: form-data; name="file"');
       expect(result.profileImageUrl).toBe('https://example.com/uploaded.jpg');
       expect(result.settings.profile.imageSource).toBe('upload');
       expect(result.settings.version).toBe(2);
