@@ -15,12 +15,11 @@ import { harnessUrl, waitForInter } from '../support/harness';
  *     `isCompactWindow` gate) with no rail at all (`Layout`'s `showRail` gate)
  *     and the compact back-arrow `AppBar` in its place.
  *
- * `ADMIN_SECTIONS` (`apps/web/src/config/adminSections.tsx`) has 3 groups / 13
- * cards total — General (System, Appearance, Feature Flags, Email,
- * Notifications, Maintenance, Advanced (JSON)), Access (Users & Allowlist) and
- * Operations (Jobs, Job Insights, Worker Nodes, Database Backup, Broadcasts) — so
- * "3-up"/"2-up" describes the CSS grid's column count at that width, not the
- * number of sections.
+ * `ADMIN_SECTIONS` (`apps/web/src/config/adminSections.tsx`) has 3 groups / 10
+ * cards total — General (Email, Notifications, Web Push, Maintenance), Access
+ * (Users & Allowlist) and Operations (Jobs, Job Insights, Worker Nodes,
+ * Database Backup, Broadcasts) — so "3-up"/"2-up" describes the CSS grid's
+ * column count at that width, not the number of sections.
  *
  * ⚠ THAT COUNT IS LOAD-BEARING ONLY IF THE HARNESS CAN SEE EVERY CARD. The
  * hub filters by permission, so a card whose permission is missing from
@@ -41,12 +40,12 @@ test.describe('Admin settings hub', () => {
     await waitForInter(page);
 
     // Scoped to `<main>` (`Layout.tsx`'s content region): at this width the
-    // Console rail ALSO renders a "Advanced (JSON)" row (it reads the same
+    // Console rail ALSO renders a "Maintenance" row (it reads the same
     // `ADMIN_SECTIONS`), so an unscoped `getByText` here would match twice and
     // fail Playwright's strict mode.
     const main = page.locator('main');
     await expect(main.getByRole('heading', { name: 'Settings' })).toBeVisible();
-    await expect(main.getByText('Advanced (JSON)')).toBeVisible();
+    await expect(main.getByText('Maintenance')).toBeVisible();
     // Rail present and expanded — the Console-mode "Back to library" row only
     // renders when `expanded` is true (see `NavigationRail.tsx`).
     await expect(page.getByRole('link', { name: 'Back to library' })).toBeVisible();
@@ -64,7 +63,7 @@ test.describe('Admin settings hub', () => {
 
     const main = page.locator('main');
     await expect(main.getByRole('heading', { name: 'Settings' })).toBeVisible();
-    await expect(main.getByText('Advanced (JSON)')).toBeVisible();
+    await expect(main.getByText('Maintenance')).toBeVisible();
     // Below `lg` the rail is unconditionally collapsed AND stays in LIBRARY
     // mode (Console mode is expanded-only) — so the pinned Console row shows
     // here, not "Back to library".
@@ -90,7 +89,7 @@ test.describe('Admin settings hub', () => {
     // "Coming soon" chip changed the row's name, not the substring that
     // collides.
     await expect(page.getByRole('button', { name: 'Back', exact: true })).toBeVisible();
-    await expect(page.locator('main').getByText('Advanced (JSON)')).toBeVisible();
+    await expect(page.locator('main').getByText('Maintenance')).toBeVisible();
 
     await expect(page).toHaveScreenshot('admin-hub-551x840-drilldown.png', {
       fullPage: true,

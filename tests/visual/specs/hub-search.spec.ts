@@ -22,17 +22,17 @@ test('Hub search: filtered result', async ({ page }) => {
 
   const search = page.getByLabel('Search settings');
   await expect(search).toBeVisible();
-  await search.fill('Feature');
+  await search.fill('Maintenance');
 
   const main = page.locator('main');
-  await expect(main.getByText('Feature Flags')).toBeVisible();
+  await expect(main.getByText('Maintenance')).toBeVisible();
   // The miss for every other card confirms the filter actually narrowed the
   // set rather than the assertion above being a false positive against an
   // unfiltered grid.
-  await expect(main.getByText('System', { exact: true })).toHaveCount(0);
+  await expect(main.getByText('Notifications', { exact: true })).toHaveCount(0);
   await expect(main.getByText('Users & Allowlist')).toHaveCount(0);
 
-  await expect(page).toHaveScreenshot('hub-search-filtered-feature-flags.png', {
+  await expect(page).toHaveScreenshot('hub-search-filtered-maintenance.png', {
     fullPage: true,
   });
 });
