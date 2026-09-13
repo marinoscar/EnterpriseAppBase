@@ -32,14 +32,10 @@
  */
 
 import type { SvgIconComponent } from '@mui/icons-material';
-import TuneIcon from '@mui/icons-material/Tune';
-import PaletteIcon from '@mui/icons-material/Palette';
-import FlagIcon from '@mui/icons-material/Flag';
 import EmailOutlinedIcon from '@mui/icons-material/EmailOutlined';
 import NotificationsActiveOutlinedIcon from '@mui/icons-material/NotificationsActiveOutlined';
 import BuildCircleOutlinedIcon from '@mui/icons-material/BuildCircleOutlined';
 import VpnKeyOutlinedIcon from '@mui/icons-material/VpnKeyOutlined';
-import DataObjectIcon from '@mui/icons-material/DataObject';
 import PeopleIcon from '@mui/icons-material/People';
 // Operations (#266, epic #254). One icon per card, including the two cards
 // whose pages land in later issues — the card is declared now, so its icon is
@@ -104,11 +100,6 @@ export interface SettingsSectionDef {
  *   - `db_backup:read`        → the database-backup controller (#268)
  *   - `push:read`             → the push-config controller (#355)
  *
- * `Advanced (JSON)` gates on `system_settings:WRITE` deliberately, unlike its
- * three siblings. It is a raw editor over the entire settings blob, so
- * read-only access to it has no meaning: a user who cannot save has nothing to
- * do on that page that the typed pages do not do better.
- *
  * `Users & Allowlist` gates on `users:read` alone even though it hosts data
  * from two controllers (Users → `users:read`, Allowlist → `allowlist:read`).
  * That mirrors the existing destination gate: the CARD gate is about
@@ -120,31 +111,10 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
     label: 'General',
     cards: [
       {
-        title: 'System',
-        description: 'Configure core system settings, application behavior, and global defaults.',
-        Icon: TuneIcon,
-        path: '/admin/settings/general',
-        permission: 'system_settings:read',
-      },
-      {
-        title: 'Appearance',
-        description: 'Set the default theme and the UI defaults new users start with.',
-        Icon: PaletteIcon,
-        path: '/admin/settings/appearance',
-        permission: 'system_settings:read',
-      },
-      {
-        title: 'Feature Flags',
-        description: 'Turn optional application features on or off for everyone.',
-        Icon: FlagIcon,
-        path: '/admin/settings/feature-flags',
-        permission: 'system_settings:read',
-      },
-      {
         // Issue #124, epic #109. `system_settings:read` is the string
         // `email-settings.controller.ts` enforces on its GET, exactly as the
-        // three cards above mirror `system-settings.controller.ts` — the
-        // registry never invents a permission. Saving and test-sending need
+        // `Notifications` card below mirrors `system-settings.controller.ts` —
+        // the registry never invents a permission. Saving and test-sending need
         // `system_settings:write`, which the PAGE gates internally: the card
         // gate is about REACHABILITY, and a read-only admin diagnosing "why is
         // mail broken" is worth letting in to look.
@@ -157,10 +127,9 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
       },
       {
         // Issue #225, epic #215. `system_settings:read` is the string
-        // `system-settings.controller.ts` enforces on its GET — the same
-        // controller the three cards above mirror, because this setting lives
-        // in the same document. Saving needs `system_settings:write`, which the
-        // PAGE gates internally: the card gate is about REACHABILITY, and "are
+        // `system-settings.controller.ts` enforces on its GET, because this
+        // setting lives in the system settings document. Saving needs
+        // `system_settings:write`, which the PAGE gates internally: the card gate is about REACHABILITY, and "are
         // browser notifications on for this deployment, and which events are
         // suppressed" is worth reading for anyone answering "why did nobody get
         // notified".
@@ -212,13 +181,6 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
         Icon: BuildCircleOutlinedIcon,
         path: '/admin/settings/maintenance',
         permission: 'system_settings:read',
-      },
-      {
-        title: 'Advanced (JSON)',
-        description: 'Edit the raw system settings document directly, with validation.',
-        Icon: DataObjectIcon,
-        path: '/admin/settings/advanced',
-        permission: 'system_settings:write',
       },
     ],
   },

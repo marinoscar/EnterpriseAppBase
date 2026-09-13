@@ -34,8 +34,8 @@ const HomePage = lazy(() => import('./pages/HomePage'));
 // stacked `UserSettingsPage`, which is deleted rather than left unrouted.
 const UserSettingsHubPage = lazy(() => import('./pages/UserSettingsHubPage'));
 const UserProfilePage = lazy(() => import('./pages/UserProfilePage'));
-// `User`-prefixed to keep it distinct from `Admin/AppearanceSettingsPage`
-// below: one is the user's own theme, the other the deployment's default.
+// `User`-prefixed to make explicit that it edits the signed-in user's own
+// theme, not anything under the Console.
 const UserAppearancePage = lazy(() => import('./pages/UserAppearancePage'));
 // Issue #126, epic #109 — the per-user event x channel notification matrix.
 const UserNotificationsPage = lazy(() => import('./pages/UserNotificationsPage'));
@@ -44,9 +44,6 @@ const UserTokensPage = lazy(() => import('./pages/UserTokensPage'));
 // Console — the hub (#93) plus one route per card in
 // `config/adminSections.tsx` (#92, epic #90).
 const SettingsHubPage = lazy(() => import('./pages/Admin/SettingsHubPage'));
-const GeneralSettingsPage = lazy(() => import('./pages/Admin/GeneralSettingsPage'));
-const AppearanceSettingsPage = lazy(() => import('./pages/Admin/AppearanceSettingsPage'));
-const FeatureFlagsPage = lazy(() => import('./pages/Admin/FeatureFlagsPage'));
 // Issue #124, epic #109 — the admin email configuration and its test send.
 const EmailSettingsPage = lazy(() => import('./pages/Admin/EmailSettingsPage'));
 // Issue #225, epic #215 — the deployment-wide browser-notification policy.
@@ -77,7 +74,6 @@ const DbBackupPage = lazy(() => import('./pages/Admin/DbBackupPage'));
 // the same reason: a DataTable, a composer dialog and a detail dialog that
 // nobody who never opens the Console will ever mount.
 const BroadcastsPage = lazy(() => import('./pages/Admin/BroadcastsPage'));
-const AdvancedSettingsPage = lazy(() => import('./pages/Admin/AdvancedSettingsPage'));
 const AdminUsersPage = lazy(() => import('./pages/Admin/UsersPage'));
 
 // Test login page (development only)
@@ -253,39 +249,6 @@ function AppRoutes() {
                         fallback={<Navigate to="/" replace />}
                       >
                         <SettingsHubPage />
-                      </RequirePermission>
-                    }
-                  />
-                  <Route
-                    path="/admin/settings/general"
-                    element={
-                      <RequirePermission
-                        permission="system_settings:read"
-                        fallback={<Navigate to="/" replace />}
-                      >
-                        <GeneralSettingsPage />
-                      </RequirePermission>
-                    }
-                  />
-                  <Route
-                    path="/admin/settings/appearance"
-                    element={
-                      <RequirePermission
-                        permission="system_settings:read"
-                        fallback={<Navigate to="/" replace />}
-                      >
-                        <AppearanceSettingsPage />
-                      </RequirePermission>
-                    }
-                  />
-                  <Route
-                    path="/admin/settings/feature-flags"
-                    element={
-                      <RequirePermission
-                        permission="system_settings:read"
-                        fallback={<Navigate to="/" replace />}
-                      >
-                        <FeatureFlagsPage />
                       </RequirePermission>
                     }
                   />
@@ -492,21 +455,6 @@ function AppRoutes() {
                         fallback={<Navigate to="/" replace />}
                       >
                         <BroadcastsPage />
-                      </RequirePermission>
-                    }
-                  />
-                  {/* `system_settings:WRITE`, not `read`, and the one route here
-                      whose permission differs from its siblings'. A raw editor
-                      over the entire settings document has no read-only meaning —
-                      see `config/adminSections.tsx`. */}
-                  <Route
-                    path="/admin/settings/advanced"
-                    element={
-                      <RequirePermission
-                        permission="system_settings:write"
-                        fallback={<Navigate to="/" replace />}
-                      >
-                        <AdvancedSettingsPage />
                       </RequirePermission>
                     }
                   />

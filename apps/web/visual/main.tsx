@@ -82,10 +82,6 @@ const UserProfilePage = lazy(() => import('../src/pages/UserProfilePage'));
 const UserAppearancePage = lazy(() => import('../src/pages/UserAppearancePage'));
 const UserTokensPage = lazy(() => import('../src/pages/UserTokensPage'));
 const SettingsHubPage = lazy(() => import('../src/pages/Admin/SettingsHubPage'));
-const GeneralSettingsPage = lazy(() => import('../src/pages/Admin/GeneralSettingsPage'));
-const AppearanceSettingsPage = lazy(() => import('../src/pages/Admin/AppearanceSettingsPage'));
-const FeatureFlagsPage = lazy(() => import('../src/pages/Admin/FeatureFlagsPage'));
-const AdvancedSettingsPage = lazy(() => import('../src/pages/Admin/AdvancedSettingsPage'));
 const AdminUsersPage = lazy(() => import('../src/pages/Admin/UsersPage'));
 
 /** Byte-identical to `contexts/ThemeContext.tsx`'s private constant. */
@@ -225,50 +221,6 @@ function HarnessRoutes() {
                 fallback={<Navigate to="/" replace />}
               >
                 <SettingsHubPage />
-              </RequirePermission>
-            }
-          />
-          <Route
-            path="/admin/settings/general"
-            element={
-              <RequirePermission
-                permission="system_settings:read"
-                fallback={<Navigate to="/" replace />}
-              >
-                <GeneralSettingsPage />
-              </RequirePermission>
-            }
-          />
-          <Route
-            path="/admin/settings/appearance"
-            element={
-              <RequirePermission
-                permission="system_settings:read"
-                fallback={<Navigate to="/" replace />}
-              >
-                <AppearanceSettingsPage />
-              </RequirePermission>
-            }
-          />
-          <Route
-            path="/admin/settings/feature-flags"
-            element={
-              <RequirePermission
-                permission="system_settings:read"
-                fallback={<Navigate to="/" replace />}
-              >
-                <FeatureFlagsPage />
-              </RequirePermission>
-            }
-          />
-          <Route
-            path="/admin/settings/advanced"
-            element={
-              <RequirePermission
-                permission="system_settings:write"
-                fallback={<Navigate to="/" replace />}
-              >
-                <AdvancedSettingsPage />
               </RequirePermission>
             }
           />
