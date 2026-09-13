@@ -252,6 +252,10 @@ This section states the rules; that file explains why.
    Conflating the two is the exact mistake epic #90 fixed:
    `SystemSettingsPage`'s three tabs (UI Settings, Feature Flags, Advanced
    JSON) were hierarchical content wearing a tab strip, not parallel content.
+   Epic #90 split them into three separate cards; issue #366 later removed all
+   three (and the `ui`/`features` system-settings namespaces behind them)
+   as unused. Neither exists today — see
+   [`docs/specs/settings-ui.md`](docs/specs/settings-ui.md) for the full history.
 
 3. **The card's `permission` field MUST be the exact string the API
    controller enforces** — never invented, never approximated. Follow the
