@@ -294,7 +294,7 @@ export type NotificationStreamEvent = Omit<AppNotification, 'readAt'> & {
  * by-permission endpoint rather than a widening of `system_settings:read` — cited
  * here rather than re-derived: a viewer holds no `system_settings:read`, so this
  * is the one place that lets a non-admin learn the toggle without exposing the
- * whole settings blob (the open `features` map included).
+ * whole settings blob.
  */
 export interface NotificationConfigResponse {
   /**
@@ -414,9 +414,8 @@ export interface UserSettingsUpdate {
  * Deployment-wide browser-notification policy (#225, epic #215).
  *
  * A MODELLED block on the settings document, mirroring the API's
- * `systemNotificationsSchema` — deliberately NOT a key in the open `features`
- * record, which has no shape and is owned by downstream forks for their own
- * operational flags.
+ * `systemNotificationsSchema`: a typed, validated namespace rather than a
+ * shapeless map of flags.
  *
  * NOTHING READS THESE VALUES YET, on either side. Issue #225 adds the setting,
  * its persistence and the admin page at `/admin/settings/notifications`; the
@@ -441,10 +440,6 @@ export interface SystemNotificationSettings {
 }
 
 export interface SystemSettings {
-  ui: {
-    allowUserThemeOverride: boolean;
-  };
-  features: Record<string, boolean>;
   notifications: SystemNotificationSettings;
   updatedAt: string;
   updatedBy: { id: string; email: string } | null;

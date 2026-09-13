@@ -51,14 +51,23 @@ describe('destinations — route ownership', () => {
         '/admin',
         '/admin/users',
         '/admin/settings',
-        '/admin/settings/general',
-        '/admin/settings/appearance',
-        '/admin/settings/feature-flags',
-        '/admin/settings/advanced',
+        '/admin/settings/notifications',
+        '/admin/settings/maintenance',
         '/admin/settings/users',
       ]),
     );
     expect(paths.length).toBeGreaterThanOrEqual(8);
+  });
+
+  it('declares no route for the pages removed by #366', () => {
+    // System, Appearance, Feature Flags and Advanced (JSON) were removed
+    // outright, not merely hidden — a regression guard against any of the
+    // four quietly getting a route back.
+    const paths = declaredRoutePaths();
+    expect(paths).not.toContain('/admin/settings/general');
+    expect(paths).not.toContain('/admin/settings/appearance');
+    expect(paths).not.toContain('/admin/settings/feature-flags');
+    expect(paths).not.toContain('/admin/settings/advanced');
   });
 
   it('claims every route in App.tsx exactly once, or deliberately not at all', () => {
@@ -157,7 +166,7 @@ describe('destinations — segment-boundary matching', () => {
     expect(resolveActiveDestination('/admin')).toBe('console');
     expect(resolveActiveDestination('/admin/users')).toBe('console');
     expect(resolveActiveDestination('/admin/settings')).toBe('console');
-    expect(resolveActiveDestination('/admin/settings/advanced')).toBe('console');
+    expect(resolveActiveDestination('/admin/settings/notifications')).toBe('console');
   });
 });
 
@@ -309,12 +318,6 @@ describe('admin sections — registry against the live routes', () => {
       expect(gates.has(card.path), `${card.title} → ${card.path} has no route`).toBe(true);
       expect(gates.get(card.path), `${card.title} route gate`).toBe(card.permission);
     }
-  });
-
-  it('keeps Advanced (JSON) on write, so read-only access cannot reach it', () => {
-    const gates = declaredRouteGates();
-    expect(gates.get('/admin/settings/advanced')).toBe('system_settings:write');
-    expect(gates.get('/admin/settings/general')).toBe('system_settings:read');
   });
 
   it('gives Email (#124) its own card, routed and gated on system_settings:read like its three siblings', () => {

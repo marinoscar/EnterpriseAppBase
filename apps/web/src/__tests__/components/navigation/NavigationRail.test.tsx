@@ -310,10 +310,9 @@ describe('NavigationRail', () => {
           wrapperOptions: { route: '/admin/settings/users', user: mockAdminUser },
         });
 
-        expect(screen.getByRole('link', { name: 'System' })).toBeInTheDocument();
-        expect(screen.getByRole('link', { name: 'Appearance' })).toBeInTheDocument();
-        expect(screen.getByRole('link', { name: 'Feature Flags' })).toBeInTheDocument();
-        expect(screen.getByRole('link', { name: 'Advanced (JSON)' })).toBeInTheDocument();
+        expect(screen.getByRole('link', { name: 'Email' })).toBeInTheDocument();
+        expect(screen.getByRole('link', { name: 'Notifications' })).toBeInTheDocument();
+        expect(screen.getByRole('link', { name: 'Maintenance' })).toBeInTheDocument();
         expect(screen.getByRole('link', { name: 'Users & Allowlist' })).toBeInTheDocument();
       });
 
@@ -454,24 +453,23 @@ describe('NavigationRail', () => {
         expect(screen.getByRole('link', { name: 'Users & Allowlist' })).toBeInTheDocument();
 
         expect(screen.queryByText('General')).not.toBeInTheDocument();
-        expect(screen.queryByRole('link', { name: 'System' })).not.toBeInTheDocument();
-        expect(screen.queryByRole('link', { name: 'Appearance' })).not.toBeInTheDocument();
-        expect(screen.queryByRole('link', { name: 'Feature Flags' })).not.toBeInTheDocument();
-        expect(screen.queryByRole('link', { name: 'Advanced (JSON)' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('link', { name: 'Email' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('link', { name: 'Notifications' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('link', { name: 'Maintenance' })).not.toBeInTheDocument();
       });
 
-      it('hides Advanced (JSON) for system_settings:read without :write', () => {
-        // `Advanced (JSON)` gates on WRITE deliberately, unlike its three
-        // General siblings — a raw editor is meaningless to a user who cannot
-        // save.
+      it('hides Web Push for system_settings:read without push:read', () => {
+        // `Web Push` gates on its own dedicated permission, unlike its General
+        // siblings, which all mirror `system_settings:read` — generating and
+        // rotating key material is not routine settings access.
         setPermissions(['system_settings:read'], false);
 
         render(<NavigationRail />, { wrapperOptions: { route: '/admin/settings/users' } });
 
-        expect(screen.getByRole('link', { name: 'System' })).toBeInTheDocument();
-        expect(screen.getByRole('link', { name: 'Appearance' })).toBeInTheDocument();
-        expect(screen.getByRole('link', { name: 'Feature Flags' })).toBeInTheDocument();
-        expect(screen.queryByRole('link', { name: 'Advanced (JSON)' })).not.toBeInTheDocument();
+        expect(screen.getByRole('link', { name: 'Email' })).toBeInTheDocument();
+        expect(screen.getByRole('link', { name: 'Notifications' })).toBeInTheDocument();
+        expect(screen.getByRole('link', { name: 'Maintenance' })).toBeInTheDocument();
+        expect(screen.queryByRole('link', { name: 'Web Push' })).not.toBeInTheDocument();
       });
     });
   });

@@ -41,7 +41,7 @@ test('Console rail: Back to library + General/Access/Operations groups @ lg', as
   await expect(rail.getByRole('link', { name: 'Back to library' })).toBeVisible();
   await expect(rail.getByText('General', { exact: true })).toBeVisible();
   await expect(rail.getByText('Access', { exact: true })).toBeVisible();
-  await expect(rail.getByRole('link', { name: 'Advanced (JSON)' })).toBeVisible();
+  await expect(rail.getByRole('link', { name: 'Maintenance' })).toBeVisible();
   await expect(rail.getByText('Operations', { exact: true })).toBeVisible();
   await expect(rail.getByRole('link', { name: 'Users & Allowlist' })).toBeVisible();
   await expect(rail.getByRole('link', { name: 'Jobs', exact: true })).toBeVisible();

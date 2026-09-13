@@ -31,21 +31,19 @@ export const userSettingsFixtures = {
 
 export const systemSettingsFixtures = {
   default: {
-    ui: {
-      allowUserThemeOverride: true,
+    notifications: {
+      browserEnabled: true,
+      disabledEvents: [],
     },
-    features: {},
     updatedAt: new Date().toISOString(),
     updatedBy: null,
     version: 1,
   },
 
   restrictive: {
-    ui: {
-      allowUserThemeOverride: false,
-    },
-    features: {
-      newFeature: false,
+    notifications: {
+      browserEnabled: false,
+      disabledEvents: ['security.role_changed'],
     },
     updatedAt: new Date().toISOString(),
     updatedBy: null,

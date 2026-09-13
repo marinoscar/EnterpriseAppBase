@@ -924,22 +924,56 @@ If-Match: 1
 #### GET /system-settings
 **Requires:** `system_settings:read` permission (Admin only)
 
-Get system-wide settings.
+Get system-wide settings. The `ui` and `features` namespaces were removed as
+unused by issue #366 — nothing at runtime ever read either one. The stored
+value now models exactly five namespaces: `notifications`, `jobs`, `nodes`,
+`databaseBackup` and `maintenance`, plus the computed `security` block.
 
 **Response:**
 ```json
 {
-  "ui": {
-    "allowUserThemeOverride": true
-  },
   "security": {
     "jwtAccessTtlMinutes": 15,
     "refreshTtlDays": 14
   },
-  "features": {},
   "notifications": {
     "browserEnabled": true,
     "disabledEvents": []
+  },
+  "jobs": {
+    "history": {
+      "retentionDays": 30,
+      "purgeEnabled": true
+    },
+    "stuckThresholdMinutes": 30
+  },
+  "nodes": {
+    "staleHeartbeatSeconds": 90,
+    "offlineStaleMultiplier": 4,
+    "offlineRetentionDays": 30,
+    "jobSecretBrokerEnabled": false
+  },
+  "databaseBackup": {
+    "enabled": false,
+    "frequency": "daily",
+    "dayOfWeek": 0,
+    "dayOfMonth": 1,
+    "timeOfDay": "02:00",
+    "timezone": "UTC",
+    "retentionCount": 7,
+    "storageProvider": "s3",
+    "runStaleMinutes": 120,
+    "compressionLevel": 6,
+    "restoreRollbackMode": "retain_database",
+    "oldDatabaseRetentionHours": 48,
+    "nodeOffloadEnabled": false
+  },
+  "maintenance": {
+    "enabled": false,
+    "message": "This service is temporarily unavailable for scheduled maintenance. Please try again shortly.",
+    "allowAdmins": true,
+    "startedAt": null,
+    "startedById": null
   },
   "updatedAt": "2024-01-01T00:00:00.000Z",
   "updatedBy": {
@@ -953,12 +987,16 @@ Get system-wide settings.
 **Fields:**
 | Field | Type | Description |
 |-------|------|-------------|
-| `ui.allowUserThemeOverride` | boolean | Allow users to override system theme |
 | `security.jwtAccessTtlMinutes` | number | **Read-only.** JWT access token TTL in minutes, read from the `JWT_ACCESS_TTL_MINUTES` deploy-time environment variable — not stored settings, and not writable through this API |
 | `security.refreshTtlDays` | number | **Read-only.** Refresh token TTL in days, read from the `JWT_REFRESH_TTL_DAYS` deploy-time environment variable — not stored settings, and not writable through this API |
-| `features` | object | Feature flags (extensible) |
 | `notifications.browserEnabled` | boolean | Whether browser notifications are enabled deployment-wide. **Enforced** (issue #226): when `false`, the `browser` channel is dropped from `GET /notifications/events`'s advertised channels, from the dispatcher's channel resolution, and from delivery — the SSE stream's `toast` field is set to `false`. Mandatory events (e.g. `security.role_changed`) are the one exception: their channel list is never filtered and the `notifications` row is always written; only the browser toast is suppressed for them |
 | `notifications.disabledEvents` | string[] | Notification event keys (e.g. `security.role_changed`, from the notification event registry) suppressed deployment-wide, regardless of per-user preference. Max 100 entries. **Enforced** (issue #226) the same way as `browserEnabled` above — including the same mandatory-event exception |
+| `jobs.history.retentionDays` / `jobs.history.purgeEnabled` | number / boolean | How long completed job history is kept, and whether the purge cron runs at all |
+| `jobs.stuckThresholdMinutes` | number | How long a claimed job may go without progress before the lease reaper treats it as abandoned |
+| `nodes.staleHeartbeatSeconds` / `nodes.offlineStaleMultiplier` / `nodes.offlineRetentionDays` | number | Worker-node fleet health thresholds — see `docs/specs/worker-nodes.md` |
+| `nodes.jobSecretBrokerEnabled` | boolean | Whether a worker node may be issued short-lived, job-scoped database credentials at all (epic #345). Default off |
+| `databaseBackup.*` | — | Backup schedule and retention policy — see `GET /admin/db-backup/config` and `docs/specs/database-backup.md` |
+| `maintenance.*` | — | Maintenance-window state — see `GET /admin/maintenance` and `docs/specs/maintenance-mode.md` |
 | `updatedAt` | string | ISO 8601 timestamp of last update |
 | `updatedBy` | object | User who last updated settings |
 | `version` | number | Version number for optimistic concurrency control |
@@ -988,10 +1026,6 @@ Replace all system settings.
 **Request Body:**
 ```json
 {
-  "ui": {
-    "allowUserThemeOverride": true
-  },
-  "features": {},
   "notifications": {
     "browserEnabled": true,
     "disabledEvents": []
@@ -1002,25 +1036,58 @@ Replace all system settings.
 `security` is not part of the request body — it is a read-only, server-derived
 block (see the GET fields table above). Sending it is not an error; the global
 `ZodValidationPipe` silently strips unknown keys, so it has no effect.
-`notifications`, by contrast, IS required in the PUT body, exactly like `ui`
-and `features` — omitting it returns **400 VALIDATION_ERROR** rather than
-resetting it, because the value that would be reset is an operator's decision
-to turn a delivery channel off for everyone.
+`notifications` IS required in the PUT body — omitting it returns
+**400 VALIDATION_ERROR** rather than resetting it, because the value that
+would be reset is an operator's decision to turn a delivery channel off for
+everyone. `jobs`, `nodes`, `databaseBackup` and `maintenance` are each
+optional in the PUT body: omitting one leaves it at its stored value rather
+than resetting it to the default (see `SystemSettingsService.replaceSettings`).
 
 **Response:**
 ```json
 {
-  "ui": {
-    "allowUserThemeOverride": true
-  },
   "security": {
     "jwtAccessTtlMinutes": 15,
     "refreshTtlDays": 14
   },
-  "features": {},
   "notifications": {
     "browserEnabled": true,
     "disabledEvents": []
+  },
+  "jobs": {
+    "history": {
+      "retentionDays": 30,
+      "purgeEnabled": true
+    },
+    "stuckThresholdMinutes": 30
+  },
+  "nodes": {
+    "staleHeartbeatSeconds": 90,
+    "offlineStaleMultiplier": 4,
+    "offlineRetentionDays": 30,
+    "jobSecretBrokerEnabled": false
+  },
+  "databaseBackup": {
+    "enabled": false,
+    "frequency": "daily",
+    "dayOfWeek": 0,
+    "dayOfMonth": 1,
+    "timeOfDay": "02:00",
+    "timezone": "UTC",
+    "retentionCount": 7,
+    "storageProvider": "s3",
+    "runStaleMinutes": 120,
+    "compressionLevel": 6,
+    "restoreRollbackMode": "retain_database",
+    "oldDatabaseRetentionHours": 48,
+    "nodeOffloadEnabled": false
+  },
+  "maintenance": {
+    "enabled": false,
+    "message": "This service is temporarily unavailable for scheduled maintenance. Please try again shortly.",
+    "allowAdmins": true,
+    "startedAt": null,
+    "startedById": null
   },
   "updatedAt": "2024-01-01T12:00:00.000Z",
   "updatedBy": {
@@ -1041,8 +1108,8 @@ Partially update system settings.
 **Request Body:**
 ```json
 {
-  "ui": {
-    "allowUserThemeOverride": false
+  "jobs": {
+    "stuckThresholdMinutes": 45
   }
 }
 ```
@@ -1056,9 +1123,10 @@ Or, to suppress one notification event without touching anything else:
 }
 ```
 
-`notifications` is optional in PATCH, and its two fields
-(`browserEnabled`, `disabledEvents`) merge independently — sending one leaves
-the other at its stored value. `disabledEvents`, when sent, REPLACES the
+Every namespace (`notifications`, `jobs`, `nodes`, `databaseBackup`,
+`maintenance`) is optional in PATCH, and merges field by field — sending one
+field of one namespace leaves every other field, in every other namespace, at
+its stored value. `notifications.disabledEvents`, when sent, REPLACES the
 stored array wholesale rather than merging entries; send `disabledEvents: []`
 to lift every suppression.
 
@@ -1070,17 +1138,48 @@ If-Match: 1
 **Response:**
 ```json
 {
-  "ui": {
-    "allowUserThemeOverride": false
-  },
   "security": {
     "jwtAccessTtlMinutes": 15,
     "refreshTtlDays": 14
   },
-  "features": {},
   "notifications": {
     "browserEnabled": true,
-    "disabledEvents": ["security.role_changed"]
+    "disabledEvents": []
+  },
+  "jobs": {
+    "history": {
+      "retentionDays": 30,
+      "purgeEnabled": true
+    },
+    "stuckThresholdMinutes": 45
+  },
+  "nodes": {
+    "staleHeartbeatSeconds": 90,
+    "offlineStaleMultiplier": 4,
+    "offlineRetentionDays": 30,
+    "jobSecretBrokerEnabled": false
+  },
+  "databaseBackup": {
+    "enabled": false,
+    "frequency": "daily",
+    "dayOfWeek": 0,
+    "dayOfMonth": 1,
+    "timeOfDay": "02:00",
+    "timezone": "UTC",
+    "retentionCount": 7,
+    "storageProvider": "s3",
+    "runStaleMinutes": 120,
+    "compressionLevel": 6,
+    "restoreRollbackMode": "retain_database",
+    "oldDatabaseRetentionHours": 48,
+    "nodeOffloadEnabled": false
+  },
+  "maintenance": {
+    "enabled": false,
+    "message": "This service is temporarily unavailable for scheduled maintenance. Please try again shortly.",
+    "allowAdmins": true,
+    "startedAt": null,
+    "startedById": null
   },
   "updatedAt": "2024-01-01T12:00:00.000Z",
   "updatedBy": {

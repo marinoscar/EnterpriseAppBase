@@ -19,28 +19,23 @@ import App from '../App';
  * The page-level checks stay in the app as defence for a page mounted from
  * anywhere else; they are covered by those pages' own suites.
  *
- * The stand-ins carry DISTINCT headings (#92). With five routes under
+ * The stand-ins carry DISTINCT headings (#92). With several routes under
  * `/admin/settings/*`, a shared heading would let a mis-wired route pass by
  * rendering a sibling — which is precisely the failure a route split invites.
+ * (Email and Web Push are not stood in here — neither is exercised by this
+ * route-guard suite — so only Notifications, Maintenance and Users are
+ * mocked below, alongside the hub itself.)
  */
 vi.mock('../pages/Admin/SettingsHubPage', () => ({
   default: () => <h1>Admin Settings Hub</h1>,
 }));
 
-vi.mock('../pages/Admin/GeneralSettingsPage', () => ({
-  default: () => <h1>Admin General</h1>,
+vi.mock('../pages/Admin/NotificationSettingsPage', () => ({
+  default: () => <h1>Admin Notifications</h1>,
 }));
 
-vi.mock('../pages/Admin/AppearanceSettingsPage', () => ({
-  default: () => <h1>Admin Appearance</h1>,
-}));
-
-vi.mock('../pages/Admin/FeatureFlagsPage', () => ({
-  default: () => <h1>Admin Feature Flags</h1>,
-}));
-
-vi.mock('../pages/Admin/AdvancedSettingsPage', () => ({
-  default: () => <h1>Admin Advanced</h1>,
+vi.mock('../pages/Admin/MaintenancePage', () => ({
+  default: () => <h1>Admin Maintenance</h1>,
 }));
 
 vi.mock('../pages/Admin/UsersPage', () => ({
@@ -352,9 +347,8 @@ describe('App', () => {
     const READER = ['user_settings:read', 'system_settings:read'];
 
     it.each([
-      ['/admin/settings/general', 'Admin General'],
-      ['/admin/settings/appearance', 'Admin Appearance'],
-      ['/admin/settings/feature-flags', 'Admin Feature Flags'],
+      ['/admin/settings/notifications', 'Admin Notifications'],
+      ['/admin/settings/maintenance', 'Admin Maintenance'],
     ])('renders %s for a user holding system_settings:read', async (path, heading) => {
       signInAs(READER, ['contributor']);
 
@@ -369,58 +363,22 @@ describe('App', () => {
       });
     });
 
-    it.each([
-      '/admin/settings/general',
-      '/admin/settings/appearance',
-      '/admin/settings/feature-flags',
-      '/admin/settings/advanced',
-    ])('redirects a user without system_settings:read away from %s', async (path) => {
-      signInAs(['user_settings:read']);
+    it.each(['/admin/settings/notifications', '/admin/settings/maintenance'])(
+      'redirects a user without system_settings:read away from %s',
+      async (path) => {
+        signInAs(['user_settings:read']);
 
-      render(
-        <MemoryRouter initialEntries={[path]}>
-          <App />
-        </MemoryRouter>,
-      );
+        render(
+          <MemoryRouter initialEntries={[path]}>
+            <App />
+          </MemoryRouter>,
+        );
 
-      await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), {
-        timeout: 5000,
-      });
-    });
-
-    it('keeps Advanced (JSON) out of reach on system_settings:read alone', async () => {
-      // The one route whose permission differs from its siblings'. A raw editor
-      // over the whole document has no read-only meaning, so `read` is NOT
-      // enough — and a copy-pasted route block is exactly how that gate gets
-      // silently widened to match its neighbours.
-      signInAs(READER, ['contributor']);
-
-      render(
-        <MemoryRouter initialEntries={['/admin/settings/advanced']}>
-          <App />
-        </MemoryRouter>,
-      );
-
-      await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), {
-        timeout: 5000,
-      });
-      expect(screen.queryByRole('heading', { name: 'Admin Advanced' })).not.toBeInTheDocument();
-    });
-
-    it('admits system_settings:write to Advanced (JSON)', async () => {
-      signInAs([...READER, 'system_settings:write'], ['admin']);
-
-      render(
-        <MemoryRouter initialEntries={['/admin/settings/advanced']}>
-          <App />
-        </MemoryRouter>,
-      );
-
-      await waitFor(
-        () => expect(screen.getByRole('heading', { name: 'Admin Advanced' })).toBeInTheDocument(),
-        { timeout: 5000 },
-      );
-    });
+        await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), {
+          timeout: 5000,
+        });
+      },
+    );
   });
 
   /**

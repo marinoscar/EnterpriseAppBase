@@ -321,8 +321,17 @@ export function createMockSystemSettings(
     id = randomUUID(),
     key = 'default',
     value = {
-      ui: { allowUserThemeOverride: true },
-      features: {},
+      notifications: { browserEnabled: true, disabledEvents: [] },
+      jobs: {
+        history: { retentionDays: 30, purgeEnabled: true },
+        stuckThresholdMinutes: 30,
+      },
+      nodes: {
+        staleHeartbeatSeconds: 90,
+        offlineStaleMultiplier: 4,
+        offlineRetentionDays: 30,
+        jobSecretBrokerEnabled: false,
+      },
     },
     version = 1,
     updatedByUserId = null,

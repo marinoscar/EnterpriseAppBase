@@ -200,7 +200,7 @@ describe('RBAC Enforcement', () => {
       await request(app.getHttpServer())
         .patch('/api/system-settings')
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ ui: { allowUserThemeOverride: false } })
+        .send({ notifications: { browserEnabled: false } })
         .expect(200);
     });
 
@@ -210,7 +210,7 @@ describe('RBAC Enforcement', () => {
       await request(app.getHttpServer())
         .patch('/api/system-settings')
         .set('Authorization', `Bearer ${viewerToken}`)
-        .send({ ui: { allowUserThemeOverride: false } })
+        .send({ notifications: { browserEnabled: false } })
         .expect(403);
     });
   });

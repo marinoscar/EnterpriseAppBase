@@ -25,8 +25,8 @@ test('Hub with users:read only: General group hidden entirely', async ({ page })
   await expect(main.getByText('Users & Allowlist')).toBeVisible();
   await expect(main.getByText('Access', { exact: true })).toBeVisible();
   await expect(main.getByText('General', { exact: true })).toHaveCount(0);
-  await expect(main.getByText('System', { exact: true })).toHaveCount(0);
-  await expect(main.getByText('Advanced (JSON)')).toHaveCount(0);
+  await expect(main.getByText('Email', { exact: true })).toHaveCount(0);
+  await expect(main.getByText('Maintenance')).toHaveCount(0);
 
   await expect(page).toHaveScreenshot('hub-permissions-users-read-only.png', {
     fullPage: true,

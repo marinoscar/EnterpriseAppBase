@@ -178,10 +178,6 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
 // row missing a modelled block is not fatal (`readKnownSettings` degrades it to
 // the same defaults), but it does mean the first PATCH is what materialises it.
 export const DEFAULT_SYSTEM_SETTINGS = {
-  ui: {
-    allowUserThemeOverride: true,
-  },
-  features: {},
   // #225, epic #215. Browser notifications on, nothing suppressed: an operator
   // opts OUT of the channel, never into it.
   notifications: {

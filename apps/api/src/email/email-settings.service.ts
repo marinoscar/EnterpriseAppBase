@@ -34,14 +34,14 @@ import type { UpdateEmailSettingsInput } from './dto/update-email-settings.dto';
 //   • replaceSettings (PUT)  → `systemSettingsSchema.parse(dto)`, and zod
 //                              STRIPS unknown keys, so anything not in that
 //                              schema is dropped from the stored object.
-//   • patchSettings (PATCH)  → hand-builds `merged` as `{ ui, features }`,
-//                              which discards every other key even on a
-//                              partial update.
+//   • patchSettings (PATCH)  → hand-builds `merged` from the modelled
+//                              namespaces, which discards every other key
+//                              even on a partial update.
 //
 // So an `email` key inside the 'global' blob would be silently destroyed the
 // next time an admin saved an unrelated general setting — mail stops working,
 // nothing in the audit trail explains why, and the admin's action ("I toggled
-// a feature flag") has no visible connection to the outcome ("email is
+// an unrelated setting") has no visible connection to the outcome ("email is
 // unconfigured"). Widening `systemSettingsSchema` does not fix it: a PUT whose
 // DTO omits `email` still stores an object without it.
 //

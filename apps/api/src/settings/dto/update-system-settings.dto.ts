@@ -15,10 +15,8 @@ import {
 /**
  * Deployment-wide browser-notification policy (#225, epic #215).
  *
- * A MODELLED block, not a key in the open `features` record: `features` has no
- * shape and is owned by downstream forks for their own operational flags, so a
- * framework-level, security-adjacent gate needs a real type, a real default and
- * somewhere to document its semantics. Nothing enforces it yet — the browser
+ * A MODELLED block: a framework-level, security-adjacent gate needs a real
+ * type, a real default and somewhere to document its semantics. Nothing enforces it yet — the browser
  * channel reading these values is issue #226 — so it is stored and editable and
  * no delivery path consults it. See `systemNotificationsSchema`.
  */
@@ -105,11 +103,7 @@ const maintenanceSettingsSchema = z.object({
 
 // Full replacement (PUT)
 export const updateSystemSettingsSchema = z.object({
-  ui: z.object({
-    allowUserThemeOverride: z.boolean(),
-  }),
-  features: z.record(z.string(), z.boolean()),
-  // REQUIRED, exactly like its two siblings. A PUT that omits it is a 400 and
+  // REQUIRED. A PUT that omits it is a 400 and
   // not a silent reset to the defaults: the value it would reset is an
   // operator's decision to turn a delivery channel off for everyone.
   notifications: notificationsSettingsSchema,
@@ -128,12 +122,6 @@ export class UpdateSystemSettingsDto extends createZodDto(
 
 // Partial update (PATCH)
 export const patchSystemSettingsSchema = z.object({
-  ui: z
-    .object({
-      allowUserThemeOverride: z.boolean().optional(),
-    })
-    .optional(),
-  features: z.record(z.string(), z.boolean()).optional(),
   // `disabledEvents` REPLACES rather than merges — RFC 7396's rule for arrays,
   // and the only workable one here: a merging list could never express
   // "re-enable this event", so unchecking a box on the admin page would be a

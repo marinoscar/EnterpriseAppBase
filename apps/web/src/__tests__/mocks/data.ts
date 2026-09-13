@@ -63,10 +63,10 @@ export const mockUserSettings: UserSettings = {
 };
 
 export const mockSystemSettings: SystemSettings = {
-  ui: {
-    allowUserThemeOverride: true,
+  notifications: {
+    browserEnabled: true,
+    disabledEvents: [],
   },
-  features: {},
   updatedAt: '2024-01-01T00:00:00.000Z',
   updatedBy: null,
   version: 1,

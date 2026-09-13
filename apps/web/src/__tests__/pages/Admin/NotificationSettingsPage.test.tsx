@@ -104,8 +104,6 @@ function setSettings(
   const updateSettings = vi.fn().mockResolvedValue(undefined);
   mockUseSystemSettings.mockReturnValue({
     settings: {
-      ui: { allowUserThemeOverride: true },
-      features: {},
       notifications,
       updatedAt: '2024-01-15T10:30:00Z',
       updatedBy: null,
@@ -311,8 +309,6 @@ describe('NotificationSettingsPage', () => {
     // server this bundle will ever talk to.
     mockUseSystemSettings.mockReturnValue({
       settings: {
-        ui: { allowUserThemeOverride: true },
-        features: {},
         updatedAt: '2024-01-15T10:30:00Z',
         updatedBy: null,
         version: 7,
@@ -329,5 +325,93 @@ describe('NotificationSettingsPage', () => {
 
     expect(globalSwitch()).toBeChecked();
     expect(eventBox('Build finished')).toBeChecked();
+  });
+});
+
+/**
+ * `SystemSettingsSection`'s own chrome (issue #92, epic #90) — the loading
+ * spinner, the fetch-error alert, the success/failure snackbars and the
+ * mid-save disable — exercised here rather than against a stubbed page, now
+ * that `NotificationSettingsPage` is the one live consumer of that shared
+ * component. This coverage used to live in a suite of its own alongside the
+ * three sibling pages `SystemSettingsSection` was originally split out for
+ * (#366 removed them); it moved here rather than disappearing with them.
+ */
+describe('Shared page chrome (SystemSettingsSection)', () => {
+  it('shows a spinner while the document is loading', () => {
+    mockUseSystemSettings.mockReturnValue({
+      settings: null,
+      isLoading: true,
+      error: null,
+      isSaving: false,
+      updateSettings: vi.fn(),
+      replaceSettings: vi.fn(),
+      refresh: vi.fn(),
+    });
+
+    renderAsAdmin();
+
+    expect(screen.getByRole('progressbar')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: 'Notifications', level: 1 }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('shows the fetch error and mounts no form over a null document', () => {
+    mockUseSystemSettings.mockReturnValue({
+      settings: null,
+      isLoading: false,
+      error: 'Failed to load system settings',
+      isSaving: false,
+      updateSettings: vi.fn(),
+      replaceSettings: vi.fn(),
+      refresh: vi.fn(),
+    });
+
+    renderAsAdmin();
+
+    expect(screen.getByText('Failed to load system settings')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('switch', { name: /deliver browser notifications/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('confirms a successful save in a snackbar', async () => {
+    const user = userEvent.setup();
+    setSettings();
+
+    renderAsAdmin();
+    await user.click(globalSwitch());
+    await user.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+    await waitFor(() => expect(screen.getByText('Settings saved')).toBeInTheDocument());
+  });
+
+  it('reports a rejected save in a snackbar instead of throwing at the page', async () => {
+    const user = userEvent.setup();
+    setSettings(
+      { browserEnabled: true, disabledEvents: [] },
+      { updateSettings: vi.fn().mockRejectedValue(new Error('Settings were updated elsewhere')) },
+    );
+
+    renderAsAdmin();
+    await user.click(globalSwitch());
+    await user.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/settings were updated elsewhere/i)).toBeInTheDocument(),
+    );
+  });
+
+  it('disables the controls mid-save even for a writer', () => {
+    setSettings(undefined, { isSaving: true });
+
+    renderAsAdmin();
+
+    expect(globalSwitch()).toBeDisabled();
+    // The button's own label flips to "Saving..." while `isSaving` is true
+    // (see `NotificationSettingsPage`'s `isSaving ? 'Saving...' : 'Save
+    // Changes'`), so it must be found by that label, not the idle one.
+    expect(screen.getByRole('button', { name: 'Saving...' })).toBeDisabled();
   });
 });

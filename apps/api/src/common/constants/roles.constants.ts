@@ -99,7 +99,7 @@ export const PERMISSIONS = {
   // a real, described blast radius that a routine settings edit does not:
   // every existing push subscriber goes dark until their browser next
   // resubscribes against the new public key. Folding this into
-  // `system_settings:write` would mean anyone trusted to flip a feature flag
+  // `system_settings:write` would mean anyone trusted to edit a system setting
   // is also trusted to knock out push delivery for the entire user base. The
   // Settings UI Pattern (CLAUDE.md rule 3) requires a hub card's
   // `permission` to be the exact string its controller enforces, so a Push

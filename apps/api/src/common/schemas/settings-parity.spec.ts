@@ -113,13 +113,15 @@ function unwrap(schema: unknown): unknown {
  * The property names of an object schema, or `null` for anything that has no
  * fixed set of them.
  *
- * `null` rather than `[]` on purpose, and the difference matters for exactly
- * one field: `features` is a `z.record`, whose keys are supplied by the
- * operator at runtime. Returning `[]` would make it look like an object with no
- * properties and put it in permanent disagreement with
- * `DEFAULT_SYSTEM_SETTINGS.features`, which is `{}` today and is expected to
- * hold flags tomorrow. `null` means "not comparable", and comparison is
- * skipped.
+ * `null` rather than `[]` on purpose. Every namespace `systemSettingsSchema`
+ * declares today (`notifications`, `jobs`, `nodes`, `databaseBackup`,
+ * `maintenance`) is a closed `z.object` with a fixed shape, so this branch
+ * currently never fires — but it remains the correct guard for a namespace
+ * shaped like an open `z.record` (an operator-supplied map with no fixed key
+ * set, the way the removed `features` namespace was before #366). Returning
+ * `[]` for one would make it look like an object with no properties and put
+ * it in permanent, spurious disagreement with its own default value. `null`
+ * means "not comparable", and comparison is skipped.
  */
 function objectKeys(schema: unknown): string[] | null {
   const unwrapped = unwrap(schema);
@@ -229,9 +231,10 @@ describe('system settings parity across the places a namespace must be declared'
     it('declares the same fields in every source that models it', () => {
       const expected = REFERENCE.children(namespace);
       if (expected === null) {
-        // `features` — a record, with no fixed key set to compare. Skipped
-        // rather than special-cased by name, so a future record-shaped
-        // namespace needs no change here either.
+        // No namespace today is a record with no fixed key set to compare —
+        // see `objectKeys` above — but this stays a plain `return` rather
+        // than special-cased by name, so a future record-shaped namespace
+        // needs no change here either.
         return;
       }
 

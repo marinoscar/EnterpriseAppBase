@@ -592,48 +592,57 @@ apps/api/src/storage/
 
 #### System Settings Shape
 
-`system_settings.value` — the JSONB column itself — holds `ui`, `features`,
-and `notifications`:
+`system_settings.value` — the JSONB column itself — holds `notifications`,
+`jobs`, `nodes`, `databaseBackup` and `maintenance`. (Two earlier namespaces,
+`ui` and `features`, were removed by issue #366: nothing at runtime ever read
+either one, so they were dropped from the schema, DTOs and seed rather than
+kept as dead weight — see `docs/specs/settings-ui.md` for the settings-UI
+side of that cleanup.)
 
 ```json
 {
-  "ui": {
-    "allowUserThemeOverride": true
-  },
-  "features": {
-    "exampleFlag": false
-  },
   "notifications": {
     "browserEnabled": true,
     "disabledEvents": []
+  },
+  "jobs": {
+    "history": { "retentionDays": 30, "purgeEnabled": true },
+    "stuckThresholdMinutes": 30
+  },
+  "nodes": {
+    "staleHeartbeatSeconds": 90,
+    "offlineStaleMultiplier": 4,
+    "offlineRetentionDays": 30,
+    "jobSecretBrokerEnabled": false
+  },
+  "databaseBackup": {
+    "enabled": false,
+    "frequency": "daily",
+    "dayOfWeek": 0,
+    "dayOfMonth": 1,
+    "timeOfDay": "02:00",
+    "timezone": "UTC",
+    "retentionCount": 7,
+    "storageProvider": "s3",
+    "runStaleMinutes": 120,
+    "compressionLevel": 6,
+    "restoreRollbackMode": "retain_database",
+    "oldDatabaseRetentionHours": 48,
+    "nodeOffloadEnabled": false
+  },
+  "maintenance": {
+    "enabled": false,
+    "message": "This service is temporarily unavailable for scheduled maintenance. Please try again shortly.",
+    "allowAdmins": true,
+    "startedAt": null,
+    "startedById": null
   }
 }
 ```
 
 `GET/PUT/PATCH /api/system-settings` project this stored row into
-`SystemSettingsResponseDto`, which adds a `security` block on the way out:
-
-```json
-{
-  "ui": {
-    "allowUserThemeOverride": true
-  },
-  "security": {
-    "jwtAccessTtlMinutes": 15,
-    "refreshTtlDays": 14
-  },
-  "features": {
-    "exampleFlag": false
-  },
-  "notifications": {
-    "browserEnabled": true,
-    "disabledEvents": []
-  },
-  "updatedAt": "...",
-  "updatedBy": { "id": "...", "email": "..." },
-  "version": 1
-}
-```
+`SystemSettingsResponseDto`, which adds a `security` block on the way out —
+see [`docs/API.md`](API.md#get-system-settings) for the full response shape.
 
 `security` is derived, read-only configuration — `jwtAccessTtlMinutes` and
 `refreshTtlDays` are read from the `JWT_ACCESS_TTL_MINUTES` /
@@ -643,10 +652,11 @@ database. It is never written to `system_settings.value`: the write schemas
 so a client that sends it has the key silently stripped by the global
 `ZodValidationPipe` before the request reaches the settings service.
 
-`notifications` (issue #225, epic #215) is a modelled block rather than a key
-inside `features` — `features` is a `z.record(z.string(), z.boolean())` with
-no shape, no default, and no place to document semantics, and is deliberately
-owned by downstream forks for their own operational flags; a framework-level,
+`notifications` (issue #225, epic #215) is a modelled block rather than an
+entry in an open, untyped map — the now-removed `features` namespace was
+exactly that shape (`z.record(z.string(), z.boolean())`, no schema, no
+default, no place to document semantics, deliberately owned by downstream
+forks for their own operational flags), and a framework-level,
 security-adjacent gate like this one needs a real type, a real default, and
 somewhere for its semantics to live. It is stored and editable as of #225, and
 as of #226 it is enforced: `browserEnabled` and `disabledEvents` are read once
@@ -936,16 +946,23 @@ for genuinely parallel content only.
 | — Appearance | `/settings/appearance` | Required | Any (authenticated) | Personal theme preference |
 | — Access Tokens | `/settings/tokens` | Required | Any (authenticated) | Personal access token management |
 | Console / Settings hub | `/admin/settings` | Required | `system_settings:read` OR `users:read` | Searchable hub over admin settings |
-| — System | `/admin/settings/general` | Required | `system_settings:read` | Core system settings |
-| — Appearance | `/admin/settings/appearance` | Required | `system_settings:read` | Default theme for new users |
-| — Feature Flags | `/admin/settings/feature-flags` | Required | `system_settings:read` | Toggle optional features |
+| — Email | `/admin/settings/email` | Required | `system_settings:read` | Outbound email configuration |
 | — Notifications | `/admin/settings/notifications` | Required | `system_settings:read` | Turn browser notifications on/off deployment-wide and suppress individual events |
-| — Advanced (JSON) | `/admin/settings/advanced` | Required | `system_settings:write` | Raw settings document editor |
+| — Web Push | `/admin/settings/push` | Required | `push:read` | VAPID key generation/rotation for Web Push |
+| — Maintenance | `/admin/settings/maintenance` | Required | `system_settings:read` | Open/close the maintenance window |
 | — Users & Allowlist | `/admin/settings/users` | Required | `users:read` | User accounts, roles, and allowlist |
 | `/admin` (redirect) | `/admin` | Required | — | `<Navigate replace>` to `/admin/settings` |
 | `/admin/users` (redirect) | `/admin/users` | Required | — | `<Navigate replace>` to `/admin/settings/users` |
 | Device Activation | `/activate` | Required | Any | Device auth approval |
 | Test Login | `/testing/login` | Public | - | Test auth bypass (dev only) |
+
+The `General` group above is not the whole Console: the `Operations` group
+(Jobs, Job Insights, Worker Nodes, Database Backup, Broadcasts, each under
+`/admin/settings/*`) is documented in `CLAUDE.md`'s "Operations Admin
+Settings Group" section rather than duplicated in this table. `System`,
+the admin `Appearance` page, `Feature Flags` and `Advanced (JSON)` — all
+four previously listed here — were removed as unused by issue #366; see
+[`docs/specs/settings-ui.md`](specs/settings-ui.md).
 
 **Note:** The `/testing/login` route is excluded from production builds via `import.meta.env.PROD` check.
 
@@ -1560,8 +1577,8 @@ apps/web/src/
     │   └── ThemeContext.test.tsx
     ├── pages/
     │   ├── LoginPage.test.tsx
-    │   ├── UserSettingsPage.test.tsx
-    │   └── SystemSettingsPage.test.tsx
+    │   ├── UserSettingsPages.test.tsx
+    │   └── UserNotificationsPage.test.tsx
     └── services/
         └── api.test.ts
 ```

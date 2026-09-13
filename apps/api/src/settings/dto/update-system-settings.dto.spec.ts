@@ -7,7 +7,7 @@ import { MAX_DISABLED_NOTIFICATION_EVENTS } from '../../common/schemas/settings.
 /**
  * The `notifications` block every PUT body must now carry (#225).
  *
- * Spread into the existing `ui` / `features` cases rather than made optional in
+ * Spread into cases exercising other namespaces rather than made optional in
  * the schema: a PUT is a full replacement, and letting the block default would
  * mean an old client's PUT silently re-enables a delivery channel an operator
  * turned off. Keeping it here as a constant is what lets each of those cases go
@@ -18,131 +18,135 @@ const NOTIFICATIONS = {
   disabledEvents: [] as string[],
 };
 
+/**
+ * A valid `jobs` namespace body (#256, epic #254), used below wherever a test
+ * needs "some other real, currently-modelled namespace" — the role `ui` used
+ * to play before #366 removed it.
+ */
+const JOBS = {
+  history: { retentionDays: 30, purgeEnabled: true },
+  stuckThresholdMinutes: 30,
+};
+
+/** A valid `nodes` namespace body, playing the role `features` used to. */
+const NODES = {
+  staleHeartbeatSeconds: 90,
+  offlineStaleMultiplier: 4,
+  offlineRetentionDays: 30,
+  jobSecretBrokerEnabled: false,
+};
+
 describe('UpdateSystemSettingsDto (PUT)', () => {
-  describe('ui field', () => {
-    it('should accept valid ui settings object', () => {
+  describe('jobs field', () => {
+    it('should accept a valid jobs settings object', () => {
       const result = updateSystemSettingsSchema.parse({
-        ui: {
-          allowUserThemeOverride: true,
-        },
-        features: {},
+        jobs: JOBS,
         notifications: NOTIFICATIONS,
       });
 
-      expect(result.ui.allowUserThemeOverride).toBe(true);
+      expect(result.jobs).toEqual(JOBS);
     });
 
-    it('should accept allowUserThemeOverride as false', () => {
+    it('should accept a different stuckThresholdMinutes value', () => {
       const result = updateSystemSettingsSchema.parse({
-        ui: {
-          allowUserThemeOverride: false,
-        },
-        features: {},
+        jobs: { ...JOBS, stuckThresholdMinutes: 120 },
         notifications: NOTIFICATIONS,
       });
 
-      expect(result.ui.allowUserThemeOverride).toBe(false);
+      expect(result.jobs?.stuckThresholdMinutes).toBe(120);
     });
 
-    it('should reject ui without allowUserThemeOverride', () => {
+    it('should reject a jobs object missing its required nested fields', () => {
       expect(() =>
         updateSystemSettingsSchema.parse({
-          ui: {},
-          features: {},
+          jobs: {},
           notifications: NOTIFICATIONS,
         }),
       ).toThrow();
     });
 
-    it('should reject non-boolean allowUserThemeOverride', () => {
+    it('should reject a non-boolean purgeEnabled', () => {
       expect(() =>
         updateSystemSettingsSchema.parse({
-          ui: {
-            allowUserThemeOverride: 'true',
+          jobs: {
+            history: { retentionDays: 30, purgeEnabled: 'true' },
+            stuckThresholdMinutes: 30,
           },
-          features: {},
           notifications: NOTIFICATIONS,
         }),
       ).toThrow();
     });
 
-    it('should require ui field', () => {
+    it('should make the jobs field optional on a PUT body', () => {
+      // Unlike `notifications`, `jobs` ships ahead of every consumer (#256),
+      // so a PUT that omits it must not 400 — `replaceSettings` carries the
+      // stored value forward instead. See update-system-settings.dto.ts.
       expect(() =>
         updateSystemSettingsSchema.parse({
-          features: {},
           notifications: NOTIFICATIONS,
         }),
-      ).toThrow();
+      ).not.toThrow();
     });
   });
 
-  describe('features field', () => {
-    it('should accept empty features object', () => {
+  describe('nodes field', () => {
+    it('should accept a valid nodes settings object', () => {
       const result = updateSystemSettingsSchema.parse({
-        ui: {
-          allowUserThemeOverride: true,
-        },
-        features: {},
+        nodes: NODES,
         notifications: NOTIFICATIONS,
       });
 
-      expect(result.features).toEqual({});
+      expect(result.nodes).toEqual(NODES);
     });
 
-    it('should accept features with boolean flags', () => {
+    it('should accept jobSecretBrokerEnabled set to true', () => {
       const result = updateSystemSettingsSchema.parse({
-        ui: {
-          allowUserThemeOverride: true,
-        },
-        features: {
-          enableNotifications: true,
-          enableAnalytics: false,
-        },
+        nodes: { ...NODES, jobSecretBrokerEnabled: true },
         notifications: NOTIFICATIONS,
       });
 
-      expect(result.features).toEqual({
-        enableNotifications: true,
-        enableAnalytics: false,
-      });
+      expect(result.nodes?.jobSecretBrokerEnabled).toBe(true);
     });
 
-    it('should reject features with non-boolean values', () => {
+    it('should reject a nodes object with a non-boolean jobSecretBrokerEnabled', () => {
       expect(() =>
         updateSystemSettingsSchema.parse({
-          ui: {
-            allowUserThemeOverride: true,
-          },
-          features: {
-            enableNotifications: 'true',
+          nodes: { ...NODES, jobSecretBrokerEnabled: 'yes' },
+          notifications: NOTIFICATIONS,
+        }),
+      ).toThrow();
+    });
+
+    it('should require nodes.staleHeartbeatSeconds when nodes is provided', () => {
+      expect(() =>
+        updateSystemSettingsSchema.parse({
+          nodes: {
+            offlineStaleMultiplier: 4,
+            offlineRetentionDays: 30,
+            jobSecretBrokerEnabled: false,
           },
           notifications: NOTIFICATIONS,
         }),
       ).toThrow();
     });
 
-    it('should require features field', () => {
+    it('should make the nodes field optional on a PUT body', () => {
       expect(() =>
         updateSystemSettingsSchema.parse({
-          ui: {
-            allowUserThemeOverride: true,
-          },
           notifications: NOTIFICATIONS,
         }),
-      ).toThrow();
+      ).not.toThrow();
     });
   });
 
   /**
    * Issue #225, epic #215. The block is MODELLED — a real object with a real
-   * type — rather than a key in the open `features` record, so it gets real
-   * validation, which is what these cases pin.
+   * type — so it gets real validation, which is what these cases pin.
    */
   describe('notifications field', () => {
     it('accepts the block with browser notifications on and nothing suppressed', () => {
       const result = updateSystemSettingsSchema.parse({
-        ui: { allowUserThemeOverride: true },
-        features: {},
+        jobs: JOBS,
         notifications: { browserEnabled: true, disabledEvents: [] },
       });
 
@@ -154,8 +158,7 @@ describe('UpdateSystemSettingsDto (PUT)', () => {
 
     it('accepts a list of event keys to suppress', () => {
       const result = updateSystemSettingsSchema.parse({
-        ui: { allowUserThemeOverride: true },
-        features: {},
+        jobs: JOBS,
         notifications: {
           browserEnabled: false,
           disabledEvents: ['security.role_changed', 'user.welcome'],
@@ -174,8 +177,7 @@ describe('UpdateSystemSettingsDto (PUT)', () => {
       // undoing an operator's decision to turn the channel off.
       expect(() =>
         updateSystemSettingsSchema.parse({
-          ui: { allowUserThemeOverride: true },
-          features: {},
+          jobs: JOBS,
         }),
       ).toThrow();
     });
@@ -183,8 +185,7 @@ describe('UpdateSystemSettingsDto (PUT)', () => {
     it('rejects a non-boolean browserEnabled', () => {
       expect(() =>
         updateSystemSettingsSchema.parse({
-          ui: { allowUserThemeOverride: true },
-          features: {},
+          jobs: JOBS,
           notifications: { browserEnabled: 'yes', disabledEvents: [] },
         }),
       ).toThrow();
@@ -195,8 +196,7 @@ describe('UpdateSystemSettingsDto (PUT)', () => {
       // segment is not a key the registry can produce.
       expect(() =>
         updateSystemSettingsSchema.parse({
-          ui: { allowUserThemeOverride: true },
-          features: {},
+          jobs: JOBS,
           notifications: {
             browserEnabled: true,
             disabledEvents: ['Security.Role_Changed'],
@@ -208,8 +208,7 @@ describe('UpdateSystemSettingsDto (PUT)', () => {
     it('rejects an empty-string event key', () => {
       expect(() =>
         updateSystemSettingsSchema.parse({
-          ui: { allowUserThemeOverride: true },
-          features: {},
+          jobs: JOBS,
           notifications: { browserEnabled: true, disabledEvents: [''] },
         }),
       ).toThrow();
@@ -218,8 +217,7 @@ describe('UpdateSystemSettingsDto (PUT)', () => {
     it('rejects a non-string entry', () => {
       expect(() =>
         updateSystemSettingsSchema.parse({
-          ui: { allowUserThemeOverride: true },
-          features: {},
+          jobs: JOBS,
           notifications: { browserEnabled: true, disabledEvents: [42] },
         }),
       ).toThrow();
@@ -233,16 +231,14 @@ describe('UpdateSystemSettingsDto (PUT)', () => {
 
       expect(() =>
         updateSystemSettingsSchema.parse({
-          ui: { allowUserThemeOverride: true },
-          features: {},
+          jobs: JOBS,
           notifications: { browserEnabled: true, disabledEvents: overCap },
         }),
       ).toThrow();
 
       expect(() =>
         updateSystemSettingsSchema.parse({
-          ui: { allowUserThemeOverride: true },
-          features: {},
+          jobs: JOBS,
           notifications: {
             browserEnabled: true,
             disabledEvents: overCap.slice(0, MAX_DISABLED_NOTIFICATION_EVENTS),
@@ -252,16 +248,36 @@ describe('UpdateSystemSettingsDto (PUT)', () => {
     });
   });
 
+  describe('legacy ui/features keys (#366)', () => {
+    // The two namespaces removed by #366. A caller that still sends them
+    // (an old client, a stale bookmarked request) must not have them
+    // reappear anywhere in the parsed result — they are unknown REQUEST
+    // keys now, stripped by the schema exactly like any other unrecognised
+    // field, never carried through like an unknown STORED key would be.
+    it('strips a legacy ui key from a PUT body instead of validating or echoing it', () => {
+      const result = updateSystemSettingsSchema.parse({
+        ui: { allowUserThemeOverride: true },
+        notifications: NOTIFICATIONS,
+      });
+
+      expect(result).not.toHaveProperty('ui');
+    });
+
+    it('strips a legacy features key from a PUT body instead of validating or echoing it', () => {
+      const result = updateSystemSettingsSchema.parse({
+        features: { anyFlag: true },
+        notifications: NOTIFICATIONS,
+      });
+
+      expect(result).not.toHaveProperty('features');
+    });
+  });
+
   describe('complete settings object', () => {
     it('should accept valid complete settings', () => {
       const result = updateSystemSettingsSchema.parse({
-        ui: {
-          allowUserThemeOverride: true,
-        },
-        features: {
-          enableNotifications: true,
-          enableAdvancedFeatures: false,
-        },
+        jobs: JOBS,
+        nodes: NODES,
         notifications: {
           browserEnabled: false,
           disabledEvents: ['security.role_changed'],
@@ -269,13 +285,8 @@ describe('UpdateSystemSettingsDto (PUT)', () => {
       });
 
       expect(result).toEqual({
-        ui: {
-          allowUserThemeOverride: true,
-        },
-        features: {
-          enableNotifications: true,
-          enableAdvancedFeatures: false,
-        },
+        jobs: JOBS,
+        nodes: NODES,
         notifications: {
           browserEnabled: false,
           disabledEvents: ['security.role_changed'],
@@ -286,57 +297,60 @@ describe('UpdateSystemSettingsDto (PUT)', () => {
 });
 
 describe('PatchSystemSettingsDto (PATCH)', () => {
-  describe('ui field', () => {
-    it('should make ui field optional', () => {
+  describe('jobs field', () => {
+    it('should make jobs field optional', () => {
       const result = patchSystemSettingsSchema.parse({});
 
-      expect(result.ui).toBeUndefined();
+      expect(result.jobs).toBeUndefined();
     });
 
-    it('should accept ui with allowUserThemeOverride', () => {
+    it('should accept jobs with only stuckThresholdMinutes', () => {
       const result = patchSystemSettingsSchema.parse({
-        ui: {
-          allowUserThemeOverride: false,
-        },
+        jobs: { stuckThresholdMinutes: 45 },
       });
 
-      expect(result.ui?.allowUserThemeOverride).toBe(false);
+      expect(result.jobs?.stuckThresholdMinutes).toBe(45);
     });
 
-    it('should make allowUserThemeOverride optional in ui', () => {
+    it('should make history optional within a jobs patch', () => {
       const result = patchSystemSettingsSchema.parse({
-        ui: {},
+        jobs: {},
       });
 
-      expect(result.ui).toEqual({});
+      expect(result.jobs).toEqual({});
+    });
+
+    it('should reject a non-numeric stuckThresholdMinutes', () => {
+      expect(() =>
+        patchSystemSettingsSchema.parse({
+          jobs: { stuckThresholdMinutes: 'soon' },
+        }),
+      ).toThrow();
     });
   });
 
-  describe('features field', () => {
-    it('should make features field optional', () => {
+  describe('nodes field', () => {
+    it('should make nodes field optional', () => {
       const result = patchSystemSettingsSchema.parse({});
 
-      expect(result.features).toBeUndefined();
+      expect(result.nodes).toBeUndefined();
     });
 
-    it('should accept features with boolean flags', () => {
+    it('should accept nodes with boolean and numeric fields', () => {
       const result = patchSystemSettingsSchema.parse({
-        features: {
-          newFeature: true,
-        },
+        nodes: { jobSecretBrokerEnabled: true, offlineRetentionDays: 10 },
       });
 
-      expect(result.features).toEqual({
-        newFeature: true,
+      expect(result.nodes).toEqual({
+        jobSecretBrokerEnabled: true,
+        offlineRetentionDays: 10,
       });
     });
 
-    it('should reject features with non-boolean values', () => {
+    it('should reject nodes with a wrong-typed value', () => {
       expect(() =>
         patchSystemSettingsSchema.parse({
-          features: {
-            newFeature: 'yes',
-          },
+          nodes: { jobSecretBrokerEnabled: 'yes' },
         }),
       ).toThrow();
     });
@@ -410,6 +424,24 @@ describe('PatchSystemSettingsDto (PATCH)', () => {
     });
   });
 
+  describe('legacy ui/features keys (#366)', () => {
+    it('strips a legacy ui key from a PATCH body instead of validating or echoing it', () => {
+      const result = patchSystemSettingsSchema.parse({
+        ui: { allowUserThemeOverride: true },
+      });
+
+      expect(result).not.toHaveProperty('ui');
+    });
+
+    it('strips a legacy features key from a PATCH body instead of validating or echoing it', () => {
+      const result = patchSystemSettingsSchema.parse({
+        features: { anyFlag: true },
+      });
+
+      expect(result).not.toHaveProperty('features');
+    });
+  });
+
   describe('partial updates', () => {
     it('should accept empty object (all fields optional)', () => {
       const result = patchSystemSettingsSchema.parse({});
@@ -417,42 +449,30 @@ describe('PatchSystemSettingsDto (PATCH)', () => {
       expect(result).toEqual({});
     });
 
-    it('should accept update with only ui field', () => {
+    it('should accept update with only jobs field', () => {
       const result = patchSystemSettingsSchema.parse({
-        ui: {
-          allowUserThemeOverride: true,
-        },
+        jobs: { stuckThresholdMinutes: 60 },
       });
 
       expect(result).toEqual({
-        ui: {
-          allowUserThemeOverride: true,
-        },
+        jobs: { stuckThresholdMinutes: 60 },
       });
     });
 
-    it('should accept update with only features field', () => {
+    it('should accept update with only nodes field', () => {
       const result = patchSystemSettingsSchema.parse({
-        features: {
-          beta: true,
-        },
+        nodes: { offlineRetentionDays: 14 },
       });
 
       expect(result).toEqual({
-        features: {
-          beta: true,
-        },
+        nodes: { offlineRetentionDays: 14 },
       });
     });
 
     it('should accept combination of partial fields', () => {
       const result = patchSystemSettingsSchema.parse({
-        ui: {
-          allowUserThemeOverride: false,
-        },
-        features: {
-          experimental: true,
-        },
+        jobs: { stuckThresholdMinutes: 60 },
+        nodes: { jobSecretBrokerEnabled: true },
         notifications: {
           browserEnabled: false,
           disabledEvents: ['security.role_changed'],
@@ -460,12 +480,8 @@ describe('PatchSystemSettingsDto (PATCH)', () => {
       });
 
       expect(result).toEqual({
-        ui: {
-          allowUserThemeOverride: false,
-        },
-        features: {
-          experimental: true,
-        },
+        jobs: { stuckThresholdMinutes: 60 },
+        nodes: { jobSecretBrokerEnabled: true },
         notifications: {
           browserEnabled: false,
           disabledEvents: ['security.role_changed'],

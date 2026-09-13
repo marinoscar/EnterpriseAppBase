@@ -56,16 +56,10 @@ export interface UserSettingsValue {
  * System settings schema - stored in system_settings.value JSONB
  */
 export interface SystemSettingsValue {
-  ui: {
-    allowUserThemeOverride: boolean;
-  };
-  features: {
-    [key: string]: boolean;
-  };
   /**
    * Deployment-wide browser-notification policy (#225, epic #215).
    *
-   * REQUIRED, not optional, and modelled rather than a `features` key — see
+   * REQUIRED, not optional, and modelled rather than an untyped flag — see
    * `systemNotificationsSchema` in schemas/settings.schema.ts for the full
    * argument. Required is what makes a PUT that omits the block a loud 400
    * instead of a silent reset: the value being reset would be an operator's
@@ -123,10 +117,6 @@ export const DEFAULT_USER_SETTINGS: UserSettingsValue = {
  * Default system settings
  */
 export const DEFAULT_SYSTEM_SETTINGS: SystemSettingsValue = {
-  ui: {
-    allowUserThemeOverride: true,
-  },
-  features: {},
   // ON by default, suppressing nothing. The opposite default would mean a fresh
   // deployment ships with a delivery channel silently off and no indication
   // anywhere that it was ever available — an operator opts OUT of browser

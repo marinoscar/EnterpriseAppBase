@@ -7,15 +7,15 @@
  * permission string, and no tab anywhere. The hub, the Console rail and the
  * compact AppBar title all pick this page up from that single declaration.
  *
- * It is deliberately NOT a fourth section of the `System` page or a tab on
- * `Advanced (JSON)`: a tab gate is about CONTENT within one destination, and
- * this is a destination of its own — the one screen an operator navigates
- * straight to during an incident.
+ * It is deliberately NOT a section or a tab on another settings page: a tab
+ * gate is about CONTENT within one destination, and this is a destination of
+ * its own — the one screen an operator navigates straight to during an
+ * incident.
  *
- * WHY IT DOES NOT USE `SystemSettingsSection` (the render-prop wrapper four
- * sibling admin pages share). That component is bound to `useSystemSettings`:
- * it loads the whole system settings document and PATCHes one branch of it. The
- * maintenance window is a different controller with a response this page exists
+ * WHY IT DOES NOT USE `SystemSettingsSection` (the render-prop wrapper
+ * `NotificationSettingsPage` uses). That component is bound to
+ * `useSystemSettings`: it loads the whole system settings document and PATCHes
+ * one branch of it. The maintenance window is a different controller with a response this page exists
  * to render — `source` and `layers`, which the settings document does not carry
  * — and a write that must be a `PUT` of `{ enabled, … }` so the API can stamp
  * the window's provenance. `EmailSettingsPage` (#124) made the same departure

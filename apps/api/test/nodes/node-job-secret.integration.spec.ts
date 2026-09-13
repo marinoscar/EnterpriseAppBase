@@ -116,8 +116,6 @@ describe('Worker node per-job secret broker (Integration)', () => {
       id: 'settings-row',
       key: 'default',
       value: {
-        ui: { allowUserThemeOverride: true },
-        features: {},
         nodes: {
           staleHeartbeatSeconds: 90,
           offlineStaleMultiplier: 4,

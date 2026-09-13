@@ -166,8 +166,7 @@ export class NotificationsController {
    * `user_settings:read|write` and `storage:read` and nothing else — so gating
    * this on `system_settings:read` would lock the policy away from precisely the
    * users it governs, and widening THAT permission to reach it would publish the
-   * entire settings blob (including the open `features` map downstream forks
-   * fill with operational flags) to every account. See the DTO, which carries
+   * entire settings blob to every account. See the DTO, which carries
    * the full argument and the rejected alternative.
    */
   @Get('config')
