@@ -414,6 +414,61 @@ describe('UserNotificationsPage', () => {
     });
   });
 
+  // ===========================================================================
+  // Issue #365: `pushEnabled` used to be hardcoded `false` regardless of what
+  // `GET /api/notifications/config` actually returned. This proves the real
+  // fetched value reaches `NotificationSettings`'s push column, using a
+  // synthetic event that declares `push` (no seeded `NOTIFICATION_EVENTS`
+  // entry declares it yet - same synthetic-fixture rationale as
+  // `NotificationSettings.test.tsx`'s own `PUSH_CAPABLE`).
+  // ===========================================================================
+  describe('#365: pushEnabled reaches the matrix from GET /notifications/config', () => {
+    const PUSH_CAPABLE: NotificationEventDef = {
+      key: 'synthetic.push_capable',
+      label: 'Synthetic push event',
+      description: 'Exercises the push column before a real event declares it.',
+      channels: ['push'],
+      defaultEnabled: true,
+      mandatory: false,
+    };
+
+    it('disables the push switch when the fetched config says pushEnabled: false', () => {
+      mockEvents([PUSH_CAPABLE]);
+      mockConfig({ browserEnabled: true, pushEnabled: false, vapidPublicKey: null });
+
+      render(<UserNotificationsPage />);
+
+      expect(
+        screen.getByRole('switch', { name: /push notifications for synthetic push event/i }),
+      ).toBeDisabled();
+    });
+
+    it('enables the push switch when the fetched config says pushEnabled: true - no longer hardcoded off', () => {
+      mockEvents([PUSH_CAPABLE]);
+      mockConfig({ browserEnabled: true, pushEnabled: true, vapidPublicKey: 'BKey123' });
+
+      render(<UserNotificationsPage />);
+
+      expect(
+        screen.getByRole('switch', { name: /push notifications for synthetic push event/i }),
+      ).not.toBeDisabled();
+      expect(
+        screen.queryByText('Push notifications are not available yet'),
+      ).not.toBeInTheDocument();
+    });
+
+    it('treats a still-loading config (null) as pushEnabled: false - the safe default while unknown', () => {
+      mockEvents([PUSH_CAPABLE]);
+      mockConfig(null);
+
+      render(<UserNotificationsPage />);
+
+      expect(
+        screen.getByRole('switch', { name: /push notifications for synthetic push event/i }),
+      ).toBeDisabled();
+    });
+  });
+
   it('never calls Notification.requestPermission on this page - observed only, see #127', async () => {
     const originalNotification = (window as any).Notification;
     const requestPermission = vi.fn();
