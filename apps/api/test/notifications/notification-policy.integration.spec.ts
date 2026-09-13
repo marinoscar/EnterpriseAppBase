@@ -48,8 +48,6 @@ function storePolicy(notifications: unknown): void {
   (prismaMock.systemSettings.findUnique as jest.Mock).mockResolvedValue(
     createMockSystemSettings({
       value: {
-        ui: { allowUserThemeOverride: true },
-        features: {},
         ...(notifications === undefined ? {} : { notifications }),
       },
     }),
@@ -88,8 +86,9 @@ describe('Notification policy integration (#226)', () => {
 
       // The premise, asserted rather than assumed: this is the endpoint the
       // viewer is locked out of, and the reason #226 does not simply widen
-      // `system_settings:read` (which would also publish the open `features`
-      // map that downstream forks fill with operational flags).
+      // `system_settings:read` (which would also publish the rest of the
+      // settings blob — the job queue, worker fleet and backup policy —
+      // to every signed-in account).
       await request(context.app.getHttpServer())
         .get('/api/system-settings')
         .set(authHeader(viewer.accessToken))

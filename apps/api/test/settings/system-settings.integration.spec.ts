@@ -70,8 +70,8 @@ describe('System Settings Integration', () => {
         .expect(200);
 
       expect(response.body.data).toMatchObject({
-        ui: DEFAULT_SYSTEM_SETTINGS.ui,
-        features: DEFAULT_SYSTEM_SETTINGS.features,
+        jobs: DEFAULT_SYSTEM_SETTINGS.jobs,
+        nodes: DEFAULT_SYSTEM_SETTINGS.nodes,
         security: EXPECTED_SECURITY,
         version: expect.any(Number),
       });
@@ -94,8 +94,8 @@ describe('System Settings Integration', () => {
   describe.skip('PUT /api/system-settings', () => {
     const newSettings: SystemSettingsValue = {
       ...DEFAULT_SYSTEM_SETTINGS,
-      ui: { allowUserThemeOverride: false },
-      features: { newFeature: true },
+      jobs: { ...DEFAULT_SYSTEM_SETTINGS.jobs, stuckThresholdMinutes: 45 },
+      nodes: { ...DEFAULT_SYSTEM_SETTINGS.nodes, jobSecretBrokerEnabled: true },
       notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
     };
 
@@ -138,8 +138,8 @@ describe('System Settings Integration', () => {
         .expect(200);
 
       expect(response.body.data).toMatchObject({
-        ui: newSettings.ui,
-        features: newSettings.features,
+        jobs: newSettings.jobs,
+        nodes: newSettings.nodes,
         version: 2,
       });
     });
@@ -150,8 +150,8 @@ describe('System Settings Integration', () => {
       const admin = await createMockAdminUser(context);
 
       const invalidSettings = {
-        ui: { allowUserThemeOverride: 'not-a-boolean' },
-        features: {},
+        jobs: { stuckThresholdMinutes: 'not-a-number' },
+        notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
       };
 
       await request(context.app.getHttpServer())
@@ -165,8 +165,8 @@ describe('System Settings Integration', () => {
       const admin = await createMockAdminUser(context);
 
       const incompleteSettings = {
-        // Missing ui field
-        features: {},
+        // Missing notifications field
+        jobs: DEFAULT_SYSTEM_SETTINGS.jobs,
       };
 
       await request(context.app.getHttpServer())
@@ -193,7 +193,7 @@ describe('System Settings Integration', () => {
     it('should return 401 without auth', async () => {
       await request(context.app.getHttpServer())
         .patch('/api/system-settings')
-        .send({ ui: { allowUserThemeOverride: false } })
+        .send({ nodes: { jobSecretBrokerEnabled: false } })
         .expect(401);
     });
 
@@ -203,21 +203,21 @@ describe('System Settings Integration', () => {
       await request(context.app.getHttpServer())
         .patch('/api/system-settings')
         .set(authHeader(viewer.accessToken))
-        .send({ ui: { allowUserThemeOverride: false } })
+        .send({ nodes: { jobSecretBrokerEnabled: false } })
         .expect(403);
     });
 
     it('should merge settings for admin', async () => {
       const admin = await createMockAdminUser(context);
 
-      const partialUpdate = { ui: { allowUserThemeOverride: false } };
+      const partialUpdate = { nodes: { jobSecretBrokerEnabled: true } };
 
       context.prismaMock.systemSettings.update.mockResolvedValue({
         id: 'settings-1',
         key: 'global',
         value: {
-          ui: { allowUserThemeOverride: false },
-          features: DEFAULT_SYSTEM_SETTINGS.features,
+          ...DEFAULT_SYSTEM_SETTINGS,
+          nodes: { ...DEFAULT_SYSTEM_SETTINGS.nodes, jobSecretBrokerEnabled: true },
         } as any,
         version: 2,
         updatedAt: new Date(),
@@ -233,8 +233,8 @@ describe('System Settings Integration', () => {
         .send(partialUpdate)
         .expect(200);
 
-      expect(response.body.data.ui.allowUserThemeOverride).toBe(false);
-      expect(response.body.data.features).toEqual(DEFAULT_SYSTEM_SETTINGS.features);
+      expect(response.body.data.nodes.jobSecretBrokerEnabled).toBe(true);
+      expect(response.body.data.jobs).toEqual(DEFAULT_SYSTEM_SETTINGS.jobs);
       expect(response.body.data.security).toEqual(EXPECTED_SECURITY);
       expect(response.body.data.version).toBe(2);
     });
@@ -242,7 +242,7 @@ describe('System Settings Integration', () => {
     it('should return 412 when If-Match does not match ETag', async () => {
       const admin = await createMockAdminUser(context);
 
-      const partialUpdate = { ui: { allowUserThemeOverride: false } };
+      const partialUpdate = { nodes: { jobSecretBrokerEnabled: true } };
 
       // Current version is 1, but If-Match header expects version 2
       const response = await request(context.app.getHttpServer())
@@ -258,14 +258,14 @@ describe('System Settings Integration', () => {
     it('should succeed when If-Match matches current version', async () => {
       const admin = await createMockAdminUser(context);
 
-      const partialUpdate = { ui: { allowUserThemeOverride: false } };
+      const partialUpdate = { nodes: { jobSecretBrokerEnabled: true } };
 
       context.prismaMock.systemSettings.update.mockResolvedValue({
         id: 'settings-1',
         key: 'global',
         value: {
-          ui: { allowUserThemeOverride: false },
-          features: DEFAULT_SYSTEM_SETTINGS.features,
+          ...DEFAULT_SYSTEM_SETTINGS,
+          nodes: { ...DEFAULT_SYSTEM_SETTINGS.nodes, jobSecretBrokerEnabled: true },
         } as any,
         version: 2,
         updatedAt: new Date(),
@@ -289,14 +289,14 @@ describe('System Settings Integration', () => {
     it('should work without If-Match header', async () => {
       const admin = await createMockAdminUser(context);
 
-      const partialUpdate = { ui: { allowUserThemeOverride: false } };
+      const partialUpdate = { nodes: { jobSecretBrokerEnabled: true } };
 
       context.prismaMock.systemSettings.update.mockResolvedValue({
         id: 'settings-1',
         key: 'global',
         value: {
-          ui: { allowUserThemeOverride: false },
-          features: DEFAULT_SYSTEM_SETTINGS.features,
+          ...DEFAULT_SYSTEM_SETTINGS,
+          nodes: { ...DEFAULT_SYSTEM_SETTINGS.nodes, jobSecretBrokerEnabled: true },
         } as any,
         version: 2,
         updatedAt: new Date(),
@@ -315,17 +315,20 @@ describe('System Settings Integration', () => {
       expect(response.body.data.version).toBe(2);
     });
 
-    it('should handle features object updates', async () => {
+    it('should handle nested jobs.history updates', async () => {
       const admin = await createMockAdminUser(context);
 
-      const partialUpdate = { features: { betaFeature: true } };
+      const partialUpdate = { jobs: { history: { retentionDays: 90 } } };
 
       context.prismaMock.systemSettings.update.mockResolvedValue({
         id: 'settings-1',
         key: 'global',
         value: {
-          ui: DEFAULT_SYSTEM_SETTINGS.ui,
-          features: { betaFeature: true },
+          ...DEFAULT_SYSTEM_SETTINGS,
+          jobs: {
+            ...DEFAULT_SYSTEM_SETTINGS.jobs,
+            history: { ...DEFAULT_SYSTEM_SETTINGS.jobs.history, retentionDays: 90 },
+          },
         } as any,
         version: 2,
         updatedAt: new Date(),
@@ -341,7 +344,7 @@ describe('System Settings Integration', () => {
         .send(partialUpdate)
         .expect(200);
 
-      expect(response.body.data.features).toEqual({ betaFeature: true });
+      expect(response.body.data.jobs.history.retentionDays).toBe(90);
     });
 
     /**
@@ -368,8 +371,7 @@ describe('System Settings Integration', () => {
         id: 'settings-1',
         key: 'global',
         value: {
-          ui: DEFAULT_SYSTEM_SETTINGS.ui,
-          features: DEFAULT_SYSTEM_SETTINGS.features,
+          ...DEFAULT_SYSTEM_SETTINGS,
           notifications: partialUpdate.notifications,
         } as any,
         version: 2,
@@ -626,13 +628,51 @@ describe('System Settings Integration', () => {
     it('should return 400 with invalid partial update', async () => {
       const admin = await createMockAdminUser(context);
 
-      const invalidUpdate = { ui: { allowUserThemeOverride: 'invalid' } };
+      const invalidUpdate = { nodes: { jobSecretBrokerEnabled: 'invalid' } };
 
       await request(context.app.getHttpServer())
         .patch('/api/system-settings')
         .set(authHeader(admin.accessToken))
         .send(invalidUpdate)
         .expect(400);
+    });
+
+    /**
+     * Issue #366 — the removed `ui`/`features` namespaces. A body that still
+     * sends them (an old client, a stale bookmarked request) must not have
+     * them reappear anywhere: they are unknown REQUEST keys now, stripped by
+     * the wire DTO like any other unrecognised field.
+     */
+    it('strips legacy ui/features keys from a PATCH body instead of storing or echoing them (#366)', async () => {
+      const admin = await createMockAdminUser(context);
+
+      context.prismaMock.systemSettings.update.mockResolvedValue({
+        id: 'settings-1',
+        key: 'global',
+        value: DEFAULT_SYSTEM_SETTINGS as any,
+        version: 2,
+        updatedAt: new Date(),
+        updatedByUserId: admin.id,
+        updatedByUser: { id: admin.id, email: admin.email },
+      });
+      context.prismaMock.auditEvent.create.mockResolvedValue({} as any);
+
+      const response = await request(context.app.getHttpServer())
+        .patch('/api/system-settings')
+        .set(authHeader(admin.accessToken))
+        .send({
+          ui: { allowUserThemeOverride: false },
+          features: { newFlag: true },
+        })
+        .expect(200);
+
+      expect(response.body.data).not.toHaveProperty('ui');
+      expect(response.body.data).not.toHaveProperty('features');
+
+      const updateArgs = context.prismaMock.systemSettings.update.mock
+        .calls[0][0] as any;
+      expect(updateArgs.data.value).not.toHaveProperty('ui');
+      expect(updateArgs.data.value).not.toHaveProperty('features');
     });
   });
 
@@ -698,8 +738,8 @@ describe('System Settings Integration', () => {
         id: 'settings-1',
         key: 'global',
         value: {
-          ui: DEFAULT_SYSTEM_SETTINGS.ui,
-          features: { flag: true },
+          ...DEFAULT_SYSTEM_SETTINGS,
+          nodes: { ...DEFAULT_SYSTEM_SETTINGS.nodes, jobSecretBrokerEnabled: true },
         } as any,
         version: 2,
         updatedAt: new Date(),
@@ -711,7 +751,7 @@ describe('System Settings Integration', () => {
       // A client that read the OpenAPI contract and assumed `security` was
       // writable, since the response DTO declares it.
       const dtoWithSecurity = {
-        features: { flag: true },
+        nodes: { jobSecretBrokerEnabled: true },
         security: { jwtAccessTtlMinutes: 9999, refreshTtlDays: 9999 },
       };
 

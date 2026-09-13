@@ -141,8 +141,6 @@ function settingsRow(databaseBackup: Record<string, unknown>): Record<string, un
     id: 'settings-id',
     key: 'default',
     value: {
-      ui: { allowUserThemeOverride: true },
-      features: {},
       databaseBackup: {
         enabled: true,
         frequency: 'daily',
