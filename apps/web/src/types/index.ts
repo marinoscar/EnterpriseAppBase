@@ -311,17 +311,40 @@ export interface NotificationConfigResponse {
    */
   browserEnabled: boolean;
   /**
-   * May this client subscribe to Web Push? ALWAYS `false` TODAY — Web Push is
-   * #229/#230. Not consumed anywhere in the web app yet; #228's push column
-   * takes it as its own prop with its own placeholder value.
+   * May this client subscribe to Web Push? `true` once an administrator has
+   * generated and enabled a VAPID key pair (#355). Drives the boot-time
+   * subscription sync (`hooks/usePushSubscriptionSync.ts`, #365) and the
+   * settings page's push column.
    */
   pushEnabled: boolean;
   /**
-   * The VAPID application server key for `pushManager.subscribe`, or `null`
-   * when push is unavailable. ALWAYS `null` TODAY, for the same reason
-   * `pushEnabled` is. Unused until #229/#230.
+   * The VAPID application server key (URL-safe base64) for
+   * `pushManager.subscribe`, or `null` when push is unavailable. Changes when
+   * the key pair is rotated, which is how the sync detects a stale
+   * subscription.
    */
   vapidPublicKey: string | null;
+}
+
+/**
+ * `POST /api/notifications/push/subscriptions` body — exactly the browser's
+ * `PushSubscription.toJSON()` shape, so the client passes it through unmodified
+ * (#229, wired by #365).
+ */
+export interface PushSubscriptionPayload {
+  endpoint: string;
+  expirationTime?: number | null;
+  keys: {
+    p256dh: string;
+    auth: string;
+  };
+}
+
+/** `POST /api/notifications/push/subscriptions` response. */
+export interface PushSubscriptionResponse {
+  id: string;
+  endpoint: string;
+  createdAt: string;
 }
 
 export interface UserSettings {
