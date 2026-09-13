@@ -4,6 +4,7 @@ import {
   NestFastifyApplication,
 } from '@nestjs/platform-fastify';
 import fastifyCookie from '@fastify/cookie';
+import multipart from '@fastify/multipart';
 import { AppModule } from '../../src/app.module';
 import { JobWorker } from '../../src/jobs/job.worker';
 import { PrismaService } from '../../src/prisma/prisma.service';
@@ -101,6 +102,17 @@ export async function createTestApp(
   // Register cookie plugin for auth tests
   await app.register(fastifyCookie, {
     secret: 'test-secret',
+  });
+
+  // Register multipart plugin, mirroring main.ts, so specs can drive a real
+  // multipart/form-data request (e.g. the #367 profile-image upload) through
+  // supertest's `.attach()` instead of stubbing `req.file()`. Harmless for
+  // every other spec: nothing else in the app requires it to be absent.
+  await app.register(multipart, {
+    limits: {
+      fileSize: 100 * 1024 * 1024,
+      files: 1,
+    },
   });
 
   app.setGlobalPrefix('api');
