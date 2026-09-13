@@ -23,6 +23,10 @@ export interface MockUser {
   email: string;
   displayName: string | null;
   profileImageUrl: string | null;
+  /** The sign-in provider's picture, whatever the chosen source (#367). */
+  providerProfileImageUrl?: string | null;
+  /** The uploaded picture's URL, whatever the chosen source (#367). */
+  uploadedProfileImageUrl?: string | null;
   roles: { name: string }[];
   permissions: string[];
   isActive: boolean;

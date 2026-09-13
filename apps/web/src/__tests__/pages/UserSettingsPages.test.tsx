@@ -36,12 +36,27 @@ vi.mock('../../components/settings/ThemeSettings', () => ({
 }));
 
 vi.mock('../../components/settings/ProfileSettings', () => ({
-  ProfileSettings: vi.fn(({ profile, onSave, disabled }) => (
+  ProfileSettings: vi.fn(({ profile, onSave, onSettingsReplaced, disabled }) => (
     <div data-testid="profile-settings">
       <span>name:{profile.displayName ?? ''}</span>
       <span>disabled:{String(disabled)}</span>
-      <button onClick={() => onSave({ displayName: 'New', useProviderImage: true })}>
+      <button onClick={() => onSave({ displayName: 'New', imageSource: 'provider' })}>
         save-profile
+      </button>
+      <button
+        onClick={() =>
+          onSettingsReplaced?.(
+            {
+              theme: 'system',
+              profile: { imageSource: 'upload', imageObjectId: 'obj-1' },
+              updatedAt: new Date().toISOString(),
+              version: 2,
+            },
+            'Profile picture updated',
+          )
+        }
+      >
+        replace-settings
       </button>
     </div>
   )),
@@ -69,8 +84,8 @@ function mockSettings(overrides: Partial<ReturnType<typeof useUserSettings>> = {
       theme: 'system',
       profile: {
         displayName: undefined,
-        useProviderImage: true,
-        customImageUrl: undefined,
+        imageSource: 'provider',
+        imageObjectId: undefined,
       },
       updatedAt: new Date().toISOString(),
       version: 1,
@@ -82,6 +97,7 @@ function mockSettings(overrides: Partial<ReturnType<typeof useUserSettings>> = {
     updateTheme: vi.fn().mockResolvedValue(undefined),
     updateProfile: vi.fn().mockResolvedValue(undefined),
     refresh: vi.fn(),
+    replaceSettings: vi.fn(),
     ...overrides,
   });
 }
@@ -188,7 +204,7 @@ describe('Per-page save snackbars (issue #96)', () => {
         expect(screen.getByText('Profile updated')).toBeInTheDocument();
       });
       expect(updateSettings).toHaveBeenCalledWith({
-        profile: { displayName: 'New', useProviderImage: true },
+        profile: { displayName: 'New', imageSource: 'provider' },
       });
     });
 
@@ -203,6 +219,33 @@ describe('Per-page save snackbars (issue #96)', () => {
         expect(screen.getByText('Network error')).toBeInTheDocument();
       });
       expect(screen.queryByText('Profile updated')).not.toBeInTheDocument();
+    });
+
+    /**
+     * #367. The profile-image upload/delete responses adopt a settings
+     * document through `replaceSettings` rather than `updateSettings`/PATCH —
+     * see `UserSettingsSection.replaceSettings`. This exercises the REAL
+     * `replaceSettings` wired in `UserSettingsSection`, via the mocked
+     * `ProfileSettings`'s `onSettingsReplaced` callback.
+     */
+    it('adopts a settings document via replaceSettings and shows its success message', async () => {
+      const replaceSettings = vi.fn();
+      mockSettings({ replaceSettings });
+
+      render(<UserProfilePage />);
+      screen.getByText('replace-settings').click();
+
+      await waitFor(() => {
+        expect(screen.getByText('Profile picture updated')).toBeInTheDocument();
+      });
+      // replaceSettings adopts the document directly — it must never go
+      // through updateSettings (no PATCH, no If-Match version to send).
+      expect(replaceSettings).toHaveBeenCalledWith({
+        theme: 'system',
+        profile: { imageSource: 'upload', imageObjectId: 'obj-1' },
+        updatedAt: expect.any(String),
+        version: 2,
+      });
     });
 
     it('falls back to "Failed to update profile" when the rejection carries no message', async () => {
