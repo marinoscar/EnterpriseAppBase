@@ -188,17 +188,9 @@ export function preferenceWriteFor(
 const CHANNEL_LABELS: Record<NotificationChannel, string> = {
   email: 'Email',
   browser: 'Browser',
-  // THE REAL PUSH COLUMN (issue #228, epic #215) — not a placeholder anymore.
-  // `pushChannelState()` below renders it disabled with an honest
-  // "not available yet" explanation for as long as the server's
-  // `pushEnabled` stays hardcoded `false` (`notifications.controller.ts`).
-  // No entry in `NOTIFICATION_EVENTS` declares `push` in its `channels` yet,
-  // so `showsPushChannel` below is `false` and this label is currently
-  // unreachable through `event.channels.map` — the column renders no rows.
-  // THAT IS THE INTENDED STATE OF #228, NOT A BUG: this issue widens
-  // `NotificationChannel` and builds the column ahead of there being
-  // anything to put in it; wiring a real event to `push` and implementing
-  // delivery are #229/#230's job.
+  // The push column (#228). `pushChannelState()` below disables it while the
+  // deployment has push off, and notes when this device has not granted
+  // permission. Rows appear only for events that declare `push`.
   push: 'Push',
 };
 
@@ -418,41 +410,36 @@ export function browserChannelState(
 }
 
 /**
- * How the push column must behave, given whether the server can currently
- * deliver push notifications at all.
+ * How the push column must behave.
  *
- * `pushEnabled` comes from `GET /api/notifications/config`'s `pushEnabled`
- * field (`notification-config.dto.ts`); wiring that fetch into
- * `UserNotificationsPage` is issue #227's scope, not this one, so today every
- * caller passes (or defaults to) `false` — matching the controller's own
- * hardcoded `pushEnabled: false`, since Web Push is not implemented until
- * #229/#230. This function is nonetheless written to be correct for BOTH
- * values now, so nothing here needs to change again once the server starts
- * returning `true`.
+ * `pushEnabled` is `GET /api/notifications/config`'s `pushEnabled` — `true`
+ * once an administrator has generated and enabled VAPID keys (#355).
  *
- * Unlike `browserChannelState`, there is no permission axis to report on —
- * this codebase has no service-worker subscription and no `PushManager` call
- * anywhere yet, so there is exactly one way to be unable to deliver, not a
- * four-way switch:
- *
- *   * `pushEnabled === false` — disabled, with a "not available yet" note and
- *                     banner. This is DELIBERATELY NOT phrased like
- *                     `browserChannelState`'s `denied`/`unsupported` copy
- *                     ("blocked by your browser", "not supported by this
- *                     browser"): those describe a BROWSER's refusal, which is
- *                     the user's browser's doing and something only the user
- *                     can fix in its settings. This describes a FEATURE this
- *                     application has not built yet, which the user cannot
- *                     fix at all and which it would be dishonest to blame on
- *                     their browser.
- *   * `pushEnabled === true`  — nothing to say, mirroring `granted` above. No
- *                     caller can reach this branch until #229/#230 land and
- *                     issue #227 wires the real fetch, but the function must
- *                     already be correct for it.
+ *   * `pushEnabled === false` — disabled, "not available". Phrased as a
+ *                     deployment setting, never as a browser refusal: the
+ *                     user cannot fix it, and blaming their browser would
+ *                     send them looking for a setting that does not exist.
+ *   * `pushEnabled === true`  — never disabled: the preference is per ACCOUNT
+ *                     and applies on every device. When THIS device has not
+ *                     granted permission (`browserCapability` is anything but
+ *                     `granted`/`sw-unavailable`), the row says so in a note;
+ *                     the remedy lives in the browser banner and the app-wide
+ *                     banner, so there is no second alert here.
  */
-export function pushChannelState(pushEnabled: boolean): ChannelState {
+export function pushChannelState(
+  pushEnabled: boolean,
+  browserCapability?: NotificationCapability,
+): ChannelState {
   if (pushEnabled) {
-    return { disabled: false, note: null, alert: null };
+    const deviceReady =
+      browserCapability === undefined ||
+      browserCapability === 'granted' ||
+      browserCapability === 'sw-unavailable';
+    return {
+      disabled: false,
+      note: deviceReady ? null : 'Not enabled on this device',
+      alert: null,
+    };
   }
   return {
     disabled: true,
@@ -461,8 +448,8 @@ export function pushChannelState(pushEnabled: boolean): ChannelState {
       severity: 'info',
       title: 'Push notifications are not available yet',
       body:
-        'Push notifications are planned but not yet implemented on this ' +
-        'server. Email and browser notifications are unaffected.',
+        'Push notifications have not been turned on for this server. ' +
+        'Email and browser notifications are unaffected.',
     },
   };
 }
@@ -511,18 +498,10 @@ export interface NotificationSettingsProps {
    */
   browserCapability: NotificationCapability;
   /**
-   * Whether the server can currently deliver push notifications at all, from
-   * `GET /api/notifications/config`'s `pushEnabled` field. Unlike
-   * `browserCapability`, this has no dedicated hook yet — fetching this
-   * endpoint into `UserNotificationsPage` is issue #227's scope, not this
-   * one's.
-   *
-   * Optional, defaulting to `false` below. That default is not merely "the
-   * safe choice while nobody supplies one" — it is LITERALLY the value the
-   * server hardcodes today (`notifications.controller.ts` returns
-   * `pushEnabled: false` unconditionally until Web Push ships in #229/#230),
-   * so an omitted prop and a real fetch of today's server both render
-   * identically. A caller passes an actual fetched value once #227 lands.
+   * Whether this deployment offers Web Push, from
+   * `GET /api/notifications/config`'s `pushEnabled` (passed by
+   * `UserNotificationsPage` since #365). Optional, defaulting to `false` —
+   * the safe reading while the config is unknown.
    */
   pushEnabled?: boolean;
   /**
@@ -563,7 +542,7 @@ export function NotificationSettings({
   const idPrefix = useId();
 
   const browser = browserChannelState(browserCapability);
-  const push = pushChannelState(pushEnabled);
+  const push = pushChannelState(pushEnabled, browserCapability);
 
   // ONE LOOKUP, BUILT ONCE PER RENDER, REPLACING A GROWING `isBrowser` /
   // `isPush` TERNARY CHAIN. With one gated channel the explicit-branch style
@@ -587,11 +566,8 @@ export function NotificationSettings({
   // declares none must not show a banner about a column that is not on
   // screen.
   const showsBrowserChannel = events.some((event) => event.channels.includes('browser'));
-  // Always `false` today (see `CHANNEL_LABELS`'s `push` entry above) — no
-  // registry event declares `push` yet — but written the same way as
-  // `showsBrowserChannel` rather than hardcoded to `false`, so the push
-  // banner appears on its own the day #229/#230 add the first `push` event,
-  // with no change needed here.
+  // Same shape as `showsBrowserChannel`: the push banner appears only when
+  // some registry event declares `push`.
   const showsPushChannel = events.some((event) => event.channels.includes('push'));
 
   if (events.length === 0) {
@@ -652,23 +628,14 @@ export function NotificationSettings({
               `browserChannelState` gives those two an explanatory alert and no
               action.
 
-              THE CLICK IS THE WHOLE MECHANISM. `Notification.requestPermission()`
-              runs from this handler and NOWHERE ELSE in the app:
-
-                * A DENIAL IS EFFECTIVELY PERMANENT. Nothing this application
-                  does can undo it — only the user, in browser site settings. The
-                  prompt is a ONE-SHOT RESOURCE, so spending it on somebody who
-                  never asked for notifications kills the feature for them for
-                  good.
-                * Browsers actively penalise gestureless prompts: Chrome demotes
-                  them to a quiet UI, Firefox requires the gesture outright, and
-                  Safari throws. A prompt on mount frequently never reaches the
-                  user while still burning the coin.
-
-              DO NOT MOVE THIS CALL TO MOUNT, AN EFFECT, A TIMER, OR A ROUTE
-              TRANSITION. The button sits inside the banner that explains what it
-              does, on a page the user navigated to deliberately, which is the
-              only context in which asking is fair.
+              THIS COMPONENT NEVER PROMPTS ON ITS OWN; it raises
+              `onRequestPermission` from a click. Since #365 the shell also
+              auto-prompts once per load when push is enabled
+              (`usePushSubscriptionSync`), but this button still matters:
+              Firefox requires a user gesture, Safari may throw, and Chrome can
+              demote a gestureless prompt to a quiet UI. A denial is
+              effectively permanent — only the user can undo it in site
+              settings — so the button appears in `default` and nowhere else.
 
               The state afterwards is re-read through
               `useNotificationCapability().refresh()` in
@@ -725,14 +692,10 @@ export function NotificationSettings({
             <AlertTitle>{push.alert.title}</AlertTitle>
             {push.alert.body}
             {/*
-              NO ACTION BUTTON HERE, UNLIKE THE BROWSER BANNER ABOVE. That
-              button asks the BROWSER for a permission that already exists to
-              ask for; push has no such mechanism anywhere in this codebase
-              yet — no service-worker subscription, no `PushManager` call, no
-              code path that can ever produce `pushEnabled: true` today. A
-              button wired to nothing would be worse than no button, so this
-              banner is purely informational until #229/#230 give it
-              something to do.
+              NO ACTION BUTTON HERE. This alert only renders while the
+              deployment has push off, which no user action can change. The
+              permission a push subscription needs is requested by the browser
+              banner above and by the app-wide banner (#365).
             */}
           </Alert>
         )}
