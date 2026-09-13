@@ -130,7 +130,7 @@ Endpoints returning lists support pagination with the following query parameters
   "displayName": "John Doe",
   "profileImageUrl": "/api/users/uuid/avatar/uuid",
   "providerProfileImageUrl": "https://lh3.googleusercontent.com/a/example",
-  "uploadedProfileImageUrl": null,
+  "hasUploadedProfileImage": false,
   "isActive": true,
   "roles": [
     {
@@ -148,7 +148,7 @@ Endpoints returning lists support pagination with the following query parameters
 |-------|------|-------------|
 | `profileImageUrl` | string \| null | The picture representing the user, resolved from `profile.imageSource`: `null` for `none`, the provider picture for `provider`, or a same-origin `/api/users/:userId/avatar/:objectId` path for `upload`. May be an absolute URL or a root-relative path. |
 | `providerProfileImageUrl` | string \| null | The OAuth provider's picture, regardless of the currently selected source; refreshed from the provider on each login. |
-| `uploadedProfileImageUrl` | string \| null | Same-origin path of the uploaded picture, regardless of the selected source (lets a settings UI preview the "upload" option while another source is active); `null` when nothing is uploaded. |
+| `hasUploadedProfileImage` | boolean | Whether the caller has an uploaded picture stored (`profile.imageObjectId` is set), regardless of the currently selected source. To preview those bytes, fetch `GET /user-settings/profile-image` (bearer auth) rather than building a URL from this field. |
 
 ---
 
@@ -963,6 +963,30 @@ If-Match: 1
 **Error Cases:**
 - 400 Bad Request - Same `profile.imageSource`/`profile.imageObjectId` validation as `PUT /user-settings` above.
 - 409 Conflict - `If-Match` version mismatch.
+
+---
+
+#### GET /user-settings/profile-image
+**Requires:** `user_settings:read` permission (bearer auth)
+
+Streams the caller's own stored uploaded picture (`profile.imageObjectId`), whatever `profile.imageSource` currently selects. Unlike the public `GET /users/:userId/avatar/:objectId` route above, this ignores the selected source — it exists so a settings UI can preview the "upload" option while "none" or "provider" is the active selection, without loosening the public route to do it. Because the caller's identity comes from the authenticated principal rather than a URL parameter, this route can safely be broader: it can only ever serve the caller's own picture.
+
+**Response:** `200` with the raw image bytes of the caller's stored upload.
+
+**Response Headers:**
+| Header | Value |
+|--------|-------|
+| `Content-Type` | The detected image type (from magic bytes at upload time, never client-declared) |
+| `Content-Length` | The image size, when known |
+| `X-Content-Type-Options` | `nosniff` |
+| `Content-Disposition` | `inline` |
+| `Content-Security-Policy` | `default-src 'none'; sandbox` |
+| `Cache-Control` | `private, no-store` |
+
+**Error Cases:**
+- 404 Not Found - No picture is uploaded, the stored object is not a valid avatar of the caller, or the bytes are unavailable.
+
+**Note:** See also `GET /users/:userId/avatar/:objectId` above, which serves only the currently selected picture and requires no auth.
 
 ---
 

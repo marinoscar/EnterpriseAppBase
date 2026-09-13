@@ -467,6 +467,7 @@ above. Don't restate any of that here; extend those three instead.
 - `PATCH /api/user-settings` - Partial update user settings
 - `POST /api/user-settings/profile-image` - Upload a profile picture (multipart, `user_settings:write`)
 - `DELETE /api/user-settings/profile-image` - Remove the uploaded profile picture (`user_settings:write`)
+- `GET /api/user-settings/profile-image` - Authenticated preview of the caller's own uploaded picture regardless of selected source (`user_settings:read`)
 - `GET /api/users/{userId}/avatar/{objectId}` - Public, same-origin stream of a user's uploaded avatar
 - `GET /api/system-settings` - Get system settings
 - `PUT /api/system-settings` - Replace system settings (Admin)
