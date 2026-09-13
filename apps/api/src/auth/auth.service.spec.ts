@@ -636,12 +636,16 @@ describe('AuthService', () => {
     });
 
     it('should prefer user display name over provider', async () => {
+      // `users.profile_image_url` is deliberately not consulted (#367) —
+      // `profileImageUrl` is resolved from `user_settings.profile` instead
+      // (see the dedicated "profileImageUrl resolution (#367)" describe
+      // block below), so this test only exercises the display-name
+      // preference and leaves settings absent.
       const mockUser = {
         id: 'user-1',
         email: 'test@example.com',
         displayName: 'Custom Name',
         providerDisplayName: 'Provider Name',
-        profileImageUrl: 'https://custom.com/photo.jpg',
         providerProfileImageUrl: 'https://provider.com/photo.jpg',
         isActive: true,
         createdAt: new Date(),
@@ -653,7 +657,6 @@ describe('AuthService', () => {
       const result = await service.getCurrentUser('user-1');
 
       expect(result.displayName).toBe('Custom Name');
-      expect(result.profileImageUrl).toBe('https://custom.com/photo.jpg');
     });
 
     it('should throw UnauthorizedException for non-existent user', async () => {

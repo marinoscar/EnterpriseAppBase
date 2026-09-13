@@ -167,6 +167,11 @@ describe('UsersService', () => {
             userRoles: {
               include: { role: true },
             },
+            // Needed to resolve `profileImageUrl` (#367) — see
+            // UsersService.updateUser.
+            userSettings: {
+              select: { value: true },
+            },
           },
         });
       });
@@ -203,6 +208,11 @@ describe('UsersService', () => {
           include: {
             userRoles: {
               include: { role: true },
+            },
+            // Needed to resolve `profileImageUrl` (#367) — see
+            // UsersService.updateUser.
+            userSettings: {
+              select: { value: true },
             },
           },
         });
@@ -295,6 +305,11 @@ describe('UsersService', () => {
           include: {
             userRoles: {
               include: { role: true },
+            },
+            // Needed to resolve `profileImageUrl` (#367) — see
+            // UsersService.listUsers.
+            userSettings: {
+              select: { value: true },
             },
           },
         });
@@ -566,6 +581,11 @@ describe('UsersService', () => {
                 providerEmail: true,
                 createdAt: true,
               },
+            },
+            // Needed to resolve `profileImageUrl` (#367) — see
+            // UsersService.getUserById.
+            userSettings: {
+              select: { value: true },
             },
           },
         });
