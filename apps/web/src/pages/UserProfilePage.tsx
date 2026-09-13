@@ -22,7 +22,7 @@ export default function UserProfilePage() {
       title="Profile"
       description="Your display name and profile image, and the email you signed in with."
     >
-      {({ settings, isSaving, save }) => (
+      {({ settings, isSaving, save, replaceSettings }) => (
         <ProfileSettings
           profile={settings.profile}
           // The stacked page's `handleProfileSave`, message for message.
@@ -32,6 +32,9 @@ export default function UserProfilePage() {
               { success: 'Profile updated', failure: 'Failed to update profile' },
             )
           }
+          // Upload/remove return the new settings document (#367); adopting it
+          // keeps the stored `version` current for the next PATCH.
+          onSettingsReplaced={replaceSettings}
           disabled={isSaving}
         />
       )}

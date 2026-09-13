@@ -358,8 +358,17 @@ export interface UserSettings {
   theme: 'light' | 'dark' | 'system';
   profile: {
     displayName?: string;
-    useProviderImage: boolean;
-    customImageUrl?: string | null;
+    /**
+     * Which picture to show (#367). `'upload'` is only accepted by PATCH once a
+     * picture has been uploaded; the upload endpoint sets it itself.
+     */
+    imageSource: ProfileImageSource;
+    /**
+     * The uploaded picture's storage object id. Kept when switching to
+     * `none`/`provider` so switching back to `upload` works; cleared only by
+     * `DELETE /api/user-settings/profile-image`. Set by the server, never PATCHed.
+     */
+    imageObjectId?: string | null;
   };
   navigation?: NavigationSettings;
   dataTables?: Record<string, DataTableSettings>;
