@@ -54,15 +54,15 @@ const SETTINGS_KEY = 'global';
 // WHAT WAS BROKEN (both write paths, independently):
 //
 //   • replaceSettings (PUT)  → `systemSettingsSchema.parse(dto)` and store the
-//     result. Zod strips unknown keys, so every key outside `{ ui, features }`
+//     result. Zod strips unknown keys, so every key outside the schema
 //     vanished from the row.
-//   • patchSettings (PATCH)  → hand-built `merged` as literally
-//     `{ ui: {...}, features: {...} }`, copying two named keys out of the
-//     current value and discarding the rest — on a PARTIAL update, where the
-//     caller had asked to change one feature flag and nothing else.
+//   • patchSettings (PATCH)  → hand-built `merged` from a fixed set of named
+//     keys copied out of the current value, discarding the rest — on a
+//     PARTIAL update, where the caller had asked to change one setting and
+//     nothing else.
 //
 // Neither produced an error, a log line, or an audit entry. The admin's action
-// ("I toggled a flag") had no visible connection to the outcome ("the thing
+// ("I changed a setting") had no visible connection to the outcome ("the thing
 // that key configured is now unconfigured").
 //
 // WHY PRESERVE RATHER THAN REJECT. The alternative on the table was to fail
@@ -71,7 +71,7 @@ const SETTINGS_KEY = 'global';
 // wrong person at the worst time. The admin who typed nothing wrong gets a
 // 4xx, the system settings page becomes unusable for everyone, and there is no
 // route back through the API: someone has to hand-edit JSONB in production to
-// restore the ability to toggle a feature flag. Worse for a repo that exists
+// restore the ability to change a setting. Worse for a repo that exists
 // to be EXTENDED: the moment a downstream app adds a key to this row, its
 // admins discover the constraint as an outage. And a deploy that rolls back
 // across the addition of a key — build N knows `branding`, build N-1 does not
@@ -80,17 +80,18 @@ const SETTINGS_KEY = 'global';
 // untouched and N finds it intact.
 //
 // WHY PUT PRESERVES TOO, WHICH LOOKS LIKE A SEMANTIC VIOLATION AND IS NOT.
-// PUT replaces the resource as REPRESENTED. `getSettings` projects exactly
-// `{ ui, features, updatedAt, updatedBy, version }`; unknown keys have never
-// been part of that representation, so no client can read them, and therefore
-// no client can echo them back in a PUT. Asking PUT to replace what GET never
-// showed would mean "every full save destroys storage the caller was not even
-// allowed to see" — which is the bug, restated. `ui` and `features` are
-// replaced wholesale exactly as before; only the invisible remainder survives.
+// PUT replaces the resource as REPRESENTED. `getSettings` projects exactly the
+// modelled namespaces plus `security`, `updatedAt`, `updatedBy` and `version`;
+// unknown keys have never been part of that representation, so no client can
+// read them, and therefore no client can echo them back in a PUT. Asking PUT to
+// replace what GET never showed would mean "every full save destroys storage
+// the caller was not even allowed to see" — which is the bug, restated. The
+// modelled namespaces are replaced as before; only the invisible remainder
+// survives.
 //
 // A MALFORMED STORED VALUE MUST NOT MAKE SETTINGS UNSAVABLE, EITHER. Same
 // argument as above, one step further: if the row holds `null`, a string, or
-// `{ ui: 42 }`, refusing the write strands the admin with a row only a manual
+// `{ notifications: 42 }`, refusing the write strands the admin with a row only a manual
 // JSONB edit can repair — the identical trap "fail loudly" would have set. So
 // every read of the column goes through `readKnownSettings`, which degrades
 // field by field to `DEFAULT_SYSTEM_SETTINGS`, and this file contains no
@@ -108,8 +109,8 @@ const SETTINGS_KEY = 'global';
 // that is not this endpoint.
 //
 // PRESERVED IS NOT THE SAME AS SUPPORTED. A preserved key round-trips through
-// storage; it does NOT appear in `GET /api/system-settings`, is not reachable
-// through `getSettingValue`, and is not validated. Adding a real setting still
+// storage; it does NOT appear in `GET /api/system-settings` and is not
+// validated. Adding a real setting still
 // means adding it to `systemSettingsSchema`, `SystemSettingsValue` and the
 // response projection. What this buys is that forgetting a step costs you a
 // missing feature instead of destroyed data. And for anything with its own
@@ -141,22 +142,22 @@ const KNOWN_TOP_LEVEL_KEYS: readonly string[] = Object.keys(
 
 /**
  * The known keys of every CLOSED nested object in the value, keyed by
- * namespace: `{ ui: ['allowUserThemeOverride'], notifications: [...], ... }`.
+ * namespace: `{ notifications: ['browserEnabled', 'disabledEvents'], ... }`.
  *
- * `ui` needed a list of its own because an unknown key inside it (say a
- * `ui.density` left behind by a rolled-back deploy) is destroyed by exactly
- * the same mechanism as an unknown TOP-LEVEL key, and must therefore get
- * exactly the same treatment. `notifications` (#225) needed a second one for
- * the same reason, and #256 would have needed four more.
+ * `notifications` (#225) needed a list of its own because an unknown key
+ * inside it (say a `notifications.digest` left behind by a rolled-back deploy)
+ * is destroyed by exactly the same mechanism as an unknown TOP-LEVEL key, and
+ * must therefore get exactly the same treatment. #256 would have needed four
+ * more.
  *
  * So it is a DERIVED MAP rather than one hand-written constant per namespace.
  * The list-per-namespace shape does not scale past the point where someone
  * adds a namespace and forgets its constant — at which point that namespace
  * silently loses unknown keys while its neighbours keep them, which is a
  * harder bug to see than the one it replaced. This asks the schema instead:
- * every `ZodObject` in the shape is closed and gets an entry; `features` is a
- * `z.record`, which is already open and cannot strip anything, so it is
- * skipped by construction rather than by being left off a list.
+ * every `ZodObject` in the shape is closed and gets an entry; a field that is
+ * not an object (an open `z.record`, say) cannot strip anything, so it would
+ * be skipped by construction rather than by being left off a list.
  *
  * ONE LEVEL DEEP, exactly as before. `jobs.history` is a closed object one
  * level further down and is NOT walked: preservation is a safety net for keys
@@ -209,8 +210,8 @@ export class SystemSettingsService {
    * Extracted so the read path and the PATCH path share one definition of
    * "the current row" — PATCH needs the RAW stored value (to see the keys the
    * projection hides), not the projection, and before #130 it had no way to
-   * ask for it: it called `getSettings()` and could only ever see `ui` and
-   * `features`. That is not incidental to the bug, it IS the bug.
+   * ask for it: it called `getSettings()` and could only ever see the modelled
+   * namespaces. That is not incidental to the bug, it IS the bug.
    */
   private async loadOrCreateRow() {
     const existing = await this.prisma.systemSettings.findUnique({
@@ -273,58 +274,40 @@ export class SystemSettingsService {
    *
    * WHY THIS EXISTS (#130 follow-up). The rule the issue settled on is that a
    * malformed stored value must not make settings unsavable: an admin whose
-   * row is `null`, or a string, or `{ ui: 42 }`, must still be able to repair
-   * it through the API. `mergePreservingUnknown` and `collectUnknownKeys` were
-   * written to honour that and do; `patchSettings` never reached them, because
-   * it first did `row.value as unknown as SystemSettingsValue` and then read
-   * `currentValue.ui.allowUserThemeOverride` straight off it. A cast is not a
-   * check — it asserts a shape nobody verified — so a `null` row threw
-   * `TypeError: Cannot read properties of null (reading 'ui')` before a single
-   * defensive line ran. PUT was unaffected only because it happens never to
+   * row is `null`, or a string, or `{ notifications: 42 }`, must still be able
+   * to repair it through the API. `mergePreservingUnknown` and
+   * `collectUnknownKeys` were written to honour that and do; `patchSettings`
+   * never reached them, because it first did `row.value as unknown as
+   * SystemSettingsValue` and then read nested fields straight off it. A cast is
+   * not a check — it asserts a shape nobody verified — so a `null` row threw
+   * `TypeError: Cannot read properties of null` before a single defensive line
+   * ran. PUT was unaffected only because it happens never to
    * touch the stored value except through the guarded helper.
    *
    * So there are no `as unknown as SystemSettingsValue` casts left in this
    * file. Every read of the column goes through here, which means the type
    * annotation is now earned rather than asserted.
    *
-   * FIELD BY FIELD, NOT ALL-OR-NOTHING. A row where only `features` is
-   * corrupt keeps its good `ui` value; a row that is wholly unusable yields
+   * FIELD BY FIELD, NOT ALL-OR-NOTHING. A row where only `jobs` is corrupt
+   * keeps its good `notifications` value; a row that is wholly unusable yields
    * `DEFAULT_SYSTEM_SETTINGS`. Degrading per field means a partially damaged
    * row loses only the damaged part, and a PATCH over it writes the caller's
    * changes on top of sane defaults — the same outcome PUT already produces.
    *
-   * NON-BOOLEAN FEATURE VALUES ARE DROPPED, and that is not in tension with
-   * preserving unknown keys. `features` is a KNOWN key whose schema is
-   * `z.record(z.string(), z.boolean())`; a non-boolean value in it cannot
-   * survive `systemSettingsSchema.parse` under any code path, so carrying it
-   * into `merged` would only convert the old TypeError into a ZodError and
-   * leave the row just as unrepairable. Genuinely unknown keys — top level or
-   * inside `ui` — are untouched here and still carried forward verbatim by
-   * `mergePreservingUnknown`, which reads the RAW value, not this projection.
+   * INVALID VALUES OF KNOWN KEYS ARE DROPPED, and that is not in tension with
+   * preserving unknown keys. A value of a KNOWN key that fails its schema
+   * cannot survive `systemSettingsSchema.parse` under any code path, so
+   * carrying it into `merged` would only convert the old TypeError into a
+   * ZodError and leave the row just as unrepairable. Genuinely unknown keys —
+   * top level or inside a closed namespace — are untouched here and still
+   * carried forward verbatim by `mergePreservingUnknown`, which reads the RAW
+   * value, not this projection.
    */
   private readKnownSettings(stored: unknown): SystemSettingsValue {
     const root = this.asPlainObject(stored);
-    const storedUi = this.asPlainObject(root?.ui);
-    const storedFeatures = this.asPlainObject(root?.features);
     const storedNotifications = this.asPlainObject(root?.notifications);
 
-    const features: Record<string, boolean> = {};
-    if (storedFeatures) {
-      for (const [key, value] of Object.entries(storedFeatures)) {
-        if (typeof value === 'boolean') {
-          features[key] = value;
-        }
-      }
-    }
-
     return {
-      ui: {
-        allowUserThemeOverride:
-          typeof storedUi?.allowUserThemeOverride === 'boolean'
-            ? storedUi.allowUserThemeOverride
-            : DEFAULT_SYSTEM_SETTINGS.ui.allowUserThemeOverride,
-      },
-      features,
       notifications: {
         browserEnabled:
           typeof storedNotifications?.browserEnabled === 'boolean'
@@ -365,8 +348,8 @@ export class SystemSettingsService {
    * Project one stored namespace down to something its schema will accept,
    * field by field, falling back to that namespace's defaults (#256).
    *
-   * WHY A HELPER AND NOT FOUR MORE LADDERS. `ui` and `notifications` are read
-   * by hand above because they are two fields each; the four operations
+   * WHY A HELPER AND NOT FOUR MORE LADDERS. `notifications` is read by hand
+   * above because it is two fields; the four operations
    * namespaces are twenty-three between them, and twenty-three hand-written
    * `typeof x === 'number' ? x : DEFAULT...` lines is twenty-three chances to
    * name the wrong default. This asks each field's own schema instead, so the
@@ -411,7 +394,7 @@ export class SystemSettingsService {
    * Project a stored `notifications.disabledEvents` down to something
    * `systemSettingsSchema` will accept (#225).
    *
-   * Same argument as "NON-BOOLEAN FEATURE VALUES ARE DROPPED" above, one level
+   * Same argument as "INVALID VALUES OF KNOWN KEYS ARE DROPPED" above, one level
    * deeper. `notifications` is a KNOWN key, so whatever this returns is handed
    * straight to `systemSettingsSchema.parse` — an entry that fails the event-key
    * pattern, or an array longer than the cap, would convert a repairable row
@@ -473,7 +456,7 @@ export class SystemSettingsService {
    * Spread order is load-bearing. The unknown keys go FIRST so that `validated`
    * always wins: if a key is known, the caller's (validated) value is
    * authoritative and the stored one is replaced, which is what preserves the
-   * existing behaviour of `ui` and `features` byte for byte. The unknown keys
+   * existing behaviour of every modelled namespace byte for byte. The unknown keys
    * can only ever fill slots `validated` does not occupy.
    *
    * Returns the preserved paths alongside the value so the caller can put them
@@ -528,7 +511,7 @@ export class SystemSettingsService {
   /**
    * Report preserved keys once per write, on the log line and in the audit
    * meta. Omitted entirely when there is nothing to report so the audit rows
-   * of a normal deployment (where `ui` and `features` are all there is) stay
+   * of a normal deployment (where the modelled namespaces are all there is) stay
    * exactly as they were.
    */
   private reportPreserved(operation: string, preservedPaths: string[]) {
@@ -608,8 +591,6 @@ export class SystemSettingsService {
     const value = this.readKnownSettings(row.value);
 
     return {
-      ui: value.ui,
-      features: value.features,
       notifications: value.notifications,
       // #256. Part of the represented resource from the day the namespaces
       // exist, not from the day a UI reads them: a block a client cannot GET is
@@ -661,9 +642,8 @@ export class SystemSettingsService {
    *   2. IT RETURNS ONLY THIS BLOCK. `GET /api/system-settings` is gated on
    *      `system_settings:read`, which a Viewer does not hold, and widening
    *      that permission so a Viewer's browser can learn whether toasts are
-   *      enabled would hand every account the whole settings blob — including
-   *      the open `features` map that downstream forks fill with operational
-   *      flags. `GET /api/notifications/config` exists precisely so the answer
+   *      enabled would hand every account the whole settings blob.
+   *      `GET /api/notifications/config` exists precisely so the answer
    *      can be published without the rest of the row; see its handler.
    *
    * Degrades exactly as every other read here does: a missing row, a `null`
@@ -731,7 +711,7 @@ export class SystemSettingsService {
    *      nobody asked for, on a path with no request to attribute it to.
    *   2. IT RETURNS ONLY THIS BLOCK. The reaper needs one integer and the
    *      purge needs two values; neither has any business holding the whole
-   *      settings blob, including the open `features` map.
+   *      settings blob.
    *   3. IT IS THE ONE READ PATH FOR THESE VALUES. `JobStuckService` and
    *      `JobHistoryPurgeHandler` both call this rather than reaching into
    *      `system_settings` themselves, so "where does the threshold come
@@ -767,7 +747,7 @@ export class SystemSettingsService {
    *      to attribute it to.
    *   2. IT RETURNS ONLY THIS BLOCK. The sweep needs two integers and the
    *      prune needs one; neither has any business holding the whole settings
-   *      blob, including the open `features` map.
+   *      blob.
    *   3. IT IS THE ONE READ PATH FOR THESE VALUES. `NodeLifecycleService` is
    *      the only caller and every consumer goes through it, so "which stale
    *      window is this?" has exactly one answer. That matters more here than
@@ -806,8 +786,8 @@ export class SystemSettingsService {
    *      a write nobody asked for — and it would happen on every tick of a
    *      deployment that has backups switched off.
    *   2. IT RETURNS ONLY THIS BLOCK. The runner needs three numbers and a
-   *      provider name; handing it the whole settings blob, including the open
-   *      `features` map, widens what a background process holds for no reason.
+   *      provider name; handing it the whole settings blob widens what a
+   *      background process holds for no reason.
    *   3. IT IS THE ONE READ PATH FOR THESE VALUES. `compressionLevel` reaches
    *      `pg_dump`'s argv and `runStaleMinutes` becomes the dump's SIGKILL
    *      deadline; a second read path is how the schedule an operator sees and
@@ -845,9 +825,9 @@ export class SystemSettingsService {
     // completed with `DEFAULT_SYSTEM_SETTINGS` for anything storage lacks.
     //
     // This is what keeps "optional on the wire" from meaning "reset by
-    // omission". `ui`, `features` and `notifications` are untouched by this
-    // loop and are replaced wholesale exactly as they always were: they are
-    // required on the wire, so they can never be absent here. See
+    // omission". `notifications` is untouched by this loop and is replaced
+    // wholesale exactly as it always was: it is required on the wire, so it can
+    // never be absent here. See
     // `OMITTABLE_ON_PUT`, and `updateSystemSettingsSchema` for why any
     // namespace is omittable at all.
     const body = dto as unknown as Record<string, unknown>;
@@ -864,8 +844,8 @@ export class SystemSettingsService {
     const validated = systemSettingsSchema.parse(filled);
 
     // Read-then-write, unguarded, exactly as PATCH has always been: two
-    // simultaneous PUTs can still race, and the loser's `ui`/`features` lose
-    // as they always did. The race window is not widened for the preserved
+    // simultaneous PUTs can still race, and the loser's changes lose as they
+    // always did. The race window is not widened for the preserved
     // keys in any way that matters, because both racers read the same
     // untouched unknown keys and write them back identically.
     const { value, preservedPaths } = this.mergePreservingUnknown(
@@ -919,8 +899,7 @@ export class SystemSettingsService {
     // Normalise ONCE, through the guarded accessor, before anything is
     // dereferenced. This line used to be `row.value as unknown as
     // SystemSettingsValue` — a cast, not a check — and the hand-built `merged`
-    // below then read `.ui.allowUserThemeOverride` and spread `.features`
-    // straight off it, so a `null` (or string, or array) row threw a TypeError
+    // below then read nested fields straight off it, so a `null` (or string, or array) row threw a TypeError
     // before `mergePreservingUnknown`'s guards could run. PATCH is now exactly
     // as tolerant as PUT already was: unusable stored fields become defaults,
     // the caller's changes land on top, and the row becomes repairable through
@@ -942,21 +921,9 @@ export class SystemSettingsService {
       );
     }
 
-    // Deep merge with existing settings. The known namespaces are merged
-    // exactly as before — `ui` field by field, `features` by spread, so a
-    // partial `features` patch still adds to rather than replaces the map.
+    // Deep merge with existing settings, namespace by namespace.
     const merged: SystemSettingsValue = {
-      ui: {
-        allowUserThemeOverride:
-          dto.ui?.allowUserThemeOverride ??
-          currentValue.ui.allowUserThemeOverride,
-      },
-      features: {
-        ...currentValue.features,
-        ...(dto.features || {}),
-      },
-      // Field by field like `ui`, NOT by spread like `features` — and
-      // `disabledEvents` is therefore REPLACED wholesale when the caller sends
+      // Field by field, NOT by spread — and `disabledEvents` is therefore REPLACED wholesale when the caller sends
       // one. That is RFC 7396's rule for arrays and the only usable semantics
       // here: a merged list could only ever grow, so the admin page's "stop
       // suppressing this event" would have no way to say so.
@@ -972,7 +939,7 @@ export class SystemSettingsService {
       // Operations namespaces (#256, epic #254)
       // -----------------------------------------------------------------------
       //
-      // Written out field by field like `ui` and `notifications`, and NOT with
+      // Written out field by field like `notifications`, and NOT with
       // a spread, because there is deliberately no generic deep merge in this
       // service. A generic one would have to guess: whether an array replaces
       // or concatenates (`disabledEvents` above settles that it replaces), and
@@ -1099,36 +1066,6 @@ export class SystemSettingsService {
     this.logger.log(`System settings patched by user: ${userId}`);
 
     return this.toResponse(settings);
-  }
-
-  /**
-   * Get a specific setting value
-   *
-   * Walks the PROJECTION, so it can only reach `ui` and `features` — a
-   * preserved-but-unknown key is not addressable here. That is intentional:
-   * this helper is a typed accessor for modelled settings, and letting it
-   * return unvalidated blob contents would make "preserved" look like
-   * "supported". See the header.
-   */
-  async getSettingValue<T>(path: string): Promise<T | undefined> {
-    const settings = await this.getSettings();
-    const parts = path.split('.');
-
-    let value: any = settings;
-    for (const part of parts) {
-      value = value?.[part];
-      if (value === undefined) break;
-    }
-
-    return value as T;
-  }
-
-  /**
-   * Check if a feature flag is enabled
-   */
-  async isFeatureEnabled(featureName: string): Promise<boolean> {
-    const settings = await this.getSettings();
-    return settings.features[featureName] ?? false;
   }
 
   /**

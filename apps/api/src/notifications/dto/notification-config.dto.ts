@@ -20,12 +20,10 @@ import { z } from 'zod';
 // who cannot read it.
 //
 // REJECTED — granting `system_settings:read` to `viewer`. It is one seed line
-// and it is the wrong line. That permission returns the WHOLE settings blob,
-// including the open `features` map that this repository deliberately leaves
-// for downstream forks to fill with their own operational flags — so a fork's
-// unreleased-feature switches, kill switches and rollout percentages would
-// become readable by every account the day someone wanted a browser
-// notification to behave. A capability probe should hand out the capability,
+// and it is the wrong line. That permission returns the WHOLE settings blob —
+// job, fleet, backup and maintenance policy, plus anything a fork adds to it —
+// so all of that would become readable by every account the day someone
+// wanted a browser notification to behave. A capability probe should hand out the capability,
 // not the configuration behind it.
 //
 // So: a narrow, purpose-built projection, readable by any authenticated user,

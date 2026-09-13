@@ -74,15 +74,10 @@ export const MAX_DISABLED_NOTIFICATION_EVENTS =
 /**
  * Deployment-wide browser-notification policy.
  *
- * WHY THIS IS A MODELLED BLOCK AND NOT A KEY IN `features` (#225). `features`
- * is `z.record(z.string(), z.boolean())` — no shape, no default, no place to
- * write down what any particular key means — and it is deliberately owned by
- * downstream forks to fill with their own operational flags. This gate is
- * neither of those things: it is framework-level and security-adjacent (an
- * operator turning off a delivery channel for everyone, or silencing one noisy
- * event), so it gets a real type, a real default, and somewhere for its
- * semantics to live. Putting it in `features` would also collide with a fork's
- * own flag namespace the first time someone picked the same string.
+ * WHY THIS IS A MODELLED BLOCK (#225). This gate is framework-level and
+ * security-adjacent (an operator turning off a delivery channel for everyone,
+ * or silencing one noisy event), so it gets a real type, a real default, and
+ * somewhere for its semantics to live — not an untyped flag in an open map.
  *
  * WHAT ENFORCES IT (#226). Three consumers, all reading through
  * `notifications/notification-policy.ts`, which is the only place these two
@@ -385,10 +380,6 @@ export const systemMaintenancePatchSchema = z.object({
 });
 
 export const systemSettingsSchema = z.object({
-  ui: z.object({
-    allowUserThemeOverride: z.boolean(),
-  }),
-  features: z.record(z.string(), z.boolean()),
   notifications: systemNotificationsSchema,
   // Operations namespaces (#256, epic #254). REQUIRED, because this schema
   // describes the value as STORED and the stored value is always complete:
@@ -405,10 +396,6 @@ export type SystemSettingsDto = z.infer<typeof systemSettingsSchema>;
 
 // Partial schema for PATCH operations (zod v4: deepPartial removed, use manual deep partial)
 export const systemSettingsPatchSchema = z.object({
-  ui: z.object({
-    allowUserThemeOverride: z.boolean().optional(),
-  }).optional(),
-  features: z.record(z.string(), z.boolean()).optional(),
   // `disabledEvents` REPLACES wholesale rather than merging, which is both RFC
   // 7396's rule for arrays and the only sane one here: a merge has no way to
   // express "re-enable this event", so a patch that could only ever add would
