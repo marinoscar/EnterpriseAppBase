@@ -338,6 +338,53 @@ describe('pushChannelState', () => {
     expect(state.alert?.body.toLowerCase()).not.toContain('browser settings');
     expect(state.alert?.body.toLowerCase()).not.toContain('block');
   });
+
+  // ===========================================================================
+  // Issue #365: pushEnabled is now real, and the second `browserCapability`
+  // argument reports whether THIS device is actually ready to receive a push
+  // (per-account preference, per-device readiness - see the function's own
+  // header). None of the tests above ever pass a second argument, so they
+  // also double as regression coverage that the parameter is optional and
+  // defaults to "assume ready" (`browserCapability === undefined`).
+  // ===========================================================================
+
+  describe('device readiness (#365, second argument)', () => {
+    it('never disabled once pushEnabled is true, regardless of device capability', () => {
+      for (const capability of ['default', 'denied', 'sw-unavailable', 'granted', 'ios-needs-install'] as const) {
+        expect(pushChannelState(true, capability).disabled).toBe(false);
+      }
+    });
+
+    it('notes "Not enabled on this device" when granted is neither granted nor sw-unavailable', () => {
+      for (const capability of ['default', 'denied', 'ios-needs-install', 'admin-disabled', 'insecure-context', 'unsupported'] as const) {
+        expect(pushChannelState(true, capability).note).toBe('Not enabled on this device');
+      }
+    });
+
+    it('has no note when the device capability is granted', () => {
+      expect(pushChannelState(true, 'granted').note).toBeNull();
+    });
+
+    it('has no note when the device capability is sw-unavailable - degraded delivery still counts as "enabled here"', () => {
+      expect(pushChannelState(true, 'sw-unavailable').note).toBeNull();
+    });
+
+    it('has no note when no capability is passed at all - the safe "assume ready" default', () => {
+      expect(pushChannelState(true).note).toBeNull();
+      expect(pushChannelState(true, undefined).note).toBeNull();
+    });
+
+    it('never adds a banner alert for the device-readiness note - the remedy lives in the permission banners, not a second alert here', () => {
+      expect(pushChannelState(true, 'default').alert).toBeNull();
+      expect(pushChannelState(true, 'denied').alert).toBeNull();
+    });
+
+    it('pushEnabled: false ignores the device capability entirely - still disabled, still "Not available yet"', () => {
+      const withoutCapability = pushChannelState(false);
+      const withCapability = pushChannelState(false, 'granted');
+      expect(withCapability).toEqual(withoutCapability);
+    });
+  });
 });
 
 describe('NotificationSettings component', () => {
@@ -846,6 +893,48 @@ describe('NotificationSettings component', () => {
       ).not.toBeDisabled();
       expect(
         screen.queryByText('Push notifications are not available yet'),
+      ).not.toBeInTheDocument();
+    });
+
+    // ==========================================================================
+    // Issue #365: the account preference (`pushEnabled`) and this device's own
+    // readiness (`browserCapability`) are independent axes. These use the
+    // correct `browserCapability` prop (the ones above in this describe block
+    // pass a nonexistent `browserPermission` prop, which does not affect
+    // `NotificationSettings` at all - it silently falls through to the
+    // component's `browserCapability` default of `undefined`).
+    // ==========================================================================
+
+    it('shows "Not enabled on this device" beside the push switch when pushEnabled but this device has not granted permission', () => {
+      render(
+        <NotificationSettings
+          events={[PUSH_CAPABLE]}
+          preferences={undefined}
+          onToggle={onToggle}
+          browserCapability="default"
+          pushEnabled
+        />,
+      );
+
+      expect(
+        screen.getByRole('switch', { name: /push notifications for synthetic push event/i }),
+      ).not.toBeDisabled();
+      expect(screen.getByText('Not enabled on this device')).toBeInTheDocument();
+    });
+
+    it('shows no device-readiness note when pushEnabled and this device has granted permission', () => {
+      render(
+        <NotificationSettings
+          events={[PUSH_CAPABLE]}
+          preferences={undefined}
+          onToggle={onToggle}
+          browserCapability="granted"
+          pushEnabled
+        />,
+      );
+
+      expect(
+        screen.queryByText('Not enabled on this device'),
       ).not.toBeInTheDocument();
     });
 
