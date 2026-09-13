@@ -6,7 +6,9 @@ export const userResponseSchema = z.object({
   email: z.string().email(),
   displayName: z.string().nullable(),
   providerDisplayName: z.string().nullable(),
-  profileImageUrl: z.string().url().nullable(),
+  // Resolved from the user's `profile.imageSource` (#367): null, the provider
+  // URL, or a root-relative avatar path — hence not `.url()`.
+  profileImageUrl: z.string().nullable(),
   providerProfileImageUrl: z.string().url().nullable(),
   isActive: z.boolean(),
   roles: z.array(z.string()),

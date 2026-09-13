@@ -40,11 +40,32 @@ export class CurrentUserDto {
 
   @ApiProperty({
     type: String,
-    example: 'https://example.com/avatar.jpg',
-    description: 'Profile image URL (computed from override or provider)',
+    example: '/api/users/123e4567-e89b-12d3-a456-426614174000/avatar/0b6f1c2e-7a53-4a8e-9d0c-2f6a1e9b7c11',
+    description:
+      'The picture representing the user, resolved from `profile.imageSource`: null for ' +
+      '`none`, the provider picture for `provider`, or the same-origin avatar path for ' +
+      '`upload`. May be an absolute URL or a root-relative path.',
     nullable: true,
   })
   profileImageUrl!: string | null;
+
+  @ApiProperty({
+    type: String,
+    example: 'https://lh3.googleusercontent.com/a/example',
+    description: 'The OAuth provider picture, regardless of the selected source',
+    nullable: true,
+  })
+  providerProfileImageUrl!: string | null;
+
+  @ApiProperty({
+    type: String,
+    example: '/api/users/123e4567-e89b-12d3-a456-426614174000/avatar/0b6f1c2e-7a53-4a8e-9d0c-2f6a1e9b7c11',
+    description:
+      'Same-origin path of the uploaded picture (`profile.imageObjectId`), regardless of the ' +
+      'selected source; null when none is uploaded. Served only while `upload` is selected.',
+    nullable: true,
+  })
+  uploadedProfileImageUrl!: string | null;
 
   @ApiProperty({
     example: true,

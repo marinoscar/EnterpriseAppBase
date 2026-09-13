@@ -13,6 +13,10 @@ import { AllowlistService } from '../allowlist/allowlist.service';
 import { DatabaseSeedException } from '../common/exceptions/database-seed.exception';
 import { DEFAULT_ROLE } from '../common/constants/roles.constants';
 import { DEFAULT_USER_SETTINGS } from '../common/types/settings.types';
+import {
+  resolveProfileImageUrl,
+  uploadedProfileImageUrl,
+} from '../common/profile-image/profile-image';
 import { GoogleProfile } from './strategies/google.strategy';
 import { JwtPayload } from './strategies/jwt.strategy';
 import { AuthenticatedUser } from './interfaces/authenticated-user.interface';
@@ -652,6 +656,9 @@ export class AuthService {
             },
           },
         },
+        userSettings: {
+          select: { value: true },
+        },
       },
     });
 
@@ -662,9 +669,15 @@ export class AuthService {
     // Compute display name (override takes precedence)
     const displayName = user.displayName || user.providerDisplayName || null;
 
-    // Compute profile image URL (override takes precedence)
-    const profileImageUrl =
-      user.profileImageUrl || user.providerProfileImageUrl || null;
+    // Profile image (#367): resolved from `profile.imageSource`. The unused
+    // `users.profile_image_url` column is deliberately not consulted. The
+    // provider and uploaded URLs are exposed too, so the settings UI can
+    // preview each option whichever one is selected.
+    const storedProfile = (
+      user.userSettings?.value as { profile?: unknown } | null | undefined
+    )?.profile;
+    const profileImageUrl = resolveProfileImageUrl(user, storedProfile);
+    const uploadedImageUrl = uploadedProfileImageUrl(user.id, storedProfile);
 
     // Extract roles
     const roles = user.userRoles.map((ur) => ({
@@ -685,6 +698,8 @@ export class AuthService {
       email: user.email,
       displayName,
       profileImageUrl,
+      providerProfileImageUrl: user.providerProfileImageUrl ?? null,
+      uploadedProfileImageUrl: uploadedImageUrl,
       isActive: user.isActive,
       roles,
       permissions,
