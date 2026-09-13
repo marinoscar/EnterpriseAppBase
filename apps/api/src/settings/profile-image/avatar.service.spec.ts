@@ -232,4 +232,174 @@ describe('AvatarService (#367)', () => {
     expect(noSettingsMessage).toBe(wrongSourceMessage);
     expect(noSettingsMessage).toBe(malformedIdMessage);
   });
+
+  // ===========================================================================
+  // openStored — the authenticated preview (issue #367 follow-up)
+  // ===========================================================================
+  describe('openStored', () => {
+    it('serves the stored upload when imageSource is "none" (the core new behavior)', async () => {
+      mockPrisma.userSettings.findUnique.mockResolvedValue({
+        value: {
+          profile: { imageSource: 'none', imageObjectId: objectId },
+        },
+      } as any);
+      mockPrisma.storageObject.findUnique.mockResolvedValue(validObject as any);
+      const stream = Readable.from(['bytes']);
+      mockStorageProvider.download.mockResolvedValue(stream);
+
+      const result = await service.openStored(userId);
+
+      expect(result.stream).toBe(stream);
+      expect(result.mimeType).toBe('image/png');
+      expect(result.size).toBe(BigInt(1234));
+      expect(mockStorageProvider.download).toHaveBeenCalledWith(
+        validObject.storageKey,
+      );
+    });
+
+    it('serves the stored upload when imageSource is "provider" but an imageObjectId is set', async () => {
+      mockPrisma.userSettings.findUnique.mockResolvedValue({
+        value: {
+          profile: { imageSource: 'provider', imageObjectId: objectId },
+        },
+      } as any);
+      mockPrisma.storageObject.findUnique.mockResolvedValue(validObject as any);
+      mockStorageProvider.download.mockResolvedValue(Readable.from(['bytes']));
+
+      const result = await service.openStored(userId);
+
+      expect(result.mimeType).toBe('image/png');
+    });
+
+    it('serves the stored upload when imageSource is "upload" with a matching imageObjectId', async () => {
+      mockPrisma.userSettings.findUnique.mockResolvedValue({
+        value: {
+          profile: { imageSource: 'upload', imageObjectId: objectId },
+        },
+      } as any);
+      mockPrisma.storageObject.findUnique.mockResolvedValue(validObject as any);
+      mockStorageProvider.download.mockResolvedValue(Readable.from(['bytes']));
+
+      const result = await service.openStored(userId);
+
+      expect(result.mimeType).toBe('image/png');
+    });
+
+    it('404s when no imageObjectId is stored', async () => {
+      mockPrisma.userSettings.findUnique.mockResolvedValue({
+        value: { profile: { imageSource: 'none', imageObjectId: null } },
+      } as any);
+
+      await expect(service.openStored(userId)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      expect(mockPrisma.storageObject.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('404s when the user has no settings row at all', async () => {
+      mockPrisma.userSettings.findUnique.mockResolvedValue(null);
+
+      await expect(service.openStored(userId)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      expect(mockPrisma.storageObject.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('404s when the referenced storage object cannot be found', async () => {
+      mockPrisma.userSettings.findUnique.mockResolvedValue({
+        value: { profile: { imageSource: 'none', imageObjectId: objectId } },
+      } as any);
+      mockPrisma.storageObject.findUnique.mockResolvedValue(null);
+
+      await expect(service.openStored(userId)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      expect(mockStorageProvider.download).not.toHaveBeenCalled();
+    });
+
+    it('404s when the object belongs to a different user', async () => {
+      mockPrisma.userSettings.findUnique.mockResolvedValue({
+        value: { profile: { imageSource: 'none', imageObjectId: objectId } },
+      } as any);
+      mockPrisma.storageObject.findUnique.mockResolvedValue({
+        ...validObject,
+        uploadedById: 'someone-else',
+      } as any);
+
+      await expect(service.openStored(userId)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      expect(mockStorageProvider.download).not.toHaveBeenCalled();
+    });
+
+    it('404s when the object has the wrong storage key prefix', async () => {
+      mockPrisma.userSettings.findUnique.mockResolvedValue({
+        value: { profile: { imageSource: 'none', imageObjectId: objectId } },
+      } as any);
+      mockPrisma.storageObject.findUnique.mockResolvedValue({
+        ...validObject,
+        storageKey: `uploads/${userId}/pic.png`,
+      } as any);
+
+      await expect(service.openStored(userId)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+
+    it('404s when the object metadata purpose is not "avatar"', async () => {
+      mockPrisma.userSettings.findUnique.mockResolvedValue({
+        value: { profile: { imageSource: 'none', imageObjectId: objectId } },
+      } as any);
+      mockPrisma.storageObject.findUnique.mockResolvedValue({
+        ...validObject,
+        metadata: { purpose: 'other' },
+      } as any);
+
+      await expect(service.openStored(userId)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+
+    it('404s when storageProvider.download() throws', async () => {
+      mockPrisma.userSettings.findUnique.mockResolvedValue({
+        value: { profile: { imageSource: 'none', imageObjectId: objectId } },
+      } as any);
+      mockPrisma.storageObject.findUnique.mockResolvedValue(validObject as any);
+      mockStorageProvider.download.mockRejectedValue(new Error('NoSuchKey'));
+
+      await expect(service.openStored(userId)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+
+    it('404s on a malformed (non-uuid) userId', async () => {
+      await expect(service.openStored('not-a-uuid')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      expect(mockPrisma.userSettings.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('every 404 case carries the identical message', async () => {
+      mockPrisma.userSettings.findUnique.mockResolvedValue({
+        value: { profile: { imageSource: 'none', imageObjectId: null } },
+      } as any);
+      let noObjectIdMessage: string | undefined;
+      try {
+        await service.openStored(userId);
+      } catch (error) {
+        noObjectIdMessage = (error as NotFoundException).message;
+      }
+
+      let malformedIdMessage: string | undefined;
+      try {
+        await service.openStored('not-a-uuid');
+      } catch (error) {
+        malformedIdMessage = (error as NotFoundException).message;
+      }
+
+      expect(noObjectIdMessage).toBeDefined();
+      expect(noObjectIdMessage).toBe(malformedIdMessage);
+      expect(noObjectIdMessage).toBe('Not found');
+    });
+  });
 });
