@@ -1,7 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { server } from '../mocks/server';
-import { api, ApiError, uploadProfileImage, deleteProfileImage } from '../../services/api';
+import {
+  api,
+  ApiError,
+  uploadProfileImage,
+  deleteProfileImage,
+  fetchProfileImagePreview,
+} from '../../services/api';
 
 describe('ApiService', () => {
   beforeEach(() => {
@@ -348,6 +354,140 @@ describe('ApiService', () => {
       expect(called).toBe(true);
       expect(result.profileImageUrl).toBeNull();
       expect(result.settings.profile.imageSource).toBe('provider');
+    });
+  });
+
+  // MSW/undici's `Response.blob()` in this environment can return an instance
+  // of Node's OWN `buffer.Blob`, a different realm/constructor than jsdom's
+  // global `Blob` — so `toBeInstanceOf(Blob)` is unreliable here even though
+  // the value genuinely behaves like one. Duck-type instead.
+  function isBlobLike(value: unknown): value is Blob {
+    return (
+      typeof value === 'object' &&
+      value !== null &&
+      typeof (value as Blob).size === 'number' &&
+      typeof (value as Blob).text === 'function' &&
+      typeof (value as Blob).arrayBuffer === 'function'
+    );
+  }
+
+  describe('getBlob / fetchProfileImagePreview (#367)', () => {
+    it('should return the response body as a Blob, not parsed JSON', async () => {
+      server.use(
+        http.get('*/api/user-settings/profile-image', () => {
+          // A raw `Blob` body throws inside undici's `Response` construction in
+          // this environment (`extractBody`/`object.stream is not a function`);
+          // a plain string body with an explicit Content-Type produces the same
+          // client-side `Blob` via `response.blob()` without that crash.
+          return new HttpResponse('image-bytes', {
+            headers: { 'Content-Type': 'image/png' },
+          });
+        }),
+      );
+
+      const result = await api.getBlob('/user-settings/profile-image');
+
+      expect(isBlobLike(result)).toBe(true);
+      expect(result.type).toBe('image/png');
+      expect(await result.text()).toBe('image-bytes');
+    });
+
+    it('should send the bearer token on a getBlob request', async () => {
+      let authHeader: string | null = null;
+
+      server.use(
+        http.get('*/api/user-settings/profile-image', ({ request }) => {
+          authHeader = request.headers.get('Authorization');
+          return new HttpResponse('bytes', {
+            headers: { 'Content-Type': 'image/png' },
+          });
+        }),
+      );
+
+      api.setAccessToken('test-token');
+      await api.getBlob('/user-settings/profile-image');
+
+      expect(authHeader).toBe('Bearer test-token');
+    });
+
+    it('should refresh the token and retry a getBlob request on 401, returning a Blob', async () => {
+      let callCount = 0;
+      let lastAuthHeader: string | null = null;
+
+      server.use(
+        http.get('*/api/user-settings/profile-image', ({ request }) => {
+          callCount++;
+          lastAuthHeader = request.headers.get('Authorization');
+          if (callCount === 1) {
+            return new HttpResponse(null, { status: 401 });
+          }
+          return new HttpResponse('retried-bytes', {
+            headers: { 'Content-Type': 'image/png' },
+          });
+        }),
+        http.post('*/api/auth/refresh', () => {
+          return HttpResponse.json({ accessToken: 'refreshed-token', expiresIn: 900 });
+        }),
+      );
+
+      api.setAccessToken('expired-token');
+      const result = await api.getBlob('/user-settings/profile-image');
+
+      expect(isBlobLike(result)).toBe(true);
+      expect(await result.text()).toBe('retried-bytes');
+      expect(callCount).toBe(2);
+      expect(lastAuthHeader).toBe('Bearer refreshed-token');
+    });
+
+    it('should throw an ApiError (not return a Blob) on a 404 error body', async () => {
+      server.use(
+        http.get('*/api/user-settings/profile-image', () => {
+          return HttpResponse.json(
+            { message: 'No uploaded picture', code: 'NOT_FOUND' },
+            { status: 404 },
+          );
+        }),
+      );
+
+      await expect(api.getBlob('/user-settings/profile-image')).rejects.toThrow(ApiError);
+
+      try {
+        await api.getBlob('/user-settings/profile-image');
+      } catch (error) {
+        expect(error).toBeInstanceOf(ApiError);
+        expect((error as ApiError).status).toBe(404);
+        expect((error as ApiError).message).toBe('No uploaded picture');
+      }
+    });
+
+    it('fetchProfileImagePreview should GET /user-settings/profile-image and resolve a Blob', async () => {
+      let requestedPath = '';
+
+      server.use(
+        http.get('*/api/user-settings/profile-image', ({ request }) => {
+          requestedPath = new URL(request.url).pathname;
+          return new HttpResponse('preview-bytes', {
+            headers: { 'Content-Type': 'image/jpeg' },
+          });
+        }),
+      );
+
+      const result = await fetchProfileImagePreview();
+
+      expect(requestedPath).toBe('/api/user-settings/profile-image');
+      expect(isBlobLike(result)).toBe(true);
+      expect(await result.text()).toBe('preview-bytes');
+    });
+
+    it('fetchProfileImagePreview should reject with an ApiError on 404 (no stored picture)', async () => {
+      server.use(
+        http.get('*/api/user-settings/profile-image', () => {
+          return HttpResponse.json({ message: 'Not found', code: 'NOT_FOUND' }, { status: 404 });
+        }),
+      );
+
+      await expect(fetchProfileImagePreview()).rejects.toThrow(ApiError);
+      await expect(fetchProfileImagePreview()).rejects.toMatchObject({ status: 404 });
     });
   });
 

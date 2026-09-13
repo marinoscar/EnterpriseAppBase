@@ -94,7 +94,7 @@ describe('ImageUpload', () => {
       await userEvent.upload(input, file);
 
       await waitFor(() => {
-        expect(onUploaded).toHaveBeenCalledWith(successResult);
+        expect(onUploaded).toHaveBeenCalledWith(successResult, expect.any(File));
       });
       expect(mockUpload).toHaveBeenCalledTimes(1);
       expect(mockUpload).toHaveBeenCalledWith(expect.any(File));
