@@ -44,8 +44,9 @@
  * backup with a typo and no benefit; the second is the sweep threshold that
  * decides when an unheard-from run is called `stale`, which is an internal
  * timing constant rather than a policy an operator has a view on. Both remain
- * editable through Admin → General → Advanced (JSON), which is exactly what
- * that page is for.
+ * writable through the API — `PATCH /api/system-settings` with a
+ * `databaseBackup` body — for the rare operator who genuinely needs to change
+ * them; there is deliberately no form field for either.
  */
 
 import { useEffect, useState } from 'react';

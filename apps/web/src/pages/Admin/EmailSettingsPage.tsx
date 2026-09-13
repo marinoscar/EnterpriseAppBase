@@ -8,8 +8,8 @@
  * the Console rail and the compact AppBar title all pick it up from that single
  * declaration — see `docs/specs/settings-ui.md`.
  *
- * WHY THIS DOES NOT USE `SystemSettingsSection` (the render-prop wrapper the
- * four sibling admin pages share). That component is bound to
+ * WHY THIS DOES NOT USE `SystemSettingsSection` (the render-prop wrapper
+ * `NotificationSettingsPage` uses). That component is bound to
  * `useSystemSettings`: it loads THE system settings document, saves one branch
  * of it by PATCH, and hands the page a non-null `SystemSettings`. Email is a
  * different controller with a different document and a save contract this page
