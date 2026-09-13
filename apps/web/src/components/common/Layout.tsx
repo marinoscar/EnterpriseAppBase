@@ -2,6 +2,8 @@ import { Box, useMediaQuery, useTheme } from '@mui/material';
 import { Outlet } from 'react-router-dom';
 import { AppBar } from '../navigation/AppBar';
 import { MaintenanceBanner } from './MaintenanceBanner';
+import { NotificationPermissionBanner } from '../notifications/NotificationPermissionBanner';
+import { usePushSubscriptionSync } from '../../hooks/usePushSubscriptionSync';
 import { NavigationRail } from '../navigation/NavigationRail';
 import { BottomNav } from '../navigation/BottomNav';
 
@@ -58,6 +60,11 @@ export function Layout() {
   // compiling. If you change one number here, change all five.
   const showRail = useMediaQuery(theme.breakpoints.up('sm'));
 
+  // Issue #365. Mounted HERE, once, because the shell exists exactly for an
+  // authenticated user: auto-prompts for notification permission when push is
+  // on, and keeps this device's push subscription registered on every load.
+  const pushSync = usePushSubscriptionSync();
+
   return (
     <Box
       sx={{
@@ -108,6 +115,15 @@ export function Layout() {
               for anyone without `system_settings:read` and whenever no window
               is open, which is every viewer on every ordinary day. */}
           <MaintenanceBanner />
+          {/* Issue #365. Fed by the shell's single `usePushSubscriptionSync`
+              mount above; renders nothing unless this device still needs to
+              allow (or unblock, or install for) notifications. */}
+          <NotificationPermissionBanner
+            config={pushSync.config}
+            capability={pushSync.capability}
+            onRequestPermission={() => void pushSync.requestPermission()}
+            isRequestingPermission={pushSync.isRequestingPermission}
+          />
           <Outlet />
         </Box>
       </Box>
