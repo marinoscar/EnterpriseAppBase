@@ -155,18 +155,6 @@ export function resolveProfileImageUrl(
   }
 }
 
-/**
- * The uploaded avatar's URL regardless of the current source, so a settings UI
- * can preview the `upload` option while another source is selected.
- */
-export function uploadedProfileImageUrl(
-  userId: string,
-  rawProfile: unknown,
-): string | null {
-  const { imageObjectId } = normalizeProfileSettings(rawProfile);
-  return imageObjectId ? avatarUrl(userId, imageObjectId) : null;
-}
-
 // -----------------------------------------------------------------------------
 // Image type detection (magic bytes)
 // -----------------------------------------------------------------------------

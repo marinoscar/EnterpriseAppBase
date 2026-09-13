@@ -58,14 +58,13 @@ export class CurrentUserDto {
   providerProfileImageUrl!: string | null;
 
   @ApiProperty({
-    type: String,
-    example: '/api/users/123e4567-e89b-12d3-a456-426614174000/avatar/0b6f1c2e-7a53-4a8e-9d0c-2f6a1e9b7c11',
+    type: Boolean,
+    example: true,
     description:
-      'Same-origin path of the uploaded picture (`profile.imageObjectId`), regardless of the ' +
-      'selected source; null when none is uploaded. Served only while `upload` is selected.',
-    nullable: true,
+      'Whether an uploaded picture is stored (`profile.imageObjectId` is set), regardless of the ' +
+      'selected source. Preview it with the authenticated `GET /api/user-settings/profile-image`.',
   })
-  uploadedProfileImageUrl!: string | null;
+  hasUploadedProfileImage!: boolean;
 
   @ApiProperty({
     example: true,
