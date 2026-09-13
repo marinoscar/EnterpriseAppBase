@@ -110,18 +110,19 @@ describe('visibleSettingsSections — permission gating', () => {
 describe('visibleSettingsSections — search', () => {
   it('matches a card title case-insensitively', () => {
     // Grant everything so the search filter is the only thing under test.
-    const result = visibleSettingsSections(ADMIN_SECTIONS, () => true, 'sYsTeM');
+    const result = visibleSettingsSections(ADMIN_SECTIONS, () => true, 'mAiL');
 
-    expect(titlesOf(result)).toContain('System');
+    expect(titlesOf(result)).toContain('Email');
   });
 
   it('does not match a term that appears only in the description, never the title', () => {
-    // "System"'s description reads "...application behavior..." — "behavior"
-    // is in no card TITLE in ADMIN_SECTIONS. Matching descriptions too would
-    // mean a two-letter query surfacing cards on prose the user never sees
-    // highlighted, which `visibleSettingsSections`'s own doc comment calls out
-    // as the worse, unpredictable result set this design avoids.
-    const result = visibleSettingsSections(ADMIN_SECTIONS, () => true, 'behavior');
+    // Email's description reads "...send a test message to prove it works" —
+    // "message" is in no card TITLE in ADMIN_SECTIONS. Matching descriptions
+    // too would mean a two-letter query surfacing cards on prose the user
+    // never sees highlighted, which `visibleSettingsSections`'s own doc
+    // comment calls out as the worse, unpredictable result set this design
+    // avoids.
+    const result = visibleSettingsSections(ADMIN_SECTIONS, () => true, 'message');
 
     expect(titlesOf(result)).toHaveLength(0);
   });
@@ -169,6 +170,33 @@ describe('visibleSettingsSections — works identically against USER_SETTINGS_SE
 
     const byTitle = visibleSettingsSections(USER_SETTINGS_SECTIONS, () => false, 'profile');
     expect(titlesOf(byTitle)).toContain('Profile');
+  });
+});
+
+/**
+ * Issue #366. `System`, `Appearance`, `Feature Flags` and `Advanced (JSON)`
+ * were removed outright — not disabled, not hidden behind a permission — so
+ * this is a regression guard against any of the four quietly reappearing
+ * (e.g. a bad merge resurrecting a card whose page no longer exists, which
+ * would send a click straight to `App.tsx`'s `*` catch-all).
+ */
+describe('removed settings pages (#366) stay gone', () => {
+  const allCards = ADMIN_SECTIONS.flatMap((section) => section.cards);
+
+  it('declares no card for System, Appearance, Feature Flags or Advanced (JSON)', () => {
+    const titles = allCards.map((card) => card.title);
+    expect(titles).not.toContain('System');
+    expect(titles).not.toContain('Appearance');
+    expect(titles).not.toContain('Feature Flags');
+    expect(titles).not.toContain('Advanced (JSON)');
+  });
+
+  it('routes none of the removed paths', () => {
+    const paths = allCards.map((card) => card.path);
+    expect(paths).not.toContain('/admin/settings/general');
+    expect(paths).not.toContain('/admin/settings/appearance');
+    expect(paths).not.toContain('/admin/settings/feature-flags');
+    expect(paths).not.toContain('/admin/settings/advanced');
   });
 });
 
@@ -614,13 +642,9 @@ describe('the Operations group (#266)', () => {
 
       expect(result.map((section) => section.label)).toEqual(['General', 'Access']);
       expect(titlesOf(result)).toEqual([
-        'System',
-        'Appearance',
-        'Feature Flags',
         'Email',
         'Notifications',
         'Maintenance',
-        'Advanced (JSON)',
         'Users & Allowlist',
       ]);
     });

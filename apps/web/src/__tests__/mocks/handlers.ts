@@ -27,10 +27,10 @@ const mockUserSettings = {
 };
 
 const mockSystemSettings = {
-  ui: {
-    allowUserThemeOverride: true,
+  notifications: {
+    browserEnabled: true,
+    disabledEvents: [],
   },
-  features: {},
   updatedAt: new Date().toISOString(),
   updatedBy: null,
   version: 1,

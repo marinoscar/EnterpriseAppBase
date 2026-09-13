@@ -429,12 +429,9 @@ describe('SettingsHubPage — the real admin registry', () => {
     render(<SettingsHubPage />);
 
     expect(screen.getByRole('heading', { level: 4, name: 'Settings' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 6, name: 'System' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 6, name: 'Appearance' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 6, name: 'Feature Flags' })).toBeInTheDocument();
-    expect(
-      screen.getByRole('heading', { level: 6, name: 'Advanced (JSON)' }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 6, name: 'Email' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 6, name: 'Notifications' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 6, name: 'Maintenance' })).toBeInTheDocument();
     expect(
       screen.getByRole('heading', { level: 6, name: 'Users & Allowlist' }),
     ).toBeInTheDocument();
@@ -446,9 +443,9 @@ describe('SettingsHubPage — the real admin registry', () => {
     const user = userEvent.setup();
     render(<SettingsHubPage />);
 
-    await user.click(screen.getByRole('heading', { level: 6, name: 'System' }));
+    await user.click(screen.getByRole('heading', { level: 6, name: 'Email' }));
 
-    expect(mockNavigate).toHaveBeenCalledWith('/admin/settings/general');
+    expect(mockNavigate).toHaveBeenCalledWith('/admin/settings/email');
   });
 
   it('shows exactly the one card a users:read-only admin can use (issue #92 regression)', () => {
@@ -457,9 +454,9 @@ describe('SettingsHubPage — the real admin registry', () => {
     render(<SettingsHubPage />);
 
     expect(screen.getByRole('heading', { level: 6, name: 'Users & Allowlist' })).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { level: 6, name: 'System' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 6, name: 'Email' })).not.toBeInTheDocument();
     expect(
-      screen.queryByRole('heading', { level: 6, name: 'Advanced (JSON)' }),
+      screen.queryByRole('heading', { level: 6, name: 'Maintenance' }),
     ).not.toBeInTheDocument();
   });
 

@@ -7,10 +7,10 @@ import type { SystemSettings } from '../../types';
 
 // Mock system settings - match the default from handlers.ts
 const mockSystemSettings: SystemSettings = {
-  ui: {
-    allowUserThemeOverride: true,
+  notifications: {
+    browserEnabled: true,
+    disabledEvents: [],
   },
-  features: {},
   updatedAt: new Date().toISOString(),
   updatedBy: null,
   version: 1,
@@ -48,8 +48,7 @@ describe('useSystemSettings', () => {
 
       expect(result.current?.settings).not.toBeNull();
       expect(result.current.settings).toMatchObject({
-        ui: { allowUserThemeOverride: true },
-        features: {},
+        notifications: { browserEnabled: true, disabledEvents: [] },
         updatedBy: null,
         version: 1,
       });
@@ -63,8 +62,7 @@ describe('useSystemSettings', () => {
         expect(result.current?.settings).not.toBeNull();
       });
 
-      expect(result.current.settings).toHaveProperty('ui');
-      expect(result.current.settings).toHaveProperty('features');
+      expect(result.current.settings).toHaveProperty('notifications');
       expect(result.current.settings).toHaveProperty('version');
       expect(result.current.settings).toHaveProperty('updatedAt');
       expect(result.current.settings).toHaveProperty('updatedBy');
@@ -140,14 +138,14 @@ describe('useSystemSettings', () => {
       });
 
       const updates = {
-        ui: { allowUserThemeOverride: false },
+        notifications: { browserEnabled: false, disabledEvents: [] },
       };
 
       await act(async () => {
         await result.current.updateSettings(updates);
       });
 
-      expect(result.current.settings?.ui.allowUserThemeOverride).toBe(false);
+      expect(result.current.settings?.notifications.browserEnabled).toBe(false);
       expect(result.current.settings?.version).toBe(2);
       expect(result.current.error).toBeNull();
     });
@@ -180,7 +178,7 @@ describe('useSystemSettings', () => {
 
       let updatePromise: Promise<void>;
       act(() => {
-        updatePromise = result.current.updateSettings({ ui: { allowUserThemeOverride: false } });
+        updatePromise = result.current.updateSettings({ notifications: { browserEnabled: false, disabledEvents: [] } });
       });
 
       // Should be saving
@@ -221,7 +219,7 @@ describe('useSystemSettings', () => {
       );
 
       await act(async () => {
-        await result.current.updateSettings({ ui: { allowUserThemeOverride: false } });
+        await result.current.updateSettings({ notifications: { browserEnabled: false, disabledEvents: [] } });
       });
 
       expect(requestHeaders?.get('if-match')).toBe('1');
@@ -248,7 +246,7 @@ describe('useSystemSettings', () => {
 
       // This should not throw or make a request - it should just return early
       await act(async () => {
-        await result.current.updateSettings({ ui: { allowUserThemeOverride: false } });
+        await result.current.updateSettings({ notifications: { browserEnabled: false, disabledEvents: [] } });
       });
 
       // Should still be null
@@ -274,7 +272,7 @@ describe('useSystemSettings', () => {
       // Should throw when update fails
       await expect(
         act(async () => {
-          await result.current.updateSettings({ ui: { allowUserThemeOverride: false } });
+          await result.current.updateSettings({ notifications: { browserEnabled: false, disabledEvents: [] } });
         })
       ).rejects.toThrow();
 
@@ -292,16 +290,15 @@ describe('useSystemSettings', () => {
       });
 
       const newSettings = {
-        ui: { allowUserThemeOverride: false },
-        features: { newFeature: true },
+        notifications: { browserEnabled: false, disabledEvents: ['build.finished'] },
       };
 
       await act(async () => {
         await result.current.replaceSettings(newSettings);
       });
 
-      expect(result.current.settings?.ui.allowUserThemeOverride).toBe(false);
-      expect(result.current.settings?.features).toEqual({ newFeature: true });
+      expect(result.current.settings?.notifications.browserEnabled).toBe(false);
+      expect(result.current.settings?.notifications.disabledEvents).toEqual(['build.finished']);
       expect(result.current.error).toBeNull();
     });
 
@@ -333,8 +330,7 @@ describe('useSystemSettings', () => {
       );
 
       const newSettings = {
-        ui: { allowUserThemeOverride: false },
-        features: {},
+        notifications: { browserEnabled: false, disabledEvents: [] },
       };
 
       let updatePromise: Promise<void>;
@@ -371,8 +367,7 @@ describe('useSystemSettings', () => {
       );
 
       const newSettings = {
-        ui: { allowUserThemeOverride: false },
-        features: {},
+        notifications: { browserEnabled: false, disabledEvents: [] },
       };
 
       // Should throw when replace fails
@@ -515,7 +510,7 @@ describe('useSystemSettings', () => {
 
       await expect(
         act(async () => {
-          await result.current.updateSettings({ ui: { allowUserThemeOverride: false } });
+          await result.current.updateSettings({ notifications: { browserEnabled: false, disabledEvents: [] } });
         })
       ).rejects.toThrow('Settings were updated elsewhere. Please review and try again.');
 
@@ -556,7 +551,7 @@ describe('useSystemSettings', () => {
 
       try {
         await act(async () => {
-          await result.current.updateSettings({ ui: { allowUserThemeOverride: false } });
+          await result.current.updateSettings({ notifications: { browserEnabled: false, disabledEvents: [] } });
         });
       } catch {
         // Expected to throw
@@ -576,7 +571,7 @@ describe('useSystemSettings', () => {
       });
 
       await act(async () => {
-        await result.current.updateSettings({ ui: { allowUserThemeOverride: false } });
+        await result.current.updateSettings({ notifications: { browserEnabled: false, disabledEvents: [] } });
       });
 
       // isLoading should only be true during initial fetch and refresh
@@ -592,7 +587,7 @@ describe('useSystemSettings', () => {
       });
 
       await act(async () => {
-        await result.current.updateSettings({ ui: { allowUserThemeOverride: false } });
+        await result.current.updateSettings({ notifications: { browserEnabled: false, disabledEvents: [] } });
       });
 
       expect(result.current.isSaving).toBe(false);
@@ -616,7 +611,7 @@ describe('useSystemSettings', () => {
 
       try {
         await act(async () => {
-          await result.current.updateSettings({ ui: { allowUserThemeOverride: false } });
+          await result.current.updateSettings({ notifications: { browserEnabled: false, disabledEvents: [] } });
         });
       } catch {
         // Expected to throw
@@ -646,7 +641,7 @@ describe('useSystemSettings', () => {
       // Should throw when permission is denied
       await expect(
         act(async () => {
-          await result.current.updateSettings({ ui: { allowUserThemeOverride: false } });
+          await result.current.updateSettings({ notifications: { browserEnabled: false, disabledEvents: [] } });
         })
       ).rejects.toThrow();
 
@@ -671,8 +666,7 @@ describe('useSystemSettings', () => {
       );
 
       const newSettings = {
-        ui: { allowUserThemeOverride: false },
-        features: {},
+        notifications: { browserEnabled: false, disabledEvents: [] },
       };
 
       // Should throw when permission is denied
@@ -703,8 +697,8 @@ describe('useSystemSettings', () => {
       // Both updates should complete without errors
       await act(async () => {
         await Promise.all([
-          result.current.updateSettings({ ui: { allowUserThemeOverride: false } }),
-          result.current.updateSettings({ features: { testFeature: true } }),
+          result.current.updateSettings({ notifications: { browserEnabled: false, disabledEvents: [] } }),
+          result.current.updateSettings({ notifications: { browserEnabled: true, disabledEvents: ['build.finished'] } }),
         ]);
       });
 
@@ -746,7 +740,7 @@ describe('useSystemSettings', () => {
       server.resetHandlers();
 
       await act(async () => {
-        await result.current.updateSettings({ ui: { allowUserThemeOverride: false } });
+        await result.current.updateSettings({ notifications: { browserEnabled: false, disabledEvents: [] } });
       });
 
       // Error should be cleared by the successful update
