@@ -9,7 +9,6 @@ import {
   isUuid,
   normalizeProfileSettings,
   resolveProfileImageUrl,
-  uploadedProfileImageUrl,
   type AvatarCandidate,
 } from './profile-image';
 
@@ -294,26 +293,6 @@ describe('profile-image helpers (#367)', () => {
     it('normalizes a legacy raw profile before resolving', () => {
       expect(
         resolveProfileImageUrl(user, { useProviderImage: false }),
-      ).toBeNull();
-    });
-  });
-
-  // ===========================================================================
-  // uploadedProfileImageUrl
-  // ===========================================================================
-  describe('uploadedProfileImageUrl', () => {
-    it('returns the avatar URL when an imageObjectId is stored, regardless of the current source', () => {
-      expect(
-        uploadedProfileImageUrl('user-1', {
-          imageSource: 'provider',
-          imageObjectId: '11111111-1111-4111-8111-111111111111',
-        }),
-      ).toBe('/api/users/user-1/avatar/11111111-1111-4111-8111-111111111111');
-    });
-
-    it('returns null when no imageObjectId is stored', () => {
-      expect(
-        uploadedProfileImageUrl('user-1', { imageSource: 'none' }),
       ).toBeNull();
     });
   });

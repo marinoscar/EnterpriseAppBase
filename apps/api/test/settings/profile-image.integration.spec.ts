@@ -370,10 +370,124 @@ describe('Profile Image Integration (#367)', () => {
   });
 
   // ===========================================================================
+  // GET /api/user-settings/profile-image — authenticated preview (#367 follow-up)
+  // ===========================================================================
+  describe('GET /api/user-settings/profile-image', () => {
+    const objectId = '66666666-6666-4666-8666-666666666666';
+
+    it('returns 401 without auth', async () => {
+      await request(context.app.getHttpServer())
+        .get('/api/user-settings/profile-image')
+        .expect(401);
+    });
+
+    it('200s with the correct headers when imageSource is "provider" but an imageObjectId is also stored', async () => {
+      const user = await createMockTestUser(context);
+      setupMockUserSettings(user.id, {
+        theme: 'system',
+        profile: { imageSource: 'provider', imageObjectId: objectId },
+      });
+      context.prismaMock.storageObject.findUnique.mockResolvedValue({
+        id: objectId,
+        uploadedById: user.id,
+        storageKey: `avatars/${user.id}/pic.png`,
+        status: 'ready',
+        mimeType: 'image/png',
+        metadata: { purpose: 'avatar' },
+        size: BigInt(4),
+      } as any);
+      mockStorageProvider.download.mockResolvedValue(
+        Readable.from([Buffer.from([1, 2, 3, 4])]),
+      );
+
+      const response = await request(context.app.getHttpServer())
+        .get('/api/user-settings/profile-image')
+        .set(authHeader(user.accessToken));
+
+      expect(response.status).toBe(200);
+      expect(response.headers['content-type']).toBe('image/png');
+      expect(response.headers['x-content-type-options']).toBe('nosniff');
+      expect(response.headers['content-disposition']).toBe('inline');
+      expect(response.headers['content-security-policy']).toBe(
+        "default-src 'none'; sandbox",
+      );
+      // Authenticated per-user preview: never cached — NOT the public
+      // route's `private, max-age=86400`.
+      expect(response.headers['cache-control']).toBe('private, no-store');
+      expect(response.headers['content-length']).toBe('4');
+    });
+
+    it('200s when imageSource is "none" with an imageObjectId stored', async () => {
+      const user = await createMockTestUser(context);
+      setupMockUserSettings(user.id, {
+        theme: 'system',
+        profile: { imageSource: 'none', imageObjectId: objectId },
+      });
+      context.prismaMock.storageObject.findUnique.mockResolvedValue({
+        id: objectId,
+        uploadedById: user.id,
+        storageKey: `avatars/${user.id}/pic.png`,
+        status: 'ready',
+        mimeType: 'image/png',
+        metadata: { purpose: 'avatar' },
+        size: BigInt(4),
+      } as any);
+      mockStorageProvider.download.mockResolvedValue(
+        Readable.from([Buffer.from([1, 2, 3, 4])]),
+      );
+
+      const response = await request(context.app.getHttpServer())
+        .get('/api/user-settings/profile-image')
+        .set(authHeader(user.accessToken));
+
+      expect(response.status).toBe(200);
+    });
+
+    it('404s when the user has never uploaded anything', async () => {
+      const user = await createMockTestUser(context);
+      setupMockUserSettings(user.id, {
+        theme: 'system',
+        profile: { imageSource: 'provider', imageObjectId: null },
+      });
+
+      const response = await request(context.app.getHttpServer())
+        .get('/api/user-settings/profile-image')
+        .set(authHeader(user.accessToken));
+
+      expect(response.status).toBe(404);
+    });
+
+    it('omits the content-length header when the stored object size is 0', async () => {
+      const user = await createMockTestUser(context);
+      setupMockUserSettings(user.id, {
+        theme: 'system',
+        profile: { imageSource: 'upload', imageObjectId: objectId },
+      });
+      context.prismaMock.storageObject.findUnique.mockResolvedValue({
+        id: objectId,
+        uploadedById: user.id,
+        storageKey: `avatars/${user.id}/pic.png`,
+        status: 'ready',
+        mimeType: 'image/png',
+        metadata: { purpose: 'avatar' },
+        size: BigInt(0),
+      } as any);
+      mockStorageProvider.download.mockResolvedValue(Readable.from(['']));
+
+      const response = await request(context.app.getHttpServer())
+        .get('/api/user-settings/profile-image')
+        .set(authHeader(user.accessToken));
+
+      expect(response.status).toBe(200);
+      expect(response.headers['content-length']).toBeUndefined();
+    });
+  });
+
+  // ===========================================================================
   // GET /api/auth/me — field assertions
   // ===========================================================================
   describe('GET /api/auth/me profile image fields', () => {
-    it('includes profileImageUrl, providerProfileImageUrl and uploadedProfileImageUrl', async () => {
+    it('includes profileImageUrl, providerProfileImageUrl and hasUploadedProfileImage', async () => {
       const user = await createMockTestUser(context);
       setupMockUserSettings(user.id, {
         theme: 'system',
@@ -387,11 +501,46 @@ describe('Profile Image Integration (#367)', () => {
 
       expect(response.body.data).toHaveProperty('profileImageUrl');
       expect(response.body.data).toHaveProperty('providerProfileImageUrl');
-      // Minimal per #367's task notes: the uploaded-picture preview behavior
-      // is a known follow-up, so only the field's presence (and rough
-      // correctness when an upload IS selected) is asserted — see the
-      // dedicated coverage in auth.service.spec.ts.
-      expect(response.body.data).toHaveProperty('uploadedProfileImageUrl');
+      // No image was ever uploaded, so this must be false even though
+      // "provider" is selected — the dedicated true-case coverage is below,
+      // and the full source/imageObjectId matrix lives in auth.service.spec.ts.
+      expect(response.body.data.hasUploadedProfileImage).toBe(false);
+    });
+
+    it('hasUploadedProfileImage is true once an image has been uploaded, regardless of the selected source', async () => {
+      const user = await createMockTestUser(context);
+      const objectId = '55555555-5555-4555-8555-555555555555';
+      // `GET /api/auth/me` resolves through `AuthService.getCurrentUser`,
+      // which reads `userSettings` off `prisma.user.findUnique`'s own
+      // `include` — a different lookup than `setupMockUserSettings` feeds
+      // (that one backs `prisma.userSettings.findUnique`, used by
+      // `UserSettingsService`/`AvatarService`). Stub the user lookup itself
+      // so both the guard's call (no `userSettings` in its `include`) and
+      // the controller's call (which does) see the same enriched row.
+      context.prismaMock.user.findUnique.mockResolvedValue({
+        id: user.id,
+        email: user.email,
+        displayName: null,
+        providerDisplayName: 'Test User',
+        providerProfileImageUrl: 'https://example.com/photo.jpg',
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        userRoles: [{ role: { name: 'viewer', rolePermissions: [] } }],
+        userSettings: {
+          value: {
+            theme: 'system',
+            profile: { imageSource: 'provider', imageObjectId: objectId },
+          },
+        },
+      } as any);
+
+      const response = await request(context.app.getHttpServer())
+        .get('/api/auth/me')
+        .set(authHeader(user.accessToken))
+        .expect(200);
+
+      expect(response.body.data.hasUploadedProfileImage).toBe(true);
     });
   });
 

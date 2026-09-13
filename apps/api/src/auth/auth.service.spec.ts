@@ -736,11 +736,22 @@ describe('AuthService', () => {
       );
     });
 
-    // Minimal on purpose: the public avatar route's behavior when the upload
-    // is not the currently-selected source is a known follow-up (see #367's
-    // task notes) — this only checks the field is present and roughly correct
-    // when the upload IS selected.
-    it('includes an uploadedProfileImageUrl field pointing at the uploaded avatar', async () => {
+    // hasUploadedProfileImage (issue #367 follow-up): true whenever an
+    // uploaded picture is stored, regardless of which source is currently
+    // selected — that's the whole point of exposing a boolean instead of a
+    // URL that only resolved while "upload" was selected.
+    it('hasUploadedProfileImage is true when imageObjectId is set and imageSource is "provider"', async () => {
+      mockUserWithProfile({
+        imageSource: 'provider',
+        imageObjectId: avatarObjectId,
+      });
+
+      const result = await service.getCurrentUser('user-1');
+
+      expect(result.hasUploadedProfileImage).toBe(true);
+    });
+
+    it('hasUploadedProfileImage is true when imageSource is "upload" with an imageObjectId', async () => {
       mockUserWithProfile({
         imageSource: 'upload',
         imageObjectId: avatarObjectId,
@@ -748,9 +759,34 @@ describe('AuthService', () => {
 
       const result = await service.getCurrentUser('user-1');
 
-      expect(result.uploadedProfileImageUrl).toBe(
-        `/api/users/user-1/avatar/${avatarObjectId}`,
-      );
+      expect(result.hasUploadedProfileImage).toBe(true);
+    });
+
+    it('hasUploadedProfileImage is true when imageSource is "none" but a leftover imageObjectId is still stored', async () => {
+      mockUserWithProfile({
+        imageSource: 'none',
+        imageObjectId: avatarObjectId,
+      });
+
+      const result = await service.getCurrentUser('user-1');
+
+      expect(result.hasUploadedProfileImage).toBe(true);
+    });
+
+    it('hasUploadedProfileImage is false when imageObjectId is null', async () => {
+      mockUserWithProfile({ imageSource: 'provider', imageObjectId: null });
+
+      const result = await service.getCurrentUser('user-1');
+
+      expect(result.hasUploadedProfileImage).toBe(false);
+    });
+
+    it('hasUploadedProfileImage is false when the user has no settings row at all', async () => {
+      mockUserWithProfile(undefined);
+
+      const result = await service.getCurrentUser('user-1');
+
+      expect(result.hasUploadedProfileImage).toBe(false);
     });
   });
 
