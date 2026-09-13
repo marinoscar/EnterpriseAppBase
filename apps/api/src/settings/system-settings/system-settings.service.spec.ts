@@ -87,8 +87,8 @@ describe('SystemSettingsService', () => {
       const result = await service.getSettings();
 
       expect(result).toMatchObject({
-        ui: DEFAULT_SYSTEM_SETTINGS.ui,
-        features: DEFAULT_SYSTEM_SETTINGS.features,
+        jobs: DEFAULT_SYSTEM_SETTINGS.jobs,
+        nodes: DEFAULT_SYSTEM_SETTINGS.nodes,
         version: 1,
       });
       expect(result.updatedAt).toBeDefined();
@@ -114,8 +114,8 @@ describe('SystemSettingsService', () => {
       const result = await service.getSettings();
 
       expect(result).toMatchObject({
-        ui: DEFAULT_SYSTEM_SETTINGS.ui,
-        features: DEFAULT_SYSTEM_SETTINGS.features,
+        jobs: DEFAULT_SYSTEM_SETTINGS.jobs,
+        nodes: DEFAULT_SYSTEM_SETTINGS.nodes,
         version: 1,
       });
       expect(mockPrisma.systemSettings.create).toHaveBeenCalledWith({
@@ -136,8 +136,8 @@ describe('SystemSettingsService', () => {
     it('should replace entire settings', async () => {
       const newSettings: SystemSettingsValue = {
         ...DEFAULT_SYSTEM_SETTINGS,
-        ui: { allowUserThemeOverride: false },
-        features: { newFeature: true },
+        jobs: { ...DEFAULT_SYSTEM_SETTINGS.jobs, stuckThresholdMinutes: 45 },
+        nodes: { ...DEFAULT_SYSTEM_SETTINGS.nodes, jobSecretBrokerEnabled: true },
         notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
       };
 
@@ -152,8 +152,8 @@ describe('SystemSettingsService', () => {
       const result = await service.replaceSettings(newSettings, mockUserId);
 
       expect(result).toMatchObject({
-        ui: newSettings.ui,
-        features: newSettings.features,
+        jobs: newSettings.jobs,
+        nodes: newSettings.nodes,
         version: 2,
       });
       expect(mockPrisma.systemSettings.upsert).toHaveBeenCalledWith({
@@ -179,8 +179,7 @@ describe('SystemSettingsService', () => {
     it('should increment version on update', async () => {
       const newSettings: SystemSettingsValue = {
         ...DEFAULT_SYSTEM_SETTINGS,
-        ui: { allowUserThemeOverride: true },
-        features: {},
+        jobs: { ...DEFAULT_SYSTEM_SETTINGS.jobs, stuckThresholdMinutes: 10 },
         notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
       };
 
@@ -207,8 +206,7 @@ describe('SystemSettingsService', () => {
     it('should create audit event on replace', async () => {
       const newSettings: SystemSettingsValue = {
         ...DEFAULT_SYSTEM_SETTINGS,
-        ui: { allowUserThemeOverride: false },
-        features: {},
+        nodes: { ...DEFAULT_SYSTEM_SETTINGS.nodes, jobSecretBrokerEnabled: true },
         notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
       };
 
@@ -244,14 +242,14 @@ describe('SystemSettingsService', () => {
 
     it('should merge partial settings with existing settings', async () => {
       const partialUpdate = {
-        ui: { allowUserThemeOverride: false },
+        nodes: { jobSecretBrokerEnabled: true },
       };
 
       mockPrisma.systemSettings.update.mockResolvedValue({
         ...mockSystemSettings,
         value: {
-          ui: { allowUserThemeOverride: false },
-          features: DEFAULT_SYSTEM_SETTINGS.features,
+          ...DEFAULT_SYSTEM_SETTINGS,
+          nodes: { ...DEFAULT_SYSTEM_SETTINGS.nodes, jobSecretBrokerEnabled: true },
         } as any,
         version: 2,
       } as any);
@@ -260,32 +258,38 @@ describe('SystemSettingsService', () => {
 
       const result = await service.patchSettings(partialUpdate, mockUserId);
 
-      expect(result.ui.allowUserThemeOverride).toBe(false);
-      expect(result.features).toEqual(DEFAULT_SYSTEM_SETTINGS.features);
+      expect(result.nodes.jobSecretBrokerEnabled).toBe(true);
+      expect(result.jobs).toEqual(DEFAULT_SYSTEM_SETTINGS.jobs);
     });
 
-    it('should handle features object merge', async () => {
-      const existingWithFeatures = {
+    it('should merge a nested jobs.history field, leaving its sibling untouched', async () => {
+      const existingWithJobs = {
         ...mockSystemSettings,
         value: {
           ...DEFAULT_SYSTEM_SETTINGS,
-          features: { existingFeature: true },
+          jobs: {
+            history: { retentionDays: 60, purgeEnabled: false },
+            stuckThresholdMinutes: 30,
+          },
         } as any,
       };
 
       mockPrisma.systemSettings.findUnique.mockResolvedValue(
-        existingWithFeatures as any,
+        existingWithJobs as any,
       );
 
       const partialUpdate = {
-        features: { newFeature: true },
+        jobs: { stuckThresholdMinutes: 99 },
       };
 
       mockPrisma.systemSettings.update.mockResolvedValue({
         ...mockSystemSettings,
         value: {
-          ui: DEFAULT_SYSTEM_SETTINGS.ui,
-          features: { existingFeature: true, newFeature: true },
+          ...DEFAULT_SYSTEM_SETTINGS,
+          jobs: {
+            history: { retentionDays: 60, purgeEnabled: false },
+            stuckThresholdMinutes: 99,
+          },
         } as any,
         version: 2,
       } as any);
@@ -294,15 +298,15 @@ describe('SystemSettingsService', () => {
 
       const result = await service.patchSettings(partialUpdate, mockUserId);
 
-      expect(result.features).toEqual({
-        existingFeature: true,
-        newFeature: true,
+      expect(result.jobs).toEqual({
+        history: { retentionDays: 60, purgeEnabled: false },
+        stuckThresholdMinutes: 99,
       });
     });
 
     it('should throw ConflictException when If-Match version mismatch', async () => {
       const partialUpdate = {
-        ui: { allowUserThemeOverride: false },
+        nodes: { jobSecretBrokerEnabled: true },
       };
 
       // Current version is 1, but expected version is 2
@@ -322,14 +326,14 @@ describe('SystemSettingsService', () => {
 
     it('should succeed when If-Match version matches', async () => {
       const partialUpdate = {
-        ui: { allowUserThemeOverride: false },
+        nodes: { jobSecretBrokerEnabled: true },
       };
 
       mockPrisma.systemSettings.update.mockResolvedValue({
         ...mockSystemSettings,
         value: {
-          ui: { allowUserThemeOverride: false },
-          features: DEFAULT_SYSTEM_SETTINGS.features,
+          ...DEFAULT_SYSTEM_SETTINGS,
+          nodes: { ...DEFAULT_SYSTEM_SETTINGS.nodes, jobSecretBrokerEnabled: true },
         } as any,
         version: 2,
       } as any);
@@ -350,14 +354,14 @@ describe('SystemSettingsService', () => {
 
     it('should increment version on patch', async () => {
       const partialUpdate = {
-        ui: { allowUserThemeOverride: false },
+        nodes: { jobSecretBrokerEnabled: true },
       };
 
       mockPrisma.systemSettings.update.mockResolvedValue({
         ...mockSystemSettings,
         value: {
-          ui: { allowUserThemeOverride: false },
-          features: DEFAULT_SYSTEM_SETTINGS.features,
+          ...DEFAULT_SYSTEM_SETTINGS,
+          nodes: { ...DEFAULT_SYSTEM_SETTINGS.nodes, jobSecretBrokerEnabled: true },
         } as any,
         version: 2,
       } as any);
@@ -378,14 +382,14 @@ describe('SystemSettingsService', () => {
 
     it('should create audit event on patch', async () => {
       const partialUpdate = {
-        ui: { allowUserThemeOverride: false },
+        nodes: { jobSecretBrokerEnabled: true },
       };
 
       mockPrisma.systemSettings.update.mockResolvedValue({
         ...mockSystemSettings,
         value: {
-          ui: { allowUserThemeOverride: false },
-          features: DEFAULT_SYSTEM_SETTINGS.features,
+          ...DEFAULT_SYSTEM_SETTINGS,
+          nodes: { ...DEFAULT_SYSTEM_SETTINGS.nodes, jobSecretBrokerEnabled: true },
         } as any,
         version: 2,
       } as any);
@@ -415,13 +419,17 @@ describe('SystemSettingsService', () => {
   // The rule pinned here: REQUEST BODIES STAY CLOSED; THE STORED VALUE IS
   // NEVER NARROWED. Two independent guarantees, tested separately on purpose
   // — proving only one would let a later change collapse them back together.
+  //
+  // `jobs`/`nodes` stand in as "a known namespace" throughout this section —
+  // the same role `ui`/`features` played before #366 removed them — because
+  // the point of every test here is the PRESERVATION MECHANISM, not any one
+  // namespace's business meaning.
   // ===========================================================================
   describe('#130 unknown key preservation', () => {
     describe('the stored value is preserved (never narrowed)', () => {
-      it('PATCH preserves an unknown top-level key while changing a feature flag', async () => {
+      it('PATCH preserves an unknown top-level key while changing a known namespace', async () => {
         const storedValue = {
-          ui: { allowUserThemeOverride: true },
-          features: {},
+          ...DEFAULT_SYSTEM_SETTINGS,
           branding: { logoUrl: 'https://example.com/logo.png' },
         };
 
@@ -433,24 +441,29 @@ describe('SystemSettingsService', () => {
         mockPrisma.systemSettings.update.mockResolvedValue({
           ...mockSystemSettings,
           value: {
-            ui: { allowUserThemeOverride: true },
-            features: { newFlag: true },
+            ...DEFAULT_SYSTEM_SETTINGS,
+            nodes: { ...DEFAULT_SYSTEM_SETTINGS.nodes, jobSecretBrokerEnabled: true },
             branding: { logoUrl: 'https://example.com/logo.png' },
           } as any,
           version: 2,
         } as any);
         mockPrisma.auditEvent.create.mockResolvedValue({} as any);
 
-        await service.patchSettings({ features: { newFlag: true } }, mockUserId);
+        await service.patchSettings(
+          { nodes: { jobSecretBrokerEnabled: true } },
+          mockUserId,
+        );
 
         expect(mockPrisma.systemSettings.update).toHaveBeenCalledWith(
           expect.objectContaining({
             data: expect.objectContaining({
               value: {
-                ui: { allowUserThemeOverride: true },
-                features: { newFlag: true },
-                notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
                 ...OPERATIONS_DEFAULTS,
+                nodes: {
+                  ...DEFAULT_SYSTEM_SETTINGS.nodes,
+                  jobSecretBrokerEnabled: true,
+                },
+                notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
                 branding: { logoUrl: 'https://example.com/logo.png' },
               },
             }),
@@ -468,10 +481,10 @@ describe('SystemSettingsService', () => {
         );
       });
 
-      it('PATCH preserves an unknown key nested under ui (the only closed nested object)', async () => {
+      it('PATCH preserves an unknown key nested under jobs (a closed nested object)', async () => {
         const storedValue = {
-          ui: { allowUserThemeOverride: true, density: 'compact' },
-          features: {},
+          ...DEFAULT_SYSTEM_SETTINGS,
+          jobs: { ...DEFAULT_SYSTEM_SETTINGS.jobs, extraKnob: 'legacy-value' },
         };
 
         mockPrisma.systemSettings.findUnique.mockResolvedValue({
@@ -482,15 +495,19 @@ describe('SystemSettingsService', () => {
         mockPrisma.systemSettings.update.mockResolvedValue({
           ...mockSystemSettings,
           value: {
-            ui: { allowUserThemeOverride: false, density: 'compact' },
-            features: {},
+            ...DEFAULT_SYSTEM_SETTINGS,
+            jobs: {
+              ...DEFAULT_SYSTEM_SETTINGS.jobs,
+              stuckThresholdMinutes: 10,
+              extraKnob: 'legacy-value',
+            },
           } as any,
           version: 2,
         } as any);
         mockPrisma.auditEvent.create.mockResolvedValue({} as any);
 
         await service.patchSettings(
-          { ui: { allowUserThemeOverride: false } },
+          { jobs: { stuckThresholdMinutes: 10 } },
           mockUserId,
         );
 
@@ -498,10 +515,13 @@ describe('SystemSettingsService', () => {
           expect.objectContaining({
             data: expect.objectContaining({
               value: {
-                ui: { allowUserThemeOverride: false, density: 'compact' },
-                features: {},
-                notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
                 ...OPERATIONS_DEFAULTS,
+                jobs: {
+                  ...DEFAULT_SYSTEM_SETTINGS.jobs,
+                  stuckThresholdMinutes: 10,
+                  extraKnob: 'legacy-value',
+                },
+                notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
               },
             }),
           }),
@@ -511,7 +531,7 @@ describe('SystemSettingsService', () => {
           expect.objectContaining({
             data: expect.objectContaining({
               meta: expect.objectContaining({
-                preservedKeys: ['ui.density'],
+                preservedKeys: ['jobs.extraKnob'],
               }),
             }),
           }),
@@ -520,8 +540,8 @@ describe('SystemSettingsService', () => {
 
       it('PUT preserves unknown stored keys while replacing the known ones', async () => {
         const storedValue = {
-          ui: { allowUserThemeOverride: true },
-          features: { oldFlag: true },
+          ...DEFAULT_SYSTEM_SETTINGS,
+          nodes: { ...DEFAULT_SYSTEM_SETTINGS.nodes, jobSecretBrokerEnabled: false },
           branding: { logoUrl: 'https://example.com/logo.png' },
         };
 
@@ -530,9 +550,8 @@ describe('SystemSettingsService', () => {
         } as any);
 
         const newSettings: SystemSettingsValue = {
-        ...DEFAULT_SYSTEM_SETTINGS,
-          ui: { allowUserThemeOverride: false },
-          features: { newFlag: true },
+          ...DEFAULT_SYSTEM_SETTINGS,
+          nodes: { ...DEFAULT_SYSTEM_SETTINGS.nodes, jobSecretBrokerEnabled: true },
           notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
         };
 
@@ -550,10 +569,7 @@ describe('SystemSettingsService', () => {
 
         const expectedValue = {
           branding: { logoUrl: 'https://example.com/logo.png' },
-          ui: { allowUserThemeOverride: false },
-          features: { newFlag: true },
-          notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
-          ...OPERATIONS_DEFAULTS,
+          ...newSettings,
         };
 
         expect(mockPrisma.systemSettings.upsert).toHaveBeenCalledWith(
@@ -574,10 +590,10 @@ describe('SystemSettingsService', () => {
         );
       });
 
-      it('known keys still win the merge — ui and features match the caller byte for byte', async () => {
+      it('known keys still win the merge — jobs and nodes match the caller byte for byte', async () => {
         const storedValue = {
-          ui: { allowUserThemeOverride: true },
-          features: { staleFlag: true },
+          ...DEFAULT_SYSTEM_SETTINGS,
+          jobs: { ...DEFAULT_SYSTEM_SETTINGS.jobs, stuckThresholdMinutes: 5 },
           legacyBlob: { untouched: 1 },
         };
 
@@ -586,9 +602,8 @@ describe('SystemSettingsService', () => {
         } as any);
 
         const newSettings: SystemSettingsValue = {
-        ...DEFAULT_SYSTEM_SETTINGS,
-          ui: { allowUserThemeOverride: false },
-          features: { freshFlag: true },
+          ...DEFAULT_SYSTEM_SETTINGS,
+          jobs: { ...DEFAULT_SYSTEM_SETTINGS.jobs, stuckThresholdMinutes: 120 },
           notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
         };
 
@@ -607,9 +622,8 @@ describe('SystemSettingsService', () => {
 
         // Known keys are the caller's validated values, byte for byte — not
         // the stale stored ones — while the unknown key still survives.
-        expect(upsertArgs.update.value.ui).toEqual(newSettings.ui);
-        expect(upsertArgs.update.value.features).toEqual(newSettings.features);
-        expect(upsertArgs.update.value.features.staleFlag).toBeUndefined();
+        expect(upsertArgs.update.value.jobs).toEqual(newSettings.jobs);
+        expect(upsertArgs.update.value.jobs.stuckThresholdMinutes).toBe(120);
         expect(upsertArgs.update.value.legacyBlob).toEqual({ untouched: 1 });
       });
 
@@ -617,9 +631,8 @@ describe('SystemSettingsService', () => {
         mockPrisma.systemSettings.findUnique.mockResolvedValue(null as any);
 
         const newSettings: SystemSettingsValue = {
-        ...DEFAULT_SYSTEM_SETTINGS,
-          ui: { allowUserThemeOverride: true },
-          features: { onlyFlag: true },
+          ...DEFAULT_SYSTEM_SETTINGS,
+          nodes: { ...DEFAULT_SYSTEM_SETTINGS.nodes, jobSecretBrokerEnabled: true },
           notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
         };
 
@@ -662,9 +675,7 @@ describe('SystemSettingsService', () => {
           } as any);
 
           const newSettings: SystemSettingsValue = {
-        ...DEFAULT_SYSTEM_SETTINGS,
-            ui: { allowUserThemeOverride: true },
-            features: {},
+            ...DEFAULT_SYSTEM_SETTINGS,
             notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
           };
 
@@ -713,37 +724,38 @@ describe('SystemSettingsService', () => {
           mockPrisma.systemSettings.update.mockResolvedValue({
             ...mockSystemSettings,
             value: {
-              ui: DEFAULT_SYSTEM_SETTINGS.ui,
-              features: { x: true },
+              ...DEFAULT_SYSTEM_SETTINGS,
+              nodes: { ...DEFAULT_SYSTEM_SETTINGS.nodes, jobSecretBrokerEnabled: true },
             } as any,
             version: 2,
           } as any);
           mockPrisma.auditEvent.create.mockResolvedValue({} as any);
 
           const result = await service.patchSettings(
-            { features: { x: true } },
+            { nodes: { jobSecretBrokerEnabled: true } },
             mockUserId,
           );
 
           expect(result).toBeDefined();
-          expect(result.ui).toEqual(DEFAULT_SYSTEM_SETTINGS.ui);
-          expect(result.features).toEqual({ x: true });
+          expect(result.jobs).toEqual(DEFAULT_SYSTEM_SETTINGS.jobs);
+          expect(result.nodes.jobSecretBrokerEnabled).toBe(true);
 
           // An array is an object to `typeof` — spreading one would write
           // `{'0':'a'}` into the row. Assert it does not.
           const updateArgs = mockPrisma.systemSettings.update.mock
             .calls[0][0] as any;
           expect(updateArgs.data.value).not.toHaveProperty('0');
-          expect(updateArgs.data.value.features).toEqual({ x: true });
+          expect(updateArgs.data.value.nodes.jobSecretBrokerEnabled).toBe(true);
         },
       );
     });
 
     describe('a malformed stored value degrades field by field, not wholesale', () => {
-      it('preserves a good features map when only ui is malformed', async () => {
+      it('preserves a good nodes value when only jobs is malformed', async () => {
         const storedValue = {
-          ui: 'garbage' as unknown,
-          features: { existingFeature: true },
+          ...DEFAULT_SYSTEM_SETTINGS,
+          jobs: 'garbage' as unknown,
+          nodes: { ...DEFAULT_SYSTEM_SETTINGS.nodes, jobSecretBrokerEnabled: true },
         };
 
         mockPrisma.systemSettings.findUnique.mockResolvedValue({
@@ -754,28 +766,33 @@ describe('SystemSettingsService', () => {
         mockPrisma.systemSettings.update.mockResolvedValue({
           ...mockSystemSettings,
           value: {
-            ui: { allowUserThemeOverride: false },
-            features: { existingFeature: true },
+            ...DEFAULT_SYSTEM_SETTINGS,
+            jobs: { ...DEFAULT_SYSTEM_SETTINGS.jobs, stuckThresholdMinutes: 45 },
+            nodes: { ...DEFAULT_SYSTEM_SETTINGS.nodes, jobSecretBrokerEnabled: true },
           } as any,
           version: 2,
         } as any);
         mockPrisma.auditEvent.create.mockResolvedValue({} as any);
 
         const result = await service.patchSettings(
-          { ui: { allowUserThemeOverride: false } },
+          { jobs: { stuckThresholdMinutes: 45 } },
           mockUserId,
         );
 
-        // The malformed half (ui) fell back to the default and then took the
-        // caller's change; the good half (features) survived untouched.
-        expect(result.ui.allowUserThemeOverride).toBe(false);
-        expect(result.features).toEqual({ existingFeature: true });
+        // The malformed half (jobs) fell back to the default and then took
+        // the caller's change; the good half (nodes) survived untouched.
+        expect(result.jobs.stuckThresholdMinutes).toBe(45);
+        expect(result.nodes).toEqual({
+          ...DEFAULT_SYSTEM_SETTINGS.nodes,
+          jobSecretBrokerEnabled: true,
+        });
       });
 
-      it('preserves a good ui value when only features is malformed', async () => {
+      it('preserves a good jobs value when only nodes is malformed', async () => {
         const storedValue = {
-          ui: { allowUserThemeOverride: true },
-          features: 'garbage' as unknown,
+          ...DEFAULT_SYSTEM_SETTINGS,
+          jobs: { ...DEFAULT_SYSTEM_SETTINGS.jobs, stuckThresholdMinutes: 20 },
+          nodes: 'garbage' as unknown,
         };
 
         mockPrisma.systemSettings.findUnique.mockResolvedValue({
@@ -786,31 +803,33 @@ describe('SystemSettingsService', () => {
         mockPrisma.systemSettings.update.mockResolvedValue({
           ...mockSystemSettings,
           value: {
-            ui: { allowUserThemeOverride: true },
-            features: { newFlag: true },
+            ...DEFAULT_SYSTEM_SETTINGS,
+            jobs: { ...DEFAULT_SYSTEM_SETTINGS.jobs, stuckThresholdMinutes: 20 },
+            nodes: { ...DEFAULT_SYSTEM_SETTINGS.nodes, jobSecretBrokerEnabled: true },
           } as any,
           version: 2,
         } as any);
         mockPrisma.auditEvent.create.mockResolvedValue({} as any);
 
         const result = await service.patchSettings(
-          { features: { newFlag: true } },
+          { nodes: { jobSecretBrokerEnabled: true } },
           mockUserId,
         );
 
-        // The good half (ui) survived untouched — a whole-object fallback
+        // The good half (jobs) survived untouched — a whole-object fallback
         // would have silently discarded it along with the malformed
-        // features map.
-        expect(result.ui.allowUserThemeOverride).toBe(true);
-        expect(result.features).toEqual({ newFlag: true });
+        // nodes value.
+        expect(result.jobs.stuckThresholdMinutes).toBe(20);
+        expect(result.nodes.jobSecretBrokerEnabled).toBe(true);
       });
     });
 
     describe('a partly malformed row still preserves unknown keys', () => {
-      it('recovers top-level and ui.* unknown keys from the raw row even when features is unusable', async () => {
+      it('recovers top-level and jobs.* unknown keys from the raw row even when nodes is unusable', async () => {
         const storedValue = {
-          ui: { allowUserThemeOverride: true, density: 'compact' },
-          features: 'garbage' as unknown,
+          ...DEFAULT_SYSTEM_SETTINGS,
+          jobs: { ...DEFAULT_SYSTEM_SETTINGS.jobs, extraKnob: 'legacy-value' },
+          nodes: 'garbage' as unknown,
           branding: { logoUrl: 'https://example.com/logo.png' },
         };
 
@@ -822,27 +841,31 @@ describe('SystemSettingsService', () => {
         mockPrisma.systemSettings.update.mockResolvedValue({
           ...mockSystemSettings,
           value: {
-            ui: { allowUserThemeOverride: true, density: 'compact' },
-            features: { newFlag: true },
+            ...DEFAULT_SYSTEM_SETTINGS,
+            jobs: { ...DEFAULT_SYSTEM_SETTINGS.jobs, extraKnob: 'legacy-value' },
+            nodes: { ...DEFAULT_SYSTEM_SETTINGS.nodes, jobSecretBrokerEnabled: true },
             branding: { logoUrl: 'https://example.com/logo.png' },
           } as any,
           version: 2,
         } as any);
         mockPrisma.auditEvent.create.mockResolvedValue({} as any);
 
-        await service.patchSettings({ features: { newFlag: true } }, mockUserId);
+        await service.patchSettings(
+          { nodes: { jobSecretBrokerEnabled: true } },
+          mockUserId,
+        );
 
         // Preservation reads the RAW row, not the readKnownSettings
-        // projection, so the unknown keys survive even though `features`
+        // projection, so the unknown keys survive even though `nodes`
         // itself could not be parsed.
         expect(mockPrisma.systemSettings.update).toHaveBeenCalledWith(
           expect.objectContaining({
             data: expect.objectContaining({
               value: {
-                ui: { allowUserThemeOverride: true, density: 'compact' },
-                features: { newFlag: true },
-                notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
                 ...OPERATIONS_DEFAULTS,
+                jobs: { ...DEFAULT_SYSTEM_SETTINGS.jobs, extraKnob: 'legacy-value' },
+                nodes: { ...DEFAULT_SYSTEM_SETTINGS.nodes, jobSecretBrokerEnabled: true },
+                notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
                 branding: { logoUrl: 'https://example.com/logo.png' },
               },
             }),
@@ -853,7 +876,7 @@ describe('SystemSettingsService', () => {
           expect.objectContaining({
             data: expect.objectContaining({
               meta: expect.objectContaining({
-                preservedKeys: ['branding', 'ui.density'],
+                preservedKeys: ['branding', 'jobs.extraKnob'],
               }),
             }),
           }),
@@ -871,15 +894,15 @@ describe('SystemSettingsService', () => {
         mockPrisma.systemSettings.update.mockResolvedValue({
           ...mockSystemSettings,
           value: {
-            ui: DEFAULT_SYSTEM_SETTINGS.ui,
-            features: { flag: true },
+            ...DEFAULT_SYSTEM_SETTINGS,
+            nodes: { ...DEFAULT_SYSTEM_SETTINGS.nodes, jobSecretBrokerEnabled: true },
           } as any,
           version: 2,
         } as any);
         mockPrisma.auditEvent.create.mockResolvedValue({} as any);
 
         const dtoWithUnknownKey = {
-          features: { flag: true },
+          nodes: { jobSecretBrokerEnabled: true },
           evilKey: 'should not be stored',
         };
 
@@ -894,7 +917,7 @@ describe('SystemSettingsService', () => {
     describe('request bodies stay closed', () => {
       it('an unknown key in a PUT body never reaches storage', async () => {
         mockPrisma.systemSettings.findUnique.mockResolvedValue({
-          value: { ui: { allowUserThemeOverride: true }, features: {} },
+          value: { ...DEFAULT_SYSTEM_SETTINGS },
         } as any);
 
         mockPrisma.systemSettings.upsert.mockResolvedValue({
@@ -903,8 +926,7 @@ describe('SystemSettingsService', () => {
         mockPrisma.auditEvent.create.mockResolvedValue({} as any);
 
         const dtoWithUnknownKey = {
-          ui: { allowUserThemeOverride: false },
-          features: { flag: true },
+          nodes: { ...DEFAULT_SYSTEM_SETTINGS.nodes, jobSecretBrokerEnabled: true },
           notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
           evilKey: 'should not be stored',
         };
@@ -929,7 +951,7 @@ describe('SystemSettingsService', () => {
         mockPrisma.auditEvent.create.mockResolvedValue({} as any);
 
         const dtoWithUnknownKey = {
-          features: { flag: true },
+          nodes: { jobSecretBrokerEnabled: true },
           evilKey: 'should not be stored',
         };
 
@@ -946,13 +968,13 @@ describe('SystemSettingsService', () => {
           mockSystemSettings as any,
         );
 
-        const partialUpdate = { features: { newFlag: true } };
+        const partialUpdate = { nodes: { jobSecretBrokerEnabled: true } };
 
         mockPrisma.systemSettings.update.mockResolvedValue({
           ...mockSystemSettings,
           value: {
-            ui: DEFAULT_SYSTEM_SETTINGS.ui,
-            features: { newFlag: true },
+            ...DEFAULT_SYSTEM_SETTINGS,
+            nodes: { ...DEFAULT_SYSTEM_SETTINGS.nodes, jobSecretBrokerEnabled: true },
           } as any,
           version: 2,
         } as any);
@@ -972,15 +994,117 @@ describe('SystemSettingsService', () => {
             meta: {
               changes: partialUpdate,
               resultingValue: {
-                ui: DEFAULT_SYSTEM_SETTINGS.ui,
-                features: { newFlag: true },
-                notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
                 ...OPERATIONS_DEFAULTS,
+                nodes: { ...DEFAULT_SYSTEM_SETTINGS.nodes, jobSecretBrokerEnabled: true },
+                notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
               },
             } as any,
           },
         });
       });
+    });
+  });
+
+  // ===========================================================================
+  // #366 — the removed `ui`/`features` namespaces. A row written before this
+  // change genuinely still carries them on disk, and #130's contract ("the
+  // stored value is never narrowed") means they must survive exactly like any
+  // other key this build no longer models — following the identical
+  // preservation pattern proven above with `branding`/`legacyBlob` — while
+  // the RESPONSE, which has never included unmodelled keys, continues to omit
+  // them. Symmetrically, a caller that still sends them gets nothing back:
+  // they are unknown REQUEST keys, stripped like `evilKey` above, never
+  // unknown STORED keys.
+  // ===========================================================================
+  describe('legacy ui/features namespaces (#366)', () => {
+    it('a stored row with legacy ui/features data is preserved on write but never surfaces in the response', async () => {
+      const storedValue = {
+        ...DEFAULT_SYSTEM_SETTINGS,
+        ui: { allowUserThemeOverride: false },
+        features: { oldFlag: true },
+      };
+
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        ...mockSystemSettings,
+        value: storedValue as any,
+      } as any);
+
+      mockPrisma.systemSettings.update.mockResolvedValue({
+        ...mockSystemSettings,
+        value: {
+          ...DEFAULT_SYSTEM_SETTINGS,
+          jobs: { ...DEFAULT_SYSTEM_SETTINGS.jobs, stuckThresholdMinutes: 45 },
+          ui: { allowUserThemeOverride: false },
+          features: { oldFlag: true },
+        } as any,
+        version: 2,
+      } as any);
+      mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+
+      const result = await service.patchSettings(
+        { jobs: { stuckThresholdMinutes: 45 } },
+        mockUserId,
+      );
+
+      // Storage still carries both legacy namespaces forward — the exact
+      // #130 guarantee `branding` and `legacyBlob` pin above, applied to the
+      // namespaces #366 actually removed.
+      expect(mockPrisma.systemSettings.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            value: expect.objectContaining({
+              ui: { allowUserThemeOverride: false },
+              features: { oldFlag: true },
+            }),
+          }),
+        }),
+      );
+      expect(mockPrisma.auditEvent.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            meta: expect.objectContaining({
+              preservedKeys: expect.arrayContaining(['ui', 'features']),
+            }),
+          }),
+        }),
+      );
+
+      // But neither is part of the represented resource any more: the
+      // response `getSettings`/PUT/PATCH share never surfaces them.
+      expect(result).not.toHaveProperty('ui');
+      expect(result).not.toHaveProperty('features');
+    });
+
+    it('a PUT/PATCH body carrying legacy ui/features keys does not reintroduce them — they are stripped as unknown request keys', async () => {
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        ...mockSystemSettings,
+        value: DEFAULT_SYSTEM_SETTINGS as any,
+      } as any);
+      mockPrisma.systemSettings.update.mockResolvedValue({
+        ...mockSystemSettings,
+        version: 2,
+      } as any);
+      mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+
+      const dtoWithLegacyKeys = {
+        ui: { allowUserThemeOverride: false },
+        features: { newFlag: true },
+      };
+
+      const result = await service.patchSettings(
+        dtoWithLegacyKeys as any,
+        mockUserId,
+      );
+
+      // The stored row had neither key, so nothing is preserved: the merge
+      // never reads `dto.ui`/`dto.features` (the service only reads the
+      // namespaces `systemSettingsSchema` still declares), so they never
+      // reach the persisted value or the response.
+      const updateArgs = mockPrisma.systemSettings.update.mock.calls[0][0] as any;
+      expect(updateArgs.data.value).not.toHaveProperty('ui');
+      expect(updateArgs.data.value).not.toHaveProperty('features');
+      expect(result).not.toHaveProperty('ui');
+      expect(result).not.toHaveProperty('features');
     });
   });
 
@@ -1007,8 +1131,6 @@ describe('SystemSettingsService', () => {
     async function callReplaceSettings() {
       const newSettings: SystemSettingsValue = {
         ...DEFAULT_SYSTEM_SETTINGS,
-        ui: { allowUserThemeOverride: true },
-        features: {},
         notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
       };
       mockPrisma.systemSettings.findUnique.mockResolvedValue({
@@ -1122,8 +1244,6 @@ describe('SystemSettingsService', () => {
         // The malicious/naive body: a client that read the OpenAPI contract
         // and assumed `security` was writable because the DTO declares it.
         const dtoWithSecurity = {
-          ui: { allowUserThemeOverride: true },
-          features: {},
           notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
           security: { jwtAccessTtlMinutes: 9999, refreshTtlDays: 9999 },
         };
@@ -1131,8 +1251,7 @@ describe('SystemSettingsService', () => {
         mockPrisma.systemSettings.upsert.mockResolvedValue({
           ...mockSystemSettings,
           value: {
-            ui: { allowUserThemeOverride: true },
-            features: {},
+            ...DEFAULT_SYSTEM_SETTINGS,
           } as any,
           version: 2,
         } as any);
@@ -1171,15 +1290,15 @@ describe('SystemSettingsService', () => {
         );
 
         const dtoWithSecurity = {
-          features: { flag: true },
+          nodes: { jobSecretBrokerEnabled: true },
           security: { jwtAccessTtlMinutes: 9999, refreshTtlDays: 9999 },
         };
 
         mockPrisma.systemSettings.update.mockResolvedValue({
           ...mockSystemSettings,
           value: {
-            ui: DEFAULT_SYSTEM_SETTINGS.ui,
-            features: { flag: true },
+            ...DEFAULT_SYSTEM_SETTINGS,
+            nodes: { ...DEFAULT_SYSTEM_SETTINGS.nodes, jobSecretBrokerEnabled: true },
           } as any,
           version: 2,
         } as any);
@@ -1240,65 +1359,12 @@ describe('SystemSettingsService', () => {
     });
   });
 
-  describe('getSettingValue', () => {
-    beforeEach(() => {
-      mockPrisma.systemSettings.findUnique.mockResolvedValue(
-        mockSystemSettings as any,
-      );
-    });
-
-    it('should get nested setting value by path', async () => {
-      const value = await service.getSettingValue<boolean>(
-        'ui.allowUserThemeOverride',
-      );
-
-      expect(value).toBe(DEFAULT_SYSTEM_SETTINGS.ui.allowUserThemeOverride);
-    });
-
-    it('should return undefined for non-existent path', async () => {
-      const value = await service.getSettingValue<any>('ui.nonExistent');
-
-      expect(value).toBeUndefined();
-    });
-
-    // #148 — new reach introduced by this change: `security` is now part of
-    // the `getSettings()` projection this helper walks, so its fields become
-    // addressable even though they were never part of `SystemSettingsValue`
-    // or the stored row. Pinned here as a decision on record, not an
-    // accident.
-    it('addresses security.jwtAccessTtlMinutes through the config-backed security block', async () => {
-      mockConfigService.get.mockImplementation(
-        (key: string, defaultValue?: unknown) =>
-          key === 'jwt.accessTtlMinutes' ? 45 : defaultValue,
-      );
-
-      const value = await service.getSettingValue<number>(
-        'security.jwtAccessTtlMinutes',
-      );
-
-      expect(value).toBe(45);
-    });
-
-    it('addresses security.refreshTtlDays through the config-backed security block', async () => {
-      mockConfigService.get.mockImplementation(
-        (key: string, defaultValue?: unknown) =>
-          key === 'jwt.refreshTtlDays' ? 30 : defaultValue,
-      );
-
-      const value = await service.getSettingValue<number>(
-        'security.refreshTtlDays',
-      );
-
-      expect(value).toBe(30);
-    });
-  });
-
   // ===========================================================================
   // #225, epic #215 — the `notifications` block: a MODELLED gate rather than a
-  // key in the open `features` record, so it must survive the same treatment
-  // `ui` and `features` already get. Nothing consumes these values yet (#226
-  // adds the enforcement); what is under test here is purely that the row can
-  // hold them, degrade gracefully, and stay repairable through the API.
+  // key in an open record, so it must survive the same treatment every other
+  // namespace gets. Nothing consumes these values yet (#226 adds the
+  // enforcement); what is under test here is purely that the row can hold
+  // them, degrade gracefully, and stay repairable through the API.
   // ===========================================================================
   describe('notifications block (#225)', () => {
     it('defaults to browser notifications ON with nothing suppressed', async () => {
@@ -1409,8 +1475,8 @@ describe('SystemSettingsService', () => {
         mockPrisma.systemSettings.findUnique.mockResolvedValue({
           ...mockSystemSettings,
           value: {
-            ui: DEFAULT_SYSTEM_SETTINGS.ui,
-            features: {},
+            jobs: DEFAULT_SYSTEM_SETTINGS.jobs,
+            nodes: DEFAULT_SYSTEM_SETTINGS.nodes,
             ...(malformed === undefined ? {} : { notifications: malformed }),
           } as any,
         } as any);
@@ -1456,7 +1522,10 @@ describe('SystemSettingsService', () => {
     it('does not hand out the shared DEFAULT_SYSTEM_SETTINGS array, which a caller could mutate', async () => {
       mockPrisma.systemSettings.findUnique.mockResolvedValue({
         ...mockSystemSettings,
-        value: { ui: DEFAULT_SYSTEM_SETTINGS.ui, features: {} } as any,
+        value: {
+          jobs: DEFAULT_SYSTEM_SETTINGS.jobs,
+          nodes: DEFAULT_SYSTEM_SETTINGS.nodes,
+        } as any,
       } as any);
 
       const result = await service.getSettings();
@@ -1467,15 +1536,15 @@ describe('SystemSettingsService', () => {
     });
 
     it('preserves an unknown key nested under notifications, the second closed nested object', async () => {
-      // Exactly the #130 guarantee `ui.density` pins, on the block this issue
-      // adds: a rollback across the addition of a sibling key must not destroy
-      // it. `notifications` is closed (unlike `features`), so without its own
-      // known-key list it would be narrowed on every write.
+      // Exactly the #130 guarantee `jobs.extraKnob` pins above, on the block
+      // this issue adds: a rollback across the addition of a sibling key must
+      // not destroy it. `notifications` is closed (unlike an open record), so
+      // without its own known-key list it would be narrowed on every write.
       mockPrisma.systemSettings.findUnique.mockResolvedValue({
         ...mockSystemSettings,
         value: {
-          ui: DEFAULT_SYSTEM_SETTINGS.ui,
-          features: {},
+          jobs: DEFAULT_SYSTEM_SETTINGS.jobs,
+          nodes: DEFAULT_SYSTEM_SETTINGS.nodes,
           notifications: {
             browserEnabled: false,
             disabledEvents: [],
@@ -1489,7 +1558,10 @@ describe('SystemSettingsService', () => {
       } as any);
       mockPrisma.auditEvent.create.mockResolvedValue({} as any);
 
-      await service.patchSettings({ features: { flag: true } }, mockUserId);
+      await service.patchSettings(
+        { nodes: { jobSecretBrokerEnabled: true } },
+        mockUserId,
+      );
 
       const updateArgs = mockPrisma.systemSettings.update.mock
         .calls[0][0] as any;
@@ -1505,36 +1577,6 @@ describe('SystemSettingsService', () => {
           }),
         }),
       );
-    });
-  });
-
-  describe('isFeatureEnabled', () => {
-    beforeEach(() => {
-      mockPrisma.systemSettings.findUnique.mockResolvedValue({
-        ...mockSystemSettings,
-        value: {
-          ...DEFAULT_SYSTEM_SETTINGS,
-          features: { featureA: true, featureB: false },
-        } as any,
-      } as any);
-    });
-
-    it('should return true for enabled feature', async () => {
-      const result = await service.isFeatureEnabled('featureA');
-
-      expect(result).toBe(true);
-    });
-
-    it('should return false for disabled feature', async () => {
-      const result = await service.isFeatureEnabled('featureB');
-
-      expect(result).toBe(false);
-    });
-
-    it('should return false for non-existent feature', async () => {
-      const result = await service.isFeatureEnabled('featureC');
-
-      expect(result).toBe(false);
     });
   });
 });
