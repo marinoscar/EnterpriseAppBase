@@ -783,8 +783,7 @@ erDiagram
         string email UK "Unique identifier"
         string displayName "User override"
         string providerDisplayName "From OAuth"
-        string profileImageUrl "User override"
-        string providerProfileImageUrl "From OAuth"
+        string providerProfileImageUrl "From OAuth, refreshed each login"
         boolean isActive "Account status"
         timestamptz createdAt
         timestamptz updatedAt
@@ -996,6 +995,64 @@ async getObject(objectId: string, userId: string) {
   return object;
 }
 ```
+
+### Profile Picture Avatar Routes
+
+Uploaded profile pictures are avatar images stored in the same object storage as
+other files, but they are exposed through two purpose-built routes rather than
+the generic storage-object endpoints above, and the split between them is a
+deliberate security boundary.
+
+The **public** route, `GET /api/users/:userId/avatar/:objectId`, accepts no
+bearer token — a plain `<img src>` cannot send one, so it never gets the
+chance to. Because it is reachable by anyone, it is deliberately narrow: it
+serves the requested object only while it is *exactly* that user's
+currently-selected uploaded avatar (`profile.imageSource === "upload" &&
+profile.imageObjectId === objectId`), and only after confirming the
+underlying storage object is still `ready`, owned by that user, stored under
+the `avatars/<userId>/` key prefix, and detected (by magic bytes) as a valid
+avatar image type. Every failure path — a malformed UUID, an unknown user, a
+stale or deselected object id, or missing bytes — returns an identical 404,
+so the endpoint cannot be used to enumerate users or objects by probing which
+inputs succeed.
+
+That narrowness has a real UI cost: a settings page cannot use this route to
+preview the uploaded picture while another source (`"none"` or `"provider"`)
+is the active selection, because the moment a picture is deselected, this
+route stops serving it. Loosening the public route to fix that would mean
+anyone who learns or guesses an object id could fetch a user's uploaded
+picture even while it is not the active selection — a strictly worse
+posture, bounded only by how hard the UUID is to guess.
+
+Instead, a second, **authenticated** route was added:
+`GET /api/user-settings/profile-image` (bearer token required, gated on
+`user_settings:read`). It can safely be broader than the public route — it
+serves the caller's stored upload regardless of which source is currently
+selected — precisely because the user whose picture is served is never taken
+from a URL parameter; it is always the authenticated caller. There is no
+`userId` or `objectId` in the path to substitute, so this route can never be
+used to fetch anyone else's picture, no matter how broad its own matching
+logic is.
+
+Both routes are deliberately implemented against **one shared lookup and
+streaming path** in `AvatarService` (a public `open()` entry point and an
+authenticated `openStored()` entry point, both delegating to the same private
+`openObject()`), rather than two independent implementations. This means the
+ownership, readiness, key-prefix and mime-type checks are written once and
+cannot silently drift between the public and authenticated entry points over
+time.
+
+The two routes also share the same response-hardening headers, because an
+uploaded image is untrusted content being served same-origin and must never
+be interpreted as anything other than an image: `X-Content-Type-Options:
+nosniff`, `Content-Disposition: inline`, and a restrictive
+`Content-Security-Policy: default-src 'none'; sandbox`. They differ only on
+caching, and deliberately so: the public route sets `Cache-Control: private,
+max-age=86400`, since its URL already encodes the specific object id and is
+typically loaded through a cacheable `<img src>`; the authenticated preview
+route sets `Cache-Control: private, no-store`, since its URL never changes
+even though the underlying picture can (every new upload replaces it), and it
+is fetched through the API client rather than a browser-cacheable image tag.
 
 ### Signed URLs
 

@@ -636,12 +636,16 @@ describe('AuthService', () => {
     });
 
     it('should prefer user display name over provider', async () => {
+      // `users.profile_image_url` is deliberately not consulted (#367) —
+      // `profileImageUrl` is resolved from `user_settings.profile` instead
+      // (see the dedicated "profileImageUrl resolution (#367)" describe
+      // block below), so this test only exercises the display-name
+      // preference and leaves settings absent.
       const mockUser = {
         id: 'user-1',
         email: 'test@example.com',
         displayName: 'Custom Name',
         providerDisplayName: 'Provider Name',
-        profileImageUrl: 'https://custom.com/photo.jpg',
         providerProfileImageUrl: 'https://provider.com/photo.jpg',
         isActive: true,
         createdAt: new Date(),
@@ -653,7 +657,6 @@ describe('AuthService', () => {
       const result = await service.getCurrentUser('user-1');
 
       expect(result.displayName).toBe('Custom Name');
-      expect(result.profileImageUrl).toBe('https://custom.com/photo.jpg');
     });
 
     it('should throw UnauthorizedException for non-existent user', async () => {
@@ -662,6 +665,128 @@ describe('AuthService', () => {
       await expect(service.getCurrentUser('non-existent')).rejects.toThrow(
         UnauthorizedException,
       );
+    });
+  });
+
+  describe('profileImageUrl resolution (#367)', () => {
+    const avatarObjectId = '11111111-1111-4111-8111-111111111111';
+
+    function mockUserWithProfile(profile: unknown) {
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'user-1',
+        email: 'test@example.com',
+        displayName: null,
+        providerDisplayName: 'Provider Name',
+        providerProfileImageUrl: 'https://provider.example.com/pic.jpg',
+        isActive: true,
+        createdAt: new Date(),
+        userRoles: [],
+        userSettings: profile === undefined ? null : { value: { profile } },
+      } as any);
+    }
+
+    it('resolves to null when imageSource is "none"', async () => {
+      mockUserWithProfile({ imageSource: 'none', imageObjectId: null });
+
+      const result = await service.getCurrentUser('user-1');
+
+      expect(result.profileImageUrl).toBeNull();
+    });
+
+    it('resolves to the provider picture when imageSource is "provider"', async () => {
+      mockUserWithProfile({ imageSource: 'provider', imageObjectId: null });
+
+      const result = await service.getCurrentUser('user-1');
+
+      expect(result.profileImageUrl).toBe(
+        'https://provider.example.com/pic.jpg',
+      );
+    });
+
+    it('resolves to the same-origin avatar URL when imageSource is "upload"', async () => {
+      mockUserWithProfile({
+        imageSource: 'upload',
+        imageObjectId: avatarObjectId,
+      });
+
+      const result = await service.getCurrentUser('user-1');
+
+      expect(result.profileImageUrl).toBe(
+        `/api/users/user-1/avatar/${avatarObjectId}`,
+      );
+    });
+
+    it('defaults to "provider" when the user has no settings row at all', async () => {
+      mockUserWithProfile(undefined);
+
+      const result = await service.getCurrentUser('user-1');
+
+      expect(result.profileImageUrl).toBe(
+        'https://provider.example.com/pic.jpg',
+      );
+    });
+
+    it('always includes the raw providerProfileImageUrl alongside the resolved one', async () => {
+      mockUserWithProfile({ imageSource: 'none', imageObjectId: null });
+
+      const result = await service.getCurrentUser('user-1');
+
+      expect(result.providerProfileImageUrl).toBe(
+        'https://provider.example.com/pic.jpg',
+      );
+    });
+
+    // hasUploadedProfileImage (issue #367 follow-up): true whenever an
+    // uploaded picture is stored, regardless of which source is currently
+    // selected — that's the whole point of exposing a boolean instead of a
+    // URL that only resolved while "upload" was selected.
+    it('hasUploadedProfileImage is true when imageObjectId is set and imageSource is "provider"', async () => {
+      mockUserWithProfile({
+        imageSource: 'provider',
+        imageObjectId: avatarObjectId,
+      });
+
+      const result = await service.getCurrentUser('user-1');
+
+      expect(result.hasUploadedProfileImage).toBe(true);
+    });
+
+    it('hasUploadedProfileImage is true when imageSource is "upload" with an imageObjectId', async () => {
+      mockUserWithProfile({
+        imageSource: 'upload',
+        imageObjectId: avatarObjectId,
+      });
+
+      const result = await service.getCurrentUser('user-1');
+
+      expect(result.hasUploadedProfileImage).toBe(true);
+    });
+
+    it('hasUploadedProfileImage is true when imageSource is "none" but a leftover imageObjectId is still stored', async () => {
+      mockUserWithProfile({
+        imageSource: 'none',
+        imageObjectId: avatarObjectId,
+      });
+
+      const result = await service.getCurrentUser('user-1');
+
+      expect(result.hasUploadedProfileImage).toBe(true);
+    });
+
+    it('hasUploadedProfileImage is false when imageObjectId is null', async () => {
+      mockUserWithProfile({ imageSource: 'provider', imageObjectId: null });
+
+      const result = await service.getCurrentUser('user-1');
+
+      expect(result.hasUploadedProfileImage).toBe(false);
+    });
+
+    it('hasUploadedProfileImage is false when the user has no settings row at all', async () => {
+      mockUserWithProfile(undefined);
+
+      const result = await service.getCurrentUser('user-1');
+
+      expect(result.hasUploadedProfileImage).toBe(false);
     });
   });
 

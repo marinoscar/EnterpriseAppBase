@@ -167,6 +167,11 @@ describe('UsersService', () => {
             userRoles: {
               include: { role: true },
             },
+            // Needed to resolve `profileImageUrl` (#367) — see
+            // UsersService.updateUser.
+            userSettings: {
+              select: { value: true },
+            },
           },
         });
       });
@@ -203,6 +208,11 @@ describe('UsersService', () => {
           include: {
             userRoles: {
               include: { role: true },
+            },
+            // Needed to resolve `profileImageUrl` (#367) — see
+            // UsersService.updateUser.
+            userSettings: {
+              select: { value: true },
             },
           },
         });
@@ -295,6 +305,11 @@ describe('UsersService', () => {
           include: {
             userRoles: {
               include: { role: true },
+            },
+            // Needed to resolve `profileImageUrl` (#367) — see
+            // UsersService.listUsers.
+            userSettings: {
+              select: { value: true },
             },
           },
         });
@@ -567,6 +582,11 @@ describe('UsersService', () => {
                 createdAt: true,
               },
             },
+            // Needed to resolve `profileImageUrl` (#367) — see
+            // UsersService.getUserById.
+            userSettings: {
+              select: { value: true },
+            },
           },
         });
       });
@@ -583,6 +603,118 @@ describe('UsersService', () => {
         await expect(
           service.getUserById('non-existent-id')
         ).rejects.toThrow('User with ID non-existent-id not found');
+      });
+    });
+  });
+
+  describe('profileImageUrl resolution (#367)', () => {
+    const avatarObjectId = '11111111-1111-4111-8111-111111111111';
+
+    function userWithProfile(profile: unknown) {
+      return {
+        ...mockAdminUser,
+        userSettings: profile === undefined ? null : { value: { profile } },
+      };
+    }
+
+    describe('getUserById', () => {
+      it('resolves to null when imageSource is "none"', async () => {
+        mockPrisma.user.findUnique.mockResolvedValue(
+          userWithProfile({ imageSource: 'none', imageObjectId: null }) as any,
+        );
+
+        const result = await service.getUserById(mockAdminUser.id);
+
+        expect(result.profileImageUrl).toBeNull();
+      });
+
+      it('resolves to the same-origin avatar URL when imageSource is "upload"', async () => {
+        mockPrisma.user.findUnique.mockResolvedValue(
+          userWithProfile({
+            imageSource: 'upload',
+            imageObjectId: avatarObjectId,
+          }) as any,
+        );
+
+        const result = await service.getUserById(mockAdminUser.id);
+
+        expect(result.profileImageUrl).toBe(
+          `/api/users/${mockAdminUser.id}/avatar/${avatarObjectId}`,
+        );
+      });
+
+      it('defaults to the provider picture when there is no settings row', async () => {
+        mockPrisma.user.findUnique.mockResolvedValue(
+          userWithProfile(undefined) as any,
+        );
+
+        const result = await service.getUserById(mockAdminUser.id);
+
+        expect(result.profileImageUrl).toBe(mockAdminUser.providerProfileImageUrl);
+      });
+
+      it('always includes providerProfileImageUrl as-is alongside the resolved picture', async () => {
+        mockPrisma.user.findUnique.mockResolvedValue(
+          userWithProfile({ imageSource: 'none', imageObjectId: null }) as any,
+        );
+
+        const result = await service.getUserById(mockAdminUser.id);
+
+        expect(result.providerProfileImageUrl).toBe(
+          mockAdminUser.providerProfileImageUrl,
+        );
+      });
+    });
+
+    describe('listUsers', () => {
+      it('resolves each item\'s profileImageUrl from its own settings row', async () => {
+        mockPrisma.user.findMany.mockResolvedValue([
+          userWithProfile({ imageSource: 'none', imageObjectId: null }),
+          {
+            ...mockOtherUser,
+            userSettings: {
+              value: {
+                profile: { imageSource: 'upload', imageObjectId: avatarObjectId },
+              },
+            },
+          },
+        ] as any);
+        mockPrisma.user.count.mockResolvedValue(2);
+
+        const result = await service.listUsers({
+          page: 1,
+          pageSize: 20,
+          sortBy: 'createdAt',
+          sortOrder: 'desc',
+        });
+
+        expect(result.items[0].profileImageUrl).toBeNull();
+        expect(result.items[1].profileImageUrl).toBe(
+          `/api/users/${mockOtherUser.id}/avatar/${avatarObjectId}`,
+        );
+      });
+    });
+
+    describe('updateUser', () => {
+      it('resolves the patched user\'s profileImageUrl from its settings row', async () => {
+        mockPrisma.user.findUnique.mockResolvedValue(mockAdminUser as any);
+        mockPrisma.user.update.mockResolvedValue(
+          userWithProfile({
+            imageSource: 'upload',
+            imageObjectId: avatarObjectId,
+          }) as any,
+        );
+        mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+
+        const result = await service.updateUser(
+          mockAdminUser.id,
+          { displayName: 'New Name' },
+          mockAdminUser.id,
+        );
+
+        expect(result.profileImageUrl).toBe(
+          `/api/users/${mockAdminUser.id}/avatar/${avatarObjectId}`,
+        );
       });
     });
   });

@@ -2,7 +2,8 @@ export const userSettingsFixtures = {
   default: {
     theme: 'system',
     profile: {
-      useProviderImage: true,
+      imageSource: 'provider',
+      imageObjectId: null,
     },
     updatedAt: new Date().toISOString(),
     version: 1,
@@ -11,7 +12,8 @@ export const userSettingsFixtures = {
   darkTheme: {
     theme: 'dark',
     profile: {
-      useProviderImage: true,
+      imageSource: 'provider',
+      imageObjectId: null,
     },
     updatedAt: new Date().toISOString(),
     version: 1,
@@ -21,8 +23,8 @@ export const userSettingsFixtures = {
     theme: 'light',
     profile: {
       displayName: 'Custom Name',
-      useProviderImage: false,
-      customImageUrl: 'https://example.com/custom.jpg',
+      imageSource: 'none',
+      imageObjectId: null,
     },
     updatedAt: new Date().toISOString(),
     version: 1,

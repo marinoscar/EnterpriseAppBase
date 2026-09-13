@@ -116,8 +116,8 @@ describe('User Settings Integration', () => {
       theme: 'dark',
       profile: {
         displayName: 'John Doe',
-        useProviderImage: false,
-        customImageUrl: 'https://example.com/avatar.jpg',
+        imageSource: 'none',
+        imageObjectId: null,
       },
     };
 
@@ -211,7 +211,7 @@ describe('User Settings Integration', () => {
       const invalidSettings = {
         theme: 'invalid-theme',
         profile: {
-          useProviderImage: true,
+          imageSource: 'provider',
         },
       };
 
@@ -237,21 +237,21 @@ describe('User Settings Integration', () => {
         .expect(400);
     });
 
-    it('should return 400 with invalid URL in customImageUrl', async () => {
+    it('should return 400 with a non-uuid imageObjectId', async () => {
       const user = await createMockTestUser(context);
 
-      const invalidUrlSettings = {
+      const invalidSettings = {
         theme: 'dark',
         profile: {
-          useProviderImage: false,
-          customImageUrl: 'not-a-valid-url',
+          imageSource: 'upload',
+          imageObjectId: 'not-a-uuid',
         },
       };
 
       await request(context.app.getHttpServer())
         .put('/api/user-settings')
         .set(authHeader(user.accessToken))
-        .send(invalidUrlSettings)
+        .send(invalidSettings)
         .expect(400);
     });
 
@@ -264,7 +264,7 @@ describe('User Settings Integration', () => {
         theme: 'dark',
         profile: {
           displayName: tooLongName,
-          useProviderImage: true,
+          imageSource: 'provider',
         },
       };
 
@@ -368,7 +368,8 @@ describe('User Settings Integration', () => {
           theme: DEFAULT_USER_SETTINGS.theme,
           profile: {
             displayName: 'Jane Doe',
-            useProviderImage: DEFAULT_USER_SETTINGS.profile.useProviderImage,
+            imageSource: DEFAULT_USER_SETTINGS.profile.imageSource,
+            imageObjectId: DEFAULT_USER_SETTINGS.profile.imageObjectId,
           },
         } as any,
         version: 2,
@@ -479,10 +480,13 @@ describe('User Settings Integration', () => {
     it('should handle multiple profile field updates', async () => {
       const user = await createMockTestUser(context);
 
+      // `imageSource` moves to `none` (not `upload`), so this does not need
+      // to satisfy the avatar-ownership check (see
+      // user-settings.service.spec.ts's assertProfileImageReference coverage).
       const partialUpdate = {
         profile: {
-          useProviderImage: false,
-          customImageUrl: 'https://example.com/custom.jpg',
+          displayName: 'Multi Update',
+          imageSource: 'none' as const,
         },
       };
 
@@ -492,8 +496,9 @@ describe('User Settings Integration', () => {
         value: {
           theme: DEFAULT_USER_SETTINGS.theme,
           profile: {
-            useProviderImage: false,
-            customImageUrl: 'https://example.com/custom.jpg',
+            displayName: 'Multi Update',
+            imageSource: 'none',
+            imageObjectId: null,
           },
         } as any,
         version: 2,
@@ -508,10 +513,8 @@ describe('User Settings Integration', () => {
         .send(partialUpdate)
         .expect(200);
 
-      expect(response.body.data.profile.useProviderImage).toBe(false);
-      expect(response.body.data.profile.customImageUrl).toBe(
-        'https://example.com/custom.jpg',
-      );
+      expect(response.body.data.profile.imageSource).toBe('none');
+      expect(response.body.data.profile.displayName).toBe('Multi Update');
     });
   });
 
@@ -731,7 +734,7 @@ describe('User Settings Integration', () => {
               userId: user2.id,
               value: {
                 theme: 'dark',
-                profile: { useProviderImage: true },
+                profile: { imageSource: 'provider' },
               } as any,
               version: 1,
               updatedAt: new Date(),
@@ -761,7 +764,7 @@ describe('User Settings Integration', () => {
 
       const newSettings: UserSettingsValue = {
         theme: 'dark',
-        profile: { useProviderImage: true },
+        profile: { imageSource: 'provider' },
       };
 
       context.prismaMock.userSettings.upsert.mockResolvedValue({

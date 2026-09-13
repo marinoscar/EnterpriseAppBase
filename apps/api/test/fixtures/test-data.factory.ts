@@ -282,8 +282,8 @@ export function createMockUserSettings(
       theme: 'system',
       profile: {
         displayName: null,
-        useProviderImage: true,
-        customImageUrl: null,
+        imageSource: 'provider',
+        imageObjectId: null,
       },
       updatedAt: new Date().toISOString(),
       version: 1,

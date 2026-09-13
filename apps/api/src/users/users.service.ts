@@ -13,6 +13,7 @@ import { UpdateUserRolesDto } from './dto/update-user-roles.dto';
 import { ROLES } from '../common/constants/roles.constants';
 import { NotificationsService } from '../notifications/notifications.service';
 import type { RoleChangedEmailData } from '../email';
+import { resolveProfileImageUrl } from '../common/profile-image/profile-image';
 
 @Injectable()
 export class UsersService {
@@ -65,6 +66,10 @@ export class UsersService {
           userRoles: {
             include: { role: true },
           },
+          // Same query, no N+1: needed to resolve `profileImageUrl` (#367).
+          userSettings: {
+            select: { value: true },
+          },
         },
       }),
       this.prisma.user.count({ where }),
@@ -76,7 +81,7 @@ export class UsersService {
       email: user.email,
       displayName: user.displayName,
       providerDisplayName: user.providerDisplayName,
-      profileImageUrl: user.profileImageUrl,
+      profileImageUrl: this.resolveImage(user),
       providerProfileImageUrl: user.providerProfileImageUrl,
       isActive: user.isActive,
       roles: user.userRoles.map((ur) => ur.role.name),
@@ -110,6 +115,9 @@ export class UsersService {
             createdAt: true,
           },
         },
+        userSettings: {
+          select: { value: true },
+        },
       },
     });
 
@@ -122,7 +130,7 @@ export class UsersService {
       email: user.email,
       displayName: user.displayName,
       providerDisplayName: user.providerDisplayName,
-      profileImageUrl: user.profileImageUrl,
+      profileImageUrl: this.resolveImage(user),
       providerProfileImageUrl: user.providerProfileImageUrl,
       isActive: user.isActive,
       roles: user.userRoles.map((ur) => ur.role.name),
@@ -161,6 +169,9 @@ export class UsersService {
         userRoles: {
           include: { role: true },
         },
+        userSettings: {
+          select: { value: true },
+        },
       },
     });
 
@@ -176,7 +187,7 @@ export class UsersService {
       email: updated.email,
       displayName: updated.displayName,
       providerDisplayName: updated.providerDisplayName,
-      profileImageUrl: updated.profileImageUrl,
+      profileImageUrl: this.resolveImage(updated),
       providerProfileImageUrl: updated.providerProfileImageUrl,
       isActive: updated.isActive,
       roles: updated.userRoles.map((ur) => ur.role.name),
@@ -299,6 +310,21 @@ export class UsersService {
     await this.notifications.notify('security.role_changed', id, payload);
 
     return this.getUserById(id);
+  }
+
+  /**
+   * The picture representing a user, per their `profile.imageSource` (#367).
+   * `users.profile_image_url` is deliberately not consulted — nothing writes it.
+   */
+  private resolveImage(user: {
+    id: string;
+    providerProfileImageUrl: string | null;
+    userSettings?: { value: unknown } | null;
+  }): string | null {
+    const storedProfile = (
+      user.userSettings?.value as { profile?: unknown } | null | undefined
+    )?.profile;
+    return resolveProfileImageUrl(user, storedProfile);
   }
 
   /**

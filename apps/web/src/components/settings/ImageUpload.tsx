@@ -1,94 +1,141 @@
-import { useState, useRef } from 'react';
-import { Button, Box, Typography, CircularProgress } from '@mui/material';
+import { useId, useRef, useState } from 'react';
+import type { ChangeEvent } from 'react';
+import { Alert, Box, Button, LinearProgress, Typography } from '@mui/material';
 import { CloudUpload as UploadIcon } from '@mui/icons-material';
-import { api } from '../../services/api';
+import { ApiError, uploadProfileImage } from '../../services/api';
+import type { ProfileImageMutationResponse } from '../../types';
+
+/** Mirrors the API's limit; the server re-checks the actual bytes (#367). */
+export const PROFILE_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+/** Mirrors the API's allowed formats; the server validates by magic bytes. */
+export const PROFILE_IMAGE_TYPES: readonly string[] = [
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+];
 
 interface ImageUploadProps {
-  onUpload: (url: string) => void;
+  /**
+   * Called with the upload response once the server has stored the picture.
+   * The response carries the new settings document (and `version`), which the
+   * caller must adopt. `file` is the picked file, so the caller can preview it
+   * locally before any authenticated re-fetch completes.
+   */
+  onUploaded: (result: ProfileImageMutationResponse, file: File) => void | Promise<void>;
+  /** Lets the parent block conflicting actions while bytes are in flight. */
+  onUploadingChange?: (uploading: boolean) => void;
   disabled?: boolean;
+  /** Button text, e.g. "Replace picture" when one already exists. */
+  label?: string;
 }
 
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
-const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+function describeUploadError(err: unknown): string {
+  if (err instanceof ApiError) {
+    // `ApiService` falls back to this literal when the body carried no message
+    // (e.g. a proxy's HTML 413 page), so only a real server message wins.
+    if (err.message && err.message !== 'Request failed') {
+      return err.message;
+    }
+    if (err.status === 413) {
+      return 'The image must be 5 MB or smaller.';
+    }
+    if (err.status === 400) {
+      return 'That file is not a supported image (JPEG, PNG, GIF or WebP).';
+    }
+  }
+  return 'Failed to upload the picture. Please try again.';
+}
 
-export function ImageUpload({ onUpload, disabled = false }: ImageUploadProps) {
+export function ImageUpload({
+  onUploaded,
+  onUploadingChange,
+  disabled = false,
+  label = 'Upload picture',
+}: ImageUploadProps) {
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const hintId = useId();
 
-  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const setUploading = (uploading: boolean) => {
+    setIsUploading(uploading);
+    onUploadingChange?.(uploading);
+  };
+
+  const handleFileSelect = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
+    // Reset so choosing the same file again still fires `change`.
+    event.target.value = '';
     if (!file) return;
 
-    // Validate file type
-    if (!ALLOWED_TYPES.includes(file.type)) {
-      setError('Please select a valid image file (JPEG, PNG, GIF, or WebP)');
+    // Client-side pre-checks only save a round trip; the API is authoritative.
+    if (!PROFILE_IMAGE_TYPES.includes(file.type)) {
+      setError('Please choose a JPEG, PNG, GIF or WebP image.');
       return;
     }
-
-    // Validate file size
-    if (file.size > MAX_FILE_SIZE) {
-      setError('File size must be less than 5MB');
+    if (file.size > PROFILE_IMAGE_MAX_BYTES) {
+      setError('The image must be 5 MB or smaller.');
       return;
     }
 
     setError(null);
-    setIsUploading(true);
+    setUploading(true);
 
+    let result: ProfileImageMutationResponse;
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-
-      // Note: This endpoint would need to be implemented in the API
-      // For MVP, you could use a simple file storage or cloud service
-      const response = await fetch('/api/users/profile-image', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${api.getAccessToken()}`,
-        },
-        body: formData,
-      });
-
-      if (!response.ok) {
-        throw new Error('Upload failed');
-      }
-
-      const data = await response.json();
-      onUpload(data.url);
+      result = await uploadProfileImage(file);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to upload image');
-    } finally {
-      setIsUploading(false);
-      // Reset input
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
+      setError(describeUploadError(err));
+      setUploading(false);
+      return;
     }
+
+    setUploading(false);
+    await onUploaded(result, file);
   };
 
+  const isDisabled = disabled || isUploading;
+
   return (
-    <Box sx={{ mt: 1 }}>
+    <Box>
       <input
         ref={fileInputRef}
         type="file"
-        accept={ALLOWED_TYPES.join(',')}
+        accept={PROFILE_IMAGE_TYPES.join(',')}
         onChange={handleFileSelect}
         style={{ display: 'none' }}
-        disabled={disabled || isUploading}
+        disabled={isDisabled}
+        data-testid="profile-image-file-input"
       />
       <Button
         variant="outlined"
         size="small"
-        startIcon={isUploading ? <CircularProgress size={16} /> : <UploadIcon />}
+        startIcon={<UploadIcon />}
         onClick={() => fileInputRef.current?.click()}
-        disabled={disabled || isUploading}
+        disabled={isDisabled}
+        aria-describedby={hintId}
       >
-        {isUploading ? 'Uploading...' : 'Upload Custom Image'}
+        {isUploading ? 'Uploading...' : label}
       </Button>
+      <Typography
+        id={hintId}
+        variant="caption"
+        color="text.secondary"
+        sx={{ display: 'block', mt: 0.5 }}
+      >
+        JPEG, PNG, GIF or WebP, up to 5 MB.
+      </Typography>
+      {isUploading && (
+        <LinearProgress
+          aria-label="Uploading picture"
+          sx={{ mt: 1, maxWidth: 240 }}
+        />
+      )}
       {error && (
-        <Typography variant="caption" color="error" sx={{ display: 'block', mt: 0.5 }}>
+        <Alert severity="error" sx={{ mt: 1 }} onClose={() => setError(null)}>
           {error}
-        </Typography>
+        </Alert>
       )}
     </Box>
   );

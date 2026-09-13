@@ -87,7 +87,7 @@ function mockSettings(overrides: Partial<ReturnType<typeof useUserSettings>> = {
   mockUseUserSettings.mockReturnValue({
     settings: {
       theme: 'system',
-      profile: { useProviderImage: true },
+      profile: { imageSource: 'provider' },
       updatedAt: new Date().toISOString(),
       version: 1,
       // No `notifications` key at all - the untouched-account case.
@@ -99,6 +99,7 @@ function mockSettings(overrides: Partial<ReturnType<typeof useUserSettings>> = {
     updateTheme: vi.fn().mockResolvedValue(undefined),
     updateProfile: vi.fn().mockResolvedValue(undefined),
     refresh: vi.fn(),
+    replaceSettings: vi.fn(),
     ...overrides,
   });
 }
@@ -215,7 +216,7 @@ describe('UserNotificationsPage', () => {
         updateSettings,
         settings: {
           theme: 'system',
-          profile: { useProviderImage: true },
+          profile: { imageSource: 'provider' },
           updatedAt: new Date().toISOString(),
           version: 1,
           notifications: { email: { 'user.welcome': false } },
@@ -242,7 +243,7 @@ describe('UserNotificationsPage', () => {
         updateSettings,
         settings: {
           theme: 'system',
-          profile: { useProviderImage: true },
+          profile: { imageSource: 'provider' },
           updatedAt: new Date().toISOString(),
           version: 1,
           notifications: { email: { 'weekly.digest': true } },
@@ -302,7 +303,7 @@ describe('UserNotificationsPage', () => {
       mockSettings({
         settings: {
           theme: 'system',
-          profile: { useProviderImage: true },
+          profile: { imageSource: 'provider' },
           updatedAt: new Date().toISOString(),
           version: 1,
           notifications: {

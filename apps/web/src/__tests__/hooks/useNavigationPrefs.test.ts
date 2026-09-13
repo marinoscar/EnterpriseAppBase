@@ -25,7 +25,7 @@ const mockUseUserSettings = vi.mocked(useUserSettings);
 function settingsWith(navigation?: UserSettings['navigation']): UserSettings {
   return {
     theme: 'system',
-    profile: { useProviderImage: true },
+    profile: { imageSource: 'provider' },
     ...(navigation === undefined ? {} : { navigation }),
     updatedAt: new Date().toISOString(),
     version: 3,
@@ -46,6 +46,7 @@ function mockSettings(settings: UserSettings | null, isLoading = false) {
     updateTheme: vi.fn(),
     updateProfile: vi.fn(),
     refresh: vi.fn(),
+    replaceSettings: vi.fn(),
   });
 }
 

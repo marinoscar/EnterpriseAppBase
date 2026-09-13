@@ -584,11 +584,18 @@ apps/api/src/storage/
   "theme": "light | dark | system",
   "profile": {
     "displayName": "string | null",
-    "useProviderImage": true,
-    "customImageUrl": "string | null"
+    "imageSource": "none | provider | upload",
+    "imageObjectId": "uuid | null"
   }
 }
 ```
+
+`imageSource` selects which picture represents the user (no picture, the OAuth
+provider's picture, or one uploaded via `POST /api/user-settings/profile-image`);
+`imageObjectId` is the uploaded avatar's storage object id, present only when
+relevant. Rows written before this shape existed carry `useProviderImage`/
+`customImageUrl` instead — normalized to the shape above on every read rather
+than by a data migration (see `apps/api/src/common/profile-image/profile-image.ts`).
 
 #### System Settings Shape
 

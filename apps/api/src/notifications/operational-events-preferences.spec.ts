@@ -44,7 +44,7 @@ const MANDATORY = 'db_backup.restore_completed';
 function parseSettings(notifications: Record<string, Record<string, boolean>>) {
   return userSettingsSchema.parse({
     theme: 'system',
-    profile: { useProviderImage: true },
+    profile: { imageSource: 'provider' },
     notifications,
   });
 }

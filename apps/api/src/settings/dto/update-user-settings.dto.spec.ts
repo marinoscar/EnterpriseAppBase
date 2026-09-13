@@ -11,13 +11,19 @@ import {
   NOTIFICATION_MAX_EVENTS_PER_CHANNEL,
 } from '../../common/schemas/user-settings-namespaces.schema';
 
+// A valid uuid to stand in for `imageObjectId` throughout — the DTO schema
+// only checks the shape (`z.string().uuid()`); whether it names an avatar the
+// caller actually owns is checked by `UserSettingsService`, not here (see
+// user-settings.service.spec.ts's `assertProfileImageReference` coverage).
+const AVATAR_OBJECT_ID = '11111111-1111-4111-8111-111111111111';
+
 describe('UpdateUserSettingsDto (PUT)', () => {
   describe('theme field', () => {
     it('should accept "light" theme value', () => {
       const result = updateUserSettingsSchema.parse({
         theme: 'light',
         profile: {
-          useProviderImage: true,
+          imageSource: 'provider',
         },
       });
 
@@ -28,7 +34,7 @@ describe('UpdateUserSettingsDto (PUT)', () => {
       const result = updateUserSettingsSchema.parse({
         theme: 'dark',
         profile: {
-          useProviderImage: true,
+          imageSource: 'provider',
         },
       });
 
@@ -39,7 +45,7 @@ describe('UpdateUserSettingsDto (PUT)', () => {
       const result = updateUserSettingsSchema.parse({
         theme: 'system',
         profile: {
-          useProviderImage: true,
+          imageSource: 'provider',
         },
       });
 
@@ -51,7 +57,7 @@ describe('UpdateUserSettingsDto (PUT)', () => {
         updateUserSettingsSchema.parse({
           theme: 'blue',
           profile: {
-            useProviderImage: true,
+            imageSource: 'provider',
           },
         }),
       ).toThrow();
@@ -62,7 +68,7 @@ describe('UpdateUserSettingsDto (PUT)', () => {
         updateUserSettingsSchema.parse({
           theme: '',
           profile: {
-            useProviderImage: true,
+            imageSource: 'provider',
           },
         }),
       ).toThrow();
@@ -72,7 +78,7 @@ describe('UpdateUserSettingsDto (PUT)', () => {
       expect(() =>
         updateUserSettingsSchema.parse({
           profile: {
-            useProviderImage: true,
+            imageSource: 'provider',
           },
         }),
       ).toThrow();
@@ -85,33 +91,33 @@ describe('UpdateUserSettingsDto (PUT)', () => {
         theme: 'light',
         profile: {
           displayName: 'John Doe',
-          useProviderImage: false,
-          customImageUrl: 'https://example.com/image.jpg',
+          imageSource: 'upload',
+          imageObjectId: AVATAR_OBJECT_ID,
         },
       });
 
       expect(result.profile.displayName).toBe('John Doe');
-      expect(result.profile.useProviderImage).toBe(false);
-      expect(result.profile.customImageUrl).toBe('https://example.com/image.jpg');
+      expect(result.profile.imageSource).toBe('upload');
+      expect(result.profile.imageObjectId).toBe(AVATAR_OBJECT_ID);
     });
 
-    it('should accept profile with null customImageUrl', () => {
+    it('should accept profile with null imageObjectId', () => {
       const result = updateUserSettingsSchema.parse({
         theme: 'light',
         profile: {
-          useProviderImage: true,
-          customImageUrl: null,
+          imageSource: 'provider',
+          imageObjectId: null,
         },
       });
 
-      expect(result.profile.customImageUrl).toBeNull();
+      expect(result.profile.imageObjectId).toBeNull();
     });
 
     it('should make displayName optional', () => {
       const result = updateUserSettingsSchema.parse({
         theme: 'light',
         profile: {
-          useProviderImage: true,
+          imageSource: 'provider',
         },
       });
 
@@ -123,7 +129,7 @@ describe('UpdateUserSettingsDto (PUT)', () => {
         theme: 'light',
         profile: {
           displayName: '',
-          useProviderImage: true,
+          imageSource: 'provider',
         },
       });
 
@@ -136,7 +142,7 @@ describe('UpdateUserSettingsDto (PUT)', () => {
         theme: 'light',
         profile: {
           displayName: longName,
-          useProviderImage: true,
+          imageSource: 'provider',
         },
       });
 
@@ -150,13 +156,13 @@ describe('UpdateUserSettingsDto (PUT)', () => {
           theme: 'light',
           profile: {
             displayName: tooLongName,
-            useProviderImage: true,
+            imageSource: 'provider',
           },
         }),
       ).toThrow();
     });
 
-    it('should require useProviderImage field', () => {
+    it('should require imageSource field', () => {
       expect(() =>
         updateUserSettingsSchema.parse({
           theme: 'light',
@@ -167,64 +173,67 @@ describe('UpdateUserSettingsDto (PUT)', () => {
       ).toThrow();
     });
 
-    it('should reject non-boolean useProviderImage', () => {
+    it('should reject an imageSource value outside the enum', () => {
       expect(() =>
         updateUserSettingsSchema.parse({
           theme: 'light',
           profile: {
-            useProviderImage: 'true',
+            imageSource: 'gravatar',
           },
         }),
       ).toThrow();
     });
 
-    it('should accept valid URL for customImageUrl', () => {
+    it.each([['none'], ['provider'], ['upload']])(
+      'should accept imageSource %j',
+      (imageSource) => {
+        const result = updateUserSettingsSchema.parse({
+          theme: 'light',
+          profile: {
+            imageSource,
+            ...(imageSource === 'upload'
+              ? { imageObjectId: AVATAR_OBJECT_ID }
+              : {}),
+          },
+        });
+
+        expect(result.profile.imageSource).toBe(imageSource);
+      },
+    );
+
+    it('should accept a valid uuid for imageObjectId', () => {
       const result = updateUserSettingsSchema.parse({
         theme: 'light',
         profile: {
-          useProviderImage: false,
-          customImageUrl: 'https://cdn.example.com/user/profile.png',
+          imageSource: 'upload',
+          imageObjectId: AVATAR_OBJECT_ID,
         },
       });
 
-      expect(result.profile.customImageUrl).toBe(
-        'https://cdn.example.com/user/profile.png',
-      );
+      expect(result.profile.imageObjectId).toBe(AVATAR_OBJECT_ID);
     });
 
-    it('should accept http URL for customImageUrl', () => {
-      const result = updateUserSettingsSchema.parse({
-        theme: 'light',
-        profile: {
-          useProviderImage: false,
-          customImageUrl: 'http://example.com/image.jpg',
-        },
-      });
-
-      expect(result.profile.customImageUrl).toBe('http://example.com/image.jpg');
-    });
-
-    it('should reject invalid URL for customImageUrl', () => {
+    it('should reject a non-uuid imageObjectId', () => {
       expect(() =>
         updateUserSettingsSchema.parse({
           theme: 'light',
           profile: {
-            useProviderImage: false,
-            customImageUrl: 'not-a-valid-url',
+            imageSource: 'upload',
+            imageObjectId: 'not-a-uuid',
           },
         }),
       ).toThrow();
     });
 
-    it('should make customImageUrl optional', () => {
+    it('should make imageObjectId optional', () => {
       const result = updateUserSettingsSchema.parse({
         theme: 'light',
         profile: {
-          useProviderImage: true,
+          imageSource: 'provider',
         },
       });
 
-      expect(result.profile.customImageUrl).toBeUndefined();
+      expect(result.profile.imageObjectId).toBeUndefined();
     });
 
     it('should require profile field', () => {
@@ -242,8 +251,8 @@ describe('UpdateUserSettingsDto (PUT)', () => {
         theme: 'dark',
         profile: {
           displayName: 'Jane Doe',
-          useProviderImage: false,
-          customImageUrl: 'https://example.com/jane.jpg',
+          imageSource: 'upload',
+          imageObjectId: AVATAR_OBJECT_ID,
         },
       });
 
@@ -251,8 +260,8 @@ describe('UpdateUserSettingsDto (PUT)', () => {
         theme: 'dark',
         profile: {
           displayName: 'Jane Doe',
-          useProviderImage: false,
-          customImageUrl: 'https://example.com/jane.jpg',
+          imageSource: 'upload',
+          imageObjectId: AVATAR_OBJECT_ID,
         },
       });
     });
@@ -261,14 +270,14 @@ describe('UpdateUserSettingsDto (PUT)', () => {
       const result = updateUserSettingsSchema.parse({
         theme: 'system',
         profile: {
-          useProviderImage: true,
+          imageSource: 'provider',
         },
       });
 
       expect(result).toEqual({
         theme: 'system',
         profile: {
-          useProviderImage: true,
+          imageSource: 'provider',
         },
       });
     });
@@ -339,38 +348,38 @@ describe('PatchUserSettingsDto (PATCH)', () => {
       });
 
       expect(result.profile?.displayName).toBe('Updated Name');
-      expect(result.profile?.useProviderImage).toBeUndefined();
+      expect(result.profile?.imageSource).toBeUndefined();
     });
 
-    it('should accept partial profile - only useProviderImage', () => {
+    it('should accept partial profile - only imageSource', () => {
       const result = patchUserSettingsSchema.parse({
         profile: {
-          useProviderImage: false,
+          imageSource: 'none',
         },
       });
 
-      expect(result.profile?.useProviderImage).toBe(false);
+      expect(result.profile?.imageSource).toBe('none');
       expect(result.profile?.displayName).toBeUndefined();
     });
 
-    it('should accept partial profile - only customImageUrl', () => {
+    it('should accept partial profile - only imageObjectId', () => {
       const result = patchUserSettingsSchema.parse({
         profile: {
-          customImageUrl: 'https://example.com/new-image.jpg',
+          imageObjectId: AVATAR_OBJECT_ID,
         },
       });
 
-      expect(result.profile?.customImageUrl).toBe('https://example.com/new-image.jpg');
+      expect(result.profile?.imageObjectId).toBe(AVATAR_OBJECT_ID);
     });
 
-    it('should accept partial profile with null customImageUrl', () => {
+    it('should accept partial profile with null imageObjectId', () => {
       const result = patchUserSettingsSchema.parse({
         profile: {
-          customImageUrl: null,
+          imageObjectId: null,
         },
       });
 
-      expect(result.profile?.customImageUrl).toBeNull();
+      expect(result.profile?.imageObjectId).toBeNull();
     });
 
     it('should validate displayName max length when provided', () => {
@@ -384,11 +393,21 @@ describe('PatchUserSettingsDto (PATCH)', () => {
       ).toThrow();
     });
 
-    it('should validate customImageUrl format when provided', () => {
+    it('should reject a non-uuid imageObjectId when provided', () => {
       expect(() =>
         patchUserSettingsSchema.parse({
           profile: {
-            customImageUrl: 'invalid-url',
+            imageObjectId: 'not-a-uuid',
+          },
+        }),
+      ).toThrow();
+    });
+
+    it('should reject an imageSource value outside the enum', () => {
+      expect(() =>
+        patchUserSettingsSchema.parse({
+          profile: {
+            imageSource: 'gravatar',
           },
         }),
       ).toThrow();
@@ -398,15 +417,15 @@ describe('PatchUserSettingsDto (PATCH)', () => {
       const result = patchUserSettingsSchema.parse({
         profile: {
           displayName: 'New Name',
-          useProviderImage: true,
-          customImageUrl: null,
+          imageSource: 'provider',
+          imageObjectId: null,
         },
       });
 
       expect(result.profile).toEqual({
         displayName: 'New Name',
-        useProviderImage: true,
-        customImageUrl: null,
+        imageSource: 'provider',
+        imageObjectId: null,
       });
     });
   });
@@ -446,16 +465,16 @@ describe('PatchUserSettingsDto (PATCH)', () => {
       const result = patchUserSettingsSchema.parse({
         theme: 'light',
         profile: {
-          useProviderImage: false,
-          customImageUrl: 'https://example.com/avatar.png',
+          imageSource: 'upload',
+          imageObjectId: AVATAR_OBJECT_ID,
         },
       });
 
       expect(result).toEqual({
         theme: 'light',
         profile: {
-          useProviderImage: false,
-          customImageUrl: 'https://example.com/avatar.png',
+          imageSource: 'upload',
+          imageObjectId: AVATAR_OBJECT_ID,
         },
       });
     });
@@ -464,7 +483,7 @@ describe('PatchUserSettingsDto (PATCH)', () => {
   describe('dataTables namespace (PUT)', () => {
     const baseValid = {
       theme: 'light' as const,
-      profile: { useProviderImage: true },
+      profile: { imageSource: 'provider' },
     };
 
     it('is optional - absent when not provided', () => {
@@ -683,7 +702,7 @@ describe('PatchUserSettingsDto (PATCH)', () => {
   describe('navigation namespace (PUT)', () => {
     const baseValid = {
       theme: 'light' as const,
-      profile: { useProviderImage: true },
+      profile: { imageSource: 'provider' },
     };
 
     it('is optional - absent when not provided', () => {
@@ -914,7 +933,7 @@ describe('navigation namespace (PATCH)', () => {
 describe('notifications namespace (PUT)', () => {
   const baseValid = {
     theme: 'light' as const,
-    profile: { useProviderImage: true },
+    profile: { imageSource: 'provider' },
   };
 
   it('is optional - absent when not provided', () => {

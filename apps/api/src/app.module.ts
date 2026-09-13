@@ -10,6 +10,7 @@ import { CommonModule } from './common/common.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { SettingsModule } from './settings/settings.module';
+import { ProfileImageModule } from './settings/profile-image/profile-image.module';
 import { HealthModule } from './health/health.module';
 import { AllowlistModule } from './allowlist/allowlist.module';
 import { DeviceAuthModule } from './device-auth/device-auth.module';
@@ -60,6 +61,9 @@ import configuration from './config/configuration';
     AuthModule,
     UsersModule,
     SettingsModule,
+    // Uploaded profile pictures (#367): its own module because it needs the
+    // storage provider and SettingsModule must not (see the module).
+    ProfileImageModule,
     HealthModule,
     AllowlistModule,
     DeviceAuthModule,

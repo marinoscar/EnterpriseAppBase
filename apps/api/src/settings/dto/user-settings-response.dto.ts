@@ -5,13 +5,15 @@ import {
   navigationSchema,
   notificationsSchema,
 } from '../../common/schemas/user-settings-namespaces.schema';
+import { profileImageSourceSchema } from '../../common/schemas/settings.schema';
 
 export const userSettingsResponseSchema = z.object({
   theme: z.enum(['light', 'dark', 'system']),
   profile: z.object({
     displayName: z.string().nullable().optional(),
-    useProviderImage: z.boolean(),
-    customImageUrl: z.string().url().nullable().optional(),
+    imageSource: profileImageSourceSchema,
+    // Always present in responses; `null` when no avatar has been uploaded.
+    imageObjectId: z.string().uuid().nullable(),
   }),
   // Emitted only when the user has stored something for the namespace; an
   // absent namespace means "client should apply its built-in defaults".
