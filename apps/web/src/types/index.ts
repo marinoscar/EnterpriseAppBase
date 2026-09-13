@@ -14,8 +14,11 @@ export interface User {
   profileImageUrl: string | null;
   /** The sign-in provider's picture, whatever the chosen source (previews). */
   providerProfileImageUrl?: string | null;
-  /** The uploaded picture's URL, whatever the chosen source (previews). */
-  uploadedProfileImageUrl?: string | null;
+  /**
+   * Whether an uploaded picture is stored, whatever the chosen source. Its
+   * bytes are previewed via the authenticated `GET /user-settings/profile-image`.
+   */
+  hasUploadedProfileImage?: boolean;
   roles: Role[];
   permissions: string[];
   isActive: boolean;

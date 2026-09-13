@@ -19,9 +19,10 @@ interface ImageUploadProps {
   /**
    * Called with the upload response once the server has stored the picture.
    * The response carries the new settings document (and `version`), which the
-   * caller must adopt.
+   * caller must adopt. `file` is the picked file, so the caller can preview it
+   * locally before any authenticated re-fetch completes.
    */
-  onUploaded: (result: ProfileImageMutationResponse) => void | Promise<void>;
+  onUploaded: (result: ProfileImageMutationResponse, file: File) => void | Promise<void>;
   /** Lets the parent block conflicting actions while bytes are in flight. */
   onUploadingChange?: (uploading: boolean) => void;
   disabled?: boolean;
@@ -91,7 +92,7 @@ export function ImageUpload({
     }
 
     setUploading(false);
-    await onUploaded(result);
+    await onUploaded(result, file);
   };
 
   const isDisabled = disabled || isUploading;

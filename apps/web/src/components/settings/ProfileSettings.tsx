@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import {
   Alert,
   Avatar,
@@ -23,7 +23,11 @@ import {
 } from '@mui/material';
 import { DeleteOutlined as DeleteIcon } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
-import { ApiError, deleteProfileImage } from '../../services/api';
+import {
+  ApiError,
+  deleteProfileImage,
+  fetchProfileImagePreview,
+} from '../../services/api';
 import type {
   ProfileImageMutationResponse,
   ProfileImageSource,
@@ -75,9 +79,55 @@ export function ProfileSettings({
   const [isRemoving, setIsRemoving] = useState(false);
   const [confirmRemoveOpen, setConfirmRemoveOpen] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
-  // The just-uploaded URL, used until `refreshUser()` brings the new
-  // `uploadedProfileImageUrl` so the preview does not flash the old picture.
-  const [pendingUploadUrl, setPendingUploadUrl] = useState<string | null>(null);
+  // Object URL for the uploaded picture's preview. The public avatar route only
+  // serves a picture while it is the SELECTED source, so the preview is loaded
+  // through the authenticated `GET /user-settings/profile-image` instead and
+  // rendered from a blob. The ref tracks the live URL so it can be revoked.
+  const [uploadPreviewUrl, setUploadPreviewUrl] = useState<string | null>(null);
+  const uploadPreviewUrlRef = useRef<string | null>(null);
+  // Bumped after an upload or removal to force a re-fetch of the preview.
+  const [uploadPreviewNonce, setUploadPreviewNonce] = useState(0);
+
+  const replaceUploadPreview = useCallback((next: string | null) => {
+    const previous = uploadPreviewUrlRef.current;
+    uploadPreviewUrlRef.current = next;
+    if (previous && previous !== next) {
+      URL.revokeObjectURL(previous);
+    }
+    setUploadPreviewUrl(next);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (uploadPreviewUrlRef.current) {
+        URL.revokeObjectURL(uploadPreviewUrlRef.current);
+        uploadPreviewUrlRef.current = null;
+      }
+    },
+    [],
+  );
+
+  const hasUploadedImage = Boolean(user?.hasUploadedProfileImage);
+
+  useEffect(() => {
+    if (!hasUploadedImage) {
+      replaceUploadPreview(null);
+      return;
+    }
+    let cancelled = false;
+    fetchProfileImagePreview()
+      .then((blob) => {
+        if (!cancelled) replaceUploadPreview(URL.createObjectURL(blob));
+      })
+      .catch(() => {
+        // No stored picture (404) or a network failure: the option simply
+        // shows initials. Not worth an error banner.
+        if (!cancelled) replaceUploadPreview(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [hasUploadedImage, uploadPreviewNonce, replaceUploadPreview]);
 
   // Sync each field from the stored document only when THAT field changes, so
   // an upload (which replaces the document) does not discard a display name
@@ -91,9 +141,7 @@ export function ProfileSettings({
   }, [savedSource]);
 
   const providerUrl = user?.providerProfileImageUrl ?? null;
-  const uploadedUrl = hasUpload
-    ? pendingUploadUrl ?? user?.uploadedProfileImageUrl ?? null
-    : null;
+  const uploadedUrl = hasUpload ? uploadPreviewUrl : null;
 
   const urlFor = (source: ProfileImageSource): string | null => {
     if (source === 'provider') return providerUrl;
@@ -175,13 +223,15 @@ export function ProfileSettings({
     }
   };
 
-  const handleUploaded = async (result: ProfileImageMutationResponse) => {
+  const handleUploaded = async (result: ProfileImageMutationResponse, file: File) => {
     setImageError(null);
-    setPendingUploadUrl(result.profileImageUrl);
+    // Show the picked file straight away; the re-fetch below replaces it with
+    // what the server actually stored.
+    replaceUploadPreview(URL.createObjectURL(file));
     setImageSource(result.settings.profile.imageSource);
     onSettingsReplaced?.(result.settings, 'Profile picture updated');
     await refreshUserQuietly();
-    setPendingUploadUrl(null);
+    setUploadPreviewNonce((n) => n + 1);
   };
 
   const handleRemoveUpload = async () => {
@@ -190,10 +240,11 @@ export function ProfileSettings({
     setImageError(null);
     try {
       const result = await deleteProfileImage();
-      setPendingUploadUrl(null);
+      replaceUploadPreview(null);
       setImageSource(result.settings.profile.imageSource);
       onSettingsReplaced?.(result.settings, 'Uploaded picture removed');
       await refreshUserQuietly();
+      setUploadPreviewNonce((n) => n + 1);
     } catch (err) {
       setImageError(
         err instanceof ApiError && err.message !== 'Request failed'

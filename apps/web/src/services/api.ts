@@ -16,6 +16,11 @@ import { readMaintenanceBlock, reportMaintenanceBlock } from './maintenance';
 
 interface RequestOptions extends RequestInit {
   skipAuth?: boolean;
+  /**
+   * How to read a successful body. `'json'` (the default) parses and unwraps
+   * the `{ data }` envelope; `'blob'` returns the raw bytes (e.g. an image).
+   */
+  responseType?: 'json' | 'blob';
 }
 
 class ApiService {
@@ -34,7 +39,7 @@ class ApiService {
     endpoint: string,
     options: RequestOptions = {},
   ): Promise<T> {
-    const { skipAuth = false, ...fetchOptions } = options;
+    const { skipAuth = false, responseType = 'json', ...fetchOptions } = options;
 
     const headers: HeadersInit = {
       ...fetchOptions.headers,
@@ -79,21 +84,23 @@ class ApiService {
           credentials: 'include',
         });
 
-        if (!retryResponse.ok) {
-          const error = await retryResponse.json().catch(() => ({}));
-          throw this.toError(retryResponse.status, error);
-        }
-
-        if (retryResponse.status === 204) {
-          return undefined as T;
-        }
-
-        const data = await retryResponse.json();
-        return data.data ?? data;
+        return this.readResponse<T>(retryResponse, responseType);
       }
       throw new ApiError('Unauthorized', 401);
     }
 
+    return this.readResponse<T>(response, responseType);
+  }
+
+  /**
+   * Turn a settled response into the caller's value, or throw. Shared by the
+   * first attempt and the post-refresh retry so both read bodies identically.
+   * Error bodies are always JSON, whatever `responseType` the caller asked for.
+   */
+  private async readResponse<T>(
+    response: Response,
+    responseType: 'json' | 'blob',
+  ): Promise<T> {
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
       throw this.toError(response.status, error);
@@ -102,6 +109,10 @@ class ApiService {
     // Handle 204 No Content
     if (response.status === 204) {
       return undefined as T;
+    }
+
+    if (responseType === 'blob') {
+      return (await response.blob()) as T;
     }
 
     const data = await response.json();
@@ -194,6 +205,18 @@ class ApiService {
   // Generic methods
   get<T>(endpoint: string, options?: RequestOptions) {
     return this.request<T>(endpoint, { ...options, method: 'GET' });
+  }
+
+  /**
+   * GET a binary body (an image, a file) as a `Blob`. Same bearer token,
+   * 401 → refresh → retry and error handling as every JSON call.
+   */
+  getBlob(endpoint: string, options?: RequestOptions): Promise<Blob> {
+    return this.request<Blob>(endpoint, {
+      ...options,
+      method: 'GET',
+      responseType: 'blob',
+    });
   }
 
   post<T>(endpoint: string, body?: unknown, options?: RequestOptions) {
@@ -304,6 +327,16 @@ export async function uploadProfileImage(file: File): Promise<ProfileImageMutati
  */
 export async function deleteProfileImage(): Promise<ProfileImageMutationResponse> {
   return api.delete<ProfileImageMutationResponse>('/user-settings/profile-image');
+}
+
+/**
+ * Fetch the caller's stored uploaded picture, whatever `profile.imageSource`
+ * currently selects, for previewing it in settings. Authenticated on purpose:
+ * the public `/users/:id/avatar/:objectId` route only serves a picture while
+ * it is the selected source. Rejects with a 404 `ApiError` when none exists.
+ */
+export async function fetchProfileImagePreview(): Promise<Blob> {
+  return api.getBlob('/user-settings/profile-image');
 }
 
 // Allowlist API
