@@ -668,6 +668,92 @@ describe('AuthService', () => {
     });
   });
 
+  describe('profileImageUrl resolution (#367)', () => {
+    const avatarObjectId = '11111111-1111-4111-8111-111111111111';
+
+    function mockUserWithProfile(profile: unknown) {
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'user-1',
+        email: 'test@example.com',
+        displayName: null,
+        providerDisplayName: 'Provider Name',
+        providerProfileImageUrl: 'https://provider.example.com/pic.jpg',
+        isActive: true,
+        createdAt: new Date(),
+        userRoles: [],
+        userSettings: profile === undefined ? null : { value: { profile } },
+      } as any);
+    }
+
+    it('resolves to null when imageSource is "none"', async () => {
+      mockUserWithProfile({ imageSource: 'none', imageObjectId: null });
+
+      const result = await service.getCurrentUser('user-1');
+
+      expect(result.profileImageUrl).toBeNull();
+    });
+
+    it('resolves to the provider picture when imageSource is "provider"', async () => {
+      mockUserWithProfile({ imageSource: 'provider', imageObjectId: null });
+
+      const result = await service.getCurrentUser('user-1');
+
+      expect(result.profileImageUrl).toBe(
+        'https://provider.example.com/pic.jpg',
+      );
+    });
+
+    it('resolves to the same-origin avatar URL when imageSource is "upload"', async () => {
+      mockUserWithProfile({
+        imageSource: 'upload',
+        imageObjectId: avatarObjectId,
+      });
+
+      const result = await service.getCurrentUser('user-1');
+
+      expect(result.profileImageUrl).toBe(
+        `/api/users/user-1/avatar/${avatarObjectId}`,
+      );
+    });
+
+    it('defaults to "provider" when the user has no settings row at all', async () => {
+      mockUserWithProfile(undefined);
+
+      const result = await service.getCurrentUser('user-1');
+
+      expect(result.profileImageUrl).toBe(
+        'https://provider.example.com/pic.jpg',
+      );
+    });
+
+    it('always includes the raw providerProfileImageUrl alongside the resolved one', async () => {
+      mockUserWithProfile({ imageSource: 'none', imageObjectId: null });
+
+      const result = await service.getCurrentUser('user-1');
+
+      expect(result.providerProfileImageUrl).toBe(
+        'https://provider.example.com/pic.jpg',
+      );
+    });
+
+    // Minimal on purpose: the public avatar route's behavior when the upload
+    // is not the currently-selected source is a known follow-up (see #367's
+    // task notes) — this only checks the field is present and roughly correct
+    // when the upload IS selected.
+    it('includes an uploadedProfileImageUrl field pointing at the uploaded avatar', async () => {
+      mockUserWithProfile({
+        imageSource: 'upload',
+        imageObjectId: avatarObjectId,
+      });
+
+      const result = await service.getCurrentUser('user-1');
+
+      expect(result.uploadedProfileImageUrl).toBe(
+        `/api/users/user-1/avatar/${avatarObjectId}`,
+      );
+    });
+  });
+
   describe('refreshAccessToken', () => {
     const mockUser = {
       id: 'user-1',
