@@ -128,7 +128,9 @@ Endpoints returning lists support pagination with the following query parameters
   "id": "uuid",
   "email": "user@example.com",
   "displayName": "John Doe",
-  "profileImageUrl": "https://...",
+  "profileImageUrl": "/api/users/uuid/avatar/uuid",
+  "providerProfileImageUrl": "https://lh3.googleusercontent.com/a/example",
+  "uploadedProfileImageUrl": null,
   "isActive": true,
   "roles": [
     {
@@ -140,6 +142,13 @@ Endpoints returning lists support pagination with the following query parameters
   "permissions": ["users:read", "users:write", "system_settings:read", ...]
 }
 ```
+
+**Fields:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `profileImageUrl` | string \| null | The picture representing the user, resolved from `profile.imageSource`: `null` for `none`, the provider picture for `provider`, or a same-origin `/api/users/:userId/avatar/:objectId` path for `upload`. May be an absolute URL or a root-relative path. |
+| `providerProfileImageUrl` | string \| null | The OAuth provider's picture, regardless of the currently selected source; refreshed from the provider on each login. |
+| `uploadedProfileImageUrl` | string \| null | Same-origin path of the uploaded picture, regardless of the selected source (lets a settings UI preview the "upload" option while another source is active); `null` when nothing is uploaded. |
 
 ---
 
@@ -545,7 +554,7 @@ List all users with pagination and filtering.
 }
 ```
 
-**Note:** `providerDisplayName` and `providerProfileImageUrl` may be null if not available from OAuth provider.
+**Note:** `providerDisplayName` and `providerProfileImageUrl` may be null if not available from OAuth provider. `profileImageUrl` is resolved from each user's settings the same way `GET /auth/me` resolves it (not a directly stored URL) — see the Settings section's `profile.imageSource` fields below.
 
 ---
 
@@ -583,7 +592,7 @@ Get user by ID.
 }
 ```
 
-**Note:** `providerDisplayName` and `providerProfileImageUrl` may be null if not available from OAuth provider.
+**Note:** `providerDisplayName` and `providerProfileImageUrl` may be null if not available from OAuth provider. `profileImageUrl` is resolved from the user's settings the same way `GET /auth/me` resolves it (not a directly stored URL) — see the Settings section's `profile.imageSource` fields below.
 
 **Error Cases:**
 - 404 Not Found - User not found
@@ -685,6 +694,32 @@ Update user roles (replaces all current roles).
 - 401 Unauthorized - Not authenticated
 - 403 Forbidden - Missing `rbac:manage` permission
 - 404 Not Found - User not found
+
+---
+
+#### GET /users/:userId/avatar/:objectId
+**Public endpoint** - no bearer token required or accepted (a plain `<img src>` cannot send one). Streams a user's uploaded profile picture.
+
+**Parameters:**
+- `userId` (UUID) - Owning user's ID
+- `objectId` (UUID) - Storage object ID (from `profile.imageObjectId`)
+
+**Response:** `200` with the raw image bytes, only while `objectId` is exactly the user's *currently selected* uploaded avatar (`profile.imageSource === "upload" && profile.imageObjectId === objectId`, the underlying storage object still `ready`, owned by that user, under the `avatars/<userId>/` key prefix, and a validated avatar mime type).
+
+**Response Headers:**
+| Header | Value |
+|--------|-------|
+| `Content-Type` | The detected image type (from magic bytes at upload time, never client-declared) |
+| `X-Content-Type-Options` | `nosniff` |
+| `Content-Disposition` | `inline` |
+| `Content-Security-Policy` | `default-src 'none'; sandbox` |
+| `Cache-Control` | `private, max-age=86400` |
+| `Content-Length` | The image size, when known |
+
+**Error Cases:**
+- 404 Not Found - Every failure case returns an identical 404 ("Not found"): malformed UUID, unknown user, wrong/stale `objectId`, a deselected avatar, or missing bytes. This is deliberate — an identical response for every failure prevents using this endpoint to enumerate users or objects.
+
+**Note:** Deleting the avatar object via the generic `DELETE /storage/objects/:id` also makes this endpoint 404 for it. Subject to the app's maintenance-mode gate like other public routes.
 
 ---
 
@@ -830,8 +865,8 @@ Remove email from allowlist.
   "theme": "light",
   "profile": {
     "displayName": "John Doe",
-    "useProviderImage": true,
-    "customImageUrl": null
+    "imageSource": "provider",
+    "imageObjectId": null
   },
   "updatedAt": "2024-01-01T00:00:00.000Z",
   "version": 1
@@ -842,11 +877,13 @@ Remove email from allowlist.
 | Field | Type | Description |
 |-------|------|-------------|
 | `theme` | enum | UI theme: `light`, `dark`, `system` |
-| `profile.displayName` | string \| null | User's display name override |
-| `profile.useProviderImage` | boolean | Whether to use OAuth provider's profile image |
-| `profile.customImageUrl` | string \| null | Custom profile image URL |
+| `profile.displayName` | string \| null | User's display name override (optional, max 100 chars) |
+| `profile.imageSource` | enum | Which picture represents the user: `none`, `provider` (OAuth sign-in provider's picture), or `upload` (a picture uploaded via `POST /user-settings/profile-image`) |
+| `profile.imageObjectId` | string \| null | The uploaded avatar's storage object ID; present only when relevant, `null` when no avatar has been uploaded/selected |
 | `updatedAt` | string | ISO 8601 timestamp of last update |
 | `version` | number | Version number for optimistic concurrency control |
+
+**Note:** Rows written before this shape existed carried `useProviderImage`/`customImageUrl` instead; they are normalized to the shape above on every read (`useProviderImage === false` becomes `imageSource: "none"`, anything else becomes `provider`) rather than by a data migration.
 
 ---
 
@@ -859,8 +896,8 @@ Remove email from allowlist.
   "theme": "dark",
   "profile": {
     "displayName": "Jane Doe",
-    "useProviderImage": false,
-    "customImageUrl": "https://example.com/avatar.jpg"
+    "imageSource": "upload",
+    "imageObjectId": "0b6f1c2e-7a53-4a8e-9d0c-2f6a1e9b7c11"
   }
 }
 ```
@@ -871,15 +908,19 @@ Remove email from allowlist.
   "theme": "dark",
   "profile": {
     "displayName": "Jane Doe",
-    "useProviderImage": false,
-    "customImageUrl": "https://example.com/avatar.jpg"
+    "imageSource": "upload",
+    "imageObjectId": "0b6f1c2e-7a53-4a8e-9d0c-2f6a1e9b7c11"
   },
   "updatedAt": "2024-01-01T12:00:00.000Z",
   "version": 2
 }
 ```
 
-**Note:** This replaces the entire settings object. Use PATCH for partial updates.
+**Note:** This replaces the entire settings object. Use PATCH for partial updates. Omitting `profile.imageObjectId` keeps the currently stored value (never orphans an uploaded avatar); an explicit `null` clears it. Switching to `none`/`provider` while an `imageObjectId` is present keeps it stored, so switching back to `upload` later doesn't require re-uploading.
+
+**Error Cases:**
+- 400 Bad Request - `profile.imageSource: "upload"` with no resolvable `imageObjectId` (after the keep/clear logic above): `"profile.imageSource \"upload\" requires profile.imageObjectId. Upload a picture with POST /api/user-settings/profile-image first."`
+- 400 Bad Request - `profile.imageObjectId` does not reference an avatar object the caller uploaded: `"profile.imageObjectId must reference a profile image you uploaded with POST /api/user-settings/profile-image."`
 
 ---
 
@@ -904,8 +945,8 @@ If-Match: 1
   "theme": "dark",
   "profile": {
     "displayName": "John Doe",
-    "useProviderImage": true,
-    "customImageUrl": null
+    "imageSource": "provider",
+    "imageObjectId": null
   },
   "updatedAt": "2024-01-01T12:00:00.000Z",
   "version": 2
@@ -917,7 +958,63 @@ If-Match: 1
 - Returns **409 Conflict** if version mismatch detected
 - Prevents lost updates in concurrent scenarios
 
-**Note:** This performs a shallow merge with existing settings.
+**Note:** This performs a shallow merge with existing settings, using JSON Merge Patch semantics for `profile.imageObjectId`: an explicit `null` clears it, an absent field leaves it untouched.
+
+**Error Cases:**
+- 400 Bad Request - Same `profile.imageSource`/`profile.imageObjectId` validation as `PUT /user-settings` above.
+- 409 Conflict - `If-Match` version mismatch.
+
+---
+
+#### POST /user-settings/profile-image
+**Requires:** `user_settings:write` permission
+
+Upload a profile picture. Multipart/form-data with a single field named `file`.
+
+**Request:** `multipart/form-data`
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `file` | file | Yes | JPEG, PNG, GIF or WebP image, ≤5MB |
+
+The image type is validated by **magic bytes only** — the declared MIME type and filename are ignored. On success the object is stored at `avatars/<userId>/<uuid>.<ext>` as an already-`ready` `storage_objects` row with `metadata.purpose: "avatar"`, `profile.imageSource` is set to `"upload"`, `profile.imageObjectId` is set to the new object, and the previously uploaded avatar object (if different) is best-effort deleted.
+
+**Response:** `200`
+```json
+{
+  "data": {
+    "settings": {
+      "theme": "dark",
+      "profile": {
+        "displayName": "Jane Doe",
+        "imageSource": "upload",
+        "imageObjectId": "0b6f1c2e-7a53-4a8e-9d0c-2f6a1e9b7c11"
+      },
+      "updatedAt": "2024-01-01T12:00:00.000Z",
+      "version": 3
+    },
+    "profileImageUrl": "/api/users/uuid/avatar/0b6f1c2e-7a53-4a8e-9d0c-2f6a1e9b7c11"
+  }
+}
+```
+`profileImageUrl` is resolved the same way `GET /auth/me` resolves it.
+
+**Error Cases:**
+- 400 Bad Request - Missing or wrong field name (must be `file`)
+- 400 Bad Request - `"Unsupported image type. Upload a JPEG, PNG, GIF or WebP image."` (includes SVG, which is rejected outright)
+- 413 Payload Too Large - File exceeds 5MB (`AVATAR_MAX_BYTES`), mapped to error code `PAYLOAD_TOO_LARGE`
+
+**Audit Event:** `user_settings:profile_image:upload` (meta includes `objectId`, `size`, `mimeType`, `previousObjectId`)
+
+---
+
+#### DELETE /user-settings/profile-image
+**Requires:** `user_settings:write` permission
+
+Deletes the uploaded avatar object (if any) and clears `profile.imageObjectId`. If `imageSource` was `"upload"` it falls back to `"provider"` (never back to `"none"`). Idempotent — calling it with no avatar stored just returns the current state, no error.
+
+**Response:** `200`, same response shape as `POST /user-settings/profile-image` above.
+
+**Audit Event:** `user_settings:profile_image:delete`
 
 ---
 
@@ -2521,6 +2618,7 @@ Readiness check - includes database connectivity test.
 | 403 | Forbidden - Insufficient permissions or user disabled |
 | 404 | Not Found - Resource not found |
 | 409 | Conflict - Resource already exists or version mismatch (optimistic concurrency) |
+| 413 | Payload Too Large - Request body exceeds a configured size limit |
 | 500 | Internal Server Error - Server error occurred |
 | 503 | Service Unavailable - Service temporarily unavailable |
 
@@ -2539,6 +2637,7 @@ Readiness check - includes database connectivity test.
 | `CONFLICT` | 409 | Resource already exists or version mismatch |
 | `NOT_AUTHORIZED` | 403 | Email not in allowlist |
 | `VERSION_MISMATCH` | 409 | Optimistic concurrency conflict (If-Match header) |
+| `PAYLOAD_TOO_LARGE` | 413 | Request body exceeds a configured size limit (e.g. profile picture upload over 5MB) |
 
 ---
 

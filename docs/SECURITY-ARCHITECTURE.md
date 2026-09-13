@@ -783,8 +783,7 @@ erDiagram
         string email UK "Unique identifier"
         string displayName "User override"
         string providerDisplayName "From OAuth"
-        string profileImageUrl "User override"
-        string providerProfileImageUrl "From OAuth"
+        string providerProfileImageUrl "From OAuth, refreshed each login"
         boolean isActive "Account status"
         timestamptz createdAt
         timestamptz updatedAt
