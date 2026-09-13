@@ -28,6 +28,12 @@ interface UseUserSettingsReturn {
   updateTheme: (theme: 'light' | 'dark' | 'system') => Promise<void>;
   updateProfile: (profile: UserSettings['profile']) => Promise<void>;
   refresh: () => Promise<void>;
+  /**
+   * Adopt a settings document another endpoint already returned (e.g. the
+   * profile-image upload/delete responses), including its `version`, so the
+   * next PATCH sends the current `If-Match` instead of a stale one and 409s.
+   */
+  replaceSettings: (next: UserSettings) => void;
 }
 
 export function useUserSettings(options: UseUserSettingsOptions = {}): UseUserSettingsReturn {
@@ -129,5 +135,6 @@ export function useUserSettings(options: UseUserSettingsOptions = {}): UseUserSe
     updateTheme,
     updateProfile,
     refresh: fetchSettings,
+    replaceSettings: setSettings,
   };
 }

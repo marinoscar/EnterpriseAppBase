@@ -81,6 +81,12 @@ export interface UserSettingsSectionState {
    * not even receive the promise.
    */
   save: (updates: UserSettingsUpdate, messages: UserSettingsSaveMessages) => Promise<void>;
+  /**
+   * Adopt a settings document an endpoint other than `PATCH /user-settings`
+   * already returned (the profile-image upload/delete responses), so the
+   * stored `version` stays current, and optionally raise the success snackbar.
+   */
+  replaceSettings: (settings: UserSettings, successMessage?: string) => void;
 }
 
 interface UserSettingsSectionProps {
@@ -96,10 +102,22 @@ export function UserSettingsSection({
   description,
   children,
 }: UserSettingsSectionProps) {
-  const { settings, isLoading, error, isSaving, updateSettings } = useUserSettings();
+  const {
+    settings,
+    isLoading,
+    error,
+    isSaving,
+    updateSettings,
+    replaceSettings: adoptSettings,
+  } = useUserSettings();
 
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
+
+  const replaceSettings = (next: UserSettings, message?: string) => {
+    adoptSettings(next);
+    if (message) setSuccessMessage(message);
+  };
 
   const save = async (updates: UserSettingsUpdate, messages: UserSettingsSaveMessages) => {
     try {
@@ -139,7 +157,7 @@ export function UserSettingsSection({
 
         {settings && (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-            {children({ settings, isSaving, save })}
+            {children({ settings, isSaving, save, replaceSettings })}
           </Box>
         )}
 
