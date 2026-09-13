@@ -6,12 +6,11 @@
  * copied, and not re-styled. Every line of shared page chrome lives in
  * `UserSettingsSection`.
  *
- * NOT TO BE CONFUSED WITH `pages/Admin/AppearanceSettingsPage.tsx`, which is
- * `/admin/settings/appearance` and edits the DEPLOYMENT's default theme in the
- * system settings document. This one edits the signed-in user's own theme. The
- * `User` filename prefix is what keeps the two apart in `App.tsx`'s lazy
- * imports, where a bare `AppearanceSettingsPage` would be ambiguous to a reader
- * and a name collision to the compiler.
+ * This edits the signed-in user's own theme, never a deployment-wide default —
+ * there is no admin-side equivalent. The `User` filename prefix follows the
+ * same convention as this page's siblings (`UserSettingsPage.tsx`,
+ * `UserNotificationsPage.tsx`, ...), keeping every per-user settings page
+ * distinct from admin pages in `App.tsx`'s lazy imports.
  *
  * The title and description mirror the `Appearance` card in
  * `config/userSettingsSections.tsx` so the hub card, the compact AppBar title

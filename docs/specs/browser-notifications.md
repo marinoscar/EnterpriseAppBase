@@ -404,10 +404,10 @@ re-enable something an administrator has muted mid-session.
 
 Widening `system_settings:read` to every role was rejected — see
 [Rejected alternatives](#rejected-alternatives) — because that permission
-gates the *entire* settings document, including the open, downstream-owned
-`features` map, not just this one boolean. There is no precedent in this
-codebase for a narrower read of one setting field to a wider audience; #226
-introduces one, purpose-built.
+gates the *entire* settings document (jobs, nodes, database backup and
+maintenance policy included), not just this one boolean. There is no
+precedent in this codebase for a narrower read of one setting field to a
+wider audience; #226 introduces one, purpose-built.
 
 ## 7. Foreground suppression and cross-tab dedup
 
@@ -1055,13 +1055,14 @@ that makes each one wrong:
   and the symptom is a notification that never arrives, on a device the
   developer does not have.
 - **Widening `system_settings:read` to `viewer`.** Would hand every
-  authenticated user the entire settings blob, including the open,
-  downstream-owned `features` map (`z.record(string, boolean)`, no schema) —
-  far more than "can I see whether browser notifications are on."
-- **Putting the kill switch in `features`.** `features` has no schema and is
-  explicitly downstream-owned; a framework security-adjacent gate needs to be
-  modelled, typed, and enforced server-side, none of which an untyped bag
-  provides.
+  authenticated user the entire settings blob — at the time, including the
+  open, downstream-owned `features` map (`z.record(string, boolean)`, no
+  schema; removed entirely as unused by issue #366) — far more than "can I
+  see whether browser notifications are on."
+- **Putting the kill switch in `features`.** `features` had no schema and was
+  explicitly downstream-owned (it no longer exists at all — issue #366); a
+  framework security-adjacent gate needs to be modelled, typed, and enforced
+  server-side, none of which an untyped bag provides.
 - **`registerType: 'autoUpdate'`.** Would reload the page mid-session the
   moment a new worker activates, discarding any unsaved form state — an
   unacceptable default for an enterprise application base where an admin

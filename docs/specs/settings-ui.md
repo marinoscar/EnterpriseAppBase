@@ -14,6 +14,13 @@
 > one of the two registries above, not a route left to find its own way — is
 > stated as a rule in `CLAUDE.md`'s "MANDATORY: Settings UI Pattern" section.
 > This document is the *why*; it does not restate the rules there.
+>
+> Update, issue #366: the three cards §1 describes as epic #90's worked
+> example — System, Feature Flags, Advanced (JSON) — and the `ui`/`features`
+> system-settings namespaces behind them were removed outright as unused
+> once split into cards. §1 and §3's table are kept as **history**: the
+> tab-vs-card reasoning they explain is still the rule, even though none of
+> those three specific cards exists any more.
 
 The admin console and the per-user `/settings` surface both used to be
 tab-strip pages — `SystemSettingsPage` with three tabs, `UserManagementPage`
@@ -85,13 +92,14 @@ exactly the pattern `UsersPage.tsx` still uses for Users/Allowlist today (see
 §2). Nothing about a `<Tabs>` component is wrong in the abstract.
 
 What made it the wrong tool here shows up the moment the three tabs are
-compared to what they actually became as separate cards. In the current
-registry, **System** and **Feature Flags** both gate on
-`system_settings:read`, but **Advanced (JSON)** gates on
+compared to what they actually became as separate cards. Once split by epic
+#90 (before all three were later removed as unused by issue #366),
+**System** and **Feature Flags** both gated on
+`system_settings:read`, but **Advanced (JSON)** gated on
 `system_settings:write` — a stricter, different permission, because it is a
 raw editor over the whole settings document and read-only access to it has no
 meaning (a user who cannot save has nothing to do there the typed pages do
-not do better; see `adminSections.tsx`'s own comment on that card). A shared
+not do better). A shared
 `<Tabs>` strip has no per-tab permission primitive: making that distinction
 inside one tab-strip page would mean either showing a tab a read-only admin
 cannot use, or hand-rolling a second, page-local gate that duplicates exactly
@@ -173,10 +181,11 @@ invented" a checkable claim rather than a promise. Two consequences of taking
 this literally, both already true of the live registry:
 
 - **Read and write are gated separately**, and only the read permission ever
-  appears as a card's own `permission` — e.g. `Advanced (JSON)` is the one
-  exception, gating on `system_settings:write` because a read-only visit has
-  nothing to do there (§1). Every other write action (saving System, retrying
-  a job, revoking a node credential, restoring a backup) is gated **inside**
+  appears as a card's own `permission`. (`Advanced (JSON)` was the one
+  exception, gating on `system_settings:write` because a read-only visit had
+  nothing to do there (§1) — moot since issue #366 removed the card.) Every
+  write action a current card leads to (saving Notifications, retrying a
+  job, revoking a node credential, restoring a backup) is gated **inside**
   the page by disabling controls, not by a second, stricter card permission —
   the card gate is about reachability, not about every action the page can
   perform once reached.
