@@ -2,6 +2,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { PatService } from '../pat/pat.service';
+import { NodeCredentialService } from '../nodes/node-credential.service';
 
 describe('AuthController', () => {
   let controller: AuthController;
@@ -25,6 +27,12 @@ describe('AuthController', () => {
       providers: [
         { provide: AuthService, useValue: mockAuthService },
         { provide: ConfigService, useValue: mockConfigService },
+        { provide: PatService, useValue: { validateToken: jest.fn() } },
+        // JwtAuthGuard gained a second opaque-bearer dependency in #267
+        // (the `nod_` family). Stubbed the same way PatService is: this suite
+        // never sends a bearer token, so neither validator is ever reached —
+        // the provider exists only so the guard can be constructed.
+        { provide: NodeCredentialService, useValue: { validateToken: jest.fn() } },
       ],
     }).compile();
 

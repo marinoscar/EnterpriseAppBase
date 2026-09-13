@@ -66,9 +66,7 @@ describe('RBAC System (Integration)', () => {
           id: 'settings-id',
           key: 'default',
           value: {
-            ui: { allowUserThemeOverride: false },
-            security: { jwtAccessTtlMinutes: 15, refreshTtlDays: 14 },
-            features: {},
+            notifications: { browserEnabled: false, disabledEvents: [] },
           },
           version: 2,
           updatedAt: new Date(),
@@ -79,11 +77,11 @@ describe('RBAC System (Integration)', () => {
         const response = await request(context.app.getHttpServer())
           .patch('/api/system-settings')
           .set(authHeader(admin.accessToken))
-          .send({ ui: { allowUserThemeOverride: false } })
+          .send({ notifications: { browserEnabled: false } })
           .expect(200);
 
         expect(response.body.data).toBeDefined();
-        expect(response.body.data.ui.allowUserThemeOverride).toBe(false);
+        expect(response.body.data.notifications.browserEnabled).toBe(false);
       });
     });
 
@@ -106,7 +104,7 @@ describe('RBAC System (Integration)', () => {
         const response = await request(context.app.getHttpServer())
           .patch('/api/system-settings')
           .set(authHeader(contributor.accessToken))
-          .send({ ui: { allowUserThemeOverride: false } })
+          .send({ notifications: { browserEnabled: false } })
           .expect(403);
 
         expect(response.body.code).toBe('FORBIDDEN');
@@ -159,7 +157,7 @@ describe('RBAC System (Integration)', () => {
         const response = await request(context.app.getHttpServer())
           .patch('/api/system-settings')
           .set(authHeader(viewer.accessToken))
-          .send({ ui: { allowUserThemeOverride: false } })
+          .send({ notifications: { browserEnabled: false } })
           .expect(403);
 
         expect(response.body.code).toBe('FORBIDDEN');
@@ -228,7 +226,7 @@ describe('RBAC System (Integration)', () => {
       const response = await request(context.app.getHttpServer())
         .patch('/api/system-settings')
         .set(authHeader(viewer.accessToken))
-        .send({ ui: { allowUserThemeOverride: true } })
+        .send({ notifications: { browserEnabled: true } })
         .expect(403);
 
       expect(response.body.code).toBe('FORBIDDEN');

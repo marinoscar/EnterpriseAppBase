@@ -192,17 +192,21 @@ model AuditEvent {
 ```
 
 ### System Settings Shape
+The stored `system_settings.value` JSONB holds `notifications`, `jobs`,
+`nodes`, `databaseBackup` and `maintenance` (the earlier `ui`/`features`
+namespaces were removed as unused by issue #366). `security` is NOT stored —
+it's computed on read from `JWT_ACCESS_TTL_MINUTES`/`JWT_REFRESH_TTL_DAYS`
+and added only to the API response. See
+`apps/api/src/common/schemas/settings.schema.ts` for the full shape.
 ```json
 {
-  "ui": {
-    "allowUserThemeOverride": true
+  "notifications": {
+    "browserEnabled": true,
+    "disabledEvents": []
   },
-  "security": {
-    "jwtAccessTtlMinutes": 15,
-    "refreshTtlDays": 14
-  },
-  "features": {
-    "exampleFlag": false
+  "jobs": {
+    "history": { "retentionDays": 30, "purgeEnabled": true },
+    "stuckThresholdMinutes": 30
   }
 }
 ```
@@ -272,9 +276,11 @@ await prisma.systemSettings.upsert({
   create: {
     key: 'global',
     value: {
-      ui: { allowUserThemeOverride: true },
-      security: { jwtAccessTtlMinutes: 15, refreshTtlDays: 14 },
-      features: { exampleFlag: false },
+      notifications: { browserEnabled: true, disabledEvents: [] },
+      jobs: { history: { retentionDays: 30, purgeEnabled: true }, stuckThresholdMinutes: 30 },
+      nodes: { staleHeartbeatSeconds: 90, offlineStaleMultiplier: 4, offlineRetentionDays: 30, jobSecretBrokerEnabled: false },
+      databaseBackup: { enabled: false, frequency: 'daily', dayOfWeek: 0, dayOfMonth: 1, timeOfDay: '02:00', timezone: 'UTC', retentionCount: 7, storageProvider: 's3', runStaleMinutes: 120, compressionLevel: 6, restoreRollbackMode: 'retain_database', oldDatabaseRetentionHours: 48, nodeOffloadEnabled: false },
+      maintenance: { enabled: false, message: 'This service is temporarily unavailable for scheduled maintenance. Please try again shortly.', allowAdmins: true, startedAt: null, startedById: null },
     },
   },
   update: {},

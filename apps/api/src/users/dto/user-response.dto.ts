@@ -6,12 +6,14 @@ export const userResponseSchema = z.object({
   email: z.string().email(),
   displayName: z.string().nullable(),
   providerDisplayName: z.string().nullable(),
-  profileImageUrl: z.string().url().nullable(),
+  // Resolved from the user's `profile.imageSource` (#367): null, the provider
+  // URL, or a root-relative avatar path — hence not `.url()`.
+  profileImageUrl: z.string().nullable(),
   providerProfileImageUrl: z.string().url().nullable(),
   isActive: z.boolean(),
   roles: z.array(z.string()),
-  createdAt: z.date(),
-  updatedAt: z.date(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
 });
 
 export class UserResponseDto extends createZodDto(userResponseSchema) {}
@@ -26,3 +28,21 @@ export const userListResponseSchema = z.object({
 });
 
 export class UserListResponseDto extends createZodDto(userListResponseSchema) {}
+
+/**
+ * `GET /api/users/{id}` returns everything in {@link userResponseSchema} plus
+ * the linked OAuth identities. It is the one user payload that differs, so it
+ * gets its own schema rather than being documented as a `UserResponseDto` that
+ * silently omits a field the endpoint actually sends.
+ */
+export const userDetailResponseSchema = userResponseSchema.extend({
+  identities: z.array(
+    z.object({
+      provider: z.string(),
+      providerEmail: z.string().nullable(),
+      createdAt: z.iso.datetime(),
+    }),
+  ),
+});
+
+export class UserDetailResponseDto extends createZodDto(userDetailResponseSchema) {}

@@ -19,22 +19,18 @@ const mockUserSettings = {
   theme: 'system',
   profile: {
     displayName: null,
-    useProviderImage: true,
-    customImageUrl: null,
+    imageSource: 'provider',
+    imageObjectId: null,
   },
   updatedAt: new Date().toISOString(),
   version: 1,
 };
 
 const mockSystemSettings = {
-  ui: {
-    allowUserThemeOverride: true,
+  notifications: {
+    browserEnabled: true,
+    disabledEvents: [],
   },
-  security: {
-    jwtAccessTtlMinutes: 15,
-    refreshTtlDays: 14,
-  },
-  features: {},
   updatedAt: new Date().toISOString(),
   updatedBy: null,
   version: 1,
@@ -91,6 +87,44 @@ export const handlers = [
         ...body,
         version: mockUserSettings.version + 1,
         updatedAt: new Date().toISOString(),
+      },
+    });
+  }),
+
+  // Profile picture endpoints (#367) — POST to upload, DELETE to remove.
+  // Both return `{ settings, profileImageUrl }` after the client's `data` unwrap.
+  http.post(`${API_BASE}/user-settings/profile-image`, () => {
+    return HttpResponse.json({
+      data: {
+        settings: {
+          ...mockUserSettings,
+          profile: {
+            ...mockUserSettings.profile,
+            imageSource: 'upload',
+            imageObjectId: 'mock-object-id',
+          },
+          version: mockUserSettings.version + 1,
+          updatedAt: new Date().toISOString(),
+        },
+        profileImageUrl: 'https://example.com/uploaded-mock.jpg',
+      },
+    });
+  }),
+
+  http.delete(`${API_BASE}/user-settings/profile-image`, () => {
+    return HttpResponse.json({
+      data: {
+        settings: {
+          ...mockUserSettings,
+          profile: {
+            ...mockUserSettings.profile,
+            imageSource: 'provider',
+            imageObjectId: null,
+          },
+          version: mockUserSettings.version + 1,
+          updatedAt: new Date().toISOString(),
+        },
+        profileImageUrl: null,
       },
     });
   }),

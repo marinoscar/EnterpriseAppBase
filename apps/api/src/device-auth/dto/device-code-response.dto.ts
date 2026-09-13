@@ -18,19 +18,27 @@ export class DeviceCodeResponseDto {
   userCode!: string;
 
   @ApiProperty({
-    description: 'End-user verification URI',
-    example: 'http://localhost:3535/device',
+    description:
+      'End-user verification URI to display to the user. Built from this deployment\'s ' +
+      '`APP_URL`; it resolves to the `/activate` page. Always use this value — do not ' +
+      'hardcode the path.',
+    example: 'http://localhost:3535/activate',
   })
   verificationUri!: string;
 
   @ApiProperty({
-    description: 'Complete verification URI with user code pre-filled',
-    example: 'http://localhost:3535/device?code=ABCD-1234',
+    description:
+      'Same URI with the user code pre-filled as a `code` query parameter, for devices that ' +
+      'can render a link or a QR code.',
+    example: 'http://localhost:3535/activate?code=ABCD-1234',
   })
   verificationUriComplete!: string;
 
   @ApiProperty({
-    description: 'Lifetime in seconds of device_code and user_code',
+    description:
+      'Lifetime in seconds of device_code and user_code (`DEVICE_CODE_EXPIRY_MINUTES`, ' +
+      '15 minutes by default). This is the window in which the user must approve; it is ' +
+      'unrelated to the lifetime of the credential eventually issued.',
     example: 900,
   })
   expiresIn!: number;

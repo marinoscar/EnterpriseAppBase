@@ -17,7 +17,9 @@ export class DeviceSessionDto {
   userCode!: string;
 
   @ApiProperty({
-    description: 'Device status',
+    description:
+      'Device authorization status. This endpoint lists approved-but-unredeemed requests ' +
+      'only, so in practice this is always `approved`.',
     enum: ['pending', 'approved', 'denied', 'expired'],
     example: 'approved',
   })
@@ -30,13 +32,18 @@ export class DeviceSessionDto {
   clientInfo?: Record<string, any>;
 
   @ApiProperty({
-    description: 'When the device was authorized',
+    description:
+      'When the device code was created, i.e. when the device started the flow. The approval ' +
+      'instant is not recorded separately.',
     example: '2026-01-22T10:30:00Z',
   })
   createdAt!: string;
 
   @ApiProperty({
-    description: 'When the session expires',
+    description:
+      'When the device CODE expires (`DEVICE_CODE_EXPIRY_MINUTES`, 15 minutes by default) — ' +
+      'the deadline for the device to redeem it. Not the lifetime of the credential it ' +
+      'receives, which is governed by `DEVICE_TOKEN_EXPIRY_DAYS` or `DEVICE_PAT_EXPIRY_DAYS`.',
     example: '2026-01-22T10:45:00Z',
   })
   expiresAt!: string;
@@ -47,13 +54,13 @@ export class DeviceSessionDto {
  */
 export class DeviceSessionsResponseDto {
   @ApiProperty({
-    description: 'Array of device sessions',
+    description: 'Device authorizations on this page, newest first',
     type: [DeviceSessionDto],
   })
   sessions!: DeviceSessionDto[];
 
   @ApiProperty({
-    description: 'Total count of sessions',
+    description: 'Total number of matching device authorizations across all pages',
     example: 10,
   })
   total!: number;

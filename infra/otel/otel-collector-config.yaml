@@ -30,7 +30,7 @@ exporters:
     tls:
       insecure: true
     headers:
-      uptrace-dsn: "http://project1_secret_token@localhost:14317/1"
+      uptrace-dsn: "http://${env:UPTRACE_PROJECT1_TOKEN}@localhost:14317/1"
 
   # Debug output (replaces deprecated 'logging' exporter)
   debug:

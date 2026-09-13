@@ -3,6 +3,7 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { render, mockUser, mockAdminUser } from '../../utils/test-utils';
 import { UserMenu } from '../../../components/navigation/UserMenu';
+import { DESTINATIONS } from '../../../config/destinations';
 
 // Mock usePermissions hook
 vi.mock('../../../hooks/usePermissions', () => ({
@@ -187,7 +188,7 @@ describe('UserMenu', () => {
       });
     });
 
-    it('should show system settings for admin users', async () => {
+    it('should show the Console entry for admin users', async () => {
       const user = userEvent.setup();
 
       mockUsePermissions.mockReturnValue({
@@ -208,11 +209,11 @@ describe('UserMenu', () => {
       await user.click(screen.getByRole('button'));
 
       await waitFor(() => {
-        expect(screen.getByRole('menuitem', { name: /system settings/i })).toBeInTheDocument();
+        expect(screen.getByRole('menuitem', { name: /console/i })).toBeInTheDocument();
       });
     });
 
-    it('should NOT show system settings for non-admin users', async () => {
+    it('should NOT show the Console entry for non-admin users', async () => {
       const user = userEvent.setup();
 
       render(<UserMenu />);
@@ -223,7 +224,7 @@ describe('UserMenu', () => {
         expect(screen.getByRole('menu')).toBeInTheDocument();
       });
 
-      expect(screen.queryByRole('menuitem', { name: /system settings/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('menuitem', { name: /console/i })).not.toBeInTheDocument();
     });
   });
 
@@ -248,7 +249,7 @@ describe('UserMenu', () => {
       });
     });
 
-    it('should navigate to system settings for admins', async () => {
+    it('should navigate to the Console for admins', async () => {
       const user = userEvent.setup();
 
       mockUsePermissions.mockReturnValue({
@@ -269,11 +270,11 @@ describe('UserMenu', () => {
       await user.click(screen.getByRole('button'));
 
       await waitFor(() => {
-        expect(screen.getByRole('menuitem', { name: /system settings/i })).toBeInTheDocument();
+        expect(screen.getByRole('menuitem', { name: /console/i })).toBeInTheDocument();
       });
 
-      const systemSettingsItem = screen.getByRole('menuitem', { name: /system settings/i });
-      await user.click(systemSettingsItem);
+      const consoleItem = screen.getByRole('menuitem', { name: /console/i });
+      await user.click(consoleItem);
 
       // Menu should close after navigation
       await waitFor(() => {
@@ -331,7 +332,7 @@ describe('UserMenu', () => {
       });
     });
 
-    it('should display admin icon for system settings', async () => {
+    it('should display the admin icon for the Console entry', async () => {
       const user = userEvent.setup();
 
       mockUsePermissions.mockReturnValue({
@@ -352,8 +353,8 @@ describe('UserMenu', () => {
       await user.click(screen.getByRole('button'));
 
       await waitFor(() => {
-        const systemSettingsItem = screen.getByRole('menuitem', { name: /system settings/i });
-        expect(systemSettingsItem).toBeInTheDocument();
+        const consoleItem = screen.getByRole('menuitem', { name: /console/i });
+        expect(consoleItem).toBeInTheDocument();
       });
     });
   });
@@ -391,6 +392,103 @@ describe('UserMenu', () => {
         // Verify the menu role element exists inside
         expect(screen.getByRole('menu')).toBeInTheDocument();
       });
+    });
+  });
+
+  describe('Sourced from the destination table', () => {
+    /**
+     * Issue #55. This menu already gated System Settings on
+     * `system_settings:read` while the sidebar gated the same page on the
+     * `admin` ROLE — so a Contributor granted that permission saw the menu
+     * entry, reached a working page, and had no sidebar row. Both surfaces now
+     * read `config/destinations.ts`, so there is one answer per destination.
+     */
+    function setPermissions(granted: string[], isAdmin = false) {
+      mockUsePermissions.mockReturnValue({
+        permissions: new Set(granted),
+        roles: new Set(isAdmin ? ['admin'] : ['contributor']),
+        hasPermission: (perm: string) => granted.includes(perm),
+        hasAnyPermission: vi.fn(),
+        hasAllPermissions: vi.fn(),
+        hasRole: vi.fn(),
+        hasAnyRole: vi.fn(),
+        isAdmin,
+      });
+    }
+
+    it('shows Console to a non-admin holding system_settings:read', async () => {
+      // The exact user the old split-brain stranded.
+      const user = userEvent.setup();
+      setPermissions(['system_settings:read'], false);
+
+      render(<UserMenu />);
+      await user.click(screen.getByRole('button'));
+
+      await waitFor(() => {
+        expect(screen.getByRole('menuitem', { name: 'Console' })).toBeInTheDocument();
+      });
+    });
+
+    it('shows Console to a user holding users:read alone', async () => {
+      // #92 merged the two admin destinations into one gated on EITHER
+      // permission. Both halves of that `anyPermission` are asserted — a gate
+      // that silently kept only the first would pass the test above and fail
+      // this one.
+      const user = userEvent.setup();
+      setPermissions(['users:read'], true);
+
+      render(<UserMenu />, { wrapperOptions: { user: mockAdminUser } });
+      await user.click(screen.getByRole('button'));
+
+      await waitFor(() => {
+        expect(screen.getByRole('menuitem', { name: 'Console' })).toBeInTheDocument();
+      });
+    });
+
+    it('grants nothing on the admin role alone', async () => {
+      const user = userEvent.setup();
+      setPermissions([], true);
+
+      render(<UserMenu />, { wrapperOptions: { user: mockAdminUser } });
+      await user.click(screen.getByRole('button'));
+
+      await waitFor(() => {
+        expect(screen.getByRole('menu')).toBeInTheDocument();
+      });
+      expect(screen.queryByRole('menuitem', { name: 'Console' })).not.toBeInTheDocument();
+    });
+
+    it('omits Home — the AppBar brand already routes there', async () => {
+      // A menu row duplicating on-screen chrome is the bloat this epic removes.
+      const user = userEvent.setup();
+      setPermissions(['users:read', 'system_settings:read'], true);
+
+      render(<UserMenu />, { wrapperOptions: { user: mockAdminUser } });
+      await user.click(screen.getByRole('button'));
+
+      await waitFor(() => {
+        expect(screen.getByRole('menu')).toBeInTheDocument();
+      });
+      expect(screen.queryByRole('menuitem', { name: 'Home' })).not.toBeInTheDocument();
+    });
+
+    it('labels and targets every entry from the destination table', async () => {
+      const user = userEvent.setup();
+      setPermissions(['users:read', 'system_settings:read'], true);
+
+      render(<UserMenu />, { wrapperOptions: { user: mockAdminUser } });
+      await user.click(screen.getByRole('button'));
+
+      await waitFor(() => {
+        expect(screen.getByRole('menu')).toBeInTheDocument();
+      });
+
+      const expected = DESTINATIONS.filter((d) => d.key !== 'home').map((d) => d.label);
+      for (const label of expected) {
+        expect(screen.getByRole('menuitem', { name: label })).toBeInTheDocument();
+      }
+      // The destinations plus Logout, and nothing invented locally.
+      expect(screen.getAllByRole('menuitem')).toHaveLength(expected.length + 1);
     });
   });
 });
