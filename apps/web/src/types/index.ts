@@ -6,12 +6,24 @@ export interface User {
   id: string;
   email: string;
   displayName: string | null;
+  /**
+   * The RESOLVED picture to render, per `UserSettings.profile.imageSource`:
+   * `null` for `none`, the provider URL for `provider`, and the same-origin
+   * `/api/users/:id/avatar/:objectId` URL for `upload` (#367).
+   */
   profileImageUrl: string | null;
+  /** The sign-in provider's picture, whatever the chosen source (previews). */
+  providerProfileImageUrl?: string | null;
+  /** The uploaded picture's URL, whatever the chosen source (previews). */
+  uploadedProfileImageUrl?: string | null;
   roles: Role[];
   permissions: string[];
   isActive: boolean;
   createdAt: string;
 }
+
+/** Where the profile picture comes from (#367). */
+export type ProfileImageSource = 'none' | 'provider' | 'upload';
 
 export type DataTableDensity = 'compact' | 'standard' | 'comfortable';
 
@@ -380,6 +392,17 @@ export type NavigationSettingsPatch = {
  * `{ [id]: { sort: null } }`; omit the field or replace the whole entry.
  */
 export type DataTablesPatch = Record<string, DataTableSettings | null>;
+
+/**
+ * `POST` / `DELETE /api/user-settings/profile-image` response, after the
+ * client's `data` unwrap (#367). `settings` carries the new `version`, which
+ * the caller MUST adopt or its next `If-Match` PATCH will 409.
+ */
+export interface ProfileImageMutationResponse {
+  settings: UserSettings;
+  /** The resolved picture after the change (same meaning as `User.profileImageUrl`). */
+  profileImageUrl: string | null;
+}
 
 /**
  * Payload accepted by `PATCH /api/user-settings`.

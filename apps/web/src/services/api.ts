@@ -276,7 +276,35 @@ import type {
   UnreadCountResponse,
   MaintenanceStatus,
   UpdateMaintenanceInput,
+  ProfileImageMutationResponse,
 } from '../types';
+
+// Profile picture API — issue #367.
+
+/**
+ * Upload the caller's profile picture (one multipart `file` part).
+ *
+ * The server validates the bytes (JPEG/PNG/GIF/WebP, max 5 MB) and answers 400
+ * or 413 with a message otherwise. On success it stores the image, switches
+ * `profile.imageSource` to `'upload'` and deletes any previous upload, so the
+ * caller must adopt the returned `settings` (new `version`).
+ */
+export async function uploadProfileImage(file: File): Promise<ProfileImageMutationResponse> {
+  const formData = new FormData();
+  formData.append('file', file);
+  return api.postFormData<ProfileImageMutationResponse>(
+    '/user-settings/profile-image',
+    formData,
+  );
+}
+
+/**
+ * Remove the caller's uploaded picture. A source of `'upload'` falls back to
+ * `'provider'` server-side; the returned `settings` must be adopted.
+ */
+export async function deleteProfileImage(): Promise<ProfileImageMutationResponse> {
+  return api.delete<ProfileImageMutationResponse>('/user-settings/profile-image');
+}
 
 // Allowlist API
 /**
