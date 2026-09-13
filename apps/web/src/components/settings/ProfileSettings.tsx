@@ -225,11 +225,16 @@ export function ProfileSettings({
 
   const handleUploaded = async (result: ProfileImageMutationResponse, file: File) => {
     setImageError(null);
+    setImageSource(result.settings.profile.imageSource);
+    // Adopt the new settings (and `version`) before anything cosmetic can fail.
+    onSettingsReplaced?.(result.settings, 'Profile picture updated');
     // Show the picked file straight away; the re-fetch below replaces it with
     // what the server actually stored.
-    replaceUploadPreview(URL.createObjectURL(file));
-    setImageSource(result.settings.profile.imageSource);
-    onSettingsReplaced?.(result.settings, 'Profile picture updated');
+    try {
+      replaceUploadPreview(URL.createObjectURL(file));
+    } catch {
+      // Preview only; the re-fetch still runs.
+    }
     await refreshUserQuietly();
     setUploadPreviewNonce((n) => n + 1);
   };
