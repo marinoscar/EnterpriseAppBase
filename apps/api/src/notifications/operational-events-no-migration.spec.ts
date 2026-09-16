@@ -54,6 +54,11 @@ const MIGRATIONS_AT_288 = [
   // the same job at different times can be told apart. A schema change, and
   // about the queue's lease ownership rather than about notifications.
   '20260908120000_add_job_claim_token',
+  // #387: the `user_credentials` table — a bring-your-own-key store owned by
+  // one user (a personal LLM key, a personal webhook signing secret). A
+  // schema change, and deliberately not one about notifications — see the ⚠
+  // above.
+  '20260916120000_add_user_credentials',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');
