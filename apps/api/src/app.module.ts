@@ -25,6 +25,7 @@ import { BroadcastsModule } from './notifications/broadcasts/broadcasts.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { JobsModule } from './jobs/jobs.module';
 import { DbBackupModule } from './db-backup/db-backup.module';
+import { DeploymentModule } from './deployment/deployment.module';
 import { LoggerModule } from './common/logger/logger.module';
 import { TestAuthModule } from './test-auth/test-auth.module';
 import { MaintenanceModule } from './common/maintenance/maintenance.module';
@@ -163,6 +164,14 @@ import configuration from './config/configuration';
     // The stale sweep's `pending` arm is what stops those unclaimed rows
     // holding the single active backup slot forever.
     DbBackupModule,
+
+    // What is deployed here, and where (#392, epic #388): one Admin-only route
+    // reporting the revision now serving requests, the host it runs on and the
+    // proxy in front of it, read from the state file `appctl deploy` leaves on
+    // the VPS. Imports nothing — no database, no settings, no storage — so it
+    // still answers when the rest of the deployment does not, which is when the
+    // question is usually asked.
+    DeploymentModule,
 
     // Maintenance mode (#257, epic #254): the three-layer switch, its admin
     // endpoints, and the global guard registered below. Imported here — rather

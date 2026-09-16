@@ -13,6 +13,31 @@
 # This file exists for one reason above all others: NOTHING IN THE STACK MAY
 # BE PUBLISHED ON A PUBLIC INTERFACE. Everything reaches the application
 # through the host proxy, which terminates TLS and holds the certificate.
+#
+# -----------------------------------------------------------------------------
+# THE ONE OTHER THING, AND WHY IT IS ALLOWED TO BE HERE (issue #392, epic #388)
+# -----------------------------------------------------------------------------
+#
+# The `api` service below also mounts the deploy root read-only so the API can
+# read `.appctl-deploy.json` — the record of what was deployed here, at which
+# commit, on what host. That is a SECOND concern in a file whose header says it
+# has one, so it is justified rather than slipped in.
+#
+# It belongs to this overlay and to no other because the thing it mounts is a
+# VPS-ONLY ARTEFACT: `appctl deploy` writes that file, `appctl deploy` only runs
+# on a VPS, and this is the only overlay a VPS uses. Putting the mount in
+# base.compose.yml would make every developer machine and every CI container
+# bind a host path that exists on none of them; putting it in prod.compose.yml
+# would do the same to every production deployment that is not installed by
+# `appctl` (a Kubernetes cluster, a PaaS, an operator's own Compose invocation).
+# The file's remit is therefore unchanged in substance: things that are true of
+# a shared-proxy VPS deployment and of nothing else. Do not widen it further —
+# a third concern that is NOT VPS-specific belongs in one of the other overlays.
+#
+# It is also, in its own way, the same concern as the loopback binding: both are
+# about the boundary between this stack and the machine it is a guest on. One
+# controls what the machine exposes on behalf of the stack; the other is the one
+# fact about the machine the stack is allowed to read back.
 # =============================================================================
 
 services:
@@ -42,9 +67,65 @@ services:
         max-file: "3"
 
   # ---------------------------------------------------------------------------
-  # API - log rotation
+  # API - log rotation, and the deployment record
   # ---------------------------------------------------------------------------
   api:
+    volumes:
+      # -----------------------------------------------------------------------
+      # ⚠ THE DEPLOY ROOT (A DIRECTORY), NOT `.appctl-deploy.json` (A FILE)
+      # -----------------------------------------------------------------------
+      #
+      # Mounting the file directly is the obvious version of this line and it is
+      # wrong TWICE. Both failures are silent, which is why this comment is
+      # longer than the line it explains.
+      #
+      # 1. IT BREAKS THE FIRST INSTALL. `apps/cli/src/deploy/install.ts` calls
+      #    `writeState(...)` AFTER `runPipeline` returns — i.e. after the
+      #    `start` step has already run `docker compose up -d`, and after
+      #    `health`, `publish` and `verify`. So on a first install the state
+      #    file DOES NOT EXIST when this stack starts. Docker's response to a
+      #    bind mount naming a host path that is not there is to CREATE IT, as a
+      #    DIRECTORY — and `writeState` then fails, because its temp-file +
+      #    `renameSync` cannot rename a file over a directory. The install would
+      #    fail at the last step, after everything worked, with an error about a
+      #    file nobody asked for.
+      #
+      # 2. IT WOULD GO STALE ON EVERY UPDATE. `writeState` is deliberately
+      #    atomic: it writes `<path>.<pid>.tmp` and renames it into place. A
+      #    rename REPLACES THE INODE, and a single-file bind mount is pinned to
+      #    the inode it resolved at container start. The container would go on
+      #    reading the file from the install, forever, and the deployment page
+      #    would confidently report the commit from three deploys ago until
+      #    somebody restarted the container. A directory mount resolves each
+      #    lookup through the directory, so the new file is seen immediately.
+      #
+      # Read-only, because nothing in this application writes this record and
+      # nothing should be able to: `appctl` owns the file, the API reads it.
+      # Note this does expose the rest of the deploy root (the checkout, the
+      # install journals, and `repo/infra/compose/.env`) to the API container
+      # read-only — which is the same .env the container is already handed
+      # through `env_file`, so it grants the API process no secret it does not
+      # already hold in its own environment.
+      #
+      # `APPCTL_DEPLOY_ROOT` defaults to `/opt/infra/apps`, which is
+      # `DEFAULT_DEPLOY_ROOT` in `apps/cli/src/commands/deploy.ts` and therefore
+      # what `--root` uses when an operator does not override it. An operator
+      # who DID pass `--root` must set this variable in `.env` to match, or the
+      # API reports `configured: false` with `reason: "not-found"` — a degraded
+      # page, never a broken deployment.
+      - "${APPCTL_DEPLOY_ROOT:-/opt/infra/apps}:/var/lib/appctl:ro"
+    environment:
+      # The in-container path of the file mounted above. A LITERAL, not a
+      # `${...}` — see base.compose.yml's warning about `environment` overriding
+      # `env_file` with an empty string: there is no operator-supplied value
+      # here to blank out, because the container-side path is fixed by the mount
+      # on the line above and the two must agree.
+      #
+      # Unset (every other overlay) means "this deployment was not installed by
+      # appctl", which `DeploymentService` reports as `configured: false` with a
+      # null path rather than guessing at a host path to stat. That is the
+      # ordinary answer on a laptop and in CI, and it is a 200.
+      - DEPLOY_STATE_FILE=/var/lib/appctl/.appctl-deploy.json
     logging:
       driver: "json-file"
       options:
