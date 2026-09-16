@@ -105,6 +105,7 @@ import {
   resolveStorageObjectInput,
 } from '../storage/storage-job-input';
 import {
+  NodeDownloadUrlDto,
   NodeDownloadUrlResponseDto,
   NodeUploadUrlDto,
   NodeUploadUrlResponseDto,
@@ -213,9 +214,15 @@ export class NodeDataPlaneService {
   async createDownloadUrl(
     userId: string,
     nodeId: string,
-    jobId: string
+    jobId: string,
+    dto: NodeDownloadUrlDto
   ): Promise<NodeDownloadUrlResponseDto> {
-    const job = await this.nodes.assertJobHeldByNode(userId, nodeId, jobId);
+    // `dto.claimToken` narrows the guard from "this node" to "THIS CLAIM of
+    // this node" when the node is new enough to quote it (#364), so a stale
+    // worker slot is not handed a bearer capability for the input of a job it
+    // no longer holds. `undefined` for a node that quoted none, which is the
+    // pre-#364 check exactly.
+    const job = await this.nodes.assertJobHeldByNode(userId, nodeId, jobId, dto?.claimToken);
     const object = await this.resolveInput(job);
 
     const expiresIn = this.resolveTtlSeconds();
@@ -301,7 +308,14 @@ export class NodeDataPlaneService {
     jobId: string,
     dto: NodeUploadUrlDto
   ): Promise<NodeUploadUrlResponseDto> {
-    const job = await this.nodes.assertJobHeldByNode(userId, nodeId, jobId);
+    // ⚠ `dto.claimToken` MATTERS MORE HERE THAN ANYWHERE ELSE THIS TOKEN IS
+    // CHECKED (#364), and the reason is `deriveOutputKey` two paragraphs down:
+    // the key is a function of the JOB, not of the claim, so a node's stale
+    // slot asking here would be handed a signed PUT for the exact key its own
+    // later claim is writing. Both PUTs succeed, the bytes that survive are
+    // whichever finished last, and no log anywhere records that two ran. The
+    // guard runs BEFORE any derivation, so a refused slot never learns the key.
+    const job = await this.nodes.assertJobHeldByNode(userId, nodeId, jobId, dto?.claimToken);
 
     this.rejectCallerSuppliedFields(job, dto);
 
@@ -415,7 +429,7 @@ export class NodeDataPlaneService {
 
   /**
    * Refuses any field the node is not permitted to choose — today, anything
-   * beyond `contentType`.
+   * beyond `contentType` and `claimToken`.
    *
    * The `key` case is the one that matters and the message says so by name.
    * Everything else is caught by the same net rather than by a growing list of
@@ -423,9 +437,19 @@ export class NodeDataPlaneService {
    * the node believes has an effect and which is having none, and that belief
    * is the bug. Naming the offending keys turns "my output went somewhere
    * else" into "the server told me on the first run".
+   *
+   * ⚠ THIS ALLOWLIST IS THE AUTHORITY, NOT THE ZOD SCHEMA, which is why
+   * `claimToken` had to be added in two places when #364 threaded it through
+   * this route. `nodeUploadUrlSchema` is a `z.looseObject` precisely so
+   * unknown keys survive the parse and can be refused BY NAME here; a field
+   * described there but missing from this set is therefore not permissive, it
+   * is a 400 on every request that sends it. `claimToken` belongs in the set
+   * for the same reason `contentType` does: it is a thing a node may say. The
+   * difference — that it asks for nothing and can only get the caller refused
+   * — is argued in `claim-token.field.ts`, not re-argued here.
    */
   private rejectCallerSuppliedFields(job: Job, dto: NodeUploadUrlDto): void {
-    const permitted = new Set(['contentType']);
+    const permitted = new Set(['contentType', 'claimToken']);
     const offending = Object.keys(dto ?? {}).filter((key) => !permitted.has(key));
 
     if (offending.length === 0) {

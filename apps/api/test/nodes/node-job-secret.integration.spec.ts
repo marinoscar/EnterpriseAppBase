@@ -147,6 +147,10 @@ describe('Worker node per-job secret broker (Integration)', () => {
     };
   }
 
+  /** The token the held job was claimed under, and one from another claim (#364). */
+  const CLAIM_TOKEN = '66666666-6666-4666-8666-666666666666';
+  const OTHER_TOKEN = '77777777-7777-4777-8777-777777777777';
+
   /** A job this node holds legitimately: running, claimed, lease in the future. */
   function jobRow(overrides: Record<string, unknown> = {}) {
     return {
@@ -170,6 +174,7 @@ describe('Worker node per-job secret broker (Integration)', () => {
       rateLimitedAt: null,
       rateLimitHits: 0,
       claimedByNodeId: NODE_ID,
+      claimToken: CLAIM_TOKEN,
       leaseExpiresAt: new Date(Date.now() + 60_000),
       executor: 'node',
       ...overrides,
@@ -340,6 +345,22 @@ describe('Worker node per-job secret broker (Integration)', () => {
       await request(server()).post(secretPath).set(authHeader(admin.accessToken)).expect(200);
     });
 
+    it('200 for a request quoting the token this job was claimed under', async () => {
+      // The other half of the pair below: the token narrows WHO may be
+      // answered and changes nothing about WHAT comes back.
+      const admin = await createMockAdminUser(context);
+      givenHeldJob(admin.id);
+
+      const response = await request(server())
+        .post(secretPath)
+        .set(authHeader(admin.accessToken))
+        .send({ claimToken: CLAIM_TOKEN })
+        .expect(200);
+
+      expect(response.body.data.kind).toBe(KIND);
+      expect(issue).toHaveBeenCalled();
+    });
+
     it('is re-callable while the lease is live, and upserts the SAME grant', async () => {
       // A node asks again as a matter of course: a restarted process still
       // holding the lease, a lost response. ONE CREDENTIAL PER JOB, EVER.
@@ -392,6 +413,37 @@ describe('Worker node per-job secret broker (Integration)', () => {
       expect(issue).not.toHaveBeenCalled();
     });
 
+    it('409 for a request quoting an EARLIER claim’s token — no credential is minted', async () => {
+      // The sharpest version of this route's hazard: same node, same live
+      // lease, a slot that lost the row. Without the token it would be handed
+      // a live database credential bounded by a lease belonging to the claim
+      // that displaced it.
+      const admin = await createMockAdminUser(context);
+      givenHeldJob(admin.id);
+
+      const response = await request(server())
+        .post(secretPath)
+        .set(authHeader(admin.accessToken))
+        .send({ claimToken: OTHER_TOKEN })
+        .expect(409);
+
+      expect(response.body.details.reason).toBe('lease_not_held');
+      expect(issue).not.toHaveBeenCalled();
+    });
+
+    it('400 for a `claimToken` that is not a uuid', async () => {
+      const admin = await createMockAdminUser(context);
+      givenHeldJob(admin.id);
+
+      await request(server())
+        .post(secretPath)
+        .set(authHeader(admin.accessToken))
+        .send({ claimToken: 'not-a-uuid' })
+        .expect(400);
+
+      expect(issue).not.toHaveBeenCalled();
+    });
+
     it('403 when the node belongs to another user, before any job is read', async () => {
       const admin = await createMockAdminUser(context);
       (context.prismaMock.workerNode.findUnique as jest.Mock).mockResolvedValue(
@@ -426,7 +478,10 @@ describe('Worker node per-job secret broker (Integration)', () => {
 
       expect(response.body.message).toContain(field);
       expect(response.body.details.rejectedFields).toEqual([field]);
-      expect(response.body.details.permittedFields).toEqual([]);
+      // `claimToken` is the one permitted field since #364, and it is the only
+      // one this body will ever grow: it asks for nothing, it can only get the
+      // caller refused. Everything a node might ASK for is still a 400.
+      expect(response.body.details.permittedFields).toEqual(['claimToken']);
       expect(issue).not.toHaveBeenCalled();
     });
 

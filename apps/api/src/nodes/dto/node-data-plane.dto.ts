@@ -67,6 +67,8 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
+import { claimTokenField } from './claim-token.field';
+
 /**
  * Cap on a node-declared `Content-Type`.
  *
@@ -80,14 +82,20 @@ const MAX_CONTENT_TYPE_LENGTH = 255;
 // POST /nodes/:id/jobs/:jobId/download-url
 // =============================================================================
 //
-// NO BODY, DELIBERATELY. Everything the server needs is already on the path
-// (which node, which job) and in the row (which object). There is nothing a
-// node could usefully say here, and — see the header — nothing it is allowed
-// to say about WHICH bytes it gets: that is the job's `subjectId`, resolved on
-// the server. A DTO whose only field was `expiresIn` was considered and
-// dropped for the same reason a node-supplied lease was dropped in #268: the
-// bound exists to limit the blast radius of a leaked URL, so the party the
-// bound protects against does not get to set it.
+// ONE FIELD, AND IT IS NOT A REQUEST FOR ANYTHING. This body had none at all
+// until #364, and the distinction that let it acquire one is worth stating,
+// because it is what keeps the next field out: `claimToken` does not ask the
+// server for a different URL, a longer expiry or a different object. It
+// answers "who is asking" — an ASSERTION about which claim of this job the
+// caller is, checked against the row and never used to compute anything. A
+// field that changed what came back would still be refused.
+//
+// So what has NOT changed: the server decides WHICH bytes (the job's
+// `subjectId`, resolved server-side) and FOR HOW LONG. A DTO whose only field
+// was `expiresIn` was considered and dropped for the same reason a
+// node-supplied lease was dropped in #268 — the bound exists to limit the
+// blast radius of a leaked URL, so the party the bound protects against does
+// not get to set it.
 //
 // It is a POST rather than a GET even though it reads nothing, because it
 // MINTS A CREDENTIAL. A GET's URL is the thing every layer between here and
@@ -95,6 +103,35 @@ const MAX_CONTENT_TYPE_LENGTH = 255;
 // an APM trace's endpoint label — and a response body containing a bearer URL
 // has no business being cacheable by anything. POST is uncacheable by default
 // and carries no such expectation.
+
+/**
+ * What a node may say when asking to read its input: which claim is asking,
+ * and nothing else.
+ *
+ * ⚠ `.default({})` IS THE BACKWARD-COMPATIBILITY GUARANTEE, not a convenience.
+ * This route took no body at all until #364, so every node in every fleet
+ * posts to it with no payload and no `Content-Type` — Fastify hands Nest
+ * `undefined`, and a bare `z.object({...})` would reject that outright and
+ * fail every download from every node that has not been upgraded yet. The
+ * default is what makes "no body" parse to "no assertion", which is the
+ * pre-#364 behaviour spelled as data. Do not unwrap it. `nodeUploadUrlSchema`
+ * below and `nodeJobSecretRequestSchema` carry it for the milder version of
+ * the same reason — there, an empty body was always legal.
+ *
+ * A plain object rather than the `z.looseObject` its sibling uses: unknown
+ * keys here are stripped, exactly as they were ignored before this body
+ * existed. The loose-then-refuse-by-name treatment next door exists for `key`,
+ * a field whose silent omission would send a node's bytes somewhere it did not
+ * choose; nothing a node can put in THIS body has ever had an effect, so there
+ * is no misunderstanding to name.
+ */
+export const nodeDownloadUrlSchema = z
+  .object({
+    claimToken: claimTokenField.optional(),
+  })
+  .default({});
+
+export class NodeDownloadUrlDto extends createZodDto(nodeDownloadUrlSchema) {}
 
 // =============================================================================
 // POST /nodes/:id/jobs/:jobId/upload-url
@@ -138,6 +175,27 @@ export const nodeUploadUrlSchema = z
       .min(1)
       .max(MAX_CONTENT_TYPE_LENGTH)
       .optional(),
+
+    /**
+     * WHICH CLAIM is asking for somewhere to write — see
+     * `claim-token.field.ts`.
+     *
+     * ⚠ THE SHARPEST OF THE SIX ROUTES THAT CARRY THIS, and the quietest if it
+     * is missing. Since #348 a type may derive its output key from the JOB
+     * (`deriveOutputKey`), so the key is a function of the row and not of the
+     * claim — which means a node's stale worker slot asking here is handed a
+     * signed PUT for the EXACT key its own later claim is currently writing.
+     * Both PUTs answer 200, the surviving bytes are whichever landed last, and
+     * nothing in any log ties the two together. The token is what refuses the
+     * first slot before the URL is minted.
+     *
+     * ⚠ IT IS ALSO A PERMITTED FIELD, which is not automatic here:
+     * `NodeDataPlaneService.rejectCallerSuppliedFields` refuses anything
+     * outside its allowlist by name, so adding a field to this schema without
+     * adding it there would 400 every upgraded node. The allowlist is the
+     * authority; this schema only describes.
+     */
+    claimToken: claimTokenField.optional(),
   })
   .default({});
 

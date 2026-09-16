@@ -36,11 +36,14 @@
 // cannot be a change to how jobs are claimed or settled.
 //
 // What it does NOT do is reimplement the guard. `assertJobHeldByNode` is REUSED
-// — claimed by THIS node, `running`, has a lease, lease unexpired — because a
-// second copy would start identical and drift on the first fix applied to one
-// side, and what it would let through here is worse than what it would let
-// through in the data plane: a credential minted for a job somebody else now
-// owns.
+// — claimed by THIS node, `running`, has a lease, lease unexpired, and since
+// #364 the caller's own `claimToken` when it quotes one — because a second
+// copy would start identical and drift on the first fix applied to one side,
+// and what it would let through here is worse than what it would let through
+// in the data plane: a credential minted for a job somebody else now owns.
+// That last condition is why the token is threaded into THIS route and not
+// just into renew: without it "somebody else" includes a LATER SLOT OF THE
+// SAME NODE, which `claimedByNodeId` cannot see at all.
 //
 // -----------------------------------------------------------------------------
 // THE ORDER OF THE CHECKS IS THE CONTRACT
@@ -51,8 +54,10 @@
 //      lease. 409 (the existing `notHeldByNode` message) once the lease has
 //      expired: another executor may own the job, and the node's correct
 //      response is to drop the work.
-//   2. THE BODY MUST BE EMPTY. Any field is a 400 naming it — a node may not
-//      request a secret it was not assigned. See `dto/node-job-secret.dto.ts`.
+//   2. THE BODY MUST ASK FOR NOTHING. Any field beyond this assignment's
+//      `claimToken` is a 400 naming it — a node may not request a secret it was
+//      not assigned, and the token requests nothing (it answers who is asking,
+//      and is already spent by step 1). See `dto/node-job-secret.dto.ts`.
 //   3. THE DEPLOYMENT MUST HAVE SWITCHED THIS ON. 403 with a named reason
 //      otherwise, and the same setting removes the type from the claim
 //      entirely, so a correctly-behaving node never reaches this at all.
@@ -108,11 +113,17 @@
 // accumulates PostgreSQL roles nobody drops.
 //
 // The sweeper's predicate is deliberately THE EXACT COMPLEMENT of
-// `assertJobHeldByNode`'s four conditions, plus the grant's own clock. A
+// `assertJobHeldByNode`'s four ROW conditions, plus the grant's own clock. A
 // credential is legitimate exactly while the job it was minted for is still
 // held, by the same node, under a live lease; anything else is an orphan. Two
 // rules, written once (`stillHeld` below) rather than as a list of statuses
 // somebody has to keep in step with the queue's state machine.
+//
+// "Four row conditions" is precise, not loose: the guard's FIFTH condition
+// (#364) is the caller's quoted `claimToken`, and a sweep has no caller to
+// quote one. See `stillHeld` for why that is correct rather than a gap — the
+// difference between asking "is this REQUEST from the current claim" and
+// asking "is this GRANT still attached to held work".
 // =============================================================================
 
 import {
@@ -247,10 +258,17 @@ export class NodeSecretBrokerService {
     dto: NodeJobSecretRequestDto
   ): Promise<NodeJobSecretResponseDto> {
     // 1. The guard, FIRST. Nothing below runs for a caller who cannot prove it
-    //    holds this job under a live lease.
-    const job = await this.nodes.assertJobHeldByNode(userId, nodeId, jobId);
+    //    holds this job under a live lease — and, when it quotes its
+    //    `claimToken` (#364), that it is the CLAIM the row currently carries
+    //    rather than an earlier one by the same node. That distinction is
+    //    sharper here than on any other route: what this method hands back is
+    //    a live database credential, and handing one to a slot that lost the
+    //    job grants it the lease of a claim that is not its own. `undefined`
+    //    for a node that quoted none, which is the pre-#364 check exactly.
+    const job = await this.nodes.assertJobHeldByNode(userId, nodeId, jobId, dto?.claimToken);
 
-    // 2. A node may not request a secret it was not assigned.
+    // 2. A node may not request a secret it was not assigned. (The token it
+    //    may have quoted above is not a request and is allowlisted there.)
     this.rejectCallerSuppliedFields(job, dto);
 
     // 3. Has this deployment decided its fleet is inside the trust boundary?
@@ -474,14 +492,24 @@ export class NodeSecretBrokerService {
    * grant's own clock: a credential past its `expiresAt` no longer works
    * anyway, so leaving its role in place buys nothing and costs a role.
    *
-   * ⚠ NOT the claim-token check `assertJobHeldByNode` gained in #364, and that
-   * omission is correct rather than an oversight to tidy up later. That check
-   * exists to tell a node's stale worker slot from its current one, and it can
-   * only do so when the SLOT itself quotes the token — there is no slot here,
-   * only a sweep asking "is this grant still attached to held work". A grant
-   * outlives one claim of a job no more than it outlives the job: if the row
-   * was reaped and re-claimed, its lease moved and `expiresAt` (bounded by the
-   * lease that minted it) has already passed or is about to.
+   * ⚠ NOT the claim-token check `assertJobHeldByNode` gained in #364, even
+   * though `issueForJob` above now makes that check on every request. The two
+   * are asking different questions, and this one has no way to ask the other's.
+   * The guard asks "is this REQUEST from the claim the row currently carries",
+   * which only the caller can answer, by quoting a token it was handed. A
+   * sweep asks "is this GRANT still attached to held work", and there is no
+   * caller in a cron tick to quote anything — comparing the grant against the
+   * row's current token would be the tautology the node plane was stuck with
+   * before the token crossed the wire, since the sweeper would be reading both
+   * sides from the same row.
+   *
+   * Nor is it needed. A grant outlives one claim of a job no more than it
+   * outlives the job: if the row was reaped and re-claimed, its lease moved,
+   * and this grant's `expiresAt` — bounded by the lease that minted it — has
+   * already passed or is about to, so the clock condition below catches
+   * exactly the case a token check would have. Adding one here would buy
+   * nothing and would couple credential revocation to a value only a live node
+   * holds.
    */
   private stillHeld(
     row: JobNodeSecret,
@@ -715,22 +743,34 @@ export class NodeSecretBrokerService {
   }
 
   /**
-   * Refuses any field at all — this body has no permitted fields.
+   * Refuses any field that ASKS for something — which is every field this
+   * body can carry except `claimToken`.
    *
    * The same net `NodeDataPlaneService.rejectCallerSuppliedFields` casts, with
-   * an empty allowlist, because a node may not request a secret it was not
-   * assigned: a `kind`, a `scope`, a `database` or a `ttl` here would each be a
-   * node choosing part of a credential's shape, and every one of those is the
-   * server's choice derived from the job it is holding.
+   * an allowlist of exactly one, because a node may not request a secret it was
+   * not assigned: a `kind`, a `scope`, a `database` or a `ttl` here would each
+   * be a node choosing part of a credential's shape, and every one of those is
+   * the server's choice derived from the job it is holding.
+   *
+   * ⚠ `claimToken` IS THAT ONE, AND IT IS NOT A CRACK IN THE RULE (#364). The
+   * rule is "a node may not ask for anything"; the token asks for nothing. It
+   * answers which claim is speaking, it is checked against the row by
+   * `assertJobHeldByNode` before this method runs, and the only outcome it can
+   * produce is the caller being REFUSED. Nothing about the credential — kind,
+   * scope, lifetime — moves because of it. The allowlist and the DTO schema
+   * must agree: this set is the authority, and a field described in
+   * `nodeJobSecretRequestSchema` but absent here is a 400 on every request
+   * that sends it.
    *
    * REFUSED RATHER THAN IGNORED, for the reason the upload route already
    * records: ignoring means the node's author never learns their field had no
    * effect, and the bug is found days later by a person instead of minutes later
    * by a machine. It costs a correct client exactly nothing — no legitimate node
-   * ever sends anything here.
+   * ever sends anything else here.
    */
   private rejectCallerSuppliedFields(job: Job, dto: NodeJobSecretRequestDto): void {
-    const offending = Object.keys(dto ?? {});
+    const permitted = new Set(['claimToken']);
+    const offending = Object.keys(dto ?? {}).filter((key) => !permitted.has(key));
 
     if (offending.length === 0) {
       return;
@@ -746,8 +786,8 @@ export class NodeSecretBrokerService {
         `This request carried field(s) a node may not set: ${offending.join(', ')}. ` +
         `A node may not request a secret it was not assigned — the kind, the scope and the ` +
         `lifetime of a job credential are all derived by the server from the job being held. ` +
-        `Send an empty body.`,
-      details: { jobId: job.id, rejectedFields: offending, permittedFields: [] },
+        `Send an empty body, or one carrying only this assignment's "claimToken".`,
+      details: { jobId: job.id, rejectedFields: offending, permittedFields: [...permitted] },
     });
   }
 }

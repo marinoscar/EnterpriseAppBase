@@ -84,16 +84,21 @@
 // exists and this credential is not the one that owns it. A boundary that
 // lies produces worse operational outcomes than one that says no.
 //
-// `assertJobHeldByNode` is the more important of the two. It is reused by
-// `result`, `failure` and `renew`, and it demands FOUR things: the job is
+// `assertJobHeldByNode` is the more important of the two. It is reused by every
+// route that speaks for a held job — `renew`, `result` and `failure` here,
+// `download-url` and `upload-url` in `node-data-plane.service.ts`, and `secret`
+// in `node-secret-broker.service.ts` — and it demands FOUR things: the job is
 // claimed by THIS node, it is `running`, it has a lease, and that lease has
 // not expired — plus a FIFTH the caller opts into by quoting the claim token
 // it was handed (#364): that the row is still the same CLAIM, not merely the
 // same node. `claimedByNodeId` tells one node from another and not one node
 // from itself, so without the token a node's stalled, reaped, re-claimed
-// worker slot can renew — or settle — the run its own later slot is executing.
-// The token is optional on the wire so an un-upgraded node keeps working
-// unchanged; see the method's own doc comment for both halves.
+// worker slot can renew — or settle — the run its own later slot is executing,
+// be signed a PUT for the output key that run is writing, or be handed that
+// run's database credential. The token is optional on the wire so an
+// un-upgraded node keeps working unchanged; see the method's own doc comment
+// for both halves, and `dto/claim-token.field.ts` for what each of the six
+// routes stands to lose without it.
 //
 // ⚠ THE LEASE CHECK IS WHAT MAKES A LATE SUBMISSION HARMLESS. Consider the
 // ordinary sequence: a node's machine sleeps, its lease expires, the reaper

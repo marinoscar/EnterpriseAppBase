@@ -11,9 +11,12 @@
 // develops a step that accepts what an earlier step refused. Split across six
 // files, those shared constants become six imports nobody keeps aligned;
 // together, a change to the concurrency ceiling is one line that every body
-// sees — and `claimToken` below is the same argument in its strongest form:
-// ONE field definition reaching the three bodies that end an assignment, so
-// "renew accepts a token but failure silently ignores it" is unwritable.
+// sees — and `claimToken` below is the same argument one level up: the three
+// bodies here that speak for a held job share ONE field definition with the
+// three outside this file that do the same (`node-data-plane.dto.ts`,
+// `node-job-secret.dto.ts`), so "renew accepts a token but failure silently
+// ignores it" is unwritable. That definition lives in `claim-token.field.ts`,
+// which carries its own note on why one field earned a file of its own.
 //
 // -----------------------------------------------------------------------------
 // EVERY FIELD HERE ARRIVES FROM A MACHINE THIS DEPLOYMENT MAY NOT OWN
@@ -69,6 +72,8 @@
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
+import { claimTokenField } from './claim-token.field';
+
 /**
  * Ceiling on a node's declared `concurrency`, and therefore on how many rows
  * one claim call can take.
@@ -101,43 +106,16 @@ const MAX_ERROR_LENGTH = 2000;
 const jobType = z.string().trim().min(1).max(MAX_TYPE_LENGTH);
 
 /**
- * THE CLAIM THIS MESSAGE IS ABOUT — `jobs.claim_token`, handed to the node in
- * the claim response and quoted back here (#364).
+ * `jobs.claim_token`, as the node quotes it back — the field three of the
+ * bodies below carry, and three more outside this file (the two data-plane
+ * mints and the secret broker) carry for the same reason.
  *
- * WHY A NODE ID IS NOT ENOUGH, which is the whole of this field. Every guard
- * on the three endpoints that end an assignment — renew, result, failure —
- * used to identify the caller by `claimedByNodeId` alone, which tells one node
- * from another and NOT ONE NODE FROM ITSELF. A node that claims job J, stalls
- * past its lease, is reaped, and then claims J again in a second worker slot
- * has two live tickers quoting the same node id: the first slot's renewal
- * extends the SECOND slot's lease (so a dead second slot is reaped late, for
- * as long as the first keeps ticking), and worse, the first slot's result or
- * failure settles a job its own later claim is still running. The token is
- * minted per row by the claim statement, so those two claims carry different
- * tokens and the stale one is refused.
- *
- * ⚠ OPTIONAL ON THE WIRE, AND THAT IS LOAD-BEARING, not politeness. A fleet
- * is upgraded one machine at a time; a node running older CLI code omits this
- * field, and the server must then behave EXACTLY as it did before — the node
- * id and the lease alone — rather than 400 the request or 409 the job. Same
- * posture as `renewIntervalMs` in #347: additive, ignorable, strictly better
- * when present. The residual ambiguity above stays open for that node until
- * it is upgraded, which is a rolling-upgrade window rather than a new hole.
- *
- * ⚠ OMITTED MUST STAY `undefined` AND MUST NOT BECOME `null`. Downstream this
- * value reaches `heldLeaseWhere`, where the two mean opposite things:
- * `undefined` drops the clause entirely ("I am not asserting a claim"), while
- * `null` matches `claim_token IS NULL` ("I assert this row carries no token").
- * `.optional()` with no `.nullable()` is what keeps them apart — a body that
- * spells the key as `null` is refused rather than silently reinterpreted as
- * the other statement.
- *
- * Validated as a uuid rather than as any bounded string because the column is
- * `uuid`: a garbage value reaching a `where` clause is a Postgres cast error
- * (a 500 about "inconsistent column data"), and a clean 400 naming the field
- * is a better answer to a malformed token than a 500 is.
+ * SHARED, NOT REDECLARED: `claim-token.field.ts` holds the field and the whole
+ * argument for it, including why `undefined` and `null` must stay different
+ * statements. Six copies of a uuid would drift exactly once, and on one route
+ * only, which is the worst shape that drift can take.
  */
-const claimToken = z.uuid();
+const claimToken = claimTokenField;
 
 /**
  * The node's self-reported capability bag.

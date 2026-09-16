@@ -112,6 +112,7 @@ import {
   WorkerNodeDto,
 } from './dto/node-response.dto';
 import {
+  NodeDownloadUrlDto,
   NodeDownloadUrlResponseDto,
   NodeJobTypesResponseDto,
   NodeUploadUrlDto,
@@ -367,19 +368,26 @@ export class NodesController {
       '(another executor may own the job — drop the work); `422` when the job names no ' +
       'resolvable input, which is permanent: report the job as FAILED rather than retrying, ' +
       'and `details.reason` says which of `missing_subject_id`, `input_object_not_found` or ' +
-      '`input_object_has_no_storage_key` applied.',
+      '`input_object_has_no_storage_key` applied. Quote the assignment’s `claimToken` to be ' +
+      'identified as THIS claim rather than merely as this node; the body, and the field, are ' +
+      'optional and omitting them is the older behaviour.',
   })
   @ApiParam({ name: 'id', type: String, format: 'uuid' })
   @ApiParam({ name: 'jobId', type: String, format: 'uuid' })
+  // `required: false` for the reason the renew route states: this endpoint
+  // took no body at all until #364, and every node built before it posts here
+  // with none.
+  @ApiBody({ type: NodeDownloadUrlDto, required: false })
   @ApiResponse({ status: 200, description: 'A signed download URL', type: NodeDownloadUrlResponseDto })
   @ApiResponse({ status: 409, description: 'This node no longer holds the job with a live lease' })
   @ApiResponse({ status: 422, description: 'The job names no resolvable input object' })
   async downloadUrl(
     @Param('id', ParseUUIDPipe) id: string,
     @Param('jobId', ParseUUIDPipe) jobId: string,
+    @Body() dto: NodeDownloadUrlDto,
     @CurrentUser('id') userId: string
   ): Promise<NodeDownloadUrlResponseDto> {
-    return this.dataPlane.createDownloadUrl(userId, id, jobId);
+    return this.dataPlane.createDownloadUrl(userId, id, jobId, dto);
   }
 
   @Post(':id/jobs/:jobId/upload-url')
@@ -395,10 +403,19 @@ export class NodesController {
       'than `contentType`) is refused with `400` naming it. The key is returned so the node ' +
       'can report it in its result; no `storage_objects` row is created here. If ' +
       '`contentType` is supplied it becomes part of the signature and must be sent verbatim ' +
-      'on the PUT. `409` once the lease has expired.',
+      'on the PUT. `409` once the lease has expired — or, when the assignment’s `claimToken` ' +
+      'is quoted, once this is no longer the claim the job carries: with a type that derives ' +
+      'its own output key, a stale worker slot would otherwise be signed for the very key its ' +
+      'node’s newer claim is writing. The token is optional; omitting it is the older behaviour.',
   })
   @ApiParam({ name: 'id', type: String, format: 'uuid' })
   @ApiParam({ name: 'jobId', type: String, format: 'uuid' })
+  // `required: false` states something that was already true rather than
+  // changing anything: `nodeUploadUrlSchema` has defaulted an absent body to
+  // `{}` since #269, and nodes do send none. The two routes that grew a body
+  // in #364 say it too, so the spec is consistent about which node-facing
+  // bodies may be omitted.
+  @ApiBody({ type: NodeUploadUrlDto, required: false })
   @ApiResponse({ status: 200, description: 'A signed upload URL and its server-chosen key', type: NodeUploadUrlResponseDto })
   @ApiResponse({ status: 400, description: 'The request carried a field a node may not set (e.g. `key`)' })
   @ApiResponse({ status: 409, description: 'This node no longer holds the job with a live lease' })
@@ -442,8 +459,11 @@ export class NodesController {
       'mint a second clock. ⚠ HOLD IT IN MEMORY ONLY: it is returned once, it is revoked ' +
       'when the job settles, and a node must never write it to disk, to an environment ' +
       'variable, or to a log. Re-callable while the lease is live — the same grant is ' +
-      'extended, never a second one issued. Send an EMPTY BODY: any field is refused with ' +
-      '`400`, because a node may not request a secret it was not assigned. `403` (with ' +
+      'extended, never a second one issued. Send an EMPTY BODY, or one carrying only this ' +
+      'assignment’s `claimToken`: any other field is refused with `400`, because a node may ' +
+      'not request a secret it was not assigned — the token requests nothing, it only proves ' +
+      'WHICH claim is asking, so a stale worker slot is not handed a live credential bounded ' +
+      'by a lease belonging to its own later claim. `403` (with ' +
       '`details.reason`) when this deployment does not issue per-job credentials at all; ' +
       '`404` when this job’s type declares no broker, which will not change on a retry; ' +
       '`409` once the lease has expired — drop the work; `503` when the broker exists but ' +
@@ -451,6 +471,10 @@ export class NodesController {
   })
   @ApiParam({ name: 'id', type: String, format: 'uuid' })
   @ApiParam({ name: 'jobId', type: String, format: 'uuid' })
+  // `required: false` for the same reason the upload route states it: an empty
+  // body has always been legal here, and is still the whole request for a node
+  // that quotes no token.
+  @ApiBody({ type: NodeJobSecretRequestDto, required: false })
   @ApiResponse({ status: 200, description: 'The credential, returned once', type: NodeJobSecretResponseDto })
   @ApiResponse({ status: 400, description: 'The request body carried a field a node may not set' })
   @ApiResponse({ status: 403, description: 'This deployment does not issue per-job credentials' })
