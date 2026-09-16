@@ -709,6 +709,24 @@ and [`docs/runbooks/vapid-keys.md`](docs/runbooks/vapid-keys.md).
   `running`) is enforced by `database_backup_runs_active_uniq_idx`, the same
   raw-SQL-only partial unique index pattern as `jobs` above — never by a `findFirst`
   before the insert, which cannot close the race a concurrent request needs closed.
+- `user_credentials` - A bring-your-own-key store owned by **one user** (issue #387) — the
+  sibling of `credentials` one ownership level down: `credentials` is an administrator's
+  shared secret, this is a personal one (a user's own `llm/anthropic` key, say) nobody else
+  may read, encrypted under an owner-bound sub-key domain (`user:<uuid>:<purpose>`, see
+  `userCredentialPurpose` in `common/crypto/secret-cipher.ts`) so a ciphertext copied into
+  the wrong user's row fails to decrypt instead of quietly spending their key. A **second
+  table**, not a nullable `owner_user_id` on `credentials` — that table's table-wide
+  `@@unique([purpose, name])` caps a nullable-owner design at one user per purpose, or
+  reopens the exact ambiguity a compound unique constraint is supposed to close (Postgres
+  does not enforce uniqueness across `NULL`s) — and `onDelete: Cascade` here is the
+  deliberate opposite of `credentials.updatedByUserId`'s `SetNull`: a departed user's key is
+  not infrastructure anyone inherits. `@@index([userId])` is dropped as redundant, not
+  omitted by oversight — `@@unique([userId, purpose, name])` already makes `WHERE user_id
+  = ?` an index-prefix scan. **Foundation only, per the same rule the Adding a Job Type /
+  Adding a Notification registries follow**: `apps/api/src/credentials/
+  user-credential-purposes.ts`'s registry ships empty, there is no HTTP surface, and
+  `UserCredentialsModule` is deliberately not registered in `app.module.ts` — see
+  [`docs/specs/user-credentials.md`](docs/specs/user-credentials.md).
 
 ## Operations Admin Settings Group
 
@@ -801,7 +819,7 @@ Note: `DATABASE_URL` is constructed automatically from these variables at runtim
 - `DEVICE_CODE_POLL_INTERVAL` - Device polling interval in seconds (default: 5)
 - `DEVICE_TOKEN_EXPIRY_DAYS` - Token lifetime for device sessions in days (default: 7)
 - `DEVICE_PAT_EXPIRY_DAYS` - Lifetime of the PAT minted when a device (e.g. the CLI) requests `clientInfo.tokenType: "pat"`, in days; clamped to 1-999 (default: 90)
-- `SECRETS_ENCRYPTION_KEY` - Base64-encoded 32-byte AES-256 key (generate with `openssl rand -base64 32`) that encrypts runtime-configured credentials (SMTP, Web Push, and — since epic #372 — the object-storage secret access key) before they are stored in the `credentials` table. Formally optional at boot until a credential is stored (see `docs/runbooks/rotate-secrets-encryption-key.md`); in practice required for a working deployment, since uploads, avatars and database backups all need the storage credential this key protects. Note: credentials configured at runtime through the UI/API live encrypted in the database, not in the environment — unlike every other secret in this section.
+- `SECRETS_ENCRYPTION_KEY` - Base64-encoded 32-byte AES-256 key (generate with `openssl rand -base64 32`) that encrypts runtime-configured credentials before they are stored — now across **two** tables: the administrator-configured `credentials` (SMTP, Web Push, and — since epic #372 — the object-storage secret access key) and, since issue #387, the per-user `user_credentials` (a bring-your-own-key store owned by one user at a time; see [`docs/specs/user-credentials.md`](docs/specs/user-credentials.md)). One master key, no second key to provision — a per-user row is encrypted under an owner-bound sub-key derived from this same key. Formally optional at boot until a credential is stored in *either* table (the startup check's `verifyEncryptionKeyAtStartup` counts both — see `docs/runbooks/rotate-secrets-encryption-key.md`); in practice required for a working deployment, since uploads, avatars and database backups all need the storage credential this key protects. Note: credentials configured at runtime through the UI/API live encrypted in the database, not in the environment — unlike every other secret in this section.
 
 **Email (SES fallback only):**
 - `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` - Credential for the SES email transport. **SES-only since epic #372** — before that, these two were shared with the (then env-var-configured) S3 storage provider; storage now has its own credential in the encrypted store and never reads these.
@@ -1035,6 +1053,55 @@ with `maxAttempts: 1`, `deriveOutputKey` re-reading the backup's own run row,
 [`docs/specs/worker-nodes.md`](docs/specs/worker-nodes.md) for the full design
 — the claim's `FOR UPDATE SKIP LOCKED`, the lease, the data plane's presigned
 URLs, and the rejected alternatives.
+
+### Adding a Per-User Credential
+
+One registry entry, zero migrations — the same shape as Adding a Notification
+and Adding a Job Type above, applied to a bring-your-own-key secret one user
+supplies for themselves rather than an administrator configuring it for
+everyone. Full design in
+[`docs/specs/user-credentials.md`](docs/specs/user-credentials.md) (issue
+#387, currently the foundation only — no HTTP surface, no settings page, and
+`UserCredentialsModule` is not registered in `app.module.ts`); this is the
+summary for the day a feature is ready to consume it.
+
+1. **Add an entry to `USER_CREDENTIAL_PURPOSES`**
+   (`apps/api/src/credentials/user-credential-purposes.ts`): a `purpose`
+   string (permanent once any row exists under it — it is folded into the
+   AES sub-key domain, so renaming it orphans every stored ciphertext rather
+   than renaming it), a `label`/`description` written as user-facing copy,
+   and a `systemFallback: { purpose, name } | null` naming the exact address
+   of this purpose's counterpart in the **system** store (`credentials`), or
+   `null` for bring-your-own-key-or-nothing. The file's own comment carries a
+   complete worked example — copy it rather than writing one from scratch.
+
+2. **Import `UserCredentialsModule`** into the feature module that needs it:
+   ```ts
+   @Module({ imports: [UserCredentialsModule], providers: [MyFeatureService] })
+   export class MyFeatureModule {}
+   ```
+   It exports `UserCredentialsService` (the store) and
+   `UserCredentialResolver` (the "whose key do we use?" rule). Not
+   `@Global()`, deliberately: both return plaintext, so the set of modules
+   able to inject them stays a list someone can read in a diff.
+
+3. **Resolve, don't guess.** A feature choosing between a user's key and the
+   deployment's calls `UserCredentialResolver.resolve(userId, purpose, name)`
+   — never `UserCredentialsService.getSecret` followed by a hand-rolled
+   fallback to `CredentialsService.getSecret`, which is exactly how two
+   features end up disagreeing about whose money a call spends. **Do not
+   wrap the resolver's throw in a try/catch that falls back to the system
+   key** — an existing-but-undecryptable user credential must propagate,
+   because silently falling back would not fail, it would *succeed*: the
+   user keeps working, believing they're on their own key, while actually
+   spending the deployment's shared quota.
+
+4. **The first HTTP surface and settings card are their own PR**, not part of
+   this recipe — see `docs/specs/user-credentials.md` §7 for what they must
+   do (scope every route to the authenticated caller's own user id; follow
+   the MANDATORY Settings UI Pattern above for the card, in
+   `apps/web/src/config/userSettingsSections.tsx`, reusing `SettingsHub`
+   rather than adding a tab to an existing page).
 
 ### Worker Node Fleet, Maintenance Mode
 
