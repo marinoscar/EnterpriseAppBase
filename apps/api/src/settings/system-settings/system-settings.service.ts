@@ -847,10 +847,9 @@ export class SystemSettingsService {
    *      no business holding the maintenance window or the backup schedule.
    *   3. IT IS THE ONE READ PATH FOR THESE VALUES. Every consumer goes through
    *      here, so "which bucket is this deployment using?" has exactly one
-   *      answer — and when part 2 makes the S3 provider read this instead of
-   *      `STORAGE_PROVIDER`/`S3_BUCKET`, the precedence between the stored
-   *      configuration and the environment is decided in one place rather than
-   *      per call site.
+   *      answer. Since #377 removed `STORAGE_PROVIDER`/`S3_*` there is no
+   *      environment to take precedence over, so there is no precedence rule
+   *      left for a call site to get wrong.
    *
    * THIS RETURNS NO SECRET, AND CANNOT. The secret access key is not part of
    * `SystemStorageValue` (there is a compile-time proof of that in

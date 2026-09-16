@@ -188,15 +188,26 @@ export async function verifyEncryptionKeyAtStartup(
     );
   }
 
-  // The state every deployment of this repository is in right now.
+  // Nothing is stored, so nothing is unreadable.
   //
-  // WARN and not ERROR: nothing is wrong. No credential is stored, so none is
-  // unreadable, and a feature that is not configured is not a fault. Logging
-  // this at `error` would train operators to ignore errors from a boot that
-  // then works perfectly, which is how a real one gets scrolled past.
+  // STILL WARN AND NOT THROW, AND DELIBERATELY SO AFTER #377. Epic #372 moved
+  // object storage's secret access key into this store, so this branch is no
+  // longer "an unused feature is unconfigured" — a deployment here cannot save
+  // a storage credential, and every upload, avatar and database backup will be
+  // refused with a 503 naming the missing field. That is a strictly better
+  // outcome than refusing to boot: an API that will not start serves NOTHING,
+  // takes its health checks, its admin UI and the settings page an operator
+  // needs in order to fix this down with it, and turns a missing variable into
+  // an outage. The 503 says exactly what is wrong, to exactly the person who
+  // can fix it, on exactly the path that needs it.
+  //
+  // WARN and not ERROR for the same reason as before: a boot that then works
+  // for everything except storage is not a failed boot, and logging it at
+  // `error` trains operators to scroll past real ones.
   logger.warn(
-    `${KEY_ENV_VAR} is not set. Encrypted credential storage is unavailable and ` +
-      `saving a credential will fail until it is configured. No credentials are ` +
-      `currently stored, so nothing is at risk. Generate a key with: ${GENERATE_COMMAND}`,
+    `${KEY_ENV_VAR} is not set. Encrypted credential storage is unavailable, so ` +
+      `object storage cannot be configured and file uploads, avatars and database ` +
+      `backups will be refused until it is. No credentials are currently stored, ` +
+      `so nothing already saved is at risk. Generate a key with: ${GENERATE_COMMAND}`,
   );
 }
