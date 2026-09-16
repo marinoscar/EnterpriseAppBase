@@ -60,20 +60,32 @@ import { assertEncryptionKeyConfigured } from './secret-cipher';
 //                    nothing because no deployment sets the variable yet.
 //
 //   key absent,  ->  THROW. Every one of those rows is ciphertext this process
-//   rows exist       cannot read. The deployment is already broken; the only
-//                    question is whether it announces that in the deploy log or
+//   rows exist in    cannot read. The deployment is already broken; the only
+//   EITHER store     question is whether it announces that in the deploy log or
 //                    waits to 500 at an admin. This is the case the issue is
 //                    actually about, and it is strict in development too.
 //
 //   key absent,  ->  WARN and boot. Nothing is stored, so nothing is
-//   no rows          unreadable, and there is no misconfiguration to report —
-//                    the feature is simply not set up. Every deployment in
+//   no rows in       unreadable, and there is no misconfiguration to report —
+//   EITHER store     the feature is simply not set up. Every deployment in
 //                    existence right now, the smoke job included, is here.
 //
+// "ROWS" MEANS ROWS IN EITHER STORE — `credentials` (deployment-wide, #115) OR
+// `user_credentials` (per-user, #387). Both are encrypted under this same
+// variable, and a user credential is exactly as much proof that a working key
+// once existed as a deployment credential is: `UserCredentialsService.setSecret`
+// reaches the same `encryptSecret` that `CredentialsService.setSecret` does, and
+// that function throws without a valid key, so the row could not have been
+// written otherwise. Counting only `credentials` would put a deployment with
+// zero of those and any number of user credentials in the "WARN and boot"
+// branch — booting clean while every user's personal key is unreadable, which
+// then surfaces as individual users reporting that their own key "stopped
+// working" and gets diagnosed as a per-user problem rather than the
+// deployment-wide key regression it is.
+//
 // The state machine is closed rather than merely convenient, because rows
-// cannot exist without a key having been configured when they were written:
-// `CredentialsService.setSecret` calls `encryptSecret`, which throws without a
-// valid key. So "rows exist" really does mean "a key was working here once",
+// cannot exist in either table without a key having been configured when they
+// were written. So "rows exist" really does mean "a key was working here once",
 // and its absence now really is a regression rather than a first-time setup.
 //
 // WHAT A DEVELOPER RUNNING `docker compose up` FOR THE FIRST TIME EXPERIENCES,
@@ -105,6 +117,11 @@ const KEY_ENV_VAR = 'SECRETS_ENCRYPTION_KEY';
 /** Repeated in every operator-facing message here. Same text as #114's. */
 const GENERATE_COMMAND = 'openssl rand -base64 32';
 
+/** Render a rejected probe's reason for a log line, without assuming it is an Error. */
+function describeCause(reason: unknown): string {
+  return reason instanceof Error ? reason.message : String(reason);
+}
+
 /**
  * Validate the encryption key as far as this deployment's state allows, and
  * throw if the deployment is unable to read secrets it has already stored.
@@ -112,9 +129,12 @@ const GENERATE_COMMAND = 'openssl rand -base64 32';
  * Call from bootstrap BEFORE the port is bound, so a deployment that cannot
  * read its own credentials never serves a request. See the header for the
  * full decision; the short version is that a present key is always validated
- * and an absent one is only fatal when there is something to decrypt.
+ * and an absent one is only fatal when there is something to decrypt — in
+ * EITHER of the two stores encrypted under it, `credentials` and
+ * `user_credentials`.
  *
- * @throws if the key is set but malformed, or unset while credentials exist.
+ * @throws if the key is set but malformed, or unset while credentials exist in
+ *         either store.
  */
 export async function verifyEncryptionKeyAtStartup(
   prisma: PrismaService,
@@ -140,15 +160,30 @@ export async function verifyEncryptionKeyAtStartup(
     return;
   }
 
-  let storedCredentials: number;
-  try {
-    storedCredentials = await prisma.credential.count();
-  } catch (error) {
+  // BOTH stores, probed together rather than one after the other. This runs on
+  // every boot before the port is bound, so it should not cost two sequential
+  // round trips when it can cost one.
+  //
+  // `allSettled` rather than the `Promise.all` this repo uses for other paired
+  // reads (`StorageConfigAdminService.countLocationUsage` is the closest
+  // neighbour) for one reason: `Promise.all` rejects with whichever query
+  // failed first and discards the other outcome, so the warning below could not
+  // say WHICH table could not be probed. That detail matters more here than in
+  // an ordinary paired read, because `user_credentials` is the newer of the two
+  // and is precisely the table missing on a deployment that has not run #387's
+  // migration yet — an operator reading this line needs to be able to tell that
+  // apart from a database that is simply unreachable.
+  const [deploymentProbe, userProbe] = await Promise.allSettled([
+    prisma.credential.count(),
+    prisma.userCredential.count(),
+  ]);
+
+  if (deploymentProbe.status === 'rejected' || userProbe.status === 'rejected') {
     // A failed probe is NOT a boot failure, and specifically is not reported as
     // an encryption-key problem.
     //
-    // The realistic cause is that the `credentials` table does not exist yet —
-    // a deployment running this build before `prisma migrate deploy` (Prisma
+    // The realistic cause is that one of the two tables does not exist yet — a
+    // deployment running this build before `prisma migrate deploy` (Prisma
     // P2021). Refusing to boot there would mean a new release could not start
     // until migrations ran, while the migration step in some setups runs from
     // the very container being blocked. The other cause is a database that is
@@ -156,16 +191,40 @@ export async function verifyEncryptionKeyAtStartup(
     // only be obscured by a message about encryption keys sending an operator
     // to check the wrong thing.
     //
-    // Failing OPEN here is safe because it cannot hide the dangerous state: if
+    // A failure on EITHER count lands here, including the mixed case where one
+    // table answers with rows and the other cannot be read at all. That is
+    // deliberate and it is the pre-migration case: a deployment that already
+    // has `credentials` rows and has not yet applied #387's migration must
+    // still be able to boot — in some setups it is the very container that
+    // would then run the migration. Throwing on the half we could read would
+    // wedge exactly that upgrade.
+    //
+    // Failing OPEN stays safe because it cannot hide the dangerous state: if
     // credentials do exist, this same check throws on the next boot that can
     // actually see them.
+    //
+    // Each named table is one we know the outcome for, because `allSettled`
+    // keeps the two results positional. Nothing is inferred about a table whose
+    // count succeeded.
+    const failures: string[] = [];
+    if (deploymentProbe.status === 'rejected') {
+      failures.push(`credentials: ${describeCause(deploymentProbe.reason)}`);
+    }
+    if (userProbe.status === 'rejected') {
+      failures.push(`user_credentials: ${describeCause(userProbe.reason)}`);
+    }
+
     logger.warn(
       `Could not check for stored credentials while validating ${KEY_ENV_VAR} ` +
-        `(the credentials table may not be migrated yet). Continuing startup. ` +
-        `Cause: ${error instanceof Error ? error.message : String(error)}`,
+        `(a table may not be migrated yet — user_credentials is the newer of ` +
+        `the two). Continuing startup. Could not probe — ${failures.join('; ')}`,
     );
     return;
   }
+
+  const deploymentCredentials = deploymentProbe.value;
+  const userCredentials = userProbe.value;
+  const storedCredentials = deploymentCredentials + userCredentials;
 
   if (storedCredentials > 0) {
     // Fatal in EVERY environment, development included. There is no reading of
@@ -173,18 +232,38 @@ export async function verifyEncryptionKeyAtStartup(
     // here at some point, so it has since been removed or the deployment is
     // pointed at another environment's database.
     //
-    // The message carries a count and never an address — `purpose`/`name` pairs
+    // The message carries counts and never an address — `purpose`/`name` pairs
     // are low-risk but this string goes to stdout on a failed deploy, and a
     // count is all an operator needs to gauge the scale. Recovery detail
     // (re-entering credentials, which ones) belongs in the rotation runbook,
     // #116 item 5.
+    //
+    // The total is BROKEN OUT PER TABLE rather than left as one number, and the
+    // rule above is untouched by that: a per-table count is still a count, not
+    // an address — it names a table this file already names three lines up, not
+    // a credential. It is worth the extra clause because the two halves have
+    // materially different recoveries. The deployment-wide ones can be re-entered
+    // by a single administrator from the admin UI; the user-owned ones cannot be
+    // re-entered by anyone but their individual owners (that is the whole point
+    // of #387's owner-bound sub-key), so "0 deployment, 340 user" and
+    // "340 deployment, 0 user" are the same total and two completely different
+    // mornings. An operator who has to choose between restoring the old key and
+    // starting over needs to know which one they are looking at.
+    const ownerCaveat =
+      userCredentials > 0
+        ? ` The ${userCredentials} user-owned credential(s) can only be re-entered by ` +
+          `their own owners — an administrator cannot restore them on a user's behalf.`
+        : '';
+
     throw new Error(
       `${KEY_ENV_VAR} is not set, but ${storedCredentials} encrypted credential(s) ` +
-        `are stored in the database. Without the key that encrypted them they cannot ` +
+        `are stored in the database (${deploymentCredentials} deployment-wide in ` +
+        `\`credentials\`, ${userCredentials} user-owned in \`user_credentials\`). ` +
+        `Without the key that encrypted them they cannot ` +
         `be read, so this deployment would fail at the point of use rather than here. ` +
         `Restore the original key, or — if it is genuinely lost — delete the affected ` +
-        `credentials and have an administrator enter them again under a new key ` +
-        `generated with: ${GENERATE_COMMAND}`,
+        `credentials and have them entered again under a new key ` +
+        `generated with: ${GENERATE_COMMAND}.${ownerCaveat}`,
     );
   }
 
@@ -207,7 +286,8 @@ export async function verifyEncryptionKeyAtStartup(
   logger.warn(
     `${KEY_ENV_VAR} is not set. Encrypted credential storage is unavailable, so ` +
       `object storage cannot be configured and file uploads, avatars and database ` +
-      `backups will be refused until it is. No credentials are currently stored, ` +
-      `so nothing already saved is at risk. Generate a key with: ${GENERATE_COMMAND}`,
+      `backups will be refused until it is. No credentials are currently stored ` +
+      `in either store, so nothing already saved is at risk. ` +
+      `Generate a key with: ${GENERATE_COMMAND}`,
   );
 }
