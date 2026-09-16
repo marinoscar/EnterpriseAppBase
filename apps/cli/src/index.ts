@@ -186,13 +186,32 @@ export {
   DEPLOY_STATE_FILENAME,
   DEPLOY_STATE_VERSION,
   DeployStateError,
+  MAX_DEPLOY_HISTORY,
   NotInstalledError,
+  appendDeployment,
   deployStatePath,
   readState,
   requireState,
   writeState,
 } from './deploy/state.js';
-export type { DeployState } from './deploy/state.js';
+export type {
+  DeployHostFacts,
+  DeployProxyRecord,
+  DeployState,
+  DeploymentRecord,
+} from './deploy/state.js';
+
+// What was deployed, and WHERE (#392). The host probe is exported with its two
+// parsers because both are pure and carry the judgement worth testing directly:
+// which line of /etc/os-release is the human-readable one, and which addresses
+// may honestly be called public.
+export {
+  collectHostFacts,
+  isRoutableAddress,
+  parsePrettyName,
+  parseRouteSource,
+} from './deploy/host-facts.js';
+export type { CollectHostFactsOptions } from './deploy/host-facts.js';
 
 export type { DeployHooks, StepOutcome, StepResult } from './deploy/hooks.js';
 

@@ -20,7 +20,15 @@ import {
   type ProxyTarget,
 } from './proxy.js';
 import { ensureCheckout, resolveRepoTarget, type RepoTarget } from './repo.js';
-import { readState, writeState, type DeployState } from './state.js';
+import { collectHostFacts } from './host-facts.js';
+import {
+  DEPLOY_STATE_VERSION,
+  appendDeployment,
+  readState,
+  writeState,
+  type DeployProxyRecord,
+  type DeployState,
+} from './state.js';
 import { runPipeline, type DeployStep, type StepContext } from './steps/pipeline.js';
 import { metadataFor } from './env-metadata.js';
 import type { PromptContext } from '../prompt.js';
@@ -98,6 +106,8 @@ interface InstallContext extends StepContext {
   checkoutPath?: string | undefined;
   commitSha?: string | undefined;
   env?: Map<string, string> | undefined;
+  /** Set by `publish`, recorded in the state file. Absent when it is skipped. */
+  proxy?: DeployProxyRecord | undefined;
 }
 
 export function composeCwd(deployRoot: string): string {
@@ -389,6 +399,16 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
             : { proxyContainer: context.options.proxyContainer }),
         });
 
+        // Recorded in the STATE as well as the journal (#392): the journal is
+        // one run's log and is pruned after ten, while "which proxy is this
+        // deployment published through" is a standing fact about the server.
+        context.proxy = {
+          domain: target.domain,
+          bindPort: target.bindPort,
+          mode: runtime.mode,
+          ...(runtime.container === undefined ? {} : { container: runtime.container }),
+        };
+
         // Recorded because an operator diagnosing a failed publish needs to
         // know which of the two setups this run assumed.
         context.journal.line(
@@ -455,6 +475,9 @@ export interface InstallResult {
 }
 
 export async function runInstall(options: InstallOptions): Promise<InstallResult> {
+  // Before anything, including the precondition check: the history entry's
+  // duration is how long the operator waited, not how long the steps took.
+  const startedAt = Date.now();
   const existingState = readState(options.deployRoot);
 
   if (existingState !== undefined && options.reinstall !== true && options.resume !== true) {
@@ -498,11 +521,26 @@ export async function runInstall(options: InstallOptions): Promise<InstallResult
   }
 
   const now = new Date().toISOString();
-  writeState({
-    version: 1,
+  const commitSha = context.commitSha ?? '';
+  const ref = context.target?.ref ?? '';
+
+  // A --reinstall over a deployment that was on a different commit genuinely
+  // replaced something, and that is the one case where an install has a
+  // predecessor worth recording. A --resume of the same commit does not.
+  const previousSha =
+    existingState !== undefined && existingState.commitSha !== commitSha
+      ? existingState.commitSha
+      : undefined;
+
+  // Never throws; see host-facts.ts rule 1. Nothing about a deployment that
+  // has already built, migrated and verified may hinge on reading /proc.
+  const host = await collectHostFacts({ runCommand: context.runCommand });
+
+  const state: DeployState = {
+    version: DEPLOY_STATE_VERSION,
     repoUrl: context.target?.url ?? '',
-    ref: context.target?.ref ?? '',
-    commitSha: context.commitSha ?? '',
+    ref,
+    commitSha,
     ...(options.domain === undefined ? {} : { domain: options.domain }),
     bindPort: options.bindPort,
     deployRoot: options.deployRoot,
@@ -510,8 +548,29 @@ export async function runInstall(options: InstallOptions): Promise<InstallResult
     lastDeployedAt: now,
     lastCommand: 'install',
     appctlVersion: CLI_VERSION,
+    ...(previousSha === undefined ? {} : { previousSha }),
     completedSteps: result.completed,
-  } as DeployState);
+    ...(host === undefined ? {} : { host }),
+    ...(context.proxy === undefined ? {} : { proxy: context.proxy }),
+    // Carried forward, because --reinstall and --resume both land here and
+    // neither is a reason to forget what this server has deployed before.
+    ...(existingState?.history === undefined ? {} : { history: existingState.history }),
+  };
+
+  // Appended only now, on the success path: the pipeline reported no failed
+  // step, so a deployment did happen.
+  writeState(
+    appendDeployment(state, {
+      at: now,
+      command: 'install',
+      commitSha,
+      ...(previousSha === undefined ? {} : { previousSha }),
+      ref,
+      durationMs: Date.now() - startedAt,
+      appctlVersion: CLI_VERSION,
+      outcome: 'success',
+    }),
+  );
 
   journal.finish('success');
 

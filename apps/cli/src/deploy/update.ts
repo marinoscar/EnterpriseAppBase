@@ -21,7 +21,14 @@ import {
   type ProxyTarget,
 } from './proxy.js';
 import { ensureCheckout, resolveRepoTarget, type RepoTarget } from './repo.js';
-import { requireState, writeState, type DeployState } from './state.js';
+import { collectHostFacts } from './host-facts.js';
+import {
+  appendDeployment,
+  requireState,
+  writeState,
+  type DeployProxyRecord,
+  type DeployState,
+} from './state.js';
 import { runPipeline, type DeployStep, type StepContext } from './steps/pipeline.js';
 import { composeArgv, composeCwd, secretsFrom } from './install.js';
 import type { PromptContext } from '../prompt.js';
@@ -82,6 +89,8 @@ interface UpdateContext extends StepContext {
   previousSha?: string | undefined;
   commitSha?: string | undefined;
   env?: Map<string, string> | undefined;
+  /** Set by `publish`, recorded in the state file. Absent when it is skipped. */
+  proxy?: DeployProxyRecord | undefined;
   /** Set when the remote has not moved, so the rest of the pipeline stands down. */
   unchanged?: boolean | undefined;
 }
@@ -194,6 +203,15 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
 
         // Recorded BEFORE anything is mutated, so a failed update still leaves
         // behind what it was replacing.
+        //
+        // NO HISTORY ENTRY HERE, deliberately (#392). Nothing has been
+        // deployed at this point - the build has not run - and an entry
+        // written now would survive a failed migration as a record of a
+        // deployment that never happened. `runUpdate` appends one after the
+        // pipeline comes back clean. Spreading the state forward also carries
+        // `host`, `proxy` and any existing `history` through untouched, which
+        // is what a mid-run checkpoint should do to fields it knows nothing
+        // about.
         writeState({
           ...context.state,
           previousSha: checkout.previousSha,
@@ -378,12 +396,25 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
             : { proxyContainer: context.options.proxyContainer }),
         });
 
+        // The standing fact, not just this run's log line. An update is also
+        // where a deployment installed under a host nginx and since moved into
+        // a container gets its record corrected.
+        context.proxy = {
+          domain: target.domain,
+          bindPort: target.bindPort,
+          mode: runtime.mode,
+          ...(runtime.container === undefined ? {} : { container: runtime.container }),
+        };
+
         context.journal.line(
           runtime.mode === 'container'
             ? `Shared proxy: container ${runtime.container ?? ''}; certificates at ${runtime.certRoot} and the ACME webroot at ${runtime.webroot} as it sees them`
             : `Shared proxy: host nginx; certificates at ${runtime.certRoot}`,
         );
 
+        // Existence only: `CertInfo` carries no expiry, so `proxy.certNotAfter`
+        // stays unset rather than growing an `openssl` call here. See the
+        // field's own comment in state.ts.
         const status = certificateStatus(target);
         if (!status.exists) {
           const email = context.env?.get('INITIAL_ADMIN_EMAIL') ?? '';
@@ -479,6 +510,9 @@ export async function runUpdate(options: UpdateOptions): Promise<UpdateResult> {
   }
 
   if (context.unchanged === true) {
+    // No state write and no history entry: the remote had not moved, so
+    // nothing was deployed. A run that rebuilt nothing must not appear in the
+    // deployments list as though it had.
     journal.finish('success', 'already up to date');
     return {
       changed: false,
@@ -488,15 +522,44 @@ export async function runUpdate(options: UpdateOptions): Promise<UpdateResult> {
     };
   }
 
-  writeState({
+  const now = new Date().toISOString();
+  const commitSha = context.commitSha ?? state.commitSha;
+  const ref = context.target?.ref ?? state.ref;
+
+  // Never throws; see host-facts.ts rule 1. Refreshed rather than carried
+  // forward, because the point of recording it is to catch the server having
+  // changed under the deployment - a resize, a kernel upgrade, a new Docker.
+  const host = await collectHostFacts({ runCommand: context.runCommand });
+
+  const next: DeployState = {
     ...state,
-    ref: context.target?.ref ?? state.ref,
-    commitSha: context.commitSha ?? state.commitSha,
+    ref,
+    commitSha,
     previousSha: context.previousSha,
-    lastDeployedAt: new Date().toISOString(),
+    lastDeployedAt: now,
     lastCommand: 'update',
     appctlVersion: CLI_VERSION,
-  } as DeployState);
+    ...(host === undefined ? {} : { host }),
+    // Left alone when `publish` was skipped: --skip-proxy on one update is not
+    // a statement that the deployment stopped being published.
+    ...(context.proxy === undefined ? {} : { proxy: context.proxy }),
+  };
+
+  // Appended HERE and nowhere else in this file. The pipeline came back with
+  // no failed step and the stack verified healthy, which is the only thing
+  // that entitles this run to claim a deployment happened.
+  writeState(
+    appendDeployment(next, {
+      at: now,
+      command: 'update',
+      commitSha,
+      ...(context.previousSha === undefined ? {} : { previousSha: context.previousSha }),
+      ref,
+      durationMs: Date.now() - startedAt,
+      appctlVersion: CLI_VERSION,
+      outcome: 'success',
+    }),
+  );
 
   journal.finish('success');
 
