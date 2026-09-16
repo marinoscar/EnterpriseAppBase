@@ -7,9 +7,15 @@
 // The GUARD group is the one that matters most and it is deliberately thin:
 // this service must not have its own opinion about whether a node still holds
 // a job. What is asserted is that `assertJobHeldByNode` is REACHED — with the
-// right arguments — and that a rejection from it stops everything, minting
-// nothing. A second copy of that check written here would pass its own tests
-// and drift from the real one on the first fix applied to either.
+// right arguments, now including the claim token the node quoted (#364) — and
+// that a rejection from it stops everything, minting nothing. A second copy of
+// that check written here would pass its own tests and drift from the real one
+// on the first fix applied to either.
+//
+// The token's fourth-argument assertions are not ceremony: on the UPLOAD route
+// it is the difference between refusing a node's stale worker slot and signing
+// it a PUT for the exact output key its own newer claim is writing — both
+// requests succeeding, the surviving bytes decided by whichever finished last.
 //
 // The KEY group is the security-relevant one. A signed PUT is an
 // unconditional overwrite of exactly the key it was signed for, so "the
@@ -39,7 +45,7 @@ import { JobHandlerRegistry } from '../jobs/job-handler.registry';
 import { PrismaService } from '../prisma/prisma.service';
 import type { StorageProvider } from '../storage/providers/storage-provider.interface';
 import { STORAGE_OBJECT_SUBJECT_TYPE } from '../storage/storage-job-input';
-import { NodeUploadUrlDto } from './dto/node-data-plane.dto';
+import { NodeDownloadUrlDto, NodeUploadUrlDto } from './dto/node-data-plane.dto';
 import {
   NODE_OUTPUT_KEY_PREFIX,
   NODE_SIGNED_URL_MAX_TTL_SECONDS,
@@ -98,6 +104,10 @@ describe('NodeDataPlaneService', () => {
   }
 
   const uploadDto = (body: Record<string, unknown> = {}) => body as NodeUploadUrlDto;
+  const downloadDto = (body: Record<string, unknown> = {}) => body as NodeDownloadUrlDto;
+
+  /** The token the held job below was claimed under, and one from another claim (#364). */
+  const CLAIM_TOKEN = '55555555-5555-4555-8555-555555555555';
 
   /**
    * Registers a handler for the job type under test.
@@ -141,9 +151,47 @@ describe('NodeDataPlaneService', () => {
 
   describe('the lease guard', () => {
     it('asks `assertJobHeldByNode` first, with the caller, node and job', async () => {
-      await service.createDownloadUrl(USER, NODE_ID, JOB_ID);
+      await service.createDownloadUrl(USER, NODE_ID, JOB_ID, downloadDto());
 
-      expect(nodes.assertJobHeldByNode).toHaveBeenCalledWith(USER, NODE_ID, JOB_ID);
+      expect(nodes.assertJobHeldByNode).toHaveBeenCalledWith(USER, NODE_ID, JOB_ID, undefined);
+    });
+
+    // -------------------------------------------------------------------------
+    // The claim token (#364) — WHICH claim is asking, not merely which node
+    // -------------------------------------------------------------------------
+
+    it('forwards a quoted token to the guard on both mints', async () => {
+      // This service must not decide anything about ownership, so what is
+      // asserted is that the node's assertion REACHES the one guard that can
+      // check it — unaltered, and as the fourth argument it is checked as.
+      await service.createDownloadUrl(USER, NODE_ID, JOB_ID, downloadDto({ claimToken: CLAIM_TOKEN }));
+      await service.createUploadTarget(USER, NODE_ID, JOB_ID, uploadDto({ claimToken: CLAIM_TOKEN }));
+
+      expect(nodes.assertJobHeldByNode).toHaveBeenNthCalledWith(1, USER, NODE_ID, JOB_ID, CLAIM_TOKEN);
+      expect(nodes.assertJobHeldByNode).toHaveBeenNthCalledWith(2, USER, NODE_ID, JOB_ID, CLAIM_TOKEN);
+    });
+
+    it('passes `undefined` — never `null` — when the node quoted no token', async () => {
+      // The rolling-upgrade guarantee at this seam: an un-upgraded node sends
+      // no field, and the guard must be asked the pre-#364 question. `null`
+      // would be a different assertion entirely ("the row carries no token").
+      await service.createUploadTarget(USER, NODE_ID, JOB_ID, uploadDto());
+
+      expect(nodes.assertJobHeldByNode).toHaveBeenCalledWith(USER, NODE_ID, JOB_ID, undefined);
+    });
+
+    it('mints NOTHING when the guard rejects a stale claim’s upload', async () => {
+      // The hazard this route is most exposed to: with `deriveOutputKey` the
+      // key is a function of the JOB, so a stale slot signed for it would be
+      // handed the exact key its own newer claim is writing. The refusal has
+      // to land before any URL exists.
+      nodes.assertJobHeldByNode.mockRejectedValue(new ConflictException('another claim holds it'));
+
+      await expect(
+        service.createUploadTarget(USER, NODE_ID, JOB_ID, uploadDto({ claimToken: CLAIM_TOKEN }))
+      ).rejects.toBeInstanceOf(ConflictException);
+
+      expect(storage.getSignedPutUrl).not.toHaveBeenCalled();
     });
 
     it('mints NOTHING for a download when the guard rejects', async () => {
@@ -152,7 +200,7 @@ describe('NodeDataPlaneService', () => {
       // storage may be created on the way.
       nodes.assertJobHeldByNode.mockRejectedValue(new ConflictException('gone'));
 
-      await expect(service.createDownloadUrl(USER, NODE_ID, JOB_ID)).rejects.toBeInstanceOf(
+      await expect(service.createDownloadUrl(USER, NODE_ID, JOB_ID, downloadDto())).rejects.toBeInstanceOf(
         ConflictException
       );
 
@@ -179,7 +227,7 @@ describe('NodeDataPlaneService', () => {
     it('signs the INPUT OBJECT’s key and reports the object’s facts', async () => {
       storage.getSignedDownloadUrl.mockResolvedValue('https://signed/get');
 
-      const result = await service.createDownloadUrl(USER, NODE_ID, JOB_ID);
+      const result = await service.createDownloadUrl(USER, NODE_ID, JOB_ID, downloadDto());
 
       expect(storage.getSignedDownloadUrl).toHaveBeenCalledWith('uploads/1/abc.pdf', {
         expiresIn: expect.any(Number),
@@ -204,7 +252,7 @@ describe('NodeDataPlaneService', () => {
         makeObject({ uploadedById: 'not-the-node-owner' })
       );
 
-      await expect(service.createDownloadUrl(USER, NODE_ID, JOB_ID)).resolves.toMatchObject({
+      await expect(service.createDownloadUrl(USER, NODE_ID, JOB_ID, downloadDto())).resolves.toMatchObject({
         objectId: OBJECT_ID,
       });
     });
@@ -219,7 +267,7 @@ describe('NodeDataPlaneService', () => {
         .mockImplementation((...args: unknown[]) => void logs.push(args));
       storage.getSignedDownloadUrl.mockResolvedValue('https://signed/get?X-Amz-Signature=deadbeef');
 
-      await service.createDownloadUrl(USER, NODE_ID, JOB_ID);
+      await service.createDownloadUrl(USER, NODE_ID, JOB_ID, downloadDto());
 
       expect(logs.length).toBeGreaterThan(0);
       for (const args of logs) {
@@ -285,6 +333,18 @@ describe('NodeDataPlaneService', () => {
       // And nothing was signed: the refusal happens before any capability
       // exists, so a rejected request cannot leave a usable URL behind.
       expect(storage.getSignedPutUrl).not.toHaveBeenCalled();
+    });
+
+    it('does NOT refuse a quoted `claimToken` — the allowlist and the DTO agree', async () => {
+      // The trap this pins shut: the schema and the allowlist are two lists,
+      // and a field added to one alone is a 400 on every request from an
+      // upgraded node. `claimToken` is permitted here precisely because it
+      // asks for nothing — it only narrows who may be answered.
+      await expect(
+        service.createUploadTarget(USER, NODE_ID, JOB_ID, uploadDto({ claimToken: CLAIM_TOKEN }))
+      ).resolves.toMatchObject({ key: expect.any(String) });
+
+      expect(storage.getSignedPutUrl).toHaveBeenCalled();
     });
 
     it('accepts a `contentType` and passes it into the signature', async () => {
@@ -455,7 +515,7 @@ describe('NodeDataPlaneService', () => {
   describe('signed URL expiry', () => {
     async function expiryFor(configuredSeconds: number | undefined): Promise<number> {
       configured = configuredSeconds;
-      const { expiresIn } = await service.createDownloadUrl(USER, NODE_ID, JOB_ID);
+      const { expiresIn } = await service.createDownloadUrl(USER, NODE_ID, JOB_ID, downloadDto());
       return expiresIn;
     }
 
@@ -510,7 +570,7 @@ describe('NodeDataPlaneService', () => {
       arrange();
 
       const error = await service
-        .createDownloadUrl(USER, NODE_ID, JOB_ID)
+        .createDownloadUrl(USER, NODE_ID, JOB_ID, downloadDto())
         .catch((thrown: unknown) => thrown);
 
       expect(error).toBeInstanceOf(UnprocessableEntityException);
@@ -536,7 +596,7 @@ describe('NodeDataPlaneService', () => {
       const boom = new Error('connection terminated');
       (prisma.storageObject.findUnique as jest.Mock).mockRejectedValue(boom);
 
-      await expect(service.createDownloadUrl(USER, NODE_ID, JOB_ID)).rejects.toBe(boom);
+      await expect(service.createDownloadUrl(USER, NODE_ID, JOB_ID, downloadDto())).rejects.toBe(boom);
     });
   });
 });

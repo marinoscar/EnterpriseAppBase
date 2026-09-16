@@ -84,10 +84,21 @@
 // exists and this credential is not the one that owns it. A boundary that
 // lies produces worse operational outcomes than one that says no.
 //
-// `assertJobHeldByNode` is the more important of the two. It is reused by
-// `result`, `failure` and `renew`, and it demands FOUR things: the job is
+// `assertJobHeldByNode` is the more important of the two. It is reused by every
+// route that speaks for a held job — `renew`, `result` and `failure` here,
+// `download-url` and `upload-url` in `node-data-plane.service.ts`, and `secret`
+// in `node-secret-broker.service.ts` — and it demands FOUR things: the job is
 // claimed by THIS node, it is `running`, it has a lease, and that lease has
-// not expired.
+// not expired — plus a FIFTH the caller opts into by quoting the claim token
+// it was handed (#364): that the row is still the same CLAIM, not merely the
+// same node. `claimedByNodeId` tells one node from another and not one node
+// from itself, so without the token a node's stalled, reaped, re-claimed
+// worker slot can renew — or settle — the run its own later slot is executing,
+// be signed a PUT for the output key that run is writing, or be handed that
+// run's database credential. The token is optional on the wire so an
+// un-upgraded node keeps working unchanged; see the method's own doc comment
+// for both halves, and `dto/claim-token.field.ts` for what each of the six
+// routes stands to lose without it.
 //
 // ⚠ THE LEASE CHECK IS WHAT MAKES A LATE SUBMISSION HARMLESS. Consider the
 // ordinary sequence: a node's machine sleeps, its lease expires, the reaper
@@ -658,9 +669,10 @@ export class NodesService {
   async renewLease(
     userId: string,
     nodeId: string,
-    jobId: string
+    jobId: string,
+    claimToken?: string
   ): Promise<{ jobId: string; leaseExpiresAt: Date }> {
-    const job = await this.assertJobHeldByNode(userId, nodeId, jobId);
+    const job = await this.assertJobHeldByNode(userId, nodeId, jobId, claimToken);
 
     // The renewal grants the SAME lease the claim did, which means resolving
     // it from the same profile: a renewal computed from the deployment-wide
@@ -673,10 +685,24 @@ export class NodesService {
     // `renewUntil`, not `renew`: the instant written to the row has to be the
     // instant reported in the response, or the node schedules its next
     // renewal against a deadline the reaper does not read.
-    // `{ nodeId }` ONLY — no `claimToken`, on purpose. This method already read
-    // the job row, so a token taken from it and matched against it would be a
-    // tautology; see the node-plane paragraph in `heldLeaseWhere` (#361).
-    const held = await this.leases.renewUntil(job.id, leaseExpiresAt, { nodeId });
+    //
+    // `claimToken` IS FORWARDED WHEN — AND ONLY WHEN — THE NODE SENT ONE
+    // (#364). This used to be omitted on purpose, and the reason was sound
+    // while it held: the token could only have come off the row this statement
+    // matches, so checking it against that same row proved nothing. It now
+    // comes from the NODE, quoted back from its claim response, so it is an
+    // assertion arriving from outside this transaction and checking it is the
+    // whole point. And it has to be checked HERE too, not only in the read
+    // above: `heldLeaseWhere` inside `updateMany` is what closes the window
+    // between that read and this write, in which the reaper can requeue the
+    // row and this node's own second slot can re-claim it.
+    //
+    // `undefined` when the node said nothing, which `heldLeaseWhere` renders
+    // as no token clause at all — pre-#364 behaviour exactly, for a node that
+    // has not been upgraded yet. Note this is `undefined`, never `null`:
+    // `null` would mean "match only a row whose token IS NULL", which is a
+    // different, much narrower statement (see `heldLeaseWhere`).
+    const held = await this.leases.renewUntil(job.id, leaseExpiresAt, { nodeId, claimToken });
 
     if (!held) {
       throw this.notHeldByNode(jobId, nodeId);
@@ -729,8 +755,12 @@ export class NodesService {
     jobId: string,
     dto: NodeJobResultDto
   ): Promise<NodeJobSettlement> {
-    // 1. Is this job this node's to speak for, right now?
-    const job = await this.assertJobHeldByNode(userId, nodeId, jobId);
+    // 1. Is this job this node's to speak for, right now? `dto.claimToken`
+    // narrows that from "this node" to "this CLAIM of this node" when the node
+    // is new enough to quote it (#364) — the difference between refusing a
+    // stale worker slot's result and persisting it over the run a later slot
+    // of the same node is still executing.
+    const job = await this.assertJobHeldByNode(userId, nodeId, jobId, dto.claimToken);
 
     // 2. Is the node talking about the job it thinks it is talking about?
     if (dto.type !== job.type) {
@@ -814,7 +844,10 @@ export class NodesService {
     jobId: string,
     dto: NodeJobFailureDto
   ): Promise<NodeJobSettlement> {
-    const job = await this.assertJobHeldByNode(userId, nodeId, jobId);
+    // `dto.claimToken` for the same reason `submitResult` passes it: a failure
+    // is terminal too, and an old slot's "boom" must not charge an attempt
+    // against — or settle — the run a newer claim is executing fine (#364).
+    const job = await this.assertJobHeldByNode(userId, nodeId, jobId, dto.claimToken);
 
     const outcome = await this.terminal.completeFailed(job, new Error(dto.error), {
       rateLimited: dto.rateLimited,
@@ -949,20 +982,43 @@ export class NodesService {
   }
 
   /**
-   * The job is claimed by THIS node, is `running`, and its lease has not
-   * expired — otherwise 409.
+   * The job is claimed by THIS node, is `running`, its lease has not expired,
+   * and — when the caller quotes one — it is still THIS CLAIM of it.
+   * Otherwise 409.
    *
-   * THE FOUR CONDITIONS ARE ONE CONDITION, checked together and reported
-   * together. Splitting them into distinct errors would tell a remote caller
-   * which of "wrong node", "already finished" and "lease expired" applied,
-   * which is information about another executor's progress that a node has no
-   * use for and cannot act on differently — its correct response is the same
-   * in all three cases: drop the work.
+   * THE CONDITIONS ARE ONE CONDITION, checked together and reported together.
+   * Splitting them into distinct errors would tell a remote caller which of
+   * "wrong node", "already finished" and "lease expired" applied, which is
+   * information about another executor's progress that a node has no use for
+   * and cannot act on differently — its correct response is the same in all
+   * three cases: drop the work.
+   *
+   * ⚠ `claimToken` JOINS THAT SAME 409 RATHER THAN RAISING ONE OF ITS OWN
+   * (#364), and the argument is the paragraph above, unchanged. "You are the
+   * right node but the wrong claim" is a fact about another slot's progress —
+   * a slot of this very node, which makes it no more actionable — and the
+   * correct response to it is identical: drop the work. A distinct error code
+   * would tempt a client to treat it as recoverable and re-fetch, which is the
+   * one thing it must not do.
+   *
+   * ⚠ OPTIONAL, AND ABSENT MEANS THE PRE-#364 CHECK, EXACTLY. A node running
+   * older CLI code does not know the token exists, so it omits it and is
+   * identified by `claimedByNodeId` alone — no 400, no 409, no warning that
+   * would break a fleet halfway through a rolling upgrade. Such a node stays
+   * self-ambiguous (its own stale slot can still speak for a newer claim) until
+   * it is upgraded; nothing this server can do closes that earlier, since the
+   * only thing that can tell those two slots apart is a value only they hold.
+   * Same additive posture as `renewIntervalMs` in #347.
    *
    * See the file header for the late-submission scenario this prevents, and
    * for why the answer is 409 rather than 400.
    */
-  async assertJobHeldByNode(userId: string, nodeId: string, jobId: string): Promise<Job> {
+  async assertJobHeldByNode(
+    userId: string,
+    nodeId: string,
+    jobId: string,
+    claimToken?: string
+  ): Promise<Job> {
     // Ownership first: a caller who does not own the node must not learn
     // anything about the jobs it holds, including whether a job id exists.
     await this.assertOwnership(userId, nodeId);
@@ -980,7 +1036,11 @@ export class NodesService {
       job.claimedByNodeId !== nodeId ||
       job.status !== 'running' ||
       !job.leaseExpiresAt ||
-      job.leaseExpiresAt <= new Date()
+      job.leaseExpiresAt <= new Date() ||
+      // `claimToken !== undefined` first, and it is the backward-compatibility
+      // guarantee in one operator: a caller that quotes no token is never
+      // failed by this clause, whatever the row happens to carry.
+      (claimToken !== undefined && job.claimToken !== claimToken)
     ) {
       throw this.notHeldByNode(jobId, nodeId);
     }
@@ -999,13 +1059,19 @@ export class NodesService {
    * and they are answering the identical question, so a second hand-written
    * message is a second chance for the two to describe the same state
    * differently.
+   *
+   * ⚠ IT STAYS DELIBERATELY UNSPECIFIC about which condition failed, including
+   * the claim-token one (#364). "Another executor may now own it" covers a
+   * second claim taken by THIS node as honestly as one taken by another
+   * machine, and the instruction the node has to act on — drop the work — is
+   * the same either way.
    */
   private notHeldByNode(jobId: string, nodeId: string): ConflictException {
     return new ConflictException({
       message:
         `Job ${jobId} is not held by node ${nodeId} with a live lease. It was reassigned, ` +
-        `already settled, or its lease expired and another executor may now own it. Drop ` +
-        `this work; do not retry.`,
+        `re-claimed, already settled, or its lease expired and another executor may now own ` +
+        `it. Drop this work; do not retry.`,
       details: { jobId, nodeId, reason: 'lease_not_held' },
     });
   }

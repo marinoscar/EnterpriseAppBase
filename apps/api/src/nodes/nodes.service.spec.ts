@@ -74,6 +74,14 @@ describe('NodesService', () => {
   /** A server-only type: its handler carries neither. */
   const SERVER_TYPE = 'test.server.only';
 
+  /**
+   * The token the held job below was claimed under, and one from a claim that
+   * is not this one — a later slot of this SAME node, which is the case #364
+   * exists for (`claimedByNodeId` is identical in both).
+   */
+  const CLAIM_TOKEN = '11111111-1111-4111-8111-111111111111';
+  const OTHER_TOKEN = '22222222-2222-4222-8222-222222222222';
+
   let prisma: MockPrismaService;
   let claims: { claim: jest.Mock };
   let terminal: { completeSucceeded: jest.Mock; completeFailed: jest.Mock };
@@ -127,6 +135,7 @@ describe('NodesService', () => {
       rateLimitedAt: null,
       rateLimitHits: 0,
       claimedByNodeId: NODE_ID,
+      claimToken: CLAIM_TOKEN,
       leaseExpiresAt: new Date(Date.now() + 60_000),
       executor: 'node',
       ...overrides,
@@ -590,6 +599,68 @@ describe('NodesService', () => {
       );
     });
 
+    // -------------------------------------------------------------------------
+    // The claim token (#364) — the condition that tells ONE NODE from ITSELF
+    // -------------------------------------------------------------------------
+
+    it('accepts the token the job was actually claimed under', async () => {
+      const job = makeJob();
+      (prisma.job.findUnique as jest.Mock).mockResolvedValue(job);
+
+      await expect(
+        service.assertJobHeldByNode(USER, NODE_ID, JOB_ID, CLAIM_TOKEN)
+      ).resolves.toBe(job);
+    });
+
+    it('409s for a token from an EARLIER claim — the same node, a stale slot', async () => {
+      // The whole point of the field: every other condition passes. The node
+      // id matches (it is the same machine), the row is running, and the lease
+      // is live — because the node's SECOND claim is holding it. Only the
+      // token says that the caller is the first claim, which lost the row.
+      (prisma.job.findUnique as jest.Mock).mockResolvedValue(makeJob());
+
+      await expect(
+        service.assertJobHeldByNode(USER, NODE_ID, JOB_ID, OTHER_TOKEN)
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('raises the SAME 409 as the other conditions, not a distinct error', async () => {
+      // "Right node, wrong claim" is a fact about another slot's progress, and
+      // the node's correct response is the one it already has: drop the work.
+      // A distinguishable error would invite a client to treat it as
+      // recoverable and re-fetch.
+      (prisma.job.findUnique as jest.Mock).mockResolvedValue(makeJob());
+
+      const error = await service
+        .assertJobHeldByNode(USER, NODE_ID, JOB_ID, OTHER_TOKEN)
+        .catch((caught) => caught);
+
+      expect(error.getResponse().details).toMatchObject({ reason: 'lease_not_held' });
+    });
+
+    it('ignores the token entirely when the caller quotes none — an un-upgraded node', async () => {
+      // BACKWARD COMPATIBILITY, asserted rather than assumed: a node running
+      // older CLI code sends no token and must be identified by node id alone,
+      // exactly as before #364 — no 400, no 409, whatever the row carries.
+      const job = makeJob({ claimToken: OTHER_TOKEN });
+      (prisma.job.findUnique as jest.Mock).mockResolvedValue(job);
+
+      await expect(service.assertJobHeldByNode(USER, NODE_ID, JOB_ID)).resolves.toBe(job);
+    });
+
+    it('does not confuse "no token quoted" with "the row has no token"', async () => {
+      // `undefined` and `null` are different statements downstream (see
+      // `heldLeaseWhere`), so a caller quoting nothing must pass a row whose
+      // own `claim_token` is NULL — a claim taken before the column existed.
+      const job = makeJob({ claimToken: null });
+      (prisma.job.findUnique as jest.Mock).mockResolvedValue(job);
+
+      await expect(service.assertJobHeldByNode(USER, NODE_ID, JOB_ID)).resolves.toBe(job);
+      await expect(
+        service.assertJobHeldByNode(USER, NODE_ID, JOB_ID, CLAIM_TOKEN)
+      ).rejects.toThrow(ConflictException);
+    });
+
     it('checks node ownership BEFORE looking at the job', async () => {
       // A caller who does not own the node must learn nothing about the jobs it
       // holds, including whether a job id exists.
@@ -649,6 +720,54 @@ describe('NodesService', () => {
       (prisma.job.updateMany as jest.Mock).mockResolvedValue({ count: 0 });
 
       await expect(service.renewLease(USER, NODE_ID, JOB_ID)).rejects.toThrow(ConflictException);
+    });
+
+    // -------------------------------------------------------------------------
+    // The claim token (#364)
+    // -------------------------------------------------------------------------
+
+    it('forwards a quoted token into the guarded write, not just the read', async () => {
+      // The read is not enough on its own: between it and this statement the
+      // reaper can requeue the row and this node's own second slot can take
+      // it. `heldLeaseWhere` inside `updateMany` is what closes that window,
+      // so the token has to appear in the `where`, not only in the `if`.
+      (prisma.job.findUnique as jest.Mock).mockResolvedValue(makeJob());
+      (prisma.job.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
+
+      await service.renewLease(USER, NODE_ID, JOB_ID, CLAIM_TOKEN);
+
+      expect((prisma.job.updateMany as jest.Mock).mock.calls[0][0].where).toMatchObject({
+        claimedByNodeId: NODE_ID,
+        claimToken: CLAIM_TOKEN,
+      });
+    });
+
+    it('409s on a stale token, and writes nothing at all', async () => {
+      // The renewal that #364 exists to refuse: a first worker slot's ticker
+      // still firing after the node re-claimed the same job in a second slot.
+      (prisma.job.findUnique as jest.Mock).mockResolvedValue(makeJob());
+
+      await expect(service.renewLease(USER, NODE_ID, JOB_ID, OTHER_TOKEN)).rejects.toThrow(
+        ConflictException
+      );
+      expect(prisma.job.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('omits the token clause ENTIRELY when the node quoted none', async () => {
+      // The rolling-upgrade guarantee, at the level where it could regress
+      // silently: the key must be ABSENT from the `where`, because `undefined`
+      // there would still be a key Prisma might read differently from one that
+      // was never mentioned, and a `null` would narrow the match to rows whose
+      // `claim_token` IS NULL — refusing every renewal from an old node
+      // against a row claimed by this server's current code.
+      (prisma.job.findUnique as jest.Mock).mockResolvedValue(makeJob());
+      (prisma.job.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
+
+      await service.renewLease(USER, NODE_ID, JOB_ID);
+
+      const where = (prisma.job.updateMany as jest.Mock).mock.calls[0][0].where;
+      expect('claimToken' in where).toBe(false);
+      expect(where.claimedByNodeId).toBe(NODE_ID);
     });
   });
 
@@ -757,6 +876,38 @@ describe('NodesService', () => {
       expect(terminal.completeSucceeded).not.toHaveBeenCalled();
       expect(terminal.completeFailed).not.toHaveBeenCalled();
     });
+
+    it('409s — and persists NOTHING — for a result posted by a STALE CLAIM (#364)', async () => {
+      // Worse than a late renewal, which only delays the reaper: this would
+      // persist output computed by a slot that lost the row, over a run the
+      // same node's later slot is still executing, and settle it.
+      await expect(
+        service.submitResult(USER, NODE_ID, JOB_ID, {
+          ...goodResult,
+          claimToken: OTHER_TOKEN,
+        } as NodeJobResultDto)
+      ).rejects.toThrow(ConflictException);
+
+      expect(persistNodeResult).not.toHaveBeenCalled();
+      expect(terminal.completeSucceeded).not.toHaveBeenCalled();
+    });
+
+    it('persists and settles when the quoted token is this claim’s', async () => {
+      const result = await service.submitResult(USER, NODE_ID, JOB_ID, {
+        ...goodResult,
+        claimToken: CLAIM_TOKEN,
+      } as NodeJobResultDto);
+
+      expect(persistNodeResult).toHaveBeenCalled();
+      expect(result).toEqual({ jobId: JOB_ID, outcome: 'succeeded', willRetry: false });
+    });
+
+    it('persists and settles when no token is quoted — an un-upgraded node', async () => {
+      const result = await service.submitResult(USER, NODE_ID, JOB_ID, goodResult);
+
+      expect(persistNodeResult).toHaveBeenCalled();
+      expect(result.outcome).toBe('succeeded');
+    });
   });
 
   // ===========================================================================
@@ -814,6 +965,43 @@ describe('NodesService', () => {
       ).rejects.toThrow(ConflictException);
 
       expect(terminal.completeFailed).not.toHaveBeenCalled();
+    });
+
+    it('409s for a failure reported by a STALE CLAIM, settling nothing (#364)', async () => {
+      // A failure is terminal too: an old slot's "boom" must not charge an
+      // attempt against — or fail outright — the run a newer claim of the same
+      // job is executing perfectly well.
+      await expect(
+        service.reportFailure(USER, NODE_ID, JOB_ID, {
+          error: 'boom',
+          claimToken: OTHER_TOKEN,
+        } as NodeJobFailureDto)
+      ).rejects.toThrow(ConflictException);
+
+      expect(terminal.completeFailed).not.toHaveBeenCalled();
+    });
+
+    it('settles when the quoted token is this claim’s', async () => {
+      terminal.completeFailed.mockResolvedValue('failed');
+
+      const result = await service.reportFailure(USER, NODE_ID, JOB_ID, {
+        error: 'boom',
+        claimToken: CLAIM_TOKEN,
+      } as NodeJobFailureDto);
+
+      expect(terminal.completeFailed).toHaveBeenCalled();
+      expect(result.outcome).toBe('failed');
+    });
+
+    it('settles when no token is quoted — an un-upgraded node', async () => {
+      terminal.completeFailed.mockResolvedValue('failed');
+
+      const result = await service.reportFailure(USER, NODE_ID, JOB_ID, {
+        error: 'boom',
+      } as NodeJobFailureDto);
+
+      expect(terminal.completeFailed).toHaveBeenCalled();
+      expect(result.outcome).toBe('failed');
     });
   });
 

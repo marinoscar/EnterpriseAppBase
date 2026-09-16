@@ -104,6 +104,10 @@ describe('Worker node data plane (Integration)', () => {
   }
 
   /** A job this node holds legitimately: running, claimed, lease in the future. */
+  /** The token the held job was claimed under, and one from another claim (#364). */
+  const CLAIM_TOKEN = '88888888-8888-4888-8888-888888888888';
+  const OTHER_TOKEN = '99999999-9999-4999-8999-999999999999';
+
   function jobRow(overrides: Record<string, unknown> = {}) {
     return {
       id: JOB_ID,
@@ -126,6 +130,7 @@ describe('Worker node data plane (Integration)', () => {
       rateLimitedAt: null,
       rateLimitHits: 0,
       claimedByNodeId: NODE_ID,
+      claimToken: CLAIM_TOKEN,
       leaseExpiresAt: new Date(Date.now() + 60_000),
       executor: 'node',
       ...overrides,
@@ -347,6 +352,39 @@ describe('Worker node data plane (Integration)', () => {
       expect(storage.getSignedDownloadUrl).not.toHaveBeenCalled();
     });
 
+    it('409 for a request quoting an EARLIER claim’s token (#364)', async () => {
+      // Same node, same live lease, a slot that lost the row: a capability for
+      // the job's input must not be minted for it.
+      const admin = await createMockAdminUser(context);
+      givenHeldJob(admin.id);
+
+      await request(server())
+        .post(downloadPath)
+        .set(authHeader(admin.accessToken))
+        .send({ claimToken: OTHER_TOKEN })
+        .expect(409);
+
+      expect(storage.getSignedDownloadUrl).not.toHaveBeenCalled();
+    });
+
+    it('200 for a request quoting the token this job was claimed under', async () => {
+      // And the pair to it — note the tests above send NO BODY AT ALL, which
+      // is what every node did before this route had one. That is the
+      // backward-compatibility guarantee, asserted over the real Fastify
+      // stack: `nodeDownloadUrlSchema`'s `.default({})` is the only thing
+      // between an un-upgraded node and a 400 on every input it fetches.
+      const admin = await createMockAdminUser(context);
+      givenHeldJob(admin.id);
+
+      await request(server())
+        .post(downloadPath)
+        .set(authHeader(admin.accessToken))
+        .send({ claimToken: CLAIM_TOKEN })
+        .expect(200);
+
+      expect(storage.getSignedDownloadUrl).toHaveBeenCalled();
+    });
+
     it('403 when the node belongs to another user', async () => {
       const admin = await createMockAdminUser(context);
       (context.prismaMock.workerNode.findUnique as jest.Mock).mockResolvedValue(
@@ -482,6 +520,40 @@ describe('Worker node data plane (Integration)', () => {
         .expect(409);
 
       expect(storage.getSignedPutUrl).not.toHaveBeenCalled();
+    });
+
+    it('409 for a request quoting an EARLIER claim’s token — the sharpest case (#364)', async () => {
+      // With `deriveOutputKey` (#348) the key is a function of the JOB, not of
+      // the claim, so a stale slot would be signed for the very key its node's
+      // newer claim is writing — two PUTs, both 200, and whichever finished
+      // last wins with nothing in any log saying two ran.
+      const admin = await createMockAdminUser(context);
+      givenHeldJob(admin.id);
+
+      await request(server())
+        .post(uploadPath)
+        .set(authHeader(admin.accessToken))
+        .send({ claimToken: OTHER_TOKEN })
+        .expect(409);
+
+      expect(storage.getSignedPutUrl).not.toHaveBeenCalled();
+    });
+
+    it('200 for a quoted token that IS this claim’s — and it is not a refused field', async () => {
+      // Two lists have to agree for this to pass: `nodeUploadUrlSchema` and
+      // `rejectCallerSuppliedFields`'s allowlist. A field in one alone is a
+      // 400 on every request an upgraded node sends.
+      const admin = await createMockAdminUser(context);
+      givenHeldJob(admin.id);
+
+      const response = await request(server())
+        .post(uploadPath)
+        .set(authHeader(admin.accessToken))
+        .send({ claimToken: CLAIM_TOKEN })
+        .expect(200);
+
+      expect(response.body.data.key).toMatch(new RegExp(`^node-outputs/${JOB_ID}/`));
+      expect(storage.getSignedPutUrl).toHaveBeenCalled();
     });
 
     it('does not need the job to have a resolvable INPUT — an output is not an input', async () => {

@@ -1356,16 +1356,23 @@ calls `POST …/renew` on a cadence the server hands it with each assignment
 ticker on the same derived interval for the whole of `process()`. Both reach
 `JobLeaseService.renew`, whose guard — the row must still be `running`, still
 held by the caller, and its lease must not yet have passed — is written once
-rather than once per executor. For the in-process worker, "held by the
-caller" is checked per **claim**, not merely per executor kind: `jobs
-.claim_token`, minted fresh by the claim statement, is what tells one API
-replica's claim apart from another's after a job is reaped and re-claimed
-(issue #361) — see `docs/specs/job-queue.md` §6.9 for the two-replica hole
-this closes and the one narrower hole (a node re-claiming its own reaped job)
-that is deliberately left open and tracked as #364. A renewal that finds
-the row is no longer the caller's stops the ticker and logs at `error`: the
-work continues, because JavaScript cannot cancel a promise mid-`await`, but a
-worker that has lost the row does not go on re-forging the queue's view of it.
+rather than once per executor. "Held by the caller" is checked per **claim**,
+not merely per executor kind, for both executors: `jobs.claim_token`, minted
+fresh by the claim statement, is what tells one API replica's claim apart from
+another's after a job is reaped and re-claimed (issue #361), and — since
+issue #364 — tells one NODE's claim apart from its own later re-claim of the
+same job. The token only does that for a node because it crosses the wire:
+the claim response hands it to the node (a sibling of `renewIntervalMs`, not
+a job column), and the node quotes it back on `renew` and every other route
+that speaks for a held job (`result`, `failure`, `download-url`,
+`upload-url`, `secret`) — a token the server merely read off the row it was
+about to compare against would have proved nothing. See
+`docs/specs/job-queue.md` §6.9 for the full argument, including why an
+un-upgraded node stays exactly as self-ambiguous as before until it upgrades.
+A renewal that finds the row is no longer the caller's stops the ticker and
+logs at `error`: the work continues, because JavaScript cannot cancel a
+promise mid-`await`, but a worker that has lost the row does not go on
+re-forging the queue's view of it.
 
 This is a correctness requirement, not an optimisation. Until issue #347 the
 in-process worker wrote a lease at claim time and never touched the row again,

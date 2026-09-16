@@ -6,10 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ExecutorRegistry, type JobExecutionContext, type JobExecutor } from './executors/index.js';
 import { ExampleChecksumExecutor } from './executors/example-checksum.js';
-import type { JobFailureReport, NodeApi, NodeJobAssignment } from './node-api.js';
+import type { ClaimToken, JobFailureReport, NodeApi, NodeJobAssignment } from './node-api.js';
 import type { NodeEngineEvent } from './node-events.js';
 import { HISTORY_LIMIT, NodeEngine, type EngineScheduler } from './node-engine.js';
 import { MissingJobInputError, ProviderRateLimitError } from './node-errors.js';
+import { ApiError } from '../errors.js';
 
 // =============================================================================
 // NodeEngine  (issue #274, epic #254)
@@ -72,6 +73,9 @@ function fakeScheduler(): EngineScheduler & {
   };
 }
 
+/** A claim token shaped like the uuid the server mints per claimed row (#364). */
+const CLAIM_TOKEN = '7b0d9a1e-3c5f-4a8b-9d2e-6f1c4b8a0e35';
+
 function assignment(id: string, type = 'test.job', overrides: Partial<NodeJobAssignment['job']> = {}): NodeJobAssignment {
   return {
     job: {
@@ -96,6 +100,13 @@ interface Recorder {
   heartbeats: Array<{ concurrency: number | undefined }>;
   renews: string[];
   deregisters: number;
+  /**
+   * Every claim token the engine quoted, per call it made against a held job
+   * (#364). `undefined` is recorded as such rather than dropped — "the engine
+   * passed nothing" and "the engine never called" are different facts, and
+   * only one of them is a bug.
+   */
+  tokens: Array<{ call: 'renew' | 'result' | 'failure' | 'download'; jobId: string; token: ClaimToken }>;
 }
 
 function fakeApi(
@@ -108,20 +119,23 @@ function fakeApi(
       recorder.claims.push({ limit: body.limit, types: body.types });
       return queue.shift() ?? [];
     },
-    async submitResult(_nodeId, jobId, _type, result) {
+    async submitResult(_nodeId, jobId, _type, result, claimToken) {
       recorder.results.push({ jobId, result });
+      recorder.tokens.push({ call: 'result', jobId, token: claimToken });
       return { jobId, outcome: 'succeeded', willRetry: false };
     },
-    async reportJobFailure(_nodeId, jobId, body) {
+    async reportJobFailure(_nodeId, jobId, body, claimToken) {
       recorder.failures.push({ jobId, body });
+      recorder.tokens.push({ call: 'failure', jobId, token: claimToken });
       return { jobId, outcome: 'failed', willRetry: body.willRetry ?? true };
     },
     async heartbeat(_nodeId, body) {
       recorder.heartbeats.push({ concurrency: body.concurrency });
       return {} as never;
     },
-    async renewLease(_nodeId, jobId) {
+    async renewLease(_nodeId, jobId, claimToken) {
       recorder.renews.push(jobId);
+      recorder.tokens.push({ call: 'renew', jobId, token: claimToken });
       return { jobId, leaseExpiresAt: '2026-01-01T00:10:00.000Z' };
     },
     async deregister() {
@@ -146,13 +160,15 @@ function fakeApi(
 }
 
 function recorder(): Recorder {
-  return { claims: [], results: [], failures: [], heartbeats: [], renews: [], deregisters: 0 };
+  return { claims: [], results: [], failures: [], heartbeats: [], renews: [], deregisters: 0, tokens: [] };
 }
 
 /** An executor whose every run is externally controlled. */
 class ControlledExecutor implements JobExecutor {
   readonly requiresInput: boolean;
   readonly started: string[] = [];
+  /** Every context the engine handed in, so a test can read what it carried. */
+  readonly contexts: JobExecutionContext[] = [];
   private readonly gates = new Map<string, ReturnType<typeof deferred<unknown>>>();
 
   constructor(
@@ -173,6 +189,7 @@ class ControlledExecutor implements JobExecutor {
 
   async execute(context: JobExecutionContext): Promise<unknown> {
     this.started.push(context.job.id);
+    this.contexts.push(context);
     return this.gate(context.job.id).promise;
   }
 }
@@ -795,5 +812,231 @@ describe('NodeEngine — lifecycle and snapshot', () => {
     await vi.waitFor(() => expect(rec.claims.length).toBeGreaterThan(0));
     await engine.drain();
     await expect(run).resolves.toBeUndefined();
+  });
+});
+
+// =============================================================================
+// The claim token (#364)
+// =============================================================================
+//
+// `claimedByNodeId` tells one node from another; it does NOT tell one node
+// from itself. These tests pin the two halves of the fix: the token the server
+// handed this assignment reaches EVERY call the run makes on the job's behalf,
+// and its absence is an ordinary state that changes nothing.
+// =============================================================================
+
+describe('NodeEngine — the claim token', () => {
+  it('quotes the assignment’s token on renew, on the executor’s context and on the result', async () => {
+    const rec = recorder();
+    const executor = new ControlledExecutor();
+    const scheduler = fakeScheduler();
+
+    const engine = new NodeEngine({
+      api: fakeApi([[{ ...assignment('tok'), claimToken: CLAIM_TOKEN }]], rec),
+      nodeId: 'node-1',
+      concurrency: 1,
+      executors: new ExecutorRegistry().register(executor),
+      scheduler,
+      tmpDir: tmp,
+      sleep: tick,
+      pollIntervalMs: 1,
+    });
+
+    const run = engine.run();
+    await vi.waitFor(() => expect(executor.started).toEqual(['tok']));
+
+    // The ticker captured the token when the run began, which is the lifetime
+    // that matters: a later claim of the same job must not be able to change
+    // what this slot quotes.
+    scheduler.fireAll();
+    await vi.waitFor(() => expect(rec.renews).toContain('tok'));
+
+    expect(executor.contexts[0]?.claimToken).toBe(CLAIM_TOKEN);
+
+    executor.gate('tok').resolve({ ok: true });
+    await vi.waitFor(() => expect(rec.results).toHaveLength(1));
+
+    expect(rec.tokens.filter((entry) => entry.call === 'renew')).toContainEqual({
+      call: 'renew',
+      jobId: 'tok',
+      token: CLAIM_TOKEN,
+    });
+    expect(rec.tokens).toContainEqual({ call: 'result', jobId: 'tok', token: CLAIM_TOKEN });
+
+    await engine.drain();
+    await run;
+  });
+
+  it('quotes it on the FAILURE report as well — a stale slot must not settle a live run', async () => {
+    const rec = recorder();
+    const failing: JobExecutor = {
+      type: 'test.job',
+      requiresInput: false,
+      execute: async () => {
+        throw new Error('boom');
+      },
+    };
+
+    const engine = new NodeEngine({
+      api: fakeApi([[{ ...assignment('tok-fail'), claimToken: CLAIM_TOKEN }]], rec),
+      nodeId: 'node-1',
+      concurrency: 1,
+      executors: new ExecutorRegistry().register(failing),
+      scheduler: fakeScheduler(),
+      tmpDir: tmp,
+      sleep: tick,
+      pollIntervalMs: 1,
+    });
+
+    const run = engine.run();
+    await vi.waitFor(() => expect(rec.failures).toHaveLength(1));
+
+    expect(rec.tokens).toContainEqual({ call: 'failure', jobId: 'tok-fail', token: CLAIM_TOKEN });
+
+    await engine.drain();
+    await run;
+  });
+
+  it('quotes it when fetching the job’s INPUT, too', async () => {
+    const rec = recorder();
+    const payload = Buffer.from('input-bytes');
+    const seen: Array<ClaimToken> = [];
+
+    const engine = new NodeEngine({
+      api: fakeApi([[{ ...assignment('tok-input', 'example.checksum'), claimToken: CLAIM_TOKEN }]], rec, {
+        downloadUrl: async (_nodeId, _jobId, claimToken) => {
+          seen.push(claimToken);
+          return {
+            url: 'https://storage.example/signed',
+            expiresIn: 60,
+            expiresAt: '2026-01-01T00:01:00.000Z',
+            objectId: 'obj-1',
+            size: String(payload.length),
+            mimeType: 'application/octet-stream',
+          };
+        },
+      }),
+      nodeId: 'node-1',
+      concurrency: 1,
+      executors: new ExecutorRegistry().register(new ExampleChecksumExecutor()),
+      scheduler: fakeScheduler(),
+      tmpDir: join(tmp, 'work'),
+      sleep: tick,
+      pollIntervalMs: 1,
+      fetch: (async () => new Response(payload, { status: 200 })) as typeof globalThis.fetch,
+    });
+
+    const run = engine.run();
+    await vi.waitFor(() => expect(rec.results).toHaveLength(1));
+
+    expect(seen).toEqual([CLAIM_TOKEN]);
+
+    await engine.drain();
+    await run;
+  });
+
+  it('passes NOTHING — and warns about nothing — when the server sent no token', async () => {
+    // A control plane older than #364, or a row claimed before the column
+    // existed. This is a steady state, not a degraded one: every call is the
+    // pre-#364 request, the job runs and settles normally, and no failure
+    // event is emitted anywhere along the way.
+    const rec = recorder();
+    const executor = new ControlledExecutor();
+    const scheduler = fakeScheduler();
+    const events: NodeEngineEvent[] = [];
+
+    const engine = new NodeEngine({
+      // Note `assignment()` carries no `claimToken` at all, and the second job
+      // carries an explicit `null` — the two ways a server says "nothing".
+      api: fakeApi([[assignment('no-tok'), { ...assignment('null-tok'), claimToken: null }]], rec),
+      nodeId: 'node-1',
+      concurrency: 2,
+      executors: new ExecutorRegistry().register(executor),
+      scheduler,
+      tmpDir: tmp,
+      sleep: tick,
+      pollIntervalMs: 1,
+      onEvent: (event) => events.push(event),
+    });
+
+    const run = engine.run();
+    await vi.waitFor(() => expect(executor.started.sort()).toEqual(['no-tok', 'null-tok']));
+
+    scheduler.fireAll();
+    await vi.waitFor(() => expect(rec.renews.length).toBeGreaterThanOrEqual(2));
+
+    executor.gate('no-tok').resolve({ ok: true });
+    executor.gate('null-tok').resolve({ ok: true });
+    await vi.waitFor(() => expect(rec.results).toHaveLength(2));
+
+    // `undefined` for the missing field; `null` passed through untouched for
+    // the explicit one. Neither is rewritten here — `claimTokenBody` is the
+    // single place that decides the key is omitted rather than sent.
+    expect(rec.tokens.filter((entry) => entry.jobId === 'no-tok').map((entry) => entry.token)).toEqual([
+      undefined,
+      undefined,
+    ]);
+    expect(rec.tokens.filter((entry) => entry.jobId === 'null-tok').map((entry) => entry.token)).toEqual([
+      null,
+      null,
+    ]);
+
+    expect(events.some((event) => event.kind === 'lease-renew-failed')).toBe(false);
+    expect(events.some((event) => event.kind === 'job-failed')).toBe(false);
+
+    await engine.drain();
+    await run;
+  });
+
+  it('treats a 409 on renewal exactly as it already treats a lost lease', async () => {
+    // A stale slot quoting a superseded token gets the SAME 409 the route
+    // already raised for an expired lease, and it is handled the same way: an
+    // event, and the run continues to completion. No new teardown path was
+    // invented here, deliberately — see `NodeEngine.renewLease`.
+    const rec = recorder();
+    const executor = new ControlledExecutor();
+    const scheduler = fakeScheduler();
+    const events: NodeEngineEvent[] = [];
+
+    const engine = new NodeEngine({
+      api: fakeApi([[{ ...assignment('superseded'), claimToken: CLAIM_TOKEN }]], rec, {
+        async renewLease(_nodeId, jobId, claimToken) {
+          rec.tokens.push({ call: 'renew', jobId, token: claimToken });
+          throw new ApiError({
+            status: 409,
+            serverMessage: 'This node no longer holds the job with a live lease',
+            code: 'CONFLICT',
+            details: { reason: 'lease_not_held' },
+            method: 'POST',
+            url: `http://h/api/nodes/node-1/jobs/${jobId}/renew`,
+            structured: true,
+            rawBody: undefined,
+          });
+        },
+      }),
+      nodeId: 'node-1',
+      concurrency: 1,
+      executors: new ExecutorRegistry().register(executor),
+      scheduler,
+      tmpDir: tmp,
+      sleep: tick,
+      pollIntervalMs: 1,
+      onEvent: (event) => events.push(event),
+    });
+
+    const run = engine.run();
+    await vi.waitFor(() => expect(executor.started).toEqual(['superseded']));
+
+    scheduler.fireAll();
+    await vi.waitFor(() => expect(events.some((event) => event.kind === 'lease-renew-failed')).toBe(true));
+
+    // Still running, exactly as after any other renew failure.
+    expect(engine.getSnapshot().activeJobs).toHaveLength(1);
+
+    executor.gate('superseded').resolve({ ok: true });
+    await vi.waitFor(() => expect(rec.results).toHaveLength(1));
+
+    await engine.drain();
+    await run;
   });
 });

@@ -190,6 +190,20 @@ export class NodeJobAssignmentDto {
       'just chattier.',
   })
   renewIntervalMs!: number;
+
+  @ApiPropertyOptional({
+    description:
+      'This assignment’s claim token — quote it back on `renew`, `result` and `failure` so ' +
+      'the server can tell THIS claim of the job from a later one. `claimedByNodeId` alone ' +
+      'tells one node from another but not one node from itself: a node that stalls, is ' +
+      'reaped, and re-claims the same job in another slot would otherwise have its stale ' +
+      'slot renew — or settle — the run its new slot is executing. Optional for a node to ' +
+      'send back (an older client that ignores it is refused nothing, and stays exactly as ' +
+      'ambiguous as it was before), and `null` only for a row claimed before this column ' +
+      'existed, which a node should treat as "nothing to quote".',
+    nullable: true,
+  })
+  claimToken!: string | null;
 }
 
 /** The response to `POST /nodes/:id/claim`. */
@@ -255,7 +269,7 @@ export function toWorkerNodeDto(node: WorkerNode): WorkerNodeDto {
 }
 
 /**
- * A claimed `Job` row as `{ job, params }`.
+ * A claimed `Job` row as `{ job, params, renewIntervalMs, claimToken }`.
  *
  * ⚠ THE NARROWING IS THE SECURITY-RELEVANT PART. `payload` is forwarded (it
  * IS the job's input, and a node with no database access has no other way to
@@ -263,6 +277,17 @@ export function toWorkerNodeDto(node: WorkerNode): WorkerNodeDto {
  * rate-limit counters are not: none of them is an input to the work, and each
  * is a fact about this deployment's internals that a remote machine has no
  * reason to hold.
+ *
+ * ⚠ `claimToken` IS AN ASSIGNMENT-LEVEL FIELD, A SIBLING OF `renewIntervalMs`,
+ * AND DELIBERATELY NOT A MEMBER OF `NodeJobDto` (#364). `job` is "the claimed
+ * row, narrowed" — columns, as they are stored — and the token is not being
+ * published as a column: it is a GRANT to this claimant for this assignment,
+ * exactly as `renewIntervalMs` is a server-derived instruction rather than a
+ * column. Keeping it out of `NodeJobDto` is also what keeps it out of
+ * everywhere else that DTO is rendered, so the token reaches the one caller
+ * entitled to it — the node that just took the row — and nowhere else. The
+ * admin job list omits `claim_token` for the same reason from the other
+ * direction (see `JOB_LIST_SELECT`).
  */
 export function toNodeJobAssignment(job: Job, renewIntervalMs: number): NodeJobAssignmentDto {
   return {
@@ -293,5 +318,12 @@ export function toNodeJobAssignment(job: Job, renewIntervalMs: number): NodeJobA
     // it passes the interval it derived from that same lease, so the node is
     // told a cadence that matches the lease it was actually granted.
     renewIntervalMs,
+    // Straight from the row, and `null` only in the case the column itself
+    // allows: a claim taken before `claim_token` existed. Every claim this
+    // server makes now mints one (`job-claim.service.ts` calls
+    // `gen_random_uuid()` per row), so the `null` arm is history rather than a
+    // state this path can produce — and a node handed `null` simply omits the
+    // field on renew, which is the pre-#364 behaviour it would have had anyway.
+    claimToken: job.claimToken,
   };
 }

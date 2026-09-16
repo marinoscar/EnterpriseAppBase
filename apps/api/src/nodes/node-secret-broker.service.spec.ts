@@ -3,14 +3,17 @@
 // =============================================================================
 //
 // `test/nodes/node-job-secret.integration.spec.ts` covers ISSUING end to end —
-// the guard order, the four refusals, the lease-bounded expiry, and the
-// assertion that the material never reaches a log. What it cannot cover is the
+// the guard order, the refusals (including a request quoting a claim token the
+// row no longer carries), the lease-bounded expiry, and the assertion that the
+// material never reaches a log. What it cannot cover is the
 // half of this service that has no HTTP request behind it: the sweep.
 //
 // THE SWEEP'S PREDICATE IS THE ONLY PLACE IN THE SYSTEM WHERE "IS THIS GRANT
 // STILL LEGITIMATE" IS ANSWERED WITHOUT A REQUEST IN HAND, and it is the exact
-// complement of `assertJobHeldByNode`'s four conditions plus the grant's own
-// clock. Every arm of it is sabotaged individually below, against a grant that
+// complement of `assertJobHeldByNode`'s four ROW conditions plus the grant's
+// own clock — not of its fifth, the caller's quoted `claimToken` (#364), which
+// a cron tick has no caller to quote and does not need; see `stillHeld`'s own
+// comment for why the grant's lease-bounded clock already covers that case. Every arm of it is sabotaged individually below, against a grant that
 // is otherwise perfectly live, so a failure names which condition regressed —
 // the same discipline `nodes.service.spec.ts` applies to the lease guard.
 //

@@ -419,18 +419,60 @@ question about a column one route moves.
 ## 12. The lease check is what makes a late submission harmless
 
 `assertJobHeldByNode` demands four things — claimed by *this* node, `running`,
-with a lease, and that lease unexpired — and it is reused by `result`,
-`failure` and `renew`.
+with a lease, and that lease unexpired — plus a fifth the caller opts into
+(issue #364): that the row still carries the exact `claimToken` this claimant
+was handed, when it quotes one. It is reused by every route that speaks for a
+held job: `result`, `failure` and `renew` here, plus `download-url` and
+`upload-url` (`node-data-plane.service.ts`) and `secret`
+(`node-secret-broker.service.ts`).
 
-The scenario it exists for is ordinary: a node's machine sleeps, its lease
-expires, the reaper (#263) requeues the job, another executor claims it and
-starts running — and then the original node wakes and posts the result it
+The scenario the first four exist for is ordinary: a node's machine sleeps, its
+lease expires, the reaper (#263) requeues the job, another executor claims it
+and starts running — and then the original node wakes and posts the result it
 computed twenty minutes ago. Without the check, that result is persisted over
 a newer run: `persistNodeResult` writes stale output, `completeSucceeded`
 marks a row terminal that another executor is actively working on, and that
 executor's own terminal write lands afterwards on a job it no longer owns. The
 damage is a permanently wrong stored result and a duplicated side effect, with
 nothing in any log tying the two together.
+
+**The fifth condition closes the one case those four cannot see: the "other
+executor" is the SAME node.** A node that claims job J, stalls past its lease,
+is reaped, and then claims J again in a second worker slot has two live slots
+sharing one `claimedByNodeId` — so, absent the token, every one of the six
+routes above believes whichever slot calls first, including the *older* one.
+`renew` extends the lease the newer slot is running under; `result`/`failure`
+settle a job the newer slot is still executing; `upload-url` is the sharpest
+and quietest of the six — with a type that derives its own output key
+(§17.1), the stale slot is signed a PUT for the exact key its own newer claim
+is currently writing, both PUTs "succeed", and the surviving bytes are
+whichever finished last; `secret` hands the stale slot a live database
+credential bounded by a lease that is not its own.
+
+**Closing it took the token crossing the wire, not a new comparison.**
+`NodesService.renewLease` already reads the job row before renewing, so a
+token read off that row and matched back against it would have proved
+nothing — a check against your own read is not a check. #364 makes it a real
+assertion by having the SERVER hand the token to the node first: the claim
+response carries `claimToken` at assignment level, a sibling of
+`renewIntervalMs` and deliberately not a member of the job DTO
+(`dto/node-response.dto.ts`), and the node quotes it back on all six routes.
+`dto/claim-token.field.ts` is the one field definition all six request bodies
+share.
+
+**Optional on the wire, and that is load-bearing.** A fleet upgrades one
+machine at a time; a node running pre-#364 CLI code sends no `claimToken` on
+any route, and `assertJobHeldByNode` falls back to `claimedByNodeId` alone —
+no 400, no 409, nothing that would break a rolling upgrade. Such a node's own
+stale slot stays exactly as able to speak for its newer claim as it always
+was, until the node itself is upgraded; nothing server-side can close that
+earlier, since the only value able to tell two slots of one node apart is one
+only they hold. `renew` and `download-url` took no body at all before #364 and
+now default an absent one to `{}` (`.default({})` on `renewLeaseSchema` /
+`nodeDownloadUrlSchema`); `upload-url` and `secret` already accepted an
+optional/empty body and simply gained one more optional field. All four are
+published with `required: false` on their request body for exactly that
+reason.
 
 The renewal re-asserts the same conditions **inside the `WHERE` clause of its
 own write**, because the window between reading the row and updating it is
@@ -1230,12 +1272,17 @@ The load-bearing suites:
 * `apps/api/src/nodes/nodes.service.spec.ts` — register-or-reattach including
   the simulated `P2002`, the three claim filters (asserted on the arguments
   handed to `JobClaimService`, because a filter that is wrong still returns
-  jobs), and the lease guard's four conditions sabotaged one at a time.
+  jobs), the lease guard's four row conditions sabotaged one at a time, and
+  its fifth — the claim token (#364) — checked across `renew`, `result` and
+  `failure`: a stale slot's token refused with the same `409` the other four
+  conditions raise, a live claim's token accepted, and an un-upgraded node's
+  *absent* token never confused with a row's `null` one.
 * `apps/api/test/nodes/nodes.integration.spec.ts` — the same decisions over the
   real router, guards, Zod pipe, response envelope and exception filter: the
   `409` a late submission actually receives, the validation issues surviving
-  inside `details`, and the `{ job, params }` shape a node's entire view of its
-  work depends on.
+  inside `details`, the `claimToken` an assignment's `{ job, params,
+  renewIntervalMs, claimToken }` view carries and a node quoting it back on
+  `renew` and `result`, and a `400` for a `claimToken` that is not a uuid.
 * `apps/api/test/nodes/node-claim-contention.db.spec.ts` — **real Postgres
   only.** A node claiming through `NodesService` and the in-process worker
   claiming through `JobClaimService`, over two independent clients, never
@@ -1245,12 +1292,18 @@ The load-bearing suites:
   REACHED rather than reimplemented, the key being derived server-side (asserted
   on the argument handed to the provider, because a service that reported one
   key while signing another would pass any body-only assertion), the expiry
-  clamp in both directions, and the three input-resolution reasons.
+  clamp in both directions, the three input-resolution reasons, and — for
+  both `download-url` and `upload-url` (#364) — a quoted `claimToken` reaching
+  the guard as `undefined`, never `null`, when the node sent none, and no URL
+  minted for a token belonging to a stale claim.
 * `apps/api/test/nodes/node-data-plane.integration.spec.ts` — the same over the
   real router: `GET /api/nodes/job-types` being reachable at all (route order),
   valid JSON Schema for every node-eligible type, `409` without a lease, `400`
-  naming a node-supplied `key`, `422` with `details.reason`, and a `Logger` spy
-  proving no signed URL reaches a log line.
+  naming a node-supplied `key`, `422` with `details.reason`, a `Logger` spy
+  proving no signed URL reaches a log line, and — on both routes — `409` for a
+  stale claim's `claimToken` and `200` for the live claim's (`upload-url`'s own
+  case is the sharpest: a stale slot refused a signed PUT before the allowlist
+  ever sees `claimToken` as a permitted field, not a refused one).
 * `apps/api/src/jobs/handlers/example-checksum.handler.spec.ts` — both
   executors leaving the same row, `persistNodeResult` never touching the
   provider, the merge into `metadata`, and the near-miss digests (upper case,

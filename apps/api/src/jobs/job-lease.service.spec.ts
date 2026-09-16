@@ -13,6 +13,12 @@
 //
 // The row-matching claim is made against a real server in
 // `test/jobs/job-lease-renewal.db.spec.ts`.
+//
+// `claimToken` is three-valued here for both executors now (#364): the
+// in-process worker takes it off its own claimed row, and the node plane
+// receives it from the node, which was handed it in the claim response. The
+// `undefined` arm is no longer "the node plane" — it is "a claimant that
+// quoted no token", which after #364 means an un-upgraded node.
 // =============================================================================
 
 import { JobLeaseService, heldLeaseWhere } from './job-lease.service';
@@ -87,12 +93,15 @@ describe('heldLeaseWhere', () => {
     expect(heldLeaseWhere(JOB_ID, { claimToken: null }).claimToken).toBeNull();
   });
 
-  it('omits the token clause entirely when claimToken is undefined — the node plane', () => {
-    // `NodesService.renewLease` deliberately passes no `claimToken` at all
-    // (see this file's header on why a token check there would be vacuous),
-    // so the KEY must be absent from the `where`, not merely `undefined` —
-    // Prisma would otherwise see a key and could treat it differently from a
-    // key that was never mentioned.
+  it('omits the token clause entirely when claimToken is undefined — an un-upgraded node', () => {
+    // Since #364 the node plane DOES pass a token — the one the node quoted
+    // back from its claim response — but only when the node is new enough to
+    // know the field exists. `undefined` is the older client, and it must
+    // produce the pre-#364 predicate exactly: the KEY absent from the `where`,
+    // not merely `undefined`, because Prisma may treat a key that is present
+    // and undefined differently from one that was never mentioned, and a
+    // `null` here would narrow the match to rows whose `claim_token` IS NULL —
+    // refusing every renewal from that node.
     expect('claimToken' in heldLeaseWhere(JOB_ID)).toBe(false);
     expect('claimToken' in heldLeaseWhere(JOB_ID, { nodeId: NODE_ID })).toBe(false);
   });
@@ -168,10 +177,11 @@ describe('JobLeaseService.renewUntil', () => {
   });
 
   it('forwards the claim token through to the where clause as well', async () => {
-    // `NodesService.renewLease` is the one caller of this overload, and it
-    // does not pass `claimToken` (see the file header) — but the service must
-    // still forward one if a holder ever supplies it, for the same reason
-    // `renew` above must.
+    // `NodesService.renewLease` is the one caller of this overload, and since
+    // #364 it passes the token the NODE quoted back — which is why it is an
+    // assertion worth checking rather than a value the server read off the row
+    // it was about to match. Forwarded for the same reason `renew` above
+    // forwards the worker's own.
     const { service, updateMany } = makeService();
 
     await expect(

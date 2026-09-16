@@ -49,6 +49,9 @@ const UPLOAD: UploadUrlResult = {
   expiresAt: '2026-09-07T02:15:00.000Z',
 };
 
+/** A claim token shaped like the uuid the server mints per claimed row (#364). */
+const CLAIM_TOKEN = '7b0d9a1e-3c5f-4a8b-9d2e-6f1c4b8a0e35';
+
 /** A child process double: a stream this test pushes into, and a settle. */
 class FakeChild extends EventEmitter {
   readonly stdout = new PassThrough();
@@ -86,6 +89,8 @@ interface HarnessOptions {
   uploadStatus?: number;
   /** Let the dump die instead of finishing. */
   dumpFails?: boolean;
+  /** The claim this run is executing under (#364). Absent means "not told one". */
+  claimToken?: string | null;
 }
 
 function makeHarness(options: HarnessOptions = {}) {
@@ -154,6 +159,7 @@ function makeHarness(options: HarnessOptions = {}) {
     input: undefined,
     api,
     nodeId: 'node-1',
+    claimToken: options.claimToken,
     signal: controller.signal,
     log: (message, fields) => logs.push({ message, ...(fields ? { fields } : {}) }),
   };
@@ -192,6 +198,30 @@ describe('DatabaseBackupRunExecutor', () => {
     expect(result.dbVersion).toBe('PostgreSQL 17.4');
     expect(result.migrationName).toBe('20260907160000_add');
     expect(Date.parse(result.startedAt)).toBeLessThanOrEqual(Date.parse(result.finishedAt));
+  });
+
+  it('quotes the CLAIM TOKEN on both of its held-job calls', async () => {
+    // #364. A credential and a signed PUT are the two most consequential
+    // things a superseded slot could ask for, so both have to say which claim
+    // is asking — `nodeId` alone cannot tell this slot from its own re-claim.
+    const h = makeHarness({ claimToken: CLAIM_TOKEN });
+
+    await h.executor.execute(h.context);
+
+    expect(h.api.jobSecret).toHaveBeenCalledWith('node-1', 'job-1', CLAIM_TOKEN);
+    expect(h.api.uploadUrl).toHaveBeenCalledWith('node-1', 'job-1', expect.any(String), CLAIM_TOKEN);
+  });
+
+  it('passes an ABSENT token through untouched when the server sent none', async () => {
+    // An older control plane, or a row claimed before `claim_token` existed.
+    // The executor must not invent a value or refuse to run; it hands the
+    // emptiness on, and `claimTokenBody` is what turns it into an omitted key.
+    const h = makeHarness({ claimToken: null });
+
+    await h.executor.execute(h.context);
+
+    expect(h.api.jobSecret).toHaveBeenCalledWith('node-1', 'job-1', null);
+    expect(h.api.uploadUrl).toHaveBeenCalledWith('node-1', 'job-1', expect.any(String), null);
   });
 
   it('reports `bytes` as a DECIMAL STRING, so a multi-terabyte archive survives JSON', async () => {

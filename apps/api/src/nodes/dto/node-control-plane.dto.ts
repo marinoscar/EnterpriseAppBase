@@ -2,15 +2,21 @@
 // The node control plane's request bodies (issue #268, epic #254)
 // =============================================================================
 //
-// FIVE BODIES IN ONE FILE, deliberately, where `create-node-credential.dto.ts`
-// beside it is one body in one file. These five are not five independent
+// SIX BODIES IN ONE FILE, deliberately, where `create-node-credential.dto.ts`
+// beside it is one body in one file. These six are not six independent
 // shapes; they are one CONVERSATION between a worker node and this server —
-// register, heartbeat, claim, result, failure — and every one of the limits
-// below (`MAX_NODE_CONCURRENCY`, the type-list caps, the error length) has to
-// be the same number in more than one of them or the conversation develops a
-// step that accepts what an earlier step refused. Split across five files,
-// those shared constants become five imports nobody keeps aligned; together,
-// a change to the concurrency ceiling is one line that every body sees.
+// register, heartbeat, claim, renew, result, failure — and every one of the
+// limits below (`MAX_NODE_CONCURRENCY`, the type-list caps, the error length)
+// has to be the same number in more than one of them or the conversation
+// develops a step that accepts what an earlier step refused. Split across six
+// files, those shared constants become six imports nobody keeps aligned;
+// together, a change to the concurrency ceiling is one line that every body
+// sees — and `claimToken` below is the same argument one level up: the three
+// bodies here that speak for a held job share ONE field definition with the
+// three outside this file that do the same (`node-data-plane.dto.ts`,
+// `node-job-secret.dto.ts`), so "renew accepts a token but failure silently
+// ignores it" is unwritable. That definition lives in `claim-token.field.ts`,
+// which carries its own note on why one field earned a file of its own.
 //
 // -----------------------------------------------------------------------------
 // EVERY FIELD HERE ARRIVES FROM A MACHINE THIS DEPLOYMENT MAY NOT OWN
@@ -66,6 +72,8 @@
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
+import { claimTokenField } from './claim-token.field';
+
 /**
  * Ceiling on a node's declared `concurrency`, and therefore on how many rows
  * one claim call can take.
@@ -96,6 +104,18 @@ const MAX_ERROR_LENGTH = 2000;
 
 /** A non-empty, bounded job-type key. */
 const jobType = z.string().trim().min(1).max(MAX_TYPE_LENGTH);
+
+/**
+ * `jobs.claim_token`, as the node quotes it back — the field three of the
+ * bodies below carry, and three more outside this file (the two data-plane
+ * mints and the secret broker) carry for the same reason.
+ *
+ * SHARED, NOT REDECLARED: `claim-token.field.ts` holds the field and the whole
+ * argument for it, including why `undefined` and `null` must stay different
+ * statements. Six copies of a uuid would drift exactly once, and on one route
+ * only, which is the worst shape that drift can take.
+ */
+const claimToken = claimTokenField;
 
 /**
  * The node's self-reported capability bag.
@@ -199,6 +219,34 @@ export const claimJobsSchema = z.object({
 export class ClaimJobsDto extends createZodDto(claimJobsSchema) {}
 
 // =============================================================================
+// POST /nodes/:id/jobs/:jobId/renew
+// =============================================================================
+
+/**
+ * ⚠ THIS BODY EXISTS TO CARRY ONE OPTIONAL FIELD, AND IT MUST SURVIVE HAVING
+ * NO BODY AT ALL (#364).
+ *
+ * Until this change the renew route took no body, so every node in every fleet
+ * posts to it with no payload and no `Content-Type` — Fastify hands Nest
+ * `undefined`, and a bare `z.object({...})` would reject that outright and
+ * fail every renewal from every node that has not been upgraded yet. `.default({})`
+ * is what makes "no body" parse to "no assertion", which is the pre-#364
+ * behaviour spelled as data. It is the only reason this is a `ZodDefault` and
+ * not a plain object schema; do not unwrap it.
+ *
+ * REJECTED: coercing a `null` body to `{}` as well. That would quietly turn
+ * "I assert this row has no token" into "I assert nothing", and those are
+ * different statements at the `where` clause (see `claimToken` above).
+ */
+export const renewLeaseSchema = z
+  .object({
+    claimToken: claimToken.optional(),
+  })
+  .default({});
+
+export class RenewLeaseDto extends createZodDto(renewLeaseSchema) {}
+
+// =============================================================================
 // POST /nodes/:id/jobs/:jobId/result
 // =============================================================================
 
@@ -227,6 +275,16 @@ export const nodeJobResultSchema = z.object({
    * array or scalar result if that is what its work produces.
    */
   result: z.unknown(),
+
+  /**
+   * WHICH CLAIM computed this result — see `claimToken` above.
+   *
+   * It matters MORE here than on renew, not less: a stale slot's renewal only
+   * delays the reaper, while a stale slot's RESULT settles a job its own later
+   * claim is still running, persisting output computed against an earlier
+   * attempt over a newer run. Optional for the same rolling-upgrade reason.
+   */
+  claimToken: claimToken.optional(),
 });
 
 export class NodeJobResultDto extends createZodDto(nodeJobResultSchema) {}
@@ -262,6 +320,16 @@ export const nodeJobFailureSchema = z.object({
    * The server's attempt budget decides; see the file header.
    */
   willRetry: z.boolean().optional(),
+
+  /**
+   * WHICH CLAIM failed — see `claimToken` above.
+   *
+   * Threaded here as well as on `result` because a failure is just as terminal:
+   * an old slot reporting "boom" settles the row (or charges an attempt against
+   * it) while a newer claim of the same job is still running fine. Optional for
+   * the same rolling-upgrade reason.
+   */
+  claimToken: claimToken.optional(),
 });
 
 export class NodeJobFailureDto extends createZodDto(nodeJobFailureSchema) {}

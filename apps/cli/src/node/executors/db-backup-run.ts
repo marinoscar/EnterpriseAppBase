@@ -128,12 +128,16 @@ export class DatabaseBackupRunExecutor implements JobExecutor {
   constructor(private readonly options: DatabaseBackupExecutorOptions = {}) {}
 
   async execute(context: JobExecutionContext): Promise<DbBackupRunResult> {
-    const { job, nodeId, api } = context;
+    const { job, nodeId, api, claimToken } = context;
 
     // -------------------------------------------------------------------------
     // 1. The credential. ONE LOCAL CONST — see the file header.
     // -------------------------------------------------------------------------
-    const secret = await api.jobSecret(nodeId, job.id);
+    // `claimToken` on both held-job calls below (#364): a credential and a
+    // signed PUT are the two most consequential things a stale slot could ask
+    // for, and quoting the claim is what makes the server refuse them once
+    // this slot's claim has been superseded.
+    const secret = await api.jobSecret(nodeId, job.id, claimToken);
     const connection = readPgMaterial(secret.material);
 
     // -------------------------------------------------------------------------
@@ -141,7 +145,7 @@ export class DatabaseBackupRunExecutor implements JobExecutor {
     //    and reports it back verbatim in the result, and the server refuses a
     //    result naming anything else.
     // -------------------------------------------------------------------------
-    const target = await api.uploadUrl(nodeId, job.id, BACKUP_CONTENT_TYPE);
+    const target = await api.uploadUrl(nodeId, job.id, BACKUP_CONTENT_TYPE, claimToken);
 
     if (typeof target.url !== 'string' || target.url.length === 0) {
       throw new Error(`The server returned no upload URL for job ${job.id}; nothing was dumped.`);

@@ -10,19 +10,33 @@
 // properties worth stating on their own.
 //
 // -----------------------------------------------------------------------------
-// ⚠ THE REQUEST BODY CARRIES NOTHING, AND ANY FIELD IS A 400
+// ⚠ THE REQUEST BODY ASKS FOR NOTHING, AND ANY FIELD THAT DOES IS A 400
 // -----------------------------------------------------------------------------
 //
 // Everything the server needs is already on the path (which node) and in the
 // row (which job, which type, which broker, which lease). There is nothing a
-// node could usefully say — and, far more importantly, nothing it is ALLOWED to
-// say: A NODE MAY NOT REQUEST A SECRET IT WAS NOT ASSIGNED. A `kind`, a
-// `scope`, a `database`, a `ttl` in the body would each be a node choosing some
-// part of a credential's shape, and every one of those is the server's choice
-// derived from the job the node is holding.
+// node could usefully ASK FOR — and, far more importantly, nothing it is
+// ALLOWED to ask for: A NODE MAY NOT REQUEST A SECRET IT WAS NOT ASSIGNED. A
+// `kind`, a `scope`, a `database`, a `ttl` in the body would each be a node
+// choosing some part of a credential's shape, and every one of those is the
+// server's choice derived from the job the node is holding.
+//
+// ⚠ `claimToken` (#364) IS THE ONE PERMITTED FIELD, AND IT IS NOT AN EXCEPTION
+// TO THAT RULE — it is the rule applied to a different question. Every field
+// above asks the server for something; this one ANSWERS something: which claim
+// of this job is asking. It changes nothing about the credential — not its
+// kind, not its scope, not its lifetime, all of which are still derived from
+// the row — and the only thing it can do is get the request REFUSED, which is
+// the whole point. Without it, the ambiguity this route is most exposed to is
+// also its worst: `claimedByNodeId` cannot tell a node's stalled, reaped slot
+// from the slot that re-claimed the job, so the stale one is handed a LIVE
+// DATABASE CREDENTIAL, bounded by a lease belonging to a claim that is not its
+// own. A field that can only ever narrow who may be answered is the one shape
+// of field this body can safely grow.
 //
 // So the refusal is the same one `NodeUploadUrlDto` makes about `key`, applied
-// to a body with no permitted fields at all — including the `ttl` case, which
+// to a body that permits nothing a node could ask for — including the `ttl`
+// case, which
 // is the one somebody will genuinely want. A node-chosen lifetime is refused
 // for the reason #268 refused a node-chosen lease: the bound exists to limit
 // the blast radius of a leaked credential, so the party the bound protects
@@ -38,8 +52,10 @@
 // would receive a bare `400 "Validation failed"` naming nothing. Unknown keys
 // are therefore CAPTURED here and refused in `NodeSecretBrokerService`, which
 // can raise a message that names the field and survives the filter intact. The
-// security outcome is identical either way — no field is ever read — and what
-// differs is whether the node's author is told why.
+// security outcome is identical either way — no field a node ASKS with is ever
+// read, and the one field that is read (`claimToken`) is declared in the schema
+// rather than swept up as an unknown key — and what differs is whether the
+// node's author is told why.
 //
 // -----------------------------------------------------------------------------
 // POST, NOT GET, AND `Cache-Control: no-store`
@@ -58,15 +74,26 @@ import { ApiProperty } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
+import { claimTokenField } from './claim-token.field';
+
 /**
- * What a node may say when asking for its job's credential: NOTHING.
+ * What a node may say when asking for its job's credential: which claim is
+ * asking, and nothing else.
  *
  * `.default({})` so a node with nothing to declare may send an empty body
- * rather than being made to send `{}` to satisfy a parser — and since there is
- * nothing it MAY declare, an empty body is the only correct request. Anything
- * present is captured by the loose object and refused by name in the service.
+ * rather than being made to send `{}` to satisfy a parser — an empty body is
+ * still a correct request, and is what every node sent before #364. Anything
+ * beyond `claimToken` is captured by the loose object and refused by name in
+ * the service, whose allowlist — not this schema — is the authority on what
+ * may be sent; adding a field here without adding it there would 400 the
+ * clients that send it.
  */
-export const nodeJobSecretRequestSchema = z.looseObject({}).default({});
+export const nodeJobSecretRequestSchema = z
+  .looseObject({
+    /** WHICH CLAIM is asking — see `claim-token.field.ts` and the header above. */
+    claimToken: claimTokenField.optional(),
+  })
+  .default({});
 
 export class NodeJobSecretRequestDto extends createZodDto(
   nodeJobSecretRequestSchema
