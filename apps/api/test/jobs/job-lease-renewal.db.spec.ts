@@ -559,6 +559,83 @@ describeWithDb('Lease renewal vs. the lease reaper (real Postgres)', () => {
     ).resolves.toBe(true);
   });
 
+  it('a NODE that reclaims the same row cannot renew with its previous claim’s token (#364)', async () => {
+    // THE HEADLINE CASE #364 CLOSES, in the same shape as the case just
+    // above — but this is the one issue #364 is actually about. The case
+    // above proves the token per se; this one proves it for `claimedByNodeId`
+    // specifically, which is the identifier that CANNOT tell a node's two
+    // slots apart on its own (unlike the server's `nodeId: null`, which #361
+    // already covers). A worker node claims job J into slot 1, slot 1 stalls
+    // past its lease, the REAL reaper requeues J, the SAME node re-claims J
+    // into slot 2 — and slot 1's renewal ticker is still alive, still
+    // quoting slot 1's OLD token. Before #364, `heldLeaseWhere`'s
+    // `claimedByNodeId` condition alone could not distinguish slot 1's stale
+    // renewal from slot 2's legitimate one, because both name the SAME node.
+    const type = nextType();
+    await client.job.create({ data: { type, reason: 'backfill' } });
+
+    const claimOptions: ClaimOptions = {
+      nodeId,
+      executor: 'node',
+      eligibleTypes: [type],
+      limit: 1,
+      leases: [{ type, leaseMs: LEASE_MS }],
+    };
+
+    // Slot 1: the node's first, real claim.
+    const [firstClaim] = await claims.claim(claimOptions);
+    const firstToken = firstClaim.claimToken;
+    expect(firstClaim.claimedByNodeId).toBe(nodeId);
+
+    // Slot 1 stalls: its lease lapses, and the REAL reaper — not a
+    // hand-written `UPDATE` — puts the row back to `pending`.
+    await client.job.update({
+      where: { id: firstClaim.id },
+      data: { leaseExpiresAt: minutesAgo(1) },
+    });
+    await expect(stuck.resetStuck()).resolves.toMatchObject({ reset: 1, failed: 0 });
+
+    // Slot 2: the SAME node re-claims the SAME row.
+    const [secondClaim] = await claims.claim(claimOptions);
+    expect(secondClaim.id).toBe(firstClaim.id);
+    expect(secondClaim.claimedByNodeId).toBe(nodeId);
+    const secondToken = secondClaim.claimToken;
+
+    // THE PROPERTY THE WHOLE FIX RESTS ON: two claims of one row, by the
+    // SAME node, carry two DIFFERENT tokens.
+    expect(secondToken).not.toBe(firstToken);
+
+    // ⚠ WITHOUT THE TOKEN, THESE TWO RENEWALS ARE INDISTINGUISHABLE: same job
+    // id, same `claimedByNodeId: nodeId`, same `status: 'running'`. The
+    // pre-#364 `where` would have extended slot 1's dead ticker as happily as
+    // slot 2's live one.
+    const beforeStaleRenewal = await read(firstClaim.id);
+
+    // Slot 1's stale token no longer renews anything...
+    await expect(
+      leases.renew(firstClaim.id, LEASE_MS, { nodeId, claimToken: firstToken })
+    ).resolves.toBe(false);
+
+    // THE LEASE MUST BE EXACTLY UNCHANGED — a `false` with the lease moved
+    // anyway would be the bug wearing a passing test.
+    const afterStaleRenewal = await read(firstClaim.id);
+    expect(afterStaleRenewal.leaseExpiresAt?.getTime()).toBe(
+      beforeStaleRenewal.leaseExpiresAt?.getTime()
+    );
+
+    // ...while slot 2's own, CURRENT token still lands, over the very same
+    // row. The guard must refuse the stale slot without refusing the
+    // legitimate one.
+    await expect(
+      leases.renew(secondClaim.id, LEASE_MS, { nodeId, claimToken: secondToken })
+    ).resolves.toBe(true);
+
+    const afterLiveRenewal = await read(secondClaim.id);
+    expect(afterLiveRenewal.leaseExpiresAt?.getTime()).toBeGreaterThan(
+      afterStaleRenewal.leaseExpiresAt?.getTime() as number
+    );
+  });
+
   it('the reaper leaves no claim token on a row it requeues', async () => {
     // `claim_token IS NOT NULL` iff the row is currently claimed. A row the
     // reaper hands back to `pending` is claimed by nobody, and a stray token

@@ -69,9 +69,10 @@ import { JobTerminalService } from '../../src/jobs/job-terminal.service';
 import { JobsService } from '../../src/jobs/jobs.service';
 import { ProviderThrottleService } from '../../src/jobs/provider-throttle.service';
 import { ClaimJobsDto, NodeJobResultDto } from '../../src/nodes/dto/node-control-plane.dto';
-import { NodeUploadUrlDto } from '../../src/nodes/dto/node-data-plane.dto';
+import { NodeDownloadUrlDto, NodeUploadUrlDto } from '../../src/nodes/dto/node-data-plane.dto';
 import { NodeDataPlaneService } from '../../src/nodes/node-data-plane.service';
 import { DEFAULT_SYSTEM_SETTINGS } from '../../src/common/types/settings.types';
+import { JobStuckService } from '../../src/jobs/job-stuck.service';
 import { NodesService } from '../../src/nodes/nodes.service';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import type {
@@ -315,6 +316,7 @@ describeWithDb('example.checksum end to end on a worker node (real Postgres)', (
   let artifactHandler: DerivedKeyArtifactHandler;
   let dataPlane: NodeDataPlaneService;
   let handler: ExampleChecksumHandler;
+  let stuck: JobStuckService;
 
   let ownerId: string;
   let nodeId: string;
@@ -371,6 +373,18 @@ describeWithDb('example.checksum end to end on a worker node (real Postgres)', (
       } as unknown as SystemSettingsService)
     );
     dataPlane = new NodeDataPlaneService(service, config, nodes, storage, registry);
+    // The REAL reaper (#364's own precedent is `job-lease-renewal.db.spec.ts`),
+    // over this suite's own registry and client — the claim → lapse → reap →
+    // re-claim sequence below has to run through the shipped code path, not a
+    // hand-written `UPDATE`, or it proves nothing about `resetStuck()` itself.
+    stuck = new JobStuckService(
+      service,
+      config,
+      {
+        getJobsPolicy: async () => ({ ...DEFAULT_SYSTEM_SETTINGS.jobs }),
+      } as unknown as SystemSettingsService,
+      registry
+    );
 
     const owner = await prisma.user.create({
       data: { email: OWNER_EMAIL, displayName: 'checksum suite' },
@@ -429,13 +443,17 @@ describeWithDb('example.checksum end to end on a worker node (real Postgres)', (
   const claimOne = (): Promise<Job[]> =>
     nodes.claimJobs(ownerId, nodeId, { limit: 1 } as ClaimJobsDto);
 
+  /** A download-url request body, optionally quoting a claim token (#364). */
+  const downloadDto = (claimToken?: string): NodeDownloadUrlDto =>
+    ({ claimToken }) as NodeDownloadUrlDto;
+
   /**
    * What the worker node itself does. It is handed the job and NOTHING else —
    * no client, no provider, no key — and it gets its bytes through the URL the
    * server minted for it.
    */
   async function runNode(job: Job): Promise<{ sha256: string; bytes: number }> {
-    const grant = await dataPlane.createDownloadUrl(ownerId, nodeId, job.id);
+    const grant = await dataPlane.createDownloadUrl(ownerId, nodeId, job.id, downloadDto());
 
     // The bound is asserted here rather than in a separate test because this
     // is the moment it matters: what a node receives must already be
@@ -546,7 +564,7 @@ describeWithDb('example.checksum end to end on a worker node (real Postgres)', (
 
     // And the data plane still serves the job it just extended.
     await expect(
-      dataPlane.createDownloadUrl(ownerId, nodeId, claimed.id)
+      dataPlane.createDownloadUrl(ownerId, nodeId, claimed.id, downloadDto())
     ).resolves.toMatchObject({ objectId: object.id });
   });
 
@@ -567,8 +585,91 @@ describeWithDb('example.checksum end to end on a worker node (real Postgres)', (
 
     // The straggler asking for bytes for work that is already settled.
     await expect(
-      dataPlane.createDownloadUrl(ownerId, nodeId, claimed.id)
+      dataPlane.createDownloadUrl(ownerId, nodeId, claimed.id, downloadDto())
     ).rejects.toMatchObject({ status: 409 });
+  });
+
+  // ===========================================================================
+  // The per-claim token (issue #364) — a NODE telling ITSELF apart
+  // ===========================================================================
+  //
+  // Every case above is one node against the world: `claimedByNodeId` alone
+  // is enough because there is only ever one claimant. #364 is the case where
+  // that stops being true: the SAME node holds two slots of the SAME job at
+  // once — an old, stale one and a new, live one — because it claimed, stalled
+  // past its lease, was reaped, and re-claimed. `claimedByNodeId` cannot tell
+  // those two slots apart; only the per-row `claimToken` the claim response
+  // handed each of them can. This is the real-database proof #361's own
+  // `job-lease-renewal.db.spec.ts` established the shape for (the "ANOTHER
+  // SERVER REPLICA" case) — here driven through the actual node route,
+  // `NodeDataPlaneService.createDownloadUrl`, rather than `JobLeaseService`
+  // directly, because #364's claim is specifically that the DATA PLANE routes
+  // — not just renewal — must honour the token.
+
+  it('refuses a download URL from a stale claim once the SAME node re-claims the reaped job', async () => {
+    // THE #364 SCENARIO ITSELF. Node N claims job J into slot 1; slot 1
+    // stalls past its lease; the REAL reaper requeues J; N re-claims J into
+    // slot 2. Slot 1's ticker is still alive and still quotes its OLD token.
+    //
+    // Three assertions, because any two alone could pass for the wrong
+    // reason: a bare 409 could be the ordinary "already settled" guard firing
+    // on unrelated grounds; "nothing was signed" alone could be a service
+    // that never calls the provider regardless of the guard; and the positive
+    // control alone says nothing about whether the stale slot was ever
+    // refused. Together they pin exactly the property #364 exists for.
+    const object = await seedObject(Buffer.from('reclaimed by the same node'));
+    await jobs.enqueue({
+      type: JOB_TYPE,
+      reason: 'upload',
+      subjectType: SUBJECT_TYPE,
+      subjectId: object.id,
+    });
+
+    // Slot 1: the node's first, real claim.
+    const [firstClaim] = await claimOne();
+    const staleToken = firstClaim.claimToken as string;
+    expect(staleToken).toEqual(expect.any(String));
+
+    // Slot 1 stalls: its lease lapses, and the REAL reaper — not a
+    // hand-written `UPDATE` — puts the row back to `pending`, clearing
+    // `claimedByNodeId` and `claimToken` on the way.
+    await prisma.job.update({
+      where: { id: firstClaim.id },
+      data: { leaseExpiresAt: new Date(Date.now() - 60_000) },
+    });
+    await expect(stuck.resetStuck()).resolves.toMatchObject({ reset: 1, failed: 0 });
+
+    // Slot 2: the SAME node re-claims the SAME row.
+    const [secondClaim] = await claimOne();
+    expect(secondClaim.id).toBe(firstClaim.id);
+    expect(secondClaim.claimedByNodeId).toBe(nodeId);
+    const currentToken = secondClaim.claimToken as string;
+
+    // THE PROPERTY THE WHOLE FIX RESTS ON: two claims of one row, by the
+    // SAME node, carry two DIFFERENT tokens. Without this, nothing below
+    // could possibly tell them apart.
+    expect(currentToken).not.toBe(staleToken);
+
+    const signSpy = jest.spyOn(storage, 'getSignedDownloadUrl');
+
+    // Slot 1's stale token asks for the bytes its newer sibling now holds.
+    await expect(
+      dataPlane.createDownloadUrl(ownerId, nodeId, firstClaim.id, downloadDto(staleToken))
+    ).rejects.toMatchObject({ status: 409 });
+
+    // …and NO URL was ever signed for it — the guard runs strictly before
+    // the mint, so a refused slot never receives a bearer capability at all.
+    expect(signSpy).not.toHaveBeenCalled();
+
+    // The positive control, in the SAME test: slot 2's own, CURRENT token is
+    // still served — the guard refuses the stale claimant without refusing
+    // the legitimate one.
+    await expect(
+      dataPlane.createDownloadUrl(ownerId, nodeId, secondClaim.id, downloadDto(currentToken))
+    ).resolves.toMatchObject({ objectId: object.id });
+    expect(signSpy).toHaveBeenCalledTimes(1);
+
+    signSpy.mockRestore();
   });
 
   // ===========================================================================
@@ -672,7 +773,7 @@ describeWithDb('example.checksum end to end on a worker node (real Postgres)', (
     const [claimed] = await claimOne();
 
     const error = await dataPlane
-      .createDownloadUrl(ownerId, nodeId, claimed.id)
+      .createDownloadUrl(ownerId, nodeId, claimed.id, downloadDto())
       .catch((thrown: unknown) => thrown);
 
     expect(error).toMatchObject({ status: 422 });
