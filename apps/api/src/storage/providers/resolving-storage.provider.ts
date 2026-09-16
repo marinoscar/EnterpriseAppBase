@@ -322,6 +322,12 @@ export class ResolvingStorageProvider implements StorageProvider {
     this.logger.log(`Building storage client: ${label}`);
 
     const provider = new S3StorageProvider({
+      // #374: the kind travels WITH the configuration rather than being
+      // inferred from it downstream. It is what selects R2's checksum flags and
+      // what `S3StorageProvider.providerId` answers with; the endpoint and the
+      // region in this same object were already resolved per provider by
+      // `resolveStorageConfig`, so the driver never re-derives either.
+      provider: config.provider,
       bucket: config.bucket,
       region: config.region,
       ...(config.endpoint ? { endpoint: config.endpoint } : {}),
