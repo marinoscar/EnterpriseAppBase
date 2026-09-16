@@ -2,15 +2,18 @@
 // The node control plane's request bodies (issue #268, epic #254)
 // =============================================================================
 //
-// FIVE BODIES IN ONE FILE, deliberately, where `create-node-credential.dto.ts`
-// beside it is one body in one file. These five are not five independent
+// SIX BODIES IN ONE FILE, deliberately, where `create-node-credential.dto.ts`
+// beside it is one body in one file. These six are not six independent
 // shapes; they are one CONVERSATION between a worker node and this server —
-// register, heartbeat, claim, result, failure — and every one of the limits
-// below (`MAX_NODE_CONCURRENCY`, the type-list caps, the error length) has to
-// be the same number in more than one of them or the conversation develops a
-// step that accepts what an earlier step refused. Split across five files,
-// those shared constants become five imports nobody keeps aligned; together,
-// a change to the concurrency ceiling is one line that every body sees.
+// register, heartbeat, claim, renew, result, failure — and every one of the
+// limits below (`MAX_NODE_CONCURRENCY`, the type-list caps, the error length)
+// has to be the same number in more than one of them or the conversation
+// develops a step that accepts what an earlier step refused. Split across six
+// files, those shared constants become six imports nobody keeps aligned;
+// together, a change to the concurrency ceiling is one line that every body
+// sees — and `claimToken` below is the same argument in its strongest form:
+// ONE field definition reaching the three bodies that end an assignment, so
+// "renew accepts a token but failure silently ignores it" is unwritable.
 //
 // -----------------------------------------------------------------------------
 // EVERY FIELD HERE ARRIVES FROM A MACHINE THIS DEPLOYMENT MAY NOT OWN
@@ -96,6 +99,45 @@ const MAX_ERROR_LENGTH = 2000;
 
 /** A non-empty, bounded job-type key. */
 const jobType = z.string().trim().min(1).max(MAX_TYPE_LENGTH);
+
+/**
+ * THE CLAIM THIS MESSAGE IS ABOUT — `jobs.claim_token`, handed to the node in
+ * the claim response and quoted back here (#364).
+ *
+ * WHY A NODE ID IS NOT ENOUGH, which is the whole of this field. Every guard
+ * on the three endpoints that end an assignment — renew, result, failure —
+ * used to identify the caller by `claimedByNodeId` alone, which tells one node
+ * from another and NOT ONE NODE FROM ITSELF. A node that claims job J, stalls
+ * past its lease, is reaped, and then claims J again in a second worker slot
+ * has two live tickers quoting the same node id: the first slot's renewal
+ * extends the SECOND slot's lease (so a dead second slot is reaped late, for
+ * as long as the first keeps ticking), and worse, the first slot's result or
+ * failure settles a job its own later claim is still running. The token is
+ * minted per row by the claim statement, so those two claims carry different
+ * tokens and the stale one is refused.
+ *
+ * ⚠ OPTIONAL ON THE WIRE, AND THAT IS LOAD-BEARING, not politeness. A fleet
+ * is upgraded one machine at a time; a node running older CLI code omits this
+ * field, and the server must then behave EXACTLY as it did before — the node
+ * id and the lease alone — rather than 400 the request or 409 the job. Same
+ * posture as `renewIntervalMs` in #347: additive, ignorable, strictly better
+ * when present. The residual ambiguity above stays open for that node until
+ * it is upgraded, which is a rolling-upgrade window rather than a new hole.
+ *
+ * ⚠ OMITTED MUST STAY `undefined` AND MUST NOT BECOME `null`. Downstream this
+ * value reaches `heldLeaseWhere`, where the two mean opposite things:
+ * `undefined` drops the clause entirely ("I am not asserting a claim"), while
+ * `null` matches `claim_token IS NULL` ("I assert this row carries no token").
+ * `.optional()` with no `.nullable()` is what keeps them apart — a body that
+ * spells the key as `null` is refused rather than silently reinterpreted as
+ * the other statement.
+ *
+ * Validated as a uuid rather than as any bounded string because the column is
+ * `uuid`: a garbage value reaching a `where` clause is a Postgres cast error
+ * (a 500 about "inconsistent column data"), and a clean 400 naming the field
+ * is a better answer to a malformed token than a 500 is.
+ */
+const claimToken = z.uuid();
 
 /**
  * The node's self-reported capability bag.
@@ -199,6 +241,34 @@ export const claimJobsSchema = z.object({
 export class ClaimJobsDto extends createZodDto(claimJobsSchema) {}
 
 // =============================================================================
+// POST /nodes/:id/jobs/:jobId/renew
+// =============================================================================
+
+/**
+ * ⚠ THIS BODY EXISTS TO CARRY ONE OPTIONAL FIELD, AND IT MUST SURVIVE HAVING
+ * NO BODY AT ALL (#364).
+ *
+ * Until this change the renew route took no body, so every node in every fleet
+ * posts to it with no payload and no `Content-Type` — Fastify hands Nest
+ * `undefined`, and a bare `z.object({...})` would reject that outright and
+ * fail every renewal from every node that has not been upgraded yet. `.default({})`
+ * is what makes "no body" parse to "no assertion", which is the pre-#364
+ * behaviour spelled as data. It is the only reason this is a `ZodDefault` and
+ * not a plain object schema; do not unwrap it.
+ *
+ * REJECTED: coercing a `null` body to `{}` as well. That would quietly turn
+ * "I assert this row has no token" into "I assert nothing", and those are
+ * different statements at the `where` clause (see `claimToken` above).
+ */
+export const renewLeaseSchema = z
+  .object({
+    claimToken: claimToken.optional(),
+  })
+  .default({});
+
+export class RenewLeaseDto extends createZodDto(renewLeaseSchema) {}
+
+// =============================================================================
 // POST /nodes/:id/jobs/:jobId/result
 // =============================================================================
 
@@ -227,6 +297,16 @@ export const nodeJobResultSchema = z.object({
    * array or scalar result if that is what its work produces.
    */
   result: z.unknown(),
+
+  /**
+   * WHICH CLAIM computed this result — see `claimToken` above.
+   *
+   * It matters MORE here than on renew, not less: a stale slot's renewal only
+   * delays the reaper, while a stale slot's RESULT settles a job its own later
+   * claim is still running, persisting output computed against an earlier
+   * attempt over a newer run. Optional for the same rolling-upgrade reason.
+   */
+  claimToken: claimToken.optional(),
 });
 
 export class NodeJobResultDto extends createZodDto(nodeJobResultSchema) {}
@@ -262,6 +342,16 @@ export const nodeJobFailureSchema = z.object({
    * The server's attempt budget decides; see the file header.
    */
   willRetry: z.boolean().optional(),
+
+  /**
+   * WHICH CLAIM failed — see `claimToken` above.
+   *
+   * Threaded here as well as on `result` because a failure is just as terminal:
+   * an old slot reporting "boom" settles the row (or charges an attempt against
+   * it) while a newer claim of the same job is still running fine. Optional for
+   * the same rolling-upgrade reason.
+   */
+  claimToken: claimToken.optional(),
 });
 
 export class NodeJobFailureDto extends createZodDto(nodeJobFailureSchema) {}

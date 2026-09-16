@@ -89,7 +89,7 @@ import {
   ParseUUIDPipe,
   Post,
 } from '@nestjs/common';
-import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiBody, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { Auth } from '../auth/decorators/auth.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -100,6 +100,7 @@ import {
   NodeJobFailureDto,
   NodeJobResultDto,
   RegisterNodeDto,
+  RenewLeaseDto,
 } from './dto/node-control-plane.dto';
 import {
   ClaimJobsResponseDto,
@@ -316,18 +317,32 @@ export class NodesController {
       'work that is still running. The lease length is derived from the server’s job timeout and ' +
       'is not negotiable: a node that could choose its own lease could park every row it claimed. ' +
       'Refused with `409` once the lease has already expired — by then another executor may own ' +
-      'the job, and renewing would keep the reaper away from a run that is no longer this node’s.',
+      'the job, and renewing would keep the reaper away from a run that is no longer this node’s. ' +
+      'Quote the assignment’s `claimToken` in the body to be identified as THIS claim rather ' +
+      'than merely as this node, which is what stops a stalled-and-re-claimed node extending ' +
+      'its own newer run’s lease. The body, and the field, are optional: omitting them is the ' +
+      'older behaviour and is never an error.',
   })
   @ApiParam({ name: 'id', type: String, format: 'uuid' })
   @ApiParam({ name: 'jobId', type: String, format: 'uuid' })
+  // `required: false` because it genuinely is: every node built before #364
+  // posts to this route with no body and no `Content-Type`, and the published
+  // spec has to say that is legal or a generated client will start demanding
+  // one. Nest marks a `@Body()` required by default, so this is stated here.
+  @ApiBody({ type: RenewLeaseDto, required: false })
   @ApiResponse({ status: 200, description: 'The new lease expiry', type: RenewLeaseResponseDto })
   @ApiResponse({ status: 409, description: 'This node no longer holds the job with a live lease' })
   async renew(
     @Param('id', ParseUUIDPipe) id: string,
     @Param('jobId', ParseUUIDPipe) jobId: string,
+    @Body() dto: RenewLeaseDto,
     @CurrentUser('id') userId: string
   ): Promise<RenewLeaseResponseDto> {
-    const renewed = await this.nodes.renewLease(userId, id, jobId);
+    // `dto.claimToken` is `undefined` for every node that has not learned to
+    // send it — including one posting no body at all, which is what every
+    // node did before #364 and what `renewLeaseSchema`'s `.default({})` keeps
+    // working. The service treats absent as "identify me by node id alone".
+    const renewed = await this.nodes.renewLease(userId, id, jobId, dto.claimToken);
 
     return { jobId: renewed.jobId, leaseExpiresAt: renewed.leaseExpiresAt.toISOString() };
   }
@@ -463,7 +478,9 @@ export class NodesController {
       'or if the result fails validation (the issues are in `details`); `409` if the lease has ' +
       'expired, in which case nothing is persisted and the node should drop the work; `500` if ' +
       'persisting threw, in which case the server has ALREADY settled the job through its normal ' +
-      'failure path and the node must not resubmit.',
+      'failure path and the node must not resubmit. Quote the assignment’s `claimToken` so a ' +
+      'stale worker slot cannot persist its result over a newer claim of the same job; the ' +
+      'field is optional and omitting it is the older, node-id-only behaviour.',
   })
   @ApiParam({ name: 'id', type: String, format: 'uuid' })
   @ApiParam({ name: 'jobId', type: String, format: 'uuid' })
@@ -490,7 +507,9 @@ export class NodesController {
       'than charging an attempt, and it backs off sibling jobs on this server too), and ' +
       '`retryAfterMs` is a floor on the backoff. `willRetry` in the REQUEST is advisory and is ' +
       'not acted on — the server’s attempt budget decides, and `willRetry` in the RESPONSE is ' +
-      'that decision.',
+      'that decision. Quote the assignment’s `claimToken` so a stale worker slot cannot settle ' +
+      'a job a newer claim is still running; the field is optional and omitting it is the ' +
+      'older, node-id-only behaviour.',
   })
   @ApiParam({ name: 'id', type: String, format: 'uuid' })
   @ApiParam({ name: 'jobId', type: String, format: 'uuid' })
