@@ -1082,7 +1082,7 @@ value now models exactly five namespaces: `notifications`, `jobs`, `nodes`,
     "timeOfDay": "02:00",
     "timezone": "UTC",
     "retentionCount": 7,
-    "storageProvider": "s3",
+    "storageProvider": "",
     "runStaleMinutes": 120,
     "compressionLevel": 6,
     "restoreRollbackMode": "retain_database",
@@ -1196,7 +1196,7 @@ than resetting it to the default (see `SystemSettingsService.replaceSettings`).
     "timeOfDay": "02:00",
     "timezone": "UTC",
     "retentionCount": 7,
-    "storageProvider": "s3",
+    "storageProvider": "",
     "runStaleMinutes": 120,
     "compressionLevel": 6,
     "restoreRollbackMode": "retain_database",
@@ -1288,7 +1288,7 @@ If-Match: 1
     "timeOfDay": "02:00",
     "timezone": "UTC",
     "retentionCount": 7,
-    "storageProvider": "s3",
+    "storageProvider": "",
     "runStaleMinutes": 120,
     "compressionLevel": 6,
     "restoreRollbackMode": "retain_database",
@@ -2076,7 +2076,7 @@ The stored `databaseBackup` settings namespace plus two fields computed on every
     "timeOfDay": "03:00",
     "timezone": "UTC",
     "retentionCount": 14,
-    "storageProvider": "s3",
+    "storageProvider": "",
     "runStaleMinutes": 120,
     "compressionLevel": 6,
     "restoreRollbackMode": "retain_database",
@@ -2086,6 +2086,11 @@ The stored `databaseBackup` settings namespace plus two fields computed on every
   }
 }
 ```
+`storageProvider` is `""` by default — meaning "whatever object-storage
+provider is currently active" (see `GET /admin/storage-config`'s own
+`provider` field). It is set to a real provider name only to **pin** a
+scheduled backup to a specific provider registration, independent of the
+provider a later `/admin/settings/storage` change might select.
 
 #### PUT /admin/db-backup/config
 Partial update — every field optional; unknown timezone is refused with 400 **at save time**, before anything is written.
@@ -2671,6 +2676,250 @@ refused rather than silently accepted.
 
 **Error Cases:**
 - 400 Bad Request - Missing or incorrect confirmation
+
+---
+
+### Storage Configuration (Admin-only)
+
+Runtime-configurable object storage — issue #375, epic #372: which
+provider (AWS S3, Cloudflare R2, or an S3-compatible endpoint), which
+bucket, and which credential this deployment stores files in, editable
+with no restart. Two permissions: `storage_config:read` (get) and
+`storage_config:write` (every write, including both probes below) —
+**deliberately separate from both `system_settings:*` and `storage:*`**:
+not the former because a wrong bucket or a rotated-out secret breaks every
+upload, avatar, job artifact and database backup in the deployment at
+once, immediately; not the latter because `storage:*` gates *object
+access* and is seeded to every ordinary user (Viewer and Contributor), so
+reusing it would put this credential-bearing screen in front of the
+entire user base. See
+[`docs/specs/storage-providers.md`](specs/storage-providers.md) for the
+full design and
+[`docs/runbooks/storage-configuration.md`](runbooks/storage-configuration.md)
+for the operator-facing setup flow. **The secret access key is never
+returned by any endpoint below** — every response carries only a masked
+`secretStatus` (`configured`, `hint`, `updatedAt`, `updatedByUserId`).
+
+#### GET /admin/storage-config
+The `storage` settings namespace (`provider`, `bucket`, `region`,
+`endpoint`, `accountId`, `accessKeyId`, `forcePathStyle`) plus derived,
+read-only fields: `effectiveEndpoint` (what an S3 client is actually
+pointed at — for R2 this is derived from `accountId`, so a client never
+has to build that host itself), `configured` (whether this deployment can
+store a file right now — the same single definition the upload path
+itself asks), `missing` (every field standing in the way, empty when
+`configured` is `true`), and `secretStatus`.
+
+**Requires:** `storage_config:read`
+
+**Response:**
+```json
+{
+  "data": {
+    "provider": "s3",
+    "bucket": "my-app-uploads",
+    "region": "us-east-1",
+    "endpoint": "",
+    "accountId": "",
+    "accessKeyId": "AKIAIOSFODNN7EXAMPLE",
+    "forcePathStyle": null,
+    "effectiveEndpoint": null,
+    "configured": true,
+    "missing": [],
+    "secretStatus": {
+      "configured": true,
+      "hint": "••••x9fQ",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "updatedByUserId": "uuid"
+    },
+    "version": 3,
+    "updatedAt": "2024-01-01T00:00:00.000Z",
+    "updatedBy": { "id": "uuid", "email": "admin@example.com" }
+  }
+}
+```
+
+---
+
+#### PUT /admin/storage-config
+Full replace of the seven settings fields, plus an optional secret
+rotation. `secretAccessKey` is **write-only**: send it to set or rotate
+the secret, and **omit it or send it empty to keep the stored one** —
+there is no way to erase a stored secret through this endpoint (an admin
+who wants storage off empties `bucket` instead). Sending an empty string
+for any other field **clears** it.
+
+**Requires:** `storage_config:write`
+
+**Headers:** `If-Match: <version>` (optional) — expected `version` for
+optimistic concurrency; use `0` to assert nothing is stored yet, or omit
+to overwrite unconditionally. This is the version of the whole
+`system_settings` `global` row, not of the `storage` namespace alone, so a
+concurrent save of an unrelated setting can also cause a conflict —
+reload and re-apply.
+
+**Request Body:**
+```json
+{
+  "provider": "s3",
+  "bucket": "my-app-uploads",
+  "region": "us-east-1",
+  "endpoint": "",
+  "accountId": "",
+  "accessKeyId": "AKIAIOSFODNN7EXAMPLE",
+  "secretAccessKey": "",
+  "forcePathStyle": null
+}
+```
+`secretAccessKey: ""` (or omitted) preserves the stored secret. `null` is
+a real, first-class answer for `forcePathStyle` — "use this vendor's
+convention" — and is the shipped default; it is required-and-nullable,
+not optional.
+
+**Response:** the updated configuration, in the shape above.
+
+**Error Cases:**
+- 400 Bad Request - Validation error
+- 409 Conflict - `If-Match` version mismatch, **or** the save relocates a
+  deployment that still holds objects at the old provider/bucket/endpoint
+  and the body did not carry `{"confirmation":"SWITCH"}`. The body names
+  the exact row counts (`storageObjects`, `databaseBackupRuns`) and the
+  `from`/`to` locations. **⚠ Confirming a switch does not copy any
+  objects** — every existing row keeps pointing at the old location, which
+  this deployment can then no longer reach. See the spec's §7 for the full
+  reasoning.
+
+---
+
+#### POST /admin/storage-config/test
+Runs four checks — `credentials`, `bucket`, `roundTrip`, `presignedUrl` —
+against the configuration **in the request body**, which does not have to
+have been saved yet, so a new bucket can be proved before the deployment
+is committed to it. A blank `secretAccessKey` means "test with the
+already-stored secret."
+
+**⚠ This returns HTTP 200 even when the configuration is broken.** A
+refused request is a successful diagnosis; read the `success` field and
+each check's `status`/`code`/`detail`. `bucket_missing` (404 — no such
+bucket, use `POST /bucket`) and `bucket_forbidden` (403 — it exists and
+this key may not see it) are deliberately reported as different codes,
+because they need opposite fixes. The round-trip check writes one small
+object under `storage-config-test/` and deletes it again.
+
+**Requires:** `storage_config:write`
+
+**Request Body:** the same seven fields as `PUT`, minus `confirmation`
+(nothing is being switched — there is no old location to strand).
+
+**Response:**
+```json
+{
+  "data": {
+    "success": true,
+    "provider": "s3",
+    "bucket": "my-app-uploads",
+    "region": "us-east-1",
+    "effectiveEndpoint": null,
+    "usedStoredSecret": false,
+    "checks": [
+      {
+        "id": "credentials",
+        "label": "Credentials accepted",
+        "status": "passed",
+        "code": "ok",
+        "detail": "The endpoint accepted the signature for access key AKIAIOSFODNN7EXAMPLE.",
+        "error": null
+      },
+      {
+        "id": "bucket",
+        "label": "Bucket exists and is reachable",
+        "status": "passed",
+        "code": "ok",
+        "detail": "Bucket \"my-app-uploads\" exists and this credential can inspect it.",
+        "error": null
+      },
+      {
+        "id": "roundTrip",
+        "label": "Write, read back and delete",
+        "status": "passed",
+        "code": "ok",
+        "detail": "Wrote, read back and deleted a test object in \"my-app-uploads\".",
+        "error": null
+      },
+      {
+        "id": "presignedUrl",
+        "label": "Presigned URL is valid and serves the object",
+        "status": "passed",
+        "code": "ok",
+        "detail": "A presigned download URL was generated and served the test object correctly.",
+        "error": null
+      }
+    ],
+    "attemptedAt": "2024-01-01T00:00:00.000Z"
+  }
+}
+```
+
+---
+
+#### POST /admin/storage-config/bucket
+Creates the bucket named by the configuration **in the request body**,
+then applies what this application needs: all public access blocked and
+default encryption on (AWS S3 only — R2 buckets are private and encrypted
+by default), and a CORS rule allowing `PUT`/`GET`/`HEAD` from this
+deployment's own origin with **`ExposeHeaders: ["ETag"]`**, which browser
+multipart uploads cannot complete without. Safe to repeat: a bucket that
+already exists and belongs to this account is left alone and the
+hardening steps still run — also the repair path for a bucket created by
+hand without a CORS rule.
+
+**⚠ This also returns HTTP 200 for every outcome, including a credential
+that cannot create buckets.** Read `outcome`:
+`created` | `already_exists` | `partial` (bucket exists, at least one
+hardening step failed — `steps` says which) | `guided` (the credential
+may not create buckets — the **ordinary** shape of a least-privilege
+credential, not a fault; `guidance.commands` is a ready-to-paste block
+with this deployment's real values, and `guidance.runbook` points at
+[`docs/runbooks/storage-configuration.md`](runbooks/storage-configuration.md))
+| `failed` (the bucket does not exist and this is not a permissions
+question — the name is taken, the endpoint is unreachable, the credential
+itself is wrong).
+
+**Requires:** `storage_config:write`
+
+**Request Body:** the same shape as `POST /test`.
+
+**Response (guided example):**
+```json
+{
+  "data": {
+    "outcome": "guided",
+    "provider": "s3",
+    "bucket": "my-app-uploads",
+    "region": "us-east-1",
+    "effectiveEndpoint": null,
+    "steps": [
+      {
+        "id": "create",
+        "label": "Create the bucket",
+        "status": "failed",
+        "detail": "Access key AKIAIOSFODNN7EXAMPLE is not permitted to create buckets on this endpoint. That is the ordinary shape of a least-privilege credential, not a fault — create the bucket with an administrative credential using the commands below, then run the connection test again.",
+        "error": "AccessDenied: Access Denied"
+      },
+      { "id": "publicAccessBlock", "label": "Block all public access", "status": "skipped", "detail": "Not attempted: there is no bucket to apply it to yet.", "error": null },
+      { "id": "encryption", "label": "Enable default encryption at rest", "status": "skipped", "detail": "Not attempted: there is no bucket to apply it to yet.", "error": null },
+      { "id": "cors", "label": "Apply the CORS rule browsers need", "status": "skipped", "detail": "Not attempted: there is no bucket to apply it to yet.", "error": null }
+    ],
+    "guidance": {
+      "reason": "Access key AKIAIOSFODNN7EXAMPLE is not permitted to create buckets on this endpoint...",
+      "commands": "# Run with a credential that may create buckets...\n\naws s3api create-bucket --bucket my-app-uploads --region us-east-1\n...",
+      "runbook": "docs/runbooks/storage-configuration.md"
+    },
+    "corsOrigin": "https://app.example.com",
+    "attemptedAt": "2024-01-01T00:00:00.000Z"
+  }
+}
+```
 
 ---
 

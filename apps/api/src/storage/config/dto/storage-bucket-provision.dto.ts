@@ -165,11 +165,16 @@ export const guidedBucketInstructionsSchema = z.object({
   /**
    * Repository-relative path to the runbook that explains the block.
    *
-   * NULLABLE, and currently null: object storage has no runbook in `docs/` yet.
-   * A nullable field means the later documentation issue in this epic fills it
-   * in without a schema change, and means this endpoint never ships a link to a
-   * file that is not there — which is the failure `test/docs-links.spec.ts`
-   * exists to prevent for prose and which nothing would catch here.
+   * NULLABLE — kept that way even now that issue #378 has written
+   * `docs/runbooks/storage-configuration.md` and
+   * `StorageBucketProvisionService` fills this in (`STORAGE_RUNBOOK_PATH`).
+   * The nullability is what let #375 ship the endpoint before the runbook
+   * existed without ever pointing at a file that was not there — the same
+   * shape `guidedJobRoleInstructionsSchema` uses non-nullably only because its
+   * runbook already existed the day that schema was written. Leaving this
+   * field nullable rather than tightening it to `z.string()` costs nothing and
+   * keeps the type honest for a fork that removes the runbook or ships this
+   * response before writing one of its own.
    */
   runbook: z.string().nullable(),
 });

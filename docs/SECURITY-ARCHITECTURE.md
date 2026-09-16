@@ -952,9 +952,19 @@ All file uploads are validated before acceptance:
 
 **Example Configuration:**
 ```typescript
-STORAGE_MAX_FILE_SIZE=10737418240      // 10GB in bytes
-STORAGE_ALLOWED_MIME_TYPES=application/pdf,image/jpeg,image/png,application/zip
+MAX_FILE_SIZE=10737418240      // 10GB in bytes
+ALLOWED_MIME_TYPES=application/pdf,image/jpeg,image/png,application/zip
 ```
+(Corrected names — these two, `SIGNED_URL_EXPIRY` and `STORAGE_PART_SIZE`,
+are the four **deployment limits** that remain in `configuration.ts`'s
+`storage.*` block; they were never actually named `STORAGE_MAX_FILE_SIZE`/
+`STORAGE_ALLOWED_MIME_TYPES` in this codebase. *Which* provider, bucket,
+region, endpoint and credential is a separate question, answered entirely
+at runtime through `/admin/settings/storage` — see
+[`docs/specs/storage-providers.md`](specs/storage-providers.md) and
+[`docs/runbooks/storage-configuration.md`](runbooks/storage-configuration.md)
+— and is deliberately absent from this environment-variable list since
+epic #372.)
 
 ### Access Control
 
@@ -1090,6 +1100,19 @@ async generateDownloadUrl(objectId: string, expiresIn = 3600): Promise<string> {
 ```
 
 ### S3 Security Configuration
+
+> Since epic #372, `POST /admin/storage-config/bucket` (`/admin/settings/storage`
+> in the admin UI) applies the Block Public Access, Server-Side Encryption and
+> CORS settings below **automatically** when it creates a bucket, using this
+> deployment's real bucket name, region and origin — see
+> [`docs/specs/storage-providers.md`](specs/storage-providers.md) and
+> [`docs/runbooks/storage-configuration.md`](runbooks/storage-configuration.md).
+> The examples below remain useful for a bucket created by hand (the `guided`
+> outcome of that same endpoint prints an equivalent, deployment-specific
+> command block), but note that the CORS example here is illustrative and
+> **omits `ExposeHeaders: ["ETag"]`** — the real configuration includes it,
+> and without it a browser multipart upload transfers completely and then
+> fails to complete, with an error that names neither CORS nor the bucket.
 
 **Recommended S3 Bucket Security Settings:**
 
@@ -1377,10 +1400,14 @@ COOKIE_SECRET=your-cookie-secret-key-min-32-characters-long
 **Credential Encryption:**
 ```bash
 # Base64-encoded 32-byte AES-256 key. Encrypts secrets an administrator
-# configures at runtime (e.g. an SMTP password) before they are stored in the
+# configures at runtime (SMTP, Web Push, and — since epic #372 — the
+# object-storage secret access key) before they are stored in the
 # `credentials` table. Does NOT apply to deploy-time secrets such as
 # JWT_SECRET or GOOGLE_CLIENT_SECRET, which stay in the environment.
-# Optional until a credential is stored; see section 14 below.
+# Formally optional at boot until a credential is stored (see section 14
+# below); in practice required for a working deployment, since uploads,
+# avatars and database backups all need the object-storage credential this
+# key protects.
 # Generate with: openssl rand -base64 32
 SECRETS_ENCRYPTION_KEY=
 ```
@@ -1771,7 +1798,7 @@ apps/web/src/
 - [ ] OAuth credentials from production Google project
 - [ ] Audit logging verified and monitored
 - [ ] Error handler sanitizes responses (no stack traces)
-- [ ] `SECRETS_ENCRYPTION_KEY` set before any credential-store consumer (e.g. SMTP settings) goes live
+- [ ] `SECRETS_ENCRYPTION_KEY` set before any credential-store consumer (SMTP, Web Push, or object storage — set this before configuring storage at `/admin/settings/storage`) goes live
 
 **Monitoring:**
 - [ ] Set up alerts for `refresh token reuse detected` logs
@@ -1788,9 +1815,11 @@ apps/web/src/
 
 ### Overview
 
-Deploy-time secrets (`JWT_SECRET`, `GOOGLE_CLIENT_SECRET`, `AWS_SECRET_ACCESS_KEY`, etc.) live in the environment and are covered by the configuration reference above. This section covers a different category: secrets an **administrator configures at runtime through the application** — an SMTP password is the first, forthcoming, consumer (issue #109) — which cannot come from an environment variable because changing an env var requires a redeploy.
+Deploy-time secrets (`JWT_SECRET`, `GOOGLE_CLIENT_SECRET`, etc.) live in the environment and are covered by the configuration reference above. `AWS_SECRET_ACCESS_KEY` is also deploy-time, but is SES-only since epic #372 — see the note below. This section covers a different category: secrets an **administrator configures at runtime through the application**, which cannot come from an environment variable because changing an env var requires a redeploy. An SMTP password was the first consumer (issue #109); this store now has three: SMTP (`smtp`), Web Push's VAPID private key (`push_vapid`, issue #355), and the object-storage secret access key (`storage`, epic #372 — see [`docs/specs/storage-providers.md`](specs/storage-providers.md)). (Epic #345's node-broker job credentials are a *different* mechanism, deliberately: they are short-lived database roles minted directly at the database, never persisted as ciphertext anywhere — `job_node_secrets` records only a handle, never material. See `docs/specs/job-queue.md` §7.10.)
 
-These are stored in the `credentials` table (Prisma model `Credential`), encrypted at rest, and managed exclusively by `CredentialsService` (`apps/api/src/credentials/credentials.service.ts`). **This module has no HTTP controller today** — it is consumed directly by backend code, not exposed to any admin UI yet. A future consumer adds its own controller when it needs one.
+These are stored in the `credentials` table (Prisma model `Credential`), encrypted at rest, and managed exclusively by `CredentialsService` (`apps/api/src/credentials/credentials.service.ts`). **`CredentialsService` itself still has no HTTP controller of its own** — each consumer above exposes its own admin surface (`EmailSettingsController`, `PushConfigController`, `StorageConfigController`) that calls `describe`/`setSecret`/`getSecret` on this service directly, rather than this module ever accepting a raw `(purpose, name, secret)` triple from HTTP. That is deliberate: a generic "write any secret to any purpose" endpoint would let whichever permission guards it write into an address a completely different feature reads from.
+
+⚠ **`AWS_SECRET_ACCESS_KEY` (and `AWS_ACCESS_KEY_ID`) are SES-only now.** Before epic #372 these two variables were shared between email (SES) and object storage (S3) — the same pair, read twice, because both talked to AWS. Storage now has its own credential, in this same encrypted store, at `(purpose: 'storage', name: 'default')`; the object-storage secret access key is **never** an environment variable. A reader who sees `AWS_SECRET_ACCESS_KEY` set on a deployment and assumes it authorizes S3 uploads is wrong — it authorizes only outgoing SES email.
 
 ### The Cipher
 
@@ -1845,7 +1874,7 @@ Notable properties of this behaviour:
 
 - **`NODE_ENV` plays no role anywhere in this check.** There is no development-mode fallback key and no relaxed behaviour for non-production. A fixed fallback key would itself be a key sitting in this public repository, and whether that branch is safe would depend on `NODE_ENV` being set correctly on every deployment — which it is not guaranteed to be (Node leaves it unset by default). A deployment that forgot to set `NODE_ENV=production` would otherwise silently encrypt real secrets under a constant anyone could read off GitHub.
 - **"Absent, rows exist" is fatal in every environment on purpose.** Rows can only exist because `CredentialsService.setSecret` successfully called `encryptSecret`, which itself throws without a valid key — so rows existing is proof a key was working at some point, and its current absence is a regression, not first-time setup.
-- **"Absent, zero rows" warns and boots** because that is the state every deployment of this repository is in today — no compose file, `.env.example`, or CI job sets `SECRETS_ENCRYPTION_KEY` yet, and the credential store has no consumer yet either.
+- **"Absent, zero rows" warns and boots** rather than refusing to start, because this table's decision is about whether the *stored ciphertext this process already has* can be read, not about whether the credential store will ever be used — a fresh install legitimately has zero rows before its first login even completes. This still matters in practice: `infra/compose/.env.example` ships `SECRETS_ENCRYPTION_KEY=` uncommented but empty, and since epic #372 the credential store has a consumer (the object-storage secret access key) that almost every real deployment needs working from its first upload — see the note on `AWS_SECRET_ACCESS_KEY` above. A deployment that never fills this key in stays bootable, but storage, SMTP and Web Push all stay unusable until it does.
 - **The check does not attempt to decrypt any row.** It only counts rows via `prisma.credential.count()`. A key that is present and well-formed but is the *wrong* key for existing rows (e.g. a partially completed rotation) still passes startup validation cleanly — the failure only surfaces later, when `CredentialsService.getSecret` actually tries to decrypt that row. See the rotation runbook, [`docs/runbooks/rotate-secrets-encryption-key.md`](runbooks/rotate-secrets-encryption-key.md), for the operational implications.
 - An empty string (`SECRETS_ENCRYPTION_KEY=` with nothing after it — exactly what an uncommented but unfilled `.env.example` line produces) is treated as **absent**, not malformed.
 

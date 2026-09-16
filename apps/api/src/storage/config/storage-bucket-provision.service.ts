@@ -119,6 +119,21 @@ const EXPOSED_HEADERS = ['ETag'];
 /** How long a browser may cache the preflight. One hour. */
 const CORS_MAX_AGE_SECONDS = 3600;
 
+/**
+ * Repository-relative path to the storage-configuration runbook.
+ *
+ * Mirrors `RESTORE_RUNBOOK_PATH` (`db-backup/restore-preflight.service.ts`) and
+ * `NODE_JOB_SECRETS_RUNBOOK_PATH` (`db-backup/pg-job-role.broker.ts`): one
+ * exported constant, read by the `guided` outcome below, so the string is
+ * never retyped at the point of use. Wired up by this epic's documentation
+ * issue (#378) once the file it names actually exists — see
+ * `docs/runbooks/storage-configuration.md`. Before that file existed this was
+ * `null`, on purpose: a link to a runbook that is not there is worse than no
+ * link, and `test/docs-links.spec.ts` would not have caught a stale path
+ * pointing at prose rather than a real endpoint response.
+ */
+export const STORAGE_RUNBOOK_PATH = 'docs/runbooks/storage-configuration.md';
+
 @Injectable()
 export class StorageBucketProvisionService {
   private readonly logger = new Logger(StorageBucketProvisionService.name);
@@ -227,10 +242,10 @@ export class StorageBucketProvisionService {
         guidance: {
           reason: create.reason,
           commands: buildGuidedBucketCommands(config, this.corsOrigin()),
-          // Null until this epic's documentation issue writes one. See the
-          // field's note in the DTO — a link to a file that does not exist is
-          // worse than no link.
-          runbook: null,
+          // See STORAGE_RUNBOOK_PATH above — this epic's documentation issue
+          // (#378) wrote the file, so the guided path now names it, the same
+          // way the db-backup guided paths name theirs.
+          runbook: STORAGE_RUNBOOK_PATH,
         },
         corsOrigin: this.corsOrigin(),
       };
