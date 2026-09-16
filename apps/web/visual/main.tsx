@@ -123,6 +123,12 @@ const DEFAULT_PERMISSIONS = [
   'db_backup:read',
   'db_backup:write',
   'db_backup:restore',
+  // The object-storage configuration card (#376, epic #372). Same contract as
+  // every string above: without this the `Storage` card is invisible to the
+  // harness, so the hub baselines would keep passing over a grid that silently
+  // stopped containing it — green, and wrong.
+  'storage_config:read',
+  'storage_config:write',
 ];
 
 interface HarnessParams {

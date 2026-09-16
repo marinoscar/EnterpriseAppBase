@@ -366,6 +366,129 @@ describe('the Broadcasts card (#325)', () => {
   });
 });
 
+/**
+ * Issue #376, epic #372. The `Storage` page is a registry CARD in the
+ * **General** group — `CLAUDE.md`'s mandatory settings-UI rules 1 and 3 stated
+ * as assertions, and rule 2 by construction (it is not a tab on Email, on Web
+ * Push, or on anything else).
+ *
+ * The route/permission agreement with `App.tsx` is asserted generically for
+ * every card in `destinations.test.ts`; what is pinned here is this card's own
+ * identity, that its permission is neither of the two pairs that look like they
+ * would do, and that the gate genuinely denies.
+ */
+describe('the Storage card (#376)', () => {
+  const card = ADMIN_SECTIONS.flatMap((section) => section.cards).find(
+    (entry) => entry.title === 'Storage',
+  );
+
+  it('is declared in ADMIN_SECTIONS', () => {
+    expect(card).toBeDefined();
+  });
+
+  it('routes to /admin/settings/storage', () => {
+    expect(card?.path).toBe('/admin/settings/storage');
+  });
+
+  it('lives under General, not Operations', () => {
+    // General holds configuration an administrator SETS, which then sits
+    // there — the bucket, the endpoint, the key pair. Operations is the
+    // RUNNING system: work in flight, the machines executing it, the copies of
+    // the data taken while it ran. Storage belongs beside Email and Web Push.
+    const owner = ADMIN_SECTIONS.find((section) =>
+      section.cards.some((entry) => entry.title === 'Storage'),
+    );
+    expect(owner?.label).toBe('General');
+  });
+
+  it('is not an alwaysShow escape hatch — the gate must be able to deny it', () => {
+    expect(card?.alwaysShow).toBeUndefined();
+  });
+
+  it('is routed, not inert', () => {
+    expect(card?.disabled).toBeUndefined();
+  });
+
+  it('declares the exact permission the API enforces on the storage-config routes', () => {
+    // Read off the API workspace rather than restated, so a rename on either
+    // side fails here instead of in production. This is the mechanical half of
+    // CLAUDE.md Settings UI Pattern rule 3.
+    const API_SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../api/src');
+    const rolesConstants = readFileSync(
+      resolve(API_SRC, 'common/constants/roles.constants.ts'),
+      'utf8',
+    );
+    const storageConfigController = readFileSync(
+      resolve(API_SRC, 'storage/config/storage-config.controller.ts'),
+      'utf8',
+    );
+
+    expect(card?.permission).toBe('storage_config:read');
+    expect(rolesConstants).toContain("STORAGE_CONFIG_READ: 'storage_config:read'");
+    expect(rolesConstants).toContain("STORAGE_CONFIG_WRITE: 'storage_config:write'");
+    expect(storageConfigController).toContain('PERMISSIONS.STORAGE_CONFIG_READ');
+    expect(storageConfigController).toContain('PERMISSIONS.STORAGE_CONFIG_WRITE');
+  });
+
+  it('mirrors neither system_settings:read nor storage:read', () => {
+    // `system_settings:read` would gate a credential-bearing screen on evidence
+    // unrelated to whether the request behind the card will be authorized.
+    // `storage:read` is the closer-looking mistake and the worse one: that pair
+    // gates OBJECT ACCESS and is seeded to Viewer and Contributor, so mirroring
+    // it would put this page in front of the entire user base.
+    expect(card?.permission).not.toBe('system_settings:read');
+    expect(card?.permission).not.toBe('storage:read');
+    expect(card?.permission).not.toBe('storage_config:write');
+  });
+
+  it('appears for an admin holding storage_config:read', () => {
+    const result = visibleSettingsSections(
+      ADMIN_SECTIONS,
+      (permission) => permission === 'storage_config:read',
+    );
+
+    expect(titlesOf(result)).toContain('Storage');
+  });
+
+  it('is invisible to a user holding only storage:read, however many objects they may read', () => {
+    const result = visibleSettingsSections(
+      ADMIN_SECTIONS,
+      (permission) => permission === 'storage:read',
+    );
+
+    expect(titlesOf(result)).not.toContain('Storage');
+  });
+
+  it('appears in none of the three surfaces for a viewer', () => {
+    // A viewer holds `user_settings:*` and `storage:*`. One assertion covers
+    // the hub, the rail and the title resolver because all three run this same
+    // function.
+    const viewerPermissions = [
+      'user_settings:read',
+      'user_settings:write',
+      'storage:read',
+      'storage:write',
+      'storage:delete',
+    ];
+    const result = visibleSettingsSections(ADMIN_SECTIONS, (permission) =>
+      viewerPermissions.includes(permission),
+    );
+
+    expect(titlesOf(result)).not.toContain('Storage');
+  });
+
+  it('resolves its route to its own title, not the hub title', () => {
+    expect(
+      settingsPageTitle(
+        ADMIN_SECTIONS,
+        ADMIN_HUB_PATH,
+        ADMIN_HUB_TITLE,
+        '/admin/settings/storage',
+      ),
+    ).toBe('Storage');
+  });
+});
+
 describe('settingsPageTitle', () => {
   it('resolves an exact card path to its title', () => {
     expect(settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, '/admin/settings/users')).toBe(

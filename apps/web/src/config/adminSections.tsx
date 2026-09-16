@@ -36,6 +36,7 @@ import EmailOutlinedIcon from '@mui/icons-material/EmailOutlined';
 import NotificationsActiveOutlinedIcon from '@mui/icons-material/NotificationsActiveOutlined';
 import BuildCircleOutlinedIcon from '@mui/icons-material/BuildCircleOutlined';
 import VpnKeyOutlinedIcon from '@mui/icons-material/VpnKeyOutlined';
+import CloudOutlinedIcon from '@mui/icons-material/CloudOutlined';
 import PeopleIcon from '@mui/icons-material/People';
 // Operations (#266, epic #254). One icon per card, including the two cards
 // whose pages land in later issues — the card is declared now, so its icon is
@@ -99,6 +100,7 @@ export interface SettingsSectionDef {
  *   - `nodes:read`            → the worker-node controller (#267)
  *   - `db_backup:read`        → the database-backup controller (#268)
  *   - `push:read`             → the push-config controller (#355)
+ *   - `storage_config:read`   → the storage-config controller (#375)
  *
  * `Users & Allowlist` gates on `users:read` alone even though it hosts data
  * from two controllers (Users → `users:read`, Allowlist → `allowlist:read`).
@@ -160,6 +162,43 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
         Icon: VpnKeyOutlinedIcon,
         path: '/admin/settings/push',
         permission: 'push:read',
+      },
+      {
+        // Issue #376, epic #372. `storage_config:read` / `storage_config:write`
+        // is a permission pair OF ITS OWN, and it is neither of the two pairs
+        // that already look like they would do.
+        //
+        // NOT `system_settings:*`: a wrong bucket, a wrong endpoint or a
+        // rotated-out secret does not degrade one feature, it breaks every
+        // upload, avatar, job artifact and database backup in the deployment at
+        // once — the same "distinct blast radius" argument `nodes:*`,
+        // `db_backup:*`, `broadcasts:*` and `push:*` each made before it.
+        //
+        // NOT `storage:*`, which is the closer-looking mistake: THAT pair gates
+        // OBJECT ACCESS and is seeded to Viewer and Contributor, so every
+        // ordinary user of this application holds `storage:read`. Mirroring it
+        // here would put the deployment's credential-bearing configuration
+        // screen in front of the entire user base.
+        //
+        // `storage_config:read` is the string `storage/config/storage-config
+        // .controller.ts` enforces on its GET — the registry never invents a
+        // permission, it mirrors one. Saving, testing the connection and
+        // creating the bucket all need `storage_config:write`, which the PAGE
+        // gates internally by disabling its controls: the card gate is about
+        // REACHABILITY, and "which bucket is this deployment writing to, and
+        // does it think it is configured" is worth reading for anyone answering
+        // "why did that upload fail".
+        //
+        // GENERAL, NOT OPERATIONS: this is configuration an administrator SETS
+        // and which then sits there, exactly like Email and Web Push beside it.
+        // Operations is the running system — work in flight, the machines
+        // executing it, the copies of the data taken while it ran.
+        title: 'Storage',
+        description:
+          'Point this deployment at an object store, prove the credentials work, and create the bucket if it is not there yet.',
+        Icon: CloudOutlinedIcon,
+        path: '/admin/settings/storage',
+        permission: 'storage_config:read',
       },
       {
         // Issue #258, epic #254. `system_settings:read` is the string

@@ -52,6 +52,9 @@ const NotificationSettingsPage = lazy(
 );
 // Issue #355 — runtime-configurable Web Push (VAPID) key management.
 const PushConfigPage = lazy(() => import('./pages/Admin/PushConfigPage'));
+// Issue #376, epic #372 — the object-storage configuration, its connection
+// test and its bucket provisioner.
+const StorageConfigPage = lazy(() => import('./pages/Admin/StorageConfigPage'));
 // Issue #258, epic #254 — the maintenance window's switch and its layers.
 // `Admin`-prefixed locally to keep it distinct from `pages/MaintenancePage`,
 // which is the screen a BLOCKED user sees rather than the page that opens and
@@ -305,6 +308,29 @@ function AppRoutes() {
                         fallback={<Navigate to="/" replace />}
                       >
                         <PushConfigPage />
+                      </RequirePermission>
+                    }
+                  />
+                  {/* Issue #376, epic #372. Same permission string the
+                      `Storage` card declares in `config/adminSections.tsx`,
+                      which is the same string the API's storage-config
+                      controller enforces on its GET — the invariant
+                      `destinations.test.ts` asserts for every card.
+                      `storage_config:read` and not `:write`: saving, testing
+                      the connection and creating the bucket all need
+                      `storage_config:write`, which the page disables without
+                      it, but the configuration is worth READING for anyone
+                      diagnosing why an upload failed. And deliberately NOT
+                      `storage:read`, which every ordinary user holds — see the
+                      card's own comment. */}
+                  <Route
+                    path="/admin/settings/storage"
+                    element={
+                      <RequirePermission
+                        permission="storage_config:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <StorageConfigPage />
                       </RequirePermission>
                     }
                   />
