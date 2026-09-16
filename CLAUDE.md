@@ -599,6 +599,13 @@ and [`docs/runbooks/vapid-keys.md`](docs/runbooks/vapid-keys.md).
 - `POST /api/admin/push-config/rotate` - Replace the key pair (body `{"confirmation":"ROTATE"}`; 400 if nothing configured yet) (`push:write`)
 - `DELETE /api/admin/push-config` - Delete both the credential and the settings row (body `{"confirmation":"REMOVE"}`) (`push:write`)
 
+### Deployment (Admin-only)
+What revision is running here, and on what machine — read-only, reporting the
+`appctl deploy` state file (issue #392, epic #388). See
+[`docs/specs/vps-deploy.md`](docs/specs/vps-deploy.md) §18.6 and
+[`docs/runbooks/deployment-info.md`](docs/runbooks/deployment-info.md).
+- `GET /api/admin/deployment` - The deployment record plus this process's own runtime facts; `200` even when nothing is recorded — read `configured` (`deployment:read`)
+
 ### Health
 - `GET /api/health/live` - Liveness check
 - `GET /api/health/ready` - Readiness check (includes DB)
@@ -645,6 +652,13 @@ and [`docs/runbooks/vapid-keys.md`](docs/runbooks/vapid-keys.md).
   and is seeded to Viewer and Contributor, so reusing it would put this
   credential-bearing configuration screen in front of the entire user base. See
   [`docs/specs/storage-providers.md`](docs/specs/storage-providers.md)
+- `deployment:read` - What is deployed here, and on what machine (issue #392, epic #388).
+  **Not `system_settings:read`** — that returns this application's own configuration;
+  this returns the host's fingerprint (hostname, OS/kernel, CPU/memory, Docker/Compose
+  versions, public IP, the proxy's certificate expiry) and the exact commit now serving
+  requests, which a deployment must be able to withhold from anyone who can merely read
+  settings. No `:write` counterpart — nothing in this application writes the record;
+  `appctl deploy` does, on the VPS, and the API only reads the file it left behind.
 
 ## Database Tables
 
@@ -716,7 +730,7 @@ A third `ADMIN_SECTIONS` group (`apps/web/src/config/adminSections.tsx`),
 alongside `General` and `Access` — issue #266, epic #254. `General` is
 configuration an administrator *sets*; `Operations` is the running system: work
 in flight, the machines executing it, and the copies of the data taken while it
-ran. Five cards at `/admin/settings/*`, each gated on the exact permission its
+ran. Six cards at `/admin/settings/*`, each gated on the exact permission its
 controller enforces (Settings UI Pattern rule 3):
 
 - **Jobs** (`/admin/settings/jobs`, `jobs:read`) and **Job Insights**
@@ -724,8 +738,14 @@ controller enforces (Settings UI Pattern rule 3):
 - **Worker Nodes** (`/admin/settings/workers`, `nodes:read`)
 - **Database Backup** (`/admin/settings/db-backup`, `db_backup:read`)
 - **Broadcasts** (`/admin/settings/broadcasts`, `broadcasts:read`, epic #319)
+- **Deployment** (`/admin/settings/deployment`, `deployment:read`, issue #392,
+  epic #388) — when this instance was last installed or updated, from which
+  commit, on what host and behind which proxy; the one Operations card whose
+  page is read-only for everybody who can reach it, because a deployment is
+  changed by running `appctl deploy`, not by anything this application itself
+  exposes
 
-All five read permissions are seeded Admin-only, so writes are gated inside
+All six read permissions are seeded Admin-only, so writes are gated inside
 each page (disabling controls) rather than by a second card permission — the
 card gate is about reachability, the page gates content. `Maintenance` is a
 `General` card, not an `Operations` one — it is a system setting, not a

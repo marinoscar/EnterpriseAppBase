@@ -250,12 +250,23 @@ appctl deploy doctor --domain app.example.com
 
 Nothing is installed, written or started — it's read-only, so it's safe to
 run against a production server at any time, not just before a first
-install. It runs around 27 checks: Docker and its daemon, the Compose v2
-plugin, git, node, disk and memory headroom, the loopback port, the shared
-reverse proxy's directory and its `conf.d`/webroot being writable, certbot,
-ports 80 and 443, the proxy's current config, the external PostgreSQL
-database (reachable, credentials valid, database exists, can create tables,
-TLS), and — once `--domain` turns them on — DNS and the certificate.
+install. It runs around 31 checks, and prints **every** one of them,
+required and recommended alike — there is no flag that hides the
+recommended tier, because a `doctor` that silently withholds warnings unless
+asked is a `doctor` whose output looks clean on a server that isn't: Docker
+and its daemon, the Compose v2 plugin, git, node, disk and memory headroom,
+the loopback port, the GitHub CLI (only promoted from a warning to a real
+failure when this repository is private, reached over `https`, and this
+server has no credential for it already), the shared reverse proxy's
+directory, its `conf.d`/webroot being writable, whether its container is
+actually running (when the proxy is containerised), certbot, ports 80 and
+443, the proxy's current config, the external PostgreSQL database
+(reachable, credentials valid, database exists, can create tables, can
+create databases, TLS), and — once `--domain` turns them on — DNS, the
+certificate itself, who (if anyone) already owns its renewal on this host,
+whether its renewal configuration records paths a containerised certbot can
+actually follow, and whether the certificate the proxy is *serving* right
+now matches the one on disk.
 
 ```bash
 appctl deploy doctor --json | jq '.checks[] | select(.status=="fail")'
@@ -269,14 +280,27 @@ Other flags, from `appctl deploy doctor --help`:
 
 ```
 Options:
-  --root <path>        Deployment directory (default: "/opt/infra/apps")
-  --proxy-root <path>  Shared reverse proxy directory (default:
-                       "/opt/infra/proxy")
-  --port <port>        Loopback port the proxy forwards to (default: "3535")
-  --domain <domain>    Public domain; enables the DNS and TLS checks
-  --json               Print a machine-readable report on stdout
-  --no-color           Disable colour even on a terminal
+  --root <path>             Deployment directory (default: "/opt/infra/apps")
+  --proxy-root <path>       Shared reverse proxy directory (default:
+                            "/opt/infra/proxy")
+  --proxy-container <name>  Container the shared proxy runs in (default:
+                            "proxy-nginx")
+  --proxy-mode <mode>       How the shared proxy is operated: container or
+                            host (default: detected)
+  --port <port>             Loopback port the proxy forwards to (default: "3535")
+  --domain <domain>         Public domain; enables the DNS and TLS checks
+  --json                    Print a machine-readable report on stdout
+  --no-color                Disable colour even on a terminal
 ```
+
+`--proxy-mode` states outright how the shared proxy is operated instead of
+letting `doctor` probe for it (`docker inspect` on `--proxy-container`,
+defaulting to host mode when that probe fails or finds nothing running) —
+useful on a server where the probe can't reach the container for reasons
+unrelated to the proxy itself. A typo here (`--proxy-mode contianer`) is a
+usage error at the flag, not a silent fall-through to host paths, because
+"detected host mode" and "you misspelled the mode" would otherwise produce
+the identical broken vhost.
 
 `install` and `update` both run the same required checks as their own
 preflight step, so nothing they do is skipped by running `doctor` first —
@@ -289,9 +313,40 @@ an unreachable database before you're mid-pipeline, not partway through one.
 appctl deploy install --domain app.example.com
 ```
 
-Runs preflight → checkout → environment → validate-environment → build →
-migrate → seed → start → health → publish → verify, in that order, printing
-each step's result as it completes. `--domain` is the one required flag.
+Runs preflight → checkout → environment → validate-environment →
+ensure-database → build → migrate → seed → start → health →
+proxy-bootstrap → publish → renewal → verify, in that order, printing each
+step's result as it completes. `--domain` is the one required flag.
+
+Two of those steps ask before acting, and neither guesses under
+`--non-interactive` — it fails instead, naming the flag that would answer
+the question:
+
+- **`ensure-database`** creates `POSTGRES_DB` when it's missing, but only
+  once you say so (`--create-database`, or an interactive yes). A typo in
+  `POSTGRES_DB` looks exactly like a database that hasn't been created yet —
+  both fail identically from the outside — so only a human answering the
+  prompt can tell the two apart.
+- **`proxy-bootstrap`** creates the shared reverse proxy when this box has
+  none (`--bootstrap-proxy`, or an interactive yes) — the only step in this
+  whole pipeline that binds public ports (80 and 443). An *existing* proxy
+  root is never touched, no matter what: it belongs to whichever application
+  reached this server first.
+
+**`validate-environment`** also probes the configured Google OAuth
+credentials against Google's own token endpoint with a deliberately invalid
+authorization code, before anything is built. `invalid_client` fails the
+step — the credentials are wrong; `invalid_grant` is what a **pass** looks
+like — the client authenticated and only the made-up code was rejected. A
+network failure here (an egress-filtered server, a Google outage) is a
+warning, never a hard failure.
+
+**`renewal`** consults the same "who owns certificate renewal on this host"
+check `doctor`'s `certificate-renewal` uses and schedules a twice-daily entry
+in `/etc/cron.d/certbot` **only when nothing already does** — a second
+schedule against the same certificate tree spends a Let's-Encrypt rate-limit
+budget shared with every other subdomain on the box, so `install` stands
+down rather than adding one. `--skip-renewal` skips this step outright.
 
 The repository and ref come from **this checkout's own git remote**, not a
 value hardcoded in the CLI — a fork deploys itself with no configuration
@@ -322,29 +377,41 @@ Other flags, from `appctl deploy install --help`:
 
 ```
 Options:
-  --root <path>        Deployment directory (default: "/opt/infra/apps")
-  --domain <domain>    Public domain to publish under
-  --proxy-root <path>  Shared reverse proxy directory (default:
-                       "/opt/infra/proxy")
-  --port <port>        Loopback port the proxy forwards to (default: "3535")
-  --repo <url>         Repository to deploy (default: this checkout's origin)
-  --ref <ref>          Branch, tag or commit (default: the remote default
-                       branch)
-  --email <email>      Certificate registration address
-  --group <name>       Optional feature group; repeat for more (default: [])
-  --all                Review every environment variable, not only the essential
-                       ones
-  --non-interactive    Never prompt; fail listing anything unresolved
-  --reinstall          Install over an existing deployment
-  --resume             Continue from the step that failed
-  --skip-doctor        Skip the prerequisite checks
-  --skip-proxy         Do not touch the reverse proxy or request a certificate
-  --skip-seed          Do not run the database seed
-  --no-cache           Rebuild images without the layer cache
-  --force              Discard uncommitted changes in the checkout
-  --staging            Use Let's Encrypt staging while working out the setup
-  --json               Print a machine-readable result on stdout
+  --root <path>             Deployment directory (default: "/opt/infra/apps")
+  --domain <domain>         Public domain to publish under
+  --proxy-root <path>       Shared reverse proxy directory (default:
+                            "/opt/infra/proxy")
+  --proxy-container <name>  Container the shared proxy runs in (default:
+                            "proxy-nginx")
+  --proxy-mode <mode>       How the shared proxy is operated: container or
+                            host (default: detected)
+  --port <port>             Loopback port the proxy forwards to (default: "3535")
+  --repo <url>              Repository to deploy (default: this checkout's origin)
+  --ref <ref>               Branch, tag or commit (default: the remote default
+                            branch)
+  --email <email>           Certificate registration address
+  --group <name>            Optional feature group; repeat for more (default: [])
+  --all                     Review every environment variable, not only the essential
+                            ones
+  --non-interactive         Never prompt; fail listing anything unresolved
+  --reinstall               Install over an existing deployment
+  --resume                  Continue from the step that failed
+  --skip-doctor             Skip the prerequisite checks
+  --skip-proxy              Do not touch the reverse proxy or request a certificate
+  --skip-seed               Do not run the database seed
+  --skip-renewal            Do not schedule certificate renewal
+  --bootstrap-proxy         Create the shared reverse proxy if this box has none
+                            (binds ports 80 and 443)
+  --create-database         Create POSTGRES_DB if it does not exist yet
+  --no-cache                Rebuild images without the layer cache
+  --force                   Discard uncommitted changes in the checkout
+  --staging                 Use Let's Encrypt staging while working out the setup
+  --json                    Print a machine-readable result on stdout
 ```
+
+`--proxy-container`/`--proxy-mode` mean the same thing here as for `doctor`
+above — state which proxy and how it's run, rather than letting `install`
+probe for it.
 
 **`install` does not create an admin user.** The seed writes the allowlist
 row for `INITIAL_ADMIN_EMAIL`, not a user account — nobody has access until
@@ -398,18 +465,31 @@ undone by checking out the old code, so on failure `update` prints the
 previous revision and the exact command to redeploy it —
 `appctl deploy update --ref <sha> --force` — and leaves that decision to you.
 
+`update` also re-checks (and, if needed, re-creates) `POSTGRES_DB` the same
+way `install` does — `--create-database` states the answer up front, useful
+if the database was dropped out from under a server that otherwise still
+works — and re-checks certificate renewal ownership the same way too:
+nothing is scheduled if something already owns it, exactly as on a first
+`install`. `--skip-renewal` skips that check entirely.
+
 Other flags, from `appctl deploy update --help`:
 
 ```
 Options:
-  --root <path>      Deployment directory (default: "/opt/infra/apps")
-  --ref <ref>        Branch, tag or commit to move to
-  --force            Rebuild even when the revision has not changed
-  --no-cache         Rebuild images without the layer cache
-  --non-interactive  Never prompt; fail listing anything unresolved
-  --skip-seed        Do not re-run the database seed
-  --skip-proxy       Do not touch the reverse proxy
-  --json             Print a machine-readable result on stdout
+  --root <path>             Deployment directory (default: "/opt/infra/apps")
+  --ref <ref>               Branch, tag or commit to move to
+  --force                   Rebuild even when the revision has not changed
+  --no-cache                Rebuild images without the layer cache
+  --non-interactive         Never prompt; fail listing anything unresolved
+  --skip-seed               Do not re-run the database seed
+  --skip-proxy              Do not touch the reverse proxy
+  --skip-renewal            Do not check or schedule certificate renewal
+  --create-database         Create POSTGRES_DB if it has gone missing
+  --proxy-container <name>  Container the shared proxy runs in (default:
+                            "proxy-nginx")
+  --proxy-mode <mode>       How the shared proxy is operated: container or
+                            host (default: detected)
+  --json                    Print a machine-readable result on stdout
 ```
 
 ### Checking status
@@ -432,6 +512,20 @@ against the database — it passes against a completely empty, unmigrated one
 just as readily as a fully migrated one. That's why `status` reports
 migration state as its own fact rather than inferring it from the health
 probe.
+
+**A "Sign-in" section reports whether OAuth actually works**, when the
+deployed `.env` can be read: `GET /api/auth/providers` (does the API list
+Google as enabled?) and `GET /api/auth/google` (does it redirect to Google
+carrying the client id and callback URL configured on disk?) — the same
+`oauth-check.ts` layer `install`'s own post-deploy smoke test uses, run again
+here because `.env` and the running containers can drift apart (a restart
+that didn't happen after an edit, most commonly). Under `--json`, this
+surfaces as an `oauth` object with its own `status`/`detail`/`remedy`.
+**This never affects `status`'s exit code, on purpose** — a deployment
+serving traffic correctly with a misconfigured OAuth client is a settings
+problem for a person to go fix, not an outage a monitoring script watching
+the exit code should page on. Absent entirely (no `oauth` key, no "Sign-in"
+section) when the deployed `.env` can't be read.
 
 Exits `0` when serving and the schema is current, `1` when installed but
 unhealthy, `2` when nothing is installed at `--root`.
