@@ -213,6 +213,16 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
           'The maintenance window: turning it on, the message callers see while it is open, and ' +
           'whether administrators keep access. Gated on `system_settings:write`.',
       },
+      {
+        name: 'Deployment',
+        description:
+          'What revision is running here and on what machine: the commit and ref last deployed, ' +
+          'when, the host\'s own identity, the proxy in front of it, and the deployments before ' +
+          'it. Read-only and gated on `deployment:read`, a permission of its own because it ' +
+          'discloses the host rather than this application\'s configuration. There is no write ' +
+          'half: `appctl deploy` writes the record on the server and the API only reads it, so a ' +
+          'deployment never installed by `appctl` reports that plainly and still answers 200.',
+      },
     ],
   },
 ];
