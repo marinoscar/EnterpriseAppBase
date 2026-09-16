@@ -107,6 +107,34 @@ export const PERMISSIONS = {
   // permission `PushConfigController` never checks.
   PUSH_READ: 'push:read',
   PUSH_WRITE: 'push:write',
+
+  // Object-storage CONFIGURATION — the bucket, the endpoint and the credential
+  // this deployment writes every byte through (#375, epic #372).
+  //
+  // DELIBERATELY NOT `system_settings:*`, for the same reason `nodes:*`,
+  // `db_backup:*`, `broadcasts:*` and `push:*` above are not: the blast radius
+  // is not a settings edit's. A wrong bucket, a wrong endpoint or a rotated-out
+  // secret access key does not degrade one feature — it breaks every upload,
+  // every avatar, every job artifact and every database backup in the
+  // deployment at once, and it does so the moment it is saved, because the
+  // configuration is resolved per call with no restart in between. That is an
+  // authority worth granting on purpose rather than inheriting from "may edit a
+  // system setting".
+  //
+  // DELIBERATELY NOT `storage:*` EITHER, which is the closer-looking mistake.
+  // `storage:read`/`storage:write`/`storage:delete_any` gate OBJECT ACCESS and
+  // are held by Viewer and Contributor — every ordinary user of this
+  // application has `storage:read`. Reusing that pair here would hand the
+  // deployment's credential-bearing configuration screen to the whole user
+  // base. The two pairs answer different questions: `storage:*` is "may this
+  // person use the object store", `storage_config:*` is "may this person decide
+  // WHICH object store, with WHOSE key".
+  //
+  // The Settings UI Pattern (CLAUDE.md rule 3) requires a hub card's
+  // `permission` to be the exact string its controller enforces, so #376's
+  // Storage card mirrors these two and nothing else.
+  STORAGE_CONFIG_READ: 'storage_config:read',
+  STORAGE_CONFIG_WRITE: 'storage_config:write',
 } as const;
 
 export type PermissionName = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

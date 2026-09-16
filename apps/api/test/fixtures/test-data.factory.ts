@@ -141,6 +141,24 @@ export const mockPermissions = {
     name: 'push:write',
     description: 'Generate, rotate, enable/disable and remove the Web Push key pair',
   },
+  // Object-storage CONFIGURATION (#375, epic #372). Seeded to Admin ONLY in
+  // `prisma/seed-data.ts`, and mirrored that way below.
+  //
+  // ⚠ NOT the same thing as `storage:read`/`storage:write`, which gate object
+  // ACCESS and which Viewer and Contributor genuinely hold. This pair decides
+  // WHICH object store the deployment uses and under whose key, and a fixture
+  // that handed it to a viewer would make an integration test asserting a
+  // viewer is refused pass for the wrong reason.
+  storageConfigRead: {
+    id: randomUUID(),
+    name: 'storage_config:read',
+    description: 'View the object-storage configuration',
+  },
+  storageConfigWrite: {
+    id: randomUUID(),
+    name: 'storage_config:write',
+    description: 'Change, test and provision the object-storage configuration',
+  },
 };
 
 export const mockRoles = {
@@ -452,6 +470,8 @@ export const rolePermissionsMap = {
     mockPermissions.dbBackupRestore,
     mockPermissions.pushRead,
     mockPermissions.pushWrite,
+    mockPermissions.storageConfigRead,
+    mockPermissions.storageConfigWrite,
   ],
   contributor: [
     mockPermissions.userSettingsRead,

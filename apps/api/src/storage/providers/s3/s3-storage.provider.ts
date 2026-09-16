@@ -147,8 +147,24 @@ export interface S3StorageProviderConfig {
  * `apps/api/src/storage/providers/s3/s3-storage.provider.spec.ts` asserts the
  * whole row end to end, from a settings literal to the arguments
  * `new S3Client(...)` was actually called with, rather than each half alone.
+ *
+ * ── WHY IT IS EXPORTED (#375) ───────────────────────────────────────────────
+ *
+ * Because #375's admin surface builds `S3Client`s this class does not own: the
+ * connection test drives `HeadBucket`, and the bucket provisioner drives
+ * `CreateBucket`/`PutPublicAccessBlock`/`PutBucketEncryption`/`PutBucketCors` —
+ * none of which is a `StorageProvider` operation, and none of which belongs on
+ * that interface (see the rule in #375's own header: the interface and its nine
+ * consumers are untouched by this feature).
+ *
+ * Those clients MUST be built the same way this one is, or the test would be
+ * testing a differently-configured client than the one that will do the work —
+ * a `forcePathStyle` that differs by a default is the exact discrepancy that
+ * makes a MinIO connection test pass and every upload fail. Exporting the
+ * function is additive: no signature changed, no caller changed, and there is
+ * still exactly one place that knows what each vendor's SDK flavour wants.
  */
-function buildS3ClientConfig(config: S3StorageProviderConfig): S3ClientConfig {
+export function buildS3ClientConfig(config: S3StorageProviderConfig): S3ClientConfig {
   const { provider, region, endpoint, accessKeyId, secretAccessKey } = config;
 
   const clientConfig: S3ClientConfig = {

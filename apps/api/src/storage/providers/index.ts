@@ -17,5 +17,6 @@ export { ResolvingStorageProvider } from './resolving-storage.provider';
 export {
   S3StorageProvider,
   DEFAULT_S3_PART_SIZE,
+  buildS3ClientConfig,
 } from './s3/s3-storage.provider';
 export type { S3StorageProviderConfig } from './s3/s3-storage.provider';

@@ -15,6 +15,7 @@ import { HealthModule } from './health/health.module';
 import { AllowlistModule } from './allowlist/allowlist.module';
 import { DeviceAuthModule } from './device-auth/device-auth.module';
 import { StorageModule } from './storage/storage.module';
+import { StorageConfigModule } from './storage/config/storage-config.module';
 import { PatModule } from './pat/pat.module';
 import { NodeCredentialModule } from './nodes/node-credential.module';
 import { NodesModule } from './nodes/nodes.module';
@@ -68,6 +69,12 @@ import configuration from './config/configuration';
     AllowlistModule,
     DeviceAuthModule,
     StorageModule,
+    // #375, epic #372 — the ADMIN surface for object-storage configuration
+    // (`/api/admin/storage-config`), deliberately a module of its own rather
+    // than routes on `StorageModule` above: that one is every user's object
+    // access (`storage:*`), this one is the Admin-only decision about which
+    // object store the deployment uses (`storage_config:*`). See the module.
+    StorageConfigModule,
     PatModule,
     // Worker node credentials (#267, epic #254): the `nod_` token family the
     // node fleet authenticates with, and its `/api/node-credentials` admin

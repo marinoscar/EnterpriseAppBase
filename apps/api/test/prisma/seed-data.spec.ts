@@ -168,6 +168,36 @@ describe('seed data', () => {
       expect(leaked).toEqual([]);
     });
 
+    it('grants the storage-config permissions to Admin and to nobody else (#375)', () => {
+      const storageConfig = ['storage_config:read', 'storage_config:write'];
+
+      for (const permission of storageConfig) {
+        expect(ROLE_PERMISSIONS.admin).toContain(permission);
+      }
+
+      const leaked = Object.entries(ROLE_PERMISSIONS)
+        .filter(([role]) => role !== 'admin')
+        .flatMap(([role, permissions]) =>
+          permissions
+            .filter((permission) => storageConfig.includes(permission))
+            .map((permission) => `${role}: ${permission}`),
+        );
+
+      expect(leaked).toEqual([]);
+    });
+
+    it('⚠ keeps storage_config:* distinct from storage:*, which every role holds (#375)', () => {
+      // The two are one character apart and mean completely different things:
+      // `storage:*` gates OBJECT ACCESS (Viewer holds `storage:read`), while
+      // `storage_config:*` decides which object store the deployment uses and
+      // under whose credential. Folding them together would put a
+      // credential-bearing configuration screen in front of the whole user base.
+      expect(ROLE_PERMISSIONS.viewer).toContain('storage:read');
+      expect(ROLE_PERMISSIONS.viewer).not.toContain('storage_config:read');
+      expect(ROLE_PERMISSIONS.contributor).toContain('storage:write');
+      expect(ROLE_PERMISSIONS.contributor).not.toContain('storage_config:write');
+    });
+
     it('grants the broadcasts permissions to Admin and to nobody else (#320)', () => {
       const broadcasts = ['broadcasts:read', 'broadcasts:write'];
 

@@ -135,6 +135,17 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
           'File objects: simple upload, resumable multipart upload, signed download URLs, metadata, ' +
           'and deletion. A caller sees only the objects they uploaded.',
       },
+      {
+        name: 'Storage Configuration',
+        description:
+          'Which object store this deployment writes to, and with whose credential: provider, ' +
+          'bucket, region, endpoint, plus a connection test and a bucket provisioner. Gated on ' +
+          '`storage_config:read`/`storage_config:write`, separately from `storage:*` (which every ' +
+          'signed-in user holds for object access) and from `system_settings:*` (a wrong value here ' +
+          'breaks every upload, avatar, job artifact and backup at once). The secret access key is ' +
+          'write-only: it is held in the encrypted credential store and is never returned by any ' +
+          'endpoint.',
+      },
     ],
   },
   {
