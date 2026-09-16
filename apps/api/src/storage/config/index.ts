@@ -14,6 +14,7 @@ export {
   describeStorageConfig,
   fingerprintStorageConfig,
   resolveStorageConfig,
+  MISSING_STORAGE_CONFIG_FIELDS,
 } from './storage-config';
 export type {
   MissingStorageConfigField,
@@ -29,3 +30,16 @@ export {
   STORAGE_SETTINGS_PATH,
 } from './storage-not-configured.error';
 export type { StorageNotConfiguredReason } from './storage-not-configured.error';
+
+// ---------------------------------------------------------------------------
+// The admin surface (#375, epic #372)
+// ---------------------------------------------------------------------------
+//
+// The module, and the one constant a caller outside this folder has any reason
+// to hold: the typed confirmation word. Everything else — the controller, the
+// three services, the DTO classes — is reached through Nest or through its own
+// file; re-exporting a controller from a barrel only invites it to be imported
+// somewhere it should not be.
+
+export { StorageConfigModule } from './storage-config.module';
+export { STORAGE_SWITCH_CONFIRMATION } from './dto/update-storage-config.dto';

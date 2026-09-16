@@ -115,6 +115,23 @@ export const PERMISSIONS = [
     name: 'push:write',
     description: 'Generate, rotate, enable/disable and remove Web Push VAPID keys',
   },
+
+  // Object-storage configuration (#375, epic #372). A separate pair from
+  // BOTH `system_settings:*` and `storage:*`: the first understates the blast
+  // radius (a wrong bucket or a rotated-out key breaks every upload, avatar,
+  // job artifact and backup at once, with no restart in between), and the
+  // second is held by every Viewer in the deployment because it gates ordinary
+  // object access. See `src/common/constants/roles.constants.ts`.
+  {
+    name: 'storage_config:read',
+    description:
+      'View the object-storage configuration and the masked status of its stored secret key',
+  },
+  {
+    name: 'storage_config:write',
+    description:
+      'Change the object-storage provider, bucket, endpoint and credential, test a configuration, and provision a bucket',
+  },
 ] as const;
 
 // Role to permissions mapping
@@ -157,6 +174,14 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     // and can be widened later without a migration, since these are rows.
     'push:read',
     'push:write',
+    // #375, epic #372 — ADMIN ONLY, same reasoning: this pair decides which
+    // object store the whole deployment writes to and under whose key, so it
+    // starts as narrow as the surfaces above and can be widened later without
+    // a migration, since these are rows. Note that Contributor and Viewer keep
+    // `storage:*` (object ACCESS) below and gain nothing here — that split is
+    // the entire point of a separate pair.
+    'storage_config:read',
+    'storage_config:write',
   ],
   contributor: [
     'user_settings:read',

@@ -178,13 +178,27 @@ export interface ResolvedStorageConfig {
  * administrator told only about the six settings fields would stare at a
  * complete-looking form. It names the field, never its value.
  */
+export const MISSING_STORAGE_CONFIG_FIELDS = [
+  'bucket',
+  'region',
+  'endpoint',
+  'accountId',
+  'accessKeyId',
+  'secretAccessKey',
+] as const;
+
+/**
+ * A field the configuration needs and does not have.
+ *
+ * DERIVED FROM the tuple above rather than written out a second time, exactly
+ * as `StorageProviderKind` is derived from `STORAGE_PROVIDER_KINDS`. The tuple
+ * exists because #375's admin response has to VALIDATE this list on the way out
+ * (`z.enum(...)` needs values, not a type), and a hand-maintained second copy in
+ * a DTO is a list that silently stops matching the day a seventh field is added
+ * here.
+ */
 export type MissingStorageConfigField =
-  | 'bucket'
-  | 'region'
-  | 'endpoint'
-  | 'accountId'
-  | 'accessKeyId'
-  | 'secretAccessKey';
+  (typeof MISSING_STORAGE_CONFIG_FIELDS)[number];
 
 /**
  * The result of asking whether storage is usable: yes with a config, or no with
