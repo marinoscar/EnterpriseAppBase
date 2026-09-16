@@ -4,7 +4,7 @@ import { CommandFailedError, type CommandResult, type RunCommandOptions } from '
 import { DATABASE_CHECKS, databaseSettings } from './database.js';
 import { DNS_CHECKS } from './dns.js';
 import { ALL_CHECKS } from './index.js';
-import { TLS_CHECKS, parseNotAfter } from './tls.js';
+import { TLS_CHECKS, compareServedCertificate, extractPem, parseNotAfter } from './tls.js';
 import { runChecks, type Check, type CheckContext, type CheckFs } from './types.js';
 
 type Canned = { exitCode: number; stdout?: string; stderr?: string };
@@ -283,6 +283,203 @@ describe('tls checks', () => {
     );
 
     expect(result.status).toBe('skip');
+  });
+});
+
+// =============================================================================
+// Two checks for the containerised proxy (issue #389, epic #388)
+// =============================================================================
+
+describe('certificate-renewal-paths', () => {
+  it('skips when there is no domain', async () => {
+    const result = await find(TLS_CHECKS, 'certificate-renewal-paths').run(
+      context({ domain: undefined }),
+    );
+
+    expect(result.status).toBe('skip');
+  });
+
+  it('skips when no certificate has been issued yet', async () => {
+    const result = await find(TLS_CHECKS, 'certificate-renewal-paths').run(
+      context({ fs: absentFs }),
+    );
+
+    expect(result.status).toBe('skip');
+  });
+
+  it('passes in host mode, without inspecting any renewal config', async () => {
+    const fs: CheckFs = {
+      ...presentFs,
+      readDir: () => {
+        throw new Error('must not be called in host mode');
+      },
+    };
+    const result = await find(TLS_CHECKS, 'certificate-renewal-paths').run(
+      context({ proxyMode: 'host', fs }),
+    );
+
+    expect(result.status).toBe('pass');
+  });
+
+  it('fails and names the offending file when a renewal config records a host path', async () => {
+    const fs: CheckFs = {
+      ...presentFs,
+      readDir: () => ['app.example.test.conf', 'other.example.test.conf'],
+      readFile: (path: string) =>
+        path.endsWith('app.example.test.conf')
+          ? 'archive_dir = /opt/infra/proxy/letsencrypt/archive/app.example.test\n'
+          : 'archive_dir = /etc/letsencrypt/archive/other.example.test\n',
+    };
+    const result = await find(TLS_CHECKS, 'certificate-renewal-paths').run(
+      context({ proxyMode: 'container', fs }),
+    );
+
+    expect(result.status).toBe('fail');
+    expect(result.detail).toContain('app.example.test.conf');
+    expect(result.detail).not.toContain('other.example.test.conf');
+    expect(result.remedy).toContain('certbot renew');
+  });
+
+  it('passes when every renewal config already uses the container paths', async () => {
+    const fs: CheckFs = {
+      ...presentFs,
+      readDir: () => ['app.example.test.conf'],
+      readFile: () => 'archive_dir = /etc/letsencrypt/archive/app.example.test\n',
+    };
+    const result = await find(TLS_CHECKS, 'certificate-renewal-paths').run(
+      context({ proxyMode: 'container', fs }),
+    );
+
+    expect(result.status).toBe('pass');
+  });
+
+  it('skips when there is no renewal configuration yet', async () => {
+    const fs: CheckFs = { ...presentFs, readDir: () => [] };
+    const result = await find(TLS_CHECKS, 'certificate-renewal-paths').run(
+      context({ proxyMode: 'container', fs }),
+    );
+
+    expect(result.status).toBe('skip');
+  });
+});
+
+describe('certificate-served', () => {
+  const PEM_A =
+    '-----BEGIN CERTIFICATE-----\nAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n-----END CERTIFICATE-----';
+  const PEM_B =
+    '-----BEGIN CERTIFICATE-----\nBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n-----END CERTIFICATE-----';
+
+  it('skips when there is no domain', async () => {
+    const result = await find(TLS_CHECKS, 'certificate-served').run(
+      context({ domain: undefined }),
+    );
+
+    expect(result.status).toBe('skip');
+  });
+
+  it('skips when there is no certificate on disk to compare against', async () => {
+    const result = await find(TLS_CHECKS, 'certificate-served').run(
+      context({ fs: absentFs }),
+    );
+
+    expect(result.status).toBe('skip');
+  });
+
+  it('passes when the served certificate matches the one on disk', async () => {
+    const fs: CheckFs = { ...presentFs, readFile: () => PEM_A };
+    const result = await find(TLS_CHECKS, 'certificate-served').run(
+      context({ fs, runCommand: fakeRunCommand(() => ({ exitCode: 0, stdout: PEM_A })) }),
+    );
+
+    expect(result.status).toBe('pass');
+  });
+
+  it('warns, with a remedy naming a reload, when the served certificate differs', async () => {
+    const fs: CheckFs = { ...presentFs, readFile: () => PEM_A };
+    const result = await find(TLS_CHECKS, 'certificate-served').run(
+      context({
+        fs,
+        proxyMode: 'container',
+        proxyContainer: 'infra-proxy-1',
+        runCommand: fakeRunCommand((argv) =>
+          argv[0] === 'openssl' ? { exitCode: 0, stdout: PEM_B } : { exitCode: 0, stdout: 'true' },
+        ),
+      }),
+    );
+
+    expect(result.status).toBe('warn');
+    expect(result.remedy).toContain('docker exec infra-proxy-1 nginx -s reload');
+  });
+
+  it('skips rather than fails when openssl is missing', async () => {
+    const fs: CheckFs = { ...presentFs, readFile: () => PEM_A };
+    const result = await find(TLS_CHECKS, 'certificate-served').run(
+      context({ fs, runCommand: fakeRunCommand(() => undefined) }),
+    );
+
+    expect(result.status).toBe('skip');
+  });
+
+  it('skips rather than fails when the connection is refused', async () => {
+    const fs: CheckFs = { ...presentFs, readFile: () => PEM_A };
+    const result = await find(TLS_CHECKS, 'certificate-served').run(
+      context({
+        fs,
+        runCommand: fakeRunCommand(() => ({ exitCode: 1, stderr: 'connect: connection refused' })),
+      }),
+    );
+
+    expect(result.status).toBe('skip');
+  });
+
+  it('skips rather than fails on garbage output that is not a certificate', async () => {
+    const fs: CheckFs = { ...presentFs, readFile: () => PEM_A };
+    const result = await find(TLS_CHECKS, 'certificate-served').run(
+      context({
+        fs,
+        runCommand: fakeRunCommand(() => ({ exitCode: 0, stdout: 'not a certificate at all' })),
+      }),
+    );
+
+    expect(result.status).toBe('skip');
+  });
+});
+
+describe('extractPem', () => {
+  it('extracts the first PEM block from surrounding noise', () => {
+    const pem = '-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----';
+    expect(extractPem(`CONNECTED(...)\n${pem}\nsome trailer text`)).toBe(pem);
+  });
+
+  it('returns undefined when there is no PEM block', () => {
+    expect(extractPem('nothing here looks like a certificate')).toBeUndefined();
+  });
+
+  it('returns undefined for an empty string', () => {
+    expect(extractPem('')).toBeUndefined();
+  });
+});
+
+describe('compareServedCertificate', () => {
+  const PEM_A = '-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----';
+  const PEM_A_REWRAPPED = '-----BEGIN CERTIFICATE-----\n  AAAA  \n-----END CERTIFICATE-----';
+  const PEM_B = '-----BEGIN CERTIFICATE-----\nBBBB\n-----END CERTIFICATE-----';
+
+  it('passes when the certificates are identical modulo whitespace', () => {
+    const result = compareServedCertificate(PEM_A, PEM_A_REWRAPPED, 'nginx -s reload');
+    expect(result.status).toBe('pass');
+  });
+
+  it('warns and names the reload command when they differ', () => {
+    const result = compareServedCertificate(PEM_A, PEM_B, 'docker exec proxy-nginx nginx -s reload');
+    expect(result.status).toBe('warn');
+    expect(result.remedy).toContain('docker exec proxy-nginx nginx -s reload');
+  });
+
+  it('skips, never fails, when either side has no PEM block', () => {
+    expect(compareServedCertificate('garbage', PEM_A, 'nginx -s reload').status).toBe('skip');
+    expect(compareServedCertificate(PEM_A, 'garbage', 'nginx -s reload').status).toBe('skip');
+    expect(compareServedCertificate('garbage', 'garbage', 'nginx -s reload').status).toBe('skip');
   });
 });
 

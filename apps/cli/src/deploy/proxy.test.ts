@@ -9,11 +9,19 @@ import { CommandFailedError, type CommandResult, type RunCommandOptions } from '
 import {
   assertValidDomain,
   certificateStatus,
+  CERTBOT_IMAGE,
+  CONTAINER_CERT_ROOT,
+  CONTAINER_WEBROOT,
+  containerProxyRuntime,
   hostProxyRuntime,
   installVhost,
   issueCertificate,
+  livePath,
+  reloadProxy,
   removeVhost,
   renderVhost,
+  resolveProxyRuntime,
+  servedCertPath,
   validateProxy,
   vhostPath,
   type ProxyTarget,
@@ -133,6 +141,303 @@ describe('renderVhost', () => {
     expect(() => renderVhost({ ...target(root), domain: 'a b;c' }, hostRuntime(root))).toThrow(
       UsageError,
     );
+  });
+});
+
+// =============================================================================
+// Regression tests for issue #389: a container-mode vhost/certbot invocation
+// must never contain a host path, and host mode must stay exactly as it was.
+// =============================================================================
+
+describe('renderVhost in container mode (issue #389)', () => {
+  it('contains no host path', () => {
+    const root = makeProxyRoot();
+    const runtime = containerProxyRuntime('proxy-nginx');
+    const rendered = renderVhost(target(root), runtime);
+
+    // The host proxy root must never leak into a config the container-mode
+    // nginx has to resolve; it has no such directory.
+    expect(rendered).not.toContain(root);
+    expect(rendered).toContain(`root ${CONTAINER_WEBROOT};`);
+    expect(rendered).toContain(
+      `ssl_certificate     ${CONTAINER_CERT_ROOT}/live/app.example.test/fullchain.pem;`,
+    );
+    expect(rendered).toContain(
+      `ssl_certificate_key ${CONTAINER_CERT_ROOT}/live/app.example.test/privkey.pem;`,
+    );
+  });
+
+  it('still renders host paths in host mode, unchanged', () => {
+    const root = makeProxyRoot();
+    const rendered = renderVhost(target(root), hostRuntime(root));
+
+    expect(rendered).toContain(`root ${join(root, 'webroot')};`);
+    expect(rendered).toContain(
+      `ssl_certificate     ${join(root, 'letsencrypt', 'live', 'app.example.test', 'fullchain.pem')};`,
+    );
+    expect(rendered).toContain(
+      `ssl_certificate_key ${join(root, 'letsencrypt', 'live', 'app.example.test', 'privkey.pem')};`,
+    );
+  });
+});
+
+describe('servedCertPath vs livePath (issue #389)', () => {
+  it('coincide in host mode', () => {
+    const root = makeProxyRoot();
+    const t = target(root);
+
+    expect(servedCertPath(hostRuntime(root), t.domain, 'fullchain.pem')).toBe(
+      livePath(t, 'fullchain.pem'),
+    );
+  });
+
+  it('diverge in container mode', () => {
+    const root = makeProxyRoot();
+    const t = target(root);
+
+    const served = servedCertPath(containerProxyRuntime('proxy-nginx'), t.domain, 'fullchain.pem');
+    const host = livePath(t, 'fullchain.pem');
+
+    expect(served).not.toBe(host);
+    expect(served).toBe(`${CONTAINER_CERT_ROOT}/live/app.example.test/fullchain.pem`);
+  });
+});
+
+describe('resolveProxyRuntime (issue #389)', () => {
+  it('an explicit proxyMode wins without probing', async () => {
+    const calls: string[][] = [];
+    const runtime = await resolveProxyRuntime(
+      { proxyRoot: '/opt/infra/proxy' },
+      { runCommand: fakeRunCommand(() => ({ exitCode: 0, stdout: 'true' }), calls), proxyMode: 'host' },
+    );
+
+    expect(runtime.mode).toBe('host');
+    expect(calls).toEqual([]);
+  });
+
+  it('a running container probes to container mode', async () => {
+    const runtime = await resolveProxyRuntime(
+      { proxyRoot: '/opt/infra/proxy' },
+      { runCommand: fakeRunCommand(() => ({ exitCode: 0, stdout: 'true' })) },
+    );
+
+    expect(runtime.mode).toBe('container');
+    expect(runtime.container).toBe('proxy-nginx');
+  });
+
+  it('a stopped container resolves to host mode', async () => {
+    const runtime = await resolveProxyRuntime(
+      { proxyRoot: '/opt/infra/proxy' },
+      { runCommand: fakeRunCommand(() => ({ exitCode: 0, stdout: 'false' })) },
+    );
+
+    expect(runtime.mode).toBe('host');
+  });
+
+  it('a missing container (docker inspect fails) resolves to host mode', async () => {
+    const runtime = await resolveProxyRuntime(
+      { proxyRoot: '/opt/infra/proxy' },
+      {
+        runCommand: fakeRunCommand(() => ({
+          exitCode: 1,
+          stderr: 'Error: No such object: proxy-nginx',
+        })),
+      },
+    );
+
+    expect(runtime.mode).toBe('host');
+  });
+
+  it('a runCommand that throws resolves to host mode rather than propagating', async () => {
+    const throwing: typeof import('./executor.js').runCommand = (async () => {
+      throw new Error('docker not installed');
+    }) as typeof import('./executor.js').runCommand;
+
+    await expect(
+      resolveProxyRuntime({ proxyRoot: '/opt/infra/proxy' }, { runCommand: throwing }),
+    ).resolves.toEqual(expect.objectContaining({ mode: 'host' }));
+  });
+
+  it('never throws, across every scenario above', async () => {
+    const scenarios: Array<typeof import('./executor.js').runCommand> = [
+      fakeRunCommand(() => ({ exitCode: 0, stdout: 'true' })),
+      fakeRunCommand(() => ({ exitCode: 0, stdout: 'false' })),
+      fakeRunCommand(() => ({ exitCode: 1, stderr: 'no such object' })),
+      (async () => {
+        throw new Error('boom');
+      }) as typeof import('./executor.js').runCommand,
+    ];
+
+    for (const runCommand of scenarios) {
+      await expect(
+        resolveProxyRuntime({ proxyRoot: '/opt/infra/proxy' }, { runCommand }),
+      ).resolves.toBeDefined();
+    }
+  });
+
+  it('respects a custom --proxy-container name when probing', async () => {
+    const calls: string[][] = [];
+    await resolveProxyRuntime(
+      { proxyRoot: '/opt/infra/proxy' },
+      {
+        runCommand: fakeRunCommand(() => ({ exitCode: 0, stdout: 'true' }), calls),
+        proxyContainer: 'infra-proxy-1',
+      },
+    );
+
+    expect(calls[0]).toContain('infra-proxy-1');
+    expect(calls[0]).not.toContain('proxy-nginx');
+  });
+});
+
+describe('installVhost/validateProxy/reloadProxy target the right runtime (issue #389)', () => {
+  it('container runtime uses docker exec for both validate and reload', async () => {
+    const root = makeProxyRoot();
+    const calls: string[][] = [];
+
+    await installVhost(target(root), {
+      runCommand: fakeRunCommand(() => ({ exitCode: 0 }), calls),
+      runtime: containerProxyRuntime('proxy-nginx'),
+    });
+
+    expect(calls.map((argv) => argv.join(' '))).toEqual([
+      'docker exec proxy-nginx nginx -t',
+      'docker exec proxy-nginx nginx -s reload',
+    ]);
+  });
+
+  it('host runtime uses the bare binary, unchanged', async () => {
+    const root = makeProxyRoot();
+    const calls: string[][] = [];
+
+    await installVhost(target(root), {
+      runCommand: fakeRunCommand(() => ({ exitCode: 0 }), calls),
+      runtime: hostRuntime(root),
+    });
+
+    expect(calls.map((argv) => argv.join(' '))).toEqual(['nginx -t', 'nginx -s reload']);
+  });
+
+  it('reloadProxy alone also targets the container from the runtime', async () => {
+    const calls: string[][] = [];
+
+    await reloadProxy({
+      runCommand: fakeRunCommand(() => ({ exitCode: 0 }), calls),
+      runtime: containerProxyRuntime('proxy-nginx'),
+    });
+
+    expect(calls[0]).toEqual(['docker', 'exec', 'proxy-nginx', 'nginx', '-s', 'reload']);
+  });
+
+  it('rolls back a container-mode vhost that fails nginx -t, via docker exec', async () => {
+    const root = makeProxyRoot();
+    let validations = 0;
+
+    const error = await installVhost(target(root), {
+      runtime: containerProxyRuntime('proxy-nginx'),
+      runCommand: fakeRunCommand((argv) => {
+        if (argv.join(' ') === 'docker exec proxy-nginx nginx -t') {
+          validations += 1;
+          return validations === 1
+            ? { exitCode: 1, stderr: 'nginx: [emerg] invalid parameter' }
+            : { exitCode: 0 };
+        }
+        return { exitCode: 0 };
+      }),
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(UsageError);
+    // The proxy must be left exactly as it was found, same as in host mode.
+    expect(existsSync(vhostPath(target(root)))).toBe(false);
+  });
+});
+
+// =============================================================================
+// KNOWN DEFECT, found while writing coverage for #389, NOT fixed here per the
+// scope of this pass (tests only). Reported alongside this test suite.
+//
+// `runtimeFor()` (what renderVhost/installVhost use) ONLY reads
+// `options.runtime`, and falls back to host mode when it is absent — it never
+// looks at the deprecated `options.proxyContainer`. `containerFor()` (what
+// validateProxy/reloadProxy use) reads `options.runtime?.container` FIRST but
+// falls back to `options.proxyContainer` when there is no runtime.
+//
+// So a caller of `installVhost` that sets only the deprecated `proxyContainer`
+// field (no `runtime`) gets a vhost rendered with HOST paths, validated and
+// reloaded by `docker exec`-ing INTO the container — reproducing issue #389
+// exactly, through the field whose own JSDoc claims callers "work unchanged".
+// The claim held for a caller that only ever wanted `docker exec` from
+// validateProxy/reloadProxy directly; it does not hold for `installVhost`,
+// which also renders paths from the very same options.
+// =============================================================================
+describe('KNOWN DEFECT: the deprecated proxyContainer field alone still reproduces #389', () => {
+  it.fails(
+    'installVhost renders host paths while validateProxy targets the container, when only the deprecated proxyContainer field is set',
+    async () => {
+      const root = makeProxyRoot();
+      const calls: string[][] = [];
+
+      const result = await installVhost(target(root), {
+        runCommand: fakeRunCommand(() => ({ exitCode: 0 }), calls),
+        // Deprecated field, no `runtime` — exactly the shape the old
+        // "uses docker exec when the proxy is containerised" test below uses.
+        proxyContainer: 'infra-proxy-1',
+      });
+
+      const rendered = readFileSync(result.path, 'utf8');
+
+      // What SHOULD be true: a vhost validated inside a container must never
+      // contain a host path (this is the entire point of #389). It currently
+      // does, because renderVhost fell back to host mode.
+      expect(rendered).not.toContain(root);
+      // And validation targets the container this vhost was never rendered
+      // for.
+      expect(calls[0]).toEqual(['docker', 'exec', 'infra-proxy-1', 'nginx', '-t']);
+    },
+  );
+});
+
+describe('issueCertificate argv shape (issue #389)', () => {
+  it('runs certbot inside docker in container mode, mounting both paths and none of the renewal-recording flags', async () => {
+    const root = makeProxyRoot();
+    const calls: string[][] = [];
+
+    await issueCertificate(target(root), {
+      runCommand: fakeRunCommand(() => ({ exitCode: 0 }), calls),
+      email: 'admin@example.test',
+      runtime: containerProxyRuntime('proxy-nginx'),
+    });
+
+    const argv = calls[0] ?? [];
+    expect(argv.slice(0, 3)).toEqual(['docker', 'run', '--rm']);
+    // The mounts are the ONLY place a host path may legitimately appear.
+    expect(argv).toContain(`${join(root, 'letsencrypt')}:${CONTAINER_CERT_ROOT}`);
+    expect(argv).toContain(`${join(root, 'webroot')}:${CONTAINER_WEBROOT}`);
+    expect(argv).toContain(CERTBOT_IMAGE);
+    expect(argv.join(' ')).toContain(`--webroot -w ${CONTAINER_WEBROOT}`);
+
+    // These three flags are what wrote host paths into the renewal config.
+    expect(argv).not.toContain('--config-dir');
+    expect(argv).not.toContain('--work-dir');
+    expect(argv).not.toContain('--logs-dir');
+  });
+
+  it('keeps the host-mode certbot argv unchanged, including the three dir flags', async () => {
+    const root = makeProxyRoot();
+    const calls: string[][] = [];
+
+    await issueCertificate(target(root), {
+      runCommand: fakeRunCommand(() => ({ exitCode: 0 }), calls),
+      email: 'admin@example.test',
+      runtime: hostRuntime(root),
+    });
+
+    const argv = calls[0] ?? [];
+    expect(argv.slice(0, 2)).toEqual(['certbot', 'certonly']);
+    expect(argv).not.toContain('docker');
+    expect(argv).toContain('--config-dir');
+    expect(argv).toContain('--work-dir');
+    expect(argv).toContain('--logs-dir');
   });
 });
 

@@ -5,12 +5,13 @@ import { join } from 'node:path';
 import { Command } from 'commander';
 import { describe, expect, it } from 'vitest';
 
-import type { Check, CompletedCheck } from '../deploy/checks/index.js';
+import type { Check, CheckContext, CompletedCheck } from '../deploy/checks/index.js';
 import { DEPLOY_STATE_VERSION, deployStatePath, type DeployState } from '../deploy/state.js';
 import type { CommandResult, RunCommandOptions } from '../deploy/executor.js';
-import { EXIT, exitCodeFor } from '../errors.js';
+import { EXIT, exitCodeFor, UsageError } from '../errors.js';
 import {
   buildReport,
+  parseProxyMode,
   registerDeployCommand,
   renderResult,
   renderSummary,
@@ -74,6 +75,36 @@ const HEALTHY: Check[] = [
   check('b', 'recommended', 'pass', 'fine'),
 ];
 
+// =============================================================================
+// `--proxy-mode` (issue #389, epic #388)
+// =============================================================================
+
+describe('parseProxyMode', () => {
+  it('accepts "container"', () => {
+    expect(parseProxyMode('container')).toBe('container');
+  });
+
+  it('accepts "host"', () => {
+    expect(parseProxyMode('host')).toBe('host');
+  });
+
+  it('returns undefined for undefined, so the caller falls back to detection', () => {
+    expect(parseProxyMode(undefined)).toBeUndefined();
+  });
+
+  it('throws UsageError for anything else, naming the value and the fix', () => {
+    expect(() => parseProxyMode('docker')).toThrow(UsageError);
+    try {
+      parseProxyMode('docker');
+      throw new Error('expected parseProxyMode to throw');
+    } catch (error) {
+      expect((error as Error).message).toContain('"docker"');
+      expect((error as Error).message).toContain('container');
+      expect((error as Error).message).toContain('host');
+    }
+  });
+});
+
 describe('appctl deploy doctor', () => {
   it('exits 0 when every required check passes', async () => {
     const result = await runDoctor([], HEALTHY);
@@ -123,6 +154,34 @@ describe('appctl deploy doctor', () => {
     const result = await runDoctor([], HEALTHY);
 
     expect(result.stderr).not.toContain(ESC);
+  });
+
+  it('passes --proxy-container and --proxy-mode through to the check context', async () => {
+    let seen: CheckContext | undefined;
+    const capture: Check = {
+      id: 'capture',
+      title: 'capture',
+      severity: 'required',
+      run: async (ctxSeen) => {
+        seen = ctxSeen;
+        return { status: 'pass', detail: 'ok' };
+      },
+    };
+
+    const result = await runDoctor(
+      ['--proxy-container', 'infra-proxy-1', '--proxy-mode', 'container'],
+      [capture],
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(seen?.proxyContainer).toBe('infra-proxy-1');
+    expect(seen?.proxyMode).toBe('container');
+  });
+
+  it('exits with the usage code for an invalid --proxy-mode', async () => {
+    const result = await runDoctor(['--proxy-mode', 'bogus'], HEALTHY);
+
+    expect(exitCodeFor(result.error)).toBe(EXIT.USAGE);
   });
 
   it('emits no ANSI under --no-color even on a terminal', async () => {
@@ -421,5 +480,88 @@ describe('appctl deploy status', () => {
 
     expect(result.stderr).toContain('certificate has expired');
     expect(exitCodeFor(result.error)).toBe(EXIT.FAILURE);
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// `deploy install` / `deploy update` accept the proxy runtime flags
+// (issue #389, epic #388)
+// ---------------------------------------------------------------------------
+
+function subcommand(name: string): Command {
+  const program = new Command();
+  const deploy = registerDeployCommand(program);
+  const found = deploy.commands.find((candidate) => candidate.name() === name);
+  if (found === undefined) throw new Error(`no ${name} command registered`);
+  return found;
+}
+
+describe('deploy install / deploy update flag registration', () => {
+  it('install exposes --proxy-container, defaulting to proxy-nginx, and --proxy-mode', () => {
+    const install = subcommand('install');
+
+    const container = install.options.find((option) => option.long === '--proxy-container');
+    const mode = install.options.find((option) => option.long === '--proxy-mode');
+
+    expect(container).toBeDefined();
+    expect(container?.defaultValue).toBe('proxy-nginx');
+    expect(mode).toBeDefined();
+  });
+
+  it('update exposes --proxy-container, defaulting to proxy-nginx, and --proxy-mode', () => {
+    const update = subcommand('update');
+
+    const container = update.options.find((option) => option.long === '--proxy-container');
+    const mode = update.options.find((option) => option.long === '--proxy-mode');
+
+    expect(container).toBeDefined();
+    expect(container?.defaultValue).toBe('proxy-nginx');
+    expect(mode).toBeDefined();
+  });
+
+  it('doctor exposes the same pair', () => {
+    const doctor = subcommand('doctor');
+
+    expect(doctor.options.some((option) => option.long === '--proxy-container')).toBe(true);
+    expect(doctor.options.some((option) => option.long === '--proxy-mode')).toBe(true);
+  });
+});
+
+describe('deploy install / deploy update reject an invalid --proxy-mode before doing anything else', () => {
+  // parseProxyMode runs before either command touches the network, the
+  // filesystem outside --root, or the proxy — so this needs no further
+  // mocking to stay fast and side-effect free.
+
+  it('install', async () => {
+    const program = new Command();
+    program.exitOverride();
+    registerDeployCommand(program);
+
+    let error: unknown;
+    try {
+      await program.parseAsync(['deploy', 'install', '--proxy-mode', 'bogus'], { from: 'user' });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(exitCodeFor(error)).toBe(EXIT.USAGE);
+    expect((error as Error).message).toContain('--proxy-mode');
+  });
+
+  it('update', async () => {
+    const program = new Command();
+    program.exitOverride();
+    registerDeployCommand(program);
+
+    let error: unknown;
+    try {
+      await program.parseAsync(['deploy', 'update', '--proxy-mode', 'bogus'], { from: 'user' });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(exitCodeFor(error)).toBe(EXIT.USAGE);
+    expect((error as Error).message).toContain('--proxy-mode');
   });
 });

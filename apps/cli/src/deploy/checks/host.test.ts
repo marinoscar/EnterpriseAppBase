@@ -364,6 +364,57 @@ describe('proxy checks', () => {
   });
 });
 
+describe('certbot-installed (issue #389)', () => {
+  it('fails in host mode when certbot is absent', async () => {
+    const result = await find('certbot-installed').run(
+      context({
+        proxyMode: 'host',
+        runCommand: fakeRunCommand((argv) =>
+          argv.join(' ').startsWith('certbot --version') ? undefined : HEALTHY(argv),
+        ),
+      }),
+    );
+
+    expect(result.status).toBe('fail');
+    expect(result.remedy).toContain('apt-get install certbot');
+  });
+
+  it('passes in host mode when certbot is present', async () => {
+    const result = await find('certbot-installed').run(context({ proxyMode: 'host' }));
+
+    expect(result.status).toBe('pass');
+  });
+
+  it('passes in container mode when the certbot image is already pulled', async () => {
+    const result = await find('certbot-installed').run(
+      context({
+        proxyMode: 'container',
+        runCommand: fakeRunCommand((argv) =>
+          argv.join(' ').startsWith('docker image inspect')
+            ? { exitCode: 0, stdout: '[]' }
+            : HEALTHY(argv),
+        ),
+      }),
+    );
+
+    expect(result.status).toBe('pass');
+  });
+
+  it('warns, never fails, in container mode when the image is not pulled yet', async () => {
+    const result = await find('certbot-installed').run(
+      context({
+        proxyMode: 'container',
+        runCommand: fakeRunCommand((argv) =>
+          argv.join(' ').startsWith('docker image inspect') ? undefined : HEALTHY(argv),
+        ),
+      }),
+    );
+
+    expect(result.status).toBe('warn');
+    expect(result.remedy).toContain(`docker pull`);
+  });
+});
+
 describe('resource checks', () => {
   it('warns on a small-memory host', async () => {
     const result = await find('memory').run(
