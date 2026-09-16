@@ -61,6 +61,21 @@ long after the rotation. **Section 4 below has been rewritten to walk both
 tables in the same pass; do not adapt an older, `credentials`-only version
 of this script.**
 
+**The two tables also fail differently, which is why getting this right
+matters more for one of them.** Losing the `credentials` table costs an
+afternoon: an administrator re-enters the SMTP password, the storage key,
+and the VAPID key from the admin UI, and the deployment is whole again.
+Losing `user_credentials` costs an apology — nobody but each individual
+owner can re-enter their own key (`UserCredential` has no
+administrator-provenance column at all; see its own comment in
+`schema.prisma`, and [`docs/specs/user-credentials.md`](../specs/user-credentials.md)),
+so recovery means finding every affected user and asking each of them,
+separately, to come back and re-enter a credential they already gave you
+once. `verifyEncryptionKeyAtStartup`'s own fatal message (section 4, step
+15) reports the two counts separately for exactly this reason — "0
+deployment-wide, 340 user-owned" and "340 deployment-wide, 0 user-owned" are
+the same total and very different mornings.
+
 ---
 
 ## 1. Before you start
@@ -206,16 +221,17 @@ row's plaintext exactly as much as for a system one.
     `verifyEncryptionKeyAtStartup` will validate the new key is
     well-formed and log that encrypted credential storage is available.
     Remember: **this check does not verify the key can decrypt existing
-    rows in either table** — it only counts rows in `credentials` (see the
-    decision table in `SECURITY-ARCHITECTURE.md` section 14, including the
-    documented gap that this count does not cover `user_credentials` at
-    all). A row missed in step 3 or step 4 (written after your read pass,
-    still under the OLD key) will pass this boot check silently and only
-    fail later, as an `InternalServerErrorException` from
-    `CredentialsService.getSecret` or `UserCredentialsService.getSecret`,
-    the first time something tries to read it. This is exactly why section
-    2's write-freeze / maintenance window matters, for both tables — there
-    is no safety net at boot for a row rotation missed in either one.
+    rows in either table** — it only counts rows, in *both* `credentials`
+    and `user_credentials` (see the decision table in
+    `SECURITY-ARCHITECTURE.md` section 14). A row missed in step 3 or step 4
+    (written after your read pass, still under the OLD key) will pass this
+    boot check silently and only fail later, as an
+    `InternalServerErrorException` from `CredentialsService.getSecret` or
+    `UserCredentialsService.getSecret`, the first time something tries to
+    read it. This is exactly why section 2's write-freeze / maintenance
+    window matters, for both tables — there is no safety net at boot for a
+    row rotation missed in either one; the check can tell you a table has
+    unreadable rows, never which specific rows they are.
 16. Once you've confirmed the app is healthy against the new key, securely
     discard the old key from wherever it was staged for this rotation.
 
