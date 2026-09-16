@@ -1,4 +1,4 @@
-import type { NodeApi, NodeJobAssignment } from '../node-api.js';
+import type { ClaimToken, NodeApi, NodeJobAssignment } from '../node-api.js';
 import { UnknownJobTypeError } from '../node-errors.js';
 
 // =============================================================================
@@ -37,6 +37,23 @@ export interface JobExecutionContext {
   /** For a type that must upload its output; the SERVER chooses the key. */
   api: NodeApi;
   nodeId: string;
+  /**
+   * Which claim of this job the engine is executing (#364).
+   *
+   * Pass it to EVERY `api` call made against `job.id` — an upload target, a
+   * job credential — exactly as the engine passes it to the renewal ticker,
+   * the result and the failure. `nodeId` says which machine is calling;
+   * without this, a slot that stalled and was re-claimed is indistinguishable
+   * from the slot now running the job, and can mint a signed PUT or a database
+   * credential against a lease it no longer holds.
+   *
+   * `undefined` is ordinary, not a fault: an older control plane sends no
+   * token, and a row claimed before the column existed sends `null`. Pass the
+   * value through unchanged either way — `claimTokenBody` is what decides that
+   * the key is omitted rather than sent as `null`, and it is the only place
+   * that decision should be made.
+   */
+  claimToken: ClaimToken;
   /** Aborted on drain and on lease loss. Long work should honour it. */
   signal: AbortSignal;
   /** Structured logging that goes through the daemon's redaction (#275). */

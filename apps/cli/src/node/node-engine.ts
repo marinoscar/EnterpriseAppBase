@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
-import type { NodeApi, NodeJobAssignment } from './node-api.js';
+import type { ClaimToken, NodeApi, NodeJobAssignment } from './node-api.js';
 import type { ActiveJob, HistoryEntry, NodeCounters, NodeEngineEvent, NodeSnapshot } from './node-events.js';
 import { ExecutorRegistry } from './executors/index.js';
 import { defaultExecutors } from './executors/example-checksum.js';
@@ -375,6 +375,24 @@ export class NodeEngine {
   /** NEVER REJECTS. See `run()`. */
   private async processJob(assignment: NodeJobAssignment): Promise<void> {
     const { job, params } = assignment;
+
+    // THE CLAIM TOKEN IS HELD FOR THE WHOLE RUN, in this local, because that
+    // is exactly the lifetime it describes (#364). It identifies THIS
+    // assignment of this job — not this node, which `claimedByNodeId` already
+    // did and which is precisely the ambiguity that let a stalled slot renew,
+    // or settle, the run its own re-claim was executing. Reading it off the
+    // engine or re-fetching it mid-run would reintroduce that: a later claim
+    // would overwrite the value the ticker below quotes, and the stale slot
+    // would once again be indistinguishable from the live one. Captured by
+    // the ticker's closure, threaded through every call this run makes on the
+    // job's behalf, and dropped with the frame when the run ends.
+    //
+    // ⚠ `undefined` HERE IS A LEGITIMATE STEADY STATE, NOT A DEGRADED ONE. An
+    // older control plane sends no token, and a row claimed before the column
+    // existed sends `null`; both mean "nothing to quote", every call below
+    // then omits the key, and the server identifies this node exactly as it
+    // did before. Nothing warns, and nothing should.
+    const claimToken: ClaimToken = assignment.claimToken;
     const startedMs = this.now();
     const controller = new AbortController();
 
@@ -411,7 +429,7 @@ export class NodeEngine {
         : this.leaseRenewIntervalMs;
 
     record.renewHandle = this.scheduler.setInterval(() => {
-      void this.renewLease(job.id);
+      void this.renewLease(job.id, claimToken);
     }, renewIntervalMs);
 
     let inputPath: string | undefined;
@@ -421,7 +439,7 @@ export class NodeEngine {
 
       let input: { objectId: string; size: string; mimeType: string } | undefined;
       if (executor.requiresInput) {
-        const resolved = await this.downloadInput(job.id, job.type);
+        const resolved = await this.downloadInput(job.id, job.type, claimToken);
         inputPath = resolved.path;
         input = resolved.meta;
         this.emit({
@@ -440,6 +458,10 @@ export class NodeEngine {
         input,
         api: this.api,
         nodeId: this.nodeId,
+        // Handed on rather than kept private: `db.backup.run` asks for an
+        // upload target and a database credential ITSELF, and those are calls
+        // against a held job just as much as the renewal is.
+        claimToken,
         signal: controller.signal,
         log: (message, fields) => {
           this.emit({
@@ -453,7 +475,7 @@ export class NodeEngine {
         },
       });
 
-      const settlement = await this.api.submitResult(this.nodeId, job.id, job.type, result);
+      const settlement = await this.api.submitResult(this.nodeId, job.id, job.type, result, claimToken);
 
       this.counters.succeeded += 1;
       const durationMs = this.now() - startedMs;
@@ -473,7 +495,7 @@ export class NodeEngine {
         outcome: settlement.outcome,
       });
     } catch (error) {
-      await this.reportFailure(job.id, job.type, startedMs, error);
+      await this.reportFailure(job.id, job.type, startedMs, error, claimToken);
     } finally {
       if (record.renewHandle !== undefined) this.scheduler.clearInterval(record.renewHandle);
       this.activeJobs.delete(job.id);
@@ -490,7 +512,13 @@ export class NodeEngine {
    * A `ProviderRateLimitError` and nothing else sets `rateLimited`. `willRetry`
    * is advisory — the server owns the attempt budget and has the final word.
    */
-  private async reportFailure(jobId: string, type: string, startedMs: number, error: unknown): Promise<void> {
+  private async reportFailure(
+    jobId: string,
+    type: string,
+    startedMs: number,
+    error: unknown,
+    claimToken: ClaimToken,
+  ): Promise<void> {
     const rateLimit = error instanceof ProviderRateLimitError ? error : null;
     const message = messageOf(error);
     const durationMs = this.now() - startedMs;
@@ -500,11 +528,16 @@ export class NodeEngine {
 
     let willRetry = true;
     try {
-      const settlement = await this.api.reportJobFailure(this.nodeId, jobId, {
-        error: message,
-        willRetry: true,
-        ...(rateLimit !== null ? { rateLimited: true, retryAfterMs: rateLimit.retryAfterMs } : {}),
-      });
+      const settlement = await this.api.reportJobFailure(
+        this.nodeId,
+        jobId,
+        {
+          error: message,
+          willRetry: true,
+          ...(rateLimit !== null ? { rateLimited: true, retryAfterMs: rateLimit.retryAfterMs } : {}),
+        },
+        claimToken,
+      );
       willRetry = settlement.willRetry;
     } catch {
       // The job is already leased to us and the server's reaper is the
@@ -542,10 +575,11 @@ export class NodeEngine {
   private async downloadInput(
     jobId: string,
     type: string,
+    claimToken: ClaimToken,
   ): Promise<{ path: string; meta: { objectId: string; size: string; mimeType: string } }> {
     let signed;
     try {
-      signed = await this.api.downloadUrl(this.nodeId, jobId);
+      signed = await this.api.downloadUrl(this.nodeId, jobId, claimToken);
     } catch (error) {
       throw new MissingJobInputError(jobId, type, messageOf(error));
     }
@@ -574,12 +608,23 @@ export class NodeEngine {
     };
   }
 
-  /** Renew failure is NON-FATAL: the server's reaper is the backstop. */
-  private async renewLease(jobId: string): Promise<void> {
+  /**
+   * Renew failure is NON-FATAL: the server's reaper is the backstop.
+   *
+   * That already covered the lease simply having expired, and since #364 it
+   * covers one more case on the same path: a `409` because the token quoted
+   * belongs to an EARLIER claim of this job. Deliberately no new handling —
+   * both mean "this slot no longer speaks for this job", the emitted
+   * `lease-renew-failed` says so, and the executor keeps running until it
+   * finishes or is drained. Tearing the job down here instead would be this
+   * slot acting on a fact it cannot verify, which is the shape of the bug
+   * #364 is fixing rather than a fix for it.
+   */
+  private async renewLease(jobId: string, claimToken?: ClaimToken): Promise<void> {
     const record = this.activeJobs.get(jobId);
     if (record === undefined) return;
     try {
-      const renewed = await this.api.renewLease(this.nodeId, jobId);
+      const renewed = await this.api.renewLease(this.nodeId, jobId, claimToken);
       record.leaseExpiresAt = renewed.leaseExpiresAt;
       this.emit({ kind: 'lease-renewed', at: this.iso(), jobId, leaseExpiresAt: renewed.leaseExpiresAt });
     } catch (error) {

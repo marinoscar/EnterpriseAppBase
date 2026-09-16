@@ -88,6 +88,64 @@ export interface NodeJobAssignment {
    * See `NodeEngine.processJob` for the fallback.
    */
   renewIntervalMs?: number;
+  /**
+   * WHICH CLAIM OF THIS JOB THIS IS (#364) — quote it back on every call that
+   * speaks for a held job, and the server can tell this claim from a later one.
+   *
+   * `claimedByNodeId` distinguishes one node from another but NOT ONE NODE FROM
+   * ITSELF: a slot that stalls past its lease, is reaped, and then re-claims
+   * the same job in a second slot still satisfies every server-side condition
+   * the first slot's renewal ticker is checked against — so the stale slot
+   * renews, or settles, the run its own newer slot is executing. The token is
+   * minted per claimed ROW, so it is the one fact that tells the two apart.
+   *
+   * ⚠ OPTIONAL, AND `null`, ARE BOTH ORDINARY. A server older than #364 sends
+   * no such field, and a row claimed before the column existed sends `null`.
+   * Either way the node simply omits the key and gets exactly the behaviour it
+   * had before — see `claimTokenBody`, which is the ONLY correct way to put
+   * this value into a request body.
+   */
+  claimToken?: string | null;
+}
+
+/**
+ * A claim token as it arrives — present, `null`, or absent.
+ *
+ * Deliberately widened to include both empty cases so that the raw value off
+ * an assignment can be passed straight through without a call site ever having
+ * to normalise it (and getting that normalisation wrong). `claimTokenBody` is
+ * where the three states are resolved, once.
+ */
+export type ClaimToken = string | null | undefined;
+
+/**
+ * The body fragment asserting a claim: `{ claimToken }`, or nothing at all.
+ *
+ * ⚠ THE KEY IS OMITTED, NEVER SPELLED AS `null` — which is why this is a
+ * function rather than an inline spread repeated at six call sites. The server
+ * reads THREE distinct states off this one key (#364), and they are not
+ * interchangeable:
+ *
+ *   - absent → "I am not asserting a claim". The server drops the
+ *     `claim_token` clause and identifies this node exactly as it did before.
+ *   - a uuid → "I assert this exact claim".
+ *   - `null`  → "I assert this row carries NO token", which matches
+ *     `claim_token IS NULL` — a real and different state, and the wrong
+ *     assertion for a node that simply was not told one.
+ *
+ * `ApiClient` serialises bodies with `JSON.stringify`, which DROPS a key whose
+ * value is `undefined` but faithfully writes one whose value is `null`. So a
+ * `{ claimToken: null }` built by hand would reach the wire as the third
+ * statement above and be refused with a 400 — the server's schema is
+ * `.optional()` without `.nullable()`, on purpose, so that the mistake is loud
+ * rather than silently reinterpreted.
+ *
+ * An empty result is a STEADY STATE, not a degraded one: it is precisely the
+ * request every node made before #364, and it is what an older control plane
+ * and a pre-#361 row both legitimately produce.
+ */
+export function claimTokenBody(claimToken: ClaimToken): { claimToken?: string } {
+  return typeof claimToken === 'string' && claimToken.length > 0 ? { claimToken } : {};
 }
 
 export interface HeartbeatRequest {
@@ -179,17 +237,34 @@ export interface NodeApi {
   deregister(nodeId: string): Promise<void>;
   heartbeat(nodeId: string, body: HeartbeatRequest): Promise<WorkerNode>;
   claim(nodeId: string, body: ClaimRequest): Promise<NodeJobAssignment[]>;
-  renewLease(nodeId: string, jobId: string): Promise<{ jobId: string; leaseExpiresAt: string }>;
-  downloadUrl(nodeId: string, jobId: string): Promise<DownloadUrlResult>;
-  uploadUrl(nodeId: string, jobId: string, contentType?: string): Promise<UploadUrlResult>;
   /**
-   * Asks for this job's credential. The request body carries NOTHING — every
-   * field of it would be a node choosing part of a credential's shape, and
-   * every one of those is the server's choice (see the server DTO's header).
+   * Every method below speaks FOR A HELD JOB, and every one of them takes the
+   * assignment's `claimToken` as a trailing optional argument (#364).
+   *
+   * Trailing and optional rather than folded into the existing bodies because
+   * the token is not part of what any of these calls is ASKING for — it is the
+   * caller identifying itself, the same fact at all six, and one uniform
+   * argument keeps "renew quotes the token but failure forgets to" from being
+   * a shape this interface can express. Pass the value straight off the
+   * assignment: `ClaimToken` admits `null` and `undefined` so that no call site
+   * has to normalise, and `claimTokenBody` resolves all three states in one
+   * place.
    */
-  jobSecret(nodeId: string, jobId: string): Promise<JobSecret>;
-  submitResult(nodeId: string, jobId: string, type: string, result: unknown): Promise<JobSettlement>;
-  reportJobFailure(nodeId: string, jobId: string, body: JobFailureReport): Promise<JobSettlement>;
+  renewLease(nodeId: string, jobId: string, claimToken?: ClaimToken): Promise<{ jobId: string; leaseExpiresAt: string }>;
+  downloadUrl(nodeId: string, jobId: string, claimToken?: ClaimToken): Promise<DownloadUrlResult>;
+  uploadUrl(nodeId: string, jobId: string, contentType?: string, claimToken?: ClaimToken): Promise<UploadUrlResult>;
+  /**
+   * Asks for this job's credential. Beyond the claim token the request body
+   * carries NOTHING — every other field of it would be a node choosing part of
+   * a credential's shape, and every one of those is the server's choice (see
+   * the server DTO's header). The token is the exception because it is not a
+   * request for anything; it is the answer to "which claim is asking", and a
+   * credential minted for a lease a stale slot no longer holds is the exact
+   * thing #364 exists to prevent.
+   */
+  jobSecret(nodeId: string, jobId: string, claimToken?: ClaimToken): Promise<JobSecret>;
+  submitResult(nodeId: string, jobId: string, type: string, result: unknown, claimToken?: ClaimToken): Promise<JobSettlement>;
+  reportJobFailure(nodeId: string, jobId: string, body: JobFailureReport, claimToken?: ClaimToken): Promise<JobSettlement>;
 }
 
 /** The `/api/node-credentials` half. Separate because a `nod_` token CANNOT reach it. */
@@ -255,34 +330,55 @@ export class HttpNodeApi implements NodeApi, NodeCredentialApi {
     return response.jobs ?? [];
   }
 
-  renewLease(nodeId: string, jobId: string): Promise<{ jobId: string; leaseExpiresAt: string }> {
-    return this.client.post(`/nodes/${seg(nodeId)}/jobs/${seg(jobId)}/renew`);
+  renewLease(nodeId: string, jobId: string, claimToken?: ClaimToken): Promise<{ jobId: string; leaseExpiresAt: string }> {
+    // An empty object, not no body at all, when there is no token to quote:
+    // the server's `renewLeaseSchema` carries a `.default({})` precisely so a
+    // body-less POST from an older node stays legal, and `{}` is the same
+    // request with a `Content-Type` the parser is happier about.
+    return this.client.post(`/nodes/${seg(nodeId)}/jobs/${seg(jobId)}/renew`, claimTokenBody(claimToken));
   }
 
-  downloadUrl(nodeId: string, jobId: string): Promise<DownloadUrlResult> {
-    return this.client.post<DownloadUrlResult>(`/nodes/${seg(nodeId)}/jobs/${seg(jobId)}/download-url`);
-  }
-
-  uploadUrl(nodeId: string, jobId: string, contentType?: string): Promise<UploadUrlResult> {
-    return this.client.post<UploadUrlResult>(
-      `/nodes/${seg(nodeId)}/jobs/${seg(jobId)}/upload-url`,
-      contentType === undefined ? {} : { contentType },
+  downloadUrl(nodeId: string, jobId: string, claimToken?: ClaimToken): Promise<DownloadUrlResult> {
+    return this.client.post<DownloadUrlResult>(
+      `/nodes/${seg(nodeId)}/jobs/${seg(jobId)}/download-url`,
+      claimTokenBody(claimToken),
     );
   }
 
-  jobSecret(nodeId: string, jobId: string): Promise<JobSecret> {
-    // POST with an EMPTY body, not GET: what comes back is a credential, and a
-    // GET's URL is what every proxy log, CDN key and APM span label writes
-    // down. The server answers `Cache-Control: no-store` for the same reason.
-    return this.client.post<JobSecret>(`/nodes/${seg(nodeId)}/jobs/${seg(jobId)}/secret`, {});
+  uploadUrl(nodeId: string, jobId: string, contentType?: string, claimToken?: ClaimToken): Promise<UploadUrlResult> {
+    return this.client.post<UploadUrlResult>(
+      `/nodes/${seg(nodeId)}/jobs/${seg(jobId)}/upload-url`,
+      {
+        ...(contentType === undefined ? {} : { contentType }),
+        ...claimTokenBody(claimToken),
+      },
+    );
   }
 
-  submitResult(nodeId: string, jobId: string, type: string, result: unknown): Promise<JobSettlement> {
-    return this.client.post<JobSettlement>(`/nodes/${seg(nodeId)}/jobs/${seg(jobId)}/result`, { type, result });
+  jobSecret(nodeId: string, jobId: string, claimToken?: ClaimToken): Promise<JobSecret> {
+    // POST with an all-but-empty body, not GET: what comes back is a
+    // credential, and a GET's URL is what every proxy log, CDN key and APM span
+    // label writes down. The server answers `Cache-Control: no-store` for the
+    // same reason. The claim token is the only field this body may carry.
+    return this.client.post<JobSecret>(
+      `/nodes/${seg(nodeId)}/jobs/${seg(jobId)}/secret`,
+      claimTokenBody(claimToken),
+    );
   }
 
-  reportJobFailure(nodeId: string, jobId: string, body: JobFailureReport): Promise<JobSettlement> {
-    return this.client.post<JobSettlement>(`/nodes/${seg(nodeId)}/jobs/${seg(jobId)}/failure`, body);
+  submitResult(nodeId: string, jobId: string, type: string, result: unknown, claimToken?: ClaimToken): Promise<JobSettlement> {
+    return this.client.post<JobSettlement>(`/nodes/${seg(nodeId)}/jobs/${seg(jobId)}/result`, {
+      type,
+      result,
+      ...claimTokenBody(claimToken),
+    });
+  }
+
+  reportJobFailure(nodeId: string, jobId: string, body: JobFailureReport, claimToken?: ClaimToken): Promise<JobSettlement> {
+    return this.client.post<JobSettlement>(`/nodes/${seg(nodeId)}/jobs/${seg(jobId)}/failure`, {
+      ...body,
+      ...claimTokenBody(claimToken),
+    });
   }
 
   createCredential(body: { name: string; expiresInDays?: number | undefined }): Promise<CreatedNodeCredential> {
