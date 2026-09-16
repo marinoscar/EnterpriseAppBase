@@ -582,24 +582,25 @@ describe('the Operations group (#266)', () => {
     ]);
   });
 
-  it('registers all four of the epic’s cards at once, and epic #319 appends a fifth', () => {
+  it('registers all four of the epic’s cards at once, and #319/#392 append a fifth and a sixth', () => {
     // Declared together on purpose: the hub is under visual-regression testing
     // at `maxDiffPixels: 4`, so every change to the card grid needs baselines
     // regenerated in a pinned container. Four cards across four issues would
     // be four regenerations and four chances to land a stale baseline.
     //
-    // `Broadcasts` (#325, epic #319) is APPENDED rather than inserted, and the
-    // order is asserted rather than left to chance: the hub, the rail and the
-    // drill-down list all render this array in declaration order, so an
-    // insertion would move four existing cards for a reader who has learnt
-    // where they are — and would reflow the grid further than the one added
-    // card requires.
+    // `Broadcasts` (#325, epic #319) and `Deployment` (#392, epic #388) are
+    // both APPENDED rather than inserted, and the order is asserted rather
+    // than left to chance: the hub, the rail and the drill-down list all
+    // render this array in declaration order, so an insertion would move the
+    // existing cards for a reader who has learnt where they are — and would
+    // reflow the grid further than the one added card requires.
     expect(operations?.cards.map((card) => card.title)).toEqual([
       'Jobs',
       'Job Insights',
       'Worker Nodes',
       'Database Backup',
       'Broadcasts',
+      'Deployment',
     ]);
   });
 
@@ -613,6 +614,10 @@ describe('the Operations group (#266)', () => {
     // #287 flipped the last one, for the same reason and with the same rule:
     // the path is the route `App.tsx` declares, byte for byte.
     expect(cardsByTitle.get('Database Backup')?.path).toBe('/admin/settings/db-backup');
+    // #392, epic #388 — declared and routed in the same change, because its
+    // page ships with it. Same rule: the path is the route `App.tsx` declares,
+    // byte for byte.
+    expect(cardsByTitle.get('Deployment')?.path).toBe('/admin/settings/deployment');
   });
 
   it('has no inert card left — every page the group declared has shipped', () => {
@@ -640,7 +645,13 @@ describe('the Operations group (#266)', () => {
   });
 
   it('leaves the shipped cards navigable', () => {
-    for (const title of ['Jobs', 'Job Insights', 'Worker Nodes', 'Database Backup']) {
+    for (const title of [
+      'Jobs',
+      'Job Insights',
+      'Worker Nodes',
+      'Database Backup',
+      'Deployment',
+    ]) {
       expect(cardsByTitle.get(title)?.disabled).toBeUndefined();
     }
   });
@@ -678,6 +689,10 @@ describe('the Operations group (#266)', () => {
     );
     const dbBackupController = readFileSync(
       resolve(API_SRC, 'db-backup/db-backup.controller.ts'),
+      'utf8',
+    );
+    const deploymentController = readFileSync(
+      resolve(API_SRC, 'deployment/deployment.controller.ts'),
       'utf8',
     );
 
@@ -733,6 +748,30 @@ describe('the Operations group (#266)', () => {
       expect(rolesConstants).toContain("DB_BACKUP_RESTORE: 'db_backup:restore'");
       expect(dbBackupController).toContain('PERMISSIONS.DB_BACKUP_RESTORE');
       expect(card?.permission).not.toBe('db_backup:restore');
+    });
+
+    it('binds Deployment to the dedicated deployment:read, never to system_settings:read', () => {
+      // #392, epic #388. A pair of its own for the reason `nodes:*`,
+      // `db_backup:*`, `broadcasts:*`, `push:*` and `storage_config:*` each
+      // were: the record names the server, its public IP, its repository URL
+      // and the exact commit running in production, and a deployment must be
+      // able to grant "read the settings document" without also handing over
+      // "here is the machine and what is on it".
+      const card = cardsByTitle.get('Deployment');
+      expect(card?.permission).toBe('deployment:read');
+      expect(card?.permission).not.toBe('system_settings:read');
+
+      // And the controller really does enforce it — the mechanical half of
+      // CLAUDE.md Settings UI Pattern rule 3, read off the API workspace
+      // rather than restated, exactly as every sibling above.
+      expect(rolesConstants).toContain("DEPLOYMENT_READ: 'deployment:read'");
+      expect(deploymentController).toContain('PERMISSIONS.DEPLOYMENT_READ');
+      // There is deliberately NO `deployment:write` CONSTANT to mirror: the
+      // page is read-only because a deployment is changed by running
+      // `appctl deploy` on the server, not from this application. Asserted
+      // against the declaration and not against the bare string, because
+      // `roles.constants.ts` says so in a comment too.
+      expect(rolesConstants).not.toContain('DEPLOYMENT_WRITE:');
     });
   });
 

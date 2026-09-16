@@ -77,6 +77,10 @@ const DbBackupPage = lazy(() => import('./pages/Admin/DbBackupPage'));
 // the same reason: a DataTable, a composer dialog and a detail dialog that
 // nobody who never opens the Console will ever mount.
 const BroadcastsPage = lazy(() => import('./pages/Admin/BroadcastsPage'));
+// Issue #392, epic #388 — the read-only record of what was deployed and where.
+// Lazy for the same reason as its Operations siblings: it pulls in the shared
+// DataTable for its history, and nobody who never opens the Console mounts it.
+const DeploymentPage = lazy(() => import('./pages/Admin/DeploymentPage'));
 const AdminUsersPage = lazy(() => import('./pages/Admin/UsersPage'));
 
 // Test login page (development only)
@@ -481,6 +485,33 @@ function AppRoutes() {
                         fallback={<Navigate to="/" replace />}
                       >
                         <BroadcastsPage />
+                      </RequirePermission>
+                    }
+                  />
+                  {/* Issue #392, epic #388. Guarded EXACTLY as its Operations
+                      siblings above are, and on `deployment:read` — the
+                      literal string `deployment/deployment.controller.ts`
+                      enforces on its single GET, and the same one the
+                      `Deployment` card declares (the invariant
+                      `destinations.test.ts` asserts for every card).
+
+                      ONE PERMISSION BEHIND THIS ROUTE AND NO OTHER, unlike
+                      every sibling. There is nothing on this page to write: a
+                      deployment is changed by running `appctl deploy` on the
+                      server, so the page gates no controls internally because
+                      it has none. `deployment:read` is therefore the whole
+                      access story, and it is a permission of its OWN rather
+                      than `system_settings:read` because the record names the
+                      server, its public IP and the exact commit in production
+                      — see the card's comment in `config/adminSections.tsx`. */}
+                  <Route
+                    path="/admin/settings/deployment"
+                    element={
+                      <RequirePermission
+                        permission="deployment:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <DeploymentPage />
                       </RequirePermission>
                     }
                   />

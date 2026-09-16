@@ -48,6 +48,9 @@ import BackupOutlinedIcon from '@mui/icons-material/BackupOutlined';
 // Broadcasts (#325, epic #319) — the one Operations card that is not a view
 // onto machinery, but an action taken through it.
 import CampaignOutlinedIcon from '@mui/icons-material/CampaignOutlined';
+// Deployment (#392, epic #388) — outlined like every other Operations icon, so
+// the group reads as one set rather than as five cards and a filled one.
+import RocketLaunchOutlinedIcon from '@mui/icons-material/RocketLaunchOutlined';
 
 /**
  * One settings page, fully described for every surface that draws it.
@@ -101,6 +104,7 @@ export interface SettingsSectionDef {
  *   - `db_backup:read`        → the database-backup controller (#268)
  *   - `push:read`             → the push-config controller (#355)
  *   - `storage_config:read`   → the storage-config controller (#375)
+ *   - `deployment:read`       → the deployment controller (#392, epic #388)
  *
  * `Users & Allowlist` gates on `users:read` alone even though it hosts data
  * from two controllers (Users → `users:read`, Allowlist → `allowlist:read`).
@@ -445,6 +449,43 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
         Icon: CampaignOutlinedIcon,
         path: '/admin/settings/broadcasts',
         permission: 'broadcasts:read',
+      },
+      {
+        // Issue #392, epic #388. `deployment:read` is the literal string
+        // `deployment/deployment.controller.ts` enforces on its single GET —
+        // the registry never invents a permission, it mirrors one.
+        //
+        // A PERMISSION OF ITS OWN, not a reuse of `system_settings:read`, and
+        // for the reason `nodes:*`, `db_backup:*`, `broadcasts:*`, `push:*` and
+        // `storage_config:*` were each split out before it: the record names
+        // the server, its public IP, its repository URL and the exact commit
+        // running in production. That is an infrastructure fingerprint, and a
+        // deployment must be able to grant "read the settings document"
+        // without also handing over "here is the machine and what is on it".
+        //
+        // THERE IS NO WRITE PERMISSION TO GATE INSIDE THE PAGE, which makes
+        // this the one Operations card whose page is read-only for everybody
+        // who can reach it. A deployment is changed by running `appctl deploy`
+        // on the server; the state file behind this page is that command's
+        // output, and a control here that appeared to change it would be
+        // lying. See `pages/Admin/DeploymentPage.tsx`.
+        //
+        // OPERATIONS, NOT GENERAL, per this section's own header: General
+        // holds values an administrator SETS, which then sit there. Nothing
+        // here is set from this application at all — it is the running system
+        // reporting what it is, which is exactly what this group is for. It is
+        // APPENDED rather than inserted beside Worker Nodes, for the reason
+        // `Broadcasts` was: the hub, the rail and the phone drill-down all
+        // render this array in declaration order, so an insertion would move
+        // five existing cards for a reader who has learnt where they are, and
+        // would reflow the visual-regression baselines further than the one
+        // added card requires.
+        title: 'Deployment',
+        description:
+          'See when this deployment was last installed or updated, from which commit, and on what server.',
+        Icon: RocketLaunchOutlinedIcon,
+        path: '/admin/settings/deployment',
+        permission: 'deployment:read',
       },
     ],
   },

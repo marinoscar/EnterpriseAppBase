@@ -92,6 +92,13 @@ export const mockAdminUser: MockUser = {
     // a user that cannot exist.
     'storage_config:read',
     'storage_config:write',
+    // Present for the same reason as every pair above: the seeded `admin` role
+    // grants it (#392, epic #388). Without it, every test rendering the real
+    // Console surface would silently be testing a hub with no `Deployment`
+    // card — a user that cannot exist. There is no `deployment:write` to add:
+    // the page is read-only because a deployment is changed by running
+    // `appctl deploy` on the server, not from this application.
+    'deployment:read',
   ],
   isActive: true,
   createdAt: new Date().toISOString(),
