@@ -11,6 +11,7 @@ import {
   type SystemNodesValue,
   type SystemDatabaseBackupValue,
   type SystemMaintenanceValue,
+  type SystemStorageValue,
 } from '../schemas/settings.schema';
 
 // =============================================================================
@@ -103,6 +104,26 @@ export interface SystemSettingsValue {
   nodes: SystemNodesValue;
   databaseBackup: SystemDatabaseBackupValue;
   maintenance: SystemMaintenanceValue;
+  /**
+   * Object-storage provider configuration (#373, epic #372): which provider,
+   * which bucket, and the non-secret half of the credential.
+   *
+   * REQUIRED, like every namespace above it and for the same reason —
+   * `readKnownSettings` completes it from `DEFAULT_SYSTEM_SETTINGS` on every
+   * read, so no consumer has to write `?? DEFAULT` and none of them can forget
+   * to. "Not configured" is expressed by empty strings INSIDE the block, never
+   * by the block being absent; see `systemStorageSchema`.
+   *
+   * THE SECRET ACCESS KEY IS NOT PART OF THIS TYPE and must not be added to it:
+   * it lives in the encrypted credential store at
+   * `(purpose 'storage', name 'default')`. `accessKeyId` is here because it is
+   * an identifier, not a credential. Both points are argued in full, and proved
+   * at compile time, in `schemas/settings.schema.ts`.
+   *
+   * Derived from the zod schema so the two cannot drift, as everything else
+   * here is.
+   */
+  storage: SystemStorageValue;
 }
 
 /**
@@ -199,5 +220,38 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettingsValue = {
     allowAdmins: true,
     startedAt: null,
     startedById: null,
+  },
+  // ---------------------------------------------------------------------------
+  // Storage provider configuration (#373, epic #372)
+  // ---------------------------------------------------------------------------
+  //
+  // UNCONFIGURED, and inert in exactly the sense the operations defaults above
+  // are: `provider: 's3'` names the shape the empty fields would be filled in
+  // for, and every field that would actually make a request go somewhere is
+  // empty. Nothing in this build reads these values — the storage provider is
+  // still built from `STORAGE_PROVIDER`/`S3_*` environment variables — so this
+  // block changes no behaviour on upgrade, which is the whole point of landing
+  // the six declaration sites before the consumer.
+  //
+  // `'s3'` rather than `null` because `provider` is a closed enum with no "none"
+  // member: "no storage configured" is `bucket === ''`, one question with one
+  // answer, instead of a second way to spell the same state that every consumer
+  // would then have to check for separately.
+  storage: {
+    provider: 's3',
+    bucket: '',
+    // Empty, not 'us-east-1'. Inheriting a region nobody chose is how a
+    // deployment gets "the bucket you are attempting to access must be
+    // addressed using the specified endpoint" from a settings page that looks
+    // filled in. R2 wants the literal 'auto' here.
+    region: '',
+    // Empty means "derive it, or let the SDK use its own host".
+    endpoint: '',
+    // R2 only; the account-scoped endpoint is derived from it.
+    accountId: '',
+    // The IDENTIFIER half of the credential. Its secret half is never here —
+    // it goes to the credential store at `(purpose 'storage', name 'default')`.
+    accessKeyId: '',
+    forcePathStyle: false,
   },
 };

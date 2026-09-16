@@ -55,6 +55,27 @@ export const systemSettingsResponseSchema = z.object({
     startedAt: z.string().nullable(),
     startedById: z.string().nullable(),
   }),
+  // #373, epic #372 — the storage provider configuration, published for the
+  // same reason the operations namespaces above are: a block this response
+  // omits is a block no client can echo back in a PUT.
+  //
+  // THERE IS NO `secretAccessKey` FIELD AND THERE MUST NEVER BE ONE. The
+  // secret half of the storage credential lives in the encrypted credential
+  // store at `(purpose 'storage', name 'default')` and is returned by nothing.
+  // `accessKeyId` is published deliberately: it is an identifier that travels
+  // in the clear in every SigV4 request, and an administrator who cannot see
+  // which key id is configured cannot tell a rotated key from a mistyped one.
+  // See `common/schemas/settings.schema.ts` for the full argument and its
+  // compile-time proof.
+  storage: z.object({
+    provider: z.enum(['s3', 'r2', 's3compatible']),
+    bucket: z.string(),
+    region: z.string(),
+    endpoint: z.string(),
+    accountId: z.string(),
+    accessKeyId: z.string(),
+    forcePathStyle: z.boolean(),
+  }),
   updatedAt: z.iso.datetime(),
   updatedBy: z
     .object({

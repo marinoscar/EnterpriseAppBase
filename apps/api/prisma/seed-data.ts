@@ -238,4 +238,29 @@ export const DEFAULT_SYSTEM_SETTINGS = {
     startedAt: null as string | null,
     startedById: null as string | null,
   },
+  // #373, epic #372. UNCONFIGURED, and inert like everything above it: nothing
+  // in this build reads these values (the storage provider is still built from
+  // `STORAGE_PROVIDER`/`S3_*` environment variables), so seeding the block
+  // changes no behaviour — it only means the first admin who opens the storage
+  // settings page finds the keys already there instead of materialising them.
+  //
+  // `provider: 's3'` names the shape the empty fields would be filled in for;
+  // "no storage configured" is `bucket === ''`, not a separate provider value.
+  //
+  // NO SECRET ACCESS KEY IS SEEDED HERE, and none can be: the secret half of
+  // the storage credential lives in the encrypted `credentials` table at
+  // `(purpose 'storage', name 'default')`, which is written through
+  // `CredentialsService` at runtime and is not part of this document at all.
+  storage: {
+    provider: 's3',
+    bucket: '',
+    // Empty, not 'us-east-1' — a region nobody chose is how a deployment ends
+    // up with a settings page that looks filled in and requests that fail.
+    region: '',
+    endpoint: '',
+    accountId: '',
+    // The IDENTIFIER half of the credential only.
+    accessKeyId: '',
+    forcePathStyle: false,
+  },
 };
