@@ -52,6 +52,10 @@ describe('Worker node control plane (Integration)', () => {
   const NODE_ID = '11111111-1111-4111-8111-111111111111';
   const JOB_ID = '22222222-2222-4222-8222-222222222222';
 
+  /** The token the held job below was claimed under, and one from another claim (#364). */
+  const CLAIM_TOKEN = '33333333-3333-4333-8333-333333333333';
+  const OTHER_TOKEN = '44444444-4444-4444-8444-444444444444';
+
   beforeAll(async () => {
     context = await createTestApp({ useMockDatabase: true });
 
@@ -128,6 +132,7 @@ describe('Worker node control plane (Integration)', () => {
       rateLimitedAt: null,
       rateLimitHits: 0,
       claimedByNodeId: NODE_ID,
+      claimToken: CLAIM_TOKEN,
       leaseExpiresAt: new Date(Date.now() + 60_000),
       executor: 'node',
       ...overrides,
@@ -419,6 +424,13 @@ describe('Worker node control plane (Integration)', () => {
       expect(assignment.job).not.toHaveProperty('lastError');
       expect(assignment.job).not.toHaveProperty('dedupKey');
       expect(assignment.job).not.toHaveProperty('payload');
+
+      // The claim token travels as a SIBLING of `renewIntervalMs` (#364): both
+      // are grants to this claimant for this assignment rather than columns of
+      // the row, and keeping it out of `job` keeps it out of everywhere else
+      // that DTO is rendered.
+      expect(assignment.claimToken).toBe(CLAIM_TOKEN);
+      expect(assignment.job).not.toHaveProperty('claimToken');
     });
   });
 
@@ -504,6 +516,11 @@ describe('Worker node control plane (Integration)', () => {
     });
 
     it('200 on renew while the lease is live', async () => {
+      // ⚠ THIS REQUEST CARRIES NO BODY AT ALL, which is what every node did
+      // before #364 and what an un-upgraded one still does. That makes this the
+      // backward-compatibility guarantee, asserted over the real Fastify stack
+      // rather than reasoned about: `renewLeaseSchema`'s `.default({})` is the
+      // only thing between an older client and a 400 on every renewal it sends.
       const admin = await createMockAdminUser(context);
       givenNode(admin.id);
       (context.prismaMock.job.findUnique as jest.Mock).mockResolvedValue(jobRow());
@@ -516,6 +533,69 @@ describe('Worker node control plane (Integration)', () => {
 
       expect(response.body.data.jobId).toBe(JOB_ID);
       expect(Date.parse(response.body.data.leaseExpiresAt)).toBeGreaterThan(Date.now());
+    });
+
+    it('200 on renew quoting the claim token this job was claimed under', async () => {
+      const admin = await createMockAdminUser(context);
+      givenNode(admin.id);
+      (context.prismaMock.job.findUnique as jest.Mock).mockResolvedValue(jobRow());
+      (context.prismaMock.job.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
+
+      await request(server())
+        .post(`/api/nodes/${NODE_ID}/jobs/${JOB_ID}/renew`)
+        .set(authHeader(admin.accessToken))
+        .send({ claimToken: CLAIM_TOKEN })
+        .expect(200);
+
+      expect(context.prismaMock.job.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ claimToken: CLAIM_TOKEN }),
+        }),
+      );
+    });
+
+    it('409 on renew quoting an EARLIER claim’s token, writing nothing', async () => {
+      // Same node, same live lease, different claim: the stalled-and-reaped
+      // slot whose ticker would otherwise extend its own newer run's lease.
+      const admin = await createMockAdminUser(context);
+      givenNode(admin.id);
+      (context.prismaMock.job.findUnique as jest.Mock).mockResolvedValue(jobRow());
+
+      await request(server())
+        .post(`/api/nodes/${NODE_ID}/jobs/${JOB_ID}/renew`)
+        .set(authHeader(admin.accessToken))
+        .send({ claimToken: OTHER_TOKEN })
+        .expect(409);
+
+      expect(context.prismaMock.job.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('400 on renew quoting a token that is not a uuid', async () => {
+      // The column is `uuid`: garbage reaching a `where` clause is a Postgres
+      // cast error and a 500, so it is refused at the edge with a 400 naming
+      // the field instead.
+      const admin = await createMockAdminUser(context);
+      givenNode(admin.id);
+
+      await request(server())
+        .post(`/api/nodes/${NODE_ID}/jobs/${JOB_ID}/renew`)
+        .set(authHeader(admin.accessToken))
+        .send({ claimToken: 'not-a-uuid' })
+        .expect(400);
+    });
+
+    it('409 on a result posted by a stale claim, persisting nothing', async () => {
+      const admin = await createMockAdminUser(context);
+      givenNode(admin.id);
+      (context.prismaMock.job.findUnique as jest.Mock).mockResolvedValue(jobRow());
+
+      await request(server())
+        .post(`/api/nodes/${NODE_ID}/jobs/${JOB_ID}/result`)
+        .set(authHeader(admin.accessToken))
+        .send({ type: NODE_TYPE, result: { ok: true }, claimToken: OTHER_TOKEN })
+        .expect(409);
+
+      expect(persistNodeResult).not.toHaveBeenCalled();
     });
 
     it('400 when the posted type does not match the job’s', async () => {
