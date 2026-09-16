@@ -3,11 +3,16 @@ import {
   R2_DEFAULT_REGION,
   R2_ENDPOINT_HOST_SUFFIX,
   S3_COMPATIBLE_DEFAULT_REGION,
+  STORAGE_ENV_FALLBACK_DEFAULT_REGION,
   deriveR2Endpoint,
   describeStorageConfig,
   fingerprintStorageConfig,
+  hasSavedStorageSettings,
+  readStorageEnvFallback,
   resolveStorageConfig,
+  storageEnvFallbackPolicy,
   type ResolvedStorageConfig,
+  type StorageEnvFallback,
 } from './storage-config';
 
 // =============================================================================
@@ -504,5 +509,410 @@ describe('describeStorageConfig', () => {
     );
 
     expect(description).toContain('keyId=AKIA-IDENTIFIABLE');
+  });
+});
+
+// =============================================================================
+// ⚠ TEMPORARY BRIDGE — tests for the environment fallback (issue #377)
+// =============================================================================
+//
+// Deleted wholesale by #377, with the code they cover. They exist because the
+// bridge's whole risk is the one thing it must never do: let an environment
+// variable win over, or be blended with, something an administrator saved. The
+// all-or-nothing rule is therefore pinned from both sides — settings win when
+// COMPLETE, and settings also win when INCOMPLETE (which is the dangerous
+// case: a half-filled admin form beside a stale, complete environment).
+// =============================================================================
+
+/** The seeded, never-configured `storage` namespace — DEFAULT_SYSTEM_SETTINGS. */
+function unconfiguredPolicy(
+  overrides: Partial<SystemStorageValue> = {},
+): SystemStorageValue {
+  return {
+    provider: 's3',
+    bucket: '',
+    region: '',
+    endpoint: '',
+    accountId: '',
+    accessKeyId: '',
+    forcePathStyle: false,
+    ...overrides,
+  };
+}
+
+function env(overrides: Partial<StorageEnvFallback> = {}): StorageEnvFallback {
+  return {
+    bucket: 'env-bucket',
+    region: 'eu-central-1',
+    endpoint: '',
+    accessKeyId: 'ENV-AKIA',
+    secretAccessKey: 'env-secret',
+    ...overrides,
+  };
+}
+
+describe('resolveStorageConfig — the temporary environment fallback (#377)', () => {
+  // ===========================================================================
+  // Saved settings always win
+  // ===========================================================================
+
+  describe('saved settings always win', () => {
+    it('ignores the environment entirely when the settings are complete', () => {
+      const result = resolveStorageConfig(policy(), SECRET, env());
+
+      expect(result).toEqual({
+        configured: true,
+        config: {
+          provider: 's3',
+          bucket: 'my-bucket',
+          region: 'us-west-2',
+          accessKeyId: 'AKIAEXAMPLE',
+          secretAccessKey: SECRET,
+          forcePathStyle: false,
+        },
+      });
+      // Not marked as coming from the environment, because it did not.
+      expect('fromEnvironment' in result).toBe(false);
+    });
+
+    it('ignores the environment when the settings are only PARTLY saved', () => {
+      // The dangerous case: an administrator has typed a bucket and has not yet
+      // saved the credential. Completing that from a stale environment would
+      // write bytes to a bucket nobody currently intends to use.
+      const result = resolveStorageConfig(
+        unconfiguredPolicy({ bucket: 'half-saved-bucket' }),
+        null,
+        env(),
+      );
+
+      expect(result).toEqual({
+        configured: false,
+        provider: 's3',
+        missing: ['region', 'accessKeyId', 'secretAccessKey'],
+      });
+    });
+
+    it('ignores the environment when ANY single settings field is saved', () => {
+      for (const field of [
+        'bucket',
+        'region',
+        'endpoint',
+        'accountId',
+        'accessKeyId',
+      ] as const) {
+        const result = resolveStorageConfig(
+          unconfiguredPolicy({ [field]: 'something' }),
+          null,
+          env(),
+        );
+
+        expect(result.configured).toBe(false);
+      }
+    });
+
+    it('ignores the environment when a secret is stored but no settings are', () => {
+      // "Nothing configured through the database" means BOTH halves. A saved
+      // credential with an unsaved bucket is still somebody mid-configuration.
+      const result = resolveStorageConfig(unconfiguredPolicy(), SECRET, env());
+
+      expect(result.configured).toBe(false);
+    });
+
+    it('never merges field by field: an env bucket cannot complete saved settings', () => {
+      const result = resolveStorageConfig(
+        unconfiguredPolicy({ region: 'us-west-1', accessKeyId: 'SAVED-AKIA' }),
+        SECRET,
+        env({ bucket: 'env-bucket' }),
+      );
+
+      expect(result).toEqual({
+        configured: false,
+        provider: 's3',
+        missing: ['bucket'],
+      });
+    });
+  });
+
+  // ===========================================================================
+  // The environment is used when nothing at all is saved
+  // ===========================================================================
+
+  describe('when nothing is saved', () => {
+    it('resolves from the environment and marks the result', () => {
+      const result = resolveStorageConfig(unconfiguredPolicy(), null, env());
+
+      expect(result).toEqual({
+        configured: true,
+        fromEnvironment: true,
+        config: {
+          provider: 's3',
+          bucket: 'env-bucket',
+          region: 'eu-central-1',
+          accessKeyId: 'ENV-AKIA',
+          secretAccessKey: 'env-secret',
+          forcePathStyle: false,
+        },
+      });
+    });
+
+    it('treats an empty-string stored secret as no stored secret', () => {
+      const result = resolveStorageConfig(unconfiguredPolicy(), '', env());
+
+      expect(result.configured).toBe(true);
+    });
+
+    it('is not consulted at all when no environment is passed (the #377 end state)', () => {
+      const result = resolveStorageConfig(unconfiguredPolicy(), null);
+
+      expect(result.configured).toBe(false);
+    });
+
+    it('never mutates the settings value it was handed (it writes nothing back)', () => {
+      const saved = unconfiguredPolicy();
+
+      resolveStorageConfig(saved, null, env({ endpoint: 'https://minio:9000' }));
+
+      expect(saved).toEqual(unconfiguredPolicy());
+    });
+  });
+
+  // ===========================================================================
+  // A partial environment is NOT a usable configuration
+  // ===========================================================================
+
+  describe('a partial environment', () => {
+    it('does not produce a config when the secret is missing', () => {
+      const result = resolveStorageConfig(
+        unconfiguredPolicy(),
+        null,
+        env({ secretAccessKey: '' }),
+      );
+
+      expect(result.configured).toBe(false);
+    });
+
+    it('does not produce a config when the bucket is missing', () => {
+      const result = resolveStorageConfig(
+        unconfiguredPolicy(),
+        null,
+        env({ bucket: '' }),
+      );
+
+      expect(result.configured).toBe(false);
+    });
+
+    it('does not produce a config when the access key id is missing', () => {
+      const result = resolveStorageConfig(
+        unconfiguredPolicy(),
+        null,
+        env({ accessKeyId: '' }),
+      );
+
+      expect(result.configured).toBe(false);
+    });
+
+    it('reports EXACTLY what it would have reported with no environment at all', () => {
+      // The bridge can only ever add a success. A half-set environment must not
+      // change the missing-field list a deployment is shown, or the message an
+      // operator sees would depend on which unrelated variable happens to be
+      // exported in their shell.
+      const withoutEnv = resolveStorageConfig(unconfiguredPolicy(), null);
+      const withPartialEnv = resolveStorageConfig(
+        unconfiguredPolicy(),
+        null,
+        env({ secretAccessKey: '' }),
+      );
+
+      expect(withPartialEnv).toEqual(withoutEnv);
+    });
+
+    it('does not produce a config from an entirely empty environment', () => {
+      const result = resolveStorageConfig(
+        unconfiguredPolicy(),
+        null,
+        readStorageEnvFallback({}),
+      );
+
+      expect(result.configured).toBe(false);
+    });
+  });
+
+  // ===========================================================================
+  // Provider derivation — the pre-#373 `forcePathStyle: !!endpoint` behaviour
+  // ===========================================================================
+
+  describe('provider derivation', () => {
+    it('yields s3compatible with path-style addressing when an endpoint is set', () => {
+      const result = resolveStorageConfig(
+        unconfiguredPolicy(),
+        null,
+        env({ endpoint: 'https://minio.internal:9000' }),
+      );
+
+      expect(result.configured).toBe(true);
+      if (result.configured) {
+        expect(result.config.provider).toBe('s3compatible');
+        expect(result.config.endpoint).toBe('https://minio.internal:9000');
+        expect(result.config.forcePathStyle).toBe(true);
+      }
+    });
+
+    it('yields plain s3, with no endpoint and no path-style, when none is set', () => {
+      const result = resolveStorageConfig(
+        unconfiguredPolicy(),
+        null,
+        env({ endpoint: '' }),
+      );
+
+      expect(result.configured).toBe(true);
+      if (result.configured) {
+        expect(result.config.provider).toBe('s3');
+        expect(result.config.forcePathStyle).toBe(false);
+        expect('endpoint' in result.config).toBe(false);
+      }
+    });
+  });
+
+  // ===========================================================================
+  // Region: the pre-#373 `S3_REGION || 'us-east-1'` default
+  // ===========================================================================
+
+  describe('region', () => {
+    it('defaults to us-east-1 when S3_REGION is unset, as configuration.ts did', () => {
+      const result = resolveStorageConfig(
+        unconfiguredPolicy(),
+        null,
+        env({ region: '' }),
+      );
+
+      expect(result.configured).toBe(true);
+      if (result.configured) {
+        expect(result.config.region).toBe(STORAGE_ENV_FALLBACK_DEFAULT_REGION);
+        expect(result.config.region).toBe('us-east-1');
+      }
+    });
+
+    it('uses a region the operator did set', () => {
+      const result = resolveStorageConfig(
+        unconfiguredPolicy(),
+        null,
+        env({ region: 'ap-southeast-2' }),
+      );
+
+      expect(result.configured).toBe(true);
+      if (result.configured) {
+        expect(result.config.region).toBe('ap-southeast-2');
+      }
+    });
+  });
+});
+
+describe('readStorageEnvFallback (#377)', () => {
+  it('reads the five pre-#373 variables', () => {
+    expect(
+      readStorageEnvFallback({
+        S3_BUCKET: 'b',
+        S3_REGION: 'r',
+        S3_ENDPOINT: 'e',
+        AWS_ACCESS_KEY_ID: 'k',
+        AWS_SECRET_ACCESS_KEY: 's',
+      }),
+    ).toEqual({
+      bucket: 'b',
+      region: 'r',
+      endpoint: 'e',
+      accessKeyId: 'k',
+      secretAccessKey: 's',
+    });
+  });
+
+  it('reads an absent variable as the empty string, never undefined', () => {
+    expect(readStorageEnvFallback({})).toEqual({
+      bucket: '',
+      region: '',
+      endpoint: '',
+      accessKeyId: '',
+      secretAccessKey: '',
+    });
+  });
+
+  it('trims, so a variable set to whitespace is "not set" (as the schema does)', () => {
+    expect(readStorageEnvFallback({ S3_BUCKET: '  spaced  ' }).bucket).toBe(
+      'spaced',
+    );
+    expect(readStorageEnvFallback({ S3_BUCKET: '   ' }).bucket).toBe('');
+  });
+
+  it('reads nothing but the five (no STORAGE_PROVIDER, no account id)', () => {
+    const parsed = readStorageEnvFallback({ STORAGE_PROVIDER: 'r2' });
+
+    expect(Object.keys(parsed).sort()).toEqual([
+      'accessKeyId',
+      'bucket',
+      'endpoint',
+      'region',
+      'secretAccessKey',
+    ]);
+  });
+});
+
+describe('hasSavedStorageSettings (#377)', () => {
+  it('is false for the seeded, never-configured namespace', () => {
+    expect(hasSavedStorageSettings(unconfiguredPolicy())).toBe(false);
+  });
+
+  it('is true when any single string field carries a value', () => {
+    for (const field of [
+      'bucket',
+      'region',
+      'endpoint',
+      'accountId',
+      'accessKeyId',
+    ] as const) {
+      expect(
+        hasSavedStorageSettings(unconfiguredPolicy({ [field]: 'x' })),
+      ).toBe(true);
+    }
+  });
+
+  it('ignores provider and forcePathStyle, which always carry a value', () => {
+    expect(hasSavedStorageSettings(unconfiguredPolicy({ provider: 'r2' }))).toBe(
+      false,
+    );
+    expect(
+      hasSavedStorageSettings(unconfiguredPolicy({ forcePathStyle: true })),
+    ).toBe(false);
+  });
+});
+
+describe('storageEnvFallbackPolicy (#377)', () => {
+  it('maps the environment onto the settings shape, endpoint-addressed', () => {
+    expect(
+      storageEnvFallbackPolicy(env({ endpoint: 'https://minio:9000' })),
+    ).toEqual({
+      provider: 's3compatible',
+      bucket: 'env-bucket',
+      region: 'eu-central-1',
+      endpoint: 'https://minio:9000',
+      accountId: '',
+      accessKeyId: 'ENV-AKIA',
+      forcePathStyle: true,
+    });
+  });
+
+  it('maps the environment onto the settings shape, AWS-hosted', () => {
+    expect(storageEnvFallbackPolicy(env())).toEqual({
+      provider: 's3',
+      bucket: 'env-bucket',
+      region: 'eu-central-1',
+      endpoint: '',
+      accountId: '',
+      accessKeyId: 'ENV-AKIA',
+      forcePathStyle: false,
+    });
+  });
+
+  it('never invents an accountId (the environment path had no R2 derivation)', () => {
+    expect(storageEnvFallbackPolicy(env()).accountId).toBe('');
   });
 });

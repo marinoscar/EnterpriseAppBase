@@ -39,6 +39,12 @@ import type {
 // covers "never filled in", "cleared", and "filled in with whitespace". There
 // is deliberately no `.length > 0 && !== undefined && != null` triplet here;
 // the schema already removed two of those three states from existence.
+//
+// ⚠ ONE PART OF THIS FILE IS TEMPORARY. The environment-variable fallback —
+// `resolveStorageConfig`'s third parameter and the marked section beneath it —
+// is a bridge that keeps `main` working between #373 (this file) and #376 (the
+// admin UI that writes the settings it reads). ISSUE #377 DELETES IT. Nothing
+// above that section knows it exists.
 // =============================================================================
 
 /**
@@ -180,7 +186,23 @@ export type MissingStorageConfigField =
  * shape for callers that genuinely only need "usable or not".
  */
 export type StorageConfigResolution =
-  | { configured: true; config: ResolvedStorageConfig }
+  | {
+      configured: true;
+      config: ResolvedStorageConfig;
+      /**
+       * ⚠ TEMPORARY (#377). Present, and only ever `true`, when this
+       * configuration came from the environment-variable bridge below rather
+       * than from anything an administrator saved.
+       *
+       * OPTIONAL rather than a always-present `source: 'settings' | 'env'`
+       * discriminator, deliberately: the settings path — the permanent one —
+       * is then byte-for-byte the shape it had before this bridge existed, so
+       * deleting the bridge in #377 deletes this field and touches nothing
+       * else. Its one consumer is `StorageConfigService`, which logs the
+       * deprecation warning once when it sees it.
+       */
+      fromEnvironment?: true;
+    }
   | {
       configured: false;
       /** Which provider's requirements were checked. */
@@ -191,6 +213,11 @@ export type StorageConfigResolution =
 
 /**
  * Decide whether `policy` + `secretAccessKey` is usable, and resolve it if so.
+ *
+ * THE SAVED-SETTINGS HALF, and the whole of the permanent rule set. The public
+ * entry point is {@link resolveStorageConfig}, which is this function plus the
+ * temporary environment bridge #377 removes; when that bridge is deleted the
+ * two become one again. Everything below describes rules that outlive it.
  *
  * ── WHAT "CONFIGURED" MEANS, DEFINED ONCE ───────────────────────────────────
  *
@@ -246,7 +273,7 @@ export type StorageConfigResolution =
  * @param secretAccessKey - The credential store's plaintext, or `null` when no
  *   row exists at `(storage, default)`.
  */
-export function resolveStorageConfig(
+function resolveSavedStorageConfig(
   policy: SystemStorageValue,
   secretAccessKey: string | null,
 ): StorageConfigResolution {
@@ -343,6 +370,232 @@ export function resolveStorageConfig(
       secretAccessKey,
       forcePathStyle: policy.forcePathStyle,
     },
+  };
+}
+
+/**
+ * Decide whether this deployment has usable object storage, and resolve it.
+ *
+ * THE SINGLE DEFINITION OF "CONFIGURED", and the function every caller asks:
+ * the provider that builds an `S3Client`, the 503 an unconfigured deployment
+ * returns, and part 3's connection test. The rules themselves live in
+ * `resolveSavedStorageConfig` above.
+ *
+ * ⚠ `envFallback` IS TEMPORARY AND IS DELETED BY ISSUE #377 — see the block
+ * comment below it. Omit it (as every test of the permanent rules does) and
+ * this function is exactly `resolveSavedStorageConfig`.
+ *
+ * @param policy - The `storage` settings namespace, as stored.
+ * @param secretAccessKey - The credential store's plaintext, or `null` when no
+ *   row exists at `(storage, default)`.
+ * @param envFallback - ⚠ #377. The pre-#373 environment variables, read by
+ *   `StorageConfigService` and passed in. Consulted ONLY when the database
+ *   holds nothing at all, and able only to turn "not configured" into
+ *   "configured" — never to change what a deployment is told is missing.
+ */
+export function resolveStorageConfig(
+  policy: SystemStorageValue,
+  secretAccessKey: string | null,
+  envFallback?: StorageEnvFallback | null,
+): StorageConfigResolution {
+  const saved = resolveSavedStorageConfig(policy, secretAccessKey);
+
+  if (saved.configured) {
+    return saved;
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // ⚠ TEMPORARY (#377). Delete from here to the end of this function, drop the
+  // `envFallback` parameter, and inline `resolveSavedStorageConfig`.
+  // ───────────────────────────────────────────────────────────────────────────
+
+  if (!envFallback) {
+    return saved;
+  }
+
+  // SAVED SETTINGS ALWAYS WIN, ALL-OR-NOTHING. One non-empty settings field, or
+  // one stored secret, and the environment is not consulted at all — the answer
+  // stays the saved configuration's own missing-field list. This is the line
+  // that refuses a half-environment/half-settings configuration: an
+  // administrator who has saved a bucket and not yet saved the credential must
+  // get a 503 naming the credential, NOT a working client pointed at whatever
+  // bucket the environment still names.
+  if (hasSavedStorageSettings(policy) || secretAccessKey) {
+    return saved;
+  }
+
+  const envResolution = resolveSavedStorageConfig(
+    storageEnvFallbackPolicy(envFallback),
+    // `''` and `null` are the same answer here, exactly as they are for the
+    // credential store's own return.
+    envFallback.secretAccessKey || null,
+  );
+
+  // A PARTIAL ENVIRONMENT CHANGES NOTHING. `saved` is returned unchanged rather
+  // than the environment's own missing list, so the bridge can only ever ADD a
+  // success: a deployment that was going to report "bucket, region,
+  // accessKeyId, secretAccessKey" still reports exactly that, and no caller's
+  // failure path changes shape for three PRs.
+  return envResolution.configured
+    ? { ...envResolution, fromEnvironment: true }
+    : saved;
+}
+
+// =============================================================================
+// ⚠ TEMPORARY BRIDGE — DELETED BY ISSUE #377 (epic #372)
+// =============================================================================
+//
+// WHAT IS TEMPORARY. Everything from this comment to the end of
+// `storageEnvFallbackPolicy` below, the `envFallback` parameter and final
+// branch of `resolveStorageConfig` above, `fromEnvironment` on
+// `StorageConfigResolution`, and the three uses in `StorageConfigService`.
+// Issue #377 deletes all of it. The settings-plus-credential-store end state
+// this epic exists for is NOT changed by any of it — it is simply not reached
+// in the middle of the epic.
+//
+// WHY IT EXISTS. #373 made the storage client read ONLY from the `storage`
+// settings namespace and the encrypted credential store. The admin UI that
+// WRITES that configuration does not arrive until #376. Every issue of this
+// epic lands on `main` as its own PR, so without this bridge `main` would carry
+// non-functional storage for three PRs: every upload, every avatar and every
+// database backup answering 503 on a deployment whose operator changed nothing
+// and was given nowhere to put the values. That is a broken `main`, not a
+// migration.
+//
+// THE SEMANTICS, EXACTLY:
+//
+//   1. SAVED SETTINGS ALWAYS WIN, AND IT IS ALL-OR-NOTHING. The environment is
+//      consulted only when the database holds nothing at all: no non-empty
+//      `storage` string field AND no stored secret. There is deliberately no
+//      field-by-field merge — a bucket from settings beside a key from the
+//      environment is precisely the two-sources-of-truth ambiguity this epic
+//      exists to remove.
+//   2. IT CAN ONLY ADD A SUCCESS, never alter a failure. See the final branch
+//      of `resolveStorageConfig`.
+//   3. IT NEVER WRITES ANYTHING BACK. No settings row is seeded, no credential
+//      is created, nothing is migrated. Reading only — so an operator who
+//      upgrades past #376 configures storage once, in the admin UI, with no
+//      inherited row to notice and un-pick.
+//   4. IT IS PURE, like the rest of this file. The environment is read by
+//      `StorageConfigService` and passed IN, so every rule here is exercised
+//      with a literal rather than by mutating `process.env`.
+//   5. IT ANNOUNCES ITSELF ONCE. The deprecation warning belongs to the
+//      service, not here — nothing in this file logs (see the file header).
+//
+// THE MAPPING IS THE PRE-#373 ONE, UNCHANGED ON PURPOSE. The same five
+// variables `config/configuration.ts` exposes as `storage.s3.*`, and the same
+// derivation that shipped before #373: `forcePathStyle: !!endpoint`, which is
+// `s3compatible` in the vocabulary this epic introduced, and plain `s3` when no
+// endpoint is set. A bridge that "improved" the old behaviour would be a third
+// configuration nobody has ever run.
+// =============================================================================
+
+/**
+ * ⚠ TEMPORARY (#377). The region the environment path assumes when `S3_REGION`
+ * is unset.
+ *
+ * `config/configuration.ts` shipped `process.env.S3_REGION || 'us-east-1'`
+ * before #373, so a deployment with a bucket and keys but no region has been
+ * talking to `us-east-1` all along. Reproducing that is the bridge's entire
+ * job: the alternative is a deployment that worked yesterday reporting
+ * `missing: ['region']` today, which is the outage this exists to prevent.
+ *
+ * It is emphatically NOT what the settings path does — `DEFAULT_SYSTEM_SETTINGS
+ * .storage.region` is `''` precisely because inheriting a region nobody chose
+ * produces "the bucket you are attempting to access must be addressed using the
+ * specified endpoint" from a form that looks filled in. That divergence is one
+ * more reason this is temporary.
+ */
+export const STORAGE_ENV_FALLBACK_DEFAULT_REGION = 'us-east-1';
+
+/**
+ * ⚠ TEMPORARY (#377). The pre-#373 storage environment variables, read.
+ *
+ * Every field is a plain string with `''` for "not set", so the missing-value
+ * test is the same single `!value` this whole file uses (see its header).
+ */
+export interface StorageEnvFallback {
+  /** `S3_BUCKET`. */
+  bucket: string;
+  /** `S3_REGION`. */
+  region: string;
+  /** `S3_ENDPOINT` — its presence is what selects `s3compatible`. */
+  endpoint: string;
+  /** `AWS_ACCESS_KEY_ID`. */
+  accessKeyId: string;
+  /** ⚠ Plaintext. `AWS_SECRET_ACCESS_KEY`. */
+  secretAccessKey: string;
+}
+
+/**
+ * ⚠ TEMPORARY (#377). Read the five variables out of an environment.
+ *
+ * Takes the environment as an argument rather than touching `process.env`
+ * itself, so this file stays pure and the caller — `StorageConfigService` — is
+ * the one place that reads the process's environment. `.trim()` mirrors what
+ * `systemStorageSchema` does to every string on the way in, so a variable set
+ * to a stray space is "not set" on both paths rather than only one.
+ */
+export function readStorageEnvFallback(
+  env: NodeJS.ProcessEnv,
+): StorageEnvFallback {
+  return {
+    bucket: (env.S3_BUCKET ?? '').trim(),
+    region: (env.S3_REGION ?? '').trim(),
+    endpoint: (env.S3_ENDPOINT ?? '').trim(),
+    accessKeyId: (env.AWS_ACCESS_KEY_ID ?? '').trim(),
+    secretAccessKey: (env.AWS_SECRET_ACCESS_KEY ?? '').trim(),
+  };
+}
+
+/**
+ * ⚠ TEMPORARY (#377). Has ANYTHING been saved into the `storage` namespace?
+ *
+ * The gate on the whole bridge, and the reason it is all-or-nothing. One
+ * non-empty string field anywhere in the namespace means an administrator has
+ * begun configuring storage here, and a half-finished form must not be silently
+ * completed from the environment.
+ *
+ * ONLY THE STRING FIELDS COUNT. `provider` and `forcePathStyle` always carry a
+ * value (a closed enum with a default, and a boolean), so neither can
+ * distinguish "saved" from "never touched" — testing them would let a stray
+ * default disable the bridge on a deployment that has configured nothing.
+ */
+export function hasSavedStorageSettings(policy: SystemStorageValue): boolean {
+  return Boolean(
+    policy.bucket ||
+      policy.region ||
+      policy.endpoint ||
+      policy.accountId ||
+      policy.accessKeyId,
+  );
+}
+
+/**
+ * ⚠ TEMPORARY (#377). The environment expressed as a `storage` settings value.
+ *
+ * Built so the environment path is judged by the SAME completeness rules as the
+ * saved one — one definition of "configured", asked twice — rather than by a
+ * second list of required variables that would drift from it.
+ *
+ * `provider` and `forcePathStyle` are both derived from `S3_ENDPOINT`, which is
+ * exactly what `forcePathStyle: !!endpoint` meant before #373: an endpoint was
+ * always a MinIO/Ceph-style deployment addressed path-style, and no endpoint was
+ * always AWS. `accountId` is empty because the environment path never supported
+ * R2's derived host — an R2 deployment set `S3_ENDPOINT` by hand, and still
+ * resolves here as `s3compatible` with that endpoint, unchanged.
+ */
+export function storageEnvFallbackPolicy(
+  env: StorageEnvFallback,
+): SystemStorageValue {
+  return {
+    provider: env.endpoint ? 's3compatible' : 's3',
+    bucket: env.bucket,
+    region: env.region || STORAGE_ENV_FALLBACK_DEFAULT_REGION,
+    endpoint: env.endpoint,
+    accountId: '',
+    accessKeyId: env.accessKeyId,
+    forcePathStyle: Boolean(env.endpoint),
   };
 }
 
