@@ -123,7 +123,12 @@ function policy(overrides: Partial<SystemStorageValue> = {}): SystemStorageValue
     endpoint: '',
     accountId: '',
     accessKeyId: 'AKIAEXAMPLE',
-    forcePathStyle: false,
+    // `null` — the shipped default, meaning "use this vendor's convention".
+    // The factory must mirror `DEFAULT_SYSTEM_SETTINGS`: with a `false` here
+    // every row of the table below was asserted against a configuration no
+    // operator ever has, which is how #374 shipped a driver default that could
+    // not fire in production.
+    forcePathStyle: null,
     ...overrides,
   };
 }
@@ -214,9 +219,20 @@ describe('S3StorageProvider', () => {
     });
 
     it('uses virtual-host-style URLs', () => {
+      // From the SHIPPED default (`forcePathStyle: null`), through the real
+      // `resolveStorageConfig`, to the client: unset resolves to AWS's own
+      // convention rather than to whatever a stored `false` happened to say.
       fromSettings({ provider: 's3' });
 
       expect(clientConfig().forcePathStyle).toBe(false);
+    });
+
+    it('still honours a stored `true` (an AWS-hosted bucket addressed path-style)', () => {
+      fromSettings({ provider: 's3', forcePathStyle: true });
+
+      // An explicit value wins for EVERY provider, not only the ones whose
+      // convention it contradicts.
+      expect(clientConfig().forcePathStyle).toBe(true);
     });
 
     it("leaves the SDK's checksum defaults alone", () => {
@@ -342,14 +358,25 @@ describe('S3StorageProvider', () => {
       expect(clientConfig().region).toBe('us-west-004');
     });
 
-    it('uses path-style URLs by default', () => {
-      // DIRECT CONSTRUCTION, DELIBERATELY. A configuration that has been
-      // through a settings form always carries an explicit boolean — that is
-      // what `SystemStorageValue.forcePathStyle` is — so this default is for
-      // the caller holding a configuration that has not: a connection test run
-      // against a form that has not been saved yet. It encodes the convention
-      // MinIO/Ceph document, which is what `forcePathStyle: !!endpoint` used to
-      // approximate before #373 modelled it.
+    it('uses path-style URLs by default, from a saved settings row', () => {
+      // ⚠ THE #374 REGRESSION, PINNED. This is what an operator does: choose
+      // `s3compatible`, type a MinIO endpoint, save, and touch nothing else.
+      // While `forcePathStyle` was a plain boolean defaulting to `false`, that
+      // journey produced an explicit `false` here and MinIO — which serves
+      // path style only — rejected every request. It passes only because the
+      // stored value is `null` ("unset") all the way down to the `??` below.
+      fromSettings({
+        provider: 's3compatible',
+        endpoint: 'https://minio.internal:9000',
+      });
+
+      expect(clientConfig().forcePathStyle).toBe(true);
+    });
+
+    it('applies the same default to a directly-constructed config (absent key)', () => {
+      // The other caller of the driver: a connection test built from a form
+      // that has not been saved, which states no value at all. Absent and
+      // `null` must reach the same answer — see the field's note.
       fromConfig({
         provider: 's3compatible',
         endpoint: 'https://minio.internal:9000',
@@ -366,8 +393,8 @@ describe('S3StorageProvider', () => {
       });
 
       // An operator who turned path style OFF for an appliance that serves
-      // virtual-host style must get what they asked for. Absent means "use the
-      // convention"; `false` means "no".
+      // virtual-host style must get what they asked for. Absent and `null`
+      // mean "use the convention"; `false` means "no".
       expect(clientConfig().forcePathStyle).toBe(false);
     });
 

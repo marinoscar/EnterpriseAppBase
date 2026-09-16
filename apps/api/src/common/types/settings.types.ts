@@ -263,6 +263,11 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettingsValue = {
     // The IDENTIFIER half of the credential. Its secret half is never here —
     // it goes to the credential store at `(purpose 'storage', name 'default')`.
     accessKeyId: '',
-    forcePathStyle: false,
+    // `null`, NOT `false` — "use this vendor's convention" (path style for
+    // `s3compatible`, virtual-host style for `s3` and `r2`). A default of
+    // `false` is an operator's answer nobody gave, and it reached the driver
+    // as one: it suppressed the per-vendor default and broke MinIO. Same rule
+    // as the empty strings above, spelled the way a boolean has to spell it.
+    forcePathStyle: null,
   },
 };

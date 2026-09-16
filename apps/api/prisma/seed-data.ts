@@ -277,6 +277,8 @@ export const DEFAULT_SYSTEM_SETTINGS = {
     accountId: '',
     // The IDENTIFIER half of the credential only.
     accessKeyId: '',
-    forcePathStyle: false,
+    // `null` means "use this vendor's convention" and must stay byte-identical
+    // to `DEFAULT_SYSTEM_SETTINGS` (test/prisma/seed-data.spec.ts guards it).
+    forcePathStyle: null,
   },
 };

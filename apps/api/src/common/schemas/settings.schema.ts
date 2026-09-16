@@ -483,10 +483,26 @@ export type StorageProviderKind = (typeof STORAGE_PROVIDER_KINDS)[number];
  * changing `provider`.
  *
  * `forcePathStyle` selects `https://host/bucket/key` over
- * `https://bucket.host/key`. It is a modelled boolean rather than something
- * inferred from `provider` because the split does not follow the provider: MinIO
- * needs it, R2 does not, and an S3-compatible appliance behind a TLS certificate
- * that does not cover wildcard subdomains needs it regardless of who made it.
+ * `https://bucket.host/key`, and is TRI-STATE — `true`, `false` or `null`.
+ * `null` IS THE SHIPPED DEFAULT AND MEANS "USE THIS VENDOR'S CONVENTION":
+ * path style for `s3compatible`, virtual-host style for `s3` and `r2`, applied
+ * in exactly one place (`buildS3ClientConfig`, storage/providers/s3). It is not
+ * inferred from `provider` HERE because an explicit value must be able to beat
+ * the convention for every provider: MinIO needs path style, R2 does not, and
+ * an S3-compatible appliance behind a TLS certificate that does not cover
+ * wildcard subdomains needs it regardless of who made it.
+ *
+ * WHY NULLABLE RATHER THAN A PLAIN BOOLEAN, which is the same argument the
+ * string fields above make. Empty string is how a string here says "the
+ * operator has not said"; `null` is a boolean's only spelling of that, since
+ * both `true` and `false` are answers an operator can mean. A plain
+ * `z.boolean()` defaulting to `false` cannot express "unset", so every saved
+ * configuration carried an explicit `false` into the driver and the
+ * per-vendor default below it could never fire — which is precisely how
+ * selecting `s3compatible`, typing a MinIO endpoint and saving produced a
+ * deployment MinIO rejects (it requires path style). Consumers ask the same
+ * one question the strings do ("did the operator state a value?"), and get
+ * the same answer everywhere.
  *
  * NO `.default()` ON ANY FIELD, exactly as in the operations section above. The
  * defaults live in `DEFAULT_SYSTEM_SETTINGS` (settings.types.ts) and nowhere
@@ -506,7 +522,10 @@ export const systemStorageSchema = z.object({
   // An IDENTIFIER, not a secret — see the block comment above, and the
   // compile-time proof at the bottom of this file.
   accessKeyId: z.string().trim().max(255),
-  forcePathStyle: z.boolean(),
+  // TRI-STATE. `null` is "use this vendor's convention", and is the default in
+  // `DEFAULT_SYSTEM_SETTINGS`; `true`/`false` are an operator overriding it.
+  // See the block comment above for why a plain boolean cannot say "unset".
+  forcePathStyle: z.boolean().nullable(),
 });
 
 export type SystemStorageValue = z.infer<typeof systemStorageSchema>;
@@ -583,7 +602,10 @@ export const systemStoragePatchSchema = z.object({
   endpoint: z.string().trim().max(512).optional(),
   accountId: z.string().trim().max(255).optional(),
   accessKeyId: z.string().trim().max(255).optional(),
-  forcePathStyle: z.boolean().optional(),
+  // `.nullable().optional()` means two different things here, and both are
+  // wanted: absent is "leave it alone", explicit `null` is "go back to this
+  // vendor's convention". See the block comment on `systemStorageSchema`.
+  forcePathStyle: z.boolean().nullable().optional(),
 });
 
 export const systemMaintenancePatchSchema = z.object({

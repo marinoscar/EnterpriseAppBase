@@ -152,8 +152,21 @@ export interface ResolvedStorageConfig {
   accessKeyId: string;
   /** ⚠ Plaintext. See the type's own warning above. */
   secretAccessKey: string;
-  /** `https://host/bucket/key` (true) over `https://bucket.host/key` (false). */
-  forcePathStyle: boolean;
+  /**
+   * `https://host/bucket/key` (true) over `https://bucket.host/key` (false),
+   * or `null` for "use this vendor's convention".
+   *
+   * TRI-STATE, AND `null` IS CARRIED, NOT COLLAPSED. This is the one resolved
+   * field that is deliberately NOT decided here: the per-vendor convention
+   * (path style for `s3compatible`, virtual-host style for `s3` and `r2`)
+   * lives in `buildS3ClientConfig`, which is the only place that knows what
+   * each SDK flavour wants. Resolving `null` to a boolean in this file would
+   * be a second copy of that table, and the failure mode of the second copy is
+   * the one #374 shipped: a `false` nobody chose reaching the driver as an
+   * operator's explicit answer, suppressing the default and breaking MinIO.
+   * What an administrator actually stated still travels through untouched.
+   */
+  forcePathStyle: boolean | null;
 }
 
 /**
@@ -368,6 +381,9 @@ function resolveSavedStorageConfig(
       ...(endpoint ? { endpoint } : {}),
       accessKeyId: policy.accessKeyId,
       secretAccessKey,
+      // Passed through as stored, `null` included — see the field's note on
+      // `ResolvedStorageConfig`. The vendor convention is the driver's to
+      // apply, and it can only apply it if "unset" survives this far.
       forcePathStyle: policy.forcePathStyle,
     },
   };
@@ -556,10 +572,14 @@ export function readStorageEnvFallback(
  * begun configuring storage here, and a half-finished form must not be silently
  * completed from the environment.
  *
- * ONLY THE STRING FIELDS COUNT. `provider` and `forcePathStyle` always carry a
- * value (a closed enum with a default, and a boolean), so neither can
- * distinguish "saved" from "never touched" — testing them would let a stray
- * default disable the bridge on a deployment that has configured nothing.
+ * ONLY THE STRING FIELDS COUNT. `provider` always carries a value (a closed
+ * enum with a default), and `forcePathStyle` can carry one an operator chose,
+ * so neither can distinguish "saved" from "never touched" — testing them would
+ * let a stray default disable the bridge on a deployment that has configured
+ * nothing. (`forcePathStyle`'s `null` default would in fact distinguish the two
+ * now that it is tri-state; it stays out of this test anyway, because a lone
+ * path-style toggle on an otherwise empty namespace is not a storage
+ * configuration and must not switch the environment bridge off.)
  */
 export function hasSavedStorageSettings(policy: SystemStorageValue): boolean {
   return Boolean(
@@ -584,6 +604,15 @@ export function hasSavedStorageSettings(policy: SystemStorageValue): boolean {
  * always AWS. `accountId` is empty because the environment path never supported
  * R2's derived host — an R2 deployment set `S3_ENDPOINT` by hand, and still
  * resolves here as `s3compatible` with that endpoint, unchanged.
+ *
+ * `forcePathStyle` IS AN EXPLICIT BOOLEAN HERE, NEVER `null`, even though
+ * `null` ("use the vendor convention") is what the settings namespace now
+ * ships. The bridge's whole contract is that an environment-configured
+ * deployment behaves exactly as it did before #373, and before #373 the value
+ * was computed, not defaulted: `!!endpoint`. Handing `null` to the driver
+ * instead would produce the same answer for `s3compatible` today and a
+ * different one the day a vendor convention is revisited — a bridge that
+ * drifts is not a bridge. What is stated wins, and this states it.
  */
 export function storageEnvFallbackPolicy(
   env: StorageEnvFallback,

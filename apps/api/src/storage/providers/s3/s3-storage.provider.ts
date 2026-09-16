@@ -83,16 +83,20 @@ export interface S3StorageProviderConfig {
   /**
    * `https://host/bucket/key` (true) over `https://bucket.host/key` (false).
    *
-   * OPTIONAL, AND ABSENT IS NOT `false`: absent means "use this provider's
-   * convention" ({@link buildS3ClientConfig} — path style for `s3compatible`,
-   * virtual-host style for `s3` and `r2`), while `false` is an operator saying
-   * virtual-host style about a deployment that might otherwise have defaulted
-   * the other way. `ResolvingStorageProvider` always passes a value, because
-   * `SystemStorageValue.forcePathStyle` is a modelled boolean an administrator
-   * sets; the default below is for a caller holding a configuration that has
-   * not been through a settings form.
+   * OPTIONAL AND NULLABLE, AND NEITHER IS `false`: absent or `null` means "use
+   * this provider's convention" ({@link buildS3ClientConfig} — path style for
+   * `s3compatible`, virtual-host style for `s3` and `r2`), while `false` is an
+   * operator saying virtual-host style about a deployment that might otherwise
+   * have defaulted the other way.
+   *
+   * `null` is accepted beside absent because that is how the stored setting
+   * spells "unset" (`systemStorageSchema.forcePathStyle` is tri-state), and
+   * `ResolvingStorageProvider` hands this configuration straight through from
+   * there. Collapsing `null` on the way in would put the default below out of
+   * reach of every settings-configured deployment, which is the defect this
+   * shape exists to prevent.
    */
-  forcePathStyle?: boolean;
+  forcePathStyle?: boolean | null;
   /** Multipart part size in bytes. Defaults to {@link DEFAULT_S3_PART_SIZE}. */
   partSize?: number;
 }
@@ -135,10 +139,10 @@ export interface S3StorageProviderConfig {
  * derived ones are all fallbacks — a value an administrator typed always wins,
  * for every provider.
  *
- * (*) A DEFAULT, not a rule. `forcePathStyle` is a modelled boolean an
- * administrator sets, so a configuration that has been through the settings
- * form always carries an explicit value and that value wins; `true` is what
- * this function uses when the caller states none. See the field's own note.
+ * (*) A DEFAULT, not a rule. `forcePathStyle` is tri-state: an administrator
+ * who states `true` or `false` wins for every provider, and `null` (the shipped
+ * default) or an absent key is what lets this row apply. See the field's own
+ * note.
  *
  * `apps/api/src/storage/providers/s3/s3-storage.provider.spec.ts` asserts the
  * whole row end to end, from a settings literal to the arguments
@@ -163,6 +167,10 @@ function buildS3ClientConfig(config: S3StorageProviderConfig): S3ClientConfig {
     // endpoint and wants virtual-host style. What an administrator stored
     // always wins — see the field's note above — and the fallback only names
     // the convention each vendor documents.
+    //
+    // `??` and not `||`: an explicit `false` is an answer and must survive.
+    // It fires for `null` as well as for an absent key, which is what makes
+    // the stored tri-state's "unset" reach this line at all.
     forcePathStyle: config.forcePathStyle ?? provider === 's3compatible',
   };
 

@@ -1100,14 +1100,24 @@ export class SystemSettingsService {
       // Storage provider configuration (#373, epic #372)
       // -----------------------------------------------------------------------
       //
-      // Field by field like everything above, and `??` is the RIGHT operator
-      // here even though it is the wrong one for `maintenance.startedAt`: no
-      // field in this namespace is nullable, so a caller can never send `null`,
-      // and `??` passes an empty string through unchanged. That last part is
-      // load-bearing — `''` is how an operator un-configures a field, and `||`
-      // would silently turn "clear the endpoint" into "keep the old endpoint",
-      // which is the class of bug that leaves a deployment writing to a bucket
-      // it was told to stop writing to.
+      // Field by field like everything above. `??` is the RIGHT operator for
+      // every STRING field here even though it is the wrong one for
+      // `maintenance.startedAt`: none of them is nullable, so a caller can
+      // never send `null`, and `??` passes an empty string through unchanged.
+      // That last part is load-bearing — `''` is how an operator un-configures
+      // a field, and `||` would silently turn "clear the endpoint" into "keep
+      // the old endpoint", which is the class of bug that leaves a deployment
+      // writing to a bucket it was told to stop writing to.
+      //
+      // `forcePathStyle` IS THE ONE EXCEPTION, and it uses the
+      // `!== undefined` form for exactly the reason `maintenance.startedAt`
+      // does: it is tri-state (`true` / `false` / `null`, where `null` means
+      // "use this vendor's convention"), so `null` is a value a caller can
+      // legitimately SEND, and `??` treats a sent `null` the same as an absent
+      // key. With `??` there would be no request body able to put the field
+      // back to the vendor default once an operator had pinned it — the one
+      // thing a tri-state field exists to allow. Only `undefined` may mean
+      // "leave it alone".
       //
       // NOTHING HERE TOUCHES THE SECRET ACCESS KEY. It is not in the DTO, not
       // in the stored value and not in this merge; it is written through
@@ -1121,7 +1131,9 @@ export class SystemSettingsService {
         accessKeyId:
           dto.storage?.accessKeyId ?? currentValue.storage.accessKeyId,
         forcePathStyle:
-          dto.storage?.forcePathStyle ?? currentValue.storage.forcePathStyle,
+          dto.storage?.forcePathStyle !== undefined
+            ? dto.storage.forcePathStyle
+            : currentValue.storage.forcePathStyle,
       },
     };
 

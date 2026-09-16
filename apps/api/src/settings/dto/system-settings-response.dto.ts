@@ -74,7 +74,10 @@ export const systemSettingsResponseSchema = z.object({
     endpoint: z.string(),
     accountId: z.string(),
     accessKeyId: z.string(),
-    forcePathStyle: z.boolean(),
+    // Tri-state, and `null` is published as `null` rather than coerced to
+    // `false`: an administrator reading this must be able to tell "I have not
+    // chosen" from "I chose virtual-host style". See `systemStorageSchema`.
+    forcePathStyle: z.boolean().nullable(),
   }),
   updatedAt: z.iso.datetime(),
   updatedBy: z

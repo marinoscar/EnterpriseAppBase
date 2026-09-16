@@ -304,6 +304,99 @@ describe('SystemSettingsService', () => {
       });
     });
 
+    // =========================================================================
+    // storage.forcePathStyle: the one nullable field in the storage merge (#374)
+    // =========================================================================
+    //
+    // The merge uses `!== undefined` for this field and `??` for its string
+    // neighbours, and these three cases are the difference. `null` is a value a
+    // caller can legitimately SEND (it means "use this vendor's convention"),
+    // so `??` would fold it into "absent" and leave the stored `true` in place
+    // — leaving no request body able to undo a path-style override once one had
+    // been saved. Only `undefined` may mean "leave it alone".
+
+    describe('storage.forcePathStyle (tri-state)', () => {
+      function storedWithForcePathStyle(value: boolean | null) {
+        return {
+          ...mockSystemSettings,
+          value: {
+            ...DEFAULT_SYSTEM_SETTINGS,
+            storage: {
+              ...DEFAULT_SYSTEM_SETTINGS.storage,
+              provider: 's3compatible',
+              bucket: 'my-bucket',
+              endpoint: 'https://minio.internal:9000',
+              accessKeyId: 'AKIAEXAMPLE',
+              forcePathStyle: value,
+            },
+          } as any,
+        };
+      }
+
+      /** The `storage` block that actually reached Prisma. */
+      function writtenStorage(): Record<string, unknown> {
+        expect(mockPrisma.systemSettings.update).toHaveBeenCalledTimes(1);
+
+        const call = mockPrisma.systemSettings.update.mock.calls[0][0] as {
+          data: { value: { storage: Record<string, unknown> } };
+        };
+
+        return call.data.value.storage;
+      }
+
+      beforeEach(() => {
+        mockPrisma.systemSettings.update.mockResolvedValue({
+          ...mockSystemSettings,
+          version: 2,
+        } as any);
+        mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+      });
+
+      it('can be PATCHed back to null over a stored true', async () => {
+        mockPrisma.systemSettings.findUnique.mockResolvedValue(
+          storedWithForcePathStyle(true) as any,
+        );
+
+        await service.patchSettings(
+          { storage: { forcePathStyle: null } },
+          mockUserId,
+        );
+
+        expect(writtenStorage().forcePathStyle).toBeNull();
+        // Nothing else in the namespace moved.
+        expect(writtenStorage().bucket).toBe('my-bucket');
+      });
+
+      it('leaves a stored true alone when the key is absent from the body', async () => {
+        mockPrisma.systemSettings.findUnique.mockResolvedValue(
+          storedWithForcePathStyle(true) as any,
+        );
+
+        await service.patchSettings(
+          { storage: { bucket: 'other-bucket' } },
+          mockUserId,
+        );
+
+        expect(writtenStorage().forcePathStyle).toBe(true);
+        expect(writtenStorage().bucket).toBe('other-bucket');
+      });
+
+      it('accepts an explicit false over a stored null', async () => {
+        mockPrisma.systemSettings.findUnique.mockResolvedValue(
+          storedWithForcePathStyle(null) as any,
+        );
+
+        await service.patchSettings(
+          { storage: { forcePathStyle: false } },
+          mockUserId,
+        );
+
+        // `false` is an operator's answer, not an absent value — a `||` here
+        // would discard it and keep the vendor convention.
+        expect(writtenStorage().forcePathStyle).toBe(false);
+      });
+    });
+
     it('should throw ConflictException when If-Match version mismatch', async () => {
       const partialUpdate = {
         nodes: { jobSecretBrokerEnabled: true },
