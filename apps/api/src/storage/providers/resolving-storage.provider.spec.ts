@@ -130,6 +130,32 @@ describe('ResolvingStorageProvider', () => {
     );
   });
 
+  it('hands the resolved provider KIND to the client it builds (#374)', async () => {
+    storageConfig.resolve.mockResolvedValue(
+      configured(
+        resolvedConfig({
+          provider: 'r2',
+          region: 'auto',
+          endpoint: 'https://acct.r2.cloudflarestorage.com',
+        }),
+      ),
+    );
+
+    await provider.exists('a');
+
+    // Without this the driver could only INFER the vendor from the shape of
+    // the configuration, and "has an endpoint" is not "is R2" — which is the
+    // conflation that used to make every endpoint force path-style URLs. What
+    // the kind then selects is asserted in `s3/s3-storage.provider.spec.ts`.
+    expect(S3StorageProvider).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: 'r2',
+        region: 'auto',
+        endpoint: 'https://acct.r2.cloudflarestorage.com',
+      }),
+    );
+  });
+
   it('reuses the cached delegate across calls for the same configuration', async () => {
     await provider.exists('a');
     await provider.exists('b');

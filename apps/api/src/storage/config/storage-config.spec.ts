@@ -34,7 +34,10 @@ function policy(overrides: Partial<SystemStorageValue> = {}): SystemStorageValue
     endpoint: '',
     accountId: '',
     accessKeyId: 'AKIAEXAMPLE',
-    forcePathStyle: false,
+    // The shipped default: "use this vendor's convention", not `false`. The
+    // factory mirrors `DEFAULT_SYSTEM_SETTINGS` so a test that says nothing
+    // about path style is testing the configuration an operator actually gets.
+    forcePathStyle: null,
     ...overrides,
   };
 }
@@ -50,7 +53,7 @@ function resolvedConfig(
     region: 'us-west-2',
     accessKeyId: 'AKIAEXAMPLE',
     secretAccessKey: SECRET,
-    forcePathStyle: false,
+    forcePathStyle: null,
     ...overrides,
   };
 }
@@ -204,7 +207,7 @@ describe('resolveStorageConfig', () => {
           region: 'eu-west-1',
           accessKeyId: 'AK',
           secretAccessKey: SECRET,
-          forcePathStyle: false,
+          forcePathStyle: null,
         },
       });
     });
@@ -398,16 +401,79 @@ describe('resolveStorageConfig', () => {
     }
   });
 
-  it('passes forcePathStyle through unchanged', () => {
-    const result = resolveStorageConfig(
-      policy({ forcePathStyle: true }),
-      SECRET,
-    );
+  // ===========================================================================
+  // forcePathStyle is TRI-STATE, and this function decides none of it (#374)
+  // ===========================================================================
+  //
+  // `null` means "use this vendor's convention" and MUST survive to the driver,
+  // because `buildS3ClientConfig` (storage/providers/s3) holds the one copy of
+  // the convention table: path style for `s3compatible`, virtual-host style for
+  // `s3` and `r2`. Collapsing `null` to a boolean here — or storing `false` as
+  // the default, which is the same thing one layer up — is exactly what made
+  // the driver's `?? provider === 's3compatible'` unreachable in production and
+  // broke MinIO. The EFFECTIVE value each of these resolves to is asserted end
+  // to end, through this same function, in
+  // `storage/providers/s3/s3-storage.provider.spec.ts`; what is pinned here is
+  // that this function adds nothing and removes nothing.
 
-    expect(result.configured).toBe(true);
-    if (result.configured) {
-      expect(result.config.forcePathStyle).toBe(true);
+  describe('forcePathStyle', () => {
+    function resolvedForcePathStyle(
+      overrides: Partial<SystemStorageValue>,
+    ): boolean | null {
+      const result = resolveStorageConfig(policy(overrides), SECRET);
+
+      expect(result.configured).toBe(true);
+      if (!result.configured) {
+        throw new Error('fixture is not a usable configuration');
+      }
+
+      return result.config.forcePathStyle;
     }
+
+    it('carries the unset default through for s3compatible (→ path style)', () => {
+      expect(
+        resolvedForcePathStyle({
+          provider: 's3compatible',
+          endpoint: 'https://minio.internal:9000',
+          forcePathStyle: null,
+        }),
+      ).toBeNull();
+    });
+
+    it('carries the unset default through for s3 (→ virtual-host style)', () => {
+      expect(
+        resolvedForcePathStyle({ provider: 's3', forcePathStyle: null }),
+      ).toBeNull();
+    });
+
+    it('carries the unset default through for r2 (→ virtual-host style)', () => {
+      expect(
+        resolvedForcePathStyle({
+          provider: 'r2',
+          region: 'auto',
+          accountId: 'abc123def456',
+          forcePathStyle: null,
+        }),
+      ).toBeNull();
+    });
+
+    it('passes an explicit false through, even for s3compatible', () => {
+      // An operator turning path style OFF for an appliance that serves
+      // virtual-host style. A `||` anywhere on this path would lose it.
+      expect(
+        resolvedForcePathStyle({
+          provider: 's3compatible',
+          endpoint: 'https://minio.internal:9000',
+          forcePathStyle: false,
+        }),
+      ).toBe(false);
+    });
+
+    it('passes an explicit true through, even for s3', () => {
+      expect(
+        resolvedForcePathStyle({ provider: 's3', forcePathStyle: true }),
+      ).toBe(true);
+    });
   });
 });
 
@@ -535,7 +601,7 @@ function unconfiguredPolicy(
     endpoint: '',
     accountId: '',
     accessKeyId: '',
-    forcePathStyle: false,
+    forcePathStyle: null,
     ...overrides,
   };
 }
@@ -568,7 +634,9 @@ describe('resolveStorageConfig — the temporary environment fallback (#377)', (
           region: 'us-west-2',
           accessKeyId: 'AKIAEXAMPLE',
           secretAccessKey: SECRET,
-          forcePathStyle: false,
+          // `null`, carried from the saved policy — the driver, not this
+          // function, turns "unset" into a vendor convention.
+          forcePathStyle: null,
         },
       });
       // Not marked as coming from the environment, because it did not.
@@ -875,7 +943,7 @@ describe('hasSavedStorageSettings (#377)', () => {
     }
   });
 
-  it('ignores provider and forcePathStyle, which always carry a value', () => {
+  it('ignores provider and forcePathStyle, neither of which is evidence of a saved configuration', () => {
     expect(hasSavedStorageSettings(unconfiguredPolicy({ provider: 'r2' }))).toBe(
       false,
     );

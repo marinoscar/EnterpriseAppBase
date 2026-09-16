@@ -140,7 +140,9 @@ const storageSettingsSchema = z.object({
   endpoint: z.string().trim().max(512),
   accountId: z.string().trim().max(255),
   accessKeyId: z.string().trim().max(255),
-  forcePathStyle: z.boolean(),
+  // Tri-state, mirroring `systemStorageSchema`: `null` is "use this vendor's
+  // convention" and is what a fresh deployment holds.
+  forcePathStyle: z.boolean().nullable(),
 });
 
 // Full replacement (PUT)
@@ -251,9 +253,10 @@ export const patchSystemSettingsSchema = z.object({
   // right — no error, no log line, no audit entry. `common/schemas/settings-parity.spec.ts`
   // is what fails the build if this is ever dropped.
   //
-  // An empty string here CLEARS a field (there is no nullable field in this
-  // namespace, so `''` is the only way to say "un-configure this"); absent
-  // leaves the stored value alone.
+  // An empty string here CLEARS a string field (`''` is how a string says
+  // "un-configure this"); absent leaves the stored value alone. The one
+  // nullable field, `forcePathStyle`, says the same thing with an explicit
+  // `null` — see `systemStorageSchema` for why a boolean needs a third state.
   storage: z
     .object({
       provider: z.enum(STORAGE_PROVIDER_KINDS).optional(),
@@ -263,7 +266,8 @@ export const patchSystemSettingsSchema = z.object({
       accountId: z.string().trim().max(255).optional(),
       // Identifier, never the secret half — see the section header above.
       accessKeyId: z.string().trim().max(255).optional(),
-      forcePathStyle: z.boolean().optional(),
+      // Absent leaves it alone; explicit `null` restores the vendor default.
+      forcePathStyle: z.boolean().nullable().optional(),
     })
     .optional(),
 });

@@ -488,5 +488,59 @@ describe('PatchSystemSettingsDto (PATCH)', () => {
         },
       });
     });
+
+    // =========================================================================
+    // storage.forcePathStyle is TRI-STATE on the wire too (#374)
+    // =========================================================================
+    //
+    // THE SILENT-NO-OP TRAP, IN ITS EXACT SHAPE. These bodies are parsed by the
+    // global ZodValidationPipe before the service ever runs, so a
+    // `z.boolean().optional()` here would strip an explicit `null` and hand the
+    // service a body with the caller's change already deleted — 200, no error,
+    // no audit entry, and no request able to put the field back to "use this
+    // vendor's convention". `null` and absent are DIFFERENT instructions and
+    // both have to survive this parse to be told apart in the merge.
+
+    it('keeps an explicit storage.forcePathStyle null in a PATCH body', () => {
+      const result = patchSystemSettingsSchema.parse({
+        storage: { forcePathStyle: null },
+      });
+
+      expect(result).toEqual({ storage: { forcePathStyle: null } });
+      expect(result.storage).toHaveProperty('forcePathStyle');
+    });
+
+    it('distinguishes an absent storage.forcePathStyle from an explicit null', () => {
+      const result = patchSystemSettingsSchema.parse({
+        storage: { bucket: 'my-bucket' },
+      });
+
+      expect(result.storage).not.toHaveProperty('forcePathStyle');
+    });
+
+    it('keeps an explicit storage.forcePathStyle false in a PATCH body', () => {
+      const result = patchSystemSettingsSchema.parse({
+        storage: { forcePathStyle: false },
+      });
+
+      expect(result).toEqual({ storage: { forcePathStyle: false } });
+    });
+
+    it('accepts a null storage.forcePathStyle in a PUT body', () => {
+      const result = updateSystemSettingsSchema.parse({
+        notifications: NOTIFICATIONS,
+        storage: {
+          provider: 's3compatible',
+          bucket: 'my-bucket',
+          region: '',
+          endpoint: 'https://minio.internal:9000',
+          accountId: '',
+          accessKeyId: 'AKIAEXAMPLE',
+          forcePathStyle: null,
+        },
+      });
+
+      expect(result.storage?.forcePathStyle).toBeNull();
+    });
   });
 });

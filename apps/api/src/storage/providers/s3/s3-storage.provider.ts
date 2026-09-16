@@ -11,10 +11,12 @@ import {
   CompleteMultipartUploadCommand,
   AbortMultipartUploadCommand,
   NotFound,
+  type S3ClientConfig,
 } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Readable } from 'node:stream';
+import type { StorageProviderKind } from '../../../common/schemas/settings.schema';
 import { StorageProvider } from '../storage-provider.interface';
 import {
   StorageUploadOptions,
@@ -56,6 +58,18 @@ export const DEFAULT_S3_PART_SIZE = 10_485_760;
  * without it. Nothing in this class logs it, and nothing should.
  */
 export interface S3StorageProviderConfig {
+  /**
+   * Which vendor's flavour of the S3 protocol this instance is talking to.
+   *
+   * THE ONLY FIELD THAT CHANGES HOW THE CLIENT IS BUILT (#374) — see
+   * {@link buildS3ClientConfig}. It is carried rather than inferred from the
+   * shape of the rest: "has an endpoint" and "is R2" are different questions,
+   * and inferring one from the other is precisely the conflation
+   * `forcePathStyle: !!endpoint` used to make.
+   *
+   * It is also what {@link S3StorageProvider.providerId} answers with.
+   */
+  provider: StorageProviderKind;
   /** Bucket every operation addresses. */
   bucket: string;
   /** Signing region. */
@@ -66,10 +80,145 @@ export interface S3StorageProviderConfig {
   accessKeyId: string;
   /** ⚠ Plaintext secret half. */
   secretAccessKey: string;
-  /** `https://host/bucket/key` (true) over `https://bucket.host/key` (false). */
-  forcePathStyle: boolean;
+  /**
+   * `https://host/bucket/key` (true) over `https://bucket.host/key` (false).
+   *
+   * OPTIONAL AND NULLABLE, AND NEITHER IS `false`: absent or `null` means "use
+   * this provider's convention" ({@link buildS3ClientConfig} — path style for
+   * `s3compatible`, virtual-host style for `s3` and `r2`), while `false` is an
+   * operator saying virtual-host style about a deployment that might otherwise
+   * have defaulted the other way.
+   *
+   * `null` is accepted beside absent because that is how the stored setting
+   * spells "unset" (`systemStorageSchema.forcePathStyle` is tri-state), and
+   * `ResolvingStorageProvider` hands this configuration straight through from
+   * there. Collapsing `null` on the way in would put the default below out of
+   * reach of every settings-configured deployment, which is the defect this
+   * shape exists to prevent.
+   */
+  forcePathStyle?: boolean | null;
   /** Multipart part size in bytes. Defaults to {@link DEFAULT_S3_PART_SIZE}. */
   partSize?: number;
+}
+
+/**
+ * The `S3Client` options for one provider kind — the whole of what differs
+ * between AWS S3, Cloudflare R2 and an S3-compatible endpoint (#374).
+ *
+ * ── WHY ONE DRIVER AND NOT THREE CLASSES ────────────────────────────────────
+ *
+ * Because this function IS the difference. All three speak the same protocol
+ * through the same SDK; the thirteen method bodies below are byte-for-byte the
+ * same work, and `getSignedPutUrl`'s rationale alone runs forty lines that
+ * would then exist in triplicate and drift. Three classes would be three copies
+ * of everything that is identical, to express the four lines that are not.
+ *
+ * ── WHAT THIS FUNCTION DECIDES, AND WHAT IT DOES NOT ────────────────────────
+ *
+ * It decides the PATH-STYLE DEFAULT and the CHECKSUM FLAGS. It deliberately
+ * does NOT decide the endpoint or the region: both are already resolved, per
+ * provider, by `resolveStorageConfig` in `../../config/storage-config.ts` —
+ * R2's account-scoped host from `deriveR2Endpoint`, R2's `auto` and an
+ * S3-compatible endpoint's `us-east-1` from the two exported fallback
+ * constants. Re-deriving either here would be a second copy of a rule that has
+ * exactly one definition today, and the failure mode of a second copy is a
+ * settings page reporting one host while the client talks to another. What
+ * arrives here is therefore already correct; this function's job is only what
+ * the settings namespace cannot express.
+ *
+ * ── THE TABLE (#374), AS IT IS ACTUALLY ENFORCED ────────────────────────────
+ *
+ *   | kind           | endpoint            | region      | forcePathStyle | checksums     |
+ *   | -------------- | ------------------- | ----------- | -------------- | ------------- |
+ *   | `s3`           | unset (SDK's host)  | operator's  | false          | SDK default   |
+ *   | `r2`           | derived from acct   | `auto`      | false          | WHEN_REQUIRED |
+ *   | `s3compatible` | operator's          | `us-east-1` | true*          | SDK default   |
+ *
+ * The first two columns are `resolveStorageConfig`'s; the last two are this
+ * function's. The endpoint and region cells marked "operator's" and the two
+ * derived ones are all fallbacks — a value an administrator typed always wins,
+ * for every provider.
+ *
+ * (*) A DEFAULT, not a rule. `forcePathStyle` is tri-state: an administrator
+ * who states `true` or `false` wins for every provider, and `null` (the shipped
+ * default) or an absent key is what lets this row apply. See the field's own
+ * note.
+ *
+ * `apps/api/src/storage/providers/s3/s3-storage.provider.spec.ts` asserts the
+ * whole row end to end, from a settings literal to the arguments
+ * `new S3Client(...)` was actually called with, rather than each half alone.
+ */
+function buildS3ClientConfig(config: S3StorageProviderConfig): S3ClientConfig {
+  const { provider, region, endpoint, accessKeyId, secretAccessKey } = config;
+
+  const clientConfig: S3ClientConfig = {
+    region,
+    endpoint,
+    credentials:
+      accessKeyId && secretAccessKey
+        ? {
+            accessKeyId,
+            secretAccessKey,
+          }
+        : undefined,
+    // Path-style URLs for MinIO/LocalStack/Ceph and anything else behind a
+    // certificate that does not cover wildcard subdomains. Was inferred from
+    // `!!endpoint` before #373; that inference is wrong for R2, which has an
+    // endpoint and wants virtual-host style. What an administrator stored
+    // always wins — see the field's note above — and the fallback only names
+    // the convention each vendor documents.
+    //
+    // `??` and not `||`: an explicit `false` is an answer and must survive.
+    // It fires for `null` as well as for an absent key, which is what makes
+    // the stored tri-state's "unset" reach this line at all.
+    forcePathStyle: config.forcePathStyle ?? provider === 's3compatible',
+  };
+
+  if (provider === 'r2') {
+    // ⚠ DO NOT REMOVE THESE TWO LINES AS "DEFAULTS WE ARE RESTATING".
+    //
+    // Since v3.729.0, `@aws-sdk/client-s3` computes a CRC32 checksum for every
+    // request body by default and sends it as an AWS-specific TRAILER
+    // (`x-amz-trailer`, chunked transfer encoding). Cloudflare R2 rejects that
+    // trailer: uploads fail with `header 'x-amz-content-sha256' does not match`
+    // or a 400 `InvalidRequest` naming the trailer — errors that name the
+    // signature rather than the checksum that caused it, on a machine nobody is
+    // watching. `WHEN_REQUIRED` keeps checksums for the operations that
+    // genuinely mandate one (a multipart complete) and stops volunteering them
+    // everywhere else.
+    //
+    // They are set ONLY for `r2`, and the branch must stay that narrow: AWS S3
+    // wants the SDK's default, and an S3-compatible vendor is not R2 merely by
+    // not being AWS. If a second vendor turns out to reject the trailer too,
+    // the fix is a modelled setting an operator can turn on — not quietly
+    // widening this condition to every non-AWS endpoint, which would disable
+    // integrity checks for the vendors that do support them.
+    clientConfig.requestChecksumCalculation = 'WHEN_REQUIRED';
+    clientConfig.responseChecksumValidation = 'WHEN_REQUIRED';
+  }
+
+  return clientConfig;
+}
+
+/**
+ * The `CopySource` for a same-bucket copy of `key`, URL-encoded.
+ *
+ * ⚠ THE SDK DOES NOT ENCODE THIS FIELD. `CopySource` is the one place in the S3
+ * API where a key travels inside a value that is itself parsed as a path, so it
+ * must arrive percent-encoded; every other command below takes `Key` raw and
+ * the SDK encodes it. Sending it raw was a latent bug (#374): a key containing
+ * a space, a `+` or a `%` addressed a DIFFERENT OBJECT or failed outright —
+ * `+` reads as a space and `%xx` reads as an already-encoded byte — so
+ * `setMetadata` on such a key silently replaced the metadata of whatever object
+ * the mangled name happened to hit, or 404'd.
+ *
+ * ENCODED SEGMENT BY SEGMENT, not with one `encodeURIComponent` over the whole
+ * string: the `/` separators are structure here (bucket from key, and the key's
+ * own prefixes), and encoding them as `%2F` makes a prefixed key unaddressable
+ * on the S3-compatible servers that do not decode them back.
+ */
+function encodeCopySource(bucket: string, key: string): string {
+  return `${bucket}/${key.split('/').map(encodeURIComponent).join('/')}`;
 }
 
 /**
@@ -87,9 +236,40 @@ export class S3StorageProvider implements StorageProvider {
   private readonly bucket: string;
   private readonly partSize: number;
 
-  constructor(config: S3StorageProviderConfig) {
-    const { region, endpoint, accessKeyId, secretAccessKey } = config;
+  /**
+   * Which vendor this client is actually talking to.
+   *
+   * ── WHY IT EXISTS (#374) ────────────────────────────────────────────────────
+   *
+   * So that "which provider is in force?" has an authoritative answer on the
+   * object that IS the answer, rather than being inferred from the shape of a
+   * config (an endpoint means MinIO, no endpoint means AWS) or read from a
+   * constant. Before #373 the recording sites wrote the literal `'s3'`; a
+   * literal stops being true the moment an operator can choose.
+   *
+   * ── IT IS NOT A SECOND MECHANISM ────────────────────────────────────────────
+   *
+   * The rows that RECORD where bytes went (`storage_objects.storage_provider`,
+   * `database_backup_runs.storage_provider`) and the rule that compares
+   * `databaseBackup.storageProvider` against what is live keep asking
+   * `StorageConfigService.activeProvider()`, which reads the same settings
+   * namespace the bucket comes from — so a row cannot name one configuration's
+   * bucket and another's provider. This field is that same value, carried by
+   * the client built from it, for the caller that already holds a driver and
+   * would otherwise have to go back to the settings to ask.
+   *
+   * ⚠ DELIBERATELY NOT ON THE `StorageProvider` INTERFACE. Adding it would
+   * oblige `ResolvingStorageProvider` to answer synchronously for a
+   * configuration it resolves asynchronously — the same trap `getBucket()`
+   * already documents — and `activeProvider()` is the honest async answer that
+   * already exists. The nine consumers of `STORAGE_PROVIDER` are untouched.
+   */
+  readonly providerId: StorageProviderKind;
 
+  constructor(config: S3StorageProviderConfig) {
+    const { provider, region, endpoint } = config;
+
+    this.providerId = provider;
     this.bucket = config.bucket;
     this.partSize = config.partSize ?? DEFAULT_S3_PART_SIZE;
 
@@ -99,25 +279,14 @@ export class S3StorageProvider implements StorageProvider {
     // without a bucket at all, so this branch became unreachable. A second,
     // weaker copy of the check is how a half-configured client comes to be
     // built anyway, with only a log line to show for it.
-    this.s3Client = new S3Client({
-      region,
-      endpoint,
-      credentials:
-        accessKeyId && secretAccessKey
-          ? {
-              accessKeyId,
-              secretAccessKey,
-            }
-          : undefined,
-      // Path-style URLs for MinIO/LocalStack and anything else behind a
-      // certificate that does not cover wildcard subdomains. Was inferred from
-      // `!!endpoint`; it is now an explicit setting, because the split does not
-      // follow the endpoint — R2 has one and does not want path style.
-      forcePathStyle: config.forcePathStyle,
-    });
+    //
+    // Everything provider-specific about the client lives in one function, and
+    // it is the only thing that differs between the three kinds — see
+    // `buildS3ClientConfig` above.
+    this.s3Client = new S3Client(buildS3ClientConfig(config));
 
     this.logger.log(
-      `S3StorageProvider initialized - Bucket: ${this.bucket}, Region: ${region}${endpoint ? `, Endpoint: ${endpoint}` : ''}`,
+      `S3StorageProvider initialized - Provider: ${provider}, Bucket: ${this.bucket}, Region: ${region}${endpoint ? `, Endpoint: ${endpoint}` : ''}`,
     );
   }
 
@@ -496,6 +665,10 @@ export class S3StorageProvider implements StorageProvider {
   /**
    * Set file metadata
    * Uses CopyObject with REPLACE metadata directive
+   *
+   * ⚠ `CopySource` IS PERCENT-ENCODED AND `Key` IS NOT. That asymmetry is the
+   * S3 API's, not a slip — see {@link encodeCopySource} for what sending the
+   * raw key here did to any key containing a space, a `+` or a `%`.
    */
   async setMetadata(
     key: string,
@@ -507,7 +680,7 @@ export class S3StorageProvider implements StorageProvider {
       const command = new CopyObjectCommand({
         Bucket: this.bucket,
         Key: key,
-        CopySource: `${this.bucket}/${key}`,
+        CopySource: encodeCopySource(this.bucket, key),
         Metadata: metadata,
         MetadataDirective: 'REPLACE',
       });

@@ -322,11 +322,22 @@ export class ResolvingStorageProvider implements StorageProvider {
     this.logger.log(`Building storage client: ${label}`);
 
     const provider = new S3StorageProvider({
+      // #374: the kind travels WITH the configuration rather than being
+      // inferred from it downstream. It is what selects R2's checksum flags and
+      // what `S3StorageProvider.providerId` answers with; the endpoint and the
+      // region in this same object were already resolved per provider by
+      // `resolveStorageConfig`, so the driver never re-derives either.
+      provider: config.provider,
       bucket: config.bucket,
       region: config.region,
       ...(config.endpoint ? { endpoint: config.endpoint } : {}),
       accessKeyId: config.accessKeyId,
       secretAccessKey: config.secretAccessKey,
+      // Passed through EXACTLY as resolved, `null` included: `null` is the
+      // stored setting's "unset", and the per-vendor convention behind the
+      // driver's `??` is the only place that decides what unset means. A
+      // `?? false` here would be this layer answering a question it has no
+      // basis to answer — the #374 regression, in one operator.
       forcePathStyle: config.forcePathStyle,
       // Deploy-time tuning, NOT an administrator setting: part size is about
       // this process's memory and the network between it and the provider, not
