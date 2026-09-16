@@ -109,8 +109,22 @@ jobs:
 
       - name: Commit regenerated baselines
         if: ${{ inputs.commit }}
+        # `shell: bash` is LOAD-BEARING, not house style. This job runs in a
+        # container, and there a `run:` step with no `shell:` executes under
+        # `sh -e {0}` — dash, not bash. Dash rejects the `set -o pipefail`
+        # below with "Illegal option -o pipefail" and the step exits 2 before
+        # doing anything at all, which is exactly how this workflow failed the
+        # first time it was ever run (issue #368). This is the only step here
+        # that needs bash, so the declaration sits on the step rather than on a
+        # job-level `defaults.run.shell`.
+        shell: bash
         run: |
           set -euo pipefail
+          # The uid inside the container is not necessarily the uid that owns
+          # the checked-out workspace, and git refuses to operate on a
+          # repository it considers someone else's ("detected dubious
+          # ownership"). Idempotent, and a harmless no-op where the two agree.
+          git config --global --add safe.directory "${GITHUB_WORKSPACE}"
           git config user.name  'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
           # `git add -A` over the directory, not a `**` pathspec: git's default
