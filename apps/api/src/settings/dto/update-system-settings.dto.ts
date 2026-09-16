@@ -86,7 +86,14 @@ const databaseBackupSettingsSchema = z.object({
     .regex(BACKUP_TIME_OF_DAY_PATTERN, 'Expected a 24-hour HH:MM time'),
   timezone: z.string().min(1).max(64),
   retentionCount: z.number().int().min(1).max(365),
-  storageProvider: z.string().min(1).max(64),
+  // No `.min(1)`: `""` is the one spelling of "unset" and is the SHIPPED
+  // DEFAULT — it means "whatever provider `storage.provider` names right now".
+  // A non-empty value must equal the active provider or the write is a loud
+  // 400 (`DatabaseBackupRunnerService.assertStorageProviderUsable`); that check
+  // is unchanged. Only the default moved, because a provider id the operator
+  // never chose must not be able to redirect or block their backups. See
+  // `common/schemas/settings.schema.ts` for the full argument.
+  storageProvider: z.string().max(64),
   runStaleMinutes: z.number().int().min(1).max(10080),
   compressionLevel: z.number().int().min(0).max(9),
   restoreRollbackMode: z.enum(['retain_database', 'drop_database']),
@@ -210,7 +217,11 @@ export const patchSystemSettingsSchema = z.object({
         .optional(),
       timezone: z.string().min(1).max(64).optional(),
       retentionCount: z.number().int().min(1).max(365).optional(),
-      storageProvider: z.string().min(1).max(64).optional(),
+      // No `.min(1)`, matching the PUT schema above: `""` CLEARS the pin back
+      // to "whatever provider is active", absent leaves it alone. Rejecting
+      // `""` would make the shipped default unreachable by the endpoint that
+      // edits it.
+      storageProvider: z.string().max(64).optional(),
       runStaleMinutes: z.number().int().min(1).max(10080).optional(),
       compressionLevel: z.number().int().min(0).max(9).optional(),
       restoreRollbackMode: z

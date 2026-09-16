@@ -17,6 +17,7 @@ import type {
   StorageProviderKind,
   SystemDatabaseBackupValue,
 } from '../common/schemas/settings.schema';
+import { DEFAULT_SYSTEM_SETTINGS } from '../common/types/settings.types';
 import {
   ACTIVE_RUN_INDEX_NAME,
   BACKUP_HEARTBEAT_INTERVAL_MS,
@@ -1196,6 +1197,39 @@ describe('the storage-provider constraint', () => {
 
     (await h.firstDump()).finish();
     await h.settled;
+  });
+
+  // THE REGRESSION (#373, epic #372). The shipped default used to be the
+  // literal `'s3'`, so an R2 deployment that had touched nothing failed EVERY
+  // backup with a 400 on a value nobody chose. Reading the default out of
+  // `DEFAULT_SYSTEM_SETTINGS` rather than writing `''` here is the point: this
+  // test fails again the moment somebody puts a provider id back in the
+  // default, which is the only way the bug can return.
+  it('takes a backup on an R2 deployment that has left the setting at its shipped default', async () => {
+    expect(DEFAULT_SYSTEM_SETTINGS.databaseBackup.storageProvider).toBe('');
+
+    const h = makeHarness({
+      activeProvider: 'r2',
+      policy: {
+        storageProvider: DEFAULT_SYSTEM_SETTINGS.databaseBackup.storageProvider,
+      },
+    });
+
+    const run = await h.service.startBackup({ trigger: 'scheduled' });
+    // Deferred, not guessed: the run records the provider that is actually
+    // active, and the archive goes where the settings page says it goes.
+    expect(run.storageProvider).toBe('r2');
+
+    (await h.firstDump()).finish();
+    await h.settled;
+
+    // The same default is usable from #283's config write path, which is the
+    // other caller that a pinned-to-`'s3'` default turned into a 400.
+    await expect(
+      h.service.assertStorageProviderUsable(
+        DEFAULT_SYSTEM_SETTINGS.databaseBackup.storageProvider
+      )
+    ).resolves.toBeUndefined();
   });
 
   // ASYNC SINCE #373 (epic #372): "the active provider" is a settings read, so

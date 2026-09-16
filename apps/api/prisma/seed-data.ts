@@ -215,7 +215,14 @@ export const DEFAULT_SYSTEM_SETTINGS = {
     timeOfDay: '02:00',
     timezone: 'UTC',
     retentionCount: 7,
-    storageProvider: 's3',
+    // EMPTY, meaning "whatever provider `storage.provider` names" (#373, epic
+    // #372) — and it must stay byte-identical to the API's
+    // `DEFAULT_SYSTEM_SETTINGS`, which `test/prisma/seed-data.spec.ts` pins.
+    // This field is a pin an operator sets deliberately; seeding a literal
+    // provider id would pin every fresh deployment to a provider nobody chose,
+    // and a deployment that then selected R2 would fail every backup with a
+    // 400. Empty defers instead of choosing.
+    storageProvider: '',
     runStaleMinutes: 120,
     compressionLevel: 6,
     restoreRollbackMode: 'retain_database',

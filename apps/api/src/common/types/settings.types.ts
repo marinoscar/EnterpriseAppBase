@@ -199,7 +199,18 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettingsValue = {
     timeOfDay: '02:00',
     timezone: 'UTC',
     retentionCount: 7,
-    storageProvider: 's3',
+    // EMPTY MEANS "WHATEVER PROVIDER IS ACTIVE", and that is the only honest
+    // default (#373, epic #372). This field is a PIN: a non-empty value must
+    // equal `storage.provider` or every backup is a loud 400
+    // (`db-backup/db-backup-storage.ts`), which is exactly what should happen
+    // to a value an operator typed and then contradicted. It is exactly what
+    // should NOT happen to a value they never typed — and shipping the literal
+    // `'s3'` here did precisely that: once `storage.provider` became a live
+    // setting, every deployment that selected R2 inherited a pin on `s3` and
+    // failed EVERY backup, from `queueBackup`, `startBackup`, `runQueuedBackup`
+    // and `PUT config` alike, on nobody's decision. Empty is inert in the same
+    // sense as the rest of this block: it defers, it does not choose.
+    storageProvider: '',
     runStaleMinutes: 120,
     compressionLevel: 6,
     restoreRollbackMode: 'retain_database',

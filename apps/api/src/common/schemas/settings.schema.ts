@@ -292,6 +292,23 @@ export const BACKUP_TIME_OF_DAY_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
  * node; see `NodesService.nodeEligibleTypes`. Off (either one) means the type
  * is withheld from the claim and the in-process worker takes the backup, which
  * is exactly what happened before node offload existed.
+ *
+ * `storageProvider` CARRIES NO `.min(1)`, AND ITS DEFAULT IS THE EMPTY STRING
+ * (#373, epic #372). Empty is the one spelling of "unset" — the same decision
+ * the `storage` namespace below makes and for the same reason; it is not
+ * nullable and not optional-in-storage, so no consumer ever has to ask "absent,
+ * or empty?" and get two answers. Empty means "whatever provider is active",
+ * which is the only default a template repository can ship honestly: a literal
+ * would have to be a guess at somebody else's deployment, and `isUsableStorage
+ * Provider` (`db-backup/db-backup-storage.ts`) turns a disagreement with the
+ * live `storage.provider` into a loud 400. Shipping `'s3'` here meant every
+ * deployment that selected R2 failed EVERY backup on a value nobody chose —
+ * a default the operator never typed must not be able to redirect or block
+ * their backups. What did NOT change is the check: a value an operator DID
+ * type must still equal the active provider exactly, because a backup landing
+ * somewhere other than where the settings page says it lands is only ever
+ * discovered during a restore. The bound stays 64 — a provider id, not prose —
+ * and the comparison trims, so stored whitespace is still "unset".
  */
 export const systemDatabaseBackupSchema = z.object({
   enabled: z.boolean(),
@@ -303,7 +320,9 @@ export const systemDatabaseBackupSchema = z.object({
     .regex(BACKUP_TIME_OF_DAY_PATTERN, 'Expected a 24-hour HH:MM time'),
   timezone: z.string().min(1).max(64),
   retentionCount: z.number().int().min(1).max(365),
-  storageProvider: z.string().min(1).max(64),
+  // NO `.min(1)`: the empty string is the one spelling of "unset", and it is
+  // the SHIPPED DEFAULT. See the block comment above.
+  storageProvider: z.string().max(64),
   runStaleMinutes: z.number().int().min(1).max(10080),
   compressionLevel: z.number().int().min(0).max(9),
   restoreRollbackMode: z.enum(['retain_database', 'drop_database']),
@@ -530,7 +549,12 @@ export const systemDatabaseBackupPatchSchema = z.object({
     .optional(),
   timezone: z.string().min(1).max(64).optional(),
   retentionCount: z.number().int().min(1).max(365).optional(),
-  storageProvider: z.string().min(1).max(64).optional(),
+  // No `.min(1)`, matching `systemDatabaseBackupSchema`: `""` CLEARS the pin
+  // back to "whatever provider is active" (absent is how a caller says "leave
+  // it alone"), which is the only way an operator can un-pin through the API.
+  // Rejecting `""` here would make the shipped default unreachable by the very
+  // endpoint that edits it.
+  storageProvider: z.string().max(64).optional(),
   runStaleMinutes: z.number().int().min(1).max(10080).optional(),
   compressionLevel: z.number().int().min(0).max(9).optional(),
   restoreRollbackMode: z

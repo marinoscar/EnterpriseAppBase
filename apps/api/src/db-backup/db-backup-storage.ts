@@ -188,6 +188,15 @@ export function buildBackupStorageKey(at: Date, runId: string): string {
  * Anything else must match `active` exactly, compared case-insensitively and
  * trimmed because the value is typed by a human into a settings form.
  *
+ * SINCE #373 EMPTY IS ALSO THE SHIPPED DEFAULT, and is representable: the
+ * schemas dropped `.min(1)` and `DEFAULT_SYSTEM_SETTINGS.databaseBackup
+ * .storageProvider` is `''`. Before that, this branch was unreachable for a
+ * fresh deployment — the default was the literal `'s3'`, so selecting R2 in the
+ * `storage` namespace made this function return FALSE and failed every backup
+ * on a value nobody had chosen. Nothing about the comparison below changed; a
+ * mismatch an operator actually typed is still a loud 400, for the reason the
+ * block comment at the top of this file gives.
+ *
  * `active` IS REQUIRED AND HAS NO DEFAULT. It is the provider in force right
  * now — `StorageConfigService.activeProvider()` — and since #373 that is a
  * setting, not a constant. A default here could only be a literal `'s3'`, which
