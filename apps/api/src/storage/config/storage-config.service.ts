@@ -11,13 +11,9 @@ import {
   STORAGE_CREDENTIAL_PURPOSE,
 } from '../storage-credential.constants';
 import {
-  describeStorageConfig,
-  hasSavedStorageSettings,
-  readStorageEnvFallback,
   resolveStorageConfig,
   type ResolvedStorageConfig,
   type StorageConfigResolution,
-  type StorageEnvFallback,
 } from './storage-config';
 
 // =============================================================================
@@ -83,15 +79,15 @@ import {
 // benefits above at once.
 //
 // -----------------------------------------------------------------------------
-// ⚠ THIS SERVICE ALSO READS THE ENVIRONMENT, TEMPORARILY (#377)
+// NOTHING HERE READS `process.env`
 // -----------------------------------------------------------------------------
 //
-// It is the one place `process.env` is read for storage, and it hands the
-// values to `resolveStorageConfig`, which decides everything. That bridge —
-// why it exists between #373 and #376, and its exact all-or-nothing semantics —
-// is documented in `storage-config.ts`; ISSUE #377 DELETES IT, along with
-// `envFallback()`, `warnEnvironmentFallbackOnce()` and the two marked branches
-// that call them. Nothing else in this file knows about it.
+// The saved settings namespace and the encrypted credential store are the only
+// two sources of a storage configuration, and this service reads exactly those
+// two. There is no environment variable that names a bucket, a region, an
+// endpoint or a key — epic #372 removed the last of them — so there is no
+// second place for an operator to have configured storage, and no precedence
+// rule for anybody to have to remember.
 // =============================================================================
 
 /**
@@ -154,19 +150,6 @@ export class StorageConfigService implements OnModuleInit {
    */
   private lastPolicyBucket: string | null = null;
 
-  /**
-   * ⚠ TEMPORARY (#377). Whether the environment-fallback deprecation warning
-   * has already been emitted by this process.
-   *
-   * ONCE PER PROCESS, NOT ONCE PER CALL. The fallback is consulted on every
-   * resolve — an upload's ten presigned parts, a retention sweep's hundred
-   * deletes — and a warning per storage operation would bury the log it is
-   * trying to be noticed in, which is the reliable way to make a deprecation
-   * notice ignored. Deliberately not reset by `invalidateCache()`: the message
-   * is advice to an operator, not a piece of cached state.
-   */
-  private environmentFallbackWarned = false;
-
   constructor(
     private readonly systemSettings: SystemSettingsService,
     private readonly credentials: CredentialsService,
@@ -203,11 +186,9 @@ export class StorageConfigService implements OnModuleInit {
   onModuleInit(): void {
     void this.readPolicy({ fresh: true })
       .then((policy) => {
-        // `readPolicy` has already filled the snapshot — from the settings row,
-        // or (⚠ #377) from `S3_BUCKET` when nothing at all is saved. Asking it
-        // rather than `policy.bucket` keeps this line from warning "nothing is
-        // configured" at a deployment that is about to serve files perfectly
-        // well from the environment.
+        // Asked of the snapshot `readPolicy` has just filled rather than of
+        // `policy.bucket` directly, so this line and `getBucket()` can never
+        // disagree about whether this process knows a bucket.
         const bucket = this.lastKnownBucket();
 
         if (!bucket) {
@@ -302,22 +283,7 @@ export class StorageConfigService implements OnModuleInit {
       STORAGE_CREDENTIAL_NAME,
     );
 
-    // ⚠ TEMPORARY (#377). The third argument, and the branch below it, are the
-    // whole of the environment bridge's presence on this path. Delete both and
-    // this is `resolveStorageConfig(policy, secretAccessKey)` again. The
-    // fallback cannot override anything saved — `resolveStorageConfig` decides
-    // that, in one place, and this service only supplies the values.
-    const resolution = resolveStorageConfig(
-      policy,
-      secretAccessKey,
-      this.envFallback(),
-    );
-
-    if (resolution.configured && resolution.fromEnvironment) {
-      this.warnEnvironmentFallbackOnce(resolution.config);
-    }
-
-    return resolution;
+    return resolveStorageConfig(policy, secretAccessKey);
   }
 
   /**
@@ -420,74 +386,8 @@ export class StorageConfigService implements OnModuleInit {
     // `lastPolicyBucket` for why the credential's presence is not a condition.
     if (value.bucket) {
       this.lastPolicyBucket = value.bucket;
-      return value;
-    }
-
-    // ⚠ TEMPORARY (#377). Without this, `getBucket()` — the one SYNCHRONOUS
-    // method on `StorageProvider` — would still answer "this process does not
-    // know" on an environment-configured deployment, and
-    // `DatabaseBackupRunnerService.queueBackup` would refuse every backup with
-    // a 503 while uploads worked. The bridge would then be a bridge with a hole
-    // in it. Gated on the same all-or-nothing rule as the resolution itself:
-    // one saved settings field and the environment is not consulted at all.
-    if (!hasSavedStorageSettings(value)) {
-      const envBucket = this.envFallback().bucket;
-
-      if (envBucket) {
-        this.lastPolicyBucket = envBucket;
-      }
     }
 
     return value;
-  }
-
-  // ---------------------------------------------------------------------------
-  // ⚠ TEMPORARY (#377) — the environment bridge's two private helpers
-  // ---------------------------------------------------------------------------
-
-  /**
-   * ⚠ TEMPORARY (#377). The pre-#373 storage environment variables.
-   *
-   * READ PER CALL rather than captured in the constructor, for the same reason
-   * nothing else here is captured at boot: a value frozen at construction is a
-   * value a test (and a `.env` reloaded by a process manager) cannot change,
-   * and five `process.env` lookups are nothing beside the object-store round
-   * trip they precede. This method is the ONLY place this service touches
-   * `process.env`; `readStorageEnvFallback` keeps the parsing pure.
-   */
-  private envFallback(): StorageEnvFallback {
-    return readStorageEnvFallback(process.env);
-  }
-
-  /**
-   * ⚠ TEMPORARY (#377). Say once, loudly, that storage is running on the
-   * deprecated environment path.
-   *
-   * NAMES THE REPLACEMENT, not just the problem: an operator who reads
-   * "deprecated" and is not told where to go does nothing. `/admin/settings/
-   * storage` (#376) is where these values belong, and saving them there takes
-   * precedence over the environment immediately — no restart, no ordering to
-   * get right, and no need to remove the variables first.
-   *
-   * `describeStorageConfig` is used rather than any field of the config
-   * directly: it is the secret-free description this repository already uses
-   * for exactly this, so the line cannot grow a plaintext key later.
-   */
-  private warnEnvironmentFallbackOnce(config: ResolvedStorageConfig): void {
-    if (this.environmentFallbackWarned) {
-      return;
-    }
-
-    this.environmentFallbackWarned = true;
-
-    this.logger.warn(
-      'Object storage is configured from environment variables (S3_BUCKET, ' +
-        'S3_REGION, S3_ENDPOINT, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY). ' +
-        'This fallback is TEMPORARY and will be removed: save this ' +
-        'configuration at /admin/settings/storage, which takes effect ' +
-        `immediately and takes precedence over the environment. Using: ${describeStorageConfig(
-          config,
-        )}`,
-    );
   }
 }
