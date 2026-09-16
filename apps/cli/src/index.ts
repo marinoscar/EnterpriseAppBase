@@ -302,21 +302,32 @@ export type {
 export {
   assertValidDomain,
   certificateStatus,
+  containerProxyRuntime,
+  hostProxyRuntime,
   installVhost,
   issueCertificate,
   livePath,
   reloadProxy,
   removeVhost,
   renderVhost,
+  resolveProxyRuntime,
+  servedCertPath,
   validateProxy,
   vhostPath,
+  CERTBOT_IMAGE,
+  CONTAINER_CERT_ROOT,
+  CONTAINER_WEBROOT,
+  DEFAULT_PROXY_CONTAINER,
 } from './deploy/proxy.js';
 export type {
   CertInfo,
   CertificateOptions,
   InstallVhostResult,
+  ProxyMode,
   ProxyOptions,
+  ProxyRuntime,
   ProxyTarget,
+  ResolveProxyRuntimeOptions,
   ValidationResult,
 } from './deploy/proxy.js';
 

@@ -32,4 +32,9 @@ export * from './types.js';
 export { HOST_CHECKS, evaluateDf } from './host.js';
 export { DATABASE_CHECKS, databaseSettings, probeTcp } from './database.js';
 export { DNS_CHECKS } from './dns.js';
-export { TLS_CHECKS, parseNotAfter } from './tls.js';
+export {
+  TLS_CHECKS,
+  compareServedCertificate,
+  extractPem,
+  parseNotAfter,
+} from './tls.js';

@@ -12,7 +12,13 @@ import { runCommand as defaultRunCommand } from './executor.js';
 import { waitForHealthy, collectHealth, isHealthy } from './health.js';
 import type { DeployHooks } from './hooks.js';
 import { openJournal, type Journal, type SecretEntry } from './journal.js';
-import { installVhost, issueCertificate, type ProxyTarget } from './proxy.js';
+import {
+  installVhost,
+  issueCertificate,
+  resolveProxyRuntime,
+  type ProxyMode,
+  type ProxyTarget,
+} from './proxy.js';
 import { ensureCheckout, resolveRepoTarget, type RepoTarget } from './repo.js';
 import { readState, writeState, type DeployState } from './state.js';
 import { runPipeline, type DeployStep, type StepContext } from './steps/pipeline.js';
@@ -52,6 +58,10 @@ export interface InstallOptions {
   domain?: string | undefined;
   bindPort: number;
   proxyRoot: string;
+  /** Container the shared proxy runs in. Default proxy-nginx. */
+  proxyContainer?: string | undefined;
+  /** Skips the probe in `resolveProxyRuntime` and states the answer. */
+  proxyMode?: ProxyMode | undefined;
   repo?: string | undefined;
   ref?: string | undefined;
   nonInteractive?: boolean | undefined;
@@ -142,6 +152,14 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
           deployRoot: context.options.deployRoot,
           bindPort: context.options.bindPort,
           proxyRoot: context.options.proxyRoot,
+          // So the certbot check asks about the proxy this install will use,
+          // rather than about whichever one the probe happens to find.
+          ...(context.options.proxyMode === undefined
+            ? {}
+            : { proxyMode: context.options.proxyMode }),
+          ...(context.options.proxyContainer === undefined
+            ? {}
+            : { proxyContainer: context.options.proxyContainer }),
           ...(context.options.domain === undefined
             ? {}
             : { domain: context.options.domain }),
@@ -359,16 +377,38 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
           );
         }
 
+        // Resolved ONCE and shared by every call below. Issuing against one
+        // path space and rendering against another is exactly issue #389.
+        const runtime = await resolveProxyRuntime(target, {
+          runCommand: context.runCommand,
+          ...(context.options.proxyMode === undefined
+            ? {}
+            : { proxyMode: context.options.proxyMode }),
+          ...(context.options.proxyContainer === undefined
+            ? {}
+            : { proxyContainer: context.options.proxyContainer }),
+        });
+
+        // Recorded because an operator diagnosing a failed publish needs to
+        // know which of the two setups this run assumed.
+        context.journal.line(
+          runtime.mode === 'container'
+            ? `Shared proxy: container ${runtime.container ?? ''}; certificates at ${runtime.certRoot} and the ACME webroot at ${runtime.webroot} as it sees them`
+            : `Shared proxy: host nginx; certificates at ${runtime.certRoot}`,
+        );
+
         // Certificate FIRST. See rule 4 in the header.
         await issueCertificate(target, {
           runCommand: context.runCommand,
           email,
+          runtime,
           ...(context.options.staging === undefined ? {} : { staging: context.options.staging }),
           ...(context.hooks === undefined ? {} : { hooks: context.hooks }),
         });
 
         await installVhost(target, {
           runCommand: context.runCommand,
+          runtime,
           ...(context.hooks === undefined ? {} : { hooks: context.hooks }),
           ...(context.env?.get('MAX_FILE_SIZE') === undefined
             ? {}

@@ -25,6 +25,7 @@ import { runInstall, type InstallOptions } from '../deploy/install.js';
 import { runUpdate, type UpdateOptions } from '../deploy/update.js';
 import type { EnvGroup } from '../deploy/env-metadata.js';
 import { runCommand } from '../deploy/executor.js';
+import { DEFAULT_PROXY_CONTAINER, type ProxyMode } from '../deploy/proxy.js';
 import { CliError, EXIT, PreconditionError, UsageError, type ExitCode } from '../errors.js';
 import { shouldUseColour } from '../output.js';
 
@@ -44,6 +45,21 @@ import { shouldUseColour } from '../output.js';
 //     `doctor || provision-the-box` silently useless.
 // =============================================================================
 
+/**
+ * `--proxy-mode`, validated here rather than where it is used.
+ *
+ * A typo must be a usage error at the flag, not a silent fall-through to the
+ * probe - "it detected host mode" and "you spelled `contianer` wrong" produce
+ * the same broken vhost otherwise.
+ */
+export function parseProxyMode(value: string | undefined): ProxyMode | undefined {
+  if (value === undefined) return undefined;
+  if (value === 'container' || value === 'host') return value;
+  throw new UsageError(
+    `--proxy-mode must be "container" or "host", not "${value}". Omit it to detect which one this server uses.`,
+  );
+}
+
 export const DEFAULT_DEPLOY_ROOT = '/opt/infra/apps';
 export const DEFAULT_PROXY_ROOT = '/opt/infra/proxy';
 export const DEFAULT_BIND_PORT = 3535;
@@ -54,6 +70,8 @@ const RESET = ESC + '[0m';
 export interface DoctorCommandOptions {
   root: string;
   proxyRoot: string;
+  proxyContainer: string;
+  proxyMode?: string | undefined;
   port: string;
   domain?: string | undefined;
   json?: boolean | undefined;
@@ -84,6 +102,15 @@ export function registerDeployCommand(
     .description('Check that this server meets the prerequisites')
     .option('--root <path>', 'Deployment directory', DEFAULT_DEPLOY_ROOT)
     .option('--proxy-root <path>', 'Shared reverse proxy directory', DEFAULT_PROXY_ROOT)
+    .option(
+      '--proxy-container <name>',
+      'Container the shared proxy runs in',
+      DEFAULT_PROXY_CONTAINER,
+    )
+    .option(
+      '--proxy-mode <mode>',
+      'How the shared proxy is operated: container or host (default: detected)',
+    )
     .option('--port <port>', 'Loopback port the proxy forwards to', String(DEFAULT_BIND_PORT))
     .option('--domain <domain>', 'Public domain; enables the DNS and TLS checks')
     .option('--json', 'Print a machine-readable report on stdout')
@@ -114,6 +141,15 @@ export function registerDeployCommand(
     .option('--root <path>', 'Deployment directory', DEFAULT_DEPLOY_ROOT)
     .option('--domain <domain>', 'Public domain to publish under')
     .option('--proxy-root <path>', 'Shared reverse proxy directory', DEFAULT_PROXY_ROOT)
+    .option(
+      '--proxy-container <name>',
+      'Container the shared proxy runs in',
+      DEFAULT_PROXY_CONTAINER,
+    )
+    .option(
+      '--proxy-mode <mode>',
+      'How the shared proxy is operated: container or host (default: detected)',
+    )
     .option('--port <port>', 'Loopback port the proxy forwards to', String(DEFAULT_BIND_PORT))
     .option('--repo <url>', 'Repository to deploy (default: this checkout\'s origin)')
     .option('--ref <ref>', 'Branch, tag or commit (default: the remote default branch)')
@@ -162,6 +198,15 @@ export function registerDeployCommand(
     .option('--non-interactive', 'Never prompt; fail listing anything unresolved')
     .option('--skip-seed', 'Do not re-run the database seed')
     .option('--skip-proxy', 'Do not touch the reverse proxy')
+    .option(
+      '--proxy-container <name>',
+      'Container the shared proxy runs in',
+      DEFAULT_PROXY_CONTAINER,
+    )
+    .option(
+      '--proxy-mode <mode>',
+      'How the shared proxy is operated: container or host (default: detected)',
+    )
     .option('--json', 'Print a machine-readable result on stdout')
     .addHelpText(
       'after',
@@ -245,12 +290,17 @@ export async function runDoctorCommand(
   const stderr = ctx?.stderr ?? process.stderr;
   const checks = ctx?.checks ?? ALL_CHECKS;
   const json = options.json === true;
+  // Parsed before anything is probed, so a typo is a usage error rather than a
+  // report about a proxy the operator did not mean.
+  const proxyMode = parseProxyMode(options.proxyMode);
 
   const context: CheckContext = {
     runCommand: ctx?.runCommand ?? runCommand,
     deployRoot: options.root,
     proxyRoot: options.proxyRoot,
+    proxyContainer: options.proxyContainer,
     bindPort: Number(options.port),
+    ...(proxyMode === undefined ? {} : { proxyMode }),
     ...(options.domain === undefined ? {} : { domain: options.domain }),
     ...(readEnvironment(options.root) ?? {}),
   };
@@ -535,6 +585,8 @@ export interface InstallCommandOptions {
   root: string;
   domain?: string | undefined;
   proxyRoot: string;
+  proxyContainer: string;
+  proxyMode?: string | undefined;
   port: string;
   repo?: string | undefined;
   ref?: string | undefined;
@@ -561,11 +613,15 @@ export async function runInstallCommand(
   const stderr = ctx?.stderr ?? process.stderr;
   const json = options.json === true;
 
+  const proxyMode = parseProxyMode(options.proxyMode);
+
   const installOptions: InstallOptions = {
     deployRoot: options.root,
     bindPort: Number(options.port),
     proxyRoot: options.proxyRoot,
+    proxyContainer: options.proxyContainer,
     groups: options.group as EnvGroup[],
+    ...(proxyMode === undefined ? {} : { proxyMode }),
     ...(options.domain === undefined ? {} : { domain: options.domain }),
     ...(options.repo === undefined ? {} : { repo: options.repo }),
     ...(options.ref === undefined ? {} : { ref: options.ref }),
@@ -635,6 +691,8 @@ export interface UpdateCommandOptions {
   nonInteractive?: boolean | undefined;
   skipSeed?: boolean | undefined;
   skipProxy?: boolean | undefined;
+  proxyContainer: string;
+  proxyMode?: string | undefined;
   json?: boolean | undefined;
 }
 
@@ -646,8 +704,12 @@ export async function runUpdateCommand(
   const stderr = ctx?.stderr ?? process.stderr;
   const json = options.json === true;
 
+  const proxyMode = parseProxyMode(options.proxyMode);
+
   const updateOptions: UpdateOptions = {
     deployRoot: options.root,
+    proxyContainer: options.proxyContainer,
+    ...(proxyMode === undefined ? {} : { proxyMode }),
     ...(options.ref === undefined ? {} : { ref: options.ref }),
     ...(options.force === undefined ? {} : { force: options.force }),
     ...(options.cache === false ? { noCache: true } : {}),

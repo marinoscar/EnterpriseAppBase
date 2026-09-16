@@ -1,8 +1,9 @@
-import { accessSync, constants, statSync } from 'node:fs';
+import { accessSync, constants, readdirSync, readFileSync, statSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { totalmem } from 'node:os';
 
 import type { runCommand } from '../executor.js';
+import { resolveProxyRuntime, type ProxyMode, type ProxyRuntime } from '../proxy.js';
 
 // =============================================================================
 // The doctor check contract  (issue #176, epic #168)
@@ -46,6 +47,33 @@ export interface CheckFs {
   exists(path: string): boolean;
   isDirectory(path: string): boolean;
   isWritable(path: string): boolean;
+  /**
+   * Names in a directory; empty when there is none.
+   *
+   * Optional, along with `readFile`, so a fake written before #389 still
+   * satisfies this interface - the alternative was editing every test fake to
+   * add two members it does not exercise. `contextReadDir`/`contextReadFile`
+   * fall back to the real implementations.
+   */
+  readDir?(path: string): string[];
+  /** File contents, or undefined when it cannot be read. Never throws. */
+  readFile?(path: string): string | undefined;
+}
+
+function realReadDir(path: string): string[] {
+  try {
+    return readdirSync(path);
+  } catch {
+    return [];
+  }
+}
+
+function realReadFile(path: string): string | undefined {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    return undefined;
+  }
 }
 
 export const realFs: CheckFs = {
@@ -72,6 +100,8 @@ export const realFs: CheckFs = {
       return false;
     }
   },
+  readDir: realReadDir,
+  readFile: realReadFile,
 };
 
 /**
@@ -112,6 +142,16 @@ export interface CheckContext {
   bindPort: number;
   /** The shared reverse proxy's directory. */
   proxyRoot: string;
+  /**
+   * How the shared proxy is operated, when the operator stated it.
+   *
+   * Left undefined the checks probe for it, exactly as `install` does - the
+   * flags are here so `doctor` reports on the same proxy the install will
+   * actually use, rather than on whatever the probe happens to find.
+   */
+  proxyMode?: ProxyMode | undefined;
+  /** Container the shared proxy runs in, when it is containerised. */
+  proxyContainer?: string | undefined;
   /** Public hostname, when one is known. DNS and TLS checks need it. */
   domain?: string | undefined;
   /** The resolved environment, when one exists. Database checks need it. */
@@ -159,6 +199,36 @@ export function contextPortListening(
   context: CheckContext,
 ): (port: number) => Promise<boolean> {
   return context.portListening ?? isPortListening;
+}
+
+export function contextReadDir(context: CheckContext): (path: string) => string[] {
+  return contextFs(context).readDir ?? realReadDir;
+}
+
+export function contextReadFile(
+  context: CheckContext,
+): (path: string) => string | undefined {
+  return contextFs(context).readFile ?? realReadFile;
+}
+
+/**
+ * The proxy runtime a check should reason about.
+ *
+ * Resolved here rather than stored on the context so a check sees the same
+ * answer `install` will, by the same probe - a second way of deciding this is
+ * how doctor ends up passing a server that install then fails on.
+ */
+export async function contextProxyRuntime(context: CheckContext): Promise<ProxyRuntime> {
+  return await resolveProxyRuntime(
+    { proxyRoot: context.proxyRoot },
+    {
+      runCommand: context.runCommand,
+      ...(context.proxyMode === undefined ? {} : { proxyMode: context.proxyMode }),
+      ...(context.proxyContainer === undefined
+        ? {}
+        : { proxyContainer: context.proxyContainer }),
+    },
+  );
 }
 
 /**

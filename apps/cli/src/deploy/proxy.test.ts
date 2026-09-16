@@ -9,6 +9,7 @@ import { CommandFailedError, type CommandResult, type RunCommandOptions } from '
 import {
   assertValidDomain,
   certificateStatus,
+  hostProxyRuntime,
   installVhost,
   issueCertificate,
   removeVhost,
@@ -52,6 +53,12 @@ function target(proxyRoot: string): ProxyTarget {
   return { domain: 'app.example.test', bindPort: 3535, proxyRoot };
 }
 
+/** These cases predate #389 and describe the host setup, where the host and
+ * served path spaces coincide. The container cases live in their own tests. */
+function hostRuntime(proxyRoot: string) {
+  return hostProxyRuntime({ proxyRoot });
+}
+
 describe('assertValidDomain', () => {
   it('accepts a normal hostname', () => {
     expect(() => assertValidDomain('app.example.test')).not.toThrow();
@@ -73,7 +80,7 @@ describe('assertValidDomain', () => {
 
 describe('renderVhost', () => {
   const root = makeProxyRoot();
-  const rendered = renderVhost(target(root));
+  const rendered = renderVhost(target(root), hostRuntime(root));
 
   it('redirects HTTP to HTTPS', () => {
     expect(rendered).toContain('return 301 https://$host$request_uri;');
@@ -112,16 +119,20 @@ describe('renderVhost', () => {
   });
 
   it('is deterministic, so a re-run produces no spurious diff', () => {
-    expect(renderVhost(target(root))).toBe(rendered);
+    expect(renderVhost(target(root), hostRuntime(root))).toBe(rendered);
   });
 
   it('sizes client_max_body_size from the configured upload limit', () => {
-    const sized = renderVhost(target(root), { maxBodyBytes: 10 * 1024 * 1024 });
+    const sized = renderVhost(target(root), hostRuntime(root), {
+      maxBodyBytes: 10 * 1024 * 1024,
+    });
     expect(sized).toContain('client_max_body_size 10m;');
   });
 
   it('refuses a hostile domain', () => {
-    expect(() => renderVhost({ ...target(root), domain: 'a b;c' })).toThrow(UsageError);
+    expect(() => renderVhost({ ...target(root), domain: 'a b;c' }, hostRuntime(root))).toThrow(
+      UsageError,
+    );
   });
 });
 

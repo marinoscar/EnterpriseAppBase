@@ -12,7 +12,14 @@ import { runCommand as defaultRunCommand } from './executor.js';
 import { collectHealth, isHealthy, waitForHealthy } from './health.js';
 import type { DeployHooks } from './hooks.js';
 import { openJournal, type Journal } from './journal.js';
-import { certificateStatus, installVhost, issueCertificate, type ProxyTarget } from './proxy.js';
+import {
+  certificateStatus,
+  installVhost,
+  issueCertificate,
+  resolveProxyRuntime,
+  type ProxyMode,
+  type ProxyTarget,
+} from './proxy.js';
 import { ensureCheckout, resolveRepoTarget, type RepoTarget } from './repo.js';
 import { requireState, writeState, type DeployState } from './state.js';
 import { runPipeline, type DeployStep, type StepContext } from './steps/pipeline.js';
@@ -54,6 +61,10 @@ export interface UpdateOptions {
   nonInteractive?: boolean | undefined;
   skipSeed?: boolean | undefined;
   skipProxy?: boolean | undefined;
+  /** Container the shared proxy runs in. Default proxy-nginx. */
+  proxyContainer?: string | undefined;
+  /** Skips the probe in `resolveProxyRuntime` and states the answer. */
+  proxyMode?: ProxyMode | undefined;
   runCommand?: typeof defaultRunCommand | undefined;
   hooks?: DeployHooks | undefined;
   promptContext?: PromptContext | undefined;
@@ -355,6 +366,24 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
           proxyRoot: join(context.options.deployRoot, '..', '..', 'proxy'),
         };
 
+        // Resolved once, then shared: the certificate, the rendered vhost and
+        // the `nginx -t`/reload must all address the same proxy.
+        const runtime = await resolveProxyRuntime(target, {
+          runCommand: context.runCommand,
+          ...(context.options.proxyMode === undefined
+            ? {}
+            : { proxyMode: context.options.proxyMode }),
+          ...(context.options.proxyContainer === undefined
+            ? {}
+            : { proxyContainer: context.options.proxyContainer }),
+        });
+
+        context.journal.line(
+          runtime.mode === 'container'
+            ? `Shared proxy: container ${runtime.container ?? ''}; certificates at ${runtime.certRoot} and the ACME webroot at ${runtime.webroot} as it sees them`
+            : `Shared proxy: host nginx; certificates at ${runtime.certRoot}`,
+        );
+
         const status = certificateStatus(target);
         if (!status.exists) {
           const email = context.env?.get('INITIAL_ADMIN_EMAIL') ?? '';
@@ -362,6 +391,7 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
             await issueCertificate(target, {
               runCommand: context.runCommand,
               email,
+              runtime,
               ...(context.hooks === undefined ? {} : { hooks: context.hooks }),
             });
           }
@@ -369,8 +399,11 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
 
         // Rewritten and re-validated so a change to the template reaches an
         // existing deployment; identical content is a no-op with no reload.
+        // Passing the runtime also means an existing host-path vhost is
+        // rewritten to the container's view on the next update.
         await installVhost(target, {
           runCommand: context.runCommand,
+          runtime,
           ...(context.hooks === undefined ? {} : { hooks: context.hooks }),
         });
       },

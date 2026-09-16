@@ -1,11 +1,13 @@
 import { basename } from 'node:path';
 
+import { CERTBOT_IMAGE } from '../proxy.js';
 import type { Check, CheckContext, CheckResult } from './types.js';
 import {
   contextFs,
   contextMemory,
   contextPortFree,
   contextPortListening,
+  contextProxyRuntime,
 } from './types.js';
 
 // =============================================================================
@@ -360,11 +362,35 @@ const acmeWebroot: Check = {
   },
 };
 
+/**
+ * certbot, in whichever form this server actually issues certificates with.
+ *
+ * Severity stays `required`, but only the HOST branch can return `fail`. A
+ * containerised proxy never needs a host certbot, and before #389 this check
+ * failed `doctor` on a correctly configured server for the absence of a binary
+ * nothing was going to run. Container mode answers `warn` at worst - an
+ * unpulled image is not a misconfiguration, because `docker run` pulls it.
+ * Rule 3's "severity decides the exit code, not the display" is what makes the
+ * two branches able to share one entry.
+ */
 const certbotInstalled: Check = {
   id: 'certbot-installed',
   title: 'certbot available',
   severity: 'required',
   async run(context) {
+    const runtime = await contextProxyRuntime(context);
+
+    if (runtime.mode === 'container') {
+      const image = await probe(context, ['docker', 'image', 'inspect', CERTBOT_IMAGE]);
+      return image.ok
+        ? { status: 'pass', detail: `${CERTBOT_IMAGE} is pulled` }
+        : {
+            status: 'warn',
+            detail: `${CERTBOT_IMAGE} is not pulled yet`,
+            remedy: `Pull it ahead of the install so the certificate step is not waiting on a download: docker pull ${CERTBOT_IMAGE}`,
+          };
+    }
+
     const host = await probe(context, ['certbot', '--version']);
     if (host.ok) {
       // certbot prints its version on stderr in some builds.

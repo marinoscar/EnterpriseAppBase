@@ -27,6 +27,40 @@ import type { DeployHooks } from './hooks.js';
 //   - A vhost this tool did not write is never touched.
 // =============================================================================
 
+// =============================================================================
+// TWO PATH SPACES, AND CONFLATING THEM IS THE BUG THIS PREVENTS  (issue #389)
+// =============================================================================
+//
+// The shared proxy is normally a CONTAINER, and certbot is normally run as one
+// too. Both of them see the proxy's directories through bind mounts:
+//
+//     <proxyRoot>/letsencrypt  ->  /etc/letsencrypt
+//     <proxyRoot>/webroot      ->  /var/www/certbot
+//
+// So every path here belongs to exactly one of two spaces, and they are NOT
+// interchangeable:
+//
+//   HOST PATHS - what THIS process can stat, and what `docker run -v` takes on
+//     the left of the colon. `livePath()` is the host accessor, and
+//     `certificateStatus()` and the TLS checks existsSync() it: correct, because
+//     the bytes really are there.
+//   SERVED PATHS - what nginx and certbot resolve INSIDE the container.
+//     `servedCertPath()` and `ProxyRuntime.webroot` are these, and they are the
+//     only paths that may be written into a vhost or into a certbot argv.
+//
+// Writing a host path where a served path belongs IS issue #389: the ACME
+// challenge 404s because `root` names a directory the proxy container does not
+// have, nginx cannot load `ssl_certificate`, and `--config-dir <host path>`
+// bakes host paths into letsencrypt/renewal/<domain>.conf - after which a
+// containerised `certbot renew` fails with "expected
+// /etc/letsencrypt/live/<d>/cert.pem to be a symlink" and renewal stops
+// silently, which is the expensive half: nothing reports it for 60 days.
+//
+// In HOST mode the two spaces coincide. That is precisely why the conflation
+// survived review - it is invisible on a server with a host nginx and a host
+// certbot, and wrong on every other server.
+// =============================================================================
+
 export interface ProxyTarget {
   domain: string;
   bindPort: number;
@@ -34,11 +68,46 @@ export interface ProxyTarget {
   proxyRoot: string;
 }
 
+/** How the shared proxy is operated on this server. */
+export type ProxyMode = 'container' | 'host';
+
+/**
+ * The proxy as this deployment must address it.
+ *
+ * `certRoot` and `webroot` are SERVED paths (see the header): the strings that
+ * go into the vhost and into certbot's argv. The host side of each mount is
+ * always derived from `ProxyTarget.proxyRoot` instead, and never from here.
+ */
+export interface ProxyRuntime {
+  mode: ProxyMode;
+  /** Container the proxy runs in. Undefined in host mode. */
+  container?: string | undefined;
+  /** certbot's --config-dir equivalent, AS NGINX AND CERTBOT SEE IT. */
+  certRoot: string;
+  /** ACME webroot, AS NGINX AND CERTBOT SEE IT. */
+  webroot: string;
+}
+
+/** The conventional name; overridable because a fork may name it anything. */
+export const DEFAULT_PROXY_CONTAINER = 'proxy-nginx';
+export const CONTAINER_CERT_ROOT = '/etc/letsencrypt';
+export const CONTAINER_WEBROOT = '/var/www/certbot';
+
+/** Pinned rather than floating: an image is what issues the certificate. */
+export const CERTBOT_IMAGE = 'certbot/certbot:latest';
+
 export interface ProxyOptions {
   runCommand: typeof runCommand;
   hooks?: DeployHooks | undefined;
-  /** Container the proxy runs in, when it is containerised. */
+  /**
+   * @deprecated Pass `runtime` instead; it carries the container AND the paths
+   * that container sees, which is the pair that must not disagree. Still
+   * honoured on its own so a caller that only ever wanted `docker exec` works
+   * unchanged.
+   */
   proxyContainer?: string | undefined;
+  /** How the proxy is operated, and the paths it resolves. */
+  runtime?: ProxyRuntime | undefined;
   /** Upload cap, matched to MAX_FILE_SIZE so uploads do not 413 at the edge. */
   maxBodyBytes?: number | undefined;
 }
@@ -68,8 +137,93 @@ export function vhostPath(target: ProxyTarget): string {
   return join(target.proxyRoot, 'nginx', 'conf.d', `${target.domain}.conf`);
 }
 
+/**
+ * A file in the certificate's live directory, AS A HOST PATH.
+ *
+ * Deliberately unchanged by #389: this is what `existsSync` must be given, and
+ * what `docker run -v` needs on the left of the colon. It is NOT what goes into
+ * a config file - `servedCertPath()` is. See the header.
+ */
 export function livePath(target: ProxyTarget, file: string): string {
   return join(target.proxyRoot, 'letsencrypt', 'live', target.domain, file);
+}
+
+/** The same file AS NGINX AND CERTBOT SEE IT. This is the config-safe one. */
+export function servedCertPath(
+  runtime: ProxyRuntime,
+  domain: string,
+  file: string,
+): string {
+  return join(runtime.certRoot, 'live', domain, file);
+}
+
+/** Host mode: the two path spaces coincide, so both come off `proxyRoot`. */
+export function hostProxyRuntime(target: Pick<ProxyTarget, 'proxyRoot'>): ProxyRuntime {
+  return {
+    mode: 'host',
+    certRoot: join(target.proxyRoot, 'letsencrypt'),
+    webroot: join(target.proxyRoot, 'webroot'),
+  };
+}
+
+/** Container mode: the served paths are the mount points, never `proxyRoot`. */
+export function containerProxyRuntime(container: string): ProxyRuntime {
+  return {
+    mode: 'container',
+    container,
+    certRoot: CONTAINER_CERT_ROOT,
+    webroot: CONTAINER_WEBROOT,
+  };
+}
+
+export interface ResolveProxyRuntimeOptions {
+  runCommand: typeof runCommand;
+  /** States the answer and skips the probe. */
+  proxyMode?: ProxyMode | undefined;
+  /** Container to probe for, and to exec into. Defaults to proxy-nginx. */
+  proxyContainer?: string | undefined;
+}
+
+/**
+ * Works out how the shared proxy is operated here.
+ *
+ * NEVER THROWS, AND THAT IS THE CONTRACT. `docker` not installed, the daemon
+ * unreachable, no such container, the probe timing out - every one of those
+ * means "this is not the containerised setup", and a server running a host
+ * nginx must not have its install aborted by a probe it never needed. An
+ * explicit --proxy-mode always wins, because an operator who states it knows
+ * something the probe cannot see.
+ */
+export async function resolveProxyRuntime(
+  target: Pick<ProxyTarget, 'proxyRoot'>,
+  options: ResolveProxyRuntimeOptions,
+): Promise<ProxyRuntime> {
+  const container = options.proxyContainer ?? DEFAULT_PROXY_CONTAINER;
+
+  if (options.proxyMode === 'host') return hostProxyRuntime(target);
+  if (options.proxyMode === 'container') return containerProxyRuntime(container);
+
+  const running = await options
+    .runCommand(['docker', 'inspect', '--format', '{{.State.Running}}', container], {
+      cwd: process.cwd(),
+      timeoutMs: 20_000,
+    })
+    // A stopped container answers `false` and is NOT container mode: exec into
+    // it would fail, and there is nothing to reload.
+    .then((result) => result.stdout.trim() === 'true')
+    .catch(() => false);
+
+  return running ? containerProxyRuntime(container) : hostProxyRuntime(target);
+}
+
+/** The runtime a call was given, or host mode derived from the target. */
+function runtimeFor(target: Pick<ProxyTarget, 'proxyRoot'>, options: ProxyOptions): ProxyRuntime {
+  return options.runtime ?? hostProxyRuntime(target);
+}
+
+/** The container to address, from either the runtime or the older field. */
+function containerFor(options: ProxyOptions): string | undefined {
+  return options.runtime?.container ?? options.proxyContainer;
 }
 
 /**
@@ -82,8 +236,16 @@ export function livePath(target: ProxyTarget, file: string): string {
  * already sets HSTS, the CSP, X-Frame-Options and the rest, and nginx's
  * add_header REPLACES the inherited set rather than merging with it - so
  * adding any header here would silently delete the application's CSP.
+ *
+ * `runtime` is not optional, and that is the point: every path this renders is
+ * one nginx must resolve itself, so there is no correct default to fall back on
+ * when the caller has not said where nginx is running.
  */
-export function renderVhost(target: ProxyTarget, options?: { maxBodyBytes?: number | undefined }): string {
+export function renderVhost(
+  target: ProxyTarget,
+  runtime: ProxyRuntime,
+  options?: { maxBodyBytes?: number | undefined },
+): string {
   assertValidDomain(target.domain);
 
   const maxBody = options?.maxBodyBytes;
@@ -100,7 +262,7 @@ server {
     # Left served over HTTP on purpose: renewal uses the same webroot
     # challenge, and redirecting it to HTTPS breaks every future renewal.
     location /.well-known/acme-challenge/ {
-        root ${join(target.proxyRoot, 'webroot')};
+        root ${runtime.webroot};
     }
 
     location / {
@@ -114,8 +276,8 @@ server {
     http2 on;
     server_name ${target.domain};
 
-    ssl_certificate     ${livePath(target, 'fullchain.pem')};
-    ssl_certificate_key ${livePath(target, 'privkey.pem')};
+    ssl_certificate     ${servedCertPath(runtime, target.domain, 'fullchain.pem')};
+    ssl_certificate_key ${servedCertPath(runtime, target.domain, 'privkey.pem')};
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_prefer_server_ciphers off;
     ssl_session_cache shared:SSL:10m;
@@ -201,20 +363,44 @@ export async function issueCertificate(
     return { issued: false, path: status.path };
   }
 
-  const webroot = join(target.proxyRoot, 'webroot');
-  const argv = [
-    'certbot', 'certonly',
-    '--webroot', '--webroot-path', webroot,
-    '-d', target.domain,
-    '--non-interactive', '--agree-tos',
-    '--email', options.email,
-    '--config-dir', join(target.proxyRoot, 'letsencrypt'),
-    '--work-dir', join(target.proxyRoot, 'letsencrypt', 'work'),
-    '--logs-dir', join(target.proxyRoot, 'letsencrypt', 'logs'),
-    ...(options.staging === true ? ['--staging'] : []),
-  ];
+  const runtime = runtimeFor(target, options);
+  const argv =
+    runtime.mode === 'container'
+      ? [
+          // The mounts are the ONLY place a host path may appear: `-v` takes
+          // the host side on the left, and certbot never sees either string.
+          'docker', 'run', '--rm',
+          '-v', `${join(target.proxyRoot, 'letsencrypt')}:${CONTAINER_CERT_ROOT}`,
+          '-v', `${join(target.proxyRoot, 'webroot')}:${CONTAINER_WEBROOT}`,
+          CERTBOT_IMAGE, 'certonly',
+          '--webroot', '-w', CONTAINER_WEBROOT,
+          '-d', target.domain,
+          '--non-interactive', '--agree-tos', '--no-eff-email',
+          '--email', options.email,
+          // NO --config-dir/--work-dir/--logs-dir HERE, deliberately. certbot
+          // records whatever it is given into renewal/<domain>.conf, so a host
+          // path passed once breaks `certbot renew` inside the container from
+          // then on - which is issue #389's silent half. The image's defaults
+          // already point at /etc/letsencrypt, which is the mount.
+          ...(options.staging === true ? ['--staging'] : []),
+        ]
+      : [
+          'certbot', 'certonly',
+          '--webroot', '--webroot-path', runtime.webroot,
+          '-d', target.domain,
+          '--non-interactive', '--agree-tos',
+          '--email', options.email,
+          // Host mode keeps these: there is one path space, so recording it is
+          // correct, and the proxy root is not certbot's default.
+          '--config-dir', runtime.certRoot,
+          '--work-dir', join(runtime.certRoot, 'work'),
+          '--logs-dir', join(runtime.certRoot, 'logs'),
+          ...(options.staging === true ? ['--staging'] : []),
+        ];
 
-  options.hooks?.onProgress?.(`Requesting a certificate for ${target.domain}`);
+  options.hooks?.onProgress?.(
+    `Requesting a certificate for ${target.domain} (${runtime.mode === 'container' ? `${CERTBOT_IMAGE} in docker` : 'host certbot'})`,
+  );
 
   try {
     await options.runCommand(argv, {
@@ -258,7 +444,7 @@ export async function installVhost(
   assertValidDomain(target.domain);
 
   const path = vhostPath(target);
-  const rendered = renderVhost(target, {
+  const rendered = renderVhost(target, runtimeFor(target, options), {
     ...(options.maxBodyBytes === undefined ? {} : { maxBodyBytes: options.maxBodyBytes }),
   });
 
@@ -308,10 +494,11 @@ export interface ValidationResult {
 
 /** Runs `nginx -t`, in the container when the proxy is containerised. */
 export async function validateProxy(options: ProxyOptions): Promise<ValidationResult> {
+  const container = containerFor(options);
   const argv =
-    options.proxyContainer === undefined
+    container === undefined
       ? ['nginx', '-t']
-      : ['docker', 'exec', options.proxyContainer, 'nginx', '-t'];
+      : ['docker', 'exec', container, 'nginx', '-t'];
 
   try {
     const result = await options.runCommand(argv, { cwd: process.cwd(), timeoutMs: 60_000 });
@@ -329,10 +516,11 @@ export async function validateProxy(options: ProxyOptions): Promise<ValidationRe
 
 /** Reloads, never restarts: a restart drops every other site's connections. */
 export async function reloadProxy(options: ProxyOptions): Promise<void> {
+  const container = containerFor(options);
   const argv =
-    options.proxyContainer === undefined
+    container === undefined
       ? ['nginx', '-s', 'reload']
-      : ['docker', 'exec', options.proxyContainer, 'nginx', '-s', 'reload'];
+      : ['docker', 'exec', container, 'nginx', '-s', 'reload'];
 
   await options.runCommand(argv, { cwd: process.cwd(), timeoutMs: 60_000 });
 }
