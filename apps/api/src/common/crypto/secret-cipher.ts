@@ -136,8 +136,30 @@ function getMasterKey(): Buffer {
  * which resolves the master key first, so an unconfigured key still throws
  * before anything lands here.
  *
- * The purpose set is a small, closed vocabulary chosen by callers in code
- * ('smtp', 'oauth', …), not user input, so this Map cannot grow unboundedly.
+ * HOW BIG THIS CAN GET (revised by #387 — the earlier claim here was that the
+ * purpose set is "a small, closed vocabulary chosen by callers in code, not
+ * user input, so this Map cannot grow unboundedly", and that is no longer
+ * true). System purposes are still a closed vocabulary — 'smtp', 'storage',
+ * 'push_vapid' — but `userCredentialPurpose` below embeds a user id, so the
+ * key space is now (users × purposes) and grows with the number of distinct
+ * pairs this process has touched since it started.
+ *
+ * Left unbounded deliberately, with the arithmetic stated rather than hidden:
+ * an entry is a 32-byte Buffer plus a ~50-character key, so ~100 bytes with
+ * object overhead. The ceiling is the number of (user, purpose) pairs that
+ * actually exist — not requests, not rows, and never anything an anonymous
+ * caller can enumerate, because a user domain can only be built from a real
+ * user id the request was already authorised against. Ten thousand users each
+ * holding three per-user credentials is ~3 MB, and this application's users
+ * are an administrator-managed allowlist, not the open internet. An eviction
+ * policy would trade that for re-derivation (one HMAC — cheap, but also the
+ * only thing this cache exists to avoid) plus a second piece of state to
+ * reason about, and it would not change the worst case anyone here can reach.
+ *
+ * What would change the answer: a purpose field that is free-form user input
+ * (not an id the caller looked up), or a deployment whose user table is open
+ * registration. If either becomes true, bound this Map — do not reinstate the
+ * sentence above.
  */
 const derivedKeyCache = new Map<string, Buffer>();
 
@@ -166,6 +188,14 @@ const derivedKeyCache = new Map<string, Buffer>();
  * constant and cannot be shifted into it. If a second variable field were ever
  * added *after* the purpose, this would need explicit length-prefixing to stop
  * ('ab', 'c') and ('a', 'bc') from colliding onto one key.
+ *
+ * #387 DID ADD A SECOND VARIABLE FIELD, and this function is not where it is
+ * made safe. `userCredentialPurpose` below folds (userId, purpose) into ONE
+ * purpose string before it ever reaches here — so from `deriveKey`'s point of
+ * view nothing has changed, there is still exactly one variable field at the
+ * end of the label. The unambiguity that the paragraph above demands is
+ * enforced by that function's input validation, and its comment carries the
+ * proof. Read the two together before touching either.
  */
 function deriveKey(purpose: string): Buffer {
   // An empty or non-string purpose would silently collapse every domain onto a
@@ -188,6 +218,169 @@ function deriveKey(purpose: string): Buffer {
 
   derivedKeyCache.set(purpose, derived);
   return derived;
+}
+
+/**
+ * Canonical UUID, the only shape a user id may take here: 8-4-4-12 lowercase
+ * (or uppercase) hex with three literal hyphens. Anchored at both ends, so it
+ * matches the WHOLE string and not a UUID sitting inside something longer.
+ *
+ * This is not a "validate your inputs" nicety — the fixed 36-character,
+ * colon-free grammar is load-bearing for the collision proof on
+ * `userCredentialPurpose`. Loosening it (accepting a braced UUID, a prefixed
+ * id, an arbitrary primary key) breaks that proof, not merely this check.
+ *
+ * WHY IT KEEPS `/i` RATHER THAN BECOMING LOWERCASE-ONLY. An uppercase UUID
+ * denotes exactly the right user — PostgreSQL's `uuid` type compares
+ * case-insensitively, so a row looked up with it is found — and refusing it
+ * would reject a caller that was not wrong about anything. So the pattern
+ * accepts what a caller might legitimately be holding, and
+ * `userCredentialPurpose` canonicalises it to lowercase before building the
+ * label. Accept broadly, then normalise; do not narrow this to `[0-9a-f]`.
+ */
+const USER_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Build the cipher domain for a credential owned by ONE user (issue #387):
+ * `user:<uuid>:<purpose>`, to be handed to `encryptSecret`/`decryptSecret`
+ * exactly like any other purpose string.
+ *
+ * THE CIPHER GAINS NOTHING FROM THIS. No new parameter, no new code path, no
+ * second key schedule — owner binding is expressed entirely as a purpose, so
+ * every property `deriveKey`, `encryptSecret` and `decryptSecret` already have
+ * carries over unchanged and there is no second implementation to keep honest.
+ *
+ * THE ATTACK THIS STOPS. Without owner binding, every user's bring-your-own
+ * LLM key would sit under one 'llm' sub-key. An attacker with a SQL write but
+ * NOT the encryption key — a compromised admin console, an injection reaching
+ * `user_credentials`, a restored dump edited in place — could copy user A's
+ * ciphertext blob into user B's row. The application would decrypt it cleanly,
+ * because it genuinely is a valid 'llm' ciphertext, and then spend A's API key
+ * as B's: A's budget, A's rate limit, A's provider-side audit trail, driven by
+ * B. With the owner folded into the key, that same write produces a blob under
+ * A's sub-key being opened with B's, and GCM authentication fails — the row is
+ * unreadable rather than quietly wrong. This is precisely the lateral-movement
+ * control `deriveKey`'s comment describes between FEATURES ('smtp' vs
+ * 'storage'), extended one level down to between OWNERS inside one feature.
+ * Same mechanism, same reasoning, finer granularity.
+ *
+ * WHY THE LITERAL `user:` PREFIX, rather than just `<uuid>:<purpose>`. Two
+ * reasons, neither cryptographic on its own. It makes the domain
+ * self-describing: someone staring at a derivation label in a debugger or a
+ * crash dump sees what kind of thing it is without decoding the UUID. And it
+ * is a second, redundant guard against colliding with a system purpose — even
+ * if the colon rule below were ever relaxed by accident, a system purpose
+ * would still have to begin with the exact text `user:` to collide.
+ *
+ * ── THE PROOF ────────────────────────────────────────────────────────────
+ * Property: every distinct (userId, purpose) pair maps to a distinct label,
+ * and no user label is ever equal to a system label.
+ *
+ * Two grammar facts, both ENFORCED below rather than assumed:
+ *
+ *   (1) `userId` matches USER_ID_PATTERN and is then lowercased, so the
+ *       label is always built from the CANONICAL form: exactly 36
+ *       characters, drawn from lowercase hex digits and hyphens, and
+ *       therefore structurally incapable of containing a colon. So in
+ *       `user:<userId>:<purpose>` the FIRST colon after the fixed `user:`
+ *       prefix is always the delimiter, and the split point between the two
+ *       variable fields is unambiguous. That is length-prefixing achieved by
+ *       the field's own grammar instead of by a written-out count —
+ *       ('ab', 'c') and ('a', 'bc') cannot arise, because neither 'ab' nor
+ *       'a' is a UUID. Given the label, the canonical userId and the purpose
+ *       are uniquely recoverable.
+ *
+ *       READ THE MAPPING CAREFULLY: it runs from (user, purpose) — the
+ *       real-world pair — to labels, NOT from (received string, purpose).
+ *       Two spellings of one UUID deliberately collapse onto one key, and
+ *       that collapse is the point of the normalisation, not a weakening of
+ *       it. It is what makes the cipher's notion of identity agree with the
+ *       database's: PostgreSQL's `uuid` type compares case-insensitively, so
+ *       a `findUnique` on a mixed-case id FINDS the row. Without the
+ *       collapse the two halves would disagree silently — the row is located,
+ *       the key derived from the received spelling is a different key, GCM
+ *       authentication fails, and the service reports a credential that "must
+ *       be set again", pointing an operator at a key rotation or a tampering
+ *       incident that never happened. Distinct USERS still give distinct
+ *       labels, which is the property the attack above actually needs.
+ *
+ *   (2) `purpose` contains no colon. A user label therefore contains exactly
+ *       two colons after the constant `SUBKEY_LABEL_PREFIX`, while a system
+ *       purpose — the whole of a system label's variable part — can contain
+ *       none. The three system purposes in this repository are 'smtp'
+ *       (email/smtp-credential.constants.ts), 'storage'
+ *       (storage/storage-credential.constants.ts) and 'push_vapid'
+ *       (notifications/push-vapid-credential.constants.ts); none contains a
+ *       colon, so this restriction breaks nothing that exists, and it is
+ *       stated here so that a future system purpose is written without one.
+ *
+ * (1) gives injectivity within the user domain; (2) makes the user domain and
+ * the system domain disjoint. Together they are the "explicit length-prefixing"
+ * `deriveKey`'s comment asks for — paid in grammar rather than in bytes.
+ * ─────────────────────────────────────────────────────────────────────────
+ *
+ * `v1` IN `SUBKEY_LABEL_PREFIX` IS UNTOUCHED, AND MUST STAY UNTOUCHED. This is
+ * not a scheme change: user credentials are new rows carrying a new label
+ * SHAPE under the same v1 derivation, so no existing ciphertext changes
+ * meaning and no re-encryption migration is required. Bumping v1 would
+ * invalidate every SMTP, storage and VAPID secret already stored, for a change
+ * that touches none of them.
+ *
+ * @param userId  the owning user's id; must be a UUID, and is canonicalised
+ *                to lowercase before it reaches the label
+ * @param purpose the feature domain within that user ('llm', …); non-empty,
+ *                no surrounding whitespace, no colon
+ * @throws if either argument violates the grammar the proof above depends on
+ */
+export function userCredentialPurpose(userId: string, purpose: string): string {
+  // Runtime checks despite the `string` types, for the same reason `deriveKey`
+  // validates its own argument: a plain-JS caller, a JSON round-trip, or an
+  // `undefined` that TypeScript was told could not happen all arrive here as
+  // something else. And the failure mode is silent — `user:undefined:llm` is a
+  // perfectly usable key that every user shares.
+  if (typeof userId !== 'string' || !USER_ID_PATTERN.test(userId)) {
+    // NO `userId` IN THIS MESSAGE, AND DO NOT "HELPFULLY" ADD ONE. It is not
+    // secret, but it is a user identifier, and this module is held to lengths
+    // and variable names only (see the file header): its errors are caught and
+    // logged by callers, and a module that never puts a caller's values into a
+    // string is a module that cannot be argued about. The shape of the failure
+    // is all anyone needs to fix the call site.
+    throw new Error(
+      'userCredentialPurpose requires userId to be a canonical UUID ' +
+        '(8-4-4-12 hex). The fixed, colon-free shape is what keeps the ' +
+        'derivation label unambiguous.',
+    );
+  }
+
+  // Empty, padded, or colon-bearing purposes each break a different half of
+  // the proof: empty collapses every one of a user's domains onto one key,
+  // surrounding whitespace makes 'llm' and 'llm ' two silently different keys
+  // for what a caller meant as one, and a colon destroys the "exactly two
+  // colons means user domain" disjointness from a system purpose.
+  if (
+    typeof purpose !== 'string' ||
+    purpose.length === 0 ||
+    purpose.trim() !== purpose ||
+    purpose.includes(':')
+  ) {
+    // Same rule as above: describe the shape, quote nothing back.
+    throw new Error(
+      'userCredentialPurpose requires a non-empty purpose with no ' +
+        'surrounding whitespace and no ":" (e.g. "llm"). The colon is ' +
+        'reserved as the field delimiter that keeps user domains disjoint ' +
+        'from system purposes.',
+    );
+  }
+
+  // NORMALISE, DO NOT REJECT. `USER_ID_PATTERN` accepts either casing (see
+  // its comment), and this is where the two become one. A value straight off
+  // Prisma is already lowercase — PostgreSQL renders `uuid` that way — so the
+  // hazard is the caller that hand-builds an id or round-trips it through
+  // something that upcases it, which surfaces once, in production, long after
+  // anyone last read this file. Lowercasing here means the cipher can never
+  // disagree with a database lookup that already ignored the casing.
+  return `user:${userId.toLowerCase()}:${purpose}`;
 }
 
 /**
