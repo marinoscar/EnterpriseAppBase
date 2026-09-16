@@ -18,7 +18,7 @@ import { randomBytes } from 'node:crypto';
 // =============================================================================
 
 /** Groups an operator opts into. Their keys are skipped otherwise. */
-export type EnvGroup = 'observability' | 'storage' | 'microsoft-oauth';
+export type EnvGroup = 'observability' | 'email' | 'microsoft-oauth';
 
 export interface DeriveContext {
   /** The public hostname the deployment is being published under. */
@@ -100,8 +100,9 @@ function combine(
  * way from where the mistake was made.
  */
 export function validateBase64Key32(value: string): string | undefined {
-  // Empty is allowed: .env.example documents that this is optional until a
-  // credential is actually stored.
+  // Empty is allowed: the API boots without this key and only refuses to SAVE
+  // a credential, so an unattended install must be able to write a .env that
+  // leaves it blank. It is required in practice for file uploads (#377).
   if (value === '') return undefined;
 
   let decoded: Buffer;
@@ -172,6 +173,11 @@ export const ENV_METADATA: Readonly<Record<string, EnvVarMetadata>> = {
   },
 
   // --- Credential encryption ----------------------------------------------
+  // Offered for generation rather than merely accepted: object storage's secret
+  // access key is encrypted with it (issue #377), so a deployment without one
+  // cannot save a storage credential and every upload is refused with a 503.
+  // Still not `essential` — an unattended install must be able to produce a
+  // .env, and the API boots without it.
   SECRETS_ENCRYPTION_KEY: {
     secret: true,
     generate: 'base64-32',
@@ -227,12 +233,17 @@ export const ENV_METADATA: Readonly<Record<string, EnvVarMetadata>> = {
   CLICKHOUSE_USER: { group: 'observability' },
   CLICKHOUSE_PASSWORD: { group: 'observability', secret: true },
 
-  // --- Storage -------------------------------------------------------------
-  S3_BUCKET: { group: 'storage' },
-  S3_REGION: { group: 'storage' },
-  S3_ENDPOINT: { group: 'storage' },
-  AWS_ACCESS_KEY_ID: { group: 'storage', secret: true },
-  AWS_SECRET_ACCESS_KEY: { group: 'storage', secret: true },
+  // --- Email (SES) ---------------------------------------------------------
+  // THERE IS NO `storage` GROUP ANY MORE (issue #377, epic #372). Which bucket,
+  // which region, which endpoint, which provider and which key are application
+  // settings now, edited at /admin/settings/storage after the deployment is up,
+  // so there is nothing about storage left to ask at install time — and asking
+  // would recreate the second source of truth the epic removed.
+  //
+  // These three survive because SES still reads them, and only SES does.
+  SES_REGION: { group: 'email' },
+  AWS_ACCESS_KEY_ID: { group: 'email', secret: true },
+  AWS_SECRET_ACCESS_KEY: { group: 'email', secret: true },
 };
 
 export function metadataFor(key: string): EnvVarMetadata {

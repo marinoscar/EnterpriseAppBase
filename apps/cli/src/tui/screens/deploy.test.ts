@@ -34,9 +34,9 @@ const TEMPLATE = [
   'TEST_AUTH_ENABLED=false',
   '',
   '# ------------------------------------------------------------',
-  '# Storage',
+  '# Email (Amazon SES)',
   '# ------------------------------------------------------------',
-  'S3_BUCKET=your-bucket-name',
+  'SES_REGION=us-east-1',
 ].join('\n');
 
 const FIELDS = fieldsForInstall(parseEnvExample(TEMPLATE));
@@ -73,7 +73,7 @@ describe('fieldsForInstall', () => {
   });
 
   it('does not ask for an opt-in group', () => {
-    expect(keys).not.toContain('S3_BUCKET');
+    expect(keys).not.toContain('SES_REGION');
   });
 
   it('marks secrets so the input is masked and the summary is not', () => {
