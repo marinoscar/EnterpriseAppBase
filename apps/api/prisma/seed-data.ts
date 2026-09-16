@@ -132,6 +132,15 @@ export const PERMISSIONS = [
     description:
       'Change the object-storage provider, bucket, endpoint and credential, test a configuration, and provision a bucket',
   },
+
+  // Deployment identity (#392, epic #388). A separate permission from
+  // `system_settings:*`: it gates a read-only endpoint reporting the HOST's
+  // identity, kernel, network addresses and deployed revision — not
+  // application configuration — the same blast-radius reasoning that split
+  // out `storage_config:*` and `push:*`. There is no write half, because
+  // there is nothing to write: the deployment record is written by the
+  // installer on the server, not through the API.
+  { name: 'deployment:read', description: 'View the host and deployment identity' },
 ] as const;
 
 // Role to permissions mapping
@@ -182,6 +191,10 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     // the entire point of a separate pair.
     'storage_config:read',
     'storage_config:write',
+    // #392, epic #388 — ADMIN ONLY: host identity, kernel and network
+    // addresses are operational/host detail, not something Contributor or
+    // Viewer need to see.
+    'deployment:read',
   ],
   contributor: [
     'user_settings:read',

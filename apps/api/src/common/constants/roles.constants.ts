@@ -135,6 +135,36 @@ export const PERMISSIONS = {
   // Storage card mirrors these two and nothing else.
   STORAGE_CONFIG_READ: 'storage_config:read',
   STORAGE_CONFIG_WRITE: 'storage_config:write',
+
+  // Deployment provenance — what revision is running here, and on what machine
+  // (#392, epic #388).
+  //
+  // DELIBERATELY NOT `system_settings:read`, for the same reason `nodes:*`,
+  // `db_backup:*`, `broadcasts:*`, `push:*` and `storage_config:*` above are
+  // not: what the endpoint behind it DISCLOSES is a different kind of fact.
+  // `system_settings:read` returns this application's own configuration — what
+  // the operator typed into a settings page. `deployment:read` returns the
+  // HOST: its hostname, its operating system and kernel build, its CPU and
+  // memory, its Docker and Compose versions, its public IP, the certificate
+  // expiry of the proxy in front of it, the upstream repository URL, and the
+  // exact commit SHA of the code now serving requests. That is an inventory of
+  // the machine and a precise pointer at the source of what is running on it —
+  // the two things an attacker wants first, and neither of them is an
+  // application setting. A deployment must be able to let somebody read and
+  // edit settings without also handing them the server's fingerprint.
+  //
+  // REVERSE THIS AND the Settings UI Pattern (CLAUDE.md rule 3) breaks with it:
+  // a card gated on `system_settings:read` would mirror a permission this
+  // controller never checks, so the hub would decide reachability on evidence
+  // unrelated to whether the request behind it will be authorized.
+  //
+  // THERE IS NO `deployment:write`, and that is not an omission. Nothing in
+  // this application writes the deployment record — `appctl deploy` does, on
+  // the VPS, and the API only ever reads the file it left behind. A write
+  // permission would name an authority that has no endpoint and no code path to
+  // grant, which is worse than no permission at all: it would be seeded, shown
+  // in the RBAC UI, and grantable, while meaning nothing.
+  DEPLOYMENT_READ: 'deployment:read',
 } as const;
 
 export type PermissionName = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
