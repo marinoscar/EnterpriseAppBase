@@ -304,3 +304,62 @@ describe('timestampSlug', () => {
     expect(earlier < later).toBe(true);
   });
 });
+
+
+describe('addSecrets', () => {
+  it('redacts values the run only learns about after it started', () => {
+    // A FIRST install has no .env to seed the journal from, so until the
+    // wizard has run every secret it collects would otherwise be redacted from
+    // nothing - including the OAuth client secret the live credential probe
+    // sends to Google.
+    const root = makeRoot();
+    const journal = openJournal({ deployRoot: root, command: 'install' });
+
+    journal.line('before: hunter2-the-database-password');
+    journal.addSecrets([{ key: 'POSTGRES_PASSWORD', value: 'hunter2-the-database-password' }]);
+    journal.line('after: hunter2-the-database-password');
+
+    const log = readFileSync(logPath(root), 'utf8');
+    expect(log).toContain('before: hunter2-the-database-password');
+    expect(log).toContain('after: ***REDACTED:POSTGRES_PASSWORD***');
+  });
+
+  it('reaches a redactor a caller captured earlier', () => {
+    // `redact` is handed to `runCommand` once, at the top of a step. If it
+    // were the redactor itself rather than a delegate, every command started
+    // before this call would keep the old one - which is the way this would
+    // fail open.
+    const root = makeRoot();
+    const journal = openJournal({ deployRoot: root, command: 'install' });
+    const captured = journal.redact;
+
+    journal.addSecrets([{ key: 'JWT_SECRET', value: 'a-very-secret-signing-key' }]);
+
+    expect(captured('token=a-very-secret-signing-key')).toBe('token=***REDACTED:JWT_SECRET***');
+  });
+
+  it('keeps the longest-first ordering when a second secret arrives', () => {
+    const root = makeRoot();
+    const journal = openJournal({
+      deployRoot: root,
+      command: 'install',
+      secrets: [{ key: 'SHORT', value: 'p4ssw0rd' }],
+    });
+
+    journal.addSecrets([
+      { key: 'LONG', value: 'postgres://user:p4ssw0rd@db.internal/appdb' },
+    ]);
+
+    // The long value must be replaced first, or its tail survives in the clear.
+    expect(journal.redact('postgres://user:p4ssw0rd@db.internal/appdb')).toBe(
+      '***REDACTED:LONG***',
+    );
+  });
+});
+
+/** The single .log this run created. */
+function logPath(root: string): string {
+  const logs = join(root, 'logs');
+  const name = readdirSync(logs).find((candidate) => candidate.endsWith('.log'));
+  return join(logs, name as string);
+}

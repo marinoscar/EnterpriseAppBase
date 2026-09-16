@@ -43,14 +43,33 @@ describe('the install pipeline', () => {
       'checkout',
       'environment',
       'validate-environment',
+      'ensure-database',
       'build',
       'migrate',
       'seed',
       'start',
       'health',
+      'proxy-bootstrap',
       'publish',
+      'renewal',
       'verify',
     ]);
+  });
+
+  it('creates the database before it migrates into it', () => {
+    // And after the checks that decide whether it is missing at all: the step
+    // acts on that verdict rather than re-deriving one of its own.
+    expect(ids.indexOf('validate-environment')).toBeLessThan(ids.indexOf('ensure-database'));
+    expect(ids.indexOf('ensure-database')).toBeLessThan(ids.indexOf('migrate'));
+  });
+
+  it('has a proxy to publish into before it publishes', () => {
+    expect(ids.indexOf('proxy-bootstrap')).toBeLessThan(ids.indexOf('publish'));
+  });
+
+  it('schedules renewal after the certificate exists', () => {
+    // Nothing to renew before `publish` has issued one.
+    expect(ids.indexOf('publish')).toBeLessThan(ids.indexOf('renewal'));
   });
 
   it('checks prerequisites before it fetches anything', () => {
@@ -71,22 +90,60 @@ describe('the install pipeline', () => {
 
   function skipReasonFor(id: string, options: Record<string, unknown>): string | undefined {
     const step = steps.find((candidate) => candidate.id === id);
-    return step?.skip?.({ options } as never);
+    // `databaseVerdict: 'missing'` so `ensure-database` is live by default,
+    // the same way every other step is here.
+    return step?.skip?.({ options, databaseVerdict: 'missing' } as never);
   }
 
-  it('honours --skip-doctor, --skip-proxy and --skip-seed', () => {
+  it('honours --skip-doctor, --skip-proxy, --skip-seed and --skip-renewal', () => {
     expect(skipReasonFor('preflight', { skipDoctor: true })).toContain('--skip-doctor');
     expect(skipReasonFor('seed', { skipSeed: true })).toContain('--skip-seed');
     expect(skipReasonFor('publish', { skipProxy: true, domain: 'x' })).toContain('--skip-proxy');
+    expect(skipReasonFor('renewal', { skipRenewal: true, domain: 'x' })).toContain(
+      '--skip-renewal',
+    );
   });
 
-  it('skips publishing when there is no domain to publish under', () => {
+  it('skips the proxy steps when there is no domain to publish under', () => {
     expect(skipReasonFor('publish', {})).toContain('no --domain');
+    expect(skipReasonFor('proxy-bootstrap', {})).toContain('no --domain');
+    expect(skipReasonFor('renewal', {})).toContain('no --domain');
+  });
+
+  it('skips creating a database that is already there', () => {
+    // The step is gated on the verdict `validate-environment` recorded, so a
+    // deployment pointing at an existing database never sees the question.
+    const step = steps.find((candidate) => candidate.id === 'ensure-database');
+    expect(step?.skip?.({ options: {}, databaseVerdict: 'ok' } as never)).toContain(
+      'already exists',
+    );
+    expect(step?.skip?.({ options: {}, databaseVerdict: 'missing' } as never)).toBeUndefined();
+    // A --resume that skipped `validate-environment` has no verdict, so the
+    // step runs and asks for itself rather than assuming an answer from a
+    // previous run that may be hours old.
+    expect(step?.skip?.({ options: {} } as never)).toBeUndefined();
+  });
+
+  it('leaves an existing shared proxy alone', () => {
+    // The rule the whole multi-app model rests on. The module re-checks too;
+    // this is the pipeline reporting it as "nothing to do" rather than running
+    // a step that decides to do nothing.
+    const reason = skipReasonFor('proxy-bootstrap', {
+      domain: 'app.example.test',
+      proxyRoot: tmpdir(),
+    });
+    expect(reason).toContain('already exists');
   });
 
   it('does not skip anything by default', () => {
     for (const id of ids) {
-      expect(skipReasonFor(id, { domain: 'app.example.test' })).toBeUndefined();
+      expect(
+        skipReasonFor(id, {
+          domain: 'app.example.test',
+          // A path that does not exist, so the bootstrap step is live.
+          proxyRoot: join(tmpdir(), 'appctl-no-such-proxy-root'),
+        }),
+      ).toBeUndefined();
     }
   });
 });

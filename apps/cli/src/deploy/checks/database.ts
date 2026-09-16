@@ -29,7 +29,7 @@ const PSQL_IMAGE = 'postgres:16-alpine';
 
 const CONNECT_TIMEOUT_MS = 5_000;
 
-interface DatabaseSettings {
+export interface DatabaseSettings {
   host: string;
   port: string;
   user: string;
@@ -87,15 +87,24 @@ export async function probeTcp(
   });
 }
 
+/** Only what `psql` needs, so #391's `ensure-database` step can call it. */
+export type PsqlContext = Pick<CheckContext, 'runCommand'>;
+
 /**
  * Runs one statement as the configured user.
  *
  * Uses a one-off psql container rather than adding a Postgres client to this
  * package: docker is already a hard prerequisite, the image is small, and it
  * behaves identically on a host with no psql installed.
+ *
+ * EXPORTED, AND THE ONLY WAY THIS CLI TALKS TO POSTGRES (#391). `deploy
+ * /database.ts` creates a missing database through this same helper rather
+ * than assembling its own argv: the PGPASSWORD-by-name rule below is the kind
+ * of thing a second implementation gets wrong once and leaks a password into
+ * a journal for ever.
  */
-async function psql(
-  context: CheckContext,
+export async function psql(
+  context: PsqlContext,
   settings: DatabaseSettings,
   database: string,
   statement: string,

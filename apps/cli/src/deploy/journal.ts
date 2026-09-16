@@ -85,6 +85,18 @@ export function createRedactor(secrets: readonly SecretEntry[]): Redactor {
 export interface Journal {
   /** Marks the start of a named step. */
   step(id: string, title: string): void;
+  /**
+   * Teaches the redactor about secrets that did not exist when the run opened.
+   *
+   * A FIRST INSTALL HAS NO .env TO SEED FROM, so without this every value the
+   * wizard collects - the database password, the JWT secret, the OAuth client
+   * secret - is redacted from nothing for the rest of the run. `redact` is a
+   * stable function that delegates to the current redactor rather than being
+   * the redactor itself, so a `runCommand` call that captured it earlier picks
+   * up the new secrets too; a caller holding a stale copy is exactly how this
+   * would fail open.
+   */
+  addSecrets(secrets: readonly SecretEntry[]): void;
   /** A free-text line: progress, a note, a warning. */
   line(text: string): void;
   /** Records a command with its argv, cwd, exit code, duration and output. */
@@ -115,7 +127,10 @@ export function timestampSlug(date: Date): string {
 
 export function openJournal(options: OpenJournalOptions): Journal {
   const now = options.now ?? (() => new Date());
-  const redact = createRedactor(options.secrets ?? []);
+  const known: SecretEntry[] = [...(options.secrets ?? [])];
+  let redactor = createRedactor(known);
+  // Indirection, not `let redact` handed out directly: see `addSecrets`.
+  const redact: Redactor = (value: string) => redactor(value);
   const warnStream = options.warnStream ?? process.stderr;
 
   const logsDir = join(options.deployRoot, 'logs');
@@ -179,6 +194,18 @@ export function openJournal(options: OpenJournalOptions): Journal {
   return {
     path: logPath,
     redact,
+
+    addSecrets(secrets: readonly SecretEntry[]): void {
+      const before = known.length;
+      for (const entry of secrets) {
+        if (known.some((existing) => existing.value === entry.value)) continue;
+        known.push(entry);
+      }
+      // Rebuilt only when something was actually added, so the ordering
+      // guarantee `createRedactor` makes (longest value first) is recomputed
+      // over the whole set rather than appended to.
+      if (known.length !== before) redactor = createRedactor(known);
+    },
 
     step(id: string, title: string): void {
       human('');

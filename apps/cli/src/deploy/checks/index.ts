@@ -36,10 +36,16 @@ export function requiredChecks(checks: readonly Check[] = ALL_CHECKS): Check[] {
 
 export * from './types.js';
 export { HOST_CHECKS, evaluateDf } from './host.js';
-export { DATABASE_CHECKS, databaseSettings, probeTcp } from './database.js';
+export { DATABASE_CHECKS, databaseSettings, probeTcp, psql } from './database.js';
+export type { DatabaseSettings, PsqlContext } from './database.js';
 export { DNS_CHECKS } from './dns.js';
-export { GH_CHECKS, assessCredentialNeed } from './gh.js';
-export type { CredentialNeed } from './gh.js';
+export { GH_CHECKS, assessCredentialNeed, prepareGitCredentials } from './gh.js';
+export type {
+  CredentialNeed,
+  CredentialProbeContext,
+  CredentialSetup,
+  PrepareCredentialsOptions,
+} from './gh.js';
 export {
   RENEWAL_SCRIPT_PATHS,
   TLS_CHECKS,

@@ -5,11 +5,14 @@ import { CLI_NAME } from '../branding.js';
 import { PreconditionError, UsageError } from '../errors.js';
 import { CLI_VERSION } from '../package-info.js';
 import { ALL_CHECKS, checksPassed, runChecks } from './checks/index.js';
+import { assessDatabase, ensureDatabase } from './database.js';
+import { smokeOAuth } from './oauth-check.js';
+import { ensureRenewal } from './renewal.js';
 import { diffEnv, parseEnvExample, parseEnvFile, serializeEnvFile } from './env-spec.js';
 import { metadataFor } from './env-metadata.js';
 import { runEnvWizard } from './env-wizard.js';
 import { runCommand as defaultRunCommand } from './executor.js';
-import { collectHealth, isHealthy, waitForHealthy } from './health.js';
+import { collectHealth, isHealthy, waitForHealthy, type FetchLike } from './health.js';
 import type { DeployHooks } from './hooks.js';
 import { openJournal, type Journal } from './journal.js';
 import {
@@ -18,6 +21,7 @@ import {
   issueCertificate,
   resolveProxyRuntime,
   type ProxyMode,
+  type ProxyRuntime,
   type ProxyTarget,
 } from './proxy.js';
 import { ensureCheckout, resolveRepoTarget, type RepoTarget } from './repo.js';
@@ -68,11 +72,17 @@ export interface UpdateOptions {
   nonInteractive?: boolean | undefined;
   skipSeed?: boolean | undefined;
   skipProxy?: boolean | undefined;
+  /** Do not schedule certificate renewal, whoever does or does not own it. */
+  skipRenewal?: boolean | undefined;
+  /** Create POSTGRES_DB when it does not exist; the --non-interactive answer. */
+  createDatabase?: boolean | undefined;
   /** Container the shared proxy runs in. Default proxy-nginx. */
   proxyContainer?: string | undefined;
   /** Skips the probe in `resolveProxyRuntime` and states the answer. */
   proxyMode?: ProxyMode | undefined;
   runCommand?: typeof defaultRunCommand | undefined;
+  /** Injected so the OAuth smoke is testable without a running deployment. */
+  fetch?: FetchLike | undefined;
   hooks?: DeployHooks | undefined;
   promptContext?: PromptContext | undefined;
   cwd?: string | undefined;
@@ -93,10 +103,23 @@ interface UpdateContext extends StepContext {
   proxy?: DeployProxyRecord | undefined;
   /** Set when the remote has not moved, so the rest of the pipeline stands down. */
   unchanged?: boolean | undefined;
+  /** Resolved once by `publish`; `renewal` reuses it rather than re-probing. */
+  proxyRuntime?: ProxyRuntime | undefined;
 }
 
 /** Certificates are renewed within this window, not on every deploy. */
 const RENEW_WITHIN_DAYS = 30;
+
+/**
+ * The shared proxy's directory for an installed deployment.
+ *
+ * Derived from the deploy root the same way `publish` has always derived it,
+ * in one place now that three steps need the answer - two of which would
+ * otherwise be free to derive it differently.
+ */
+function proxyRootFor(deployRoot: string): string {
+  return join(deployRoot, '..', '..', 'proxy');
+}
 
 function envFilePath(deployRoot: string): string {
   return join(composeCwd(deployRoot), '.env');
@@ -146,7 +169,7 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
             runCommand: context.runCommand,
             deployRoot: context.options.deployRoot,
             bindPort: context.state.bindPort,
-            proxyRoot: join(context.options.deployRoot, '..', '..', 'proxy'),
+            proxyRoot: proxyRootFor(context.options.deployRoot),
           },
         );
 
@@ -287,6 +310,59 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
       },
     },
     {
+      id: 'ensure-database',
+      title: 'Check the database exists',
+      skip: skipWhenUnchanged,
+      async run(context) {
+        if (context.env === undefined) return;
+
+        // Probed here, unlike install, because an update has no
+        // `validate-environment` step to read a verdict from. The same three
+        // checks, the same classification: "reachable, credentials fine, not
+        // there" is the only case acted on.
+        const { verdict, results } = await assessDatabase({
+          runCommand: context.runCommand,
+          deployRoot: context.options.deployRoot,
+          bindPort: context.state.bindPort,
+          proxyRoot: proxyRootFor(context.options.deployRoot),
+          env: context.env,
+        });
+
+        for (const result of results) {
+          context.journal.line(`${result.status} ${result.id}: ${result.detail}`);
+        }
+
+        // An update runs against a deployment that was working, so `blocked`
+        // is left to the migration to report in its own words rather than
+        // pre-empted here - the point of this step is the one situation that
+        // has an offer attached to it.
+        if (verdict !== 'missing') return;
+
+        const result = await ensureDatabase({
+          runCommand: context.runCommand,
+          env: context.env,
+          ...(context.hooks === undefined ? {} : { hooks: context.hooks }),
+          ...(context.options.createDatabase === undefined
+            ? {}
+            : { createDatabase: context.options.createDatabase }),
+          ...(context.options.nonInteractive === undefined
+            ? {}
+            : { nonInteractive: context.options.nonInteractive }),
+          ...(context.options.promptContext === undefined
+            ? {}
+            : { promptContext: context.options.promptContext }),
+        });
+
+        context.journal.line(result.detail);
+
+        if (result.outcome === 'declined') {
+          throw new PreconditionError(
+            `${result.database} was not created, so there is nothing to migrate into. A database that has disappeared from under a working deployment is worth understanding before this update continues.`,
+          );
+        }
+      },
+    },
+    {
       id: 'build',
       title: 'Build images',
       skip: skipWhenUnchanged,
@@ -381,7 +457,7 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
         const target: ProxyTarget = {
           domain: context.state.domain as string,
           bindPort: context.state.bindPort,
-          proxyRoot: join(context.options.deployRoot, '..', '..', 'proxy'),
+          proxyRoot: proxyRootFor(context.options.deployRoot),
         };
 
         // Resolved once, then shared: the certificate, the rendered vhost and
@@ -395,6 +471,10 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
             ? {}
             : { proxyContainer: context.options.proxyContainer }),
         });
+
+        // Kept for `renewal`: it must schedule against the same proxy this
+        // published through, not against whatever a second probe finds.
+        context.proxyRuntime = runtime;
 
         // The standing fact, not just this run's log line. An update is also
         // where a deployment installed under a host nginx and since moved into
@@ -440,6 +520,49 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
       },
     },
     {
+      id: 'renewal',
+      title: 'Check certificate renewal',
+      skip: (context) => {
+        if (context.unchanged === true) return 'already up to date';
+        if (context.options.skipRenewal === true) return 'skipped with --skip-renewal';
+        if (context.options.skipProxy === true) return 'skipped with --skip-proxy';
+        if (context.state.domain === undefined) return 'this deployment is not published';
+        return undefined;
+      },
+      async run(context) {
+        const proxyRoot = proxyRootFor(context.options.deployRoot);
+
+        const runtime =
+          context.proxyRuntime ??
+          (await resolveProxyRuntime(
+            { proxyRoot },
+            {
+              runCommand: context.runCommand,
+              ...(context.options.proxyMode === undefined
+                ? {}
+                : { proxyMode: context.options.proxyMode }),
+              ...(context.options.proxyContainer === undefined
+                ? {}
+                : { proxyContainer: context.options.proxyContainer }),
+            },
+          ));
+
+        // Runs on every update on purpose. A deployment installed before this
+        // existed has no schedule at all, and a central script that was
+        // removed since take-over is exactly the state nobody notices: the
+        // owner probe is cheap and the answer is almost always "somebody else
+        // has this, do nothing".
+        const result = await ensureRenewal({
+          proxyRoot,
+          runtime,
+          runCommand: context.runCommand,
+          ...(context.hooks === undefined ? {} : { hooks: context.hooks }),
+        });
+
+        context.journal.line(`renewal: ${result.detail}`);
+      },
+    },
+    {
       id: 'verify',
       title: 'Verify the deployment',
       skip: skipWhenUnchanged,
@@ -448,6 +571,7 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
           runCommand: context.runCommand,
           deployRoot: context.options.deployRoot,
           bindPort: context.state.bindPort,
+          ...(context.options.fetch === undefined ? {} : { fetch: context.options.fetch }),
           ...(context.state.domain === undefined || context.options.skipProxy === true
             ? {}
             : { domain: context.state.domain }),
@@ -456,6 +580,30 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
         if (!isHealthy(report)) {
           throw new Error(
             `The stack restarted but is not healthy. Run \`${CLI_NAME} deploy status\` for the detail.`,
+          );
+        }
+
+        // The same end-to-end sign-in check install runs. An update is where a
+        // changed .env, a rotated secret or a renamed callback URL actually
+        // reaches the running container, so this is not a re-run of something
+        // already proved - it is the first time this revision's wiring has
+        // been exercised.
+        const finding = await smokeOAuth({
+          baseUrl: `http://127.0.0.1:${context.state.bindPort}`,
+          ...(context.env?.get('GOOGLE_CLIENT_ID') === undefined
+            ? {}
+            : { clientId: context.env.get('GOOGLE_CLIENT_ID') as string }),
+          ...(context.env?.get('GOOGLE_CALLBACK_URL') === undefined
+            ? {}
+            : { callbackUrl: context.env.get('GOOGLE_CALLBACK_URL') as string }),
+          ...(context.options.fetch === undefined ? {} : { fetch: context.options.fetch }),
+        });
+
+        context.journal.line(`${finding.status} ${finding.id}: ${finding.detail}`);
+
+        if (finding.status === 'fail') {
+          throw new Error(
+            `The stack is healthy, but sign-in is not wired up: ${finding.detail}.\n${finding.remedy ?? ''}`,
           );
         }
       },

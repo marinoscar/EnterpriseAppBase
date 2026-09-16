@@ -162,6 +162,12 @@ export function registerDeployCommand(
     .option('--skip-doctor', 'Skip the prerequisite checks')
     .option('--skip-proxy', 'Do not touch the reverse proxy or request a certificate')
     .option('--skip-seed', 'Do not run the database seed')
+    .option('--skip-renewal', 'Do not schedule certificate renewal')
+    .option(
+      '--bootstrap-proxy',
+      'Create the shared reverse proxy if this box has none (binds ports 80 and 443)',
+    )
+    .option('--create-database', 'Create POSTGRES_DB if it does not exist yet')
     .option('--no-cache', 'Rebuild images without the layer cache')
     .option('--force', 'Discard uncommitted changes in the checkout')
     .option('--staging', "Use Let's Encrypt staging while working out the setup")
@@ -176,9 +182,21 @@ export function registerDeployCommand(
         `  ${CLI_NAME} deploy install --non-interactive --domain app.example.com`,
         '',
         'What it does, in order: checks prerequisites, clones the repository,',
-        'collects the environment, validates the database, builds the images,',
-        'migrates, seeds, starts the stack, waits for health, issues the',
-        'certificate and publishes the vhost, then verifies the result.',
+        'collects the environment, validates the database and the OAuth',
+        'credentials, creates the database if you agree, builds the images,',
+        'migrates, seeds, starts the stack, waits for health, sets up the',
+        'shared proxy if this box has none, issues the certificate and',
+        'publishes the vhost, schedules renewal, then verifies the result.',
+        '',
+        'Two of those steps ASK BEFORE ACTING, and both refuse to guess under',
+        '--non-interactive: creating the shared proxy (--bootstrap-proxy) and',
+        'creating the database (--create-database). A typo in POSTGRES_DB looks',
+        'exactly like a database that does not exist yet, and only you can tell',
+        'the two apart.',
+        '',
+        'Renewal is scheduled only when nothing already owns it. Two schedules',
+        "against one certificate tree is not redundancy — it spends a rate limit",
+        'shared with every other subdomain on this server.',
         '',
         'The repository and branch come from THIS checkout\'s git remote unless',
         'you pass --repo/--ref, so a fork deploys itself with no configuration.',
@@ -198,6 +216,8 @@ export function registerDeployCommand(
     .option('--non-interactive', 'Never prompt; fail listing anything unresolved')
     .option('--skip-seed', 'Do not re-run the database seed')
     .option('--skip-proxy', 'Do not touch the reverse proxy')
+    .option('--skip-renewal', 'Do not check or schedule certificate renewal')
+    .option('--create-database', 'Create POSTGRES_DB if it has gone missing')
     .option(
       '--proxy-container <name>',
       'Container the shared proxy runs in',
@@ -258,6 +278,11 @@ export function registerDeployCommand(
         'Note that /api/health/ready only proves SELECT 1 succeeded, so it',
         'passes against an empty database. Migration state is reported',
         'separately, and a green probe alone is not treated as proof.',
+        '',
+        'Sign-in is reported too, when the deployed .env can be read, but it',
+        'does NOT affect the exit code: a deployment serving traffic with a',
+        'misconfigured OAuth client is a settings problem for a person, not an',
+        'outage for a monitoring script.',
       ].join('\n'),
     )
     .action(async (options: StatusCommandOptions) => {
@@ -484,11 +509,29 @@ export async function runStatusCommand(
     );
   }
 
+  // The same sign-in smoke test install and update run, from the deployed
+  // .env (#391). Read here rather than inside `collectHealth`, which has no
+  // business opening a deployment's environment file; a deployment whose .env
+  // cannot be read simply gets the report shaped as it always was.
+  const env = readEnvironment(options.root)?.env;
+  const oauth =
+    env === undefined
+      ? undefined
+      : {
+          ...(env.get('GOOGLE_CLIENT_ID') === undefined
+            ? {}
+            : { clientId: env.get('GOOGLE_CLIENT_ID') as string }),
+          ...(env.get('GOOGLE_CALLBACK_URL') === undefined
+            ? {}
+            : { callbackUrl: env.get('GOOGLE_CALLBACK_URL') as string }),
+        };
+
   const report = await collectHealth({
     runCommand: ctx?.runCommand ?? runCommand,
     deployRoot: options.root,
     bindPort: Number(options.port),
     ...(options.domain === undefined ? {} : { domain: options.domain }),
+    ...(oauth === undefined ? {} : { oauth }),
     state,
     ...(ctx?.fetch === undefined ? {} : { fetch: ctx.fetch }),
   });
@@ -565,6 +608,18 @@ export function renderHealth(
     lines.push(`  ${'Migrations'.padEnd(TITLE_WIDTH)}up to date\n`);
   }
 
+  if (report.oauth !== undefined) {
+    lines.push('\n  Sign-in\n\n');
+    lines.push(`  ${'OAuth wiring'.padEnd(TITLE_WIDTH)}${report.oauth.detail}\n`);
+    if (report.oauth.remedy !== undefined && report.oauth.status !== 'pass') {
+      // Same two-space continuation the doctor checklist uses, so a wrapped
+      // remedy reads as one sentence.
+      wrap(report.oauth.remedy, 66).forEach((line, index) => {
+        lines.push(`       ${index === 0 ? '->' : '  '} ${line}\n`);
+      });
+    }
+  }
+
   const verdict = healthy ? 'healthy' : 'NOT healthy';
   const painted = colour && !healthy ? `${ESC}[31m${verdict}${RESET}` : verdict;
   lines.push(`\n  ${painted}\n\n`);
@@ -599,6 +654,9 @@ export interface InstallCommandOptions {
   skipDoctor?: boolean | undefined;
   skipProxy?: boolean | undefined;
   skipSeed?: boolean | undefined;
+  skipRenewal?: boolean | undefined;
+  bootstrapProxy?: boolean | undefined;
+  createDatabase?: boolean | undefined;
   cache: boolean;
   force?: boolean | undefined;
   staging?: boolean | undefined;
@@ -633,6 +691,13 @@ export async function runInstallCommand(
     ...(options.skipDoctor === undefined ? {} : { skipDoctor: options.skipDoctor }),
     ...(options.skipProxy === undefined ? {} : { skipProxy: options.skipProxy }),
     ...(options.skipSeed === undefined ? {} : { skipSeed: options.skipSeed }),
+    ...(options.skipRenewal === undefined ? {} : { skipRenewal: options.skipRenewal }),
+    ...(options.bootstrapProxy === undefined
+      ? {}
+      : { bootstrapProxy: options.bootstrapProxy }),
+    ...(options.createDatabase === undefined
+      ? {}
+      : { createDatabase: options.createDatabase }),
     ...(options.cache === false ? { noCache: true } : {}),
     ...(options.force === undefined ? {} : { force: options.force }),
     ...(options.staging === undefined ? {} : { staging: options.staging }),
@@ -691,6 +756,8 @@ export interface UpdateCommandOptions {
   nonInteractive?: boolean | undefined;
   skipSeed?: boolean | undefined;
   skipProxy?: boolean | undefined;
+  skipRenewal?: boolean | undefined;
+  createDatabase?: boolean | undefined;
   proxyContainer: string;
   proxyMode?: string | undefined;
   json?: boolean | undefined;
@@ -716,6 +783,10 @@ export async function runUpdateCommand(
     ...(options.nonInteractive === undefined ? {} : { nonInteractive: options.nonInteractive }),
     ...(options.skipSeed === undefined ? {} : { skipSeed: options.skipSeed }),
     ...(options.skipProxy === undefined ? {} : { skipProxy: options.skipProxy }),
+    ...(options.skipRenewal === undefined ? {} : { skipRenewal: options.skipRenewal }),
+    ...(options.createDatabase === undefined
+      ? {}
+      : { createDatabase: options.createDatabase }),
     ...(ctx?.runCommand === undefined ? {} : { runCommand: ctx.runCommand }),
     ...(json
       ? {}

@@ -16,12 +16,14 @@ describe('the update pipeline', () => {
       'preflight',
       'fetch',
       'environment-drift',
+      'ensure-database',
       'build',
       'migrate',
       'seed',
       'restart',
       'health',
       'publish',
+      'renewal',
       'verify',
     ]);
   });
@@ -33,7 +35,17 @@ describe('the update pipeline', () => {
   it('stands every later step down when the revision has not moved', () => {
     // Several minutes of build and a restart for a no-op is exactly the
     // friction that stops people updating often.
-    for (const id of ['build', 'migrate', 'seed', 'restart', 'health', 'publish', 'verify']) {
+    for (const id of [
+      'ensure-database',
+      'build',
+      'migrate',
+      'seed',
+      'restart',
+      'health',
+      'publish',
+      'renewal',
+      'verify',
+    ]) {
       expect(skipReason(id, { unchanged: true, options: {}, state: {} })).toBe(
         'already up to date',
       );
@@ -64,6 +76,23 @@ describe('the update pipeline', () => {
     expect(
       skipReason('publish', { options: { skipProxy: true }, state: { domain: 'x' } }),
     ).toContain('--skip-proxy');
+    expect(
+      skipReason('renewal', { options: { skipProxy: true }, state: { domain: 'x' } }),
+    ).toContain('--skip-proxy');
+  });
+
+  it('checks renewal on every update, and honours --skip-renewal', () => {
+    // A deployment installed before renewal existed has no schedule at all,
+    // and a central script removed since take-over is exactly the state nobody
+    // notices. The owner probe is cheap and almost always says "stand down".
+    expect(skipReason('renewal', { options: {}, state: { domain: 'x' } })).toBeUndefined();
+    expect(
+      skipReason('renewal', { options: { skipRenewal: true }, state: { domain: 'x' } }),
+    ).toContain('--skip-renewal');
+  });
+
+  it('does not check renewal for a deployment that was never published', () => {
+    expect(skipReason('renewal', { options: {}, state: {} })).toContain('not published');
   });
 });
 

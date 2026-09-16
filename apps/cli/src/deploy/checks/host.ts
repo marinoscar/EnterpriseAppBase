@@ -377,7 +377,10 @@ const proxyContainerRunning: Check = {
       return {
         status: 'fail',
         detail: `no container named ${name}`,
-        remedy: `The shared proxy is not there under that name. Bring it up from ${context.proxyRoot} (docker compose -f ${context.proxyRoot}/docker-compose.yml up -d), or name the real one with --proxy-container.`,
+        // No -f: Compose v2 finds compose.yml (or docker-compose.yml) in the
+        // working directory, and naming one of them here would be wrong on a
+        // box that uses the other - including one this tool bootstrapped.
+        remedy: `The shared proxy is not there under that name. Bring it up: cd ${context.proxyRoot} && docker compose up -d, or name the real one with --proxy-container.`,
       };
     }
 

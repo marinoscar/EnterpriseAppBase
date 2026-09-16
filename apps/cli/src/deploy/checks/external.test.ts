@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { CommandFailedError, type CommandResult, type RunCommandOptions } from '../executor.js';
 import { DATABASE_CHECKS, databaseSettings } from './database.js';
 import { DNS_CHECKS } from './dns.js';
-import { GH_CHECKS } from './gh.js';
+import { GH_CHECKS, prepareGitCredentials } from './gh.js';
 import { ALL_CHECKS } from './index.js';
 import {
   RENEWAL_SCRIPT_PATHS,
@@ -920,5 +920,94 @@ describe('the complete registry', () => {
       .filter((result) => (result.remedy ?? '') === '');
 
     expect(missing).toEqual([]);
+  });
+});
+
+
+// =============================================================================
+// Credentialing the clone  (issue #391, epic #388)
+// =============================================================================
+//
+// `repo.ts` calls this before a FIRST clone and never learns which tool
+// answered. These tests assert the two properties that keep that honest: it
+// does nothing at all for a remote that needs nothing, and it never blocks the
+// clone when it cannot help.
+// =============================================================================
+
+describe('prepareGitCredentials', () => {
+  function recording(respond: Responder): {
+    runCommand: typeof import('../executor.js').runCommand;
+    calls: string[][];
+  } {
+    const calls: string[][] = [];
+    const inner = fakeRunCommand(respond);
+    const runCommand = (async (argv: readonly string[], options: RunCommandOptions) => {
+      calls.push([...argv]);
+      return await inner(argv, options);
+    }) as typeof import('../executor.js').runCommand;
+    return { runCommand, calls };
+  }
+
+  it('does nothing for an ssh remote', async () => {
+    // A deploy key's job. No forge CLI plays any part in it, so nothing is run
+    // beyond the shape test - which needs no subprocess at all.
+    const { runCommand, calls } = recording(() => ({ exitCode: 0 }));
+
+    const setup = await prepareGitCredentials({
+      runCommand,
+      deployRoot: '/opt/infra/apps/demo',
+      repoUrl: 'git@example.test:o/r.git',
+    });
+
+    expect(setup).toBe('not-needed');
+    expect(calls).toEqual([]);
+  });
+
+  it('does nothing for an https remote git can already read', async () => {
+    const { runCommand, calls } = recording((argv) =>
+      argv[1] === 'ls-remote' ? { exitCode: 0, stdout: 'sha\trefs/heads/main' } : undefined,
+    );
+
+    const setup = await prepareGitCredentials({
+      runCommand,
+      deployRoot: '/opt/infra/apps/demo',
+      repoUrl: 'https://example.test/o/r',
+    });
+
+    expect(setup).toBe('not-needed');
+    // The probe, and nothing else: a public repository must not drag a CLI
+    // that may not even be installed into the path of every deployment.
+    expect(calls).toHaveLength(1);
+  });
+
+  it('configures git when the repository needs a credential this server has', async () => {
+    const { runCommand, calls } = recording((argv) =>
+      argv[1] === 'ls-remote'
+        ? { exitCode: 128, stderr: 'could not read Username' }
+        : { exitCode: 0 },
+    );
+
+    const setup = await prepareGitCredentials({
+      runCommand,
+      deployRoot: '/opt/infra/apps/demo',
+      repoUrl: 'https://example.test/o/private',
+    });
+
+    expect(setup).toBe('configured');
+    expect(calls.map((argv) => argv.join(' '))).toContain('gh auth setup-git');
+  });
+
+  it('stands aside, without throwing, when no credential is available', async () => {
+    // The clone then fails on its own terms, and `ensureCheckout` already
+    // turns that into an actionable message about repository access.
+    const { runCommand } = recording(() => ({ exitCode: 1, stderr: 'not logged in' }));
+
+    const setup = await prepareGitCredentials({
+      runCommand,
+      deployRoot: '/opt/infra/apps/demo',
+      repoUrl: 'https://example.test/o/private',
+    });
+
+    expect(setup).toBe('unavailable');
   });
 });

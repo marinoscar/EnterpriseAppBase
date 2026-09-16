@@ -2,6 +2,7 @@ import { join } from 'node:path';
 
 import type { runCommand } from './executor.js';
 import type { DeployHooks } from './hooks.js';
+import { smokeOAuth, type OAuthFinding } from './oauth-check.js';
 import type { DeployState } from './state.js';
 
 // =============================================================================
@@ -54,6 +55,16 @@ export interface HealthReport {
   local: { live: ProbeResult; ready: ProbeResult; frontend: ProbeResult };
   external?: { url: string; probe: ProbeResult } | undefined;
   migrations: MigrationState;
+  /**
+   * Whether sign-in is actually wired up (#391).
+   *
+   * Present only when the caller supplied the configuration to compare
+   * against - `status` reads it from the deployed .env, and a caller that has
+   * none gets a report shaped exactly as it was before. Display-safe by
+   * construction: `OAuthFinding` carries a status, a sentence and a remedy,
+   * and never a configured value.
+   */
+  oauth?: OAuthFinding | undefined;
   deployed?: Pick<DeployState, 'commitSha' | 'ref' | 'lastDeployedAt' | 'lastCommand'> | undefined;
 }
 
@@ -65,6 +76,14 @@ export interface HealthOptions {
   bindPort: number;
   domain?: string | undefined;
   state?: DeployState | undefined;
+  /**
+   * The OAuth settings to check the running application against.
+   *
+   * Absent means the check is not run at all, which is why it is a separate
+   * option rather than something derived here: `collectHealth` has no business
+   * reading a deployment's .env, and install/update already hold theirs.
+   */
+  oauth?: { clientId?: string | undefined; callbackUrl?: string | undefined } | undefined;
   fetch?: FetchLike | undefined;
   hooks?: DeployHooks | undefined;
   timeoutMs?: number | undefined;
@@ -242,11 +261,26 @@ export async function collectHealth(options: HealthOptions): Promise<HealthRepor
           probe: await probe(`https://${options.domain}/api/health/ready`, fetchOptions),
         };
 
+  const oauth =
+    options.oauth === undefined
+      ? undefined
+      : await smokeOAuth({
+          baseUrl: base,
+          ...(options.oauth.clientId === undefined
+            ? {}
+            : { clientId: options.oauth.clientId }),
+          ...(options.oauth.callbackUrl === undefined
+            ? {}
+            : { callbackUrl: options.oauth.callbackUrl }),
+          ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+        });
+
   return {
     containers,
     local: { live, ready, frontend },
     ...(external === undefined ? {} : { external }),
     migrations,
+    ...(oauth === undefined ? {} : { oauth }),
     ...(options.state === undefined
       ? {}
       : {
@@ -260,7 +294,16 @@ export async function collectHealth(options: HealthOptions): Promise<HealthRepor
   };
 }
 
-/** True when the deployment is serving and its schema is current. */
+/**
+ * True when the deployment is serving and its schema is current.
+ *
+ * `oauth` IS DELIBERATELY NOT CONSULTED. This predicate decides `deploy
+ * status`'s exit code, which is what a monitoring script branches on, and
+ * "serving" and "sign-in is configured correctly" are different questions with
+ * different remedies - one is an outage, the other is a settings mistake that
+ * needs a person. Install and update apply their own gate to the same finding,
+ * because they are the moments a person IS present.
+ */
 export function isHealthy(report: HealthReport): boolean {
   const containersOk =
     report.containers.length === 0 ||

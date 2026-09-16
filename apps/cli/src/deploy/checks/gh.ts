@@ -1,3 +1,4 @@
+import type { DeployHooks } from '../hooks.js';
 import type { Check, CheckContext, CheckResult } from './types.js';
 
 // =============================================================================
@@ -36,9 +37,21 @@ import type { Check, CheckContext, CheckResult } from './types.js';
 /** Long enough for a network round trip, short enough not to look hung. */
 const PROBE_TIMEOUT_MS = 20_000;
 
+/**
+ * Only what the credential helpers need, so `repo.ts` can call them.
+ *
+ * The same narrowing `RenewalProbeContext` makes in tls.ts, and for the same
+ * reason: a full `CheckContext` demands a bind port and a proxy root that a
+ * clone has no opinion about, and inventing values for them at the call site
+ * would be a lie about what this reads.
+ */
+export type CredentialProbeContext = Pick<CheckContext, 'runCommand' | 'deployRoot'> & {
+  repoUrl?: string | undefined;
+};
+
 /** Runs a command purely to see whether it works. Never throws. */
 async function probe(
-  context: CheckContext,
+  context: CredentialProbeContext,
   argv: readonly string[],
   env?: NodeJS.ProcessEnv,
 ): Promise<{ ok: boolean; stdout: string; stderr: string }> {
@@ -77,7 +90,9 @@ export type CredentialNeed = 'not-needed' | 'needed' | 'unknown';
  * An https URL may carry an embedded token, so this value never reaches a
  * `detail`, a `remedy` or a log line; only the CONCLUSION drawn from it does.
  */
-async function resolveRepoUrl(context: CheckContext): Promise<string | undefined> {
+async function resolveRepoUrl(
+  context: CredentialProbeContext,
+): Promise<string | undefined> {
   if (context.repoUrl !== undefined && context.repoUrl !== '') return context.repoUrl;
 
   // The deployed checkout first - on an update that is the repository being
@@ -105,7 +120,7 @@ async function resolveRepoUrl(context: CheckContext): Promise<string | undefined
  * forever on a hidden prompt is worse than one that reports nothing.
  */
 export async function assessCredentialNeed(
-  context: CheckContext,
+  context: CredentialProbeContext,
 ): Promise<CredentialNeed> {
   const url = await resolveRepoUrl(context);
   if (url === undefined) return 'unknown';
@@ -120,6 +135,71 @@ export async function assessCredentialNeed(
     { ...process.env, GIT_TERMINAL_PROMPT: '0' },
   );
   return reachable.ok ? 'not-needed' : 'needed';
+}
+
+// =============================================================================
+// ...AND ACTING ON IT, ONCE, BEFORE THE FIRST CLONE  (issue #391, epic #388)
+// =============================================================================
+//
+// `assessCredentialNeed` above already answers "does this clone need a
+// credential this server does not have". Installing one is the other half, and
+// it lives HERE rather than in repo.ts deliberately: repo.ts names no forge, no
+// owner, no repository and no URL - repo.test.ts asserts it - and the tool that
+// can hand git a credential is a forge's own CLI. Keeping that knowledge in
+// this file, and exporting the operation through `checks/index.ts`, lets repo.ts
+// ask for "whatever credential this remote needs" without learning which forge
+// is involved. A second detector was the alternative and is worse: the
+// promotion rule the checks report and the action the clone takes would then be
+// free to disagree about the same server.
+// =============================================================================
+
+/** What `prepareGitCredentials` did, as something a caller can report. */
+export type CredentialSetup = 'not-needed' | 'configured' | 'unavailable' | 'failed';
+
+export interface PrepareCredentialsOptions extends CredentialProbeContext {
+  hooks?: DeployHooks | undefined;
+}
+
+/**
+ * Credentials git for the upcoming clone, when it genuinely needs them.
+ *
+ * NEVER THROWS, and never blocks the clone. Every outcome other than
+ * `configured` means "nothing was changed", and the clone proceeds to fail (or
+ * succeed) on its own terms - `ensureCheckout` already turns an authentication
+ * failure into an actionable message, and replacing that with an error about a
+ * missing helper would be a worse diagnosis of the same problem.
+ *
+ * The three non-actions are kept apart because they have different fixes: an
+ * ssh remote or a public repository needs nothing at all, an unauthenticated
+ * CLI needs a login, and a setup that fails needs its own output read.
+ */
+export async function prepareGitCredentials(
+  options: PrepareCredentialsOptions,
+): Promise<CredentialSetup> {
+  // The cheap, decisive question first: an ssh remote (a deploy key's job) and
+  // an https remote git can already read are both `not-needed`, and neither
+  // costs a subprocess beyond the probe that answers it.
+  const need = await assessCredentialNeed(options);
+  if (need !== 'needed') return 'not-needed';
+
+  const authenticated = await probe(options, ['gh', 'auth', 'status']);
+  if (!authenticated.ok) {
+    // Not installed, or installed and logged out. Either way there is no
+    // credential to hand over, and saying so is all this can do.
+    options.hooks?.onProgress?.(
+      'The repository needs a credential and none is available; the clone will report what it needs.',
+    );
+    return 'unavailable';
+  }
+
+  const setup = await probe(options, ['gh', 'auth', 'setup-git']);
+  if (!setup.ok) {
+    options.hooks?.onProgress?.('Could not configure git credentials; attempting the clone anyway.');
+    return 'failed';
+  }
+
+  options.hooks?.onProgress?.('Configured git to use the credential already on this server.');
+  return 'configured';
 }
 
 /**

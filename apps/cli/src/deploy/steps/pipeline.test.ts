@@ -13,6 +13,7 @@ function fakeJournal(): Journal & { lines: string[] } {
     line: (text) => lines.push(text),
     command: () => undefined,
     finish: () => undefined,
+    addSecrets: () => undefined,
   } as Journal & { lines: string[] };
 }
 

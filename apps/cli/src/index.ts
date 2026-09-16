@@ -388,12 +388,14 @@ export { runPipeline } from './deploy/steps/pipeline.js';
 export type { DeployStep, PipelineResult, StepContext } from './deploy/steps/pipeline.js';
 
 export {
+  BOOTSTRAP_DEFERRED_CHECKS,
   buildInstallSteps,
   composeArgv,
   composeCwd,
   defaultRootFor,
   runInstall,
   secretsFrom,
+  willOfferBootstrap,
 } from './deploy/install.js';
 export type { InstallOptions, InstallResult } from './deploy/install.js';
 
@@ -401,3 +403,80 @@ export type { InstallOptions, InstallResult } from './deploy/install.js';
 // which is why it is its own command rather than a flag.
 export { buildUpdateSteps, runUpdate } from './deploy/update.js';
 export type { UpdateOptions, UpdateResult } from './deploy/update.js';
+
+// The five things install does that it used to only claim to do (#391).
+//
+// Each is its own module because each is gated on a different check from #390
+// and acts only when that check says it must: the proxy bootstrap when this box
+// has no proxy, the database creation when the server answers but the database
+// is absent, the renewal schedule when nothing already owns renewal. They are
+// exported for their tests, and because the pure halves - what a proxy compose
+// file or a cron entry actually says - are worth asserting on directly.
+export {
+  BOOTSTRAP_MARKER,
+  PROXY_COMPOSE_FILE,
+  PROXY_DEFAULT_CONF,
+  PROXY_DIRECTORIES,
+  PROXY_IMAGE,
+  PROXY_NETWORK,
+  bootstrapProxy,
+  ensureSharedNetwork,
+  proxyRootPresent,
+  renderDefaultServer,
+  renderProxyCompose,
+} from './deploy/proxy-bootstrap.js';
+export type {
+  BootstrapOutcome,
+  BootstrapResult,
+  ProxyBootstrapOptions,
+} from './deploy/proxy-bootstrap.js';
+
+export {
+  DATABASE_NAME_PATTERN,
+  assertValidDatabaseName,
+  assessDatabase,
+  classifyDatabase,
+  ensureDatabase,
+  isValidDatabaseName,
+  quoteIdentifier,
+} from './deploy/database.js';
+export type {
+  AssessDatabaseOptions,
+  DatabaseVerdict,
+  EnsureDatabaseOptions,
+  EnsureDatabaseOutcome,
+  EnsureDatabaseResult,
+} from './deploy/database.js';
+
+// The OAuth layers, and the one thing worth repeating here: `invalid_grant`
+// from Google's token endpoint means the credentials are RIGHT - the client
+// was authenticated and only the deliberately invalid code was refused.
+export {
+  GOOGLE_CLIENT_ID_SUFFIX,
+  GOOGLE_TOKEN_ENDPOINT,
+  checkCallbackUrl,
+  checkClientIdShape,
+  compareAuthorizeRedirect,
+  expectedCallbackUrl,
+  listsGoogle,
+  probeCredentials,
+  smokeOAuth,
+  verifyOAuthConfiguration,
+} from './deploy/oauth-check.js';
+export type {
+  CredentialProbeOptions,
+  OAuthFinding,
+  OAuthStatus,
+  SmokeOptions,
+} from './deploy/oauth-check.js';
+
+export {
+  RENEWAL_CRON_PATH,
+  RENEWAL_MARKER,
+  RENEWAL_SCHEDULE,
+  ensureRenewal,
+  isCronSafePath,
+  renderRenewalCommand,
+  renderRenewalEntry,
+} from './deploy/renewal.js';
+export type { RenewalAction, RenewalOptions, RenewalResult } from './deploy/renewal.js';

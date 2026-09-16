@@ -4,12 +4,27 @@ import { basename, join } from 'node:path';
 import { CLI_NAME } from '../branding.js';
 import { PreconditionError, UsageError } from '../errors.js';
 import { CLI_VERSION } from '../package-info.js';
-import { ALL_CHECKS, checksPassed, requiredChecks, runChecks } from './checks/index.js';
+import {
+  ALL_CHECKS,
+  checksPassed,
+  requiredChecks,
+  runChecks,
+  type Check,
+} from './checks/index.js';
+import {
+  assessDatabase,
+  classifyDatabase,
+  ensureDatabase,
+  type DatabaseVerdict,
+} from './database.js';
+import { smokeOAuth, verifyOAuthConfiguration } from './oauth-check.js';
+import { bootstrapProxy, proxyRootPresent } from './proxy-bootstrap.js';
+import { ensureRenewal } from './renewal.js';
 import { parseEnvExample, parseEnvFile, serializeEnvFile } from './env-spec.js';
 import { runEnvWizard } from './env-wizard.js';
 import type { EnvGroup } from './env-metadata.js';
 import { runCommand as defaultRunCommand } from './executor.js';
-import { waitForHealthy, collectHealth, isHealthy } from './health.js';
+import { waitForHealthy, collectHealth, isHealthy, type FetchLike } from './health.js';
 import type { DeployHooks } from './hooks.js';
 import { openJournal, type Journal, type SecretEntry } from './journal.js';
 import {
@@ -17,6 +32,7 @@ import {
   issueCertificate,
   resolveProxyRuntime,
   type ProxyMode,
+  type ProxyRuntime,
   type ProxyTarget,
 } from './proxy.js';
 import { ensureCheckout, resolveRepoTarget, type RepoTarget } from './repo.js';
@@ -80,11 +96,21 @@ export interface InstallOptions {
   skipDoctor?: boolean | undefined;
   skipProxy?: boolean | undefined;
   skipSeed?: boolean | undefined;
+  /** Do not schedule certificate renewal, whoever does or does not own it. */
+  skipRenewal?: boolean | undefined;
+  /** Stand the shared proxy up when this box has none. The --non-interactive
+   *  answer to the question `proxy-bootstrap` would otherwise ask. */
+  bootstrapProxy?: boolean | undefined;
+  /** Create POSTGRES_DB when it does not exist. The --non-interactive answer
+   *  to the question `ensure-database` would otherwise ask. */
+  createDatabase?: boolean | undefined;
   noCache?: boolean | undefined;
   force?: boolean | undefined;
   email?: string | undefined;
   staging?: boolean | undefined;
   runCommand?: typeof defaultRunCommand | undefined;
+  /** Injected so the OAuth checks and probes are testable without a network. */
+  fetch?: FetchLike | undefined;
   hooks?: DeployHooks | undefined;
   promptContext?: PromptContext | undefined;
   cwd?: string | undefined;
@@ -108,6 +134,16 @@ interface InstallContext extends StepContext {
   env?: Map<string, string> | undefined;
   /** Set by `publish`, recorded in the state file. Absent when it is skipped. */
   proxy?: DeployProxyRecord | undefined;
+  /**
+   * What `validate-environment` concluded about the database.
+   *
+   * Carried rather than re-probed: `ensure-database` acts on the same answer
+   * the operator was just shown, and two runs of the same check against a
+   * live server can legitimately differ.
+   */
+  databaseVerdict?: DatabaseVerdict | undefined;
+  /** Resolved once by `publish`; `renewal` reuses it rather than re-probing. */
+  proxyRuntime?: ProxyRuntime | undefined;
 }
 
 export function composeCwd(deployRoot: string): string {
@@ -147,6 +183,74 @@ async function compose(
   context.journal.command(result);
 }
 
+/**
+ * The three OAuth layers, reported and then enforced.
+ *
+ * A `fail` stops the install HERE - before the build, before the migration,
+ * before a certificate is spent - because every one of them is a
+ * configuration mistake that would otherwise surface as a broken sign-in on a
+ * deployment that reported itself healthy. A `warn` (an unreachable Google,
+ * most often) is recorded and carried on from: an air-gapped or
+ * egress-filtered server must still be able to install.
+ */
+async function verifyOAuth(context: InstallContext): Promise<void> {
+  const domain = context.options.domain;
+  if (context.env === undefined || domain === undefined) return;
+
+  const findings = await verifyOAuthConfiguration({
+    env: context.env,
+    domain,
+    ...(context.options.fetch === undefined ? {} : { fetch: context.options.fetch }),
+  });
+
+  for (const finding of findings) {
+    context.journal.line(`${finding.status} ${finding.id}: ${finding.detail}`);
+  }
+
+  const failed = findings.filter((finding) => finding.status === 'fail');
+  if (failed.length === 0) return;
+
+  throw new PreconditionError(
+    `OAuth is not configured correctly, so nobody would be able to sign in:\n` +
+      failed
+        .map((finding) => `  - ${finding.detail}\n    ${finding.remedy ?? ''}`)
+        .join('\n'),
+  );
+}
+
+/**
+ * Required checks that ask about a shared proxy this install is about to CREATE.
+ *
+ * Every one of them is a fair question about a box that already has a proxy and
+ * a meaningless one about a box that does not: `proxy-root` reports the very
+ * absence `proxy-bootstrap` exists to fix, and the other three are all
+ * downstream of it. `certbot-installed` is in the list for a subtler reason -
+ * left to probe, `resolveProxyRuntime` reports HOST mode while there is no
+ * proxy container running, so it demands a host certbot binary that a
+ * containerised proxy (which is what the bootstrap creates) will never use.
+ *
+ * They are deferred ONLY when a bootstrap is genuinely going to be offered. A
+ * `--non-interactive` run with no `--bootstrap-proxy` still fails here, before
+ * anything is cloned, which is a better place to learn it than eight steps
+ * later.
+ */
+export const BOOTSTRAP_DEFERRED_CHECKS: readonly string[] = [
+  'proxy-root',
+  'proxy-conf-writable',
+  'acme-webroot',
+  'proxy-container',
+  'certbot-installed',
+];
+
+/** True when this run may create the shared proxy, so its absence is not fatal. */
+export function willOfferBootstrap(options: InstallOptions): boolean {
+  if (options.skipProxy === true) return false;
+  if (options.domain === undefined) return false;
+  if (proxyRootPresent(options.proxyRoot)) return false;
+  // Unattended runs must say so out loud; see `bootstrapProxy`'s `approve`.
+  return options.bootstrapProxy === true || options.nonInteractive !== true;
+}
+
 export function buildInstallSteps(): DeployStep<InstallContext>[] {
   return [
     {
@@ -157,7 +261,18 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
           ? 'skipped with --skip-doctor'
           : undefined,
       async run(context) {
-        const results = await runChecks(requiredChecks(ALL_CHECKS), {
+        const deferred = willOfferBootstrap(context.options);
+        if (deferred) {
+          context.journal.line(
+            `No shared proxy at ${context.options.proxyRoot}; deferring ${BOOTSTRAP_DEFERRED_CHECKS.join(', ')} to the proxy-bootstrap step.`,
+          );
+        }
+
+        const wanted: readonly Check[] = requiredChecks(ALL_CHECKS).filter(
+          (check) => !(deferred && BOOTSTRAP_DEFERRED_CHECKS.includes(check.id)),
+        );
+
+        const results = await runChecks(wanted, {
           runCommand: context.runCommand,
           deployRoot: context.options.deployRoot,
           bindPort: context.options.bindPort,
@@ -270,6 +385,13 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
         writeFileSync(path, serializeEnvFile(values, specs), { mode: 0o600 });
 
         context.env = values;
+        // BEFORE anything else can log. On a FIRST install the journal was
+        // opened with no secrets at all - there was no .env to seed it from -
+        // so until this call the database password, the JWT secret and the
+        // OAuth client secret are redacted from nothing. The live credential
+        // probe two steps down is the one that would otherwise be able to put
+        // a client secret into an error message.
+        context.journal.addSecrets(secretsFrom(values));
         context.journal.line(`Wrote ${path} (${values.size} variables)`);
       },
     },
@@ -278,6 +400,12 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
       title: 'Validate the environment',
       async run(context) {
         if (context.env === undefined) return;
+
+        // Belt and braces with the `environment` step's own call: a --resume
+        // that re-ran this step without re-running the wizard must still have
+        // taught the redactor before the OAuth probe below sends a secret
+        // anywhere.
+        context.journal.addSecrets(secretsFrom(context.env));
 
         const results = await runChecks(
           ALL_CHECKS.filter((check) => check.id.startsWith('database-')),
@@ -294,13 +422,103 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
           context.journal.line(`${result.status} ${result.id}: ${result.detail}`);
         }
 
-        if (!checksPassed(results)) {
+        // "Reachable, credentials fine, database not there" is the ONE database
+        // failure this pipeline can offer to fix, so it is held back from the
+        // fatal set and handed to `ensure-database`. Every other failure stays
+        // fatal: creating a database is not the remedy for a refused
+        // connection or a wrong password, and attempting one would replace a
+        // precise error with a vaguer one.
+        context.databaseVerdict = classifyDatabase(results);
+        const fatal = results.filter(
+          (result) =>
+            result.severity === 'required' &&
+            result.status === 'fail' &&
+            !(context.databaseVerdict === 'missing' && result.id === 'database-exists'),
+        );
+
+        if (context.databaseVerdict === 'missing') {
+          context.journal.line('The database does not exist yet; ensure-database will offer to create it.');
+        }
+
+        if (fatal.length > 0) {
           throw new PreconditionError(
             `The database is not usable with these settings:\n` +
-              results
-                .filter((result) => result.status === 'fail')
+              fatal
                 .map((result) => `  - ${result.detail}\n    ${result.remedy ?? ''}`)
                 .join('\n'),
+          );
+        }
+
+        await verifyOAuth(context);
+      },
+    },
+    {
+      id: 'ensure-database',
+      title: 'Create the database',
+      skip: (context) => {
+        switch (context.databaseVerdict) {
+          case 'missing':
+            return undefined;
+          case undefined:
+            // --resume skipped `validate-environment` as already completed, so
+            // this run has no verdict to act on. NOT skipped: the step asks
+            // for itself below rather than assuming the answer from a previous
+            // run that may be hours old.
+            return undefined;
+          case 'ok':
+            return 'the database already exists';
+          default:
+            return `nothing to create (${context.databaseVerdict})`;
+        }
+      },
+      async run(context) {
+        if (context.env === undefined) return;
+
+        if (context.databaseVerdict === undefined) {
+          const { verdict, results } = await assessDatabase({
+            runCommand: context.runCommand,
+            deployRoot: context.options.deployRoot,
+            bindPort: context.options.bindPort,
+            proxyRoot: context.options.proxyRoot,
+            env: context.env,
+          });
+          for (const result of results) {
+            context.journal.line(`${result.status} ${result.id}: ${result.detail}`);
+          }
+          context.databaseVerdict = verdict;
+        }
+
+        // Only ever the one case with an offer attached to it; everything else
+        // is `validate-environment`'s to report, and it already did.
+        if (context.databaseVerdict !== 'missing') {
+          context.journal.line(`Database verdict: ${context.databaseVerdict}; nothing to create.`);
+          return;
+        }
+
+        const result = await ensureDatabase({
+          runCommand: context.runCommand,
+          env: context.env,
+          ...(context.hooks === undefined ? {} : { hooks: context.hooks }),
+          ...(context.options.createDatabase === undefined
+            ? {}
+            : { createDatabase: context.options.createDatabase }),
+          ...(context.options.nonInteractive === undefined
+            ? {}
+            : { nonInteractive: context.options.nonInteractive }),
+          ...(context.options.promptContext === undefined
+            ? {}
+            : { promptContext: context.options.promptContext }),
+        });
+
+        context.journal.line(result.detail);
+
+        if (result.outcome === 'declined') {
+          // Declining is an ANSWER, not a cancellation: the operator has just
+          // said this name is not the one they meant. Migrating into a
+          // database they disowned is the exact outcome the question exists to
+          // prevent, so the install stops here with POSTGRES_DB named.
+          throw new PreconditionError(
+            `${result.database} was not created, so there is nothing to migrate into. Fix POSTGRES_DB in ${envFilePath(context.options.deployRoot)} (or create the database by hand) and re-run with --resume.`,
           );
         }
       },
@@ -365,6 +583,53 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
       },
     },
     {
+      id: 'proxy-bootstrap',
+      title: 'Set up the shared proxy',
+      skip: (context) => {
+        if (context.options.skipProxy === true) return 'skipped with --skip-proxy';
+        if (context.options.domain === undefined) return 'no --domain given';
+        // Checked HERE as well as inside `bootstrapProxy`, so the pipeline
+        // reports "nothing to do" for the overwhelmingly common case - a box
+        // that already has a proxy - rather than running a step that decides
+        // to do nothing. The module still re-checks: it is the guarantee, and
+        // a guarantee that lives only in a caller is not one.
+        if (proxyRootPresent(context.options.proxyRoot)) {
+          return `${context.options.proxyRoot} already exists`;
+        }
+        return undefined;
+      },
+      async run(context) {
+        const result = await bootstrapProxy({
+          proxyRoot: context.options.proxyRoot,
+          runCommand: context.runCommand,
+          ...(context.hooks === undefined ? {} : { hooks: context.hooks }),
+          ...(context.options.proxyContainer === undefined
+            ? {}
+            : { container: context.options.proxyContainer }),
+          ...(context.options.bootstrapProxy === undefined
+            ? {}
+            : { bootstrapProxy: context.options.bootstrapProxy }),
+          ...(context.options.nonInteractive === undefined
+            ? {}
+            : { nonInteractive: context.options.nonInteractive }),
+          ...(context.options.promptContext === undefined
+            ? {}
+            : { promptContext: context.options.promptContext }),
+        });
+
+        context.journal.line(result.detail);
+
+        if (result.outcome === 'declined') {
+          // There is nowhere to write a vhost and nowhere for certbot to put a
+          // challenge, so publishing cannot work. Stopping with the reason is
+          // better than letting `publish` fail on a missing directory.
+          throw new PreconditionError(
+            `No shared reverse proxy at ${result.proxyRoot}, and it was not created. Set one up, or re-run with --skip-proxy to leave this deployment on ${`http://127.0.0.1:${context.options.bindPort}`}.`,
+          );
+        }
+      },
+    },
+    {
       id: 'publish',
       title: 'Publish over HTTPS',
       skip: (context) => {
@@ -398,6 +663,11 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
             ? {}
             : { proxyContainer: context.options.proxyContainer }),
         });
+
+        // Kept for `renewal`, which must schedule a command against the SAME
+        // proxy this published through - re-probing there could answer
+        // differently and write a cron entry for the other path space.
+        context.proxyRuntime = runtime;
 
         // Recorded in the STATE as well as the journal (#392): the journal is
         // one run's log and is pruned after ten, while "which proxy is this
@@ -437,6 +707,48 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
       },
     },
     {
+      id: 'renewal',
+      title: 'Schedule certificate renewal',
+      skip: (context) => {
+        if (context.options.skipRenewal === true) return 'skipped with --skip-renewal';
+        if (context.options.skipProxy === true) return 'skipped with --skip-proxy';
+        if (context.options.domain === undefined) return 'no --domain given';
+        return undefined;
+      },
+      async run(context) {
+        // Resolved by `publish` in the normal case; probed here only when that
+        // step was skipped as already-completed by --resume.
+        const runtime =
+          context.proxyRuntime ??
+          (await resolveProxyRuntime(
+            { proxyRoot: context.options.proxyRoot },
+            {
+              runCommand: context.runCommand,
+              ...(context.options.proxyMode === undefined
+                ? {}
+                : { proxyMode: context.options.proxyMode }),
+              ...(context.options.proxyContainer === undefined
+                ? {}
+                : { proxyContainer: context.options.proxyContainer }),
+            },
+          ));
+
+        const result = await ensureRenewal({
+          proxyRoot: context.options.proxyRoot,
+          runtime,
+          runCommand: context.runCommand,
+          ...(context.hooks === undefined ? {} : { hooks: context.hooks }),
+        });
+
+        // Never thrown on: the site is published and healthy, and a server
+        // where /etc/cron.d cannot be written has a real problem that is not
+        // worth turning a successful deployment into a failed one over. The
+        // line is what carries it - and `doctor`'s certificate-renewal check
+        // keeps asking the same question on every later run.
+        context.journal.line(`renewal: ${result.detail}`);
+      },
+    },
+    {
       id: 'verify',
       title: 'Verify the deployment',
       async run(context) {
@@ -444,6 +756,7 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
           runCommand: context.runCommand,
           deployRoot: context.options.deployRoot,
           bindPort: context.options.bindPort,
+          ...(context.options.fetch === undefined ? {} : { fetch: context.options.fetch }),
           ...(context.options.domain === undefined || context.options.skipProxy === true
             ? {}
             : { domain: context.options.domain }),
@@ -460,9 +773,45 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
               ' deploy status` for the detail.',
           );
         }
+
+        await smokeOAuthOrThrow(context);
       },
     },
   ];
+}
+
+/**
+ * The post-deploy sign-in smoke test.
+ *
+ * `validate-environment` checked what is IN .env; this checks what the running
+ * application does with it, against loopback, with no credential in flight. A
+ * `fail` here means nobody can sign in to a deployment that is otherwise
+ * perfectly healthy - which is precisely the state this install would
+ * otherwise report as finished, one line above a message telling the operator
+ * to go and log in.
+ *
+ * The message is written to be actionable on its own: this is the last step,
+ * and the person reading it has just watched eleven others succeed.
+ */
+async function smokeOAuthOrThrow(context: InstallContext): Promise<void> {
+  const finding = await smokeOAuth({
+    baseUrl: `http://127.0.0.1:${context.options.bindPort}`,
+    ...(context.env?.get('GOOGLE_CLIENT_ID') === undefined
+      ? {}
+      : { clientId: context.env.get('GOOGLE_CLIENT_ID') as string }),
+    ...(context.env?.get('GOOGLE_CALLBACK_URL') === undefined
+      ? {}
+      : { callbackUrl: context.env.get('GOOGLE_CALLBACK_URL') as string }),
+    ...(context.options.fetch === undefined ? {} : { fetch: context.options.fetch }),
+  });
+
+  context.journal.line(`${finding.status} ${finding.id}: ${finding.detail}`);
+
+  if (finding.status === 'fail') {
+    throw new Error(
+      `The stack is healthy, but sign-in is not wired up: ${finding.detail}.\n${finding.remedy ?? ''}`,
+    );
+  }
 }
 
 export interface InstallResult {

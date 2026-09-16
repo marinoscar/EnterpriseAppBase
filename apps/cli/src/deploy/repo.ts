@@ -3,6 +3,11 @@ import { dirname, join, resolve } from 'node:path';
 
 import { CLI_NAME } from '../branding.js';
 import { UsageError } from '../errors.js';
+// Through the checks barrel, never a module named for the tool it runs: this
+// file must stay free of any forge's name, and `prepareGitCredentials` is
+// exactly the seam that keeps it that way. See its own header, and the guard
+// test at the bottom of repo.test.ts.
+import { prepareGitCredentials } from './checks/index.js';
 import type { DeployHooks } from './hooks.js';
 import type { runCommand } from './executor.js';
 import type { DeployState } from './state.js';
@@ -189,6 +194,14 @@ export interface CheckoutOptions {
   hooks?: DeployHooks | undefined;
   /** Discard uncommitted local modifications instead of refusing. */
   force?: boolean | undefined;
+  /**
+   * Skip the credential preparation before a first clone.
+   *
+   * For a caller that has already arranged access itself. It is never needed
+   * for an ssh remote or a readable https one: the preparation stands down on
+   * its own for both, without running anything.
+   */
+  skipCredentialSetup?: boolean | undefined;
 }
 
 export interface CheckoutResult {
@@ -214,6 +227,20 @@ export async function ensureCheckout(
   const exists = existsSync(join(path, '.git'));
 
   if (!exists) {
+    // BEFORE the clone, and only before a FIRST one: an existing checkout has
+    // already proved this server can read the repository, and `fetch` uses
+    // whatever credential made that true. Never throws, never blocks - see
+    // `prepareGitCredentials`. The failure message below stays the diagnosis
+    // when no credential could be arranged.
+    if (options.skipCredentialSetup !== true) {
+      await prepareGitCredentials({
+        runCommand: options.runCommand,
+        deployRoot: options.deployRoot,
+        repoUrl: target.url,
+        ...(options.hooks === undefined ? {} : { hooks: options.hooks }),
+      });
+    }
+
     options.hooks?.onProgress?.(`Cloning ${displayRepoUrl(target.url)}`);
     await runGit(options, options.deployRoot, [
       'clone',
