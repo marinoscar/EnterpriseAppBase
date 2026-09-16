@@ -218,7 +218,20 @@ export async function resolveProxyRuntime(
 
 /** The runtime a call was given, or host mode derived from the target. */
 function runtimeFor(target: Pick<ProxyTarget, 'proxyRoot'>, options: ProxyOptions): ProxyRuntime {
-  return options.runtime ?? hostProxyRuntime(target);
+  if (options.runtime !== undefined) return options.runtime;
+
+  // A caller that passed only the older `proxyContainer` has NAMED A
+  // CONTAINER, so it means container mode - and falling through to host paths
+  // here reproduces #389 through the very field kept for compatibility:
+  // `containerFor` would still send `nginx -t` into that container, while the
+  // vhost rendered from these same options pointed at host paths the
+  // container cannot see. The two helpers must agree on the mode or they
+  // recreate the split this module exists to close.
+  if (options.proxyContainer !== undefined) {
+    return containerProxyRuntime(options.proxyContainer);
+  }
+
+  return hostProxyRuntime(target);
 }
 
 /** The container to address, from either the runtime or the older field. */

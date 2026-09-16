@@ -353,26 +353,20 @@ describe('installVhost/validateProxy/reloadProxy target the right runtime (issue
 });
 
 // =============================================================================
-// KNOWN DEFECT, found while writing coverage for #389, NOT fixed here per the
-// scope of this pass (tests only). Reported alongside this test suite.
+// The deprecated `proxyContainer` field, used ALONE, must still pick container
+// mode. Found by this suite while #389's fix was landing: `runtimeFor()` read
+// only `options.runtime` and fell back to host paths, while `containerFor()`
+// fell back to `options.proxyContainer` and sent `nginx -t` into the
+// container. A vhost full of host paths, validated inside a container that
+// cannot see them, is issue #389 reproduced through the very field kept for
+// compatibility.
 //
-// `runtimeFor()` (what renderVhost/installVhost use) ONLY reads
-// `options.runtime`, and falls back to host mode when it is absent — it never
-// looks at the deprecated `options.proxyContainer`. `containerFor()` (what
-// validateProxy/reloadProxy use) reads `options.runtime?.container` FIRST but
-// falls back to `options.proxyContainer` when there is no runtime.
-//
-// So a caller of `installVhost` that sets only the deprecated `proxyContainer`
-// field (no `runtime`) gets a vhost rendered with HOST paths, validated and
-// reloaded by `docker exec`-ing INTO the container — reproducing issue #389
-// exactly, through the field whose own JSDoc claims callers "work unchanged".
-// The claim held for a caller that only ever wanted `docker exec` from
-// validateProxy/reloadProxy directly; it does not hold for `installVhost`,
-// which also renders paths from the very same options.
+// The two helpers must agree on the mode. This test is what holds them
+// together, so keep it: it fails the moment one of them is changed alone.
 // =============================================================================
-describe('KNOWN DEFECT: the deprecated proxyContainer field alone still reproduces #389', () => {
-  it.fails(
-    'installVhost renders host paths while validateProxy targets the container, when only the deprecated proxyContainer field is set',
+describe('the deprecated proxyContainer field alone still means container mode', () => {
+  it(
+    'installVhost renders container paths when only the deprecated proxyContainer field is set',
     async () => {
       const root = makeProxyRoot();
       const calls: string[][] = [];
@@ -386,12 +380,11 @@ describe('KNOWN DEFECT: the deprecated proxyContainer field alone still reproduc
 
       const rendered = readFileSync(result.path, 'utf8');
 
-      // What SHOULD be true: a vhost validated inside a container must never
-      // contain a host path (this is the entire point of #389). It currently
-      // does, because renderVhost fell back to host mode.
+      // A vhost validated inside a container must never contain a host path:
+      // that is the entire point of #389.
       expect(rendered).not.toContain(root);
-      // And validation targets the container this vhost was never rendered
-      // for.
+      expect(rendered).toContain('root /var/www/certbot;');
+      // And validation targets the container the vhost was rendered for.
       expect(calls[0]).toEqual(['docker', 'exec', 'infra-proxy-1', 'nginx', '-t']);
     },
   );
