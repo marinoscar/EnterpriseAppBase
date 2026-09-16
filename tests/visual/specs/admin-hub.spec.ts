@@ -15,11 +15,19 @@ import { harnessUrl, waitForInter } from '../support/harness';
  *     `isCompactWindow` gate) with no rail at all (`Layout`'s `showRail` gate)
  *     and the compact back-arrow `AppBar` in its place.
  *
- * `ADMIN_SECTIONS` (`apps/web/src/config/adminSections.tsx`) has 3 groups / 10
- * cards total — General (Email, Notifications, Web Push, Maintenance), Access
- * (Users & Allowlist) and Operations (Jobs, Job Insights, Worker Nodes,
- * Database Backup, Broadcasts) — so "3-up"/"2-up" describes the CSS grid's
- * column count at that width, not the number of sections.
+ * `ADMIN_SECTIONS` (`apps/web/src/config/adminSections.tsx`) has 3 groups / 11
+ * cards total — General (Email, Notifications, Web Push, Storage,
+ * Maintenance), Access (Users & Allowlist) and Operations (Jobs, Job Insights,
+ * Worker Nodes, Database Backup, Broadcasts) — so "3-up"/"2-up" describes the
+ * CSS grid's column count at that width, not the number of sections.
+ *
+ * ⚠ `Web Push` (#355) is in that count but is NOT in `DEFAULT_PERMISSIONS`
+ * (`apps/web/visual/main.tsx` has no `push:read`), so the harness renders 10 of
+ * the 11 and this suite asserts no pixels for that card. That is the exact
+ * failure the paragraph below describes, already live — adding `push:read` to
+ * that list and regenerating these baselines is what fixes it. `Storage`
+ * (#376) added `storage_config:read` there in the same change that added the
+ * card, which is why it IS captured here.
  *
  * ⚠ THAT COUNT IS LOAD-BEARING ONLY IF THE HARNESS CAN SEE EVERY CARD. The
  * hub filters by permission, so a card whose permission is missing from

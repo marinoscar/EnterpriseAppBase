@@ -86,6 +86,12 @@ export const mockAdminUser: MockUser = {
     // testing a hub with no `Web Push` card — a user that cannot exist.
     'push:read',
     'push:write',
+    // Present because the seeded `admin` role grants them (#376, epic #372 —
+    // `prisma/seed-data.ts`). Without these, every test rendering the real
+    // Console surface would silently be testing a hub with no `Storage` card —
+    // a user that cannot exist.
+    'storage_config:read',
+    'storage_config:write',
   ],
   isActive: true,
   createdAt: new Date().toISOString(),
