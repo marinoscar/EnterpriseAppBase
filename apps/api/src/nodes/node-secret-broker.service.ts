@@ -265,7 +265,11 @@ export class NodeSecretBrokerService {
     //    a live database credential, and handing one to a slot that lost the
     //    job grants it the lease of a claim that is not its own. `undefined`
     //    for a node that quoted none, which is the pre-#364 check exactly.
-    const job = await this.nodes.assertJobHeldByNode(userId, nodeId, jobId, dto?.claimToken);
+    //    No `?.`: `nodeJobSecretRequestSchema`'s `.default({})` guarantees
+    //    `dto` is always an object here, the same guarantee
+    //    `NodeDataPlaneService`'s two routes rely on for their own required
+    //    `dto` parameters.
+    const job = await this.nodes.assertJobHeldByNode(userId, nodeId, jobId, dto.claimToken);
 
     // 2. A node may not request a secret it was not assigned. (The token it
     //    may have quoted above is not a request and is allowlisted there.)

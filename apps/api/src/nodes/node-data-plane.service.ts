@@ -221,8 +221,11 @@ export class NodeDataPlaneService {
     // this node" when the node is new enough to quote it (#364), so a stale
     // worker slot is not handed a bearer capability for the input of a job it
     // no longer holds. `undefined` for a node that quoted none, which is the
-    // pre-#364 check exactly.
-    const job = await this.nodes.assertJobHeldByNode(userId, nodeId, jobId, dto?.claimToken);
+    // pre-#364 check exactly. No `?.` here: `nodeDownloadUrlSchema`'s
+    // `.default({})` guarantees `dto` is always an object by the time this
+    // method runs, the same guarantee `submitResult`/`reportFailure` rely on
+    // for their own required `dto` parameters.
+    const job = await this.nodes.assertJobHeldByNode(userId, nodeId, jobId, dto.claimToken);
     const object = await this.resolveInput(job);
 
     const expiresIn = this.resolveTtlSeconds();
@@ -315,7 +318,9 @@ export class NodeDataPlaneService {
     // later claim is writing. Both PUTs succeed, the bytes that survive are
     // whichever finished last, and no log anywhere records that two ran. The
     // guard runs BEFORE any derivation, so a refused slot never learns the key.
-    const job = await this.nodes.assertJobHeldByNode(userId, nodeId, jobId, dto?.claimToken);
+    // No `?.`: `nodeUploadUrlSchema`'s `.default({})` guarantees `dto` is
+    // always an object here — see `createDownloadUrl`'s comment above.
+    const job = await this.nodes.assertJobHeldByNode(userId, nodeId, jobId, dto.claimToken);
 
     this.rejectCallerSuppliedFields(job, dto);
 
