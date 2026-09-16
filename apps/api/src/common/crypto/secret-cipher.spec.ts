@@ -336,4 +336,220 @@ describe('secret-cipher', () => {
       });
     });
   });
+
+  // ===========================================================================
+  // userCredentialPurpose — the per-user cipher domain builder (issue #387)
+  // ===========================================================================
+  //
+  // These tests hold up the collision proof written into
+  // `userCredentialPurpose`'s own comment: distinct (userId, purpose) pairs
+  // never collide, a user domain is never equal to a system domain, and the
+  // uuid casing normalisation never makes a row the database finds
+  // undecryptable. Read that comment before touching any test below — each
+  // one is the executable form of one paragraph of it.
+  // ===========================================================================
+  describe('userCredentialPurpose', () => {
+    let cipher: SecretCipherModule;
+
+    // Two arbitrary, valid, distinct canonical UUIDs. Neither is meaningful
+    // beyond being well-formed and different from each other.
+    const USER_A = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
+    const USER_B = '11111111-2222-3333-4444-555555555555';
+
+    beforeEach(() => {
+      cipher = loadCipher(VALID_KEY);
+    });
+
+    it('builds "user:<uuid>:<purpose>" for a valid pair', () => {
+      expect(cipher.userCredentialPurpose(USER_A, 'llm')).toBe(
+        `user:${USER_A}:llm`,
+      );
+    });
+
+    it('canonicalises an uppercase UUID to lowercase in the returned label', () => {
+      expect(cipher.userCredentialPurpose(USER_A.toUpperCase(), 'llm')).toBe(
+        `user:${USER_A}:llm`,
+      );
+    });
+
+    describe('the casing round-trip (regression: without normalisation, Postgres finds the row and the cipher still fails to decrypt it, telling a user to re-enter a key that was never broken)', () => {
+      it('decrypts a payload encrypted under an UPPERCASE-uuid domain using the lowercase-uuid domain', () => {
+        const plaintext = 'my-personal-api-key';
+        const payload = cipher.encryptSecret(
+          plaintext,
+          cipher.userCredentialPurpose(USER_A.toUpperCase(), 'llm'),
+        );
+
+        expect(
+          cipher.decryptSecret(
+            payload,
+            cipher.userCredentialPurpose(USER_A.toLowerCase(), 'llm'),
+          ),
+        ).toBe(plaintext);
+      });
+
+      it('decrypts a payload encrypted under the lowercase-uuid domain using an UPPERCASE-uuid domain', () => {
+        const plaintext = 'my-personal-api-key-2';
+        const payload = cipher.encryptSecret(
+          plaintext,
+          cipher.userCredentialPurpose(USER_A.toLowerCase(), 'llm'),
+        );
+
+        expect(
+          cipher.decryptSecret(
+            payload,
+            cipher.userCredentialPurpose(USER_A.toUpperCase(), 'llm'),
+          ),
+        ).toBe(plaintext);
+      });
+    });
+
+    describe('cross-owner isolation (the attack this design exists to stop)', () => {
+      it('fails to decrypt user A\'s payload under user B\'s domain for the identical purpose', () => {
+        const payload = cipher.encryptSecret(
+          'leaked-if-this-succeeds',
+          cipher.userCredentialPurpose(USER_A, 'llm'),
+        );
+
+        expect(() =>
+          cipher.decryptSecret(payload, cipher.userCredentialPurpose(USER_B, 'llm')),
+        ).toThrow();
+      });
+
+      it('fails to decrypt (rather than returning wrong plaintext) - asserted by checking the result is never a string', () => {
+        const plaintext = 'user-A-only-value';
+        const payload = cipher.encryptSecret(
+          plaintext,
+          cipher.userCredentialPurpose(USER_A, 'llm'),
+        );
+
+        let result: string | undefined;
+        let threw = false;
+        try {
+          result = cipher.decryptSecret(
+            payload,
+            cipher.userCredentialPurpose(USER_B, 'llm'),
+          );
+        } catch {
+          threw = true;
+        }
+
+        expect(threw).toBe(true);
+        expect(result).toBeUndefined();
+      });
+    });
+
+    describe('user/system disjointness', () => {
+      it('fails to decrypt a user-domain payload under the bare system purpose of the same name', () => {
+        const payload = cipher.encryptSecret(
+          'value',
+          cipher.userCredentialPurpose(USER_A, 'llm'),
+        );
+
+        expect(() => cipher.decryptSecret(payload, 'llm')).toThrow();
+      });
+
+      it('fails to decrypt a bare-system-purpose payload under a user domain of the same name', () => {
+        const payload = cipher.encryptSecret('value', 'llm');
+
+        expect(() =>
+          cipher.decryptSecret(payload, cipher.userCredentialPurpose(USER_A, 'llm')),
+        ).toThrow();
+      });
+    });
+
+    describe('rejection: userId', () => {
+      it('rejects a non-UUID userId', () => {
+        expect(() => cipher.userCredentialPurpose('not-a-uuid', 'llm')).toThrow();
+      });
+
+      it('rejects a UUID embedded in, but not equal to, a longer string', () => {
+        expect(() =>
+          cipher.userCredentialPurpose(`xxx${USER_A}`, 'llm'),
+        ).toThrow();
+        expect(() =>
+          cipher.userCredentialPurpose(`${USER_A}xxx`, 'llm'),
+        ).toThrow();
+      });
+
+      it('rejects a non-string userId', () => {
+        expect(() => cipher.userCredentialPurpose(undefined as any, 'llm')).toThrow();
+        expect(() => cipher.userCredentialPurpose(null as any, 'llm')).toThrow();
+        expect(() => cipher.userCredentialPurpose(12345 as any, 'llm')).toThrow();
+      });
+    });
+
+    describe('rejection: purpose', () => {
+      it('rejects an empty purpose', () => {
+        expect(() => cipher.userCredentialPurpose(USER_A, '')).toThrow();
+      });
+
+      it('rejects a whitespace-padded purpose', () => {
+        expect(() => cipher.userCredentialPurpose(USER_A, ' llm')).toThrow();
+        expect(() => cipher.userCredentialPurpose(USER_A, 'llm ')).toThrow();
+        expect(() => cipher.userCredentialPurpose(USER_A, ' llm ')).toThrow();
+      });
+
+      it('rejects a colon-bearing purpose', () => {
+        expect(() => cipher.userCredentialPurpose(USER_A, 'll:m')).toThrow();
+        expect(() => cipher.userCredentialPurpose(USER_A, ':')).toThrow();
+      });
+
+      it('rejects a non-string purpose', () => {
+        expect(() => cipher.userCredentialPurpose(USER_A, undefined as any)).toThrow();
+        expect(() => cipher.userCredentialPurpose(USER_A, null as any)).toThrow();
+        expect(() => cipher.userCredentialPurpose(USER_A, 42 as any)).toThrow();
+      });
+    });
+
+    describe('no leakage in thrown errors (the module is held to lengths and variable names only)', () => {
+      it('does not include the bad userId value anywhere in the error for a malformed userId', () => {
+        const badId = 'clearly-not-a-uuid-marker-9f8e7d21';
+
+        expect.assertions(2);
+        try {
+          cipher.userCredentialPurpose(badId, 'llm');
+        } catch (err) {
+          const e = err as Error;
+          expect(e.message).not.toContain(badId);
+          expect(e.stack ?? '').not.toContain(badId);
+        }
+      });
+
+      it('does not include the embedded-uuid userId value anywhere in the error', () => {
+        const badId = `xxx${USER_A}`;
+
+        expect.assertions(2);
+        try {
+          cipher.userCredentialPurpose(badId, 'llm');
+        } catch (err) {
+          const e = err as Error;
+          expect(e.message).not.toContain(badId);
+          expect(e.stack ?? '').not.toContain(badId);
+        }
+      });
+
+      it('does not include the bad purpose value anywhere in the error for a malformed purpose', () => {
+        const badPurpose = 'marker-purpose-value:with-colon';
+
+        expect.assertions(2);
+        try {
+          cipher.userCredentialPurpose(USER_A, badPurpose);
+        } catch (err) {
+          const e = err as Error;
+          expect(e.message).not.toContain(badPurpose);
+          expect(e.stack ?? '').not.toContain(badPurpose);
+        }
+      });
+
+      it('does not include a valid userId in the error thrown for a bad purpose paired with it', () => {
+        expect.assertions(1);
+        try {
+          cipher.userCredentialPurpose(USER_A, '');
+        } catch (err) {
+          expect((err as Error).message).not.toContain(USER_A);
+        }
+      });
+    });
+  });
 });
