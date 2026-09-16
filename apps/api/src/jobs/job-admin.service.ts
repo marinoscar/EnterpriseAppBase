@@ -175,6 +175,10 @@ export interface ResetStuckAdminResult {
  * WHICH EXECUTOR holds a job (`claimedByNodeId`, `executor`) and until when
  * (`leaseExpiresAt`), never which of that executor's successive claims it
  * currently is. A random uuid answers no question anybody asks of this list.
+ * It IS published in exactly one place, to exactly one audience — the claim
+ * response hands it to the node that just took the row, which quotes it back
+ * to prove WHICH claim it is speaking for (#364) — and an operator-facing
+ * list is not that audience.
  * The `satisfies` clause below is what forces that call to be made out loud:
  * a column added to `Job` fails to compile here until it is either selected or
  * named in the `Omit`, so "not published" is always a decision and never a

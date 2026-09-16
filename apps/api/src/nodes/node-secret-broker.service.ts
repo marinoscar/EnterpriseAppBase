@@ -473,6 +473,15 @@ export class NodeSecretBrokerService {
    * same question without an HTTP request in hand. The fifth condition is the
    * grant's own clock: a credential past its `expiresAt` no longer works
    * anyway, so leaving its role in place buys nothing and costs a role.
+   *
+   * ⚠ NOT the claim-token check `assertJobHeldByNode` gained in #364, and that
+   * omission is correct rather than an oversight to tidy up later. That check
+   * exists to tell a node's stale worker slot from its current one, and it can
+   * only do so when the SLOT itself quotes the token — there is no slot here,
+   * only a sweep asking "is this grant still attached to held work". A grant
+   * outlives one claim of a job no more than it outlives the job: if the row
+   * was reaped and re-claimed, its lease moved and `expiresAt` (bounded by the
+   * lease that minted it) has already passed or is about to.
    */
   private stillHeld(
     row: JobNodeSecret,

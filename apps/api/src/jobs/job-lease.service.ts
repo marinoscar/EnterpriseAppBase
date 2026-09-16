@@ -80,7 +80,17 @@ export interface LeaseHolder {
   /** The worker node holding the row, or `null` for the API server itself. */
   nodeId?: string | null;
 
-  /** The `jobs.claim_token` this claimant was handed when it took the row. */
+  /**
+   * The `jobs.claim_token` this claimant was handed when it took the row.
+   *
+   * TWO PROVENANCES, ONE MEANING. The in-process worker reads it off the row
+   * its own claim statement returned (#361); the node plane receives it from
+   * the NODE, which was given it in the claim response and quotes it back on
+   * renew (#364). The second is what makes this a real assertion rather than a
+   * value the server checks against itself — see `heldLeaseWhere`. Either way
+   * it identifies ONE CLAIM, not a kind of claimant, which is the only reason
+   * a claimant can be told apart from its own later self.
+   */
   claimToken?: string | null;
 }
 
@@ -122,7 +132,8 @@ export interface LeaseHolder {
  *     carrying no token. Legitimate and total rather than a degenerate case:
  *     it is what a claim taken before this column existed looks like.
  *   - `undefined` — no token constraint at all. This is what the node plane
- *     passes, deliberately; see below.
+ *     passes for a node that quoted no token, which is the only remaining
+ *     caller that produces it; see below.
  *
  * -----------------------------------------------------------------------------
  * ⚠ WHAT THIS PREDICATE DOES AND DOES NOT DISTINGUISH
@@ -135,28 +146,34 @@ export interface LeaseHolder {
  * learned it had lost the row. B's claim now overwrites `claim_token`, so A's
  * renewal matches zero rows and correctly answers `false`.
  *
- * ⚠ THE NODE PLANE IS DELIBERATELY NOT TOKEN-MATCHED. This is a decision, not
- * an omission, and the reason is that a token constraint there would be
- * vacuous: `NodesService.renewLease` READS THE JOB ROW from the database and
- * would have to take the token from that row, so matching a `where` clause
- * against a value just read from the row being matched always passes. It
- * would look like a guard and guarantee nothing — safety theatre rather than
- * safety. For a node to prove WHICH claim it holds, the token has to cross the
- * wire (returned by the claim response, sent back on renew), which is a
- * node-protocol change with a CLI half to it.
+ * ONE NODE IS NOW TOLD APART FROM ITSELF TOO, and that was the point of #364.
+ * `claimedByNodeId` distinguishes node A from node B but not node A's first
+ * worker slot from its second: a node that claims job J, stalls past its
+ * lease, is reaped, and then claims J again in another slot had an old
+ * renewal ticker that went on matching — and extending the lease its NEW
+ * claim was running under — because the node id was the same in both runs.
+ * The token closes it, but only because it now CROSSES THE WIRE: the claim
+ * response carries `claimToken`, and the node quotes it back on renew, result
+ * and failure. That direction is the whole mechanism. A token the server read
+ * off the row it was about to match would have proved nothing at all — which
+ * is exactly why the node plane went unmatched until the protocol changed —
+ * so `NodesService.renewLease` forwards the token it was HANDED BY THE NODE
+ * and never one it fetched for itself.
  *
- * ⚠ THE RESIDUAL HOLE THAT LEAVES, stated plainly rather than left for
- * somebody to discover: ONE node that claims job J, stalls past its lease, is
- * reaped, and then claims J again has an old renewal ticker that can still
- * extend its own NEW lease, because `claimedByNodeId` is the same node in both
- * runs. It is the same shape as #361, one node short of it, and it is tracked
- * as #364, which also has to decide whether `assertJobHeldByNode` threads the
- * token through `result` and `failure` at the same time.
+ * ⚠ AN OLD NODE IS STILL SELF-AMBIGUOUS, and it is worth saying plainly
+ * rather than leaving to be discovered. The wire field is optional, because a
+ * fleet upgrades one machine at a time and refusing an un-upgraded node's
+ * renewals would break running work to fix a race. Such a node sends no
+ * token, `renewLease` therefore passes `undefined`, this predicate drops the
+ * clause, and that node's stale slot can still speak for its newer claim
+ * exactly as before. Nothing on this side can close that earlier: the only
+ * value able to tell those two slots apart is one only they hold. It closes
+ * per node, as each is upgraded.
  *
- * ⚠ ROLLING DEPLOYS. A replica still running pre-#361 code emits no token
- * clause at all, so during a rolling deploy it can extend a new replica's
- * lease exactly as before. The hole closes when the last old replica is gone;
- * nothing here can close it earlier.
+ * ⚠ ROLLING DEPLOYS, on the server side, are the same shape. A replica still
+ * running pre-#361 code emits no token clause at all, so during a rolling
+ * deploy it can extend a new replica's lease exactly as before. That hole
+ * closes when the last old replica is gone; nothing here can close it earlier.
  */
 export function heldLeaseWhere(jobId: string, holder: LeaseHolder = {}): Prisma.JobWhereInput {
   const { nodeId, claimToken } = holder;
@@ -178,12 +195,12 @@ export class JobLeaseService {
    * Pushes the lease on `jobId` out by `leaseMs` from now.
    *
    * Returns `true` when the row was still held and the write landed, `false`
-   * when it was not — reaped, settled, or taken by another claim (including
-   * another server replica, which `holder.claimToken` is what detects). FALSE IS
-   * NOT AN ERROR AND MUST NOT THROW: both callers are on a keep-alive path
-   * with real work in flight, and the correct response to "you no longer own
-   * this row" is to stop renewing and say so, not to fail the work that is
-   * still running. (The node plane converts the `false` into a 409 of its
+   * when it was not — reaped, settled, or taken by another claim (another
+   * server replica, or the SAME node's later slot; `holder.claimToken` detects
+   * both, and neither is visible without it). FALSE IS NOT AN ERROR AND MUST
+   * NOT THROW: both callers are on a keep-alive path with real work in flight,
+   * and the correct response to "you no longer own this row" is to stop
+   * renewing and say so, not to fail the work that is still running. (The node plane converts the `false` into a 409 of its
    * own, because there a remote caller is waiting for an answer.)
    */
   async renew(jobId: string, leaseMs: number, holder: LeaseHolder = {}): Promise<boolean> {
