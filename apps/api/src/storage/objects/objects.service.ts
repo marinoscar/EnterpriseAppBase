@@ -16,6 +16,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { STORAGE_PROVIDER } from '../providers/storage-provider.interface';
 import type { StorageProvider } from '../providers/storage-provider.interface';
+import { StorageConfigService } from '../config/storage-config.service';
 import {
   InitUploadDto,
   InitUploadResponseDto,
@@ -56,6 +57,11 @@ export class ObjectsService {
     private readonly prisma: PrismaService,
     @Inject(STORAGE_PROVIDER)
     private readonly storageProvider: StorageProvider,
+    // #373 (epic #372). The token above moves the bytes; this answers "which
+    // provider was that?" for the row that records where they went. The
+    // provider kind is not on `StorageProvider` — see
+    // `StorageConfigService.activeProvider`.
+    private readonly storageConfig: StorageConfigService,
     private readonly config: ConfigService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
@@ -110,7 +116,11 @@ export class ObjectsService {
         size: BigInt(size),
         mimeType,
         storageKey,
-        storageProvider: 's3',
+        // The LIVE provider, not a literal: an operator who selected R2 must
+        // not leave a trail of rows claiming their objects are in S3. Read
+        // through the same cached settings read `getBucket()` answers from, so
+        // this pair names one configuration.
+        storageProvider: await this.storageConfig.activeProvider(),
         bucket: this.storageProvider.getBucket(),
         status: 'pending',
         s3UploadId: uploadId,
@@ -347,7 +357,8 @@ export class ObjectsService {
         size: BigInt(0), // Will be updated by post-processing
         mimeType: mimetype,
         storageKey,
-        storageProvider: 's3',
+        // See `initUpload` — the live provider, never a literal.
+        storageProvider: await this.storageConfig.activeProvider(),
         bucket: result.bucket,
         status: 'processing',
         uploadedById: userId,

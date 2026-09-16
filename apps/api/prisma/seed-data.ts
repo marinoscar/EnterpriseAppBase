@@ -215,7 +215,14 @@ export const DEFAULT_SYSTEM_SETTINGS = {
     timeOfDay: '02:00',
     timezone: 'UTC',
     retentionCount: 7,
-    storageProvider: 's3',
+    // EMPTY, meaning "whatever provider `storage.provider` names" (#373, epic
+    // #372) — and it must stay byte-identical to the API's
+    // `DEFAULT_SYSTEM_SETTINGS`, which `test/prisma/seed-data.spec.ts` pins.
+    // This field is a pin an operator sets deliberately; seeding a literal
+    // provider id would pin every fresh deployment to a provider nobody chose,
+    // and a deployment that then selected R2 would fail every backup with a
+    // 400. Empty defers instead of choosing.
+    storageProvider: '',
     runStaleMinutes: 120,
     compressionLevel: 6,
     restoreRollbackMode: 'retain_database',
@@ -237,5 +244,39 @@ export const DEFAULT_SYSTEM_SETTINGS = {
     allowAdmins: true,
     startedAt: null as string | null,
     startedById: null as string | null,
+  },
+  // #373, epic #372. UNCONFIGURED, but — unlike the namespaces above it — NO
+  // LONGER INERT: parts 2 and 3 landed the consumers. `StorageConfigService`
+  // resolves this namespace (plus the encrypted secret) on every storage call,
+  // `ResolvingStorageProvider` builds its S3 client from the result, and
+  // `ObjectsService`, `ProfileImageService` and `DatabaseBackupRunnerService`
+  // record `provider` onto the rows that say where bytes went.
+  //
+  // Seeding it still changes no behaviour, and for a different reason than
+  // before: every value here is the UNCONFIGURED state. An empty `bucket` is
+  // what `resolveStorageConfig` reads as "not configured", so a fresh install
+  // answers storage calls with a 503 naming the missing fields whether this
+  // block was seeded or not. What seeding buys is that the first admin who
+  // opens the storage settings page finds the keys already there instead of
+  // materialising them.
+  //
+  // `provider: 's3'` names the shape the empty fields would be filled in for;
+  // "no storage configured" is `bucket === ''`, not a separate provider value.
+  //
+  // NO SECRET ACCESS KEY IS SEEDED HERE, and none can be: the secret half of
+  // the storage credential lives in the encrypted `credentials` table at
+  // `(purpose 'storage', name 'default')`, which is written through
+  // `CredentialsService` at runtime and is not part of this document at all.
+  storage: {
+    provider: 's3',
+    bucket: '',
+    // Empty, not 'us-east-1' — a region nobody chose is how a deployment ends
+    // up with a settings page that looks filled in and requests that fail.
+    region: '',
+    endpoint: '',
+    accountId: '',
+    // The IDENTIFIER half of the credential only.
+    accessKeyId: '',
+    forcePathStyle: false,
   },
 };

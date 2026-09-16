@@ -19,12 +19,14 @@ import {
   systemNodesSchema,
   systemDatabaseBackupSchema,
   systemMaintenanceSchema,
+  systemStorageSchema,
   MAX_DISABLED_NOTIFICATION_EVENTS,
   type SystemNotificationsValue,
   type SystemMaintenanceValue,
   type SystemJobsValue,
   type SystemNodesValue,
   type SystemDatabaseBackupValue,
+  type SystemStorageValue,
 } from '../../common/schemas/settings.schema';
 
 const SETTINGS_KEY = 'global';
@@ -341,6 +343,18 @@ export class SystemSettingsService {
         systemMaintenanceSchema,
         DEFAULT_SYSTEM_SETTINGS.maintenance,
       ),
+      // Storage provider configuration (#373, epic #372), read through the same
+      // helper. Field-by-field degradation matters more here than anywhere
+      // else in this method: "not configured" is already spelled as an empty
+      // string, so a damaged `region` that dragged the whole namespace back to
+      // the defaults would also blank the bucket an operator typed — and the
+      // symptom of that is uploads going to the wrong place (or nowhere) rather
+      // than an error anyone can read.
+      storage: this.readNamespace(
+        root?.storage,
+        systemStorageSchema,
+        DEFAULT_SYSTEM_SETTINGS.storage,
+      ),
     };
   }
 
@@ -602,6 +616,15 @@ export class SystemSettingsService {
       nodes: value.nodes,
       databaseBackup: value.databaseBackup,
       maintenance: value.maintenance,
+      // #373, epic #372. Safe to publish in full BECAUSE the secret access key
+      // is not in it: this block is the provider, the bucket, the region, the
+      // endpoint and the key ID, all of which an administrator has to be able
+      // to see to tell a misconfiguration from an outage. The secret half lives
+      // in the credential store and is never projected anywhere — see
+      // `storage/storage-credential.constants.ts`. Published from the day the
+      // namespace exists, for the reason `jobs` above gives: a block a client
+      // cannot GET is a block it cannot echo back in a PUT.
+      storage: value.storage,
       security: this.readSecurityPolicy(),
       updatedAt: row.updatedAt,
       updatedBy: row.updatedByUser,
@@ -805,6 +828,52 @@ export class SystemSettingsService {
     });
 
     return this.readKnownSettings(row?.value).databaseBackup;
+  }
+
+  /**
+   * The object-storage provider configuration — provider, bucket, region,
+   * endpoint, account id and the ACCESS KEY ID (#373, epic #372).
+   *
+   * A NARROW ACCESSOR RATHER THAN `getSettings()`, for the three reasons
+   * `getJobsPolicy` above gives, each of which applies at least as strongly:
+   *
+   *   1. IT DOES NOT CREATE THE ROW. `getSettings` goes through
+   *      `loadOrCreateRow`, which INSERTs when the row is missing. This is read
+   *      on the path that builds a storage client — an avatar download, an
+   *      upload, a node's presigned URL, a backup archive — and a read that
+   *      writes a settings row as a side effect of serving a file is a write
+   *      nobody asked for, on paths with no administrator anywhere near them.
+   *   2. IT RETURNS ONLY THIS BLOCK. A storage client needs six fields; it has
+   *      no business holding the maintenance window or the backup schedule.
+   *   3. IT IS THE ONE READ PATH FOR THESE VALUES. Every consumer goes through
+   *      here, so "which bucket is this deployment using?" has exactly one
+   *      answer — and when part 2 makes the S3 provider read this instead of
+   *      `STORAGE_PROVIDER`/`S3_BUCKET`, the precedence between the stored
+   *      configuration and the environment is decided in one place rather than
+   *      per call site.
+   *
+   * THIS RETURNS NO SECRET, AND CANNOT. The secret access key is not part of
+   * `SystemStorageValue` (there is a compile-time proof of that in
+   * `settings.schema.ts`); a caller that needs it asks `CredentialsService` for
+   * `(purpose 'storage', name 'default')` separately. Two reads, deliberately:
+   * it means the non-secret half can be logged, returned by the admin GET and
+   * kept in memory freely, while the secret half stays on the one path that
+   * decrypts it.
+   *
+   * Degrades exactly as every other read here does: a missing row, a `null`
+   * value or a malformed one yields `DEFAULT_SYSTEM_SETTINGS.storage` through
+   * `readKnownSettings` — which is the UNCONFIGURED state, not a guess at a
+   * bucket. A damaged row therefore reads as "storage is not configured", which
+   * is a legible failure, rather than as a half-built client pointed somewhere
+   * nobody chose.
+   */
+  async getStoragePolicy(): Promise<SystemStorageValue> {
+    const row = await this.prisma.systemSettings.findUnique({
+      where: { key: SETTINGS_KEY },
+      select: { value: true },
+    });
+
+    return this.readKnownSettings(row?.value).storage;
   }
 
   /**
@@ -1026,6 +1095,33 @@ export class SystemSettingsService {
           dto.maintenance?.startedById !== undefined
             ? dto.maintenance.startedById
             : currentValue.maintenance.startedById,
+      },
+      // -----------------------------------------------------------------------
+      // Storage provider configuration (#373, epic #372)
+      // -----------------------------------------------------------------------
+      //
+      // Field by field like everything above, and `??` is the RIGHT operator
+      // here even though it is the wrong one for `maintenance.startedAt`: no
+      // field in this namespace is nullable, so a caller can never send `null`,
+      // and `??` passes an empty string through unchanged. That last part is
+      // load-bearing — `''` is how an operator un-configures a field, and `||`
+      // would silently turn "clear the endpoint" into "keep the old endpoint",
+      // which is the class of bug that leaves a deployment writing to a bucket
+      // it was told to stop writing to.
+      //
+      // NOTHING HERE TOUCHES THE SECRET ACCESS KEY. It is not in the DTO, not
+      // in the stored value and not in this merge; it is written through
+      // `CredentialsService` on its own path.
+      storage: {
+        provider: dto.storage?.provider ?? currentValue.storage.provider,
+        bucket: dto.storage?.bucket ?? currentValue.storage.bucket,
+        region: dto.storage?.region ?? currentValue.storage.region,
+        endpoint: dto.storage?.endpoint ?? currentValue.storage.endpoint,
+        accountId: dto.storage?.accountId ?? currentValue.storage.accountId,
+        accessKeyId:
+          dto.storage?.accessKeyId ?? currentValue.storage.accessKeyId,
+        forcePathStyle:
+          dto.storage?.forcePathStyle ?? currentValue.storage.forcePathStyle,
       },
     };
 

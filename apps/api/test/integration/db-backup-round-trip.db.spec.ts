@@ -69,6 +69,7 @@ import {
   DatabaseBackupRunnerService,
   type DatabaseBackupEngine,
 } from '../../src/db-backup/db-backup-runner.service';
+import type { StorageConfigService } from '../../src/storage/config/storage-config.service';
 import { DatabaseBackupAlreadyRunningError } from '../../src/db-backup/db-backup.errors';
 import { DatabaseBackupRunHandler } from '../../src/db-backup/handlers/db-backup-run.handler';
 import { buildClaimLeases } from '../../src/jobs/job-execution-profile';
@@ -171,10 +172,20 @@ describeWithDb('A real pg_dump round trip through the backup engine', () => {
     // makes by hand.
     const jobs = new JobsService(prisma as unknown as PrismaService);
 
+    // #373 (epic #372): the ACTIVE provider is a settings read now. This suite
+    // writes through a temp-directory provider, and `'s3'` is what both the
+    // seeded `storage` namespace and this suite's backup policy name, so the
+    // provider check passes and the run rows record the same thing they did
+    // when it was a constant.
+    const storageConfigStub = {
+      activeProvider: async () => 's3' as const,
+    } as unknown as StorageConfigService;
+
     runner = new DatabaseBackupRunnerService(
       prisma as unknown as PrismaService,
       settings,
       storage,
+      storageConfigStub,
       notifications,
       config,
       jobs,

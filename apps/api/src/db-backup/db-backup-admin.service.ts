@@ -88,12 +88,17 @@
 //      what it can schedule against, a list would rot, and a zone that saves is
 //      then by construction a zone that schedules. Note it is checked even when
 //      `enabled` is false; see the call site for why that matters.
-//   2. A `storageProvider` NAMING A PROVIDER THIS DEPLOYMENT DOES NOT HAVE.
+//   2. A `storageProvider` NAMING A PROVIDER THIS DEPLOYMENT IS NOT USING.
 //      Empty means "whatever is active"; anything else must equal the active
 //      provider's id. Rejected here so the mistake is caught by the person
 //      making it, and rejected AGAIN at run time by the runner, so a value that
 //      predates this check (a seed, a restored settings blob, a provider swap)
-//      cannot quietly redirect tonight's backup.
+//      cannot quietly redirect tonight's backup. Since #373 (epic #372) "the
+//      active provider" is itself a setting — an operator can move this
+//      deployment from S3 to R2 without a restart — which is why the check is
+//      an AWAITED call into the runner rather than a comparison against a
+//      constant, and why the second check at run time matters more than it
+//      used to: the two values can now diverge while a job sits in the queue.
 //
 // Both run BEFORE `patchSettings`, so a refused write leaves the stored policy
 // exactly as it was. A partially-applied policy — timezone accepted, provider
@@ -349,7 +354,10 @@ export class DatabaseBackupAdminService {
     // 1. The provider name. Cheapest, and the one whose failure is a silent
     //    write to the wrong place.
     try {
-      this.runner.assertStorageProviderUsable(effective.storageProvider);
+      // Awaited since #373: "the active provider" is a setting now, so the
+      // runner has to read it. Still the runner's method and not a second copy
+      // of the comparison — see `db-backup-storage.ts`.
+      await this.runner.assertStorageProviderUsable(effective.storageProvider);
     } catch (error) {
       if (error instanceof DatabaseBackupStorageProviderError) {
         throw new BadRequestException({

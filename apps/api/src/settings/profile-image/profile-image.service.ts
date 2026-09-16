@@ -12,6 +12,7 @@ import { Readable } from 'node:stream';
 import { PrismaService } from '../../prisma/prisma.service';
 import { STORAGE_PROVIDER } from '../../storage/providers/storage-provider.interface';
 import type { StorageProvider } from '../../storage/providers/storage-provider.interface';
+import { StorageConfigService } from '../../storage/config/storage-config.service';
 import { UserSettingsService } from '../user-settings/user-settings.service';
 import {
   AVATAR_MAX_BYTES,
@@ -52,6 +53,10 @@ export class ProfileImageService {
     private readonly prisma: PrismaService,
     @Inject(STORAGE_PROVIDER)
     private readonly storageProvider: StorageProvider,
+    // #373 (epic #372). Only so the `storage_objects` row below records the
+    // provider that actually took the bytes. Both come from
+    // `StorageProvidersModule`, which this module already imports.
+    private readonly storageConfig: StorageConfigService,
     private readonly userSettings: UserSettingsService,
   ) {}
 
@@ -97,7 +102,10 @@ export class ProfileImageService {
           size: BigInt(buffer.length),
           mimeType: detected.mimeType,
           storageKey,
-          storageProvider: 's3',
+          // The LIVE provider, not a literal — an avatar stored in R2 must not
+          // be recorded as an S3 object. Read after the upload above, so the
+          // pair on this row describes the configuration that just ran.
+          storageProvider: await this.storageConfig.activeProvider(),
           bucket: uploaded.bucket,
           status: 'ready',
           metadata: { purpose: AVATAR_PURPOSE } as Prisma.InputJsonValue,

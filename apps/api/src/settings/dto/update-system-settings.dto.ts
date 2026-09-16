@@ -4,6 +4,7 @@ import { notificationEventKeySchema } from '../../common/schemas/user-settings-n
 import {
   MAX_DISABLED_NOTIFICATION_EVENTS,
   BACKUP_TIME_OF_DAY_PATTERN,
+  STORAGE_PROVIDER_KINDS,
 } from '../../common/schemas/settings.schema';
 
 // The request-body schemas deliberately RESTATE `common/schemas/settings.schema.ts`
@@ -85,7 +86,14 @@ const databaseBackupSettingsSchema = z.object({
     .regex(BACKUP_TIME_OF_DAY_PATTERN, 'Expected a 24-hour HH:MM time'),
   timezone: z.string().min(1).max(64),
   retentionCount: z.number().int().min(1).max(365),
-  storageProvider: z.string().min(1).max(64),
+  // No `.min(1)`: `""` is the one spelling of "unset" and is the SHIPPED
+  // DEFAULT — it means "whatever provider `storage.provider` names right now".
+  // A non-empty value must equal the active provider or the write is a loud
+  // 400 (`DatabaseBackupRunnerService.assertStorageProviderUsable`); that check
+  // is unchanged. Only the default moved, because a provider id the operator
+  // never chose must not be able to redirect or block their backups. See
+  // `common/schemas/settings.schema.ts` for the full argument.
+  storageProvider: z.string().max(64),
   runStaleMinutes: z.number().int().min(1).max(10080),
   compressionLevel: z.number().int().min(0).max(9),
   restoreRollbackMode: z.enum(['retain_database', 'drop_database']),
@@ -101,6 +109,40 @@ const maintenanceSettingsSchema = z.object({
   startedById: z.string().uuid().nullable(),
 });
 
+// =============================================================================
+// Storage provider configuration on the wire (#373, epic #372)
+// =============================================================================
+//
+// Restated here rather than imported, for the reason at the top of this file:
+// these are the OpenAPI-visible request schemas. Optional in the PUT body like
+// the operations namespaces above, and for the identical reason — this block
+// ships ahead of every client that knows it exists, so requiring it would 400
+// every PUT from this repo's own settings page the moment it merges.
+//
+// NO `secretAccessKey` FIELD, ON EITHER SCHEMA, EVER. The secret access key is
+// written through the credential store (#115, epic #108) at
+// `(purpose 'storage', name 'default')`, not through this document. Accepting it
+// here would put it in the request body of an endpoint whose audit rows record
+// the full merged value, and in the response of the GET that follows. See
+// `common/schemas/settings.schema.ts`, which carries the argument and a
+// compile-time proof of the absence. `accessKeyId` is fine: it is an identifier
+// that rides in the clear in every SigV4 `Authorization` header, the counterpart
+// of `smtpUsername`.
+//
+// Bounds mirror `systemStorageSchema` exactly. No `.min(1)` on the strings:
+// empty means "not configured", which is a legal state and the one a fresh
+// deployment is in.
+
+const storageSettingsSchema = z.object({
+  provider: z.enum(STORAGE_PROVIDER_KINDS),
+  bucket: z.string().trim().max(255),
+  region: z.string().trim().max(255),
+  endpoint: z.string().trim().max(512),
+  accountId: z.string().trim().max(255),
+  accessKeyId: z.string().trim().max(255),
+  forcePathStyle: z.boolean(),
+});
+
 // Full replacement (PUT)
 export const updateSystemSettingsSchema = z.object({
   // REQUIRED. A PUT that omits it is a 400 and
@@ -114,6 +156,10 @@ export const updateSystemSettingsSchema = z.object({
   nodes: nodesSettingsSchema.optional(),
   databaseBackup: databaseBackupSettingsSchema.optional(),
   maintenance: maintenanceSettingsSchema.optional(),
+  // #373, epic #372 — optional for the same reason, and carried forward from
+  // storage when omitted by the same `OMITTABLE_ON_PUT` machinery, which derives
+  // itself from this shape rather than from a second list.
+  storage: storageSettingsSchema.optional(),
 });
 
 export class UpdateSystemSettingsDto extends createZodDto(
@@ -171,7 +217,11 @@ export const patchSystemSettingsSchema = z.object({
         .optional(),
       timezone: z.string().min(1).max(64).optional(),
       retentionCount: z.number().int().min(1).max(365).optional(),
-      storageProvider: z.string().min(1).max(64).optional(),
+      // No `.min(1)`, matching the PUT schema above: `""` CLEARS the pin back
+      // to "whatever provider is active", absent leaves it alone. Rejecting
+      // `""` would make the shipped default unreachable by the endpoint that
+      // edits it.
+      storageProvider: z.string().max(64).optional(),
       runStaleMinutes: z.number().int().min(1).max(10080).optional(),
       compressionLevel: z.number().int().min(0).max(9).optional(),
       restoreRollbackMode: z
@@ -192,6 +242,28 @@ export const patchSystemSettingsSchema = z.object({
       allowAdmins: z.boolean().optional(),
       startedAt: z.iso.datetime().nullable().optional(),
       startedById: z.string().uuid().nullable().optional(),
+    })
+    .optional(),
+  // #373, epic #372. THE LINE THAT MAKES A STORAGE PATCH DO ANYTHING AT ALL.
+  // Without it `PATCH { "storage": { "bucket": "my-bucket" } }` parses to `{}`
+  // in the global ZodValidationPipe, the service merges nothing, the row is
+  // rewritten unchanged and the endpoint answers 200 with a body that looks
+  // right — no error, no log line, no audit entry. `common/schemas/settings-parity.spec.ts`
+  // is what fails the build if this is ever dropped.
+  //
+  // An empty string here CLEARS a field (there is no nullable field in this
+  // namespace, so `''` is the only way to say "un-configure this"); absent
+  // leaves the stored value alone.
+  storage: z
+    .object({
+      provider: z.enum(STORAGE_PROVIDER_KINDS).optional(),
+      bucket: z.string().trim().max(255).optional(),
+      region: z.string().trim().max(255).optional(),
+      endpoint: z.string().trim().max(512).optional(),
+      accountId: z.string().trim().max(255).optional(),
+      // Identifier, never the secret half — see the section header above.
+      accessKeyId: z.string().trim().max(255).optional(),
+      forcePathStyle: z.boolean().optional(),
     })
     .optional(),
 });
