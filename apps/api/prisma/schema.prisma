@@ -38,6 +38,7 @@ model User {
   storageObjects         StorageObject[]         @relation("UserStorageObjects")
   personalAccessTokens   PersonalAccessToken[]   @relation("UserPersonalAccessTokens")
   credentialUpdates      Credential[]            @relation("CredentialUpdatedBy")
+  ownedCredentials       UserCredential[]        @relation("UserOwnedCredentials")
   notificationDeliveries NotificationDelivery[]  @relation("UserNotificationDeliveries")
   notifications          Notification[]          @relation("UserNotifications")
   pushSubscriptions      PushSubscription[]      @relation("UserPushSubscriptions")
@@ -387,6 +388,113 @@ model Credential {
 
   @@unique([purpose, name])
   @@map("credentials")
+}
+
+// =============================================================================
+// Per-User Encrypted Credential Store (issue #387)
+// =============================================================================
+//
+// A bring-your-own-key store owned by one user — a personal `llm/anthropic`
+// key, a personal webhook signing secret — as opposed to `Credential` above,
+// which is shared infrastructure an administrator configures once for
+// everyone. Same cipher, same non-secret-metadata discipline, deliberately a
+// SEPARATE table rather than a nullable owner column on `credentials`. Three
+// reasons, and the first is decisive on its own:
+//
+// (a) `credentials` carries `@@unique([purpose, name])` TABLE-WIDE. Adding a
+//     nullable `owner_user_id` and keeping that constraint means only ONE
+//     user in the entire deployment could ever hold an `llm/anthropic` key —
+//     the second one to save it would collide with the first. Switching to
+//     `@@unique([purpose, name, owner_user_id])` does not fix it: Postgres
+//     does NOT enforce uniqueness across `NULL`s (two NULLs never compare
+//     equal), so that constraint would newly ALLOW two system-owned
+//     `storage/default` rows to coexist — silently reintroducing the exact
+//     ambiguity a unique constraint exists to prevent, and only for the
+//     owner-less case `CredentialsService` depends on being singular. Dropping
+//     the declarative constraint in favour of hand-written partial unique
+//     indexes fixes the ambiguity but costs every `findUnique`/`upsert` in
+//     `CredentialsService` — Prisma's typed `findUnique` needs a `@@unique` it
+//     can name, so a partial index downgrades every settled-system read there
+//     to `findFirst` plus an application-level race between check and insert.
+//     Here every column of the address (`userId`, `purpose`, `name`) is NOT
+//     NULL, so `@@unique([userId, purpose, name])` is both enforced by
+//     Postgres and directly usable by Prisma's typed `findUnique`/`upsert` —
+//     which is why this is a second table and not a third unique shape bolted
+//     onto the first.
+//
+// (b) OPPOSITE DELETE SEMANTICS. `Credential.updatedByUserId` is
+//     `onDelete: SetNull` deliberately (see that model's own comment): the
+//     admin who last typed the SMTP password is provenance, not an owner, and
+//     offboarding them must not delete a working SMTP configuration. A row
+//     here is the exact inverse — `onDelete: Cascade`, because a departed
+//     user's personal API key is not infrastructure anyone downstream
+//     inherits. It is theirs, full stop, and leaving it behind is both a live,
+//     unowned credential and, for a key that bills someone, a liability
+//     nobody agreed to carry. One table holding two user foreign keys with
+//     contradictory delete rules would make deletion behaviour depend on
+//     which column you happened to be looking at.
+//
+// (c) OWNER-CROSSING BECOMES UNREPRESENTABLE. With two tables, "hand one
+//     user's secret to a system consumer" is not a query that exists — there
+//     is no `WHERE owner_user_id IS NULL` for a future `findFirst` to forget
+//     to add. This is the same technique `CredentialInfo` uses to make
+//     plaintext egress unrepresentable rather than merely discouraged: the
+//     mistake has no syntax.
+//
+// `secret` holds the identical opaque `[iv][authTag][ciphertext]` base64
+// payload as `credentials.secret` — same `@db.Text` for the same reason,
+// encrypted key material has no meaningful length bound and must never be
+// truncated — but under a DIFFERENT derived sub-key. The domain passed to
+// `encryptSecret`/`decryptSecret` (`common/crypto/secret-cipher.ts`) here is
+// `user:<userId>:<purpose>`, not bare `<purpose>`, so a ciphertext moved
+// between two users' rows (a bad UPDATE, a restored backup merged wrong)
+// fails GCM authentication instead of quietly decrypting into a different
+// person's context. The cipher enforces that separation, not this table —
+// this comment is the signpost, same caveat as `Credential`'s.
+//
+// SECRETS_ENCRYPTION_KEY PROTECTS THIS TABLE TOO. It is the same master key
+// `credentials.secret` is encrypted under; there is no second key to
+// provision. This means `docs/runbooks/rotate-secrets-encryption-key.md` now
+// has two tables to walk during a rotation — a script that re-encrypts only
+// `credentials` leaves every row here permanently undecryptable the moment
+// the old key is retired.
+//
+// DELIBERATELY ABSENT: `updatedByUserId`. On `Credential` that column records
+// which ADMINISTRATOR last set a secret shared by everyone. Here the owner is
+// the only party ever permitted to write the row, so a second user column
+// could only ever repeat `userId` right back, or record an administrator
+// reaching into a user's private key — and this design does not permit that
+// second thing, so there is no column for it to be tempted into.
+//
+// `@@index([userId])`: DROPPED as redundant, not kept. `@@unique([userId,
+// purpose, name])` already puts `user_id` as the leading column of its
+// backing btree index, so `WHERE user_id = ?` (list-my-credentials, the only
+// query shape this table serves besides the exact-address lookup) is already
+// an index-prefix scan without a second index to maintain on every write.
+model UserCredential {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  purpose   String
+  name      String
+  // Opaque [iv][authTag][ciphertext] payload, base64-encoded by
+  // encryptSecret() under the "user:<userId>:<purpose>" sub-key domain. See
+  // the block comment above for why that domain includes the owner.
+  secret    String   @db.Text
+  // Non-secret display aid, same convention as Credential.hint.
+  hint      String?
+  // Human-readable description, same convention as Credential.label.
+  label     String?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  //
+  // onDelete: Cascade — deliberately the OPPOSITE of Credential's SetNull.
+  // See reason (b) in the block comment above.
+  user User @relation("UserOwnedCredentials", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, purpose, name])
+  @@map("user_credentials")
 }
 
 // =============================================================================
