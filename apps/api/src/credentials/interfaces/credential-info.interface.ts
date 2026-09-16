@@ -88,15 +88,28 @@ export interface CredentialMeta {
 // worth exactly as much as the thing that fails when someone breaks it.
 // -----------------------------------------------------------------------------
 
-/** Fails to compile unless `T` is exactly `true`. */
-type AssertTrue<_T extends true> = void;
+/**
+ * Fails to compile unless `T` is exactly `true`.
+ *
+ * EXPORTED (#387) so `user-credential-info.interface.ts` can state its proofs
+ * with this exact assertion rather than its own copy. A redeclared `AssertTrue`
+ * that was subtly wrong — `<_T extends boolean>`, say — would accept `false`
+ * and the proof next to it would pass while proving nothing, which is the one
+ * failure mode a compile-time guarantee must not have.
+ */
+export type AssertTrue<_T extends true> = void;
 
 /**
  * Field names that would, or plausibly could, carry secret material. Checked
  * as a set rather than just `'secret'` because the leak arrives under whatever
  * name the person adding it happened to pick.
+ *
+ * EXPORTED (#387) for the per-user store's presentation type, which must be
+ * held to the SAME list. Two lists would mean the name someone adds a leak
+ * under is caught in one store and not the other; widening it here widens it
+ * for both, in one edit, which is the only way this stays true over time.
  */
-type SecretBearingKey =
+export type SecretBearingKey =
   | 'secret'
   | 'secretValue'
   | 'plaintext'
