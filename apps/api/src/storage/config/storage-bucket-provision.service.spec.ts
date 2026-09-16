@@ -412,12 +412,14 @@ describe('StorageBucketProvisionService', () => {
       expect(result.guidance).toBeNull();
     });
 
-    it('ships no runbook link until one exists, rather than a broken path', async () => {
+    it('names the storage-configuration runbook (issue #378)', async () => {
       failOn({ CreateBucketCommand: s3Error('AccessDenied', 403) });
 
       const result = await service.provision(input(), 'admin-1');
 
-      expect(result.guidance?.runbook).toBeNull();
+      expect(result.guidance?.runbook).toBe(
+        'docs/runbooks/storage-configuration.md',
+      );
     });
   });
 

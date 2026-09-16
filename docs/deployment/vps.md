@@ -141,6 +141,18 @@ runs **on the VPS**.
    instead of prompting — useful once you already know every value you want
    to pass, or want a `.env` prepared ahead of time).
 
+   **Object storage is deliberately not part of this wizard, or of `.env` at
+   all.** Older checkouts of this template asked for `S3_BUCKET`/
+   `S3_REGION`/`S3_ENDPOINT`/`STORAGE_PROVIDER` here; epic #372 retired all
+   of them. A freshly installed deployment boots with no object storage
+   configured and answers every upload, avatar, job-artifact and
+   database-backup request with a `503` until an administrator signs in and
+   configures a provider at `/admin/settings/storage` — which needs no
+   restart and no redeploy. See
+   [`docs/runbooks/storage-configuration.md`](../runbooks/storage-configuration.md)
+   for that first-time setup, done once `install` has finished and you have
+   logged in per section 3 below.
+
 5. **If it fails partway through**, fix whatever it reported and run the
    *same command again* — `install` is idempotent, and each step is safe to
    re-run. Add `--resume` to skip straight to the step that failed rather

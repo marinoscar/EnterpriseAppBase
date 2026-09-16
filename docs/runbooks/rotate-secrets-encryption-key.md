@@ -18,6 +18,24 @@ this size — manual rotation, run by an operator as a one-off script, is
 considered acceptable. This runbook describes how to write and run that
 script safely, not a command you can copy-paste as-is.
 
+**⚠ This key now protects credentials that most deployments cannot run
+without.** When this runbook was first written, the credential store had a
+single, optional consumer (SMTP). Since issue #355 (Web Push) and, notably,
+epic #372 (object storage — see
+[`docs/specs/storage-providers.md`](../specs/storage-providers.md)), the
+rows this key protects include the **object-storage secret access key**.
+The running application keeps decrypting under the OLD key throughout
+Phases A–D below (nothing about the live process changes until step 12), so
+storage, SMTP and Web Push all keep working normally while the rotation
+script itself runs. The actual outage is Phase E's **restart** — from the
+moment the deployment's `SECRETS_ENCRYPTION_KEY` env var is flipped to the
+NEW key (step 12) until the application is back up and healthy (step 13) —
+during which **uploads, avatar uploads, job artifacts, and database
+backups are unavailable**, exactly as SMTP sending and Web Push already
+are for the same window. This is an ordinary restart-bounded outage, not
+something specific to storage, but it is worth saying explicitly now that a
+storage-shaped failure during that window is expected, not a new incident.
+
 ---
 
 ## 1. Before you start
@@ -45,7 +63,7 @@ script safely, not a command you can copy-paste as-is.
 |---|---|
 | `CredentialsService.describe` / `.list` (reads that never touch `secret`) | Yes — unaffected by a rotation running elsewhere |
 | Reading a credential via `getSecret` for existing, unrotated rows | Yes, as long as the app's configured key is still the OLD key |
-| **Writing a new credential** (`setSecret`, from whatever future consumer calls it) | **No** — see section 4 |
+| **Writing a new credential** (`setSecret` — the SMTP settings save, the Web Push generate/rotate actions, or a storage-configuration save at `/admin/settings/storage`) | **No** — see section 4 |
 
 Reads that never touch the ciphertext (`describe`, `list`) are always safe.
 The dangerous operation is a **write** landing after your rotation script has
@@ -167,15 +185,23 @@ timestamps remain fully readable regardless of key state. This makes them
 (and the equivalent raw query) the correct tool for finding what needs
 re-entry after key loss.
 
-This repository currently has **no admin controller for credentials**
-(`credentials.service.ts` deliberately has no HTTP layer — see its header
-comment), so today this is necessarily a backend/database-level lookup, not
-a UI flow. Two concrete options:
+`CredentialsService` itself still has **no HTTP controller of its own** —
+each consumer's own admin page (`/admin/settings/email`,
+`/admin/settings/push`, `/admin/settings/storage`) reports whether *its*
+credential is configured (via that page's own `secretStatus`/
+`privateKeyStatus` field), but there is no single cross-purpose admin view
+that lists every row in the `credentials` table. So a lookup spanning all
+purposes at once is necessarily a backend/database-level query, not a UI
+flow. Two concrete options:
 
 **(a) Programmatic access**, if you have a REPL or script with access to a
 constructed `CredentialsService` (e.g. a Nest application-context script):
 ```ts
-const affected = await credentialsService.list('smtp'); // repeat per known purpose
+// Repeat per known purpose — as of this writing: 'smtp', 'push_vapid',
+// 'storage' (STORAGE_CREDENTIAL_PURPOSE in
+// storage/storage-credential.constants.ts). A fork that adds a fourth
+// consumer adds a fourth purpose string here.
+const affected = await credentialsService.list('smtp');
 // affected[i].purpose, .name, .label, .hint, .updatedAt are all populated;
 // affected[i] has no field capable of holding the secret itself.
 ```

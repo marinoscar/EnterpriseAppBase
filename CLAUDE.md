@@ -494,6 +494,18 @@ above. Don't restate any of that here; extend those three instead.
 - `DELETE /api/storage/objects/:id` - Delete object
 - `PATCH /api/storage/objects/:id/metadata` - Update metadata
 
+### Storage Configuration (Admin-only)
+Runtime-configurable object storage (issue #375, epic #372) — which
+provider (AWS S3, Cloudflare R2, S3-compatible), bucket and credential this
+deployment stores files in, editable with no restart at
+`/admin/settings/storage`. See
+[`docs/specs/storage-providers.md`](docs/specs/storage-providers.md) and
+[`docs/runbooks/storage-configuration.md`](docs/runbooks/storage-configuration.md).
+- `GET /api/admin/storage-config` - The `storage` namespace plus `configured`/`missing`/masked `secretStatus`; the secret itself is never returned (`storage_config:read`)
+- `PUT /api/admin/storage-config` - Full replace, blank-preserves the secret, typed `SWITCH` confirmation before repointing a deployment that still holds objects (`storage_config:write`)
+- `POST /api/admin/storage-config/test` - Four checks (credentials, bucket, round trip, presigned URL) against the submitted, unsaved configuration; 200 even on failure — read `success` (`storage_config:write`)
+- `POST /api/admin/storage-config/bucket` - Create and harden the bucket; 200 with `outcome:"guided"` (paste-ready commands, never a 4xx) when the credential cannot create buckets (`storage_config:write`)
+
 ### Personal Access Tokens
 - `POST /api/pat` - Create a new personal access token
 - `GET /api/pat` - List current user's tokens
@@ -624,6 +636,15 @@ and [`docs/runbooks/vapid-keys.md`](docs/runbooks/vapid-keys.md).
   re-subscribes) that should not ride along with routine settings edits, mirroring why
   `broadcasts:*` and `nodes:*` were split out rather than folded into
   `system_settings:*`/`jobs:*`
+- `storage_config:read/write` - Object-storage configuration: provider, bucket, region,
+  endpoint, credential (issue #375, epic #372). **Neither `system_settings:*` nor
+  `storage:*`** — not the former because a wrong bucket or a rotated-out secret breaks
+  every upload, avatar, job artifact and database backup in the deployment at once,
+  the same "distinct blast radius" argument `push:*`/`broadcasts:*`/`nodes:*` each made;
+  not the latter, which is the closer-looking mistake — `storage:*` gates *object access*
+  and is seeded to Viewer and Contributor, so reusing it would put this
+  credential-bearing configuration screen in front of the entire user base. See
+  [`docs/specs/storage-providers.md`](docs/specs/storage-providers.md)
 
 ## Database Tables
 
@@ -768,7 +789,20 @@ Note: `DATABASE_URL` is constructed automatically from these variables at runtim
 - `DEVICE_CODE_POLL_INTERVAL` - Device polling interval in seconds (default: 5)
 - `DEVICE_TOKEN_EXPIRY_DAYS` - Token lifetime for device sessions in days (default: 7)
 - `DEVICE_PAT_EXPIRY_DAYS` - Lifetime of the PAT minted when a device (e.g. the CLI) requests `clientInfo.tokenType: "pat"`, in days; clamped to 1-999 (default: 90)
-- `SECRETS_ENCRYPTION_KEY` - Base64-encoded 32-byte AES-256 key (generate with `openssl rand -base64 32`) that encrypts runtime-configured credentials (e.g. an SMTP password an admin enters through the app) before they are stored in the `credentials` table. Optional until a credential is stored; see `docs/runbooks/rotate-secrets-encryption-key.md`. Note: credentials configured at runtime through the UI/API live encrypted in the database, not in the environment — unlike every other secret in this section.
+- `SECRETS_ENCRYPTION_KEY` - Base64-encoded 32-byte AES-256 key (generate with `openssl rand -base64 32`) that encrypts runtime-configured credentials (SMTP, Web Push, and — since epic #372 — the object-storage secret access key) before they are stored in the `credentials` table. Formally optional at boot until a credential is stored (see `docs/runbooks/rotate-secrets-encryption-key.md`); in practice required for a working deployment, since uploads, avatars and database backups all need the storage credential this key protects. Note: credentials configured at runtime through the UI/API live encrypted in the database, not in the environment — unlike every other secret in this section.
+
+**Email (SES fallback only):**
+- `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` - Credential for the SES email transport. **SES-only since epic #372** — before that, these two were shared with the (then env-var-configured) S3 storage provider; storage now has its own credential in the encrypted store and never reads these.
+- `SES_REGION` - Fallback region for SES when `email.sesRegion` is not set in the settings namespace. **Replaces `S3_REGION`, which supplied this value before issue #377** — a deployment that relied on `S3_REGION` to region SES must set this instead. No default; an unset region fails as "SES region is not configured" rather than guessing wrong. See `infra/compose/.env.example`'s own comment on this key for why it must never appear as a second commented example line.
+
+⚠ There is no `STORAGE_PROVIDER`/`S3_BUCKET`/`S3_REGION`/`S3_ENDPOINT` (or
+equivalent) environment variable anywhere in this application, and there
+must never be one again. Object storage — provider, bucket, region,
+endpoint, credential — is configured entirely at runtime through
+`/admin/settings/storage`, with no restart. See "Storage Configuration
+(Admin-only)" and `storage_config:read`/`storage_config:write` above, and
+[`docs/specs/storage-providers.md`](docs/specs/storage-providers.md) /
+[`docs/runbooks/storage-configuration.md`](docs/runbooks/storage-configuration.md).
 
 **Background Job Queue** (all bare/unprefixed, like `POSTGRES_*` — API-side vars never take
 the CLI's `APPCTL_` prefix; see `infra/compose/.env.example` for the full comments):
@@ -1120,6 +1154,29 @@ rules, and the rejected alternatives are in
 operator procedure, written to be usable with the application down, is
 [`docs/runbooks/database-restore.md`](docs/runbooks/database-restore.md).
 Extend those two rather than restating them here.
+
+### Object Storage
+
+Which object-storage provider (AWS S3, Cloudflare R2, or an S3-compatible
+endpoint), bucket and credential this deployment uses is
+administrator-editable at runtime, with no restart, since epic #372 (issues
+#373–#377): a `storage` system-settings namespace plus an encrypted secret,
+resolved per call by `StorageConfigService`, behind the unchanged
+`STORAGE_PROVIDER` token every existing consumer already injects. There is
+no environment variable for any of it — `STORAGE_PROVIDER`/`S3_BUCKET`/
+`S3_REGION`/`S3_ENDPOINT` were retired by issue #377, and adding any of them
+back is exactly the two-sources-of-truth ambiguity this epic exists to end.
+The design (the settings/secret split and why, the resolver's cache and its
+synchronous `getBucket()` snapshot, one driver for three provider shapes,
+tri-state `forcePathStyle`, the admin API's two probes and why they always
+answer `200`, the switch confirmation and what it does not do, the
+unconfigured-503 posture, and the rejected alternatives) is documented in
+full in [`docs/specs/storage-providers.md`](docs/specs/storage-providers.md);
+the operator runbook — first-time setup per provider, creating the bucket,
+rotating a key with no restart, and recovering from a misconfigured or
+accidentally switched deployment — is
+[`docs/runbooks/storage-configuration.md`](docs/runbooks/storage-configuration.md).
+Don't restate either here; extend those two instead.
 
 ## Specialized Subagents (MANDATORY)
 

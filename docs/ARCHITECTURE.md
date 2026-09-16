@@ -377,7 +377,18 @@ The storage system provides file upload and management capabilities with support
 
 #### Architecture Overview
 
-The storage system uses a provider abstraction pattern to support multiple cloud storage backends while maintaining a consistent API.
+The storage system uses a provider abstraction pattern to support multiple
+cloud storage backends while maintaining a consistent API. **Since epic
+#372, which vendor that abstraction talks to is resolved at runtime, per
+call, from configuration an administrator edits at `/admin/settings/storage`
+— not a value fixed at deploy time.** Full design (the config/secret split,
+the resolver and its cache, the delegate cache and its fingerprint, why
+`getBucket()` stays synchronous, the admin API, the unconfigured-503
+posture) is [`docs/specs/storage-providers.md`](specs/storage-providers.md);
+the operator runbook is
+[`docs/runbooks/storage-configuration.md`](runbooks/storage-configuration.md).
+This section covers the object-upload/download pipeline that abstraction
+sits underneath, which epic #372 left unchanged.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -389,14 +400,25 @@ The storage system uses a provider abstraction pattern to support multiple cloud
 │  Objects Service                                             │
 │  └── Business logic, ownership validation                    │
 ├─────────────────────────────────────────────────────────────┤
-│  Storage Provider Interface                                  │
-│  ├── S3StorageProvider (implemented)                         │
-│  └── AzureStorageProvider (future)                          │
+│  StorageProvider interface — STORAGE_PROVIDER token           │
+│  └── ResolvingStorageProvider (always; #373)                 │
+│      resolves the `storage` settings + encrypted secret       │
+│      PER CALL and delegates to an S3StorageProvider built     │
+│      for the configuration in force right now (AWS S3,        │
+│      Cloudflare R2, or any S3-compatible endpoint — one       │
+│      driver, §5 of the spec document — up to 2 cached)        │
 ├─────────────────────────────────────────────────────────────┤
 │  Object Processing Pipeline                                  │
 │  └── Async post-upload processing with pluggable processors  │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+Nine consumers inject `STORAGE_PROVIDER` and call its thirteen methods —
+`ObjectsService`, `ProfileImageService`, `AvatarService`,
+`ObjectProcessingService`, `StorageCleanupHandler`, three
+`DatabaseBackupRunnerService`-family services, and the node data plane —
+and every one of them is unaware the client behind that token can now
+change while the process is running.
 
 #### Upload Flow
 
@@ -451,20 +473,40 @@ Status updated: ready | failed
 
 ```
 apps/api/src/storage/
-├── storage.module.ts                # Module definition
+├── storage.module.ts                     # Module definition
+├── storage-credential.constants.ts       # Secret's (purpose, name) address
 ├── objects/
-│   ├── objects.controller.ts        # HTTP endpoints
-│   ├── objects.service.ts           # Business logic
-│   ├── dto/                         # Data transfer objects
+│   ├── objects.controller.ts             # HTTP endpoints
+│   ├── objects.service.ts                # Business logic
+│   ├── dto/                              # Data transfer objects
 │   └── interfaces/
+├── config/                               # Runtime configuration (#373-#375)
+│   ├── storage-config.ts                 # resolveStorageConfig — single
+│   │                                      # "is this configured?" definition
+│   ├── storage-config.service.ts         # Per-call resolve, cached settings
+│   ├── storage-not-configured.error.ts   # The 503 an unconfigured call raises
+│   ├── storage-config.controller.ts      # /api/admin/storage-config (#375)
+│   ├── storage-config-admin.service.ts   # Read/replace + the switch gate
+│   ├── storage-connection-test.service.ts    # POST .../test
+│   ├── storage-bucket-provision.service.ts   # POST .../bucket
+│   ├── storage-probe.support.ts          # Shared machinery for the two above
+│   └── dto/
 ├── providers/
-│   ├── storage-provider.interface.ts
-│   └── s3-storage.provider.ts
+│   ├── storage-provider.interface.ts     # STORAGE_PROVIDER token, unchanged
+│   ├── storage-providers.module.ts       # Binds the token to the resolver
+│   ├── resolving-storage.provider.ts     # ResolvingStorageProvider (#373)
+│   └── s3/
+│       └── s3-storage.provider.ts        # buildS3ClientConfig — one driver,
+│                                          # three provider shapes (#374)
 └── processing/
     ├── object-processing.service.ts
     └── processors/
         └── base-processor.interface.ts
 ```
+
+See [`docs/specs/storage-providers.md`](specs/storage-providers.md) for what
+each file in `config/` and `providers/` actually does — this list is a map,
+not a description.
 
 ---
 
@@ -600,11 +642,14 @@ than by a data migration (see `apps/api/src/common/profile-image/profile-image.t
 #### System Settings Shape
 
 `system_settings.value` — the JSONB column itself — holds `notifications`,
-`jobs`, `nodes`, `databaseBackup` and `maintenance`. (Two earlier namespaces,
-`ui` and `features`, were removed by issue #366: nothing at runtime ever read
-either one, so they were dropped from the schema, DTOs and seed rather than
-kept as dead weight — see `docs/specs/settings-ui.md` for the settings-UI
-side of that cleanup.)
+`jobs`, `nodes`, `databaseBackup`, `maintenance` and `storage`. (Two earlier
+namespaces, `ui` and `features`, were removed by issue #366: nothing at
+runtime ever read either one, so they were dropped from the schema, DTOs and
+seed rather than kept as dead weight — see `docs/specs/settings-ui.md` for
+the settings-UI side of that cleanup. `webPush` is a **separate**
+`system_settings` row, keyed `'webPush'` rather than `'global'`, so it is not
+part of this JSON shape — see
+[`docs/specs/browser-notifications.md`](specs/browser-notifications.md).)
 
 ```json
 {
@@ -630,7 +675,7 @@ side of that cleanup.)
     "timeOfDay": "02:00",
     "timezone": "UTC",
     "retentionCount": 7,
-    "storageProvider": "s3",
+    "storageProvider": "",
     "runStaleMinutes": 120,
     "compressionLevel": 6,
     "restoreRollbackMode": "retain_database",
@@ -643,9 +688,27 @@ side of that cleanup.)
     "allowAdmins": true,
     "startedAt": null,
     "startedById": null
+  },
+  "storage": {
+    "provider": "s3",
+    "bucket": "",
+    "region": "",
+    "endpoint": "",
+    "accountId": "",
+    "accessKeyId": "",
+    "forcePathStyle": null
   }
 }
 ```
+`databaseBackup.storageProvider` defaults to `""` (empty), not a provider
+name — it *pins* a scheduled backup to a specific provider registration,
+independent of `storage.provider`, and is left empty to mean "whatever is
+currently active." `storage` itself is the runtime-configurable
+object-storage configuration (epic #372) — every field here (except
+`provider`, which is a closed enum) defaults to `""`/`null`, meaning
+"not configured yet," and `secretAccessKey` is deliberately **absent**:
+it lives in the encrypted credential store, never in this JSONB blob. See
+[`docs/specs/storage-providers.md`](specs/storage-providers.md).
 
 `GET/PUT/PATCH /api/system-settings` project this stored row into
 `SystemSettingsResponseDto`, which adds a `security` block on the way out —
