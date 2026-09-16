@@ -36,10 +36,18 @@ import { STORAGE_PROVIDER } from './storage-provider.interface';
  *     `@Global()` — "requiring `imports: [CredentialsModule]` makes every new
  *     consumer a visible line in a diff" — and this line is that diff.
  *
- * `StorageConfigService` is provided here but NOT exported, on purpose: today
- * its only consumer is the provider above. Part 3's connection test is the
- * caller that will want it, and adding it to `exports` then is a one-line
- * change made where the need is visible.
+ * `StorageConfigService` IS EXPORTED, and part 3 of #373 is the change that
+ * made it so — the one-line change this comment predicted, made where the need
+ * became visible. Three services outside this module
+ * (`ObjectsService`, `ProfileImageService`, `DatabaseBackupRunnerService`)
+ * record the ACTIVE PROVIDER ID onto a row, and until part 3 all three wrote
+ * the literal `'s3'`. They now ask `StorageConfigService.activeProvider()`,
+ * which is the same settings read the bucket comes from, so a row cannot name
+ * one configuration's bucket and another's provider.
+ *
+ * ⚠ EXPORTED, NOT `@Global()`. A consumer takes it by adding this module to its
+ * `imports` — a visible line in a diff — exactly as `CredentialsModule`
+ * requires of its own.
  *
  * To add an alternative provider (local filesystem, Azure Blob, etc.), teach
  * `ResolvingStorageProvider.delegateFor` to build it from the resolved
@@ -54,6 +62,6 @@ import { STORAGE_PROVIDER } from './storage-provider.interface';
       useClass: ResolvingStorageProvider,
     },
   ],
-  exports: [STORAGE_PROVIDER],
+  exports: [STORAGE_PROVIDER, StorageConfigService],
 })
 export class StorageProvidersModule {}

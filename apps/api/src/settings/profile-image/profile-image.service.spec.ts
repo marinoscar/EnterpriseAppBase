@@ -13,6 +13,7 @@ import {
   MockPrismaService,
 } from '../../../test/mocks/prisma.mock';
 import { createMockStorageProvider } from '../../../test/mocks/storage-provider.mock';
+import { StorageConfigService } from '../../storage/config/storage-config.service';
 import { AVATAR_MAX_BYTES } from '../../common/profile-image/profile-image';
 
 // Real magic bytes so `detectImageType` (exercised for real, not mocked)
@@ -25,6 +26,7 @@ describe('ProfileImageService (#367)', () => {
   let service: ProfileImageService;
   let mockPrisma: MockPrismaService;
   let mockStorageProvider: ReturnType<typeof createMockStorageProvider>;
+  let mockStorageConfig: { activeProvider: jest.Mock };
   let mockUserSettings: {
     getSettings: jest.Mock;
     patchSettings: jest.Mock;
@@ -48,6 +50,7 @@ describe('ProfileImageService (#367)', () => {
   beforeEach(async () => {
     mockPrisma = createMockPrismaService();
     mockStorageProvider = createMockStorageProvider();
+    mockStorageConfig = { activeProvider: jest.fn(async () => 's3' as const) };
     mockUserSettings = {
       getSettings: jest.fn(),
       patchSettings: jest.fn(),
@@ -58,6 +61,8 @@ describe('ProfileImageService (#367)', () => {
         ProfileImageService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: STORAGE_PROVIDER, useValue: mockStorageProvider },
+        // #373: the avatar's `storage_objects` row records the LIVE provider.
+        { provide: StorageConfigService, useValue: mockStorageConfig },
         { provide: UserSettingsService, useValue: mockUserSettings },
       ],
     }).compile();

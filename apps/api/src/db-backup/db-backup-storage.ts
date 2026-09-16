@@ -59,39 +59,51 @@
 // each other. The duplicated code is nine lines with a test each.
 //
 // -----------------------------------------------------------------------------
-// ONE PROVIDER, AND THE SETTING MUST AGREE WITH IT
+// ONE ACTIVE PROVIDER AT A TIME, AND THE SETTING MUST AGREE WITH IT
 // -----------------------------------------------------------------------------
 //
 // `StorageProvidersModule` binds exactly one implementation to
-// `STORAGE_PROVIDER`. `databaseBackup.storageProvider` therefore cannot select
-// anything — but it is not dead weight either: it is the field a fork that
-// grows a second provider will use, and today it is the field that catches an
-// operator who set it to `gcs` and believed their backups were going to Google
-// Cloud Storage. So the rule is: EMPTY (or absent) means "whatever is active",
-// anything else must equal the active provider's id, and a mismatch is a loud
-// 400 rather than a silent write to the wrong place.
+// `STORAGE_PROVIDER`, and since #373 (epic #372) that implementation follows a
+// SETTING: `ResolvingStorageProvider` reads the `storage` namespace per call,
+// so which provider is active — `s3`, `r2` or `s3compatible` — is a live value
+// an administrator changes without a restart, not a constant compiled in.
+//
+// That makes `databaseBackup.storageProvider` a MORE useful field than it was,
+// not a less useful one, and the rule it enforces is unchanged and still
+// load-bearing: EMPTY (or absent) means "whatever is active", anything else
+// must equal the ACTIVE provider's id, and a mismatch is a loud 400 rather than
+// a silent write to the wrong place. What changed is only where "the active
+// provider's id" comes from — `StorageConfigService.activeProvider()` rather
+// than a literal — which is why {@link isUsableStorageProvider} and
+// {@link assertUsableStorageProvider} take it as a REQUIRED argument. A default
+// would be a hard-coded `'s3'` wearing a parameter, and it would be wrong for
+// exactly the deployment that had configured something else.
+//
+// The setting still earns its place for two reasons, both sharpened by #373:
+// it is the field a fork that registers a genuinely different provider (GCS,
+// Azure Blob, a filesystem) will use, and it is the field that catches the
+// operator who typed `gcs` here and believed their backups were going to Google
+// Cloud Storage. It now also catches the operator who switched `storage
+// .provider` from `s3` to `r2` and left this pinned to `s3` — a disagreement
+// that could not exist before and is caught by the same one comparison.
 //
 // REJECTED: ignoring the setting when it disagrees. A backup that lands
 // somewhere other than where the settings page says it lands is the single
 // most dangerous kind of wrong in this subsystem, because it is only ever
 // discovered during a restore.
+//
+// REJECTED: keeping a module-level `ACTIVE_STORAGE_PROVIDER_ID` constant and
+// updating it. There is no longer any one value it could hold: two deployments
+// built from this commit can be pointed at two different providers, and the
+// same deployment can be pointed at a second one this afternoon. A constant
+// would be a compile-time answer to a runtime question, and its failure mode is
+// a `database_backup_runs` row that names the wrong provider — a lie recorded
+// at the exact moment nobody is reading it.
 // =============================================================================
 
 import { APP_NAME } from '@app/shared';
 
 import { DatabaseBackupStorageProviderError } from './db-backup.errors';
-
-/**
- * The id of the provider `StorageProvidersModule` binds today.
- *
- * A constant rather than something read off the provider instance, because
- * `StorageProvider` has no id on it and adding one would change an interface
- * every implementation must satisfy for a single string. This mirrors
- * `ObjectsService`, which stamps the literal `'s3'` into
- * `storage_objects.storage_provider` for the identical reason — the two must
- * agree, or a fork's second provider would be half-adopted.
- */
-export const ACTIVE_STORAGE_PROVIDER_ID = 's3';
 
 /** The fixed, product-neutral prefix every backup object lives under. */
 export const BACKUP_KEY_PREFIX = 'database-backups/';
@@ -172,14 +184,19 @@ export function buildBackupStorageKey(at: Date, runId: string): string {
  * deployment.
  *
  * Empty/whitespace/absent is TRUE — it means "whatever provider is active",
- * which is the correct default for a template that binds one. Anything else
- * must match {@link ACTIVE_STORAGE_PROVIDER_ID} exactly, compared
- * case-insensitively and trimmed because the value is typed by a human into a
- * settings form.
+ * which is the correct default for a deployment that has chosen one elsewhere.
+ * Anything else must match `active` exactly, compared case-insensitively and
+ * trimmed because the value is typed by a human into a settings form.
+ *
+ * `active` IS REQUIRED AND HAS NO DEFAULT. It is the provider in force right
+ * now — `StorageConfigService.activeProvider()` — and since #373 that is a
+ * setting, not a constant. A default here could only be a literal `'s3'`, which
+ * is precisely the wrong answer for the R2 deployment this check exists to
+ * protect.
  */
 export function isUsableStorageProvider(
   configured: string | null | undefined,
-  active: string = ACTIVE_STORAGE_PROVIDER_ID
+  active: string
 ): boolean {
   const trimmed = (configured ?? '').trim();
 
@@ -196,11 +213,15 @@ export function isUsableStorageProvider(
  * Two call sites, one rule; a second copy of this comparison is how the form
  * and the runner start disagreeing.
  *
+ * Both reach it through `DatabaseBackupRunnerService.assertStorageProviderUsable`,
+ * which is what supplies `active` — one place that reads the live provider, so
+ * the two sites cannot be handed different answers.
+ *
  * @throws {DatabaseBackupStorageProviderError} which #283 maps to a 400.
  */
 export function assertUsableStorageProvider(
   configured: string | null | undefined,
-  active: string = ACTIVE_STORAGE_PROVIDER_ID
+  active: string
 ): void {
   if (!isUsableStorageProvider(configured, active)) {
     throw new DatabaseBackupStorageProviderError((configured ?? '').trim(), active);

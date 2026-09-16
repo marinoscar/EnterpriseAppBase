@@ -68,9 +68,10 @@ import {
   type AdminConnection,
 } from '../../src/db-backup/admin-connection.util';
 import { DatabaseBackupRunnerService } from '../../src/db-backup/db-backup-runner.service';
+import type { StorageConfigService } from '../../src/storage/config/storage-config.service';
 import { JobsService } from '../../src/jobs/jobs.service';
 import { DB_RESTORE_RUN_TYPE } from '../../src/db-backup/database-restore.service';
-import { ACTIVE_STORAGE_PROVIDER_ID, BACKUP_ARCHIVE_FORMAT } from '../../src/db-backup/db-backup-storage';
+import { BACKUP_ARCHIVE_FORMAT } from '../../src/db-backup/db-backup-storage';
 import {
   DatabaseRestoreService,
   defaultDatabaseRestoreSeam,
@@ -170,10 +171,21 @@ async function buildEnvironment(dbName: string): Promise<Environment> {
     },
   } as unknown as JobsService;
 
+  // #373 (epic #372): the runner reads the ACTIVE provider rather than a
+  // constant, both to stamp it onto a run row and to judge
+  // `databaseBackup.storageProvider` against it. This suite's storage is a temp
+  // directory, so the honest answer is whatever the seeded `storage` namespace
+  // names — `s3`, which is also what `settingsStub` reports for the backup
+  // policy, so the two agree and no run is refused.
+  const storageConfigStub = {
+    activeProvider: async () => 's3' as const,
+  } as unknown as StorageConfigService;
+
   const runner = new DatabaseBackupRunnerService(
     prisma as unknown as PrismaService,
     settingsStub,
     storage,
+    storageConfigStub,
     notifications,
     configStub,
     jobsStub,
@@ -767,7 +779,7 @@ describeWithDb('Database restore orchestration against real Postgres', () => {
           lastHeartbeatAt: new Date(),
           bytesWritten: BigInt(archive.length),
           sizeBytes: BigInt(archive.length),
-          storageProvider: ACTIVE_STORAGE_PROVIDER_ID,
+          storageProvider: 's3',
           storageKey,
           bucket: env.storage.getBucket(),
           format: BACKUP_ARCHIVE_FORMAT,

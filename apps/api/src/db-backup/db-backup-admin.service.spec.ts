@@ -23,6 +23,7 @@ import {
   DatabaseRestoreNotAllowedError,
   DatabaseRestoreRunNotFoundError,
 } from './db-backup.errors';
+import { assertUsableStorageProvider } from './db-backup-storage';
 import type { JobRolePreflightResult } from './pg-job-role.broker';
 import type { PgJobRoleBroker } from './pg-job-role.broker';
 import type { RestorePreflightResult } from './restore-preflight.service';
@@ -266,13 +267,15 @@ function harness(options: HarnessOptions = {}) {
     // The REAL rule, not a re-implementation: the admin service is supposed to
     // call this rather than compare provider names itself, so the double
     // forwards to the same pure helper the runner does.
-    assertStorageProviderUsable: jest.fn((configured: string | null | undefined) => {
-      const trimmed = (configured ?? '').trim();
-
-      if (trimmed !== '' && trimmed.toLowerCase() !== 's3') {
-        throw new DatabaseBackupStorageProviderError(trimmed, 's3');
+    // ASYNC SINCE #373 (epic #372): the real method reads the active provider
+    // from the `storage` settings namespace before it can compare anything.
+    // The double now forwards to the pure helper for real rather than
+    // re-deriving the comparison, with `'s3'` standing in for that read.
+    assertStorageProviderUsable: jest.fn(
+      async (configured: string | null | undefined) => {
+        assertUsableStorageProvider(configured, 's3');
       }
-    }),
+    ),
     queueBackup: jest.fn(
       options.queueBackup ??
         // `pending`, not `running`: nothing has started until a worker claims

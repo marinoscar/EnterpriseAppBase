@@ -360,10 +360,19 @@ export type SystemMaintenanceValue = z.infer<typeof systemMaintenanceSchema>;
 //
 // Where this deployment's objects live, configured at runtime instead of only
 // at deploy time. Declared here on the same terms as the operations namespaces
-// above — all six places in one pass, ahead of the consumers, which arrive in
-// part 2 of #373. Nothing in this build reads a single one of these values yet:
-// `STORAGE_PROVIDER`/`S3_BUCKET`/`S3_REGION` and friends are still what
-// `configuration.ts` and `storage-providers.module.ts` use.
+// above — all six places in one pass, ahead of the consumers.
+//
+// THE CONSUMERS HAVE SINCE ARRIVED, and this namespace is now the authority it
+// was declared to become: `storage/config/storage-config.ts` decides what these
+// values mean and whether they are complete, `StorageConfigService` reads them
+// per call, `ResolvingStorageProvider` builds its S3 client from the result,
+// and `provider` is what `storage_objects` and `database_backup_runs` record
+// about where their bytes went. `S3_BUCKET`/`S3_REGION` and friends in
+// `configuration.ts` no longer reach the storage client at all; the only
+// `storage.*` key it still takes from the environment is `partSize`, which is
+// deploy-time tuning about this process's memory rather than about which bucket
+// is in use. (`databaseBackup`'s own `storageProvider` is a different field
+// with a different job — see the note on `STORAGE_PROVIDER_KINDS` below.)
 //
 // THE SECRET ACCESS KEY IS NOT HERE, AND MUST NEVER BE ADDED. It lives in the
 // encrypted credential store (#115, epic #108) at
@@ -439,7 +448,10 @@ export type StorageProviderKind = (typeof STORAGE_PROVIDER_KINDS)[number];
  * a valid configuration is to type every field correctly in one request, and
  * would make the very first save of a half-filled form a 400. Whether the
  * configuration is COMPLETE ENOUGH TO USE is a question for the consumer that
- * builds a client from it (part 2), not for the shape of the document.
+ * builds a client from it, not for the shape of the document — and that
+ * consumer is `storage/config/storage-config.ts` (`resolveStorageConfig`),
+ * which holds every completeness rule in one place and is the ONLY place that
+ * answers it.
  *
  * `region` defaults to empty rather than to `us-east-1`: a wrong region is a
  * confusing runtime failure ("bucket is in another region"), and inheriting one

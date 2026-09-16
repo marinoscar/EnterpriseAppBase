@@ -12,7 +12,11 @@ import type { NotificationsService } from '../notifications/notifications.servic
 import type { PrismaService } from '../prisma/prisma.service';
 import type { SystemSettingsService } from '../settings/system-settings/system-settings.service';
 import type { StorageProvider } from '../storage/providers/storage-provider.interface';
-import type { SystemDatabaseBackupValue } from '../common/schemas/settings.schema';
+import type { StorageConfigService } from '../storage/config/storage-config.service';
+import type {
+  StorageProviderKind,
+  SystemDatabaseBackupValue,
+} from '../common/schemas/settings.schema';
 import {
   ACTIVE_RUN_INDEX_NAME,
   BACKUP_HEARTBEAT_INTERVAL_MS,
@@ -173,6 +177,8 @@ interface HarnessOptions {
   appUrl?: string;
   /** #288: a notifier that misbehaves, for the containment assertions. */
   notifyImpl?: () => Promise<void>;
+  /** #373: the provider the `storage` settings namespace currently names. */
+  activeProvider?: StorageProviderKind;
   /** #351: errors `JobsService.enqueueWithin` throws, in order. */
   enqueueFailures?: unknown[];
   /** #351: what `job.findFirst` reports as the active `db.backup.run` job. */
@@ -372,6 +378,14 @@ function makeHarness(options: HarnessOptions = {}) {
       }) as unknown as StorageProvider['delete']),
   };
 
+  // #373 (epic #372): which provider is active is a settings read now, not a
+  // constant, so the runner asks for it — both to stamp it onto a run row and
+  // to judge `databaseBackup.storageProvider` against it. `activeProvider` is
+  // overridable so a suite can put this deployment on R2.
+  const storageConfig = {
+    activeProvider: jest.fn(async () => options.activeProvider ?? 's3'),
+  } as unknown as StorageConfigService;
+
   const engine: DatabaseBackupEngine = {
     startDump: jest.fn(() => {
       order.push('startDump');
@@ -425,6 +439,7 @@ function makeHarness(options: HarnessOptions = {}) {
     prisma as unknown as PrismaService,
     settings as unknown as SystemSettingsService,
     storage as unknown as StorageProvider,
+    storageConfig,
     notifications,
     config,
     jobs,
@@ -1183,14 +1198,38 @@ describe('the storage-provider constraint', () => {
     await h.settled;
   });
 
-  it('exposes the same rule to #283’s config write path', () => {
+  // ASYNC SINCE #373 (epic #372): "the active provider" is a settings read, so
+  // the assertion has to await one. The rule it enforces is unchanged.
+  it('exposes the same rule to #283’s config write path', async () => {
     const h = makeHarness();
 
-    expect(() => h.service.assertStorageProviderUsable('gcs')).toThrow(
+    await expect(h.service.assertStorageProviderUsable('gcs')).rejects.toBeInstanceOf(
       DatabaseBackupStorageProviderError
     );
-    expect(() => h.service.assertStorageProviderUsable('s3')).not.toThrow();
-    expect(() => h.service.assertStorageProviderUsable(null)).not.toThrow();
+    await expect(h.service.assertStorageProviderUsable('s3')).resolves.toBeUndefined();
+    await expect(h.service.assertStorageProviderUsable(null)).resolves.toBeUndefined();
+  });
+
+  it('follows the ACTIVE provider, so an R2 deployment accepts "r2" and refuses "s3"', async () => {
+    // The case that made the old module constant wrong: this deployment's
+    // `storage` namespace names R2, so `databaseBackup.storageProvider: 's3'`
+    // is now the value that would send a backup somewhere nobody chose.
+    const h = makeHarness({ activeProvider: 'r2' });
+
+    await expect(h.service.assertStorageProviderUsable('r2')).resolves.toBeUndefined();
+    await expect(h.service.assertStorageProviderUsable('s3')).rejects.toBeInstanceOf(
+      DatabaseBackupStorageProviderError
+    );
+  });
+
+  it('stamps the ACTIVE provider onto the run row, not a constant', async () => {
+    const h = makeHarness({ activeProvider: 'r2', policy: { storageProvider: 'r2' } });
+
+    const run = await h.service.startBackup({ trigger: 'manual' });
+    expect(run.storageProvider).toBe('r2');
+
+    (await h.firstDump()).finish();
+    await h.settled;
   });
 });
 

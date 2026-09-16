@@ -24,8 +24,9 @@ import {
   type StorageProvider,
 } from '../storage/providers/storage-provider.interface';
 import type { SystemDatabaseBackupValue } from '../common/schemas/settings.schema';
+import { StorageConfigService } from '../storage/config/storage-config.service';
+import type { StorageProviderKind } from '../common/schemas/settings.schema';
 import {
-  ACTIVE_STORAGE_PROVIDER_ID,
   assertUsableStorageProvider,
   BACKUP_ARCHIVE_FORMAT,
   BACKUP_CONTENT_TYPE,
@@ -603,6 +604,11 @@ export class DatabaseBackupRunnerService {
     // the interactive object API would give every backup a user-facing object
     // record that an administrator could delete by hand.
     @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
+    // #373 (epic #372). The token above moves the archive; this says WHICH
+    // provider moved it. Both are needed because `StorageProvider` exposes a
+    // bucket and not a provider kind, and a backup row that named the wrong one
+    // is a row a restore cannot act on — see `db-backup-storage.ts`'s header.
+    private readonly storageConfig: StorageConfigService,
     // Retention is a REQUIRED collaborator, not an optional seam like the two
     // below it. A runner that could be constructed without one is a runner a
     // fork can wire up so that nothing ever deletes an archive — and that
@@ -634,10 +640,22 @@ export class DatabaseBackupRunnerService {
    * the write path and the run path. The rule itself is pure and lives in
    * `db-backup-storage.ts`.
    *
+   * ⚠ ASYNC SINCE #373 (epic #372), and unavoidably so: "the active provider"
+   * is a setting now, so answering the question means reading it. This is the
+   * ONE place that read happens for both call sites — the `PUT` config endpoint
+   * (`DatabaseBackupAdminService.updateConfig`) and the run paths below — which
+   * is what keeps the form and the runner from ever judging the same value
+   * against two different answers.
+   *
    * @throws {DatabaseBackupStorageProviderError} → a 400.
    */
-  assertStorageProviderUsable(configured: string | null | undefined): void {
-    assertUsableStorageProvider(configured, ACTIVE_STORAGE_PROVIDER_ID);
+  async assertStorageProviderUsable(
+    configured: string | null | undefined
+  ): Promise<void> {
+    assertUsableStorageProvider(
+      configured,
+      await this.storageConfig.activeProvider()
+    );
   }
 
   /**
@@ -712,9 +730,14 @@ export class DatabaseBackupRunnerService {
     // nothing to record about a backup that was never allowed to start, and a
     // `failed` row (or a failed job) per attempt would bury the real history
     // under configuration noise.
-    this.assertStorageProviderUsable(policy.storageProvider);
+    await this.assertStorageProviderUsable(policy.storageProvider);
 
     const bucket = this.storage.getBucket();
+    // Resolved once, OUTSIDE the retry loop and outside the transaction below:
+    // it is a settings read, and a transaction is the last place to put one.
+    // Both halves of the pair are taken here so every attempt writes the same
+    // provider and bucket.
+    const provider = await this.storageConfig.activeProvider();
 
     for (let attempt = 1; attempt <= CLAIM_MAX_ATTEMPTS; attempt += 1) {
       // Generated HERE, for the reason `claimRun` gives: the storage key
@@ -746,7 +769,7 @@ export class DatabaseBackupRunnerService {
 
           const run = await tx.databaseBackupRun.create({
             data: {
-              ...this.buildRunData(input, { id, bucket, at: queuedAt }),
+              ...this.buildRunData(input, { id, bucket, provider, at: queuedAt }),
               jobId: job.id,
               // `pending`: nothing has started. `startedAt` and
               // `lastHeartbeatAt` are deliberately left NULL — the sweep in
@@ -861,7 +884,7 @@ export class DatabaseBackupRunnerService {
     // no row at all — there is nothing to record about a backup that was never
     // allowed to start, and a `failed` row per attempt would bury the real
     // history under configuration noise.
-    this.assertStorageProviderUsable(policy.storageProvider);
+    await this.assertStorageProviderUsable(policy.storageProvider);
 
     const run = await this.claimRun(input);
 
@@ -937,7 +960,7 @@ export class DatabaseBackupRunnerService {
     // provider can be reconfigured between the enqueue and the claim, and a
     // dump written with the wrong provider is a backup nobody can find. It
     // throws, which fails the job with a legible reason.
-    this.assertStorageProviderUsable(policy.storageProvider);
+    await this.assertStorageProviderUsable(policy.storageProvider);
 
     const run = await this.resolveRunForJob(job);
 
@@ -1024,7 +1047,12 @@ export class DatabaseBackupRunnerService {
 
     return this.prisma.databaseBackupRun.create({
       data: {
-        ...this.buildRunData(payload, { id, bucket: this.storage.getBucket(), at: startedAt }),
+        ...this.buildRunData(payload, {
+          id,
+          bucket: this.storage.getBucket(),
+          provider: await this.storageConfig.activeProvider(),
+          at: startedAt,
+        }),
         jobId: job.id,
         status: 'running',
         startedAt,
@@ -1073,6 +1101,9 @@ export class DatabaseBackupRunnerService {
    */
   private async claimRun(input: StartBackupInput): Promise<DatabaseBackupRun> {
     const bucket = this.storage.getBucket();
+    // Once, before the loop — see `queueBackup`: one settings read, and every
+    // attempt records the same pair.
+    const provider = await this.storageConfig.activeProvider();
 
     for (let attempt = 1; attempt <= CLAIM_MAX_ATTEMPTS; attempt += 1) {
       // The id is generated HERE rather than left to the column default,
@@ -1084,7 +1115,7 @@ export class DatabaseBackupRunnerService {
       const startedAt = new Date();
 
       const data: Prisma.DatabaseBackupRunUncheckedCreateInput = {
-        ...this.buildRunData(input, { id, bucket, at: startedAt }),
+        ...this.buildRunData(input, { id, bucket, provider, at: startedAt }),
         // Claimed directly as `running`, never as `pending`: on THIS path
         // (the `pre_restore` dump) the claim and the start are one act, so a
         // separate `pending` phase would be a state nothing ever observes and
@@ -1143,6 +1174,15 @@ export class DatabaseBackupRunnerService {
    * `status`, `startedAt`, `lastHeartbeatAt` — because that is precisely where
    * the three callers legitimately differ.
    *
+   * ⚠ `provider` AND `bucket` BOTH ARRIVE IN `args`, and this method reads
+   * neither for itself. Both are live values since #373 (epic #372) — the
+   * bucket from `StorageProvider.getBucket()`, the provider from
+   * `StorageConfigService.activeProvider()` — and both must be resolved by the
+   * caller, which is `async` and can await, rather than here, which is
+   * synchronous because it is sometimes called inside a transaction callback.
+   * Passing them in also keeps the pair together: a row names one
+   * configuration's bucket and that same configuration's provider.
+   *
    * ⚠ `Unchecked` INPUT, DELIBERATELY. `createdById` is a real relation
    * (`createdBy`), and Prisma's *Checked* create input stops accepting the raw
    * scalar the moment a scalar FK is promoted to one — it wants
@@ -1152,12 +1192,17 @@ export class DatabaseBackupRunnerService {
    */
   private buildRunData(
     input: StartBackupInput,
-    args: { id: string; bucket: string; at: Date }
+    args: {
+      id: string;
+      bucket: string;
+      provider: StorageProviderKind;
+      at: Date;
+    }
   ): Prisma.DatabaseBackupRunUncheckedCreateInput {
     return {
       id: args.id,
       trigger: input.trigger,
-      storageProvider: ACTIVE_STORAGE_PROVIDER_ID,
+      storageProvider: args.provider,
       storageKey: buildBackupStorageKey(args.at, args.id),
       bucket: args.bucket,
       format: BACKUP_ARCHIVE_FORMAT,

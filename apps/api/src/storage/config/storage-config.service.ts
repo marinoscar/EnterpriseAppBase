@@ -2,7 +2,10 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 
 import { CredentialsService } from '../../credentials/credentials.service';
 import { SystemSettingsService } from '../../settings/system-settings/system-settings.service';
-import type { SystemStorageValue } from '../../common/schemas/settings.schema';
+import type {
+  StorageProviderKind,
+  SystemStorageValue,
+} from '../../common/schemas/settings.schema';
 import {
   STORAGE_CREDENTIAL_NAME,
   STORAGE_CREDENTIAL_PURPOSE,
@@ -265,6 +268,50 @@ export class StorageConfigService implements OnModuleInit {
     );
 
     return resolveStorageConfig(policy, secretAccessKey);
+  }
+
+  /**
+   * Which vendor's flavour of the S3 protocol this deployment is pointed at,
+   * right now.
+   *
+   * ── WHAT IT IS FOR ──────────────────────────────────────────────────────────
+   *
+   * The rows that RECORD WHERE BYTES WENT — `storage_objects.storage_provider`
+   * and `database_backup_runs.storage_provider` — plus the one rule that
+   * compares `databaseBackup.storageProvider` against the provider actually in
+   * force (`assertUsableStorageProvider`). Before #373 all four of those read a
+   * hard-coded `'s3'`, which stopped being true the moment an operator could
+   * select `r2`.
+   *
+   * ── WHY ASYNC, WHEN `getBucket()` IS NOT ────────────────────────────────────
+   *
+   * Because nothing forces this one to be synchronous, and `getBucket()`'s own
+   * comment says plainly that async "is the genuinely correct shape" — it stays
+   * synchronous only because `StorageProvider.getBucket(): string` is fixed by
+   * an interface. There is no interface method returning a provider kind, and
+   * all four recording sites above are already `async`, so the honest read is
+   * available to every one of them and {@link lastKnownBucket}'s snapshot
+   * machinery is not needed a second time.
+   *
+   * It goes through the SAME cached {@link readPolicy} the snapshot is filled
+   * from, deliberately: a row whose `bucket` came from `getBucket()` and whose
+   * provider came from here then names one configuration rather than two, and a
+   * change an administrator saves reaches both within the same five seconds.
+   *
+   * ── WHY THERE IS NO "DON'T KNOW" ANSWER ─────────────────────────────────────
+   *
+   * Unlike the bucket, which genuinely may not have been configured yet (and
+   * whose absence `getBucket()` must raise a 503 for rather than invent), this
+   * namespace ALWAYS names a provider: `provider` is a closed enum with a
+   * schema default, and a damaged row degrades to that default field by field.
+   * "No storage configured" is `bucket === ''`, never a missing provider — so
+   * there is nothing here for a caller to handle and no fallback for one to get
+   * wrong.
+   */
+  async activeProvider(
+    options: { fresh?: boolean } = {},
+  ): Promise<StorageProviderKind> {
+    return (await this.readPolicy(options)).provider;
   }
 
   /**

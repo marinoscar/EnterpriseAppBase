@@ -1,7 +1,6 @@
 import { APP_NAME } from '@app/shared';
 
 import {
-  ACTIVE_STORAGE_PROVIDER_ID,
   BACKUP_ARCHIVE_FORMAT,
   BACKUP_KEY_PREFIX,
   BACKUP_NAME_SLUG,
@@ -58,36 +57,52 @@ describe('backup storage keys', () => {
 });
 
 describe('the databaseBackup.storageProvider constraint', () => {
+  // Supplied by the caller since #373 (epic #372) rather than read from a
+  // module constant: which provider is active is a SETTING now, so these cases
+  // say which one they are asking about instead of assuming `'s3'`.
+  const ACTIVE = 's3';
+
   it('accepts an empty or absent value as "whatever provider is active"', () => {
-    expect(isUsableStorageProvider('')).toBe(true);
-    expect(isUsableStorageProvider('   ')).toBe(true);
-    expect(isUsableStorageProvider(null)).toBe(true);
-    expect(isUsableStorageProvider(undefined)).toBe(true);
+    expect(isUsableStorageProvider('', ACTIVE)).toBe(true);
+    expect(isUsableStorageProvider('   ', ACTIVE)).toBe(true);
+    expect(isUsableStorageProvider(null, ACTIVE)).toBe(true);
+    expect(isUsableStorageProvider(undefined, ACTIVE)).toBe(true);
   });
 
   it('accepts the active provider, trimmed and case-insensitively', () => {
-    expect(isUsableStorageProvider(ACTIVE_STORAGE_PROVIDER_ID)).toBe(true);
-    expect(isUsableStorageProvider(`  ${ACTIVE_STORAGE_PROVIDER_ID.toUpperCase()}  `)).toBe(true);
+    expect(isUsableStorageProvider(ACTIVE, ACTIVE)).toBe(true);
+    expect(isUsableStorageProvider(`  ${ACTIVE.toUpperCase()}  `, ACTIVE)).toBe(true);
+  });
+
+  it('follows the active provider rather than a fixed one', () => {
+    // The case #373 created: an operator selects R2 in the storage settings,
+    // and `databaseBackup.storageProvider: 'r2'` must become the ACCEPTED
+    // value and `'s3'` the rejected one. A constant active id gets both
+    // backwards, which is why there no longer is one.
+    expect(isUsableStorageProvider('r2', 'r2')).toBe(true);
+    expect(isUsableStorageProvider('s3', 'r2')).toBe(false);
   });
 
   it('rejects a value naming a provider this deployment does not have', () => {
-    expect(isUsableStorageProvider('gcs')).toBe(false);
-    expect(() => assertUsableStorageProvider('gcs')).toThrow(DatabaseBackupStorageProviderError);
+    expect(isUsableStorageProvider('gcs', ACTIVE)).toBe(false);
+    expect(() => assertUsableStorageProvider('gcs', ACTIVE)).toThrow(
+      DatabaseBackupStorageProviderError
+    );
   });
 
   it('names both the configured and the active provider in the failure', () => {
     // The operator has to be able to tell what they set from what exists;
     // "invalid storage provider" would send them to the wrong place.
     try {
-      assertUsableStorageProvider('azure-blob');
+      assertUsableStorageProvider('azure-blob', ACTIVE);
       throw new Error('expected a rejection');
     } catch (error) {
       expect(error).toBeInstanceOf(DatabaseBackupStorageProviderError);
       const typed = error as DatabaseBackupStorageProviderError;
       expect(typed.configured).toBe('azure-blob');
-      expect(typed.active).toBe(ACTIVE_STORAGE_PROVIDER_ID);
+      expect(typed.active).toBe(ACTIVE);
       expect(typed.message).toContain('azure-blob');
-      expect(typed.message).toContain(ACTIVE_STORAGE_PROVIDER_ID);
+      expect(typed.message).toContain(ACTIVE);
     }
   });
 

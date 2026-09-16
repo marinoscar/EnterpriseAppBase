@@ -13,12 +13,14 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { STORAGE_PROVIDER } from '../providers/storage-provider.interface';
 import { createMockPrismaService, MockPrismaService } from '../../../test/mocks/prisma.mock';
 import { createMockStorageProvider } from '../../../test/mocks/storage-provider.mock';
+import { StorageConfigService } from '../config/storage-config.service';
 import { OBJECT_UPLOADED_EVENT } from '../processing/events/object-uploaded.event';
 
 describe('ObjectsService', () => {
   let service: ObjectsService;
   let mockPrisma: MockPrismaService;
   let mockStorageProvider: ReturnType<typeof createMockStorageProvider>;
+  let mockStorageConfig: { activeProvider: jest.Mock };
   let mockConfig: jest.Mocked<ConfigService>;
   let mockEventEmitter: jest.Mocked<EventEmitter2>;
 
@@ -44,6 +46,7 @@ describe('ObjectsService', () => {
   beforeEach(async () => {
     mockPrisma = createMockPrismaService();
     mockStorageProvider = createMockStorageProvider();
+    mockStorageConfig = { activeProvider: jest.fn(async () => 's3' as const) };
     mockConfig = {
       get: jest.fn(),
     } as any;
@@ -56,6 +59,8 @@ describe('ObjectsService', () => {
         ObjectsService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: STORAGE_PROVIDER, useValue: mockStorageProvider },
+        // #373: the row records the LIVE provider, so the service reads it.
+        { provide: StorageConfigService, useValue: mockStorageConfig },
         { provide: ConfigService, useValue: mockConfig },
         { provide: EventEmitter2, useValue: mockEventEmitter },
       ],
