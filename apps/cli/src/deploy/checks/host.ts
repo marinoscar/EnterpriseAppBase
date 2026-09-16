@@ -1,6 +1,6 @@
 import { basename } from 'node:path';
 
-import { CERTBOT_IMAGE } from '../proxy.js';
+import { CERTBOT_IMAGE, DEFAULT_PROXY_CONTAINER } from '../proxy.js';
 import type { Check, CheckContext, CheckResult } from './types.js';
 import {
   contextFs,
@@ -336,6 +336,66 @@ const proxyConfWritable: Check = {
   },
 };
 
+/**
+ * The shared proxy's container is there and running  (issue #390, epic #388).
+ *
+ * SKIPPED IN HOST MODE, and that is not a weakening: a host nginx has no
+ * container, so there is nothing this check could assert about it that
+ * `proxy-config-valid` does not already ask better.
+ *
+ * WHEN THE FAIL BRANCH IS REACHABLE IS THE SUBTLE PART. Left to probe,
+ * `resolveProxyRuntime` reports HOST mode for a container that is stopped or
+ * absent - deliberately, because you cannot `docker exec` into a stopped
+ * container and there is nothing there to reload. So in auto-detect this check
+ * either passes or skips. It bites when the operator STATED container mode
+ * with --proxy-mode (or install was configured for it): then "the proxy
+ * container is not running" is a real, actionable misconfiguration rather than
+ * a server that simply runs a host nginx, and it must fail before an install
+ * writes a vhost into a proxy that will never read it.
+ */
+const proxyContainerRunning: Check = {
+  id: 'proxy-container',
+  title: 'Proxy container running',
+  severity: 'required',
+  async run(context) {
+    const runtime = await contextProxyRuntime(context);
+
+    if (runtime.mode === 'host') {
+      return { status: 'skip', detail: 'host proxy; there is no container to run' };
+    }
+
+    const name = runtime.container ?? DEFAULT_PROXY_CONTAINER;
+    const state = await probe(context, [
+      'docker',
+      'inspect',
+      '--format',
+      '{{.State.Running}}',
+      name,
+    ]);
+
+    if (!state.ok) {
+      return {
+        status: 'fail',
+        detail: `no container named ${name}`,
+        remedy: `The shared proxy is not there under that name. Bring it up from ${context.proxyRoot} (docker compose -f ${context.proxyRoot}/docker-compose.yml up -d), or name the real one with --proxy-container.`,
+      };
+    }
+
+    // `docker inspect` on a stopped container succeeds and prints `false`. That
+    // is a different problem from "no such container" and has a different fix,
+    // so the two are kept apart rather than collapsed into "unavailable".
+    if (state.stdout !== 'true') {
+      return {
+        status: 'fail',
+        detail: `${name} exists but is not running`,
+        remedy: `Start it: docker start ${name}, or bring the stack in ${context.proxyRoot} up with docker compose up -d. A vhost written into a stopped proxy publishes nothing.`,
+      };
+    }
+
+    return { status: 'pass', detail: `${name} is running` };
+  },
+};
+
 const acmeWebroot: Check = {
   id: 'acme-webroot',
   title: 'ACME challenge webroot',
@@ -458,6 +518,7 @@ export const HOST_CHECKS: readonly Check[] = [
   bindPortFree,
   proxyRoot,
   proxyConfWritable,
+  proxyContainerRunning,
   acmeWebroot,
   certbotInstalled,
   portListening(80, "Let's Encrypt's HTTP-01 challenge needs port 80."),

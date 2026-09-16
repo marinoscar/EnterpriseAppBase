@@ -415,6 +415,73 @@ describe('certbot-installed (issue #389)', () => {
   });
 });
 
+describe('proxy-container (issue #390)', () => {
+  /** Answers the runtime probe AND the check's own inspect with one state. */
+  const inspecting = (canned: { exitCode: number; stdout?: string }): Responder => (argv) =>
+    argv.join(' ').startsWith('docker inspect') ? canned : HEALTHY(argv);
+
+  it('skips in host mode without inspecting any container', async () => {
+    // A host nginx has no container; there is nothing here this check could
+    // assert that proxy-config-valid does not already ask better.
+    const seen: string[][] = [];
+    const result = await find('proxy-container').run(
+      context({
+        proxyMode: 'host',
+        runCommand: fakeRunCommand((argv) => {
+          seen.push([...argv]);
+          return HEALTHY(argv);
+        }),
+      }),
+    );
+
+    expect(result.status).toBe('skip');
+    expect(seen.flat().join(' ')).not.toContain('docker inspect');
+  });
+
+  it('passes when the proxy container is running', async () => {
+    const result = await find('proxy-container').run(
+      context({ runCommand: fakeRunCommand(inspecting({ exitCode: 0, stdout: 'true' })) }),
+    );
+
+    expect(result.status).toBe('pass');
+    expect(result.detail).toContain('proxy-nginx');
+  });
+
+  it('fails, naming the container, when there is no such container', async () => {
+    const result = await find('proxy-container').run(
+      context({
+        // Stated, not detected: left to probe, a missing container resolves to
+        // HOST mode and this check correctly has nothing to say.
+        proxyMode: 'container',
+        proxyContainer: 'shared-proxy',
+        runCommand: fakeRunCommand((argv) =>
+          argv.join(' ').startsWith('docker inspect') ? undefined : HEALTHY(argv),
+        ),
+      }),
+    );
+
+    expect(result.status).toBe('fail');
+    expect(result.detail).toContain('shared-proxy');
+    expect(result.remedy).toContain('/opt/infra/proxy');
+    expect(result.remedy).toContain('docker compose');
+  });
+
+  it('separates a stopped container from a missing one', async () => {
+    // Different cause, different fix: `docker start` versus "the proxy is not
+    // installed under that name at all".
+    const result = await find('proxy-container').run(
+      context({
+        proxyMode: 'container',
+        runCommand: fakeRunCommand(inspecting({ exitCode: 0, stdout: 'false' })),
+      }),
+    );
+
+    expect(result.status).toBe('fail');
+    expect(result.detail).toContain('is not running');
+    expect(result.remedy).toContain('docker start proxy-nginx');
+  });
+});
+
 describe('resource checks', () => {
   it('warns on a small-memory host', async () => {
     const result = await find('memory').run(

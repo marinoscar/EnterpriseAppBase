@@ -266,6 +266,64 @@ const databasePrivileges: Check = {
   },
 };
 
+/**
+ * Whether the configured role may create databases  (issue #390, epic #388).
+ *
+ * `database-exists` already tells an operator to run `createdb` when the
+ * database is missing. This one answers the question that remedy silently
+ * assumes: is that command even available to THIS role? A managed PostgreSQL
+ * hands out a login role with no CREATEDB far more often than not, and finding
+ * that out halfway through an install - after the repository is cloned - is
+ * exactly the ordering `doctor` exists to fix.
+ *
+ * INSPECTED, NEVER TESTED BY DOING IT. `pg_roles` is read; no database is
+ * created, not even a temporary one with a random name. Rule 4 is not
+ * negotiable, and a leftover database from a crashed probe would be worse than
+ * having no check at all.
+ *
+ * `requires: ['database-credentials']` is what keeps this quiet when the
+ * server is unreachable or the password is wrong: those checks report it
+ * already, and a second failure saying the same thing in different words makes
+ * a checklist harder to read, not easier.
+ */
+const databaseCreatePrivilege: Check = {
+  id: 'database-create-privilege',
+  title: 'Can create databases',
+  severity: 'recommended',
+  requires: ['database-credentials'],
+  async run(context) {
+    const settings = databaseSettings(context.env);
+    if (settings === undefined) return NO_ENVIRONMENT;
+
+    // `rolsuper OR rolcreatedb`: a superuser bypasses the CREATEDB check
+    // entirely, and reporting one as unable to create a database would be a
+    // false warning of precisely the kind that teaches people to ignore these.
+    // Against `postgres`, which every cluster has, so this still answers when
+    // the application database is the thing that does not exist yet.
+    const result = await psql(
+      context,
+      settings,
+      'postgres',
+      'select rolsuper or rolcreatedb from pg_roles where rolname = current_user',
+    );
+
+    if (!result.ok) {
+      return {
+        status: 'skip',
+        detail: 'could not read the role privileges',
+      };
+    }
+
+    return result.stdout.startsWith('t')
+      ? { status: 'pass', detail: `${settings.user} can create databases` }
+      : {
+          status: 'warn',
+          detail: `${settings.user} cannot create databases`,
+          remedy: `If ${settings.database} is missing, this role cannot create it. Grant the privilege: ALTER ROLE ${settings.user} CREATEDB; or have an administrator create ${settings.database} before installing.`,
+        };
+  },
+};
+
 const databaseSsl: Check = {
   id: 'database-ssl',
   title: 'Database TLS',
@@ -315,5 +373,6 @@ export const DATABASE_CHECKS: readonly Check[] = [
   databaseCredentials,
   databaseExists,
   databasePrivileges,
+  databaseCreatePrivilege,
   databaseSsl,
 ];

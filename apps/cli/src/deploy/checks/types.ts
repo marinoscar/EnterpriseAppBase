@@ -154,6 +154,16 @@ export interface CheckContext {
   proxyContainer?: string | undefined;
   /** Public hostname, when one is known. DNS and TLS checks need it. */
   domain?: string | undefined;
+  /**
+   * The repository this deployment clones, when the caller already knows it.
+   *
+   * Left undefined the `gh` checks (#390) read `origin` out of the deployed
+   * checkout or the one appctl is running in, exactly as `resolveRepoTarget`
+   * would - so the promotion rule works during install's preflight, which runs
+   * BEFORE anything is cloned and therefore has no target to hand over yet.
+   * It is never printed: an https URL can carry an embedded token.
+   */
+  repoUrl?: string | undefined;
   /** The resolved environment, when one exists. Database checks need it. */
   env?: ReadonlyMap<string, string> | undefined;
   fs?: CheckFs | undefined;

@@ -3,8 +3,16 @@ import { describe, expect, it } from 'vitest';
 import { CommandFailedError, type CommandResult, type RunCommandOptions } from '../executor.js';
 import { DATABASE_CHECKS, databaseSettings } from './database.js';
 import { DNS_CHECKS } from './dns.js';
+import { GH_CHECKS } from './gh.js';
 import { ALL_CHECKS } from './index.js';
-import { TLS_CHECKS, compareServedCertificate, extractPem, parseNotAfter } from './tls.js';
+import {
+  RENEWAL_SCRIPT_PATHS,
+  TLS_CHECKS,
+  compareServedCertificate,
+  extractPem,
+  findRenewalOwner,
+  parseNotAfter,
+} from './tls.js';
 import { runChecks, type Check, type CheckContext, type CheckFs } from './types.js';
 
 type Canned = { exitCode: number; stdout?: string; stderr?: string };
@@ -505,6 +513,380 @@ describe('parseNotAfter', () => {
 
   it('warns when the output cannot be read', () => {
     expect(parseNotAfter('nonsense', now).status).toBe('warn');
+  });
+});
+
+// =============================================================================
+// The GitHub CLI pair, and the promotion rule  (issue #390, epic #388)
+// =============================================================================
+
+describe('gh checks', () => {
+  /** Everything absent except git, which answers about the remote and the fetch. */
+  const withGit =
+    (remote: string, reachable: boolean) =>
+    (argv: readonly string[]): Canned | undefined => {
+      const line = argv.join(' ');
+      if (line.startsWith('git ls-remote')) {
+        return reachable
+          ? { exitCode: 0, stdout: 'abc123\trefs/heads/main' }
+          : { exitCode: 128, stderr: 'fatal: could not read Username: terminal prompts disabled' };
+      }
+      if (line.includes('remote get-url')) return { exitCode: 0, stdout: remote };
+      return undefined;
+    };
+
+  it('passes when gh is installed and authenticated', async () => {
+    const respond: Responder = (argv) => {
+      const line = argv.join(' ');
+      if (line === 'gh --version') return { exitCode: 0, stdout: 'gh version 2.62.0 (2024-11-14)' };
+      if (line === 'gh auth status') return { exitCode: 0, stdout: 'Logged in' };
+      return undefined;
+    };
+
+    const installed = await find(GH_CHECKS, 'gh-installed').run(
+      context({ runCommand: fakeRunCommand(respond) }),
+    );
+    const authenticated = await find(GH_CHECKS, 'gh-authenticated').run(
+      context({ runCommand: fakeRunCommand(respond) }),
+    );
+
+    expect(installed.status).toBe('pass');
+    expect(installed.detail).toContain('2.62.0');
+    expect(authenticated.status).toBe('pass');
+  });
+
+  it('warns, never fails, for an ssh remote - that is a deploy key, not gh', async () => {
+    const result = await find(GH_CHECKS, 'gh-installed').run(
+      context({
+        repoUrl: 'git@example.test:team/app.git',
+        runCommand: fakeRunCommand(() => undefined),
+      }),
+    );
+
+    expect(result.status).toBe('warn');
+    expect(result.remedy).toContain('apt-get install gh');
+  });
+
+  it('warns for an https remote git can already read - a public repository', async () => {
+    const result = await find(GH_CHECKS, 'gh-installed').run(
+      context({
+        repoUrl: 'https://forge.test/team/app.git',
+        runCommand: fakeRunCommand(withGit('https://forge.test/team/app.git', true)),
+      }),
+    );
+
+    expect(result.status).toBe('warn');
+  });
+
+  it('promotes to fail when the https remote needs a credential git has not got', async () => {
+    const result = await find(GH_CHECKS, 'gh-installed').run(
+      context({
+        repoUrl: 'https://forge.test/team/app.git',
+        runCommand: fakeRunCommand(withGit('https://forge.test/team/app.git', false)),
+      }),
+    );
+
+    expect(result.status).toBe('fail');
+    expect(result.detail).toContain('https');
+    expect(result.remedy).toContain('apt-get install gh');
+  });
+
+  it('promotes gh-authenticated on the same reasoning, with its own remedy', async () => {
+    const promoted = await find(GH_CHECKS, 'gh-authenticated').run(
+      context({
+        repoUrl: 'https://forge.test/team/app.git',
+        runCommand: fakeRunCommand((argv) =>
+          argv.join(' ') === 'gh --version'
+            ? { exitCode: 0, stdout: 'gh version 2.62.0' }
+            : withGit('https://forge.test/team/app.git', false)(argv),
+        ),
+      }),
+    );
+
+    expect(promoted.status).toBe('fail');
+    expect(promoted.remedy).toContain('gh auth login');
+
+    const unpromoted = await find(GH_CHECKS, 'gh-authenticated').run(
+      context({
+        repoUrl: 'https://forge.test/team/app.git',
+        runCommand: fakeRunCommand((argv) =>
+          argv.join(' ') === 'gh --version'
+            ? { exitCode: 0, stdout: 'gh version 2.62.0' }
+            : withGit('https://forge.test/team/app.git', true)(argv),
+        ),
+      }),
+    );
+
+    expect(unpromoted.status).toBe('warn');
+  });
+
+  it('warns rather than promoting when no repository can be determined', async () => {
+    // Nothing is claimed from an absent answer: a probe that cannot see a
+    // remote has not established that a credential is needed.
+    const result = await find(GH_CHECKS, 'gh-installed').run(
+      context({ runCommand: fakeRunCommand(() => undefined) }),
+    );
+
+    expect(result.status).toBe('warn');
+  });
+
+  it('reads origin out of the checkout when no repository was handed over', async () => {
+    // install's preflight runs BEFORE anything is cloned, so it has no target
+    // to pass; the promotion still has to work there.
+    const seen: string[][] = [];
+    const result = await find(GH_CHECKS, 'gh-installed').run(
+      context({
+        runCommand: fakeRunCommand((argv) => {
+          seen.push([...argv]);
+          return withGit('https://forge.test/team/app.git', false)(argv);
+        }),
+      }),
+    );
+
+    expect(seen.some((argv) => argv.join(' ').includes('remote get-url origin'))).toBe(true);
+    expect(result.status).toBe('fail');
+  });
+
+  it('never prompts for a credential, and never prints the URL', async () => {
+    // A doctor run that blocks forever on a hidden username prompt is worse
+    // than one that reports nothing; and an https URL can carry a token, so
+    // only the CONCLUSION drawn from it is ever reported.
+    const envs: Array<NodeJS.ProcessEnv | undefined> = [];
+    const url = 'https://tok3n@forge.test/team/app.git';
+
+    const result = await find(GH_CHECKS, 'gh-installed').run(
+      context({
+        repoUrl: url,
+        runCommand: fakeRunCommand((argv, options) => {
+          if (argv.join(' ').startsWith('git ls-remote')) envs.push(options.env);
+          return withGit(url, false)(argv);
+        }),
+      }),
+    );
+
+    expect(envs[0]?.GIT_TERMINAL_PROMPT).toBe('0');
+    expect(`${result.detail} ${result.remedy ?? ''}`).not.toContain('tok3n');
+    expect(`${result.detail} ${result.remedy ?? ''}`).not.toContain('forge.test');
+  });
+
+  it('skips gh-authenticated when gh is not installed', async () => {
+    const results = await runChecks(
+      GH_CHECKS,
+      context({ runCommand: fakeRunCommand(() => undefined) }),
+    );
+
+    expect(results[1]?.id).toBe('gh-authenticated');
+    expect(results[1]?.status).toBe('skip');
+    expect(results[1]?.detail).toContain('gh-installed');
+  });
+});
+
+// =============================================================================
+// CREATEDB, inspected and never exercised  (issue #390, epic #388)
+// =============================================================================
+
+describe('database-create-privilege', () => {
+  it('passes when the role may create databases', async () => {
+    const result = await find(DATABASE_CHECKS, 'database-create-privilege').run(
+      context({ runCommand: fakeRunCommand(() => ({ exitCode: 0, stdout: 't' })) }),
+    );
+
+    expect(result.status).toBe('pass');
+    expect(result.detail).toContain('appuser');
+  });
+
+  it('warns, naming the grant, when it may not', async () => {
+    const result = await find(DATABASE_CHECKS, 'database-create-privilege').run(
+      context({ runCommand: fakeRunCommand(() => ({ exitCode: 0, stdout: 'f' })) }),
+    );
+
+    expect(result.status).toBe('warn');
+    expect(result.remedy).toContain('ALTER ROLE appuser CREATEDB');
+  });
+
+  it('inspects the privilege rather than testing it by creating anything', async () => {
+    // Rule 4. A leftover database from a crashed probe would be worse than
+    // having no check at all.
+    const seen: string[][] = [];
+    const envs: Array<NodeJS.ProcessEnv | undefined> = [];
+    await find(DATABASE_CHECKS, 'database-create-privilege').run(
+      context({
+        runCommand: fakeRunCommand((argv, options) => {
+          seen.push([...argv]);
+          envs.push(options.env);
+          return { exitCode: 0, stdout: 't' };
+        }),
+      }),
+    );
+
+    const flat = seen.flat().join(' ');
+    expect(flat).toContain('pg_roles');
+    expect(flat).not.toMatch(/create\s+database/i);
+    expect(flat).not.toContain('p@ss/word#1');
+    expect(envs[0]?.PGPASSWORD).toBe('p@ss/word#1');
+  });
+
+  it('defers to the credentials check rather than duplicating its failure', async () => {
+    const check = find(DATABASE_CHECKS, 'database-create-privilege');
+    expect(check.requires).toContain('database-credentials');
+
+    const unreadable = await check.run(
+      context({
+        runCommand: fakeRunCommand(() => ({ exitCode: 2, stderr: 'psql: error: FATAL: ...' })),
+      }),
+    );
+
+    expect(unreadable.status).toBe('skip');
+  });
+});
+
+// =============================================================================
+// Which mechanism owns renewal  (issue #390, epic #388)
+// =============================================================================
+
+describe('findRenewalOwner', () => {
+  const SCRIPT = RENEWAL_SCRIPT_PATHS[0] as string;
+
+  /** Nothing exists except the paths named. */
+  const onlyPaths = (...paths: readonly string[]): CheckFs => ({
+    ...absentFs,
+    exists: (path: string) => paths.includes(path),
+  });
+
+  it('reports the systemd timer when one is enabled', async () => {
+    const owner = await findRenewalOwner({
+      runCommand: fakeRunCommand((argv) =>
+        argv.join(' ').startsWith('systemctl is-enabled') ? { exitCode: 0, stdout: 'enabled' } : undefined,
+      ),
+      proxyRoot: '/opt/infra/proxy',
+      fs: absentFs,
+    });
+
+    expect(owner?.mechanism).toBe('systemd-timer');
+    expect(owner?.reference).toBe('certbot.timer');
+  });
+
+  it('reports the cron.d entry when there is no timer', async () => {
+    const owner = await findRenewalOwner({
+      runCommand: fakeRunCommand(() => undefined),
+      proxyRoot: '/opt/infra/proxy',
+      fs: onlyPaths('/etc/cron.d/certbot'),
+    });
+
+    expect(owner?.mechanism).toBe('cron-d');
+    expect(owner?.reference).toBe('/etc/cron.d/certbot');
+  });
+
+  it('reports a central script scheduled from root\'s crontab', async () => {
+    // The target server's real arrangement: one script covering every
+    // certificate on the box. Before #390 this reported "no renewal timer or
+    // cron entry found", which invites installing a second schedule against
+    // certificates something already renews.
+    const owner = await findRenewalOwner({
+      runCommand: fakeRunCommand((argv) =>
+        argv.join(' ') === 'crontab -l'
+          ? { exitCode: 0, stdout: `17 3 * * * ${SCRIPT} >> /var/log/renew.log 2>&1\n` }
+          : undefined,
+      ),
+      proxyRoot: '/opt/infra/proxy',
+      fs: onlyPaths(SCRIPT),
+    });
+
+    expect(owner?.mechanism).toBe('central-script');
+    expect(owner?.reference).toBe(SCRIPT);
+    expect(owner?.description).toContain('crontab');
+  });
+
+  it('finds a script under the proxy root, which moves with the deployment', async () => {
+    const path = '/opt/infra/proxy/renew-certs.sh';
+    const owner = await findRenewalOwner({
+      runCommand: fakeRunCommand((argv) =>
+        argv.join(' ') === 'crontab -l' ? { exitCode: 0, stdout: `0 4 * * * ${path}\n` } : undefined,
+      ),
+      proxyRoot: '/opt/infra/proxy',
+      fs: onlyPaths(path),
+    });
+
+    expect(owner?.reference).toBe(path);
+  });
+
+  it('does not count a script nothing schedules', async () => {
+    // A leftover script nobody runs is exactly the state that LOOKS like
+    // renewal and is not.
+    const owner = await findRenewalOwner({
+      runCommand: fakeRunCommand((argv) =>
+        argv.join(' ') === 'crontab -l' ? { exitCode: 0, stdout: '0 5 * * * /usr/bin/backup\n' } : undefined,
+      ),
+      proxyRoot: '/opt/infra/proxy',
+      fs: onlyPaths(SCRIPT),
+    });
+
+    expect(owner).toBeUndefined();
+  });
+
+  it('does not count a commented-out crontab line', async () => {
+    const owner = await findRenewalOwner({
+      runCommand: fakeRunCommand((argv) =>
+        argv.join(' ') === 'crontab -l' ? { exitCode: 0, stdout: `#17 3 * * * ${SCRIPT}\n` } : undefined,
+      ),
+      proxyRoot: '/opt/infra/proxy',
+      fs: onlyPaths(SCRIPT),
+    });
+
+    expect(owner).toBeUndefined();
+  });
+
+  it('is undefined when nothing owns renewal', async () => {
+    const owner = await findRenewalOwner({
+      runCommand: fakeRunCommand(() => undefined),
+      proxyRoot: '/opt/infra/proxy',
+      fs: absentFs,
+    });
+
+    expect(owner).toBeUndefined();
+  });
+});
+
+describe('certificate-renewal', () => {
+  const SCRIPT = RENEWAL_SCRIPT_PATHS[0] as string;
+
+  it('reports WHICH mechanism owns renewal, not merely that one does', async () => {
+    // #391 reads the same helper to decide whether to schedule anything of its
+    // own, so the check and the helper share one implementation and cannot
+    // disagree about what it found.
+    const result = await find(TLS_CHECKS, 'certificate-renewal').run(
+      context({
+        fs: { ...presentFs, exists: (path: string) => path.includes('fullchain') || path === SCRIPT },
+        runCommand: fakeRunCommand((argv) =>
+          argv.join(' ') === 'crontab -l' ? { exitCode: 0, stdout: `17 3 * * * ${SCRIPT}\n` } : undefined,
+        ),
+      }),
+    );
+
+    expect(result.status).toBe('pass');
+    expect(result.detail).toContain(SCRIPT);
+  });
+
+  it('passes on an enabled systemd timer', async () => {
+    const result = await find(TLS_CHECKS, 'certificate-renewal').run(
+      context({
+        runCommand: fakeRunCommand((argv) =>
+          argv.join(' ').startsWith('systemctl is-enabled') ? { exitCode: 0, stdout: 'enabled' } : undefined,
+        ),
+      }),
+    );
+
+    expect(result.status).toBe('pass');
+    expect(result.detail).toContain('certbot.timer');
+  });
+
+  it('skips when there is no domain, and when nothing has been issued', async () => {
+    expect(
+      (await find(TLS_CHECKS, 'certificate-renewal').run(context({ domain: undefined }))).status,
+    ).toBe('skip');
+    expect(
+      (await find(TLS_CHECKS, 'certificate-renewal').run(context({ fs: absentFs }))).status,
+    ).toBe('skip');
   });
 });
 

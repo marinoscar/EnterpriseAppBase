@@ -280,8 +280,11 @@ export {
 // keeping a second list that drifts.
 export {
   ALL_CHECKS,
+  GH_CHECKS,
   HOST_CHECKS,
+  RENEWAL_SCRIPT_PATHS,
   checksPassed,
+  findRenewalOwner,
   isLoopbackPortFree,
   isPortListening,
   requiredChecks,
@@ -297,6 +300,12 @@ export type {
   CheckSummary,
   CompletedCheck,
 } from './deploy/checks/index.js';
+
+// The renewal OWNER (#390), not a boolean. #391's install pipeline reads this
+// to decide whether to schedule renewal of its own; "something already owns
+// this" is the answer that stops it installing a second schedule against
+// certificates a central script is already renewing.
+export type { RenewalMechanism, RenewalOwner, RenewalProbeContext } from './deploy/checks/index.js';
 
 // Working out what to deploy without naming a repository (#179) - the other
 // half of the template-safety property, alongside the env spec.

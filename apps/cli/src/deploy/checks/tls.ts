@@ -1,5 +1,11 @@
-import type { Check, CheckContext, CheckResult } from './types.js';
-import { contextFs, contextProxyRuntime, contextReadDir, contextReadFile } from './types.js';
+import type { Check, CheckContext, CheckFs, CheckResult } from './types.js';
+import {
+  contextFs,
+  contextProxyRuntime,
+  contextReadDir,
+  contextReadFile,
+  realFs,
+} from './types.js';
 
 // =============================================================================
 // The certificate, if there is one yet  (issue #177, epic #168)
@@ -123,6 +129,130 @@ const certificateValidity: Check = {
   },
 };
 
+// =============================================================================
+// WHO OWNS RENEWAL  (issue #390, epic #388)
+// =============================================================================
+//
+// Until #390 this check knew two mechanisms: a systemd `certbot.timer` and
+// `/etc/cron.d/certbot`. On the target server neither exists - renewal is a
+// single script covering EVERY certificate on the box, scheduled from root's
+// crontab - so the check reported "no renewal timer or cron entry found"
+// against a server whose certificates renew perfectly well.
+//
+// That false warning is worse than a missing check, because the obvious
+// response to it is to install a second schedule against the same
+// certificates. Two renewers racing on one `letsencrypt/live` tree is a real
+// failure mode, and doctor would have invited it.
+//
+// THE RESULT IS AN OWNER, NOT A BOOLEAN. Issue #391's install pipeline reads
+// this to decide whether to schedule anything of its own, and "something
+// already owns this" is the answer that stops it. The check itself has no
+// second implementation: it calls `findRenewalOwner` and formats whatever
+// comes back, so the thing doctor reports and the thing install consumes
+// cannot drift apart.
+// =============================================================================
+
+/** How renewal is scheduled on this host. */
+export type RenewalMechanism = 'systemd-timer' | 'cron-d' | 'central-script';
+
+export interface RenewalOwner {
+  mechanism: RenewalMechanism;
+  /** The unit or path that owns it. A name or a path; never a secret. */
+  reference: string;
+  /** One line, for a check detail or an install log. */
+  description: string;
+}
+
+/**
+ * Where a host-wide renewal script conventionally lives.
+ *
+ * THESE ARE VALUES, NOT A PRODUCT ASSUMPTION - the same reason `repo.ts` names
+ * no repository. A fork that keeps its renewal script somewhere else is not
+ * broken; it simply falls through to the warning, exactly as a server with no
+ * renewal at all does, and nothing here silently assumes a vendor's layout.
+ * `<proxyRoot>/renew-certs.sh` is appended at probe time, because the shared
+ * proxy directory is the one location that moves with the deployment.
+ */
+export const RENEWAL_SCRIPT_PATHS: readonly string[] = [
+  '/usr/local/bin/renew-certs.sh',
+  '/usr/local/sbin/renew-certs.sh',
+  '/opt/infra/renew-certs.sh',
+];
+
+/** Only what `findRenewalOwner` needs, so #391 can call it without a full context. */
+export type RenewalProbeContext = Pick<CheckContext, 'runCommand' | 'proxyRoot'> & {
+  fs?: CheckFs | undefined;
+};
+
+/** True when a live (uncommented) crontab line invokes `path`. */
+function crontabInvokes(crontab: string, path: string): boolean {
+  return crontab
+    .split('\n')
+    // A commented-out entry schedules nothing. Treating one as an owner would
+    // report renewal as handled by a line that has been disabled, which is the
+    // single most expensive way for this check to be wrong.
+    .some((line) => !line.trimStart().startsWith('#') && line.includes(path));
+}
+
+/**
+ * The mechanism that owns certificate renewal on this host, if any.
+ *
+ * Read-only throughout: `systemctl is-enabled` queries, `crontab -l` lists, and
+ * the script itself is only stat'ed. Nothing is installed, enabled or written.
+ */
+export async function findRenewalOwner(
+  context: RenewalProbeContext,
+): Promise<RenewalOwner | undefined> {
+  const fs = context.fs ?? realFs;
+
+  const timer = await context
+    .runCommand(['systemctl', 'is-enabled', 'certbot.timer'], {
+      cwd: process.cwd(),
+      timeoutMs: 15_000,
+    })
+    .then(() => true)
+    .catch(() => false);
+
+  if (timer) {
+    return {
+      mechanism: 'systemd-timer',
+      reference: 'certbot.timer',
+      description: 'certbot.timer is enabled',
+    };
+  }
+
+  if (fs.exists('/etc/cron.d/certbot')) {
+    return {
+      mechanism: 'cron-d',
+      reference: '/etc/cron.d/certbot',
+      description: '/etc/cron.d/certbot',
+    };
+  }
+
+  // A script on disk is not a schedule. BOTH halves are required - the file has
+  // to exist AND something has to run it - because a leftover script nobody
+  // calls is precisely the state that looks like renewal and is not.
+  const candidates = [...RENEWAL_SCRIPT_PATHS, `${context.proxyRoot}/renew-certs.sh`];
+  const present = candidates.filter((path) => fs.exists(path));
+  if (present.length === 0) return undefined;
+
+  const crontab = await context
+    .runCommand(['crontab', '-l'], { cwd: process.cwd(), timeoutMs: 15_000 })
+    .then((result) => result.stdout)
+    // No crontab at all exits non-zero; so does having no permission to read
+    // one. Neither is an owner, and neither is an error worth reporting here.
+    .catch(() => '');
+
+  const scheduled = present.find((path) => crontabInvokes(crontab, path));
+  if (scheduled === undefined) return undefined;
+
+  return {
+    mechanism: 'central-script',
+    reference: scheduled,
+    description: `${scheduled}, scheduled from root's crontab`,
+  };
+}
+
 const certificateRenewal: Check = {
   id: 'certificate-renewal',
   title: 'Automatic renewal',
@@ -136,22 +266,14 @@ const certificateRenewal: Check = {
       return { status: 'skip', detail: 'nothing to renew yet' };
     }
 
-    const timer = await context
-      .runCommand(['systemctl', 'is-enabled', 'certbot.timer'], {
-        cwd: process.cwd(),
-        timeoutMs: 15_000,
-      })
-      .then(() => true)
-      .catch(() => false);
-
-    if (timer) return { status: 'pass', detail: 'certbot.timer is enabled' };
-
-    const cron = contextFs(context).exists('/etc/cron.d/certbot');
-    if (cron) return { status: 'pass', detail: '/etc/cron.d/certbot' };
+    const owner = await findRenewalOwner(context);
+    if (owner !== undefined) {
+      return { status: 'pass', detail: owner.description };
+    }
 
     return {
       status: 'warn',
-      detail: 'no renewal timer or cron entry found',
+      detail: 'no renewal timer, cron entry or scheduled renewal script found',
       // A certificate nobody renews is a 90-day timer on an outage.
       remedy: 'Set up automatic renewal, or the site breaks 90 days from issuance with no warning.',
     };
