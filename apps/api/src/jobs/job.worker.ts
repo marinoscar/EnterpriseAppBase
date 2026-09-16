@@ -870,7 +870,18 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
         // node, so the row it may renew is one no node holds. If the reaper
         // requeued it and a NODE took it, this renewal correctly stops
         // landing — see `heldLeaseWhere`.
-        held = await this.leases.renew(job.id, leaseMs, null);
+        //
+        // `job.claimToken` is THIS CLAIM'S IDENTITY (#361), and passing it is
+        // the whole of that fix on this side. `job` is the row this worker's
+        // own claim statement returned, so its token was minted for this claim
+        // of this row and nothing else. Without it, a renewal from a worker
+        // whose job was reaped and re-claimed BY ANOTHER API REPLICA would
+        // still match — every replica claims with `claimedByNodeId: null` —
+        // and this worker would go on extending a lease it no longer owns.
+        held = await this.leases.renew(job.id, leaseMs, {
+          nodeId: null,
+          claimToken: job.claimToken,
+        });
       } catch (error) {
         // A TRANSIENT DATABASE FAILURE IS NOT A LOST LEASE. The lease is
         // three renewal intervals long by construction
@@ -893,7 +904,9 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
         this.logger.error(
           `Job ${job.id} (${job.type}) is no longer held by this worker: its lease could ` +
             'not be renewed, so the row was reaped, settled, or claimed by another ' +
-            'executor. This worker will finish the work it started (JavaScript cannot ' +
+            'executor — including another API replica, which the per-claim token ' +
+            'now genuinely detects rather than silently mistaking for this claim ' +
+            '(#361). This worker will finish the work it started (JavaScript cannot ' +
             'cancel it) but will stop renewing, and whatever it reports may be refused.'
         );
 

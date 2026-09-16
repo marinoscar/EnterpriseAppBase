@@ -283,6 +283,7 @@ describe('JobStuckService.resetStuck', () => {
     expect(requeue.data).toEqual({
       status: 'pending',
       claimedByNodeId: null,
+      claimToken: null,
       leaseExpiresAt: null,
       executor: null,
       scheduledFor: null,

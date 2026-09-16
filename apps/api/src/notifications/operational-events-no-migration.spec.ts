@@ -50,6 +50,10 @@ const MIGRATIONS_AT_288 = [
   // wrote the archive, which only matters once a machine this API cannot
   // inspect can be the one that wrote it. Also not about notifications.
   '20260907160000_add_backup_run_pg_dump_version',
+  // #361: `jobs.claim_token` — per-claim identity, so two API replicas holding
+  // the same job at different times can be told apart. A schema change, and
+  // about the queue's lease ownership rather than about notifications.
+  '20260908120000_add_job_claim_token',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');

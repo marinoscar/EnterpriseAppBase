@@ -425,6 +425,7 @@ export class JobStuckService {
           // thing you want to still know later — matching
           // `JobTerminalService.failPermanently`.
           claimedByNodeId: null,
+          claimToken: null,
           leaseExpiresAt: null,
         },
       });
@@ -471,6 +472,7 @@ export class JobStuckService {
           // possibly by the other side entirely, and a stale "node" on a job the
           // server is about to run is a lie rather than history.
           claimedByNodeId: null,
+          claimToken: null,
           leaseExpiresAt: null,
           executor: null,
           // Eligible immediately — the job has already waited out the whole

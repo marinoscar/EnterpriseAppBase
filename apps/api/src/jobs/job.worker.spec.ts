@@ -69,6 +69,10 @@ function claimedJob(type: string, overrides: Partial<Job> = {}): Job {
     status: 'running',
     attempts: 1,
     payload: null,
+    // The per-claim token (#361) the worker passes back to `renew`. `null` is
+    // the shape a row claimed before that column existed has, and it is a
+    // value the predicate genuinely matches on — not a stand-in for absent.
+    claimToken: null,
     ...overrides,
   } as Job;
 }
@@ -989,7 +993,10 @@ describe('JobWorker', () => {
 
       // THE ARGUMENTS ARE THE CONTRACT: the job's own id, the SAME lease the
       // claim took, and a `null` node id (this worker claimed as `server`).
-      expect(renew).toHaveBeenCalledWith('job-test.long', 3_600_000, null);
+      expect(renew).toHaveBeenCalledWith('job-test.long', 3_600_000, {
+        nodeId: null,
+        claimToken: null,
+      });
 
       // It keeps going — a job that renewed once and stopped is a job the
       // reaper takes away a lease later.
@@ -1004,6 +1011,43 @@ describe('JobWorker', () => {
       const settled = renew.mock.calls.length;
       await jest.advanceTimersByTimeAsync(5 * 60_000);
       expect(renew).toHaveBeenCalledTimes(settled);
+    });
+
+    it('renews with THIS JOB’S OWN claim token, not null or undefined (#361)', async () => {
+      jest.useFakeTimers();
+
+      // Every other case in this describe block uses `claimedJob`'s default
+      // `claimToken: null`, which is also what a valid renewal call with NO
+      // token at all happens to look like — so those cases would keep passing
+      // even if the worker stopped forwarding `job.claimToken` altogether and
+      // hard-coded `null` instead. A REAL value is the only fixture that can
+      // actually fail if that field is dropped from the call.
+      const { worker, registry, renew } = makeWorker({ 'jobs.jobTimeoutMs': 0 });
+
+      const realToken = '3f1a0f4e-0000-4000-8000-0000000000cc';
+
+      let finish: () => void = () => undefined;
+      registry.register(
+        handler(
+          'test.tokened',
+          () =>
+            new Promise<void>((resolve) => {
+              finish = resolve;
+            })
+        )
+      );
+
+      const run = worker.runJob(claimedJob('test.tokened', { claimToken: realToken }));
+
+      await jest.advanceTimersByTimeAsync(60_000);
+
+      expect(renew).toHaveBeenCalledWith('job-test.tokened', 3_600_000, {
+        nodeId: null,
+        claimToken: realToken,
+      });
+
+      finish();
+      await expect(run).resolves.toBe('succeeded');
     });
 
     it('renews on the TYPE’s lease when it has a profile, not the deployment’s', async () => {
@@ -1033,7 +1077,10 @@ describe('JobWorker', () => {
       expect(renew).not.toHaveBeenCalled();
 
       await jest.advanceTimersByTimeAsync(30_000);
-      expect(renew).toHaveBeenCalledWith('job-test.profiled', 3_600_000, null);
+      expect(renew).toHaveBeenCalledWith('job-test.profiled', 3_600_000, {
+        nodeId: null,
+        claimToken: null,
+      });
 
       finish();
       await run;
