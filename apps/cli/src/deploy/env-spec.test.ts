@@ -55,8 +55,8 @@ const FIXTURE = [
   'HASH_MARK=a#b',
   'QUOTED="  spaced  "',
   'EMPTY=',
-  '# Optional: for MinIO',
-  '# S3_ENDPOINT=http://localhost:9000',
+  '# Optional: only set when overriding the default.',
+  '# OPTIONAL_ENDPOINT=http://localhost:9000',
   '# Example: openssl rand -base64 32',
   '# Set this to true if needed:',
   'PLAIN=value',
@@ -108,7 +108,7 @@ describe('parseEnvExample', () => {
       'HASH_MARK',
       'QUOTED',
       'EMPTY',
-      'S3_ENDPOINT',
+      'OPTIONAL_ENDPOINT',
       'PLAIN',
     ]);
   });
@@ -152,8 +152,8 @@ describe('parseEnvExample', () => {
   });
 
   it('reads a commented-out assignment as an optional variable', () => {
-    expect(byKey.get('S3_ENDPOINT')?.optional).toBe(true);
-    expect(byKey.get('S3_ENDPOINT')?.defaultValue).toBe('http://localhost:9000');
+    expect(byKey.get('OPTIONAL_ENDPOINT')?.optional).toBe(true);
+    expect(byKey.get('OPTIONAL_ENDPOINT')?.defaultValue).toBe('http://localhost:9000');
   });
 
   it('marks an uncommented key as not optional', () => {

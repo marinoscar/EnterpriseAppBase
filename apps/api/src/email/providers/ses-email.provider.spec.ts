@@ -158,7 +158,7 @@ describe('SesEmailProvider', () => {
       expect(result).toEqual({
         success: false,
         error:
-          'SES: No SES region is configured. Set the SES region in email settings, or S3_REGION in the environment.',
+          'SES: No SES region is configured. Set the SES region in email settings, or SES_REGION in the environment.',
       });
       expect(sesConstructorMock).not.toHaveBeenCalled();
       // The whole point of this test: an unconfigured region must never
@@ -172,7 +172,7 @@ describe('SesEmailProvider', () => {
   // ==========================================================================
 
   describe('region resolution', () => {
-    it('prefers email.sesRegion from settings over the S3_REGION environment fallback', async () => {
+    it('prefers email.sesRegion from settings over the SES_REGION environment fallback', async () => {
       const provider = new SesEmailProvider(
         makeConfig({
           'email.awsAccessKeyId': 'AKIAEXAMPLE',
@@ -190,7 +190,7 @@ describe('SesEmailProvider', () => {
       );
     });
 
-    it('falls back to S3_REGION when no email.sesRegion setting is configured', async () => {
+    it('falls back to SES_REGION when no email.sesRegion setting is configured', async () => {
       const provider = new SesEmailProvider(
         makeConfig({
           'email.awsAccessKeyId': 'AKIAEXAMPLE',

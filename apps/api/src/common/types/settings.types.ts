@@ -236,13 +236,12 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettingsValue = {
   // Storage provider configuration (#373, epic #372)
   // ---------------------------------------------------------------------------
   //
-  // UNCONFIGURED, and inert in exactly the sense the operations defaults above
-  // are: `provider: 's3'` names the shape the empty fields would be filled in
-  // for, and every field that would actually make a request go somewhere is
-  // empty. Nothing in this build reads these values — the storage provider is
-  // still built from `STORAGE_PROVIDER`/`S3_*` environment variables — so this
-  // block changes no behaviour on upgrade, which is the whole point of landing
-  // the six declaration sites before the consumer.
+  // UNCONFIGURED: `provider: 's3'` names the shape the empty fields would be
+  // filled in for, and every field that would actually make a request go
+  // somewhere is empty. These are now the ONLY source of a storage
+  // configuration — `STORAGE_PROVIDER`/`S3_*` were removed in #377 — so a fresh
+  // deployment refuses storage operations with a 503 naming the empty fields
+  // until an administrator fills them in at /admin/settings/storage.
   //
   // `'s3'` rather than `null` because `provider` is a closed enum with no "none"
   // member: "no storage configured" is `bucket === ''`, one question with one

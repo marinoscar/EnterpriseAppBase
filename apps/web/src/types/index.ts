@@ -680,7 +680,7 @@ export interface EmailSettings {
    */
   enabled: boolean;
 
-  /** SES region override, e.g. `us-east-1`. Absent means the deployment's `S3_REGION`. */
+  /** SES region override, e.g. `us-east-1`. Absent means the deployment's `SES_REGION`. */
   sesRegion?: string;
 
   smtpHost?: string;

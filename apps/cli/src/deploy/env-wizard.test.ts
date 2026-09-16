@@ -92,9 +92,9 @@ const TEMPLATE = [
   'TEST_AUTH_ENABLED=false',
   '',
   '# ------------------------------------------------------------',
-  '# Storage',
+  '# Email (Amazon SES)',
   '# ------------------------------------------------------------',
-  'S3_BUCKET=your-bucket-name',
+  'SES_REGION=us-east-1',
 ].join('\n');
 
 const SPECS = parseEnvExample(TEMPLATE);
@@ -205,7 +205,7 @@ describe('runEnvWizard', () => {
       ctx,
     });
 
-    expect(values.has('S3_BUCKET')).toBe(false);
+    expect(values.has('SES_REGION')).toBe(false);
   });
 
   it('includes a group when asked for it', async () => {
@@ -213,12 +213,12 @@ describe('runEnvWizard', () => {
     const { values } = await runEnvWizard({
       specs: SPECS,
       domain: 'app.example.test',
-      groups: ['storage'],
+      groups: ['email'],
       ctx,
     });
 
     // Not essential, so it takes the template default rather than prompting.
-    expect(values.get('S3_BUCKET')).toBe('your-bucket-name');
+    expect(values.get('SES_REGION')).toBe('us-east-1');
   });
 
   it('uses existing values as defaults and does not re-ask for a secret', async () => {
@@ -275,7 +275,7 @@ describe('runEnvWizard', () => {
       'appdb',
       'n', // decline generation
       'a-perfectly-long-replacement-secret-value',
-      'bucket-name',
+      'eu-west-1',
       'y', // review
     ]);
 
@@ -283,7 +283,7 @@ describe('runEnvWizard', () => {
       specs: SPECS,
       domain: 'app.example.test',
       all: true,
-      groups: ['storage'],
+      groups: ['email'],
       ctx,
     });
 

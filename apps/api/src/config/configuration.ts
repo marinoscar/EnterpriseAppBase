@@ -261,16 +261,23 @@ export default () => {
     serviceName: resolveServiceName(),
   },
 
-  // Storage Configuration
+  // Storage limits (issue #377, epic #372)
+  //
+  // ⚠ DEPLOYMENT LIMITS ONLY — THERE IS NO STORAGE CONFIGURATION HERE, AND
+  // THERE MUST NEVER BE ONE AGAIN. Which bucket, which region, which endpoint,
+  // which provider and which credential are all `system_settings.storage` plus
+  // the encrypted credential store, edited at `/admin/settings/storage` with no
+  // restart, and resolved in exactly one place
+  // (`storage/config/storage-config.ts`). Epic #372 removed `STORAGE_PROVIDER`,
+  // `S3_BUCKET`, `S3_REGION` and `S3_ENDPOINT`; adding any of them back here
+  // would restore the two-sources-of-truth ambiguity the epic existed to end.
+  //
+  // What remains are four numbers and a list that bound what this DEPLOYMENT
+  // will accept or issue — how large an upload may be, which media types are
+  // allowed, how long a signed URL lives, how big a multipart part is. None of
+  // them names a storage account, none of them is a secret, and none of them
+  // changes where bytes go.
   storage: {
-    provider: process.env.STORAGE_PROVIDER || 's3',
-    s3: {
-      bucket: process.env.S3_BUCKET || '',
-      region: process.env.S3_REGION || 'us-east-1',
-      accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
-      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
-      endpoint: process.env.S3_ENDPOINT || undefined,
-    },
     maxFileSize: parseInt(process.env.MAX_FILE_SIZE || '10737418240', 10), // 10GB default
     allowedMimeTypes: (
       process.env.ALLOWED_MIME_TYPES || 'image/*,application/pdf,video/*'
@@ -279,30 +286,34 @@ export default () => {
     partSize: parseInt(process.env.STORAGE_PART_SIZE || '10485760', 10), // 10MB default
   },
 
-  // Email transports (issue #122, epic #109)
+  // Email transports (issue #122, epic #109; decoupled from storage by #377)
   //
-  // NO NEW SECRET IS INTRODUCED HERE. SES reuses the AWS credentials this
-  // deployment already has in its environment for S3 — the same two variables,
-  // read again, so an operator who has storage working has email working with
-  // no additional key to issue, rotate, or leak.
+  // THESE THREE VARIABLES BELONG TO EMAIL ALONE. `AWS_ACCESS_KEY_ID` and
+  // `AWS_SECRET_ACCESS_KEY` were once shared with the S3 storage provider —
+  // the same two variables, read twice — and the block that used to stand here
+  // said email read them from `process.env` directly rather than from
+  // `storage.s3.*` precisely so email would not break "the day someone gives
+  // storage its own credential source". Epic #372 was that day: storage now
+  // holds its own key in the encrypted credential store, `storage.s3.*` no
+  // longer exists, and nothing below is shared with anything.
   //
-  // Read from `process.env` DIRECTLY rather than from `storage.s3.*` above,
-  // deliberately. What email shares with storage is the ENVIRONMENT, not
-  // storage's configuration: pointing email at `storage.s3` would make it
-  // break the day someone gives storage its own credential source, and it is
-  // the same coupling epic #109 explicitly rejects (MemoriaHub's SES provider
-  // reads the S3 storage provider's database credentials, so email silently
-  // depends on storage being configured at all).
+  // ⚠ `sesRegionFallback` READS `SES_REGION`, NOT `S3_REGION` (changed in
+  // #377). A deployment that relied on `S3_REGION` to region SES, and has not
+  // set `sesRegion` in the `email` settings namespace, must now set
+  // `SES_REGION`.
   //
-  // `sesRegionFallback` has NO DEFAULT, unlike `storage.s3.region`. A wrong
-  // region does not fail as "wrong region": SES answers that the sending
-  // identity is not verified, because the identity is verified in the region
-  // the admin actually uses. An unset region reported as "SES region is not
-  // configured" is a far better error than us-east-1 guessing wrong.
+  // IT STILL HAS NO DEFAULT, and must not acquire one. A wrong region does not
+  // fail as "wrong region": SES answers that the sending identity is not
+  // verified, because the identity is verified in the region the admin actually
+  // uses. An unset region reported as "SES region is not configured" is a far
+  // better error than us-east-1 guessing wrong.
+  //
+  // It remains a FALLBACK: `email.sesRegion` in the settings namespace is what
+  // an administrator edits, and this is only consulted when that is empty.
   email: {
     awsAccessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
     awsSecretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
-    sesRegionFallback: process.env.S3_REGION || '',
+    sesRegionFallback: process.env.SES_REGION || '',
   },
 
   logLevel: process.env.LOG_LEVEL || 'info',

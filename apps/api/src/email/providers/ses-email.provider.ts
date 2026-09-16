@@ -149,7 +149,7 @@ export class SesEmailProvider extends BaseEmailProvider {
 
     if (!region) {
       throw new Error(
-        'No SES region is configured. Set the SES region in email settings, or S3_REGION in the environment.',
+        'No SES region is configured. Set the SES region in email settings, or SES_REGION in the environment.',
       );
     }
 

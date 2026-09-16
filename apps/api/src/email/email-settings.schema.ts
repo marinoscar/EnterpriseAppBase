@@ -59,10 +59,12 @@ export const emailSettingsSchema = z.object({
   /**
    * SES region override.
    *
-   * Absent means "use `S3_REGION` from the environment" — see
-   * ses-email.provider.ts. It exists because the mail region and the bucket
-   * region genuinely differ in practice: SES is not available in every region,
-   * and a verified sending identity is regional.
+   * Absent means "use `SES_REGION` from the environment" — see
+   * ses-email.provider.ts. (It was `S3_REGION` until issue #377, epic #372,
+   * which gave object storage its own credential source and left SES the only
+   * consumer of these variables.) The override exists because the mail region
+   * and the storage region genuinely differ in practice: SES is not available
+   * in every region, and a verified sending identity is regional.
    */
   sesRegion: z.string().trim().min(1).optional(),
 

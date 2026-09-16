@@ -9,13 +9,10 @@
 // Nest-free, for the same reason `storage-config.ts` is pure: the rules can then
 // be exercised with a literal and a string.
 //
-// ⚠ NOTHING HERE READS `process.env`, AND NOTHING HERE TOUCHES THE #377 ENV
-// BRIDGE. `resolveStorageConfig` is called with TWO arguments, never three, so
-// a deployment still running on the deprecated environment variables gets a
-// test result about THE CONFIGURATION IT IS BEING ASKED TO TEST — the one in
-// the request body — rather than one silently repaired from variables the admin
-// cannot see on the page. When #377 deletes the bridge, nothing in this file
-// changes.
+// ⚠ NOTHING HERE READS `process.env`. A probe reports on THE CONFIGURATION IT
+// IS BEING ASKED TO TEST — the one in the request body — and there is nowhere
+// else a value could be quietly supplied from: `resolveStorageConfig` takes the
+// submitted policy and the submitted (or stored) secret, and nothing else.
 // =============================================================================
 
 import type { S3ServiceException } from '@aws-sdk/client-s3';
@@ -72,11 +69,12 @@ export function submittedStoragePolicy(input: {
 }
 
 /**
- * Resolve a submitted configuration against a secret, with NO environment
- * fallback.
+ * Resolve a submitted configuration against a secret.
  *
- * Two arguments, never three — see this file's header for why the #377 bridge
- * must not reach a probe.
+ * A one-line pass-through to `resolveStorageConfig`, and named so that the two
+ * probe endpoints read as testing a SUBMITTED configuration rather than the
+ * saved one. There is exactly one definition of "configured" — see this file's
+ * header.
  */
 export function resolveSubmittedStorageConfig(
   policy: SubmittedStoragePolicy,
