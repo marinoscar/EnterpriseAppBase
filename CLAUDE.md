@@ -680,10 +680,12 @@ and [`docs/runbooks/vapid-keys.md`](docs/runbooks/vapid-keys.md).
   **exactly while the row is claimed** — every un-claim path (settle, the lease reaper, a
   retry reset) clears it alongside `claimedByNodeId`/`leaseExpiresAt`. Not published by the
   admin job list (`JOB_LIST_SELECT` omits it, same as `payload`) — it is internal ownership
-  machinery, not something an operator reads. The node control plane is deliberately **not**
-  token-matched (it already reads the row it would compare against, so the check would be a
-  tautology); see `docs/specs/job-queue.md` §6.9 for the full argument, the residual node-side
-  hole, and why a rolling deploy only narrows rather than closes it.
+  machinery, not something an operator reads. The node control plane is token-matched too
+  (issue #364): the claim response hands the token to the node, which quotes it back on all
+  six routes that speak for a held job, so a node's own stalled-and-re-claimed slot can no
+  longer renew or settle the run its newer slot is executing. See `docs/specs/job-queue.md`
+  §6.9 for the full argument, including why an un-upgraded node stays exactly as
+  self-ambiguous as before until it upgrades.
 - `job_stats_rollup` - One row per job type, incrementally accumulating succeeded/failed
   counts and duration sums so lifetime stats survive the history purge. `sumDurationMs` is
   `Float`, not `BigInt`, to avoid crashing `JSON.stringify` at read time.

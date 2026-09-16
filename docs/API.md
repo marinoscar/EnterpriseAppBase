@@ -1862,26 +1862,33 @@ Claims up to the node's `concurrency` runnable jobs under a server-derived lease
     "jobs": [
       {
         "job": { "id": "uuid", "type": "example.checksum", "subjectType": "storage_object", "subjectId": "uuid", "priority": 0, "attempts": 1, "startedAt": "2024-01-01T00:00:00.000Z", "leaseExpiresAt": "2024-01-01T00:10:00.000Z" },
-        "params": { "objectId": "uuid" }
+        "params": { "objectId": "uuid" },
+        "renewIntervalMs": 200000,
+        "claimToken": "b3f1e2a0-...-uuid"
       }
     ]
   }
 }
 ```
 
-**Note:** An empty `jobs` array is the common, non-error answer. Presigned data-plane URLs are **not** included here — see `download-url`/`upload-url` below; minting them at claim time would spend a short expiry on the wrong clock.
+**Note:** An empty `jobs` array is the common, non-error answer. Presigned data-plane URLs are **not** included here — see `download-url`/`upload-url` below; minting them at claim time would spend a short expiry on the wrong clock. `claimToken` (issue #364) identifies *this claim* of the job, not merely this node — quote it back on any of the six routes below that speak for a held job (`renew`, `download-url`, `upload-url`, `secret`, `result`, `failure`) and the server can tell this claim apart from a later one by the same node, which is what stops a stalled-and-re-claimed node from renewing or settling a run its newer claim is executing. Optional to send back: omitting it is refused nothing and gets the older, node-id-only behavior.
 
 ##### POST /nodes/:id/jobs/:jobId/renew
-Extends the lease by the server's lease interval. `409` once the lease has already expired.
+Extends the lease by the server's lease interval. `409` once the lease has already expired, or — when the body quotes `claimToken` — once this is no longer that claim of the job.
+
+**Request Body (optional):**
+```json
+{ "claimToken": "b3f1e2a0-...-uuid" }
+```
 
 ##### POST /nodes/:id/jobs/:jobId/download-url
-Signed **GET** for the job's input object, fetched directly from the storage provider — bytes never pass through this API. `409` on an expired lease; `422` when the job names no resolvable input (permanent — report `failure`, do not retry).
+Signed **GET** for the job's input object, fetched directly from the storage provider — bytes never pass through this API. `409` on an expired lease (or a stale `claimToken`); `422` when the job names no resolvable input (permanent — report `failure`, do not retry). Body is optional; its only field is `claimToken`.
 
 ##### POST /nodes/:id/jobs/:jobId/upload-url
-Signed **PUT** for one whole object, plus **the key the server chose** — a node-supplied `key` is refused with 400 (a signed PUT is an unconditional overwrite; a node-chosen key is a write primitive over the whole bucket).
+Signed **PUT** for one whole object, plus **the key the server chose** — a node-supplied `key` is refused with 400 (a signed PUT is an unconditional overwrite; a node-chosen key is a write primitive over the whole bucket). Also accepts `claimToken`; `409` on a stale one — with a type that derives its own output key, an unrefused stale claim would be signed for the exact key its node's newer claim is writing.
 
 ##### POST /nodes/:id/jobs/:jobId/secret
-Issues the one short-lived, job-scoped credential this job's type declares it needs (epic #345, issue #349) — e.g. the PostgreSQL role `db.backup.run` needs to run `pg_dump`. Bounded by the job's own lease (never a second clock of its own), returned **once**, and revoked when the job settles or by the periodic sweep. Send an empty body — any field is refused with `400`. Re-callable while the lease is live: the same grant is extended, never a second one issued.
+Issues the one short-lived, job-scoped credential this job's type declares it needs (epic #345, issue #349) — e.g. the PostgreSQL role `db.backup.run` needs to run `pg_dump`. Bounded by the job's own lease (never a second clock of its own), returned **once**, and revoked when the job settles or by the periodic sweep. Send an empty body, or one carrying only `claimToken` — any other field is refused with `400`. `409` on a stale `claimToken`: a credential is never minted for a claim the row no longer carries. Re-callable while the lease is live: the same grant is extended, never a second one issued.
 
 **Response:** `material`'s shape is the broker's own business, passed through uninterpreted — discrete fields, deliberately never a single DSN string (a `postgresql://user:pass@host/db` is one accidental log line from a leaked password).
 ```json
@@ -1895,14 +1902,14 @@ Issues the one short-lived, job-scoped credential this job's type declares it ne
 ```
 
 **Error Cases:**
-- 400 Bad Request - The request body carried a field a node may not set (send an empty body)
+- 400 Bad Request - The request body carried a field a node may not set (send an empty body, or one carrying only `claimToken`)
 - 403 Forbidden - This deployment does not issue per-job credentials at all (`nodes.jobSecretBrokerEnabled` is off)
 - 404 Not Found - This job's type declares no secret broker (will not change on a retry)
-- 409 Conflict - The lease has already expired; drop the work
+- 409 Conflict - The lease has already expired, or (with a quoted `claimToken`) this is no longer that claim; drop the work
 - 503 Service Unavailable - The broker exists but cannot mint a credential right now, carrying an operator-facing `remedy` in `details` (a database that cannot grant `CREATEROLE` is the ordinary case — see [`docs/runbooks/node-job-secrets.md`](runbooks/node-job-secrets.md))
 
 ##### POST /nodes/:id/jobs/:jobId/result
-Submits a result, validated against the handler's `nodeResultSchema` and persisted through `persistNodeResult`. `400` on a type mismatch, a non-node-persistable type, or a schema failure; `409` on an expired lease (nothing persisted); `500` if persisting threw (the server already settled the job through its own failure path — do not resubmit).
+Submits a result, validated against the handler's `nodeResultSchema` and persisted through `persistNodeResult`. `400` on a type mismatch, a non-node-persistable type, or a schema failure; `409` on an expired lease, or a `claimToken` no longer on the row (nothing persisted either way); `500` if persisting threw (the server already settled the job through its own failure path — do not resubmit). Accepts `claimToken` alongside `type`/`result` — a stale claim's result must not settle a job a newer claim is still running.
 
 **Response:**
 ```json
@@ -1910,11 +1917,11 @@ Submits a result, validated against the handler's `nodeResultSchema` and persist
 ```
 
 ##### POST /nodes/:id/jobs/:jobId/failure
-Reports a failure through the same terminal state machine a thrown error in `process()` uses. `rateLimited: true` defers rather than charging an attempt.
+Reports a failure through the same terminal state machine a thrown error in `process()` uses. `rateLimited: true` defers rather than charging an attempt. Accepts `claimToken` for the same reason `result` does — a stale claim's failure must not settle a job a newer claim is still running fine.
 
 **Request Body:**
 ```json
-{ "error": "provider returned 429", "rateLimited": true, "retryAfterMs": 30000 }
+{ "error": "provider returned 429", "rateLimited": true, "retryAfterMs": 30000, "claimToken": "b3f1e2a0-...-uuid" }
 ```
 
 **Response:** same `JobSettlementResponseDto` shape as `result` above. `willRetry` in the response is the **server's** decision — a `willRetry` sent in the request is advisory only.

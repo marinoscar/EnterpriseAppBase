@@ -1245,7 +1245,7 @@ away from the log line that explains it.
 Nothing should reach it: it has no method a feature module wants, and a module
 that could inject it could stop the pool.
 
-### 6.9 In-process lease renewal, and the per-claim token that makes it safe across replicas (#347, #361, epic #345)
+### 6.9 In-process lease renewal, and the per-claim token that makes it safe across replicas — and across a node's own re-claim (#347, epic #345; #361; #364, epic #254)
 
 A claim writes `lease_expires_at` once. Until #347 nothing in the in-process
 worker ever wrote it again — `NodesService.renewLease` was the queue's only
@@ -1313,29 +1313,66 @@ deliberately so: it is audit ("which side ran this job"), while a random uuid
 records nothing worth keeping, so it is cleared everywhere the claim itself is
 released — see §5.3 and §8.5 for exactly which fields survive which reset.
 
-**⚠ The node plane is deliberately NOT token-matched, and this is a decision,
-not an oversight.** `NodesService.renewLease` already reads the job row before
-renewing, so a token taken from that row and matched back against it would
-always pass — it would look like a guard and check nothing. For a node to
-prove *which* claim it holds, the token has to cross the wire (returned by the
-claim response, sent back on renew), which is a node-protocol change with a
-CLI half to it and is out of scope here. The residual hole that leaves is real
-and worth stating plainly rather than leaving for someone to rediscover: **one**
-node that claims job J, stalls past its lease, is reaped, and then claims J
-again has an old renewal ticker that can still extend its own *new* lease,
-because `claimedByNodeId` is the same node in both runs. It is the same shape
-as the two-replica hole above, one node short of it, and it is tracked as
-#364 — which also has to settle whether `assertJobHeldByNode` threads the
-token through `result` and `failure` at the same time, since the same
-ambiguity lets a stale slot's result submission settle a job its own later
-claim is still running.
+**⚠ The node plane is token-matched too, as of #364 — and the fix was
+crossing the wire, not adding a comparison.** `NodesService.renewLease`
+already read the job row before renewing, which is exactly why a token taken
+from that same row and matched back against it would have proved nothing: a
+check against your own read is not a check, it is a tautology wearing a
+guard's clothes. The token only becomes a real assertion once it arrives from
+OUTSIDE that read — from the node, which was handed it earlier and is now
+quoting it back — so #364 puts `claimToken` on the wire in both directions.
+The claim response carries it at assignment level, a sibling of
+`renewIntervalMs` and deliberately not a member of `NodeJobDto`
+(`toNodeJobAssignment`, `dto/node-response.dto.ts`), and the node quotes it
+back on **every** route that speaks for a held job: `renew`, `result`,
+`failure` (`node-control-plane.dto.ts`), `download-url`, `upload-url`
+(`node-data-plane.dto.ts`), and `secret` (`node-job-secret.dto.ts`).
+`assertJobHeldByNode` (`nodes.service.ts`) is the one guard behind all six,
+and it now checks a fifth condition — the caller's `claimToken`, when it
+quotes one — alongside the four it already had.
 
-**Rolling deploys narrow the hole rather than closing it outright.** A replica
-still running pre-#361 code emits no `claim_token` clause at all, so for as
-long as one old replica is still up it can extend a new replica's lease
-exactly as before. The window closes for good once the last old replica has
-rolled off — the ordinary shape of any predicate change during a rolling
-deploy, and not a reason to change this design.
+**All six, not only `renew`, because the hole this closes is not merely "the
+lease runs a little long".** `upload-url` is the sharpest of the six: with
+`deriveOutputKey` (§17.1, `docs/specs/worker-nodes.md`) the output key is a
+function of the JOB, not of the claim, so a stale slot handed a signed PUT
+writes to the exact key its own newer claim is currently writing — both PUTs
+"succeed", and the surviving bytes are whichever finished last, with nothing
+in any log tying the two together. `secret` hands a stale slot a live
+database credential, bounded by a lease belonging to a claim that is not its
+own. A delayed reap on `renew` is the mildest of the six consequences this
+closes, not the representative one. `dto/claim-token.field.ts` is the single
+field definition all six bodies share, and carries the full argument for each
+route.
+
+**The field stays three-valued crossing this wire too, which is why the CLI
+never spells the omitted case as `null`.** Absent means "I assert nothing" and
+`heldLeaseWhere` drops the clause, falling back to `claimedByNodeId` alone;
+`null` means "I assert this row carries no token" (`claim_token IS NULL` — a
+real state, what a pre-#361 claim looks like); a uuid asserts one exact claim.
+`apps/cli/src/node/node-api.ts`'s `claimTokenBody` exists because
+`JSON.stringify` drops a key whose value is `undefined` but faithfully writes
+one whose value is `null` — the CLI omits the key rather than building it by
+hand, so "nothing to quote" can never accidentally serialise as the narrower,
+wrong assertion.
+
+**⚠ Optional on the wire everywhere, and an un-upgraded node stays exactly as
+self-ambiguous as it was before #364, not more and not less.** A fleet
+upgrades one machine at a time; a node running older CLI code sends no
+`claimToken` on any of the six routes, and `assertJobHeldByNode` falls back to
+`claimedByNodeId` alone — no 400, no 409, nothing that would break a rolling
+upgrade. That node's own stale worker slot can still speak for its newer claim
+until the node itself is upgraded; nothing server-side can close that earlier,
+because the only value able to tell two slots of one node apart is one only
+they hold. It closes per node, as each is upgraded — the same shape as the
+rolling-deploy caveat below, one node short of it, and no longer tracked as
+open: #364 is what closed it.
+
+**Rolling deploys narrow the two-replica hole rather than closing it
+outright.** A replica still running pre-#361 code emits no `claim_token`
+clause at all, so for as long as one old replica is still up it can extend a
+new replica's lease exactly as before. The window closes for good once the
+last old replica has rolled off — the ordinary shape of any predicate change
+during a rolling deploy, and not a reason to change this design.
 
 **A renewal failure is not treated as a lost lease.** The renewal interval is
 one third of the lease by construction, so two consecutive database blips
