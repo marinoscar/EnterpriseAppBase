@@ -1,13 +1,20 @@
+import { createServer } from 'node:net';
+import type { AddressInfo } from 'node:net';
+
 import { describe, expect, it } from 'vitest';
 
 import { UsageError } from '../errors.js';
 import type { CompletedCheck } from './checks/index.js';
 import {
+  DATABASE_DEFERRED_CHECKS,
+  DATABASE_GATE_CHECKS,
   assertValidDatabaseName,
   classifyDatabase,
   ensureDatabase,
   isValidDatabaseName,
+  offerDatabaseCreation,
   quoteIdentifier,
+  willOfferDatabaseCreation,
 } from './database.js';
 import { CommandFailedError, type CommandResult, type RunCommandOptions } from './executor.js';
 
@@ -261,5 +268,263 @@ describe('ensureDatabase', () => {
     expect(error).toBeInstanceOf(UsageError);
     expect((error as Error).message).toContain('CREATEDB');
     expect((error as Error).message).not.toContain(PASSWORD);
+  });
+});
+
+// =============================================================================
+// Offer, create, verify  (issue #396)
+// =============================================================================
+
+/**
+ * A psql fake that answers as a server whose application database is absent.
+ *
+ * The one stateful part is the point of the whole test: once `CREATE DATABASE`
+ * has run, `select 1` against that database starts succeeding, so the
+ * re-verification has something real to report.
+ */
+function postgres(options: { canCreateTables?: boolean } = {}): Recorder & {
+  exists: () => boolean;
+} {
+  let created = false;
+  const calls: Array<{ argv: string[]; env: NodeJS.ProcessEnv | undefined }> = [];
+
+  const runCommand = (async (
+    argv: readonly string[],
+    runOptions: RunCommandOptions,
+  ): Promise<CommandResult> => {
+    calls.push({ argv: [...argv], env: runOptions.env });
+
+    const statement = argv.at(-1) ?? '';
+    const database = argv[argv.indexOf('-d') + 1];
+    const result: CommandResult = {
+      argv: [...argv],
+      cwd: runOptions.cwd,
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+      durationMs: 1,
+      timedOut: false,
+    };
+
+    if (statement.startsWith('CREATE DATABASE')) {
+      created = true;
+      return { ...result, stdout: 'CREATE DATABASE' };
+    }
+    if (statement.includes('has_schema_privilege')) {
+      return { ...result, stdout: options.canCreateTables === false ? 'f' : 't' };
+    }
+    if (database === 'appdb' && !created) {
+      const failed = {
+        ...result,
+        exitCode: 1,
+        stderr: 'psql: error: FATAL:  database "appdb" does not exist',
+      };
+      throw new CommandFailedError(failed.stderr, failed);
+    }
+    return { ...result, stdout: '1' };
+  }) as typeof import('./executor.js').runCommand;
+
+  return { runCommand, calls, exists: () => created };
+}
+
+/** A real listening socket, because `database-reachable` really does connect. */
+async function reachableEnv(): Promise<{ env: Map<string, string>; close: () => void }> {
+  const server = createServer();
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = (server.address() as AddressInfo).port;
+
+  return {
+    env: new Map([...ENV, ['POSTGRES_HOST', '127.0.0.1'], ['POSTGRES_PORT', String(port)]]),
+    close: () => server.close(),
+  };
+}
+
+describe('willOfferDatabaseCreation', () => {
+  it('offers when a person is there to answer, or when a flag already did', () => {
+    expect(willOfferDatabaseCreation({})).toBe(true);
+    expect(willOfferDatabaseCreation({ createDatabase: true })).toBe(true);
+    expect(willOfferDatabaseCreation({ nonInteractive: true, createDatabase: true })).toBe(true);
+  });
+
+  it('does not offer unattended, so nothing can prompt with nobody there', () => {
+    expect(willOfferDatabaseCreation({ nonInteractive: true })).toBe(false);
+    expect(willOfferDatabaseCreation({ nonInteractive: true, createDatabase: false })).toBe(false);
+  });
+});
+
+describe('the deferred and gate check lists', () => {
+  it('defers exactly the two checks that describe an absence install can fix', () => {
+    expect([...DATABASE_DEFERRED_CHECKS]).toEqual(['database-exists', 'database-privileges']);
+  });
+
+  it('never defers the two failures creating a database cannot remedy', () => {
+    // "The server is unreachable" and "the password is wrong" make creating a
+    // database impossible, so they stay in every preflight.
+    expect([...DATABASE_GATE_CHECKS]).toEqual(['database-reachable', 'database-credentials']);
+    for (const id of DATABASE_GATE_CHECKS) {
+      expect(DATABASE_DEFERRED_CHECKS).not.toContain(id);
+    }
+  });
+});
+
+describe('offerDatabaseCreation', () => {
+  it('creates the database and then re-runs the checks the deferral held back', async () => {
+    const { env, close } = await reachableEnv();
+    const pg = postgres();
+
+    try {
+      const result = await offerDatabaseCreation({
+        runCommand: pg.runCommand,
+        env,
+        verdict: 'missing',
+        createDatabase: true,
+      });
+
+      expect(result.outcome).toBe('created');
+      if (result.outcome !== 'created') throw new Error('unreachable');
+
+      // The whole point of #396's second half: `database-privileges` reports a
+      // real answer rather than "skipped: database-exists did not pass".
+      const ids = result.checks.map((check) => check.id);
+      for (const id of [...DATABASE_GATE_CHECKS, ...DATABASE_DEFERRED_CHECKS]) {
+        expect(ids).toContain(id);
+      }
+      expect(result.checks.find((check) => check.id === 'database-exists')?.status).toBe('pass');
+      expect(result.privileges?.status).toBe('pass');
+      expect(result.detail).toContain('can create tables');
+    } finally {
+      close();
+    }
+  });
+
+  it('reports a role that cannot create tables in the database it just made', async () => {
+    const { env, close } = await reachableEnv();
+    const pg = postgres({ canCreateTables: false });
+
+    try {
+      const result = await offerDatabaseCreation({
+        runCommand: pg.runCommand,
+        env,
+        verdict: 'missing',
+        createDatabase: true,
+      });
+
+      expect(result.outcome).toBe('created');
+      if (result.outcome !== 'created') throw new Error('unreachable');
+      // The next thing that would fail, said now rather than by the migration.
+      expect(result.privileges?.status).toBe('warn');
+      expect(result.detail).toContain('cannot create in schema public');
+    } finally {
+      close();
+    }
+  });
+
+  it('declines with a reason naming POSTGRES_DB, and creates nothing', async () => {
+    const pg = postgres();
+
+    const result = await offerDatabaseCreation({
+      runCommand: pg.runCommand,
+      env: ENV,
+      verdict: 'missing',
+      confirm: async () => false,
+    });
+
+    expect(result.outcome).toBe('declined');
+    if (result.outcome !== 'declined') throw new Error('unreachable');
+    expect(result.reason).toContain('POSTGRES_DB');
+    expect(pg.calls).toEqual([]);
+  });
+
+  it('refuses unattended without the flag, naming it, and creates nothing', async () => {
+    const pg = postgres();
+
+    const result = await offerDatabaseCreation({
+      runCommand: pg.runCommand,
+      env: ENV,
+      verdict: 'missing',
+      nonInteractive: true,
+    });
+
+    expect(result.outcome).toBe('cannot');
+    if (result.outcome !== 'cannot') throw new Error('unreachable');
+    expect(result.reason).toBe('non-interactive');
+    expect(result.detail).toContain('--create-database');
+    expect(pg.calls).toEqual([]);
+  });
+
+  it('does nothing at all when the database is already there', async () => {
+    const pg = postgres();
+
+    const result = await offerDatabaseCreation({
+      runCommand: pg.runCommand,
+      env: ENV,
+      verdict: 'ok',
+      createDatabase: true,
+    });
+
+    expect(result.outcome).toBe('not-needed');
+    expect(pg.calls).toEqual([]);
+  });
+
+  it('will not create against a server it cannot reach or authenticate to', async () => {
+    const pg = postgres();
+
+    const result = await offerDatabaseCreation({
+      runCommand: pg.runCommand,
+      env: ENV,
+      verdict: 'blocked',
+      createDatabase: true,
+    });
+
+    expect(result.outcome).toBe('cannot');
+    if (result.outcome !== 'cannot') throw new Error('unreachable');
+    expect(result.reason).toBe('blocked');
+    // Creating a database is not the remedy for a refused connection.
+    expect(pg.calls).toEqual([]);
+  });
+
+  it('classifies a check run the caller already has rather than probing again', async () => {
+    const pg = postgres();
+
+    const result = await offerDatabaseCreation({
+      runCommand: pg.runCommand,
+      env: ENV,
+      results: [
+        check('database-reachable', 'pass', 'db.internal:5432'),
+        check('database-credentials', 'pass', 'appuser authenticated'),
+        check('database-exists', 'pass', 'appdb'),
+      ],
+      createDatabase: true,
+    });
+
+    expect(result.outcome).toBe('not-needed');
+    expect(pg.calls).toEqual([]);
+  });
+
+  it('never puts the password in an argv on any path it takes', async () => {
+    const { env, close } = await reachableEnv();
+    const pg = postgres();
+
+    try {
+      await offerDatabaseCreation({
+        runCommand: pg.runCommand,
+        env,
+        verdict: 'missing',
+        createDatabase: true,
+      });
+
+      for (const call of pg.calls) {
+        expect(call.argv.join(' ')).not.toContain(PASSWORD);
+        expect(call.env?.['PGPASSWORD']).toBe(PASSWORD);
+      }
+      // One CREATE, and nothing that drops or alters.
+      const statements = pg.calls.map((call) => call.argv.at(-1) ?? '');
+      expect(statements.filter((statement) => statement.startsWith('CREATE DATABASE'))).toEqual([
+        'CREATE DATABASE "appdb"',
+      ]);
+      expect(statements.join(' ')).not.toMatch(/drop |alter /i);
+    } finally {
+      close();
+    }
   });
 });

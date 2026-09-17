@@ -5,7 +5,7 @@ import { CLI_NAME } from '../branding.js';
 import { PreconditionError, UsageError } from '../errors.js';
 import { CLI_VERSION } from '../package-info.js';
 import { ALL_CHECKS, checksPassed, runChecks } from './checks/index.js';
-import { assessDatabase, ensureDatabase } from './database.js';
+import { offerDatabaseCreation } from './database.js';
 import { smokeOAuth } from './oauth-check.js';
 import { ensureRenewal } from './renewal.js';
 import { diffEnv, parseEnvExample, parseEnvFile, serializeEnvFile } from './env-spec.js';
@@ -313,34 +313,26 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
       id: 'ensure-database',
       title: 'Check the database exists',
       skip: skipWhenUnchanged,
+      // The same thin caller install's step is (#396). Update PROBES for
+      // itself, unlike install, because it has no `validate-environment` step
+      // to read a verdict from - and `offerDatabaseCreation` does that
+      // probing, the offering and the re-verification in one place, so the two
+      // pipelines cannot answer this question differently.
+      //
+      // This step has no preflight problem of its own to fix: update's
+      // preflight ("Check the essentials") runs five host checks -
+      // docker-installed, docker-daemon, docker-compose-v2, git-installed,
+      // disk-space - and no database check at all, so nothing there can abort
+      // a run over the condition this step exists to remedy.
       async run(context) {
         if (context.env === undefined) return;
 
-        // Probed here, unlike install, because an update has no
-        // `validate-environment` step to read a verdict from. The same three
-        // checks, the same classification: "reachable, credentials fine, not
-        // there" is the only case acted on.
-        const { verdict, results } = await assessDatabase({
+        const result = await offerDatabaseCreation({
           runCommand: context.runCommand,
+          env: context.env,
           deployRoot: context.options.deployRoot,
           bindPort: context.state.bindPort,
           proxyRoot: proxyRootFor(context.options.deployRoot),
-          env: context.env,
-        });
-
-        for (const result of results) {
-          context.journal.line(`${result.status} ${result.id}: ${result.detail}`);
-        }
-
-        // An update runs against a deployment that was working, so `blocked`
-        // is left to the migration to report in its own words rather than
-        // pre-empted here - the point of this step is the one situation that
-        // has an offer attached to it.
-        if (verdict !== 'missing') return;
-
-        const result = await ensureDatabase({
-          runCommand: context.runCommand,
-          env: context.env,
           ...(context.hooks === undefined ? {} : { hooks: context.hooks }),
           ...(context.options.createDatabase === undefined
             ? {}
@@ -351,13 +343,27 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
           ...(context.options.promptContext === undefined
             ? {}
             : { promptContext: context.options.promptContext }),
+          onCheck: (check) =>
+            context.journal.line(`${check.status} ${check.id}: ${check.detail}`),
         });
+
+        // An update runs against a deployment that was working, so `blocked`
+        // is left to the migration to report in its own words rather than
+        // pre-empted here - the point of this step is the one situation that
+        // has an offer attached to it.
+        if (result.outcome === 'not-needed') return;
 
         context.journal.line(result.detail);
 
         if (result.outcome === 'declined') {
           throw new PreconditionError(
-            `${result.database} was not created, so there is nothing to migrate into. A database that has disappeared from under a working deployment is worth understanding before this update continues.`,
+            `${result.database} was not created, so there is nothing to migrate into. Check POSTGRES_DB in ${envFilePath(context.options.deployRoot)}: a database that has disappeared from under a working deployment is worth understanding before this update continues.`,
+          );
+        }
+
+        if (result.outcome === 'cannot' && result.reason === 'non-interactive') {
+          throw new PreconditionError(
+            `${result.detail}\nPOSTGRES_DB is set in ${envFilePath(context.options.deployRoot)}.`,
           );
         }
       },

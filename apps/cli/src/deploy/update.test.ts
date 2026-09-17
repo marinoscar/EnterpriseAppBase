@@ -1,9 +1,13 @@
 import { mkdtempSync } from 'node:fs';
+import { createServer, type AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
+import { PreconditionError } from '../errors.js';
+import { DATABASE_DEFERRED_CHECKS, DATABASE_GATE_CHECKS } from './database.js';
+import { CommandFailedError, type CommandResult, type RunCommandOptions } from './executor.js';
 import { NotInstalledError } from './state.js';
 import { buildUpdateSteps, runUpdate } from './update.js';
 
@@ -106,5 +110,163 @@ describe('runUpdate preconditions', () => {
     // command rather than a flag: the guards are opposite.
     expect(error).toBeInstanceOf(NotInstalledError);
     expect((error as Error).message).toContain('deploy install');
+  });
+});
+
+// =============================================================================
+// Update's own ensure-database  (issue #396)
+// =============================================================================
+
+/** A psql fake: `appdb` is absent until a CREATE DATABASE is issued. */
+function postgres(): {
+  runCommand: typeof import('./executor.js').runCommand;
+  statements: string[];
+} {
+  const statements: string[] = [];
+  let created = false;
+
+  const runCommand = (async (
+    argv: readonly string[],
+    options: RunCommandOptions,
+  ): Promise<CommandResult> => {
+    const statement = argv.at(-1) ?? '';
+    statements.push(statement);
+    const result: CommandResult = {
+      argv: [...argv],
+      cwd: options.cwd,
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+      durationMs: 1,
+      timedOut: false,
+    };
+
+    if (statement.startsWith('CREATE DATABASE')) {
+      created = true;
+      return { ...result, stdout: 'CREATE DATABASE' };
+    }
+    if (statement.includes('has_schema_privilege')) return { ...result, stdout: 't' };
+    if (argv[argv.indexOf('-d') + 1] === 'appdb' && !created) {
+      const failed = {
+        ...result,
+        exitCode: 1,
+        stderr: 'psql: error: FATAL:  database "appdb" does not exist',
+      };
+      throw new CommandFailedError(failed.stderr, failed);
+    }
+    return { ...result, stdout: '1' };
+  }) as typeof import('./executor.js').runCommand;
+
+  return { runCommand, statements };
+}
+
+async function updateHarness(
+  options: Record<string, unknown>,
+  runCommand: typeof import('./executor.js').runCommand,
+): Promise<{ context: Record<string, unknown>; lines: string[]; close: () => void }> {
+  const server = createServer();
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = (server.address() as AddressInfo).port;
+  const lines: string[] = [];
+
+  return {
+    lines,
+    close: () => server.close(),
+    context: {
+      options: { deployRoot: '/opt/infra/apps/demo', ...options },
+      runCommand,
+      state: { bindPort: 3535 },
+      env: new Map([
+        ['POSTGRES_HOST', '127.0.0.1'],
+        ['POSTGRES_PORT', String(port)],
+        ['POSTGRES_USER', 'appuser'],
+        ['POSTGRES_PASSWORD', 'p4ssword'],
+        ['POSTGRES_DB', 'appdb'],
+      ]),
+      journal: {
+        line: (line: string) => lines.push(line),
+        addSecrets: () => undefined,
+        command: () => undefined,
+        redact: (text: string) => text,
+      },
+      completed: new Set<string>(),
+    },
+  };
+}
+
+async function runUpdateStep(
+  id: string,
+  context: Record<string, unknown>,
+): Promise<unknown> {
+  const step = buildUpdateSteps().find((candidate) => candidate.id === id);
+  if (step === undefined) throw new Error(`no step ${id}`);
+  return await (step as unknown as { run(value: unknown): Promise<void> })
+    .run(context)
+    .then(() => undefined)
+    .catch((error: unknown) => error);
+}
+
+describe("update's preflight", () => {
+  it('asks no database question at all, so it cannot dead-end on one', async () => {
+    // Unlike install's, this preflight is the five host essentials. There is
+    // nothing here to defer: the database is probed by `ensure-database`,
+    // which is also the step that can act on the answer.
+    const asked: string[] = [];
+    const runCommand = (async (
+      argv: readonly string[],
+      options: RunCommandOptions,
+    ): Promise<CommandResult> => {
+      asked.push(argv.join(' '));
+      return {
+        argv: [...argv],
+        cwd: options.cwd,
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+        durationMs: 1,
+        timedOut: false,
+      };
+    }) as typeof import('./executor.js').runCommand;
+
+    const { context, lines } = await updateHarness({}, runCommand);
+    await runUpdateStep('preflight', context);
+
+    for (const id of [...DATABASE_GATE_CHECKS, ...DATABASE_DEFERRED_CHECKS]) {
+      expect(lines.join('\n')).not.toContain(id);
+    }
+    expect(asked.join(' ')).not.toContain('psql');
+  });
+});
+
+describe("update's ensure-database", () => {
+  it('creates a database that has gone missing, then re-verifies it', async () => {
+    const pg = postgres();
+    const { context, lines, close } = await updateHarness(
+      { createDatabase: true },
+      pg.runCommand,
+    );
+
+    try {
+      expect(await runUpdateStep('ensure-database', context)).toBeUndefined();
+      expect(pg.statements).toContain('CREATE DATABASE "appdb"');
+      expect(lines.join('\n')).toContain('database-privileges');
+      expect(lines.join('\n')).toContain('can create tables');
+    } finally {
+      close();
+    }
+  });
+
+  it('refuses unattended with no --create-database rather than prompting', async () => {
+    const pg = postgres();
+    const { context, close } = await updateHarness({ nonInteractive: true }, pg.runCommand);
+
+    try {
+      const error = await runUpdateStep('ensure-database', context);
+      expect(error).toBeInstanceOf(PreconditionError);
+      expect((error as Error).message).toContain('--create-database');
+      expect(pg.statements.join(' ')).not.toContain('CREATE DATABASE');
+    } finally {
+      close();
+    }
   });
 });

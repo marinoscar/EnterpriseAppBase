@@ -393,6 +393,7 @@ export {
   composeArgv,
   composeCwd,
   defaultRootFor,
+  preflightChecks,
   runInstall,
   secretsFrom,
   willOfferBootstrap,
@@ -432,20 +433,36 @@ export type {
 } from './deploy/proxy-bootstrap.js';
 
 export {
+  DATABASE_DEFERRED_CHECKS,
+  DATABASE_GATE_CHECKS,
   DATABASE_NAME_PATTERN,
   assertValidDatabaseName,
   assessDatabase,
   classifyDatabase,
   ensureDatabase,
   isValidDatabaseName,
+  nonInteractiveRefusal,
+  // Offer, create, verify - one function (#396), so a fork's installer running
+  // these checks inside its own wizard gets the prompt, the creation and the
+  // re-verification without a second implementation to keep in step.
+  offerDatabaseCreation,
   quoteIdentifier,
+  willOfferDatabaseCreation,
 } from './deploy/database.js';
 export type {
   AssessDatabaseOptions,
+  DatabaseCannotResult,
+  DatabaseCreatedResult,
+  DatabaseCreationOutcome,
+  DatabaseCreationResult,
+  DatabaseDeclinedResult,
+  DatabaseNotNeededResult,
+  DatabaseProbeContext,
   DatabaseVerdict,
   EnsureDatabaseOptions,
   EnsureDatabaseOutcome,
   EnsureDatabaseResult,
+  OfferDatabaseOptions,
 } from './deploy/database.js';
 
 // The OAuth layers, and the one thing worth repeating here: `invalid_grant`

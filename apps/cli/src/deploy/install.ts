@@ -12,9 +12,10 @@ import {
   type Check,
 } from './checks/index.js';
 import {
-  assessDatabase,
+  DATABASE_DEFERRED_CHECKS,
   classifyDatabase,
-  ensureDatabase,
+  offerDatabaseCreation,
+  willOfferDatabaseCreation,
   type DatabaseVerdict,
 } from './database.js';
 import { smokeOAuth, verifyOAuthConfiguration } from './oauth-check.js';
@@ -251,6 +252,32 @@ export function willOfferBootstrap(options: InstallOptions): boolean {
   return options.bootstrapProxy === true || options.nonInteractive !== true;
 }
 
+/**
+ * The checks the preflight actually runs, after both deferrals  (issue #396).
+ *
+ * A pure function of the options so it can be asserted on directly: "which
+ * questions is this run entitled to fail on" is the whole of the bug #396
+ * fixed, and a test of it should not have to stand up a server to ask.
+ *
+ * TWO deferrals, ONE shape. `BOOTSTRAP_DEFERRED_CHECKS` describes a proxy this
+ * run may create; `DATABASE_DEFERRED_CHECKS` describes a database this run may
+ * create. In both cases the checks left in the set are the ones describing
+ * conditions the pipeline CANNOT remedy - which for the database is
+ * `database-reachable` and `database-credentials`, still `required`, still
+ * fatal here, because creating a database is impossible against a server that
+ * will not answer or a password that is wrong.
+ */
+export function preflightChecks(options: InstallOptions): Check[] {
+  const bootstrap = willOfferBootstrap(options);
+  const database = willOfferDatabaseCreation(options);
+
+  return requiredChecks(ALL_CHECKS).filter(
+    (check) =>
+      !(bootstrap && BOOTSTRAP_DEFERRED_CHECKS.includes(check.id)) &&
+      !(database && DATABASE_DEFERRED_CHECKS.includes(check.id)),
+  );
+}
+
 export function buildInstallSteps(): DeployStep<InstallContext>[] {
   return [
     {
@@ -261,16 +288,18 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
           ? 'skipped with --skip-doctor'
           : undefined,
       async run(context) {
-        const deferred = willOfferBootstrap(context.options);
-        if (deferred) {
+        if (willOfferBootstrap(context.options)) {
           context.journal.line(
             `No shared proxy at ${context.options.proxyRoot}; deferring ${BOOTSTRAP_DEFERRED_CHECKS.join(', ')} to the proxy-bootstrap step.`,
           );
         }
+        if (willOfferDatabaseCreation(context.options)) {
+          context.journal.line(
+            `Deferring ${DATABASE_DEFERRED_CHECKS.join(', ')} to the ensure-database step; the database may be created by this run.`,
+          );
+        }
 
-        const wanted: readonly Check[] = requiredChecks(ALL_CHECKS).filter(
-          (check) => !(deferred && BOOTSTRAP_DEFERRED_CHECKS.includes(check.id)),
-        );
+        const wanted: readonly Check[] = preflightChecks(context.options);
 
         const results = await runChecks(wanted, {
           runCommand: context.runCommand,
@@ -428,15 +457,24 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
         // fatal: creating a database is not the remedy for a refused
         // connection or a wrong password, and attempting one would replace a
         // precise error with a vaguer one.
+        //
+        // Held back ONLY when a creation will genuinely be offered (#396) -
+        // the same condition the preflight defers on, read from the same
+        // function. A `--non-interactive` run with no `--create-database` has
+        // nothing to hand the next step, so the absence stays fatal HERE,
+        // before the build and the migration, rather than being carried one
+        // step further to be refused there.
         context.databaseVerdict = classifyDatabase(results);
+        const offerable = willOfferDatabaseCreation(context.options);
+        const deferrable = context.databaseVerdict === 'missing' && offerable;
         const fatal = results.filter(
           (result) =>
             result.severity === 'required' &&
             result.status === 'fail' &&
-            !(context.databaseVerdict === 'missing' && result.id === 'database-exists'),
+            !(deferrable && result.id === 'database-exists'),
         );
 
-        if (context.databaseVerdict === 'missing') {
+        if (deferrable) {
           context.journal.line('The database does not exist yet; ensure-database will offer to create it.');
         }
 
@@ -445,7 +483,10 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
             `The database is not usable with these settings:\n` +
               fatal
                 .map((result) => `  - ${result.detail}\n    ${result.remedy ?? ''}`)
-                .join('\n'),
+                .join('\n') +
+              (context.databaseVerdict === 'missing' && !offerable
+                ? `\n  Pass --create-database to have this run create it. It is not created automatically because a typo in POSTGRES_DB looks exactly like this.`
+                : ''),
           );
         }
 
@@ -471,33 +512,27 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
             return `nothing to create (${context.databaseVerdict})`;
         }
       },
+      // A THIN CALLER of `offerDatabaseCreation`, exactly as `certificate
+      // -renewal` is a thin caller of `findRenewalOwner` (#396). Everything
+      // this step decides is which pipeline error each outcome deserves; the
+      // offering, the creating and the re-verifying all live in database.ts,
+      // where a fork's own installer can call them from its own wizard.
       async run(context) {
         if (context.env === undefined) return;
 
-        if (context.databaseVerdict === undefined) {
-          const { verdict, results } = await assessDatabase({
-            runCommand: context.runCommand,
-            deployRoot: context.options.deployRoot,
-            bindPort: context.options.bindPort,
-            proxyRoot: context.options.proxyRoot,
-            env: context.env,
-          });
-          for (const result of results) {
-            context.journal.line(`${result.status} ${result.id}: ${result.detail}`);
-          }
-          context.databaseVerdict = verdict;
-        }
-
-        // Only ever the one case with an offer attached to it; everything else
-        // is `validate-environment`'s to report, and it already did.
-        if (context.databaseVerdict !== 'missing') {
-          context.journal.line(`Database verdict: ${context.databaseVerdict}; nothing to create.`);
-          return;
-        }
-
-        const result = await ensureDatabase({
+        const result = await offerDatabaseCreation({
           runCommand: context.runCommand,
           env: context.env,
+          deployRoot: context.options.deployRoot,
+          bindPort: context.options.bindPort,
+          proxyRoot: context.options.proxyRoot,
+          // The verdict `validate-environment` reached, when this run has one.
+          // A --resume that skipped that step has none, and the function
+          // probes for itself rather than assuming an answer from a previous
+          // run that may be hours old.
+          ...(context.databaseVerdict === undefined
+            ? {}
+            : { verdict: context.databaseVerdict }),
           ...(context.hooks === undefined ? {} : { hooks: context.hooks }),
           ...(context.options.createDatabase === undefined
             ? {}
@@ -508,6 +543,8 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
           ...(context.options.promptContext === undefined
             ? {}
             : { promptContext: context.options.promptContext }),
+          onCheck: (check) =>
+            context.journal.line(`${check.status} ${check.id}: ${check.detail}`),
         });
 
         context.journal.line(result.detail);
@@ -520,6 +557,18 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
           throw new PreconditionError(
             `${result.database} was not created, so there is nothing to migrate into. Fix POSTGRES_DB in ${envFilePath(context.options.deployRoot)} (or create the database by hand) and re-run with --resume.`,
           );
+        }
+
+        if (result.outcome === 'cannot' && result.reason === 'non-interactive') {
+          throw new PreconditionError(
+            `${result.detail}\nPOSTGRES_DB is set in ${envFilePath(context.options.deployRoot)}.`,
+          );
+        }
+
+        if (result.outcome === 'created') {
+          // The database is there now, so a --resume that re-runs a later step
+          // does not re-ask a question that has been answered.
+          context.databaseVerdict = 'ok';
         }
       },
     },

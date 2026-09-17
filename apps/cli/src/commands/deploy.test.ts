@@ -1,14 +1,17 @@
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { createServer, type AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { Command } from 'commander';
 import { describe, expect, it } from 'vitest';
 
+import { DATABASE_CHECKS } from '../deploy/checks/index.js';
 import type { Check, CheckContext, CompletedCheck } from '../deploy/checks/index.js';
 import { DEPLOY_STATE_VERSION, deployStatePath, type DeployState } from '../deploy/state.js';
+import { CommandFailedError } from '../deploy/executor.js';
 import type { CommandResult, RunCommandOptions } from '../deploy/executor.js';
-import { EXIT, exitCodeFor, UsageError } from '../errors.js';
+import { EXIT, exitCodeFor, PreconditionError, UsageError } from '../errors.js';
 import {
   buildReport,
   parseProxyMode,
@@ -563,5 +566,73 @@ describe('deploy install / deploy update reject an invalid --proxy-mode before d
 
     expect(exitCodeFor(error)).toBe(EXIT.USAGE);
     expect((error as Error).message).toContain('--proxy-mode');
+  });
+});
+
+describe('doctor, against a database that does not exist  (issue #396)', () => {
+  it('still fails, and still creates nothing', async () => {
+    // #396 deferred these checks out of INSTALL's preflight, because install
+    // can offer to fix the condition. Doctor cannot: it answers "is this
+    // server ready?", the honest answer is no, and rule 4 of the check
+    // contract says a check never creates anything.
+    const root = mkdtempSync(join(tmpdir(), 'appctl-doctor-db-'));
+    mkdirSync(join(root, 'repo', 'infra', 'compose'), { recursive: true });
+
+    const server = createServer();
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = (server.address() as AddressInfo).port;
+
+    writeFileSync(
+      join(root, 'repo', 'infra', 'compose', '.env'),
+      [
+        'POSTGRES_HOST=127.0.0.1',
+        `POSTGRES_PORT=${port}`,
+        'POSTGRES_USER=appuser',
+        'POSTGRES_PASSWORD=p4ssword',
+        'POSTGRES_DB=appdb',
+      ].join('\n'),
+    );
+
+    const statements: string[] = [];
+    const runCommand = (async (
+      argv: readonly string[],
+      options: RunCommandOptions,
+    ): Promise<CommandResult> => {
+      const statement = argv.at(-1) ?? '';
+      statements.push(statement);
+      const result: CommandResult = {
+        argv: [...argv],
+        cwd: options.cwd,
+        exitCode: 0,
+        stdout: '1',
+        stderr: '',
+        durationMs: 1,
+        timedOut: false,
+      };
+      if (argv[argv.indexOf('-d') + 1] === 'appdb') {
+        const failed = {
+          ...result,
+          exitCode: 1,
+          stdout: '',
+          stderr: 'psql: error: FATAL:  database "appdb" does not exist',
+        };
+        throw new CommandFailedError(failed.stderr, failed);
+      }
+      return result;
+    }) as unknown as NonNullable<DeployContext['runCommand']>;
+
+    try {
+      const result = await runDoctor(['--root', root], DATABASE_CHECKS, { runCommand });
+
+      expect(result.error).toBeInstanceOf(PreconditionError);
+      expect(exitCodeFor(result.error)).toBe(EXIT.PRECONDITION);
+      expect((result.error as Error).message).toContain('database-exists');
+      // The remedy an operator can act on is still printed, and nothing here
+      // ran a CREATE of any kind.
+      expect(result.stderr).toContain('createdb');
+      expect(statements.join(' ')).not.toMatch(/create database/i);
+    } finally {
+      server.close();
+    }
   });
 });
