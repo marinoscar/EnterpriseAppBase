@@ -30,6 +30,27 @@ export interface EnvVarSpec {
   line: number;
 }
 
+/**
+ * Splits a file into lines, tolerating CRLF.
+ *
+ * MUST be the only line splitter in this module. Deliberately not
+ * `split(/\r?\n/)`: this form keeps array indices identical to the LF case,
+ * which is what `spec.line` reports back to an operator.
+ *
+ * Why this exists at all, because it is not obvious. In ECMAScript - unlike
+ * most languages - `.` does NOT match `\r`: CR is a line terminator, so `.`
+ * excludes it alongside `\n`. And `$` without the `m` flag matches only the
+ * very end of input. So `ASSIGNMENT` does not match `KEY=value\r` AT ALL, and a
+ * CRLF template parsed to ZERO specs while reporting success: a wizard that
+ * asked no questions and a `.env` with no variables, with no error anywhere.
+ * Total silent data loss, not a stray character.
+ */
+export function splitLines(contents: string): string[] {
+  return contents
+    .split('\n')
+    .map((line) => (line.endsWith('\r') ? line.slice(0, -1) : line));
+}
+
 /** `# ----` or `# ====` - the rules that fence a section title. */
 const BANNER_RULE = /^#\s*[-=]{3,}\s*$/;
 
@@ -94,7 +115,7 @@ export function unquote(value: string): string {
  * than anything this code could invent.
  */
 export function parseEnvExample(contents: string): EnvVarSpec[] {
-  const lines = contents.split('\n');
+  const lines = splitLines(contents);
   const specs: EnvVarSpec[] = [];
 
   let section = '';
@@ -181,7 +202,7 @@ export function parseEnvExample(contents: string): EnvVarSpec[] {
 export function parseEnvFile(contents: string): Map<string, string> {
   const values = new Map<string, string>();
 
-  for (const line of contents.split('\n')) {
+  for (const line of splitLines(contents)) {
     if (line.trim() === '' || line.trimStart().startsWith('#')) continue;
 
     const assignment = ASSIGNMENT.exec(line);

@@ -132,7 +132,7 @@ Allowed types:
 - `chore:` tooling, deps, formatting, build, CI
 
 Scopes (pick one relevant area):
-- `api`, `web`, `db`, `infra`, `auth`, `chat`, `ui`, `core`, `jobs`, `docs`, `tests`
+- `api`, `web`, `cli`, `db`, `infra`, `auth`, `chat`, `ui`, `core`, `jobs`, `docs`, `tests`
 
 Examples:
 - `feat(chat): add permit search prompt builder`
