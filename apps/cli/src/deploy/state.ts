@@ -47,6 +47,20 @@ export interface DeployState {
   /** The revision this replaced, for a manual roll-back. */
   previousSha?: string | undefined;
   /**
+   * Opt-in feature groups this deployment enabled at install time.
+   *
+   * Recorded because it CANNOT be inferred later. Nothing in a `.env`
+   * distinguishes `OTEL_ENABLED=true` from `OTEL_ENABLED=false` - both are
+   * merely PRESENT - so an update that guessed would write a group's
+   * placeholder defaults into a live deployment. Absent means none, which is
+   * the correct reading for every state file written before this field
+   * existed.
+   *
+   * Optional, and the state version is deliberately NOT bumped for it: a bump
+   * makes this CLI refuse every state file already sitting on a live server.
+   */
+  groups?: string[] | undefined;
+  /**
    * Step ids that completed, so `--resume` can skip them.
    *
    * A rerun after a fixed database password should not rebuild images.

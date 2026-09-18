@@ -68,7 +68,7 @@ export interface WizardSummaryRow {
   key: string;
   /** Masked when the key is a secret. */
   display: string;
-  source: 'asked' | 'generated' | 'derived' | 'fixed' | 'existing' | 'default';
+  source: 'asked' | 'generated' | 'derived' | 'fixed' | 'existing' | 'default' | 'skipped';
 }
 
 const MASK = '********';
@@ -191,6 +191,19 @@ export async function runEnvWizard(options: WizardOptions): Promise<WizardResult
       if (isBlank(candidate) && metadata.allowBlank === true) {
         values.set(spec.key, '');
         summary.push({ key: spec.key, display: displayValue('', metadata), source: 'default' });
+        continue;
+      }
+
+      // "SKIPPED" IS A THIRD OUTCOME, beside "answered" and "missing".
+      //
+      // An optional variable the operator declined is not a value this run
+      // failed to obtain - it is one the deployment does not use. Reading its
+      // absence as "missing" failed whole installs with `5 values missing` for
+      // variables nobody wanted. The key is deleted so the serializer does not
+      // resurrect it from the template default.
+      if (isBlank(candidate) && spec.optional && metadata.essential !== true) {
+        values.delete(spec.key);
+        summary.push({ key: spec.key, display: '(skipped)', source: 'skipped' });
         continue;
       }
 
