@@ -47,6 +47,26 @@ export interface DeployState {
   /** The revision this replaced, for a manual roll-back. */
   previousSha?: string | undefined;
   /**
+   * The shared reverse-proxy root this deployment's vhost was written into.
+   *
+   * Recorded because it cannot be re-derived: a deployment installed with a
+   * non-default `--proxy-root` was silently rewritten to
+   * `<deployRoot>/../../proxy` on every update, putting the vhost somewhere the
+   * proxy does not read.
+   */
+  proxyRoot?: string | undefined;
+  /**
+   * The Docker Compose project this deployment's containers live under.
+   *
+   * ⚠ Recorded, never derived. Naming an existing deployment's project renames
+   * it, and Compose then sees no existing containers and builds a parallel
+   * stack that collides with the old one on the bind port. Absent means
+   * `compose` -- the directory-derived default every deployment in the field is
+   * already running under -- so an adopted deployment keeps working untouched
+   * and only a fresh install gets a name of its own.
+   */
+  composeProject?: string | undefined;
+  /**
    * When this record was rebuilt from the deployment itself, because none was
    * found. A THIRD axis, deliberately separate from `installedAt` and
    * `lastDeployedAt`: an adopted deployment has certainly deployed, but

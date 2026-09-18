@@ -22,6 +22,12 @@ import {
 } from '../deploy/health.js';
 import { readState } from '../deploy/state.js';
 import { collectInventory, renderInventory } from '../deploy/inventory.js';
+import {
+  certificateExpiry,
+  renewCertificate,
+  RENEW_WITHIN_DAYS,
+  type ProxyTarget,
+} from '../deploy/proxy.js';
 import { DEFAULT_APPS_ROOT } from '../deploy/layout.js';
 import { runInstall, type InstallOptions } from '../deploy/install.js';
 import { runUpdate, type UpdateOptions } from '../deploy/update.js';
@@ -246,8 +252,143 @@ export function registerDeployCommand(
       runListCommand(options, ctx);
     });
 
+  deploy
+    .command('certs')
+    .description('Inspect or renew this deployment\'s TLS certificate')
+    .option('--root <path>', 'Deployment directory', DEFAULT_DEPLOY_ROOT)
+    .option('--proxy-root <path>', 'Shared reverse proxy directory', DEFAULT_PROXY_ROOT)
+    .option('--domain <domain>', 'Domain to act on (default: the recorded one)')
+    .option('--renew', 'Renew when the certificate is inside the renewal window')
+    .option('--force', 'Renew even when it is not due. Spends rate-limit budget.')
+    .option('--email <email>', 'Registration address (default: INITIAL_ADMIN_EMAIL)')
+    .option('--staging', "Use Let's Encrypt staging, which is not trusted by browsers")
+    .option('--json', 'Print a machine-readable report on stdout')
+    .addHelpText(
+      'after',
+      [
+        '',
+        'Without --renew this reports and changes nothing.',
+        '',
+        `With --renew it renews only when the certificate expires within ${String(RENEW_WITHIN_DAYS)} days.`,
+        "Let's Encrypt allows 5 DUPLICATE certificates per week, and a command that",
+        're-issued on every invocation would exhaust that during one debugging',
+        'session -- leaving the deployment unable to get a certificate at the moment',
+        'it most needs one. --force overrides that and is deliberately not implied.',
+        '',
+        'An unreadable expiry is reported, never treated as "not due": silently',
+        'assuming a certificate is healthy is how one quietly expires.',
+        '',
+        'Exit codes:',
+        '  0  reported, or renewed successfully',
+        '  1  the certificate is due or expired and --renew was not passed',
+        '  2  nothing is installed at --root',
+      ].join('\n'),
+    )
+    .action(async (options: CertsCommandOptions) => {
+      await runCertsCommand(options, ctx);
+    });
+
   return deploy;
 }
+
+export interface CertsCommandOptions {
+  root: string;
+  proxyRoot: string;
+  domain?: string;
+  renew?: boolean;
+  force?: boolean;
+  email?: string;
+  staging?: boolean;
+  json?: boolean;
+}
+
+export async function runCertsCommand(
+  options: CertsCommandOptions,
+  ctx?: DeployContext,
+): Promise<void> {
+  const stdout = ctx?.stdout ?? process.stdout;
+  const stderr = ctx?.stderr ?? process.stderr;
+  const run = ctx?.runCommand ?? runCommand;
+
+  const state = readState(options.root);
+  const domain = options.domain ?? state?.domain;
+
+  if (domain === undefined) {
+    throw new UsageError(
+      `No domain is recorded for the deployment at ${options.root}, and none was given. Pass --domain.`,
+    );
+  }
+
+  const target: ProxyTarget = {
+    domain,
+    bindPort: state?.bindPort ?? DEFAULT_BIND_PORT,
+    proxyRoot: state?.proxyRoot ?? options.proxyRoot,
+  };
+
+  const report = options.renew === true
+    ? await renewCertificate(target, {
+        runCommand: run,
+        email: options.email ?? emailFor(options.root),
+        ...(options.force === undefined ? {} : { force: options.force }),
+        ...(options.staging === undefined ? {} : { staging: options.staging }),
+      }).then((result) => ({ ...result.expiry, renewed: result.renewed, reason: result.reason }))
+    : await certificateExpiry(target, { runCommand: run }).then((expiry) => ({
+        ...expiry,
+        renewed: false,
+        reason: 'reported only; pass --renew to act',
+      }));
+
+  if (options.json === true) {
+    stdout.write(`${JSON.stringify({ domain, ...report, notAfter: report.notAfter?.toISOString() ?? null }, null, 2)}\n`);
+  } else {
+    stderr.write(`${renderCerts(domain, report)}\n`);
+  }
+
+  // A certificate that is due and was not renewed is a non-zero exit, so a cron
+  // wrapper notices. Reporting it at exit 0 is how it goes unnoticed until the
+  // browser says so.
+  if (report.exists && report.dueForRenewal && report.renewed !== true) {
+    throw new DeploymentUnhealthyError(
+      `The certificate for ${domain} is due for renewal. Re-run with --renew.`,
+    );
+  }
+}
+
+/** The registration address a renewal should use, from the deployment's own env. */
+function emailFor(deployRoot: string): string {
+  const path = join(deployRoot, 'repo', 'infra', 'compose', '.env');
+  try {
+    const email = parseEnvFile(readFileSync(path, 'utf8')).get('INITIAL_ADMIN_EMAIL');
+    if (email !== undefined && email !== '') return email;
+  } catch {
+    // No readable .env. The explicit --email below is the answer.
+  }
+  throw new UsageError(
+    'No registration address: pass --email, or set INITIAL_ADMIN_EMAIL in the deployment environment.',
+  );
+}
+
+export function renderCerts(
+  domain: string,
+  report: { exists: boolean; path: string; notAfter: Date | null; daysRemaining: number | null; dueForRenewal: boolean; problem?: string; renewed: boolean; reason: string },
+): string {
+  const lines = [`Certificate for ${domain}`, `  path       ${report.path}`];
+
+  if (!report.exists) {
+    lines.push('  status     not installed');
+  } else if (report.problem !== undefined) {
+    // Surfaced, not swallowed: see certificateExpiry's own warning.
+    lines.push(`  status     expiry unreadable — ${report.problem}`);
+  } else {
+    lines.push(`  expires    ${report.notAfter?.toISOString() ?? 'unknown'}`);
+    lines.push(`  remaining  ${String(report.daysRemaining)} day(s)`);
+    lines.push(`  status     ${report.dueForRenewal ? 'DUE for renewal' : 'current'}`);
+  }
+
+  lines.push(`  action     ${report.renewed ? 'renewed' : report.reason}`);
+  return lines.join('\n');
+}
+
 
 export interface ListCommandOptions {
   appsRoot?: string;

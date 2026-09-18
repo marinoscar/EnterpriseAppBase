@@ -14,7 +14,7 @@ import { runCommand as defaultRunCommand } from './executor.js';
 import { waitForHealthy, collectHealth, isHealthy } from './health.js';
 import type { DeployHooks } from './hooks.js';
 import { openJournal, type Journal, type SecretEntry } from './journal.js';
-import { installVhost, issueCertificate, type ProxyTarget } from './proxy.js';
+import { bootstrapProxyRoot, installVhost, issueCertificate, type ProxyTarget } from './proxy.js';
 import { ensureCheckout, resolveRepoTarget, type RepoTarget } from './repo.js';
 import { readState, writeState, type DeployState } from './state.js';
 import { runPipeline, type DeployStep, type StepContext } from './steps/pipeline.js';
@@ -90,6 +90,8 @@ interface InstallContext extends StepContext {
   checkoutPath?: string | undefined;
   commitSha?: string | undefined;
   env?: Map<string, string> | undefined;
+  /** Undefined means the directory-derived default; see composeProjectFor. */
+  composeProject?: string | undefined;
 }
 
 export function composeCwd(deployRoot: string): string {
@@ -98,8 +100,43 @@ export function composeCwd(deployRoot: string): string {
   return join(deployRoot, 'repo', 'infra', 'compose');
 }
 
-export function composeArgv(extra: readonly string[]): string[] {
-  return ['docker', 'compose', ...COMPOSE_FILES.flatMap((file) => ['-f', file]), ...extra];
+/**
+ * The compose project name for a deployment.
+ *
+ * ⚠ THIS IS AN OUTAGE WAITING TO HAPPEN IF GOT WRONG, so read before changing.
+ *
+ * Without `-p`, Compose derives the project name from the compose file's
+ * DIRECTORY, which is `compose` for every deployment on the host -- so two
+ * applications collide on one project and each `up -d` fights the other. That
+ * is the bug this fixes.
+ *
+ * But naming an EXISTING deployment's project renames it, and Compose then
+ * sees no existing containers: it builds a parallel stack that collides with
+ * the old one still holding the bind port. A bookkeeping change would have
+ * caused an outage.
+ *
+ * So the name is RECORDED, never derived at the call site. A deployment that
+ * was installed before this existed stays on `compose` for ever; only a fresh
+ * install gets its own name. `state.composeProject` is the record, and the
+ * absence of it means `compose` -- which is exactly what every deployment in
+ * the field has.
+ */
+export const LEGACY_COMPOSE_PROJECT = 'compose';
+
+export function composeProjectFor(
+  state: { composeProject?: string | undefined } | undefined,
+): string {
+  return state?.composeProject ?? LEGACY_COMPOSE_PROJECT;
+}
+
+export function composeArgv(extra: readonly string[], project?: string): string[] {
+  return [
+    'docker',
+    'compose',
+    ...(project === undefined ? [] : ['-p', project]),
+    ...COMPOSE_FILES.flatMap((file) => ['-f', file]),
+    ...extra,
+  ];
 }
 
 function envFilePath(deployRoot: string): string {
@@ -118,7 +155,7 @@ async function compose(
   extra: readonly string[],
   options?: { timeoutMs?: number },
 ): Promise<void> {
-  const result = await context.runCommand(composeArgv(extra), {
+  const result = await context.runCommand(composeArgv(extra, context.composeProject), {
     cwd: composeCwd(context.options.deployRoot),
     timeoutMs: options?.timeoutMs ?? 30 * 60_000,
     redact: context.journal.redact,
@@ -139,6 +176,17 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
           ? 'skipped with --skip-doctor'
           : undefined,
       async run(context) {
+        // Create the shared proxy's directory layout BEFORE the checks that
+        // look for it. Both the spec and the runbook promise install does this;
+        // until now the checks simply failed instead, so an operator following
+        // the documentation on a fresh VPS hit a refusal it told them would not
+        // happen. Directories only -- the proxy itself is shared infrastructure
+        // this deployment is a tenant of, not an owner of.
+        if (context.options.skipProxy !== true) {
+          const { created } = bootstrapProxyRoot(context.options.proxyRoot, context.hooks);
+          for (const path of created) context.journal.line(`Created ${path}`);
+        }
+
         const results = await runChecks(requiredChecks(ALL_CHECKS), {
           runCommand: context.runCommand,
           deployRoot: context.options.deployRoot,
@@ -233,7 +281,7 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
             : new Map([...(onDisk ?? new Map()), ...supplied]);
 
         const domain = context.options.domain;
-        if (domain === undefined) {
+        if (domain === undefined && context.options.skipProxy !== true) {
           throw new UsageError(
             'A domain is required so APP_URL and the OAuth callback can be derived. Pass --domain.',
           );
@@ -241,7 +289,10 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
 
         const { values } = await runEnvWizard({
           specs,
-          domain,
+          // With --skip-proxy and no --domain there is no public hostname to
+          // derive from, and localhost is the honest stand-in: APP_URL and the
+          // OAuth callback then point where the stack actually answers.
+          domain: domain ?? 'localhost',
           ...(existing === undefined ? {} : { existing }),
           ...(context.options.all === undefined ? {} : { all: context.options.all }),
           ...(context.options.nonInteractive === undefined
@@ -332,6 +383,18 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
       id: 'start',
       title: 'Start the stack',
       async run(context) {
+        // ⚠ THE BIND SOURCE MUST EXIST BEFORE COMPOSE STARTS.
+        //
+        // `vps.compose.yml` bind-mounts `<deployRoot>/deploy-info` read-only
+        // into the api container. Docker creates a MISSING bind source itself,
+        // as root:root -- after which this CLI, running as the ordinary
+        // operator, cannot write the deployment record into it. The failure
+        // arrives later, as an EACCES from a step that has nothing to do with
+        // Docker, with every step up to here reporting green.
+        //
+        // Creating it here, one step before `up`, is the whole fix.
+        mkdirSync(join(context.options.deployRoot, 'deploy-info'), { recursive: true });
+
         await compose(context, ['up', '-d']);
       },
     },
@@ -466,11 +529,20 @@ export async function runInstall(options: InstallOptions): Promise<InstallResult
       : [],
   });
 
+  // A FRESH install gets its own compose project; anything already here keeps
+  // the one it is running under. See composeProjectFor for why renaming an
+  // existing deployment's project is an outage rather than a tidy-up.
+  const composeProject =
+    existingState === undefined && !isDeployment(options.deployRoot)
+      ? basename(options.deployRoot)
+      : composeProjectFor(existingState);
+
   const context: InstallContext = {
     options,
     runCommand: options.runCommand ?? defaultRunCommand,
     journal,
     hooks: options.hooks,
+    composeProject,
     completed:
       options.resume === true && existingState !== undefined
         ? new Set(existingState.completedSteps ?? [])
@@ -501,6 +573,11 @@ export async function runInstall(options: InstallOptions): Promise<InstallResult
     lastDeployedAt: now,
     lastCommand: 'install',
     appctlVersion: CLI_VERSION,
+    // Recorded, never re-derived: see composeProjectFor.
+    composeProject,
+    // Recorded so update writes the vhost where install put it, rather than
+    // re-deriving a path that ignores a non-default --proxy-root.
+    ...(options.proxyRoot === undefined ? {} : { proxyRoot: options.proxyRoot }),
     // Recorded so a later `update` knows which opt-in groups this deployment
     // uses. It cannot be re-derived from the `.env`: a group's keys look
     // identical whether the feature is on or off.

@@ -358,3 +358,191 @@ export async function removeVhost(
   const validation = await validateProxy(options);
   if (validation.ok) await reloadProxy(options);
 }
+
+/**
+ * Creates the shared proxy's directory layout if it is not there.
+ *
+ * Both the design spec and the operator runbook state that install bootstraps
+ * `/opt/infra/proxy` when absent. It did not: `proxy-root`, `proxy-conf-writable`
+ * and `acme-webroot` were `required` preflight checks that simply failed, so an
+ * operator following the runbook on a fresh VPS hit a refusal the documentation
+ * told them would not happen. This is that promise, kept.
+ *
+ * It creates DIRECTORIES only. It does not write an nginx configuration, start
+ * a container, or touch a certificate: those are the shared infrastructure this
+ * CLI is a tenant of, not an owner of, and bringing them up is the host's job.
+ * What is created is exactly the three paths this deployment will write into.
+ *
+ * Idempotent, and deliberately silent when everything already exists -- the
+ * ordinary case on every host after the first deployment.
+ */
+export function bootstrapProxyRoot(
+  proxyRoot: string,
+  hooks?: { onProgress?: ((message: string) => void) | undefined },
+): { created: string[] } {
+  const needed = [
+    join(proxyRoot, 'nginx', 'conf.d'),
+    join(proxyRoot, 'letsencrypt'),
+    join(proxyRoot, 'webroot'),
+  ];
+
+  const created: string[] = [];
+  for (const path of needed) {
+    if (existsSync(path)) continue;
+    mkdirSync(path, { recursive: true });
+    created.push(path);
+  }
+
+  if (created.length > 0) {
+    hooks?.onProgress?.(`Created the shared proxy layout under ${proxyRoot}`);
+  }
+
+  return { created };
+}
+
+/** Days before expiry at which a certificate is considered due for renewal. */
+export const RENEW_WITHIN_DAYS = 30;
+
+export interface CertificateExpiry {
+  exists: boolean;
+  path: string;
+  /** Null when the certificate is absent, or its expiry could not be read. */
+  notAfter: Date | null;
+  daysRemaining: number | null;
+  /** True only when an expiry was READ and it falls inside the window. */
+  dueForRenewal: boolean;
+  /** Set when the certificate exists but its expiry could not be determined. */
+  problem?: string;
+}
+
+/**
+ * Reads a certificate's expiry with openssl.
+ *
+ * ⚠ AN UNREADABLE EXPIRY IS NOT "NOT DUE". `dueForRenewal` is false in that
+ * case, but `problem` is set and the caller must surface it -- silently
+ * treating an unparseable certificate as healthy is how one quietly expires.
+ * The same reasoning as `certificate-validity` in the doctor registry, which is
+ * why both parse the same `notAfter=` line.
+ */
+export async function certificateExpiry(
+  target: ProxyTarget,
+  options: { runCommand: typeof runCommand; now?: Date },
+): Promise<CertificateExpiry> {
+  const status = certificateStatus(target);
+  if (!status.exists) {
+    return { exists: false, path: status.path, notAfter: null, daysRemaining: null, dueForRenewal: false };
+  }
+
+  let output: string;
+  try {
+    const result = await options.runCommand(
+      ['openssl', 'x509', '-enddate', '-noout', '-in', status.path],
+      { cwd: target.proxyRoot, timeoutMs: 15_000 },
+    );
+    output = result.stdout;
+  } catch (error) {
+    return {
+      exists: true,
+      path: status.path,
+      notAfter: null,
+      daysRemaining: null,
+      dueForRenewal: false,
+      problem: `could not read the expiry: ${(error as Error).message}`,
+    };
+  }
+
+  const raw = /notAfter=(.+)/.exec(output)?.[1]?.trim();
+  const expiry = raw === undefined ? undefined : new Date(raw);
+
+  if (expiry === undefined || Number.isNaN(expiry.getTime())) {
+    return {
+      exists: true,
+      path: status.path,
+      notAfter: null,
+      daysRemaining: null,
+      dueForRenewal: false,
+      problem: `unrecognised expiry: ${raw ?? '(absent)'}`,
+    };
+  }
+
+  const now = options.now ?? new Date();
+  const daysRemaining = Math.floor((expiry.getTime() - now.getTime()) / 86_400_000);
+
+  return {
+    exists: true,
+    path: status.path,
+    notAfter: expiry,
+    daysRemaining,
+    dueForRenewal: daysRemaining <= RENEW_WITHIN_DAYS,
+  };
+}
+
+/**
+ * Renews a certificate that is inside the renewal window.
+ *
+ * ⚠ It renews only when the expiry says so. Let's Encrypt allows 5 DUPLICATE
+ * certificates per week, and a command that re-issued on every invocation would
+ * exhaust that during a single debugging session -- leaving the deployment
+ * unable to get a certificate at the moment it most needs one. `force` exists
+ * for an operator who has decided otherwise and is deliberately not the default.
+ */
+export async function renewCertificate(
+  target: ProxyTarget,
+  options: CertificateOptions & { force?: boolean | undefined; now?: Date | undefined },
+): Promise<{ renewed: boolean; reason: string; expiry: CertificateExpiry }> {
+  assertValidDomain(target.domain);
+
+  const expiry = await certificateExpiry(target, {
+    runCommand: options.runCommand,
+    ...(options.now === undefined ? {} : { now: options.now }),
+  });
+
+  if (!expiry.exists) {
+    return { renewed: false, reason: 'no certificate is installed for this domain', expiry };
+  }
+
+  if (options.force !== true && expiry.problem !== undefined) {
+    // Refuses rather than renewing: an unreadable expiry is a question, and
+    // spending a rate-limited issuance to answer it is the wrong trade.
+    return { renewed: false, reason: expiry.problem, expiry };
+  }
+
+  if (options.force !== true && !expiry.dueForRenewal) {
+    return {
+      renewed: false,
+      reason: `not due: ${String(expiry.daysRemaining)} day(s) remaining, renews within ${RENEW_WITHIN_DAYS}`,
+      expiry,
+    };
+  }
+
+  const argv = [
+    'certbot',
+    'certonly',
+    '--webroot',
+    '--webroot-path',
+    join(target.proxyRoot, 'webroot'),
+    '-d',
+    target.domain,
+    '--non-interactive',
+    '--agree-tos',
+    '--email',
+    options.email,
+    '--force-renewal',
+    '--config-dir',
+    join(target.proxyRoot, 'letsencrypt'),
+    '--work-dir',
+    join(target.proxyRoot, 'letsencrypt', 'work'),
+    '--logs-dir',
+    join(target.proxyRoot, 'letsencrypt', 'logs'),
+    ...(options.staging === true ? ['--staging'] : []),
+  ];
+
+  await options.runCommand(argv, { cwd: target.proxyRoot, timeoutMs: 5 * 60_000 });
+
+  const after = await certificateExpiry(target, {
+    runCommand: options.runCommand,
+    ...(options.now === undefined ? {} : { now: options.now }),
+  });
+
+  return { renewed: true, reason: 'renewed', expiry: after };
+}
