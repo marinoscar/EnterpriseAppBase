@@ -129,7 +129,7 @@ export async function waitForInter(page: Page): Promise<void> {
  * SPEC THAT OPENS THE USER MENU.
  *
  * Issue #401, epic #397 added a build-time version string
- * (`__APP_VERSION__`, see `apps/web/build/app-version.ts`) to
+ * (`__APP_VERSION__`, see `apps/web/build-config/app-version.ts`) to
  * `components/navigation/UserMenu.tsx`. Epic #397's own #405 bumps that version
  * on every deploy, so ANY pixel baseline that captures the string is a baseline
  * that fails on the next release — for a reason that has nothing to do with

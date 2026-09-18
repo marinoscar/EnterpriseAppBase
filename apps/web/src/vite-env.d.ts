@@ -12,7 +12,7 @@
  * the `define` in `vite.config.ts`, `vitest.config.ts` and
  * `visual/vite.config.ts` (issue #401, epic #397).
  *
- * All three spread the SAME `appVersionDefine()` from `build/app-version.ts`,
+ * All three spread the SAME `appVersionDefine()` from `build-config/app-version.ts`,
  * which is where the argument for a baked-in constant over a fetched one lives.
  * Declared here rather than in the module that reads it so the compiler sees
  * one declaration for every consumer — and so a second consumer added later

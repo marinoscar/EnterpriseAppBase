@@ -6,7 +6,7 @@ import { buildServiceWorkerOptions } from './pwa/service-worker';
 // `__APP_VERSION__` (issue #401, epic #397). ONE definition, spread by this
 // config, `vitest.config.ts` and `visual/vite.config.ts` — three files with no
 // shared base. See that file's header for what breaks when only one has it.
-import { appVersionDefine } from './build/app-version';
+import { appVersionDefine } from './build-config/app-version';
 
 /**
  * Substitutes `%APP_NAME%` and `%THEME_COLOR%` in `index.html` with the
@@ -79,7 +79,7 @@ export default defineConfig({
   plugins: [react(), appName(), pwa()],
   // Baked in, never fetched: this reports the version of THE BUNDLE, so a
   // stale cached bundle served against a freshly deployed API shows a
-  // mismatch instead of hiding one. Full argument in `build/app-version.ts`.
+  // mismatch instead of hiding one. Full argument in `build-config/app-version.ts`.
   define: { ...appVersionDefine() },
   // `@app/shared` is CommonJS, and it reaches us as an npm WORKSPACE SYMLINK.
   // Vite treats a linked package as project source rather than as a dependency,

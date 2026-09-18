@@ -7,7 +7,7 @@ import react from '@vitejs/plugin-react';
 // `UserMenu`, which reads this constant — without it the harness renders a
 // blank page and every pixel spec fails on a missing element rather than on a
 // diff, the exact failure mode `optimizeDeps` below already documents.
-import { appVersionDefine } from '../build/app-version';
+import { appVersionDefine } from '../build-config/app-version';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 

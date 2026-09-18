@@ -13,13 +13,13 @@
  * the line lives here, in the one menu every role reaches.
  *
  * ⚠ IT IS `__APP_VERSION__`, BAKED INTO THIS BUNDLE AT BUILD TIME, AND IT MUST
- * NOT BECOME A FETCH. The full argument is in `build/app-version.ts`; the short
- * version is that this number describes the JAVASCRIPT THE BROWSER IS RUNNING,
- * not the API process. Those two differing is precisely the bug a version line
- * exists to expose — a stale cached bundle served against a freshly deployed
- * API — and a number fetched from `/api/admin/about` would be rendered by the
- * stale bundle as the NEW version, hiding exactly the mismatch it was added to
- * reveal. (It would also be unreachable for most users, since that endpoint is
+ * NOT BECOME A FETCH. The full argument is in `build-config/app-version.ts`;
+ * the short version is that this number describes the JAVASCRIPT THE BROWSER
+ * IS RUNNING, not the API process. Those two differing is precisely the bug a
+ * version line exists to expose — a stale cached bundle served against a
+ * freshly deployed API — and a number fetched from `/api/admin/about` would be
+ * rendered by the stale bundle as the NEW version, hiding exactly the mismatch
+ * it was added to reveal. (It would also be unreachable for most users, since that endpoint is
  * Admin-only.)
  *
  * ⚠ IT IS INSIDE THE MENU, WHICH IS CLOSED BY DEFAULT, AND THAT PLACEMENT IS

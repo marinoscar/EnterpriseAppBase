@@ -5,7 +5,7 @@ import { resolve } from 'path';
 // `vite.config.ts` spreads. This config shares no base with it, so without
 // this line the constant is a free identifier and every test that renders
 // `UserMenu` dies with `__APP_VERSION__ is not defined`.
-import { appVersionDefine } from './build/app-version';
+import { appVersionDefine } from './build-config/app-version';
 
 export default defineConfig({
   plugins: [react()],

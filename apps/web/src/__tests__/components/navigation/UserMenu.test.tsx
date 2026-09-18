@@ -491,12 +491,13 @@ describe('UserMenu', () => {
       expect(screen.getAllByRole('menuitem')).toHaveLength(expected.length + 1);
     });
   });
+
   /**
    * The version line — issue #401, epic #397.
    *
    * ⚠ THIS SUITE IS WHAT CATCHES A DEFINE MISSING FROM THE TEST CONFIG.
    * `__APP_VERSION__` is substituted by `appVersionDefine()` in
-   * `build/app-version.ts`, which `vite.config.ts`, `vitest.config.ts` AND
+   * `build-config/app-version.ts`, which `vite.config.ts`, `vitest.config.ts` AND
    * `visual/vite.config.ts` each have to spread — three files with no shared
    * base. A define present only in the build config leaves the constant a free
    * identifier here, and every test below dies with `__APP_VERSION__ is not
