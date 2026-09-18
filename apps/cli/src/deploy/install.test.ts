@@ -93,6 +93,19 @@ describe('the install pipeline', () => {
   });
 });
 
+/** A root passing `isDeployment` (checkout + .env), but with no state file. */
+function evidenceOnlyRoot(): string {
+  const root = mkdtempSync(join(tmpdir(), 'appctl-install-evidence-'));
+  mkdirSync(join(root, 'repo', '.git'), { recursive: true });
+  writeFileSync(join(root, '.env'), 'APP_BIND_PORT=3535\n');
+  return root;
+}
+
+/** Refuses to run any subprocess; every check that touches it fails cleanly. */
+const noSubprocessRunCommand: typeof runCommand = async () => {
+  throw new Error('this test must not spawn a real subprocess');
+};
+
 describe('runInstall preconditions', () => {
   it('refuses to install over an existing deployment, pointing at update', async () => {
     const root = installedRoot();
@@ -107,6 +120,91 @@ describe('runInstall preconditions', () => {
     expect(error).toBeInstanceOf(UsageError);
     expect((error as Error).message).toContain('deploy update');
     expect((error as Error).message).toContain('--reinstall');
+  });
+
+  // ===========================================================================
+  // The guard is EVIDENCE OR RECORD (install.ts, ~line 434). Before this it was
+  // RECORD ONLY, so a deployment whose state file was lost - containers
+  // running, certificate issued, site serving - was invisible to `install`,
+  // which would proceed and clobber it: a fresh checkout over the live one, a
+  // re-run wizard over the live `.env`. This is the mirror of the defect
+  // `update` had, from the other side.
+  // ===========================================================================
+  it('refuses to install over a directory with a checkout and an .env but no deployment record', async () => {
+    const root = evidenceOnlyRoot();
+
+    const error = await runInstall({
+      deployRoot: root,
+      bindPort: 3535,
+      proxyRoot: '/tmp/proxy',
+      domain: 'app.example.test',
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(UsageError);
+    expect((error as Error).message).toContain('no deployment record');
+    expect((error as Error).message).toContain('deploy update');
+    expect((error as Error).message).toContain('--reinstall');
+  });
+
+  it('--reinstall bypasses the evidence-only guard and lets the pipeline start', async () => {
+    const root = evidenceOnlyRoot();
+
+    const error = await runInstall({
+      deployRoot: root,
+      bindPort: 3535,
+      proxyRoot: '/tmp/proxy',
+      domain: 'app.example.test',
+      reinstall: true,
+      runCommand: noSubprocessRunCommand,
+    }).catch((caught: unknown) => caught);
+
+    // The guard itself must not have fired: whatever failed next is the
+    // *pipeline's* own PreconditionError (wrapped into a plain Error by
+    // runInstall, same as every other pipeline failure), not the guard's
+    // UsageError.
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(UsageError);
+    const message = (error as Error).message;
+    expect(message).not.toContain('no deployment record');
+    expect(message).toContain('Check prerequisites failed');
+  });
+
+  it('--resume bypasses the evidence-only guard and lets the pipeline start', async () => {
+    const root = evidenceOnlyRoot();
+
+    const error = await runInstall({
+      deployRoot: root,
+      bindPort: 3535,
+      proxyRoot: '/tmp/proxy',
+      domain: 'app.example.test',
+      resume: true,
+      runCommand: noSubprocessRunCommand,
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(UsageError);
+    const message = (error as Error).message;
+    expect(message).not.toContain('no deployment record');
+    expect(message).toContain('Check prerequisites failed');
+  });
+
+  it('--reinstall also bypasses the guard when a full deployment record is present', async () => {
+    const root = installedRoot();
+
+    const error = await runInstall({
+      deployRoot: root,
+      bindPort: 3535,
+      proxyRoot: '/tmp/proxy',
+      domain: 'app.example.test',
+      reinstall: true,
+      runCommand: noSubprocessRunCommand,
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(UsageError);
+    const message = (error as Error).message;
+    expect(message).not.toContain('deploy update');
+    expect(message).toContain('Check prerequisites failed');
   });
 });
 
