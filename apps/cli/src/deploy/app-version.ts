@@ -84,6 +84,21 @@ export function formatSemVer(version: SemVer): string {
   return `${String(version.major)}.${String(version.minor)}.${String(version.patch)}`;
 }
 
+/**
+ * Parses a manifest, answering `undefined` rather than throwing.
+ *
+ * The one place this file turns JSON text into an object. A corrupt manifest
+ * is an input this command must report on, not an exception that escapes it
+ * mid-deploy.
+ */
+function parseManifest(raw: string): { version?: unknown } | undefined {
+  try {
+    return JSON.parse(raw) as { version?: unknown };
+  } catch {
+    return undefined;
+  }
+}
+
 /** The clone's current version, read from the first manifest that has one. */
 export function currentVersion(checkoutPath: string): string {
   for (const relative of VERSIONED_MANIFESTS) {
@@ -183,8 +198,15 @@ export function writeVersion(
     // Reading the value with JSON.parse and replacing that exact literal is
     // format-independent, and a round trip is still avoided so the diff stays
     // three characters rather than a reformat of the whole file.
-    const parsed = JSON.parse(raw) as { version?: unknown };
-    if (typeof parsed.version !== 'string') {
+    // ⚠ PARSED THROUGH A GUARD, NOT BARE. The read above is wrapped and a
+    // missing manifest becomes `absent`; an unguarded `JSON.parse` right after
+    // it meant a manifest that EXISTS but is malformed threw a raw
+    // `SyntaxError` out of here, out of `runVersionStep`, and killed the deploy
+    // with a message naming neither the file nor the reason. A corrupt manifest
+    // is a bad input, not a crash, and it gets the same treatment as every
+    // other unreadable one.
+    const parsed = parseManifest(raw);
+    if (parsed === undefined || typeof parsed.version !== 'string') {
       absent.push(relative);
       continue;
     }
@@ -206,10 +228,15 @@ export function writeVersion(
 
     // Verified by re-reading rather than assumed. A partial bump that commits
     // is worse than one that refuses.
-    const after = JSON.parse(updated) as { version?: unknown };
-    if (after.version !== version) {
+    // ⚠ The re-read is the verification, so a failure to parse here is a
+    // REFUSAL, not an `absent`: this edit was applied to text that parsed a
+    // moment ago, so if it no longer does, the edit broke the file.
+    const after = parseManifest(updated);
+    if (after === undefined || after.version !== version) {
       throw new UsageError(
-        `Writing the version into ${relative} produced ${String(after.version)}, not ${version}.`,
+        `Writing the version into ${relative} produced ${
+          after === undefined ? 'a file that is no longer valid JSON' : String(after.version)
+        }, not ${version}.`,
       );
     }
 

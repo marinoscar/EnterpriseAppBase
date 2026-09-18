@@ -17,6 +17,7 @@ describe('the update pipeline', () => {
       'preflight',
       'fetch',
       'environment-drift',
+      'version',
       'build',
       'migrate',
       'seed',
@@ -24,7 +25,21 @@ describe('the update pipeline', () => {
       'health',
       'publish',
       'verify',
+      'publish-version',
     ]);
+  });
+
+  it('does not bump a version when the revision has not moved', () => {
+    // ⚠ THE TREADMILL THIS PREVENTS. An update that finds the remote
+    // unchanged rebuilds nothing -- so bumping here would commit and push a
+    // release for code nobody wrote, which makes the remote "move", which
+    // makes the NEXT update rebuild and bump again, for ever.
+    expect(skipReason('version', { unchanged: true, options: {}, state: {} })).toBe(
+      'already up to date',
+    );
+    expect(
+      skipReason('publish-version', { unchanged: true, options: {}, state: {} }),
+    ).toBe('no version was bumped');
   });
 
   function skipReason(id: string, context: Record<string, unknown>): string | undefined {

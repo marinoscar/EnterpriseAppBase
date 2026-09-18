@@ -45,6 +45,7 @@ describe('the install pipeline', () => {
       'checkout',
       'environment',
       'validate-environment',
+      'version',
       'build',
       'migrate',
       'seed',
@@ -52,7 +53,24 @@ describe('the install pipeline', () => {
       'health',
       'publish',
       'verify',
+      'publish-version',
     ]);
+  });
+
+  it('chooses the version immediately before the build, and publishes it last', () => {
+    // ⚠ Both halves are the design, not an ordering preference.
+    //
+    // `version` writes the manifests AND commits them, so it sits one step
+    // before `build`: the dirty window is milliseconds, and the images are
+    // built from the commit that carries the number they report.
+    //
+    // `publish-version` pushes, which is irreversible and externally visible,
+    // so it goes after `verify` -- last of all. A version not pushed is
+    // re-derived next run; a version pushed for a deploy that never finished
+    // is a commit someone has to reason about.
+    expect(ids.indexOf('version')).toBe(ids.indexOf('build') - 1);
+    expect(ids.indexOf('publish-version')).toBe(ids.length - 1);
+    expect(ids.indexOf('verify')).toBeLessThan(ids.indexOf('publish-version'));
   });
 
   it('checks prerequisites before it fetches anything', () => {
@@ -88,8 +106,34 @@ describe('the install pipeline', () => {
 
   it('does not skip anything by default', () => {
     for (const id of ids) {
+      // `publish-version` is the one step gated on a RESULT rather than an
+      // option -- it stands down unless the `version` step actually bumped --
+      // so it is asserted separately below.
+      if (id === 'publish-version') continue;
       expect(skipReasonFor(id, { domain: 'app.example.test' })).toBeUndefined();
     }
+  });
+
+  it('publishes a version only when one was actually bumped', () => {
+    const step = steps.find((candidate) => candidate.id === 'publish-version');
+
+    // ⚠ Keyed on the step's own result, so every reason there is nothing to
+    // push -- --no-version-bump, a manifest already carrying the number -- is
+    // one condition here rather than a second copy of the same three tests.
+    expect(step?.skip?.({ options: {}, version: { bumped: false } } as never)).toBe(
+      'no version was bumped',
+    );
+    expect(step?.skip?.({ options: {} } as never)).toBe('no version was bumped');
+    expect(
+      step?.skip?.({ options: {}, version: { bumped: true } } as never),
+    ).toBeUndefined();
+  });
+
+  it('still stamps a version when --no-version-bump is passed', () => {
+    // ⚠ The flag means "do not bump", NOT "do not stamp". Skipping the step
+    // outright would leave the container reporting whatever APP_VERSION the
+    // previous deploy happened to write.
+    expect(skipReasonFor('version', { noVersionBump: true })).toBeUndefined();
   });
 });
 
