@@ -20,7 +20,7 @@ import { certificateStatus, installVhost, issueCertificate, type ProxyTarget } f
 import { ensureCheckout, resolveRepoTarget, type RepoTarget } from './repo.js';
 import { NotInstalledError, readState, writeState, type DeployState } from './state.js';
 import { runPipeline, type DeployStep, type StepContext } from './steps/pipeline.js';
-import { composeArgv, composeCwd, secretsFrom } from './install.js';
+import { composeArgv, composeCwd, composeProjectFor, secretsFrom } from './install.js';
 import type { PromptContext } from '../prompt.js';
 
 // =============================================================================
@@ -85,7 +85,6 @@ interface UpdateContext extends StepContext {
 }
 
 /** Certificates are renewed within this window, not on every deploy. */
-const RENEW_WITHIN_DAYS = 30;
 
 function envFilePath(deployRoot: string): string {
   return join(composeCwd(deployRoot), '.env');
@@ -96,7 +95,7 @@ async function compose(
   extra: readonly string[],
   options?: { timeoutMs?: number },
 ): Promise<void> {
-  const result = await context.runCommand(composeArgv(extra), {
+  const result = await context.runCommand(composeArgv(extra, composeProjectFor(context.state)), {
     cwd: composeCwd(context.options.deployRoot),
     timeoutMs: options?.timeoutMs ?? 30 * 60_000,
     redact: context.journal.redact,
@@ -108,6 +107,19 @@ async function compose(
 }
 
 /** Every step after `fetch` stands down when the remote has not moved. */
+/**
+ * Where this deployment's vhost lives.
+ *
+ * Prefers the recorded value. The fallback reproduces the old derivation only
+ * for records written before the field existed -- it is a compatibility path,
+ * not the answer.
+ */
+function proxyRootFor(context: UpdateContext): string {
+  return (
+    context.state.proxyRoot ?? join(context.options.deployRoot, '..', '..', 'proxy')
+  );
+}
+
 function skipWhenUnchanged(context: UpdateContext): string | undefined {
   return context.unchanged === true ? 'already up to date' : undefined;
 }
@@ -135,7 +147,11 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
             runCommand: context.runCommand,
             deployRoot: context.options.deployRoot,
             bindPort: context.state.bindPort,
-            proxyRoot: join(context.options.deployRoot, '..', '..', 'proxy'),
+            // From the record, not reconstructed. Deriving it as
+          // `<deployRoot>/../../proxy` silently ignored a non-default
+          // --proxy-root given at install time, and wrote the vhost somewhere
+          // the proxy does not read.
+          proxyRoot: proxyRootFor(context),
           },
         );
 
@@ -390,7 +406,11 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
         const target: ProxyTarget = {
           domain: context.state.domain as string,
           bindPort: context.state.bindPort,
-          proxyRoot: join(context.options.deployRoot, '..', '..', 'proxy'),
+          // From the record, not reconstructed. Deriving it as
+          // `<deployRoot>/../../proxy` silently ignored a non-default
+          // --proxy-root given at install time, and wrote the vhost somewhere
+          // the proxy does not read.
+          proxyRoot: proxyRootFor(context),
         };
 
         const status = certificateStatus(target);
@@ -407,9 +427,18 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
 
         // Rewritten and re-validated so a change to the template reaches an
         // existing deployment; identical content is a no-op with no reload.
+        //
+        // ⚠ `maxBodyBytes` must be passed here exactly as install passes it.
+        // Omitting it does not leave the existing value alone -- the vhost is
+        // RE-RENDERED from scratch, so a missing option silently reverts
+        // `client_max_body_size` to the 100m default and every upload larger
+        // than that starts failing with a 413 after an unrelated update.
         await installVhost(target, {
           runCommand: context.runCommand,
           ...(context.hooks === undefined ? {} : { hooks: context.hooks }),
+          ...(context.env?.get('MAX_FILE_SIZE') === undefined
+            ? {}
+            : { maxBodyBytes: Number(context.env.get('MAX_FILE_SIZE')) }),
         });
       },
     },
@@ -570,4 +599,3 @@ export async function runUpdate(options: UpdateOptions): Promise<UpdateResult> {
   };
 }
 
-export { RENEW_WITHIN_DAYS };
