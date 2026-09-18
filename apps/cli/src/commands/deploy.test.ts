@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -17,6 +17,7 @@ import {
   type DeployContext,
   type DoctorReport,
 } from './deploy.js';
+import type { InventoryEntry } from '../deploy/inventory.js';
 
 const ESC = String.fromCharCode(27);
 
@@ -421,5 +422,72 @@ describe('appctl deploy status', () => {
 
     expect(result.stderr).toContain('certificate has expired');
     expect(exitCodeFor(result.error)).toBe(EXIT.FAILURE);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// `appctl deploy list`  (runListCommand / ListCommandOptions)
+// ---------------------------------------------------------------------------
+
+/** A fixture deployment: `<root>/repo/.git/` (a directory is enough) plus an `.env`. */
+function addDeployment(appsRoot: string, name: string, envContents = 'APP_BIND_PORT=3535\n'): string {
+  const deployRoot = join(appsRoot, name);
+  mkdirSync(join(deployRoot, 'repo', '.git'), { recursive: true });
+  writeFileSync(join(deployRoot, '.env'), envContents);
+  return deployRoot;
+}
+
+async function runList(
+  argv: readonly string[],
+  extra: Partial<DeployContext> = {},
+): Promise<RunResult> {
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+
+  const program = new Command();
+  program.exitOverride();
+  registerDeployCommand(program, {
+    stdout: { write: (chunk: string) => stdout.push(chunk) },
+    stderr: { write: (chunk: string) => stderr.push(chunk) },
+    isTty: false,
+    ...extra,
+  });
+
+  let error: unknown;
+  try {
+    await program.parseAsync(['deploy', 'list', ...argv], { from: 'user' });
+  } catch (caught) {
+    error = caught;
+  }
+
+  return { stdout: stdout.join(''), stderr: stderr.join(''), error };
+}
+
+describe('appctl deploy list', () => {
+  it('writes the table to stderr and nothing to stdout without --json', async () => {
+    const appsRoot = mkdtempSync(join(tmpdir(), 'appctl-list-'));
+    addDeployment(appsRoot, 'alpha');
+
+    const result = await runList(['--apps-root', appsRoot]);
+
+    expect(result.error).toBeUndefined();
+    // stdout is reserved for --json, same rule as `doctor`.
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('alpha');
+    expect(result.stderr).toContain('NAME');
+  });
+
+  it('writes JSON to stdout and nothing to stderr under --json', async () => {
+    const appsRoot = mkdtempSync(join(tmpdir(), 'appctl-list-'));
+    addDeployment(appsRoot, 'alpha');
+
+    const result = await runList(['--apps-root', appsRoot, '--json']);
+
+    expect(result.error).toBeUndefined();
+    expect(result.stderr).toBe('');
+    const report = JSON.parse(result.stdout) as { appsRoot: string; deployments: InventoryEntry[] };
+    expect(report.appsRoot).toBe(appsRoot);
+    expect(report.deployments).toHaveLength(1);
+    expect(report.deployments[0]?.name).toBe('alpha');
   });
 });
