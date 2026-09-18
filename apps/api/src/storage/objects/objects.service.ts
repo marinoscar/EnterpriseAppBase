@@ -12,6 +12,7 @@ import { Readable } from 'node:stream';
 import { randomUUID } from 'node:crypto';
 import { extname } from 'node:path';
 
+import { UPLOADS_KEY_PREFIX } from '../storage-key-prefixes';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { STORAGE_PROVIDER } from '../providers/storage-provider.interface';
@@ -99,7 +100,7 @@ export class ObjectsService {
     const timestamp = Date.now();
     const uuid = randomUUID();
     const extension = extname(name);
-    const storageKey = `uploads/${timestamp}/${uuid}${extension}`;
+    const storageKey = `${UPLOADS_KEY_PREFIX}${timestamp}/${uuid}${extension}`;
 
     this.logger.log(`Initializing upload for ${name}, ${totalParts} parts`);
 
@@ -340,7 +341,7 @@ export class ObjectsService {
     const timestamp = Date.now();
     const uuid = randomUUID();
     const extension = extname(filename);
-    const storageKey = `uploads/${timestamp}/${uuid}${extension}`;
+    const storageKey = `${UPLOADS_KEY_PREFIX}${timestamp}/${uuid}${extension}`;
 
     this.logger.log(`Simple upload starting: ${filename}`);
 
