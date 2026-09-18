@@ -214,3 +214,77 @@ describe('dropDatabase', () => {
     expect(quoteIdentifier('we"ird')).toBe('"we""ird"');
   });
 });
+
+describe('--purge-storage runs inside the api image, before anything is destroyed', () => {
+  it('refuses without the bucket name, and removes nothing', async () => {
+    const root = deployment();
+    const run = vi.fn().mockResolvedValue(okResult());
+
+    await expect(
+      runUninstall({ deployRoot: root, purgeStorage: true, runCommand: run as never }),
+    ).rejects.toThrow(/NOT purged/);
+
+    expect(existsSync(join(root, 'repo'))).toBe(true);
+    expect(existsSync(join(root, '.env'))).toBe(true);
+  });
+
+  it('purges BEFORE `compose down`, while the image and config still exist', async () => {
+    // ⚠ Ordering is the whole point. The purge reads the bucket and credential
+    // through the application's own config service, inside its own image. Run
+    // after `down -v` and `rm -rf repo`, there is nothing left to run it with.
+    const root = deployment();
+    const order: string[] = [];
+    const run = vi.fn().mockImplementation(async (argv: readonly string[]) => {
+      if (argv.includes('storage:purge')) order.push('purge');
+      if (argv.includes('down')) order.push('down');
+      return okResult('{"deleted":4}');
+    });
+
+    await runUninstall({
+      deployRoot: root,
+      purgeStorage: true,
+      confirmBucket: 'my-bucket',
+      runCommand: run as never,
+    });
+
+    expect(order).toEqual(['purge', 'down']);
+  });
+
+  it('passes the typed bucket name through for the container to re-check', async () => {
+    const root = deployment();
+    const run = vi.fn().mockResolvedValue(okResult('{}'));
+
+    await runUninstall({
+      deployRoot: root,
+      purgeStorage: true,
+      confirmBucket: 'my-bucket',
+      runCommand: run as never,
+    });
+
+    const purge = run.mock.calls.find((call) => (call[0] as string[]).includes('storage:purge'));
+    expect(purge?.[0]).toContain('--confirm');
+    expect(purge?.[0]).toContain('my-bucket');
+  });
+
+  it('refuses LOUDLY when the purge fails, rather than removing the deployment anyway', async () => {
+    // A purge that quietly did not happen leaves the operator believing their
+    // bucket is empty. Silent retention is the one outcome this must never
+    // produce, so the whole uninstall stops.
+    const root = deployment();
+    const run = vi.fn().mockImplementation(async (argv: readonly string[]) => {
+      if (argv.includes('storage:purge')) throw new Error('no such service: api');
+      return okResult();
+    });
+
+    await expect(
+      runUninstall({
+        deployRoot: root,
+        purgeStorage: true,
+        confirmBucket: 'my-bucket',
+        runCommand: run as never,
+      }),
+    ).rejects.toThrow(/no such service/);
+
+    expect(existsSync(join(root, 'repo'))).toBe(true);
+  });
+});

@@ -168,6 +168,59 @@ export function confirmationMatches(
   return typed.trim() === actual.trim();
 }
 
+/**
+ * Runs the purge inside the api image.
+ *
+ * Two phases, because §7.4's inventory has to be something the operator's
+ * confirmation is ABOUT: the first invocation is a dry run that reports what
+ * is there, the second carries `--confirm --bucket <typed>` and the entry point
+ * re-checks that name against the LIVE configuration inside the container. The
+ * CLI cannot make that check itself -- it has no way to read an encrypted
+ * credential or a settings row, which is the whole reason this runs there.
+ */
+async function purgeStorage(args: {
+  deployRoot: string;
+  composeProject: string;
+  confirmBucket: string | undefined;
+  runCommand: typeof defaultRunCommand;
+  journal: { line: (message: string) => void; redact: (text: string) => string };
+}): Promise<{ purged: boolean; detail: string }> {
+  if (args.confirmBucket === undefined || args.confirmBucket.trim() === '') {
+    return {
+      purged: false,
+      detail: "--purge-storage needs the bucket's own name typed back with --confirm-bucket",
+    };
+  }
+
+  const argv = composeArgv(
+    [
+      'run',
+      '--rm',
+      '--no-deps',
+      'api',
+      'npm',
+      'run',
+      'storage:purge',
+      '--',
+      '--confirm',
+      '--bucket',
+      args.confirmBucket,
+    ],
+    args.composeProject,
+  );
+
+  try {
+    const result = await args.runCommand(argv, {
+      cwd: composeCwd(args.deployRoot),
+      timeoutMs: 30 * 60_000,
+      redact: args.journal.redact,
+    });
+    return { purged: true, detail: result.stdout.trim().slice(-2000) || 'completed' };
+  } catch (error) {
+    return { purged: false, detail: (error as Error).message };
+  }
+}
+
 export async function runUninstall(options: UninstallOptions): Promise<UninstallResult> {
   const plan = planUninstall(options);
   const runCommand = options.runCommand ?? defaultRunCommand;
@@ -200,8 +253,29 @@ export async function runUninstall(options: UninstallOptions): Promise<Uninstall
 
   // ⚠ ORDER IS LOAD-BEARING. Anything that needs the application's own image or
   // configuration must run BEFORE the stack and the clone are destroyed.
-  // Storage purge is the case: it runs inside the api image, reading the
-  // bucket and credential the application itself resolves.
+  // Storage purge is exactly that case.
+  if (options.purgeStorage === true) {
+    const purge = await purgeStorage({
+      deployRoot: options.deployRoot,
+      composeProject: plan.composeProject,
+      confirmBucket: options.confirmBucket,
+      runCommand,
+      journal,
+    });
+
+    if (!purge.purged) {
+      journal.finish('failure', purge.detail);
+      // ⚠ REFUSES LOUDLY rather than skipping. A purge that quietly did not
+      // happen -- because the image was already gone, or the typed name did
+      // not match -- would leave the operator believing their bucket is empty.
+      // Silent retention is the one outcome this must never produce.
+      throw new UsageError(
+        `Storage was NOT purged: ${purge.detail}\n` +
+          `Nothing has been removed. Re-run once this is resolved, or drop --purge-storage to remove the deployment and keep the objects.`,
+      );
+    }
+    journal.line(`Purged storage: ${purge.detail}`);
+  }
 
   const project = plan.composeProject;
   try {
