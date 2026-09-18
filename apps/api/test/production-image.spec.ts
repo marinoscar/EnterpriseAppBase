@@ -40,9 +40,18 @@ function scriptDirectories(packageJson: string): string[] {
   for (const command of Object.values(scripts ?? {})) {
     for (const match of command.matchAll(/\bnode\s+([\w./-]+)\//g)) {
       const directory = match[1];
-      // `node dist/main` is the built output, copied from the build stage by a
-      // different line; only source-tree directories are in question here.
-      if (directory !== undefined && directory !== 'dist') directories.add(directory);
+      // Anything under `dist/` is BUILT output, copied wholesale from the build
+      // stage by `COPY --from=build .../dist`; only SOURCE-TREE directories are
+      // in question here.
+      //
+      // ⚠ This was `directory !== 'dist'` — an exact match — which covered
+      // `node dist/main` and nothing deeper. The first script to point at a
+      // nested entry point (`node dist/storage/purge/...`) was reported as an
+      // uncopied directory, because `dist/storage/purge` is not the string
+      // `dist`. The rule was always "source tree", so test the prefix.
+      if (directory === undefined) continue;
+      if (directory === 'dist' || directory.startsWith('dist/')) continue;
+      directories.add(directory);
     }
   }
 

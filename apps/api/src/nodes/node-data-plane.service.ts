@@ -85,6 +85,7 @@
 // transfer is one cheap call rather than a re-claim.
 // =============================================================================
 
+import { NODE_OUTPUTS_KEY_PREFIX } from '../storage/storage-key-prefixes';
 import {
   BadRequestException,
   Inject,
@@ -150,7 +151,11 @@ export const NODE_SIGNED_URL_MIN_TTL_SECONDS = 60;
  * single prefix listing and a lifecycle rule can be applied to node output
  * without touching a single user upload.
  */
-export const NODE_OUTPUT_KEY_PREFIX = 'node-outputs';
+// Derived from the shared list, with the trailing slash stripped because this
+// constant is joined as `${PREFIX}/${jobId}/...`. The slash lives in one place
+// (`storage-key-prefixes.ts`) precisely so a purge cannot end up asking for
+// `node-outputs//`, match nothing, and report success.
+export const NODE_OUTPUT_KEY_PREFIX = NODE_OUTPUTS_KEY_PREFIX.replace(/\/$/, '');
 
 /**
  * What a server-derived storage key is allowed to contain.

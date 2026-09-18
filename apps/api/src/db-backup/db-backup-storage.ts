@@ -101,12 +101,18 @@
 // at the exact moment nobody is reading it.
 // =============================================================================
 
+import { DATABASE_BACKUPS_KEY_PREFIX } from '../storage/storage-key-prefixes';
 import { APP_NAME } from '@app/shared';
 
 import { DatabaseBackupStorageProviderError } from './db-backup.errors';
 
 /** The fixed, product-neutral prefix every backup object lives under. */
-export const BACKUP_KEY_PREFIX = 'database-backups/';
+// Derived, not repeated. The purge in `appctl deploy uninstall` builds its
+// targets from `STORAGE_KEY_PREFIXES`, and a second literal here is exactly the
+// drift that would let a purge report success while leaving every archive in
+// the bucket. Kept exported under this name because it is what callers already
+// import.
+export const BACKUP_KEY_PREFIX = DATABASE_BACKUPS_KEY_PREFIX;
 
 /**
  * The archive format recorded on every run, and the only one this repository

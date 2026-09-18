@@ -1,3 +1,4 @@
+import { STORAGE_TEST_KEY_PREFIX } from '../storage-key-prefixes';
 import { randomUUID } from 'node:crypto';
 
 import { Injectable, Logger } from '@nestjs/common';
@@ -95,7 +96,11 @@ import type {
  * was denied, which is precisely when a stray object gets left behind and
  * somebody has to work out what it is.
  */
-export const STORAGE_PROBE_KEY_PREFIX = 'storage-config-test/';
+// Derived from the shared list. These probe objects are deleted on a
+// BEST-EFFORT basis, so they genuinely linger after a failed round trip -- which
+// is exactly why the prefix must be one the purge knows about rather than a
+// literal only this file has ever seen.
+export const STORAGE_PROBE_KEY_PREFIX = STORAGE_TEST_KEY_PREFIX;
 
 /** How long the probe's presigned URL is valid. Seconds. */
 const PRESIGNED_PROBE_TTL_SECONDS = 60;

@@ -1,3 +1,4 @@
+import { AVATARS_KEY_PREFIX } from '../../storage/storage-key-prefixes';
 import {
   PROFILE_IMAGE_SOURCES,
   type ProfileImageSource,
@@ -26,7 +27,7 @@ export const AVATAR_MAX_BYTES = 5 * 1024 * 1024;
  * through the generic storage metadata endpoint.
  */
 export function avatarKeyPrefix(userId: string): string {
-  return `avatars/${userId}/`;
+  return `${AVATARS_KEY_PREFIX}${userId}/`;
 }
 
 /** Same-origin URL at which an uploaded avatar is served publicly. */
