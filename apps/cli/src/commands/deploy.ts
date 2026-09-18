@@ -23,6 +23,11 @@ import {
 import { readState } from '../deploy/state.js';
 import { collectInventory, renderInventory } from '../deploy/inventory.js';
 import {
+  planUninstall,
+  runUninstall,
+  type UninstallPlan,
+} from '../deploy/uninstall.js';
+import {
   certificateExpiry,
   renewCertificate,
   RENEW_WITHIN_DAYS,
@@ -288,8 +293,103 @@ export function registerDeployCommand(
       await runCertsCommand(options, ctx);
     });
 
+  deploy
+    .command('uninstall')
+    .description('Remove a deployment from this server')
+    .option('--root <path>', 'Deployment directory', DEFAULT_DEPLOY_ROOT)
+    .option('--proxy-root <path>', 'Shared reverse proxy directory', DEFAULT_PROXY_ROOT)
+    .option('--dry-run', 'Report what would be removed and change nothing')
+    .option('--drop-database', 'Also drop the database (needs --confirm-database)')
+    .option('--confirm-database <name>', "The database's own name, typed back")
+    .option('--purge-storage', 'Also delete every object in storage (needs --confirm-bucket)')
+    .option('--confirm-bucket <name>', "The bucket's own name, typed back")
+    .option('--json', 'Print a machine-readable plan on stdout')
+    .addHelpText(
+      'after',
+      [
+        '',
+        'Removes the containers and their volumes, the clone, the vhost, the',
+        'logs, the environment file and the deployment record.',
+        '',
+        'ALWAYS REFUSES to remove four things, because they are shared with every',
+        'other application on this host:',
+        '  - the shared Docker network',
+        '  - the shared proxy container',
+        "  - the TLS certificate (Let's Encrypt allows 5 duplicates per week;",
+        '    keeping it is what makes a reinstall possible)',
+        "  - the renewal cron entry (per-host; it renews the neighbours' certs too)",
+        '',
+        'The two destructive extras each need their own flag AND that resource\'s',
+        'own real name typed back -- not the word DELETE. A word typed for one',
+        'must never authorise the other.',
+        '',
+        'Run --dry-run first. It reports exactly what would go and what would stay.',
+      ].join('\n'),
+    )
+    .action(async (options: UninstallCommandOptions) => {
+      await runUninstallCommand(options, ctx);
+    });
+
   return deploy;
 }
+
+export interface UninstallCommandOptions {
+  root: string;
+  proxyRoot: string;
+  dryRun?: boolean;
+  dropDatabase?: boolean;
+  confirmDatabase?: string;
+  purgeStorage?: boolean;
+  confirmBucket?: string;
+  json?: boolean;
+}
+
+export async function runUninstallCommand(
+  options: UninstallCommandOptions,
+  ctx?: DeployContext,
+): Promise<void> {
+  const stdout = ctx?.stdout ?? process.stdout;
+  const stderr = ctx?.stderr ?? process.stderr;
+
+  const plan = planUninstall({
+    deployRoot: options.root,
+    proxyRoot: options.proxyRoot,
+    ...(options.dropDatabase === undefined ? {} : { dropDatabase: options.dropDatabase }),
+    ...(options.purgeStorage === undefined ? {} : { purgeStorage: options.purgeStorage }),
+  });
+
+  // ⚠ THE INVENTORY COMES FIRST, ALWAYS. Nobody can consent to a number they
+  // were not shown, so the plan is rendered before any confirmation is judged.
+  if (options.json === true) {
+    stdout.write(`${JSON.stringify(plan, null, 2)}\n`);
+  } else {
+    stderr.write(`${renderUninstallPlan(plan)}\n`);
+  }
+
+  if (options.dryRun === true) return;
+
+  const result = await runUninstall({
+    deployRoot: options.root,
+    proxyRoot: options.proxyRoot,
+    ...(options.dropDatabase === undefined ? {} : { dropDatabase: options.dropDatabase }),
+    ...(options.confirmDatabase === undefined ? {} : { confirmDatabase: options.confirmDatabase }),
+    ...(options.purgeStorage === undefined ? {} : { purgeStorage: options.purgeStorage }),
+    ...(options.confirmBucket === undefined ? {} : { confirmBucket: options.confirmBucket }),
+    ...(ctx?.runCommand === undefined ? {} : { runCommand: ctx.runCommand }),
+  });
+
+  for (const warning of result.warnings) stderr.write(`warning: ${warning}\n`);
+  stderr.write(`Removed ${options.root}. Log: ${result.journalPath}\n`);
+}
+
+export function renderUninstallPlan(plan: UninstallPlan): string {
+  const lines = [`Uninstalling ${plan.deployRoot}`, '', 'This will REMOVE:'];
+  for (const entry of plan.removes) lines.push(`  - ${entry}`);
+  lines.push('', 'This will KEEP:');
+  for (const keep of plan.keeps) lines.push(`  - ${keep.what}  (${keep.because})`);
+  return lines.join('\n');
+}
+
 
 export interface CertsCommandOptions {
   root: string;
