@@ -208,6 +208,16 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
           'changes), not a per-account setting.',
       },
       {
+        name: 'About',
+        description:
+          'What is actually deployed here: the API version this process resolved for itself, ' +
+          'the deploy document `appctl deploy` leaves on disk, and a database liveness fact. ' +
+          'Gated on `system_settings:read` — deliberately an existing permission rather than ' +
+          'a new one, because a read-only report of the deployment has no blast radius of its ' +
+          'own. Always answers 200: a missing or malformed document, and an unreachable ' +
+          'database, are fields rather than status codes.',
+      },
+      {
         name: 'Maintenance',
         description:
           'The maintenance window: turning it on, the message callers see while it is open, and ' +

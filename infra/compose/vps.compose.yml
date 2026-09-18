@@ -42,9 +42,35 @@ services:
         max-file: "3"
 
   # ---------------------------------------------------------------------------
-  # API - log rotation
+  # API - deploy-info bind mount, and log rotation
   # ---------------------------------------------------------------------------
   api:
+    # What the CLI deployed here, readable by the running application.
+    #
+    # READ-ONLY on purpose: the application reports this document, it does not
+    # author it. Mounting it writable would let a compromised container rewrite
+    # its own provenance.
+    #
+    # The DIRECTORY is mounted, not the file, so the CLI can replace
+    # `info.json` atomically (write a temp file, rename over it) and have the
+    # container see the new one without a restart. Bind-mounting the file
+    # itself pins an inode, and a rename would leave the container reading the
+    # old document for ever.
+    #
+    # ⚠ The source directory MUST exist before this stack starts. Docker
+    # creates a missing bind source as root:root, after which the CLI's own
+    # write fails with EACCES -- with every deploy step reporting green. The
+    # install pipeline creates it ahead of `up`.
+    #
+    # `DEPLOY_ROOT` is written into .env by the CLI and is deliberately absent
+    # from .env.example: it doubles as the marker identifying an .env this CLI
+    # wrote. The `:-` default keeps `docker compose config` working in a plain
+    # checkout, where the path simply does not exist and the API reports the
+    # document as absent -- which is the correct answer there.
+    volumes:
+      - ${DEPLOY_ROOT:-./.deploy}/deploy-info:/app/deploy-info:ro
+    environment:
+      - DEPLOY_INFO_PATH=${DEPLOY_INFO_PATH:-/app/deploy-info/info.json}
     logging:
       driver: "json-file"
       options:
