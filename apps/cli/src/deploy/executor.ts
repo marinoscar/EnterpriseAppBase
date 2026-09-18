@@ -177,6 +177,27 @@ class LineAssembler {
  * `CommandFailedError` otherwise. The result is attached to the error, so a
  * caller that wants the output of a failure does not re-run anything to get it.
  */
+/**
+ * Binds an `AbortSignal` to a `runCommand`, for callers that pass the function
+ * around rather than the options.
+ *
+ * The deploy pipelines take a `runCommand` and thread it down to every step, so
+ * an interactive caller has nowhere to put a per-call `signal`. Without this,
+ * a screen can hold an `AbortController`, abort it on unmount, and have that
+ * abort reach nothing at all -- which is exactly what happened: Esc tore down
+ * the UI and left a `docker compose build` running on a production server,
+ * having reported the operation cancelled.
+ *
+ * An explicit `signal` in the per-call options still wins, so a step that
+ * genuinely wants its own lifetime keeps it.
+ */
+export function withSignal(
+  run: typeof runCommand,
+  signal: AbortSignal,
+): typeof runCommand {
+  return (argv, options) => run(argv, { signal, ...options });
+}
+
 export async function runCommand(
   argv: readonly string[],
   options: RunCommandOptions,
