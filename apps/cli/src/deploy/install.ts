@@ -1,11 +1,12 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 
 import { CLI_NAME } from '../branding.js';
 import { PreconditionError, UsageError } from '../errors.js';
 import { CLI_VERSION } from '../package-info.js';
 import { ALL_CHECKS, checksPassed, requiredChecks, runChecks } from './checks/index.js';
-import { parseEnvExample, parseEnvFile, serializeEnvFile } from './env-spec.js';
+import { parseEnvExample, parseEnvFile } from './env-spec.js';
+import { writeEnvFile } from './env-file.js';
 import { runEnvWizard } from './env-wizard.js';
 import type { EnvGroup } from './env-metadata.js';
 import { runCommand as defaultRunCommand } from './executor.js';
@@ -208,10 +209,27 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
 
         // Answers supplied by a caller win over what is on disk: they are the
         // more recent statement of intent.
+        //
+        // A BLANK ANSWER IS NOT AN ANSWER, though, and this is the guard that
+        // says so. The TUI collects every essential key into a form and hands
+        // the whole map over, so a field the operator left alone arrives as
+        // `''`. Letting that beat the on-disk value means a re-install over a
+        // live deployment overwrites the secrets it did not ask about - and for
+        // `SECRETS_ENCRYPTION_KEY` that makes every credential encrypted under
+        // the old key permanently undecryptable, with no visible symptom.
+        //
+        // Dropping blanks here means "leave it as it is" survives the round
+        // trip, which is what an untouched field means in every UI anyone has
+        // ever used.
+        const supplied = new Map(
+          [...(context.options.answers ?? new Map<string, string>())].filter(
+            ([, value]) => value !== '',
+          ),
+        );
         const existing =
           context.options.answers === undefined
             ? onDisk
-            : new Map([...(onDisk ?? new Map()), ...context.options.answers]);
+            : new Map([...(onDisk ?? new Map()), ...supplied]);
 
         const domain = context.options.domain;
         if (domain === undefined) {
@@ -237,9 +255,7 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
         values.set('APP_BIND_PORT', String(context.options.bindPort));
 
         mkdirSync(composeCwd(context.options.deployRoot), { recursive: true });
-        // 0600: it holds the database password, the JWT secret and the OAuth
-        // client secret.
-        writeFileSync(path, serializeEnvFile(values, specs), { mode: 0o600 });
+        writeEnvFile(path, values, specs);
 
         context.env = values;
         context.journal.line(`Wrote ${path} (${values.size} variables)`);
@@ -470,6 +486,12 @@ export async function runInstall(options: InstallOptions): Promise<InstallResult
     lastDeployedAt: now,
     lastCommand: 'install',
     appctlVersion: CLI_VERSION,
+    // Recorded so a later `update` knows which opt-in groups this deployment
+    // uses. It cannot be re-derived from the `.env`: a group's keys look
+    // identical whether the feature is on or off.
+    ...(options.groups === undefined || options.groups.length === 0
+      ? {}
+      : { groups: [...options.groups] }),
     completedSteps: result.completed,
   } as DeployState);
 

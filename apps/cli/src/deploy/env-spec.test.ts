@@ -16,6 +16,7 @@ import {
   parseEnvExample,
   parseEnvFile,
   serializeEnvFile,
+  splitLines,
   stripInlineComment,
   unquote,
   type EnvVarSpec,
@@ -407,6 +408,62 @@ describe('scalar validators', () => {
     expect(validatePort('0')).toBeDefined();
     expect(validatePort('70000')).toBeDefined();
     expect(validatePort('abc')).toBeDefined();
+  });
+});
+
+describe('splitLines', () => {
+  it('keeps array length identical to a plain split on LF input', () => {
+    // splitLines MUST be the only line splitter in the module: an off-by-one
+    // here would desync spec.line from the file the operator is looking at.
+    expect(splitLines(FIXTURE).length).toBe(FIXTURE.split('\n').length);
+  });
+
+  it('strips a trailing CR from every line, keeping the same line count', () => {
+    const crlf = FIXTURE.replace(/\n/g, '\r\n');
+
+    const lines = splitLines(crlf);
+
+    expect(lines.length).toBe(FIXTURE.split('\n').length);
+    expect(lines.every((line) => !line.endsWith('\r'))).toBe(true);
+    expect(lines).toEqual(FIXTURE.split('\n'));
+  });
+});
+
+// =============================================================================
+// CRLF templates - the headline regression this module's header comment
+// describes: `.` does not match `\r` in a JS regex, so ASSIGNMENT never
+// matched `KEY=value\r` and a CRLF-saved .env.example silently produced ZERO
+// specs - a wizard that asked no questions, reporting success.
+// =============================================================================
+describe('CRLF handling (regression)', () => {
+  const lf = readFileSync(REAL_TEMPLATE, 'utf8');
+  const crlf = lf.replace(/\n/g, '\r\n');
+
+  it('parses the real .env.example identically whether it is LF or CRLF', () => {
+    const lfSpecs = parseEnvExample(lf);
+    const crlfSpecs = parseEnvExample(crlf);
+
+    // Before the fix this was 0, not merely "different from lfSpecs.length".
+    expect(crlfSpecs.length).toBeGreaterThan(0);
+    expect(crlfSpecs.length).toBe(lfSpecs.length);
+    expect(crlfSpecs.map((spec) => spec.key)).toEqual(lfSpecs.map((spec) => spec.key));
+    expect(crlfSpecs.map((spec) => spec.defaultValue)).toEqual(
+      lfSpecs.map((spec) => spec.defaultValue),
+    );
+    expect(crlfSpecs.map((spec) => spec.line)).toEqual(lfSpecs.map((spec) => spec.line));
+    // Belt and braces: the whole struct array, not just the fields above.
+    expect(crlfSpecs).toEqual(lfSpecs);
+  });
+
+  it('parses a CRLF .env file the same as its LF equivalent', () => {
+    const lfEnv = 'A=1\nB=two\n# a comment\n';
+    const crlfEnv = lfEnv.replace(/\n/g, '\r\n');
+
+    expect(parseEnvFile(crlfEnv)).toEqual(parseEnvFile(lfEnv));
+    expect([...parseEnvFile(crlfEnv).entries()]).toEqual([
+      ['A', '1'],
+      ['B', 'two'],
+    ]);
   });
 });
 

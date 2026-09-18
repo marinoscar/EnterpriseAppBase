@@ -1,12 +1,14 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { CLI_NAME } from '../branding.js';
 import { PreconditionError, UsageError } from '../errors.js';
 import { CLI_VERSION } from '../package-info.js';
 import { ALL_CHECKS, checksPassed, runChecks } from './checks/index.js';
-import { diffEnv, parseEnvExample, parseEnvFile, serializeEnvFile } from './env-spec.js';
-import { metadataFor } from './env-metadata.js';
+import { diffEnv, parseEnvExample, parseEnvFile } from './env-spec.js';
+import { genuinelyNewKeys } from './env-absence.js';
+import { writeEnvFile } from './env-file.js';
+import { metadataFor, type EnvGroup } from './env-metadata.js';
 import { runEnvWizard } from './env-wizard.js';
 import { runCommand as defaultRunCommand } from './executor.js';
 import { collectHealth, isHealthy, waitForHealthy } from './health.js';
@@ -60,6 +62,11 @@ export interface UpdateOptions {
   cwd?: string | undefined;
   /** Values collected elsewhere; see InstallOptions.answers. */
   answers?: ReadonlyMap<string, string> | undefined;
+  /**
+   * Opt-in feature groups. Overrides the set recorded at install time; absent
+   * means "whatever this deployment already enabled".
+   */
+  groups?: EnvGroup[] | undefined;
 }
 
 interface UpdateContext extends StepContext {
@@ -211,22 +218,48 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
 
         if (missing.length === 0) return;
 
-        const needsAnswer = missing.filter((spec) => {
+        // "In the template and not in the file" is NOT the same question as
+        // "what did this revision add?". A key is permanently absent for three
+        // unrelated reasons - a declined optional, a `never` key, and an
+        // opt-in feature group the deployment never enabled - and none of them
+        // is drift. `genuinelyNewKeys` applies all three; filtering on
+        // `essential || secret` alone re-asked the ENTIRE wizard, database
+        // connection included, on an update whose template had not changed.
+        //
+        // The feature-group class is the one that looks handled and is not:
+        // those keys are NOT commented out, so `spec.optional` misses them.
+        // Enabled groups come from the flag, else from what install recorded -
+        // NEVER from reading the `.env`, for the reason `state.groups` gives.
+        const groups = (context.options.groups ??
+          (context.state.groups as EnvGroup[] | undefined) ??
+          []) as readonly EnvGroup[];
+        const added = genuinelyNewKeys(missing, { groups });
+
+        if (added.length === 0) {
+          context.journal.line(
+            `Template has ${missing.length} variable(s) this deployment does not use; nothing new.`,
+          );
+          return;
+        }
+
+        const needsAnswer = added.filter((spec) => {
           const metadata = metadataFor(spec.key);
           return metadata.essential === true || metadata.secret === true;
         });
 
         context.journal.line(
-          `This revision adds ${missing.length} variable(s); ${needsAnswer.length} need a value.`,
+          `This revision adds ${added.length} variable(s); ${needsAnswer.length} need a value.`,
         );
 
         if (needsAnswer.length === 0) {
           // Everything new has a usable default; add them and say so.
           const merged = new Map(current);
-          for (const spec of missing) {
-            if (!spec.optional) merged.set(spec.key, spec.defaultValue);
+          for (const spec of added) {
+            merged.set(spec.key, spec.defaultValue);
           }
-          writeFileSync(path, serializeEnvFile(merged, specs), { mode: 0o600 });
+          // The WRITER still gets the full template spec list, so section
+          // banners and key order survive. Only the question list narrows.
+          writeEnvFile(path, merged, specs);
           context.env = merged;
           return;
         }
@@ -239,7 +272,10 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
         }
 
         const { values } = await runEnvWizard({
-          specs,
+          // ONLY the new keys. Handing over the full list is the other half of
+          // the same defect: even a genuine one-variable revision re-asked
+          // everything.
+          specs: added,
           domain,
           existing:
             context.options.answers === undefined
@@ -253,7 +289,7 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
             : { ctx: context.options.promptContext }),
         });
 
-        writeFileSync(path, serializeEnvFile(values, specs), { mode: 0o600 });
+        writeEnvFile(path, values, specs);
         context.env = values;
       },
     },

@@ -373,3 +373,81 @@ describe('runEnvWizard --non-interactive', () => {
     expect(values.get('POSTGRES_USER')).toBe('appuser');
   });
 });
+
+// =============================================================================
+// "SKIPPED" is a third outcome, beside "answered" and "missing" (see the
+// wizard's own header comment on the non-interactive path). A declined
+// optional variable must not be reported as a missing value, and it must not
+// resurrect the template default either - it is deleted outright.
+// =============================================================================
+describe('runEnvWizard --non-interactive: the `skipped` outcome', () => {
+  const ONLY_OPTIONAL_SPECS = parseEnvExample(
+    ['# Optional: an analytics DSN a fork might configure later.', '# SENTRY_DSN='].join('\n'),
+  );
+
+  // POSTGRES_HOST is essential in ENV_METADATA; SENTRY_DSN has no entry there
+  // at all, so it is optional with no `essential` flag - exactly the case the
+  // header comment describes.
+  const SKIP_AND_ESSENTIAL_SPECS = parseEnvExample(
+    [
+      '# Optional: an analytics DSN a fork might configure later.',
+      '# SENTRY_DSN=',
+      'POSTGRES_HOST=localhost',
+    ].join('\n'),
+  );
+
+  it('deletes a declined optional key rather than falling back to its template default', async () => {
+    const { values } = await runEnvWizard({
+      specs: ONLY_OPTIONAL_SPECS,
+      domain: 'app.example.test',
+      nonInteractive: true,
+      all: true,
+    });
+
+    // Not merely "unset" - genuinely absent, so the serializer does not write
+    // it back in with its (blank) template default.
+    expect(values.has('SENTRY_DSN')).toBe(false);
+  });
+
+  it('records the skipped row as {display: "(skipped)", source: "skipped"}', async () => {
+    const { summary } = await runEnvWizard({
+      specs: ONLY_OPTIONAL_SPECS,
+      domain: 'app.example.test',
+      nonInteractive: true,
+      all: true,
+    });
+
+    expect(summary).toContainEqual({
+      key: 'SENTRY_DSN',
+      display: '(skipped)',
+      source: 'skipped',
+    });
+  });
+
+  it('does not report a declined optional key as missing', async () => {
+    // Before the fix, an absent optional variable was read as "missing" and
+    // failed the whole run - for a variable nobody wanted in the first place.
+    await expect(
+      runEnvWizard({
+        specs: ONLY_OPTIONAL_SPECS,
+        domain: 'app.example.test',
+        nonInteractive: true,
+        all: true,
+      }),
+    ).resolves.toBeDefined();
+  });
+
+  it('does not let a skipped optional key mask a genuinely missing essential one', async () => {
+    const error = await runEnvWizard({
+      specs: SKIP_AND_ESSENTIAL_SPECS,
+      domain: 'app.example.test',
+      nonInteractive: true,
+      all: true,
+    }).catch((caught: unknown) => caught);
+
+    // POSTGRES_HOST is essential and blank: it must still land in the
+    // unresolved list, whatever else in the same run was legitimately skipped.
+    expect(error).toBeInstanceOf(UsageError);
+    expect((error as Error).message).toContain('POSTGRES_HOST');
+  });
+});

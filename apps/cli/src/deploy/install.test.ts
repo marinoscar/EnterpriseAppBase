@@ -1,10 +1,11 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
 import { UsageError } from '../errors.js';
+import { runCommand } from './executor.js';
 import {
   buildInstallSteps,
   composeArgv,
@@ -13,6 +14,7 @@ import {
   runInstall,
   secretsFrom,
 } from './install.js';
+import { openJournal } from './journal.js';
 import { DEPLOY_STATE_VERSION, writeState, type DeployState } from './state.js';
 
 function installedRoot(): string {
@@ -146,5 +148,80 @@ describe('defaultRootFor', () => {
     expect(defaultRootFor('https://example.test/o/MyApp.git', '/opt/infra/apps')).toBe(
       '/opt/infra/apps/myapp',
     );
+  });
+});
+
+// =============================================================================
+// The `environment` step: a blank answer must not beat an on-disk value (the
+// secret-rotation guard). A re-install that overwrote JWT_SECRET, COOKIE_SECRET
+// or SECRETS_ENCRYPTION_KEY with '' every time an operator left a field
+// untouched would make every credential encrypted under the old key
+// permanently undecryptable, with no visible symptom.
+// =============================================================================
+describe('the environment step: blank answers vs. an on-disk value', () => {
+  const KNOWN_SECRET = 'on-disk-secret-that-is-plenty-long-enough-32ch';
+  const NEW_SECRET = 'freshly-supplied-secret-also-plenty-long-enough';
+
+  const runCommandStub: typeof runCommand = async () => {
+    throw new Error('the environment step must not run any commands');
+  };
+
+  function environmentStep() {
+    const step = buildInstallSteps().find((candidate) => candidate.id === 'environment');
+    if (step === undefined) throw new Error('the "environment" step was removed or renamed');
+    return step;
+  }
+
+  /** Seeds deployRoot/repo/infra/compose/.env.example and .env, the two files
+   *  the environment step reads before it writes anything. */
+  function seed(root: string, onDiskSecret: string): void {
+    const dir = composeCwd(root);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(dir + '/.env.example', 'JWT_SECRET=your-super-secret-key-min-32-characters-long\n');
+    writeFileSync(dir + '/.env', `JWT_SECRET=${onDiskSecret}\n`);
+  }
+
+  function contextFor(root: string, answers: ReadonlyMap<string, string>) {
+    return {
+      options: {
+        deployRoot: root,
+        domain: 'app.example.test',
+        bindPort: 3535,
+        proxyRoot: '/tmp/proxy',
+        nonInteractive: true,
+        answers,
+      },
+      runCommand: runCommandStub,
+      journal: openJournal({ deployRoot: root, command: 'install' }),
+      hooks: undefined,
+      completed: new Set<string>(),
+      env: undefined as Map<string, string> | undefined,
+    };
+  }
+
+  it('keeps the on-disk secret when the supplied answer is blank', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'appctl-env-step-'));
+    seed(root, KNOWN_SECRET);
+
+    const context = contextFor(root, new Map([['JWT_SECRET', '']]));
+    await environmentStep().run(context as never);
+
+    expect(context.env?.get('JWT_SECRET')).toBe(KNOWN_SECRET);
+    const written = readFileSync(join(composeCwd(root), '.env'), 'utf8');
+    expect(written).toContain(`JWT_SECRET=${KNOWN_SECRET}`);
+    expect(written).not.toContain('JWT_SECRET=\n');
+  });
+
+  it('lets a genuinely supplied, non-blank answer win over the on-disk value', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'appctl-env-step-'));
+    seed(root, KNOWN_SECRET);
+
+    const context = contextFor(root, new Map([['JWT_SECRET', NEW_SECRET]]));
+    await environmentStep().run(context as never);
+
+    expect(context.env?.get('JWT_SECRET')).toBe(NEW_SECRET);
+    const written = readFileSync(join(composeCwd(root), '.env'), 'utf8');
+    expect(written).toContain(`JWT_SECRET=${NEW_SECRET}`);
+    expect(written).not.toContain(KNOWN_SECRET);
   });
 });

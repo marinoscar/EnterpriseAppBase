@@ -11,7 +11,7 @@ import { ALL_CHECKS, runChecks, checksPassed, type CompletedCheck } from '../../
 import { collectHealth, isHealthy, type HealthReport } from '../../deploy/health.js';
 import { runInstall } from '../../deploy/install.js';
 import { runUpdate } from '../../deploy/update.js';
-import { runCommand } from '../../deploy/executor.js';
+import { runCommand, withSignal } from '../../deploy/executor.js';
 import { metadataFor } from '../../deploy/env-metadata.js';
 import { parseEnvExample, type EnvVarSpec } from '../../deploy/env-spec.js';
 import { readState, type DeployState } from '../../deploy/state.js';
@@ -127,6 +127,10 @@ export function fieldsForInstall(specs: readonly EnvVarSpec[]): FieldSpec[] {
 
 export function DeployScreen({ onDone }: DeployScreenProps): ReactNode {
   const [phase, setPhase] = useState<Phase>({ kind: 'choosing' });
+  // Esc once arms the cancel and shows what it will and will not undo; Esc
+  // again commits it. A single keystroke is too little ceremony for killing a
+  // half-applied deployment.
+  const [confirmAbort, setConfirmAbort] = useState(false);
   const [value, setValue] = useState('');
   const mounted = useRef(true);
   const abortRef = useRef<AbortController | undefined>(undefined);
@@ -152,12 +156,27 @@ export function DeployScreen({ onDone }: DeployScreenProps): ReactNode {
 
   const isRunning = phase.kind === 'running';
 
-  // Esc is REFUSED while running rather than offered as a cancel that does not
-  // cancel. `isActive` is off entirely while a text field owns the keyboard.
+  // Esc now genuinely cancels: `perform` runs every child process through a
+  // signal-bound runner, so aborting the controller SIGTERMs whatever is
+  // running. It used to be refused here, because the controller reached
+  // nothing and a cancel that does not cancel is worse than no cancel at all.
+  //
+  // The abort stays HONEST about what it leaves behind. Cancelling mid-run does
+  // not undo the steps that already committed -- a written `.env`, a checkout,
+  // built images -- so the confirmation says so rather than implying a clean
+  // rollback. `isActive` is off entirely while a text field owns the keyboard.
   useInput(
     (_input, key) => {
       if (!key.escape && !key.return) return;
-      if (isRunning) return;
+      if (isRunning) {
+        if (!key.escape) return;
+        if (!confirmAbort) {
+          setConfirmAbort(true);
+          return;
+        }
+        abortRef.current?.abort();
+        return;
+      }
       onDone();
     },
     { isActive: phase.kind !== 'collecting' },
@@ -218,7 +237,7 @@ export function DeployScreen({ onDone }: DeployScreenProps): ReactNode {
       setPhase({ kind: 'running', action, steps: [], lines: [] });
 
       try {
-        const summary = await perform(action, answers, hooks, appendLine);
+        const summary = await perform(action, answers, hooks, appendLine, controller.signal);
         if (mounted.current) setPhase({ kind: 'done', action, summary });
       } catch (error) {
         if (error instanceof Error && error.name === 'AbortError') return;
@@ -369,8 +388,7 @@ export function DeployScreen({ onDone }: DeployScreenProps): ReactNode {
     return (
       <Frame
         title={`${phase.action} — running`}
-        // No "esc cancel": it would not cancel, and offering it would be a lie.
-        hints={['ctrl-c abort']}
+        hints={[confirmAbort ? 'esc again to cancel' : 'esc cancel', 'ctrl-c abort']}
       >
         <Box>
           <Text color="cyan">
@@ -378,6 +396,23 @@ export function DeployScreen({ onDone }: DeployScreenProps): ReactNode {
           </Text>
           <Text> {phase.steps.at(-1)?.title ?? 'Starting'}…</Text>
         </Box>
+        {confirmAbort ? (
+          // Names what cancelling does NOT undo. A cancel that implies a clean
+          // rollback is the same lie as a cancel that does not cancel.
+          <Box marginTop={1} flexDirection="column">
+            <Text color="yellow">
+              Press esc again to stop. Steps already completed are NOT undone:
+            </Text>
+            <Text color="yellow">
+              {'  '}
+              {phase.steps
+                .filter((step) => step.outcome === 'ok')
+                .map((step) => step.title)
+                .join(', ') || 'none yet'}
+            </Text>
+            <Text dimColor>Re-run to continue from where this stopped.</Text>
+          </Box>
+        ) : null}
         <Box flexDirection="column" marginTop={1}>
           {phase.steps.map((step) => (
             <Text key={step.id}>
@@ -441,12 +476,19 @@ async function perform(
   answers: Map<string, string>,
   hooks: Parameters<typeof runInstall>[0]['hooks'],
   appendLine: (line: string) => void,
+  signal: AbortSignal,
 ): Promise<string[]> {
+  // Every branch below runs child processes through THIS, so unmounting the
+  // screen actually kills them. Passing the bare import -- which is what this
+  // did -- meant the abort controller held by the component reached nothing,
+  // and a torn-down screen left `docker compose build` running on the server.
+  const run = withSignal(runCommand, signal);
+
   if (action === 'doctor') {
     const results: CompletedCheck[] = await runChecks(
       ALL_CHECKS,
       {
-        runCommand,
+        runCommand: run,
         deployRoot: DEFAULT_ROOT,
         bindPort: DEFAULT_BIND_PORT,
         proxyRoot: DEFAULT_PROXY_ROOT,
@@ -466,7 +508,7 @@ async function perform(
 
   if (action === 'status') {
     const report: HealthReport = await collectHealth({
-      runCommand,
+      runCommand: run,
       deployRoot: DEFAULT_ROOT,
       bindPort: DEFAULT_BIND_PORT,
     });
@@ -495,6 +537,7 @@ async function perform(
 
   const result = await runInstall({
     deployRoot: DEFAULT_ROOT,
+    runCommand: run,
     bindPort: DEFAULT_BIND_PORT,
     proxyRoot: DEFAULT_PROXY_ROOT,
     domain,
