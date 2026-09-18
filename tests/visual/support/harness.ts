@@ -123,3 +123,40 @@ export async function waitForInter(page: Page): Promise<void> {
   // shifting the very glyph metrics the #105 caption-truncation specs measure.
   expect(interFaces[0].weight, 'Inter must stay a 100-900 variable face (#111)').toBe('100 900');
 }
+
+/**
+ * ⚠ THE VERSION LINE IS A STANDING BASELINE HAZARD. READ THIS BEFORE WRITING A
+ * SPEC THAT OPENS THE USER MENU.
+ *
+ * Issue #401, epic #397 added a build-time version string
+ * (`__APP_VERSION__`, see `apps/web/build/app-version.ts`) to
+ * `components/navigation/UserMenu.tsx`. Epic #397's own #405 bumps that version
+ * on every deploy, so ANY pixel baseline that captures the string is a baseline
+ * that fails on the next release — for a reason that has nothing to do with
+ * layout, and that a reviewer looking at a diff of two glyphs will reasonably
+ * mistake for noise and re-baseline away.
+ *
+ * TODAY THAT COSTS NOTHING, BY PLACEMENT RATHER THAN BY MASK. The line is
+ * rendered INSIDE the MUI `Menu` that the avatar button opens, and that menu is
+ * an unmounted portal until somebody clicks. No spec in this directory clicks
+ * it: `drilldown-appbar.spec.ts` screenshots the `header` element with the menu
+ * shut, and the `fullPage` specs capture the closed avatar button and nothing
+ * behind it. The version string is therefore outside every captured region, and
+ * a mask would be a control with nothing under it — dead weight that quietly
+ * stops being checked.
+ *
+ * IF A SPEC EVER OPENS THAT MENU, mask the line rather than accepting it:
+ *
+ * ```ts
+ * await expect(page).toHaveScreenshot('....png', {
+ *   mask: [versionLine(page)],
+ * });
+ * ```
+ *
+ * `maxDiffPixels: 4` leaves no room to absorb a changed digit, so "it is only a
+ * couple of characters" is not an option here — one character is dozens of
+ * pixels.
+ */
+export function versionLine(page: Page) {
+  return page.getByTestId('user-menu-version');
+}

@@ -62,11 +62,28 @@ import { Controller, Get } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { Auth } from '../auth/decorators/auth.decorator';
+import { AllowDuringMaintenance } from '../common/maintenance/allow-during-maintenance.decorator';
 import { PERMISSIONS } from '../common/constants/roles.constants';
 import { AboutService } from './about.service';
 import { AboutResponseDto } from './dto/about-response.dto';
 
 @ApiTags('About')
+// ⚠ READABLE DURING A MAINTENANCE WINDOW, deliberately.
+//
+// Every other admin surface is blocked while a window is open, and that is
+// right: they CHANGE things. This one only reports, and the moment an operator
+// most needs it is precisely the moment a window is open -- a deploy failed
+// partway, somebody opened the window to stop traffic, and the question they
+// now have is "what is actually on this box?". Answering 503 to that question
+// withholds the one page that could answer it, from the one person entitled to
+// ask.
+//
+// It is safe to exempt on the same grounds the health probes are: it performs
+// no network I/O, writes nothing, and already reports an unreachable database
+// as a field rather than an error -- which is the state a window is often
+// covering for. It remains gated on `system_settings:read`, so the exemption
+// widens no surface to anyone who could not already read it.
+@AllowDuringMaintenance()
 @Controller('admin/about')
 export class AboutController {
   constructor(private readonly about: AboutService) {}

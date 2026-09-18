@@ -55,6 +55,12 @@ test('Console rail: Back to library + General/Access/Operations groups @ lg', as
   // card.disabled` rather than on a second list: flipping two fields in the
   // registry is what makes the rail draw it.
   await expect(rail.getByRole('link', { name: 'Database Backup' })).toBeVisible();
+  // Live since #401 (epic #397). Appended to the Operations group, so it is the
+  // LAST row in this rail — which is why this baseline had to be regenerated
+  // with that change: an added row lengthens the `nav` element this screenshot
+  // is scoped to. It gates on `system_settings:read`, which the harness's
+  // `DEFAULT_PERMISSIONS` already grants, so no `?perms=` change was needed.
+  await expect(rail.getByRole('link', { name: 'About' })).toBeVisible();
 
   await expect(rail).toHaveScreenshot('console-rail-lg-expanded.png');
 });

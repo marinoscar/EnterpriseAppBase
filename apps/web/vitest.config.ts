@@ -1,9 +1,15 @@
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import { resolve } from 'path';
+// `__APP_VERSION__` (issue #401, epic #397). THE SAME definition
+// `vite.config.ts` spreads. This config shares no base with it, so without
+// this line the constant is a free identifier and every test that renders
+// `UserMenu` dies with `__APP_VERSION__ is not defined`.
+import { appVersionDefine } from './build/app-version';
 
 export default defineConfig({
   plugins: [react()],
+  define: { ...appVersionDefine() },
   test: {
     environment: 'jsdom',
     globals: true,

@@ -2,6 +2,12 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+// `__APP_VERSION__` (issue #401, epic #397). THE SAME definition the app's own
+// config spreads. The harness mounts the real `AppBar`, which mounts the real
+// `UserMenu`, which reads this constant — without it the harness renders a
+// blank page and every pixel spec fails on a missing element rather than on a
+// diff, the exact failure mode `optimizeDeps` below already documents.
+import { appVersionDefine } from '../build/app-version';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -53,6 +59,7 @@ export default defineConfig({
   // OTHER config, and configs do not inherit. The note exists so that "the
   // harness is missing the PWA plugin" is never read as a bug.
   plugins: [react()],
+  define: { ...appVersionDefine() },
   // Required for the same reason as in `apps/web/vite.config.ts`, and this is
   // the config where its absence actually shows: `@app/shared` is CommonJS
   // arriving as a workspace symlink, which Vite treats as source and therefore

@@ -889,3 +889,98 @@ export interface UpdateMaintenanceInput {
   message?: string;
   allowAdmins?: boolean;
 }
+
+// =============================================================================
+// About — what is actually deployed here (issue #401, epic #397)
+// =============================================================================
+//
+// Mirrors `apps/api/src/about/dto/about-response.dto.ts` field for field. Read
+// that file's header before changing anything here: the shape is deliberately
+// built to carry PARTIAL TRUTH, and the nullability below is the contract
+// rather than defensive typing.
+//
+// ⚠ `GET /api/admin/about` ALWAYS ANSWERS 200. A missing deploy document, a
+// malformed one and an unreachable database are all fields, never statuses. So
+// nothing in this block should ever be reached through an error path — a `null`
+// here is a FACT the page renders, not a failure it hides.
+
+/** The API process's own version. Always known; never read from disk. */
+export interface AboutApi {
+  version: string;
+}
+
+export interface AboutApp {
+  name: string | null;
+  version: string | null;
+  /** The commit actually deployed — the single most useful field on the page. */
+  commitSha: string | null;
+  /** The branch or tag the deploy was taken from. */
+  ref: string | null;
+}
+
+export interface AboutDeployedBy {
+  /** Which client wrote the document, e.g. `appctl`. */
+  cli: string | null;
+  version: string | null;
+}
+
+/**
+ * How far behind the remote this deployment was AT `checkedAt`.
+ *
+ * ⚠ COPIED FROM THE DOCUMENT, NEVER REFRESHED — the API performs no network
+ * I/O for this endpoint at all. The number is as old as `checkedAt` says it is,
+ * which is why the page must never render one without the other.
+ */
+export interface AboutRemote {
+  commitsBehind: number | null;
+  checkedAt: string | null;
+}
+
+/**
+ * The deploy run that wrote the document.
+ *
+ * `outcome: 'failure'` beside a COMPLETE document is the third render state —
+ * see `pages/Admin/AboutPage.tsx`. `failedStep` names where it stopped, and
+ * `completed` still lists every step that really ran.
+ */
+export interface AboutRun {
+  completed: string[];
+  failedStep: string | null;
+  outcome: 'success' | 'failure' | null;
+}
+
+/** A liveness fact from the same indicator `GET /api/health/ready` uses. */
+export interface AboutDatabase {
+  status: string;
+  responseTime: string;
+}
+
+/** `ok` — a document was read. `absent` — nothing there. `invalid` — unusable. */
+export type DeployInfoStatus = 'ok' | 'absent' | 'invalid';
+
+export interface AboutResponse {
+  api: AboutApi;
+  deployInfoStatus: DeployInfoStatus;
+  /**
+   * The exact path the API read.
+   *
+   * Always present, INCLUDING on `ok`. On `absent` it is the only actionable
+   * fact the response carries, and the reason the copy around it can stay
+   * truthful — see the page.
+   */
+  deployInfoPath: string;
+  /** Why the document is `invalid`. `null` for `ok` and for `absent`. */
+  deployInfoError: string | null;
+
+  app: AboutApp | null;
+  installedAt: string | null;
+  updatedAt: string | null;
+  deployedBy: AboutDeployedBy | null;
+  domain: string | null;
+  remote: AboutRemote | null;
+  run: AboutRun | null;
+
+  /** `null` PLUS `databaseError`, never a 503. A fact to display, not a page error. */
+  database: AboutDatabase | null;
+  databaseError: string | null;
+}

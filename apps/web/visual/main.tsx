@@ -129,6 +129,11 @@ const DEFAULT_PERMISSIONS = [
   // stopped containing it — green, and wrong.
   'storage_config:read',
   'storage_config:write',
+  // The `About` card (#401, epic #397) needs NO new string here: it mirrors
+  // `system_settings:read`, already first in this list, because that is the
+  // literal permission `about/about.controller.ts` enforces. Noted rather than
+  // left silent, so the next reader does not "fix" a missing `about:read` that
+  // deliberately does not exist.
 ];
 
 interface HarnessParams {

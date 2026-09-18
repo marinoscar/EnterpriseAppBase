@@ -77,6 +77,10 @@ const DbBackupPage = lazy(() => import('./pages/Admin/DbBackupPage'));
 // the same reason: a DataTable, a composer dialog and a detail dialog that
 // nobody who never opens the Console will ever mount.
 const BroadcastsPage = lazy(() => import('./pages/Admin/BroadcastsPage'));
+// Issue #401, epic #397 — what is actually deployed here: the version, the
+// commit, the deploy run that put it there. Lazy like every other admin page;
+// nobody who never opens the Console mounts it.
+const AboutPage = lazy(() => import('./pages/Admin/AboutPage'));
 const AdminUsersPage = lazy(() => import('./pages/Admin/UsersPage'));
 
 // Test login page (development only)
@@ -481,6 +485,38 @@ function AppRoutes() {
                         fallback={<Navigate to="/" replace />}
                       >
                         <BroadcastsPage />
+                      </RequirePermission>
+                    }
+                  />
+                  {/* Issue #401, epic #397. Guarded EXACTLY as the Jobs,
+                      Workers and Broadcasts routes above are, and on
+                      `system_settings:read` — the literal string
+                      `about/about.controller.ts` enforces on its single GET
+                      (`PERMISSIONS.SYSTEM_SETTINGS_READ`), and the same one the
+                      `About` card declares (the invariant `destinations.test.ts`
+                      asserts for every card).
+
+                      NO WRITE SIDE TO GATE. Unlike every other Operations
+                      route, this page has no controls: the endpoint is one GET
+                      and the page renders it. So this gate is the only gate,
+                      and it is still about REACHABILITY — the page's own
+                      `hasPermission` check is defence in depth, exactly as on
+                      its siblings.
+
+                      The endpoint ALWAYS answers 200, including when the deploy
+                      record is missing, unreadable, written by a failed run, or
+                      when the database is down. None of those is a routing or
+                      an authorization concern, and none of them must ever be
+                      turned into one: the page is opened precisely when things
+                      are wrong. */}
+                  <Route
+                    path="/admin/settings/about"
+                    element={
+                      <RequirePermission
+                        permission="system_settings:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <AboutPage />
                       </RequirePermission>
                     }
                   />

@@ -38,6 +38,19 @@ import { harnessUrl, waitForInter } from '../support/harness';
  * `SettingsHub` makes no network request of its own (the registry is a static
  * array), so every screenshot here is safe as a FULL PAGE capture — nothing on
  * this route races a `fetch` the way a leaf settings page's own body would.
+ *
+ * ⚠ ALL THREE BASELINES BELOW MOVED WITH #401 (epic #397), which appended an
+ * `About` card to the Operations group. A card added to the grid reflows it at
+ * every width — a new cell at `1919px` and `767px`, a new row in the `551px`
+ * drill-down list — and `maxDiffPixels: 4` absorbs none of that. The card gates
+ * on `system_settings:read`, which `DEFAULT_PERMISSIONS` already grants, so the
+ * harness needed no change; the baselines did, and they are regenerated only
+ * inside `mcr.microsoft.com/playwright:v1.62.1-noble`.
+ *
+ * The version line #401 also added is NOT in any of these captures: it lives
+ * inside the user menu, which is a closed portal until the avatar is clicked,
+ * and nothing here clicks it. See `support/harness.ts` — that placement is
+ * deliberate, and it is what stops every future version bump failing this file.
  */
 
 test.describe('Admin settings hub', () => {
