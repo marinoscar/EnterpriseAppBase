@@ -21,6 +21,8 @@ import {
   type ProbeResult,
 } from '../deploy/health.js';
 import { readState } from '../deploy/state.js';
+import { collectInventory, renderInventory } from '../deploy/inventory.js';
+import { DEFAULT_APPS_ROOT } from '../deploy/layout.js';
 import { runInstall, type InstallOptions } from '../deploy/install.js';
 import { runUpdate, type UpdateOptions } from '../deploy/update.js';
 import type { EnvGroup } from '../deploy/env-metadata.js';
@@ -45,6 +47,7 @@ import { shouldUseColour } from '../output.js';
 // =============================================================================
 
 export const DEFAULT_DEPLOY_ROOT = '/opt/infra/apps';
+export { DEFAULT_APPS_ROOT };
 export const DEFAULT_PROXY_ROOT = '/opt/infra/proxy';
 export const DEFAULT_BIND_PORT = 3535;
 
@@ -219,8 +222,50 @@ export function registerDeployCommand(
       await runStatusCommand(options, ctx);
     });
 
+  deploy
+    .command('list')
+    .description('List every deployment on this server')
+    .option('--apps-root <path>', 'Directory holding the deployments', DEFAULT_APPS_ROOT)
+    .option('--json', 'Print a machine-readable inventory on stdout')
+    .addHelpText(
+      'after',
+      [
+        '',
+        'Reads only the filesystem: no git, no Docker, no network. A deployment',
+        'with no record reports a null commit rather than having one looked up,',
+        'so listing a host with several applications costs no subprocesses and',
+        'cannot fail differently per application.',
+        '',
+        'The SOURCE column says where each row came from:',
+        '  record      a deployment record was read',
+        '  inferred    reconstructed from the environment file; `update` adopts it',
+        '  unreadable  a record is present and this build cannot interpret it',
+      ].join('\n'),
+    )
+    .action((options: ListCommandOptions) => {
+      runListCommand(options, ctx);
+    });
+
   return deploy;
 }
+
+export interface ListCommandOptions {
+  appsRoot?: string;
+  json?: boolean;
+}
+
+export function runListCommand(options: ListCommandOptions, ctx?: DeployContext): void {
+  const appsRoot = options.appsRoot ?? DEFAULT_APPS_ROOT;
+  const entries = collectInventory({ appsRoot });
+
+  if (options.json === true) {
+    (ctx?.stdout ?? process.stdout).write(`${JSON.stringify({ appsRoot, deployments: entries }, null, 2)}\n`);
+    return;
+  }
+
+  (ctx?.stderr ?? process.stderr).write(`${renderInventory(entries, appsRoot)}\n`);
+}
+
 
 /** Display-safe by construction: no field can hold a secret. */
 export interface DoctorReport {
