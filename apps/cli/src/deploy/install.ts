@@ -478,6 +478,9 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
           runCommand: context.runCommand,
           deployRoot: context.options.deployRoot,
           bindPort: context.options.bindPort,
+          ...(context.composeProject === undefined
+            ? {}
+            : { composeProject: context.composeProject }),
           ...(context.hooks === undefined ? {} : { hooks: context.hooks }),
         });
 
@@ -536,6 +539,9 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
           runCommand: context.runCommand,
           deployRoot: context.options.deployRoot,
           bindPort: context.options.bindPort,
+          ...(context.composeProject === undefined
+            ? {}
+            : { composeProject: context.composeProject }),
           ...(context.options.domain === undefined || context.options.skipProxy === true
             ? {}
             : { domain: context.options.domain }),

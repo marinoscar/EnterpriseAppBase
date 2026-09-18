@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { CommandFailedError, type CommandResult, type RunCommandOptions } from './executor.js';
 import {
   collectHealth,
+  containerStates,
+  migrationState,
   describeFetchFailure,
   isHealthy,
   probe,
@@ -318,5 +320,71 @@ describe('waitForHealthy', () => {
     // "connection refused" and "503" send you to completely different places.
     expect(result.ok).toBe(false);
     expect(result.error).toBe('connection refused');
+  });
+});
+
+describe('the compose project the health gate inspects', () => {
+  it('passes -p when the deployment has its own project name', async () => {
+    const seen: string[][] = [];
+    const runCommand = fakeRunCommand((argv) => {
+      seen.push([...argv]);
+      return { exitCode: 0, stdout: '[]' };
+    });
+
+    await containerStates({
+      runCommand,
+      deployRoot: '/opt/infra/apps/myapp',
+      bindPort: 3535,
+      composeProject: 'myapp',
+    });
+
+    // ⚠ THE DEFECT THIS PINS. `install` and `update` pass `-p <name>` on every
+    // compose invocation, but this module built its own argv and passed none --
+    // so `compose ps` was answered by the DIRECTORY-DERIVED default project
+    // (`compose`), and the gate reported no containers for a stack that was up.
+    // It failed only on deployments that have their own project name, which is
+    // every deployment installed since the naming landed.
+    expect(seen[0]).toContain('-p');
+    expect(seen[0]?.[seen[0].indexOf('-p') + 1]).toBe('myapp');
+  });
+
+  it('passes no -p when none is recorded, which is the pre-naming default', async () => {
+    const seen: string[][] = [];
+    const runCommand = fakeRunCommand((argv) => {
+      seen.push([...argv]);
+      return { exitCode: 0, stdout: '[]' };
+    });
+
+    await containerStates({
+      runCommand,
+      deployRoot: '/opt/infra/apps/myapp',
+      bindPort: 3535,
+    });
+
+    // ⚠ Absent means `compose`, the directory-derived name every deployment in
+    // the field already runs under. Inventing one here would look at a project
+    // that does not exist and report a healthy deployment as gone.
+    expect(seen[0]).not.toContain('-p');
+  });
+
+  it('asks prisma for the migration state in that same project', async () => {
+    const seen: string[][] = [];
+    const runCommand = fakeRunCommand((argv) => {
+      seen.push([...argv]);
+      return { exitCode: 0, stdout: 'Database schema is up to date!' };
+    });
+
+    await migrationState({
+      runCommand,
+      deployRoot: '/opt/infra/apps/myapp',
+      bindPort: 3535,
+      composeProject: 'myapp',
+    });
+
+    // The migration probe is `compose run` -- a container in the project. Aimed
+    // at the wrong one it starts a SECOND api container against the same
+    // database, which is worse than the wrong answer it also gives.
+    expect(seen[0]).toContain('-p');
+    expect(seen[0]?.[seen[0].indexOf('-p') + 1]).toBe('myapp');
   });
 });

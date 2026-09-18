@@ -34,7 +34,11 @@ import {
   type ProxyTarget,
 } from '../deploy/proxy.js';
 import { DEFAULT_APPS_ROOT } from '../deploy/layout.js';
-import { runInstall, type InstallOptions } from '../deploy/install.js';
+import {
+  composeProjectFor,
+  runInstall,
+  type InstallOptions,
+} from '../deploy/install.js';
 import { runUpdate, type UpdateOptions } from '../deploy/update.js';
 import type { EnvGroup } from '../deploy/env-metadata.js';
 import { runCommand } from '../deploy/executor.js';
@@ -735,6 +739,11 @@ export async function runStatusCommand(
     deployRoot: options.root,
     bindPort: Number(options.port),
     ...(options.domain === undefined ? {} : { domain: options.domain }),
+    // ⚠ From the RECORD, never derived. `status` reads the containers, so
+    // looking in the wrong compose project reports a healthy stack as absent.
+    ...(composeProjectFor(state) === undefined
+      ? {}
+      : { composeProject: composeProjectFor(state) }),
     state,
     ...(ctx?.fetch === undefined ? {} : { fetch: ctx.fetch }),
   });

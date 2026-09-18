@@ -459,6 +459,9 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
           runCommand: context.runCommand,
           deployRoot: context.options.deployRoot,
           bindPort: context.state.bindPort,
+          ...(composeProjectFor(context.state) === undefined
+            ? {}
+            : { composeProject: composeProjectFor(context.state) }),
           ...(context.hooks === undefined ? {} : { hooks: context.hooks }),
         });
 
@@ -527,6 +530,9 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
           runCommand: context.runCommand,
           deployRoot: context.options.deployRoot,
           bindPort: context.state.bindPort,
+          ...(composeProjectFor(context.state) === undefined
+            ? {}
+            : { composeProject: composeProjectFor(context.state) }),
           ...(context.state.domain === undefined || context.options.skipProxy === true
             ? {}
             : { domain: context.state.domain }),
