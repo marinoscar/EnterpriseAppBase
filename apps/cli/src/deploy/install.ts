@@ -16,7 +16,12 @@ import type { DeployHooks } from './hooks.js';
 import { openJournal, type Journal, type SecretEntry } from './journal.js';
 import { bootstrapProxyRoot, installVhost, issueCertificate, type ProxyTarget } from './proxy.js';
 import { ensureCheckout, resolveRepoTarget, type RepoTarget } from './repo.js';
-import { readState, writeState, type DeployState } from './state.js';
+import {
+  DEPLOY_STATE_VERSION,
+  readState,
+  writeState,
+  type DeployState,
+} from './state.js';
 import { runPipeline, type DeployStep, type StepContext } from './steps/pipeline.js';
 import {
   checkoutPathFor,
@@ -644,6 +649,45 @@ export async function runInstall(options: InstallOptions): Promise<InstallResult
 
   if (result.failed !== undefined) {
     journal.finish('failure', `${result.failed.id}: ${result.failed.detail ?? ''}`);
+
+    // ⚠ THE FAILURE PATH RECORDS WHAT COMPLETED, AND WITHOUT THIS `--resume`
+    // RESUMES NOTHING. `completedSteps` was written only on the SUCCESS path
+    // below, so the one run that needs resuming -- a failed one -- left no
+    // record of its progress, and the flag the error message recommends in the
+    // very next line skipped zero steps and rebuilt everything. The message
+    // was true about intent and false about behaviour.
+    //
+    // The record is marked `lastOutcome: 'failure'` so nothing downstream
+    // mistakes a half-applied attempt for a deployment: `commitSha` is
+    // whatever the checkout reached, which may be nothing.
+    const attemptedAt = new Date().toISOString();
+    try {
+      writeState({
+        ...(existingState ?? {}),
+        version: DEPLOY_STATE_VERSION,
+        repoUrl: context.target?.url ?? existingState?.repoUrl ?? '',
+        ref: context.target?.ref ?? existingState?.ref ?? '',
+        commitSha: context.commitSha ?? existingState?.commitSha ?? '',
+        bindPort: options.bindPort,
+        deployRoot: options.deployRoot,
+        installedAt: existingState?.installedAt ?? '',
+        lastDeployedAt: existingState?.lastDeployedAt ?? '',
+        lastCommand: 'install',
+        appctlVersion: CLI_VERSION,
+        composeProject,
+        ...(options.domain === undefined ? {} : { domain: options.domain }),
+        ...(options.proxyRoot === undefined ? {} : { proxyRoot: options.proxyRoot }),
+        completedSteps: result.completed,
+        lastOutcome: 'failure',
+        lastFailedStep: result.failed.id,
+        lastAttemptAt: attemptedAt,
+      } as DeployState);
+    } catch {
+      // ⚠ BOOKKEEPING, NEVER THE FAILURE ITSELF. The deploy has already failed
+      // and the operator needs THAT reason, not a second one about a file the
+      // CLI could not write while reporting the first.
+    }
+
     throw new Error(
       `${result.failed.title} failed: ${result.failed.detail ?? 'unknown error'}\n` +
         `The full log is at ${journal.path}\n` +
@@ -676,6 +720,10 @@ export async function runInstall(options: InstallOptions): Promise<InstallResult
       ? {}
       : { groups: [...options.groups] }),
     completedSteps: result.completed,
+    // Stated explicitly rather than left absent, so a later reader never has
+    // to infer success from the shape of the record.
+    lastOutcome: 'success',
+    lastAttemptAt: now,
   } as DeployState);
 
   journal.finish('success');

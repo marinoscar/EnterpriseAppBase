@@ -95,6 +95,28 @@ export interface DeployState {
    * A rerun after a fixed database password should not rebuild images.
    */
   completedSteps?: string[] | undefined;
+  /**
+   * How the last run ended.
+   *
+   * ⚠ READ AS `=== 'failure'`, NEVER `!== 'success'`. Every state file written
+   * before this field existed has it ABSENT, and those runs all succeeded --
+   * that is the only way they came to be written at all. A negated test would
+   * classify every deployment in the field as a failed one, and `--resume`
+   * would then skip steps against a deployment that is serving.
+   *
+   * Optional, and ⚠ the state version is deliberately NOT bumped for it: a
+   * bump makes this CLI refuse every state file already on a live server.
+   */
+  lastOutcome?: 'success' | 'failure' | undefined;
+  /** The step that failed, named so the operator is told where to look. */
+  lastFailedStep?: string | undefined;
+  /**
+   * When a run was last ATTEMPTED, as distinct from when one last succeeded.
+   *
+   * `lastDeployedAt` answers "what is running"; this answers "what was tried".
+   * Collapsing them would report a failed attempt as a deployment.
+   */
+  lastAttemptAt?: string | undefined;
 }
 
 /**
