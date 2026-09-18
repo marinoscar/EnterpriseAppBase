@@ -7,6 +7,7 @@ import { CLI_VERSION } from '../package-info.js';
 import { ALL_CHECKS, checksPassed, requiredChecks, runChecks } from './checks/index.js';
 import { parseEnvExample, parseEnvFile } from './env-spec.js';
 import { writeEnvFile } from './env-file.js';
+import { isDeployment } from './deployment-evidence.js';
 import { runEnvWizard } from './env-wizard.js';
 import type { EnvGroup } from './env-metadata.js';
 import { runCommand as defaultRunCommand } from './executor.js';
@@ -433,9 +434,23 @@ export interface InstallResult {
 export async function runInstall(options: InstallOptions): Promise<InstallResult> {
   const existingState = readState(options.deployRoot);
 
-  if (existingState !== undefined && options.reinstall !== true && options.resume !== true) {
+  // The mirror of the defect `update` had, and the same wrong question asked
+  // from the other side. Guarding on the RECORD means a deployment whose state
+  // file was lost -- containers running, certificate issued, site serving -- is
+  // not recognised here either, so `install` proceeds and clobbers it: a fresh
+  // checkout over the live one, a re-run wizard over the live `.env`.
+  //
+  // The guard is EVIDENCE OR RECORD. Either is enough to say something is
+  // already here; requiring both would reintroduce the same gap.
+  const alreadyDeployed = existingState !== undefined || isDeployment(options.deployRoot);
+
+  if (alreadyDeployed && options.reinstall !== true && options.resume !== true) {
+    const at =
+      existingState === undefined
+        ? 'it has a checkout and an environment file, but no deployment record'
+        : `${existingState.commitSha.slice(0, 12)}`;
     throw new UsageError(
-      `A deployment already exists at ${options.deployRoot} (${existingState.commitSha.slice(0, 12)}). Use \`${CLI_NAME} deploy update\` to bring it up to date, or --reinstall to start over.`,
+      `A deployment already exists at ${options.deployRoot} (${at}). Use \`${CLI_NAME} deploy update\` to bring it up to date, or --reinstall to start over.`,
     );
   }
 
