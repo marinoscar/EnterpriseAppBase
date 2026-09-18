@@ -47,6 +47,15 @@ export interface DeployState {
   /** The revision this replaced, for a manual roll-back. */
   previousSha?: string | undefined;
   /**
+   * When this record was rebuilt from the deployment itself, because none was
+   * found. A THIRD axis, deliberately separate from `installedAt` and
+   * `lastDeployedAt`: an adopted deployment has certainly deployed, but
+   * nothing on disk says when, and a fabricated instant is worse than an
+   * honest gap. Its presence is what lets a reader tell "adopted, earlier
+   * history unknown" from "installed then, last deployed then".
+   */
+  adoptedAt?: string | undefined;
+  /**
    * Opt-in feature groups this deployment enabled at install time.
    *
    * Recorded because it CANNOT be inferred later. Nothing in a `.env`

@@ -1,10 +1,11 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { NotInstalledError } from './state.js';
+import type { CommandResult, runCommand } from './executor.js';
+import { DeployStateError, NotInstalledError, deployStatePath } from './state.js';
 import { buildUpdateSteps, runUpdate } from './update.js';
 
 describe('the update pipeline', () => {
@@ -77,5 +78,88 @@ describe('runUpdate preconditions', () => {
     // command rather than a flag: the guards are opposite.
     expect(error).toBeInstanceOf(NotInstalledError);
     expect((error as Error).message).toContain('deploy install');
+  });
+
+  it('names which half is missing when refusing, rather than asserting a bare negative', async () => {
+    const empty = mkdtempSync(join(tmpdir(), 'appctl-noinstall-'));
+
+    const error = await runUpdate({ deployRoot: empty }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(NotInstalledError);
+    expect((error as Error).message).toContain('a checkout at repo/');
+    expect((error as Error).message).toContain('a readable environment file');
+  });
+});
+
+describe('runUpdate: adopting an unrecorded deployment (#not the NotInstalledError refusal)', () => {
+  /** A minimal CommandResult, for a stub that only needs a few argvs to succeed. */
+  function ok(argv: readonly string[], cwd: string, stdout: string): CommandResult {
+    return { argv, cwd, exitCode: 0, stdout, stderr: '', durationMs: 0, timedOut: false };
+  }
+
+  /**
+   * Answers just enough git plumbing (used by `resolveRepoTarget` to work out
+   * what to redeploy from the checkout's own origin) for `resolveStateForUpdate`
+   * to reach adoption, then refuses everything else (docker/df probes used by
+   * the `preflight` step) so the pipeline fails fast and predictably rather
+   * than hanging on a real subprocess.
+   */
+  const gitOnlyRunCommand: typeof runCommand = async (argv, options) => {
+    const cmd = argv.join(' ');
+    if (cmd === 'git remote get-url origin') {
+      return ok(argv, options.cwd, 'https://example.test/o/demo.git\n');
+    }
+    if (cmd === 'git rev-parse --abbrev-ref HEAD') {
+      return ok(argv, options.cwd, 'main\n');
+    }
+    throw new Error(`unexpected command in adoption test: ${cmd}`);
+  };
+
+  function unrecordedDeploymentRoot(): string {
+    const root = mkdtempSync(join(tmpdir(), 'appctl-adopt-update-'));
+    mkdirSync(join(root, 'repo', '.git'), { recursive: true });
+    writeFileSync(join(root, '.env'), 'APP_BIND_PORT=3535\n');
+    return root;
+  }
+
+  it('does not throw NotInstalledError for a root with evidence but no state file - it adopts and proceeds', async () => {
+    const root = unrecordedDeploymentRoot();
+
+    const error = await runUpdate({
+      deployRoot: root,
+      runCommand: gitOnlyRunCommand,
+    }).catch((caught: unknown) => caught);
+
+    // It is fine for the run to fail further into the pipeline (the preflight
+    // checks have nothing real to probe here) - what must never happen again
+    // is the "no deployment" refusal for a directory that plainly is one.
+    expect(error).not.toBeInstanceOf(NotInstalledError);
+  });
+
+  it('still refuses a root with NEITHER a checkout nor an .env, even alongside this adoption path', async () => {
+    const empty = mkdtempSync(join(tmpdir(), 'appctl-adopt-update-empty-'));
+
+    const error = await runUpdate({
+      deployRoot: empty,
+      runCommand: gitOnlyRunCommand,
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(NotInstalledError);
+  });
+});
+
+describe('runUpdate: an unreadable state file is not an unrecorded deployment', () => {
+  it('surfaces DeployStateError, not the adoption path and not NotInstalledError', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'appctl-badstate-'));
+    mkdirSync(join(root, 'repo', '.git'), { recursive: true });
+    writeFileSync(join(root, '.env'), 'APP_BIND_PORT=3535\n');
+    // The file is present but this build cannot interpret it - a different
+    // problem from "nothing recorded", deserving a different message.
+    writeFileSync(deployStatePath(root), '{ not json');
+
+    const error = await runUpdate({ deployRoot: root }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(DeployStateError);
+    expect(error).not.toBeInstanceOf(NotInstalledError);
   });
 });

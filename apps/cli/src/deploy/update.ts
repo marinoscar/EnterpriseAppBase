@@ -7,6 +7,8 @@ import { CLI_VERSION } from '../package-info.js';
 import { ALL_CHECKS, checksPassed, runChecks } from './checks/index.js';
 import { diffEnv, parseEnvExample, parseEnvFile } from './env-spec.js';
 import { genuinelyNewKeys } from './env-absence.js';
+import { adoptDeployment } from './adopt.js';
+import { describeEvidence } from './deployment-evidence.js';
 import { writeEnvFile } from './env-file.js';
 import { metadataFor, type EnvGroup } from './env-metadata.js';
 import { runEnvWizard } from './env-wizard.js';
@@ -16,7 +18,7 @@ import type { DeployHooks } from './hooks.js';
 import { openJournal, type Journal } from './journal.js';
 import { certificateStatus, installVhost, issueCertificate, type ProxyTarget } from './proxy.js';
 import { ensureCheckout, resolveRepoTarget, type RepoTarget } from './repo.js';
-import { requireState, writeState, type DeployState } from './state.js';
+import { NotInstalledError, readState, writeState, type DeployState } from './state.js';
 import { runPipeline, type DeployStep, type StepContext } from './steps/pipeline.js';
 import { composeArgv, composeCwd, secretsFrom } from './install.js';
 import type { PromptContext } from '../prompt.js';
@@ -443,10 +445,66 @@ export interface UpdateResult {
   durationMs: number;
 }
 
+/**
+ * The recorded state, or one rebuilt from the deployment itself.
+ *
+ * ⚠ An UNREADABLE state file is not an unrecorded deployment: the file is
+ * there and this build cannot interpret it, which is a different problem
+ * deserving a different message. `readState` throws in that case, and this
+ * function deliberately does not catch it.
+ */
+async function resolveStateForUpdate(options: UpdateOptions): Promise<DeployState> {
+  const recorded = readState(options.deployRoot);
+  if (recorded !== undefined) return recorded;
+
+  const evidence = describeEvidence(options.deployRoot);
+  if (!evidence.isDeployment) {
+    // Genuinely nothing here. Name which half is missing rather than asserting
+    // a bare negative the operator cannot act on.
+    const missing = [
+      evidence.hasCheckout ? undefined : 'a checkout at repo/',
+      evidence.hasEnv ? undefined : 'a readable environment file',
+    ].filter((part): part is string => part !== undefined);
+
+    throw new NotInstalledError(
+      `No deployment found at ${options.deployRoot}: it is missing ${missing.join(' and ')}. ` +
+        `Run \`${CLI_NAME} deploy install\` first, or pass --root if it is somewhere else.`,
+    );
+  }
+
+  // The clone's own origin is the only honest source for these; the CLI must
+  // never name a repository of its own.
+  const target = await resolveRepoTarget({
+    ...(options.ref === undefined ? {} : { refFlag: options.ref }),
+    cwd: join(options.deployRoot, 'repo'),
+    runCommand: options.runCommand ?? defaultRunCommand,
+  });
+
+  return adoptDeployment({
+    deployRoot: options.deployRoot,
+    repoUrl: target.url,
+    ref: target.ref,
+    // Left empty on purpose: the `fetch` step resolves the real HEAD, and a
+    // guess here would be recorded as the deployed commit.
+    commitSha: '',
+    fallbackBindPort: DEFAULT_ADOPTED_BIND_PORT,
+  });
+}
+
+/** Only used when an adopted `.env` names no APP_BIND_PORT. */
+const DEFAULT_ADOPTED_BIND_PORT = 3535;
+
 export async function runUpdate(options: UpdateOptions): Promise<UpdateResult> {
   // The precondition install does not have, and the reason this is its own
   // command: nothing to update is a different situation from nothing installed.
-  const state = requireState(options.deployRoot);
+  //
+  // But "nothing to update" is a question about the DEPLOYMENT, not about the
+  // CLI's bookkeeping. Asking the second refused to update a live, serving
+  // deployment because a JSON file was missing -- telling the operator there
+  // was no deployment while they stood in one, and pointing them at `install`,
+  // whose precondition is the opposite. Where the record is missing and the
+  // evidence is there, ADOPT.
+  const state = await resolveStateForUpdate(options);
   const startedAt = Date.now();
 
   const path = envFilePath(options.deployRoot);
