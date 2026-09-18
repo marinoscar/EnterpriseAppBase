@@ -55,6 +55,11 @@ import {
  * `@AllowDuringMaintenance()` that grants it.
  */
 const EXPECTED_REACHABLE = [
+  // What is actually deployed here. Read-only, no network I/O, and the page an
+  // operator wants precisely when a window is open because a deploy failed
+  // partway. See the decorator's own comment in about.controller.ts.
+  'GET /api/admin/about',
+
   // The maintenance switch itself — the endpoint that closes the window.
   'GET /api/admin/maintenance',
   'PUT /api/admin/maintenance',

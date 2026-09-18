@@ -11,6 +11,7 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { SettingsModule } from './settings/settings.module';
 import { ProfileImageModule } from './settings/profile-image/profile-image.module';
+import { AboutModule } from './about/about.module';
 import { HealthModule } from './health/health.module';
 import { AllowlistModule } from './allowlist/allowlist.module';
 import { DeviceAuthModule } from './device-auth/device-auth.module';
@@ -170,6 +171,14 @@ import configuration from './config/configuration';
     // provides runs in front of every route in this application, and that
     // belongs in the module that owns the application.
     MaintenanceModule,
+
+    // `GET /api/admin/about` (#401, epic #397): what is deployed here — the
+    // API's resolved version, the deploy document `appctl deploy` bind-mounts
+    // into the container, and a database liveness fact. Imports `HealthModule`
+    // for that last one and reads no settings, so it adds no edge to the
+    // settings or storage graphs. Registered after them all the same: it
+    // reports on the application, so it is the application that owns it.
+    AboutModule,
 
     // Test modules (non-production only)
     ...(process.env.NODE_ENV !== 'production' ? [TestAuthModule] : []),

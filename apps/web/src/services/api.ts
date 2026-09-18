@@ -300,6 +300,7 @@ import type {
   MaintenanceStatus,
   UpdateMaintenanceInput,
   ProfileImageMutationResponse,
+  AboutResponse,
 } from '../types';
 
 // Profile picture API — issue #367.
@@ -729,4 +730,30 @@ export async function updateMaintenance(
   input: UpdateMaintenanceInput,
 ): Promise<MaintenanceStatus> {
   return api.put<MaintenanceStatus>('/admin/maintenance', input);
+}
+
+// About API — issue #401, epic #397.
+//
+// One GET, no parameters, one controller (`about/about.controller.ts`, gated on
+// `system_settings:read`), and the only place in the web app that names this
+// endpoint. Sits beside `getMaintenanceStatus` above because it is the same
+// shape of call: a read-only report an operator opens when they need to know
+// what this deployment actually is.
+
+/**
+ * What is deployed here: the API's own version, the deploy document `appctl
+ * deploy` left on disk, and a database liveness fact.
+ *
+ * ⚠ THIS NEVER REJECTS FOR A MISSING OR BROKEN DEPLOY DOCUMENT, and callers
+ * must not treat one as an error. The API answers 200 for every authorized
+ * caller: `deployInfoStatus` carries `absent` / `invalid`, and a database that
+ * did not answer arrives as `database: null` with a `databaseError` string. A
+ * rejection from here means the request itself failed — a 401, a 403, a network
+ * error or a maintenance window — and nothing else.
+ *
+ * Read from disk by the API on every request, so a rewritten document needs no
+ * restart and this call always reports the current file.
+ */
+export async function getAbout(): Promise<AboutResponse> {
+  return api.get<AboutResponse>('/admin/about');
 }

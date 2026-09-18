@@ -5,6 +5,9 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "allowSyntheticDefaultImports": true,
+    // `build-config/app-version.ts` imports `package.json` — see that file on why a
+    // static import rather than a path resolved from `import.meta.url`.
+    "resolveJsonModule": true,
     "strict": true
   },
   // `pwa/` is config-side code (issue #217): `vite.config.ts` imports
@@ -12,5 +15,5 @@
   // rather than under `tsconfig.json`'s `include: ["src"]`, which is what
   // keeps `@app/shared` being read at build time instead of bundled into the
   // browser to be read at runtime.
-  "include": ["vite.config.ts", "pwa/**/*.ts"]
+  "include": ["vite.config.ts", "pwa/**/*.ts", "build-config/**/*.ts"]
 }

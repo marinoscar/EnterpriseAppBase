@@ -48,6 +48,9 @@ import BackupOutlinedIcon from '@mui/icons-material/BackupOutlined';
 // Broadcasts (#325, epic #319) — the one Operations card that is not a view
 // onto machinery, but an action taken through it.
 import CampaignOutlinedIcon from '@mui/icons-material/CampaignOutlined';
+// About (#401, epic #397) — the running system's own identity: which commit,
+// which version, installed when.
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 
 /**
  * One settings page, fully described for every surface that draws it.
@@ -445,6 +448,48 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
         Icon: CampaignOutlinedIcon,
         path: '/admin/settings/broadcasts',
         permission: 'broadcasts:read',
+      },
+      {
+        // Issue #401, epic #397. `system_settings:read` is the literal string
+        // `about/about.controller.ts` enforces on its single GET
+        // (`PERMISSIONS.SYSTEM_SETTINGS_READ`) — the registry never invents a
+        // permission, it mirrors one. That controller deliberately adds NO
+        // permission of its own, and argues the point in its own header: the
+        // cases that justify a SPLIT pair elsewhere in this file (`push:*`,
+        // `broadcasts:*`, `nodes:*`, `storage_config:*`) all turn on a distinct
+        // blast radius — key material, a send to every user, a fleet, a
+        // credential-bearing screen. A read-only report of what is deployed has
+        // none of that, and its blast radius is exactly the deployment
+        // configuration `system_settings:read` already describes.
+        //
+        // THERE IS NO WRITE SIDE AT ALL. Every other card in this file notes
+        // which actions its page gates internally; this one has none — the
+        // endpoint is a single GET and the page renders it. So the card gate is
+        // the only gate, and it is still about REACHABILITY: "what commit is
+        // this box running, and did the deploy that put it there finish" is the
+        // question an operator opens first during an incident.
+        //
+        // OPERATIONS, NOT GENERAL, per this section's own header. General holds
+        // values an administrator SETS, which then sit there. Nothing on this
+        // page is settable: it is a read-only view of the running system, the
+        // same kind of question Jobs (what work is in flight), Worker Nodes
+        // (which machines are executing it) and Database Backup (which copies
+        // were taken while it ran) each answer on their own axis. This one
+        // answers the most basic of them — what IS the running system.
+        //
+        // APPENDED rather than inserted, the same rule `Broadcasts` followed:
+        // the hub, the rail and the drill-down list all render this array in
+        // declaration order, so an insertion would move five existing cards for
+        // a reader who has learnt where they are — and would reflow the grid
+        // further than the one added card requires. See §4 of this file's
+        // Operations header on why every grid change costs a baseline
+        // regeneration.
+        title: 'About',
+        description:
+          'See exactly what is deployed here: the version running, the commit it was built from, and when it was installed.',
+        Icon: InfoOutlinedIcon,
+        path: '/admin/settings/about',
+        permission: 'system_settings:read',
       },
     ],
   },

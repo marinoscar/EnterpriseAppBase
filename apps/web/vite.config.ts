@@ -3,6 +3,10 @@ import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 import { APP_NAME, THEME_COLOR } from '@app/shared';
 import { buildServiceWorkerOptions } from './pwa/service-worker';
+// `__APP_VERSION__` (issue #401, epic #397). ONE definition, spread by this
+// config, `vitest.config.ts` and `visual/vite.config.ts` — three files with no
+// shared base. See that file's header for what breaks when only one has it.
+import { appVersionDefine } from './build-config/app-version';
 
 /**
  * Substitutes `%APP_NAME%` and `%THEME_COLOR%` in `index.html` with the
@@ -73,6 +77,10 @@ function pwa(): PluginOption {
 
 export default defineConfig({
   plugins: [react(), appName(), pwa()],
+  // Baked in, never fetched: this reports the version of THE BUNDLE, so a
+  // stale cached bundle served against a freshly deployed API shows a
+  // mismatch instead of hiding one. Full argument in `build-config/app-version.ts`.
+  define: { ...appVersionDefine() },
   // `@app/shared` is CommonJS, and it reaches us as an npm WORKSPACE SYMLINK.
   // Vite treats a linked package as project source rather than as a dependency,
   // so it skips dep pre-bundling for it and serves `index.js` to the browser as

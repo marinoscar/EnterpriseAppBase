@@ -489,6 +489,109 @@ describe('the Storage card (#376)', () => {
   });
 });
 
+/**
+ * Issue #401, epic #397. The `About` page is a registry CARD in the
+ * **Operations** group — `CLAUDE.md`'s mandatory settings-UI rules 1 and 3
+ * stated as assertions, and rule 2 by construction (it is not a tab on Jobs, on
+ * Worker Nodes, or on anything else).
+ *
+ * The route/permission agreement with `App.tsx` is asserted generically for
+ * every card in `destinations.test.ts`; what is pinned here is this card's own
+ * identity, its group, and that its permission is the literal string the About
+ * controller enforces rather than a new one invented for it.
+ */
+describe('the About card (#401)', () => {
+  const card = ADMIN_SECTIONS.flatMap((section) => section.cards).find(
+    (entry) => entry.title === 'About',
+  );
+
+  it('is declared in ADMIN_SECTIONS', () => {
+    expect(card).toBeDefined();
+  });
+
+  it('routes to /admin/settings/about', () => {
+    expect(card?.path).toBe('/admin/settings/about');
+  });
+
+  it('lives under Operations, not General', () => {
+    // General holds configuration an administrator SETS, which then sits there.
+    // Nothing on the About page is settable — the endpoint behind it is a
+    // single GET. It is a read-only view of the RUNNING system, which is the
+    // question Jobs, Worker Nodes and Database Backup each answer on their own
+    // axis; this one answers the most basic of them.
+    const owner = ADMIN_SECTIONS.find((section) =>
+      section.cards.some((entry) => entry.title === 'About'),
+    );
+    expect(owner?.label).toBe('Operations');
+  });
+
+  it('is not an alwaysShow escape hatch — the gate must be able to deny it', () => {
+    expect(card?.alwaysShow).toBeUndefined();
+  });
+
+  it('is routed, not inert', () => {
+    expect(card?.disabled).toBeUndefined();
+  });
+
+  it('declares the exact permission about.controller.ts enforces, and invents none', () => {
+    // Read off the API workspace rather than restated, so a rename on either
+    // side fails here instead of in production. This is the mechanical half of
+    // CLAUDE.md Settings UI Pattern rule 3, and the controller's own header
+    // names this test's sibling as the other half of the contract.
+    const API_SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../api/src');
+    const rolesConstants = readFileSync(
+      resolve(API_SRC, 'common/constants/roles.constants.ts'),
+      'utf8',
+    );
+    const aboutController = readFileSync(resolve(API_SRC, 'about/about.controller.ts'), 'utf8');
+
+    expect(card?.permission).toBe('system_settings:read');
+    expect(rolesConstants).toContain("SYSTEM_SETTINGS_READ: 'system_settings:read'");
+    // Both spellings are asserted because the controller carries both on
+    // purpose — the reference it decorates with, and the literal its header
+    // names as half of this cross-app contract.
+    expect(aboutController).toContain('PERMISSIONS.SYSTEM_SETTINGS_READ');
+    expect(aboutController).toContain('system_settings:read');
+  });
+
+  it('does not invent an about:read permission of its own', () => {
+    // The controller argues this at length: the split pairs elsewhere in this
+    // registry (`push:*`, `broadcasts:*`, `nodes:*`, `storage_config:*`) each
+    // turn on a DISTINCT blast radius — key material, a send to every user, a
+    // fleet, a credential-bearing screen. A read-only report has none of that,
+    // and a new permission would have to be seeded, granted and explained to
+    // buy nothing.
+    expect(card?.permission).not.toBe('about:read');
+    expect(card?.permission).not.toBe('system_settings:write');
+  });
+
+  it('appears for an admin holding system_settings:read', () => {
+    const result = visibleSettingsSections(
+      ADMIN_SECTIONS,
+      (permission) => permission === 'system_settings:read',
+    );
+
+    expect(titlesOf(result)).toContain('About');
+  });
+
+  it('appears in none of the three surfaces for a viewer', () => {
+    // One assertion covers the hub, the rail and the title resolver because
+    // all three run this same function.
+    const viewerPermissions = ['user_settings:read', 'user_settings:write', 'storage:read'];
+    const result = visibleSettingsSections(ADMIN_SECTIONS, (permission) =>
+      viewerPermissions.includes(permission),
+    );
+
+    expect(titlesOf(result)).not.toContain('About');
+  });
+
+  it('resolves its route to its own title, not the hub title', () => {
+    expect(
+      settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, '/admin/settings/about'),
+    ).toBe('About');
+  });
+});
+
 describe('settingsPageTitle', () => {
   it('resolves an exact card path to its title', () => {
     expect(settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, '/admin/settings/users')).toBe(
@@ -582,7 +685,7 @@ describe('the Operations group (#266)', () => {
     ]);
   });
 
-  it('registers all four of the epic’s cards at once, and epic #319 appends a fifth', () => {
+  it('registers all four of the epic’s cards at once, and #319 then #401 each append one', () => {
     // Declared together on purpose: the hub is under visual-regression testing
     // at `maxDiffPixels: 4`, so every change to the card grid needs baselines
     // regenerated in a pinned container. Four cards across four issues would
@@ -594,12 +697,19 @@ describe('the Operations group (#266)', () => {
     // insertion would move four existing cards for a reader who has learnt
     // where they are — and would reflow the grid further than the one added
     // card requires.
+    //
+    // `About` (#401, epic #397) is appended for the same reason and under the
+    // same rule. It belongs in Operations rather than General on this section
+    // header's own test: General holds values an administrator SETS, and
+    // nothing on the About page is settable — it is a read-only view of the
+    // running system, the same kind of question its four neighbours answer.
     expect(operations?.cards.map((card) => card.title)).toEqual([
       'Jobs',
       'Job Insights',
       'Worker Nodes',
       'Database Backup',
       'Broadcasts',
+      'About',
     ]);
   });
 
@@ -613,6 +723,9 @@ describe('the Operations group (#266)', () => {
     // #287 flipped the last one, for the same reason and with the same rule:
     // the path is the route `App.tsx` declares, byte for byte.
     expect(cardsByTitle.get('Database Backup')?.path).toBe('/admin/settings/db-backup');
+    // #401 shipped routed from the start — it was never declared ahead of its
+    // page, so there was no inert state to flip.
+    expect(cardsByTitle.get('About')?.path).toBe('/admin/settings/about');
   });
 
   it('has no inert card left — every page the group declared has shipped', () => {
@@ -640,7 +753,7 @@ describe('the Operations group (#266)', () => {
   });
 
   it('leaves the shipped cards navigable', () => {
-    for (const title of ['Jobs', 'Job Insights', 'Worker Nodes', 'Database Backup']) {
+    for (const title of ['Jobs', 'Job Insights', 'Worker Nodes', 'Database Backup', 'About']) {
       expect(cardsByTitle.get(title)?.disabled).toBeUndefined();
     }
   });
@@ -759,16 +872,33 @@ describe('the Operations group (#266)', () => {
     it('does not disturb what a system_settings/users admin already saw', () => {
       // The regression an added section invites: General and Access must still
       // resolve to exactly the cards they did before.
+      //
+      // OPERATIONS NOW RESOLVES FOR THIS HOLDER TOO, and that is correct rather
+      // than drift. `About` (#401, epic #397) is the first Operations card
+      // gated on `system_settings:read` — not because it reaches across into
+      // another surface's permission, but because that is the literal string
+      // `about/about.controller.ts` enforces (Settings UI Pattern rule 3: the
+      // card mirrors a permission, it never invents one). So a
+      // `system_settings:read` admin who holds none of `jobs:read`,
+      // `nodes:read`, `db_backup:read` or `broadcasts:read` now sees an
+      // Operations section containing exactly one card. What this test still
+      // pins is the part that must not move: General and Access resolve to
+      // EXACTLY the cards they did before, in order.
       const result = visibleSettingsSections(ADMIN_SECTIONS, (permission) =>
         ['system_settings:read', 'system_settings:write', 'users:read'].includes(permission),
       );
 
-      expect(result.map((section) => section.label)).toEqual(['General', 'Access']);
+      expect(result.map((section) => section.label)).toEqual([
+        'General',
+        'Access',
+        'Operations',
+      ]);
       expect(titlesOf(result)).toEqual([
         'Email',
         'Notifications',
         'Maintenance',
         'Users & Allowlist',
+        'About',
       ]);
     });
 
