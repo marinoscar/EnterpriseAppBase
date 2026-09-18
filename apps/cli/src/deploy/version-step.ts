@@ -40,8 +40,11 @@
  *   detached HEAD, and ⚠ a "skip on a detached HEAD" guard would skip ALWAYS,
  *   because the checkout step ends detached on every normal deployment.
  */
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { readEnvFile, writeEnvFile } from './env-file.js';
+import { parseEnvExample } from './env-spec.js';
 import { runCommand as defaultRunCommand } from './executor.js';
 import {
   assertMovesForward,
@@ -192,4 +195,40 @@ export async function publishVersion(
 /** Where the checkout lives, for callers that only hold a deploy root. */
 export function checkoutPathFor(deployRoot: string): string {
   return join(deployRoot, 'repo');
+}
+
+/**
+ * Stamps `APP_VERSION` into the deployment's `.env`.
+ *
+ * ⚠ THIS IS WHAT MAKES THE VERSION REACH THE APPLICATION. `base.compose.yml`
+ * hands the api container the `.env` wholesale (`env_file`), and
+ * `resolveApiVersion()` reads `APP_VERSION` first -- so without this the number
+ * lives only in a commit nobody's runtime reads.
+ *
+ * ⚠ REWRITTEN THROUGH THE FULL TEMPLATE SPEC LIST, not appended. `.env` is
+ * regenerated from `specs` on every write, so appending a line here would be
+ * reordered away by the next `environment` step; and passing a SUBSET of the
+ * specs would drop every section banner and every key not in that subset.
+ * `APP_VERSION` is deliberately NOT in `.env.example` -- it is chosen by the
+ * deploy, not answered by an operator -- so it lands under the serializer's
+ * own `# Not in .env.example` banner beside `DEPLOY_ROOT`.
+ *
+ * Returns false when there is no `.env` to stamp, which is not an error: the
+ * caller journals it and carries on.
+ */
+export function stampAppVersion(
+  envPath: string,
+  templatePath: string,
+  version: string,
+): boolean {
+  if (!existsSync(envPath) || !existsSync(templatePath)) return false;
+
+  const specs = parseEnvExample(readFileSync(templatePath, 'utf8'));
+  const values = readEnvFile(envPath);
+
+  if (values.get('APP_VERSION') === version) return true;
+
+  values.set('APP_VERSION', version);
+  writeEnvFile(envPath, values, specs);
+  return true;
 }

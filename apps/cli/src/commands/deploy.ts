@@ -143,6 +143,11 @@ export function registerDeployCommand(
     .option('--no-cache', 'Rebuild images without the layer cache')
     .option('--force', 'Discard uncommitted changes in the checkout')
     .option('--staging', "Use Let's Encrypt staging while working out the setup")
+    .option(
+      '--app-version <version>',
+      'Release version to deploy (default: a patch bump of the current one)',
+    )
+    .option('--no-version-bump', 'Deploy the current version: no write, no commit, no push')
     .option('--json', 'Print a machine-readable result on stdout')
     .addHelpText(
       'after',
@@ -176,6 +181,11 @@ export function registerDeployCommand(
     .option('--non-interactive', 'Never prompt; fail listing anything unresolved')
     .option('--skip-seed', 'Do not re-run the database seed')
     .option('--skip-proxy', 'Do not touch the reverse proxy')
+    .option(
+      '--app-version <version>',
+      'Release version to deploy (default: a patch bump of the current one)',
+    )
+    .option('--no-version-bump', 'Deploy the current version: no write, no commit, no push')
     .option('--json', 'Print a machine-readable result on stdout')
     .addHelpText(
       'after',
@@ -836,6 +846,14 @@ export interface InstallCommandOptions {
   cache: boolean;
   force?: boolean | undefined;
   staging?: boolean | undefined;
+  appVersion?: string | undefined;
+  /**
+   * Commander's negated-boolean form: `--no-version-bump` sets this FALSE, and
+   * it is TRUE when the flag was not passed. ⚠ Not `noVersionBump` — reading
+   * the absent case as "bump disabled" would turn every ordinary deploy into
+   * one that never versions anything.
+   */
+  versionBump: boolean;
   json?: boolean | undefined;
 }
 
@@ -866,6 +884,8 @@ export async function runInstallCommand(
     ...(options.cache === false ? { noCache: true } : {}),
     ...(options.force === undefined ? {} : { force: options.force }),
     ...(options.staging === undefined ? {} : { staging: options.staging }),
+    ...(options.appVersion === undefined ? {} : { appVersion: options.appVersion }),
+    ...(options.versionBump === false ? { noVersionBump: true } : {}),
     ...(ctx?.runCommand === undefined ? {} : { runCommand: ctx.runCommand }),
     // Rendered as lines on stderr here; #184's screen renders the identical
     // callbacks as React state. One implementation, two renderers.
@@ -921,6 +941,14 @@ export interface UpdateCommandOptions {
   nonInteractive?: boolean | undefined;
   skipSeed?: boolean | undefined;
   skipProxy?: boolean | undefined;
+  appVersion?: string | undefined;
+  /**
+   * Commander's negated-boolean form: `--no-version-bump` sets this FALSE, and
+   * it is TRUE when the flag was not passed. ⚠ Not `noVersionBump` — reading
+   * the absent case as "bump disabled" would turn every ordinary deploy into
+   * one that never versions anything.
+   */
+  versionBump: boolean;
   json?: boolean | undefined;
 }
 
@@ -940,6 +968,8 @@ export async function runUpdateCommand(
     ...(options.nonInteractive === undefined ? {} : { nonInteractive: options.nonInteractive }),
     ...(options.skipSeed === undefined ? {} : { skipSeed: options.skipSeed }),
     ...(options.skipProxy === undefined ? {} : { skipProxy: options.skipProxy }),
+    ...(options.appVersion === undefined ? {} : { appVersion: options.appVersion }),
+    ...(options.versionBump === false ? { noVersionBump: true } : {}),
     ...(ctx?.runCommand === undefined ? {} : { runCommand: ctx.runCommand }),
     ...(json
       ? {}
