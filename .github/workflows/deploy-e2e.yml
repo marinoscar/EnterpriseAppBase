@@ -103,12 +103,29 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$HOME/e2e/apps" "$HOME/e2e/proxy"
-          # The "remote" is this checkout. ⚠ Its branch IS checked out, so the
-          # version step's push is ALWAYS rejected — which makes this an
-          # excellent test of the rollback, and a trap without one: the clone
-          # would sit a commit ahead of origin and both the "already up to
-          # date" and identical-digest assertions below would fail.
+
+          # ⚠ A REAL BRANCH HAS TO BE CREATED HERE, AND IT MUST BE CHECKED OUT.
+          #
+          # Two separate reasons, and the first one is why the workflow's very
+          # first run failed:
+          #
+          #  1. On a `pull_request` event `actions/checkout` leaves HEAD
+          #     DETACHED at the merge commit, so the head branch does not exist
+          #     as a local ref in this clone at all. Passing `$GITHUB_HEAD_REF`
+          #     as `--ref` named a branch the remote does not have, and the
+          #     checkout step correctly refused it.
+          #  2. The version step's push must be REJECTED, and git refuses to
+          #     push to a branch that is checked out in a non-bare repository.
+          #     A detached HEAD has none checked out, so every push would have
+          #     SUCCEEDED and the rollback below would never be exercised — a
+          #     green run proving nothing.
+          #
+          # `switch -c` gives both at once: a branch that exists and is checked
+          # out. The tree is unchanged.
+          git -C "$GITHUB_WORKSPACE" switch -c e2e-source
+
           echo "REMOTE=file://$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
+          echo "SOURCE_REF=e2e-source" >> "$GITHUB_ENV"
           echo "APPS_ROOT=$HOME/e2e/apps" >> "$GITHUB_ENV"
           echo "PROXY_ROOT=$HOME/e2e/proxy" >> "$GITHUB_ENV"
 
@@ -158,11 +175,29 @@ jobs:
             --name e2e \
             --proxy-root "$PROXY_ROOT" \
             --repo "$REMOTE" \
-            --ref "${GITHUB_HEAD_REF:-main}" \
+            --ref "$SOURCE_REF" \
             --answers-file "$HOME/e2e/answers.env" \
             --non-interactive \
             --skip-proxy \
             --skip-doctor
+
+      - name: The version bump was rolled back, not left ahead of origin
+        run: |
+          set -euo pipefail
+          clone="$APPS_ROOT/e2e/repo"
+
+          # ⚠ THE INVARIANT THE VERSION DESIGN RESTS ON: at the end of every
+          # run the clone's HEAD is the commit `origin/<ref>` resolves to,
+          # either because the bump became that commit or because it was rolled
+          # back out. Here the push is always rejected, so it must be the
+          # second — and if it is not, the clone sits a commit ahead and every
+          # later update reports itself behind, rebuilding identical images for
+          # ever. That is precisely what the two update steps below would then
+          # fail on, but failing HERE names the cause.
+          head=$(git -C "$clone" rev-parse HEAD)
+          origin=$(git -C "$clone" rev-parse "origin/$SOURCE_REF")
+          echo "clone HEAD=$head  origin/$SOURCE_REF=$origin"
+          test "$head" = "$origin"
 
       - name: Record the image digests
         id: first

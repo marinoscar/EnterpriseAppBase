@@ -217,6 +217,42 @@ describe('the fake VPS harness', () => {
     expect(readState(vps.deployRoot)).toBeDefined();
   });
 
+  it('records the partial state when a step fails, so --resume has something to resume', async () => {
+    const vps = vpsWithTemplate();
+    // ⚠ The build is the realistic failure: long, the step people actually
+    // watch fail, and late enough that several steps already completed --
+    // which is the entire point of recording them.
+    vps.route(
+      (invocation) =>
+        invocation.argv[0] === 'docker' && invocation.argv.includes('build'),
+      { fail: new Error('build failed') },
+    );
+
+    await expect(install(vps)).rejects.toThrow();
+
+    // ⚠ WITHOUT THIS RECORD `--resume` RESUMED NOTHING. `completedSteps` was
+    // written only on the SUCCESS path, so the one run that needs resuming --
+    // a failed one -- left no trace of its progress, and the flag the error
+    // message recommends in its very next line skipped zero steps and rebuilt
+    // everything. The message was true about intent and false about behaviour.
+    const state = readState(vps.deployRoot);
+    expect(state?.lastOutcome).toBe('failure');
+    expect(state?.lastFailedStep).toBeDefined();
+    expect((state?.completedSteps ?? []).length).toBeGreaterThan(0);
+  });
+
+  it('marks a successful run as such rather than leaving it to be inferred', async () => {
+    const vps = vpsWithTemplate();
+    await install(vps);
+
+    const state = readState(vps.deployRoot);
+    expect(state?.lastOutcome).toBe('success');
+    // ⚠ `lastFailedStep` must be ABSENT, not stale. A success still carrying
+    // the previous run's failed step would have `decideResume` offer to
+    // continue from a step that has since completed.
+    expect(state?.lastFailedStep).toBeUndefined();
+  });
+
   it('refuses to answer a command no route covers', async () => {
     const vps = createFakeVps({ routes: [] });
 
