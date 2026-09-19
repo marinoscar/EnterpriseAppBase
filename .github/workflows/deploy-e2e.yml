@@ -169,20 +169,40 @@ jobs:
         run: |
           set -euo pipefail
           node apps/cli/dist/cli.js deploy update \
-            --apps-root "$APPS_ROOT" --name e2e 2>&1 | tee "$HOME/e2e/update-1.log"
+            --apps-root "$APPS_ROOT" --name e2e --json > "$HOME/e2e/update-1.json"
+          cat "$HOME/e2e/update-1.json"
 
-          # ⚠ THE ASSERTION THE ROLLBACK EXISTS FOR. The push above was
-          # rejected (the remote's branch is checked out), so without the
+          # ⚠ THE ASSERTION THE ROLLBACK EXISTS FOR. The push during install
+          # was rejected (the remote's branch is checked out), so without the
           # rollback the clone sits one commit ahead of origin and this update
           # reports itself BEHIND — rebuilding byte-identical images for ever.
-          grep -qi 'already up to date' "$HOME/e2e/update-1.log"
+          #
+          # ⚠ ASSERTED ON `changed`, THE CONTRACT — not on a message. The
+          # human-readable output says "Already at <sha>. Nothing to do.", and
+          # an earlier draft of this job grepped for a phrase that appears only
+          # as a step's SKIP REASON. That would have passed for the wrong
+          # reason and broken on any wording change.
+          node -e '
+            const r = require(process.env.HOME + "/e2e/update-1.json");
+            if (r.changed !== false) {
+              console.error("update rebuilt although nothing moved:", JSON.stringify(r));
+              process.exit(1);
+            }
+          '
 
       - name: Update again — still nothing has moved
         run: |
           set -euo pipefail
           node apps/cli/dist/cli.js deploy update \
-            --apps-root "$APPS_ROOT" --name e2e 2>&1 | tee "$HOME/e2e/update-2.log"
-          grep -qi 'already up to date' "$HOME/e2e/update-2.log"
+            --apps-root "$APPS_ROOT" --name e2e --json > "$HOME/e2e/update-2.json"
+          cat "$HOME/e2e/update-2.json"
+          node -e '
+            const r = require(process.env.HOME + "/e2e/update-2.json");
+            if (r.changed !== false) {
+              console.error("the second update rebuilt too:", JSON.stringify(r));
+              process.exit(1);
+            }
+          '
 
       - name: The images were not rebuilt
         run: |
