@@ -51,10 +51,21 @@ describe('the install pipeline', () => {
       'seed',
       'start',
       'health',
+      'deploy-info',
       'publish',
       'verify',
       'publish-version',
     ]);
+  });
+
+  it('records what was deployed as soon as the API answers', () => {
+    // ⚠ IMMEDIATELY AFTER `health`, AND BEFORE `publish`. If the API is
+    // answering, the application demonstrably IS deployed. Written at the end,
+    // a failure in `publish` would leave the About page reporting nothing at
+    // all about a deployment that is up and serving -- which is exactly when
+    // somebody is looking at it.
+    expect(ids.indexOf('deploy-info')).toBe(ids.indexOf('health') + 1);
+    expect(ids.indexOf('deploy-info')).toBeLessThan(ids.indexOf('publish'));
   });
 
   it('chooses the version immediately before the build, and publishes it last', () => {

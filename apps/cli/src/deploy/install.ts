@@ -30,6 +30,7 @@ import {
   stampAppVersion,
   type VersionStepResult,
 } from './version-step.js';
+import { writeDeployInfo } from './deploy-info.js';
 import { metadataFor } from './env-metadata.js';
 import type { PromptContext } from '../prompt.js';
 
@@ -492,6 +493,47 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
       },
     },
     {
+      id: 'deploy-info',
+      title: 'Record what was deployed',
+      async run(context) {
+        // ⚠ IMMEDIATELY AFTER `health`, NOT AT THE END. If the API is
+        // answering, the application demonstrably IS deployed and the About
+        // page should say so. Written at the end, a failure in `publish` --
+        // which runs between here and there -- would leave that page reporting
+        // nothing at all about a deployment that is up and serving, which is
+        // exactly when somebody is looking at it.
+        const now = new Date().toISOString();
+        const result = writeDeployInfo(context.options.deployRoot, {
+          name: basename(context.options.deployRoot),
+          ...(context.version?.version === undefined
+            ? {}
+            : { version: context.version.version }),
+          ...(context.commitSha === undefined ? {} : { commitSha: context.commitSha }),
+          ...(context.target?.ref === undefined ? {} : { ref: context.target?.ref }),
+          // The first install is `now`; a --reinstall keeps the original.
+          installedAt: readState(context.options.deployRoot)?.installedAt ?? now,
+          updatedAt: now,
+          cliVersion: CLI_VERSION,
+          ...(context.options.domain === undefined ? {} : { domain: context.options.domain }),
+          // What THIS run has finished by the health gate -- not the resume
+          // set, which is what a PREVIOUS run finished.
+          completed: [...(context.progress ?? [])],
+        });
+
+        // ⚠ BOOKKEEPING, NOT THE DEPLOYMENT. By this point the stack is up and
+        // answering; a file this CLI could not write is a warning, never a
+        // failure that undoes a successful deploy.
+        context.journal.line(
+          result.written
+            ? `Wrote ${result.path}`
+            : `warning: could not write ${result.path}: ${result.error ?? 'unknown'}`,
+        );
+        if (!result.written) {
+          context.hooks?.onProgress?.(`warning: deployment record not written (${result.error ?? 'unknown'})`);
+        }
+      },
+    },
+    {
       id: 'publish',
       title: 'Publish over HTTPS',
       skip: (context) => {
@@ -649,6 +691,8 @@ export async function runInstall(options: InstallOptions): Promise<InstallResult
       options.resume === true && existingState !== undefined
         ? new Set(existingState.completedSteps ?? [])
         : new Set<string>(),
+    // Appended by `runPipeline` as each step finishes; read by `deploy-info`.
+    progress: [],
   };
 
   const result = await runPipeline(buildInstallSteps(), context);

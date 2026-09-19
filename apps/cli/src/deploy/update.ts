@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 
 import { CLI_NAME } from '../branding.js';
 import { PreconditionError, UsageError } from '../errors.js';
@@ -27,6 +27,7 @@ import {
   stampAppVersion,
   type VersionStepResult,
 } from './version-step.js';
+import { writeDeployInfo } from './deploy-info.js';
 import { composeArgv, composeCwd, composeProjectFor, secretsFrom } from './install.js';
 import type { PromptContext } from '../prompt.js';
 
@@ -473,6 +474,46 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
       },
     },
     {
+      id: 'deploy-info',
+      title: 'Record what was deployed',
+      async run(context) {
+        // ⚠ IMMEDIATELY AFTER `health`, NOT AT THE END. If the API is
+        // answering, the application demonstrably IS deployed and the About
+        // page should say so. Written at the end, a failure in `publish` --
+        // which runs between here and there -- would leave that page reporting
+        // nothing at all about a deployment that is up and serving, which is
+        // exactly when somebody is looking at it.
+        const now = new Date().toISOString();
+        const result = writeDeployInfo(context.options.deployRoot, {
+          name: basename(context.options.deployRoot),
+          ...(context.version?.version === undefined
+            ? {}
+            : { version: context.version.version }),
+          ...(context.commitSha === undefined ? {} : { commitSha: context.commitSha }),
+          ...(context.target?.ref ?? context.state.ref === undefined ? {} : { ref: context.target?.ref ?? context.state.ref }),
+          installedAt: context.state.installedAt,
+          updatedAt: now,
+          cliVersion: CLI_VERSION,
+          ...(context.state.domain === undefined ? {} : { domain: context.state.domain }),
+          // What THIS run has finished by the health gate -- not the resume
+          // set, which is what a PREVIOUS run finished.
+          completed: [...(context.progress ?? [])],
+        });
+
+        // ⚠ BOOKKEEPING, NOT THE DEPLOYMENT. By this point the stack is up and
+        // answering; a file this CLI could not write is a warning, never a
+        // failure that undoes a successful deploy.
+        context.journal.line(
+          result.written
+            ? `Wrote ${result.path}`
+            : `warning: could not write ${result.path}: ${result.error ?? 'unknown'}`,
+        );
+        if (!result.written) {
+          context.hooks?.onProgress?.(`warning: deployment record not written (${result.error ?? 'unknown'})`);
+        }
+      },
+    },
+    {
       id: 'publish',
       title: 'Refresh the vhost and certificate',
       skip: (context) => {
@@ -658,6 +699,8 @@ export async function runUpdate(options: UpdateOptions): Promise<UpdateResult> {
     journal,
     hooks: options.hooks,
     completed: new Set<string>(),
+    // Appended by `runPipeline` as each step finishes; read by `deploy-info`.
+    progress: [],
     state,
     ...(existsSync(path) ? { env: parseEnvFile(readFileSync(path, 'utf8')) } : {}),
   };

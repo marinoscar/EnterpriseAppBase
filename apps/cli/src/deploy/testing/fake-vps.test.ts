@@ -325,3 +325,60 @@ describe('deploy status asks the deployment, not the bookkeeping about it', () =
 function sink(): NodeJS.WritableStream {
   return { write: () => true } as unknown as NodeJS.WritableStream;
 }
+
+describe('the deployment record the About page reads', () => {
+  it('is written where the compose file bind-mounts it', async () => {
+    const vps = vpsWithTemplate();
+    await install(vps);
+
+    // ⚠ THE GAP THIS CLOSES. The API reader, the bind mount and the Console
+    // page all shipped; nothing wrote the file. Install created the DIRECTORY
+    // -- so Docker would not create it root-owned -- and stopped there, so the
+    // About page reported `absent` on every deployment, including ones this
+    // CLI had just deployed.
+    const path = join(vps.deployRoot, 'deploy-info', 'info.json');
+    expect(existsSync(path)).toBe(true);
+  });
+
+  it('writes a document the API reader accepts', async () => {
+    const vps = vpsWithTemplate();
+    await install(vps);
+
+    const document = JSON.parse(
+      readFileSync(join(vps.deployRoot, 'deploy-info', 'info.json'), 'utf8'),
+    ) as Record<string, unknown>;
+
+    // ⚠ `schema` IS THE ONE FIELD THE READER VALIDATES STRICTLY, and the number
+    // never moves. A bump to add an optional field makes every already-deployed
+    // API answer `invalid` the instant a newer CLI writes its file -- before
+    // the container it describes has necessarily restarted.
+    expect(document['schema']).toBe(1);
+
+    // Every other field is read leniently, so the contract that matters is
+    // that the SHAPE is there and absence is spelled `null` rather than by
+    // omitting the key -- an explicit null says a human decided, a missing key
+    // says a writer forgot.
+    const app = document['app'] as Record<string, unknown>;
+    expect(Object.keys(app).sort()).toEqual(['commitSha', 'name', 'ref', 'version']);
+    for (const key of ['installedAt', 'updatedAt', 'deployedBy', 'domain', 'remote', 'run']) {
+      expect(document).toHaveProperty(key);
+    }
+
+    const run = document['run'] as Record<string, unknown>;
+    expect(Array.isArray(run['completed'])).toBe(true);
+    // The steps that had completed by the health gate, which is what makes the
+    // About page's third state -- complete, but the run did not finish --
+    // renderable at all.
+    expect((run['completed'] as string[]).length).toBeGreaterThan(0);
+  });
+
+  it('replaces the document atomically, leaving no temp file behind', async () => {
+    const vps = vpsWithTemplate();
+    await install(vps);
+
+    // ⚠ The DIRECTORY is bind-mounted, not the file, precisely so a rename can
+    // hand the container a new document with no restart. A temp file left in
+    // that directory would be visible inside the container.
+    expect(existsSync(join(vps.deployRoot, 'deploy-info', 'info.json.tmp'))).toBe(false);
+  });
+});
