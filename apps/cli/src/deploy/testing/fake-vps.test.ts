@@ -1,9 +1,18 @@
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { resolveEnvPath } from '../deployment-evidence.js';
+import { runStatusCommand } from '../../commands/deploy.js';
+import { isDeployment, resolveEnvPath } from '../deployment-evidence.js';
 import { parseEnvExample, parseEnvFile } from '../env-spec.js';
 import { runInstall } from '../install.js';
 import { readState } from '../state.js';
@@ -230,3 +239,53 @@ describe('the fake VPS harness', () => {
     expect(result.stdout).toBe('f'.repeat(40));
   });
 });
+
+describe('deploy status asks the deployment, not the bookkeeping about it', () => {
+  it('reports on a deployment whose state file is gone', async () => {
+    const vps = vpsWithTemplate();
+    await install(vps);
+
+    // ⚠ The clone is FAKED here -- `git clone` is answered, not executed -- so
+    // the `.git` a real checkout would have has to be laid down by hand. It is
+    // half of what `isDeployment` asks for, and the half this fixture cannot
+    // produce on its own.
+    mkdirSync(join(vps.deployRoot, 'repo', '.git'), { recursive: true });
+
+    // The record is what `install` wrote; the deployment is the checkout and
+    // the `.env`. Removing the first leaves the second entirely intact.
+    rmSync(join(vps.deployRoot, '.appctl-deploy.json'), { force: true });
+    expect(readState(vps.deployRoot)).toBeUndefined();
+    expect(isDeployment(vps.deployRoot)).toBe(true);
+
+    // ⚠ THE DEFECT THIS PINS, and it is the same wrong question `update` used
+    // to ask, from the other side. Guarding on the state file meant a
+    // deployment whose record was lost -- containers up, certificate issued,
+    // site serving -- was reported as "No deployment found" by the ONE command
+    // an operator runs when something is wrong.
+    await expect(
+      runStatusCommand(
+        { root: vps.deployRoot, port: String(api.port), json: true, color: false },
+        { runCommand: vps.runCommand, stdout: sink(), stderr: sink() },
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it('still refuses when nothing is installed there at all', async () => {
+    const empty = mkdtempSync(join(tmpdir(), 'appctl-fake-vps-empty-'));
+
+    // ⚠ The distinction is preserved, just asked of the deployment rather than
+    // of the record: "nothing installed" is a usage problem, "installed and
+    // unhealthy" is not, and a monitoring script must tell them apart.
+    await expect(
+      runStatusCommand(
+        { root: empty, port: String(api.port), json: true, color: false },
+        { runCommand: vpsWithTemplate().runCommand, stdout: sink(), stderr: sink() },
+      ),
+    ).rejects.toThrow(/No deployment found/);
+  });
+});
+
+/** A writable stream that keeps nothing; the assertions are on the outcome. */
+function sink(): NodeJS.WritableStream {
+  return { write: () => true } as unknown as NodeJS.WritableStream;
+}

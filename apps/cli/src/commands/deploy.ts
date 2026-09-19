@@ -22,6 +22,7 @@ import {
 } from '../deploy/health.js';
 import { readState } from '../deploy/state.js';
 import { readAnswersFile } from '../deploy/answers-file.js';
+import { isDeployment } from '../deploy/deployment-evidence.js';
 import { collectInventory, renderInventory } from '../deploy/inventory.js';
 import {
   planUninstall,
@@ -816,10 +817,20 @@ export async function runStatusCommand(
   const stderr = ctx?.stderr ?? process.stderr;
   const json = options.json === true;
 
-  // "Nothing installed" is a USAGE problem, distinct from "installed and
-  // unhealthy" - a monitoring script must be able to tell them apart.
+  // ⚠ EVIDENCE, NOT THE RECORD -- the same wrong question `update` used to
+  // ask, from the other side. Guarding on the state file meant a deployment
+  // whose record was lost -- containers up, certificate issued, site serving --
+  // was reported as "No deployment found" by the ONE command an operator runs
+  // when something is wrong. `status` needs no record to do its job: it probes
+  // the containers and the endpoints, and the record only supplies the compose
+  // project and the deployed revision.
+  //
+  // "Nothing installed" is still a USAGE problem, distinct from "installed and
+  // unhealthy" -- a monitoring script must be able to tell them apart. That
+  // distinction is preserved; it is just asked of the deployment rather than of
+  // the bookkeeping about it.
   const state = readState(app.deployRoot);
-  if (state === undefined) {
+  if (state === undefined && !isDeployment(app.deployRoot)) {
     throw new UsageError(
       `No deployment found at ${app.deployRoot}. Run \`${CLI_NAME} deploy install\` first, or pass --root.`,
     );
@@ -832,10 +843,13 @@ export async function runStatusCommand(
     ...(options.domain === undefined ? {} : { domain: options.domain }),
     // ⚠ From the RECORD, never derived. `status` reads the containers, so
     // looking in the wrong compose project reports a healthy stack as absent.
-    ...(composeProjectFor(state) === undefined
+    // Absent when the record was lost: `composeProjectFor(undefined)` is the
+    // directory-derived default, which is what such a deployment is running
+    // under anyway -- it predates the naming or lost the file that recorded it.
+    ...(state === undefined || composeProjectFor(state) === undefined
       ? {}
       : { composeProject: composeProjectFor(state) }),
-    state,
+    ...(state === undefined ? {} : { state }),
     ...(ctx?.fetch === undefined ? {} : { fetch: ctx.fetch }),
   });
 
