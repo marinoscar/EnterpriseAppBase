@@ -23,10 +23,16 @@ describe('the update pipeline', () => {
       'seed',
       'restart',
       'health',
+      'deploy-info',
       'publish',
       'verify',
       'publish-version',
     ]);
+  });
+
+  it('records what was deployed as soon as the API answers', () => {
+    expect(ids.indexOf('deploy-info')).toBe(ids.indexOf('health') + 1);
+    expect(ids.indexOf('deploy-info')).toBeLessThan(ids.indexOf('publish'));
   });
 
   it('does not bump a version when the revision has not moved', () => {

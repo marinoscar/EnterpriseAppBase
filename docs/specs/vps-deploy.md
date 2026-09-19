@@ -206,7 +206,13 @@ fails fast with a `UsageError` naming both flags — there is no silent
 fallback to the template's own origin, because guessing wrong here means
 deploying the wrong application.
 
-The **deploy root** (default `/opt/<repo-name>`, overridable with `--path`)
+The **deploy root** (default `/opt/<repo-name>`, overridable with `--path`) —
+**superseded by section 18's multi-app layout**: the flag shipped as `--root`,
+not `--path`, and the default became `/opt/infra/apps` (an *apps root*, not
+one deployment's own directory) once a single VPS hosting several
+applications turned out to be the ordinary case, not the exception. The rest
+of this paragraph's reasoning is unchanged; only the default and the flag
+name moved.
 is where the CLI manages its own clone and everything else it writes (`.env`,
 the state file, the run journal). It is deliberately not required to be the
 same directory as the checkout `repo.ts` read the defaults from — an
@@ -753,3 +759,158 @@ above, for whoever slices this into the 17 child issues:
     `ScrollBox`'s `followTail`.
 11. `infra/compose/vps.compose.yml` + this document's own follow-up: once
     real usage exists, fold anything this design got wrong back into it.
+
+## 18. Epic #397: multi-app hosting, evidence-based deployments, and removal
+
+Epic #168 above assumed one VPS, one application, one deploy root. Epic #397
+(issues #398-#405) is what happens once that assumption meets a real fleet:
+a box hosting a second application within a year, an operator standing inside
+their own deployment being told to pass a flag naming the thing they're
+standing in, and a deployment whose bookkeeping file is lost being treated as
+if it does not exist. Three decisions here are as load-bearing as the four in
+section 1, and a later change should not reopen them without reading why they
+landed this way.
+
+### 18.1 A deployment is evidence, not a record
+
+`deployment-evidence.ts`'s predicate is deliberately narrow: a deployment is
+a git checkout at `<root>/repo` **and** a readable `.env` — nothing else.
+Earlier code asked "does `state.json` exist," which is a question about this
+CLI's own bookkeeping, not about whether a deployment is *there*. A directory
+with a live checkout, a working `.env`, running containers, an issued
+certificate and a serving site — but a state file lost to a bad snapshot
+restore — failed that older predicate, and `update` pointed the operator at
+`install`, whose own precondition is the opposite situation. Both
+`layout.ts`'s enumeration and `update.ts`'s adoption path import the same
+`isDeployment` — deliberately, because when each had its own idea of what a
+deployment was, fixing one left the other calling code that still could not
+find the deployment it was written to rescue.
+
+Adoption (`adopt.ts`) rebuilds a record from what is actually knowable — the
+checkout's own origin and ref, the `.env`'s bind port — and invents nothing
+for the rest. `installedAt` is not approximated from a directory `mtime`
+(that records the last write to the directory, not the install), so an
+adopted record carries `adoptedAt` as a third timestamp axis, distinct from
+`installedAt` and `lastDeployedAt`, so a later reader can tell "this was
+adopted, and the earlier history is genuinely unknown" from "this was
+installed, then, and last deployed, then."
+
+### 18.2 Multi-app layout: five resolution ranks, and ambiguity refuses
+
+`layout.ts` lays deployments out at `<apps-root>/<app-name>/`
+(`DEFAULT_APPS_ROOT = /opt/infra/apps`) and defines `locateApp`'s five ranks:
+an explicit `--root`; an explicit `--name`; the deployment the current
+working directory is standing inside, walking upward but bounded strictly
+inside the apps root; the sole installed deployment; and, failing all four, a
+refusal that **names every candidate** rather than picking one. Rank 3 is the
+one that matters in practice: without it, an operator standing inside their
+own deployment on a seven-app host was told `Pass --name` by the exact
+command whose error message had just left them in the directory that answers
+the question. Rank 5 refuses and never prefers — narrowing by the deployment
+marker (below) down to one candidate and silently taking it was considered
+and rejected, because the marker cannot distinguish "not ours" from "ours,
+deployed before the marker existed," and every deployment from an earlier CLI
+is the latter. Inventing a tiebreak at the exact moment the operator most
+needs to be asked is the failure mode rank 5 exists to rule out.
+
+`DEPLOY_ROOT_MARKER` (`DEPLOY_ROOT`, an env key absent from `.env.example` on
+purpose) lets enumeration tell a deployment this CLI family wrote from a
+foreign application sharing the same apps root; `COMPOSE_PROJECT_NAME` was
+considered and rejected for this job because Compose itself defines that
+variable, so a neighbour's `.env` may legitimately carry it. The honest limit,
+stated in the module's own header: two forks of this same template on one
+host are still genuinely ambiguous, and no marker can separate them — rank 3
+is what actually resolves the operator's problem; the marker only excludes
+genuinely foreign applications.
+
+⚠ **As landed, only `deploy list` reads this layout** (via `enumerateDeployments`
+and its own `--apps-root`). `locateApp`'s five-rank resolution is implemented
+and unit-tested but not yet wired into `install`/`update`/`status`/`doctor`/
+`certs`/`uninstall`'s command-line surface — each of those still takes a
+plain `--root` naming one deployment directly, with no `--name` flag. Wiring
+the rest of the command surface to `locateApp` is follow-up work, not a
+design question left open here.
+
+### 18.3 Removing a deployment, and the shape every destructive extra follows
+
+`uninstall.ts` runs a read-only inventory (`planUninstall`) before anything
+is asked or removed — nobody can consent to a number they were not shown,
+and that inventory is what a confirmation is *about*. It refuses, always, to
+touch four things because each is shared infrastructure this deployment is a
+tenant of, not an owner of: the shared Docker network, the shared proxy
+container, the TLS certificate (Let's Encrypt's 5-duplicate-per-week limit
+means keeping it is what makes a reinstall possible), and the per-host
+renewal cron entry/timer (it renews every application's certificate).
+
+The two opt-in extras — `--drop-database`/`--purge-storage` — establish the
+pattern any future destructive extra should follow: its own flag, **and** a
+typed confirmation of that resource's **own real name**, never a shared magic
+word like `DELETE`. The reasoning is not abstract — an operator who has
+decided to drop a database has not thereby decided to empty a bucket, and a
+single word typed once would authorize both. `confirmationMatches` checks
+each extra against its own resource's name, and each is validated
+independently before anything runs.
+
+### 18.4 Object storage is where this design and the portable spec diverge
+
+The original assumption — every credential a deployment needs lives in
+`.env` — stopped holding the moment epic #372/#377 moved the object-storage
+bucket and credential into the `storage` system-settings namespace plus an
+encrypted `credentials` row, resolved by the running application, never by a
+file on disk. `--purge-storage` cannot be a CLI-side operation for exactly
+that reason: nothing outside the running api process can decrypt that
+credential to act on it, or even to check the typed bucket name against the
+real one. So the purge runs **inside the built api image**
+(`docker compose run --rm --no-deps api npm run storage:purge -- --confirm
+--bucket <name>`), before the stack and the clone are torn down, so it still
+has the image and the live configuration to work with. `apps/cli`'s own
+`tsconfig.build.json` pins `rootDir: ./src`, which makes it structurally
+impossible for the CLI to import anything from `apps/api` — duplicating the
+cipher and the storage key-prefix list into a package that provably cannot
+import the originals is the failure mode this divergence avoids, not a
+limitation to route around. See
+[`docs/specs/storage-providers.md`](storage-providers.md) for the settings/
+secret split this depends on.
+
+`--drop-database` does not have the same excuse — PostgreSQL connection
+parameters are ordinary `.env` values `database-drop.ts` can read directly,
+which is exactly why it is implemented as a standalone, runnable, unit-tested
+function (`dropDatabase`, in `database-drop.ts`) rather than needing a
+detour through the api image. As landed, though, `runUninstall` validates the
+typed confirmation against the real database name but does not yet call
+`dropDatabase` — the confirmation gate is real, the drop itself is not yet
+wired to it. Closing that gap is follow-up work on this same module, not a
+design question: the function, its two-explicit-`DROP DATABASE`-attempts
+shape, and its scoped-termination-on-`object_in_use` behavior are already
+decided and already tested; only the call site is missing.
+
+### 18.5 The compose project name is recorded, never derived
+
+Without `-p <project>`, Compose derives a project's name from the compose
+file's directory, which is `compose` for every deployment on a box, because
+every deployment resolves the same `infra/compose` path relative to its own
+checkout — so a second application's `up -d` fights the first one's
+containers over one project. The fix is not "always pass `-p
+<deployment-name>`": renaming an **existing** deployment's project makes
+Compose see no containers under the new name and build a parallel stack that
+collides with the still-running old one on the same bind port — a
+bookkeeping change causing an outage. So the project name is **recorded** at
+install time (`state.composeProject`) and never re-derived at a call site: a
+fresh install gets its own name (the deployment directory's basename); a
+deployment that predates this feature keeps the literal name `compose`
+forever, because that is what a `docker compose` invocation with no `-p` was
+always naming it.
+
+### 18.6 What this epic did not change
+
+Deploy-time versioning (choosing and stamping a release version during
+install/update, à la the portable spec's `--app-version`/
+`--no-version-bump`) and relocating `.env` out of the checkout to
+`<deployRoot>/.env` with a legacy symlink are both **out of scope for the
+work this section documents** — `deployment-evidence.ts` already prefers the
+new `.env` location when reading (`resolveEnvPath` checks
+`<deployRoot>/.env` before the legacy `<deployRoot>/repo/infra/compose/.env`),
+anticipating that move, but `install.ts`/`update.ts` still *write* `.env` at
+the legacy path only, and neither pipeline has a version step. Whoever picks
+either of these up next should read `deployment-evidence.ts`'s existing
+forward compatibility before assuming the read side needs work too.

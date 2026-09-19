@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
 
 import { CLI_NAME } from '../branding.js';
 import { PreconditionError, UsageError } from '../errors.js';
@@ -27,6 +27,7 @@ import {
   stampAppVersion,
   type VersionStepResult,
 } from './version-step.js';
+import { writeDeployInfo } from './deploy-info.js';
 import { composeArgv, composeCwd, composeProjectFor, secretsFrom } from './install.js';
 import type { PromptContext } from '../prompt.js';
 
@@ -113,6 +114,11 @@ async function compose(
   extra: readonly string[],
   options?: { timeoutMs?: number },
 ): Promise<void> {
+  // See `ensureBindSources` in install.ts: Docker creates a missing bind
+  // source as root:root the moment it instantiates the service, and `compose
+  // run` does that as thoroughly as `up`.
+  mkdirSync(join(context.options.deployRoot, 'deploy-info'), { recursive: true });
+
   const result = await context.runCommand(composeArgv(extra, composeProjectFor(context.state)), {
     cwd: composeCwd(context.options.deployRoot),
     timeoutMs: options?.timeoutMs ?? 30 * 60_000,
@@ -245,6 +251,22 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
 
         const specs = parseEnvExample(readFileSync(templatePath, 'utf8'));
         const current = parseEnvFile(readFileSync(path, 'utf8'));
+
+        // ⚠ HEAL A DEPLOYMENT THAT PREDATES THE MARKER, or the fix only ever
+        // reaches fresh installs and every deployment in the field keeps
+        // mounting an empty deploy-info directory for ever. Writing it is
+        // inert: nothing derives container identity from it, unlike
+        // COMPOSE_PROJECT_NAME -- see install.ts's environment step for why
+        // that one is deliberately never written.
+        //
+        // Done BEFORE the drift diff below, so a value this CLI supplies is
+        // never mistaken for a variable the operator has to answer.
+        if (current.get('DEPLOY_ROOT') !== context.options.deployRoot) {
+          current.set('DEPLOY_ROOT', context.options.deployRoot);
+          writeEnvFile(path, current, specs);
+          context.journal.line(`Recorded DEPLOY_ROOT=${context.options.deployRoot}`);
+        }
+
         const { missing, unknown } = diffEnv(specs, current);
 
         if (unknown.length > 0) {
@@ -459,6 +481,9 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
           runCommand: context.runCommand,
           deployRoot: context.options.deployRoot,
           bindPort: context.state.bindPort,
+          ...(composeProjectFor(context.state) === undefined
+            ? {}
+            : { composeProject: composeProjectFor(context.state) }),
           ...(context.hooks === undefined ? {} : { hooks: context.hooks }),
         });
 
@@ -466,6 +491,46 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
           throw new Error(
             `The API did not become ready: ${probe.error ?? `HTTP ${probe.status ?? '?'}`}`,
           );
+        }
+      },
+    },
+    {
+      id: 'deploy-info',
+      title: 'Record what was deployed',
+      async run(context) {
+        // ⚠ IMMEDIATELY AFTER `health`, NOT AT THE END. If the API is
+        // answering, the application demonstrably IS deployed and the About
+        // page should say so. Written at the end, a failure in `publish` --
+        // which runs between here and there -- would leave that page reporting
+        // nothing at all about a deployment that is up and serving, which is
+        // exactly when somebody is looking at it.
+        const now = new Date().toISOString();
+        const result = writeDeployInfo(context.options.deployRoot, {
+          name: basename(context.options.deployRoot),
+          ...(context.version?.version === undefined
+            ? {}
+            : { version: context.version.version }),
+          ...(context.commitSha === undefined ? {} : { commitSha: context.commitSha }),
+          ...(context.target?.ref ?? context.state.ref === undefined ? {} : { ref: context.target?.ref ?? context.state.ref }),
+          installedAt: context.state.installedAt,
+          updatedAt: now,
+          cliVersion: CLI_VERSION,
+          ...(context.state.domain === undefined ? {} : { domain: context.state.domain }),
+          // What THIS run has finished by the health gate -- not the resume
+          // set, which is what a PREVIOUS run finished.
+          completed: [...(context.progress ?? [])],
+        });
+
+        // ⚠ BOOKKEEPING, NOT THE DEPLOYMENT. By this point the stack is up and
+        // answering; a file this CLI could not write is a warning, never a
+        // failure that undoes a successful deploy.
+        context.journal.line(
+          result.written
+            ? `Wrote ${result.path}`
+            : `warning: could not write ${result.path}: ${result.error ?? 'unknown'}`,
+        );
+        if (!result.written) {
+          context.hooks?.onProgress?.(`warning: deployment record not written (${result.error ?? 'unknown'})`);
         }
       },
     },
@@ -527,6 +592,9 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
           runCommand: context.runCommand,
           deployRoot: context.options.deployRoot,
           bindPort: context.state.bindPort,
+          ...(composeProjectFor(context.state) === undefined
+            ? {}
+            : { composeProject: composeProjectFor(context.state) }),
           ...(context.state.domain === undefined || context.options.skipProxy === true
             ? {}
             : { domain: context.state.domain }),
@@ -652,6 +720,8 @@ export async function runUpdate(options: UpdateOptions): Promise<UpdateResult> {
     journal,
     hooks: options.hooks,
     completed: new Set<string>(),
+    // Appended by `runPipeline` as each step finishes; read by `deploy-info`.
+    progress: [],
     state,
     ...(existsSync(path) ? { env: parseEnvFile(readFileSync(path, 'utf8')) } : {}),
   };

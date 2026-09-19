@@ -30,6 +30,7 @@ import {
   stampAppVersion,
   type VersionStepResult,
 } from './version-step.js';
+import { writeDeployInfo } from './deploy-info.js';
 import { metadataFor } from './env-metadata.js';
 import type { PromptContext } from '../prompt.js';
 
@@ -162,6 +163,35 @@ export function composeArgv(extra: readonly string[], project?: string): string[
   ];
 }
 
+/**
+ * Creates every directory compose bind-mounts from, before compose runs.
+ *
+ * =============================================================================
+ * ⚠ CALLED BEFORE **EVERY** COMPOSE INVOCATION, NOT JUST BEFORE `up`
+ * =============================================================================
+ *
+ * Docker creates a missing bind SOURCE itself, as `root:root`, the moment it
+ * instantiates the service that mounts it -- and `compose run --rm --no-deps
+ * api` instantiates the api service just as thoroughly as `up` does. So
+ * `migrate`, two steps before `start`, was already creating
+ * `<deployRoot>/deploy-info` owned by root; the `mkdirSync` at `start` then
+ * no-opped on a directory that already existed, and the `deploy-info` step
+ * later got EACCES writing into it.
+ *
+ * Every step reported green. The deployment was up, healthy and serving; only
+ * the About page was permanently empty, and the one line saying why was a
+ * warning in a journal nobody reads on a successful run.
+ *
+ * Guarding the ORDER was the original fix and it was the wrong shape: it left
+ * the invariant depending on which step happens to come first, so adding a
+ * compose call earlier in the pipeline silently reintroduces the bug. Guarding
+ * the CALL makes that unrepresentable. `mkdirSync` with `recursive` is a no-op
+ * when the directory is already there, so the cost is one syscall.
+ */
+function ensureBindSources(deployRoot: string): void {
+  mkdirSync(join(deployRoot, 'deploy-info'), { recursive: true });
+}
+
 function envFilePath(deployRoot: string): string {
   return join(composeCwd(deployRoot), '.env');
 }
@@ -178,6 +208,8 @@ async function compose(
   extra: readonly string[],
   options?: { timeoutMs?: number },
 ): Promise<void> {
+  ensureBindSources(context.options.deployRoot);
+
   const result = await context.runCommand(composeArgv(extra, context.composeProject), {
     cwd: composeCwd(context.options.deployRoot),
     timeoutMs: options?.timeoutMs ?? 30 * 60_000,
@@ -329,6 +361,34 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
 
         values.set('APP_BIND_PORT', String(context.options.bindPort));
 
+        // ⚠ THE CLI'S OWN KEY, AND THE BIND MOUNT DOES NOT WORK WITHOUT IT.
+        //
+        // `DEPLOY_ROOT` was READ in three places and written in none:
+        //
+        //   - `vps.compose.yml` interpolates it for the deploy-info bind mount
+        //     source. Unset, it falls back to `./.deploy/deploy-info` --
+        //     relative to the compose directory -- so the api container mounts
+        //     an empty directory Docker created, and the About page reports
+        //     `absent` for ever. Every step still reports green, because the
+        //     stack is up and the fallback path is perfectly valid.
+        //   - `layout.ts` uses it as the marker identifying an `.env` THIS CLI
+        //     wrote, so `deploy list` and the ambiguity refusal labelled every
+        //     deployment we had written as unmarked.
+        //   - `version-step.ts`'s comment describes it as already being there.
+        //
+        // It is deliberately absent from `.env.example` -- that is what makes
+        // it a usable marker, since a stranger's file cannot have it -- so it
+        // lands under the serializer's own `# Not in .env.example` banner.
+        //
+        // ⚠ `COMPOSE_PROJECT_NAME` is deliberately NOT written here. The
+        // project name reaches compose through `-p` on every invocation this
+        // CLI makes, and writing it into an EXISTING deployment's `.env`
+        // renames the project: compose then sees no existing containers,
+        // builds a parallel stack, and collides with the old one on the bind
+        // port. That is an outage caused by a bookkeeping change, and `-p`
+        // already solves the problem it would solve.
+        values.set('DEPLOY_ROOT', context.options.deployRoot);
+
         mkdirSync(composeCwd(context.options.deployRoot), { recursive: true });
         writeEnvFile(path, values, specs);
 
@@ -455,18 +515,9 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
       id: 'start',
       title: 'Start the stack',
       async run(context) {
-        // ⚠ THE BIND SOURCE MUST EXIST BEFORE COMPOSE STARTS.
-        //
-        // `vps.compose.yml` bind-mounts `<deployRoot>/deploy-info` read-only
-        // into the api container. Docker creates a MISSING bind source itself,
-        // as root:root -- after which this CLI, running as the ordinary
-        // operator, cannot write the deployment record into it. The failure
-        // arrives later, as an EACCES from a step that has nothing to do with
-        // Docker, with every step up to here reporting green.
-        //
-        // Creating it here, one step before `up`, is the whole fix.
-        mkdirSync(join(context.options.deployRoot, 'deploy-info'), { recursive: true });
-
+        // The bind sources are created by `ensureBindSources`, which runs
+        // before EVERY compose invocation -- see its header for why doing it
+        // here, one step before `up`, was not enough.
         await compose(context, ['up', '-d']);
       },
     },
@@ -478,6 +529,9 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
           runCommand: context.runCommand,
           deployRoot: context.options.deployRoot,
           bindPort: context.options.bindPort,
+          ...(context.composeProject === undefined
+            ? {}
+            : { composeProject: context.composeProject }),
           ...(context.hooks === undefined ? {} : { hooks: context.hooks }),
         });
 
@@ -485,6 +539,47 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
           throw new Error(
             `The API did not become ready: ${probe.error ?? `HTTP ${probe.status ?? '?'}`}`,
           );
+        }
+      },
+    },
+    {
+      id: 'deploy-info',
+      title: 'Record what was deployed',
+      async run(context) {
+        // ⚠ IMMEDIATELY AFTER `health`, NOT AT THE END. If the API is
+        // answering, the application demonstrably IS deployed and the About
+        // page should say so. Written at the end, a failure in `publish` --
+        // which runs between here and there -- would leave that page reporting
+        // nothing at all about a deployment that is up and serving, which is
+        // exactly when somebody is looking at it.
+        const now = new Date().toISOString();
+        const result = writeDeployInfo(context.options.deployRoot, {
+          name: basename(context.options.deployRoot),
+          ...(context.version?.version === undefined
+            ? {}
+            : { version: context.version.version }),
+          ...(context.commitSha === undefined ? {} : { commitSha: context.commitSha }),
+          ...(context.target?.ref === undefined ? {} : { ref: context.target?.ref }),
+          // The first install is `now`; a --reinstall keeps the original.
+          installedAt: readState(context.options.deployRoot)?.installedAt ?? now,
+          updatedAt: now,
+          cliVersion: CLI_VERSION,
+          ...(context.options.domain === undefined ? {} : { domain: context.options.domain }),
+          // What THIS run has finished by the health gate -- not the resume
+          // set, which is what a PREVIOUS run finished.
+          completed: [...(context.progress ?? [])],
+        });
+
+        // ⚠ BOOKKEEPING, NOT THE DEPLOYMENT. By this point the stack is up and
+        // answering; a file this CLI could not write is a warning, never a
+        // failure that undoes a successful deploy.
+        context.journal.line(
+          result.written
+            ? `Wrote ${result.path}`
+            : `warning: could not write ${result.path}: ${result.error ?? 'unknown'}`,
+        );
+        if (!result.written) {
+          context.hooks?.onProgress?.(`warning: deployment record not written (${result.error ?? 'unknown'})`);
         }
       },
     },
@@ -536,6 +631,9 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
           runCommand: context.runCommand,
           deployRoot: context.options.deployRoot,
           bindPort: context.options.bindPort,
+          ...(context.composeProject === undefined
+            ? {}
+            : { composeProject: context.composeProject }),
           ...(context.options.domain === undefined || context.options.skipProxy === true
             ? {}
             : { domain: context.options.domain }),
@@ -643,6 +741,8 @@ export async function runInstall(options: InstallOptions): Promise<InstallResult
       options.resume === true && existingState !== undefined
         ? new Set(existingState.completedSteps ?? [])
         : new Set<string>(),
+    // Appended by `runPipeline` as each step finishes; read by `deploy-info`.
+    progress: [],
   };
 
   const result = await runPipeline(buildInstallSteps(), context);

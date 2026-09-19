@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 
 import type { Command } from 'commander';
 
@@ -21,6 +21,9 @@ import {
   type ProbeResult,
 } from '../deploy/health.js';
 import { readState } from '../deploy/state.js';
+import { readAbout, renderAbout } from '../deploy/about.js';
+import { readAnswersFile } from '../deploy/answers-file.js';
+import { isDeployment } from '../deploy/deployment-evidence.js';
 import { collectInventory, renderInventory } from '../deploy/inventory.js';
 import {
   planUninstall,
@@ -33,8 +36,16 @@ import {
   RENEW_WITHIN_DAYS,
   type ProxyTarget,
 } from '../deploy/proxy.js';
-import { DEFAULT_APPS_ROOT } from '../deploy/layout.js';
-import { runInstall, type InstallOptions } from '../deploy/install.js';
+import {
+  DEFAULT_APPS_ROOT,
+  locateApp,
+  type LocatedApp,
+} from '../deploy/layout.js';
+import {
+  composeProjectFor,
+  runInstall,
+  type InstallOptions,
+} from '../deploy/install.js';
 import { runUpdate, type UpdateOptions } from '../deploy/update.js';
 import type { EnvGroup } from '../deploy/env-metadata.js';
 import { runCommand } from '../deploy/executor.js';
@@ -66,7 +77,11 @@ const ESC = String.fromCharCode(27);
 const RESET = ESC + '[0m';
 
 export interface DoctorCommandOptions {
-  root: string;
+  /** Rank 1. Absent now means absent: the default was removed. */
+  root?: string | undefined;
+  /** Rank 2. */
+  name?: string | undefined;
+  appsRoot?: string | undefined;
   proxyRoot: string;
   port: string;
   domain?: string | undefined;
@@ -96,7 +111,13 @@ export function registerDeployCommand(
   deploy
     .command('doctor')
     .description('Check that this server meets the prerequisites')
-    .option('--root <path>', 'Deployment directory', DEFAULT_DEPLOY_ROOT)
+    .option('--root <path>', 'Deployment directory (rank 1: an explicit path)')
+    .option(
+      '--apps-root <path>',
+      'Directory holding the deployments (rank 3 walks up inside it)',
+      DEFAULT_APPS_ROOT,
+    )
+    .option('--name <app>', 'Which deployment to act on, by name')
     .option('--proxy-root <path>', 'Shared reverse proxy directory', DEFAULT_PROXY_ROOT)
     .option('--port <port>', 'Loopback port the proxy forwards to', String(DEFAULT_BIND_PORT))
     .option('--domain <domain>', 'Public domain; enables the DNS and TLS checks')
@@ -125,7 +146,13 @@ export function registerDeployCommand(
   deploy
     .command('install')
     .description('Install this application on this server')
-    .option('--root <path>', 'Deployment directory', DEFAULT_DEPLOY_ROOT)
+    .option('--root <path>', 'Deployment directory (rank 1: an explicit path)')
+    .option(
+      '--apps-root <path>',
+      'Directory holding the deployments (rank 3 walks up inside it)',
+      DEFAULT_APPS_ROOT,
+    )
+    .option('--name <app>', 'Which deployment to act on, by name')
     .option('--domain <domain>', 'Public domain to publish under')
     .option('--proxy-root <path>', 'Shared reverse proxy directory', DEFAULT_PROXY_ROOT)
     .option('--port <port>', 'Loopback port the proxy forwards to', String(DEFAULT_BIND_PORT))
@@ -135,6 +162,13 @@ export function registerDeployCommand(
     .option('--group <name>', 'Optional feature group; repeat for more', collectGroup, [])
     .option('--all', 'Review every environment variable, not only the essential ones')
     .option('--non-interactive', 'Never prompt; fail listing anything unresolved')
+    .option(
+      '--answer <key=value>',
+      'Supply one environment answer; repeat for more',
+      collectAnswer,
+      new Map<string, string>(),
+    )
+    .option('--answers-file <path>', 'Read answers from a KEY=value file (like .env)')
     .option('--reinstall', 'Install over an existing deployment')
     .option('--resume', 'Continue from the step that failed')
     .option('--skip-doctor', 'Skip the prerequisite checks')
@@ -174,11 +208,24 @@ export function registerDeployCommand(
   deploy
     .command('update')
     .description('Bring this server up to the latest revision')
-    .option('--root <path>', 'Deployment directory', DEFAULT_DEPLOY_ROOT)
+    .option('--root <path>', 'Deployment directory (rank 1: an explicit path)')
+    .option(
+      '--apps-root <path>',
+      'Directory holding the deployments (rank 3 walks up inside it)',
+      DEFAULT_APPS_ROOT,
+    )
+    .option('--name <app>', 'Which deployment to act on, by name')
     .option('--ref <ref>', 'Branch, tag or commit to move to')
     .option('--force', 'Rebuild even when the revision has not changed')
     .option('--no-cache', 'Rebuild images without the layer cache')
     .option('--non-interactive', 'Never prompt; fail listing anything unresolved')
+    .option(
+      '--answer <key=value>',
+      'Supply one environment answer; repeat for more',
+      collectAnswer,
+      new Map<string, string>(),
+    )
+    .option('--answers-file <path>', 'Read answers from a KEY=value file (like .env)')
     .option('--skip-seed', 'Do not re-run the database seed')
     .option('--skip-proxy', 'Do not touch the reverse proxy')
     .option(
@@ -215,7 +262,13 @@ export function registerDeployCommand(
   deploy
     .command('status')
     .description('Report whether the deployment on this server is healthy')
-    .option('--root <path>', 'Deployment directory', DEFAULT_DEPLOY_ROOT)
+    .option('--root <path>', 'Deployment directory (rank 1: an explicit path)')
+    .option(
+      '--apps-root <path>',
+      'Directory holding the deployments (rank 3 walks up inside it)',
+      DEFAULT_APPS_ROOT,
+    )
+    .option('--name <app>', 'Which deployment to act on, by name')
     .option('--port <port>', 'Loopback port the proxy forwards to', String(DEFAULT_BIND_PORT))
     .option('--domain <domain>', 'Public domain; adds an external HTTPS check')
     .option('--json', 'Print a machine-readable report on stdout')
@@ -268,9 +321,43 @@ export function registerDeployCommand(
     });
 
   deploy
+    .command('about')
+    .description('Show what this server says it is running')
+    .option('--root <path>', 'Deployment directory (rank 1: an explicit path)')
+    .option(
+      '--apps-root <path>',
+      'Directory holding the deployments (rank 3 walks up inside it)',
+      DEFAULT_APPS_ROOT,
+    )
+    .option('--name <app>', 'Which deployment to act on, by name')
+    .option('--json', 'Print the record itself on stdout')
+    .addHelpText(
+      'after',
+      [
+        '',
+        'Reads `deploy-info/info.json` off this disk — it does NOT ask the',
+        'application. The moment you most want to know what was deployed here',
+        'is the moment it is not answering, and that endpoint needs a login.',
+        '',
+        'Exits 0 when there is no record. A deployment installed before this',
+        'CLI wrote one, or whose run stopped before the API answered, simply',
+        'has none — which is not the same as nothing being deployed.',
+      ].join('\n'),
+    )
+    .action((options: AboutCommandOptions) => {
+      runAboutCommand(options, ctx);
+    });
+
+  deploy
     .command('certs')
     .description('Inspect or renew this deployment\'s TLS certificate')
-    .option('--root <path>', 'Deployment directory', DEFAULT_DEPLOY_ROOT)
+    .option('--root <path>', 'Deployment directory (rank 1: an explicit path)')
+    .option(
+      '--apps-root <path>',
+      'Directory holding the deployments (rank 3 walks up inside it)',
+      DEFAULT_APPS_ROOT,
+    )
+    .option('--name <app>', 'Which deployment to act on, by name')
     .option('--proxy-root <path>', 'Shared reverse proxy directory', DEFAULT_PROXY_ROOT)
     .option('--domain <domain>', 'Domain to act on (default: the recorded one)')
     .option('--renew', 'Renew when the certificate is inside the renewal window')
@@ -306,7 +393,13 @@ export function registerDeployCommand(
   deploy
     .command('uninstall')
     .description('Remove a deployment from this server')
-    .option('--root <path>', 'Deployment directory', DEFAULT_DEPLOY_ROOT)
+    .option('--root <path>', 'Deployment directory (rank 1: an explicit path)')
+    .option(
+      '--apps-root <path>',
+      'Directory holding the deployments (rank 3 walks up inside it)',
+      DEFAULT_APPS_ROOT,
+    )
+    .option('--name <app>', 'Which deployment to act on, by name')
     .option('--proxy-root <path>', 'Shared reverse proxy directory', DEFAULT_PROXY_ROOT)
     .option('--dry-run', 'Report what would be removed and change nothing')
     .option('--drop-database', 'Also drop the database (needs --confirm-database)')
@@ -344,7 +437,11 @@ export function registerDeployCommand(
 }
 
 export interface UninstallCommandOptions {
-  root: string;
+  /** Rank 1. Absent now means absent: the default was removed. */
+  root?: string | undefined;
+  /** Rank 2. */
+  name?: string | undefined;
+  appsRoot?: string | undefined;
   proxyRoot: string;
   dryRun?: boolean;
   dropDatabase?: boolean;
@@ -358,11 +455,16 @@ export async function runUninstallCommand(
   options: UninstallCommandOptions,
   ctx?: DeployContext,
 ): Promise<void> {
+  // ⚠ Resolved through the five ranks, not read off `--root`. See
+  // `resolveApp`: with a defaulted `--root` every rank below the first
+  // was dead code, including the cwd walk the resolver exists for.
+  const app = resolveApp(options);
+
   const stdout = ctx?.stdout ?? process.stdout;
   const stderr = ctx?.stderr ?? process.stderr;
 
   const plan = planUninstall({
-    deployRoot: options.root,
+    deployRoot: app.deployRoot,
     proxyRoot: options.proxyRoot,
     ...(options.dropDatabase === undefined ? {} : { dropDatabase: options.dropDatabase }),
     ...(options.purgeStorage === undefined ? {} : { purgeStorage: options.purgeStorage }),
@@ -379,7 +481,7 @@ export async function runUninstallCommand(
   if (options.dryRun === true) return;
 
   const result = await runUninstall({
-    deployRoot: options.root,
+    deployRoot: app.deployRoot,
     proxyRoot: options.proxyRoot,
     ...(options.dropDatabase === undefined ? {} : { dropDatabase: options.dropDatabase }),
     ...(options.confirmDatabase === undefined ? {} : { confirmDatabase: options.confirmDatabase }),
@@ -389,7 +491,7 @@ export async function runUninstallCommand(
   });
 
   for (const warning of result.warnings) stderr.write(`warning: ${warning}\n`);
-  stderr.write(`Removed ${options.root}. Log: ${result.journalPath}\n`);
+  stderr.write(`Removed ${app.deployRoot}. Log: ${result.journalPath}\n`);
 }
 
 export function renderUninstallPlan(plan: UninstallPlan): string {
@@ -402,7 +504,11 @@ export function renderUninstallPlan(plan: UninstallPlan): string {
 
 
 export interface CertsCommandOptions {
-  root: string;
+  /** Rank 1. Absent now means absent: the default was removed. */
+  root?: string | undefined;
+  /** Rank 2. */
+  name?: string | undefined;
+  appsRoot?: string | undefined;
   proxyRoot: string;
   domain?: string;
   renew?: boolean;
@@ -416,16 +522,21 @@ export async function runCertsCommand(
   options: CertsCommandOptions,
   ctx?: DeployContext,
 ): Promise<void> {
+  // ⚠ Resolved through the five ranks, not read off `--root`. See
+  // `resolveApp`: with a defaulted `--root` every rank below the first
+  // was dead code, including the cwd walk the resolver exists for.
+  const app = resolveApp(options);
+
   const stdout = ctx?.stdout ?? process.stdout;
   const stderr = ctx?.stderr ?? process.stderr;
   const run = ctx?.runCommand ?? runCommand;
 
-  const state = readState(options.root);
+  const state = readState(app.deployRoot);
   const domain = options.domain ?? state?.domain;
 
   if (domain === undefined) {
     throw new UsageError(
-      `No domain is recorded for the deployment at ${options.root}, and none was given. Pass --domain.`,
+      `No domain is recorded for the deployment at ${app.deployRoot}, and none was given. Pass --domain.`,
     );
   }
 
@@ -438,7 +549,7 @@ export async function runCertsCommand(
   const report = options.renew === true
     ? await renewCertificate(target, {
         runCommand: run,
-        email: options.email ?? emailFor(options.root),
+        email: options.email ?? emailFor(app.deployRoot),
         ...(options.force === undefined ? {} : { force: options.force }),
         ...(options.staging === undefined ? {} : { staging: options.staging }),
       }).then((result) => ({ ...result.expiry, renewed: result.renewed, reason: result.reason }))
@@ -537,6 +648,11 @@ export async function runDoctorCommand(
   options: DoctorCommandOptions,
   ctx?: DeployContext,
 ): Promise<void> {
+  // ⚠ Resolved through the five ranks, not read off `--root`. See
+  // `resolveApp`: with a defaulted `--root` every rank below the first
+  // was dead code, including the cwd walk the resolver exists for.
+  const app = resolveApp(options, { mayBeAbsent: true });
+
   const stdout = ctx?.stdout ?? process.stdout;
   const stderr = ctx?.stderr ?? process.stderr;
   const checks = ctx?.checks ?? ALL_CHECKS;
@@ -544,11 +660,11 @@ export async function runDoctorCommand(
 
   const context: CheckContext = {
     runCommand: ctx?.runCommand ?? runCommand,
-    deployRoot: options.root,
+    deployRoot: app.deployRoot,
     proxyRoot: options.proxyRoot,
     bindPort: Number(options.port),
     ...(options.domain === undefined ? {} : { domain: options.domain }),
-    ...(readEnvironment(options.root) ?? {}),
+    ...(readEnvironment(app.deployRoot) ?? {}),
   };
 
   // Under --json nothing is written until the end: a partial checklist on
@@ -705,8 +821,36 @@ function wrap(text: string, width: number): string[] {
 // `appctl deploy status`  (issue #183)
 // ---------------------------------------------------------------------------
 
+export interface AboutCommandOptions {
+  root?: string | undefined;
+  name?: string | undefined;
+  appsRoot?: string | undefined;
+  json?: boolean | undefined;
+}
+
+/**
+ * ⚠ EXITS 0 WHEN THERE IS NO RECORD. An absent document is one of three normal
+ * states, not a failure: this command answers "what does this server say it is
+ * running", and "nothing has written that down here" is a real answer to it.
+ */
+export function runAboutCommand(options: AboutCommandOptions, ctx?: DeployContext): void {
+  const app = resolveApp(options);
+  const report = readAbout(app.deployRoot);
+
+  if (options.json === true) {
+    (ctx?.stdout ?? process.stdout).write(`${JSON.stringify(report, null, 2)}\n`);
+    return;
+  }
+
+  (ctx?.stderr ?? process.stderr).write(`${renderAbout(report)}\n`);
+}
+
 export interface StatusCommandOptions {
-  root: string;
+  /** Rank 1. Absent now means absent: the default was removed. */
+  root?: string | undefined;
+  /** Rank 2. */
+  name?: string | undefined;
+  appsRoot?: string | undefined;
   port: string;
   domain?: string | undefined;
   json?: boolean | undefined;
@@ -717,25 +861,48 @@ export async function runStatusCommand(
   options: StatusCommandOptions,
   ctx?: DeployContext,
 ): Promise<void> {
+  // ⚠ Resolved through the five ranks, not read off `--root`. See
+  // `resolveApp`: with a defaulted `--root` every rank below the first
+  // was dead code, including the cwd walk the resolver exists for.
+  const app = resolveApp(options);
+
   const stdout = ctx?.stdout ?? process.stdout;
   const stderr = ctx?.stderr ?? process.stderr;
   const json = options.json === true;
 
-  // "Nothing installed" is a USAGE problem, distinct from "installed and
-  // unhealthy" - a monitoring script must be able to tell them apart.
-  const state = readState(options.root);
-  if (state === undefined) {
+  // ⚠ EVIDENCE, NOT THE RECORD -- the same wrong question `update` used to
+  // ask, from the other side. Guarding on the state file meant a deployment
+  // whose record was lost -- containers up, certificate issued, site serving --
+  // was reported as "No deployment found" by the ONE command an operator runs
+  // when something is wrong. `status` needs no record to do its job: it probes
+  // the containers and the endpoints, and the record only supplies the compose
+  // project and the deployed revision.
+  //
+  // "Nothing installed" is still a USAGE problem, distinct from "installed and
+  // unhealthy" -- a monitoring script must be able to tell them apart. That
+  // distinction is preserved; it is just asked of the deployment rather than of
+  // the bookkeeping about it.
+  const state = readState(app.deployRoot);
+  if (state === undefined && !isDeployment(app.deployRoot)) {
     throw new UsageError(
-      `No deployment found at ${options.root}. Run \`${CLI_NAME} deploy install\` first, or pass --root.`,
+      `No deployment found at ${app.deployRoot}. Run \`${CLI_NAME} deploy install\` first, or pass --root.`,
     );
   }
 
   const report = await collectHealth({
     runCommand: ctx?.runCommand ?? runCommand,
-    deployRoot: options.root,
+    deployRoot: app.deployRoot,
     bindPort: Number(options.port),
     ...(options.domain === undefined ? {} : { domain: options.domain }),
-    state,
+    // ⚠ From the RECORD, never derived. `status` reads the containers, so
+    // looking in the wrong compose project reports a healthy stack as absent.
+    // Absent when the record was lost: `composeProjectFor(undefined)` is the
+    // directory-derived default, which is what such a deployment is running
+    // under anyway -- it predates the naming or lost the file that recorded it.
+    ...(state === undefined || composeProjectFor(state) === undefined
+      ? {}
+      : { composeProject: composeProjectFor(state) }),
+    ...(state === undefined ? {} : { state }),
     ...(ctx?.fetch === undefined ? {} : { fetch: ctx.fetch }),
   });
 
@@ -754,7 +921,7 @@ export async function runStatusCommand(
 
   if (!healthy) {
     throw new DeploymentUnhealthyError(
-      `The deployment at ${options.root} is not healthy.`,
+      `The deployment at ${app.deployRoot} is not healthy.`,
     );
   }
 }
@@ -828,7 +995,13 @@ function collectGroup(value: string, previous: string[]): string[] {
 }
 
 export interface InstallCommandOptions {
-  root: string;
+  answer?: ReadonlyMap<string, string> | undefined;
+  answersFile?: string | undefined;
+  /** Rank 1. Absent now means absent: the default was removed. */
+  root?: string | undefined;
+  /** Rank 2. */
+  name?: string | undefined;
+  appsRoot?: string | undefined;
   domain?: string | undefined;
   proxyRoot: string;
   port: string;
@@ -857,16 +1030,123 @@ export interface InstallCommandOptions {
   json?: boolean | undefined;
 }
 
+/**
+ * Which deployment a subcommand is acting on.
+ *
+ * =============================================================================
+ * ⚠ THE RESOLVER HAD NO CALLERS
+ * =============================================================================
+ *
+ * `locateApp` and its five ranks shipped with `deploy list` and nothing else,
+ * so every other subcommand still read a bare `--root` that defaulted to the
+ * apps root. That made ranks 2 through 5 unreachable from the command line:
+ * `--name` did not exist, the SOLE-APP case was never tried, the ambiguity
+ * refusal could never fire -- and, worst, neither could RANK 3, the cwd walk,
+ * which is the one defect the resolver was written to fix. An operator
+ * standing inside their own deployment was told to pass a flag that did not
+ * exist, by a command run from the directory the error had just left them in.
+ *
+ * ⚠ AND `--root` CARRIED A DEFAULT, which is what made this invisible. With a
+ * default, `options.root` is always defined and rank 1 always wins, so adding
+ * the lower ranks would have changed nothing at all. The default is gone; an
+ * unpassed `--root` is now genuinely absent.
+ * =============================================================================
+ */
+/**
+ * Collects a repeated `--answer key=value` into a map.
+ *
+ * ⚠ SPLIT ON THE FIRST `=` ONLY. A signing secret is base64 and base64 ends in
+ * `=` padding, so splitting on every one truncates exactly the values that
+ * must not be truncated.
+ */
+function collectAnswer(entry: string, previous: Map<string, string>): Map<string, string> {
+  const at = entry.indexOf('=');
+  if (at <= 0) {
+    throw new UsageError(`--answer expects KEY=value, not \`${entry}\`.`);
+  }
+  return new Map(previous).set(entry.slice(0, at), entry.slice(at + 1));
+}
+
+/**
+ * The answers a run starts with, from `--answers-file` and `--answer`.
+ *
+ * ⚠ `--answer` WINS OVER THE FILE. The flag is the narrower, later, more
+ * deliberate statement -- an operator overriding one value of a shared answers
+ * file on one run. The other order makes the flag silently do nothing.
+ */
+function collectedAnswers(
+  options: { answer?: ReadonlyMap<string, string> | undefined; answersFile?: string | undefined },
+  warn: (message: string) => void,
+): Map<string, string> | undefined {
+  const fromFile =
+    options.answersFile === undefined ? undefined : readAnswersFile(options.answersFile);
+
+  for (const warning of fromFile?.warnings ?? []) warn(warning);
+
+  const merged = new Map<string, string>([
+    ...(fromFile?.values ?? new Map<string, string>()),
+    ...(options.answer ?? new Map<string, string>()),
+  ]);
+
+  return merged.size === 0 ? undefined : merged;
+}
+
+interface LayoutOptions {
+  root?: string | undefined;
+  name?: string | undefined;
+  appsRoot?: string | undefined;
+}
+
+function resolveApp(
+  options: LayoutOptions,
+  { mayBeAbsent = false }: { mayBeAbsent?: boolean } = {},
+): LocatedApp {
+  const request = {
+    ...(options.root === undefined ? {} : { root: options.root }),
+    ...(options.name === undefined ? {} : { name: options.name }),
+    ...(options.appsRoot === undefined ? {} : { appsRoot: options.appsRoot }),
+  };
+
+  try {
+    return locateApp(request);
+  } catch (error) {
+    // ⚠ `doctor` AND `install` MUST WORK WHEN NOTHING IS INSTALLED. That is
+    // the entire point of a preflight, and install's job is to create the
+    // thing the other commands require. Ranks 4 and 5 both ask "which of the
+    // deployments here?", which is not a question either of them has -- so a
+    // refusal from those ranks becomes the apps root itself, exactly the value
+    // `--root` used to default to.
+    //
+    // ⚠ NOT EXTENDED TO `update`/`status`/`certs`/`uninstall`. Those act on a
+    // deployment that must already exist, and falling back would point them at
+    // a directory nothing was installed into -- turning "which one did you
+    // mean?" into a confusing failure somewhere further in.
+    if (!mayBeAbsent || !(error instanceof UsageError)) throw error;
+
+    const appsRoot = resolve(options.appsRoot ?? DEFAULT_APPS_ROOT);
+    return { name: basename(appsRoot), deployRoot: appsRoot, appsRoot, via: 'root' };
+  }
+}
+
 export async function runInstallCommand(
   options: InstallCommandOptions,
   ctx?: DeployContext,
 ): Promise<void> {
+  // ⚠ Resolved through the five ranks, not read off `--root`. See
+  // `resolveApp`: with a defaulted `--root` every rank below the first
+  // was dead code, including the cwd walk the resolver exists for.
+  const app = resolveApp(options, { mayBeAbsent: true });
+
   const stdout = ctx?.stdout ?? process.stdout;
   const stderr = ctx?.stderr ?? process.stderr;
   const json = options.json === true;
 
+  const answers = collectedAnswers(options, (message) =>
+    stderr.write(`warning: ${message}\n`),
+  );
+
   const installOptions: InstallOptions = {
-    deployRoot: options.root,
+    deployRoot: app.deployRoot,
     bindPort: Number(options.port),
     proxyRoot: options.proxyRoot,
     groups: options.group as EnvGroup[],
@@ -886,6 +1166,7 @@ export async function runInstallCommand(
     ...(options.staging === undefined ? {} : { staging: options.staging }),
     ...(options.appVersion === undefined ? {} : { appVersion: options.appVersion }),
     ...(options.versionBump === false ? { noVersionBump: true } : {}),
+    ...(answers === undefined ? {} : { answers }),
     ...(ctx?.runCommand === undefined ? {} : { runCommand: ctx.runCommand }),
     // Rendered as lines on stderr here; #184's screen renders the identical
     // callbacks as React state. One implementation, two renderers.
@@ -934,7 +1215,13 @@ export async function runInstallCommand(
 // ---------------------------------------------------------------------------
 
 export interface UpdateCommandOptions {
-  root: string;
+  answer?: ReadonlyMap<string, string> | undefined;
+  answersFile?: string | undefined;
+  /** Rank 1. Absent now means absent: the default was removed. */
+  root?: string | undefined;
+  /** Rank 2. */
+  name?: string | undefined;
+  appsRoot?: string | undefined;
   ref?: string | undefined;
   force?: boolean | undefined;
   cache: boolean;
@@ -956,12 +1243,21 @@ export async function runUpdateCommand(
   options: UpdateCommandOptions,
   ctx?: DeployContext,
 ): Promise<void> {
+  // ⚠ Resolved through the five ranks, not read off `--root`. See
+  // `resolveApp`: with a defaulted `--root` every rank below the first
+  // was dead code, including the cwd walk the resolver exists for.
+  const app = resolveApp(options);
+
   const stdout = ctx?.stdout ?? process.stdout;
   const stderr = ctx?.stderr ?? process.stderr;
   const json = options.json === true;
 
+  const answers = collectedAnswers(options, (message) =>
+    stderr.write(`warning: ${message}\n`),
+  );
+
   const updateOptions: UpdateOptions = {
-    deployRoot: options.root,
+    deployRoot: app.deployRoot,
     ...(options.ref === undefined ? {} : { ref: options.ref }),
     ...(options.force === undefined ? {} : { force: options.force }),
     ...(options.cache === false ? { noCache: true } : {}),
@@ -970,6 +1266,7 @@ export async function runUpdateCommand(
     ...(options.skipProxy === undefined ? {} : { skipProxy: options.skipProxy }),
     ...(options.appVersion === undefined ? {} : { appVersion: options.appVersion }),
     ...(options.versionBump === false ? { noVersionBump: true } : {}),
+    ...(answers === undefined ? {} : { answers }),
     ...(ctx?.runCommand === undefined ? {} : { runCommand: ctx.runCommand }),
     ...(json
       ? {}

@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 import { EXIT, exitCodeFor } from '../errors.js';
 import {
+  DEPLOY_STATE_FILENAME,
   DEPLOY_STATE_VERSION,
   DeployStateError,
   NotInstalledError,
@@ -125,5 +126,72 @@ describe('requireState', () => {
     expect((error as Error).message).toContain('--root');
     // A usage problem, not a broken CLI: the remedy is a different command.
     expect(exitCodeFor(error)).toBe(EXIT.USAGE);
+  });
+});
+
+// =============================================================================
+// The two rules a "simplify" pass deletes  (issue #407, epic #397)
+// =============================================================================
+//
+// Both of these are refusals to CHANGE something, which means neither has any
+// code enforcing it and neither fails when broken — here. They fail on a
+// server, months later, for every deployment at once. That asymmetry is
+// exactly why they are pinned: the cost of breaking them is paid somewhere the
+// person breaking them will not be looking.
+// =============================================================================
+
+describe('the state contract with deployments already in the field', () => {
+  it('keeps the state version at 1', () => {
+    // ⚠ BUMPING THIS MAKES THIS CLI REFUSE EVERY STATE FILE ON EVERY LIVE
+    // SERVER. `readState` rejects a version it does not understand — which is
+    // right for a file from the FUTURE and catastrophic as a migration
+    // strategy: `update` would stop working on every deployment simultaneously,
+    // and the remedy would be a hand-edited JSON file on each one.
+    //
+    // Every field added since has been optional for this reason. If a change
+    // ever genuinely cannot be expressed as an optional field, it needs a
+    // migration path written first — not a bump.
+    expect(DEPLOY_STATE_VERSION).toBe(1);
+  });
+
+  it('keeps the state filename', () => {
+    // ⚠ THIS NAME IS READ OFF LIVE SERVERS. Renaming it orphans every existing
+    // deployment: the new CLI finds no record, and the evidence predicate is
+    // what saves it from being treated as a fresh install — which is a
+    // recovery, not a plan.
+    //
+    // Operator-facing copy is where a nicer name belongs; the literal filename
+    // appears in the journal, `--json` and path lists, and nowhere else.
+    expect(DEPLOY_STATE_FILENAME).toBe('.appctl-deploy.json');
+  });
+
+  it('reads a state file written before any of the optional fields existed', () => {
+    const root = makeRoot();
+
+    // Exactly what an early install wrote: no proxyRoot, no composeProject, no
+    // groups, no completedSteps, no lastOutcome.
+    writeFileSync(
+      deployStatePath(root),
+      JSON.stringify({
+        version: 1,
+        repoUrl: 'https://github.com/example/app',
+        ref: 'main',
+        commitSha: 'b'.repeat(40),
+        bindPort: 3535,
+        deployRoot: root,
+        installedAt: '2026-01-01T00:00:00.000Z',
+        lastDeployedAt: '2026-01-01T00:00:00.000Z',
+        lastCommand: 'install',
+        appctlVersion: '0.1.0',
+      }),
+    );
+
+    const state = readState(root);
+
+    // ⚠ READ, NOT REJECTED. This is the file on every server installed before
+    // this epic, and `update` has to work on it untouched.
+    expect(state?.commitSha).toBe('b'.repeat(40));
+    expect(state?.proxyRoot).toBeUndefined();
+    expect(state?.composeProject).toBeUndefined();
   });
 });

@@ -227,14 +227,24 @@ in `/api`.
 appctl deploy doctor
 ```
 
-Four subcommands (`doctor`, `install`, `update`, `status`) take this
-repository — or, far more likely, your fork of it — from an empty VPS to
-running, migrated, seeded, and served over HTTPS at a real domain, and back
-to the latest revision on every subsequent deploy. They run **on the VPS
-itself**: SSH in with your own credentials, build `appctl` from a checkout
-there (see [Building from source](#building-from-source-development) below),
-and run these from inside it. There's no SSH client in `appctl` and no
-laptop-driven orchestration — it never dials out to a server on your behalf.
+Seven subcommands (`doctor`, `install`, `update`, `status`, `list`, `certs`,
+`uninstall`) take this repository — or, far more likely, your fork of it —
+from an empty VPS to running, migrated, seeded, and served over HTTPS at a
+real domain, back to the latest revision on every subsequent deploy, and,
+eventually, gone again. They run **on the VPS itself**: SSH in with your own
+credentials, build `appctl` from a checkout there (see
+[Building from source](#building-from-source-development) below), and run
+these from inside it. There's no SSH client in `appctl` and no laptop-driven
+orchestration — it never dials out to a server on your behalf, and it must
+never be run with `sudo` (see the runbook's prerequisites for why).
+
+`--root`'s default, `/opt/infra/apps`, is an **apps root**: a box can host
+more than one deployment, each at `<apps-root>/<app-name>/`. `deploy list`
+already speaks that layout; every other subcommand below still takes `--root`
+pointing straight at one deployment's own directory, so pass it explicitly
+(e.g. `--root /opt/infra/apps/myapp`) once a second application shares the
+box. See the runbook's section on running more than one application for the
+detail.
 
 For the full walkthrough — prerequisites, the manual step after install,
 troubleshooting — see [`docs/deployment/vps.md`](../../docs/deployment/vps.md).
@@ -447,9 +457,187 @@ Options:
   --no-color         Disable colour even on a terminal
 ```
 
+### Listing every deployment
+
+```bash
+appctl deploy list
+```
+
+Reads the filesystem only — no git, no Docker, no network — and reports every
+deployment under `--apps-root`. Each row's source is `record` (a proper
+deployment record was read), `inferred` (reconstructed from that
+deployment's own `.env` because no record exists — the next `update` against
+it adopts one, inventing nothing it cannot know), or `unreadable` (a record
+is present but this build cannot parse it). A `null`/`-` commit means nothing
+recorded one; this command never shells out to `git` to go find it, so a
+seven-app host costs no subprocesses and cannot fail differently per app.
+
+```
+Options:
+  --apps-root <path>  Directory holding the deployments (default: "/opt/infra/apps")
+  --json              Print a machine-readable inventory on stdout
+```
+
+### What this server says it is running
+
+```bash
+appctl deploy about
+appctl deploy about --name myapp --json
+```
+
+Prints the deployment record `install`/`update` leave at
+`<deploy-root>/deploy-info/info.json`.
+
+**It reads that file; it does not ask the application.** Three reasons, and
+each of them bites: the app would have to be UP, and the moment you most want
+to know what was deployed here is the moment it is not answering; `/api/about`
+is gated on `system_settings:read`, so a command that reads a local file would
+acquire a login flow; and the endpoint reports what the *container* believes,
+which is a different fact from what this CLI deployed. When those two
+disagree, that disagreement is the answer — it is a stale image serving old
+code — not an error to route around. The API reads the very same file from
+the other side of a read-only bind mount, which is the point of the file
+existing.
+
+Four outcomes, **all exiting 0**, because none of them means the command
+failed:
+
+| Outcome | What it means |
+|---|---|
+| the record | A deployment with a record. |
+| no record | Written once the API answers, so a deployment installed before this CLI wrote one — or whose run stopped earlier — has none. Not the same as nothing being deployed. |
+| unreadable | The file is there and this build cannot interpret it. A different condition from absent, and worth telling apart: one corrupt file is not a missing deployment. |
+| a warning | Every fact, plus "the run that deployed this did not finish, at `<step>`". The record is written at the health gate, so a run that died afterwards still leaves a document describing a deployment that is up and serving. |
+
+```
+Options:
+  --root <path>       Deployment directory (rank 1: an explicit path)
+  --apps-root <path>  Directory holding the deployments (default: "/opt/infra/apps")
+  --name <app>        Which deployment to act on, by name
+  --json              Print the record itself on stdout
+```
+
+### Unattended runs
+
+`install` and `update` take answers without a terminal:
+
+```bash
+appctl deploy install --non-interactive \
+  --answers-file ./answers.env \
+  --answer INITIAL_ADMIN_EMAIL=admin@example.com
+```
+
+`--answers-file` is read with the **same parser as `.env`**, so quoting,
+`export ` prefixes, comments and CRLF all behave exactly as they will when the
+deployment reads the file this run writes. `--answer` splits on the **first**
+`=` only — a signing secret is base64 and base64 ends in `=` padding.
+
+⚠ **An unattended run must answer every essential variable, including the
+secrets.** That is the wizard's rule, not an oversight: a non-interactive run
+takes the template default only for a *non-essential* key, because a default
+for an essential one is a placeholder nobody chose (`POSTGRES_PASSWORD=postgres`),
+and generate-mode secrets are never generated without a terminal to confirm on.
+`SECRETS_ENCRYPTION_KEY` is the one that surprises — not marked essential, not
+commented out, blank default, generate-mode — so an unattended install fails on
+it every time unless you supply it.
+
+A world-readable answers file **warns** rather than refusing, because on a CI
+runner that is the ordinary case; an **empty** one refuses, because it means
+you believe you supplied answers and did not.
+
+
+### Managing the TLS certificate directly
+
+```bash
+appctl deploy certs
+appctl deploy certs --renew
+```
+
+With no flags, reports the certificate's expiry and changes nothing — safe to
+run at any time. `--renew` renews only when the certificate is inside its
+30-day renewal window; Let's Encrypt allows just 5 *duplicate* certificates
+per week, and a command that reissued on every call would burn that budget
+during one debugging session. `--force` renews even when it is not due, and
+is deliberately not implied by `--renew` alone. An unreadable expiry is
+reported as exactly that, never treated as "not due."
+
+```bash
+appctl deploy certs --renew --domain app.example.com
+```
+
+Exit codes: `0` for a report or a successful renewal, `1` when the
+certificate is due or expired and `--renew` was not passed (so a cron wrapper
+notices), `2` when nothing is installed at `--root`.
+
+Other flags, from `appctl deploy certs --help`:
+
+```
+Options:
+  --root <path>         Deployment directory (default: "/opt/infra/apps")
+  --proxy-root <path>   Shared reverse proxy directory (default: "/opt/infra/proxy")
+  --domain <domain>     Domain to act on (default: the recorded one)
+  --renew               Renew when the certificate is inside the renewal window
+  --force               Renew even when it is not due. Spends rate-limit budget.
+  --email <email>       Registration address (default: INITIAL_ADMIN_EMAIL)
+  --staging              Use Let's Encrypt staging, which is not trusted by browsers
+  --json                 Print a machine-readable report on stdout
+```
+
+### Removing a deployment
+
+```bash
+appctl deploy uninstall --dry-run
+appctl deploy uninstall
+```
+
+Always run `--dry-run` first — it prints exactly what would be removed and
+what would be kept, and changes nothing. `uninstall` stops the stack, then
+removes the clone, the run logs, the `deploy-info` directory, the `.env` and
+the deployment record.
+
+**Always refuses** to remove four things shared with every other application
+on the host: the shared Docker network, the shared proxy container, the TLS
+certificate (Let's Encrypt allows 5 duplicates per week — keeping it is what
+makes a reinstall possible), and the per-host certificate renewal cron
+entry/timer.
+
+Two opt-in extras each need their own flag *and* a typed confirmation of that
+resource's **own real name** — never a generic word like `DELETE` — so that
+confirming one can never authorize the other:
+
+- `--purge-storage --confirm-bucket <name>` deletes every object this
+  application wrote to object storage. Because the bucket and its credential
+  live in the runtime-configurable storage settings, not in `.env` (epic
+  #372), this runs **inside the built api image**
+  (`docker compose run --rm --no-deps api npm run storage:purge`), before the
+  stack and clone are torn down, and a failure here stops the whole uninstall
+  rather than leaving you unsure whether the bucket was emptied. See
+  [`docs/specs/storage-providers.md`](../../docs/specs/storage-providers.md).
+- `--drop-database --confirm-database <name>` is meant to drop the
+  application's PostgreSQL database. **As of this build, only the
+  confirmation check is wired in**: a mismatched name still refuses
+  correctly, but a matching one currently proceeds without the drop itself
+  running — `dropDatabase()` exists (`src/deploy/database-drop.ts`) and is
+  unit-tested standalone, but nothing in the uninstall pipeline calls it yet.
+  Don't rely on it to have actually dropped anything.
+
+Other flags, from `appctl deploy uninstall --help`:
+
+```
+Options:
+  --root <path>                  Deployment directory (default: "/opt/infra/apps")
+  --proxy-root <path>            Shared reverse proxy directory (default: "/opt/infra/proxy")
+  --dry-run                      Report what would be removed and change nothing
+  --drop-database                Also drop the database (needs --confirm-database)
+  --confirm-database <name>      The database's own name, typed back
+  --purge-storage                Also delete every object in storage (needs --confirm-bucket)
+  --confirm-bucket <name>        The bucket's own name, typed back
+  --json                         Print a machine-readable plan on stdout
+```
+
 ### Logs
 
-Every `doctor`, `install` and `update` run writes a human-readable `.log`
+Every `doctor`, `install`, `update` and `uninstall` run writes a human-readable `.log`
 and a matching machine-readable `.jsonl` under `<deployRoot>/logs/`, mode
 `0600`, newest ten runs kept. Every value the CLI knows to be a secret —
 whether you typed it or the wizard generated it — is redacted from both

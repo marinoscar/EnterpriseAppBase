@@ -16,6 +16,23 @@ export interface StepContext {
   hooks: DeployHooks | undefined;
   /** Ids already completed, from the state file, for --resume. */
   completed: ReadonlySet<string>;
+  /**
+   * Ids completed SO FAR IN THIS RUN, appended as each step finishes.
+   *
+   * ⚠ A DIFFERENT QUESTION FROM `completed`, and the two are easy to confuse.
+   * `completed` is what a PREVIOUS run finished, read off the state file so
+   * `--resume` can skip it; this is what THIS run has finished, which no step
+   * could see before -- `runPipeline` kept it in a local array and handed it
+   * back only at the end.
+   *
+   * The `deploy-info` step needs it: it runs mid-pipeline, at the health gate,
+   * and the document it writes records the steps that had succeeded by then.
+   * That list is what makes the About page's third state -- complete, but the
+   * run did not finish -- renderable at all.
+   *
+   * Populated by `runPipeline`; a caller may leave it undefined.
+   */
+  progress?: string[] | undefined;
 }
 
 export interface DeployStep<C> {
@@ -63,7 +80,12 @@ export async function runPipeline<C extends StepContext>(
         detail: skipReason,
       };
       results.push(result);
-      if (alreadyDone) completed.push(step.id);
+      if (alreadyDone) {
+        // A resumed step IS part of what this deployment has completed, even
+        // though this run did not execute it -- the work is done and on disk.
+        completed.push(step.id);
+        context.progress?.push(step.id);
+      }
       context.journal.line(`- ${step.title}: ${skipReason}`);
       context.hooks?.onStepResult?.(result);
       continue;
@@ -102,6 +124,7 @@ export async function runPipeline<C extends StepContext>(
     };
     results.push(result);
     completed.push(step.id);
+    context.progress?.push(step.id);
     context.hooks?.onStepResult?.(result);
   }
 

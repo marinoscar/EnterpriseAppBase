@@ -68,13 +68,32 @@ export interface HealthOptions {
   fetch?: FetchLike | undefined;
   hooks?: DeployHooks | undefined;
   timeoutMs?: number | undefined;
+  /**
+   * The Docker Compose project these containers live under.
+   *
+   * ⚠ WITHOUT THIS THE HEALTH GATE INSPECTS THE WRONG PROJECT. `install` and
+   * `update` pass `-p <name>` on every compose invocation, so a deployment
+   * installed since that landed runs under its own project -- while this
+   * module built its own argv and passed no `-p` at all, so `compose ps` and
+   * `prisma migrate status` were answered by the DIRECTORY-DERIVED default
+   * (`compose`). The gate then reported no containers and an unknown schema
+   * for a stack that was up and migrated, on exactly the deployments the
+   * project naming exists to keep apart.
+   *
+   * Absent means the directory-derived default, which is correct for every
+   * deployment installed before the naming existed -- the same rule
+   * `composeProjectFor` states for the state file.
+   */
+  composeProject?: string | undefined;
 }
 
-function composeArgs(deployRoot: string): string[] {
-  return COMPOSE_FILES.flatMap((file) => ['-f', file]).concat([
+function composeArgs(options: Pick<HealthOptions, 'deployRoot' | 'composeProject'>): string[] {
+  return [
+    ...(options.composeProject === undefined ? [] : ['-p', options.composeProject]),
+    ...COMPOSE_FILES.flatMap((file) => ['-f', file]),
     '--project-directory',
-    join(deployRoot, 'repo', 'infra', 'compose'),
-  ]);
+    join(options.deployRoot, 'repo', 'infra', 'compose'),
+  ];
 }
 
 function composeCwd(deployRoot: string): string {
@@ -134,7 +153,7 @@ export async function containerStates(
 ): Promise<ContainerState[]> {
   try {
     const result = await options.runCommand(
-      ['docker', 'compose', ...composeArgs(options.deployRoot), 'ps', '--format', 'json'],
+      ['docker', 'compose', ...composeArgs(options), 'ps', '--format', 'json'],
       { cwd: composeCwd(options.deployRoot), timeoutMs: 60_000 },
     );
 
@@ -174,7 +193,7 @@ export async function migrationState(options: HealthOptions): Promise<MigrationS
   try {
     const result = await options.runCommand(
       [
-        'docker', 'compose', ...composeArgs(options.deployRoot),
+        'docker', 'compose', ...composeArgs(options),
         'run', '--rm', '--no-deps', 'api',
         'npx', 'prisma', 'migrate', 'status',
       ],
