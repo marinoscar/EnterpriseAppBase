@@ -1,0 +1,235 @@
+name: Deploy E2E
+
+# =============================================================================
+# The deploy CLI, against real Docker  (issue #407, epic #397)
+# =============================================================================
+#
+# ⚠ DO NOT CONFUSE THIS WITH `.github/workflows/deploy.yml`. That one is
+# tag-triggered and builds images into GHCR. This CLI does the opposite: it
+# builds ON THE SERVER and pulls no images at all. They share a word and
+# nothing else, and merging them would gate an image publish on a VPS
+# simulation.
+#
+# ⚠ ITS OWN FILE, AND THE `paths:` FILTER IS WHY. A path filter applies to the
+# WHOLE workflow, so adding these jobs to `ci.yml` under a filter would gate
+# every job in `ci.yml` on the same paths -- silently switching off the API,
+# web and typecheck jobs for every PR that does not touch the deploy CLI.
+#
+# ⚠ NIGHTLY AS WELL AS ON-CHANGE. Base-image drift changes no file in this
+# repository: a new `node:24-alpine` or a moved apt dependency breaks the build
+# with nothing in the diff to trigger on. An on-change-only E2E finds that on
+# the next unrelated PR and blames it.
+# =============================================================================
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/cli/**'
+      - 'infra/compose/**'
+      - 'apps/api/Dockerfile'
+      - 'apps/web/Dockerfile'
+      - '.github/workflows/deploy-e2e.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/cli/**'
+      - 'infra/compose/**'
+      - 'apps/api/Dockerfile'
+      - 'apps/web/Dockerfile'
+      - '.github/workflows/deploy-e2e.yml'
+  schedule:
+    # 04:10 UTC. Not on the hour: GitHub's scheduler queues heavily at :00.
+    - cron: '10 4 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: Install, update, update again
+    runs-on: ubuntu-latest
+    # Generous: this builds two images from source on a shared runner. A
+    # too-tight limit turns a slow runner into a red build.
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: appuser
+          POSTGRES_PASSWORD: e2e-postgres-password-not-a-real-one
+          POSTGRES_DB: appdb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U appuser"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # ⚠ The deploy clones from a `file://` remote pointing at this
+          # checkout, and the version step wants real history to commit onto.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - run: npm ci
+
+      # =====================================================================
+      # ⚠ THE GATE, AND IT IS IN-JOB ON PURPOSE.
+      # =====================================================================
+      # A broken unit test should fail here in about a minute, not after ten
+      # minutes of image builds. As a separate job with `needs:` it would cost
+      # a second runner and a second `npm ci` to save the same time; in-job it
+      # is free, because this job has already paid for both.
+      # =====================================================================
+      - name: Gate — typecheck and the unit suites
+        run: |
+          npx prisma generate --schema apps/api/prisma/schema.prisma
+          npm run typecheck --workspace=cli
+          npm run test:run --workspace=cli
+          npm run build --workspace=cli
+
+      - name: Prepare the fake VPS layout
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/e2e/apps" "$HOME/e2e/proxy"
+          # The "remote" is this checkout. ⚠ Its branch IS checked out, so the
+          # version step's push is ALWAYS rejected — which makes this an
+          # excellent test of the rollback, and a trap without one: the clone
+          # would sit a commit ahead of origin and both the "already up to
+          # date" and identical-digest assertions below would fail.
+          echo "REMOTE=file://$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
+          echo "APPS_ROOT=$HOME/e2e/apps" >> "$GITHUB_ENV"
+          echo "PROXY_ROOT=$HOME/e2e/proxy" >> "$GITHUB_ENV"
+
+      - name: Write the unattended answers
+        run: |
+          set -euo pipefail
+          # ⚠ EVERY ESSENTIAL KEY, INCLUDING THE SECRETS. A non-interactive run
+          # takes the template default only for a NON-essential key, because a
+          # default for an essential one is a placeholder nobody chose — and
+          # generate-mode secrets are never generated without a terminal to
+          # confirm on. SECRETS_ENCRYPTION_KEY is the one that surprises: not
+          # marked essential, not commented out, blank default, generate-mode,
+          # so an unattended install fails on it every time unless it is here.
+          cat > "$HOME/e2e/answers.env" <<'ANSWERS'
+          POSTGRES_HOST=127.0.0.1
+          POSTGRES_PORT=5432
+          POSTGRES_USER=appuser
+          POSTGRES_PASSWORD=e2e-postgres-password-not-a-real-one
+          POSTGRES_DB=appdb
+          JWT_SECRET=e2e-jwt-secret-that-is-comfortably-over-32-chars
+          COOKIE_SECRET=e2e-cookie-secret-that-is-comfortably-over-32ch
+          SECRETS_ENCRYPTION_KEY=BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=
+          GOOGLE_CLIENT_ID=e2e-google-client-id
+          GOOGLE_CLIENT_SECRET=e2e-google-client-secret
+          INITIAL_ADMIN_EMAIL=admin@example.test
+          ANSWERS
+
+      - name: Install
+        run: |
+          set -euo pipefail
+          # ⚠ --skip-proxy: there is no DNS name pointing at this runner, so a
+          # certificate request would fail on a fact about the environment
+          # rather than about the code. The vhost path is exercised by unit
+          # tests; this job is about the pipeline reaching a healthy stack.
+          node apps/cli/dist/cli.js deploy install \
+            --apps-root "$APPS_ROOT" \
+            --name e2e \
+            --proxy-root "$PROXY_ROOT" \
+            --repo "$REMOTE" \
+            --ref "${GITHUB_HEAD_REF:-main}" \
+            --answers-file "$HOME/e2e/answers.env" \
+            --non-interactive \
+            --skip-proxy \
+            --skip-doctor
+
+      - name: Record the image digests
+        id: first
+        run: |
+          set -euo pipefail
+          docker images --no-trunc --format '{{.Repository}}:{{.Tag}} {{.ID}}' \
+            | sort > "$HOME/e2e/digests-after-install.txt"
+          cat "$HOME/e2e/digests-after-install.txt"
+
+      - name: Update — nothing has moved
+        run: |
+          set -euo pipefail
+          node apps/cli/dist/cli.js deploy update \
+            --apps-root "$APPS_ROOT" --name e2e 2>&1 | tee "$HOME/e2e/update-1.log"
+
+          # ⚠ THE ASSERTION THE ROLLBACK EXISTS FOR. The push above was
+          # rejected (the remote's branch is checked out), so without the
+          # rollback the clone sits one commit ahead of origin and this update
+          # reports itself BEHIND — rebuilding byte-identical images for ever.
+          grep -qi 'already up to date' "$HOME/e2e/update-1.log"
+
+      - name: Update again — still nothing has moved
+        run: |
+          set -euo pipefail
+          node apps/cli/dist/cli.js deploy update \
+            --apps-root "$APPS_ROOT" --name e2e 2>&1 | tee "$HOME/e2e/update-2.log"
+          grep -qi 'already up to date' "$HOME/e2e/update-2.log"
+
+      - name: The images were not rebuilt
+        run: |
+          set -euo pipefail
+          docker images --no-trunc --format '{{.Repository}}:{{.Tag}} {{.ID}}' \
+            | sort > "$HOME/e2e/digests-after-update.txt"
+          # An identical digest is the only proof that "already up to date"
+          # meant it. Exit code alone is satisfied by a rebuild that says so.
+          diff "$HOME/e2e/digests-after-install.txt" "$HOME/e2e/digests-after-update.txt"
+
+      - name: The journal redacts every secret
+        run: |
+          set -euo pipefail
+          logs="$APPS_ROOT/e2e/logs"
+          test -d "$logs"
+
+          # ⚠ ASSERTED ON THE REAL LOGS, NOT ON THE REDACTOR'S UNIT TESTS. The
+          # redactor is seeded from the values the run actually resolved, so
+          # the failure mode is a secret that never reaches the seeding — which
+          # a unit test of the redactor itself cannot see.
+          failed=0
+          while IFS='=' read -r key value; do
+            case "$key" in
+              *SECRET*|*PASSWORD*|SECRETS_ENCRYPTION_KEY) ;;
+              *) continue ;;
+            esac
+            if grep -rqF -- "$value" "$logs"; then
+              echo "::error::$key appears in plain text in the deploy journal"
+              failed=1
+            fi
+          done < "$HOME/e2e/answers.env"
+          test "$failed" -eq 0
+
+      - name: Status reports a healthy deployment
+        run: |
+          set -euo pipefail
+          node apps/cli/dist/cli.js deploy status \
+            --apps-root "$APPS_ROOT" --name e2e --json > "$HOME/e2e/status.json"
+          cat "$HOME/e2e/status.json"
+          node -e '
+            const report = require(process.env.HOME + "/e2e/status.json");
+            if (report.healthy !== true) {
+              console.error("deploy status reports the deployment is not healthy");
+              process.exit(1);
+            }
+          '
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          docker ps -a || true
+          docker compose ls || true
+          tail -n 200 "$APPS_ROOT"/e2e/logs/* 2>/dev/null || true
