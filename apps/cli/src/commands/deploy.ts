@@ -21,6 +21,7 @@ import {
   type ProbeResult,
 } from '../deploy/health.js';
 import { readState } from '../deploy/state.js';
+import { readAbout, renderAbout } from '../deploy/about.js';
 import { readAnswersFile } from '../deploy/answers-file.js';
 import { isDeployment } from '../deploy/deployment-evidence.js';
 import { collectInventory, renderInventory } from '../deploy/inventory.js';
@@ -317,6 +318,34 @@ export function registerDeployCommand(
     )
     .action((options: ListCommandOptions) => {
       runListCommand(options, ctx);
+    });
+
+  deploy
+    .command('about')
+    .description('Show what this server says it is running')
+    .option('--root <path>', 'Deployment directory (rank 1: an explicit path)')
+    .option(
+      '--apps-root <path>',
+      'Directory holding the deployments (rank 3 walks up inside it)',
+      DEFAULT_APPS_ROOT,
+    )
+    .option('--name <app>', 'Which deployment to act on, by name')
+    .option('--json', 'Print the record itself on stdout')
+    .addHelpText(
+      'after',
+      [
+        '',
+        'Reads `deploy-info/info.json` off this disk — it does NOT ask the',
+        'application. The moment you most want to know what was deployed here',
+        'is the moment it is not answering, and that endpoint needs a login.',
+        '',
+        'Exits 0 when there is no record. A deployment installed before this',
+        'CLI wrote one, or whose run stopped before the API answered, simply',
+        'has none — which is not the same as nothing being deployed.',
+      ].join('\n'),
+    )
+    .action((options: AboutCommandOptions) => {
+      runAboutCommand(options, ctx);
     });
 
   deploy
@@ -791,6 +820,30 @@ function wrap(text: string, width: number): string[] {
 // ---------------------------------------------------------------------------
 // `appctl deploy status`  (issue #183)
 // ---------------------------------------------------------------------------
+
+export interface AboutCommandOptions {
+  root?: string | undefined;
+  name?: string | undefined;
+  appsRoot?: string | undefined;
+  json?: boolean | undefined;
+}
+
+/**
+ * ⚠ EXITS 0 WHEN THERE IS NO RECORD. An absent document is one of three normal
+ * states, not a failure: this command answers "what does this server say it is
+ * running", and "nothing has written that down here" is a real answer to it.
+ */
+export function runAboutCommand(options: AboutCommandOptions, ctx?: DeployContext): void {
+  const app = resolveApp(options);
+  const report = readAbout(app.deployRoot);
+
+  if (options.json === true) {
+    (ctx?.stdout ?? process.stdout).write(`${JSON.stringify(report, null, 2)}\n`);
+    return;
+  }
+
+  (ctx?.stderr ?? process.stderr).write(`${renderAbout(report)}\n`);
+}
 
 export interface StatusCommandOptions {
   /** Rank 1. Absent now means absent: the default was removed. */
