@@ -89,6 +89,12 @@ function install(vps: ReturnType<typeof createFakeVps>) {
     skipDoctor: true,
     skipProxy: true,
     skipSeed: true,
+    // ⚠ OFF BY DEFAULT HERE. The version step COMMITS, and these temp deploy
+    // roots have no git repository for it to commit into -- so leaving it on
+    // would make every test in this file fail on a fact about the fixture
+    // rather than about the pipeline. The one test that is about versioning
+    // turns it on and builds a real repository for it.
+    noVersionBump: true,
   });
 }
 
