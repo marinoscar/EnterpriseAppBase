@@ -104,6 +104,19 @@ jobs:
           set -euo pipefail
           mkdir -p "$HOME/e2e/apps" "$HOME/e2e/proxy"
 
+          # ⚠ A HOST PREREQUISITE, NOT SOMETHING INSTALL CREATES.
+          # `base.compose.yml` declares `devnet` as EXTERNAL — the network the
+          # host's shared PostgreSQL lives on — so the first `docker compose
+          # up` on a host fails with "network devnet declared as external, but
+          # could not be found" until somebody creates it. README.md and
+          # docs/DEVELOPMENT.md both say so and both give this command.
+          #
+          # Doing it here rather than teaching `install` to create it keeps the
+          # job honest: it simulates a PREPARED host, which is what the runbook
+          # asks an operator to have. Making install create it would be a real
+          # product change hidden inside a test.
+          docker network create devnet 2>/dev/null || true
+
           # ⚠ A REAL BRANCH HAS TO BE CREATED HERE, AND IT MUST BE CHECKED OUT.
           #
           # Two separate reasons, and the first one is why the workflow's very
