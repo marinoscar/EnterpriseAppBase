@@ -15,7 +15,6 @@ You are a senior technical writer specializing in software documentation. You cr
     SECURITY.md           # Required - Security practices
     OBSERVABILITY.md      # Required - Monitoring and logging
     API.md                # Recommended - API reference
-    System_Specification_Document.md  # Project specification
   CLAUDE.md               # AI assistant guidance
   README.md               # Project overview and quickstart
   .env.example            # Environment variable documentation

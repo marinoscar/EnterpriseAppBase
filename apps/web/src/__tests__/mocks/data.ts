@@ -55,22 +55,18 @@ export const mockUserSettings: UserSettings = {
   theme: 'system',
   profile: {
     displayName: undefined,
-    useProviderImage: true,
-    customImageUrl: null,
+    imageSource: 'provider',
+    imageObjectId: null,
   },
   updatedAt: '2024-01-01T00:00:00.000Z',
   version: 1,
 };
 
 export const mockSystemSettings: SystemSettings = {
-  ui: {
-    allowUserThemeOverride: true,
+  notifications: {
+    browserEnabled: true,
+    disabledEvents: [],
   },
-  security: {
-    jwtAccessTtlMinutes: 15,
-    refreshTtlDays: 14,
-  },
-  features: {},
   updatedAt: '2024-01-01T00:00:00.000Z',
   updatedBy: null,
   version: 1,

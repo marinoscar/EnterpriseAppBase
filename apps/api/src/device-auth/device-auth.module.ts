@@ -3,6 +3,8 @@ import { DeviceAuthController } from './device-auth.controller';
 import { DeviceAuthService } from './device-auth.service';
 import { DeviceCodeCleanupTask } from './tasks/device-code-cleanup.task';
 import { AuthModule } from '../auth/auth.module';
+import { DeviceCodeCleanupHandler } from './handlers/device-code-cleanup.handler';
+import { JobsModule } from '../jobs/jobs.module';
 
 /**
  * Module for Device Authorization Flow (RFC 8628)
@@ -14,9 +16,9 @@ import { AuthModule } from '../auth/auth.module';
  * - Managing device sessions
  */
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, JobsModule],
   controllers: [DeviceAuthController],
-  providers: [DeviceAuthService, DeviceCodeCleanupTask],
+  providers: [DeviceAuthService, DeviceCodeCleanupTask, DeviceCodeCleanupHandler],
   exports: [DeviceAuthService],
 })
 export class DeviceAuthModule {}

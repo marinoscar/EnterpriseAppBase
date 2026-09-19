@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { api, ApiError } from '../services/api';
+import { removePushSubscription } from '../services/pushSubscription';
 import { User, AuthProvider as AuthProviderType } from '../types';
 
 interface AuthContextValue {
@@ -90,9 +91,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, []);
 
   const login = useCallback((provider: string) => {
-    // Store return URL for redirect after login
-    const from = location.state?.from?.pathname || '/';
-    sessionStorage.setItem('auth_return_url', from);
+    // Store return URL for redirect after login (including query params)
+    const fromLocation = location.state?.from;
+    const returnUrl = fromLocation
+      ? `${fromLocation.pathname}${fromLocation.search || ''}`
+      : '/';
+    sessionStorage.setItem('auth_return_url', returnUrl);
 
     // Redirect to OAuth provider
     window.location.href = `/api/auth/${provider}`;
@@ -100,6 +104,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const logout = useCallback(async () => {
     try {
+      // #365: drop this device's push subscription while the access token is
+      // still valid, so the signed-out account stops receiving pushes here.
+      // Best-effort, bounded to a few seconds, and never throws.
+      await removePushSubscription();
       await api.post('/auth/logout');
     } catch (error) {
       console.error('Logout error:', error);

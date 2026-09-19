@@ -2,7 +2,7 @@ import { Injectable, NestMiddleware } from '@nestjs/common';
 import { FastifyRequest } from 'fastify';
 import { ServerResponse } from 'http';
 import { trace, context } from '@opentelemetry/api';
-import { randomUUID } from 'crypto';
+import { randomUUID } from 'node:crypto';
 
 declare module 'fastify' {
   interface FastifyRequest {

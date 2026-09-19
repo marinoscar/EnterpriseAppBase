@@ -66,9 +66,11 @@ export function DeviceCodeInput({
         placeholder="XXXX-XXXX"
         value={code}
         onChange={handleCodeChange}
-        inputProps={{
-          maxLength: 9,
-          style: { textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '1.2rem' },
+        slotProps={{
+          htmlInput: {
+            maxLength: 9,
+            style: { textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '1.2rem' },
+          },
         }}
         sx={{ mb: 2 }}
         autoFocus

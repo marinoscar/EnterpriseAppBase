@@ -117,7 +117,8 @@ describe('UpdateUserRolesDto', () => {
         updateUserRolesSchema.parse({ roleNames: [] });
         fail('Should have thrown an error');
       } catch (error: any) {
-        expect(error.errors[0].message).toBe('At least one role is required');
+        // zod v4: error.issues replaces error.errors
+        expect(error.issues[0].message).toBe('At least one role is required');
       }
     });
   });

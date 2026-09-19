@@ -11,7 +11,9 @@ export const DeviceTokenRequestSchema = z.object({
 
 export class DeviceTokenRequestDto extends createZodDto(DeviceTokenRequestSchema) {
   @ApiProperty({
-    description: 'Device verification code received from /device/code endpoint',
+    description:
+      'Device verification code returned by `POST /auth/device/code` (the `deviceCode` ' +
+      'field). Opaque; not the human-readable user code.',
     example: 'a4f3b8c9d2e1f5a6b7c8d9e0f1a2b3c4',
   })
   deviceCode!: string;

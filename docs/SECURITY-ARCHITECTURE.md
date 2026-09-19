@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-This document provides a comprehensive overview of the security architecture for the Enterprise Application Foundation. The system implements defense-in-depth security through multiple layers: OAuth 2.0 authentication with Google, JWT-based session management with token rotation, email allowlist access control, Role-Based Access Control (RBAC), and comprehensive audit logging.
+This document provides a comprehensive overview of the security architecture for this web application foundation. The system implements defense-in-depth security through multiple layers: OAuth 2.0 authentication with Google, JWT-based session management with token rotation, email allowlist access control, Role-Based Access Control (RBAC), and comprehensive audit logging.
 
 **Key Security Technologies:**
 - **Authentication**: OAuth 2.0 / OpenID Connect (Google)
@@ -783,8 +783,7 @@ erDiagram
         string email UK "Unique identifier"
         string displayName "User override"
         string providerDisplayName "From OAuth"
-        string profileImageUrl "User override"
-        string providerProfileImageUrl "From OAuth"
+        string providerProfileImageUrl "From OAuth, refreshed each login"
         boolean isActive "Account status"
         timestamptz createdAt
         timestamptz updatedAt
@@ -926,7 +925,339 @@ interface AuditEvent {
 
 ---
 
-## 7. Infrastructure Security
+## 7. File Storage Security
+
+The storage system implements multiple layers of security to protect uploaded files and prevent unauthorized access.
+
+### Upload Validation
+
+All file uploads are validated before acceptance:
+
+**MIME Type Validation:**
+- Configurable allowlist of permitted file types
+- Default: Common document and image formats
+- Server-side validation (client-declared MIME type verified)
+- Prevents upload of executable files and scripts
+
+**File Size Limits:**
+- Configurable maximum file size (default: 10GB)
+- Enforced at both simple upload and multipart initialization
+- Prevents storage abuse and DoS attacks
+- Size validation before S3 upload begins
+
+**Content Type Verification:**
+- Validates that file content matches declared MIME type
+- Uses magic number detection for common file types
+- Prevents MIME type spoofing attacks
+
+**Example Configuration:**
+```typescript
+MAX_FILE_SIZE=10737418240      // 10GB in bytes
+ALLOWED_MIME_TYPES=application/pdf,image/jpeg,image/png,application/zip
+```
+(Corrected names — these two, `SIGNED_URL_EXPIRY` and `STORAGE_PART_SIZE`,
+are the four **deployment limits** that remain in `configuration.ts`'s
+`storage.*` block; they were never actually named `STORAGE_MAX_FILE_SIZE`/
+`STORAGE_ALLOWED_MIME_TYPES` in this codebase. *Which* provider, bucket,
+region, endpoint and credential is a separate question, answered entirely
+at runtime through `/admin/settings/storage` — see
+[`docs/specs/storage-providers.md`](specs/storage-providers.md) and
+[`docs/runbooks/storage-configuration.md`](runbooks/storage-configuration.md)
+— and is deliberately absent from this environment-variable list since
+epic #372.)
+
+### Access Control
+
+The storage system enforces strict ownership and permission-based access:
+
+**Owner-Only Access (Default):**
+- Users can only access their own uploaded files
+- Object queries filtered by `owner_id = current_user.id`
+- Download URLs only generated for owned objects
+- Delete operations restricted to owner
+
+**Admin Override:**
+- Users with `storage:delete_any` permission can access all objects
+- Useful for moderation and content management
+- All admin operations logged to audit trail
+
+**Permission Model:**
+| Permission | Description | Granted To |
+|------------|-------------|------------|
+| `storage:read` | View own storage objects | All authenticated users |
+| `storage:write` | Upload and update own objects | All authenticated users |
+| `storage:delete` | Delete own storage objects | All authenticated users |
+| `storage:read_any` | View all storage objects | Admin |
+| `storage:write_any` | Update any storage object | Admin |
+| `storage:delete_any` | Delete any storage object | Admin |
+
+**Ownership Validation Example:**
+```typescript
+// Controller method enforces ownership
+async getObject(objectId: string, userId: string) {
+  const object = await this.objectsService.findById(objectId);
+
+  // Check ownership (or admin permission)
+  if (object.ownerId !== userId && !user.hasPermission('storage:read_any')) {
+    throw new ForbiddenException('Access denied');
+  }
+
+  return object;
+}
+```
+
+### Profile Picture Avatar Routes
+
+Uploaded profile pictures are avatar images stored in the same object storage as
+other files, but they are exposed through two purpose-built routes rather than
+the generic storage-object endpoints above, and the split between them is a
+deliberate security boundary.
+
+The **public** route, `GET /api/users/:userId/avatar/:objectId`, accepts no
+bearer token — a plain `<img src>` cannot send one, so it never gets the
+chance to. Because it is reachable by anyone, it is deliberately narrow: it
+serves the requested object only while it is *exactly* that user's
+currently-selected uploaded avatar (`profile.imageSource === "upload" &&
+profile.imageObjectId === objectId`), and only after confirming the
+underlying storage object is still `ready`, owned by that user, stored under
+the `avatars/<userId>/` key prefix, and detected (by magic bytes) as a valid
+avatar image type. Every failure path — a malformed UUID, an unknown user, a
+stale or deselected object id, or missing bytes — returns an identical 404,
+so the endpoint cannot be used to enumerate users or objects by probing which
+inputs succeed.
+
+That narrowness has a real UI cost: a settings page cannot use this route to
+preview the uploaded picture while another source (`"none"` or `"provider"`)
+is the active selection, because the moment a picture is deselected, this
+route stops serving it. Loosening the public route to fix that would mean
+anyone who learns or guesses an object id could fetch a user's uploaded
+picture even while it is not the active selection — a strictly worse
+posture, bounded only by how hard the UUID is to guess.
+
+Instead, a second, **authenticated** route was added:
+`GET /api/user-settings/profile-image` (bearer token required, gated on
+`user_settings:read`). It can safely be broader than the public route — it
+serves the caller's stored upload regardless of which source is currently
+selected — precisely because the user whose picture is served is never taken
+from a URL parameter; it is always the authenticated caller. There is no
+`userId` or `objectId` in the path to substitute, so this route can never be
+used to fetch anyone else's picture, no matter how broad its own matching
+logic is.
+
+Both routes are deliberately implemented against **one shared lookup and
+streaming path** in `AvatarService` (a public `open()` entry point and an
+authenticated `openStored()` entry point, both delegating to the same private
+`openObject()`), rather than two independent implementations. This means the
+ownership, readiness, key-prefix and mime-type checks are written once and
+cannot silently drift between the public and authenticated entry points over
+time.
+
+The two routes also share the same response-hardening headers, because an
+uploaded image is untrusted content being served same-origin and must never
+be interpreted as anything other than an image: `X-Content-Type-Options:
+nosniff`, `Content-Disposition: inline`, and a restrictive
+`Content-Security-Policy: default-src 'none'; sandbox`. They differ only on
+caching, and deliberately so: the public route sets `Cache-Control: private,
+max-age=86400`, since its URL already encodes the specific object id and is
+typically loaded through a cacheable `<img src>`; the authenticated preview
+route sets `Cache-Control: private, no-store`, since its URL never changes
+even though the underlying picture can (every new upload replaces it), and it
+is fetched through the API client rather than a browser-cacheable image tag.
+
+### Signed URLs
+
+The storage system uses time-limited presigned URLs for secure file access:
+
+**Download URLs:**
+- Generated via S3 presigned GET URLs
+- Default expiration: 1 hour (3600 seconds)
+- Configurable per-request via `expiresIn` parameter
+- URLs cannot be reused after expiration
+- No AWS credentials exposed to client
+
+**Upload URLs (Multipart):**
+- Generated via S3 presigned PUT URLs for each part
+- Short expiration: 15 minutes per part
+- One-time use: URL invalidated after part upload
+- Direct-to-S3 upload (bypasses application server for performance)
+
+**Security Properties:**
+- URLs cryptographically signed by AWS credentials
+- Tampering detected via signature validation
+- Time-based expiration prevents long-lived access
+- Scoped to specific S3 operation (GET or PUT)
+
+**Example Presigned URL Generation:**
+```typescript
+async generateDownloadUrl(objectId: string, expiresIn = 3600): Promise<string> {
+  const object = await this.findById(objectId);
+
+  return this.storageProvider.getSignedDownloadUrl(
+    object.storageKey,
+    expiresIn,
+  );
+}
+```
+
+### S3 Security Configuration
+
+> Since epic #372, `POST /admin/storage-config/bucket` (`/admin/settings/storage`
+> in the admin UI) applies the Block Public Access, Server-Side Encryption and
+> CORS settings below **automatically** when it creates a bucket, using this
+> deployment's real bucket name, region and origin — see
+> [`docs/specs/storage-providers.md`](specs/storage-providers.md) and
+> [`docs/runbooks/storage-configuration.md`](runbooks/storage-configuration.md).
+> The examples below remain useful for a bucket created by hand (the `guided`
+> outcome of that same endpoint prints an equivalent, deployment-specific
+> command block), but note that the CORS example here is illustrative and
+> **omits `ExposeHeaders: ["ETag"]`** — the real configuration includes it,
+> and without it a browser multipart upload transfers completely and then
+> fails to complete, with an error that names neither CORS nor the bucket.
+
+**Recommended S3 Bucket Security Settings:**
+
+**IAM Roles (Production):**
+- Use EC2/ECS IAM roles instead of static credentials
+- Principle of least privilege: grant only required S3 permissions
+- Rotate credentials if using access keys
+
+**Server-Side Encryption:**
+```typescript
+// Enable SSE-S3 (AWS-managed keys)
+ServerSideEncryption: 'AES256'
+
+// Or SSE-KMS (customer-managed keys)
+ServerSideEncryption: 'aws:kms'
+KMSKeyId: 'arn:aws:kms:region:account:key/key-id'
+```
+
+**Block Public Access:**
+```json
+{
+  "BlockPublicAcls": true,
+  "IgnorePublicAcls": true,
+  "BlockPublicPolicy": true,
+  "RestrictPublicBuckets": true
+}
+```
+
+**Access Logging:**
+- Enable S3 access logs for audit trail
+- Log bucket: separate from application bucket
+- Review logs for suspicious access patterns
+
+**Versioning:**
+- Enable versioning for accidental deletion protection
+- Configure lifecycle policy to archive old versions
+
+**CORS Configuration:**
+```json
+{
+  "CORSRules": [
+    {
+      "AllowedOrigins": ["https://yourdomain.com"],
+      "AllowedMethods": ["PUT"],
+      "AllowedHeaders": ["*"],
+      "MaxAgeSeconds": 3000
+    }
+  ]
+}
+```
+
+**Bucket Policy Example:**
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "s3:*",
+      "Resource": "arn:aws:s3:::bucket-name/*",
+      "Condition": {
+        "Bool": { "aws:SecureTransport": "false" }
+      }
+    }
+  ]
+}
+```
+
+### Audit Logging
+
+All storage operations are logged to the `audit_events` table for security monitoring and compliance:
+
+**Logged Events:**
+
+| Event | Action | Description |
+|-------|--------|-------------|
+| Upload Started | `storage:upload:init` | Multipart upload initialized |
+| Upload Completed | `storage:upload:complete` | File upload finalized successfully |
+| Upload Aborted | `storage:upload:abort` | Upload cancelled by user or system |
+| Object Downloaded | `storage:object:download` | Download URL generated |
+| Object Deleted | `storage:object:delete` | Object and file removed |
+| Metadata Updated | `storage:object:metadata:update` | Custom metadata modified |
+
+**Audit Event Structure:**
+```typescript
+{
+  actorUserId: 'user-uuid',
+  action: 'storage:upload:complete',
+  targetType: 'storage_object',
+  targetId: 'object-uuid',
+  meta: {
+    objectName: 'document.pdf',
+    size: 1048576,
+    mimeType: 'application/pdf',
+    storageProvider: 's3',
+    ipAddress: '192.168.1.1',
+    userAgent: 'Mozilla/5.0...'
+  },
+  createdAt: '2024-01-01T12:00:00Z'
+}
+```
+
+**Monitoring Queries:**
+```sql
+-- Large file uploads
+SELECT * FROM audit_events
+WHERE action = 'storage:upload:complete'
+  AND (meta->>'size')::bigint > 1073741824  -- 1GB
+ORDER BY created_at DESC;
+
+-- Suspicious deletion patterns
+SELECT actor_user_id, COUNT(*) as delete_count
+FROM audit_events
+WHERE action = 'storage:object:delete'
+  AND created_at > NOW() - INTERVAL '1 hour'
+GROUP BY actor_user_id
+HAVING COUNT(*) > 10;
+```
+
+### Security Best Practices
+
+**Do's:**
+- ✅ Use IAM roles instead of access keys in production
+- ✅ Enable S3 server-side encryption
+- ✅ Set short expiration times on presigned URLs
+- ✅ Validate file types server-side (never trust client)
+- ✅ Enforce file size limits to prevent abuse
+- ✅ Monitor audit logs for suspicious patterns
+- ✅ Block public access on S3 buckets
+- ✅ Use HTTPS for all S3 operations
+- ✅ Implement virus scanning for user uploads (recommended)
+
+**Don'ts:**
+- ❌ Never commit AWS credentials to source control
+- ❌ Never allow unrestricted file uploads
+- ❌ Never rely on client-side MIME type validation
+- ❌ Never use long-lived presigned URLs (> 1 hour)
+- ❌ Never skip ownership validation on operations
+- ❌ Never expose S3 bucket names in error messages
+- ❌ Never allow executable file uploads (.exe, .sh, .bat)
+
+---
+
+## 8. Infrastructure Security
 
 ### Nginx Security Headers
 
@@ -961,7 +1292,7 @@ The application uses same-origin architecture (frontend and API served from same
 
 - Frontend: `http://localhost:3535/`
 - API: `http://localhost:3535/api`
-- Swagger: `http://localhost:3535/api/docs`
+- API reference: `http://localhost:3535/api/docs`
 
 **Benefits of Same-Origin:**
 - No CORS configuration needed
@@ -1021,7 +1352,7 @@ cp .env.example .env
 
 ---
 
-## 8. Attack Mitigation Matrix
+## 9. Attack Mitigation Matrix
 
 | Attack Vector | Mitigation Strategy | Implementation |
 |--------------|---------------------|----------------|
@@ -1051,7 +1382,7 @@ cp .env.example .env
 
 ---
 
-## 9. Configuration Reference
+## 10. Configuration Reference
 
 ### Environment Variables
 
@@ -1064,6 +1395,21 @@ JWT_REFRESH_TTL_DAYS=14            # Refresh token lifetime (default: 14 days)
 
 # Cookie Configuration
 COOKIE_SECRET=your-cookie-secret-key-min-32-characters-long
+```
+
+**Credential Encryption:**
+```bash
+# Base64-encoded 32-byte AES-256 key. Encrypts secrets an administrator
+# configures at runtime (SMTP, Web Push, and — since epic #372 — the
+# object-storage secret access key) before they are stored in the
+# `credentials` table. Does NOT apply to deploy-time secrets such as
+# JWT_SECRET or GOOGLE_CLIENT_SECRET, which stay in the environment.
+# Formally optional at boot until a credential is stored (see section 14
+# below); in practice required for a working deployment, since uploads,
+# avatars and database backups all need the object-storage credential this
+# key protects.
+# Generate with: openssl rand -base64 32
+SECRETS_ENCRYPTION_KEY=
 ```
 
 **OAuth Providers:**
@@ -1126,7 +1472,7 @@ NODE_ENV=production
 
 ---
 
-## 10. Implementation Notes: Fastify + Passport OAuth
+## 11. Implementation Notes: Fastify + Passport OAuth
 
 ### Challenge: OAuth Strategy Compatibility
 
@@ -1265,7 +1611,60 @@ try {
 
 ---
 
-## 11. File Reference
+## 13. Test Authentication (Development Only)
+
+### Overview
+
+The application provides a test authentication bypass mechanism that enables automated E2E testing with tools like Playwright without requiring real Google OAuth credentials.
+
+**IMPORTANT:** This feature is completely disabled in production environments through multiple security layers.
+
+### Security Layers
+
+| Layer | Protection | Implementation |
+|-------|------------|----------------|
+| **Build-time** | Frontend route excluded from production bundle | `import.meta.env.PROD` check in App.tsx |
+| **Module-level** | Backend module not imported in production | Conditional import in `app.module.ts` |
+| **Runtime guard** | Request rejected in production | `TestEnvironmentGuard` validates `NODE_ENV` |
+| **Bootstrap validation** | App fails to start if misconfigured | Error thrown if `TEST_AUTH_ENABLED=true` in production |
+
+### How It Works
+
+1. Playwright navigates to `/testing/login` (frontend test page)
+2. Test fills email and selects role (admin/contributor/viewer)
+3. Form submits POST to `/api/auth/test/login`
+4. Backend finds/creates user with specified role
+5. Backend generates real JWT tokens (same as OAuth flow)
+6. Backend sets HttpOnly refresh cookie and redirects to `/auth/callback?token=X`
+7. Frontend handles callback (existing flow) and app is authenticated
+
+### Test Auth Endpoint
+
+**Endpoint:** `POST /api/auth/test/login` (Non-production only)
+
+**Request:**
+```json
+{
+  "email": "test@test.local",
+  "role": "admin",
+  "displayName": "Test Admin"
+}
+```
+
+**Response:** HTTP 302 redirect to `/auth/callback?token=<accessToken>&expiresIn=900`
+- Sets HttpOnly refresh token cookie (same as OAuth)
+
+### Security Considerations
+
+- Test auth creates **real users** with **real tokens** - it only bypasses OAuth, not authorization
+- Users created via test auth are fully functional in the system
+- All RBAC guards still apply after authentication
+- Audit logging still captures test auth events
+- Consider using a test email pattern (e.g., `*@test.local`) for easy identification
+
+---
+
+## 12. File Reference
 
 ### Key Security Files
 
@@ -1325,6 +1724,16 @@ apps/api/src/
         └── admin-bootstrap.service.ts  # Initial admin setup
 ```
 
+**Credential Encryption (see section 14):**
+```
+apps/api/src/
+├── common/crypto/
+│   ├── secret-cipher.ts                    # AES-256-GCM cipher, purpose-bound key derivation
+│   └── encryption-key-startup-check.ts     # Boot-time SECRETS_ENCRYPTION_KEY validation
+└── credentials/
+    └── credentials.service.ts              # Encrypted credential store (no HTTP controller)
+```
+
 **Infrastructure:**
 ```
 infra/
@@ -1349,7 +1758,7 @@ apps/web/src/
 
 ---
 
-## 12. Security Best Practices Summary
+## 13. Security Best Practices Summary
 
 ### For Developers
 
@@ -1361,7 +1770,7 @@ apps/web/src/
 - ✅ Test RBAC logic with integration tests
 - ✅ Log security events to audit table
 - ✅ Use environment variables for all secrets
-- ✅ Keep dependencies updated (npm audit)
+- ✅ Keep dependencies updated (Dependabot is configured at `.github/dependabot.yml` for weekly npm, GitHub Actions, and Docker updates; `npm audit` currently reports 0 vulnerabilities on this branch — note there is no automated `npm audit` gate in CI, so run it manually before releases)
 - ✅ Add users to allowlist before sharing OAuth login link
 - ✅ Use user deactivation (`isActive: false`) instead of allowlist removal to revoke access
 
@@ -1389,6 +1798,7 @@ apps/web/src/
 - [ ] OAuth credentials from production Google project
 - [ ] Audit logging verified and monitored
 - [ ] Error handler sanitizes responses (no stack traces)
+- [ ] `SECRETS_ENCRYPTION_KEY` set before any credential-store consumer (SMTP, Web Push, or object storage — set this before configuring storage at `/admin/settings/storage`) goes live
 
 **Monitoring:**
 - [ ] Set up alerts for `refresh token reuse detected` logs
@@ -1398,6 +1808,83 @@ apps/web/src/
 - [ ] Watch for unusual role assignment changes
 - [ ] Monitor allowlist additions/removals for unauthorized changes
 - [ ] Track "email not authorized" login failures
+
+---
+
+## 14. Encrypted Credential Storage (Runtime-Configured Secrets)
+
+### Overview
+
+Deploy-time secrets (`JWT_SECRET`, `GOOGLE_CLIENT_SECRET`, etc.) live in the environment and are covered by the configuration reference above. `AWS_SECRET_ACCESS_KEY` is also deploy-time, but is SES-only since epic #372 — see the note below. This section covers a different category: secrets an **administrator configures at runtime through the application**, which cannot come from an environment variable because changing an env var requires a redeploy. An SMTP password was the first consumer (issue #109); this store now has three: SMTP (`smtp`), Web Push's VAPID private key (`push_vapid`, issue #355), and the object-storage secret access key (`storage`, epic #372 — see [`docs/specs/storage-providers.md`](specs/storage-providers.md)). (Epic #345's node-broker job credentials are a *different* mechanism, deliberately: they are short-lived database roles minted directly at the database, never persisted as ciphertext anywhere — `job_node_secrets` records only a handle, never material. See `docs/specs/job-queue.md` §7.10.)
+
+These are stored in the `credentials` table (Prisma model `Credential`), encrypted at rest, and managed exclusively by `CredentialsService` (`apps/api/src/credentials/credentials.service.ts`). **`CredentialsService` itself still has no HTTP controller of its own** — each consumer above exposes its own admin surface (`EmailSettingsController`, `PushConfigController`, `StorageConfigController`) that calls `describe`/`setSecret`/`getSecret` on this service directly, rather than this module ever accepting a raw `(purpose, name, secret)` triple from HTTP. That is deliberate: a generic "write any secret to any purpose" endpoint would let whichever permission guards it write into an address a completely different feature reads from.
+
+⚠ **`AWS_SECRET_ACCESS_KEY` (and `AWS_ACCESS_KEY_ID`) are SES-only now.** Before epic #372 these two variables were shared between email (SES) and object storage (S3) — the same pair, read twice, because both talked to AWS. Storage now has its own credential, in this same encrypted store, at `(purpose: 'storage', name: 'default')`; the object-storage secret access key is **never** an environment variable. A reader who sees `AWS_SECRET_ACCESS_KEY` set on a deployment and assumes it authorizes S3 uploads is wrong — it authorizes only outgoing SES email.
+
+### The Cipher
+
+Implemented in `apps/api/src/common/crypto/secret-cipher.ts`.
+
+- **Algorithm**: AES-256-GCM.
+- **Key**: `SECRETS_ENCRYPTION_KEY` — a base64-encoded 32-byte key. Generate with:
+  ```bash
+  openssl rand -base64 32
+  ```
+- **Payload layout** — concatenated, then base64-encoded into the single opaque string stored in the `credentials.secret` text column:
+  ```
+  [iv: 12 bytes][authTag: 16 bytes][ciphertext: variable]
+  ```
+  This is self-describing on purpose: because the whole payload lives in one column, the IV and the auth tag can never drift into separate columns from the ciphertext they authenticate.
+- **IV**: a fresh `randomBytes(12)` on every encrypt call, never reused and never derived from the plaintext. Reusing a GCM IV under the same key exposes the GHASH subkey and lets an attacker forge auth tags for that key; a fresh IV per call is also what keeps the store from leaking equality (two credentials with the same secret must not produce the same ciphertext).
+- **Auth tag**: the full 16 bytes (128 bits), always.
+- **Decrypt failure**: any tampering (a flipped bit in the IV, tag, or ciphertext) or a purpose mismatch (see below) fails authentication and throws a flat error rather than returning corrupted plaintext:
+  > `Failed to decrypt secret: the payload is corrupt, was encrypted under a different purpose, or the encryption key has changed.`
+
+### Purpose-Bound Key Derivation
+
+The master key (`SECRETS_ENCRYPTION_KEY`) is never used directly to encrypt or decrypt. Every encrypt/decrypt call goes through a purpose-bound sub-key:
+
+```
+derivedKey = HMAC-SHA256(masterKey, "enterpriseappbase:secret-cipher:v1:" + purpose)
+```
+
+`purpose` is a required, non-empty string (e.g. `'smtp'`, `'oauth'`) — never optional, never defaulted.
+
+**Why this matters — the specific attack it stops**: without domain separation, a ciphertext lifted out of one purpose's row — by a SQL write with access to the table but not the key, or by a bug that copies a row across tables or purposes — would decrypt successfully wherever it landed, meaning nothing more than "some bytes that happen to authenticate." With purpose-bound derivation, that same ciphertext, pasted into a different purpose's context, fails GCM authentication instead of decrypting into a context where it means something else. This is domain separation used as a lateral-movement control: a stolen or misrouted ciphertext cannot cross purposes.
+
+In `CredentialsService`, the store's address (`purpose`, `name`) and the cipher's sub-key domain are the same string by construction, not by convention — a row under purpose `'smtp'` can only ever be decrypted with the `'smtp'` sub-key.
+
+HMAC-SHA256 is used rather than a password KDF (scrypt/argon2/PBKDF2) because the input is already 32 bytes of full-entropy `openssl rand` output, not a low-entropy password — there is nothing to brute-force, so a slow KDF would add latency without adding security. This is HKDF's extract step, the standard construction for deriving multiple independent keys from one high-entropy secret.
+
+### Startup Validation
+
+`apps/api/src/common/crypto/encryption-key-startup-check.ts` exports `verifyEncryptionKeyAtStartup(prisma, logger)`, called from `apps/api/src/main.ts` after `NestFactory.create` (so `PrismaService` is connected) but before `app.listen` and before Fastify plugins are registered — so a deployment that cannot read its own stored credentials never binds the port or serves a request.
+
+The decision table is deliberately not a simple "fails if missing" check — strictness is gated on whether the credential store is actually in use:
+
+| Key state | Rows in `credentials` table | Behaviour |
+|---|---|---|
+| Present, malformed (bad base64 / wrong decoded length) | n/a | **Throws** — boot fails, in every environment |
+| Present, well-formed | n/a | Logs that encrypted credential storage is available, and boots |
+| Absent (unset or empty string) | ≥ 1 row | **Throws** — boot fails, in every environment, including development |
+| Absent | 0 rows | **Warns** and boots normally |
+| (any) | DB unreachable / `credentials` table not yet migrated (the row-count probe itself throws) | **Warns** (naming the possibility of an unmigrated table or unreachable DB) and boots normally — this is deliberately not reported as an encryption-key problem |
+
+Notable properties of this behaviour:
+
+- **`NODE_ENV` plays no role anywhere in this check.** There is no development-mode fallback key and no relaxed behaviour for non-production. A fixed fallback key would itself be a key sitting in this public repository, and whether that branch is safe would depend on `NODE_ENV` being set correctly on every deployment — which it is not guaranteed to be (Node leaves it unset by default). A deployment that forgot to set `NODE_ENV=production` would otherwise silently encrypt real secrets under a constant anyone could read off GitHub.
+- **"Absent, rows exist" is fatal in every environment on purpose.** Rows can only exist because `CredentialsService.setSecret` successfully called `encryptSecret`, which itself throws without a valid key — so rows existing is proof a key was working at some point, and its current absence is a regression, not first-time setup.
+- **"Absent, zero rows" warns and boots** rather than refusing to start, because this table's decision is about whether the *stored ciphertext this process already has* can be read, not about whether the credential store will ever be used — a fresh install legitimately has zero rows before its first login even completes. This still matters in practice: `infra/compose/.env.example` ships `SECRETS_ENCRYPTION_KEY=` uncommented but empty, and since epic #372 the credential store has a consumer (the object-storage secret access key) that almost every real deployment needs working from its first upload — see the note on `AWS_SECRET_ACCESS_KEY` above. A deployment that never fills this key in stays bootable, but storage, SMTP and Web Push all stay unusable until it does.
+- **The check does not attempt to decrypt any row.** It only counts rows via `prisma.credential.count()`. A key that is present and well-formed but is the *wrong* key for existing rows (e.g. a partially completed rotation) still passes startup validation cleanly — the failure only surfaces later, when `CredentialsService.getSecret` actually tries to decrypt that row. See the rotation runbook, [`docs/runbooks/rotate-secrets-encryption-key.md`](runbooks/rotate-secrets-encryption-key.md), for the operational implications.
+- An empty string (`SECRETS_ENCRYPTION_KEY=` with nothing after it — exactly what an uncommented but unfilled `.env.example` line produces) is treated as **absent**, not malformed.
+
+### The Key Must Never Live in the Database or the Repository
+
+`SECRETS_ENCRYPTION_KEY` protects every row in the `credentials` table. Storing it anywhere the ciphertext it protects also lives — the database, a config table, a committed file in this repository — would defeat encryption at rest entirely: anyone with read access to the data would also have the key that unlocks it. The **only** correct location for this key is the deployment's environment (a secret manager, an orchestrator secret, or an `.env` file that is never committed), matching every other secret in this application. It must never be committed to Git, never be embedded in application code, and never be written to the database.
+
+### Read Paths Never Touch the Ciphertext
+
+`CredentialsService.describe(purpose, name)` and `.list(purpose)` — the presentation reads used to show what credentials exist — select only `{ purpose, name, hint, label, updatedByUserId, createdAt, updatedAt }` and never select the `secret` column at all. Consequently they work correctly with no encryption key configured, and would keep working even if the configured key could never decrypt a single row, because the ciphertext is never fetched. Only `getSecret(purpose, name)` — server-side only, never called from a controller — returns plaintext, and on a decrypt failure it throws rather than silently returning `null`, so a key change or corruption cannot silently disable a feature.
 
 ---
 

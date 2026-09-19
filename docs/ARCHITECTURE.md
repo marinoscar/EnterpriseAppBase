@@ -1,10 +1,10 @@
 # System Architecture
 
-**Enterprise Application Foundation**
+**Web Application Foundation**
 **Version:** 1.0
 **Last Updated:** January 2026
 
-This document provides a comprehensive architectural overview of the Enterprise Application Foundation designed for AI-assisted development with specialized coding agents.
+This document provides a comprehensive architectural overview of this web application foundation, designed for AI-assisted development with specialized coding agents.
 
 ---
 
@@ -21,10 +21,11 @@ This document provides a comprehensive architectural overview of the Enterprise 
 9. [Frontend Architecture](#9-frontend-architecture)
 10. [Infrastructure Architecture](#10-infrastructure-architecture)
 11. [Observability Architecture](#11-observability-architecture)
-12. [Testing Architecture](#12-testing-architecture)
-13. [Agent-Based Development Model](#13-agent-based-development-model)
-14. [Development Workflows](#14-development-workflows)
-15. [Appendices](#15-appendices)
+12. [Background Job Queue & Worker Fleet](#12-background-job-queue--worker-fleet)
+13. [Testing Architecture](#13-testing-architecture)
+14. [Agent-Based Development Model](#14-agent-based-development-model)
+15. [Development Workflows](#15-development-workflows)
+16. [Appendices](#16-appendices)
 
 ---
 
@@ -32,7 +33,7 @@ This document provides a comprehensive architectural overview of the Enterprise 
 
 ### Purpose
 
-The Enterprise Application Foundation is a production-grade web application template that establishes:
+This is a production-grade web application template that establishes:
 
 - **Secure Authentication**: OAuth 2.0 with Google (extensible to other providers)
 - **Fine-Grained Authorization**: Role-Based Access Control (RBAC) with permissions
@@ -171,7 +172,7 @@ All components served from the same base URL via Nginx reverse proxy:
 |------|-----------|---------|
 | `/` | Frontend (React) | User interface |
 | `/api/*` | Backend (NestJS) | REST API |
-| `/api/docs` | Swagger UI | API documentation |
+| `/api/docs` | Scalar API reference | Interactive API documentation |
 | `/api/openapi.json` | OpenAPI spec | Machine-readable API schema |
 
 **Benefits**: No CORS complexity, simplified cookie handling, unified deployment.
@@ -188,7 +189,9 @@ All components served from the same base URL via Nginx reverse proxy:
 - **Contract-Driven**: OpenAPI specification generated from code annotations
 - **Versioned**: API paths support future versioning (`/api/v1/`)
 - **Consistent**: Standardized response format for success and errors
-- **Documented**: Every endpoint documented with Swagger decorators
+- **Documented**: Every endpoint documented with OpenAPI decorators; the published
+  document is assembled in `apps/api/src/openapi/` and linted by Spectral in CI
+  (see [API.md § How the document is built](API.md#how-the-document-is-built))
 
 ### 3.5 Observable by Design
 
@@ -205,14 +208,14 @@ All components served from the same base URL via Nginx reverse proxy:
 
 | Component | Technology | Version | Purpose |
 |-----------|------------|---------|---------|
-| **Runtime** | Node.js | 18+ | Server runtime |
-| **Language** | TypeScript | 5.x | Type safety |
-| **Backend Framework** | NestJS | 10.x | API structure |
-| **HTTP Adapter** | Fastify | 4.x | High-performance HTTP |
-| **Frontend Framework** | React | 18.x | UI rendering |
-| **UI Library** | Material UI (MUI) | 5.x | Component library |
-| **Database** | PostgreSQL | 14+ | Data persistence |
-| **ORM** | Prisma | 5.x | Database access |
+| **Runtime** | Node.js | 24+ (LTS) | Server runtime |
+| **Language** | TypeScript | 6.x | Type safety |
+| **Backend Framework** | NestJS | 11.x | API structure |
+| **HTTP Adapter** | Fastify | 5.x | High-performance HTTP |
+| **Frontend Framework** | React | 19.x | UI rendering |
+| **UI Library** | Material UI (MUI) | 9.x | Component library |
+| **Database** | PostgreSQL | 16+ | Data persistence |
+| **ORM** | Prisma | 7.x | Database access |
 
 ### 4.2 Authentication & Security
 
@@ -258,7 +261,7 @@ All components served from the same base URL via Nginx reverse proxy:
 ### 5.1 Repository Structure
 
 ```
-EnterpriseAppBase/
+./
 ├── apps/
 │   ├── api/                          # Backend API (NestJS + Fastify)
 │   │   ├── src/
@@ -305,7 +308,6 @@ EnterpriseAppBase/
 │   ├── DEVELOPMENT.md                # Development guide
 │   ├── TESTING.md                    # Testing guide
 │   ├── DEVICE-AUTH.md                # Device auth guide
-│   ├── System_Specification_Document.md  # Full specification
 │   └── specs/                        # Implementation specifications
 │       ├── 01-project-setup.md
 │       ├── 02-database-schema.md
@@ -368,6 +370,143 @@ pages/
 │   ├── PageName.test.tsx         # Page tests
 │   └── index.ts                  # Barrel export
 ```
+
+### 5.4 Storage Subsystem
+
+The storage system provides file upload and management capabilities with support for large files through resumable multipart uploads.
+
+#### Architecture Overview
+
+The storage system uses a provider abstraction pattern to support multiple
+cloud storage backends while maintaining a consistent API. **Since epic
+#372, which vendor that abstraction talks to is resolved at runtime, per
+call, from configuration an administrator edits at `/admin/settings/storage`
+— not a value fixed at deploy time.** Full design (the config/secret split,
+the resolver and its cache, the delegate cache and its fingerprint, why
+`getBucket()` stays synchronous, the admin API, the unconfigured-503
+posture) is [`docs/specs/storage-providers.md`](specs/storage-providers.md);
+the operator runbook is
+[`docs/runbooks/storage-configuration.md`](runbooks/storage-configuration.md).
+This section covers the object-upload/download pipeline that abstraction
+sits underneath, which epic #372 left unchanged.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Storage Module                            │
+├─────────────────────────────────────────────────────────────┤
+│  Objects Controller                                          │
+│  └── Upload/Download/CRUD endpoints                          │
+├─────────────────────────────────────────────────────────────┤
+│  Objects Service                                             │
+│  └── Business logic, ownership validation                    │
+├─────────────────────────────────────────────────────────────┤
+│  StorageProvider interface — STORAGE_PROVIDER token           │
+│  └── ResolvingStorageProvider (always; #373)                 │
+│      resolves the `storage` settings + encrypted secret       │
+│      PER CALL and delegates to an S3StorageProvider built     │
+│      for the configuration in force right now (AWS S3,        │
+│      Cloudflare R2, or any S3-compatible endpoint — one       │
+│      driver, §5 of the spec document — up to 2 cached)        │
+├─────────────────────────────────────────────────────────────┤
+│  Object Processing Pipeline                                  │
+│  └── Async post-upload processing with pluggable processors  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+Nine consumers inject `STORAGE_PROVIDER` and call its thirteen methods —
+`ObjectsService`, `ProfileImageService`, `AvatarService`,
+`ObjectProcessingService`, `StorageCleanupHandler`, three
+`DatabaseBackupRunnerService`-family services, and the node data plane —
+and every one of them is unaware the client behind that token can now
+change while the process is running.
+
+#### Upload Flow
+
+**1. Resumable Upload (Large Files)**:
+   - Client calls `/api/storage/objects/upload/init` with file metadata
+   - Server creates DB record, initializes S3 multipart, returns presigned URLs
+   - Client uploads parts directly to S3 (bypasses application server)
+   - Client calls `/api/storage/objects/:id/upload/complete` with part ETags
+   - Server finalizes upload with S3, triggers processing pipeline
+
+**2. Simple Upload (Small Files < 100MB)**:
+   - Client sends file via multipart/form-data to `/api/storage/objects`
+   - Server streams directly to S3
+   - Processing pipeline triggered on completion
+
+#### Processing Pipeline
+
+Post-upload processing is handled asynchronously via NestJS EventEmitter:
+
+```
+ObjectUploadedEvent (emitted)
+         ↓
+ObjectProcessingService (orchestrator)
+         ↓
+Registered Processors (run in priority order)
+         ↓
+Results aggregated into object metadata
+         ↓
+Status updated: ready | failed
+```
+
+**Key Features:**
+- Pluggable processor architecture
+- Priority-based execution order
+- Processors run asynchronously (non-blocking)
+- Results stored in object metadata JSONB field
+- Extensible for future processing needs (virus scanning, image resizing, etc.)
+
+#### Database Schema
+
+**storage_objects**:
+- File metadata, status, storage key
+- Owner reference (user_id)
+- Processing results in JSONB metadata field
+
+**storage_object_chunks**:
+- Tracks multipart upload progress
+- Part number, ETag, upload status
+- Enables resume capability
+
+#### Module Structure
+
+```
+apps/api/src/storage/
+├── storage.module.ts                     # Module definition
+├── storage-credential.constants.ts       # Secret's (purpose, name) address
+├── objects/
+│   ├── objects.controller.ts             # HTTP endpoints
+│   ├── objects.service.ts                # Business logic
+│   ├── dto/                              # Data transfer objects
+│   └── interfaces/
+├── config/                               # Runtime configuration (#373-#375)
+│   ├── storage-config.ts                 # resolveStorageConfig — single
+│   │                                      # "is this configured?" definition
+│   ├── storage-config.service.ts         # Per-call resolve, cached settings
+│   ├── storage-not-configured.error.ts   # The 503 an unconfigured call raises
+│   ├── storage-config.controller.ts      # /api/admin/storage-config (#375)
+│   ├── storage-config-admin.service.ts   # Read/replace + the switch gate
+│   ├── storage-connection-test.service.ts    # POST .../test
+│   ├── storage-bucket-provision.service.ts   # POST .../bucket
+│   ├── storage-probe.support.ts          # Shared machinery for the two above
+│   └── dto/
+├── providers/
+│   ├── storage-provider.interface.ts     # STORAGE_PROVIDER token, unchanged
+│   ├── storage-providers.module.ts       # Binds the token to the resolver
+│   ├── resolving-storage.provider.ts     # ResolvingStorageProvider (#373)
+│   └── s3/
+│       └── s3-storage.provider.ts        # buildS3ClientConfig — one driver,
+│                                          # three provider shapes (#374)
+└── processing/
+    ├── object-processing.service.ts
+    └── processors/
+        └── base-processor.interface.ts
+```
+
+See [`docs/specs/storage-providers.md`](specs/storage-providers.md) for what
+each file in `config/` and `providers/` actually does — this list is a map,
+not a description.
 
 ---
 
@@ -459,6 +598,23 @@ pages/
 │ meta (JSONB)       │
 │ created_at         │
 └────────────────────┘
+
+┌────────────────────┐       ┌────────────────────────┐
+│  storage_objects   │       │ storage_object_chunks  │
+├────────────────────┤       ├────────────────────────┤
+│ id (PK, UUID)      │──┐    │ id (PK, UUID)          │
+│ owner_id (FK)      │  │    │ object_id (FK)         │──┘
+│ name               │  └───▶│ part_number            │
+│ size               │       │ e_tag                  │
+│ mime_type          │       │ size                   │
+│ storage_key        │       │ status                 │
+│ storage_provider   │       │ created_at             │
+│ upload_id          │       │ completed_at           │
+│ status             │       └────────────────────────┘
+│ metadata (JSONB)   │
+│ created_at         │
+│ updated_at         │
+└────────────────────┘
 ```
 
 ### 6.2 JSONB Schema Definitions
@@ -470,28 +626,120 @@ pages/
   "theme": "light | dark | system",
   "profile": {
     "displayName": "string | null",
-    "useProviderImage": true,
-    "customImageUrl": "string | null"
+    "imageSource": "none | provider | upload",
+    "imageObjectId": "uuid | null"
   }
 }
 ```
+
+`imageSource` selects which picture represents the user (no picture, the OAuth
+provider's picture, or one uploaded via `POST /api/user-settings/profile-image`);
+`imageObjectId` is the uploaded avatar's storage object id, present only when
+relevant. Rows written before this shape existed carry `useProviderImage`/
+`customImageUrl` instead — normalized to the shape above on every read rather
+than by a data migration (see `apps/api/src/common/profile-image/profile-image.ts`).
 
 #### System Settings Shape
 
+`system_settings.value` — the JSONB column itself — holds `notifications`,
+`jobs`, `nodes`, `databaseBackup`, `maintenance` and `storage`. (Two earlier
+namespaces, `ui` and `features`, were removed by issue #366: nothing at
+runtime ever read either one, so they were dropped from the schema, DTOs and
+seed rather than kept as dead weight — see `docs/specs/settings-ui.md` for
+the settings-UI side of that cleanup. `webPush` is a **separate**
+`system_settings` row, keyed `'webPush'` rather than `'global'`, so it is not
+part of this JSON shape — see
+[`docs/specs/browser-notifications.md`](specs/browser-notifications.md).)
+
 ```json
 {
-  "ui": {
-    "allowUserThemeOverride": true
+  "notifications": {
+    "browserEnabled": true,
+    "disabledEvents": []
   },
-  "security": {
-    "jwtAccessTtlMinutes": 15,
-    "refreshTtlDays": 14
+  "jobs": {
+    "history": { "retentionDays": 30, "purgeEnabled": true },
+    "stuckThresholdMinutes": 30
   },
-  "features": {
-    "exampleFlag": false
+  "nodes": {
+    "staleHeartbeatSeconds": 90,
+    "offlineStaleMultiplier": 4,
+    "offlineRetentionDays": 30,
+    "jobSecretBrokerEnabled": false
+  },
+  "databaseBackup": {
+    "enabled": false,
+    "frequency": "daily",
+    "dayOfWeek": 0,
+    "dayOfMonth": 1,
+    "timeOfDay": "02:00",
+    "timezone": "UTC",
+    "retentionCount": 7,
+    "storageProvider": "",
+    "runStaleMinutes": 120,
+    "compressionLevel": 6,
+    "restoreRollbackMode": "retain_database",
+    "oldDatabaseRetentionHours": 48,
+    "nodeOffloadEnabled": false
+  },
+  "maintenance": {
+    "enabled": false,
+    "message": "This service is temporarily unavailable for scheduled maintenance. Please try again shortly.",
+    "allowAdmins": true,
+    "startedAt": null,
+    "startedById": null
+  },
+  "storage": {
+    "provider": "s3",
+    "bucket": "",
+    "region": "",
+    "endpoint": "",
+    "accountId": "",
+    "accessKeyId": "",
+    "forcePathStyle": null
   }
 }
 ```
+`databaseBackup.storageProvider` defaults to `""` (empty), not a provider
+name — it *pins* a scheduled backup to a specific provider registration,
+independent of `storage.provider`, and is left empty to mean "whatever is
+currently active." `storage` itself is the runtime-configurable
+object-storage configuration (epic #372) — every field here (except
+`provider`, which is a closed enum) defaults to `""`/`null`, meaning
+"not configured yet," and `secretAccessKey` is deliberately **absent**:
+it lives in the encrypted credential store, never in this JSONB blob. See
+[`docs/specs/storage-providers.md`](specs/storage-providers.md).
+
+`GET/PUT/PATCH /api/system-settings` project this stored row into
+`SystemSettingsResponseDto`, which adds a `security` block on the way out —
+see [`docs/API.md`](API.md#get-system-settings) for the full response shape.
+
+`security` is derived, read-only configuration — `jwtAccessTtlMinutes` and
+`refreshTtlDays` are read from the `JWT_ACCESS_TTL_MINUTES` /
+`JWT_REFRESH_TTL_DAYS` environment variables via `ConfigService`, not from the
+database. It is never written to `system_settings.value`: the write schemas
+(`updateSystemSettingsSchema` / `patchSystemSettingsSchema`) don't declare it,
+so a client that sends it has the key silently stripped by the global
+`ZodValidationPipe` before the request reaches the settings service.
+
+`notifications` (issue #225, epic #215) is a modelled block rather than an
+entry in an open, untyped map — the now-removed `features` namespace was
+exactly that shape (`z.record(z.string(), z.boolean())`, no schema, no
+default, no place to document semantics, deliberately owned by downstream
+forks for their own operational flags), and a framework-level,
+security-adjacent gate like this one needs a real type, a real default, and
+somewhere for its semantics to live. It is stored and editable as of #225, and
+as of #226 it is enforced: `browserEnabled` and `disabledEvents` are read once
+per dispatch by a new `NotificationPolicyService` and applied through
+`notification-policy.ts`'s `policyChannels` and `isBrowserToastAllowed`
+functions, consulted at three call sites — the dispatcher's channel
+resolution, `GET /api/notifications/events`'s advertised channels, and the
+SSE stream's `toast` field — so the matrix, the dispatch decision, and the
+delivered toast can never disagree. Mandatory events (e.g.
+`security.role_changed`) are the deliberate exception: their `notifications`
+row is always written regardless of policy, since the row itself is the
+record of a privilege or security change the user must not be able to make
+disappear; only the browser toast is suppressed for them.
 
 ### 6.3 Database Design Principles
 
@@ -664,6 +912,7 @@ Before OAuth authentication completes:
 | `POST` | `/api/auth/logout` | JWT | Single session logout |
 | `POST` | `/api/auth/logout-all` | JWT | All sessions logout |
 | `GET` | `/api/auth/me` | JWT | Current user info |
+| `POST` | `/api/auth/test/login` | Public | Test login bypass (dev only) |
 
 #### Device Authorization (RFC 8628)
 
@@ -750,15 +999,47 @@ Before OAuth authentication completes:
 
 ### 9.1 Page Structure
 
-| Page | Route | Auth | Role | Purpose |
-|------|-------|------|------|---------|
+As of epic #90, the admin console and the per-user settings surface are each
+a single registry-driven **hub** with one route per card, rather than a
+tab-strip page per area. See
+[`docs/specs/settings-ui.md`](specs/settings-ui.md) for the full pattern —
+the registry, the shared `SettingsHub` component, and why tabs are reserved
+for genuinely parallel content only.
+
+| Page | Route | Auth | Permission | Purpose |
+|------|-------|------|------------|---------|
 | Login | `/login` | Public | - | OAuth provider selection |
 | Auth Callback | `/auth/callback` | Public | - | Token handling |
 | Home | `/` | Required | Any | Dashboard |
-| User Settings | `/settings` | Required | Any | User preferences |
-| System Settings | `/admin/settings` | Required | Admin | App configuration |
-| User Management | `/admin/users` | Required | Admin | User/allowlist mgmt |
-| Device Activation | `/device` | Required | Any | Device auth approval |
+| User Settings hub | `/settings` | Required | Any (authenticated) | Searchable hub over the user's own settings |
+| — Profile | `/settings/profile` | Required | Any (authenticated) | Display name, avatar, email |
+| — Appearance | `/settings/appearance` | Required | Any (authenticated) | Personal theme preference |
+| — Access Tokens | `/settings/tokens` | Required | Any (authenticated) | Personal access token management |
+| Console / Settings hub | `/admin/settings` | Required | `system_settings:read` OR `users:read` | Searchable hub over admin settings |
+| — Email | `/admin/settings/email` | Required | `system_settings:read` | Outbound email configuration |
+| — Notifications | `/admin/settings/notifications` | Required | `system_settings:read` | Turn browser notifications on/off deployment-wide and suppress individual events |
+| — Web Push | `/admin/settings/push` | Required | `push:read` | VAPID key generation/rotation for Web Push |
+| — Maintenance | `/admin/settings/maintenance` | Required | `system_settings:read` | Open/close the maintenance window |
+| — Users & Allowlist | `/admin/settings/users` | Required | `users:read` | User accounts, roles, and allowlist |
+| `/admin` (redirect) | `/admin` | Required | — | `<Navigate replace>` to `/admin/settings` |
+| `/admin/users` (redirect) | `/admin/users` | Required | — | `<Navigate replace>` to `/admin/settings/users` |
+| Device Activation | `/activate` | Required | Any | Device auth approval |
+| Test Login | `/testing/login` | Public | - | Test auth bypass (dev only) |
+
+The `General` group above is not the whole Console: the `Operations` group
+(Jobs, Job Insights, Worker Nodes, Database Backup, Broadcasts, each under
+`/admin/settings/*`) is documented in `CLAUDE.md`'s "Operations Admin
+Settings Group" section rather than duplicated in this table. `System`,
+the admin `Appearance` page, `Feature Flags` and `Advanced (JSON)` — all
+four previously listed here — were removed as unused by issue #366; see
+[`docs/specs/settings-ui.md`](specs/settings-ui.md).
+
+**Note:** The `/testing/login` route is excluded from production builds via `import.meta.env.PROD` check.
+
+**Note:** The two redirect routes are real `<Route>` entries in `App.tsx`, not
+catch-all fallout — a bookmarked `/admin/users` resolves via `<Navigate
+replace>` rather than falling through to the `*` fallback and landing
+silently on `/`.
 
 ### 9.2 Context Providers
 
@@ -794,13 +1075,36 @@ interface AuthContext {
 
 ### 9.4 Protected Routes
 
+Route-level **authorization**, not just authentication, is enforced with
+`RequirePermission` (`apps/web/src/components/common/RequirePermission.tsx`),
+wrapped around the page element inside the `<Route>`. `ProtectedRoute` above
+it in the tree only establishes that someone is signed in; `RequirePermission`
+is what denies the page itself to a signed-in user who lacks the permission,
+rather than letting them land on the page and watch every API call return
+`403`.
+
+`RequirePermission` accepts `permission` (single string), `permissions`
+(array, OR'd unless `requireAll` is set), `role`, `roles`, and a `fallback`
+to render when the check fails. The real pattern, taken directly from
+`apps/web/src/App.tsx`'s `/admin/settings/users` route:
+
 ```tsx
-<Route path="/admin/*" element={
-  <ProtectedRoute requiredRole="admin">
-    <AdminLayout />
-  </ProtectedRoute>
-} />
+<Route
+  path="/admin/settings/users"
+  element={
+    <RequirePermission permission="users:read" fallback={<Navigate to="/" replace />}>
+      <AdminUsersPage />
+    </RequirePermission>
+  }
+/>
 ```
+
+The permission named here is the same string the card declares in
+`config/adminSections.tsx` and the same string `users.controller.ts`
+enforces — so the hub card, the Console rail row, and the route itself
+cannot disagree about who may go where. See
+[`docs/specs/settings-ui.md`](specs/settings-ui.md) for the full registry
+pattern this route belongs to.
 
 ---
 
@@ -814,7 +1118,9 @@ services:
   nginx:        # Reverse proxy (port 3535)
   api:          # NestJS backend (port 3000)
   web:          # React frontend (port 5173)
-  db:           # PostgreSQL (port 5432)
+
+# PostgreSQL is not bundled in base.compose.yml - it runs as a separate
+# instance reached via POSTGRES_HOST/POSTGRES_PORT (see infra/compose/.env.example)
 
 # Observability (otel.compose.yml)
 services:
@@ -829,30 +1135,32 @@ services:
 ┌─────────────────────────────────────────────────────────────┐
 │                    Docker Network                           │
 │                                                             │
-│  ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐  │
-│  │  nginx  │    │   api   │    │   web   │    │   db    │  │
-│  │  :3535  │───▶│  :3000  │    │  :5173  │    │  :5432  │  │
-│  │         │    └─────────┘    └─────────┘    └─────────┘  │
-│  │         │         │                            ▲        │
-│  │         │─────────┼────────────────────────────┘        │
-│  └─────────┘         │                                     │
-│       │              ▼                                     │
-│       │         ┌─────────┐                                │
-│       │         │  otel   │                                │
-│       │         │collector│                                │
-│       │         └─────────┘                                │
-│       │              │                                     │
-│       │              ▼                                     │
-│       │         ┌─────────┐    ┌─────────┐                 │
-│       │         │ uptrace │───▶│clickhse │                 │
-│       │         │ :14318  │    │         │                 │
-│       │         └─────────┘    └─────────┘                 │
+│  ┌─────────┐    ┌─────────┐    ┌─────────┐                  │
+│  │  nginx  │───▶│   api   │    │   web   │                  │
+│  │  :3535  │    │  :3000  │    │  :5173  │                  │
+│  │         │────┼─────────┼───▶│         │                  │
+│  └────┬────┘    └────┬────┘    └─────────┘                  │
+│       │              │                                      │
+│       │              ▼                                      │
+│       │         ┌─────────┐                                 │
+│       │         │  otel   │   (only with otel.compose.yml)  │
+│       │         │collector│                                 │
+│       │         └────┬────┘                                 │
+│       │              ▼                                      │
+│       │         ┌─────────┐    ┌──────────┐                 │
+│       │         │ uptrace │───▶│clickhouse│                 │
+│       │         │ :14318  │    │          │                 │
+│       │         └─────────┘    └──────────┘                 │
 └───────┼─────────────────────────────────────────────────────┘
-        │
-        ▼
-   External Access
-   http://localhost:3535
+        │                              │
+        ▼                              ▼
+   External Access              External PostgreSQL
+   http://localhost:3535        (POSTGRES_HOST / POSTGRES_PORT)
 ```
+
+**PostgreSQL is not part of the Compose stack.** The `api` service connects out
+to a database you provide via the `POSTGRES_*` variables; only
+`infra/compose/test.compose.yml` starts a Postgres container, for tests.
 
 ### 10.3 Environment Configuration
 
@@ -865,7 +1173,7 @@ PORT=3000
 APP_URL=http://localhost:3535
 
 # Database
-POSTGRES_HOST=db
+POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=postgres
@@ -933,9 +1241,238 @@ Request → Nginx → API → Database
 
 ---
 
-## 12. Testing Architecture
+## 12. Background Job Queue & Worker Fleet
 
-### 12.1 Testing Strategy Overview
+Epic #254 adds a Postgres-backed generic work queue and, optionally, a fleet
+of distributed worker nodes that execute the same job types the API server
+does. Full design and rejected alternatives:
+[`docs/specs/job-queue.md`](specs/job-queue.md) and
+[`docs/specs/worker-nodes.md`](specs/worker-nodes.md). This section covers
+the one property that makes the two composable: **the executor is
+interchangeable and the queue does not know or care which one ran a job.**
+
+### 12.1 The claim: `FOR UPDATE SKIP LOCKED`
+
+Every job execution path — the in-process worker pool and a remote node's
+`POST /nodes/:id/claim` — goes through one atomic claim statement:
+
+```sql
+WITH picked AS MATERIALIZED (
+  SELECT id FROM jobs
+  WHERE status = 'pending' AND (scheduled_for IS NULL OR scheduled_for <= now())
+    AND type = ANY($1)
+  ORDER BY priority ASC, created_at ASC
+  FOR UPDATE SKIP LOCKED
+  LIMIT $2
+)
+UPDATE jobs SET
+  status = 'running', started_at = now(), scheduled_for = NULL,
+  attempts = attempts + 1, claimed_by_node_id = $3, executor = $4,
+  claim_token = gen_random_uuid(), -- minted per row, by the statement (#361)
+  lease_expires_at = now() + (l.lease_ms * interval '1 millisecond')
+FROM picked p, unnest($1, $5) AS l(type, lease_ms) -- one lease per TYPE (#346)
+WHERE jobs.id = p.id AND jobs.type = l.type
+RETURNING *;
+```
+
+The `MATERIALIZED` CTE above is load-bearing, not a style choice: once a
+`FROM` clause is present, folding `picked` back into a plain `id IN (SELECT …)`
+lets Postgres re-evaluate that subquery per outer row, and each re-evaluation
+takes its own `FOR UPDATE SKIP LOCKED` locks — so the claim can silently
+return more rows than `LIMIT` asked for, and it is plan-dependent, so it looks
+correct on whatever data it happens to be tried against. See
+`job-claim.service.ts`'s `⚠⚠ THE ROW PICK IS A MATERIALIZED CTE` header
+section for the measurements and the regression tests.
+
+`SKIP LOCKED` is what makes concurrent claimants safe with **no coordination
+between them**: two workers racing this statement each lock a disjoint set of
+candidate rows and never block on each other or return the same row twice.
+There is no queue broker, no message bus and no distributed lock — the
+`jobs` table's row locks *are* the coordination primitive, and it is why a
+deployment scales its execution capacity by starting more claimants (worker
+pool slots, node processes) and telling none of them about the others.
+
+`attempts` is incremented **in this same statement** — charged at claim time,
+not on completion or failure. A job that takes its whole process down with it
+(OOM kill, hard crash) still bounds its retries, because the counter was
+already charged before the crash could happen; charging on failure would let
+exactly the failures that never reach a failure handler retry forever. See
+`job-claim.service.ts` and the `jobs` table entry in `CLAUDE.md`.
+
+### 12.2 Two executors, one handler, no branching
+
+```mermaid
+flowchart LR
+    subgraph Server["API server process"]
+        WP["In-process worker pool<br/>(JOBS_WORKER_CONCURRENCY slots)"]
+    end
+    subgraph Node["Remote worker node (appctl node start)"]
+        NC["Claim loop"]
+    end
+    DB[("jobs table<br/>(PostgreSQL)")]
+    H["JobHandler.process()<br/>— the SAME class either way"]
+
+    WP -- "claim (SKIP LOCKED)" --> DB
+    NC -- "POST /nodes/:id/claim<br/>(same claim, over HTTP)" --> DB
+    DB -- "runnable rows" --> WP
+    DB -- "runnable rows" --> NC
+    WP --> H
+    NC -. "node-eligible types only:<br/>nodeResultSchema +<br/>persistNodeResult" .-> H
+```
+
+A `JobHandler` (`apps/api/src/jobs/job-handler.interface.ts`) is written once.
+The in-process worker pool calls `process(job)` directly. A node has no
+database access, so a node-eligible handler's `process()` still runs — on the
+server, for a deployment with no nodes — while its `nodeResultSchema` +
+`persistNodeResult` pair lets the *same work* be computed on a node instead
+and posted back for the server to persist. **There is no `if (isNode)`
+branch anywhere in a handler or in the claim path** — a node is an option a
+deployment can add, never a requirement any handler must plan around. See
+`CLAUDE.md`'s "Adding a Job Type" recipe and
+`apps/api/src/jobs/handlers/README.md` for what that split looks like in a
+real handler (`example-checksum.handler.ts`).
+
+The node's data plane is a second, deliberate asymmetry: a node fetches and
+writes job input/output **directly against the storage provider** through
+short-lived presigned URLs the server mints on demand
+(`POST /nodes/:id/jobs/:jobId/download-url` / `…/upload-url`) — bytes never
+transit the API, and a node never holds a storage credential. The in-process
+worker, by contrast, reads and writes storage through the server's own
+credentialed client. Same job type, same result, two different paths to the
+bytes — because only one of the two executors is a machine this deployment
+may not fully control.
+
+### 12.3 The lease
+
+A claimed job is not just `running` — it carries `lease_expires_at`, derived
+by the server from the job type's own `maxRuntimeMs` where it declares one and
+from `JOBS_JOB_TIMEOUT_MS` otherwise, and **not negotiable by either executor**
+(a node cannot request its own lease length; see `docs/specs/worker-nodes.md`
+for why that would let one bad actor park every row it claims).
+
+**Both executors renew the lease explicitly, through the same code.** A node
+calls `POST …/renew` on a cadence the server hands it with each assignment
+(`renewIntervalMs`, a third of that job's lease); the in-process worker runs a
+ticker on the same derived interval for the whole of `process()`. Both reach
+`JobLeaseService.renew`, whose guard — the row must still be `running`, still
+held by the caller, and its lease must not yet have passed — is written once
+rather than once per executor. "Held by the caller" is checked per **claim**,
+not merely per executor kind, for both executors: `jobs.claim_token`, minted
+fresh by the claim statement, is what tells one API replica's claim apart from
+another's after a job is reaped and re-claimed (issue #361), and — since
+issue #364 — tells one NODE's claim apart from its own later re-claim of the
+same job. The token only does that for a node because it crosses the wire:
+the claim response hands it to the node (a sibling of `renewIntervalMs`, not
+a job column), and the node quotes it back on `renew` and every other route
+that speaks for a held job (`result`, `failure`, `download-url`,
+`upload-url`, `secret`) — a token the server merely read off the row it was
+about to compare against would have proved nothing. See
+`docs/specs/job-queue.md` §6.9 for the full argument, including why an
+un-upgraded node stays exactly as self-ambiguous as before until it upgrades.
+A renewal that finds the row is no longer the caller's stops the ticker and
+logs at `error`: the work continues, because JavaScript cannot cancel a
+promise mid-`await`, but a worker that has lost the row does not go on
+re-forging the queue's view of it.
+
+This is a correctness requirement, not an optimisation. Until issue #347 the
+in-process worker wrote a lease at claim time and never touched the row again,
+and the reaper's aged-claim signal requeued any job that had been running
+longer than `jobs.stuckThresholdMinutes` regardless of its lease — so every
+handler that outran that threshold was started a second time, concurrently,
+with nothing in the logs.
+
+A lease reaper — `JOBS_REAPER_ENABLED`, independent of `JOBS_WORKER_MODE` so a
+pure control-plane API still reaps for its fleet — sweeps abandoned `running`
+rows on **four** OR'd signals, evaluated against one set of instants per sweep:
+
+1. **aged and unleased** — `started_at` older than the threshold with no lease
+   at all (a fork's own claim path, a hand-inserted row, a pre-lease
+   migration). Age is consulted only where there is no lease to consult
+   instead, which is what makes a renewing job safe at any age.
+2. **zombie** — `running` with no `started_at` and no lease, aged by
+   `created_at`; invisible to every other signal, and stuck forever without
+   this one.
+3. **dead owner** — the lease has passed. The fastest and most precise signal,
+   and the only one that does not wait out the threshold.
+4. **implausible lease** — a lease further out than the longest lease any
+   registered handler could legitimately ask for, which is what still catches a
+   clock jump or a corrupt write now that signals 1 and 2 ignore leased rows.
+
+Still-retryable jobs are requeued, jobs that have spent their attempt budget
+are permanently failed. This is the same mechanism whether the abandoning
+executor was a killed API replica or a worker node that lost power; the queue
+does not distinguish the two.
+
+### 12.4 The deliberate absence of Redis
+
+This template already requires PostgreSQL as its primary datastore.
+Requiring a **second** datastore — Redis, RabbitMQ, or an equivalent — on a
+template's default execution path is a real adoption cost: another service
+to run, secure, back up and monitor, for every fork, before the first
+background job runs. `FOR UPDATE SKIP LOCKED` gets the queue's one
+hard requirement (two claimants must never receive the same row) from
+PostgreSQL's own MVCC row-locking, at the cost of a claim being a table scan
+under lock contention rather than an in-memory dequeue — a trade this
+template makes deliberately, because the volume a *template's default path*
+needs to sustain is not the volume a purpose-built message broker exists for.
+A fork whose queue outgrows this design is free to add Redis; the point is
+that doing so is not the price of entry for the first job type.
+
+### 12.5 Node offload: two executors partition the queue, not just share it
+
+§12.2 already establishes that a `JobHandler` runs unchanged on either
+executor. Epic #345 adds a second axis on top of that: whether a
+node-eligible type is *offered* to the fleet at all is a **runtime policy**,
+re-evaluated on every claim, not a fact fixed when the handler was written.
+`NodeOffloadService.offeredTypes()` intersects three independent gates —
+a deployment-wide `nodes.jobSecretBrokerEnabled` switch, a feature's own
+policy (`JobHandler.nodeOffloadEnabled()`, e.g. `databaseBackup
+.nodeOffloadEnabled`), and a broker's own `usable()` capability probe — and
+none of the three mutates the handler registry. Structural eligibility
+(§2 of [`job-queue.md`](specs/job-queue.md)) still answers "**can** this type
+ever leave the server"; this answers "**does** this deployment let it, right
+now".
+
+That second question has one consumer besides the node claim endpoint:
+`JOBS_WORKER_MODE=system` reads the **complement** of `offeredTypes()`, not a
+static "everything `serverOnlyTypes()` says no node can run". Before this
+existed, a type could be structurally node-eligible (so it left
+`serverOnlyTypes()` permanently) while every offload gate shipped off (so no
+node would ever claim it) — and the two readers, taken separately, agreed on
+nothing: `system` mode did not claim it either, and the type simply stopped
+running anywhere. Deriving `system` mode from the same set the node plane is
+offered is what makes the API server and the fleet **partition** the queue by
+construction rather than by two derivations that happen to agree while
+eligibility is static.
+
+**The per-job secret broker is the other half of what node offload had to
+solve.** A node holds no *durable* database or storage credential (§8 of
+[`worker-nodes.md`](specs/worker-nodes.md)) — presigned URLs (§12.2 above)
+answer the storage half, and a `pg_dump` for `db.backup.run` is the first type
+that needed the database half too. A handler declares the need by carrying a
+`nodeSecretBroker`; its presence is the declaration, exactly as
+`nodeResultSchema` + `persistNodeResult` declare node eligibility itself
+(`job-handler.interface.ts`). At claim time a node calls
+`POST /api/nodes/:id/jobs/:jobId/secret`, gated by `assertJobHeldByNode`
+(§12.3's lease check) and by `nodes.jobSecretBrokerEnabled`; the broker mints
+a short-lived, job-scoped credential — for `db.backup.run`, a PostgreSQL role
+with `CONNECT`+`USAGE`+`SELECT` and a `VALID UNTIL` clamped to the job's own
+lease plus a short grace — and the server records only the credential's
+**handle** in `job_node_secrets`, never its material. Three independent paths
+can end a grant: the job-settle listener, the ten-minute
+`NodeSecretSweepTask` cron (the third permanent exemption from "every
+long-running activity is a queue job" — see `CLAUDE.md` — because credential
+revocation must not depend on the queue it might itself be wedged inside),
+and `VALID UNTIL` enforced by PostgreSQL itself, which needs no cron to be
+correct. Full design, including the two separate opt-in settings and the
+`guided` capability-probe outcome for a database that cannot grant
+`CREATEROLE`: [`database-backup.md` §16](specs/database-backup.md#16-running-the-dump-on-a-worker-node-352-epic-345).
+
+---
+
+## 13. Testing Architecture
+
+### 13.1 Testing Strategy Overview
 
 The project uses a **mocked database approach** for all tests by default. This provides fast, isolated tests without requiring a running PostgreSQL instance.
 
@@ -966,7 +1503,7 @@ The project uses a **mocked database approach** for all tests by default. This p
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 12.2 Backend Test Structure
+### 13.2 Backend Test Structure
 
 ```
 apps/api/
@@ -1026,7 +1563,7 @@ apps/api/
         └── device-auth.integration.spec.ts
 ```
 
-### 12.3 Backend Mocking Strategy
+### 13.3 Backend Mocking Strategy
 
 #### Prisma Mocking with jest-mock-extended
 
@@ -1104,7 +1641,7 @@ describe('Auth Controller (Integration)', () => {
 });
 ```
 
-### 12.4 Frontend Test Structure
+### 13.4 Frontend Test Structure
 
 ```
 apps/web/src/
@@ -1135,13 +1672,13 @@ apps/web/src/
     │   └── ThemeContext.test.tsx
     ├── pages/
     │   ├── LoginPage.test.tsx
-    │   ├── UserSettingsPage.test.tsx
-    │   └── SystemSettingsPage.test.tsx
+    │   ├── UserSettingsPages.test.tsx
+    │   └── UserNotificationsPage.test.tsx
     └── services/
         └── api.test.ts
 ```
 
-### 12.5 Frontend Mocking Strategy
+### 13.5 Frontend Mocking Strategy
 
 #### MSW (Mock Service Worker)
 
@@ -1221,7 +1758,7 @@ export function renderWithProviders(ui: React.ReactElement, options = {}) {
 }
 ```
 
-### 12.6 Test Commands
+### 13.6 Test Commands
 
 #### Backend
 
@@ -1249,7 +1786,7 @@ npm run test:ui             # Open Vitest UI (browser-based)
 npm run test:ci             # CI mode (coverage + JUnit reporter)
 ```
 
-### 12.7 Test Configuration
+### 13.7 Test Configuration
 
 #### Backend (Jest)
 
@@ -1286,7 +1823,7 @@ export default defineConfig({
 });
 ```
 
-### 12.8 Key Testing Patterns
+### 13.8 Key Testing Patterns
 
 | Pattern | Backend | Frontend |
 |---------|---------|----------|
@@ -1297,7 +1834,7 @@ export default defineConfig({
 | **Async Handling** | `async/await` with Jest | `waitFor()` from RTL |
 | **User Interactions** | N/A | `userEvent` from @testing-library |
 
-### 12.9 Important Notes
+### 13.9 Important Notes
 
 1. **No Real Database Required**: All tests run with mocked Prisma - no PostgreSQL needed
 2. **Test File Naming**:
@@ -1310,9 +1847,9 @@ export default defineConfig({
 
 ---
 
-## 13. Agent-Based Development Model
+## 14. Agent-Based Development Model
 
-### 13.1 Specialized Agents
+### 14.1 Specialized Agents
 
 This project uses specialized AI coding agents for different domains:
 
@@ -1324,7 +1861,7 @@ This project uses specialized AI coding agents for different domains:
 | `testing-dev` | `.claude/agents/testing-dev.md` | Quality | Jest, Supertest, Vitest, RTL, type checking |
 | `docs-dev` | `.claude/agents/docs-dev.md` | Documentation | Architecture, API, security docs |
 
-### 13.2 Agent Invocation Rules
+### 14.2 Agent Invocation Rules
 
 **MANDATORY**: All development tasks MUST be delegated to the appropriate agent.
 
@@ -1336,7 +1873,7 @@ This project uses specialized AI coding agents for different domains:
 | Write tests | `testing-dev` | "Add integration tests for auth" |
 | Update docs | `docs-dev` | "Document new endpoint in API.md" |
 
-### 13.3 Multi-Agent Workflow
+### 14.3 Multi-Agent Workflow
 
 For features spanning multiple domains, invoke agents sequentially:
 
@@ -1350,7 +1887,7 @@ Feature: "Add user notification preferences"
 5. docs-dev      → Update documentation
 ```
 
-### 13.4 Agent Context
+### 14.4 Agent Context
 
 Each agent has full context of:
 - System specification document
@@ -1359,7 +1896,7 @@ Each agent has full context of:
 - Security requirements
 - Testing standards
 
-### 13.5 Orchestration Responsibilities
+### 14.5 Orchestration Responsibilities
 
 The orchestrating agent (Claude) handles:
 - Reading files to understand context
@@ -1377,14 +1914,14 @@ The orchestrating agent (Claude) handles:
 
 ---
 
-## 14. Development Workflows
+## 15. Development Workflows
 
-### 14.1 Local Development Setup
+### 15.1 Local Development Setup
 
 ```bash
 # 1. Clone repository
 git clone <repository-url>
-cd EnterpriseAppBase
+cd <repository-directory>
 
 # 2. Configure environment
 cp infra/compose/.env.example infra/compose/.env
@@ -1402,10 +1939,10 @@ exit
 # 5. Access application
 # UI: http://localhost:3535
 # API: http://localhost:3535/api
-# Swagger: http://localhost:3535/api/docs
+# API reference: http://localhost:3535/api/docs
 ```
 
-### 14.2 Database Changes
+### 15.2 Database Changes
 
 ```bash
 # 1. Modify schema
@@ -1422,7 +1959,7 @@ npm run prisma:generate
 # Edit apps/api/prisma/seed.ts
 ```
 
-### 14.3 Adding New Features
+### 15.3 Adding New Features
 
 1. **Plan**: Identify which agents are needed
 2. **Database**: Schema changes via `database-dev`
@@ -1431,9 +1968,9 @@ npm run prisma:generate
 5. **Testing**: Test coverage via `testing-dev`
 6. **Documentation**: Updates via `docs-dev`
 
-### 14.4 Testing
+### 15.4 Testing
 
-See [Section 12: Testing Architecture](#12-testing-architecture) for comprehensive testing documentation.
+See [Section 13: Testing Architecture](#13-testing-architecture) for comprehensive testing documentation.
 
 ```bash
 # Backend tests (all use mocked database)
@@ -1456,16 +1993,16 @@ cd apps/web && npm run typecheck
 
 ---
 
-## 15. Appendices
+## 16. Appendices
 
-### 15.1 Quick Reference
+### 16.1 Quick Reference
 
 #### Service URLs (Development)
 
 | Service | URL |
 |---------|-----|
 | Application | http://localhost:3535 |
-| Swagger UI | http://localhost:3535/api/docs |
+| API Reference (Scalar) | http://localhost:3535/api/docs |
 | Uptrace | http://localhost:14318 |
 | PostgreSQL | localhost:5432 |
 
@@ -1489,11 +2026,11 @@ cd apps/api && npm test
 cd apps/web && npm test
 ```
 
-### 15.2 Related Documents
+### 16.2 Related Documents
 
 | Document | Purpose |
 |----------|---------|
-| [System_Specification_Document.md](System_Specification_Document.md) | Full system requirements |
+| [specs/](specs/) | Design and rationale for each major feature — the closest thing to a full system specification |
 | [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md) | Detailed security documentation |
 | [API.md](API.md) | API endpoint reference |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Development guide |
@@ -1501,17 +2038,23 @@ cd apps/web && npm test
 | [DEVICE-AUTH.md](DEVICE-AUTH.md) | Device authorization guide |
 | [CLAUDE.md](../CLAUDE.md) | AI assistant guidance |
 
-### 15.3 Specification Index
+### 16.3 Specification Index
 
-Implementation specs in `docs/specs/`:
+Design specs in `docs/specs/`, one per feature rather than one per project
+phase — each explains why that feature is shaped the way it is, its rejected
+alternatives, and (where relevant) an operator runbook it defers to:
 
-| Phase | Specs | Description |
-|-------|-------|-------------|
-| Foundation | 01-03 | Project setup, database schema, seeds |
-| API Core | 04-07 | NestJS setup, OAuth, JWT, RBAC |
-| API Features | 08-12 | Users, settings, health, observability |
-| Frontend | 13-18 | React setup, pages, components |
-| Testing | 19-24 | Test frameworks, unit/integration tests |
+| Spec | Description |
+|------|-------------|
+| [settings-ui.md](specs/settings-ui.md) | The registry-driven settings hub — why a settings page is a registry entry and not a route, the five coupled breakpoint gates, accessibility requirements |
+| [job-queue.md](specs/job-queue.md) | The background job queue — handler contract, claim/lease mechanics, retry and rate-limit budgets, the admin surface |
+| [worker-nodes.md](specs/worker-nodes.md) | The remote worker node fleet — registration, the claim/lease/data-plane mechanics, capability probing, fleet health |
+| [maintenance-mode.md](specs/maintenance-mode.md) | The maintenance window — the three-layer override precedence, the database restore swap it exists for |
+| [database-backup.md](specs/database-backup.md) | Database backups — the streaming `pg_dump` contract, the dedicated run table, why the dump is now a queue job and what had to change first, running it on a worker node |
+| [database-restore.md](specs/database-restore.md) | Database restore and rollback — the pre-flight gates, the three outcomes, the maintenance-window coordination |
+| [browser-notifications.md](specs/browser-notifications.md) | OS-level browser notifications and Web Push — the service worker, the notification capability model, the admin kill switch |
+| [notification-broadcasts.md](specs/notification-broadcasts.md) | Admin notification broadcasts — composing and sending an announcement to every user, the fan-out job types |
+| [vps-deploy.md](specs/vps-deploy.md) | `appctl deploy` — VPS installation and update design, why it runs on the VPS with no SSH client in the CLI |
 
 ---
 
@@ -1520,3 +2063,4 @@ Implementation specs in `docs/specs/`:
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 1.0 | January 2026 | AI Assistant | Initial comprehensive architecture document |
+| 1.1 | September 2026 | AI Assistant | Added §12 Background Job Queue & Worker Fleet (epic #254); renumbered §12–15 to §13–16 |
