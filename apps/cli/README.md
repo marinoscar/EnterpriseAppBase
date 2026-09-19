@@ -478,6 +478,74 @@ Options:
   --json              Print a machine-readable inventory on stdout
 ```
 
+### What this server says it is running
+
+```bash
+appctl deploy about
+appctl deploy about --name myapp --json
+```
+
+Prints the deployment record `install`/`update` leave at
+`<deploy-root>/deploy-info/info.json`.
+
+**It reads that file; it does not ask the application.** Three reasons, and
+each of them bites: the app would have to be UP, and the moment you most want
+to know what was deployed here is the moment it is not answering; `/api/about`
+is gated on `system_settings:read`, so a command that reads a local file would
+acquire a login flow; and the endpoint reports what the *container* believes,
+which is a different fact from what this CLI deployed. When those two
+disagree, that disagreement is the answer — it is a stale image serving old
+code — not an error to route around. The API reads the very same file from
+the other side of a read-only bind mount, which is the point of the file
+existing.
+
+Four outcomes, **all exiting 0**, because none of them means the command
+failed:
+
+| Outcome | What it means |
+|---|---|
+| the record | A deployment with a record. |
+| no record | Written once the API answers, so a deployment installed before this CLI wrote one — or whose run stopped earlier — has none. Not the same as nothing being deployed. |
+| unreadable | The file is there and this build cannot interpret it. A different condition from absent, and worth telling apart: one corrupt file is not a missing deployment. |
+| a warning | Every fact, plus "the run that deployed this did not finish, at `<step>`". The record is written at the health gate, so a run that died afterwards still leaves a document describing a deployment that is up and serving. |
+
+```
+Options:
+  --root <path>       Deployment directory (rank 1: an explicit path)
+  --apps-root <path>  Directory holding the deployments (default: "/opt/infra/apps")
+  --name <app>        Which deployment to act on, by name
+  --json              Print the record itself on stdout
+```
+
+### Unattended runs
+
+`install` and `update` take answers without a terminal:
+
+```bash
+appctl deploy install --non-interactive \
+  --answers-file ./answers.env \
+  --answer INITIAL_ADMIN_EMAIL=admin@example.com
+```
+
+`--answers-file` is read with the **same parser as `.env`**, so quoting,
+`export ` prefixes, comments and CRLF all behave exactly as they will when the
+deployment reads the file this run writes. `--answer` splits on the **first**
+`=` only — a signing secret is base64 and base64 ends in `=` padding.
+
+⚠ **An unattended run must answer every essential variable, including the
+secrets.** That is the wizard's rule, not an oversight: a non-interactive run
+takes the template default only for a *non-essential* key, because a default
+for an essential one is a placeholder nobody chose (`POSTGRES_PASSWORD=postgres`),
+and generate-mode secrets are never generated without a terminal to confirm on.
+`SECRETS_ENCRYPTION_KEY` is the one that surprises — not marked essential, not
+commented out, blank default, generate-mode — so an unattended install fails on
+it every time unless you supply it.
+
+A world-readable answers file **warns** rather than refusing, because on a CI
+runner that is the ordinary case; an **empty** one refuses, because it means
+you believe you supplied answers and did not.
+
+
 ### Managing the TLS certificate directly
 
 ```bash
