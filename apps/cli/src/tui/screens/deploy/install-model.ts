@@ -12,11 +12,21 @@
  *
  * 1. PREFILL FROM THE DEPLOYMENT'S OWN `.env`. A blank re-run is not a blank
  *    slate: the wizard's generate-mode secrets fire on an empty answer, so
- *    re-running install over a live deployment minted a fresh `JWT_SECRET`,
- *    `COOKIE_SECRET` and `SECRETS_ENCRYPTION_KEY` -- and the last of those
- *    makes every stored credential in the database permanently undecryptable.
- *    Prefilling fixes it BY CONSTRUCTION rather than by a guard: there is no
- *    empty answer left to trigger the generator.
+ *    re-running install over a live deployment minted a fresh `JWT_SECRET` and
+ *    `COOKIE_SECRET`. Prefilling fixes that BY CONSTRUCTION rather than by a
+ *    guard: there is no empty answer left to trigger the generator.
+ *
+ *    ⚠ IT DOES NOT COVER `SECRETS_ENCRYPTION_KEY`, AND SAYING SO MATTERS --
+ *    that is the one whose loss makes every stored credential permanently
+ *    undecryptable. It carries no `essential: true`, so `installFields`' own
+ *    filter never turns it into a question at all: there is no placeholder to
+ *    seed. What protects it is a SECOND, independent mechanism in
+ *    `install.ts`'s environment step -- it re-reads the `.env` off disk and
+ *    drops blank answers before merging, so an untouched field cannot
+ *    overwrite a live secret. Two mechanisms, and only one of them is here.
+ *    An earlier version of this comment claimed all three; a ⚠ comment that
+ *    overstates its own coverage is worse than no comment, because the next
+ *    reader stops looking.
  *
  * 2. RETRACT THE SEED WHEN THE NAME CHANGES. The app name is a field on the
  *    first screen, so an operator typing a neighbour's name reads that
