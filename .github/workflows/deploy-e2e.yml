@@ -115,6 +115,13 @@ jobs:
       - name: Write the unattended answers
         run: |
           set -euo pipefail
+          # ⚠ `POSTGRES_HOST` IS THE DOCKER BRIDGE GATEWAY, NOT `127.0.0.1`.
+          # The service container publishes Postgres on the RUNNER's port 5432,
+          # but this value is read by two different things: the reachability
+          # and psql checks, which run on the runner, and the api container,
+          # for which `127.0.0.1` is its own loopback and nothing is listening
+          # there. `172.17.0.1` is the docker0 gateway, reachable from both.
+          #
           # ⚠ EVERY ESSENTIAL KEY, INCLUDING THE SECRETS. A non-interactive run
           # takes the template default only for a NON-essential key, because a
           # default for an essential one is a placeholder nobody chose — and
@@ -123,7 +130,7 @@ jobs:
           # marked essential, not commented out, blank default, generate-mode,
           # so an unattended install fails on it every time unless it is here.
           cat > "$HOME/e2e/answers.env" <<'ANSWERS'
-          POSTGRES_HOST=127.0.0.1
+          POSTGRES_HOST=172.17.0.1
           POSTGRES_PORT=5432
           POSTGRES_USER=appuser
           POSTGRES_PASSWORD=e2e-postgres-password-not-a-real-one
