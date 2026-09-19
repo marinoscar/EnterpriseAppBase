@@ -602,8 +602,19 @@ describe('NodeEngine — input handling', () => {
     expect(result.computedBy).toBe('node');
     expect(result.sha256).toMatch(/^[0-9a-f]{64}$/);
 
-    // Cleaned up in the `finally` — on success as well as on failure.
-    expect(readdirSync(join(tmp, 'work'))).toEqual([]);
+    // ⚠ WAITED FOR, NOT ASSERTED IMMEDIATELY, and the reason is the thing
+    // under test. The unlink happens in the engine's `finally`, which runs
+    // AFTER the result is submitted -- so `waitFor(results)` above resolves
+    // while the temp file may still be on disk. Asserting straight after it
+    // raced the cleanup and failed intermittently in CI on a leftover
+    // `sum.<id>.input`.
+    //
+    // The invariant is "the temp file is eventually removed", so waiting for
+    // it is the honest assertion. Asserting after `drain()` would also pass,
+    // and would quietly test something weaker: that the file is gone once the
+    // engine has fully stopped, rather than that each job cleans up after
+    // itself.
+    await vi.waitFor(() => expect(readdirSync(join(tmp, 'work'))).toEqual([]));
 
     await engine.drain();
     await run;
@@ -642,7 +653,9 @@ describe('NodeEngine — input handling', () => {
 
     const run = engine.run();
     await vi.waitFor(() => expect(rec.failures).toHaveLength(1));
-    expect(readdirSync(join(tmp, 'work'))).toEqual([]);
+    // Same race as the success case above: the unlink is in the `finally`,
+    // which runs after the failure is reported.
+    await vi.waitFor(() => expect(readdirSync(join(tmp, 'work'))).toEqual([]));
 
     await engine.drain();
     await run;
