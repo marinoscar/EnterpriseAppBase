@@ -242,6 +242,22 @@ jobs:
           # is mounted and the file is replaced by rename.
           diff "$APPS_ROOT/e2e/deploy-info/info.json" "$HOME/e2e/info-in-container.json"
 
+          # And the CLI's own reader agrees with what it wrote.
+          node apps/cli/dist/cli.js deploy about \
+            --apps-root "$APPS_ROOT" --name e2e --json > "$HOME/e2e/about.json"
+          cat "$HOME/e2e/about.json"
+          node -e '
+            const r = require(process.env.HOME + "/e2e/about.json");
+            if (r.status !== "ok") {
+              console.error("deploy about reports", r.status, "for a deployment it just made");
+              process.exit(1);
+            }
+            if (!r.document || !r.document.app || !r.document.app.commitSha) {
+              console.error("the record carries no commit:", JSON.stringify(r));
+              process.exit(1);
+            }
+          '
+
       - name: Record the image digests
         id: first
         run: |
