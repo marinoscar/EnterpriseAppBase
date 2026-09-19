@@ -18,6 +18,13 @@ import { bootstrapProxyRoot, installVhost, issueCertificate, type ProxyTarget } 
 import { ensureCheckout, resolveRepoTarget, type RepoTarget } from './repo.js';
 import { readState, writeState, type DeployState } from './state.js';
 import { runPipeline, type DeployStep, type StepContext } from './steps/pipeline.js';
+import {
+  checkoutPathFor,
+  publishVersion,
+  runVersionStep,
+  stampAppVersion,
+  type VersionStepResult,
+} from './version-step.js';
 import { metadataFor } from './env-metadata.js';
 import type { PromptContext } from '../prompt.js';
 
@@ -73,6 +80,15 @@ export interface InstallOptions {
   promptContext?: PromptContext | undefined;
   cwd?: string | undefined;
   /**
+   * The release version to deploy, overriding the suggested patch bump.
+   *
+   * Rejected outright when it does not sort ABOVE the clone's current version
+   * -- see app-version.ts. Absent means "suggest the patch bump".
+   */
+  appVersion?: string | undefined;
+  /** Deploy the clone's current version unchanged: no write, no commit, no push. */
+  noVersionBump?: boolean | undefined;
+  /**
    * Values collected elsewhere, merged in ahead of the wizard.
    *
    * The ink screen (#184) needs this: readline cannot ask a question while
@@ -92,6 +108,8 @@ interface InstallContext extends StepContext {
   env?: Map<string, string> | undefined;
   /** Undefined means the directory-derived default; see composeProjectFor. */
   composeProject?: string | undefined;
+  /** The result of the `version` step, read by `publish-version`. */
+  version?: VersionStepResult | undefined;
 }
 
 export function composeCwd(deployRoot: string): string {
@@ -346,6 +364,55 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
       },
     },
     {
+      id: 'version',
+      title: 'Choose the release version',
+      // ⚠ NO `skip` FOR --no-version-bump. The flag means "do not bump", not
+      // "do not stamp": the step still writes the clone's CURRENT version into
+      // the `.env`, because skipping it entirely would leave the container
+      // reporting whatever APP_VERSION the last deploy happened to set.
+      async run(context) {
+        // ⚠ IMMEDIATELY BEFORE `build`, AND IT COMMITS. The checkout step
+        // refuses a dirty tree, so leaving manifests dirty across a
+        // four-minute build would wedge the NEXT update behind a refusal about
+        // files the operator never touched. See version-step.ts's header.
+        const result = await runVersionStep({
+          checkoutPath: checkoutPathFor(context.options.deployRoot),
+          ...(context.options.appVersion === undefined
+            ? {}
+            : { requested: context.options.appVersion }),
+          ...(context.options.noVersionBump === undefined
+            ? {}
+            : { disabled: context.options.noVersionBump }),
+          runCommand: context.runCommand,
+        });
+
+        context.version = result;
+        context.journal.line(`Version: ${result.detail}`);
+
+        // ⚠ The DEPLOYED COMMIT IS THE BUMP COMMIT. Recording the pre-bump one
+        // leaves every server reporting itself a commit behind for ever,
+        // rebuilding identical code and bumping again on every update. It is
+        // also more accurate: the commit happens before `build`, so the images
+        // really were built with HEAD here.
+        if (result.commitSha !== undefined) context.commitSha = result.commitSha;
+
+        // ⚠ STAMPED ON DISK, NOT JUST IN MEMORY. `context.env` is the wizard's
+        // map and nothing writes it again after the `environment` step, so an
+        // in-memory set alone would leave the running container on whatever
+        // APP_VERSION the last deploy wrote. The disk write is what the build
+        // and the api container actually read.
+        const stamped = stampAppVersion(
+          envFilePath(context.options.deployRoot),
+          join(composeCwd(context.options.deployRoot), '.env.example'),
+          result.version,
+        );
+        context.env?.set('APP_VERSION', result.version);
+        if (!stamped) {
+          context.journal.line('APP_VERSION was not stamped: no .env on disk yet.');
+        }
+      },
+    },
+    {
       id: 'build',
       title: 'Build images',
       async run(context) {
@@ -480,6 +547,30 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
               ' deploy status` for the detail.',
           );
         }
+      },
+    },
+    {
+      id: 'publish-version',
+      title: 'Publish the release version',
+      skip: (context) =>
+        context.version?.bumped === true ? undefined : 'no version was bumped',
+      async run(context) {
+        // ⚠ PUSH LAST, AFTER VERIFY -- not at the health gate. Pushing to a
+        // shared repository is irreversible and externally visible: a version
+        // not pushed is re-derived next run, while a version pushed for a
+        // deploy that did not finish is a commit someone has to reason about.
+        const result = await publishVersion({
+          checkoutPath: checkoutPathFor(context.options.deployRoot),
+          ref: context.target?.ref ?? 'main',
+          result: context.version as VersionStepResult,
+          runCommand: context.runCommand,
+        });
+
+        // ⚠ A FAILED PUSH IS A WARNING, NEVER A FAILURE. By this point the app
+        // is built, migrated, started, answering and verified. The rollback
+        // keeps the clone level with origin; the deployment keeps the version.
+        context.journal.line(`Publish: ${result.detail}`);
+        if (!result.pushed) context.hooks?.onProgress?.(`warning: ${result.detail}`);
       },
     },
   ];

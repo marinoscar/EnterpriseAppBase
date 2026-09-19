@@ -20,6 +20,13 @@ import { certificateStatus, installVhost, issueCertificate, type ProxyTarget } f
 import { ensureCheckout, resolveRepoTarget, type RepoTarget } from './repo.js';
 import { NotInstalledError, readState, writeState, type DeployState } from './state.js';
 import { runPipeline, type DeployStep, type StepContext } from './steps/pipeline.js';
+import {
+  checkoutPathFor,
+  publishVersion,
+  runVersionStep,
+  stampAppVersion,
+  type VersionStepResult,
+} from './version-step.js';
 import { composeArgv, composeCwd, composeProjectFor, secretsFrom } from './install.js';
 import type { PromptContext } from '../prompt.js';
 
@@ -69,6 +76,15 @@ export interface UpdateOptions {
    * means "whatever this deployment already enabled".
    */
   groups?: EnvGroup[] | undefined;
+  /**
+   * The release version to deploy, overriding the suggested patch bump.
+   *
+   * Rejected outright when it does not sort ABOVE the clone's current version
+   * -- see app-version.ts. Absent means "suggest the patch bump".
+   */
+  appVersion?: string | undefined;
+  /** Deploy the clone's current version unchanged: no write, no commit, no push. */
+  noVersionBump?: boolean | undefined;
 }
 
 interface UpdateContext extends StepContext {
@@ -82,6 +98,8 @@ interface UpdateContext extends StepContext {
   env?: Map<string, string> | undefined;
   /** Set when the remote has not moved, so the rest of the pipeline stands down. */
   unchanged?: boolean | undefined;
+  /** The result of the `version` step, read by `publish-version`. */
+  version?: VersionStepResult | undefined;
 }
 
 /** Certificates are renewed within this window, not on every deploy. */
@@ -312,6 +330,64 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
       },
     },
     {
+      id: 'version',
+      title: 'Choose the release version',
+      // ⚠ `skipWhenUnchanged` FIRST, and it is load-bearing. An update that
+      // finds the remote has not moved rebuilds nothing -- so bumping the
+      // version here would commit and push a release for code nobody changed,
+      // then find the remote HAS moved next time and do it again: a bump
+      // treadmill driven entirely by its own commits. A version belongs to a
+      // deploy that actually deployed something.
+      // ⚠ `skipWhenUnchanged` ONLY, and it is load-bearing. An update that
+      // finds the remote has not moved rebuilds nothing -- so bumping here
+      // would commit and push a release for code nobody changed, then find the
+      // remote HAS moved next time and do it again: a bump treadmill driven
+      // entirely by its own commits. `--no-version-bump` is handled INSIDE the
+      // step instead, because it still stamps the current version.
+      skip: skipWhenUnchanged,
+      async run(context) {
+        // ⚠ IMMEDIATELY BEFORE `build`, AND IT COMMITS. The checkout step
+        // refuses a dirty tree, so leaving manifests dirty across a
+        // four-minute build would wedge the NEXT update behind a refusal about
+        // files the operator never touched. See version-step.ts's header.
+        const result = await runVersionStep({
+          checkoutPath: checkoutPathFor(context.options.deployRoot),
+          ...(context.options.appVersion === undefined
+            ? {}
+            : { requested: context.options.appVersion }),
+          ...(context.options.noVersionBump === undefined
+            ? {}
+            : { disabled: context.options.noVersionBump }),
+          runCommand: context.runCommand,
+        });
+
+        context.version = result;
+        context.journal.line(`Version: ${result.detail}`);
+
+        // ⚠ The DEPLOYED COMMIT IS THE BUMP COMMIT. Recording the pre-bump one
+        // leaves every server reporting itself a commit behind for ever,
+        // rebuilding identical code and bumping again on every update. It is
+        // also more accurate: the commit happens before `build`, so the images
+        // really were built with HEAD here.
+        if (result.commitSha !== undefined) context.commitSha = result.commitSha;
+
+        // ⚠ STAMPED ON DISK, NOT JUST IN MEMORY. `context.env` is the wizard's
+        // map and nothing writes it again after the `environment` step, so an
+        // in-memory set alone would leave the running container on whatever
+        // APP_VERSION the last deploy wrote. The disk write is what the build
+        // and the api container actually read.
+        const stamped = stampAppVersion(
+          envFilePath(context.options.deployRoot),
+          join(composeCwd(context.options.deployRoot), '.env.example'),
+          result.version,
+        );
+        context.env?.set('APP_VERSION', result.version);
+        if (!stamped) {
+          context.journal.line('APP_VERSION was not stamped: no .env on disk yet.');
+        }
+      },
+    },
+    {
       id: 'build',
       title: 'Build images',
       skip: skipWhenUnchanged,
@@ -461,6 +537,33 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
             `The stack restarted but is not healthy. Run \`${CLI_NAME} deploy status\` for the detail.`,
           );
         }
+      },
+    },
+    {
+      id: 'publish-version',
+      title: 'Publish the release version',
+      // Keyed on what the `version` step actually did, so every reason it did
+      // not bump -- unchanged remote, --no-version-bump, a version already
+      // ahead -- lands here as one condition rather than three.
+      skip: (context) =>
+        context.version?.bumped === true ? undefined : 'no version was bumped',
+      async run(context) {
+        // ⚠ PUSH LAST, AFTER VERIFY -- not at the health gate. Pushing to a
+        // shared repository is irreversible and externally visible: a version
+        // not pushed is re-derived next run, while a version pushed for a
+        // deploy that did not finish is a commit someone has to reason about.
+        const result = await publishVersion({
+          checkoutPath: checkoutPathFor(context.options.deployRoot),
+          ref: context.target?.ref ?? context.state?.ref ?? 'main',
+          result: context.version as VersionStepResult,
+          runCommand: context.runCommand,
+        });
+
+        // ⚠ A FAILED PUSH IS A WARNING, NEVER A FAILURE. By this point the app
+        // is built, migrated, started, answering and verified. The rollback
+        // keeps the clone level with origin; the deployment keeps the version.
+        context.journal.line(`Publish: ${result.detail}`);
+        if (!result.pushed) context.hooks?.onProgress?.(`warning: ${result.detail}`);
       },
     },
   ];
