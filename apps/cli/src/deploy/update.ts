@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 
 import { CLI_NAME } from '../branding.js';
@@ -114,6 +114,11 @@ async function compose(
   extra: readonly string[],
   options?: { timeoutMs?: number },
 ): Promise<void> {
+  // See `ensureBindSources` in install.ts: Docker creates a missing bind
+  // source as root:root the moment it instantiates the service, and `compose
+  // run` does that as thoroughly as `up`.
+  mkdirSync(join(context.options.deployRoot, 'deploy-info'), { recursive: true });
+
   const result = await context.runCommand(composeArgv(extra, composeProjectFor(context.state)), {
     cwd: composeCwd(context.options.deployRoot),
     timeoutMs: options?.timeoutMs ?? 30 * 60_000,

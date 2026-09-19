@@ -163,6 +163,35 @@ export function composeArgv(extra: readonly string[], project?: string): string[
   ];
 }
 
+/**
+ * Creates every directory compose bind-mounts from, before compose runs.
+ *
+ * =============================================================================
+ * ⚠ CALLED BEFORE **EVERY** COMPOSE INVOCATION, NOT JUST BEFORE `up`
+ * =============================================================================
+ *
+ * Docker creates a missing bind SOURCE itself, as `root:root`, the moment it
+ * instantiates the service that mounts it -- and `compose run --rm --no-deps
+ * api` instantiates the api service just as thoroughly as `up` does. So
+ * `migrate`, two steps before `start`, was already creating
+ * `<deployRoot>/deploy-info` owned by root; the `mkdirSync` at `start` then
+ * no-opped on a directory that already existed, and the `deploy-info` step
+ * later got EACCES writing into it.
+ *
+ * Every step reported green. The deployment was up, healthy and serving; only
+ * the About page was permanently empty, and the one line saying why was a
+ * warning in a journal nobody reads on a successful run.
+ *
+ * Guarding the ORDER was the original fix and it was the wrong shape: it left
+ * the invariant depending on which step happens to come first, so adding a
+ * compose call earlier in the pipeline silently reintroduces the bug. Guarding
+ * the CALL makes that unrepresentable. `mkdirSync` with `recursive` is a no-op
+ * when the directory is already there, so the cost is one syscall.
+ */
+function ensureBindSources(deployRoot: string): void {
+  mkdirSync(join(deployRoot, 'deploy-info'), { recursive: true });
+}
+
 function envFilePath(deployRoot: string): string {
   return join(composeCwd(deployRoot), '.env');
 }
@@ -179,6 +208,8 @@ async function compose(
   extra: readonly string[],
   options?: { timeoutMs?: number },
 ): Promise<void> {
+  ensureBindSources(context.options.deployRoot);
+
   const result = await context.runCommand(composeArgv(extra, context.composeProject), {
     cwd: composeCwd(context.options.deployRoot),
     timeoutMs: options?.timeoutMs ?? 30 * 60_000,
@@ -484,18 +515,9 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
       id: 'start',
       title: 'Start the stack',
       async run(context) {
-        // ⚠ THE BIND SOURCE MUST EXIST BEFORE COMPOSE STARTS.
-        //
-        // `vps.compose.yml` bind-mounts `<deployRoot>/deploy-info` read-only
-        // into the api container. Docker creates a MISSING bind source itself,
-        // as root:root -- after which this CLI, running as the ordinary
-        // operator, cannot write the deployment record into it. The failure
-        // arrives later, as an EACCES from a step that has nothing to do with
-        // Docker, with every step up to here reporting green.
-        //
-        // Creating it here, one step before `up`, is the whole fix.
-        mkdirSync(join(context.options.deployRoot, 'deploy-info'), { recursive: true });
-
+        // The bind sources are created by `ensureBindSources`, which runs
+        // before EVERY compose invocation -- see its header for why doing it
+        // here, one step before `up`, was not enough.
         await compose(context, ['up', '-d']);
       },
     },
