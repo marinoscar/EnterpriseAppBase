@@ -330,6 +330,34 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
 
         values.set('APP_BIND_PORT', String(context.options.bindPort));
 
+        // ⚠ THE CLI'S OWN KEY, AND THE BIND MOUNT DOES NOT WORK WITHOUT IT.
+        //
+        // `DEPLOY_ROOT` was READ in three places and written in none:
+        //
+        //   - `vps.compose.yml` interpolates it for the deploy-info bind mount
+        //     source. Unset, it falls back to `./.deploy/deploy-info` --
+        //     relative to the compose directory -- so the api container mounts
+        //     an empty directory Docker created, and the About page reports
+        //     `absent` for ever. Every step still reports green, because the
+        //     stack is up and the fallback path is perfectly valid.
+        //   - `layout.ts` uses it as the marker identifying an `.env` THIS CLI
+        //     wrote, so `deploy list` and the ambiguity refusal labelled every
+        //     deployment we had written as unmarked.
+        //   - `version-step.ts`'s comment describes it as already being there.
+        //
+        // It is deliberately absent from `.env.example` -- that is what makes
+        // it a usable marker, since a stranger's file cannot have it -- so it
+        // lands under the serializer's own `# Not in .env.example` banner.
+        //
+        // ⚠ `COMPOSE_PROJECT_NAME` is deliberately NOT written here. The
+        // project name reaches compose through `-p` on every invocation this
+        // CLI makes, and writing it into an EXISTING deployment's `.env`
+        // renames the project: compose then sees no existing containers,
+        // builds a parallel stack, and collides with the old one on the bind
+        // port. That is an outage caused by a bookkeeping change, and `-p`
+        // already solves the problem it would solve.
+        values.set('DEPLOY_ROOT', context.options.deployRoot);
+
         mkdirSync(composeCwd(context.options.deployRoot), { recursive: true });
         writeEnvFile(path, values, specs);
 

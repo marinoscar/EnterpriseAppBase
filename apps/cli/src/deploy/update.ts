@@ -246,6 +246,22 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
 
         const specs = parseEnvExample(readFileSync(templatePath, 'utf8'));
         const current = parseEnvFile(readFileSync(path, 'utf8'));
+
+        // ⚠ HEAL A DEPLOYMENT THAT PREDATES THE MARKER, or the fix only ever
+        // reaches fresh installs and every deployment in the field keeps
+        // mounting an empty deploy-info directory for ever. Writing it is
+        // inert: nothing derives container identity from it, unlike
+        // COMPOSE_PROJECT_NAME -- see install.ts's environment step for why
+        // that one is deliberately never written.
+        //
+        // Done BEFORE the drift diff below, so a value this CLI supplies is
+        // never mistaken for a variable the operator has to answer.
+        if (current.get('DEPLOY_ROOT') !== context.options.deployRoot) {
+          current.set('DEPLOY_ROOT', context.options.deployRoot);
+          writeEnvFile(path, current, specs);
+          context.journal.line(`Recorded DEPLOY_ROOT=${context.options.deployRoot}`);
+        }
+
         const { missing, unknown } = diffEnv(specs, current);
 
         if (unknown.length > 0) {

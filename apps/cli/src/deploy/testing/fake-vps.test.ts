@@ -382,3 +382,58 @@ describe('the deployment record the About page reads', () => {
     expect(existsSync(join(vps.deployRoot, 'deploy-info', 'info.json.tmp'))).toBe(false);
   });
 });
+
+describe('the CLI writes its own marker into the .env', () => {
+  it('records DEPLOY_ROOT, which the bind mount and the inventory both read', async () => {
+    const vps = vpsWithTemplate();
+    await install(vps);
+
+    const written = parseEnvFile(
+      readFileSync(resolveEnvPath(vps.deployRoot) as string, 'utf8'),
+    );
+
+    // ⚠ THIS KEY WAS READ IN THREE PLACES AND WRITTEN IN NONE, and every one
+    // of the three failed silently:
+    //
+    //   - `vps.compose.yml` interpolates it for the deploy-info bind mount.
+    //     Unset, it falls back to `./.deploy/deploy-info`, so the api
+    //     container mounts an empty directory and the About page reports
+    //     `absent` for ever -- with every deploy step reporting green, because
+    //     the stack is up and the fallback path is perfectly valid.
+    //   - `layout.ts` uses it as the marker for an `.env` THIS CLI wrote, so
+    //     the ambiguity refusal labelled our own deployments as unmarked.
+    //   - `version-step.ts`'s comment describes it as already being there.
+    //
+    // The real-Docker E2E is what caught it: `cat` inside the container said
+    // "No such file or directory" for a document sitting on the host disk.
+    expect(written.get('DEPLOY_ROOT')).toBe(vps.deployRoot);
+  });
+
+  it('puts it under the not-in-template banner, since it is not an answer', () => {
+    // It is deliberately absent from `.env.example` -- that is precisely what
+    // makes it usable as a marker, because a stranger's file cannot have it.
+    const vps = vpsWithTemplate();
+
+    return install(vps).then(() => {
+      const contents = readFileSync(resolveEnvPath(vps.deployRoot) as string, 'utf8');
+      const banner = contents.indexOf('# Not in .env.example');
+
+      expect(banner).toBeGreaterThan(-1);
+      expect(contents.indexOf('DEPLOY_ROOT=')).toBeGreaterThan(banner);
+    });
+  });
+
+  it('does NOT write COMPOSE_PROJECT_NAME', async () => {
+    const vps = vpsWithTemplate();
+    await install(vps);
+
+    const contents = readFileSync(resolveEnvPath(vps.deployRoot) as string, 'utf8');
+
+    // ⚠ A REFUSAL, AND IT PREVENTS AN OUTAGE. The project name reaches compose
+    // through `-p` on every invocation this CLI makes. Writing it into an
+    // EXISTING deployment's `.env` RENAMES the project: compose then sees no
+    // existing containers, builds a parallel stack, and collides with the old
+    // one on the bind port. A bookkeeping change causing an outage.
+    expect(contents).not.toContain('COMPOSE_PROJECT_NAME');
+  });
+});
