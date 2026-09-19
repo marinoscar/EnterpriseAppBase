@@ -401,13 +401,11 @@ async function performInstall(
     ...(ref === '' ? {} : { ref }),
     ...(email === '' ? {} : { email }),
     ...(groups.length === 0 ? {} : { groups }),
-    // ⚠ `--no-version-bump` is declared in INSTALL_TOGGLES/UPDATE_TOGGLES but is
-    // not an option `runInstall`/`runUpdate` accept yet, so it is spread here
-    // and read by nobody. It is passed rather than filtered out so the toggle
-    // starts working the moment the option lands - but until then it is a
-    // control that does nothing, which is exactly the kind of quiet lie these
-    // screens are otherwise written to avoid. Wire the option, or drop the
-    // toggle; do not leave it here indefinitely.
+    // `--no-version-bump` and every other toggle land here as their real
+    // option keys; `flags-model.test.ts` asserts the list against the
+    // subcommand's own Commander definitions, so a toggle for a flag the CLI
+    // does not declare is a failing test rather than a control that does
+    // nothing.
     ...optionsFromToggles(INSTALL_TOGGLES, chosen),
     hooks,
   });

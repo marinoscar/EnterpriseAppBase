@@ -34,12 +34,13 @@ export interface ToggleFlag {
   option: string;
   label: string;
   help: string;
-  /**
-   * True when the flag NEGATES: Commander's `--no-cache` sets `cache: false`,
-   * so the screen's "on" means the option is absent.
-   */
-  negated?: boolean | undefined;
 }
+
+// ⚠ THERE IS DELIBERATELY NO `negated` MEMBER. Commander's `--no-cache` sets
+// `cache: false`, but the OPTION the pipelines take is the positively named
+// `noCache`, and the subcommand's own handler already does that translation.
+// A `negated` flag here would be a second, quieter copy of that mapping --
+// enforced nowhere, and free to disagree with the one that runs.
 
 export const INSTALL_TOGGLES: readonly ToggleFlag[] = [
   {
