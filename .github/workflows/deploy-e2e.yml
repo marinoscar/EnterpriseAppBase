@@ -212,6 +212,36 @@ jobs:
           echo "clone HEAD=$head  origin/$SOURCE_REF=$origin"
           test "$head" = "$origin"
 
+      - name: The deployment record reached the running container
+        run: |
+          set -euo pipefail
+
+          # ⚠ THE ONE ASSERTION NO UNIT TEST CAN MAKE. That the CLI writes the
+          # file is testable anywhere; that the api container can READ it
+          # depends on the bind mount, the directory existing before `up` (or
+          # Docker creates it root-owned), and the path the API resolves — three
+          # facts that live in compose and Docker, not in any TypeScript.
+          test -f "$APPS_ROOT/e2e/deploy-info/info.json"
+          cat "$APPS_ROOT/e2e/deploy-info/info.json"
+
+          # ⚠ Found by LABEL, not by `docker compose exec`. The latter needs
+          # the same `-f` overlay list and project directory the CLI used, and
+          # getting that subtly wrong here would fail for a reason that has
+          # nothing to do with the thing under test.
+          api=$(docker ps \
+            --filter 'label=com.docker.compose.project=e2e' \
+            --filter 'label=com.docker.compose.service=api' \
+            --format '{{.ID}}' | head -1)
+          test -n "$api"
+
+          docker exec "$api" cat /app/deploy-info/info.json \
+            > "$HOME/e2e/info-in-container.json"
+
+          # Byte-identical: the container must see the same document, not a
+          # stale one pinned by a bind-mounted inode. This is why the DIRECTORY
+          # is mounted and the file is replaced by rename.
+          diff "$APPS_ROOT/e2e/deploy-info/info.json" "$HOME/e2e/info-in-container.json"
+
       - name: Record the image digests
         id: first
         run: |
@@ -294,8 +324,14 @@ jobs:
       - name: Status reports a healthy deployment
         run: |
           set -euo pipefail
+          # ⚠ `|| true`, THEN ASSERT. `deploy status` writes the JSON and THEN
+          # exits non-zero when the deployment is unhealthy -- which is correct
+          # for a monitoring script and unhelpful here: under `set -e` the step
+          # would die before the `cat`, throwing away the one document that
+          # says WHAT is unhealthy. The assertion below is the gate; this line
+          # only makes its failure diagnosable.
           node apps/cli/dist/cli.js deploy status \
-            --apps-root "$APPS_ROOT" --name e2e --json > "$HOME/e2e/status.json"
+            --apps-root "$APPS_ROOT" --name e2e --json > "$HOME/e2e/status.json" || true
           cat "$HOME/e2e/status.json"
           node -e '
             const report = require(process.env.HOME + "/e2e/status.json");
@@ -310,4 +346,7 @@ jobs:
         run: |
           docker ps -a || true
           docker compose ls || true
+          cat "$HOME/e2e/status.json" 2>/dev/null || true
           tail -n 200 "$APPS_ROOT"/e2e/logs/* 2>/dev/null || true
+          # The container logs are where a failed `health` step's real cause is.
+          docker compose -p e2e logs --tail 100 2>/dev/null || true
