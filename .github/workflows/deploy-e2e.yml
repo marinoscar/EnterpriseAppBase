@@ -135,6 +135,9 @@ jobs:
           GOOGLE_CLIENT_SECRET=e2e-google-client-secret
           INITIAL_ADMIN_EMAIL=admin@example.test
           ANSWERS
+          # The CLI warns about a world-readable answers file, and it is right
+          # to: it holds the database password and the signing secrets.
+          chmod 600 "$HOME/e2e/answers.env"
 
       - name: Install
         run: |
