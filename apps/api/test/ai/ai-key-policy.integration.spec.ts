@@ -4,9 +4,10 @@
 //
 // The invariant this suite exists to prove, over every synchronous inference
 // ROUTE the HTTP surface offers (`POST /api/ai/responses`,
-// `POST /api/ai/responses/stream`, `POST /api/ai/embeddings`) plus the queued path
-// (`POST /api/ai/runs`, executed via its `ai.response.run` handler exactly
-// as `ai-kill-switch.integration.spec.ts` drives it):
+// `POST /api/ai/responses/stream`, `POST /api/ai/embeddings`) plus the queued
+// paths (`POST /api/ai/runs`, executed via its `ai.response.run` handler
+// exactly as `ai-kill-switch.integration.spec.ts` drives it, and
+// `POST /api/ai/images`, executed via `ai.image.generate` — #437):
 //
 //   - `byok`, no user key            -> AI_KEY_REQUIRED, the ORG key is never
 //                                        even looked at (`FakeAiProvider`
@@ -42,6 +43,7 @@ import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
 import { createMockTestUser, authHeader } from '../helpers/auth-mock.helper';
 import {
   HARNESS_EMBEDDING_MODEL,
+  HARNESS_IMAGE_MODEL,
   HARNESS_USER,
   HARNESS_USER_KEY,
   HARNESS_ORG_KEY,
@@ -50,6 +52,8 @@ import { createAiHttpTestApp, type AiHttpTestApp, parseSse } from './ai-http.hel
 
 const BODY = { model: 'fake-model', input: 'hello' };
 const EMBED_BODY = { model: HARNESS_EMBEDDING_MODEL, input: ['hello', 'world'] };
+const IMAGE_BODY = { model: HARNESS_IMAGE_MODEL, prompt: 'a lighthouse' };
+const IMAGE_REQUEST = { operation: 'images.generate', provider: 'openai', model: HARNESS_IMAGE_MODEL, prompt: 'a lighthouse' };
 
 describe('AI key policy invariant — admin key never spent on a user’s own inference (#435)', () => {
   let app: AiHttpTestApp;
@@ -114,6 +118,32 @@ describe('AI key policy invariant — admin key never spent on a user’s own in
       expect(app.harness.fake.calls).toEqual([]);
     });
 
+    it('POST /api/ai/images: 403 AI_KEY_REQUIRED at queue time, nothing queued, org key untouched', async () => {
+      const res = await request(app.context.app.getHttpServer())
+        .post('/api/ai/images')
+        .set(authHeader(holderToken))
+        .send(IMAGE_BODY)
+        .expect(403);
+
+      expect(res.body.details.reason).toBe('AI_KEY_REQUIRED');
+      expect(app.harness.runRows).toEqual([]);
+      expect(app.harness.fake.calls).toEqual([]);
+    });
+
+    it('ai.image.generate: a queued image run also fails AI_KEY_REQUIRED when executed, org key untouched', async () => {
+      const handler = app.context.app.get(JobHandlerRegistry).get('ai.image.generate');
+      const created = await app.harness.prisma.aiRun.create({
+        data: { userId: HARNESS_USER, provider: 'openai', modelId: HARNESS_IMAGE_MODEL, status: 'pending', request: IMAGE_REQUEST },
+      });
+
+      await handler!.process({ id: 'job-img-1', payload: { runId: created.id } } as never);
+
+      const stored = app.harness.runRows.find((r) => r.id === created.id);
+      expect(stored?.status).toBe('failed');
+      expect(stored?.errorCode).toBe('AI_KEY_REQUIRED');
+      expect(app.harness.fake.calls).toEqual([]);
+    });
+
     it('POST /api/ai/runs -> the queued run also fails AI_KEY_REQUIRED when executed, org key untouched', async () => {
       const registry = app.context.app.get(JobHandlerRegistry);
       const handler = registry.get('ai.response.run');
@@ -170,6 +200,22 @@ describe('AI key policy invariant — admin key never spent on a user’s own in
         expect.objectContaining({ userId: HARNESS_USER, operation: 'embeddings', keySource: 'org' }),
       ]);
     });
+
+    it('POST /api/ai/images -> ai.image.generate: generated WITH the org key, usage row keySource=org', async () => {
+      const started = await request(app.context.app.getHttpServer())
+        .post('/api/ai/images')
+        .set(authHeader(holderToken))
+        .send(IMAGE_BODY)
+        .expect(202);
+
+      const handler = app.context.app.get(JobHandlerRegistry).get('ai.image.generate');
+      await handler!.process({ id: started.body.data.jobId, payload: { runId: started.body.data.runId } } as never);
+
+      expect(app.harness.fake.callsTo('images.generate').map((c) => c.apiKey)).toEqual([HARNESS_ORG_KEY]);
+      expect(app.harness.usageEvents).toEqual([
+        expect.objectContaining({ userId: HARNESS_USER, operation: 'images', keySource: 'org' }),
+      ]);
+    });
   });
 
   describe('a user key exists — it always wins, whatever the policy and however an org key is configured', () => {
@@ -180,7 +226,7 @@ describe('AI key policy invariant — admin key never spent on a user’s own in
       // file (deliberately) removes HARNESS_USER's key, and `reset()` does
       // not restore one it never set up itself — the harness instance, and
       // its in-memory key table, are shared across every test in this file.
-      app.harness.addUserKey(HARNESS_USER, HARNESS_USER_KEY, ['fake-model', HARNESS_EMBEDDING_MODEL]);
+      app.harness.addUserKey(HARNESS_USER, HARNESS_USER_KEY, ['fake-model', HARNESS_EMBEDDING_MODEL, HARNESS_IMAGE_MODEL]);
     });
 
     it('POST /api/ai/responses: the fake is called with the user key, never the org key', async () => {
@@ -244,6 +290,24 @@ describe('AI key policy invariant — admin key never spent on a user’s own in
       const stored = app.harness.runRows.find((r) => r.id === created.id);
       expect(stored?.status).toBe('succeeded');
       expect(app.harness.fake.apiKeys).toEqual([HARNESS_USER_KEY]);
+    });
+
+    it('the queued image path (POST /api/ai/images -> ai.image.generate) spends the user key, never the org key', async () => {
+      const started = await request(app.context.app.getHttpServer())
+        .post('/api/ai/images')
+        .set(authHeader(holderToken))
+        .send(IMAGE_BODY)
+        .expect(202);
+
+      const handler = app.context.app.get(JobHandlerRegistry).get('ai.image.generate');
+      await handler!.process({ id: started.body.data.jobId, payload: { runId: started.body.data.runId } } as never);
+
+      expect(app.harness.runRows.find((r) => r.id === started.body.data.runId)?.status).toBe('succeeded');
+      expect(app.harness.fake.callsTo('images.generate').map((c) => c.apiKey)).toEqual([HARNESS_USER_KEY]);
+      expect(app.harness.fake.apiKeys).not.toContain(HARNESS_ORG_KEY);
+      expect(app.harness.usageEvents).toEqual([
+        expect.objectContaining({ userId: HARNESS_USER, operation: 'images', keySource: 'user' }),
+      ]);
     });
   });
 

@@ -19,6 +19,8 @@ import type { AddressInfo } from 'node:net';
 import { AiConfigService, type AiPolicy } from '../../src/ai/config/ai-config.service';
 import { AiService } from '../../src/ai/runtime/ai.service';
 import { AiRunsService } from '../../src/ai/runtime/ai-runs.service';
+import { AiOutputWriter } from '../../src/ai/storage/ai-output-writer';
+import { AiStorageInputResolver } from '../../src/ai/storage/ai-storage-input.resolver';
 import {
   createAiRuntimeHarness,
   HARNESS_OTHER_USER,
@@ -83,6 +85,10 @@ export async function createAiHttpTestApp(opts: AiRuntimeHarnessOptions = {}): P
       { provide: AiService, useValue: harness.ai },
       { provide: AiRunsService, useValue: harness.runs },
       { provide: AiConfigService, useValue: harness.aiConfig },
+      // #437: the harness's in-memory object storage, so the image routes and
+      // the `ai.image.generate` handler read and write the same objects.
+      { provide: AiStorageInputResolver, useValue: harness.inputs },
+      { provide: AiOutputWriter, useValue: harness.outputs },
     ],
   });
 
@@ -110,6 +116,7 @@ export async function createAiHttpTestApp(opts: AiRuntimeHarnessOptions = {}): P
       harness.usageEvents.length = 0;
       harness.runRows.length = 0;
       harness.enqueued.length = 0;
+      harness.storage.reset();
       harness.setOrgKey(null);
       harness.removeUserKeys(HARNESS_OTHER_USER);
       harness.setPolicy({ ...BASE_POLICY, defaults: { ...BASE_POLICY.defaults } });

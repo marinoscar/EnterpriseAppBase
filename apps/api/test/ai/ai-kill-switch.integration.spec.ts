@@ -191,6 +191,7 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
     // it and fails loudly rather than silently skipping it.
     const KNOWN_AI_JOB_PAYLOADS: Record<string, unknown> = {
       'ai.response.run': null, // filled in per-test: needs a live run row
+      'ai.image.generate': null, // filled in per-test: needs a live image run row (#437)
       'ai.catalog.refresh': { providerId: 'openai' },
       'ai.keys.recheck': { provider: 'openai' },
       'ai.usage.purge': {},
@@ -238,6 +239,35 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
       await handler!.process({ id: 'job-kill-switch', payload: { runId: created.id } } as never);
 
       expect(app.harness.fake.calls).toEqual([]);
+      const stored = app.harness.runRows.find((r) => r.id === created.id);
+      expect(stored?.status).toBe('failed');
+      expect(stored?.errorCode).toBe('AI_DISABLED');
+    });
+
+    it('ai.image.generate: disabled makes zero provider calls and writes no storage, run fails with AI_DISABLED, job does not throw', async () => {
+      app.harness.setPolicy({ enabled: false });
+
+      const handler = registry.get('ai.image.generate');
+      expect(handler).toBeDefined();
+
+      // A stored image run the way `generateImage` writes one: the handler
+      // parses it with `parseStoredImageRunRequest` before any gate, so a
+      // malformed stub would fail AI_INVALID_REQUEST without ever reaching
+      // the kill switch.
+      const created = await app.harness.prisma.aiRun.create({
+        data: {
+          userId: HARNESS_USER,
+          provider: 'openai',
+          modelId: 'fake-image-model',
+          status: 'pending',
+          request: { operation: 'images.generate', provider: 'openai', model: 'fake-image-model', prompt: 'hello' },
+        },
+      });
+
+      await handler!.process({ id: 'job-kill-switch', payload: { runId: created.id } } as never);
+
+      expect(app.harness.fake.calls).toEqual([]);
+      expect(app.harness.storage.provider.upload).not.toHaveBeenCalled();
       const stored = app.harness.runRows.find((r) => r.id === created.id);
       expect(stored?.status).toBe('failed');
       expect(stored?.errorCode).toBe('AI_DISABLED');
