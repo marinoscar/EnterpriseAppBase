@@ -11,12 +11,14 @@ import { describeAiProviderConformance } from '../../testing/conformance';
 import { OpenAiClientFactory } from './openai-client.factory';
 import { OpenAiProviderAdapter } from './openai.adapter';
 import { functionCallItem, messageItem, responseFixture } from './testing/openai-fixtures';
-import { MockReply, OpenAiMockServer } from './testing/openai-mock-transport';
+import { MockReply, OpenAiMockServer, mockEmbeddingsBody } from './testing/openai-mock-transport';
 
 const VALID_KEY = 'sk-proj-conformance-valid-000000';
 const INVALID_KEY = 'sk-proj-conformance-revoked-0000';
 const MODEL = 'gpt-4o-2024-08-06';
 const BROKEN_MODEL = 'gpt-4o-broken';
+const EMBEDDING_MODEL = 'text-embedding-3-small';
+const BROKEN_EMBEDDING_MODEL = 'text-embedding-3-broken';
 
 function reply(response: OpenAiSdkResponse): MockReply {
   return { kind: 'response', response, chunkSize: 5 };
@@ -56,6 +58,10 @@ describeAiProviderConformance('OpenAiProviderAdapter (mocked transport)', () => 
     validKeys: [VALID_KEY],
     models: [MODEL, 'gpt-4o-mini', 'o3', 'text-embedding-3-small', 'whisper-1'],
     respond,
+    embed: (body) =>
+      body.model === BROKEN_EMBEDDING_MODEL
+        ? { kind: 'error', status: 500, error: { message: 'The server had an error.', type: 'server_error', param: null, code: null } }
+        : { kind: 'embeddings', body: mockEmbeddingsBody(body) },
   });
 
   return {
@@ -73,6 +79,11 @@ describeAiProviderConformance('OpenAiProviderAdapter (mocked transport)', () => 
         // Hosted tools are Phase 2 (#420).
         unsupportedRequest: { model: MODEL, input: 'search the web', tools: [{ type: 'web_search' }] },
         failingRequest: { model: BROKEN_MODEL, input: 'anything' },
+      },
+      embeddings: {
+        model: EMBEDDING_MODEL,
+        shortenTo: 256,
+        failingRequest: { model: BROKEN_EMBEDDING_MODEL, input: 'anything' },
       },
     },
   };

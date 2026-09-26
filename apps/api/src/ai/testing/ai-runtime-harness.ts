@@ -5,7 +5,9 @@
 // `UsableModelsService`, `AiUsageRecorder` and `AiRunsService`, over:
 //
 //   - `FakeAiProvider` registered as `openai` (the only id the settings
-//     schema has a slot for), recording every call and the key it carried;
+//     schema has a slot for), recording every call and the key it carried,
+//     with its embeddings port on and classifying each model exactly as the
+//     catalog row below does;
 //   - the in-memory key/model tables from `in-memory-ai-keys-prisma.ts`,
 //     extended with `user_settings`, `ai_usage_events` and `ai_runs`;
 //   - a stubbed settings row, org credential and job queue.
@@ -27,7 +29,12 @@ import { UsableModelsService } from '../keys/usable-models.service';
 import { AiService } from '../runtime/ai.service';
 import { AiRunsService } from '../runtime/ai-runs.service';
 import { AiUsageRecorder } from '../runtime/ai-usage.recorder';
-import { FAKE_TEXT_MODEL_CAPABILITIES, FakeAiProvider, type FakeAiProviderOptions } from './fake-ai-provider';
+import {
+  FAKE_EMBEDDING_MODEL_CAPABILITIES,
+  FAKE_TEXT_MODEL_CAPABILITIES,
+  FakeAiProvider,
+  type FakeAiProviderOptions,
+} from './fake-ai-provider';
 import { createInMemoryAiKeysPrisma } from './in-memory-ai-keys-prisma';
 
 export const HARNESS_USER = '11111111-1111-4111-8111-111111111111';
@@ -36,6 +43,8 @@ export const HARNESS_USER_KEY = 'sk-user-own-key-1111';
 export const HARNESS_ORG_KEY = 'sk-org-admin-key-9999';
 export const HARNESS_PROVIDER = 'openai';
 export const HARNESS_MODEL = 'fake-model';
+/** The default catalog's embedding model (`FAKE_EMBEDDING_MODEL_CAPABILITIES`). */
+export const HARNESS_EMBEDDING_MODEL = 'fake-embedding-model';
 
 export interface HarnessModel {
   modelId: string;
@@ -57,7 +66,7 @@ export interface AiRuntimeHarnessOptions {
   reachable?: string[];
   /** Whether an org key is stored. Default false. */
   orgKey?: boolean;
-  /** Catalog rows. Default: one fully capable `fake-model`. */
+  /** Catalog rows. Default: a fully capable `fake-model` and `fake-embedding-model`. */
   models?: HarnessModel[];
   fake?: FakeAiProviderOptions;
   /** `HARNESS_USER`'s `ai.defaultModel` setting. Default none. */
@@ -113,7 +122,10 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
   const enqueued: Array<Record<string, any>> = [];
   const settings = new Map<string, unknown>();
 
-  const models = opts.models ?? [{ modelId: HARNESS_MODEL }];
+  const models = opts.models ?? [
+    { modelId: HARNESS_MODEL },
+    { modelId: HARNESS_EMBEDDING_MODEL, capabilities: FAKE_EMBEDDING_MODEL_CAPABILITIES },
+  ];
 
   for (const model of models) {
     db.addModel({
@@ -234,7 +246,16 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
   };
 
   const registry = new AiProviderRegistry();
-  const fake = new FakeAiProvider({ id: HARNESS_PROVIDER, models: models.map((m) => m.modelId), ...opts.fake });
+  const catalogCapabilities = new Map(
+    models.map((m) => [m.modelId, m.capabilities ?? FAKE_TEXT_MODEL_CAPABILITIES] as const),
+  );
+  const fake = new FakeAiProvider({
+    id: HARNESS_PROVIDER,
+    models: models.map((m) => m.modelId),
+    classify: (modelId) => catalogCapabilities.get(modelId) ?? null,
+    embeddingsPort: true,
+    ...opts.fake,
+  });
 
   if (opts.registerProvider ?? true) {
     registry.register(fake);

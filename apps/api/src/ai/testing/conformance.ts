@@ -30,6 +30,7 @@ import { AiError, isAiErrorCode } from '../core/ai-error';
 import { aiModelCapabilitiesSchema } from '../core/capabilities';
 import { AiCallContext, AiProviderAdapter } from '../core/provider-adapter.interface';
 import { defineTool } from '../core/tools';
+import { AiEmbeddingRequest, AiEmbeddingResult } from '../core/types/media.types';
 import { AiOutputItem, AiResponse, AiResponseRequest, AiStreamEvent } from '../core/types/responses.types';
 
 export type AiConformanceScenario =
@@ -46,7 +47,12 @@ export type AiConformanceScenario =
   | 'responses.unsupported'
   | 'responses.invalidKey'
   | 'responses.providerError'
-  | 'responses.streamProviderError';
+  | 'responses.streamProviderError'
+  | 'embeddings.single'
+  | 'embeddings.batch'
+  | 'embeddings.dimensions'
+  | 'embeddings.invalidKey'
+  | 'embeddings.providerError';
 
 export interface AiConformanceFixtures {
   /** A key the provider rejects. */
@@ -67,6 +73,15 @@ export interface AiConformanceFixtures {
     unsupportedRequest: AiResponseRequest;
     /** A request that makes the provider fail (e.g. a mocked 500 / socket error). */
     failingRequest: AiResponseRequest;
+  };
+  /** Required when the adapter carries an `embeddings` port. */
+  embeddings?: {
+    /** A model with the `embeddings` capability. */
+    model: string;
+    /** A length `model` can be shortened to with `dimensions`; omit when it cannot. */
+    shortenTo?: number;
+    /** A request that makes the provider fail. */
+    failingRequest: AiEmbeddingRequest;
   };
   /** Runs before each scenario's calls — for a mocked transport that queues replies. */
   arrange?(scenario: AiConformanceScenario): void | Promise<void>;
@@ -89,6 +104,7 @@ export interface AiConformanceOptions {
 export const CONFORMANCE_TEXT_PROMPT = 'Reply with a short friendly greeting.';
 export const CONFORMANCE_STRUCTURED_PROMPT = 'What is the capital of France and roughly how many people live there?';
 export const CONFORMANCE_TOOL_PROMPT = 'What is the weather in Paris right now? Use the tool.';
+export const CONFORMANCE_EMBEDDING_INPUTS = ['The quick brown fox.', 'jumps over', 'the lazy dog.'];
 
 /** The structured-output schema the kit requests. */
 export const conformanceStructuredSchema = z.object({
@@ -173,6 +189,20 @@ function expectWellFormedResponse(response: AiResponse, adapter: AiProviderAdapt
   expect(typeof response.usage).toBe('object');
   expect(['stop', 'length', 'tool_calls', 'content_filter', 'error']).toContain(response.finishReason);
   expect(response.outputText).toBe(messageText(response.output));
+}
+
+function expectWellFormedEmbedding(result: AiEmbeddingResult, adapter: AiProviderAdapter, count: number): void {
+  expect(result.provider).toBe(adapter.id);
+  expect(typeof result.model).toBe('string');
+  expect(typeof result.usage).toBe('object');
+  expect(result.vectors).toHaveLength(count);
+  expect(result.dimensions).toBeGreaterThan(0);
+
+  for (const vector of result.vectors) {
+    expect(Array.isArray(vector)).toBe(true);
+    expect(vector).toHaveLength(result.dimensions);
+    expect(vector.every((value) => typeof value === 'number' && Number.isFinite(value))).toBe(true);
+  }
 }
 
 // ---- The suite ------------------------------------------------------------------------
@@ -412,6 +442,80 @@ export function describeAiProviderConformance(
           expect(last?.type).toBe('error');
           expect(isAiErrorCode((last as Extract<AiStreamEvent, { type: 'error' }>).code)).toBe(true);
         }
+      }));
+    });
+
+    describe('embeddings port', () => {
+      const port = () => {
+        const embeddings = subject.adapter.embeddings;
+        const fixture = subject.fixtures.embeddings;
+
+        if (!embeddings || !fixture) {
+          throw new Error('unreachable: guarded by whenPort()');
+        }
+
+        return { embeddings, fixture };
+      };
+
+      const whenPort = (fn: () => Promise<void>) => async () => {
+        if (!subject.adapter.embeddings) {
+          return;
+        }
+
+        expect(subject.fixtures.embeddings).toBeDefined();
+        await fn();
+      };
+
+      scenario('embeddings.single', 'a string input yields exactly one vector', whenPort(async () => {
+        const { embeddings, fixture } = port();
+        const result = await embeddings.embed({ model: fixture.model, input: CONFORMANCE_EMBEDDING_INPUTS[0] }, subject.ctx);
+
+        expectWellFormedEmbedding(result, subject.adapter, 1);
+      }));
+
+      scenario('embeddings.batch', 'a batch yields one vector per input, in input order', whenPort(async () => {
+        const { embeddings, fixture } = port();
+        const batch = await embeddings.embed({ model: fixture.model, input: CONFORMANCE_EMBEDDING_INPUTS }, subject.ctx);
+
+        expectWellFormedEmbedding(batch, subject.adapter, CONFORMANCE_EMBEDDING_INPUTS.length);
+
+        await subject.fixtures.arrange?.('embeddings.single');
+
+        const last = CONFORMANCE_EMBEDDING_INPUTS[CONFORMANCE_EMBEDDING_INPUTS.length - 1];
+        const alone = await embeddings.embed({ model: fixture.model, input: last }, subject.ctx);
+
+        expect(batch.vectors[batch.vectors.length - 1]).toEqual(alone.vectors[0]);
+      }));
+
+      scenario('embeddings.dimensions', '`dimensions` shortens every vector to that length', whenPort(async () => {
+        const { embeddings, fixture } = port();
+
+        if (fixture.shortenTo === undefined) {
+          return;
+        }
+
+        const result = await embeddings.embed(
+          { model: fixture.model, input: CONFORMANCE_EMBEDDING_INPUTS, dimensions: fixture.shortenTo },
+          subject.ctx,
+        );
+
+        expectWellFormedEmbedding(result, subject.adapter, CONFORMANCE_EMBEDDING_INPUTS.length);
+        expect(result.dimensions).toBe(fixture.shortenTo);
+      }));
+
+      scenario('embeddings.invalidKey', 'a rejected key surfaces as AI_KEY_INVALID', whenPort(async () => {
+        const { embeddings, fixture } = port();
+
+        await expectAiError(
+          () => embeddings.embed({ model: fixture.model, input: CONFORMANCE_EMBEDDING_INPUTS[0] }, invalidCtx()),
+          'AI_KEY_INVALID',
+        );
+      }));
+
+      scenario('embeddings.providerError', 'a provider failure surfaces as AiError, never a raw error', whenPort(async () => {
+        const { embeddings, fixture } = port();
+
+        await expectAiError(() => embeddings.embed(fixture.failingRequest, subject.ctx));
       }));
     });
   });
