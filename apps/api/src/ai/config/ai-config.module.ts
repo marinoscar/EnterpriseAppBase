@@ -10,6 +10,7 @@ import { AiConfigService } from './ai-config.service';
 import { AiEnabledGuard } from './ai-enabled.guard';
 import { AiModelsAdminService } from './ai-models-admin.service';
 import { AiProviderTestService } from './ai-provider-test.service';
+import { AiPublicController } from './ai-public.controller';
 
 // =============================================================================
 // AiConfigModule (issue #428, epic #419)
@@ -26,7 +27,7 @@ import { AiProviderTestService } from './ai-provider-test.service';
 
 @Module({
   imports: [SettingsModule, CredentialsModule, JobsModule, AiCoreModule],
-  controllers: [AiAdminController],
+  controllers: [AiAdminController, AiPublicController],
   providers: [
     AiConfigService,
     AiEnabledGuard,

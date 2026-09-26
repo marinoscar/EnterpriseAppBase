@@ -17,6 +17,7 @@ function policy(overrides: Partial<AiPolicy> = {}): AiPolicy {
 describe('AiConfigService', () => {
   let getAiPolicy: jest.Mock;
   let getSecret: jest.Mock;
+  let describe_: jest.Mock;
   let registry: AiProviderRegistry;
   let service: AiConfigService;
   let now: number;
@@ -26,11 +27,12 @@ describe('AiConfigService', () => {
     jest.spyOn(Date, 'now').mockImplementation(() => now);
     getAiPolicy = jest.fn().mockResolvedValue(policy());
     getSecret = jest.fn().mockResolvedValue('sk-org-key-123');
+    describe_ = jest.fn().mockResolvedValue(null);
     registry = new AiProviderRegistry();
     registry.register(new FakeAiProvider({ id: 'openai' }));
     service = new AiConfigService(
       { getAiPolicy } as never,
-      { getSecret } as never,
+      { getSecret, describe: describe_ } as never,
       registry,
     );
   });
@@ -123,7 +125,7 @@ describe('AiConfigService', () => {
     it('throws AI_PROVIDER_DISABLED when no adapter is registered', async () => {
       service = new AiConfigService(
         { getAiPolicy } as never,
-        { getSecret } as never,
+        { getSecret, describe: describe_ } as never,
         new AiProviderRegistry(),
       );
 
@@ -176,6 +178,46 @@ describe('AiConfigService', () => {
 
       expect(() => service.onModuleInit()).not.toThrow();
       await new Promise((resolve) => setImmediate(resolve));
+    });
+  });
+
+  describe('describePublic', () => {
+    it('returns no providers while AI is off', async () => {
+      getAiPolicy.mockResolvedValue(policy({ enabled: false, keyPolicy: 'byok_with_org_fallback' }));
+
+      await expect(service.describePublic()).resolves.toEqual({
+        enabled: false,
+        keyPolicy: 'byok_with_org_fallback',
+        providers: [],
+      });
+      expect(describe_).not.toHaveBeenCalled();
+    });
+
+    it('lists registered providers with enabled and hasOrgKey, never a key or hint', async () => {
+      describe_.mockResolvedValue({ hint: '••••-123', updatedAt: new Date() });
+
+      const view = await service.describePublic();
+
+      expect(view).toEqual({
+        enabled: true,
+        keyPolicy: 'byok',
+        providers: [{ id: 'openai', displayName: 'Fake AI', enabled: true, hasOrgKey: true }],
+      });
+      expect(JSON.stringify(view)).not.toContain('123');
+      expect(getSecret).not.toHaveBeenCalled();
+    });
+
+    it('reports a registered provider with no settings slot as disabled', async () => {
+      registry.register(new FakeAiProvider({ id: 'other', displayName: 'Other' }));
+
+      const view = await service.describePublic();
+
+      expect(view.providers).toContainEqual({
+        id: 'other',
+        displayName: 'Other',
+        enabled: false,
+        hasOrgKey: false,
+      });
     });
   });
 });

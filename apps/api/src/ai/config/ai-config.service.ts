@@ -6,6 +6,7 @@ import { SystemSettingsService } from '../../settings/system-settings/system-set
 import { AiError } from '../core/ai-error';
 import { AiProviderRegistry } from '../core/provider-registry';
 import { AI_CREDENTIAL_PURPOSE, aiCredentialName } from './ai-credential.constants';
+import type { AiPublicConfig } from './dto/ai-public-config.dto';
 
 // =============================================================================
 // AiConfigService — the one cached answer to "is AI on?" (issue #428, epic #419)
@@ -153,6 +154,37 @@ export class AiConfigService implements OnModuleInit {
    */
   async getOrgKey(providerId: string): Promise<string | null> {
     return this.credentials.getSecret(AI_CREDENTIAL_PURPOSE, aiCredentialName(providerId));
+  }
+
+  /**
+   * `GET /api/ai/config` — the narrow projection any signed-in user may read.
+   *
+   * Answered from the CACHED policy (it is polled by every browser) and only
+   * ever `describe`s a key, never decrypts one. Lists REGISTERED providers
+   * only: a settings slot with no adapter is nothing a user can call.
+   */
+  async describePublic(): Promise<AiPublicConfig> {
+    const policy = await this.resolve();
+
+    if (!policy.enabled) {
+      return { enabled: false, keyPolicy: policy.keyPolicy, providers: [] };
+    }
+
+    const providers = await Promise.all(
+      this.registry.ids().map(async (id) => {
+        const adapter = this.registry.get(id);
+        const info = await this.credentials.describe(AI_CREDENTIAL_PURPOSE, aiCredentialName(id));
+
+        return {
+          id,
+          displayName: adapter?.displayName ?? id,
+          enabled: providerPolicy(policy, id)?.enabled ?? false,
+          hasOrgKey: info !== null,
+        };
+      }),
+    );
+
+    return { enabled: true, keyPolicy: policy.keyPolicy, providers };
   }
 
   /**
