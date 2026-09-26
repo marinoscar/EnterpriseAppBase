@@ -311,6 +311,41 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
       expect(stored?.errorCode).toBe('AI_DISABLED');
     });
 
+    it('ai.audio.speech: disabled makes zero provider calls and writes no storage, run fails with AI_DISABLED, job does not throw', async () => {
+      app.harness.setPolicy({ enabled: false });
+
+      const handler = registry.get('ai.audio.speech');
+      expect(handler).toBeDefined();
+      (app.harness.storage.provider.upload as jest.Mock).mockClear();
+
+      // A stored speech run the way `speak` writes one (#439), voice and
+      // format resolved, so the kill switch is what refuses it.
+      const created = await app.harness.prisma.aiRun.create({
+        data: {
+          userId: HARNESS_USER,
+          provider: 'openai',
+          modelId: 'fake-speech-model',
+          status: 'pending',
+          request: {
+            operation: 'audio.speech',
+            provider: 'openai',
+            model: 'fake-speech-model',
+            input: 'hello',
+            voice: 'alloy',
+            format: 'mp3',
+          },
+        },
+      });
+
+      await handler!.process({ id: 'job-kill-switch', payload: { runId: created.id } } as never);
+
+      expect(app.harness.fake.calls).toEqual([]);
+      expect(app.harness.storage.provider.upload).not.toHaveBeenCalled();
+      const stored = app.harness.runRows.find((r) => r.id === created.id);
+      expect(stored?.status).toBe('failed');
+      expect(stored?.errorCode).toBe('AI_DISABLED');
+    });
+
     it('ai.catalog.refresh: disabled never reaches the provider registry', async () => {
       app.harness.setPolicy({ enabled: false });
 

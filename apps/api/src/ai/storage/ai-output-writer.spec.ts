@@ -65,6 +65,33 @@ describe('AiOutputWriter', () => {
     expect(storage.objects[1].storageKey).toMatch(/\/2-[0-9a-f-]{36}\.webp$/);
   });
 
+  it('stores a fixed-name output (#439) at <prefix><keyName>', async () => {
+    const { storage, writer } = setup();
+
+    const [stored] = await writer.write({
+      userId: USER,
+      runId: RUN,
+      files: [{ data: Buffer.from('ID3'), mimeType: 'audio/mpeg', keyName: 'speech.mp3', name: 'ai-speech.mp3' }],
+    });
+
+    expect(stored).toMatchObject({ name: 'ai-speech.mp3', mimeType: 'audio/mpeg', size: 3 });
+    expect(storage.objects[0].storageKey).toBe(`${aiOutputKeyPrefix(USER, RUN)}speech.mp3`);
+    expect(storage.blobs.get(storage.objects[0].storageKey)?.toString()).toBe('ID3');
+  });
+
+  it.each([['../escape.mp3'], ['a/b.mp3'], ['.hidden'], [''], ['sp ace.mp3']])(
+    'refuses the key name %j and stores nothing',
+    async (keyName) => {
+      const { storage, writer } = setup();
+
+      await expect(
+        writer.write({ userId: USER, runId: RUN, files: [{ data: Buffer.from('x'), mimeType: 'audio/mpeg', keyName }] }),
+      ).rejects.toThrow(/Invalid AI output key name/);
+      expect(storage.objects).toEqual([]);
+      expect(storage.blobs.size).toBe(0);
+    },
+  );
+
   it('writes under a prefix the storage purge knows about', () => {
     expect(aiOutputKeyPrefix(USER, RUN).startsWith(AI_OUTPUTS_KEY_PREFIX)).toBe(true);
     expect(STORAGE_KEY_PREFIXES).toContain(AI_OUTPUTS_KEY_PREFIX);
@@ -134,6 +161,7 @@ describe('AiOutputWriter', () => {
   it('maps MIME types to extensions, falling back to bin', () => {
     expect(extensionForMime('image/jpeg')).toBe('jpg');
     expect(extensionForMime('audio/mpeg')).toBe('mp3');
+    expect(extensionForMime('audio/pcm')).toBe('pcm');
     expect(extensionForMime('application/x-unknown')).toBe('bin');
   });
 });
