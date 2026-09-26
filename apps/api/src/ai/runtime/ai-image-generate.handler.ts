@@ -58,7 +58,8 @@ import type { AiImageResult } from '../core/types/media.types';
 import { AiOutputWriter, type AiStoredOutput } from '../storage/ai-output-writer';
 import { aiErrorFromStorage } from '../storage/ai-storage-errors';
 import { AiService } from './ai.service';
-import { aiRunOperation, parseStoredImageRunRequest } from './ai-image-run-request';
+import { AI_IMAGE_OPERATIONS, type AiImageOperation, parseStoredImageRunRequest } from './ai-image-run-request';
+import { aiRunOperation } from './ai-run-operation';
 import { AI_RUN_CANCEL_POLL_MS, AI_RUN_TERMINAL_CODES } from './ai-response-run.handler';
 import { AI_IMAGE_GENERATE_TYPE, AI_RUN_SUBJECT_TYPE, AiRunsService } from './ai-runs.service';
 import type { AiImageRunOutput } from './ai-runtime.types';
@@ -116,7 +117,7 @@ export class AiImageGenerateHandler implements JobHandler, OnModuleInit {
       return;
     }
 
-    if (aiRunOperation(run.request) === 'responses') {
+    if (!AI_IMAGE_OPERATIONS.includes(aiRunOperation(run.request) as AiImageOperation)) {
       await this.runs.fail(runId, 'AI_INVALID_REQUEST', 'This run is not an image run.');
       return;
     }

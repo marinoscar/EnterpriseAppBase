@@ -12,8 +12,8 @@
 //   'images.edit'     `AiUserClient.editImage`
 //
 // The discriminator lives IN the request rather than in a new column so no
-// migration is needed and an old row reads exactly as before (`aiRunOperation`
-// treats a missing `operation` as `'responses'`).
+// migration is needed and an old row reads exactly as before (`aiRunOperation`,
+// `ai-run-operation.ts`, treats a missing `operation` as `'responses'`).
 //
 // INPUTS BY REFERENCE. An edit's source images and mask are stored as
 // storage object ids, never as bytes: the job re-resolves them (ownership
@@ -39,9 +39,6 @@ import {
 export const AI_IMAGE_OPERATIONS = ['images.generate', 'images.edit'] as const;
 export type AiImageOperation = (typeof AI_IMAGE_OPERATIONS)[number];
 
-/** Every operation a run can carry. */
-export type AiRunOperation = 'responses' | AiImageOperation;
-
 export const storedAiImageRunRequestSchema = z.object({
   operation: z.enum(AI_IMAGE_OPERATIONS),
   provider: z.string().min(1),
@@ -60,13 +57,6 @@ export const storedAiImageRunRequestSchema = z.object({
 });
 
 export type StoredAiImageRunRequest = z.infer<typeof storedAiImageRunRequestSchema>;
-
-/** Which operation a stored run request carries. A request without one is a responses run. */
-export function aiRunOperation(request: unknown): AiRunOperation {
-  const operation = (request as { operation?: unknown } | null)?.operation;
-
-  return (AI_IMAGE_OPERATIONS as readonly unknown[]).includes(operation) ? (operation as AiImageOperation) : 'responses';
-}
 
 /** The stored request, validated on the way back in (a JSONB column is a trust boundary). */
 export function parseStoredImageRunRequest(value: unknown): StoredAiImageRunRequest {

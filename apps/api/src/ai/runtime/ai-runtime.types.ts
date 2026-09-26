@@ -11,7 +11,13 @@
 import type { z } from 'zod';
 
 import type { AiDefinedTool } from '../core/tools';
-import type { AiEmbeddingRequest, AiImageGenerationRequest } from '../core/types/media.types';
+import type {
+  AiEmbeddingRequest,
+  AiImageGenerationRequest,
+  AiTranscriptionSegment,
+  AiTranscriptionTimestampGranularity,
+  AiTranscriptionWord,
+} from '../core/types/media.types';
 import type { AiResponse, AiResponseRequest, AiStreamEvent, AiUsage } from '../core/types/responses.types';
 
 /**
@@ -50,6 +56,29 @@ export type AiEditImageRequest = AiGenerateImageRequest & {
   /** A PNG whose transparent areas mark what may change. */
   maskStorageObjectId?: string;
 };
+
+/**
+ * `transcribe`'s request (#438): a recording the caller uploaded, BY STORAGE
+ * OBJECT ID — their own (or they hold `storage:read_any`), `ready`, `audio/*`
+ * or `video/mp4`/`video/webm`, and no larger than the provider accepts
+ * (25 MiB for OpenAI).
+ *
+ * `model` is optional: omitted, the first model the caller can use that
+ * declares `audio_transcription` (by provider, then model id — the order
+ * `GET /api/ai/models` lists them in) — never the chat `ai.defaultModel`.
+ */
+export interface AiTranscribeRequest {
+  storageObjectId: string;
+  provider?: string;
+  model?: string;
+  /** ISO-639-1 language hint (`en`); improves accuracy and latency. */
+  language?: string;
+  /** Vocabulary/context hint (names, jargon), at most 4000 characters. */
+  prompt?: string;
+  /** Segment and/or word timestamps, where the model supports them (OpenAI: Whisper). */
+  timestampGranularities?: AiTranscriptionTimestampGranularity[];
+  providerOptions?: Record<string, Record<string, unknown>>;
+}
 
 /** Per-call options every facade method accepts. */
 export interface AiCallOptions {
@@ -153,8 +182,26 @@ export interface AiImageRunOutput {
   usage: AiUsage;
 }
 
-/** What a succeeded run's `output` holds: a response, or an image run's stored images. */
-export type AiRunOutput = AiResponse | AiImageRunOutput;
+/**
+ * A succeeded transcription run's `output` (#438): the transcript itself.
+ * `storageObjectId` is the recording it was made from.
+ */
+export interface AiTranscriptionRunOutput {
+  type: 'transcription';
+  provider: string;
+  model: string;
+  storageObjectId: string;
+  text: string;
+  /** As the provider reports it (OpenAI Whisper: a language name such as `english`). */
+  language?: string;
+  durationSeconds?: number;
+  segments?: AiTranscriptionSegment[];
+  words?: AiTranscriptionWord[];
+  usage: AiUsage;
+}
+
+/** What a succeeded run's `output` holds: a response, an image run's stored images, or a transcript. */
+export type AiRunOutput = AiResponse | AiImageRunOutput | AiTranscriptionRunOutput;
 
 /** A background run as its owner sees it. Carries no request and no key. */
 export interface AiRunView {
@@ -162,7 +209,7 @@ export interface AiRunView {
   status: AiRunStatus;
   provider: string;
   modelId: string;
-  /** Once `succeeded`: the `AiResponse`, or an image run's `AiImageRunOutput`. */
+  /** Once `succeeded`: the `AiResponse`, an image run's `AiImageRunOutput`, or an `AiTranscriptionRunOutput`. */
   output: AiRunOutput | null;
   errorCode: string | null;
   errorMessage: string | null;
