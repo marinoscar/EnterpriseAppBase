@@ -7,6 +7,7 @@ import { AiAdminController } from './ai-admin.controller';
 import { AiConfigAdminService } from './ai-config-admin.service';
 import { AiConfigService } from './ai-config.service';
 import { AiEnabledGuard } from './ai-enabled.guard';
+import { AiProviderTestService } from './ai-provider-test.service';
 
 // =============================================================================
 // AiConfigModule (issue #428, epic #419)
@@ -24,7 +25,7 @@ import { AiEnabledGuard } from './ai-enabled.guard';
 @Module({
   imports: [SettingsModule, CredentialsModule, AiCoreModule],
   controllers: [AiAdminController],
-  providers: [AiConfigService, AiEnabledGuard, AiConfigAdminService],
+  providers: [AiConfigService, AiEnabledGuard, AiConfigAdminService, AiProviderTestService],
   exports: [AiConfigService, AiEnabledGuard],
 })
 export class AiConfigModule {}

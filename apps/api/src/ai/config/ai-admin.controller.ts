@@ -7,6 +7,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  Post,
   Put,
 } from '@nestjs/common';
 import { ApiHeader, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
@@ -16,8 +17,10 @@ import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { PERMISSIONS } from '../../common/constants/roles.constants';
 import { ErrorDto } from '../../common/dto/error.dto';
 import { AiConfigAdminService } from './ai-config-admin.service';
+import { AiProviderTestService } from './ai-provider-test.service';
 import { AiConfigResponseDto, AiKeyRemovalResponseDto } from './dto/ai-config-response.dto';
 import { RemoveAiProviderKeyDto, SetAiProviderKeyDto } from './dto/ai-provider-key.dto';
+import { AiProviderTestResultDto, TestAiProviderDto } from './dto/ai-provider-test.dto';
 import { UpdateAiConfigDto } from './dto/update-ai-config.dto';
 
 // =============================================================================
@@ -34,6 +37,7 @@ import { UpdateAiConfigDto } from './dto/update-ai-config.dto';
 //   PUT    /api/admin/ai/config                      ai_config:write
 //   PUT    /api/admin/ai/providers/:provider/key     ai_config:write
 //   DELETE /api/admin/ai/providers/:provider/key     ai_config:write
+//   POST   /api/admin/ai/providers/:provider/test    ai_config:write (always 200)
 //
 // ⚠ THE ADMIN KEY IS WRITE-ONLY. No route here, or anywhere, returns it; the
 // responses carry `keyStatus` — a masked hint built without decrypting.
@@ -48,7 +52,10 @@ const PROVIDER_PARAM = {
 @ApiTags('AI Administration')
 @Controller('admin/ai')
 export class AiAdminController {
-  constructor(private readonly admin: AiConfigAdminService) {}
+  constructor(
+    private readonly admin: AiConfigAdminService,
+    private readonly providerTest: AiProviderTestService,
+  ) {}
 
   @Get('config')
   @Auth({ permissions: [PERMISSIONS.AI_CONFIG_READ] })
@@ -165,5 +172,37 @@ export class AiAdminController {
     @CurrentUser('id') userId: string,
   ) {
     return this.admin.deleteKey(provider, userId);
+  }
+
+  @Post('providers/:provider/test')
+  @Auth({ permissions: [PERMISSIONS.AI_CONFIG_WRITE] })
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Test a provider key (Admin only)',
+    description:
+      'Runs up to three checks against the provider: `credentials` (the key is accepted), ' +
+      '`list_models` (how many models it can see) and `responses_smoke` (one tiny test ' +
+      'response — only when an admin-enabled, non-deprecated text model is visible to the ' +
+      'key; otherwise skipped with `no_eligible_model`). A blank `apiKey` tests the stored ' +
+      'admin key; a blank `baseUrl` uses the stored override. **Nothing is saved.**\n\n' +
+      '**This returns HTTP 200 even when the key is broken** — a refused key is a successful ' +
+      'diagnosis. Read `success`, and each check\'s `code` (`ok`, `not_configured`, ' +
+      '`not_attempted`, `no_eligible_model`, `not_supported`, or an AI error code such as ' +
+      '`AI_KEY_INVALID` / `AI_RATE_LIMITED` / `AI_PROVIDER_UNAVAILABLE`). Gated on ' +
+      '`ai_config:write` because it spends a request on the provider account.',
+  })
+  @ApiParam(PROVIDER_PARAM)
+  @ApiResponse({
+    status: 200,
+    description: 'The outcome of the checks. Check `success`.',
+    type: AiProviderTestResultDto,
+  })
+  @ApiResponse({ status: 404, description: 'No adapter is registered for this provider', type: ErrorDto })
+  async testProvider(
+    @Param('provider') provider: string,
+    @Body() dto: TestAiProviderDto,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.providerTest.test(provider, dto, userId);
   }
 }
