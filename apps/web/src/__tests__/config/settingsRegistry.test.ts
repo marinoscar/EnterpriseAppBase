@@ -156,8 +156,20 @@ describe('visibleSettingsSections — search', () => {
 });
 
 describe('visibleSettingsSections — works identically against USER_SETTINGS_SECTIONS', () => {
-  it('shows every user-settings card, since none of them declare a permission', () => {
+  it('shows every user-settings card that declares no permission and no feature, with no permissions held', () => {
+    // Since #425 one user card (`AI Keys`) declares both a permission (`ai:use`)
+    // and a feature (`ai`); every other one is still open to any signed-in user.
     const result = visibleSettingsSections(USER_SETTINGS_SECTIONS, () => false);
+    const ungated = USER_SETTINGS_SECTIONS.flatMap((section) => section.cards)
+      .filter((card) => !card.permission && !card.feature)
+      .map((card) => card.title);
+
+    expect(titlesOf(result).sort()).toEqual(ungated.sort());
+    expect(titlesOf(result)).not.toContain('AI Keys');
+  });
+
+  it('shows every user-settings card once the permission is held and AI is on', () => {
+    const result = visibleSettingsSections(USER_SETTINGS_SECTIONS, () => true, '', { ai: true });
 
     expect(titlesOf(result).sort()).toEqual(titlesOf(USER_SETTINGS_SECTIONS).sort());
   });
@@ -678,10 +690,12 @@ describe('the Operations group (#266)', () => {
   );
 
   it('is a third group, and the first two are untouched', () => {
+    // `AI` (#425) is APPENDED as a fourth group after it — see the AI suite.
     expect(ADMIN_SECTIONS.map((section) => section.label)).toEqual([
       'General',
       'Access',
       'Operations',
+      'AI',
     ]);
   });
 
@@ -970,5 +984,119 @@ describe('the Operations group (#266)', () => {
       // And the segment-boundary rule holds around the new path too.
       expect(titleFor('/admin/settings/db-backup-archive')).toBe(ADMIN_HUB_TITLE);
     });
+  });
+});
+
+/**
+ * Issue #425, epic #419 — the feature axis of the registry, and the AI cards.
+ */
+describe('visibleSettingsSections — feature gating (#425)', () => {
+  function featureFixture(): SettingsSectionDef[] {
+    return [
+      {
+        label: 'Mixed',
+        cards: [
+          { title: 'Plain', description: 'no gate', Icon, path: '/f/plain' },
+          { title: 'Featured', description: 'ai only', Icon, path: '/f/featured', feature: 'ai' },
+          {
+            title: 'Forced',
+            description: 'alwaysShow does not beat a feature',
+            Icon,
+            path: '/f/forced',
+            alwaysShow: true,
+            feature: 'ai',
+          },
+        ],
+      },
+      {
+        label: 'Only Featured',
+        cards: [{ title: 'Lonely', description: 'ai only', Icon, path: '/f/lonely', feature: 'ai' }],
+      },
+    ];
+  }
+
+  it('hides feature cards when no feature map is passed (backwards compatible, fail closed)', () => {
+    const result = visibleSettingsSections(featureFixture(), () => true);
+    expect(titlesOf(result)).toEqual(['Plain']);
+  });
+
+  it('drops a section emptied by the feature gate', () => {
+    const result = visibleSettingsSections(featureFixture(), () => true, '', { ai: false });
+    expect(result.map((section) => section.label)).toEqual(['Mixed']);
+  });
+
+  it('shows feature cards when the feature is on', () => {
+    const result = visibleSettingsSections(featureFixture(), () => true, '', { ai: true });
+    expect(titlesOf(result)).toEqual(['Plain', 'Featured', 'Forced', 'Lonely']);
+  });
+});
+
+describe('settingsPageTitle — feature gating (#425)', () => {
+  it('titles AI Models by longest prefix only while AI is on', () => {
+    const path = '/admin/settings/ai/models';
+    expect(settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, path, { ai: true })).toBe(
+      'AI Models',
+    );
+    // Off: the card does not exist, so its parent route owns the title.
+    expect(settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, path)).toBe('AI');
+  });
+
+  it('titles the AI page whether or not AI is on', () => {
+    for (const features of [{}, { ai: true }]) {
+      expect(
+        settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, '/admin/settings/ai', features),
+      ).toBe('AI');
+    }
+  });
+
+  it('falls back to the user hub title for /settings/ai while AI is off', () => {
+    expect(settingsPageTitle(USER_SETTINGS_SECTIONS, USER_HUB_PATH, USER_HUB_TITLE, '/settings/ai')).toBe(
+      USER_HUB_TITLE,
+    );
+    expect(
+      settingsPageTitle(USER_SETTINGS_SECTIONS, USER_HUB_PATH, USER_HUB_TITLE, '/settings/ai', { ai: true }),
+    ).toBe('AI Keys');
+  });
+});
+
+describe('the AI group (#425)', () => {
+  const aiSection = ADMIN_SECTIONS.find((section) => section.label === 'AI');
+  const cards = new Map((aiSection?.cards ?? []).map((card) => [card.title, card]));
+
+  it('is APPENDED as the last group, leaving every earlier card in place', () => {
+    expect(ADMIN_SECTIONS[ADMIN_SECTIONS.length - 1]).toBe(aiSection);
+    expect(aiSection?.cards.map((card) => card.title)).toEqual(['AI', 'AI Models']);
+  });
+
+  it('gates both cards on ai_config:read — the admin AI controller’s read permission', () => {
+    expect(cards.get('AI')?.permission).toBe('ai_config:read');
+    expect(cards.get('AI Models')?.permission).toBe('ai_config:read');
+  });
+
+  it('never feature-gates the AI card — it is where AI is switched on', () => {
+    expect(cards.get('AI')?.feature).toBeUndefined();
+    expect(cards.get('AI')?.path).toBe('/admin/settings/ai');
+  });
+
+  it('feature-gates AI Models and nests it under the AI route', () => {
+    expect(cards.get('AI Models')?.feature).toBe('ai');
+    expect(cards.get('AI Models')?.path).toBe('/admin/settings/ai/models');
+  });
+
+  it('shows neither card to an admin without ai_config:read — the pre-AI hub is unchanged', () => {
+    const preAi = ['system_settings:read', 'users:read', 'jobs:read', 'nodes:read'];
+    const result = visibleSettingsSections(
+      ADMIN_SECTIONS,
+      (permission) => preAi.includes(permission),
+      '',
+      { ai: true },
+    );
+    expect(result.map((section) => section.label)).not.toContain('AI');
+  });
+
+  it('declares AI Keys in the user Security group on ai:use, feature-gated', () => {
+    const security = USER_SETTINGS_SECTIONS.find((section) => section.label === 'Security');
+    const aiKeys = security?.cards.find((card) => card.title === 'AI Keys');
+    expect(aiKeys).toMatchObject({ path: '/settings/ai', permission: 'ai:use', feature: 'ai' });
   });
 });

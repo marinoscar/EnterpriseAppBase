@@ -384,8 +384,24 @@ export interface UserSettings {
    * registry default. Never backfill it with a materialised object.
    */
   notifications?: NotificationPreferences;
+  /**
+   * AI preferences (#430, epic #419). Optional and usually absent: no account
+   * has it until the user picks a default model on `/settings/ai`.
+   */
+  ai?: UserAiSettings;
   updatedAt: string;
   version: number;
+}
+
+/** The model a user's AI requests default to — a provider/model pair, never a key. */
+export interface AiDefaultModel {
+  provider: string;
+  modelId: string;
+}
+
+/** `user_settings.ai` — `defaultModel: null` means "no default chosen". */
+export interface UserAiSettings {
+  defaultModel?: AiDefaultModel | null;
 }
 
 /**
@@ -443,6 +459,8 @@ export interface UserSettingsUpdate {
    * exactly the one key it changed and leave every other preference absent.
    */
   notifications?: NotificationPreferencesPatch | null;
+  /** AI preferences (#430). `defaultModel: null` clears the saved default. */
+  ai?: UserAiSettings;
 }
 
 /**
@@ -955,6 +973,57 @@ export interface AboutDatabase {
   responseTime: string;
 }
 
+/** Which `appctl deploy` subcommand wrote a record (issue #392). */
+export type DeployCommand = 'install' | 'update';
+
+/**
+ * The reverse proxy in front of this deployment, as the deploy recorded it
+ * (issue #392). Every field may be `null` — an older record, or a value the
+ * CLI could not determine.
+ */
+export interface AboutProxy {
+  mode: 'container' | 'host' | null;
+  container: string | null;
+  /** ISO-8601. When the TLS certificate the proxy serves expires. */
+  certificateExpiresAt: string | null;
+}
+
+/**
+ * The host the deploy ran on, captured AT DEPLOY TIME (issue #392) — not live.
+ * `capturedAt` says how old it is.
+ */
+export interface AboutHost {
+  hostname: string | null;
+  os: string | null;
+  kernel: string | null;
+  arch: string | null;
+  cpus: number | null;
+  memoryBytes: number | null;
+  dockerVersion: string | null;
+  composeVersion: string | null;
+  capturedAt: string | null;
+}
+
+/** One successful deploy, newest first, capped at 20 by the writer (issue #392). */
+export interface AboutHistoryEntry {
+  /** ISO-8601 finish time. */
+  at: string;
+  command: DeployCommand;
+  commitSha: string | null;
+  previousCommitSha: string | null;
+  ref: string | null;
+  durationMs: number | null;
+  cliVersion: string | null;
+  outcome: 'success';
+}
+
+/** Live facts about the API process itself — never read from disk (issue #392). */
+export interface AboutRuntime {
+  processStartedAt: string | null;
+  nodeVersion: string | null;
+  environment: string | null;
+}
+
 /** `ok` — a document was read. `absent` — nothing there. `invalid` — unusable. */
 export type DeployInfoStatus = 'ok' | 'absent' | 'invalid';
 
@@ -979,6 +1048,16 @@ export interface AboutResponse {
   domain: string | null;
   remote: AboutRemote | null;
   run: AboutRun | null;
+
+  // Issue #392 — additive fields. OPTIONAL as well as nullable: an API or a
+  // deploy record older than #392 simply does not carry them, and the page
+  // must render exactly as it did before when they are missing.
+  lastCommand?: DeployCommand | null;
+  bindPort?: number | null;
+  proxy?: AboutProxy | null;
+  host?: AboutHost | null;
+  history?: AboutHistoryEntry[] | null;
+  runtime?: AboutRuntime | null;
 
   /** `null` PLUS `databaseError`, never a 503. A fact to display, not a page error. */
   database: AboutDatabase | null;

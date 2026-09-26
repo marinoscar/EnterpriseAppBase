@@ -51,6 +51,8 @@ import CampaignOutlinedIcon from '@mui/icons-material/CampaignOutlined';
 // About (#401, epic #397) — the running system's own identity: which commit,
 // which version, installed when.
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import AutoAwesomeOutlinedIcon from '@mui/icons-material/AutoAwesomeOutlined';
+import ModelTrainingOutlinedIcon from '@mui/icons-material/ModelTrainingOutlined';
 
 /**
  * One settings page, fully described for every surface that draws it.
@@ -81,6 +83,43 @@ export interface SettingsCardDef {
    * REACHABILITY gate and a content gate.
    */
   alwaysShow?: boolean;
+  /**
+   * A deployment-wide FEATURE this card only exists under (issue #425, epic
+   * #419). Absent means "always part of the IA". Present means the card is
+   * hidden unless the caller's feature map says that feature is on —
+   * `features[feature] === true`, so an omitted map (every caller that
+   * predates this field) hides it too, failing closed.
+   *
+   * A third axis, orthogonal to `permission`: permission asks "may THIS USER
+   * see it?", `feature` asks "does it exist in THIS DEPLOYMENT right now?".
+   * The `AI Models` card needs both — `ai_config:read` AND AI switched on —
+   * while the `AI` card itself deliberately carries no `feature`, because it
+   * is the page an administrator switches AI on from.
+   *
+   * Applied BEFORE `alwaysShow`: a feature that is off means the page is not
+   * there to reach, which no content-gating escape hatch can change.
+   */
+  feature?: SettingsFeatureKey;
+}
+
+/** The deployment features a card may be gated on. One today; a union so a second is a one-word change. */
+export type SettingsFeatureKey = 'ai';
+
+/**
+ * Which features are on, as `visibleSettingsSections` / `settingsPageTitle` /
+ * `isDestinationVisible` read it. Partial: a missing key is "off".
+ */
+export type SettingsFeatures = Partial<Record<SettingsFeatureKey, boolean>>;
+
+/**
+ * Whether a card's `feature` gate (if any) is open under `features`. Exported
+ * so every consumer asks the same question the same way.
+ */
+export function isFeatureEnabled(
+  feature: SettingsFeatureKey | undefined,
+  features: SettingsFeatures = {},
+): boolean {
+  return feature === undefined || features[feature] === true;
 }
 
 /** A titled group of cards — an `overline` header on the hub, a `ListSubheader` in the rail. */
@@ -493,6 +532,46 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
       },
     ],
   },
+  {
+    // Issue #425, epic #419. A FOURTH group, APPENDED — the same append-only
+    // rule `Broadcasts` and `About` followed inside Operations, one level up:
+    // the hub, the rail and the drill-down list render this array in
+    // declaration order, and appending keeps every existing card where it was
+    // (the pixel baselines in `tests/visual` hold at `maxDiffPixels: 4`).
+    //
+    // Both cards gate on `ai_config:read`, the literal string the admin AI
+    // controller enforces on its reads (`PERMISSIONS.AI_CONFIG_READ`, #423 /
+    // #428). Saving, storing a key, probing a provider and editing a model all
+    // need `ai_config:write`, which each PAGE gates internally — the card gate
+    // is about REACHABILITY.
+    label: 'AI',
+    cards: [
+      {
+        // NO `feature`, deliberately: this is the page an administrator
+        // switches AI ON from. Gating it on AI being on would make the switch
+        // unreachable in exactly the state it exists to change.
+        title: 'AI',
+        description:
+          'Switch AI on for this deployment, choose whose keys pay for calls, and configure each provider.',
+        Icon: AutoAwesomeOutlinedIcon,
+        path: '/admin/settings/ai',
+        permission: 'ai_config:read',
+      },
+      {
+        // Nested UNDER the AI route, so `settingsPageTitle`'s longest-prefix
+        // rule titles it "AI Models" rather than "AI" — the Job Insights
+        // precedent. Feature-gated: a model catalogue for a switched-off
+        // feature is a page about nothing.
+        title: 'AI Models',
+        description:
+          'Review the models each provider offers, classify what they can do, and choose which ones users may call.',
+        Icon: ModelTrainingOutlinedIcon,
+        path: '/admin/settings/ai/models',
+        permission: 'ai_config:read',
+        feature: 'ai',
+      },
+    ],
+  },
 ];
 
 /**
@@ -524,17 +603,24 @@ export const ADMIN_HUB_TITLE = 'Settings';
  * description. Matching descriptions too would mean a two-letter query
  * surfacing eight cards because their prose happens to share a word — a worse
  * result set than a strict title match, and one the user cannot predict.
+ *
+ * `features` (#425) is the deployment feature map a card's `feature` field is
+ * checked against. Optional and fail-closed: a caller that passes none hides
+ * every feature-gated card, so no pre-existing caller can surface one by
+ * accident.
  */
 export function visibleSettingsSections(
   sections: SettingsSectionDef[],
   hasPermission: (permission: string) => boolean,
   query = '',
+  features: SettingsFeatures = {},
 ): SettingsSectionDef[] {
   const needle = query.trim().toLowerCase();
   return sections
     .map((section) => ({
       label: section.label,
       cards: section.cards.filter((card) => {
+        if (!isFeatureEnabled(card.feature, features)) return false;
         if (needle && !card.title.toLowerCase().includes(needle)) return false;
         if (card.alwaysShow) return true;
         if (!card.permission) return true;
@@ -569,12 +655,19 @@ export function visibleSettingsSections(
  * `sections`, `hubPath` and `hubTitle` are parameters for the same reason
  * `visibleSettingsSections` takes `sections`: #96 calls this with the user
  * registry and `/settings`.
+ *
+ * `features` applies the same `feature` gate the hub does (#425): a card whose
+ * feature is off does not exist, so it cannot title a page — the path falls
+ * back to its next-longest owner or the hub title, exactly as an unregistered
+ * path would. Permission is deliberately NOT applied here, as before: a route
+ * the user reached is titled whatever its gate said.
  */
 export function settingsPageTitle(
   sections: SettingsSectionDef[],
   hubPath: string,
   hubTitle: string,
   pathname: string,
+  features: SettingsFeatures = {},
 ): string | null {
   if (pathname !== hubPath && !pathname.startsWith(`${hubPath}/`)) return null;
 
@@ -582,6 +675,7 @@ export function settingsPageTitle(
   for (const section of sections) {
     for (const card of section.cards) {
       if (!card.path) continue;
+      if (!isFeatureEnabled(card.feature, features)) continue;
       const matches = pathname === card.path || pathname.startsWith(`${card.path}/`);
       if (matches && (!best || card.path.length > best.length)) {
         best = { title: card.title, length: card.path.length };

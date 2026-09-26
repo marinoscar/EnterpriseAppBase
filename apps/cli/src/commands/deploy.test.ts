@@ -42,6 +42,20 @@ interface RunResult {
   error: unknown;
 }
 
+/**
+ * A runCommand that answers every probe as a missing binary.
+ *
+ * `doctor` resolves the proxy runtime (`docker inspect`, `nginx -v`) before it
+ * runs any check, so without this the tests below would spawn real processes.
+ * Every probe failing lands on the documented default -- container mode -- and
+ * the injected checks never call it at all.
+ */
+const noProcesses: typeof import('../deploy/executor.js').runCommand = (async (
+  argv: readonly string[],
+) => {
+  throw new Error(`${argv[0] ?? ''}: command not found`);
+}) as typeof import('../deploy/executor.js').runCommand;
+
 async function runDoctor(
   argv: readonly string[],
   checks: readonly Check[],
@@ -54,6 +68,7 @@ async function runDoctor(
   program.exitOverride();
   registerDeployCommand(program, {
     checks,
+    runCommand: noProcesses,
     stdout: { write: (chunk: string) => stdout.push(chunk) },
     stderr: { write: (chunk: string) => stderr.push(chunk) },
     isTty: false,
@@ -489,5 +504,225 @@ describe('appctl deploy list', () => {
     expect(report.appsRoot).toBe(appsRoot);
     expect(report.deployments).toHaveLength(1);
     expect(report.deployments[0]?.name).toBe('alpha');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// `appctl deploy certs --renew`  (issue #389)
+// ---------------------------------------------------------------------------
+
+function installedCertRoot(proxyRoot: string, domain: string): void {
+  const live = join(proxyRoot, 'letsencrypt', 'live', domain);
+  mkdirSync(live, { recursive: true });
+  writeFileSync(join(live, 'fullchain.pem'), '-----BEGIN CERTIFICATE-----\n');
+}
+
+async function runCerts(argv: readonly string[], extra: Partial<DeployContext> = {}): Promise<RunResult> {
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+
+  const program = new Command();
+  program.exitOverride();
+  registerDeployCommand(program, {
+    stdout: { write: (chunk: string) => stdout.push(chunk) },
+    stderr: { write: (chunk: string) => stderr.push(chunk) },
+    isTty: false,
+    ...extra,
+  });
+
+  let error: unknown;
+  try {
+    await program.parseAsync(['deploy', 'certs', ...argv], { from: 'user' });
+  } catch (caught) {
+    error = caught;
+  }
+
+  return { stdout: stdout.join(''), stderr: stderr.join(''), error };
+}
+
+describe('appctl deploy certs --renew', () => {
+  /** Every call succeeds except the ones a test's own override answers. */
+  function runCommandWith(
+    override: (argv: readonly string[]) => { exitCode: number; stdout?: string; stderr?: string } | undefined,
+  ): typeof import('../deploy/executor.js').runCommand {
+    return (async (argv: readonly string[], options: RunCommandOptions): Promise<CommandResult> => {
+      if (argv[0] === 'openssl') {
+        return {
+          argv: [...argv], cwd: options.cwd, exitCode: 0,
+          stdout: 'notAfter=Feb 1 12:00:00 2026 GMT\n', stderr: '', durationMs: 0, timedOut: false,
+        };
+      }
+      const canned = override(argv) ?? { exitCode: 0 };
+      const result: CommandResult = {
+        argv: [...argv], cwd: options.cwd, exitCode: canned.exitCode,
+        stdout: canned.stdout ?? '', stderr: canned.stderr ?? '', durationMs: 0, timedOut: false,
+      };
+      if (result.exitCode !== 0) throw new Error(canned.stderr ?? 'failed');
+      return result;
+    }) as typeof import('../deploy/executor.js').runCommand;
+  }
+
+  it('exits non-zero when a renewal reload FAILS, because the old certificate is still being served', async () => {
+    const appsRoot = mkdtempSync(join(tmpdir(), 'appctl-certs-'));
+    const root = join(appsRoot, 'demo');
+    mkdirSync(root, { recursive: true });
+    const proxyRoot = join(appsRoot, 'proxy');
+    installedCertRoot(proxyRoot, 'app.example.test');
+
+    const result = await runCerts(
+      [
+        '--root', root,
+        '--proxy-root', proxyRoot,
+        '--proxy-mode', 'host',
+        '--domain', 'app.example.test',
+        '--renew', '--force',
+        '--email', 'admin@example.test',
+      ],
+      {
+        runCommand: runCommandWith((argv) =>
+          argv.join(' ') === 'nginx -s reload' ? { exitCode: 1, stderr: 'reload refused' } : undefined,
+        ),
+      },
+    );
+
+    expect(exitCodeFor(result.error)).toBe(EXIT.FAILURE);
+    expect((result.error as Error).message).toContain('not reloaded');
+  });
+
+  it('exits 0 when the renewal validates and reloads successfully', async () => {
+    const appsRoot = mkdtempSync(join(tmpdir(), 'appctl-certs-'));
+    const root = join(appsRoot, 'demo');
+    mkdirSync(root, { recursive: true });
+    const proxyRoot = join(appsRoot, 'proxy');
+    installedCertRoot(proxyRoot, 'app.example.test');
+
+    const result = await runCerts(
+      [
+        '--root', root,
+        '--proxy-root', proxyRoot,
+        '--proxy-mode', 'host',
+        '--domain', 'app.example.test',
+        '--renew', '--force',
+        '--email', 'admin@example.test',
+      ],
+      { runCommand: runCommandWith(() => undefined) },
+    );
+
+    expect(result.error).toBeUndefined();
+  });
+
+  it('reuses --proxy-container for the post-renewal validate/reload, not the default', async () => {
+    const appsRoot = mkdtempSync(join(tmpdir(), 'appctl-certs-'));
+    const root = join(appsRoot, 'demo');
+    mkdirSync(root, { recursive: true });
+    const proxyRoot = join(appsRoot, 'proxy');
+    installedCertRoot(proxyRoot, 'app.example.test');
+
+    const seen: string[][] = [];
+    await runCerts(
+      [
+        '--root', root,
+        '--proxy-root', proxyRoot,
+        '--proxy-mode', 'container',
+        '--proxy-container', 'my-proxy',
+        '--domain', 'app.example.test',
+        '--renew', '--force',
+        '--email', 'admin@example.test',
+      ],
+      {
+        runCommand: runCommandWith((argv) => {
+          seen.push([...argv]);
+          return undefined;
+        }),
+      },
+    );
+
+    expect(seen).toContainEqual(['docker', 'exec', 'my-proxy', 'nginx', '-t']);
+    expect(seen).toContainEqual(['docker', 'exec', 'my-proxy', 'nginx', '-s', 'reload']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Proxy-runtime flags are validated as UsageErrors, before anything runs
+// (issue #389)
+// ---------------------------------------------------------------------------
+
+describe('--proxy-mode / --proxy-container are validated as usage errors', () => {
+  it('rejects an unrecognised --proxy-mode', async () => {
+    const result = await runDoctor(['--proxy-mode', 'bogus'], HEALTHY);
+
+    expect(exitCodeFor(result.error)).toBe(EXIT.USAGE);
+    expect((result.error as Error).message).toContain('--proxy-mode');
+  });
+
+  it('rejects a --proxy-container value that is not a valid docker container name', async () => {
+    const result = await runDoctor(['--proxy-container', 'has spaces'], HEALTHY);
+
+    expect(exitCodeFor(result.error)).toBe(EXIT.USAGE);
+    expect((result.error as Error).message).toContain('container name');
+  });
+
+  it('accepts valid values for both and runs normally', async () => {
+    const result = await runDoctor(
+      ['--proxy-mode', 'container', '--proxy-container', 'proxy-nginx-2'],
+      HEALTHY,
+    );
+
+    expect(result.error).toBeUndefined();
+  });
+});
+
+// =============================================================================
+// `doctor --repo` (#390): the flag wins over everything else `resolveRepoUrl`
+// would otherwise fall back to, and never touches git when it is given.
+// =============================================================================
+describe('appctl deploy doctor --repo', () => {
+  function capturingCheck(seen: Array<{ repoUrl: string | undefined; gitCredentialed: boolean | undefined }>): Check {
+    return {
+      id: 'capture',
+      title: 'capture',
+      severity: 'recommended',
+      async run(context) {
+        seen.push({ repoUrl: context.repoUrl, gitCredentialed: context.gitCredentialed });
+        return { status: 'pass', detail: 'ok' };
+      },
+    };
+  }
+
+  it('sets CheckContext.repoUrl from --repo, normalised, without running git', async () => {
+    const seen: Array<{ repoUrl: string | undefined; gitCredentialed: boolean | undefined }> = [];
+
+    const result = await runDoctor(['--repo', 'https://example.test/o/r.git'], [capturingCheck(seen)]);
+
+    expect(result.error).toBeUndefined();
+    expect(seen).toEqual([{ repoUrl: 'https://example.test/o/r', gitCredentialed: undefined }]);
+  });
+
+  it('probes git credential state (via the injected runCommand) for an HTTPS GitHub --repo', async () => {
+    const seen: Array<{ repoUrl: string | undefined; gitCredentialed: boolean | undefined }> = [];
+    const lsRemoteFails: typeof import('../deploy/executor.js').runCommand = (async (
+      argv: readonly string[],
+    ) => {
+      throw new Error(`${argv[0] ?? ''}: command not found`);
+    }) as typeof import('../deploy/executor.js').runCommand;
+
+    const result = await runDoctor(['--repo', 'https://github.com/acme/widgets'], [capturingCheck(seen)], {
+      runCommand: lsRemoteFails,
+    });
+
+    expect(result.error).toBeUndefined();
+    // git ls-remote fails (no real network/process in this test), so the
+    // clone is judged unable to authenticate -- exactly the state that
+    // promotes gh-installed/gh-authenticated to required.
+    expect(seen).toEqual([{ repoUrl: 'https://github.com/acme/widgets', gitCredentialed: false }]);
+  });
+
+  it('leaves gitCredentialed unset for a non-HTTPS-GitHub --repo (never probed)', async () => {
+    const seen: Array<{ repoUrl: string | undefined; gitCredentialed: boolean | undefined }> = [];
+
+    const result = await runDoctor(['--repo', 'git@github.com:acme/widgets.git'], [capturingCheck(seen)]);
+
+    expect(result.error).toBeUndefined();
+    expect(seen).toEqual([{ repoUrl: 'git@github.com:acme/widgets', gitCredentialed: undefined }]);
   });
 });

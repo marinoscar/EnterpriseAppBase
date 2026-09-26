@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
 
+import { AiCatalogModule } from './catalog/ai-catalog.module';
+import { AiConfigModule } from './config/ai-config.module';
 import { AiCoreModule } from './core/ai-core.module';
+import { OpenAiProviderModule } from './providers/openai/openai.module';
 
 /**
  * The AI platform's root module (epic #419).
@@ -11,7 +14,7 @@ import { AiCoreModule } from './core/ai-core.module';
  * graph is the registration" rule `app.module.ts` states for `JobsModule`.
  */
 @Module({
-  imports: [AiCoreModule],
-  exports: [AiCoreModule],
+  imports: [AiCoreModule, OpenAiProviderModule, AiCatalogModule, AiConfigModule],
+  exports: [AiCoreModule, AiConfigModule],
 })
 export class AiModule {}

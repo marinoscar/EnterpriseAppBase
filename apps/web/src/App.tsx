@@ -3,9 +3,11 @@ import CssBaseline from '@mui/material/CssBaseline';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { NotificationProvider } from './contexts/NotificationContext';
+import { AiConfigProvider } from './contexts/AiConfigContext';
 import { ThemeContextProvider, useThemeContext } from './contexts/ThemeContext';
 import { ProtectedRoute } from './components/common/ProtectedRoute';
 import { RequirePermission } from './components/common/RequirePermission';
+import { RequireAiEnabled } from './components/common/RequireAiEnabled';
 import { Layout } from './components/common/Layout';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 // Issue #258, epic #254. Eagerly imported, not lazy: it renders on the error
@@ -82,6 +84,11 @@ const BroadcastsPage = lazy(() => import('./pages/Admin/BroadcastsPage'));
 // nobody who never opens the Console mounts it.
 const AboutPage = lazy(() => import('./pages/Admin/AboutPage'));
 const AdminUsersPage = lazy(() => import('./pages/Admin/UsersPage'));
+// Issue #425, epic #419 — placeholders, filled in by #429, #430 and #434.
+const AiConfigPage = lazy(() => import('./pages/Admin/AiConfigPage'));
+const AiModelsPage = lazy(() => import('./pages/Admin/AiModelsPage'));
+const UserAiKeysPage = lazy(() => import('./pages/UserAiKeysPage'));
+const AiPlaygroundPage = lazy(() => import('./pages/AiPlaygroundPage'));
 
 // Test login page (development only)
 const TestLoginPage = import.meta.env.PROD
@@ -147,10 +154,18 @@ function AppRoutes() {
                     on every navigation, which the server sees as a connection
                     storm from a single user and the client experiences as a bell
                     that resets its state every time the route changes. */}
+                {/* `AiConfigProvider` (#425, epic #419) sits beside the
+                    notification centre for the same two reasons: its endpoint
+                    is `@Auth()`, so it belongs inside `ProtectedRoute`, and ONE
+                    mount point means ONE `GET /api/ai/config` shared by the
+                    chrome (rail, bottom bar, menu, AppBar) and every routed
+                    page, instead of one request per consumer. */}
                 <Route
                   element={
                     <NotificationProvider>
-                      <Layout />
+                      <AiConfigProvider>
+                        <Layout />
+                      </AiConfigProvider>
                     </NotificationProvider>
                   }
                 >
@@ -166,8 +181,10 @@ function AppRoutes() {
                       question these routes have: they edit the caller's OWN
                       settings, which the API grants to all three roles, and
                       `config/userSettingsSections.tsx` correspondingly declares no
-                      `permission` on any card. A gate here would deny a Viewer
-                      their own display name.
+                      `permission` on their cards. A gate here would deny a Viewer
+                      their own display name. (The single exception, `/settings/ai`
+                      below, gates on a grant the API really does withhold — see
+                      its own comment.)
 
                       As above, declaration order does not matter — React Router
                       v6 ranks by specificity, so `/settings/profile` beats
@@ -180,6 +197,41 @@ function AppRoutes() {
                       itself `@Auth()` with no permission for the same reason. */}
                   <Route path="/settings/notifications" element={<UserNotificationsPage />} />
                   <Route path="/settings/tokens" element={<UserTokensPage />} />
+                  {/* Issue #425, epic #419. THE ONE GATED `/settings/*` ROUTE,
+                      and the exception is real: `ai:use` is a grant a
+                      deployment can withhold from a role, and the
+                      `/api/ai/keys` controller enforces exactly that string —
+                      the same one the `AI Keys` card declares. Nested inside
+                      it, `RequireAiEnabled` redirects while AI is switched
+                      off, when every call the page makes would be refused. */}
+                  <Route
+                    path="/settings/ai"
+                    element={
+                      <RequirePermission
+                        permission="ai:use"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <RequireAiEnabled>
+                          <UserAiKeysPage />
+                        </RequireAiEnabled>
+                      </RequirePermission>
+                    }
+                  />
+                  {/* Issue #425, epic #419 — the `ai` destination. Gated
+                      exactly as the destination is: `ai:use` plus AI being on. */}
+                  <Route
+                    path="/ai"
+                    element={
+                      <RequirePermission
+                        permission="ai:use"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <RequireAiEnabled>
+                          <AiPlaygroundPage />
+                        </RequireAiEnabled>
+                      </RequirePermission>
+                    }
+                  />
                   {/* Route-level AUTHORIZATION, not just authentication.
                       `ProtectedRoute` above only establishes that someone is
                       logged in — before this, a Viewer typing `/admin/settings`
@@ -215,6 +267,15 @@ function AppRoutes() {
                   <Route
                     path="/admin/users"
                     element={<Navigate to="/admin/settings/users" replace />}
+                  />
+                  {/* Issue #392. The "Deployment" page that issue asked for is
+                      delivered by the About page, so this URL is a REDIRECT
+                      and deliberately NOT a second `ADMIN_SECTIONS` card — one
+                      question, one destination. Ungated for the same reason
+                      as the two above: the TARGET route gates. */}
+                  <Route
+                    path="/admin/settings/deployment"
+                    element={<Navigate to="/admin/settings/about" replace />}
                   />
 
                   {/* The Console hub (#93, epic #90) — the searchable, grouped
@@ -517,6 +578,40 @@ function AppRoutes() {
                         fallback={<Navigate to="/" replace />}
                       >
                         <AboutPage />
+                      </RequirePermission>
+                    }
+                  />
+                  {/* Issue #425, epic #419. `ai_config:read` on both, the
+                      same string the `AI` and `AI Models` cards declare and the
+                      admin AI controller enforces on its reads — the invariant
+                      `destinations.test.ts` asserts for every card. Writes need
+                      `ai_config:write`, which each PAGE gates internally.
+                      `/admin/settings/ai` is deliberately NOT behind
+                      `RequireAiEnabled`: it is where AI is switched on, so it
+                      must be reachable while AI is off. The Models page is,
+                      matching its card's `feature: 'ai'`. Nested route, longest
+                      prefix wins — the Job Insights precedent. */}
+                  <Route
+                    path="/admin/settings/ai"
+                    element={
+                      <RequirePermission
+                        permission="ai_config:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <AiConfigPage />
+                      </RequirePermission>
+                    }
+                  />
+                  <Route
+                    path="/admin/settings/ai/models"
+                    element={
+                      <RequirePermission
+                        permission="ai_config:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <RequireAiEnabled>
+                          <AiModelsPage />
+                        </RequireAiEnabled>
                       </RequirePermission>
                     }
                   />

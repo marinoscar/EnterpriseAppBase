@@ -197,6 +197,18 @@ const OMITTABLE_ON_PUT: readonly string[] = (
   .filter(([, field]) => field.safeParse(undefined).success)
   .map(([key]) => key);
 
+/**
+ * PATCH merge for an OPTIONAL stored field: `undefined` (absent from the body)
+ * keeps `current`, `null` removes the field, anything else replaces it.
+ * Returns `undefined` for "removed", which `systemSettingsSchema.parse` then
+ * drops from the stored object.
+ */
+function mergeOptional<T>(patch: T | null | undefined, current: T | undefined): T | undefined {
+  if (patch === undefined) return current;
+
+  return patch === null ? undefined : patch;
+}
+
 @Injectable()
 export class SystemSettingsService {
   private readonly logger = new Logger(SystemSettingsService.name);
@@ -1191,10 +1203,14 @@ export class SystemSettingsService {
       //
       // Field by field, one level deep into `providers.openai` and
       // `defaults`, exactly matching `storage`'s own shape above. `??` is
-      // right for every field here: none is nullable (unlike
-      // `maintenance.startedAt` or `storage.forcePathStyle`), so a caller can
-      // never legitimately send `null`, and `??` leaves an omitted field at
-      // its current stored value.
+      // right for every REQUIRED field: none of them is nullable, and `??`
+      // leaves an omitted field at its current stored value.
+      //
+      // The two OPTIONAL fields, `baseUrl` and `maxOutputTokensCap`, take
+      // the `storage.forcePathStyle` form instead (`mergeOptional`): absent
+      // keeps the stored value, explicit `null` REMOVES it. With `??` a null
+      // would fall through to the stored value and an override, once set,
+      // could never be cleared (#428).
       //
       // NOTHING HERE TOUCHES AN API KEY. There is no such field on this DTO,
       // this stored value, or this merge — see the compile-time proof in
@@ -1207,15 +1223,17 @@ export class SystemSettingsService {
             enabled:
               dto.ai?.providers?.openai?.enabled ??
               currentValue.ai.providers.openai.enabled,
-            baseUrl:
-              dto.ai?.providers?.openai?.baseUrl ??
+            baseUrl: mergeOptional(
+              dto.ai?.providers?.openai?.baseUrl,
               currentValue.ai.providers.openai.baseUrl,
+            ),
           },
         },
         defaults: {
-          maxOutputTokensCap:
-            dto.ai?.defaults?.maxOutputTokensCap ??
+          maxOutputTokensCap: mergeOptional(
+            dto.ai?.defaults?.maxOutputTokensCap,
             currentValue.ai.defaults.maxOutputTokensCap,
+          ),
           allowBackgroundRuns:
             dto.ai?.defaults?.allowBackgroundRuns ??
             currentValue.ai.defaults.allowBackgroundRuns,

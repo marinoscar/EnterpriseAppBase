@@ -1,5 +1,6 @@
 import { connect } from 'node:net';
 
+import type { runCommand } from '../executor.js';
 import type { Check, CheckContext, CheckResult } from './types.js';
 
 // =============================================================================
@@ -29,7 +30,7 @@ const PSQL_IMAGE = 'postgres:16-alpine';
 
 const CONNECT_TIMEOUT_MS = 5_000;
 
-interface DatabaseSettings {
+export interface DatabaseSettings {
   host: string;
   port: string;
   user: string;
@@ -87,15 +88,37 @@ export async function probeTcp(
   });
 }
 
+/** The maintenance database every PostgreSQL cluster has. */
+export const MAINTENANCE_DATABASE = 'postgres';
+
+export interface PsqlResult {
+  ok: boolean;
+  stdout: string;
+  stderr: string;
+}
+
 /**
  * Runs one statement as the configured user.
  *
  * Uses a one-off psql container rather than adding a Postgres client to this
  * package: docker is already a hard prerequisite, the image is small, and it
  * behaves identically on a host with no psql installed.
+ *
+ * Never throws: a failure is `ok: false` with psql's stderr. Exported for the
+ * install pipeline's ensure-database step (#391), which must run its
+ * statements the same way -- password via PGPASSWORD by name, never in argv.
  */
+export async function runPsql(
+  run: typeof runCommand,
+  settings: DatabaseSettings,
+  database: string,
+  statement: string,
+): Promise<PsqlResult> {
+  return await psql({ runCommand: run }, settings, database, statement);
+}
+
 async function psql(
-  context: CheckContext,
+  context: Pick<CheckContext, 'runCommand'>,
   settings: DatabaseSettings,
   database: string,
   statement: string,
@@ -306,6 +329,76 @@ const databaseSsl: Check = {
   },
 };
 
+/** What `canCreateDatabase` found. `canCreate` is undefined when it could not tell. */
+export interface CreateDatabaseCapability {
+  canCreate: boolean | undefined;
+  /** psql's first stderr line, when the question could not be answered. */
+  error?: string | undefined;
+}
+
+/**
+ * Whether the configured role may run `CREATE DATABASE`: it holds CREATEDB, or
+ * is a superuser. Asked of the `postgres` maintenance database, so the answer
+ * does not depend on the application database existing yet -- which is the
+ * whole situation this is asked in.
+ *
+ * Read-only. Exported for #391's ensure-database step, which must not offer to
+ * create a database the role cannot create.
+ */
+export async function canCreateDatabase(
+  settings: DatabaseSettings,
+  run: typeof runCommand,
+): Promise<CreateDatabaseCapability> {
+  const result = await runPsql(
+    run,
+    settings,
+    MAINTENANCE_DATABASE,
+    'select rolcreatedb or rolsuper from pg_roles where rolname = current_user',
+  );
+  if (!result.ok) return { canCreate: undefined, error: firstLine(result.stderr) };
+
+  const answer = result.stdout.trim();
+  if (answer.startsWith('t')) return { canCreate: true };
+  if (answer.startsWith('f')) return { canCreate: false };
+  return { canCreate: undefined, error: `unexpected answer: ${answer || '(empty)'}` };
+}
+
+/** Double-quotes an identifier for display in a remedy. */
+function quoteIdentifier(name: string): string {
+  return `"${name.replace(/"/g, '""')}"`;
+}
+
+const databaseCreatePrivilege: Check = {
+  id: 'database-create-privilege',
+  title: 'Can create databases',
+  severity: 'recommended',
+  requires: ['database-credentials'],
+  async run(context) {
+    const settings = databaseSettings(context.env);
+    if (settings === undefined) return NO_ENVIRONMENT;
+
+    const { canCreate, error } = await canCreateDatabase(settings, context.runCommand);
+    if (canCreate === true) {
+      return { status: 'pass', detail: `${settings.user} holds CREATEDB` };
+    }
+    if (canCreate === false) {
+      return {
+        status: 'warn',
+        detail: `${settings.user} cannot create databases`,
+        remedy:
+          `Only matters if "${settings.database}" does not exist yet. Either have an administrator grant it: ` +
+          `ALTER ROLE ${quoteIdentifier(settings.user)} CREATEDB; -- or create the database by hand as a role that can: ` +
+          `CREATE DATABASE ${quoteIdentifier(settings.database)} OWNER ${quoteIdentifier(settings.user)};`,
+      };
+    }
+    return {
+      status: 'warn',
+      detail: `could not determine whether ${settings.user} can create databases${error === undefined ? '' : `: ${error}`}`,
+      remedy: `Check by hand: select rolcreatedb, rolsuper from pg_roles where rolname = '${settings.user}';`,
+    };
+  },
+};
+
 function firstLine(text: string): string {
   return text.split('\n').find((line) => line.trim() !== '') ?? 'failed';
 }
@@ -314,6 +407,7 @@ export const DATABASE_CHECKS: readonly Check[] = [
   databaseReachable,
   databaseCredentials,
   databaseExists,
+  databaseCreatePrivilege,
   databasePrivileges,
   databaseSsl,
 ];

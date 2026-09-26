@@ -26,8 +26,13 @@
 
 import { SettingsHub } from '../../components/settings/SettingsHub';
 import { ADMIN_SECTIONS, ADMIN_HUB_TITLE } from '../../config/adminSections';
+import { useAiConfig } from '../../hooks/useAiConfig';
 
 export default function SettingsHubPage() {
+  // The deployment feature map (#425): `AI Models` is declared with
+  // `feature: 'ai'` and exists only while AI is switched on. Read here and
+  // handed to the hub, never decided inside it.
+  const { config: aiConfig } = useAiConfig();
   return (
     <SettingsHub
       sections={ADMIN_SECTIONS}
@@ -37,6 +42,7 @@ export default function SettingsHubPage() {
       hubKey="admin-settings-hub"
       title={ADMIN_HUB_TITLE}
       subtitle="Manage system configuration, providers, and operational settings."
+      features={{ ai: aiConfig.enabled }}
     />
   );
 }

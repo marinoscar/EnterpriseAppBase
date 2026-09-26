@@ -14,11 +14,13 @@
 // a real indicator against a real database will not do on demand.
 // =============================================================================
 
+import { readFileSync } from 'fs';
 import { mkdtemp, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
 import { AboutService } from './about.service';
+import { aboutResponseSchema } from './dto/about-response.dto';
 import type { DatabaseHealthIndicator } from '../health/indicators/database.indicator';
 
 const GOOD_DOCUMENT = {
@@ -306,6 +308,105 @@ describe('AboutService', () => {
 
       expect(report.databaseError).toBe('boom');
       expect(JSON.stringify(report)).not.toContain('secret.ts');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Issue #392 — deployment details and the live runtime object
+  // ---------------------------------------------------------------------------
+
+  describe('deployment details (issue #392)', () => {
+    const SAMPLE = JSON.parse(
+      readFileSync(join(__dirname, '../../test/fixtures/deploy-info.sample.json'), 'utf8'),
+    );
+
+    it('surfaces every new field of the shared fixture unchanged', async () => {
+      await write(SAMPLE);
+
+      const report = await service.describe();
+
+      expect(report.deployInfoStatus).toBe('ok');
+      expect(report.lastCommand).toBe(SAMPLE.lastCommand);
+      expect(report.bindPort).toBe(SAMPLE.bindPort);
+      expect(report.proxy).toEqual(SAMPLE.proxy);
+      expect(report.host).toEqual(SAMPLE.host);
+      expect(report.history).toEqual(SAMPLE.history);
+    });
+
+    it('produces a report that satisfies the response schema, fixture or not', async () => {
+      await write(SAMPLE);
+      expect(aboutResponseSchema.safeParse(await service.describe()).success).toBe(true);
+
+      await rm(path);
+      expect(aboutResponseSchema.safeParse(await service.describe()).success).toBe(true);
+    });
+
+    it('nulls invalid sub-fields rather than failing the report', async () => {
+      await write({
+        ...SAMPLE,
+        bindPort: 99999,
+        proxy: { ...SAMPLE.proxy, mode: 'sidecar' },
+        host: { ...SAMPLE.host, cpus: 'four' },
+      });
+
+      const report = await service.describe();
+
+      expect(report.deployInfoStatus).toBe('ok');
+      expect(report.bindPort).toBeNull();
+      expect(report.proxy?.mode).toBeNull();
+      expect(report.proxy?.container).toBe(SAMPLE.proxy.container);
+      expect(report.host?.cpus).toBeNull();
+      expect(report.host?.hostname).toBe(SAMPLE.host.hostname);
+    });
+
+    it('reports history as [] for a document without one, and null with no document', async () => {
+      await write(GOOD_DOCUMENT);
+      expect((await service.describe()).history).toEqual([]);
+
+      await rm(path);
+      const report = await service.describe();
+      expect(report.deployInfoStatus).toBe('absent');
+      expect(report.history).toBeNull();
+      expect(report.lastCommand).toBeNull();
+      expect(report.bindPort).toBeNull();
+      expect(report.proxy).toBeNull();
+      expect(report.host).toBeNull();
+    });
+
+    describe('runtime', () => {
+      const originalEnv = process.env.NODE_ENV;
+
+      afterEach(() => {
+        if (originalEnv === undefined) delete process.env.NODE_ENV;
+        else process.env.NODE_ENV = originalEnv;
+      });
+
+      it('is present even when the document is absent and the database is down', async () => {
+        isHealthy.mockRejectedValue(new Error('down'));
+
+        const { runtime, deployInfoStatus } = await service.describe();
+
+        expect(deployInfoStatus).toBe('absent');
+        expect(runtime.nodeVersion).toBe(process.version);
+        expect(typeof runtime.processStartedAt).toBe('string');
+      });
+
+      it('reports a process start time in the past, stable across calls', async () => {
+        const first = (await service.describe()).runtime.processStartedAt;
+        const second = (await service.describe()).runtime.processStartedAt;
+
+        expect(new Date(first).toISOString()).toBe(first);
+        expect(Date.parse(first)).toBeLessThanOrEqual(Date.now());
+        expect(second).toBe(first);
+      });
+
+      it('reports NODE_ENV, or null when it is unset', async () => {
+        process.env.NODE_ENV = 'production';
+        expect((await service.describe()).runtime.environment).toBe('production');
+
+        delete process.env.NODE_ENV;
+        expect((await service.describe()).runtime.environment).toBeNull();
+      });
     });
   });
 

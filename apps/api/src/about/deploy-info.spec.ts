@@ -10,12 +10,14 @@
 // author and the implementation agree.
 // =============================================================================
 
+import { readFileSync } from 'fs';
 import { mkdtemp, mkdir, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
 import {
   DEFAULT_DEPLOY_INFO_PATH,
+  DEPLOY_INFO_HISTORY_LIMIT,
   DEPLOY_INFO_SCHEMA_VERSION,
   readDeployInfo,
   resolveDeployInfoPath,
@@ -177,6 +179,11 @@ describe('readDeployInfo', () => {
         domain: GOOD_DOCUMENT.domain,
         remote: GOOD_DOCUMENT.remote,
         run: { completed: ['pull', 'migrate', 'up'], failedStep: null, outcome: 'success' },
+        lastCommand: null,
+        bindPort: null,
+        proxy: null,
+        host: null,
+        history: [],
       });
     });
 
@@ -202,6 +209,11 @@ describe('readDeployInfo', () => {
         domain: null,
         remote: null,
         run: null,
+        lastCommand: null,
+        bindPort: null,
+        proxy: null,
+        host: null,
+        history: [],
       });
     });
 
@@ -292,6 +304,228 @@ describe('readDeployInfo', () => {
       // Every other fact still arrives — that is the point.
       expect(result.document?.app.commitSha).toBe(GOOD_DOCUMENT.app.commitSha);
       expect(result.document?.domain).toBe('app.example.com');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Issue #392 — additive fields, still schema 1
+  // ---------------------------------------------------------------------------
+
+  describe('deployment details (issue #392)', () => {
+    /**
+     * The shared fixture the CLI's writer test also compares its output to, so
+     * the two halves of the contract are pinned against one file.
+     */
+    const SAMPLE = JSON.parse(
+      readFileSync(join(__dirname, '../../test/fixtures/deploy-info.sample.json'), 'utf8'),
+    );
+
+    const HISTORY_ENTRY = SAMPLE.history[0];
+
+    it('the shared fixture populates every new field (so the test below means something)', () => {
+      for (const key of ['lastCommand', 'bindPort', 'proxy', 'host', 'history']) {
+        expect(SAMPLE[key]).not.toBeNull();
+        expect(SAMPLE[key]).toBeDefined();
+      }
+      for (const value of Object.values(SAMPLE.proxy)) expect(value).not.toBeNull();
+      for (const value of Object.values(SAMPLE.host)) expect(value).not.toBeNull();
+      expect(SAMPLE.history.length).toBeGreaterThan(1);
+    });
+
+    it('parses the shared fixture as ok with every field preserved exactly', async () => {
+      await write(SAMPLE);
+
+      const result = await readDeployInfo(path);
+
+      expect(result.status).toBe('ok');
+      // Deep equality against the fixture itself (minus `schema`, which is the
+      // envelope, not a reported field): nothing dropped, nothing renamed,
+      // nothing re-serialised.
+      const { schema: _schema, ...expected } = SAMPLE;
+      expect(result.document).toEqual(expected);
+    });
+
+    it('stays schema 1 — the additions needed no version bump', async () => {
+      expect(SAMPLE.schema).toBe(DEPLOY_INFO_SCHEMA_VERSION);
+    });
+
+    it('reads an invalid lastCommand and bindPort as null', async () => {
+      for (const [lastCommand, bindPort] of [
+        ['deploy', 0],
+        [7, 65536],
+        [null, 80.5],
+        ['INSTALL', '3535'],
+        [{}, -1],
+      ]) {
+        await write({ ...SAMPLE, lastCommand, bindPort });
+
+        const result = await readDeployInfo(path);
+        expect(result.status).toBe('ok');
+        expect(result.document?.lastCommand).toBeNull();
+        expect(result.document?.bindPort).toBeNull();
+      }
+    });
+
+    it('accepts both boundary ports', async () => {
+      await write({ ...SAMPLE, bindPort: 1 });
+      expect((await readDeployInfo(path)).document?.bindPort).toBe(1);
+
+      await write({ ...SAMPLE, bindPort: 65535 });
+      expect((await readDeployInfo(path)).document?.bindPort).toBe(65535);
+    });
+
+    it('nulls invalid proxy sub-fields individually, keeping the valid ones', async () => {
+      await write({
+        ...SAMPLE,
+        proxy: { mode: 'nginx', container: 42, certificateExpiresAt: 'next tuesday' },
+      });
+
+      expect((await readDeployInfo(path)).document?.proxy).toEqual({
+        mode: null,
+        container: null,
+        certificateExpiresAt: null,
+      });
+
+      await write({ ...SAMPLE, proxy: { ...SAMPLE.proxy, mode: 'host', container: null } });
+
+      expect((await readDeployInfo(path)).document?.proxy).toEqual({
+        mode: 'host',
+        container: null,
+        certificateExpiresAt: SAMPLE.proxy.certificateExpiresAt,
+      });
+    });
+
+    it('nulls invalid host sub-fields individually, keeping the valid ones', async () => {
+      await write({
+        ...SAMPLE,
+        host: {
+          ...SAMPLE.host,
+          kernel: ['6.8'],
+          cpus: 0,
+          memoryBytes: -5,
+          dockerVersion: true,
+          capturedAt: 'yesterday-ish',
+        },
+      });
+
+      const host = (await readDeployInfo(path)).document?.host;
+
+      expect(host).toEqual({
+        ...SAMPLE.host,
+        kernel: null,
+        cpus: null,
+        memoryBytes: null,
+        dockerVersion: null,
+        capturedAt: null,
+      });
+    });
+
+    it('reads a non-object proxy or host as null', async () => {
+      await write({ ...SAMPLE, proxy: 'container', host: [SAMPLE.host] });
+
+      const document = (await readDeployInfo(path)).document;
+
+      expect(document?.proxy).toBeNull();
+      expect(document?.host).toBeNull();
+    });
+
+    it('drops unknown keys at every level of the new fields', async () => {
+      await write({
+        ...SAMPLE,
+        proxy: { ...SAMPLE.proxy, adminPassword: 'leak' },
+        host: { ...SAMPLE.host, env: { SECRET: 'leak' } },
+        history: [{ ...HISTORY_ENTRY, token: 'leak' }],
+        brandNewTopLevel: 'leak',
+      });
+
+      const result = await readDeployInfo(path);
+
+      expect(result.document?.proxy).not.toHaveProperty('adminPassword');
+      expect(result.document?.host).not.toHaveProperty('env');
+      expect(result.document?.history[0]).not.toHaveProperty('token');
+      expect(result.document).not.toHaveProperty('brandNewTopLevel');
+      expect(JSON.stringify(result)).not.toContain('leak');
+    });
+
+    it('drops history entries missing a valid at, command or success outcome', async () => {
+      await write({
+        ...SAMPLE,
+        history: [
+          HISTORY_ENTRY,
+          'not an object',
+          null,
+          { ...HISTORY_ENTRY, at: 'not a date' },
+          { ...HISTORY_ENTRY, at: undefined },
+          { ...HISTORY_ENTRY, command: 'rollback' },
+          { ...HISTORY_ENTRY, outcome: 'failure' },
+          { ...HISTORY_ENTRY, outcome: undefined },
+          SAMPLE.history[1],
+        ],
+      });
+
+      const result = await readDeployInfo(path);
+
+      expect(result.status).toBe('ok');
+      expect(result.document?.history).toEqual([HISTORY_ENTRY, SAMPLE.history[1]]);
+    });
+
+    it('nulls invalid optional sub-fields of a history entry without dropping it', async () => {
+      await write({
+        ...SAMPLE,
+        history: [
+          {
+            ...HISTORY_ENTRY,
+            commitSha: 123,
+            previousCommitSha: {},
+            ref: false,
+            durationMs: -10,
+            cliVersion: [],
+          },
+        ],
+      });
+
+      expect((await readDeployInfo(path)).document?.history).toEqual([
+        {
+          at: HISTORY_ENTRY.at,
+          command: HISTORY_ENTRY.command,
+          commitSha: null,
+          previousCommitSha: null,
+          ref: null,
+          durationMs: null,
+          cliVersion: null,
+          outcome: 'success',
+        },
+      ]);
+    });
+
+    it('caps history at 20, keeping the first (newest) valid entries', async () => {
+      const entries = Array.from({ length: 30 }, (_, index) => ({
+        ...HISTORY_ENTRY,
+        commitSha: `sha-${index}`,
+      }));
+      // Invalid entries at the front must not cost valid ones their place.
+      await write({ ...SAMPLE, history: [{ bogus: true }, 'x', ...entries] });
+
+      const history = (await readDeployInfo(path)).document?.history ?? [];
+
+      expect(DEPLOY_INFO_HISTORY_LIMIT).toBe(20);
+      expect(history).toHaveLength(20);
+      expect(history[0].commitSha).toBe('sha-0');
+      expect(history[19].commitSha).toBe('sha-19');
+    });
+
+    it('reads a non-array history as an empty list', async () => {
+      for (const history of [null, 'none', { 0: HISTORY_ENTRY }, 3]) {
+        await write({ ...SAMPLE, history });
+        expect((await readDeployInfo(path)).document?.history).toEqual([]);
+      }
+    });
+
+    it('still reports absent for a missing file', async () => {
+      const result = await readDeployInfo(join(dir, 'nope.json'));
+
+      expect(result.status).toBe('absent');
+      expect(result.document).toBeNull();
     });
   });
 

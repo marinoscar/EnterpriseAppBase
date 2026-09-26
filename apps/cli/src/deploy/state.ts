@@ -21,10 +21,74 @@ import { CliError, EXIT, type ExitCode } from '../errors.js';
 // than with whichever operator's home directory happened to run the install.
 // =============================================================================
 
-/** Bumped only when a field changes meaning; unknown versions are refused. */
-export const DEPLOY_STATE_VERSION = 1;
+/**
+ * Bumped only when a field changes meaning; unknown versions are refused.
+ *
+ * ⚠ 2 SINCE ISSUE #392, AND EVERY OLDER VERSION IS UPGRADED FORWARD, NEVER
+ * REFUSED. A bump alone would make this CLI refuse every state file already on
+ * a live server; `upgradeState` is the migration path that makes the bump
+ * safe, and every version this CLI ever wrote must keep a branch in it.
+ *
+ * The one direction that cannot be helped is backwards: once a v2 file is
+ * written, an OLDER appctl refuses it with its own "upgrade appctl" message,
+ * which is the refusal this rule exists for.
+ */
+export const DEPLOY_STATE_VERSION = 2;
+
+/** How many successful runs `history` keeps, newest first. */
+export const DEPLOY_HISTORY_LIMIT = 20;
 
 export const DEPLOY_STATE_FILENAME = '.appctl-deploy.json';
+
+/**
+ * The machine a deployment runs on, as last observed by a successful run.
+ *
+ * Every field is `null` when it could not be determined -- see
+ * `collectHostFacts`, which never throws. Nothing here is a secret.
+ */
+export interface HostFacts {
+  hostname: string | null;
+  /** `PRETTY_NAME` from /etc/os-release, else `os.type()`. */
+  os: string | null;
+  /** `os.release()`. */
+  kernel: string | null;
+  arch: string | null;
+  cpus: number | null;
+  memoryBytes: number | null;
+  dockerVersion: string | null;
+  composeVersion: string | null;
+  capturedAt: string | null;
+}
+
+/**
+ * One SUCCESSFUL install or update.
+ *
+ * ⚠ SUCCESS-ONLY, by construction rather than by filtering: an entry is
+ * appended only on the success path, so a failed run leaves the list exactly
+ * as it found it. `lastOutcome`/`lastFailedStep` are where failures live.
+ */
+export interface DeploymentHistoryEntry {
+  /** ISO-8601 finish time. */
+  at: string;
+  command: 'install' | 'update';
+  commitSha: string | null;
+  /** What this run replaced; null for a first install. */
+  previousCommitSha: string | null;
+  ref: string | null;
+  durationMs: number | null;
+  cliVersion: string | null;
+  outcome: 'success';
+}
+
+/** How this deployment is published, as last observed by a successful run. */
+export interface DeployProxyFacts {
+  domain: string | null;
+  bindPort: number | null;
+  mode: 'container' | 'host' | null;
+  container: string | null;
+  /** ISO-8601, read from the certificate itself; null with no domain or no readable cert. */
+  certificateExpiresAt: string | null;
+}
 
 export interface DeployState {
   version: typeof DEPLOY_STATE_VERSION;
@@ -55,6 +119,22 @@ export interface DeployState {
    * proxy does not read.
    */
   proxyRoot?: string | undefined;
+  /**
+   * How the shared proxy ran when this deployment last published through it:
+   * `container` (nginx in a container, certbot dockerised) or `host`.
+   *
+   * Recorded so `update`, `certs` and `uninstall` act under the SAME runtime
+   * install detected or was told, rather than re-detecting on a server whose
+   * proxy happens to be stopped at that moment. A flag still overrides it.
+   * Absent means "not recorded" -- the reader detects, as install did.
+   *
+   * Optional, and ⚠ the state version is deliberately NOT bumped for it (a
+   * later issue does that deliberately): a bump makes this CLI refuse every
+   * state file already on a live server.
+   */
+  proxyMode?: 'container' | 'host' | undefined;
+  /** The proxy container's name, alongside `proxyMode`. Same rules. */
+  proxyContainer?: string | undefined;
   /**
    * The Docker Compose project this deployment's containers live under.
    *
@@ -117,6 +197,15 @@ export interface DeployState {
    * Collapsing them would report a failed attempt as a deployment.
    */
   lastAttemptAt?: string | undefined;
+  /** The host as last observed by a successful run (v2, issue #392). */
+  host?: HostFacts | undefined;
+  /**
+   * Successful runs, NEWEST FIRST, capped at `DEPLOY_HISTORY_LIMIT`.
+   * Appended only on success -- see `appendHistory`. (v2, issue #392.)
+   */
+  history?: DeploymentHistoryEntry[] | undefined;
+  /** The published proxy as last observed by a successful run (v2, issue #392). */
+  proxy?: DeployProxyFacts | undefined;
 }
 
 /**
@@ -172,17 +261,59 @@ export function readState(deployRoot: string): DeployState | undefined {
     throw new DeployStateError(`${path} does not contain a deployment record.`);
   }
 
-  const version = (parsed as { version?: unknown }).version;
-  if (version !== DEPLOY_STATE_VERSION) {
-    // Refused rather than guessed. Misreading a state file means updating the
-    // wrong checkout or reporting the wrong commit as deployed, and a newer
-    // appctl having written it is the likeliest cause.
-    throw new DeployStateError(
-      `${path} has state version ${String(version)}, but this ${CLI_NAME} understands ${DEPLOY_STATE_VERSION}. Upgrade ${CLI_NAME}, or remove the file to re-install.`,
-    );
+  return upgradeState(parsed, path);
+}
+
+/**
+ * Brings a parsed state record of ANY version this CLI ever wrote up to
+ * `DEPLOY_STATE_VERSION`. Pure: it reads nothing and writes nothing, so a
+ * read-only command (`status`) never rewrites the file; the next `writeState`
+ * persists the upgraded shape.
+ *
+ * - v1 -> v2: adds an empty `history`. `host` and `proxy` stay ABSENT rather
+ *   than being fabricated -- nothing observed them yet, and the next
+ *   successful run fills them in.
+ * - anything else (a newer appctl, a hand edit) is REFUSED rather than
+ *   guessed: misreading a state file means updating the wrong checkout or
+ *   reporting the wrong commit as deployed.
+ */
+export function upgradeState(raw: unknown, source = 'the deployment record'): DeployState {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new DeployStateError(`${source} does not contain a deployment record.`);
   }
 
-  return parsed as DeployState;
+  const version = (raw as { version?: unknown }).version;
+
+  if (version === DEPLOY_STATE_VERSION) {
+    return raw as DeployState;
+  }
+
+  if (version === 1) {
+    return {
+      ...(raw as Omit<DeployState, 'version'>),
+      version: DEPLOY_STATE_VERSION,
+      history: [],
+    } as DeployState;
+  }
+
+  throw new DeployStateError(
+    `${source} has state version ${String(version)}, but this ${CLI_NAME} understands up to ${DEPLOY_STATE_VERSION}. Upgrade ${CLI_NAME}, or remove the file to re-install.`,
+  );
+}
+
+/**
+ * Prepends one successful run to a history, newest first, capped.
+ *
+ * Pure, and the ONLY way an entry is added, so the cap and the order are
+ * enforced in one place. Called only from the success paths of install and
+ * update; a failed run never reaches it and so keeps the prior list intact.
+ */
+export function appendHistory(
+  history: readonly DeploymentHistoryEntry[] | undefined,
+  entry: DeploymentHistoryEntry,
+  limit: number = DEPLOY_HISTORY_LIMIT,
+): DeploymentHistoryEntry[] {
+  return [entry, ...(history ?? [])].slice(0, limit);
 }
 
 /** Reads the state, or explains that there is nothing here to act on. */

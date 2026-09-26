@@ -2,6 +2,7 @@ import { Card, CardContent, Typography, Grid, Button, Box } from '@mui/material'
 import { Palette as ThemeIcon } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { usePermissions } from '../../hooks/usePermissions';
+import { useAiFeatures } from '../../hooks/useAiConfig';
 import { DESTINATIONS, isDestinationVisible } from '../../config/destinations';
 import type { DestinationKey } from '../../config/destinations';
 
@@ -29,16 +30,18 @@ const ACTION_DESCRIPTIONS: Partial<Record<DestinationKey, string>> = {
   // is now the same hub would have been the home page's version of the
   // duplicate rail row that merge exists to remove.
   console: 'Manage users and application settings',
+  ai: 'Try prompts against the models available to you',
 };
 
 export function QuickActions() {
   const navigate = useNavigate();
   const { hasPermission } = usePermissions();
+  const features = useAiFeatures();
 
   const visibleActions = DESTINATIONS.filter(
     (destination) =>
       ACTION_DESCRIPTIONS[destination.key] !== undefined &&
-      isDestinationVisible(destination, hasPermission),
+      isDestinationVisible(destination, hasPermission, features),
   ).flatMap((destination) => [
     {
       title: destination.label,

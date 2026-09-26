@@ -183,16 +183,27 @@ export { createRedactor, openJournal, pruneOldRuns, timestampSlug } from './depl
 export type { Journal, OpenJournalOptions, Redactor, SecretEntry } from './deploy/journal.js';
 
 export {
+  DEPLOY_HISTORY_LIMIT,
   DEPLOY_STATE_FILENAME,
   DEPLOY_STATE_VERSION,
   DeployStateError,
   NotInstalledError,
+  appendHistory,
   deployStatePath,
   readState,
   requireState,
+  upgradeState,
   writeState,
 } from './deploy/state.js';
-export type { DeployState } from './deploy/state.js';
+export type {
+  DeployProxyFacts,
+  DeployState,
+  DeploymentHistoryEntry,
+  HostFacts,
+} from './deploy/state.js';
+
+export { collectHostFacts } from './deploy/host-facts.js';
+export type { CollectHostFactsOptions, OsProbe } from './deploy/host-facts.js';
 
 export type { DeployHooks, StepOutcome, StepResult } from './deploy/hooks.js';
 
@@ -265,8 +276,10 @@ export {
   checksPassed,
   isLoopbackPortFree,
   isPortListening,
+  fetchServedCertificate,
   requiredChecks,
   runChecks,
+  severityOf,
   summarise,
 } from './deploy/checks/index.js';
 export type {
@@ -277,6 +290,8 @@ export type {
   CheckStatus,
   CheckSummary,
   CompletedCheck,
+  ServedCertificate,
+  Severity,
 } from './deploy/checks/index.js';
 
 // Working out what to deploy without naming a repository (#179) - the other
@@ -300,14 +315,21 @@ export type {
 // installVhost is the reason this is a module and not a writeFileSync at the
 // call site: the proxy is shared, so a bad vhost breaks every site on the box.
 export {
+  assertValidContainerName,
   assertValidDomain,
+  certbotArgv,
   certificateStatus,
+  configLivePath,
   installVhost,
   issueCertificate,
   livePath,
+  parseProxyMode,
+  proxyRuntimeFor,
   reloadProxy,
   removeVhost,
   renderVhost,
+  resolveProxyRuntime,
+  resolveRecordedProxyRuntime,
   validateProxy,
   vhostPath,
 } from './deploy/proxy.js';
@@ -315,8 +337,12 @@ export type {
   CertInfo,
   CertificateOptions,
   InstallVhostResult,
+  ProxyMode,
   ProxyOptions,
+  ProxyRuntime,
   ProxyTarget,
+  RenewResult,
+  ResolvedProxyRuntime,
   ValidationResult,
 } from './deploy/proxy.js';
 

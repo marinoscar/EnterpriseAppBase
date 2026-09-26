@@ -23,6 +23,7 @@ import PersonIcon from '@mui/icons-material/Person';
 import PaletteIcon from '@mui/icons-material/Palette';
 import NotificationsIcon from '@mui/icons-material/Notifications';
 import VpnKeyIcon from '@mui/icons-material/VpnKey';
+import KeyOutlinedIcon from '@mui/icons-material/KeyOutlined';
 import type { SettingsSectionDef } from './adminSections';
 
 /**
@@ -87,6 +88,24 @@ export const USER_SETTINGS_SECTIONS: SettingsSectionDef[] = [
         description: 'Create and revoke personal access tokens for API and CLI access.',
         Icon: VpnKeyIcon,
         path: '/settings/tokens',
+      },
+      {
+        // Issue #425, epic #419. THE FIRST USER CARD WITH A PERMISSION, and
+        // deliberately so. Every other card here edits something the API grants
+        // all three roles; `ai:use` is a real grant a deployment can withhold
+        // from a role (AI costs money per call), and the `/api/ai/keys`
+        // controller enforces exactly this string (`PERMISSIONS.AI_USE`). A card
+        // without it would show a Viewer a page whose every call 403s.
+        //
+        // `feature: 'ai'` hides it while AI is switched off. Security, not
+        // Account: a provider API key is a credential, like an access token.
+        title: 'AI Keys',
+        description:
+          'Add your own API key for each AI provider, check it works, and see which models it can reach.',
+        Icon: KeyOutlinedIcon,
+        path: '/settings/ai',
+        permission: 'ai:use',
+        feature: 'ai',
       },
     ],
   },

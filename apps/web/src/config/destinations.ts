@@ -40,8 +40,11 @@ import type { SvgIconComponent } from '@mui/icons-material';
 import HomeIcon from '@mui/icons-material/Home';
 import SettingsIcon from '@mui/icons-material/Settings';
 import AdminIcon from '@mui/icons-material/AdminPanelSettings';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
+import type { SettingsFeatureKey, SettingsFeatures } from './adminSections';
+import { isFeatureEnabled } from './adminSections';
 
-export type DestinationKey = 'home' | 'settings' | 'console';
+export type DestinationKey = 'home' | 'settings' | 'console' | 'ai';
 
 /**
  * Does `prefix` own `path`? True when the path equals the prefix or continues
@@ -70,6 +73,10 @@ export const DESTINATION_ROUTES: Record<DestinationKey, readonly string[]> = {
   home: ['/'],
   settings: ['/settings'],
   console: ['/admin'],
+  // Issue #425, epic #419. The AI Playground. `/ai` only — the per-user AI
+  // Keys page lives at `/settings/ai` and so belongs to `settings`, and the
+  // admin AI pages at `/admin/settings/ai*` belong to `console`.
+  ai: ['/ai'],
 };
 
 /**
@@ -146,6 +153,13 @@ export interface Destination {
    * has to be the correct order for those surfaces.
    */
   pinned?: boolean;
+  /**
+   * A deployment-wide feature this destination only exists under (#425) — the
+   * same `feature` field, and the same fail-closed rule, as a settings card
+   * (`SettingsCardDef.feature` in `config/adminSections.tsx`): hidden unless
+   * the caller's feature map says it is on. AND-ed with the permission gates.
+   */
+  feature?: SettingsFeatureKey;
 }
 
 /**
@@ -161,14 +175,16 @@ export interface Destination {
 export function isDestinationVisible(
   destination: Destination,
   hasPermission: (permission: string) => boolean,
+  features: SettingsFeatures = {},
 ): boolean {
+  if (!isFeatureEnabled(destination.feature, features)) return false;
   if (destination.permission && !hasPermission(destination.permission)) return false;
   if (destination.anyPermission && !destination.anyPermission.some(hasPermission)) return false;
   return true;
 }
 
 /**
- * The three destinations, in navigation order.
+ * The four destinations, in navigation order.
  *
  * Declaration order IS navigation order on every surface. The rail is the one
  * exception, and only for the tail of the list: it lifts `pinned` destinations
@@ -222,6 +238,26 @@ export const DESTINATIONS: readonly Destination[] = [
     // destination. The permission gate above still runs first: a user who
     // cannot reach Console gets no pinned row AND no stray divider.
     pinned: true,
+  },
+  {
+    // Issue #425, epic #419 — the fourth and, by the bottom bar's ceiling,
+    // last destination. `ai:use` is the literal string the consumer AI
+    // controllers enforce (`PERMISSIONS.AI_USE`), and `feature: 'ai'` hides it
+    // while AI is switched off, where every call it would make answers
+    // `403 AI_DISABLED`.
+    //
+    // DECLARED AFTER `console`, deliberately. Declaration order is navigation
+    // order on the bottom bar and the user menu, and appending leaves the three
+    // existing tabs exactly where users learnt them. The rail lifts `console`
+    // (pinned) to its foot regardless, so there AI sits after Settings in the
+    // library list.
+    key: 'ai',
+    label: 'AI Playground',
+    compactLabel: 'AI',
+    Icon: AutoAwesomeIcon,
+    path: '/ai',
+    permission: 'ai:use',
+    feature: 'ai',
   },
 ];
 

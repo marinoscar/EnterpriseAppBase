@@ -1,4 +1,17 @@
 import { http, HttpResponse } from 'msw';
+import {
+  mockAiAdminConfig,
+  mockAiModelList,
+  mockAiModels,
+  mockAiProbeResultPassed,
+  mockAiPublicConfigDisabled,
+  mockAiResponse,
+  mockAiRun,
+  mockAiStreamEvents,
+  mockUsableAiModels,
+  mockUserAiKeys,
+  toSseBody,
+} from './fixtures/ai';
 
 // Use wildcard pattern to match relative URLs
 const API_BASE = '*/api';
@@ -278,6 +291,141 @@ export const handlers = [
           ? 'Device authorized successfully!'
           : 'Device access denied.',
       },
+    });
+  }),
+
+  // ===========================================================================
+  // AI (issue #425, epic #419). Fixtures live in `./fixtures/ai.ts` so the page
+  // stories (#429, #430, #434) reuse them. `GET /ai/config` defaults to AI
+  // DISABLED — a fresh deployment; override it per test to switch AI on.
+  // ===========================================================================
+
+  http.get(`${API_BASE}/ai/config`, () => {
+    return HttpResponse.json({ data: mockAiPublicConfigDisabled });
+  }),
+
+  http.get(`${API_BASE}/admin/ai/config`, () => {
+    return HttpResponse.json({ data: mockAiAdminConfig });
+  }),
+
+  http.put(`${API_BASE}/admin/ai/config`, async ({ request }) => {
+    const body = (await request.json()) as {
+      enabled: boolean;
+      keyPolicy: typeof mockAiAdminConfig.keyPolicy;
+      logPromptContent: boolean;
+      defaults: typeof mockAiAdminConfig.defaults;
+      providers: Record<string, { enabled: boolean; baseUrl?: string }>;
+    };
+    const ifMatch = request.headers.get('If-Match');
+    if (ifMatch !== null && Number(ifMatch) !== mockAiAdminConfig.version) {
+      return HttpResponse.json(
+        { code: 'VERSION_CONFLICT', message: 'Settings were changed by someone else' },
+        { status: 409 },
+      );
+    }
+    return HttpResponse.json({
+      data: {
+        ...mockAiAdminConfig,
+        enabled: body.enabled,
+        keyPolicy: body.keyPolicy,
+        logPromptContent: body.logPromptContent,
+        defaults: body.defaults,
+        providers: mockAiAdminConfig.providers.map((provider) => ({
+          ...provider,
+          ...(body.providers[provider.id] ?? {}),
+        })),
+        version: mockAiAdminConfig.version + 1,
+      },
+    });
+  }),
+
+  http.put(`${API_BASE}/admin/ai/providers/:provider/key`, () => {
+    return HttpResponse.json({ data: mockAiAdminConfig });
+  }),
+
+  http.delete(`${API_BASE}/admin/ai/providers/:provider/key`, () => {
+    return HttpResponse.json({
+      data: {
+        ...mockAiAdminConfig,
+        providers: mockAiAdminConfig.providers.map((provider) => ({
+          ...provider,
+          keyStatus: { configured: false, hint: null, updatedAt: null, updatedByUserId: null },
+        })),
+      },
+    });
+  }),
+
+  http.post(`${API_BASE}/admin/ai/providers/:provider/test`, () => {
+    // Always 200 — the outcome is in the body.
+    return HttpResponse.json({ data: mockAiProbeResultPassed });
+  }),
+
+  http.get(`${API_BASE}/admin/ai/models`, () => {
+    return HttpResponse.json({ data: mockAiModelList });
+  }),
+
+  http.post(`${API_BASE}/admin/ai/models/refresh`, () => {
+    return HttpResponse.json({ data: { jobId: 'job-ai-refresh-1' } });
+  }),
+
+  http.patch(`${API_BASE}/admin/ai/models/:id`, async ({ params, request }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    const model = mockAiModels.find((entry) => entry.id === params.id);
+    if (!model) {
+      return HttpResponse.json({ code: 'NOT_FOUND', message: 'Model not found' }, { status: 404 });
+    }
+    return HttpResponse.json({
+      data: {
+        ...model,
+        ...body,
+        ...(body.capabilities ? { capabilitySource: 'admin_override' } : {}),
+      },
+    });
+  }),
+
+  http.get(`${API_BASE}/ai/keys`, () => {
+    return HttpResponse.json({ data: mockUserAiKeys });
+  }),
+
+  http.put(`${API_BASE}/ai/keys/:provider`, ({ params }) => {
+    return HttpResponse.json({
+      data: { ...mockUserAiKeys[0], provider: String(params.provider) },
+    });
+  }),
+
+  http.delete(`${API_BASE}/ai/keys/:provider`, () => {
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.post(`${API_BASE}/ai/keys/:provider/test`, () => {
+    return HttpResponse.json({ data: mockAiProbeResultPassed });
+  }),
+
+  http.get(`${API_BASE}/ai/models`, () => {
+    return HttpResponse.json({ data: mockUsableAiModels });
+  }),
+
+  http.post(`${API_BASE}/ai/responses/stream`, () => {
+    return new HttpResponse(toSseBody(mockAiStreamEvents), {
+      headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' },
+    });
+  }),
+
+  http.post(`${API_BASE}/ai/responses`, () => {
+    return HttpResponse.json({ data: mockAiResponse });
+  }),
+
+  http.post(`${API_BASE}/ai/runs`, () => {
+    return HttpResponse.json({ data: { runId: mockAiRun.id, jobId: 'job-ai-run-1' } }, { status: 202 });
+  }),
+
+  http.get(`${API_BASE}/ai/runs/:id`, ({ params }) => {
+    return HttpResponse.json({ data: { ...mockAiRun, id: String(params.id) } });
+  }),
+
+  http.post(`${API_BASE}/ai/runs/:id/cancel`, ({ params }) => {
+    return HttpResponse.json({
+      data: { ...mockAiRun, id: String(params.id), status: 'cancelled', output: null },
     });
   }),
 ];

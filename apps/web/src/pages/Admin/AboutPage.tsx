@@ -76,6 +76,28 @@
  * explicit `refresh` instead, and the API re-reads the document from disk on
  * every request, so that button genuinely picks up a fresh deploy with no
  * restart and no page reload.
+ *
+ * =============================================================================
+ * ISSUE #392 — DEPLOYMENT DETAIL, ON THIS PAGE, NOT A PARALLEL ONE
+ * =============================================================================
+ *
+ * #392 asked for a "Deployment" page. It is delivered here instead, because it
+ * answers the same question from the same endpoint: a second card would be a
+ * second destination for one question, which is the drift the Settings UI
+ * Pattern exists to prevent. `/admin/settings/deployment` is a redirect in
+ * `App.tsx`, not a registry entry.
+ *
+ * Every #392 field is optional AND nullable — an older API or an older deploy
+ * record simply does not carry them — so each new block renders its own
+ * "not recorded" state rather than vanishing ambiguously or throwing:
+ *
+ *   - last command, bind port, proxy and certificate expiry → extra facts in
+ *     "This deployment", each `Not recorded` when missing;
+ *   - host → its own panel, captured at deploy time (not live);
+ *   - runtime → extra facts in "This API process" (live, never from disk);
+ *   - history → a table on `sm` and up, stacked cards on a phone. The choice
+ *     is made by MOUNTING one or the other (settings-ui.md §6), never by
+ *     rendering both and hiding one with CSS.
  */
 
 import { Fragment, type ReactNode } from 'react';
@@ -90,13 +112,23 @@ import {
   Divider,
   Paper,
   Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
   Typography,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { Navigate } from 'react-router-dom';
 import { useAbout } from '../../hooks/useAbout';
 import { usePermissions } from '../../hooks/usePermissions';
 import { formatRelativeTime } from '../../utils/relativeTime';
+import { formatDuration } from './jobsTable';
+import type { AboutHistoryEntry, AboutHost, AboutResponse, DeployCommand } from '../../types';
 
 /** Mirrors the `About` card in `config/adminSections.tsx`, word for word. */
 const PAGE_TITLE = 'About';
@@ -212,6 +244,295 @@ function SectionPaper({ title, children }: { title: string; children: ReactNode 
   );
 }
 
+// ---------------------------------------------------------------------------
+// Issue #392 helpers
+// ---------------------------------------------------------------------------
+
+/** Below this many days a certificate renders as a warning. */
+const CERT_WARN_DAYS = 21;
+
+const DAY_MS = 86_400_000;
+
+/**
+ * "in 12 days" / "3 days ago" — BOTH directions.
+ *
+ * `formatRelativeTime` is past-only by design (it clamps anything in the future
+ * to "Just now" as a clock-skew guard for notifications), which is exactly
+ * wrong for a certificate expiry, whose interesting value is in the future.
+ */
+function formatRelativeEitherWay(iso: string, now: Date = new Date()): string {
+  const time = new Date(iso).getTime();
+  if (Number.isNaN(time)) return iso;
+  const diff = time - now.getTime();
+  const abs = Math.abs(diff);
+  const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+  const sign = diff < 0 ? -1 : 1;
+  if (abs < 3_600_000) return formatter.format(sign * Math.floor(abs / 60_000), 'minute');
+  if (abs < DAY_MS) return formatter.format(sign * Math.floor(abs / 3_600_000), 'hour');
+  return formatter.format(sign * Math.floor(abs / DAY_MS), 'day');
+}
+
+type CertificateState = 'ok' | 'expiring' | 'expired';
+
+/** `null` for an unparseable value, which then renders as the raw string. */
+function certificateState(iso: string, now: Date = new Date()): CertificateState | null {
+  const time = new Date(iso).getTime();
+  if (Number.isNaN(time)) return null;
+  const remaining = time - now.getTime();
+  if (remaining <= 0) return 'expired';
+  if (remaining < CERT_WARN_DAYS * DAY_MS) return 'expiring';
+  return 'ok';
+}
+
+/** Binary units, because `os.totalmem()` is a power of two and "17.2 GB" for a 16 GiB box misleads. */
+function formatMemory(bytes: number | null | undefined): string | null {
+  if (bytes === null || bytes === undefined || !Number.isFinite(bytes) || bytes < 0) return null;
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+  let scaled = bytes;
+  let unit = 0;
+  while (scaled >= 1024 && unit < units.length - 1) {
+    scaled /= 1024;
+    unit += 1;
+  }
+  const rounded = scaled < 10 && unit > 0 ? scaled.toFixed(1) : String(Math.round(scaled));
+  return `${rounded.replace(/\.0$/, '')} ${units[unit]}`;
+}
+
+/** Seven characters, as `git log --oneline` prints it. */
+function shortSha(sha: string | null): string | null {
+  return sha ? sha.slice(0, 7) : null;
+}
+
+const COMMAND_LABEL: Record<DeployCommand, string> = { install: 'Install', update: 'Update' };
+
+function CommandChip({ command }: { command: DeployCommand | null | undefined }) {
+  if (!command || !(command in COMMAND_LABEL)) return <Value value={null} />;
+  return (
+    <Chip
+      size="small"
+      variant="outlined"
+      color={command === 'install' ? 'primary' : 'default'}
+      label={COMMAND_LABEL[command]}
+    />
+  );
+}
+
+/** Certificate expiry, relative + absolute, coloured by how soon it lapses. */
+function CertificateExpiry({ value, now }: { value: string | null | undefined; now: Date }) {
+  if (!value) return <Value value={null} />;
+  const state = certificateState(value, now);
+  if (state === null) return <Value value={value} />;
+
+  const absolute = new Date(value).toLocaleString();
+  const relative = formatRelativeEitherWay(value, now);
+  const color =
+    state === 'expired' ? 'error.main' : state === 'expiring' ? 'warning.main' : 'text.primary';
+  const prefix = state === 'expired' ? 'Expired' : 'Expires';
+
+  return (
+    <Typography
+      variant="body2"
+      data-testid="about-certificate-expiry"
+      data-state={state}
+      sx={{ color, fontWeight: state === 'ok' ? undefined : 600 }}
+    >
+      {prefix} {relative}{' '}
+      <Typography component="span" variant="body2" color="text.secondary">
+        ({absolute})
+      </Typography>
+    </Typography>
+  );
+}
+
+/** "a1b2c3d → 4f21ab9", or just the new SHA for a first install. */
+function CommitChange({ entry }: { entry: AboutHistoryEntry }) {
+  const next = shortSha(entry.commitSha);
+  const prev = shortSha(entry.previousCommitSha);
+  if (!next && !prev) return <Value value={null} />;
+  return (
+    <Typography variant="body2" component="span" sx={{ fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+      {prev && (
+        <>
+          <span title={entry.previousCommitSha ?? undefined}>{prev}</span>
+          <Box component="span" aria-label="to" sx={{ mx: 0.5, color: 'text.secondary' }}>
+            →
+          </Box>
+        </>
+      )}
+      <span title={entry.commitSha ?? undefined}>{next ?? UNKNOWN}</span>
+    </Typography>
+  );
+}
+
+function HistoryWhen({ at, now }: { at: string; now: Date }) {
+  const parsed = new Date(at);
+  if (Number.isNaN(parsed.getTime())) return <Value value={at} />;
+  return (
+    <Box>
+      <Typography variant="body2">{formatRelativeTime(at, now)}</Typography>
+      <Typography variant="caption" color="text.secondary">
+        {parsed.toLocaleString()}
+      </Typography>
+    </Box>
+  );
+}
+
+function historyKey(entry: AboutHistoryEntry, index: number): string {
+  return `${entry.at}-${entry.commitSha ?? 'none'}-${index}`;
+}
+
+/**
+ * The deployment history. A table where there is room for one; stacked cards
+ * on a phone, so no row ever forces the PAGE to scroll sideways. Mounted, not
+ * CSS-hidden — see settings-ui.md §6.
+ */
+function HistorySection({
+  history,
+  now,
+}: {
+  history: AboutHistoryEntry[] | null | undefined;
+  now: Date;
+}) {
+  const theme = useTheme();
+  const isPhone = useMediaQuery(theme.breakpoints.down('sm'));
+
+  return (
+    <SectionPaper title="Deployment history">
+      {!history || history.length === 0 ? (
+        <Typography variant="body2" color="text.disabled" data-testid="about-history-empty">
+          No deployment history was recorded. Successful installs and updates are listed here once
+          the deploy CLI records them.
+        </Typography>
+      ) : isPhone ? (
+        <Stack spacing={1.5} component="ol" sx={{ listStyle: 'none', p: 0, m: 0 }} data-testid="about-history-list">
+          {history.map((entry, index) => (
+            <Paper
+              key={historyKey(entry, index)}
+              component="li"
+              variant="outlined"
+              data-testid="about-history-item"
+              sx={{ p: 1.5 }}
+            >
+              <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', justifyContent: 'space-between', mb: 1 }}>
+                <HistoryWhen at={entry.at} now={now} />
+                <CommandChip command={entry.command} />
+              </Stack>
+              <FactList>
+                <Fact label="Commit">
+                  <CommitChange entry={entry} />
+                </Fact>
+                <Fact label="Ref">
+                  <Value value={entry.ref} mono />
+                </Fact>
+                <Fact label="Duration">
+                  <Value value={entry.durationMs === null ? null : formatDuration(entry.durationMs)} />
+                </Fact>
+                <Fact label="CLI version">
+                  <Value value={entry.cliVersion} />
+                </Fact>
+              </FactList>
+            </Paper>
+          ))}
+        </Stack>
+      ) : (
+        <TableContainer sx={{ overflowX: 'auto' }}>
+          <Table size="small" aria-label="Deployment history" data-testid="about-history-table">
+            <TableHead>
+              <TableRow>
+                <TableCell>When</TableCell>
+                <TableCell>Command</TableCell>
+                <TableCell>Commit</TableCell>
+                <TableCell>Ref</TableCell>
+                <TableCell>Duration</TableCell>
+                <TableCell>CLI version</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {history.map((entry, index) => (
+                <TableRow key={historyKey(entry, index)} data-testid="about-history-row">
+                  <TableCell>
+                    <HistoryWhen at={entry.at} now={now} />
+                  </TableCell>
+                  <TableCell>
+                    <CommandChip command={entry.command} />
+                  </TableCell>
+                  <TableCell>
+                    <CommitChange entry={entry} />
+                  </TableCell>
+                  <TableCell>
+                    <Value value={entry.ref} mono />
+                  </TableCell>
+                  <TableCell>
+                    <Value value={entry.durationMs === null ? null : formatDuration(entry.durationMs)} />
+                  </TableCell>
+                  <TableCell>
+                    <Value value={entry.cliVersion} />
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      )}
+    </SectionPaper>
+  );
+}
+
+/** The host the deploy ran on — a deploy-time snapshot, not a live reading. */
+function HostSection({ host }: { host: AboutHost | null | undefined }) {
+  return (
+    <SectionPaper title="Host">
+      {host ? (
+        <>
+          <FactList data-testid="about-host-facts">
+            <Fact label="Hostname">
+              <Value value={host.hostname} mono />
+            </Fact>
+            <Fact label="Operating system">
+              <Value value={host.os} />
+            </Fact>
+            <Fact label="Kernel">
+              <Value value={host.kernel} mono />
+            </Fact>
+            <Fact label="Architecture">
+              <Value value={host.arch} mono />
+            </Fact>
+            <Fact label="CPUs">
+              <Value value={host.cpus === null ? null : String(host.cpus)} />
+            </Fact>
+            <Fact label="Memory">
+              <Value value={formatMemory(host.memoryBytes)} />
+            </Fact>
+            <Fact label="Docker">
+              <Value value={host.dockerVersion} mono />
+            </Fact>
+            <Fact label="Docker Compose">
+              <Value value={host.composeVersion} mono />
+            </Fact>
+            <Fact label="Captured">
+              <Timestamp value={host.capturedAt} />
+            </Fact>
+          </FactList>
+          <Typography variant="caption" color="text.secondary" sx={{ mt: 2, display: 'block' }}>
+            Captured by the deploy CLI when it last ran, not read live — the host may have been
+            upgraded since.
+          </Typography>
+        </>
+      ) : (
+        <Typography variant="body2" color="text.disabled" data-testid="about-host-not-recorded">
+          Host details were not recorded by the deploy that wrote this record.
+        </Typography>
+      )}
+    </SectionPaper>
+  );
+}
+
+function proxyModeLabel(proxy: AboutResponse['proxy']): string | null {
+  if (!proxy?.mode) return null;
+  const mode = proxy.mode === 'container' ? 'Bundled proxy container' : 'Host proxy';
+  return proxy.container ? `${mode} (${proxy.container})` : mode;
+}
+
 export default function AboutPage() {
   const { hasPermission } = usePermissions();
   const { data, isLoading, error, refresh } = useAbout();
@@ -229,6 +550,8 @@ export default function AboutPage() {
   const hasDocument = data?.deployInfoStatus === 'ok';
   const failedStep = data?.run?.outcome === 'failure' ? data.run.failedStep : null;
   const runFailed = data?.run?.outcome === 'failure';
+  // One instant per render, so every relative time on the page agrees.
+  const now = new Date();
 
   return (
     <Container maxWidth="lg">
@@ -360,6 +683,25 @@ export default function AboutPage() {
                   <Fact label="Domain">
                     <Value value={data.domain} />
                   </Fact>
+                  <Fact label="Last command">
+                    <CommandChip command={data.lastCommand} />
+                  </Fact>
+                  <Fact label="Bind port">
+                    <Value
+                      value={
+                        data.bindPort === null || data.bindPort === undefined
+                          ? null
+                          : String(data.bindPort)
+                      }
+                      mono
+                    />
+                  </Fact>
+                  <Fact label="Proxy">
+                    <Value value={proxyModeLabel(data.proxy)} />
+                  </Fact>
+                  <Fact label="Certificate">
+                    <CertificateExpiry value={data.proxy?.certificateExpiresAt} now={now} />
+                  </Fact>
                   <Fact label="Installed">
                     <Timestamp value={data.installedAt} />
                   </Fact>
@@ -433,6 +775,10 @@ export default function AboutPage() {
               </SectionPaper>
             )}
 
+            {hasDocument && <HostSection host={data.host} />}
+
+            {hasDocument && <HistorySection history={data.history} now={now} />}
+
             {/* ------------------------------------------------------------
                 THE REMOTE — copied from the document, never refreshed. The
                 caveat travels with the number because without `checkedAt` the
@@ -470,6 +816,21 @@ export default function AboutPage() {
               <FactList data-testid="about-api-facts">
                 <Fact label="API version">
                   <Value value={data.api.version} />
+                </Fact>
+                {/* Issue #392. Live facts, never from disk. An older API
+                    omits `runtime` entirely; each row then says so. */}
+                <Fact label="Process started">
+                  {data.runtime?.processStartedAt ? (
+                    <Timestamp value={data.runtime.processStartedAt} />
+                  ) : (
+                    <Value value={null} />
+                  )}
+                </Fact>
+                <Fact label="Node.js">
+                  <Value value={data.runtime?.nodeVersion ?? null} mono />
+                </Fact>
+                <Fact label="Environment">
+                  <Value value={data.runtime?.environment ?? null} mono />
                 </Fact>
               </FactList>
               <Typography variant="caption" color="text.secondary" sx={{ mt: 2, display: 'block' }}>

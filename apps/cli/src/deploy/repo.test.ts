@@ -14,6 +14,7 @@ import {
   hasEmbeddedCredentials,
   normaliseRepoUrl,
   resolveRepoTarget,
+  resolveRepoUrl,
 } from './repo.js';
 
 // =============================================================================
@@ -361,5 +362,81 @@ describe('ensureCheckout', () => {
 
     // Whatever git said, the operator gets something they can act on.
     expect(error).toBeInstanceOf(Error);
+  });
+});
+
+describe('resolveRepoUrl', () => {
+  it('lets --repo win over everything, and never touches git', async () => {
+    const clone = makeClone(makeOrigin());
+
+    const url = await resolveRepoUrl({
+      cwd: clone,
+      runCommand,
+      repoFlag: 'https://example.test/flag/repo.git',
+      state: { repoUrl: 'https://example.test/state/repo' },
+    });
+
+    expect(url).toBe('https://example.test/flag/repo');
+  });
+
+  it('lets recorded state win over the checkout', async () => {
+    const clone = makeClone(makeOrigin());
+
+    const url = await resolveRepoUrl({
+      cwd: clone,
+      runCommand,
+      state: { repoUrl: 'https://example.test/state/repo.git' },
+    });
+
+    expect(url).toBe('https://example.test/state/repo');
+  });
+
+  it('falls back to the checkout\'s origin, normalised', async () => {
+    const origin = makeOrigin();
+    const clone = makeClone(origin);
+
+    const url = await resolveRepoUrl({ cwd: clone, runCommand });
+
+    expect(url).toBe(normaliseRepoUrl(origin));
+  });
+
+  it('works from a nested directory inside the checkout', async () => {
+    const clone = makeClone(makeOrigin());
+    const nested = join(clone, 'deep', 'path');
+    mkdirSync(nested, { recursive: true });
+
+    const url = await resolveRepoUrl({ cwd: nested, runCommand });
+
+    expect(url).toBeDefined();
+  });
+
+  it('is undefined -- never throws -- outside any git checkout with nothing else to go on', async () => {
+    const outside = mkdtempSync(join(tmpdir(), 'appctl-nogit-'));
+
+    const url = await resolveRepoUrl({ cwd: outside, runCommand });
+
+    expect(url).toBeUndefined();
+  });
+
+  it('is undefined for a checkout with no origin remote', async () => {
+    const orphan = mkdtempSync(join(tmpdir(), 'appctl-orphan-'));
+    execFileSync('git', ['init', '--quiet'], { cwd: orphan });
+
+    const url = await resolveRepoUrl({ cwd: orphan, runCommand });
+
+    expect(url).toBeUndefined();
+  });
+
+  it('resolves no ref, and runs no more git than it has to (no rev-parse/symbolic-ref calls)', async () => {
+    const clone = makeClone(makeOrigin());
+    const seen: string[][] = [];
+    const spyingRunCommand: typeof runCommand = async (argv, options) => {
+      seen.push([...argv]);
+      return await runCommand(argv, options);
+    };
+
+    await resolveRepoUrl({ cwd: clone, runCommand: spyingRunCommand });
+
+    expect(seen).toEqual([['git', 'remote', 'get-url', 'origin']]);
   });
 });

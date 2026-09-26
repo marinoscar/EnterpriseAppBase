@@ -4,7 +4,14 @@ import { basename, join } from 'node:path';
 import { CLI_NAME } from '../branding.js';
 import { PreconditionError, UsageError } from '../errors.js';
 import { CLI_VERSION } from '../package-info.js';
-import { ALL_CHECKS, checksPassed, requiredChecks, runChecks } from './checks/index.js';
+import {
+  ALL_CHECKS,
+  checksPassed,
+  gitCredentialStateFor,
+  requiredChecks,
+  runChecks,
+  type CheckContext,
+} from './checks/index.js';
 import { parseEnvExample, parseEnvFile } from './env-spec.js';
 import { writeEnvFile } from './env-file.js';
 import { isDeployment } from './deployment-evidence.js';
@@ -14,13 +21,24 @@ import { runCommand as defaultRunCommand } from './executor.js';
 import { waitForHealthy, collectHealth, isHealthy } from './health.js';
 import type { DeployHooks } from './hooks.js';
 import { openJournal, type Journal, type SecretEntry } from './journal.js';
-import { bootstrapProxyRoot, installVhost, issueCertificate, type ProxyTarget } from './proxy.js';
-import { ensureCheckout, resolveRepoTarget, type RepoTarget } from './repo.js';
+import {
+  bootstrapProxyRoot,
+  describeProxyRuntime,
+  installVhost,
+  issueCertificate,
+  resolveRecordedProxyRuntime,
+  type ProxyMode,
+  type ProxyTarget,
+  type ResolvedProxyRuntime,
+} from './proxy.js';
+import { ensureCheckout, resolveRepoTarget, resolveRepoUrl, type RepoTarget } from './repo.js';
 import {
   DEPLOY_STATE_VERSION,
+  appendHistory,
   readState,
   writeState,
   type DeployState,
+  type HostFacts,
 } from './state.js';
 import { runPipeline, type DeployStep, type StepContext } from './steps/pipeline.js';
 import {
@@ -30,7 +48,9 @@ import {
   stampAppVersion,
   type VersionStepResult,
 } from './version-step.js';
-import { writeDeployInfo } from './deploy-info.js';
+import { writeDeployInfo, type DeployInfoInput } from './deploy-info.js';
+import { collectHostFacts } from './host-facts.js';
+import { observeProxy, proxyInfoOf } from './run-record.js';
 import { metadataFor } from './env-metadata.js';
 import type { PromptContext } from '../prompt.js';
 
@@ -67,6 +87,13 @@ export interface InstallOptions {
   domain?: string | undefined;
   bindPort: number;
   proxyRoot: string;
+  /**
+   * How the shared proxy runs. Absent means "as recorded, else detected" --
+   * see `resolveProxyRuntime`.
+   */
+  proxyMode?: ProxyMode | undefined;
+  /** The proxy container's name. Absent means "as recorded, else proxy-nginx". */
+  proxyContainer?: string | undefined;
   repo?: string | undefined;
   ref?: string | undefined;
   nonInteractive?: boolean | undefined;
@@ -116,6 +143,98 @@ interface InstallContext extends StepContext {
   composeProject?: string | undefined;
   /** The result of the `version` step, read by `publish-version`. */
   version?: VersionStepResult | undefined;
+  /** What a previous run recorded about the proxy, for --resume/--reinstall. */
+  recordedProxy?: Pick<DeployState, 'proxyMode' | 'proxyContainer'> | undefined;
+  /** Resolved once, on first use; see `proxyRuntimeOf`. */
+  proxyRuntime?: ResolvedProxyRuntime | undefined;
+  /** The record this run started from, if any; the source of prior history. */
+  existingState?: DeployState | undefined;
+  /** Collected once, on first use; see `hostFactsOf`. */
+  hostFacts?: HostFacts | undefined;
+}
+
+/**
+ * The proxy runtime this run acts under, resolved ONCE and then reused, so the
+ * preflight, the certificate and the vhost can never disagree about it.
+ */
+async function proxyRuntimeOf(context: InstallContext): Promise<ResolvedProxyRuntime> {
+  if (context.proxyRuntime !== undefined) return context.proxyRuntime;
+
+  const runtime = await resolveRecordedProxyRuntime({
+    proxyRoot: context.options.proxyRoot,
+    flags: { mode: context.options.proxyMode, container: context.options.proxyContainer },
+    recorded: context.recordedProxy,
+    runCommand: context.runCommand,
+  });
+  context.proxyRuntime = runtime;
+  context.journal.line(describeProxyRuntime(runtime));
+  return runtime;
+}
+
+/**
+ * The host facts for this run, collected ONCE on first use and then reused, so
+ * the health-gate info.json and the final state/info.json agree. Lazy rather
+ * than up front: by the health gate Docker is demonstrably there to answer.
+ */
+async function hostFactsOf(context: InstallContext): Promise<HostFacts> {
+  context.hostFacts ??= await collectHostFacts({ runCommand: context.runCommand });
+  return context.hostFacts;
+}
+
+/**
+ * The info.json input for this run, as known at `at`.
+ *
+ * One builder for both writes -- the health gate and the end of a successful
+ * run -- so the second can only ADD what the run learned since (the new
+ * history entry, the certificate), never describe the deployment differently.
+ */
+function installDeployInfo(context: InstallContext, at: string): DeployInfoInput {
+  const existing = context.existingState;
+  const runtime = recordedRuntime(context);
+  const domain = context.options.domain;
+  return {
+    name: basename(context.options.deployRoot),
+    ...(context.version?.version === undefined ? {} : { version: context.version.version }),
+    ...(context.commitSha === undefined ? {} : { commitSha: context.commitSha }),
+    ...(context.target?.ref === undefined ? {} : { ref: context.target.ref }),
+    // The first install is `at`; a --reinstall keeps the original.
+    installedAt: existing?.installedAt ?? at,
+    updatedAt: at,
+    cliVersion: CLI_VERSION,
+    ...(domain === undefined ? {} : { domain }),
+    // What THIS run has finished so far -- not the resume set, which is what a
+    // PREVIOUS run finished.
+    completed: [...(context.progress ?? [])],
+    lastCommand: 'install',
+    bindPort: context.options.bindPort,
+    // Before `publish` the certificate is whatever a previous run observed for
+    // the SAME domain; the end-of-run rewrite replaces it with a fresh read.
+    proxy: proxyInfoOf(
+      domain === undefined
+        ? undefined
+        : {
+            domain,
+            bindPort: context.options.bindPort,
+            mode: runtime.proxyMode ?? null,
+            container: runtime.proxyContainer ?? null,
+            certificateExpiresAt:
+              existing?.proxy?.domain === domain ? existing.proxy.certificateExpiresAt : null,
+          },
+    ),
+    ...(context.hostFacts === undefined ? {} : { host: context.hostFacts }),
+    // Success-only: THIS run is not in it until it has succeeded.
+    history: existing?.history ?? [],
+  };
+}
+
+/** The state fields that record the runtime, when one was resolved. */
+function recordedRuntime(
+  context: InstallContext,
+): Pick<DeployState, 'proxyMode' | 'proxyContainer'> {
+  const runtime = context.proxyRuntime;
+  // A run that never touched the proxy keeps whatever was recorded before.
+  if (runtime === undefined) return context.recordedProxy ?? {};
+  return { proxyMode: runtime.mode, proxyContainer: runtime.container };
 }
 
 export function composeCwd(deployRoot: string): string {
@@ -242,15 +361,36 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
           for (const path of created) context.journal.line(`Created ${path}`);
         }
 
-        const results = await runChecks(requiredChecks(ALL_CHECKS), {
+        // The repository `checkout` will clone, by the same precedence, and
+        // whether git can already read it. Probed ONCE here because it decides
+        // whether gh-installed/gh-authenticated are required (#390): an HTTPS
+        // GitHub URL git cannot read would otherwise stop the clone at an
+        // authentication prompt, after this preflight said it was fine.
+        const repoUrl = await resolveRepoUrl({
+          cwd: context.options.cwd ?? process.cwd(),
+          runCommand: context.runCommand,
+          ...(context.options.repo === undefined ? {} : { repoFlag: context.options.repo }),
+        });
+        const gitCredentialed = await gitCredentialStateFor(repoUrl, context.runCommand);
+
+        const checkContext: CheckContext = {
           runCommand: context.runCommand,
           deployRoot: context.options.deployRoot,
           bindPort: context.options.bindPort,
           proxyRoot: context.options.proxyRoot,
+          // Resolved before the checks, because it decides which of them are
+          // required: certbot-installed only on the host, renewal-path hygiene
+          // only in a container.
+          proxyRuntime: await proxyRuntimeOf(context),
           ...(context.options.domain === undefined
             ? {}
             : { domain: context.options.domain }),
-        });
+          ...(repoUrl === undefined ? {} : { repoUrl }),
+          ...(gitCredentialed === undefined ? {} : { gitCredentialed }),
+          ...(context.options.skipProxy === true ? { skipProxy: true } : {}),
+        };
+
+        const results = await runChecks(requiredChecks(ALL_CHECKS, checkContext), checkContext);
 
         for (const result of results) {
           context.journal.line(`${result.status} ${result.id}: ${result.detail}`);
@@ -552,23 +692,16 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
         // which runs between here and there -- would leave that page reporting
         // nothing at all about a deployment that is up and serving, which is
         // exactly when somebody is looking at it.
-        const now = new Date().toISOString();
-        const result = writeDeployInfo(context.options.deployRoot, {
-          name: basename(context.options.deployRoot),
-          ...(context.version?.version === undefined
-            ? {}
-            : { version: context.version.version }),
-          ...(context.commitSha === undefined ? {} : { commitSha: context.commitSha }),
-          ...(context.target?.ref === undefined ? {} : { ref: context.target?.ref }),
-          // The first install is `now`; a --reinstall keeps the original.
-          installedAt: readState(context.options.deployRoot)?.installedAt ?? now,
-          updatedAt: now,
-          cliVersion: CLI_VERSION,
-          ...(context.options.domain === undefined ? {} : { domain: context.options.domain }),
-          // What THIS run has finished by the health gate -- not the resume
-          // set, which is what a PREVIOUS run finished.
-          completed: [...(context.progress ?? [])],
-        });
+        //
+        // ⚠ AND REWRITTEN AT THE END of a successful run (see `runInstall`),
+        // which is the only point at which this run's history entry and a
+        // freshly read certificate expiry exist. This write describes what is
+        // answering NOW; that one supersedes it with the finished run.
+        await hostFactsOf(context);
+        const result = writeDeployInfo(
+          context.options.deployRoot,
+          installDeployInfo(context, new Date().toISOString()),
+        );
 
         // ⚠ BOOKKEEPING, NOT THE DEPLOYMENT. By this point the stack is up and
         // answering; a file this CLI could not write is a warning, never a
@@ -606,9 +739,12 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
           );
         }
 
+        const runtime = await proxyRuntimeOf(context);
+
         // Certificate FIRST. See rule 4 in the header.
         await issueCertificate(target, {
           runCommand: context.runCommand,
+          runtime,
           email,
           ...(context.options.staging === undefined ? {} : { staging: context.options.staging }),
           ...(context.hooks === undefined ? {} : { hooks: context.hooks }),
@@ -616,6 +752,9 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
 
         await installVhost(target, {
           runCommand: context.runCommand,
+          // Paths in the vhost, and where `nginx -t` / the reload run, both
+          // come from here. Omitting it is the host-binary assumption.
+          runtime,
           ...(context.hooks === undefined ? {} : { hooks: context.hooks }),
           ...(context.env?.get('MAX_FILE_SIZE') === undefined
             ? {}
@@ -689,6 +828,9 @@ export interface InstallResult {
 }
 
 export async function runInstall(options: InstallOptions): Promise<InstallResult> {
+  // The duration a history entry records is the whole run, precondition
+  // checks included -- what the operator actually waited.
+  const startedAt = Date.now();
   const existingState = readState(options.deployRoot);
 
   // The mirror of the defect `update` had, and the same wrong question asked
@@ -737,6 +879,17 @@ export async function runInstall(options: InstallOptions): Promise<InstallResult
     journal,
     hooks: options.hooks,
     composeProject,
+    existingState,
+    ...(existingState === undefined
+      ? {}
+      : {
+          recordedProxy: {
+            ...(existingState.proxyMode === undefined ? {} : { proxyMode: existingState.proxyMode }),
+            ...(existingState.proxyContainer === undefined
+              ? {}
+              : { proxyContainer: existingState.proxyContainer }),
+          },
+        }),
     completed:
       options.resume === true && existingState !== undefined
         ? new Set(existingState.completedSteps ?? [])
@@ -777,6 +930,7 @@ export async function runInstall(options: InstallOptions): Promise<InstallResult
         composeProject,
         ...(options.domain === undefined ? {} : { domain: options.domain }),
         ...(options.proxyRoot === undefined ? {} : { proxyRoot: options.proxyRoot }),
+        ...recordedRuntime(context),
         completedSteps: result.completed,
         lastOutcome: 'failure',
         lastFailedStep: result.failed.id,
@@ -796,15 +950,40 @@ export async function runInstall(options: InstallOptions): Promise<InstallResult
   }
 
   const now = new Date().toISOString();
+
+  // ⚠ ONLY THE SUCCESS PATH APPENDS HISTORY. The failure path above spreads
+  // the existing record, so a failed run keeps every prior entry and adds none.
+  const host = await hostFactsOf(context);
+  const runtime = recordedRuntime(context);
+  const proxy = await observeProxy({
+    domain: options.domain,
+    bindPort: options.bindPort,
+    proxyRoot: options.proxyRoot,
+    mode: runtime.proxyMode,
+    container: runtime.proxyContainer,
+    runCommand: context.runCommand,
+  });
+  const history = appendHistory(existingState?.history, {
+    at: now,
+    command: 'install',
+    commitSha: context.commitSha || null,
+    previousCommitSha: previousDeployedCommit(existingState),
+    ref: context.target?.ref ?? null,
+    durationMs: Date.now() - startedAt,
+    cliVersion: CLI_VERSION,
+    outcome: 'success',
+  });
+  const installedAt = existingState?.installedAt ?? now;
+
   writeState({
-    version: 1,
+    version: DEPLOY_STATE_VERSION,
     repoUrl: context.target?.url ?? '',
     ref: context.target?.ref ?? '',
     commitSha: context.commitSha ?? '',
     ...(options.domain === undefined ? {} : { domain: options.domain }),
     bindPort: options.bindPort,
     deployRoot: options.deployRoot,
-    installedAt: existingState?.installedAt ?? now,
+    installedAt,
     lastDeployedAt: now,
     lastCommand: 'install',
     appctlVersion: CLI_VERSION,
@@ -813,6 +992,9 @@ export async function runInstall(options: InstallOptions): Promise<InstallResult
     // Recorded so update writes the vhost where install put it, rather than
     // re-deriving a path that ignores a non-default --proxy-root.
     ...(options.proxyRoot === undefined ? {} : { proxyRoot: options.proxyRoot }),
+    // Recorded so update, certs and uninstall act under the runtime this
+    // install actually used, rather than re-detecting it.
+    ...recordedRuntime(context),
     // Recorded so a later `update` knows which opt-in groups this deployment
     // uses. It cannot be re-derived from the `.env`: a group's keys look
     // identical whether the feature is on or off.
@@ -824,7 +1006,26 @@ export async function runInstall(options: InstallOptions): Promise<InstallResult
     // to infer success from the shape of the record.
     lastOutcome: 'success',
     lastAttemptAt: now,
+    host,
+    history,
+    proxy,
   } as DeployState);
+
+  // The end-of-run rewrite of info.json: the same document the health gate
+  // wrote, now carrying this run's history entry, every completed step and the
+  // certificate `publish` just issued. Never throws; see writeDeployInfo.
+  const info = writeDeployInfo(options.deployRoot, {
+    ...installDeployInfo(context, now),
+    installedAt,
+    proxy: proxyInfoOf(proxy),
+    host,
+    history,
+  });
+  journal.line(
+    info.written
+      ? `Wrote ${info.path}`
+      : `warning: could not write ${info.path}: ${info.error ?? 'unknown'}`,
+  );
 
   journal.finish('success');
 
@@ -844,6 +1045,22 @@ export async function runInstall(options: InstallOptions): Promise<InstallResult
     // looks broken.
     nextStep: `Log in at ${url} as ${admin} to claim the Admin role.`,
   };
+}
+
+/**
+ * The commit a fresh install replaces, for its history entry.
+ *
+ * The last SUCCESSFUL run's commit when there is history. Without it, a record
+ * that did not end in failure still names a deployed commit (a v1 record, an
+ * adopted one); a failed first install names only the checkout it reached,
+ * which was never deployed, so it answers null.
+ */
+function previousDeployedCommit(existing: DeployState | undefined): string | null {
+  if (existing === undefined) return null;
+  const last = existing.history?.[0];
+  if (last !== undefined) return last.commitSha;
+  if (existing.lastOutcome === 'failure') return null;
+  return existing.commitSha || null;
 }
 
 /** Slug used for the default deploy root, from the repository name. */

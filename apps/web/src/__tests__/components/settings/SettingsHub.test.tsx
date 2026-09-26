@@ -372,6 +372,97 @@ describe('SettingsHub', () => {
     });
   });
 
+  /**
+   * Issue #425, epic #419. A card's `feature` is a DEPLOYMENT gate, orthogonal
+   * to the permission gate: the hub shows it only when the `features` prop says
+   * that feature is on, and an omitted prop hides it (fail closed).
+   */
+  describe('Feature gating', () => {
+    const FEATURE_SECTIONS: SettingsSectionDef[] = [
+      {
+        label: 'Lab',
+        cards: [
+          { title: 'Plain Card', description: 'Always here.', Icon: TuneIcon, path: '/x/plain' },
+          {
+            title: 'Robot Card',
+            description: 'Only while AI is on.',
+            Icon: FlagIcon,
+            path: '/x/robot',
+            feature: 'ai',
+          },
+          {
+            title: 'Gated Robot',
+            description: 'AI on AND a permission.',
+            Icon: DataObjectIcon,
+            path: '/x/gated-robot',
+            permission: 'robot:read',
+            feature: 'ai',
+          },
+          {
+            title: 'Forced Robot',
+            description: 'alwaysShow cannot resurrect a switched-off feature.',
+            Icon: PaletteIcon,
+            path: '/x/forced-robot',
+            alwaysShow: true,
+            feature: 'ai',
+          },
+        ],
+      },
+    ];
+
+    it.each([
+      ['compact', PHONE],
+      ['wide', DESKTOP],
+    ])('hides feature cards when no features prop is passed, at %s width', (_label, width) => {
+      setViewportWidth(width);
+      setPermissions(['robot:read']);
+      renderHub(FEATURE_SECTIONS);
+
+      expect(screen.getByText('Plain Card')).toBeInTheDocument();
+      expect(screen.queryByText('Robot Card')).not.toBeInTheDocument();
+      expect(screen.queryByText('Gated Robot')).not.toBeInTheDocument();
+      expect(screen.queryByText('Forced Robot')).not.toBeInTheDocument();
+    });
+
+    it('hides feature cards when the feature is explicitly off', () => {
+      setViewportWidth(DESKTOP);
+      setPermissions(['robot:read']);
+      renderHub(FEATURE_SECTIONS, { features: { ai: false } });
+
+      expect(screen.queryByText('Robot Card')).not.toBeInTheDocument();
+      expect(screen.queryByText('Forced Robot')).not.toBeInTheDocument();
+    });
+
+    it('shows feature cards when the feature is on, still applying the permission gate', () => {
+      setViewportWidth(DESKTOP);
+      setPermissions([]);
+      renderHub(FEATURE_SECTIONS, { features: { ai: true } });
+
+      expect(screen.getByText('Robot Card')).toBeInTheDocument();
+      expect(screen.getByText('Forced Robot')).toBeInTheDocument();
+      expect(screen.queryByText('Gated Robot')).not.toBeInTheDocument();
+    });
+
+    it('shows a permission-gated feature card once both gates are open', () => {
+      setViewportWidth(DESKTOP);
+      setPermissions(['robot:read']);
+      renderHub(FEATURE_SECTIONS, { features: { ai: true } });
+
+      expect(screen.getByText('Gated Robot')).toBeInTheDocument();
+    });
+
+    it('keeps search composing with the feature gate', () => {
+      setViewportWidth(DESKTOP);
+      setPermissions(['robot:read']);
+      renderHub(FEATURE_SECTIONS);
+
+      fireEvent.change(screen.getByRole('textbox'), { target: { value: 'robot' } });
+
+      expect(screen.queryByText('Robot Card')).not.toBeInTheDocument();
+      expect(screen.getByText(/No settings match/)).toBeInTheDocument();
+    });
+  });
+
   describe('Disabled / pathless cards', () => {
     it('renders a Coming soon chip, is not a tab stop, and does not navigate on click, in the card grid', async () => {
       setViewportWidth(DESKTOP);
@@ -460,6 +551,53 @@ describe('SettingsHubPage — the real admin registry', () => {
     ).not.toBeInTheDocument();
   });
 
+  /**
+   * Issue #425, epic #419. The AI group is appended to `ADMIN_SECTIONS`: `AI`
+   * (no feature — it is where AI is switched on) and `AI Models`
+   * (`feature: 'ai'`), both on `ai_config:read`.
+   */
+  describe('AI cards (#425)', () => {
+    const AI_ADMIN = [...ADMIN_READER, 'ai_config:read'];
+
+    it('adds no AI group for an admin without ai_config:read — the pre-AI hub is unchanged', async () => {
+      setViewportWidth(DESKTOP);
+      setPermissions(ADMIN_READER);
+      render(<SettingsHubPage />, { wrapperOptions: { aiEnabled: true } });
+
+      expect(screen.queryByRole('heading', { level: 6, name: 'AI' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('heading', { level: 6, name: 'AI Models' })).not.toBeInTheDocument();
+    });
+
+    it('shows the AI card but not AI Models while AI is off (fetched: MSW default disabled)', async () => {
+      setViewportWidth(DESKTOP);
+      setPermissions(AI_ADMIN);
+      render(<SettingsHubPage />);
+
+      expect(await screen.findByRole('heading', { level: 6, name: 'AI' })).toBeInTheDocument();
+      expect(screen.queryByRole('heading', { level: 6, name: 'AI Models' })).not.toBeInTheDocument();
+    });
+
+    it('shows both AI cards once AI is on', () => {
+      setViewportWidth(DESKTOP);
+      setPermissions(AI_ADMIN);
+      render(<SettingsHubPage />, { wrapperOptions: { aiEnabled: true } });
+
+      expect(screen.getByRole('heading', { level: 6, name: 'AI' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 6, name: 'AI Models' })).toBeInTheDocument();
+    });
+
+    it('navigates to the AI Models route', async () => {
+      setViewportWidth(DESKTOP);
+      setPermissions(AI_ADMIN);
+      const user = userEvent.setup();
+      render(<SettingsHubPage />, { wrapperOptions: { aiEnabled: true } });
+
+      await user.click(screen.getByRole('heading', { level: 6, name: 'AI Models' }));
+
+      expect(mockNavigate).toHaveBeenCalledWith('/admin/settings/ai/models');
+    });
+  });
+
   describe('Scroll restoration wiring', () => {
     it('writes a scroll offset under the admin-settings-hub key', async () => {
       // The hook's own retry/coalescing/deadline behaviour is covered in
@@ -491,6 +629,36 @@ describe('SettingsHubPage — the real admin registry', () => {
  * (or an accidental `permission` string) added to any of these cards would
  * fail that test without touching anything checked above.
  */
+describe('UserSettingsHubPage — AI Keys (#425)', () => {
+  it('hides AI Keys while AI is off, even for an ai:use holder', async () => {
+    setViewportWidth(DESKTOP);
+    setPermissions(['ai:use']);
+    render(<UserSettingsHubPage />, { wrapperOptions: { aiEnabled: false } });
+
+    expect(screen.getByRole('heading', { level: 6, name: 'Access Tokens' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 6, name: 'AI Keys' })).not.toBeInTheDocument();
+  });
+
+  it('hides AI Keys from a user without ai:use, even with AI on', () => {
+    setViewportWidth(DESKTOP);
+    setPermissions(['user_settings:read']);
+    render(<UserSettingsHubPage />, { wrapperOptions: { aiEnabled: true } });
+
+    expect(screen.queryByRole('heading', { level: 6, name: 'AI Keys' })).not.toBeInTheDocument();
+  });
+
+  it('shows AI Keys under Security for an ai:use holder with AI on, routed to /settings/ai', async () => {
+    setViewportWidth(DESKTOP);
+    setPermissions(['ai:use']);
+    const user = userEvent.setup();
+    render(<UserSettingsHubPage />, { wrapperOptions: { aiEnabled: true } });
+
+    await user.click(screen.getByRole('heading', { level: 6, name: 'AI Keys' }));
+
+    expect(mockNavigate).toHaveBeenCalledWith('/settings/ai');
+  });
+});
+
 describe('UserSettingsHubPage — the real user registry', () => {
   // Deliberately NOT `users:read` or `system_settings:read` — those are what
   // the admin hub gates on, and this suite exists to prove the user hub does

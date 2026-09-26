@@ -7,6 +7,7 @@ import { CLI_NAME } from '../branding.js';
 import {
   ALL_CHECKS,
   checksPassed,
+  gitCredentialStateFor,
   runChecks,
   summarise,
   type CheckContext,
@@ -20,6 +21,7 @@ import {
   type HealthReport,
   type ProbeResult,
 } from '../deploy/health.js';
+import { resolveRepoUrl } from '../deploy/repo.js';
 import { readState } from '../deploy/state.js';
 import { readAbout, renderAbout } from '../deploy/about.js';
 import { readAnswersFile } from '../deploy/answers-file.js';
@@ -31,10 +33,15 @@ import {
   type UninstallPlan,
 } from '../deploy/uninstall.js';
 import {
+  assertValidContainerName,
   certificateExpiry,
+  parseProxyMode,
   renewCertificate,
+  resolveRecordedProxyRuntime,
   RENEW_WITHIN_DAYS,
+  type ProxyMode,
   type ProxyTarget,
+  type ResolvedProxyRuntime,
 } from '../deploy/proxy.js';
 import {
   DEFAULT_APPS_ROOT,
@@ -73,6 +80,32 @@ export { DEFAULT_APPS_ROOT };
 export const DEFAULT_PROXY_ROOT = '/opt/infra/proxy';
 export const DEFAULT_BIND_PORT = 3535;
 
+const PROXY_CONTAINER_HELP =
+  'Name of the shared proxy container (default: as recorded, else proxy-nginx)';
+const PROXY_MODE_HELP =
+  'How the shared proxy runs: container or host (default: as recorded, else detected)';
+
+/** The two proxy-runtime flags, as every subcommand that touches the proxy takes them. */
+interface ProxyRuntimeFlags {
+  proxyContainer?: string | undefined;
+  proxyMode?: string | undefined;
+}
+
+/**
+ * Validates the proxy-runtime flags BEFORE anything runs.
+ *
+ * Refused as a usage error rather than passed through: a mistyped mode must not
+ * quietly become detection, and a container name reaches a docker argv.
+ */
+function proxyFlags(options: ProxyRuntimeFlags): { mode?: ProxyMode; container?: string } {
+  const mode = options.proxyMode === undefined ? undefined : parseProxyMode(options.proxyMode);
+  if (options.proxyContainer !== undefined) assertValidContainerName(options.proxyContainer);
+  return {
+    ...(mode === undefined ? {} : { mode }),
+    ...(options.proxyContainer === undefined ? {} : { container: options.proxyContainer }),
+  };
+}
+
 const ESC = String.fromCharCode(27);
 const RESET = ESC + '[0m';
 
@@ -85,6 +118,10 @@ export interface DoctorCommandOptions {
   proxyRoot: string;
   port: string;
   domain?: string | undefined;
+  proxyContainer?: string | undefined;
+  proxyMode?: string | undefined;
+  /** Repository to check access to; defaults to the record, then this checkout's origin. */
+  repo?: string | undefined;
   json?: boolean | undefined;
   color: boolean;
 }
@@ -92,6 +129,10 @@ export interface DoctorCommandOptions {
 export interface DeployContext {
   /** Injected so tests drive the checks without a server. */
   checks?: readonly import('../deploy/checks/index.js').Check[] | undefined;
+  /**
+   * Every subprocess a subcommand runs, including doctor's proxy-runtime
+   * detection (`docker inspect`, `nginx -v`) -- inject it and nothing spawns.
+   */
   runCommand?: typeof runCommand | undefined;
   stdout?: { write(chunk: string): unknown } | undefined;
   stderr?: { write(chunk: string): unknown } | undefined;
@@ -121,6 +162,12 @@ export function registerDeployCommand(
     .option('--proxy-root <path>', 'Shared reverse proxy directory', DEFAULT_PROXY_ROOT)
     .option('--port <port>', 'Loopback port the proxy forwards to', String(DEFAULT_BIND_PORT))
     .option('--domain <domain>', 'Public domain; enables the DNS and TLS checks')
+    .option('--proxy-container <name>', PROXY_CONTAINER_HELP)
+    .option('--proxy-mode <mode>', PROXY_MODE_HELP)
+    .option(
+      '--repo <url>',
+      'Repository whose access to check (default: the recorded one, then this checkout\'s origin)',
+    )
     .option('--json', 'Print a machine-readable report on stdout')
     .option('--no-color', 'Disable colour even on a terminal')
     .addHelpText(
@@ -155,6 +202,8 @@ export function registerDeployCommand(
     .option('--name <app>', 'Which deployment to act on, by name')
     .option('--domain <domain>', 'Public domain to publish under')
     .option('--proxy-root <path>', 'Shared reverse proxy directory', DEFAULT_PROXY_ROOT)
+    .option('--proxy-container <name>', PROXY_CONTAINER_HELP)
+    .option('--proxy-mode <mode>', PROXY_MODE_HELP)
     .option('--port <port>', 'Loopback port the proxy forwards to', String(DEFAULT_BIND_PORT))
     .option('--repo <url>', 'Repository to deploy (default: this checkout\'s origin)')
     .option('--ref <ref>', 'Branch, tag or commit (default: the remote default branch)')
@@ -228,6 +277,8 @@ export function registerDeployCommand(
     .option('--answers-file <path>', 'Read answers from a KEY=value file (like .env)')
     .option('--skip-seed', 'Do not re-run the database seed')
     .option('--skip-proxy', 'Do not touch the reverse proxy')
+    .option('--proxy-container <name>', PROXY_CONTAINER_HELP)
+    .option('--proxy-mode <mode>', PROXY_MODE_HELP)
     .option(
       '--app-version <version>',
       'Release version to deploy (default: a patch bump of the current one)',
@@ -360,6 +411,8 @@ export function registerDeployCommand(
     .option('--name <app>', 'Which deployment to act on, by name')
     .option('--proxy-root <path>', 'Shared reverse proxy directory', DEFAULT_PROXY_ROOT)
     .option('--domain <domain>', 'Domain to act on (default: the recorded one)')
+    .option('--proxy-container <name>', PROXY_CONTAINER_HELP)
+    .option('--proxy-mode <mode>', PROXY_MODE_HELP)
     .option('--renew', 'Renew when the certificate is inside the renewal window')
     .option('--force', 'Renew even when it is not due. Spends rate-limit budget.')
     .option('--email <email>', 'Registration address (default: INITIAL_ADMIN_EMAIL)')
@@ -380,9 +433,13 @@ export function registerDeployCommand(
         'An unreadable expiry is reported, never treated as "not due": silently',
         'assuming a certificate is healthy is how one quietly expires.',
         '',
+        'A renewal validates and RELOADS the proxy afterwards: a renewed certificate',
+        'on disk is not served until nginx reloads. A renewal whose reload failed',
+        'exits 1, because the old certificate is still what browsers see.',
+        '',
         'Exit codes:',
-        '  0  reported, or renewed successfully',
-        '  1  the certificate is due or expired and --renew was not passed',
+        '  0  reported, or renewed and reloaded successfully',
+        '  1  the certificate is due and --renew was not passed, or the reload failed',
         '  2  nothing is installed at --root',
       ].join('\n'),
     )
@@ -401,6 +458,8 @@ export function registerDeployCommand(
     )
     .option('--name <app>', 'Which deployment to act on, by name')
     .option('--proxy-root <path>', 'Shared reverse proxy directory', DEFAULT_PROXY_ROOT)
+    .option('--proxy-container <name>', PROXY_CONTAINER_HELP)
+    .option('--proxy-mode <mode>', PROXY_MODE_HELP)
     .option('--dry-run', 'Report what would be removed and change nothing')
     .option('--drop-database', 'Also drop the database (needs --confirm-database)')
     .option('--confirm-database <name>', "The database's own name, typed back")
@@ -443,6 +502,8 @@ export interface UninstallCommandOptions {
   name?: string | undefined;
   appsRoot?: string | undefined;
   proxyRoot: string;
+  proxyContainer?: string | undefined;
+  proxyMode?: string | undefined;
   dryRun?: boolean;
   dropDatabase?: boolean;
   confirmDatabase?: string;
@@ -459,6 +520,7 @@ export async function runUninstallCommand(
   // `resolveApp`: with a defaulted `--root` every rank below the first
   // was dead code, including the cwd walk the resolver exists for.
   const app = resolveApp(options);
+  const proxy = proxyFlags(options);
 
   const stdout = ctx?.stdout ?? process.stdout;
   const stderr = ctx?.stderr ?? process.stderr;
@@ -483,6 +545,8 @@ export async function runUninstallCommand(
   const result = await runUninstall({
     deployRoot: app.deployRoot,
     proxyRoot: options.proxyRoot,
+    ...(proxy.mode === undefined ? {} : { proxyMode: proxy.mode }),
+    ...(proxy.container === undefined ? {} : { proxyContainer: proxy.container }),
     ...(options.dropDatabase === undefined ? {} : { dropDatabase: options.dropDatabase }),
     ...(options.confirmDatabase === undefined ? {} : { confirmDatabase: options.confirmDatabase }),
     ...(options.purgeStorage === undefined ? {} : { purgeStorage: options.purgeStorage }),
@@ -510,6 +574,8 @@ export interface CertsCommandOptions {
   name?: string | undefined;
   appsRoot?: string | undefined;
   proxyRoot: string;
+  proxyContainer?: string | undefined;
+  proxyMode?: string | undefined;
   domain?: string;
   renew?: boolean;
   force?: boolean;
@@ -526,6 +592,7 @@ export async function runCertsCommand(
   // `resolveApp`: with a defaulted `--root` every rank below the first
   // was dead code, including the cwd walk the resolver exists for.
   const app = resolveApp(options);
+  const proxy = proxyFlags(options);
 
   const stdout = ctx?.stdout ?? process.stdout;
   const stderr = ctx?.stderr ?? process.stderr;
@@ -546,16 +613,36 @@ export async function runCertsCommand(
     proxyRoot: state?.proxyRoot ?? options.proxyRoot,
   };
 
+  // Resolved only for --renew: reporting reads the host files and needs no
+  // runtime, and stays free of docker probes.
+  const runtime: ResolvedProxyRuntime | undefined =
+    options.renew === true
+      ? await resolveRecordedProxyRuntime({
+          proxyRoot: target.proxyRoot,
+          flags: proxy,
+          recorded: state,
+          runCommand: run,
+        })
+      : undefined;
+
   const report = options.renew === true
     ? await renewCertificate(target, {
         runCommand: run,
+        // Which certbot runs, and where the post-renewal reload happens.
+        ...(runtime === undefined ? {} : { runtime }),
         email: options.email ?? emailFor(app.deployRoot),
         ...(options.force === undefined ? {} : { force: options.force }),
         ...(options.staging === undefined ? {} : { staging: options.staging }),
-      }).then((result) => ({ ...result.expiry, renewed: result.renewed, reason: result.reason }))
+      }).then((result) => ({
+        ...result.expiry,
+        renewed: result.renewed,
+        reloaded: result.reloaded,
+        reason: result.reason,
+      }))
     : await certificateExpiry(target, { runCommand: run }).then((expiry) => ({
         ...expiry,
         renewed: false,
+        reloaded: false,
         reason: 'reported only; pass --renew to act',
       }));
 
@@ -571,6 +658,15 @@ export async function runCertsCommand(
   if (report.exists && report.dueForRenewal && report.renewed !== true) {
     throw new DeploymentUnhealthyError(
       `The certificate for ${domain} is due for renewal. Re-run with --renew.`,
+    );
+  }
+
+  // Renewed but not reloaded: the new certificate is on disk and the OLD one is
+  // still what browsers get. Exit non-zero so a cron wrapper notices, exactly
+  // as for a certificate that was never renewed.
+  if (report.renewed && !report.reloaded) {
+    throw new DeploymentUnhealthyError(
+      `The certificate for ${domain} was renewed, but the proxy was not reloaded, so the old certificate is still being served. ${report.reason}`,
     );
   }
 }
@@ -642,6 +738,8 @@ export interface DoctorReport {
     durationMs: number;
   }>;
   summary: ReturnType<typeof summarise>;
+  /** How the shared proxy was judged to run. Set by `doctor`, not by `buildReport`. */
+  proxy?: { mode: ProxyMode; container: string; source: string } | undefined;
 }
 
 export async function runDoctorCommand(
@@ -657,11 +755,36 @@ export async function runDoctorCommand(
   const stderr = ctx?.stderr ?? process.stderr;
   const checks = ctx?.checks ?? ALL_CHECKS;
   const json = options.json === true;
+  const run = ctx?.runCommand ?? runCommand;
+
+  // Flags, then what an installed deployment recorded, then detection. Read-
+  // only: `docker inspect` and `nginx -v` change nothing, so doctor stays safe
+  // to run against production at any time.
+  const recorded = readRecordSafely(app.deployRoot);
+  const proxyRuntime = await resolveRecordedProxyRuntime({
+    proxyRoot: options.proxyRoot,
+    flags: proxyFlags(options),
+    recorded,
+    runCommand: run,
+  });
+
+  // Where the code comes from, and whether git can already read it: decides
+  // whether the gh checks are required (#390). `git ls-remote` is read-only.
+  const repoUrl = await resolveRepoUrl({
+    cwd: process.cwd(),
+    runCommand: run,
+    ...(options.repo === undefined ? {} : { repoFlag: options.repo }),
+    ...(recorded === undefined ? {} : { state: recorded }),
+  });
+  const gitCredentialed = await gitCredentialStateFor(repoUrl, run);
 
   const context: CheckContext = {
-    runCommand: ctx?.runCommand ?? runCommand,
+    runCommand: run,
     deployRoot: app.deployRoot,
     proxyRoot: options.proxyRoot,
+    proxyRuntime,
+    ...(repoUrl === undefined ? {} : { repoUrl }),
+    ...(gitCredentialed === undefined ? {} : { gitCredentialed }),
     bindPort: Number(options.port),
     ...(options.domain === undefined ? {} : { domain: options.domain }),
     ...(readEnvironment(app.deployRoot) ?? {}),
@@ -680,7 +803,12 @@ export async function runDoctorCommand(
       isTTY: ctx?.isTty ?? process.stderr.isTTY === true,
     });
 
-  if (!json) stderr.write('\n  Prerequisites\n\n');
+  if (!json) {
+    stderr.write('\n  Prerequisites\n\n');
+    stderr.write(
+      `  Proxy: ${proxyRuntime.mode === 'container' ? `container ${proxyRuntime.container}` : 'host nginx'} (${proxyRuntime.source})\n\n`,
+    );
+  }
 
   const results = await runChecks(checks, context, (result) => {
     // Streamed as each completes: a dozen subprocess probes take long enough
@@ -688,7 +816,10 @@ export async function runDoctorCommand(
     if (!json) stderr.write(renderResult(result, colour));
   });
 
-  const report = buildReport(results);
+  const report = {
+    ...buildReport(results),
+    proxy: { mode: proxyRuntime.mode, container: proxyRuntime.container, source: proxyRuntime.source },
+  };
 
   if (json) {
     stdout.write(`${JSON.stringify(report)}\n`);
@@ -703,6 +834,20 @@ export async function runDoctorCommand(
     throw new PreconditionError(
       `${failed.length} required check(s) failed: ${failed.map((result) => result.id).join(', ')}`,
     );
+  }
+}
+
+/**
+ * The deployment record, or undefined -- including when it cannot be read.
+ *
+ * Doctor must work on a server where nothing is installed, and on one whose
+ * record is from a newer appctl; neither is a reason not to run the checks.
+ */
+function readRecordSafely(deployRoot: string): ReturnType<typeof readState> {
+  try {
+    return readState(deployRoot);
+  } catch {
+    return undefined;
   }
 }
 
@@ -1004,6 +1149,8 @@ export interface InstallCommandOptions {
   appsRoot?: string | undefined;
   domain?: string | undefined;
   proxyRoot: string;
+  proxyContainer?: string | undefined;
+  proxyMode?: string | undefined;
   port: string;
   repo?: string | undefined;
   ref?: string | undefined;
@@ -1136,6 +1283,7 @@ export async function runInstallCommand(
   // `resolveApp`: with a defaulted `--root` every rank below the first
   // was dead code, including the cwd walk the resolver exists for.
   const app = resolveApp(options, { mayBeAbsent: true });
+  const proxy = proxyFlags(options);
 
   const stdout = ctx?.stdout ?? process.stdout;
   const stderr = ctx?.stderr ?? process.stderr;
@@ -1149,6 +1297,8 @@ export async function runInstallCommand(
     deployRoot: app.deployRoot,
     bindPort: Number(options.port),
     proxyRoot: options.proxyRoot,
+    ...(proxy.mode === undefined ? {} : { proxyMode: proxy.mode }),
+    ...(proxy.container === undefined ? {} : { proxyContainer: proxy.container }),
     groups: options.group as EnvGroup[],
     ...(options.domain === undefined ? {} : { domain: options.domain }),
     ...(options.repo === undefined ? {} : { repo: options.repo }),
@@ -1228,6 +1378,8 @@ export interface UpdateCommandOptions {
   nonInteractive?: boolean | undefined;
   skipSeed?: boolean | undefined;
   skipProxy?: boolean | undefined;
+  proxyContainer?: string | undefined;
+  proxyMode?: string | undefined;
   appVersion?: string | undefined;
   /**
    * Commander's negated-boolean form: `--no-version-bump` sets this FALSE, and
@@ -1247,6 +1399,7 @@ export async function runUpdateCommand(
   // `resolveApp`: with a defaulted `--root` every rank below the first
   // was dead code, including the cwd walk the resolver exists for.
   const app = resolveApp(options);
+  const proxy = proxyFlags(options);
 
   const stdout = ctx?.stdout ?? process.stdout;
   const stderr = ctx?.stderr ?? process.stderr;
@@ -1258,6 +1411,8 @@ export async function runUpdateCommand(
 
   const updateOptions: UpdateOptions = {
     deployRoot: app.deployRoot,
+    ...(proxy.mode === undefined ? {} : { proxyMode: proxy.mode }),
+    ...(proxy.container === undefined ? {} : { proxyContainer: proxy.container }),
     ...(options.ref === undefined ? {} : { ref: options.ref }),
     ...(options.force === undefined ? {} : { force: options.force }),
     ...(options.cache === false ? { noCache: true } : {}),

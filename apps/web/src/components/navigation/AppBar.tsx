@@ -23,7 +23,8 @@ import {
   ADMIN_HUB_TITLE,
   settingsPageTitle,
 } from '../../config/adminSections';
-import type { SettingsSectionDef } from '../../config/adminSections';
+import type { SettingsFeatures, SettingsSectionDef } from '../../config/adminSections';
+import { useAiFeatures } from '../../hooks/useAiConfig';
 import {
   USER_SETTINGS_SECTIONS,
   USER_HUB_PATH,
@@ -91,14 +92,19 @@ interface DrillDown {
  * is what denies an unpermitted page, and by the time this bar renders the
  * guard has already had its say. Naming a page the user is looking at leaks
  * nothing the page itself does not.
+ *
+ * The FEATURE gate (#425) is applied, unlike the permission gate: a card whose
+ * feature is off does not exist in this deployment, so it must not title a
+ * page — the same answer the hub and the Console rail give.
  */
-function resolveDrillDown(pathname: string): DrillDown | null {
+function resolveDrillDown(pathname: string, features: SettingsFeatures): DrillDown | null {
   for (const surface of SETTINGS_SURFACES) {
     const title = settingsPageTitle(
       surface.sections,
       surface.hubPath,
       surface.hubTitle,
       pathname,
+      features,
     );
     // `null` means "not this surface" — a different answer from "this surface's
     // own hub" (`hubTitle`). Collapsing the two would put a back arrow on every
@@ -156,7 +162,8 @@ export function AppBar() {
   // a pure string lookup over a few dozen registry entries, and hoisting it out
   // of the branch keeps the two treatments a single render decision rather than
   // two code paths that can drift.
-  const drillDown = isCompactWindow ? resolveDrillDown(pathname) : null;
+  const features = useAiFeatures();
+  const drillDown = isCompactWindow ? resolveDrillDown(pathname, features) : null;
 
   return (
     <MuiAppBar

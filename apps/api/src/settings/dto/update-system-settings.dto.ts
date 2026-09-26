@@ -321,14 +321,16 @@ export const patchSystemSettingsSchema = z.object({
           openai: z
             .object({
               enabled: z.boolean().optional(),
-              baseUrl: z.string().url().optional(),
+              // Absent leaves it alone; explicit `null` removes the override.
+              baseUrl: z.string().url().nullable().optional(),
             })
             .optional(),
         })
         .optional(),
       defaults: z
         .object({
-          maxOutputTokensCap: z.number().int().positive().optional(),
+          // Absent leaves it alone; explicit `null` removes the cap.
+          maxOutputTokensCap: z.number().int().positive().nullable().optional(),
           allowBackgroundRuns: z.boolean().optional(),
         })
         .optional(),
