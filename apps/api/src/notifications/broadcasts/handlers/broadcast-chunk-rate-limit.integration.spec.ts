@@ -146,8 +146,10 @@ describe('BroadcastChunkHandler rate-limit deferral, wired to the real queue cla
       "for admin.broadcast.chunk's own provider key",
     async () => {
       const clock = fakeClock();
+      // `updateManyAndReturn` since #477: the claim-guarded write resolves to
+      // the one row it matched.
       const jobUpdate = jest.fn(({ where, data }: { where: { id: string }; data: unknown }) =>
-        Promise.resolve({ ...chunkJobRow({ id: where.id }), ...(data as object) }),
+        Promise.resolve([{ ...chunkJobRow({ id: where.id }), ...(data as object) }]),
       );
 
       const realThrottle = new ProviderThrottleService(
@@ -155,7 +157,9 @@ describe('BroadcastChunkHandler rate-limit deferral, wired to the real queue cla
         clock,
       );
       const terminal = new JobTerminalService(
-        { job: { update: jobUpdate } } as unknown as PrismaService,
+        {
+          job: { updateManyAndReturn: jobUpdate, findUnique: jest.fn() },
+        } as unknown as PrismaService,
         { get: (key: string) => CONFIG_VALUES[key] } as unknown as ConfigService,
         realThrottle,
         { emit: jest.fn() } as unknown as EventEmitter2,
@@ -205,7 +209,9 @@ describe('BroadcastChunkHandler rate-limit deferral, wired to the real queue cla
 
       expect(outcome).toBe('rate-limit-deferred');
       expect(jobUpdate).toHaveBeenCalledTimes(1);
-      const written = (jobUpdate.mock.calls[0][0] as { data: Prisma.JobUpdateInput }).data;
+      const written = (
+        jobUpdate.mock.calls[0][0] as { data: Prisma.JobUncheckedUpdateManyInput }
+      ).data;
 
       expect(written).toMatchObject({
         status: 'pending',

@@ -582,9 +582,9 @@ describe('Worker node data plane (Integration)', () => {
       const admin = await createMockAdminUser(context);
       givenHeldJob(admin.id);
       (context.prismaMock.storageObject.update as jest.Mock).mockResolvedValue(objectRow());
-      (context.prismaMock.job.update as jest.Mock).mockResolvedValue(
-        jobRow({ status: 'succeeded' })
-      );
+      (context.prismaMock.job.updateManyAndReturn as jest.Mock).mockResolvedValue([
+        jobRow({ status: 'succeeded' }),
+      ]);
 
       const response = await request(server())
         .post(path)
@@ -611,8 +611,9 @@ describe('Worker node data plane (Integration)', () => {
     ])('400 for %s — refused BEFORE `persistNodeResult` is reached', async (_label, result) => {
       // The trust boundary. `nodeResultSchema` is parsed in
       // `NodesService.submitResult`, so nothing this handler would write can
-      // happen: no `storageObject.update`, and no terminal `job.update`
-      // either — the job is still the node's to resubmit for.
+      // happen: no `storageObject.update`, and no terminal
+      // `job.updateManyAndReturn` either — the job is still the node's to
+      // resubmit for.
       const admin = await createMockAdminUser(context);
       givenHeldJob(admin.id);
 
@@ -626,7 +627,7 @@ describe('Worker node data plane (Integration)', () => {
       // filter forwards.
       expect(response.body.details.issues).toBeDefined();
       expect(context.prismaMock.storageObject.update).not.toHaveBeenCalled();
-      expect(context.prismaMock.job.update).not.toHaveBeenCalled();
+      expect(context.prismaMock.job.updateManyAndReturn).not.toHaveBeenCalled();
     });
   });
 

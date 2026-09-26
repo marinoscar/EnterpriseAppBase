@@ -189,7 +189,13 @@ export interface NodeEligibleJobType {
 /** What a settled job reports back to the node that settled it. */
 export interface NodeJobSettlement {
   jobId: string;
-  outcome: JobSettleOutcome;
+
+  /**
+   * Never `claim-lost` (#477): that outcome is raised as the 409 a stale read
+   * would have produced, not reported as a settlement, so the wire enum in
+   * `node-response.dto.ts` is unchanged.
+   */
+  outcome: Exclude<JobSettleOutcome, 'claim-lost'>;
 
   /**
    * Whether the job will run again — THE SERVER'S ANSWER. A node may send
@@ -748,6 +754,14 @@ export class NodesService {
    * server's own retry was already scheduled. REJECTED equally: swallowing
    * the throw and returning success, which would leave a job marked
    * `succeeded` with nothing written.
+   *
+   * ⚠ THE ONE EXCEPTION IS A LOST CLAIM (#477). Every terminal write is
+   * guarded by the claim (`heldClaimWhere`), so if the row was reaped or
+   * re-claimed between step 1 and the settle, the settle writes nothing and
+   * answers `claim-lost`. On either path — the normal settle or the
+   * persist-failure one — that becomes the SAME 409 step 1 raises, because it
+   * is the same fact discovered a moment later, and a 500 claiming "settled by
+   * this server" would be false.
    */
   async submitResult(
     userId: string,
@@ -805,6 +819,20 @@ export class NodesService {
     } catch (error) {
       const outcome = await this.terminal.completeFailed(job, error);
 
+      // The claim moved between `assertJobHeldByNode` and the settle (#477):
+      // nothing was written, so "settled by this server" would be false.
+      // Answer the same 409 the read guard would have, had it run a moment
+      // later — the node's instruction (drop the work) is identical.
+      if (outcome === 'claim-lost') {
+        this.logger.warn(
+          `Persisting node ${nodeId}'s result for job ${job.id} (${job.type}) threw, and the ` +
+            `job was no longer held by that claim when the failure was recorded: ` +
+            `${error instanceof Error ? error.message : String(error)}`
+        );
+
+        throw this.notHeldByNode(jobId, nodeId);
+      }
+
       this.logger.error(
         `Persisting node ${nodeId}'s result for job ${job.id} (${job.type}) threw; the job ` +
           `was settled as "${outcome}" through the normal failure path: ` +
@@ -820,6 +848,14 @@ export class NodesService {
     }
 
     const outcome = await this.terminal.completeSucceeded(job);
+
+    // ⚠ `persistNodeResult` HAS ALREADY RUN when this fires — the settle was
+    // refused, not the persist. It is the same exposure the read guard always
+    // had between its read and the persist, narrowed rather than introduced:
+    // before #477 the settle would ALSO have overwritten the new claim's row.
+    if (outcome === 'claim-lost') {
+      throw this.notHeldByNode(jobId, nodeId);
+    }
 
     return { jobId: job.id, outcome, willRetry: this.willRetry(outcome) };
   }
@@ -853,6 +889,12 @@ export class NodesService {
       rateLimited: dto.rateLimited,
       retryAfterMs: dto.retryAfterMs,
     });
+
+    // Lost between the guard's read and the settle's write (#477): the same
+    // 409 the guard gives a stale read — nothing was charged or written.
+    if (outcome === 'claim-lost') {
+      throw this.notHeldByNode(jobId, nodeId);
+    }
 
     this.logger.log(
       `Node ${nodeId} reported job ${job.id} (${job.type}) failed; settled as "${outcome}"` +
@@ -1055,10 +1097,10 @@ export class NodesService {
   /**
    * The one 409 body, built in one place.
    *
-   * Two call sites raise it — the read guard and the renewal's re-assertion —
-   * and they are answering the identical question, so a second hand-written
-   * message is a second chance for the two to describe the same state
-   * differently.
+   * Its call sites — the read guard, the renewal's re-assertion, and (#477)
+   * a settle whose guarded write found the claim gone — are answering the
+   * identical question, so a second hand-written message is a second chance
+   * for them to describe the same state differently.
    *
    * ⚠ IT STAYS DELIBERATELY UNSPECIFIC about which condition failed, including
    * the claim-token one (#364). "Another executor may now own it" covers a

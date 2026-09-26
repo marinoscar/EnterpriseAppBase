@@ -443,9 +443,9 @@ describe('Worker node control plane (Integration)', () => {
       const admin = await createMockAdminUser(context);
       givenNode(admin.id);
       (context.prismaMock.job.findUnique as jest.Mock).mockResolvedValue(jobRow());
-      (context.prismaMock.job.update as jest.Mock).mockResolvedValue(
+      (context.prismaMock.job.updateManyAndReturn as jest.Mock).mockResolvedValue([
         jobRow({ status: 'succeeded' }),
-      );
+      ]);
 
       const response = await request(server())
         .post(`/api/nodes/${NODE_ID}/jobs/${JOB_ID}/result`)
@@ -481,7 +481,7 @@ describe('Worker node control plane (Integration)', () => {
         .expect(409);
 
       expect(persistNodeResult).not.toHaveBeenCalled();
-      expect(context.prismaMock.job.update).not.toHaveBeenCalled();
+      expect(context.prismaMock.job.updateManyAndReturn).not.toHaveBeenCalled();
     });
 
     it('409 on renew after the lease expired, writing nothing', async () => {
@@ -512,7 +512,7 @@ describe('Worker node control plane (Integration)', () => {
         .send({ error: 'boom' })
         .expect(409);
 
-      expect(context.prismaMock.job.update).not.toHaveBeenCalled();
+      expect(context.prismaMock.job.updateManyAndReturn).not.toHaveBeenCalled();
     });
 
     it('200 on renew while the lease is live', async () => {
@@ -657,7 +657,9 @@ describe('Worker node control plane (Integration)', () => {
       const admin = await createMockAdminUser(context);
       givenNode(admin.id);
       (context.prismaMock.job.findUnique as jest.Mock).mockResolvedValue(jobRow());
-      (context.prismaMock.job.update as jest.Mock).mockResolvedValue(jobRow({ status: 'pending' }));
+      (context.prismaMock.job.updateManyAndReturn as jest.Mock).mockResolvedValue([
+        jobRow({ status: 'pending' }),
+      ]);
       persistNodeResult.mockRejectedValue(new Error('write failed'));
 
       const response = await request(server())
@@ -669,8 +671,9 @@ describe('Worker node control plane (Integration)', () => {
       expect(response.body.details).toMatchObject({ jobId: JOB_ID, resubmit: false });
       // The job went through `JobTerminalService`, not through a terminal
       // write this controller invented.
-      expect(context.prismaMock.job.update).toHaveBeenCalled();
-      const written = (context.prismaMock.job.update as jest.Mock).mock.calls[0][0].data;
+      expect(context.prismaMock.job.updateManyAndReturn).toHaveBeenCalled();
+      const written = (context.prismaMock.job.updateManyAndReturn as jest.Mock).mock.calls[0][0]
+        .data;
       expect(written.lastError).toContain('write failed');
     });
   });
@@ -680,7 +683,9 @@ describe('Worker node control plane (Integration)', () => {
       const admin = await createMockAdminUser(context);
       givenNode(admin.id);
       (context.prismaMock.job.findUnique as jest.Mock).mockResolvedValue(jobRow());
-      (context.prismaMock.job.update as jest.Mock).mockResolvedValue(jobRow({ status: 'pending' }));
+      (context.prismaMock.job.updateManyAndReturn as jest.Mock).mockResolvedValue([
+        jobRow({ status: 'pending' }),
+      ]);
 
       const response = await request(server())
         .post(`/api/nodes/${NODE_ID}/jobs/${JOB_ID}/failure`)
@@ -700,7 +705,9 @@ describe('Worker node control plane (Integration)', () => {
       (context.prismaMock.job.findUnique as jest.Mock).mockResolvedValue(
         jobRow({ attempts: 3 }),
       );
-      (context.prismaMock.job.update as jest.Mock).mockResolvedValue(jobRow({ status: 'pending' }));
+      (context.prismaMock.job.updateManyAndReturn as jest.Mock).mockResolvedValue([
+        jobRow({ status: 'pending' }),
+      ]);
 
       const response = await request(server())
         .post(`/api/nodes/${NODE_ID}/jobs/${JOB_ID}/failure`)
@@ -712,7 +719,8 @@ describe('Worker node control plane (Integration)', () => {
       // The un-charge is `JobTerminalService`'s, reached through the flags —
       // this endpoint classifies nothing itself. Asserted here because the
       // flags crossing HTTP intact is exactly what could break.
-      const written = (context.prismaMock.job.update as jest.Mock).mock.calls[0][0].data;
+      const written = (context.prismaMock.job.updateManyAndReturn as jest.Mock).mock.calls[0][0]
+        .data;
       expect(written.attempts).toBe(2);
       expect(written.rateLimitHits).toBe(1);
     });
@@ -744,6 +752,7 @@ describe('Worker node control plane (Integration)', () => {
 
       expect(response.body.data.status).toBe('offline');
       expect(context.prismaMock.job.update).not.toHaveBeenCalled();
+      expect(context.prismaMock.job.updateManyAndReturn).not.toHaveBeenCalled();
       expect(context.prismaMock.job.updateMany).not.toHaveBeenCalled();
     });
   });

@@ -762,6 +762,33 @@ describe('JobWorker', () => {
       expect(completeSucceeded).not.toHaveBeenCalled();
     });
 
+    it('passes a claim-lost settle through without throwing (#477)', async () => {
+      // The row was reaped or re-claimed while this slot ran; the terminal
+      // service wrote nothing and says so. That is a normal outcome, not a
+      // failure: the slot is freed, and nothing is retried or re-settled here.
+      const { worker, registry, completeSucceeded, completeFailed } = makeWorker();
+
+      registry.register(handler('test.echo', async () => undefined));
+      completeSucceeded.mockResolvedValueOnce('claim-lost');
+
+      const job = claimedJob('test.echo');
+
+      await expect(worker.runJob(job)).resolves.toBe('claim-lost');
+      expect(completeSucceeded).toHaveBeenCalledTimes(1);
+      expect(completeFailed).not.toHaveBeenCalled();
+
+      // And on the failure path too.
+      registry.register(
+        handler('test.boom', async () => {
+          throw new Error('boom');
+        })
+      );
+      completeFailed.mockResolvedValueOnce('claim-lost');
+
+      await expect(worker.runJob(claimedJob('test.boom'))).resolves.toBe('claim-lost');
+      expect(completeFailed).toHaveBeenCalledTimes(1);
+    });
+
     it('waits out a provider cooldown before running the handler', async () => {
       const slept: number[] = [];
       let current = 1_000;

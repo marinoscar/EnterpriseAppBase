@@ -608,10 +608,17 @@ export class JobAdminService {
    *
    * The same 404/400 pair as {@link retry}, and the running refusal matters
    * more here: deleting a claimed row does not stop the executor that holds it.
-   * The work carries on, and its terminal write then updates zero rows and is
-   * swallowed by `safeTerminalUpdate` — so the job runs to completion with no
-   * record that it ever existed, and its dedup key is freed while it is still
-   * running, letting a duplicate be enqueued underneath it.
+   * The work carries on, and its terminal write then matches no row and is
+   * answered `claim-lost` by `safeTerminalUpdate` (#477: every terminal write
+   * is conditional on the claim, so a deleted row is simply one that claim no
+   * longer holds) — so the job runs to completion with no record that it ever
+   * existed, and its dedup key is freed while it is still running, letting a
+   * duplicate be enqueued underneath it.
+   *
+   * Deleting a PENDING `admin.broadcast.start` / `admin.broadcast.chunk` job is
+   * allowed, but leaves its broadcast stuck in `scheduled`/`sending` with
+   * nothing left to advance it; recover it with the broadcast's Cancel action.
+   * Tracked separately.
    */
   async remove(id: string): Promise<void> {
     const existing = await this.prisma.job.findUnique({

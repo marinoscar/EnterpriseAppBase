@@ -500,9 +500,12 @@ export class NodesController {
       'through `persistNodeResult`, and settles the job — the node never writes to the database. ' +
       '`400` if the declared `type` does not match the job, if the type is not node-persistable, ' +
       'or if the result fails validation (the issues are in `details`); `409` if the lease has ' +
-      'expired, in which case nothing is persisted and the node should drop the work; `500` if ' +
-      'persisting threw, in which case the server has ALREADY settled the job through its normal ' +
-      'failure path and the node must not resubmit. Quote the assignment’s `claimToken` so a ' +
+      'expired, in which case nothing is persisted and the node should drop the work — also ' +
+      'returned when the claim is lost mid-settle (the job was reaped or re-claimed after the ' +
+      'lease check), in which case the settle is refused, the job is left to its current holder, ' +
+      'and the node should equally drop the work; `500` if persisting threw, in which case the ' +
+      'server has ALREADY settled the job through its normal failure path and the node must not ' +
+      'resubmit. Quote the assignment’s `claimToken` so a ' +
       'stale worker slot cannot persist its result over a newer claim of the same job; the ' +
       'field is optional and omitting it is the older, node-id-only behaviour.',
   })
@@ -531,9 +534,11 @@ export class NodesController {
       'than charging an attempt, and it backs off sibling jobs on this server too), and ' +
       '`retryAfterMs` is a floor on the backoff. `willRetry` in the REQUEST is advisory and is ' +
       'not acted on — the server’s attempt budget decides, and `willRetry` in the RESPONSE is ' +
-      'that decision. Quote the assignment’s `claimToken` so a stale worker slot cannot settle ' +
-      'a job a newer claim is still running; the field is optional and omitting it is the ' +
-      'older, node-id-only behaviour.',
+      'that decision. `409` if the node no longer holds the job — including when the claim is ' +
+      'lost mid-settle (reaped or re-claimed after the lease check), in which case nothing is ' +
+      'recorded and the node should drop the work. Quote the assignment’s `claimToken` so a ' +
+      'stale worker slot cannot settle a job a newer claim is still running; the field is ' +
+      'optional and omitting it is the older, node-id-only behaviour.',
   })
   @ApiParam({ name: 'id', type: String, format: 'uuid' })
   @ApiParam({ name: 'jobId', type: String, format: 'uuid' })

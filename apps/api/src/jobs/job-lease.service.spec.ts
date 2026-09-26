@@ -21,7 +21,7 @@
 // quoted no token", which after #364 means an un-upgraded node.
 // =============================================================================
 
-import { JobLeaseService, heldLeaseWhere } from './job-lease.service';
+import { JobLeaseService, heldClaimWhere, heldLeaseWhere } from './job-lease.service';
 import type { PrismaService } from '../prisma/prisma.service';
 
 const JOB_ID = '3f1a0f4e-0000-4000-8000-000000000001';
@@ -104,6 +104,50 @@ describe('heldLeaseWhere', () => {
     // refusing every renewal from that node.
     expect('claimToken' in heldLeaseWhere(JOB_ID)).toBe(false);
     expect('claimToken' in heldLeaseWhere(JOB_ID, { nodeId: NODE_ID })).toBe(false);
+  });
+});
+
+describe('heldClaimWhere (#477)', () => {
+  it('is exactly: this id, still running, this token, this node', () => {
+    expect(
+      heldClaimWhere({ id: JOB_ID, claimToken: CLAIM_TOKEN, claimedByNodeId: NODE_ID })
+    ).toEqual({
+      id: JOB_ID,
+      status: 'running',
+      claimToken: CLAIM_TOKEN,
+      claimedByNodeId: NODE_ID,
+    });
+  });
+
+  it('carries NO lease clause — the settle guard is identity, not liveness', () => {
+    const where = heldClaimWhere({
+      id: JOB_ID,
+      claimToken: CLAIM_TOKEN,
+      claimedByNodeId: null,
+    });
+
+    expect(where).not.toHaveProperty('leaseExpiresAt');
+  });
+
+  it('states null members as null (IS NULL), never drops them', () => {
+    const where = heldClaimWhere({ id: JOB_ID, claimToken: null, claimedByNodeId: null });
+
+    expect(where).toHaveProperty('claimToken', null);
+    expect(where).toHaveProperty('claimedByNodeId', null);
+  });
+
+  it('reads only the three identity columns off a full row', () => {
+    const row = {
+      id: JOB_ID,
+      claimToken: CLAIM_TOKEN,
+      claimedByNodeId: null,
+      leaseExpiresAt: new Date(0),
+      attempts: 4,
+    };
+
+    expect(Object.keys(heldClaimWhere(row)).sort()).toEqual(
+      ['claimToken', 'claimedByNodeId', 'id', 'status'].sort()
+    );
   });
 });
 

@@ -908,6 +908,41 @@ describe('NodesService', () => {
       expect(persistNodeResult).toHaveBeenCalled();
       expect(result.outcome).toBe('succeeded');
     });
+
+    it('409s with the notHeldByNode body when the settle finds the claim lost (#477)', async () => {
+      // The claim moved between the guard's read and the settle's guarded
+      // write — the same fact the read guard reports, discovered a moment later.
+      terminal.completeSucceeded.mockResolvedValue('claim-lost');
+
+      const error = await service
+        .submitResult(USER, NODE_ID, JOB_ID, goodResult)
+        .catch((caught) => caught);
+
+      expect(error).toBeInstanceOf(ConflictException);
+      expect(error.getResponse().details).toEqual({
+        jobId: JOB_ID,
+        nodeId: NODE_ID,
+        reason: 'lease_not_held',
+      });
+    });
+
+    it('409s — not the false "settled by this server" 500 — when persisting throws and the claim is lost (#477)', async () => {
+      persistNodeResult.mockRejectedValue(new Error('constraint violation'));
+      terminal.completeFailed.mockResolvedValue('claim-lost');
+
+      const error = await service
+        .submitResult(USER, NODE_ID, JOB_ID, goodResult)
+        .catch((caught) => caught);
+
+      expect(error).toBeInstanceOf(ConflictException);
+      expect(error).not.toBeInstanceOf(InternalServerErrorException);
+      expect(error.getResponse().details).toEqual({
+        jobId: JOB_ID,
+        nodeId: NODE_ID,
+        reason: 'lease_not_held',
+      });
+      expect(terminal.completeSucceeded).not.toHaveBeenCalled();
+    });
   });
 
   // ===========================================================================
@@ -1002,6 +1037,21 @@ describe('NodesService', () => {
 
       expect(terminal.completeFailed).toHaveBeenCalled();
       expect(result.outcome).toBe('failed');
+    });
+
+    it('409s with the notHeldByNode body when the settle finds the claim lost (#477)', async () => {
+      terminal.completeFailed.mockResolvedValue('claim-lost');
+
+      const error = await service
+        .reportFailure(USER, NODE_ID, JOB_ID, { error: 'boom' } as NodeJobFailureDto)
+        .catch((caught) => caught);
+
+      expect(error).toBeInstanceOf(ConflictException);
+      expect(error.getResponse().details).toEqual({
+        jobId: JOB_ID,
+        nodeId: NODE_ID,
+        reason: 'lease_not_held',
+      });
     });
   });
 
