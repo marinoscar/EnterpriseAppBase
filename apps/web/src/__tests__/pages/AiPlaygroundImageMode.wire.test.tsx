@@ -22,6 +22,7 @@ import {
 import AiPlaygroundPage from '../../pages/AiPlaygroundPage';
 import { AI_RUN_POLL_INTERVAL_MS } from '../../hooks/useAiRun';
 import { api } from '../../services/api';
+import { readMultipartFile } from '../utils/multipart';
 
 interface Captured {
   method: string;
@@ -45,12 +46,11 @@ function capture(): Captured[] {
       return HttpResponse.json({ data: { runId: 'run_img_edit_1', jobId: 'job-2' } }, { status: 202 });
     }),
     http.post('*/api/storage/objects', async ({ request }) => {
-      const form = await request.formData();
-      const file = form.get('file') as File;
+      const file = await readMultipartFile(request);
       // jsdom's FormData reaches MSW with the file renamed `blob`, so the type identifies it.
       await record(request, { field: 'file', type: file.type });
       const id = file.type === 'image/png' ? '55555555-5555-4555-8555-555555555555' : '44444444-4444-4444-8444-444444444444';
-      return HttpResponse.json({ data: mockStorageObject({ id, name: file.name }) }, { status: 201 });
+      return HttpResponse.json({ data: mockStorageObject({ id, name: file.filename }) }, { status: 201 });
     }),
     http.get('*/api/storage/objects/:id', async ({ request, params }) => {
       await record(request);

@@ -15,6 +15,7 @@ import { server } from '../mocks/server';
 import { mockAiResponse, mockPlaygroundFileModel, mockStorageObject, toSseBody } from '../mocks/fixtures/ai';
 import AiPlaygroundPage from '../../pages/AiPlaygroundPage';
 import { api } from '../../services/api';
+import { readMultipartFile } from '../utils/multipart';
 
 const IMAGE_ID = '66666666-6666-4666-8666-666666666666';
 const FILE_ID = '77777777-7777-4777-8777-777777777777';
@@ -29,7 +30,7 @@ function capture() {
   const bodies: Record<string, unknown[]> = { stream: [], runs: [], uploads: [] };
   server.use(
     http.post('*/api/storage/objects', async ({ request }) => {
-      const file = (await request.formData()).get('file') as File;
+      const file = await readMultipartFile(request);
       bodies.uploads.push(file.type);
       const id = file.type.startsWith('image/') ? IMAGE_ID : FILE_ID;
       return HttpResponse.json({ data: mockStorageObject({ id, mimeType: file.type }) }, { status: 201 });

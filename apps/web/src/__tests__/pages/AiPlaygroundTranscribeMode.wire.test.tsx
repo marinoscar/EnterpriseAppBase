@@ -14,6 +14,7 @@ import { server } from '../mocks/server';
 import { RECORDING_OBJECT_ID, mockPlaygroundTranscriptionModel, mockStorageObject } from '../mocks/fixtures/ai';
 import AiPlaygroundPage from '../../pages/AiPlaygroundPage';
 import { api } from '../../services/api';
+import { readMultipartFile } from '../utils/multipart';
 
 function fileList(...files: File[]): FileList {
   const list = { length: files.length, item: (index: number) => files[index] ?? null } as unknown as FileList;
@@ -25,7 +26,7 @@ function capture() {
   const calls: { method: string; path: string; body?: unknown; auth?: string | null }[] = [];
   server.use(
     http.post('*/api/storage/objects', async ({ request }) => {
-      const file = (await request.formData()).get('file') as File;
+      const file = await readMultipartFile(request);
       calls.push({ method: 'POST', path: '/api/storage/objects', body: { type: file.type } });
       return HttpResponse.json({ data: mockStorageObject({ id: RECORDING_OBJECT_ID, mimeType: file.type }) }, { status: 201 });
     }),
