@@ -226,3 +226,90 @@ export const mockAiRun: AiRun = {
   createdAt: T0,
   completedAt: T0,
 };
+
+// -----------------------------------------------------------------------------
+// AI Keys page states (#430). Added alongside the #425 fixtures above rather
+// than changing them. These use the API's real capability vocabulary
+// (`responses`, `vision_input`, … — `apps/api/src/ai/core/capabilities.ts`),
+// which the default picker filters on.
+// -----------------------------------------------------------------------------
+
+/** AI on, strict BYOK: no organisation fallback. */
+export const mockAiPublicConfigByok: AiPublicConfig = {
+  enabled: true,
+  keyPolicy: 'byok',
+  providers: [{ id: 'openai', displayName: 'OpenAI', enabled: true, hasOrgKey: false }],
+};
+
+/** AI on, but no provider enabled yet. */
+export const mockAiPublicConfigNoProviders: AiPublicConfig = {
+  enabled: true,
+  keyPolicy: 'byok',
+  providers: [{ id: 'openai', displayName: 'OpenAI', enabled: false, hasOrgKey: false }],
+};
+
+/** The caller has not added a key for OpenAI. */
+export const mockUserAiKeysNone: UserAiKey[] = [
+  {
+    provider: 'openai',
+    configured: false,
+    hint: null,
+    verifiedAt: null,
+    lastErrorCode: null,
+    reachableModelCount: 0,
+    reachableCheckedAt: null,
+  },
+];
+
+/** A stored key the weekly recheck found revoked. */
+export const mockUserAiKeysErrored: UserAiKey[] = [
+  { ...mockUserAiKeys[0], verifiedAt: null, lastErrorCode: 'AI_KEY_INVALID' },
+];
+
+/** Two responses-capable models (one via the org key) and one embeddings model. */
+export const mockUsableAiModelsMixed: UsableAiModel[] = [
+  {
+    provider: 'openai',
+    modelId: 'gpt-5-mini',
+    displayName: 'GPT-5 mini',
+    capabilities: {
+      capabilities: ['responses', 'reasoning', 'structured_output', 'streaming', 'vision_input'],
+      inputModalities: ['text', 'image'],
+      outputModalities: ['text'],
+    },
+    keySource: 'user',
+  },
+  {
+    provider: 'openai',
+    modelId: 'gpt-5',
+    displayName: 'GPT-5',
+    capabilities: {
+      capabilities: ['responses', 'streaming'],
+      inputModalities: ['text'],
+      outputModalities: ['text'],
+    },
+    keySource: 'org',
+  },
+  {
+    provider: 'openai',
+    modelId: 'text-embedding-3-small',
+    displayName: null,
+    capabilities: {
+      capabilities: ['embeddings'],
+      inputModalities: ['text'],
+      outputModalities: ['embedding'],
+    },
+    keySource: 'user',
+  },
+];
+
+/**
+ * The error body `PUT /ai/keys/:provider` answers when the provider refuses
+ * the key: generic top-level `code`, AI code in `details.reason`.
+ */
+export const mockAiKeyInvalidErrorBody = {
+  statusCode: 400,
+  code: 'BAD_REQUEST',
+  message: 'The provider rejected this API key',
+  details: { reason: 'AI_KEY_INVALID' },
+};
