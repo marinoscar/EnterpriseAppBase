@@ -461,11 +461,36 @@ request was invalid" and "this request failed while streaming" by response
 code alone, because the first never gets past headers and the second
 already has.
 
-A client disconnect is observed via `request.raw.on('close')` and aborts
-the in-flight provider call through an `AbortController` whose signal is
-threaded into `AiCallContext.signal` — an abandoned stream must not keep a
-provider request (and a user's rate limit or spend) running after nobody is
-listening.
+A client disconnect is observed on the **response's** `close` event (while
+the response has not finished) and aborts the in-flight provider call
+through an `AbortController` whose signal is threaded into
+`AiCallContext.signal` — an abandoned stream must not keep a provider
+request (and a user's rate limit or spend) running after nobody is
+listening. Not `request.raw.on('close')`: since Node 16 an
+`IncomingMessage` emits `close` as soon as its body has been consumed,
+which for a `POST` is before the first event exists. The non-streaming
+`POST /api/ai/responses` threads the same signal, so a client that gives up
+on a long answer stops paying for it too; either way the usage row records
+`cancelled`.
+
+**Implementation note (#433).** The route is a hand-written `@Res()` handler,
+not Nest's `@Sse()`: `@Sse()` commits to `200 text/event-stream` before the
+handler runs, which would force every gate refusal in-band. The handler
+awaits `AiService.openStream` (eager — it rejects with the `AiError` for
+every pre-stream failure, including a provider that refuses before its
+first event), and only then hijacks the reply (`apps/api/src/ai/http/ai-sse.ts`),
+carrying over headers already set on it. One known gap: when an adapter
+reports a pre-stream throttle as an in-band first `error` event rather than
+by throwing, the JSON `429` carries `details.reason` but not
+`details.retryAfterMs` — the stream event type has no field for it.
+
+**Request body.** `apps/api/src/ai/http/dto/ai-response-request.dto.ts` is
+`.strict()`: a body carrying `tools` (or any unknown key, such as a
+`stream` flag) is a `400`, never silently dropped. Media parts are accepted
+by `http(s)` URL only in Phase 1. `structuredOutput.jsonSchema` is converted
+with zod's `z.fromJSONSchema` (no ajv dependency; the same conversion a
+background run uses to rebuild its stored schema), bounded at 64 KB, local
+`$ref`s only — an unreadable schema is `400 AI_INVALID_REQUEST`.
 
 nginx buffers `/api` with a 60-second read timeout by default, which is
 fatal to any response that takes longer than a minute to finish streaming.
@@ -489,6 +514,13 @@ location /api/ai/responses/stream {
 `gzip_types` must also exclude `text/event-stream` if it is configured at
 all, for the same reason: a gzip encoder that buffers to build its window
 defeats the entire point of an unbuffered proxy in front of it.
+
+The `appctl deploy` edge vhost (`apps/cli/src/deploy/proxy.ts`
+`renderVhost`) carries the same block, as it already does for the
+notifications stream: nginx consumes `X-Accel-Buffering` rather than
+forwarding it, so without its own location the host proxy would re-buffer
+what the application's nginx forwards unbuffered.
+`apps/api/test/ai/ai-stream-nginx.spec.ts` asserts the application block.
 
 ## 11. Permissions
 
@@ -639,7 +671,7 @@ needed — the `/api/notifications/config` pattern):
 
 | Method & path | Auth | Behaviour |
 |---|---|---|
-| `GET /api/ai/config` | `@Auth()` | `{ enabled, keyPolicy, providers:[{ id, displayName, enabled, hasOrgKey }] }`. When `enabled=false`: `{ enabled:false, keyPolicy, providers:[] }`. Never includes hints or keys. Reachable even while `ai.enabled=false` (§8). |
+| `GET /api/ai/config` | `@Auth()` | `{ enabled, keyPolicy, allowBackgroundRuns, providers:[{ id, displayName, enabled, hasOrgKey }] }`. When `enabled=false`: `{ enabled:false, keyPolicy, allowBackgroundRuns:false, providers:[] }`. Never includes hints or keys. Reachable even while `ai.enabled=false` (§8). |
 
 **User keys and usable models** (`/api/ai/*`, all
 `@UseGuards(AiEnabledGuard)`, `@Auth({ permissions:[PERMISSIONS.AI_USE] })`):
@@ -659,7 +691,7 @@ needed — the `/api/notifications/config` pattern):
 | `POST /api/ai/responses` | `forUser(id).respond(...)` → `AiResponse` (includes `parsed` when structured). |
 | `POST /api/ai/responses/stream` | SSE (§10). Function tools are not accepted over this route in Phase 1 — they execute server-side code and are for in-process `runTools()` only; hosted tools arrive in Phase 2. Request body limit 1 MB. |
 | `POST /api/ai/runs` | `startRun(...)` → `{ runId, jobId }`, status 202. |
-| `GET /api/ai/runs/:id` | Scoped to caller → `{ id, status, provider, modelId, output, errorCode, createdAt, completedAt }`; 404 for another user's run. |
+| `GET /api/ai/runs/:id` | Scoped to caller → `{ id, status, provider, modelId, output, errorCode, errorMessage, createdAt, completedAt }` (never the stored prompt, never the job id); 404 for another user's run. |
 | `POST /api/ai/runs/:id/cancel` | Scoped to caller; 200. |
 
 ## Rejected alternatives

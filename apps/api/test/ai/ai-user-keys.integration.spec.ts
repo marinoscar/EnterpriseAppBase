@@ -226,7 +226,7 @@ describe('User AI keys and usable models Integration', () => {
       const res = record(
         await request(server()).get('/api/ai/config').set(authHeader(viewer.accessToken)).expect(200),
       );
-      expect(res.body.data).toEqual({ enabled: false, keyPolicy: 'byok', providers: [] });
+      expect(res.body.data).toEqual({ enabled: false, keyPolicy: 'byok', allowBackgroundRuns: false, providers: [] });
     });
 
     it.each([

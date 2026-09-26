@@ -122,6 +122,13 @@ describe('renderVhost', () => {
     expect(rendered).toContain('proxy_read_timeout 1h;');
   });
 
+  it('gives the AI response stream its own unbuffered block', () => {
+    const block = rendered.slice(rendered.indexOf('location /api/ai/responses/stream'));
+    expect(block).toContain('proxy_buffering off;');
+    expect(block).toContain('proxy_read_timeout 600s;');
+    expect(block).toContain("proxy_set_header Connection        '';");
+  });
+
   it('is deterministic, so a re-run produces no spurious diff', () => {
     expect(renderVhost(target(root), runtime)).toBe(rendered);
   });

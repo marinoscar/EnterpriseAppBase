@@ -1,0 +1,107 @@
+import { createZodDto } from 'nestjs-zod';
+import { z } from 'zod';
+
+import { AI_REASONING_EFFORTS } from '../../core/capabilities';
+
+// =============================================================================
+// POST /api/ai/responses, /api/ai/responses/stream, /api/ai/runs — request
+// (issue #433, epic #419)
+// =============================================================================
+//
+// The HTTP shape of the facade's `AiRequest`. Two deliberate differences:
+//
+//   * `structuredOutput` carries a JSON SCHEMA (`jsonSchema`), not Zod — an
+//     HTTP client cannot send Zod. `json-schema-structured-output.ts` turns it
+//     into the facade's Zod spec.
+//   * NO `tools`. Function tools execute server-side code, which is what the
+//     in-process `runTools` is for; hosted tools arrive in Phase 2. The object
+//     is `.strict()`, so a body carrying `tools` (or any other unknown key,
+//     such as a `stream` flag) is a 400 rather than silently ignored — a
+//     client should learn that its tools were not sent to the model.
+//
+// Media parts are accepted BY URL ONLY in Phase 1: resolving a
+// `storageObjectId` into something a provider can read is not wired to HTTP
+// yet, and a part that carries neither is meaningless.
+//
+// ⚠ No field here can carry a key: the facade resolves the key per call.
+// =============================================================================
+
+const url = z.url({ protocol: /^https?$/ }).max(8192);
+
+const contentPartSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('text'), text: z.string() }).strict(),
+  z
+    .object({
+      type: z.literal('image'),
+      url,
+      detail: z.enum(['low', 'high', 'auto']).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('file'),
+      url,
+      filename: z.string().max(255).optional(),
+    })
+    .strict(),
+]);
+
+const inputItemSchema = z.discriminatedUnion('type', [
+  z
+    .object({
+      type: z.literal('message'),
+      role: z.enum(['user', 'assistant', 'system', 'developer']),
+      content: z.array(contentPartSchema).min(1),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('function_call_output'),
+      callId: z.string().min(1),
+      output: z.string(),
+    })
+    .strict(),
+]);
+
+/** Identifier a provider accepts for a schema name. */
+export const AI_SCHEMA_NAME = /^[a-zA-Z0-9_-]{1,64}$/;
+
+export const aiResponseRequestSchema = z
+  .object({
+    /** Provider id. Omit to use your default model's provider (or the only registered one). */
+    provider: z.string().min(1).max(64).optional(),
+    /** Model id. Omit to use your `ai.defaultModel` user setting. */
+    model: z.string().min(1).max(200).optional(),
+    /** System/developer instructions. */
+    instructions: z.string().max(100_000).optional(),
+    /** A prompt, or a list of typed input items. */
+    input: z.union([z.string().min(1), z.array(inputItemSchema).min(1)]),
+    /** Ask for JSON matching `jsonSchema`; the response then carries a validated `parsed`. */
+    structuredOutput: z
+      .object({
+        name: z.string().regex(AI_SCHEMA_NAME, 'Use 1-64 of [a-zA-Z0-9_-]'),
+        jsonSchema: z.record(z.string(), z.unknown()),
+        strict: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
+    reasoning: z
+      .object({
+        effort: z.enum(AI_REASONING_EFFORTS).optional(),
+        summary: z.enum(['auto', 'concise', 'detailed']).optional(),
+      })
+      .strict()
+      .optional(),
+    /** Clamped to the deployment cap and the model's own limit. */
+    maxOutputTokens: z.number().int().positive().optional(),
+    temperature: z.number().min(0).max(2).optional(),
+    /** Chain onto an earlier response instead of resending history. */
+    previousResponseId: z.string().min(1).max(200).optional(),
+    metadata: z.record(z.string(), z.string()).optional(),
+    /** Keyed by provider id — the escape hatch for provider features this contract does not model. */
+    providerOptions: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
+  })
+  .strict();
+
+export class AiResponseRequestDto extends createZodDto(aiResponseRequestSchema) {}
+export type AiResponseRequestInput = z.output<typeof aiResponseRequestSchema>;

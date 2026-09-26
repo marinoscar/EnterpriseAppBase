@@ -194,12 +194,19 @@ describe('AiConfigService', () => {
   });
 
   describe('describePublic', () => {
+    it('surfaces defaults.allowBackgroundRuns while AI is on', async () => {
+      getAiPolicy.mockResolvedValue(policy({ defaults: { allowBackgroundRuns: false } }));
+
+      await expect(service.describePublic()).resolves.toMatchObject({ allowBackgroundRuns: false });
+    });
+
     it('returns no providers while AI is off', async () => {
       getAiPolicy.mockResolvedValue(policy({ enabled: false, keyPolicy: 'byok_with_org_fallback' }));
 
       await expect(service.describePublic()).resolves.toEqual({
         enabled: false,
         keyPolicy: 'byok_with_org_fallback',
+        allowBackgroundRuns: false,
         providers: [],
       });
       expect(describe_).not.toHaveBeenCalled();
@@ -213,6 +220,7 @@ describe('AiConfigService', () => {
       expect(view).toEqual({
         enabled: true,
         keyPolicy: 'byok',
+        allowBackgroundRuns: true,
         providers: [{ id: 'openai', displayName: 'Fake AI', enabled: true, hasOrgKey: true }],
       });
       expect(JSON.stringify(view)).not.toContain('123');
