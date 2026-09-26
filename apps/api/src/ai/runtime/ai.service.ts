@@ -1779,7 +1779,7 @@ export class AiService {
       modelId: model,
       port,
       request,
-      baseUrl: slot.baseUrl,
+      ...providerCallSettings(slot),
       logPromptContent: policy.logPromptContent,
     };
   }
