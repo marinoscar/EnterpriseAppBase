@@ -3,7 +3,9 @@
  *
  * The audio is a storage object the caller owns; it plays from a short-lived
  * signed URL (`GET /storage/objects/:id/download`, held in state only) in a
- * native, labelled `<audio controls>` player, with a download link.
+ * native, labelled `<audio controls>` player, with a download link. A media
+ * load failure (a CSP block, an expired URL — issue #510) is explained with a
+ * warning pointing at the download link, rather than leaving a dead 0:00 player.
  *
  * DISCLOSURE. Provider usage policies require telling listeners that a voice
  * is AI-generated, and every speech output carries `aiGenerated: true`. The
@@ -19,6 +21,8 @@ import { ApiError } from '../../services/api';
 import { useIsMounted } from '../../hooks/useIsMounted';
 
 export const AI_GENERATED_AUDIO_LABEL = 'AI-generated audio';
+export const AI_SPEECH_PLAYBACK_FAILED_MESSAGE =
+  'This audio could not be played in the browser. Use Download audio to listen to it.';
 
 export interface AiSpeechPlayerProps {
   output: AiSpeechRunOutput;
@@ -27,11 +31,13 @@ export interface AiSpeechPlayerProps {
 export function AiSpeechPlayer({ output }: AiSpeechPlayerProps) {
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [playbackFailed, setPlaybackFailed] = useState(false);
   const isMounted = useIsMounted();
 
   useEffect(() => {
     setUrl(null);
     setError(null);
+    setPlaybackFailed(false);
     void (async () => {
       try {
         const signed = await getStorageObjectDownloadUrl(output.storageObjectId);
@@ -59,8 +65,18 @@ export function AiSpeechPlayer({ output }: AiSpeechPlayerProps) {
       </Box>
       {error ? (
         <Alert severity="error">{error}</Alert>
+      ) : playbackFailed ? (
+        <Alert severity="warning">{AI_SPEECH_PLAYBACK_FAILED_MESSAGE}</Alert>
       ) : url ? (
-        <Box component="audio" controls src={url} aria-label={accessibleName} preload="metadata" sx={{ width: '100%' }}>
+        <Box
+          component="audio"
+          controls
+          src={url}
+          aria-label={accessibleName}
+          preload="metadata"
+          onError={() => setPlaybackFailed(true)}
+          sx={{ width: '100%' }}
+        >
           Your browser cannot play this audio; use the download link.
         </Box>
       ) : (
