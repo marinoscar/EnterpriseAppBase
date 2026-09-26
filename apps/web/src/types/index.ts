@@ -384,8 +384,24 @@ export interface UserSettings {
    * registry default. Never backfill it with a materialised object.
    */
   notifications?: NotificationPreferences;
+  /**
+   * AI preferences (#430, epic #419). Optional and usually absent: no account
+   * has it until the user picks a default model on `/settings/ai`.
+   */
+  ai?: UserAiSettings;
   updatedAt: string;
   version: number;
+}
+
+/** The model a user's AI requests default to — a provider/model pair, never a key. */
+export interface AiDefaultModel {
+  provider: string;
+  modelId: string;
+}
+
+/** `user_settings.ai` — `defaultModel: null` means "no default chosen". */
+export interface UserAiSettings {
+  defaultModel?: AiDefaultModel | null;
 }
 
 /**
@@ -443,6 +459,8 @@ export interface UserSettingsUpdate {
    * exactly the one key it changed and leave every other preference absent.
    */
   notifications?: NotificationPreferencesPatch | null;
+  /** AI preferences (#430). `defaultModel: null` clears the saved default. */
+  ai?: UserAiSettings;
 }
 
 /**
