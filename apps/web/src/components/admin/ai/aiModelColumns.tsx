@@ -18,7 +18,8 @@ import type { ReactNode } from 'react';
 import { Box, Chip, Stack, Switch, Tooltip, Typography } from '@mui/material';
 import type { DataTableColumn } from '../../datatable';
 import type { AiModel } from '../../../services/ai';
-import { AiModelCapabilityChips, capabilitySummary } from './AiModelCapabilityChips';
+import { AiCapabilityChips } from '../../ai/AiCapabilityChips';
+import { capabilitySummary } from '../../ai/aiCapabilities';
 
 /** Persistence key for `user_settings.dataTables`. */
 export const TABLE_ID = 'ai-models';
@@ -94,7 +95,11 @@ export function buildAiModelColumns({
       value: (model) => capabilitySummary(model.capabilities?.capabilities ?? []),
       render: (model) => (
         <Dimmed model={model}>
-          <AiModelCapabilityChips capabilities={model.capabilities?.capabilities ?? []} />
+          <AiCapabilityChips
+            grouped
+            capabilities={model.capabilities?.capabilities ?? []}
+            emptyLabel="None"
+          />
         </Dimmed>
       ),
     },

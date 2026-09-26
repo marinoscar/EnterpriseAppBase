@@ -54,6 +54,7 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
 import { AI_KEY_REMOVE_CONFIRMATION } from '../../../services/ai';
 import type { AiAdminProvider, AiProbeResult as AiProbeResultData, SecretStatus } from '../../../services/ai';
 import { AiProbeResult } from './AiProbeResult';
+import { AiCapabilityChips } from '../../ai/AiCapabilityChips';
 
 /** The API's minimum key length (`PUT …/key` body, `min(8)`). */
 const MIN_KEY_LENGTH = 8;
@@ -274,11 +275,9 @@ export function AiProviderCard({
       </Stack>
 
       {provider.supportedCapabilities.length > 0 && (
-        <Stack direction="row" spacing={0.5} sx={{ mt: 1, flexWrap: 'wrap', rowGap: 0.5 }}>
-          {provider.supportedCapabilities.map((capability) => (
-            <Chip key={capability} size="small" variant="outlined" label={capability} />
-          ))}
-        </Stack>
+        <Box sx={{ mt: 1 }}>
+          <AiCapabilityChips capabilities={provider.supportedCapabilities} />
+        </Box>
       )}
 
       <Accordion

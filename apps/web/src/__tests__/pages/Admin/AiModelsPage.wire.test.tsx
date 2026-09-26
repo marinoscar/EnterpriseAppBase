@@ -137,7 +137,7 @@ describe('AiModelsPage — wire contract', () => {
 
     await user.click(screen.getByRole('button', { name: 'Edit capabilities for ft:custom-model' }));
     const dialog = await screen.findByRole('dialog');
-    await user.click(within(dialog).getByRole('checkbox', { name: 'Text responses' }));
+    await user.click(within(dialog).getByRole('checkbox', { name: 'Text' }));
     await user.click(within(dialog).getAllByRole('checkbox', { name: 'text' })[0]);
     await user.click(within(dialog).getAllByRole('checkbox', { name: 'text' })[1]);
     await user.click(within(dialog).getByRole('button', { name: /save capabilities/i }));

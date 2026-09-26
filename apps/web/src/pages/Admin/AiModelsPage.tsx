@@ -56,7 +56,7 @@ import { useAiModels } from '../../hooks/useAiModels';
 import {
   AI_CAPABILITY_LABELS,
   AI_CAPABILITY_VALUES,
-} from '../../components/admin/ai/AiModelCapabilityChips';
+} from '../../components/ai/aiCapabilities';
 import { AiModelOverrideDialog } from '../../components/admin/ai/AiModelOverrideDialog';
 import {
   TABLE_ID,

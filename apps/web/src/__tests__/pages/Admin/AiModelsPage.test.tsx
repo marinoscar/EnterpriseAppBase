@@ -232,7 +232,7 @@ describe('AiModelsPage', () => {
       const save = within(dialog).getByRole('button', { name: /save capabilities/i });
       expect(save).toBeDisabled(); // nothing chosen yet
 
-      await user.click(within(dialog).getByRole('checkbox', { name: 'Text responses' }));
+      await user.click(within(dialog).getByRole('checkbox', { name: 'Text' }));
       await user.click(within(dialog).getByRole('checkbox', { name: 'Reasoning' }));
       const [inputText] = within(dialog).getAllByRole('checkbox', { name: 'text' });
       await user.click(inputText);

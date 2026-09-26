@@ -38,7 +38,7 @@ import {
   AI_INPUT_MODALITY_VALUES,
   AI_OUTPUT_MODALITY_VALUES,
   AI_REASONING_EFFORT_VALUES,
-} from './AiModelCapabilityChips';
+} from '../../ai/aiCapabilities';
 
 interface OverrideForm {
   capabilities: string[];
