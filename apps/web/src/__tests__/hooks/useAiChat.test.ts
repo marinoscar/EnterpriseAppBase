@@ -11,6 +11,7 @@ import {
 } from '../mocks/fixtures/ai';
 import { controlledAiStream } from '../utils/aiStream';
 import { buildHistoryInput, useAiChat, type AiChatMessage } from '../../hooks/useAiChat';
+import type { AiChatAttachment } from '../../components/ai/playground/chatAttachments';
 
 /**
  * `useAiChat` — issue #434. Streaming against a hand-driven MSW
@@ -306,6 +307,59 @@ describe('useAiChat', () => {
         text('user', 'first'),
         text('assistant', 'Hello! How can I help?'),
         text('user', 'second'),
+      ]);
+    });
+
+    it('sends attachments as storageObjectId parts on the new turn and resends them on later turns', async () => {
+      const stream = controlledAiStream();
+      const { result } = renderHook(() => useAiChat());
+      const options = { provider: 'anthropic', model: 'claude-sonnet-4-5', chainResponses: false };
+      const photo: AiChatAttachment = {
+        storageObjectId: 'obj-photo',
+        name: 'photo.png',
+        mimeType: 'image/png',
+        size: 2048,
+        kind: 'image',
+      };
+      const report: AiChatAttachment = {
+        storageObjectId: 'obj-report',
+        name: 'report.pdf',
+        mimeType: 'application/pdf',
+        size: 4096,
+        kind: 'file',
+      };
+      const firstTurn = {
+        type: 'message',
+        role: 'user',
+        content: [
+          { type: 'text', text: 'describe these' },
+          { type: 'image', storageObjectId: 'obj-photo' },
+          { type: 'file', storageObjectId: 'obj-report', filename: 'report.pdf' },
+        ],
+      };
+
+      act(() => void result.current.send('describe these', options, [photo, report]));
+      await waitFor(() => expect(stream.requests).toHaveLength(1));
+      expect(stream.requests[0].body).toEqual({ provider: 'anthropic', model: 'claude-sonnet-4-5', input: [firstTurn] });
+      act(() => {
+        stream.push({ type: 'response.completed', response: mockAiResponse });
+        stream.close();
+      });
+      await waitFor(() => expect(result.current.isStreaming).toBe(false));
+
+      act(() => void result.current.send('and now?', options));
+      await waitFor(() => expect(stream.requests).toHaveLength(2));
+      expect(stream.requests[1].body.previousResponseId).toBeUndefined();
+      expect(stream.requests[1].body.input).toEqual([
+        firstTurn,
+        text('assistant', 'Hello! How can I help?'),
+        text('user', 'and now?'),
+      ]);
+      // The same history the background-run path reads.
+      expect(result.current.historyInput('later', [photo])).toEqual([
+        firstTurn,
+        text('assistant', 'Hello! How can I help?'),
+        { type: 'message', role: 'user', content: [{ type: 'text', text: 'later' }, { type: 'image', storageObjectId: 'obj-photo' }] },
       ]);
     });
 
