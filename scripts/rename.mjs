@@ -159,13 +159,13 @@ function validate(opts) {
 
 const NEUTRAL_SLUG = 'app';
 
-function slugify(name) {
+export function slugify(name) {
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
   return slug.length > 0 ? slug : NEUTRAL_SLUG;
 }
 
 /** Everything downstream of one identity, so old and new are computed the same way. */
-function derive(identity, cliName) {
+export function derive(identity, cliName) {
   const slug = slugify(identity.productName);
   return {
     ...identity,
@@ -189,7 +189,7 @@ function derive(identity, cliName) {
 // regex, so nothing can match more than it means to.
 // =============================================================================
 
-function buildPlan(old, next) {
+export function buildPlan(old, next) {
   /** @type {{file: string, find: string, replace: string, expectedHits: number, why: string}[]} */
   const edits = [];
   const add = (file, find, replace, expectedHits, why) => {
@@ -554,4 +554,11 @@ function printChecklist(old, next, opts) {
   console.log('');
 }
 
-main();
+// Exported above (buildPlan/derive/slugify) so that
+// apps/cli/src/template-identity.test.ts can derive the codemod's own target
+// file list — rather than hand-listing it — from the SAME plan this script
+// runs. Only invoke main() when this file is executed directly, so importing
+// it for its exports (a test, in effect) never runs the CLI.
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main();
+}
