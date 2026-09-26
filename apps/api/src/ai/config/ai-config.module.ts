@@ -1,12 +1,14 @@
 import { Module } from '@nestjs/common';
 
 import { CredentialsModule } from '../../credentials/credentials.module';
+import { JobsModule } from '../../jobs/jobs.module';
 import { SettingsModule } from '../../settings/settings.module';
 import { AiCoreModule } from '../core/ai-core.module';
 import { AiAdminController } from './ai-admin.controller';
 import { AiConfigAdminService } from './ai-config-admin.service';
 import { AiConfigService } from './ai-config.service';
 import { AiEnabledGuard } from './ai-enabled.guard';
+import { AiModelsAdminService } from './ai-models-admin.service';
 import { AiProviderTestService } from './ai-provider-test.service';
 
 // =============================================================================
@@ -23,9 +25,15 @@ import { AiProviderTestService } from './ai-provider-test.service';
 // =============================================================================
 
 @Module({
-  imports: [SettingsModule, CredentialsModule, AiCoreModule],
+  imports: [SettingsModule, CredentialsModule, JobsModule, AiCoreModule],
   controllers: [AiAdminController],
-  providers: [AiConfigService, AiEnabledGuard, AiConfigAdminService, AiProviderTestService],
+  providers: [
+    AiConfigService,
+    AiEnabledGuard,
+    AiConfigAdminService,
+    AiProviderTestService,
+    AiModelsAdminService,
+  ],
   exports: [AiConfigService, AiEnabledGuard],
 })
 export class AiConfigModule {}
