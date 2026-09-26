@@ -34,7 +34,8 @@ import {
 } from '../../services/ai';
 import type { AiAdminConfigInput } from '../../services/ai';
 import { ApiError } from '../../services/api';
-import { aiErrorReason, useAiAdminConfig } from '../../hooks/useAiAdminConfig';
+import { useAiAdminConfig } from '../../hooks/useAiAdminConfig';
+import { toAiErrorInfo } from '../../services/aiErrors';
 import {
   mockAiAdminConfig,
   mockAiProbeResultFailed,
@@ -61,19 +62,21 @@ async function renderLoaded() {
   return hook;
 }
 
-describe('aiErrorReason', () => {
+// The hook words errors from `toAiErrorInfo`, the shared reader; these pin
+// the three cases the admin page depends on.
+describe('toAiErrorInfo, as the admin hooks use it', () => {
   it('reads details.reason before the generic top-level code', () => {
     const err = new ApiError('nope', 400, 'BAD_REQUEST', { reason: 'AI_KEY_INVALID' });
-    expect(aiErrorReason(err)).toBe('AI_KEY_INVALID');
+    expect(toAiErrorInfo(err).code).toBe('AI_KEY_INVALID');
   });
 
   it('falls back to an AI-prefixed top-level code', () => {
-    expect(aiErrorReason(new ApiError('off', 403, 'AI_DISABLED'))).toBe('AI_DISABLED');
+    expect(toAiErrorInfo(new ApiError('off', 403, 'AI_DISABLED')).code).toBe('AI_DISABLED');
   });
 
-  it('is undefined for a generic error', () => {
-    expect(aiErrorReason(new ApiError('x', 403, 'FORBIDDEN'))).toBeUndefined();
-    expect(aiErrorReason(new Error('x'))).toBeUndefined();
+  it('has no code for a generic error', () => {
+    expect(toAiErrorInfo(new ApiError('x', 403, 'FORBIDDEN')).code).toBeNull();
+    expect(toAiErrorInfo(new Error('x')).code).toBeNull();
   });
 });
 

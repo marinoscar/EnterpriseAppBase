@@ -22,8 +22,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError } from '../services/api';
 import { listAiModels, refreshAiModels, updateAiModel } from '../services/ai';
 import type { AiModel, AiModelCapabilities, AiModelListFilter } from '../services/ai';
-import { aiErrorReason } from './useAiAdminConfig';
+import { toAiErrorInfo } from '../services/aiErrors';
 import { useIsMounted } from './useIsMounted';
+
+/** The AI code an error carries (`details.reason`), or `null`. */
+function aiErrorReason(err: unknown): string | null {
+  return toAiErrorInfo(err).code;
+}
 
 function messageFor(err: unknown, fallback: string): string {
   if (err instanceof ApiError) {

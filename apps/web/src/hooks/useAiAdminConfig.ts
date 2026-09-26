@@ -17,7 +17,8 @@
  * ⚠ THE AI-SPECIFIC CODE IS IN `details.reason`. The API's error envelope
  * carries the generic HTTP code at the top level (`FORBIDDEN`, `BAD_REQUEST`)
  * and the AI taxonomy code (`AI_KEY_INVALID`, `AI_KEY_REQUIRED`, …) under
- * `details.reason`. {@link aiErrorReason} reads it there first.
+ * `details.reason`. `toAiErrorInfo` (`services/aiErrors.ts`) — the one
+ * helper every AI surface uses — reads it there.
  *
  * ⚠ THE PROBE NEVER REJECTS ON A BAD ANSWER. `POST …/test` answers 200 with
  * `success: false` for a rejected key; that lands in `testResults` like any
@@ -38,21 +39,8 @@ import {
   updateAiAdminConfig,
 } from '../services/ai';
 import type { AiAdminConfig, AiAdminConfigInput, AiProbeResult } from '../services/ai';
+import { toAiErrorInfo } from '../services/aiErrors';
 import { useIsMounted } from './useIsMounted';
-
-/**
- * The AI taxonomy code an error carries, or `undefined`.
- *
- * `details.reason` first — that is where the API puts it — then the top-level
- * `code` for a response that happened to put an AI code there directly.
- */
-export function aiErrorReason(err: unknown): string | undefined {
-  if (!(err instanceof ApiError)) return undefined;
-  const details = err.details as { reason?: unknown } | undefined;
-  if (details && typeof details.reason === 'string') return details.reason;
-  if (err.code && err.code.startsWith('AI_')) return err.code;
-  return undefined;
-}
 
 /** A copy of `record` with `key` removed. */
 function without<T>(record: Record<string, T>, key: string): Record<string, T> {
@@ -65,10 +53,11 @@ function without<T>(record: Record<string, T>, key: string): Record<string, T> {
 /** 403 is named explicitly — it is the one failure an admin can act on themselves. */
 function messageFor(err: unknown, fallback: string): string {
   if (err instanceof ApiError) {
-    if (err.status === 403 && !aiErrorReason(err)) {
+    const reason = toAiErrorInfo(err).code;
+    if (err.status === 403 && !reason) {
       return 'You do not have permission to manage the AI configuration';
     }
-    switch (aiErrorReason(err)) {
+    switch (reason) {
       case 'AI_KEY_INVALID':
         return 'The provider rejected this key, so nothing was stored. Check the key and try again.';
       case 'AI_KEY_REQUIRED':
@@ -188,7 +177,7 @@ export function useAiAdminConfig(): UseAiAdminConfigReturn {
         if (isMounted()) setConfig(data);
         return true;
       } catch (err) {
-        if (err instanceof ApiError && err.status === 409 && !aiErrorReason(err)) {
+        if (err instanceof ApiError && err.status === 409 && !toAiErrorInfo(err).code) {
           // Somebody else saved between this page's load and this click. Every
           // retry would 409 identically until the form is rebuilt from the
           // current row, so reload it and say plainly the fields were replaced.
