@@ -133,8 +133,8 @@ function matchesRun(row: StoredAiRun, where: Where = {}): boolean {
 }
 
 /**
- * The `ai_usage_events` filters `AiLimitsService` uses: equality, `{ in }`
- * and `{ gte }` on a Date column.
+ * The `ai_usage_events` filters `AiLimitsService` uses: equality, `{ in }`,
+ * and `{ gt }` / `{ gte }` on a Date column.
  */
 function matchesUsage(row: Record<string, any>, where: Where = {}): boolean {
   for (const [key, expected] of Object.entries(where)) {
@@ -145,6 +145,9 @@ function matchesUsage(row: Record<string, any>, where: Where = {}): boolean {
     } else if (expected && typeof expected === 'object') {
       if ('in' in expected && !(expected.in as unknown[]).includes(actual)) return false;
       if ('gte' in expected && !(actual instanceof Date && actual.getTime() >= (expected.gte as Date).getTime())) {
+        return false;
+      }
+      if ('gt' in expected && !(actual instanceof Date && actual.getTime() > (expected.gt as Date).getTime())) {
         return false;
       }
       if ('not' in expected && actual === expected.not) return false;

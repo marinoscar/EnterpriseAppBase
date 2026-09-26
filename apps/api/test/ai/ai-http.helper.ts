@@ -51,13 +51,16 @@ export interface AiHttpTestApp {
   close(): Promise<void>;
 }
 
-const BASE_POLICY: Pick<AiPolicy, 'enabled' | 'keyPolicy' | 'logPromptContent'> & { defaults: AiPolicy['defaults'] } =
-  {
-    enabled: true,
-    keyPolicy: 'byok',
-    logPromptContent: false,
-    defaults: { allowBackgroundRuns: true },
-  };
+const BASE_POLICY: Pick<AiPolicy, 'enabled' | 'keyPolicy' | 'logPromptContent' | 'limits'> & {
+  defaults: AiPolicy['defaults'];
+} = {
+  enabled: true,
+  keyPolicy: 'byok',
+  logPromptContent: false,
+  defaults: { allowBackgroundRuns: true },
+  // #450: no rate limits unless a test sets them.
+  limits: {},
+};
 
 export async function createAiHttpTestApp(opts: AiRuntimeHarnessOptions = {}): Promise<AiHttpTestApp> {
   let current: FakeAiScript | undefined;
@@ -119,7 +122,7 @@ export async function createAiHttpTestApp(opts: AiRuntimeHarnessOptions = {}): P
       harness.storage.reset();
       harness.setOrgKey(null);
       harness.removeUserKeys(HARNESS_OTHER_USER);
-      harness.setPolicy({ ...BASE_POLICY, defaults: { ...BASE_POLICY.defaults } });
+      harness.setPolicy({ ...BASE_POLICY, defaults: { ...BASE_POLICY.defaults }, limits: {} });
     },
     close: () => closeTestApp(context),
   };
