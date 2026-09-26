@@ -51,7 +51,7 @@ describe('POST /api/ai/realtime/sessions (#449)', () => {
   beforeEach(async () => {
     t.reset();
     t.harness.setPolicy({ defaults: { allowBackgroundRuns: true, allowRealtime: true } });
-    const holder = await createMockTestUser(t.context, { id: HARNESS_USER, roleName: 'viewer' });
+    const holder = await createMockTestUser(t.context, { id: HARNESS_USER, roleName: 'contributor' });
     token = holder.accessToken;
   });
 
@@ -145,6 +145,19 @@ describe('POST /api/ai/realtime/sessions (#449)', () => {
     const res = await post({ model: HARNESS_REALTIME_MODEL, voice: 'cedar' }).expect(400);
 
     expect(res.body.details.reason).toBe('AI_INVALID_REQUEST');
+  });
+
+  it('refuses a Viewer, who holds no ai:use since #501 — a bare RBAC 403, no provider call', async () => {
+    const viewer = await createMockTestUser(t.context, { roleName: 'viewer' });
+
+    const res = await request(t.context.app.getHttpServer())
+      .post('/api/ai/realtime/sessions')
+      .set(authHeader(viewer.accessToken))
+      .send({})
+      .expect(403);
+
+    expect(res.body.details?.reason).toBeUndefined();
+    expect(t.harness.fake.calls).toHaveLength(0);
   });
 
   it('rejects unknown body fields (tools are not accepted over HTTP)', async () => {
