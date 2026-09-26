@@ -73,6 +73,8 @@ export interface AiRunExecutionRow {
   id: string;
   userId: string | null;
   status: string;
+  /** The job that last claimed it (a resumed attempt recognises its own run). */
+  jobId: string | null;
   request: Prisma.JsonValue;
 }
 
@@ -164,7 +166,7 @@ export class AiRunsService {
   async load(runId: string): Promise<AiRunExecutionRow | null> {
     return this.prisma.aiRun.findUnique({
       where: { id: runId },
-      select: { id: true, userId: true, status: true, request: true },
+      select: { id: true, userId: true, status: true, jobId: true, request: true },
     });
   }
 
