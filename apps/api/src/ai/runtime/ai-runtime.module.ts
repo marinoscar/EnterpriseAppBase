@@ -9,6 +9,7 @@ import { AiService } from './ai.service';
 import { AiAudioSpeechHandler } from './ai-audio-speech.handler';
 import { AiAudioTranscribeHandler } from './ai-audio-transcribe.handler';
 import { AiImageGenerateHandler } from './ai-image-generate.handler';
+import { AiLimitsService } from './ai-limits.service';
 import { AiResponseRunHandler } from './ai-response-run.handler';
 import { AiRunsService } from './ai-runs.service';
 import { AiUsageRecorder } from './ai-usage.recorder';
@@ -37,6 +38,8 @@ import { AiUsageRecorder } from './ai-usage.recorder';
   providers: [
     AiService,
     AiUsageRecorder,
+    // #450: per-user and per-model rate limits, applied by the facade.
+    AiLimitsService,
     AiRunsService,
     AiResponseRunHandler,
     AiImageGenerateHandler,
