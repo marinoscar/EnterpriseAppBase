@@ -132,6 +132,28 @@ export const PERMISSIONS = [
     description:
       'Change the object-storage provider, bucket, endpoint and credential, test a configuration, and provision a bucket',
   },
+
+  // AI platform (#423, epic #419, umbrella #418). THREE permissions, not two
+  // — see `src/common/constants/roles.constants.ts` for the full argument.
+  // `ai_config:*` gates the DEPLOYMENT-WIDE policy (whether AI is on, the key
+  // policy, per-provider config) and reaches every user at once, the same
+  // "distinct blast radius" reasoning `storage_config:*`/`push:*`/
+  // `broadcasts:*`/`nodes:*` above each make. `ai:use` is the opposite axis —
+  // may THIS caller invoke AI at all, with THEIR OWN saved key — and changes
+  // nothing about anyone else's access or the deployment's configuration.
+  {
+    name: 'ai_config:read',
+    description: 'View the deployment-wide AI platform policy',
+  },
+  {
+    name: 'ai_config:write',
+    description:
+      'Change whether AI is enabled, the key policy, per-provider configuration and the deployment-wide defaults',
+  },
+  {
+    name: 'ai:use',
+    description: 'Call AI models using a saved key',
+  },
 ] as const;
 
 // Role to permissions mapping
@@ -182,17 +204,33 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     // the entire point of a separate pair.
     'storage_config:read',
     'storage_config:write',
+    // #423, epic #419 — ADMIN gets all three AI permissions: the two
+    // deployment-wide config ones (same "narrow, operational surface" posture
+    // as `storage_config:*`/`push:*`/`broadcasts:*`/`nodes:*` above) AND
+    // `ai:use`, since an administrator should not need a second grant to use
+    // a capability they can also configure.
+    'ai_config:read',
+    'ai_config:write',
+    'ai:use',
   ],
   contributor: [
     'user_settings:read',
     'user_settings:write',
     'storage:read',
     'storage:write',
+    // #423, epic #419 — `ai:use` only, never `ai_config:*`: a Contributor may
+    // call AI with their own saved key, and has no say over whether AI is
+    // enabled for anyone else or under which policy.
+    'ai:use',
   ],
   viewer: [
     'user_settings:read',
     'user_settings:write',
     'storage:read',
+    // #423, epic #419 — same `ai:use`-only grant as Contributor, for the
+    // identical reason: using AI with one's own key is not a configuration
+    // authority.
+    'ai:use',
   ],
 };
 
