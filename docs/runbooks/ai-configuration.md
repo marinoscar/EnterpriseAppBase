@@ -320,9 +320,14 @@ What is different, and worth telling users:
   `AI_CAPABILITY_UNSUPPORTED` (`details.capability:
   "previous_response_id"`); send the conversation so far as `input`
   instead (user and assistant messages). In-process `runTools()` does this
-  automatically. The AI Playground's multi-turn chat currently chains, so
-  its second turn against a Claude model is refused — start a new thread
-  per question until the playground learns to resend history.
+  automatically, and `GET /api/ai/config` publishes
+  `supportsPreviousResponseId` per provider so clients know to: the AI
+  Playground resends the conversation itself for a Claude model and keeps
+  chaining for OpenAI, so multi-turn chat works with both.
+- **No hosted tools.** Anthropic's provider row on `/admin/settings/ai`
+  does not list **Hosted tools** among its capabilities, and no Claude model
+  declares them: web search, file search, code interpreter, image
+  generation and MCP are OpenAI-only here.
 - **Reasoning.** A reasoning effort becomes Anthropic's extended thinking:
   adaptive thinking with an effort level on Claude 4.6 and later, a fixed
   thinking-token budget on older families. Users see a summary of the

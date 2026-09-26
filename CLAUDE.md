@@ -734,7 +734,7 @@ The caller's own AI surface: usable models, BYOK keys, and calling AI itself.
 `AiEnabledGuard` (403 `details.reason: "AI_DISABLED"` while AI is off) and
 requires `ai:use`. See
 [`docs/specs/ai-platform.md`](docs/specs/ai-platform.md).
-- `GET /api/ai/config` - Whether AI is enabled, the key policy, `allowBackgroundRuns` (whether `POST /api/ai/runs` accepts a request at all), `hostedTools` (which hosted tool types are switched on, booleans only — #442), and which providers are enabled/carry an org key; reachable while AI is disabled — how a client learns to hide its AI surfaces (any authenticated user, no `ai:use` required)
+- `GET /api/ai/config` - Whether AI is enabled, the key policy, `allowBackgroundRuns` (whether `POST /api/ai/runs` accepts a request at all), `hostedTools` (which hosted tool types are switched on, booleans only — #442), and which providers are enabled/carry an org key/`supportsPreviousResponseId` (false for Anthropic: send the conversation as `input`, #446); reachable while AI is disabled — how a client learns to hide its AI surfaces (any authenticated user, no `ai:use` required)
 - `GET /api/ai/keys` - List the caller's provider keys, masked (`ai:use`)
 - `PUT /api/ai/keys/{provider}` - Set/replace the caller's key; verified against the provider first, then reachable models computed, then stored (`ai:use`)
 - `DELETE /api/ai/keys/{provider}` - Remove the caller's key; 204, idempotent (`ai:use`)
@@ -1479,9 +1479,12 @@ every port) and `apps/api/src/ai/providers/anthropic/` (Messages API,
    the gate pipeline then refuses a caller's `previousResponseId` with
    `AI_CAPABILITY_UNSUPPORTED`, and `runTools` — and the kit's tool
    round-trip — resend the full conversation instead of chaining (spec
-   §5.7). Opaque replay state (Anthropic's thinking signatures) rides on a
-   `reasoning` item under the `AI_PROVIDER_STATE` symbol, never in a
-   serialisable field.
+   §5.7); `GET /api/ai/config` publishes the flag per provider. Opaque
+   replay state (Anthropic's thinking signatures) rides on a `reasoning`
+   item under the `AI_PROVIDER_STATE` symbol, never in a serialisable
+   field. Likewise a provider with a `responses` port but none of the
+   hosted tools declares `supportsHostedTools: false` (absent means
+   `true`), so the registry stops deriving `hosted_tools` for it.
 6. **Register the provider id.** Add it to `AI_PROVIDER_IDS`
    (`common/schemas/settings.schema.ts`) — a growing, code-owned list, not a
    closed set — so the `ai.providers.<id>` settings slot and the admin UI's

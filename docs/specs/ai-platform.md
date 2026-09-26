@@ -1238,7 +1238,13 @@ function `create` uses. An `event: error` frame ends the stream with one
 families (Claude 3, 3.5, 3.7, 4.x Opus/Sonnet/Haiku, 5.x Opus/Sonnet, Fable,
 Mythos): every family declares `responses`, `tools`, `structured_output` and
 `streaming`; `reasoning` where extended thinking exists; `vision_input`;
-`file_input` from Claude 3.5 Sonnet on (PDFs). None declares `hosted_tools`.
+`file_input` from Claude 3.5 Sonnet on (PDFs). None declares `hosted_tools`,
+and the adapter declares `supportsHostedTools: false`: hosted tools ride on
+the `responses` port with no port of their own, so without that declaration
+the registry would derive `hosted_tools` from the port and the admin view's
+`supportedCapabilities` would claim it. The flag, like
+`supportsPreviousResponseId`, is optional and absent means `true` (OpenAI,
+the fake provider and existing forks are unchanged).
 Anything else is `null` — unclassified.
 
 **Errors.** 401 → `AI_KEY_INVALID`; 403 and 404 → `AI_MODEL_NOT_REACHABLE`;
@@ -1257,10 +1263,13 @@ short-circuits the SDK's own credential chain — `ANTHROPIC_API_KEY`,
 `ANTHROPIC_AUTH_TOKEN`, a CLI profile, workload identity federation),
 `authToken: null`, an explicit base URL, `maxRetries: 0` and logging off.
 
-**Known limitation.** The web AI Playground chains multi-turn chat with
-`previousResponseId`, so its second turn against a Claude model is refused;
-teaching it to resend history for a provider that cannot chain is a
-follow-up (it needs the flag exposed on `GET /api/ai/config`).
+**Clients learn the flag from `GET /api/ai/config`.** Each `providers[]`
+entry carries `supportsPreviousResponseId` (read from the adapter through
+the registry), so a client never has to discover statelessness by being
+refused. The web AI Playground uses it: for a provider that cannot chain it
+resends the conversation so far (the completed user and assistant turns) as
+`input` instead of sending `previousResponseId`; for OpenAI it keeps
+chaining.
 
 ### HTTP surface
 
@@ -1287,7 +1296,7 @@ every consumer-facing route (as opposed to `/api/admin/ai/*`'s
 
 | Method & path | Auth | Behaviour |
 |---|---|---|
-| `GET /api/ai/config` | `@Auth()` | `{ enabled, keyPolicy, allowBackgroundRuns, hostedTools:{ web_search, file_search, code_interpreter, image_generation, mcp }, providers:[{ id, displayName, enabled, hasOrgKey }] }`. When `enabled=false`: `{ enabled:false, keyPolicy, allowBackgroundRuns:false, hostedTools:{ …all false }, providers:[] }`. Never includes hints or keys. Reachable even while `ai.enabled=false` (§8). |
+| `GET /api/ai/config` | `@Auth()` | `{ enabled, keyPolicy, allowBackgroundRuns, hostedTools:{ web_search, file_search, code_interpreter, image_generation, mcp }, providers:[{ id, displayName, enabled, hasOrgKey, supportsPreviousResponseId }] }` — `supportsPreviousResponseId: false` (Anthropic) means send the conversation as `input`; `previousResponseId` is refused (§5.7). When `enabled=false`: `{ enabled:false, keyPolicy, allowBackgroundRuns:false, hostedTools:{ …all false }, providers:[] }`. Never includes hints or keys. Reachable even while `ai.enabled=false` (§8). |
 
 **User keys and usable models** (`/api/ai/*`, all
 `@UseGuards(AiEnabledGuard)`, `@Auth({ permissions:[PERMISSIONS.AI_USE] })`):

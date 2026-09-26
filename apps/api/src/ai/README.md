@@ -201,7 +201,9 @@ the original input plus every round's output replayed with
 `reasoning` item carries the provider's opaque replay state (Anthropic's
 thinking signature) under the `AI_PROVIDER_STATE` symbol, which
 `JSON.stringify` never sees — it survives the in-process hop and nothing
-else. See `docs/specs/ai-platform.md` §5.7.
+else. `GET /api/ai/config` publishes the flag per provider
+(`providers[].supportsPreviousResponseId`) so a client resends history
+rather than being refused. See `docs/specs/ai-platform.md` §5.7.
 
 ## Hosted tools (issue #442)
 
