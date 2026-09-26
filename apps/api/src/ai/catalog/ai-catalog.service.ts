@@ -7,13 +7,18 @@
 // See docs/specs/ai-platform.md §6 for the rules this file implements.
 // =============================================================================
 
+import { randomUUID } from 'node:crypto';
+
 import { Injectable, Logger } from '@nestjs/common';
-import { Job } from '@prisma/client';
+import { Job, Prisma } from '@prisma/client';
 
 import { CredentialsService } from '../../credentials/credentials.service';
 import { JobsService } from '../../jobs/jobs.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SystemSettingsService } from '../../settings/system-settings/system-settings.service';
+import { AiError } from '../core/ai-error';
+import { AiModelCapabilities, aiModelCapabilitiesSchema } from '../core/capabilities';
+import { AiDiscoveredModel, AiProviderAdapter } from '../core/provider-adapter.interface';
 import { AiProviderRegistry } from '../core/provider-registry';
 import { AI_CREDENTIAL_PURPOSE, aiCredentialName } from './ai-credential.constants';
 
@@ -60,6 +65,19 @@ export function isCatalogSyncSkipped(
   return 'skipped' in result;
 }
 
+/**
+ * What an unclassified model is stored with: no capability at all, so the
+ * runtime gate refuses every request against it until an administrator
+ * decides what it can do.
+ */
+export const EMPTY_AI_MODEL_CAPABILITIES: AiModelCapabilities = {
+  capabilities: [],
+  inputModalities: [],
+  outputModalities: [],
+};
+
+export type AiCapabilitySource = 'catalog' | 'admin_override' | 'unclassified';
+
 /** The policy slice a provider carries in the `ai` namespace. */
 interface AiProviderPolicy {
   enabled: boolean;
@@ -92,8 +110,22 @@ export class AiCatalogService {
     });
   }
 
-  /** Discovers, classifies and persists `providerId`'s model catalog. */
-  async sync(providerId: string, _options: AiCatalogSyncOptions = {}): Promise<AiCatalogSyncResult> {
+  /**
+   * Discovers, classifies and persists `providerId`'s model catalog.
+   *
+   * The preservation rules (docs/specs/ai-platform.md §6) are the point:
+   *
+   *   - a NEW model is inserted `enabled: false`, classified or `unclassified`;
+   *   - an EXISTING model gets `lastSeenAt` and a cleared `deprecatedAt`, its
+   *     capabilities only when they are not an `admin_override`, and its
+   *     `enabled` flag is never written;
+   *   - a model the provider no longer lists is deprecated and force-disabled,
+   *     never deleted (usage history references it by value).
+   *
+   * Every skip is returned, not thrown. A provider failure is recorded as a
+   * failed usage row and rethrown as an `AiError`.
+   */
+  async sync(providerId: string, options: AiCatalogSyncOptions = {}): Promise<AiCatalogSyncResult> {
     const policy = await this.systemSettings.getAiPolicy();
 
     if (!policy.enabled) {
@@ -108,7 +140,14 @@ export class AiCatalogService {
       return { skipped: 'AI_PROVIDER_DISABLED' };
     }
 
-    if (!this.registry.get(providerId)) {
+    const adapter = this.registry.get(providerId);
+
+    if (!adapter) {
+      this.logger.warn(
+        `AI provider "${providerId}" is enabled in settings but no adapter is registered; ` +
+          'catalog sync skipped',
+      );
+
       return { skipped: 'PROVIDER_NOT_REGISTERED' };
     }
 
@@ -121,9 +160,285 @@ export class AiCatalogService {
       return { skipped: 'NO_ADMIN_KEY' };
     }
 
-    // Discovery and persistence land in the next commit.
-    this.logger.debug(`Catalog sync for "${providerId}" is not implemented yet`);
+    const discovered = await this.discover(adapter, providerId, apiKey, providerPolicy, options);
+    const modelIds = uniqueModelIds(discovered);
+    const counts = await this.persist(adapter, providerId, modelIds);
 
-    return { added: 0, updated: 0, deprecated: 0, total: 0 };
+    await this.audit(providerId, options.actorUserId ?? null, counts);
+
+    return counts;
   }
+
+  /**
+   * One `listModels` round trip with the ADMIN key, recorded as exactly one
+   * `ai_usage_events` row whether it succeeds or fails.
+   */
+  private async discover(
+    adapter: AiProviderAdapter,
+    providerId: string,
+    apiKey: string,
+    providerPolicy: AiProviderPolicy,
+    options: AiCatalogSyncOptions,
+  ): Promise<AiDiscoveredModel[]> {
+    const started = Date.now();
+
+    try {
+      const models = await adapter.listModels({
+        apiKey,
+        baseUrl: providerPolicy.baseUrl,
+        requestId: randomUUID(),
+      });
+
+      await this.recordUsage(providerId, 'succeeded', Date.now() - started, null, options);
+
+      return models;
+    } catch (error) {
+      const aiError = AiError.wrap(error);
+
+      await this.recordUsage(providerId, 'failed', Date.now() - started, aiError.code, options);
+
+      throw aiError;
+    }
+  }
+
+  /** Applies one discovery result to `ai_models`, atomically. */
+  private async persist(
+    adapter: AiProviderAdapter,
+    providerId: string,
+    modelIds: string[],
+  ): Promise<AiCatalogSyncCounts> {
+    const now = new Date();
+
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.aiModel.findMany({
+        where: { provider: providerId },
+        select: {
+          id: true,
+          modelId: true,
+          capabilities: true,
+          capabilitySource: true,
+          deprecatedAt: true,
+        },
+      });
+
+      // An empty listing with live rows is far more likely a provider glitch
+      // than a provider that withdrew every model at once — and taking it at
+      // face value would force-disable the whole catalog. Refuse; the job
+      // retries, and a genuine withdrawal will still be empty next time.
+      if (modelIds.length === 0 && existing.some((row) => row.deprecatedAt === null)) {
+        throw new AiError(
+          'AI_PROVIDER_UNAVAILABLE',
+          'The AI provider returned an empty model list; the catalog was left unchanged.',
+          { details: { provider: providerId } },
+        );
+      }
+
+      const byModelId = new Map(existing.map((row) => [row.modelId, row]));
+      const listed = new Set(modelIds);
+
+      let added = 0;
+      let updated = 0;
+
+      const inserts: Prisma.AiModelCreateManyInput[] = [];
+      const seenOnly: string[] = [];
+
+      for (const modelId of modelIds) {
+        const row = byModelId.get(modelId);
+        const classified = this.classify(adapter, modelId);
+
+        if (!row) {
+          inserts.push({
+            provider: providerId,
+            modelId,
+            capabilities: toJson(classified.capabilities),
+            capabilitySource: classified.source,
+            contextWindow: classified.capabilities.contextWindow ?? null,
+            maxOutputTokens: classified.capabilities.maxOutputTokens ?? null,
+            enabled: false,
+            discoveredAt: now,
+            lastSeenAt: now,
+          });
+          added += 1;
+          continue;
+        }
+
+        const data: Prisma.AiModelUpdateInput = { lastSeenAt: now };
+        let changed = false;
+
+        if (row.deprecatedAt !== null) {
+          // Reappearance clears deprecation but is NOT re-enablement.
+          data.deprecatedAt = null;
+          changed = true;
+        }
+
+        if (
+          row.capabilitySource !== 'admin_override' &&
+          (row.capabilitySource !== classified.source ||
+            canonicalJson(row.capabilities) !== canonicalJson(classified.capabilities))
+        ) {
+          data.capabilities = toJson(classified.capabilities);
+          data.capabilitySource = classified.source;
+          data.contextWindow = classified.capabilities.contextWindow ?? null;
+          data.maxOutputTokens = classified.capabilities.maxOutputTokens ?? null;
+          changed = true;
+        }
+
+        if (!changed) {
+          // The common case: only liveness moves. Batched below.
+          seenOnly.push(row.id);
+          continue;
+        }
+
+        // `enabled` is deliberately absent from `data`: a refresh never
+        // writes it for a model the provider still lists.
+        await tx.aiModel.update({ where: { id: row.id }, data });
+        updated += 1;
+      }
+
+      if (seenOnly.length > 0) {
+        await tx.aiModel.updateMany({
+          where: { id: { in: seenOnly } },
+          data: { lastSeenAt: now },
+        });
+      }
+
+      if (inserts.length > 0) {
+        await tx.aiModel.createMany({ data: inserts, skipDuplicates: true });
+      }
+
+      const missing = existing.filter((row) => !listed.has(row.modelId));
+      const newlyDeprecated = missing.filter((row) => row.deprecatedAt === null).map((row) => row.id);
+      const alreadyDeprecated = missing.filter((row) => row.deprecatedAt !== null).map((row) => row.id);
+
+      if (newlyDeprecated.length > 0) {
+        await tx.aiModel.updateMany({
+          where: { id: { in: newlyDeprecated } },
+          data: { deprecatedAt: now, enabled: false },
+        });
+      }
+
+      if (alreadyDeprecated.length > 0) {
+        // Keep the original deprecation date, but a withdrawn model is never
+        // servable — whatever an administrator did to it in the meantime.
+        await tx.aiModel.updateMany({
+          where: { id: { in: alreadyDeprecated }, enabled: true },
+          data: { enabled: false },
+        });
+      }
+
+      return { added, updated, deprecated: newlyDeprecated.length, total: modelIds.length };
+    });
+  }
+
+  /**
+   * The adapter's classification, validated. An invalid classifier output is
+   * treated as "unclassified" rather than stored — the catalog must never
+   * hold a capability record the runtime cannot trust.
+   */
+  private classify(
+    adapter: AiProviderAdapter,
+    modelId: string,
+  ): { capabilities: AiModelCapabilities; source: AiCapabilitySource } {
+    const raw = adapter.classifyModel(modelId);
+
+    if (raw === null) {
+      return { capabilities: EMPTY_AI_MODEL_CAPABILITIES, source: 'unclassified' };
+    }
+
+    const parsed = aiModelCapabilitiesSchema.safeParse(raw);
+
+    if (!parsed.success) {
+      this.logger.warn(
+        `Adapter "${adapter.id}" returned an invalid classification for "${modelId}"; ` +
+          'storing it as unclassified',
+      );
+
+      return { capabilities: EMPTY_AI_MODEL_CAPABILITIES, source: 'unclassified' };
+    }
+
+    return { capabilities: parsed.data, source: 'catalog' };
+  }
+
+  private async recordUsage(
+    providerId: string,
+    status: 'succeeded' | 'failed',
+    latencyMs: number,
+    errorCode: string | null,
+    options: AiCatalogSyncOptions,
+  ): Promise<void> {
+    await this.prisma.aiUsageEvent.create({
+      data: {
+        userId: null,
+        provider: providerId,
+        modelId: '*',
+        operation: 'catalog',
+        keySource: 'admin_discovery',
+        latencyMs,
+        status,
+        errorCode,
+        jobId: options.jobId ?? null,
+      },
+    });
+  }
+
+  /** No audit service exists; written directly, as `StorageConfigAdminService.audit` does. */
+  private async audit(
+    providerId: string,
+    actorUserId: string | null,
+    counts: AiCatalogSyncCounts,
+  ): Promise<void> {
+    await this.prisma.auditEvent.create({
+      data: {
+        actorUserId,
+        action: 'ai_catalog:refresh',
+        targetType: AI_CATALOG_SUBJECT_TYPE,
+        targetId: providerId,
+        meta: { added: counts.added, updated: counts.updated, deprecated: counts.deprecated },
+      },
+    });
+  }
+}
+
+/** Distinct, non-empty model ids, in first-seen order. */
+function uniqueModelIds(models: AiDiscoveredModel[]): string[] {
+  const ids = new Set<string>();
+
+  for (const model of models) {
+    const id = typeof model?.id === 'string' ? model.id.trim() : '';
+
+    if (id.length > 0) {
+      ids.add(id);
+    }
+  }
+
+  return [...ids];
+}
+
+function toJson(capabilities: AiModelCapabilities): Prisma.InputJsonValue {
+  return capabilities as unknown as Prisma.InputJsonValue;
+}
+
+/**
+ * Key-order-independent JSON, so a JSONB value read back (PostgreSQL reorders
+ * object keys) compares equal to the same classification built in memory.
+ */
+export function canonicalJson(value: unknown): string {
+  return JSON.stringify(sortKeys(value));
+}
+
+function sortKeys(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(sortKeys);
+  }
+
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.keys(value as Record<string, unknown>)
+        .sort()
+        .filter((key) => (value as Record<string, unknown>)[key] !== undefined)
+        .map((key) => [key, sortKeys((value as Record<string, unknown>)[key])]),
+    );
+  }
+
+  return value;
 }
