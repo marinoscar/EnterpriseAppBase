@@ -16,6 +16,13 @@
 // which is one more sentinel below — a stored-file input may reach the
 // provider by presigned URL, and nowhere else.
 //
+// #442 adds another secret: an MCP tool's `headers` (the remote server's
+// own credential). `MCP_HEADER_SENTINEL` travels in a hosted `mcp` tool on
+// every consumer route that accepts one, the fake provider echoes it back
+// in its output and in a thrown error, and it must reach none of the places
+// above either — and never an `ai_runs.request` row, because a background
+// run carrying headers is refused outright.
+//
 // Two app contexts, because the admin surface (`AiConfigAdminService` and
 // friends) and the consumer surface (`AiService`/`AiRunsService`, exercised
 // through `ai-http.helper`'s harness) are wired through different services
@@ -45,8 +52,14 @@ import {
 } from '../../src/common/schemas/settings.schema';
 import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
 import {
+  FAKE_EMBEDDING_MODEL_CAPABILITIES,
+  FAKE_IMAGE_MODEL_CAPABILITIES,
+  FAKE_TEXT_MODEL_CAPABILITIES,
+} from '../../src/ai/testing/fake-ai-provider';
+import {
   HARNESS_EMBEDDING_MODEL,
   HARNESS_IMAGE_MODEL,
+  HARNESS_MODEL,
   HARNESS_USER,
   HARNESS_USER_KEY,
   HARNESS_ORG_KEY,
@@ -68,8 +81,18 @@ import {
 import { aiEmbeddingsResponseSchema } from '../../src/ai/http/dto/ai-embeddings.dto';
 
 const ADMIN_KEY_SENTINEL = 'sk-admin-egress-sentinel-Zq81xY';
+/** An MCP server credential, sent as a hosted `mcp` tool's `Authorization` header (#442). */
+const MCP_HEADER_SENTINEL = 'mcp-hdr-egress-sentinel-Wv73Kd';
 /** Every value that must never appear anywhere this suite inspects. */
-const ALL_SENTINELS = [...ALL_KEYS, ADMIN_KEY_SENTINEL, IN_MEMORY_PRESIGNED_SIGNATURE];
+const ALL_SENTINELS = [...ALL_KEYS, ADMIN_KEY_SENTINEL, IN_MEMORY_PRESIGNED_SIGNATURE, MCP_HEADER_SENTINEL];
+
+/** A hosted MCP tool carrying the header sentinel. */
+const MCP_TOOL = {
+  type: 'mcp',
+  serverLabel: 'docs',
+  serverUrl: 'https://mcp.example.com/sse',
+  headers: { Authorization: `Bearer ${MCP_HEADER_SENTINEL}`, 'X-Api-Key': MCP_HEADER_SENTINEL },
+} as const;
 
 /** Every place a sentinel might leak, joined into one haystack per capture. */
 function assertNoLeak(label: string, haystack: string): void {
@@ -97,7 +120,17 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
   let logSpies: jest.SpyInstance[];
 
   beforeAll(async () => {
-    app = await createAiHttpTestApp({ policy: { keyPolicy: 'byok_with_org_fallback' } });
+    app = await createAiHttpTestApp({
+      policy: { keyPolicy: 'byok_with_org_fallback' },
+      // `fake-model` also declares `hosted_tools`, so the MCP sentinel below
+      // reaches the provider rather than stopping at the capability gate.
+      models: [
+        { modelId: HARNESS_MODEL, capabilities: { ...FAKE_TEXT_MODEL_CAPABILITIES, capabilities: [...FAKE_TEXT_MODEL_CAPABILITIES.capabilities, 'hosted_tools'] } },
+        { modelId: HARNESS_EMBEDDING_MODEL, capabilities: FAKE_EMBEDDING_MODEL_CAPABILITIES },
+        { modelId: HARNESS_IMAGE_MODEL, capabilities: FAKE_IMAGE_MODEL_CAPABILITIES },
+      ],
+      fake: { hostedTools: ['mcp'] },
+    });
 
     adminCtx = await createTestApp({
       useMockDatabase: true,
@@ -137,6 +170,16 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
     // layered on top, after the shared reset, never a second reset of it.
     app.reset();
     app.harness.setOrgKey(HARNESS_ORG_KEY);
+    app.harness.setPolicy({
+      hostedTools: {
+        web_search: false,
+        file_search: false,
+        code_interpreter: false,
+        image_generation: false,
+        mcp: true,
+        mcpAllowedHosts: [],
+      },
+    });
 
     adminFake.reset();
     adminCtx.app.get(AiConfigService).invalidateCache();
@@ -537,6 +580,117 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
 
     it('captured Nest/Pino log output carries no sentinel', () => {
       assertNoLeak('log output', logLines.join('\n'));
+    });
+  });
+
+  describe('MCP header secrets (#442)', () => {
+    /** The fake's MCP server "echoes" the credential it was sent — the worst case. */
+    function echoHeaders(): void {
+      app.script(() => ({
+        output: [
+          {
+            type: 'hosted_tool_call',
+            id: 'mcp_1',
+            tool: 'mcp',
+            status: 'completed',
+            result: {
+              kind: 'call',
+              serverLabel: 'docs',
+              name: 'whoami',
+              arguments: '{}',
+              output: `authorized with Bearer ${MCP_HEADER_SENTINEL}`,
+              error: null,
+            },
+          },
+          { type: 'message', text: `The server said ${MCP_HEADER_SENTINEL}.` },
+        ],
+      }));
+    }
+
+    it('POST /api/ai/responses: the headers reach the provider and nowhere else', async () => {
+      app.harness.setPolicy({ logPromptContent: true });
+      echoHeaders();
+
+      const res = await request(app.context.app.getHttpServer())
+        .post('/api/ai/responses')
+        .set(authHeader(holderToken))
+        .send({ model: HARNESS_MODEL, input: 'who am I?', tools: [MCP_TOOL] })
+        .expect(200);
+
+      // Proof the sentinel was really in play: the adapter received it.
+      const sent = app.harness.fake.callsTo('responses.create')[0].request?.tools?.[0] as { headers?: Record<string, string> };
+      expect(sent.headers?.['X-Api-Key']).toBe(MCP_HEADER_SENTINEL);
+
+      assertNoLeak('MCP: response body', JSON.stringify(res.body));
+      assertNoLeak('MCP: response headers', JSON.stringify(res.headers));
+      assertNoLeak('MCP: ai_usage_events', JSON.stringify(app.harness.usageEvents));
+      assertNoLeak('MCP: log output (logPromptContent on)', logLines.join('\n'));
+      expect(res.body.data.outputText).toContain('[REDACTED]');
+    });
+
+    it('POST /api/ai/responses/stream: no SSE frame carries a header value', async () => {
+      echoHeaders();
+
+      const res = await request(app.context.app.getHttpServer())
+        .post('/api/ai/responses/stream')
+        .set(authHeader(holderToken))
+        .set('Accept', 'text/event-stream')
+        .send({ model: HARNESS_MODEL, input: 'who am I?', tools: [MCP_TOOL] })
+        .expect(200);
+
+      assertNoLeak('MCP: SSE frames', JSON.stringify(parseSse(res.text)));
+      assertNoLeak('MCP: SSE log output', logLines.join('\n'));
+    });
+
+    it('POST /api/ai/runs: refused, so no ai_runs.request row can hold the headers', async () => {
+      const res = await request(app.context.app.getHttpServer())
+        .post('/api/ai/runs')
+        .set(authHeader(holderToken))
+        .send({ model: HARNESS_MODEL, input: 'later', tools: [MCP_TOOL] })
+        .expect(400);
+
+      expect(res.body.details.reason).toBe('AI_INVALID_REQUEST');
+      assertNoLeak('MCP: runs error body', JSON.stringify(res.body));
+      assertNoLeak('MCP: ai_runs.request', JSON.stringify(app.harness.runRows.map((r) => r.request)));
+      expect(app.harness.runRows).toHaveLength(0);
+    });
+
+    it('a provider failure that echoes the header surfaces no header in the error body or logs', async () => {
+      app.script(() => {
+        throw new Error(`MCP server rejected Authorization: Bearer ${MCP_HEADER_SENTINEL}`);
+      });
+
+      const res = await request(app.context.app.getHttpServer())
+        .post('/api/ai/responses')
+        .set(authHeader(holderToken))
+        .send({ model: HARNESS_MODEL, input: 'x', tools: [MCP_TOOL] })
+        .expect(503);
+
+      assertNoLeak('MCP: error body', JSON.stringify(res.body));
+      assertNoLeak('MCP: error usage rows', JSON.stringify(app.harness.usageEvents));
+      assertNoLeak('MCP: error log output', logLines.join('\n'));
+    });
+
+    it('a gate refusal (MCP switched off) carries no header in its body', async () => {
+      app.harness.setPolicy({
+        hostedTools: {
+          web_search: false,
+          file_search: false,
+          code_interpreter: false,
+          image_generation: false,
+          mcp: false,
+          mcpAllowedHosts: [],
+        },
+      });
+
+      const res = await request(app.context.app.getHttpServer())
+        .post('/api/ai/responses')
+        .set(authHeader(holderToken))
+        .send({ model: HARNESS_MODEL, input: 'x', tools: [MCP_TOOL] })
+        .expect(403);
+
+      expect(res.body.details.reason).toBe('AI_TOOL_DISABLED');
+      assertNoLeak('MCP: AI_TOOL_DISABLED body', JSON.stringify(res.body));
     });
   });
 
