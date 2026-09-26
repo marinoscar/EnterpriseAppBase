@@ -2483,7 +2483,7 @@ Get one broadcast, including an approximate delivery breakdown.
 ---
 
 #### POST /admin/broadcasts/:id/cancel
-Cancel a scheduled or in-flight broadcast — the only recall mechanism this feature has.
+Cancel a scheduled, in-flight or failed broadcast — the only recall mechanism this feature has.
 
 **Requires:** `broadcasts:write` permission
 
@@ -2517,11 +2517,56 @@ Cancel a scheduled or in-flight broadcast — the only recall mechanism this fea
 }
 ```
 
-**Note:** ⚠ Cancelling a broadcast that is already `sending` may still let one in-flight chunk (up to 200 recipients) go out — the fan-out only re-checks status between batches. Cancel stops everything after that point; it cannot recall what has already been sent. The row and any queued job rows are kept, not deleted.
+**Note:** ⚠ Cancelling a broadcast that is already `sending` may still let one in-flight chunk (up to 200 recipients) go out — the fan-out only re-checks status between batches. Cancel stops everything after that point; it cannot recall what has already been sent. Cancelling a `failed` broadcast is how an operator who will not resume it closes the record honestly. The row and any queued job rows are kept, not deleted.
 
 **Error Cases:**
 - 404 Not Found - Broadcast not found
-- 409 Conflict - The broadcast is not `scheduled` or `sending` (already `sent`, `canceled`, or `failed`)
+- 409 Conflict - The broadcast is not `scheduled`, `sending`, or `failed` (already `sent` or `canceled`)
+
+---
+
+#### POST /admin/broadcasts/:id/resume
+Continue a `failed` broadcast from where its fan-out stopped (issue #459). A broadcast becomes `failed` when one of its fan-out jobs (`admin.broadcast.start` or `admin.broadcast.chunk`) gives up permanently — its attempt or rate-limit budget is spent — and `lastError` says which job, after how many attempts, and why.
+
+Resume flips the broadcast back to `sending`, clears `lastError` and `finishedAt`, and enqueues a fresh chunk job that pages from the persisted cursor: recipients already reached are not sent to again, except that up to one chunk (`BROADCAST_CHUNK_SIZE`, currently 200) may be re-sent if the failed page had partly gone out. `recipientsDispatched` is cumulative and is kept, not reset.
+
+**Requires:** `broadcasts:write` permission
+
+**Parameters:**
+- `id` (UUID) - Broadcast ID
+
+**Response:**
+```json
+{
+  "data": {
+    "id": "uuid",
+    "title": "Planned maintenance this Saturday",
+    "body": "We will be performing scheduled maintenance...",
+    "link": "/status",
+    "ctaLabel": "View status page",
+    "eventKey": "admin.broadcast",
+    "channels": ["email", "browser"],
+    "status": "sending",
+    "scheduledFor": null,
+    "startedAt": "2024-01-01T00:00:00.000Z",
+    "finishedAt": null,
+    "canceledAt": null,
+    "audienceCutoff": "2024-01-01T00:00:00.000Z",
+    "recipientsTargeted": 1284,
+    "recipientsDispatched": 340,
+    "lastError": null,
+    "createdById": "uuid",
+    "createdAt": "2024-01-01T00:00:00.000Z",
+    "updatedAt": "2024-01-01T00:06:00.000Z"
+  }
+}
+```
+
+**Note:** Retrying the failed chunk job from the Jobs page does **not** resume the broadcast — the chunk handler sees a broadcast that is still `failed` and sends nothing; this route is the only way back to `sending`. If the chunk job cannot be queued, the broadcast is returned to `failed` with the reason recorded in `lastError` and the request itself fails.
+
+**Error Cases:**
+- 404 Not Found - Broadcast not found
+- 409 Conflict - The broadcast is not `failed`
 
 ---
 

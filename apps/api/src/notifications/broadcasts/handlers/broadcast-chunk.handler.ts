@@ -85,6 +85,21 @@
 //     never heard about the maintenance window. It cannot be detected after
 //     the fact and it cannot be repaired without re-sending to everybody.
 //
+// TWO CHAINS COLLAPSE TO ONE WITHIN A PAGE (issue #459). The progress write
+// is a COMPARE-AND-SWAP on the cursor this chunk read when it started:
+// `WHERE id = ? AND cursor_user_id = <cursor read>` (`IS NULL` for the first
+// page). Two executions can legitimately be walking the same broadcast at
+// once — a Resume from the Broadcasts page plus an admin retrying the old
+// failed chunk from the Jobs page, or a lease-expired chunk still running
+// beside its re-claimed duplicate. Both read the same cursor and send the same
+// page (that page is the duplicate, bounded at one page as above), but only
+// the first to commit moves the cursor; the second matches zero rows, returns
+// normally, and queues NO successor and writes NO finish. So a doubled chain
+// dies at the end of the first page it shares instead of doubling every page
+// after it. Losing that race on a throttled page (#456) also returns normally
+// rather than throwing `RateLimitError` — the winning chain owns the
+// broadcast now, and deferring the loser would only resurrect the duplicate.
+//
 // TIGHTENING THE BOUND IS A CONSTANT CHANGE, on purpose. The dispatch loop is
 // already written as an outer walk over sub-groups of
 // `STATUS_RECHECK_INTERVAL` recipients (that walk exists for cancel latency),
@@ -173,25 +188,40 @@
 //
 // ⚠ THE RATE-LIMIT BUDGET IS PER CHUNK ROW. `rateLimitHits` lives on the job
 // that deferred, so a single page that is throttled more than
-// `JOBS_RATELIMIT_MAX_HITS` times fails that chunk permanently — leaving the
-// broadcast `sending` with its cursor at the last committed prefix, the same
-// state any permanently failed chunk leaves. Nobody past the cursor is
-// marked as sent; they are simply not reached until an operator intervenes.
+// `JOBS_RATELIMIT_MAX_HITS` times fails that chunk permanently, exactly like a
+// chunk that spent its ordinary attempt budget.
+//
+// -----------------------------------------------------------------------------
+// A PERMANENTLY FAILED CHUNK FAILS THE BROADCAST; RESUME CONTINUES IT (#459)
+// -----------------------------------------------------------------------------
+//
+// This handler does not detect its own give-up — it cannot know which attempt
+// is its last. `broadcast-failure.listener.ts` does, from `JOB_SETTLED_EVENT`:
+// it moves the broadcast `sending` -> `failed` with a `lastError` naming the
+// job. The cursor is left exactly where the last committed page put it, and
+// nobody past it is marked as sent. `POST /api/admin/broadcasts/:id/resume`
+// (`BroadcastsService.resume`) flips it back to `sending` and enqueues a fresh
+// chunk (with `skipDedup: true`, per the warning above), which pages from
+// that persisted cursor like any retry. See the listener's header for the one
+// gap (the lease reaper's give-up emits no event).
 //
 // -----------------------------------------------------------------------------
 // CANCEL IS A STATUS, NOT A DELETION
 // -----------------------------------------------------------------------------
 //
 // #324's cancel flips the status with `updateMany({ where: { id, status: { in:
-// ['scheduled','sending'] } } })` and does NOT delete pending `jobs` rows —
-// deleting one races with a claim, and letting the row run and no-op keeps the
-// audit trail in `jobs` intact. This handler is the other side of that
+// ['scheduled','sending','failed'] } } })` (`failed` since #459) and does NOT
+// delete pending `jobs` rows — deleting one races with a claim, and letting
+// the row run and no-op keeps the audit trail in `jobs` intact. This handler is the other side of that
 // contract, in two places:
 //
 //   1. The status guard at the top: a chunk that finds anything other than
 //      `sending` returns immediately, having sent nothing. That is also what
 //      neutralises a replayed or stale chunk from a broadcast that has since
-//      finished.
+//      finished — or FAILED (#459): retrying the dead chunk from the Jobs page
+//      does NOT resume a `failed` broadcast, it no-ops here. Resume is the
+//      broadcast's own action (`POST /api/admin/broadcasts/:id/resume`),
+//      because only it flips the status back and clears `lastError`.
 //   2. The mid-page re-read every `STATUS_RECHECK_INTERVAL` recipients, so a
 //      cancel does not have to wait out a whole page of sends before it takes
 //      effect.
@@ -366,10 +396,13 @@ export class BroadcastChunkHandler implements JobHandler, OnModuleInit {
     // THE GUARD THAT MAKES CANCEL WORK, and the one that neutralises a
     // replayed or stale chunk. `sending` is the ONLY status a chunk may act
     // on: `canceled` means an admin stopped it, `sent` means a duplicate
-    // chunk from a lease expiry arrived after the fan-out finished, and
-    // `scheduled` means this chunk somehow outran its own start job. All four
-    // wrong answers have the same right response — send nothing, return
-    // normally, leave the status alone.
+    // chunk from a lease expiry arrived after the fan-out finished,
+    // `scheduled` means this chunk somehow outran its own start job, and
+    // `failed` (#459) means the fan-out gave up and has not been resumed — an
+    // admin retrying the dead chunk from the Jobs page lands here, and must
+    // use Resume instead, which is what flips the status back. Every wrong
+    // answer has the same right response — send nothing, return normally,
+    // leave the status alone.
     if (broadcast.status !== 'sending') {
       this.logger.log(
         `Broadcast ${broadcastId} is '${broadcast.status}', not 'sending'; ` +
@@ -434,6 +467,11 @@ export class BroadcastChunkHandler implements JobHandler, OnModuleInit {
       channels: broadcast.channels as NotificationChannel[],
     };
 
+    // The cursor this execution paged from — the compare side of the progress
+    // CAS below (#459). Captured here, from the same read the page was built
+    // on, so "the cursor I started from" cannot drift from "the page I sent".
+    const cursorAtStart = broadcast.cursorUserId;
+
     let dispatched = 0;
     let lastDispatchedId: string | null = null;
     let canceledMidPage = false;
@@ -483,11 +521,18 @@ export class BroadcastChunkHandler implements JobHandler, OnModuleInit {
       // of its counter reports progress that did not happen, and a counter
       // ahead of its cursor double-counts on the next page.
       //
-      // `increment`, not an absolute value: this handler is not the only
-      // possible writer of the column over the life of a broadcast (a retry of
-      // a partially-dispatched chunk is the ordinary case), and an absolute
-      // write would need a read first — reintroducing the read-then-write race
-      // the start handler's compare-and-swap exists to avoid.
+      // `increment`, not an absolute value: the counter accumulates across
+      // every page of the chain, and an absolute write would need a read
+      // first. The CAS on the cursor (below) is what guarantees exactly one
+      // increment per page even when two executions sent the same one.
+      //
+      // A COMPARE-AND-SWAP ON THE CURSOR THIS CHUNK READ (#459) — `null` reads
+      // as `IS NULL` in a Prisma `where`, which is the first page. If another
+      // execution already committed this page (a resumed chain racing an admin
+      // retry of the old failed chunk, or a lease-expired duplicate), the
+      // cursor has moved, this matches zero rows, and this execution stops
+      // below without a successor or a finish. See the file header's "TWO
+      // CHAINS COLLAPSE TO ONE WITHIN A PAGE".
       //
       // Deliberately NOT conditioned on `status: 'sending'`. If a cancel
       // landed mid-page, these notifications were still sent, and the counter
@@ -502,13 +547,28 @@ export class BroadcastChunkHandler implements JobHandler, OnModuleInit {
       // the message out of order behind a throttled one is deliberately NOT
       // counted here — they will be dispatched (and counted) again on resume,
       // and counting them now as well would double-count them then.
-      await this.prisma.notificationBroadcast.update({
-        where: { id: broadcast.id },
+      const committed = await this.prisma.notificationBroadcast.updateMany({
+        where: { id: broadcast.id, cursorUserId: cursorAtStart },
         data: {
           cursorUserId: lastDispatchedId,
           recipientsDispatched: { increment: dispatched },
         },
       });
+
+      if (committed.count === 0) {
+        // LOST THE RACE (or the row was deleted). Another execution owns the
+        // chain from here; returning normally — no successor, no finish, and
+        // on a throttled page no `RateLimitError` — is what collapses two
+        // chains to one. The page this execution sent is the bounded
+        // duplicate the file header accepts.
+        this.logger.warn(
+          `Broadcast ${broadcast.id}: chunk job ${job.id} sent ${dispatched} recipient(s) ` +
+            `from cursor ${cursorAtStart ?? '(start)'}, but another execution had already ` +
+            `moved the cursor; this chain stops here (no successor queued)`
+        );
+
+        return;
+      }
     }
 
     if (canceledMidPage) {

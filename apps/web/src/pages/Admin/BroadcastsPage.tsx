@@ -37,14 +37,15 @@
  *
  * Two different gates, and both resolve to "disabled with a tooltip":
  *
- *   * NO `broadcasts:write` — the New button and both row actions are present
+ *   * NO `broadcasts:write` — the New button and every write row action are present
  *     and inert, so the control set does not change shape between a read-only
  *     admin and a writing one. An operator comparing notes with a colleague can
  *     see that the action exists and that they lack the permission, rather than
  *     concluding the feature is missing.
- *   * THE ROW'S STATUS — a `sent` broadcast cannot be cancelled and a `sending`
- *     one cannot be deleted, mirroring the API's own 409s
- *     (`isBroadcastCancelable` / `isBroadcastDeletable` in
+ *   * THE ROW'S STATUS — a `sent` broadcast cannot be cancelled, a `sending`
+ *     one cannot be deleted, and only a `failed` one can be resumed (issue
+ *     #459), mirroring the API's own 409s (`isBroadcastCancelable` /
+ *     `isBroadcastDeletable` / `isBroadcastResumable` in
  *     `services/broadcasts.ts`). Disabled rather than hidden for the same
  *     reason: "Cancel is greyed out because this already went out" is an
  *     answer; a missing button is a mystery.
@@ -58,11 +59,17 @@
  * =============================================================================
  *
  * Unlike the queue, this table is static most of the time: `sent`, `canceled`
- * and `failed` are terminal, and a list of terminal rows cannot change with
- * nobody touching it. So the interval passed to `useVisiblePolling` is `0`
- * (which that hook treats as "off") unless a row is `scheduled` or `sending`,
- * and `BROADCASTS_POLL_INTERVAL_MS` otherwise. During a send that is exactly
- * the behaviour the jobs page has, and outside one it is no requests at all.
+ * and `failed` cannot change on their own, and a list of such rows cannot
+ * change with nobody touching it. So the interval passed to `useVisiblePolling`
+ * is `0` (which that hook treats as "off") unless a row is `scheduled` or
+ * `sending`, and `BROADCASTS_POLL_INTERVAL_MS` otherwise. During a send that is
+ * exactly the behaviour the jobs page has, and outside one it is no requests at
+ * all.
+ *
+ * `failed` is NOT terminal in the strict sense since issue #459 — an admin can
+ * resume it — but it still needs no poll: the resume is this page's own write,
+ * `useBroadcastActions` re-reads the list after it lands, the row comes back
+ * `sending`, and `anyInFlight` turns the poll on from that refresh alone.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -80,6 +87,7 @@ import {
 import AddIcon from '@mui/icons-material/Add';
 import CancelScheduleSendOutlinedIcon from '@mui/icons-material/CancelScheduleSendOutlined';
 import DeleteIcon from '@mui/icons-material/Delete';
+import ReplayOutlinedIcon from '@mui/icons-material/ReplayOutlined';
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 import { Navigate } from 'react-router-dom';
 import { DataTable } from '../../components/datatable';
@@ -100,6 +108,7 @@ import {
   getBroadcasts,
   isBroadcastCancelable,
   isBroadcastDeletable,
+  isBroadcastResumable,
 } from '../../services/broadcasts';
 import type {
   Broadcast,
@@ -227,6 +236,39 @@ export default function BroadcastsPage() {
           onClick: (broadcast) => void openDetail(broadcast),
         },
         {
+          id: 'resume',
+          label: 'Resume broadcast',
+          icon: <ReplayOutlinedIcon fontSize="small" />,
+          // Disabled, NOT omitted — see the file header. Only `failed` rows
+          // have anything left to continue (issue #459).
+          disabled: (broadcast) =>
+            !canWrite || !isBroadcastResumable(broadcast) || actions.isWorking,
+          confirm: {
+            title: 'Resume this broadcast?',
+            /**
+             * THE DUPLICATE SENTENCE IS THE POINT OF THIS DIALOG.
+             *
+             * The fan-out resumes from its last completed chunk, so the chunk
+             * that failed is re-run in full — recipients in it who were already
+             * dispatched before the failure receive it a second time. Bounded
+             * by one chunk, `BROADCAST_CHUNK_SIZE` (the API's own constant,
+             * restated in `services/broadcasts.ts`), and named in a number for
+             * the same reason the cancel dialog names it.
+             */
+            description: (broadcast) =>
+              `"${broadcast.title}" stopped after ${broadcast.recipientsDispatched} of ` +
+              `${broadcast.recipientsTargeted ?? 'an uncounted number of'} recipients. ` +
+              'Resuming continues from where it stopped, to the same audience. Up to ' +
+              `${BROADCAST_CHUNK_SIZE} recipients near the stopping point may receive it twice.`,
+            confirmLabel: 'Resume broadcast',
+          },
+          onClick: (broadcast) => {
+            void actions.resume(broadcast.id).then((ok) => {
+              if (ok) setNotice('Broadcast resumed.');
+            });
+          },
+        },
+        {
           id: 'cancel',
           label: 'Cancel broadcast',
           icon: <CancelScheduleSendOutlinedIcon fontSize="small" />,
@@ -251,7 +293,11 @@ export default function BroadcastsPage() {
                   `current one, but one in-flight batch of up to ${BROADCAST_CHUNK_SIZE} recipients ` +
                   'may still go out — what has already been sent cannot be recalled. The record is ' +
                   'kept so you can look up what was announced.'
-                : `"${broadcast.title}" will not be sent. The record is kept so you can look up ` +
+                : broadcast.status === 'failed'
+                  ? `"${broadcast.title}" stopped after ${broadcast.recipientsDispatched} of ` +
+                    `${broadcast.recipientsTargeted ?? 'an uncounted number of'} recipients. ` +
+                    'It will not be resumed; the record is kept.'
+                  : `"${broadcast.title}" will not be sent. The record is kept so you can look up ` +
                   'what was scheduled.',
             confirmLabel: 'Cancel broadcast',
           },

@@ -12,7 +12,7 @@
 //
 // THE ADMIN SURFACE, ADDED BY #324: `BroadcastsController` and
 // `BroadcastsService` — `/api/admin/broadcasts` (audience count, test send,
-// list, create, get, cancel, delete). #325 adds the admin page on top of them.
+// list, create, get, cancel, delete — and, since #459, resume). #325 adds the admin page on top of them.
 // The handlers were shipped first, deliberately, in the same spirit as
 // `JobsModule` and `NotificationsModule` being registered in `app.module.ts`
 // before anything used them: a broken DI graph fails at boot, and the
@@ -61,6 +61,14 @@
 //                       injectable everywhere: an import that states a real
 //                       dependency documents it, and survives the day somebody
 //                       reconsiders `isGlobal`.
+//
+// THE FAILURE LISTENER, ADDED BY #459: `BroadcastFailureListener` subscribes
+// to `JOB_SETTLED_EVENT` and moves a broadcast `sending` -> `failed` when one
+// of its fan-out jobs gives up. No new import is needed for it: `@OnEvent` is
+// wired by `EventEmitterModule.forRoot()` in `app.module.ts`, which is global,
+// and its only dependency is `PrismaService`. It lives here, beside the
+// handlers whose failures it interprets, rather than in `JobsModule` — the
+// queue stays ignorant of what any job's subject means.
 // =============================================================================
 
 import { Module } from '@nestjs/common';
@@ -71,6 +79,7 @@ import { PrismaModule } from '../../prisma/prisma.module';
 import { SettingsModule } from '../../settings/settings.module';
 import { NotificationsModule } from '../notifications.module';
 import { BroadcastsController } from './broadcasts.controller';
+import { BroadcastFailureListener } from './broadcast-failure.listener';
 import { BroadcastsService } from './broadcasts.service';
 import { BroadcastChunkHandler } from './handlers/broadcast-chunk.handler';
 import { BroadcastStartHandler } from './handlers/broadcast-start.handler';
@@ -78,6 +87,11 @@ import { BroadcastStartHandler } from './handlers/broadcast-start.handler';
 @Module({
   imports: [PrismaModule, JobsModule, NotificationsModule, SettingsModule, ConfigModule],
   controllers: [BroadcastsController],
-  providers: [BroadcastStartHandler, BroadcastChunkHandler, BroadcastsService],
+  providers: [
+    BroadcastStartHandler,
+    BroadcastChunkHandler,
+    BroadcastsService,
+    BroadcastFailureListener,
+  ],
 })
 export class BroadcastsModule {}

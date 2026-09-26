@@ -113,7 +113,9 @@ function makePrisma(users: string[]) {
   };
 
   const findUnique = jest.fn(async () => ({ ...state }));
-  const update = jest.fn(async ({ data }: any) => {
+  // The progress commit is a compare-and-swap on the cursor since #459.
+  const updateMany = jest.fn(async ({ where, data }: any) => {
+    if (where.cursorUserId !== state.cursorUserId) return { count: 0 };
     for (const [key, value] of Object.entries<any>(data)) {
       if (value && typeof value === 'object' && 'increment' in value) {
         (state as any)[key] = ((state as any)[key] ?? 0) + value.increment;
@@ -121,7 +123,7 @@ function makePrisma(users: string[]) {
         (state as any)[key] = value;
       }
     }
-    return { ...state };
+    return { count: 1 };
   });
   const findMany = jest.fn(async ({ where, take }: any) => {
     const after = where.id?.gt;
@@ -132,7 +134,7 @@ function makePrisma(users: string[]) {
   });
 
   return {
-    notificationBroadcast: { findUnique, updateMany: jest.fn(), update },
+    notificationBroadcast: { findUnique, updateMany },
     user: { findMany },
   } as unknown as PrismaService;
 }

@@ -1106,8 +1106,12 @@ epic #319 (issues #320–#325), gated by the `broadcasts:read` /
 (`admin.broadcast`, muteable; `admin.broadcast_critical`, `mandatory: true`),
 and fanned out over two job types (`admin.broadcast.start`,
 `admin.broadcast.chunk`) rather than a new scheduler or a second notification
-system. The admin API lives under `/api/admin/broadcasts`; the settings
-surface is the `Broadcasts` card at `/admin/settings/broadcasts`. The design
+system. A chunk or start job that fails permanently flips its broadcast
+`sending` -> `failed` via a `job.settled` listener (`BroadcastFailureListener`,
+issue #459), and `POST /api/admin/broadcasts/:id/resume` (`broadcasts:write`)
+continues it from its committed cursor. The admin API lives under
+`/api/admin/broadcasts`; the settings surface is the `Broadcasts` card at
+`/admin/settings/broadcasts`. The design
 decisions this rests on (why two event keys and not a per-send flag, why the
 per-broadcast channel choice can only narrow and where the `critical ⇒
 browser` rule is actually enforced, why the audience is frozen at a cutoff,

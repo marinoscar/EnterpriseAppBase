@@ -1,5 +1,5 @@
 /**
- * The broadcast list and the four writes (issue #325, epic #319).
+ * The broadcast list and the writes (issue #325, epic #319; resume, #459).
  *
  * Two exports in one file, in the shape `hooks/useJobs.ts` establishes for an
  * admin resource page: a list hook whose `refresh` does NOT raise the loading
@@ -24,8 +24,9 @@
  * =============================================================================
  *
  * A queue is never at rest; a broadcast list usually is. Most of the time every
- * row is `sent`, `canceled` or `failed` — terminal states that cannot change
- * with nobody touching them — and polling those is a request per ten seconds
+ * row is `sent`, `canceled` or `failed` — states that cannot change with
+ * nobody touching them (a `failed` row only moves when an admin resumes it,
+ * which turns it `sending` and so re-enables the poll) — and polling those is a request per ten seconds
  * for an answer that is known in advance. So `BroadcastsPage` passes `0` (which
  * `useVisiblePolling` treats as "off") unless a row is actually `scheduled` or
  * `sending`, and the interval below is what it passes when one is.
@@ -39,6 +40,7 @@ import {
   createBroadcast,
   deleteBroadcast,
   getBroadcasts,
+  resumeBroadcast,
   sendTestBroadcast,
 } from '../services/broadcasts';
 import type {
@@ -71,8 +73,10 @@ function messageFor(err: unknown, fallback: string): string {
     // treatment `useJobs` gives 403.
     if (err.status === 403) return 'You do not have permission to manage broadcasts';
     // 409 is this surface's characteristic refusal: a cancel that lost the race
-    // with the fan-out, or a delete of something already sending. The API's own
-    // message says which, so it is passed through rather than replaced.
+    // with the fan-out, a delete of something already sending, or a resume of a
+    // broadcast that is no longer `failed` (another admin resumed or cancelled
+    // it first). The API's own message says which, so it is passed through
+    // rather than replaced.
     return err.message;
   }
   return fallback;
@@ -160,7 +164,7 @@ export function useBroadcasts(): UseBroadcastsResult {
 // =============================================================================
 
 export interface UseBroadcastActionsResult {
-  /** True while any one of the four writes is in flight. */
+  /** True while any one of the writes is in flight. */
   isWorking: boolean;
   /** The last failure, or `null`. Cleared when a write starts. */
   error: string | null;
@@ -169,15 +173,17 @@ export interface UseBroadcastActionsResult {
   create: (body: CreateBroadcastRequest) => Promise<BroadcastCreateResult | null>;
   /** `true` when the write landed. Never throws. */
   cancel: (id: string) => Promise<boolean>;
+  /** Continue a `failed` broadcast from where it stopped. `true` when it landed. */
+  resume: (id: string) => Promise<boolean>;
   remove: (id: string) => Promise<boolean>;
   /** What was dispatched to the caller themselves, or `null` when it failed. */
   sendTest: (body: CreateBroadcastRequest) => Promise<BroadcastTestResult | null>;
 }
 
 /**
- * The four writes, sharing one in-flight flag and one error.
+ * The writes, sharing one in-flight flag and one error.
  *
- * ONE FLAG FOR ALL FOUR, as `useJobActions` does: they all mutate the same
+ * ONE FLAG FOR ALL OF THEM, as `useJobActions` does: they all mutate the same
  * list, the page re-reads it after any of them, and a second write started
  * while the first is landing would report its result over the top of the
  * first's. Disabling the whole action set for the duration is the honest
@@ -196,7 +202,7 @@ export function useBroadcastActions(onChanged?: () => void): UseBroadcastActions
 
   // Held in a ref for the same reason `useVisiblePolling` holds its callback:
   // the page passes a fresh closure over the current query on every render, and
-  // depending on it would rebuild all four callbacks each time.
+  // depending on it would rebuild every callback each time.
   const onChangedRef = useRef(onChanged);
   onChangedRef.current = onChanged;
 
@@ -242,6 +248,12 @@ export function useBroadcastActions(onChanged?: () => void): UseBroadcastActions
     [run],
   );
 
+  const resume = useCallback(
+    async (id: string) =>
+      (await run(() => resumeBroadcast(id), 'Failed to resume broadcast')) !== null,
+    [run],
+  );
+
   const remove = useCallback(
     async (id: string) =>
       (await run(async () => {
@@ -264,5 +276,5 @@ export function useBroadcastActions(onChanged?: () => void): UseBroadcastActions
 
   const clearError = useCallback(() => setError(null), []);
 
-  return { isWorking, error, clearError, create, cancel, remove, sendTest };
+  return { isWorking, error, clearError, create, cancel, resume, remove, sendTest };
 }

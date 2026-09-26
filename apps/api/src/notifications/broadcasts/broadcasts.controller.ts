@@ -2,14 +2,14 @@
 // The broadcast admin routes (issue #324, epic #319)
 // =============================================================================
 //
-// Seven routes at `/api/admin/broadcasts`. The controller binds, documents and
+// Eight routes at `/api/admin/broadcasts`. The controller binds, documents and
 // authorizes; every decision about what a request means lives in
 // `broadcasts.service.ts`, and everything about how a broadcast is actually
 // DELIVERED lives one layer further out in the two job handlers.
 //
 // MOUNTED UNDER `/admin`, NOT ON `NotificationsController`. Every route on
 // that controller is `@Auth()`-only and scoped to the token bearer's OWN
-// notifications; these seven are admin-only and act on everybody's. One
+// notifications; these eight are admin-only and act on everybody's. One
 // controller enforcing two entirely different authorization models is how a
 // route ends up with the wrong one.
 //
@@ -27,8 +27,8 @@
 // 400, or worse, a 404 for a broadcast whose id is the literal text "test".
 //
 // The declaration order below is therefore: `audience`, `test`, `/` (GET),
-// `/` (POST), then `:id`, `:id/cancel` and `DELETE :id`. Keep every literal
-// above every parameterised route — `test/broadcasts/broadcasts.integration.spec.ts`
+// `/` (POST), then `:id`, `:id/cancel`, `:id/resume` (#459) and `DELETE :id`.
+// Keep every literal above every parameterised route — `test/broadcasts/broadcasts.integration.spec.ts`
 // drives both literals through the real router precisely so that re-ordering
 // these methods fails a test rather than causing a production incident.
 //
@@ -37,7 +37,7 @@
 // -----------------------------------------------------------------------------
 //
 // `broadcasts:read` for `audience`, the list and the detail; `broadcasts:write`
-// for create, test, cancel and delete. Both seeded to ADMIN ONLY (#320), and
+// for create, test, cancel, resume and delete. Both seeded to ADMIN ONLY (#320), and
 // `@Auth({ roles: [ROLES.ADMIN], permissions: [...] })` states both — the role
 // admits, the permission is what the guard checks. The pair is what a settings
 // card's `permission` field must mirror byte-for-byte (CLAUDE.md, Settings UI
@@ -195,11 +195,14 @@ export class BroadcastsController {
   @Auth({ roles: [ROLES.ADMIN], permissions: [PERMISSIONS.BROADCASTS_WRITE] })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Cancel a scheduled or in-flight broadcast',
+    summary: 'Cancel a scheduled, in-flight or failed broadcast',
     description:
-      'The only recall mechanism this feature has. Accepted for a `scheduled` or `sending` ' +
-      'broadcast and refused with 409 for any other status. Applied as a conditional write, so ' +
-      'it races the fan-out\'s own claim inside the database where exactly one of them can win.\n\n' +
+      'The only recall mechanism this feature has. Accepted for a `scheduled`, `sending` or ' +
+      '`failed` broadcast and refused with 409 for any other status (`sent`, `canceled`). ' +
+      'Applied as a conditional write, so it races the fan-out\'s own claim — and the flip to ' +
+      '`failed` when a fan-out job gives up — inside the database where exactly one of them can ' +
+      'win. Cancelling a `failed` broadcast is how an operator who will not resume it closes the ' +
+      'record.\n\n' +
       '⚠ CANCELLING A BROADCAST THAT IS ALREADY `sending` MAY STILL LET ONE IN-FLIGHT BATCH GO ' +
       'OUT: the fan-out re-checks the status between batches, so up to one chunk\'s worth of ' +
       `recipients (BROADCAST_CHUNK_SIZE, currently ${BROADCAST_CHUNK_SIZE}) can already have ` +
@@ -214,12 +217,44 @@ export class BroadcastsController {
   @ApiParam({ name: 'id', type: String, format: 'uuid' })
   @ApiResponse({ status: 200, description: 'The cancelled broadcast', type: BroadcastDto })
   @ApiResponse({ status: 404, description: 'Broadcast not found' })
-  @ApiResponse({ status: 409, description: 'The broadcast is not scheduled or sending' })
+  @ApiResponse({
+    status: 409,
+    description: 'The broadcast is not scheduled, sending or failed',
+  })
   async cancel(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser('id') adminUserId: string
   ): Promise<unknown> {
     return this.broadcasts.cancel(id, adminUserId);
+  }
+
+  @Post(':id/resume')
+  @Auth({ roles: [ROLES.ADMIN], permissions: [PERMISSIONS.BROADCASTS_WRITE] })
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Resume a failed broadcast',
+    description:
+      'Continues a `failed` broadcast from where its fan-out stopped. A broadcast becomes ' +
+      '`failed` when one of its fan-out jobs gives up permanently (its attempt or rate-limit ' +
+      'budget is spent); `lastError` says which job and why. Resume flips it back to `sending`, ' +
+      'clears `lastError` and `finishedAt`, and queues a fresh chunk job that pages from the ' +
+      'persisted cursor — recipients already reached are not sent to again, except that up to ' +
+      `one chunk (BROADCAST_CHUNK_SIZE, currently ${BROADCAST_CHUNK_SIZE}) may be re-sent if ` +
+      'the failed page had partly gone out. `recipientsDispatched` is cumulative and is kept.\n\n' +
+      'Refused with 409 for any status other than `failed`. Retrying the failed chunk job from ' +
+      'the Jobs page does NOT resume the broadcast — the chunk sees `failed` and sends nothing; ' +
+      'use this route. If the chunk job cannot be queued the broadcast is returned to `failed` ' +
+      'with the reason in `lastError` and the request fails.',
+  })
+  @ApiParam({ name: 'id', type: String, format: 'uuid' })
+  @ApiResponse({ status: 200, description: 'The resumed broadcast', type: BroadcastDto })
+  @ApiResponse({ status: 404, description: 'Broadcast not found' })
+  @ApiResponse({ status: 409, description: 'The broadcast is not failed' })
+  async resume(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser('id') adminUserId: string
+  ): Promise<unknown> {
+    return this.broadcasts.resume(id, adminUserId);
   }
 
   @Delete(':id')

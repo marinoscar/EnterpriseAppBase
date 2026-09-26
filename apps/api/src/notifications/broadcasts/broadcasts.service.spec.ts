@@ -29,6 +29,7 @@ import {
   BroadcastsService,
 } from './broadcasts.service';
 import { BROADCAST_SUBJECT_TYPE } from './broadcast-audience';
+import { BROADCAST_CHUNK_TYPE } from './handlers/broadcast-chunk.handler';
 import { BROADCAST_START_TYPE } from './handlers/broadcast-start.handler';
 import type { CreateBroadcastInput } from './dto/create-broadcast.dto';
 
@@ -291,7 +292,7 @@ describe('BroadcastsService', () => {
       // what makes this race the fan-out's own claim inside the database,
       // where exactly one of them can win.
       expect(updateMany).toHaveBeenCalledWith({
-        where: { id: BROADCAST_ID, status: { in: ['scheduled', 'sending'] } },
+        where: { id: BROADCAST_ID, status: { in: ['scheduled', 'sending', 'failed'] } },
         data: { status: 'canceled', canceledAt: expect.any(Date) },
       });
       expect(result.status).toBe('canceled');
@@ -304,7 +305,20 @@ describe('BroadcastsService', () => {
       const result = await service.cancel(BROADCAST_ID, ADMIN_ID);
 
       expect(updateMany.mock.calls[0][0].where.status).toEqual({
-        in: ['scheduled', 'sending'],
+        in: ['scheduled', 'sending', 'failed'],
+      });
+      expect(result.status).toBe('canceled');
+    });
+
+    it('cancels a broadcast that has failed (issue #459)', async () => {
+      const { service, updateMany, findUnique } = makeService();
+      findUnique.mockResolvedValue(broadcastRow({ status: 'canceled' }));
+
+      const result = await service.cancel(BROADCAST_ID, ADMIN_ID);
+
+      expect(updateMany).toHaveBeenCalledWith({
+        where: { id: BROADCAST_ID, status: { in: ['scheduled', 'sending', 'failed'] } },
+        data: { status: 'canceled', canceledAt: expect.any(Date) },
       });
       expect(result.status).toBe('canceled');
     });
@@ -350,6 +364,147 @@ describe('BroadcastsService', () => {
       expect(auditCreate.mock.calls[0][0].data.action).toBe('notification_broadcast.canceled');
       expect(JSON.stringify(auditMeta(auditCreate))).not.toContain(composition.body);
     });
+  });
+
+  describe('resume (issue #459)', () => {
+    it('CASes failed -> sending, clearing finishedAt and lastError, with audienceCutoff not null in the WHERE', async () => {
+      const { service, updateMany, findUnique } = makeService();
+      findUnique.mockResolvedValue(
+        broadcastRow({ status: 'sending', cursorUserId: 'u-0099', recipientsDispatched: 100 })
+      );
+
+      await service.resume(BROADCAST_ID, ADMIN_ID);
+
+      expect(updateMany).toHaveBeenNthCalledWith(1, {
+        where: { id: BROADCAST_ID, status: 'failed', audienceCutoff: { not: null } },
+        data: { status: 'sending', finishedAt: null, lastError: null },
+      });
+    });
+
+    it('enqueues one fresh chunk with skipDedup: true and reason "rerun"', async () => {
+      const { service, enqueue, findUnique } = makeService();
+      findUnique.mockResolvedValue(broadcastRow({ status: 'sending' }));
+
+      await service.resume(BROADCAST_ID, ADMIN_ID);
+
+      expect(enqueue).toHaveBeenCalledWith({
+        type: BROADCAST_CHUNK_TYPE,
+        reason: 'rerun',
+        subjectType: BROADCAST_SUBJECT_TYPE,
+        subjectId: BROADCAST_ID,
+        skipDedup: true,
+      });
+    });
+
+    it('returns the resumed row', async () => {
+      const { service, findUnique } = makeService();
+      findUnique.mockResolvedValue(broadcastRow({ status: 'sending', cursorUserId: 'u-0099' }));
+
+      const result = await service.resume(BROADCAST_ID, ADMIN_ID);
+
+      expect(result.status).toBe('sending');
+      expect(result.cursorUserId).toBe('u-0099');
+    });
+
+    it('audits the resume with identifiers and the chunk job id, never title/body', async () => {
+      const { service, findUnique, auditCreate, enqueue } = makeService();
+      enqueue.mockResolvedValue({ id: 'job-resumed-1' });
+      findUnique.mockResolvedValue(
+        broadcastRow({
+          status: 'sending',
+          cursorUserId: 'u-0099',
+          recipientsTargeted: 1284,
+          recipientsDispatched: 100,
+        })
+      );
+
+      await service.resume(BROADCAST_ID, ADMIN_ID);
+
+      expect(auditCreate).toHaveBeenCalledTimes(1);
+      expect(auditCreate.mock.calls[0][0].data).toMatchObject({
+        actorUserId: ADMIN_ID,
+        action: 'notification_broadcast.resumed',
+        targetType: 'notification_broadcast',
+        targetId: BROADCAST_ID,
+      });
+
+      const meta = auditMeta(auditCreate);
+      expect(meta).toEqual({
+        eventKey: BROADCAST_EVENT_KEY,
+        channels: ['email', 'browser'],
+        scheduledFor: null,
+        recipientsTargeted: 1284,
+        recipientsDispatched: 100,
+        chunkJobId: 'job-resumed-1',
+      });
+      expect(JSON.stringify(meta)).not.toContain(composition.body);
+      expect(JSON.stringify(meta)).not.toContain(composition.title);
+    });
+
+    it('404s a broadcast that does not exist, rather than 409', async () => {
+      const { service } = makeService({ canceledCount: 0, row: null });
+
+      await expect(service.resume(BROADCAST_ID, ADMIN_ID)).rejects.toBeInstanceOf(
+        NotFoundException
+      );
+    });
+
+    it.each(['scheduled', 'sending', 'sent', 'canceled'] as const)(
+      '409s a %s broadcast, naming its actual status in the message',
+      async (status) => {
+        const { service, findUnique } = makeService({ canceledCount: 0 });
+        findUnique.mockResolvedValue(broadcastRow({ status }));
+
+        await expect(service.resume(BROADCAST_ID, ADMIN_ID)).rejects.toMatchObject({
+          message: expect.stringContaining(`is '${status}' and cannot be resumed`),
+        });
+      }
+    );
+
+    it('409s a failed broadcast whose audience was never frozen (no cutoff)', async () => {
+      // Not reachable through the listener (which only flips `sending` rows),
+      // but representable — and answered the same way as any other status the
+      // CAS could not claim, via the count-0 follow-up read.
+      const { service, findUnique } = makeService({ canceledCount: 0 });
+      findUnique.mockResolvedValue(broadcastRow({ status: 'failed', audienceCutoff: null }));
+
+      await expect(service.resume(BROADCAST_ID, ADMIN_ID)).rejects.toMatchObject({
+        message: expect.stringContaining("is 'failed' and cannot be resumed"),
+      });
+    });
+
+    it('compensates back to failed and rethrows when the enqueue throws, without auditing', async () => {
+      const { service, updateMany, enqueue, auditCreate, findUnique } = makeService();
+      findUnique.mockResolvedValue(broadcastRow({ status: 'sending' }));
+      enqueue.mockRejectedValue(new Error('queue unavailable'));
+
+      await expect(service.resume(BROADCAST_ID, ADMIN_ID)).rejects.toThrow('queue unavailable');
+
+      expect(updateMany).toHaveBeenCalledTimes(2);
+      // Call 1: the CAS into `sending`. Call 2: the compensation back out.
+      expect(updateMany).toHaveBeenNthCalledWith(2, {
+        where: { id: BROADCAST_ID, status: 'sending' },
+        data: {
+          status: 'failed',
+          lastError: expect.stringContaining('Resume could not queue a chunk job:'),
+          finishedAt: expect.any(Date),
+        },
+      });
+      expect(auditCreate).not.toHaveBeenCalled();
+    });
+
+    it('truncates a very long enqueue failure reason in the compensating lastError', async () => {
+      const { service, updateMany, enqueue, findUnique } = makeService();
+      findUnique.mockResolvedValue(broadcastRow({ status: 'sending' }));
+      enqueue.mockRejectedValue(new Error('x'.repeat(600)));
+
+      await expect(service.resume(BROADCAST_ID, ADMIN_ID)).rejects.toThrow();
+
+      const compensation = updateMany.mock.calls[1][0].data.lastError as string;
+      expect(compensation.length).toBeLessThan(600 + 'Resume could not queue a chunk job: '.length);
+      expect(compensation.endsWith('…')).toBe(true);
+    });
+
   });
 
   describe('remove', () => {

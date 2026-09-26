@@ -27,9 +27,17 @@
 //      same reason: a job enqueued inside a transaction can be claimed by a
 //      worker before that transaction commits, and the handler then reads a
 //      row that does not exist yet.
-//   3. CANCEL IS A CONDITIONAL WRITE, NOT A READ-THEN-WRITE. The status goes
-//      in the `WHERE`, so it races the start handler's compare-and-swap in the
-//      DATABASE, where exactly one of them can win.
+//   3. CANCEL AND RESUME ARE CONDITIONAL WRITES, NOT READ-THEN-WRITES. The
+//      status goes in the `WHERE`, so cancel races the start handler's
+//      compare-and-swap and `BroadcastFailureListener`'s `sending` -> `failed`
+//      flip in the DATABASE, where exactly one of them can win; resume's
+//      `failed` -> `sending` flip races a concurrent cancel or a second resume
+//      the same way (#459).
+//
+// Resume follows rule 2 as well: the status flip commits first, and only then
+// is the chunk enqueued, with a compensating flip back to `failed` if the
+// enqueue throws — so a resume can never leave a `sending` broadcast with no
+// job behind it, which is the exact stranding #459 exists to end.
 // =============================================================================
 
 import {
@@ -49,6 +57,7 @@ import { describeThrown } from '../describe-thrown';
 import type { NotificationChannel } from '../notification-events';
 import { NotificationsService } from '../notifications.service';
 import { BROADCAST_SUBJECT_TYPE, audienceWhere } from './broadcast-audience';
+import { BROADCAST_CHUNK_TYPE } from './handlers/broadcast-chunk.handler';
 import { BROADCAST_START_TYPE } from './handlers/broadcast-start.handler';
 import type { BroadcastListQuery } from './dto/broadcast-list-query.dto';
 import type { CreateBroadcastInput } from './dto/create-broadcast.dto';
@@ -67,8 +76,17 @@ export const BROADCAST_CRITICAL_EVENT_KEY = 'admin.broadcast_critical';
 /** `audit_events.target_type` for every row this service writes. */
 const AUDIT_TARGET_TYPE = 'notification_broadcast';
 
-/** The statuses a cancel may claim. Anything else is terminal — see `cancel`. */
-const CANCELABLE_STATUSES = ['scheduled', 'sending'] as const;
+/**
+ * The statuses a cancel may claim. Anything else is terminal — see `cancel`.
+ *
+ * `failed` since #459: an operator who decides not to resume a failed
+ * broadcast can close it honestly as `canceled`, and a cancel issued while the
+ * last chunk is failing succeeds whichever of the two writes lands first.
+ */
+const CANCELABLE_STATUSES = ['scheduled', 'sending', 'failed'] as const;
+
+/** Cap on an enqueue error quoted into `last_error` by a failed resume. */
+const MAX_RESUME_ERROR_LENGTH = 500;
 
 /** What `list` returns: the flat pagination shape every list in this API uses. */
 export interface BroadcastListResult {
@@ -237,7 +255,7 @@ export class BroadcastsService {
   }
 
   /**
-   * Stops a scheduled or in-flight broadcast.
+   * Stops a scheduled, in-flight or failed broadcast.
    *
    * A CONDITIONAL WRITE. The status is in the `WHERE`, not in an `if` above
    * the write, so this statement and the start handler's claim
@@ -246,6 +264,11 @@ export class BroadcastsService {
    * have a real window in which a cancel is issued, the start handler claims
    * the broadcast, and the cancel then writes `canceled` over a `sending` row
    * whose chunks are already walking the audience.
+   *
+   * A `failed` broadcast (#459) is cancelable too: it is how an operator who
+   * will not resume closes the record honestly. The cancel and
+   * `BroadcastFailureListener`'s `sending` -> `failed` flip race the same way
+   * — both are conditional — and the cancel succeeds against either status.
    *
    * `count === 0` IS AMBIGUOUS BY ITSELF — no such row, or a row in a status
    * that cannot be cancelled — so the two are distinguished with a follow-up
@@ -292,6 +315,111 @@ export class BroadcastsService {
   }
 
   /**
+   * Continues a `failed` broadcast from where its fan-out stopped (#459).
+   *
+   * THREE STEPS, NO TRANSACTION, IN THIS ORDER — the file header's rule 2:
+   *
+   *   1. A COMPARE-AND-SWAP `failed` -> `sending`, clearing `finishedAt` and
+   *      `lastError`. `audienceCutoff: { not: null }` is in the `WHERE`
+   *      because a chunk refuses to page an unfrozen audience: a `failed` row
+   *      that never had its cutoff stamped (not reachable by the listener,
+   *      which only flips `sending` rows, but representable) would be resumed
+   *      into a chunk that no-ops, stranding it in `sending` again. It is
+   *      answered 409 instead. `count === 0` is split into 404/409 with a
+   *      follow-up read, exactly as `cancel` does. Two concurrent resumes: one
+   *      wins, the other gets 409 (`sending`).
+   *   2. ENQUEUE ONE CHUNK, after the flip has committed. `reason: 'rerun'`
+   *      because this is an operator re-running stopped work, and
+   *      `skipDedup: true` is MANDATORY — see the warning at the top of
+   *      `broadcast-chunk.handler.ts`. The chunk pages from the persisted
+   *      `cursorUserId`, so nobody the fan-out already reached is sent to
+   *      again, beyond the one-page duplicate bound the chunk header accepts.
+   *      If the old failed chunk is ALSO retried from the Jobs page, both
+   *      chains send the same page and the chunk's cursor compare-and-swap
+   *      stops whichever commits second.
+   *   3. IF THE ENQUEUE THROWS, COMPENSATE: flip `sending` -> `failed` again
+   *      (conditional, so a cancel that landed in between is not overwritten),
+   *      record why in `lastError`, and rethrow. Without this the broadcast
+   *      would be `sending` with no job — the very state #459 fixes.
+   *
+   * `recipientsDispatched` is kept, not reset: it is cumulative across the
+   * whole fan-out, resume included.
+   */
+  async resume(id: string, adminUserId: string): Promise<NotificationBroadcast> {
+    const resumed = await this.prisma.notificationBroadcast.updateMany({
+      where: { id, status: 'failed', audienceCutoff: { not: null } },
+      data: { status: 'sending', finishedAt: null, lastError: null },
+    });
+
+    if (resumed.count === 0) {
+      const existing = await this.requireBroadcast(id);
+
+      throw new ConflictException(
+        `Broadcast ${id} is '${existing.status}' and cannot be resumed ` +
+          `(only failed broadcasts can)`
+      );
+    }
+
+    let chunkJobId: string;
+
+    try {
+      const job = await this.jobs.enqueue({
+        type: BROADCAST_CHUNK_TYPE,
+        reason: 'rerun',
+        subjectType: BROADCAST_SUBJECT_TYPE,
+        subjectId: id,
+        // ⚠ LOAD-BEARING — see the header of `broadcast-chunk.handler.ts`.
+        // With dedup on, an admin retry of the old chunk already in flight
+        // would be returned instead of a new job, and the resume would ride
+        // on a job it does not own.
+        skipDedup: true,
+      });
+      chunkJobId = job.id;
+    } catch (err) {
+      const reason = describeThrown(err);
+      const quoted =
+        reason.length <= MAX_RESUME_ERROR_LENGTH
+          ? reason
+          : `${reason.slice(0, MAX_RESUME_ERROR_LENGTH - 1)}…`;
+
+      await this.prisma.notificationBroadcast.updateMany({
+        where: { id, status: 'sending' },
+        data: {
+          status: 'failed',
+          lastError: `Resume could not queue a chunk job: ${quoted}`,
+          finishedAt: new Date(),
+        },
+      });
+
+      this.logger.error(
+        `Resume of broadcast ${id} by ${adminUserId} could not queue a chunk job; ` +
+          `broadcast returned to 'failed': ${reason}`
+      );
+
+      throw err;
+    }
+
+    const broadcast = await this.requireBroadcast(id);
+
+    await this.createAuditEvent(adminUserId, 'notification_broadcast.resumed', id, {
+      eventKey: broadcast.eventKey,
+      channels: broadcast.channels,
+      scheduledFor: broadcast.scheduledFor?.toISOString() ?? null,
+      recipientsTargeted: broadcast.recipientsTargeted,
+      recipientsDispatched: broadcast.recipientsDispatched,
+      chunkJobId,
+    });
+
+    this.logger.log(
+      `Broadcast ${id} resumed by ${adminUserId} after ` +
+        `${broadcast.recipientsDispatched} dispatch(es); chunk job ${chunkJobId} queued ` +
+        `from cursor ${broadcast.cursorUserId ?? '(start)'}`
+    );
+
+    return broadcast;
+  }
+
+  /**
    * Removes a broadcast's record.
    *
    * REFUSED WHILE `sending`, and that is the only refusal. Deleting a row
@@ -301,7 +429,9 @@ export class BroadcastsService {
    * keep enqueuing successors for a broadcast that has no record. Cancel
    * first; the handlers stop at the next status check.
    *
-   * A `canceled` row is deletable, and a `sent` one is too. A pulled or
+   * A `canceled` row is deletable, and so are `sent` and `failed` ones (a
+   * failed fan-out has no live job — `BroadcastFailureListener` only flips
+   * the status once the job has given up). A pulled or
    * completed announcement is exactly what an operator may want to look up
    * later, which is why cancel does NOT delete — but keeping it is their
    * decision to reverse, not ours to enforce.
@@ -404,6 +534,12 @@ export class BroadcastsService {
    * this one was still sending. Nothing here can separate them, which is why
    * the field is called `approximateDeliveryAttempts` and why the UI labels it
    * "delivery attempts during this broadcast" rather than "deliveries".
+   *
+   * ON A `failed` ROW (#459) `finishedAt` is when the fan-out STOPPED — the
+   * give-up of its last job — so the window ends there. A resume clears
+   * `finishedAt`, and the window reopens to "now" until the resumed fan-out
+   * ends; `startedAt` is never moved, so the window still spans the whole
+   * broadcast, pause included.
    *
    * EMPTY BEFORE THE FAN-OUT STARTS: with no `startedAt` there is no window,
    * and an unbounded query over this table is the one thing this method must

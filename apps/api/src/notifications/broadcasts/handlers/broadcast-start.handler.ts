@@ -158,8 +158,8 @@ export class BroadcastStartHandler implements JobHandler, OnModuleInit {
     // The window between the read and the write is small and it is real, and
     // what falls into it is a cancelled announcement going out to everybody.
     // Cancel is implemented (#324) as its own conditional write —
-    // `updateMany({ where: { id, status: { in: ['scheduled', 'sending'] } } })`
-    // — so the two statements race in the DATABASE, where exactly one of them
+    // `updateMany({ where: { id, status: { in: ['scheduled', 'sending',
+    // 'failed'] } } })` (`failed` since #459) — so the two statements race in the DATABASE, where exactly one of them
     // can win, instead of racing across a round trip in application code where
     // both can.
     //
