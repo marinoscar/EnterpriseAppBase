@@ -193,10 +193,11 @@ describe('Public AI config and kill switch', () => {
         allowBackgroundRuns: true,
         hostedTools: { web_search: false, file_search: false, code_interpreter: false, image_generation: false, mcp: false },
         providers: [
-          { id: 'openai', displayName: 'Fake AI', enabled: true, hasOrgKey: true },
+          { id: 'openai', displayName: 'Fake AI', enabled: true, hasOrgKey: true, supportsPreviousResponseId: true },
           // Registered (#446) but switched off; this test's credential store
-          // answers "configured" for every provider.
-          { id: 'anthropic', displayName: 'Anthropic', enabled: false, hasOrgKey: true },
+          // answers "configured" for every provider. Anthropic stores no
+          // responses, so a client must resend the conversation.
+          { id: 'anthropic', displayName: 'Anthropic', enabled: false, hasOrgKey: true, supportsPreviousResponseId: false },
         ],
       });
       expect(res.text).not.toContain(ORG_KEY);

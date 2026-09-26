@@ -30,6 +30,15 @@ export const aiPublicProviderSchema = z.object({
    * `byok_with_org_fallback`.
    */
   hasOrgKey: z.boolean(),
+  /**
+   * Whether a request may continue a conversation with `previousResponseId`
+   * (#446) — `AiProviderAdapter.supportsPreviousResponseId`. `false` for a
+   * provider that stores no responses (Anthropic): a client must then send
+   * the conversation so far as `input` (user and assistant messages), because
+   * a request naming `previousResponseId` is refused with `400
+   * AI_CAPABILITY_UNSUPPORTED`.
+   */
+  supportsPreviousResponseId: z.boolean(),
 });
 
 export const aiPublicConfigSchema = z.object({

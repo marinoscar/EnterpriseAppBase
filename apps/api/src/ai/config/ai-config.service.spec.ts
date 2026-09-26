@@ -276,7 +276,9 @@ describe('AiConfigService', () => {
         keyPolicy: 'byok',
         allowBackgroundRuns: true,
         hostedTools: { web_search: false, file_search: false, code_interpreter: false, image_generation: false, mcp: false },
-        providers: [{ id: 'openai', displayName: 'Fake AI', enabled: true, hasOrgKey: true }],
+        providers: [
+          { id: 'openai', displayName: 'Fake AI', enabled: true, hasOrgKey: true, supportsPreviousResponseId: true },
+        ],
       });
       expect(JSON.stringify(view)).not.toContain('123');
       expect(getSecret).not.toHaveBeenCalled();
@@ -292,7 +294,17 @@ describe('AiConfigService', () => {
         displayName: 'Other',
         enabled: false,
         hasOrgKey: false,
+        supportsPreviousResponseId: true,
       });
+    });
+
+    it('publishes supportsPreviousResponseId from the adapter declaration (#446)', async () => {
+      registry.register(new FakeAiProvider({ id: 'stateless', displayName: 'Stateless', supportsPreviousResponseId: false }));
+
+      const view = await service.describePublic();
+
+      expect(view.providers.find((p) => p.id === 'stateless')).toMatchObject({ supportsPreviousResponseId: false });
+      expect(view.providers.find((p) => p.id === 'openai')).toMatchObject({ supportsPreviousResponseId: true });
     });
   });
 });
