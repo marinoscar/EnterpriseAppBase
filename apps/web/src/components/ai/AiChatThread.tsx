@@ -16,6 +16,8 @@ import { Box, Chip, Paper, Typography } from '@mui/material';
 import type { AiUsage } from '../../services/ai';
 import type { AiChatMessage } from '../../hooks/useAiChat';
 import { AiErrorAlert } from './AiErrorAlert';
+import { AiReasoningPanel } from './AiReasoningPanel';
+import { AiStructuredOutputPanel } from './AiStructuredOutputPanel';
 
 export function formatAiUsage(usage: AiUsage | undefined): string | null {
   if (!usage) return null;
@@ -32,7 +34,13 @@ function AssistantBody({ message }: { message: AiChatMessage }) {
 
   return (
     <>
-      {waiting ? (
+      {message.reasoning && (
+        <AiReasoningPanel
+          text={message.reasoning}
+          streaming={message.status === 'streaming' && message.text === ''}
+        />
+      )}
+      {waiting && message.reasoning ? null : waiting ? (
         <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
           Thinking…
         </Typography>
@@ -47,6 +55,9 @@ function AssistantBody({ message }: { message: AiChatMessage }) {
             {message.text}
           </Typography>
         )
+      )}
+      {message.parsed !== undefined && message.parsed !== null && (
+        <AiStructuredOutputPanel parsed={message.parsed} />
       )}
       {message.error && (
         <Box sx={{ mt: message.text ? 1 : 0 }}>

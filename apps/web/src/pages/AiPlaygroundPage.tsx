@@ -27,8 +27,11 @@ import {
   Collapse,
   Container,
   Divider,
+  FormControlLabel,
+  MenuItem,
   Paper,
   Stack,
+  Switch,
   TextField,
   Typography,
   useMediaQuery,
@@ -45,7 +48,7 @@ import { usePermissions } from '../hooks/usePermissions';
 import { useUserSettings } from '../hooks/useUserSettings';
 import { useAiChat, type AiChatRequestOptions } from '../hooks/useAiChat';
 import { ApiError } from '../services/api';
-import { listUsableAiModels, type UsableAiModel } from '../services/ai';
+import { listUsableAiModels, type AiResponseRequest, type UsableAiModel } from '../services/ai';
 import { useIsMounted } from '../hooks/useIsMounted';
 import {
   AiModelSelect,
@@ -55,6 +58,16 @@ import {
 } from '../components/ai/AiModelSelect';
 import { AiChatThread } from '../components/ai/AiChatThread';
 import { AI_KEYS_PATH } from '../components/ai/AiErrorAlert';
+import {
+  AI_SCHEMA_PRESETS,
+  CUSTOM_SCHEMA_ID,
+  CUSTOM_SCHEMA_NAME,
+  formatSchema,
+  parseJsonSchemaText,
+} from '../components/ai/aiSchemaPresets';
+
+type ReasoningEffort = NonNullable<NonNullable<AiResponseRequest['reasoning']>['effort']>;
+const REASONING_EFFORTS: ReasoningEffort[] = ['minimal', 'low', 'medium', 'high'];
 
 /**
  * `user_settings.ai.defaultModel` (docs/specs/ai-platform.md §2), read
@@ -70,12 +83,23 @@ interface PlaygroundControls {
   maxOutputTokens: string;
   /** Blank = the provider's default. */
   temperature: string;
+  /** '' = let the model decide. */
+  reasoningEffort: ReasoningEffort | '';
+  reasoningSummary: boolean;
+  structured: boolean;
+  schemaPreset: string;
+  schemaText: string;
 }
 
 const INITIAL_CONTROLS: PlaygroundControls = {
   instructions: '',
   maxOutputTokens: '',
   temperature: '',
+  reasoningEffort: '',
+  reasoningSummary: true,
+  structured: false,
+  schemaPreset: AI_SCHEMA_PRESETS[0].id,
+  schemaText: formatSchema(AI_SCHEMA_PRESETS[0].jsonSchema),
 };
 
 function useUsableModels() {
@@ -146,11 +170,20 @@ export default function AiPlaygroundPage() {
   }, [modelKey, modelsLoading, settingsLoading, pickable, settings]);
 
   const supportsReasoning = hasAiCapability(selected, 'reasoning');
+  const supportsStructured = hasAiCapability(selected, 'structured_output');
+  const efforts = (selected?.capabilities.reasoningEfforts ?? REASONING_EFFORTS).filter(
+    (effort): effort is ReasoningEffort => (REASONING_EFFORTS as string[]).includes(effort),
+  );
+  const structuredOn = supportsStructured && controls.structured;
+  const schema = structuredOn ? parseJsonSchemaText(controls.schemaText) : null;
+  const schemaName =
+    AI_SCHEMA_PRESETS.find((preset) => preset.id === controls.schemaPreset)?.name ?? CUSTOM_SCHEMA_NAME;
   const maxTokensCap = selected?.capabilities.maxOutputTokens;
   const maxTokens = parseTokens(controls.maxOutputTokens, maxTokensCap);
   const temperature = parseTemperature(controls.temperature);
 
-  const controlsValid = maxTokens !== null && (supportsReasoning || temperature !== null);
+  const controlsValid =
+    maxTokens !== null && (supportsReasoning || temperature !== null) && (schema === null || schema.ok);
 
   const update = <K extends keyof PlaygroundControls>(key: K, value: PlaygroundControls[K]) =>
     setControls((current) => ({ ...current, [key]: value }));
@@ -166,8 +199,24 @@ export default function AiPlaygroundPage() {
     if (typeof maxTokens === 'number') options.maxOutputTokens = maxTokens;
     // Reasoning models reject sampling temperature, so it is only sent to the others.
     if (!supportsReasoning && typeof temperature === 'number') options.temperature = temperature;
+    if (supportsReasoning) {
+      const effort = controls.reasoningEffort && efforts.includes(controls.reasoningEffort) ? controls.reasoningEffort : undefined;
+      const summary = controls.reasoningSummary ? ('auto' as const) : undefined;
+      if (effort || summary) options.reasoning = { ...(effort ? { effort } : {}), ...(summary ? { summary } : {}) };
+    }
+    if (schema?.ok) options.structuredOutput = { name: schemaName, jsonSchema: schema.schema, strict: true };
     return options;
-  }, [selected, controlsValid, controls, maxTokens, supportsReasoning, temperature]);
+  }, [selected, controlsValid, controls, maxTokens, supportsReasoning, temperature, efforts, schema, schemaName]);
+
+  const choosePreset = (id: string) => {
+    const preset = AI_SCHEMA_PRESETS.find((entry) => entry.id === id);
+    setControls((current) => ({
+      ...current,
+      schemaPreset: id,
+      schemaText: preset ? formatSchema(preset.jsonSchema) : current.schemaText,
+    }));
+    if (preset && prompt.trim() === '') setPrompt(preset.examplePrompt);
+  };
 
   const canSend = !!selected && controlsValid && prompt.trim() !== '' && !chat.isStreaming;
 
@@ -232,6 +281,83 @@ export default function AiPlaygroundPage() {
           helperText={temperature === null ? 'Enter a number from 0 to 2' : 'Blank uses the provider default'}
           slotProps={{ htmlInput: { inputMode: 'decimal' } }}
         />
+      )}
+      {supportsReasoning && (
+        <>
+          <TextField
+            select
+            label="Reasoning effort"
+            size="small"
+            value={controls.reasoningEffort}
+            onChange={(event) => update('reasoningEffort', event.target.value as ReasoningEffort | '')}
+          >
+            <MenuItem value="">Model default</MenuItem>
+            {efforts.map((effort) => (
+              <MenuItem key={effort} value={effort}>
+                {effort.charAt(0).toUpperCase() + effort.slice(1)}
+              </MenuItem>
+            ))}
+          </TextField>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={controls.reasoningSummary}
+                onChange={(event) => update('reasoningSummary', event.target.checked)}
+              />
+            }
+            label="Show reasoning summary"
+          />
+        </>
+      )}
+      {supportsStructured && (
+        <>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={controls.structured}
+                onChange={(event) => update('structured', event.target.checked)}
+              />
+            }
+            label="Structured output"
+          />
+          {controls.structured && (
+            <>
+              <TextField
+                select
+                label="Schema"
+                size="small"
+                value={controls.schemaPreset}
+                onChange={(event) => choosePreset(event.target.value)}
+              >
+                {AI_SCHEMA_PRESETS.map((preset) => (
+                  <MenuItem key={preset.id} value={preset.id}>
+                    {preset.label}
+                  </MenuItem>
+                ))}
+                <MenuItem value={CUSTOM_SCHEMA_ID}>Custom JSON Schema</MenuItem>
+              </TextField>
+              <TextField
+                label="JSON Schema"
+                multiline
+                minRows={6}
+                maxRows={16}
+                value={controls.schemaText}
+                onChange={(event) =>
+                  setControls((current) => ({
+                    ...current,
+                    schemaText: event.target.value,
+                    schemaPreset: CUSTOM_SCHEMA_ID,
+                  }))
+                }
+                error={schema !== null && !schema.ok}
+                helperText={schema !== null && !schema.ok ? schema.error : 'Sent with strict: true'}
+                slotProps={{
+                  htmlInput: { spellCheck: false, style: { fontFamily: 'monospace', fontSize: '0.8125rem' } },
+                }}
+              />
+            </>
+          )}
+        </>
       )}
     </Stack>
   );
