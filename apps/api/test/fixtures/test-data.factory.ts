@@ -159,6 +159,23 @@ export const mockPermissions = {
     name: 'storage_config:write',
     description: 'Change, test and provision the object-storage configuration',
   },
+  // AI platform (#423, #428, epic #419), mirrored from `prisma/seed-data.ts`:
+  // `ai_config:*` is Admin-only; `ai:use` is held by all three roles.
+  aiConfigRead: {
+    id: randomUUID(),
+    name: 'ai_config:read',
+    description: 'View the AI platform configuration',
+  },
+  aiConfigWrite: {
+    id: randomUUID(),
+    name: 'ai_config:write',
+    description: 'Change the AI platform configuration, keys and model catalog',
+  },
+  aiUse: {
+    id: randomUUID(),
+    name: 'ai:use',
+    description: 'Use AI features',
+  },
 };
 
 export const mockRoles = {
@@ -472,14 +489,19 @@ export const rolePermissionsMap = {
     mockPermissions.pushWrite,
     mockPermissions.storageConfigRead,
     mockPermissions.storageConfigWrite,
+    mockPermissions.aiConfigRead,
+    mockPermissions.aiConfigWrite,
+    mockPermissions.aiUse,
   ],
   contributor: [
     mockPermissions.userSettingsRead,
     mockPermissions.userSettingsWrite,
+    mockPermissions.aiUse,
   ],
   viewer: [
     mockPermissions.userSettingsRead,
     mockPermissions.userSettingsWrite,
+    mockPermissions.aiUse,
   ],
 };
 
