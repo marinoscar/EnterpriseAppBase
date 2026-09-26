@@ -47,7 +47,7 @@ export function AiRunCard({ prompt, run, error, isStarting, isCancelling, onCanc
         ) : null}
         {!settledOrBroken && <CircularProgress size={14} aria-label="Waiting for the run" />}
         <Box sx={{ flex: 1 }} />
-        {!settledOrBroken && run && (
+        {!settledOrBroken && !isStarting && (
           <Button size="small" color="inherit" onClick={onCancel} disabled={isCancelling}>
             {isCancelling ? 'Cancelling…' : 'Cancel run'}
           </Button>
