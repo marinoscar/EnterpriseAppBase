@@ -51,12 +51,22 @@ function setPermissions(granted: string[]) {
   });
 }
 
-function setConfig(config: AiAdminConfig | null = mockAiAdminConfig) {
-  mockUseAiAdminConfig.mockReturnValue({
+function setConfig(
+  config: AiAdminConfig | null = mockAiAdminConfig,
+  overrides: Partial<UseAiAdminConfigReturn> = {},
+): UseAiAdminConfigReturn {
+  const value = {
     config,
     isLoading: false,
     loadError: null,
-  } as unknown as UseAiAdminConfigReturn);
+    save: vi.fn().mockResolvedValue(true),
+    isSaving: false,
+    saveError: null,
+    clearSaveError: vi.fn(),
+    ...overrides,
+  } as unknown as UseAiAdminConfigReturn;
+  mockUseAiAdminConfig.mockReturnValue(value);
+  return value;
 }
 
 function setModels(overrides: Partial<UseAiModelsReturn> = {}): UseAiModelsReturn {
@@ -229,7 +239,7 @@ describe('AiModelsPage', () => {
       );
 
       const dialog = await screen.findByRole('dialog');
-      const save = within(dialog).getByRole('button', { name: /save capabilities/i });
+      const save = within(dialog).getByRole('button', { name: /^save$/i });
       expect(save).toBeDisabled(); // nothing chosen yet
 
       await user.click(within(dialog).getByRole('checkbox', { name: 'Text' }));

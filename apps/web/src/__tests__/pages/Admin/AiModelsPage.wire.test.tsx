@@ -140,7 +140,7 @@ describe('AiModelsPage — wire contract', () => {
     await user.click(within(dialog).getByRole('checkbox', { name: 'Text' }));
     await user.click(within(dialog).getAllByRole('checkbox', { name: 'text' })[0]);
     await user.click(within(dialog).getAllByRole('checkbox', { name: 'text' })[1]);
-    await user.click(within(dialog).getByRole('button', { name: /save capabilities/i }));
+    await user.click(within(dialog).getByRole('button', { name: /^save$/i }));
 
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     const patch = captured.find((c) => c.method === 'PATCH');
