@@ -161,7 +161,8 @@ function malformed(reason: string, opts: FromOpenAiTranscriptionOptions): AiErro
   return new AiError('AI_PROVIDER_UNAVAILABLE', 'OpenAI returned a malformed transcription response.', {
     details: {
       provider: OPENAI_PROVIDER_ID,
-      reason,
+      // Not `reason`: the error body's `details.reason` is always the AiErrorCode.
+      problem: reason,
       ...(opts.providerRequestId ? { providerRequestId: opts.providerRequestId } : {}),
     },
   });
