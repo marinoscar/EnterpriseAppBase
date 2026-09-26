@@ -26,7 +26,7 @@ schedule, and nothing forces the two to move together.
 
 ---
 
-## 1. The failure, and why it is silent
+## 1. Before you start: the failure, and why it is silent
 
 `pg_dump` refuses to dump a server whose major version is newer than its own.
 It is not a warning and not a degraded mode — every invocation fails, exits
@@ -85,7 +85,7 @@ by hand" — not as a broken backup.
 ## 3. The fix: bump both places, together
 
 The client major is written in **two** files, and they are held equal by a
-test. Change one without the other and `npm test --workspace=api` fails with
+test. The template ships major 17; the examples below bump it to 18. Change one without the other and `npm test --workspace=api` fails with
 both numbers printed side by side.
 
 1. **`apps/api/Dockerfile`**, in the `base` stage:
@@ -180,6 +180,16 @@ anywhere.
   server and restored onto another can fail for reasons that have nothing to do
   with client versions; the error text will name the extension or collation
   rather than a version.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| A backup run is recorded as blocked, naming two versions | Client major is lower than the server major | Section 3 |
+| A warning that a version could not be read; the backup ran | Unparseable banner or failed probe query | Check both sides by hand (section 2.1) |
+| `npm test --workspace=api` fails printing two numbers | Dockerfile and `MIN_PG_CLIENT_MAJOR` disagree | Set both to the same major |
+| `pg_dump --version` still shows the old major after the rebuild | A cached layer was reused, or the container was not recreated | `build --no-cache api`, then `up -d api` |
+| `apk add postgresql<N>-client` fails during the build | The Alpine release has no package for that major | Section 3.3 |
 
 ## 6. Summary checklist
 

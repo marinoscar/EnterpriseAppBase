@@ -1,114 +1,30 @@
 # Runbook: Deploy to a VPS
 
-This runbook covers taking a single Ubuntu VPS from nothing to a running,
-migrated, seeded, HTTPS-served deployment of this application using `appctl
-deploy`, and keeping it current afterward. It is the operator-facing
-companion to [`docs/specs/vps-deploy.md`](../specs/vps-deploy.md): that
-document explains why `appctl deploy` is built the way it is (why the CLI
-never dials out over SSH, why TLS is terminated by a shared proxy instead of
-per-app, why there is no `db` service, what was rejected and why); this one
-tells you what to actually run, in order, on a real box. Read the spec first
-if something here doesn't make sense — it almost certainly has the "why."
+Use this to take one Ubuntu VPS from nothing to a running, migrated, seeded,
+HTTPS deployment with `appctl deploy`, then keep it current, inspect it and
+remove it. Audience: the operator who SSHes into the server; every command
+runs **on the VPS**. Design and rationale:
+[`docs/specs/vps-deploy.md`](../specs/vps-deploy.md). Flags and exit codes:
+[`apps/cli/README.md`, "Deploying to a server"](../../apps/cli/README.md#deploying-to-a-server).
 
-Source of truth for every claim below:
+Source of truth: `apps/cli/src/deploy/` (`install.ts`, `update.ts`,
+`checks/`, `proxy.ts`, `layout.ts`, `journal.ts`, `uninstall.ts`),
+`infra/compose/vps.compose.yml`, and `apps/api/prisma/seed.ts`.
 
-- `apps/cli/src/deploy/checks/` — the ~27 doctor checks (`host.ts`,
-  `database.ts`, `dns.ts`, `tls.ts`), run standalone by `doctor` and as the
-  required-only preflight of `install`/`update`.
-- `apps/cli/src/deploy/install.ts` — the install pipeline.
-- `apps/cli/src/deploy/update.ts` — the update pipeline, its re-seed default,
-  and why there is no automatic rollback.
-- `apps/cli/src/deploy/health.ts` — what `status` reports, and the frontend
-  probe kept separate from `/api/health/ready`.
-- `apps/cli/src/deploy/proxy.ts` — the shared reverse proxy, vhost rendering,
-  and certbot issuance (rate-limit handling included).
-- `apps/cli/src/deploy/repo.ts` — resolving the repository and ref from the
-  checkout's own git remote, with no fork-specific configuration anywhere.
-- `apps/cli/src/deploy/journal.ts` — the run log and its redaction guarantee.
-- `apps/cli/src/deploy/env-metadata.ts` — which environment variables are
-  derived (`GOOGLE_CALLBACK_URL`, `APP_URL`), which are secrets, and which are
-  essential.
-- `infra/compose/vps.compose.yml` — the loopback-only overlay a VPS deploy
-  adds on top of `base.compose.yml` + `prod.compose.yml`.
-- `apps/api/prisma/seed.ts` — the idempotent seed `install` and `update` both
-  run; what it writes and, just as important, what it does not.
-- `apps/api/src/health/health.controller.ts` — `/api/health/ready`, and why a
-  green result there is not evidence a migration ran.
-- `apps/cli/src/deploy/layout.ts` — where deployments live on a box that hosts
-  more than one, and the five-rank resolution that decides which deployment a
-  command not given `--root` acts on.
-- `apps/cli/src/deploy/deployment-evidence.ts` — what makes a directory a
-  deployment (a checkout plus a readable `.env`), deliberately not "has a
-  state file."
-- `apps/cli/src/deploy/uninstall.ts` and `apps/cli/src/deploy/database-drop.ts`
-  — removing a deployment, the four things it always refuses to touch, and the
-  two opt-in extras.
-- `apps/cli/README.md`, section "Deploying to a server" — the command
-  reference (flags, exit codes) this runbook assumes you have open alongside
-  it.
+## 1. Before you start
 
-**The full install has not been run end to end against a real VPS.** The
-environment this was built in has no Docker daemon, so there has been no
-opportunity to run `appctl deploy install` against an actual server with real
-DNS and a real Let's Encrypt certificate. What backs the claims in this
-document is: the unit test suite for every module listed above (including the
-doctor checks, the pipelines, and the proxy/certificate logic); a newer harness
-(`apps/cli/src/deploy/testing/fake-vps.ts`) that runs `runInstall`/`runUpdate`'s
-**real** steps, in their real order, against a real temp directory and a real
-`.env` the real writer wrote — only the subprocesses are faked, so this catches
-a break in the pipeline's own logic that a hand-built test context never would;
-`docker compose -f base.compose.yml -f prod.compose.yml -f vps.compose.yml
-config` validating cleanly; and a real `appctl deploy doctor` run. That
-harness's own header is explicit about the line it cannot cross: it never
-spawns `docker`, so a break in `docker compose build`, the migrate invocation,
-or `-p <project>` project naming would pass every test built on it, green.
-Closing that gap needs a real-Docker run against an actual daemon —
-`.github/workflows/deploy-e2e.yml` is that closer (install, update, update
-again, against a real Postgres service container and a `file://` remote as
-the "repository"), and it runs on every push/PR touching the CLI, plus
-nightly. It proves the build/migrate/seed/start/health machinery on real
-Docker, in the real step order, including the epic #388 additions that sit
-inside that path (the OAuth shape/callback checks in `validate-environment`,
-for instance). It still proves nothing about the proxy or certificate half of
-an install, or about the database-creation and proxy-bootstrap prompts:
-the workflow runs on a GitHub-hosted `ubuntu-latest` runner with no DNS name
-pointing at it, so it passes `--skip-proxy` and `--skip-oauth-check` (the
-Google credentials in its answers file are placeholders, and a live probe
-against them would rightly fail) — so it never touches nginx, certbot, or
-Let's Encrypt, real or staging, and never exercises `proxy-bootstrap.ts`,
-`renewal.ts`, or the live half of `oauth-check.ts`. Its Postgres service
-container also already has the target database created, so `ensure-database`
-(section 2, step 4)'s create-and-prompt path is unit- and fake-VPS-tested
-only, not exercised by this workflow either. **No agent or person has
-yet run `appctl deploy install` by hand against a real internet-facing
-server, with real DNS and a real certificate.** Treat the first real install
-on a new box as the first true end-to-end exercise of that half, and lean on
-`doctor` and `--staging` (section 8) accordingly.
+**Never run `appctl deploy`, or anything else in this CLI, with `sudo`.**
+`sudo` resets `HOME` to `/root`, so `gh` (which stores its credentials under
+`$HOME/.config/gh`) is unauthenticated under it, and a private clone fails for
+a reason unrelated to the repository. Everything the CLI writes (the clone,
+`.env`, the state file, the run journal, the deployment record) must stay
+owned by the ordinary account that will run `update` next month. Run from that
+account, with it in the `docker` group. The one file that needs root is
+`/etc/cron.d/appctl-certbot-renew` (section 10): when an ordinary account
+cannot write it, the step prints a loud warning with the exact file content,
+and you install it once by hand, as root. The deploy does not fail.
 
-**Never run `appctl deploy` — or anything else in this CLI — with `sudo`.**
-`sudo` resets `HOME` to `/root`, and `gh` (if you use it to clone a private
-fork) stores its credentials per-user under `$HOME/.config/gh` — so an
-operator who authenticated as themselves gets an unauthenticated `gh` under
-`sudo` and a confusing clone failure that has nothing to do with permissions
-on this repository. More generally, everything this CLI writes (the clone,
-`.env`, the state file, the run journal, the deployment record) must be
-writable by the ordinary operator account that will run `update` next month —
-running `install` once as root and every later command as yourself is how a
-deployment ends up with files only root can touch. Run the ordinary user's own
-shell, with that user in the `docker` group so `docker`/`docker compose` work
-without a prefix. One consequence of never running as root: `install`/
-`update`'s renewal step (section 10) now **does** write to `/etc/cron.d` —
-`/etc/cron.d/appctl-certbot-renew` — when nothing else already owns renewal,
-and `/etc/cron.d` needs root to write regardless of who runs `appctl`. This
-never fails the deploy: an ordinary account cannot write there, so the step
-reports it as a loud warning carrying the exact file content, and you install
-that one file by hand, once, as root. Every other file this CLI writes — the
-clone, `.env`, the state file, the run journal, the deployment record —
-stays owned by whichever account ran `install`, with no such gap.
-
----
-
-## 1. Prerequisites
+### 1.1 Prerequisites
 
 `appctl deploy doctor` checks all of the following, and running it is the
 intended first step — before you've written a line of configuration, before
@@ -132,7 +48,7 @@ yourself; let doctor do it, and fix whatever it reports.
 - **The shared reverse proxy, either already running or nothing at all.**
   This design's default and recommended shape is a **containerised** proxy —
   one long-lived `nginx:alpine` container, plus the dockerised
-  `certbot/certbot` for issuance and renewal — and `install` now bootstraps
+  `certbot/certbot` for issuance and renewal — and `install` bootstraps
   that for you the first time it finds neither a running proxy container nor
   an existing compose file at `/opt/infra/proxy` (override with
   `--proxy-root`): it writes a minimal compose project and a default
@@ -143,11 +59,10 @@ yourself; let doctor do it, and fix whatever it reports.
   that directory, is treated as somebody else's and left exactly alone; if a
   different app on this box got there first, `install` reuses its directories
   without changing anything about how it runs. A **host-mode** proxy (nginx
-  and certbot installed and runnable directly on the host) is still supported
-  — pass `--proxy-mode host`, or let detection find a working host `nginx` — 
-  but is no longer the assumed default; see
-  [`docs/specs/vps-deploy.md`](../specs/vps-deploy.md) §10/§19 for the full
-  `ProxyRuntime` design and why container mode is the default. `doctor`'s
+  and certbot installed and runnable directly on the host) is also supported:
+  pass `--proxy-mode host`, or let detection find a working host `nginx`. See
+  [`docs/specs/vps-deploy.md`](../specs/vps-deploy.md) for why container mode
+  is the default. `doctor`'s
   `certbot-installed` check is `required` only in host mode — in container
   mode, a missing host `certbot` binary is not a problem at all, and `doctor`
   does not fail a correctly configured server over it.
@@ -157,16 +72,15 @@ yourself; let doctor do it, and fix whatever it reports.
 - An **external PostgreSQL** database, reachable from this server. It does
   **not** have to already exist: `install` will offer to create it (see
   section 2, step 4) when the server is reachable, the credentials
-  authenticate, and the only problem is that the named database is absent —
-  anything else about the connection is still reported exactly as before, and
-  nothing is ever created silently. This application ships no `db` service —
-  `base.compose.yml` deliberately has none — so a reachable PostgreSQL server
-  itself (managed or self-hosted) is still yours to stand up before you
-  install.
+  authenticate, and the only problem is that the named database is absent.
+  Any other connection problem is reported as a failure, and nothing is ever
+  created silently. This application ships no `db` service
+  (`base.compose.yml` deliberately has none), so the PostgreSQL server itself
+  (managed or self-hosted) is yours to stand up before you install.
 - Google OAuth credentials whose **redirect URI matches
   `https://<domain>/api/auth/google/callback`** — the exact domain you're
-  about to deploy under, not a placeholder. `install` no longer takes this on
-  faith: alongside the wizard's shape check, it makes a live, harmless probe
+  about to deploy under, not a placeholder. Alongside the wizard's shape
+  check, `install` makes a live, harmless probe
   of the credentials against Google's own token endpoint before it finishes
   (see section 2, step 4), so a mismatched client secret is caught before the
   build, the migration, the certificate and the vhost, not at the first
@@ -194,7 +108,7 @@ runs **on the VPS**.
 
 **Everything in this section also has a screen in `appctl`'s interactive
 menu** (run `appctl` with no arguments, in a real terminal, then choose
-"deploy this server"), driving the exact same `install`/`update`/`doctor`
+**Deploy (this server)**), driving the exact same `install`/`update`/`doctor`
 pipelines described below rather than a second implementation of them. An
 **Advanced** step lets you set the root, proxy root, port, proxy container
 and proxy mode — pre-filled with the recorded or default values, one Enter to
@@ -243,8 +157,8 @@ it.
    environment variables (database credentials, JWT/cookie secrets — offering
    to generate the ones that can be generated, Google OAuth credentials,
    `INITIAL_ADMIN_EMAIL`) with sensible defaults, then runs preflight,
-   checkout, environment validation (which now includes the OAuth shape and
-   callback checks, and the live credentials probe described above), build,
+   checkout, environment validation (including the OAuth shape and callback
+   checks, and the live credentials probe described above), build,
    migrate, seed, start, health wait, proxy bootstrap (if this box has none),
    database creation (if the database does not yet exist), certificate
    issuance and vhost publish, renewal scheduling, and a final external HTTPS
@@ -254,8 +168,8 @@ it.
    `/opt/infra/proxy`), `--port` (default `3535`), `--proxy-container`,
    `--proxy-mode` — has a workable default.
 
-   Two of the new steps prompt before acting, and both take a non-interactive
-   opt-in flag:
+   Two steps prompt before acting, and both take a non-interactive opt-in
+   flag:
    - **If the configured database does not exist yet**, and everything else
      about the connection checks out, `install` asks whether to create it —
      see the prerequisites section above for exactly which failure this
@@ -281,9 +195,7 @@ it.
    to pass, or want a `.env` prepared ahead of time).
 
    **Object storage is deliberately not part of this wizard, or of `.env` at
-   all.** Older checkouts of this template asked for `S3_BUCKET`/
-   `S3_REGION`/`S3_ENDPOINT`/`STORAGE_PROVIDER` here; epic #372 retired all
-   of them. A freshly installed deployment boots with no object storage
+   all.** A freshly installed deployment boots with no object storage
    configured and answers every upload, avatar, job-artifact and
    database-backup request with a `503` until an administrator signs in and
    configures a provider at `/admin/settings/storage` — which needs no
@@ -384,9 +296,8 @@ unattended, for example from cron:
 0 3 * * * cd /opt/infra/apps/repo && appctl deploy update --non-interactive >> /var/log/appctl-update.log 2>&1
 ```
 
-Two behaviors are worth knowing before your first `update`, because both are
-deliberate and both surprise people who've operated the shell-script
-deployments this replaces:
+Two behaviors are worth knowing before your first `update`; both are
+deliberate:
 
 **The seed re-runs by default, on every update.** `apps/api/prisma/seed.ts`
 is entirely upserts, and re-running it is the *only* way a permission or role
@@ -394,8 +305,7 @@ row a newer release adds actually reaches a server that was installed
 earlier. Skip it, and a release that ships a new permission does nothing on
 your server — the feature ships, the permission doesn't exist in your
 database, and the first symptom is a confusing 403 with nothing in the logs
-pointing at "you needed to re-seed." The shell scripts this replaces never
-re-seeded; this is a deliberate change, not an oversight. Pass `--skip-seed`
+pointing at "you needed to re-seed." Pass `--skip-seed`
 only if you've hand-edited seeded rows (a role's permission set, say) and
 don't want them upserted back to their defaults.
 
@@ -430,8 +340,8 @@ current branch) — not from a value hardcoded anywhere in `apps/cli`.
 default is always "whatever this checkout points at." The environment
 wizard's questions are parsed structurally from **your checkout's own**
 `infra/compose/.env.example`, not from a fixed list of field names baked into
-the CLI — rename the application, add a new secret, remove the Microsoft
-OAuth block, switch your default branch to `develop`, and the wizard follows
+the CLI — rename the application, add a new secret, remove an optional
+block, switch your default branch to `develop`, and the wizard follows
 all of it with no CLI change. The only two places a fork edits by hand are
 outside `appctl deploy` entirely: the `bin` field in `apps/cli/package.json`
 and `install.sh`'s default clone URL, both documented in the CLI README's
@@ -487,17 +397,19 @@ the flag for the real certificate — `install` skips issuance entirely when a
 usable certificate already exists, so re-running costs nothing if staging
 already got you a (test) one.
 
+Treat the first real install on a new box as the first end-to-end test of
+the proxy and certificate half. The CI workflow
+`.github/workflows/deploy-e2e.yml` exercises install and update on real
+Docker, but runs with `--skip-proxy` and `--skip-oauth-check`, so nginx,
+certbot and Let's Encrypt are covered by unit tests only.
+
 ## 9. Running more than one application on this box
 
 `apps/cli/src/deploy/layout.ts` lays out every deployment at
 `<apps-root>/<app-name>/`, with the apps root defaulting to
-`/opt/infra/apps`, because a box that hosts one application today is, per the
-shared-proxy design this whole runbook is built on, a box that hosts a
-second one within a year. `--root` no longer carries a default at all —
-passing neither `--root` nor `--name` now genuinely means "figure it out,"
-per the five ranks below, rather than silently meaning "the apps root
-itself," which is what a defaulted `--root` used to mean back when a box only
-ever held one application.
+`/opt/infra/apps`, because the shared-proxy design expects a box to host more
+than one application. `--root` has no default: passing neither `--root` nor
+`--name` means "figure it out", per the five ranks below.
 
 ```bash
 appctl deploy list
@@ -515,8 +427,7 @@ as `-` is not a bug; it means nothing recorded one, and `deploy list` will
 never shell out to `git` to go find it (a seven-app host would cost fourteen
 subprocesses for one inventory, and fail differently for each one).
 
-**What "a deployment" means changed underneath this, and it matters for
-`update`.** A directory only counts as a deployment when it has a git
+**What counts as a deployment matters for `update`.** A directory only counts as a deployment when it has a git
 checkout at `<root>/repo` **and** a readable `.env` — deliberately **not**
 "has a state file." A deployment whose state file was lost — the record
 deleted, the disk half-recovered from a snapshot, whatever the cause — is
@@ -543,11 +454,10 @@ through the same five-rank order** (`layout.ts`'s `locateApp`, called from
    them. `doctor` and `install` are the two exceptions here: since their
    whole job includes the case where nothing is installed yet, an
    unresolvable rank 5 for either of them quietly falls back to the apps
-   root itself (`--root`'s old default), rather than refusing outright.
+   root itself, rather than refusing outright.
 
-On a host with only one application, none of this changes anything you type
-today — rank 4 (or rank 3, once you `cd` into the deployment) resolves it the
-same way `--root`'s old default used to. On a host with more than one, pass
+On a host with only one application, rank 4 (or rank 3, once you `cd` into
+the deployment) resolves it with no flag. On a host with more than one, pass
 `--name <app>` or `--root <path>` explicitly, or simply run the command from
 inside the deployment's own directory.
 
@@ -576,7 +486,7 @@ notices either failure), `2` when nothing is installed at `--root`.
 `--domain` defaults to the domain recorded for the deployment; `--email`
 defaults to `INITIAL_ADMIN_EMAIL` read from that deployment's own `.env`.
 
-### Renewal is scheduled automatically, but only when nothing else already owns it
+### 10.1 Renewal is scheduled automatically, but only when nothing else owns it
 
 `install`/`update` do not simply add a renewal schedule on every run — the
 proxy is shared with every other application on the box, so a second
@@ -610,7 +520,7 @@ so it is never silently lost from the diagnosis, but does not treat it as
 covering this deployment. `--skip-renewal` opts out of this step entirely,
 if you would rather manage renewal yourself.
 
-### The served certificate can lag the one on disk
+### 10.2 The served certificate can lag the one on disk
 
 A certificate renewed on disk is not the same thing as a certificate being
 **served** — until the proxy reloads, it keeps answering with the old one,
@@ -661,7 +571,7 @@ confirmation of that resource's **own real name** — never a generic word like
 - `--purge-storage --confirm-bucket <bucket-name>` deletes every object this
   application ever wrote to object storage. Because the bucket and its
   credential live in the runtime-configurable `storage` system-settings
-  namespace and an encrypted database row (epic #372), not in `.env`, this
+  namespace and an encrypted database row, not in `.env`, this
   purge runs **inside the built api image** —
   `docker compose run --rm --no-deps api npm run storage:purge -- --confirm
   --bucket <name>` — the same reason the CLI cannot itself decrypt that
@@ -677,43 +587,39 @@ confirmation of that resource's **own real name** — never a generic word like
   against the `postgres` maintenance database, terminating only *this*
   database's own backends if the first attempt reports `object_in_use` — see
   `database-drop.ts`'s header for why `DROP DATABASE WITH (FORCE)` was
-  rejected). **As shipped, only the confirmation check runs**: passing
-  `--drop-database` with a confirmation that does not match the recorded
-  database name still refuses, correctly, but a *matching* confirmation
-  currently proceeds to remove the deployment without the database drop
-  itself being invoked — `dropDatabase()` exists and is unit-tested in
-  isolation, but nothing in the uninstall pipeline calls it yet. Do not rely
-  on `--drop-database` to have dropped your database; verify with `psql` (or
-  drop it yourself) until this note is removed.
+  rejected). **Only the confirmation check runs**: a confirmation that does
+  not match the recorded database name refuses, but a *matching* one removes
+  the deployment without dropping the database. `dropDatabase()` exists and
+  is unit-tested, but the uninstall pipeline does not call it. Drop the
+  database yourself with `psql` and verify.
 
 ## 12. The compose project name
 
-Every `docker compose` invocation this CLI makes now runs under an explicit
+Every `docker compose` invocation this CLI makes runs under an explicit
 `-p <project>`. Without it, Compose derives the project name from the compose
 file's directory — `compose`, for every deployment on the box, because they
 all resolve `infra/compose` — so a second application's `up -d` fights the
 first one's containers over the same project. `install` gives a **fresh**
-deployment its own project name (the deployment's directory name); a
-deployment that predates this change keeps running under the literal name
-`compose`, forever, because that project name is **recorded**, never
-re-derived. Do not try to "fix" an older deployment by hand-editing anything
+deployment its own project name (the deployment's directory name). The name
+is **recorded** in the deployment record and never re-derived, so a
+deployment recorded under the literal name `compose` keeps it. Do not try to "fix" an older deployment by hand-editing anything
 to give it a new project name: Compose would then see no existing containers
 under that new name and build a **parallel** stack that collides with the
 still-running old one on the same bind port. If you ever see two stacks
 fighting over one port on a box with only one application installed, this is
 the first thing to check — `deploy status`'s container list will show it.
 
-## 13. Troubleshooting
+## Troubleshooting
 
 | Symptom | Likely cause | What to do |
 |---|---|---|
 | Certificate issuance fails during `install` | The domain's DNS doesn't actually point at this server. | `doctor --domain <domain>` runs `dns-resolves` and `dns-points-here` specifically for this — the failure names both addresses (what the domain resolves to, and what this server's own address is) so a CDN or a stale record is obvious at a glance. |
 | Login redirects loop, or Google rejects the callback | `GOOGLE_CALLBACK_URL` disagrees with the domain you're actually serving. | `GOOGLE_CALLBACK_URL` is **derived automatically** from the domain you gave during install (`https://<domain>/api/auth/google/callback`) unless you deliberately overrode it in the wizard's `--all` review. If you're seeing this, something overrode the derived value — check the deployed `.env` and either fix it there or re-run the wizard for that key. |
-| Migration step succeeds, but the app can't connect to the database afterward | `POSTGRES_PASSWORD` contains a URL-reserved character (`@`, `:`, `/`, `#`). | Fixed for new deployments (issue #172) — the database URL is now built in one place and the password is percent-encoded. An **older** deployment predating that fix, or a hand-edited `.env`, can still hit this. Either change the password to avoid those characters or confirm your checkout includes the fix. |
+| Migration step succeeds, but the app can't connect to the database afterward | `POSTGRES_PASSWORD` contains a URL-reserved character (`@`, `:`, `/`, `#`). | The API and the `prisma:*` scripts percent-encode the password when they build the database URL, so this points at a hand-built connection string or an out-of-date checkout. Update the checkout (`appctl deploy update`), or choose a password without those characters. |
 | `install`/`doctor` reports the loopback port is already in use, by something that isn't this deployment | Another app on the same VPS is already bound to that port. | Pick a different port for this app with `APP_BIND_PORT` in its `.env` (or `--port` during install), or stop whatever's holding the port. `doctor`'s `bind-port-free` check is written to *not* flag this app's own already-running nginx as a conflict — a false positive here means it's genuinely something else. |
 | Repeated `install` attempts start failing with a rate-limit error from Let's Encrypt | You burned the hourly/weekly certificate budget on earlier failed attempts (section 8). | Wait — retrying immediately makes it worse. Use `--staging` for everything except the attempt you actually intend to keep. |
 | `docker compose` commands fail as if the command doesn't exist, or behave unexpectedly | The standalone `docker-compose` **v1** binary is installed instead of the Compose **v2 plugin** (`docker compose`, no hyphen). | `doctor`'s `docker-compose-v2` check catches this directly. Install the v2 plugin per Docker's current documentation; v1 is not a supported substitute anywhere in this pipeline. |
-| `status`/health checks show the API healthy, but the site itself returns 502 | The web container's own nginx and the shared proxy's upstream port have drifted out of agreement — the historical failure mode this exact pair of files used to have. | This is why `status` probes the frontend **separately** from `/api/health/ready` — an API-only health check would show green while the site is down. A stock deployment is guarded by a test asserting these two ports agree; if you've modified `apps/web/nginx.conf` or `infra/nginx/nginx.conf` in a fork, check that they still match. |
+| `status`/health checks show the API healthy, but the site itself returns 502 | The web container's own nginx and the shared proxy's upstream port have drifted out of agreement. | This is why `status` probes the frontend **separately** from `/api/health/ready` — an API-only health check would show green while the site is down. A stock deployment is guarded by a test asserting these two ports agree; if you've modified `apps/web/nginx.conf` or `infra/nginx/nginx.conf` in a fork, check that they still match. |
 | The site serves an expired (or about-to-expire) certificate even though `certs` reports it was renewed | The certificate on disk was renewed, but the proxy was never reloaded, so it is still serving the old one. | `doctor`'s `certificate-served` check catches exactly this by comparing the certificate on the wire against the one on disk. The remedy is one line: `docker exec <proxy-container> nginx -t && docker exec <proxy-container> nginx -s reload` (drop the `docker exec` prefix in host mode) — see section 10. |
 | `git clone`/`git fetch` fails with an authentication prompt or error partway through `install`, against a private repository | The repository URL is an HTTPS GitHub URL, and neither `gh` nor another git credential helper is set up for it. | Install and log in with the GitHub CLI (`gh auth login`) before running `install` — `doctor`'s `gh-installed`/`gh-authenticated` checks catch this ahead of time and are `required` in exactly this situation. An SSH deploy key is unaffected either way; `gh` is only ever a credential source for HTTPS. |
 

@@ -17,23 +17,10 @@ Source of truth for every claim below:
   `--exit-on-error` is load-bearing.
 - `apps/api/src/db-backup/db-backup-admin.service.ts` — the backup list and the
   five-minute signed download URL.
-- `docs/specs/database-restore.md` — the design, and the rejected alternatives.
-- `docs/specs/database-backup.md` — where the archives come from.
 
-**Which procedure you want.**
-
-- **The API is serving.** The application can perform the restore itself, and
-  roll it back. That is **section 8**, and it is the path to prefer: it takes
-  the safety backup, verifies the archive, replays into a scratch database while
-  the application stays up, and swaps in seconds. #286 adds the endpoints that
-  start it and #287 the dialog; until they land it is reachable only from code.
-- **The API is not serving, or the pre-flight came back `guided`.** Section 4 is
-  the procedure, by hand, from a shell. It is the same sequence, with you
-  issuing the statements.
-
-Sections 1-3 (what to know first, what the pre-flight tells you, disk space)
-apply to both. So do the two prerequisites in **section 7** — get those wrong
-and a *successful* restore leaves the application down.
+The design, and the rejected alternatives, are in
+[`docs/specs/database-restore.md`](../specs/database-restore.md); where the
+archives come from is [`docs/specs/database-backup.md`](../specs/database-backup.md).
 
 ---
 
@@ -51,6 +38,22 @@ and a *successful* restore leaves the application down.
   archive — measured in hours, not seconds.
 - **Do not delete anything until you have verified the restore.** Not the
   scratch database, not the displaced one, not the archive.
+
+### 1.1 Which procedure you want
+
+- **The API is serving.** The application performs the restore itself, and
+  can roll it back: **section 8**. Prefer it. It takes the safety backup,
+  verifies the archive, replays into a scratch database while the application
+  stays up, and swaps in seconds. Start it from the **Database Backup** page
+  (`/admin/settings/db-backup`, restore action on a completed run) or with
+  `POST /api/admin/db-backup/runs/<run id>/restore` (section 2.1).
+- **The API is not serving, or the pre-flight came back `guided`.** Section 4 is
+  the procedure, by hand, from a shell. It is the same sequence, with you
+  issuing the statements.
+
+Sections 1-3 (what to know first, what the pre-flight tells you, disk space)
+apply to both. So do the two prerequisites in **section 7**: get those wrong
+and a *successful* restore leaves the application down.
 
 ## 2. What the pre-flight tells you
 
@@ -79,14 +82,19 @@ And **one of three outcomes**:
 - **`blocked`** — something would break. Only the schema gate can be
   overridden.
 
-### 2.1 Running it without the UI
+### 2.1 Running it from the API
 
-Once #286 lands, the pre-flight is an endpoint on the admin API and the CLI
-reaches it with:
+There is no dry-run endpoint. The pre-flight is the first thing the restore
+route does, and its gates come back on every outcome (`preflight.gates`):
 
 ```bash
-appctl api POST /api/admin/db-backup/runs/<run id>/restore/preflight
+appctl api POST /api/admin/db-backup/runs/<run id>/restore \
+  --data '{"confirmation":"RESTORE"}'
 ```
+
+Requires `db_backup:restore`. Read `mode`, not only the status code: all three
+outcomes are `200`. `guided` and `blocked` start nothing. `running` means the
+gates passed and the restore has started (section 8).
 
 **If the API is not serving**, you cannot run it — and you do not need it. The
 gates only tell you what section 4 would tell you anyway; go straight there and
@@ -116,8 +124,9 @@ replay, and **a second** if the displaced database is being kept.
 - `retain_database` — the displaced database is kept, renamed to
   `<database>_old_<timestamp>`, and deleted later by
   `oldDatabaseRetentionHours`. Rolling back is **one rename: seconds**.
-- `drop_database` — it is not kept. Rolling back means restoring the
-  `pre_restore` archive: **hours**.
+- `drop_database` — it is not kept; a `pre_restore` safety backup is taken
+  instead. Rolling back means restoring that archive: **hours**. The
+  pre-flight and the API report this effective mode as `pre_restore_dump`.
 
 **When disk is short, the pre-flight downgrades `retain_database` and tells
 you.** It does not refuse. An administrator mid-incident must never be left
@@ -281,7 +290,7 @@ you have.**
 DROP DATABASE "<old>";
 ```
 
-## 5. When it goes wrong
+## 5. Troubleshooting: when it goes wrong
 
 ### 5.1 `pg_restore` failed part way
 
@@ -388,11 +397,11 @@ in **either** direction, and only a human can clear it.
   will consider it up to date and apply nothing, so nothing tells you. Deploy
   the matching application version *first* wherever possible.
 
-To proceed deliberately, re-send the pre-flight (and, from #285, the restore)
-with the override. It clears **that gate and nothing else** — it does not, and
+To proceed deliberately, re-send the restore with `"overrideSchemaCheck": true`
+alongside the confirmation. It clears **that gate and nothing else** — it does not, and
 cannot, grant a role `CREATEDB` or make an old client read a new server.
 
-## 7. Two prerequisites for the automated restore (#285)
+## 7. Two prerequisites for the automated restore
 
 Both are about the deployment, both have to be true *in advance*, and both turn
 a successful restore into an outage when they are not.
@@ -475,8 +484,8 @@ only window in which it is unavailable is the swap, and that is seconds.
 
 ### 8.2 While it runs
 
-Poll the run (`GET /api/admin/db-backup/runs/<run id>` once #286 lands) or read
-the row:
+Poll the run (`appctl api GET /api/admin/db-backup/runs/<run id>`, field
+`restoreStatus`) or read the row:
 
 ```bash
 psql --host=<db host> --username=<db user> --dbname=<live> -c \
@@ -522,6 +531,16 @@ database was still live, so they are in `<live>_old_<ts>`. The
 
 ## 9. Rolling a restore back
 
+Use the rollback action on the restored run in the Database Backup page, or:
+
+```bash
+appctl api POST /api/admin/db-backup/runs/<run id>/rollback \
+  --data '{"confirmation":"ROLLBACK"}'
+```
+
+Requires `db_backup:restore`. The response `mode` is `renamed` (9.1),
+`restore_started` (9.2) or `unavailable` (9.3); all three are `200`.
+
 ### 9.1 `retain_database` — seconds
 
 The displaced database is still there, so the rollback is two renames: the
@@ -562,13 +581,32 @@ ten-minute tick and only ever drops a database **this application recorded
 displacing**. A `<live>_old_<ts>` you created by hand following section 4 is
 never touched — which also means it is never cleaned up. Drop it yourself.
 
-## 10. Related
+## 10. Summary checklist
 
-- `docs/specs/database-restore.md` — why the admin connection is outside the
-  Prisma pool, why `guided` is a normal outcome, and what was rejected.
-- `docs/specs/database-backup.md` — where archives come from, and the retention
-  rules that decide how long they last.
-- `docs/runbooks/postgres-client-version.md` — fixing a client/server major
-  mismatch.
-- `docs/runbooks/maintenance-mode.md` — opening and closing a window by hand,
-  and recovering from one that locked you out.
+**Before any restore**
+
+- [ ] The archive you want is identified, and its `migration_name` compared
+      with the live one (section 6)
+- [ ] The API has a restart policy (`unless-stopped` or `always`) (section 7.1)
+- [ ] The API runs as a single replica (section 7.2)
+- [ ] You know the effective rollback mode: `retain_database` (seconds) or
+      `pre_restore_dump` (hours) (section 3)
+
+**Manual restore (section 4)**
+
+- [ ] `pg_restore --list` shows a non-empty table of contents
+- [ ] Replayed into `<scratch>` with `--no-owner --no-acl --exit-on-error`
+- [ ] Every API instance stopped before the swap
+- [ ] Both renames succeeded; `\l` shows `<live>` and `<old>`
+- [ ] Migrations run if the schemas differed
+
+**After any restore**
+
+- [ ] `/api/health/ready` answers `200`
+- [ ] Real data checked after logging in
+- [ ] Displaced database kept until you are satisfied, then dropped by hand if
+      you created it by hand
+
+Related runbooks: [`postgres-client-version.md`](postgres-client-version.md)
+(client/server major mismatch) and [`maintenance-mode.md`](maintenance-mode.md)
+(opening, closing and recovering a window by hand).
