@@ -238,11 +238,13 @@ export function AiVoiceMode({ models, preferredModel, ready = true }: AiVoiceMod
   if (!active && !micDeniedFailure) {
     if (mic.permission === 'prompt') {
       micPanel = (
-        <Alert
-          severity="info"
-          data-mic-permission="prompt"
-          action={
+        <Alert severity="info" data-mic-permission="prompt">
+          <AlertTitle>Microphone access needed</AlertTitle>
+          Voice mode needs your microphone. Your browser will ask for permission.
+          {/* In the body, not the `action` slot: at phone widths the slot squeezes the text column. */}
+          <Box sx={{ mt: 1.5 }}>
             <Button
+              variant="outlined"
               color="inherit"
               size="small"
               startIcon={<MicIcon />}
@@ -251,19 +253,17 @@ export function AiVoiceMode({ models, preferredModel, ready = true }: AiVoiceMod
             >
               {mic.requesting ? 'Requesting…' : 'Allow microphone'}
             </Button>
-          }
-        >
-          <AlertTitle>Microphone access needed</AlertTitle>
-          Voice mode needs your microphone. Your browser will ask for permission.
+          </Box>
         </Alert>
       );
     } else if (mic.permission === 'denied') {
       micPanel = (
-        <Alert
-          severity="warning"
-          data-mic-permission="denied"
-          action={
+        <Alert severity="warning" data-mic-permission="denied">
+          <AlertTitle>Microphone access is blocked</AlertTitle>
+          <span data-mic-steps={platform}>{micUnblockSteps(platform)}</span>
+          <Box sx={{ mt: 1.5 }}>
             <Button
+              variant="outlined"
               color="inherit"
               size="small"
               startIcon={<RefreshIcon />}
@@ -272,10 +272,7 @@ export function AiVoiceMode({ models, preferredModel, ready = true }: AiVoiceMod
             >
               {mic.requesting ? 'Checking…' : 'Check again'}
             </Button>
-          }
-        >
-          <AlertTitle>Microphone access is blocked</AlertTitle>
-          <span data-mic-steps={platform}>{micUnblockSteps(platform)}</span>
+          </Box>
         </Alert>
       );
     } else if (mic.permission === 'insecure') {
