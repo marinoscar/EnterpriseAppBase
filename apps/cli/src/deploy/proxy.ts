@@ -406,6 +406,28 @@ server {
         proxy_read_timeout 1h;
         proxy_send_timeout 1h;
     }
+
+    # AI response streaming (SSE, issue #433). Same reasoning as above: the
+    # application's nginx forwards it unbuffered, and this hop must too, or
+    # tokens arrive in batches. One answer rather than a feed, so ten minutes
+    # (the application's own bound) instead of an hour; the API heartbeats
+    # every 15s.
+    location /api/ai/responses/stream {
+        proxy_pass http://127.0.0.1:${target.bindPort};
+        proxy_http_version 1.1;
+
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Connection        '';
+
+        proxy_buffering off;
+        proxy_cache off;
+        chunked_transfer_encoding off;
+        proxy_read_timeout 600s;
+        proxy_send_timeout 600s;
+    }
 }
 `;
 }
