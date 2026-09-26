@@ -16,6 +16,7 @@ import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { EventEmitter2 } from '@nestjs/event-emitter';
 
+import { JOB_SETTLED_EVENT, JobSettledEvent } from './events/job-settled.event';
 import { JobExecutionProfile, resetJobProfileWarnings } from './job-execution-profile';
 import { JobHandler } from './job-handler.interface';
 import { JobHandlerRegistry } from './job-handler.registry';
@@ -609,5 +610,108 @@ describe('JobStuckService.resetStuck', () => {
     const { service } = makeService({ findMany, updateMany, updateManyAndReturn });
 
     await expect(service.resetStuck()).resolves.toEqual({ reset: 0, failed: 0 });
+  });
+
+  // ===========================================================================
+  // The give-up is a settlement, so it is announced (#468)
+  // ===========================================================================
+
+  describe('JOB_SETTLED_EVENT on the phase-1 give-up', () => {
+    beforeEach(() => {
+      // `emitJobSettled` logs through the service's own `Logger` when a
+      // listener throws; silence it here the same way the per-type budget
+      // block above silences `warn`/`log`, so a deliberately-thrown listener
+      // does not spam the test run.
+      jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('emits once per row phase 1 actually changed, each carrying that exact row', async () => {
+      const stuck = [
+        { id: 'job-a', type: 'example.echo', attempts: 3 },
+        { id: 'job-b', type: 'example.echo', attempts: 7 },
+      ];
+      const findMany = jest.fn().mockResolvedValue(stuck);
+      const updateMany = jest.fn().mockResolvedValue({ count: 0 });
+      // Distinct object identities per row, so `event.job === row` is a
+      // meaningful assertion rather than one two `{...spread}` copies would
+      // pass by coincidence.
+      const settledRows = stuck.map((row) => ({ ...row, status: 'failed' }));
+      const updateManyAndReturn = jest.fn(async ({ where }: { where: { id: string } }) =>
+        settledRows.filter((row) => row.id === where.id)
+      );
+      const { service, events } = makeService({ findMany, updateMany, updateManyAndReturn });
+
+      const result = await service.resetStuck();
+
+      expect(result.failed).toBe(2);
+      expect(events.emit).toHaveBeenCalledTimes(2);
+
+      expect(events.emit.mock.calls[0][0]).toBe(JOB_SETTLED_EVENT);
+      expect(events.emit.mock.calls[1][0]).toBe(JOB_SETTLED_EVENT);
+
+      const firstEvent = events.emit.mock.calls[0][1] as JobSettledEvent;
+      const secondEvent = events.emit.mock.calls[1][1] as JobSettledEvent;
+
+      expect(firstEvent).toBeInstanceOf(JobSettledEvent);
+      // The exact row object `updateManyAndReturn` handed back — not a copy,
+      // not a re-read — is what the event carries.
+      expect(firstEvent.job).toBe(settledRows[0]);
+      expect(secondEvent.job).toBe(settledRows[1]);
+    });
+
+    it('emits nothing when updateManyAndReturn returns no rows (lost the race)', async () => {
+      const findMany = jest
+        .fn()
+        .mockResolvedValue([{ id: 'job-a', type: 'example.echo', attempts: 3 }]);
+      const updateMany = jest.fn().mockResolvedValue({ count: 0 });
+      // A late executor (or a faster replica) settled the row first: the
+      // re-asserted `where` no longer matches, so `UPDATE ... RETURNING`
+      // changes and returns nothing.
+      const updateManyAndReturn = jest.fn().mockResolvedValue([]);
+      const { service, events } = makeService({ findMany, updateMany, updateManyAndReturn });
+
+      const result = await service.resetStuck();
+
+      expect(result).toEqual({ reset: 0, failed: 0 });
+      expect(events.emit).not.toHaveBeenCalled();
+    });
+
+    it('never emits on the phase-2 requeue — a requeue is not a settlement', async () => {
+      const updateMany = jest.fn().mockResolvedValue({ count: 4 });
+      const { service, events } = makeService({ updateMany });
+
+      const result = await service.resetStuck();
+
+      expect(result).toEqual({ reset: 4, failed: 0 });
+      expect(events.emit).not.toHaveBeenCalled();
+    });
+
+    it('contains a throwing listener: the rest of phase 1 and phase 2 still run', async () => {
+      const stuck = [
+        { id: 'job-a', type: 'example.echo', attempts: 3 },
+        { id: 'job-b', type: 'example.echo', attempts: 7 },
+      ];
+      const findMany = jest.fn().mockResolvedValue(stuck);
+      const updateMany = jest.fn().mockResolvedValue({ count: 4 });
+      const updateManyAndReturn = givesUpEachRow(stuck);
+      const { service, events } = makeService({ findMany, updateMany, updateManyAndReturn });
+
+      events.emit.mockImplementation(() => {
+        throw new Error('listener blew up');
+      });
+
+      // Neither row's give-up, nor the requeue sweep that follows, is
+      // aborted by the throwing listener.
+      await expect(service.resetStuck()).resolves.toEqual({ reset: 4, failed: 2 });
+
+      expect(updateManyAndReturn).toHaveBeenCalledTimes(2);
+      expect(updateMany).toHaveBeenCalledTimes(1);
+      // The emit was still attempted for both rows, even though both threw.
+      expect(events.emit).toHaveBeenCalledTimes(2);
+    });
   });
 });

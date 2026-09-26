@@ -34,6 +34,7 @@ import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma, PrismaClient } from '@prisma/client';
 
+import { JOB_SETTLED_EVENT, JobSettledEvent } from '../../src/jobs/events/job-settled.event';
 import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
 import { JobStuckService } from '../../src/jobs/job-stuck.service';
 import type { PrismaService } from '../../src/prisma/prisma.service';
@@ -56,7 +57,7 @@ const minutesAgo = (minutes: number): Date => new Date(Date.now() - minutes * 60
  * than to this suite, so the threshold is stated explicitly instead of being
  * read out of (and possibly written into) a shared database.
  */
-function stuckServiceFor(client: PrismaClient): JobStuckService {
+function stuckServiceFor(client: PrismaClient, events: EventEmitter2 = new EventEmitter2()): JobStuckService {
   const config = {
     get: (key: string) => (key === 'jobs.maxAttempts' ? MAX_ATTEMPTS : undefined),
   } as unknown as ConfigService;
@@ -75,8 +76,16 @@ function stuckServiceFor(client: PrismaClient): JobStuckService {
     // No handler registered means no execution profile anywhere, which is the
     // single-budget shape the reaper has always had (#346).
     new JobHandlerRegistry(),
-    new EventEmitter2()
+    events
   );
+}
+
+/** An `EventEmitter2` plus every `JobSettledEvent` it has dispatched, in order (#468). */
+function collectingEmitter(): { emitter: EventEmitter2; events: JobSettledEvent[] } {
+  const emitter = new EventEmitter2();
+  const events: JobSettledEvent[] = [];
+  emitter.on(JOB_SETTLED_EVENT, (event: JobSettledEvent) => events.push(event));
+  return { emitter, events };
 }
 
 describeWithDb('JobStuckService.resetStuck (real Postgres)', () => {
@@ -432,10 +441,15 @@ describeWithDb('JobStuckService.resetStuck (real Postgres)', () => {
     await expect(read(retryable)).resolves.toMatchObject({ status: 'pending' });
   });
 
-  it('is idempotent: a second sweep finds nothing left to do', async () => {
+  it('is idempotent: a second sweep finds nothing left to do, and emits nothing (#468)', async () => {
     // The reaper runs every ten minutes forever, and two replicas may sweep
     // at once. A second pass over rows it has already reclaimed must be a
-    // no-op rather than, say, re-failing a job it just requeued.
+    // no-op rather than, say, re-failing a job it just requeued — and must
+    // not re-announce a settlement that never happened on this row (it was
+    // only ever requeued, never failed).
+    const { emitter, events } = collectingEmitter();
+    const instrumented = stuckServiceFor(client, emitter);
+
     await seed({
       type: nextType(),
       status: 'running',
@@ -443,8 +457,9 @@ describeWithDb('JobStuckService.resetStuck (real Postgres)', () => {
       startedAt: minutesAgo(THRESHOLD_MINUTES + 1),
     });
 
-    await expect(stuck.resetStuck()).resolves.toEqual({ reset: 1, failed: 0 });
-    await expect(stuck.resetStuck()).resolves.toEqual({ reset: 0, failed: 0 });
+    await expect(instrumented.resetStuck()).resolves.toEqual({ reset: 1, failed: 0 });
+    await expect(instrumented.resetStuck()).resolves.toEqual({ reset: 0, failed: 0 });
+    expect(events).toHaveLength(0);
   });
 
   it('honours an explicit threshold, so an operator can reclaim more aggressively', async () => {
@@ -465,5 +480,150 @@ describeWithDb('JobStuckService.resetStuck (real Postgres)', () => {
     // ...and reclaimed when the caller says two.
     await expect(stuck.resetStuck(2)).resolves.toMatchObject({ reset: 1 });
     await expect(read(id)).resolves.toMatchObject({ status: 'pending' });
+  });
+
+  // ===========================================================================
+  // The give-up is a settlement, so it is announced (#468)
+  // ===========================================================================
+  //
+  // `job-stuck.service.spec.ts` proves the SHAPE of the emit (once per row
+  // `updateManyAndReturn` actually changed, the exact row object, contained
+  // against a throwing listener) against mocks. What only a real database can
+  // prove is the CLAIM the file header above makes about exactly-once-across-
+  // replicas: that two concurrent reapers racing the same exhausted row
+  // really do serialize on Postgres's own row lock, and that only the one
+  // whose `UPDATE ... RETURNING` actually changed the row ever calls
+  // `events.emit`.
+  describe('JOB_SETTLED_EVENT on the reaper give-up (#468)', () => {
+    it('emits exactly one event, carrying the post-update row, for a reaped permanent failure', async () => {
+      const { emitter, events } = collectingEmitter();
+      const instrumented = stuckServiceFor(client, emitter);
+
+      const id = await seed({
+        type: nextType(),
+        status: 'running',
+        attempts: MAX_ATTEMPTS,
+        startedAt: minutesAgo(THRESHOLD_MINUTES + 1),
+        executor: 'server',
+      });
+
+      await expect(instrumented.resetStuck()).resolves.toMatchObject({ reset: 0, failed: 1 });
+
+      expect(events).toHaveLength(1);
+
+      const settled = events[0].job;
+      expect(settled.id).toBe(id);
+      expect(settled.status).toBe('failed');
+      expect(settled.finishedAt).not.toBeNull();
+      expect(settled.claimToken).toBeNull();
+      // Kept on a terminal row, exactly as the plain DB assertion above checks.
+      expect(settled.executor).toBe('server');
+      expect(settled.lastError).toContain('lease reaper');
+      expect(settled.lastError).toContain(`after ${MAX_ATTEMPTS} attempt(s)`);
+
+      // The event's row IS the row now in the database — not a stale snapshot.
+      const row = await read(id);
+      expect(row).toMatchObject({
+        status: 'failed',
+        executor: 'server',
+        claimToken: null,
+      });
+    });
+
+    it('emits nothing when phase 2 requeues a row still under budget', async () => {
+      const { emitter, events } = collectingEmitter();
+      const instrumented = stuckServiceFor(client, emitter);
+
+      await seed({
+        type: nextType(),
+        status: 'running',
+        attempts: MAX_ATTEMPTS - 1,
+        startedAt: minutesAgo(THRESHOLD_MINUTES + 1),
+      });
+
+      await expect(instrumented.resetStuck()).resolves.toMatchObject({ reset: 1, failed: 0 });
+      expect(events).toHaveLength(0);
+    });
+
+    it(
+      'two concurrent sweeps over one exhausted, lease-expired row settle it exactly once, ' +
+        'with exactly one event across both emitters',
+      async () => {
+        const id = await seed({
+          type: nextType(),
+          status: 'running',
+          attempts: MAX_ATTEMPTS,
+          startedAt: minutesAgo(THRESHOLD_MINUTES + 1),
+          leaseExpiresAt: minutesAgo(1),
+          executor: 'server',
+        });
+
+        // A SECOND, independent connection running its own reaper — the real
+        // seam this test closes: two REPLICAS, not two calls on one client.
+        const clientB = createDbClient();
+        // A THIRD, independent connection used only to hold a real row lock,
+        // so both sweeps below are genuinely forced to block on Postgres's
+        // own lock rather than merely racing in JS event-loop order.
+        const lockClient = createDbClient();
+        await Promise.all([clientB.$connect(), lockClient.$connect()]);
+
+        try {
+          const { emitter: emitterA, events: eventsA } = collectingEmitter();
+          const { emitter: emitterB, events: eventsB } = collectingEmitter();
+          const reaperA = stuckServiceFor(client, emitterA);
+          const reaperB = stuckServiceFor(clientB, emitterB);
+
+          let signalLockAcquired!: () => void;
+          const lockAcquired = new Promise<void>((resolve) => {
+            signalLockAcquired = resolve;
+          });
+          let releaseLock!: () => void;
+          const heldUntilReleased = new Promise<void>((resolve) => {
+            releaseLock = resolve;
+          });
+
+          // Hold `SELECT ... FOR UPDATE` on the row from the third connection,
+          // inside an interactive transaction, so the row lock is real and
+          // held by a party neither reaper is.
+          const lockTx = lockClient.$transaction(
+            async (tx) => {
+              await tx.$queryRawUnsafe('SELECT id FROM jobs WHERE id = $1 FOR UPDATE', id);
+              signalLockAcquired();
+              await heldUntilReleased;
+            },
+            { timeout: 10_000 }
+          );
+
+          await lockAcquired;
+
+          // Both sweeps start while the lock is held: each reader's own
+          // `findMany` sees the row fine (plain reads are not blocked by
+          // `FOR UPDATE`), but each one's give-up `UPDATE ... RETURNING`
+          // blocks on the held row lock.
+          const sweeps = Promise.all([reaperA.resetStuck(), reaperB.resetStuck()]);
+
+          // Hold the lock for ~1s while both sweeps are genuinely blocked on
+          // it, then release — the window the task's approach calls for.
+          await new Promise((resolve) => setTimeout(resolve, 1_000));
+          releaseLock();
+
+          const [[resultA, resultB]] = await Promise.all([sweeps, lockTx]);
+
+          // Exactly one of the two reapers actually changed the row — the
+          // other's re-asserted `WHERE` no longer matched once the first's
+          // write committed, so `UPDATE ... RETURNING` gave it `[]`.
+          expect(resultA.failed + resultB.failed).toBe(1);
+          expect(resultA.reset + resultB.reset).toBe(0);
+
+          // And exactly one event was emitted, across BOTH emitters.
+          expect(eventsA.length + eventsB.length).toBe(1);
+
+          const row = await read(id);
+          expect(row.status).toBe('failed');
+        } finally {
+          await Promise.all([clientB.$disconnect(), lockClient.$disconnect()]);
+        }
+      }
+    );
   });
 });
