@@ -371,6 +371,100 @@ describe('proxy checks', () => {
   });
 });
 
+describe('certbot-installed and proxy-config-valid under a container runtime', () => {
+  const containerRuntime = {
+    mode: 'container' as const,
+    container: 'infra-proxy-1',
+    certRoot: '/etc/letsencrypt',
+    webroot: '/var/www/certbot',
+  };
+
+  it('certbot-installed is only RECOMMENDED in container mode, and passes even without a host binary', async () => {
+    const result = await find('certbot-installed').run(
+      context({
+        proxyRuntime: containerRuntime,
+        runCommand: fakeRunCommand(() => undefined), // no host certbot at all
+      }),
+    );
+
+    expect(result.status).toBe('skip');
+    expect(result.detail).toContain('containerised');
+  });
+
+  it('certbot-installed still reports a host certbot if one happens to be there, marked unused', async () => {
+    const result = await find('certbot-installed').run(
+      context({
+        proxyRuntime: containerRuntime,
+        runCommand: fakeRunCommand((argv) =>
+          argv.join(' ').startsWith('certbot --version') ? { exitCode: 0, stdout: 'certbot 2.9.0' } : undefined,
+        ),
+      }),
+    );
+
+    expect(result.status).toBe('pass');
+    expect(result.detail).toContain('unused');
+  });
+
+  it('certbot-installed is REQUIRED in host mode, and required when the runtime is unknown', () => {
+    const check = HOST_CHECKS.find((candidate) => candidate.id === 'certbot-installed');
+    expect(check).toBeDefined();
+    expect(check?.severityFor?.(context({ proxyRuntime: { ...containerRuntime, mode: 'host' } }))).toBe(
+      'required',
+    );
+    expect(check?.severityFor?.(context({ proxyRuntime: undefined }))).toBe('required');
+    expect(check?.severityFor?.(context({ proxyRuntime: containerRuntime }))).toBe('recommended');
+  });
+
+  it('proxy-config-valid runs `docker exec <container> nginx -t` in container mode', async () => {
+    const seen: string[][] = [];
+    const result = await find('proxy-config-valid').run(
+      context({
+        proxyRuntime: containerRuntime,
+        runCommand: fakeRunCommand((argv) => {
+          seen.push([...argv]);
+          return { exitCode: 0, stderr: 'syntax is ok' };
+        }),
+      }),
+    );
+
+    expect(result.status).toBe('pass');
+    expect(seen).toContainEqual(['docker', 'exec', 'infra-proxy-1', 'nginx', '-t']);
+  });
+
+  it('proxy-config-valid warns, naming the fix, when the containerised proxy is not running', async () => {
+    const result = await find('proxy-config-valid').run(
+      context({
+        proxyRuntime: containerRuntime,
+        runCommand: fakeRunCommand(() => ({
+          exitCode: 1,
+          stderr: 'Error: No such container: infra-proxy-1',
+        })),
+      }),
+    );
+
+    expect(result.status).toBe('warn');
+    expect(result.detail).toContain('infra-proxy-1');
+    expect(result.remedy).toContain('docker start infra-proxy-1');
+    expect(result.remedy).toContain('--proxy-container');
+  });
+
+  it('proxy-config-valid warns when nginx -t itself fails inside the container', async () => {
+    const result = await find('proxy-config-valid').run(
+      context({
+        proxyRuntime: containerRuntime,
+        runCommand: fakeRunCommand(() => ({
+          exitCode: 1,
+          stderr: 'nginx: [emerg] unknown directive "bogus"',
+        })),
+      }),
+    );
+
+    expect(result.status).toBe('warn');
+    expect(result.detail).toContain('bogus');
+    expect(result.remedy).toContain('every site');
+  });
+});
+
 describe('resource checks', () => {
   it('warns on a small-memory host', async () => {
     const result = await find('memory').run(

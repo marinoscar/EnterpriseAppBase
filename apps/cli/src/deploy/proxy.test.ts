@@ -7,13 +7,22 @@ import { describe, expect, it } from 'vitest';
 import { UsageError } from '../errors.js';
 import { CommandFailedError, type CommandResult, type RunCommandOptions } from './executor.js';
 import {
+  assertValidContainerName,
   assertValidDomain,
+  certbotArgv,
   certificateStatus,
+  CONTAINER_CERT_ROOT,
+  CONTAINER_WEBROOT,
+  DEFAULT_PROXY_CONTAINER,
   installVhost,
   issueCertificate,
+  parseProxyMode,
   proxyRuntimeFor,
+  reloadProxy,
   removeVhost,
   renderVhost,
+  resolveProxyRuntime,
+  resolveRecordedProxyRuntime,
   validateProxy,
   vhostPath,
   type ProxyTarget,
@@ -354,5 +363,286 @@ describe('validateProxy', () => {
 
     expect(result.ok).toBe(false);
     expect(result.output).toContain('oops');
+  });
+});
+
+// =============================================================================
+// Container vs. host runtime  (issue #389)
+// =============================================================================
+
+describe('renderVhost: container vs. host paths', () => {
+  it('in container mode, uses /etc/letsencrypt and /var/www/certbot, and never the host proxy root', () => {
+    const root = makeProxyRoot();
+    const runtime = proxyRuntimeFor('container', root);
+    const rendered = renderVhost(target(root), runtime);
+
+    expect(rendered).toContain(`${CONTAINER_CERT_ROOT}/live/app.example.test/fullchain.pem`);
+    expect(rendered).toContain(`${CONTAINER_CERT_ROOT}/live/app.example.test/privkey.pem`);
+    expect(rendered).toContain(CONTAINER_WEBROOT);
+    // The host proxy root must never leak into a config nginx-in-a-container
+    // cannot resolve.
+    expect(rendered).not.toContain(root);
+  });
+
+  it('in host mode, still uses the host proxy root paths', () => {
+    const root = makeProxyRoot();
+    const runtime = proxyRuntimeFor('host', root);
+    const rendered = renderVhost(target(root), runtime);
+
+    expect(rendered).toContain(join(root, 'letsencrypt', 'live', 'app.example.test', 'fullchain.pem'));
+    expect(rendered).toContain(join(root, 'webroot'));
+    expect(rendered).not.toContain(CONTAINER_CERT_ROOT);
+    expect(rendered).not.toContain(CONTAINER_WEBROOT);
+  });
+});
+
+describe('certbotArgv', () => {
+  const email = 'admin@example.test';
+
+  it('in container mode, runs the dockerised certbot with the two volumes and no --config-dir/--work-dir/--logs-dir', () => {
+    const root = makeProxyRoot();
+    const runtime = proxyRuntimeFor('container', root);
+
+    const argv = certbotArgv(target(root), runtime, { email });
+
+    expect(argv).toEqual([
+      'docker', 'run', '--rm',
+      '-v', `${join(root, 'letsencrypt')}:${CONTAINER_CERT_ROOT}`,
+      '-v', `${join(root, 'webroot')}:${CONTAINER_WEBROOT}`,
+      'certbot/certbot:latest',
+      'certonly',
+      '--webroot', '-w', CONTAINER_WEBROOT,
+      '-d', 'app.example.test',
+      '--non-interactive', '--agree-tos',
+      '--email', email,
+    ]);
+    expect(argv).not.toContain('--config-dir');
+    expect(argv).not.toContain('--work-dir');
+    expect(argv).not.toContain('--logs-dir');
+  });
+
+  it('in host mode, keeps --config-dir/--work-dir/--logs-dir under the proxy root', () => {
+    const root = makeProxyRoot();
+    const runtime = proxyRuntimeFor('host', root);
+
+    const argv = certbotArgv(target(root), runtime, { email });
+
+    expect(argv[0]).toBe('certbot');
+    expect(argv).toContain('--config-dir');
+    expect(argv).toContain(join(root, 'letsencrypt'));
+    expect(argv).toContain('--work-dir');
+    expect(argv).toContain(join(root, 'letsencrypt', 'work'));
+    expect(argv).toContain('--logs-dir');
+    expect(argv).toContain(join(root, 'letsencrypt', 'logs'));
+    expect(argv).not.toContain('docker');
+  });
+
+  it('passes --staging and --force-renewal through in both modes', () => {
+    const root = makeProxyRoot();
+
+    const container = certbotArgv(target(root), proxyRuntimeFor('container', root), {
+      email,
+      staging: true,
+      forceRenewal: true,
+    });
+    expect(container).toContain('--staging');
+    expect(container).toContain('--force-renewal');
+
+    const host = certbotArgv(target(root), proxyRuntimeFor('host', root), {
+      email,
+      staging: true,
+      forceRenewal: true,
+    });
+    expect(host).toContain('--staging');
+    expect(host).toContain('--force-renewal');
+  });
+});
+
+describe('installVhost / validateProxy / reloadProxy under a container runtime', () => {
+  it('uses `docker exec <container> nginx -t` and `nginx -s reload`', async () => {
+    const root = makeProxyRoot();
+    const calls: string[][] = [];
+    const runtime = proxyRuntimeFor('container', root, 'infra-proxy-1');
+
+    await installVhost(target(root), {
+      runCommand: fakeRunCommand(() => ({ exitCode: 0 }), calls),
+      runtime,
+    });
+
+    expect(calls).toEqual([
+      ['docker', 'exec', 'infra-proxy-1', 'nginx', '-t'],
+      ['docker', 'exec', 'infra-proxy-1', 'nginx', '-s', 'reload'],
+    ]);
+  });
+
+  it('validateProxy alone uses docker exec under a container runtime', async () => {
+    const root = makeProxyRoot();
+    const runtime = proxyRuntimeFor('container', root, 'infra-proxy-1');
+    const calls: string[][] = [];
+
+    await validateProxy({ runCommand: fakeRunCommand(() => ({ exitCode: 0 }), calls), runtime });
+
+    expect(calls).toEqual([['docker', 'exec', 'infra-proxy-1', 'nginx', '-t']]);
+  });
+
+  it('reloadProxy alone uses docker exec under a container runtime', async () => {
+    const root = makeProxyRoot();
+    const runtime = proxyRuntimeFor('container', root, 'infra-proxy-1');
+    const calls: string[][] = [];
+
+    await reloadProxy({ runCommand: fakeRunCommand(() => ({ exitCode: 0 }), calls), runtime });
+
+    expect(calls).toEqual([['docker', 'exec', 'infra-proxy-1', 'nginx', '-s', 'reload']]);
+  });
+});
+
+describe('assertValidContainerName', () => {
+  it('accepts a normal docker container name', () => {
+    expect(() => assertValidContainerName('proxy-nginx')).not.toThrow();
+    expect(() => assertValidContainerName('a')).not.toThrow();
+  });
+
+  it.each(['', '-leading-hyphen', 'has spaces', 'semi;colon', 'new\nline', '../escape'])(
+    'rejects %j before it reaches a docker argv',
+    (name) => {
+      expect(() => assertValidContainerName(name)).toThrow(UsageError);
+    },
+  );
+});
+
+describe('parseProxyMode', () => {
+  it('accepts container and host', () => {
+    expect(parseProxyMode('container')).toBe('container');
+    expect(parseProxyMode('host')).toBe('host');
+  });
+
+  it('rejects anything else', () => {
+    expect(() => parseProxyMode('docker')).toThrow(UsageError);
+    expect(() => parseProxyMode('')).toThrow(UsageError);
+  });
+});
+
+describe('resolveProxyRuntime', () => {
+  function fake(respond: (argv: readonly string[]) => Canned | undefined): typeof import('./executor.js').runCommand {
+    return fakeRunCommand(respond);
+  }
+
+  it('an explicit mode wins outright, without probing anything', async () => {
+    const calls: string[][] = [];
+    const runtime = await resolveProxyRuntime({
+      proxyRoot: '/opt/infra/proxy',
+      mode: 'host',
+      runCommand: fakeRunCommand(() => ({ exitCode: 0 }), calls),
+    });
+
+    expect(runtime).toMatchObject({ mode: 'host', source: 'explicit' });
+    expect(calls).toEqual([]);
+  });
+
+  it('detects container mode when `docker inspect` finds the named container', async () => {
+    const runtime = await resolveProxyRuntime({
+      proxyRoot: '/opt/infra/proxy',
+      container: 'my-proxy',
+      runCommand: fake((argv) =>
+        argv.join(' ').startsWith('docker inspect') ? { exitCode: 0, stdout: 'my-proxy' } : undefined,
+      ),
+    });
+
+    expect(runtime).toMatchObject({ mode: 'container', container: 'my-proxy', source: 'detected' });
+  });
+
+  it('falls back to host mode when no container is found but nginx -v succeeds', async () => {
+    const runtime = await resolveProxyRuntime({
+      proxyRoot: '/opt/infra/proxy',
+      runCommand: fake((argv) => {
+        if (argv.join(' ').startsWith('docker inspect')) return { exitCode: 1, stderr: 'no such container' };
+        if (argv.join(' ').startsWith('nginx -v')) return { exitCode: 0, stderr: 'nginx version' };
+        return undefined;
+      }),
+    });
+
+    expect(runtime).toMatchObject({ mode: 'host', source: 'detected' });
+  });
+
+  it('defaults to container mode when neither probe succeeds', async () => {
+    const runtime = await resolveProxyRuntime({
+      proxyRoot: '/opt/infra/proxy',
+      runCommand: fake(() => ({ exitCode: 1, stderr: 'nope' })),
+    });
+
+    expect(runtime).toMatchObject({ mode: 'container', container: DEFAULT_PROXY_CONTAINER, source: 'default' });
+  });
+
+  it('validates the container name before anything is probed', async () => {
+    await expect(
+      resolveProxyRuntime({
+        proxyRoot: '/opt/infra/proxy',
+        container: 'bad name;here',
+        runCommand: fakeRunCommand(() => ({ exitCode: 0 })),
+      }),
+    ).rejects.toBeInstanceOf(UsageError);
+  });
+});
+
+describe('resolveRecordedProxyRuntime: flag > record > detect, per field', () => {
+  const detectsHost: typeof import('./executor.js').runCommand = fakeRunCommand((argv) => {
+    if (argv.join(' ').startsWith('docker inspect')) return { exitCode: 1, stderr: 'no such container' };
+    if (argv.join(' ').startsWith('nginx -v')) return { exitCode: 0 };
+    return undefined;
+  });
+
+  it('an explicit flag wins over a recorded value', async () => {
+    const runtime = await resolveRecordedProxyRuntime({
+      proxyRoot: '/opt/infra/proxy',
+      flags: { mode: 'host' },
+      recorded: { proxyMode: 'container', proxyContainer: 'recorded-proxy' },
+      runCommand: fakeRunCommand(() => ({ exitCode: 0 })),
+    });
+
+    expect(runtime.mode).toBe('host');
+  });
+
+  it('the record wins over detection when no flag is given', async () => {
+    const runtime = await resolveRecordedProxyRuntime({
+      proxyRoot: '/opt/infra/proxy',
+      flags: {},
+      recorded: { proxyMode: 'container', proxyContainer: 'recorded-proxy' },
+      runCommand: detectsHost, // would detect host, but the record wins
+    });
+
+    expect(runtime).toMatchObject({ mode: 'container', container: 'recorded-proxy', source: 'explicit' });
+  });
+
+  it('detection is the last resort when neither a flag nor a record says anything', async () => {
+    const runtime = await resolveRecordedProxyRuntime({
+      proxyRoot: '/opt/infra/proxy',
+      flags: {},
+      recorded: undefined,
+      runCommand: detectsHost,
+    });
+
+    expect(runtime).toMatchObject({ mode: 'host', source: 'detected' });
+  });
+
+  it('each half falls back independently: a mode flag with a recorded container name keeps that name', async () => {
+    const runtime = await resolveRecordedProxyRuntime({
+      proxyRoot: '/opt/infra/proxy',
+      flags: { mode: 'container' },
+      recorded: { proxyContainer: 'recorded-proxy' },
+      runCommand: fakeRunCommand(() => ({ exitCode: 0 })),
+    });
+
+    expect(runtime).toMatchObject({ mode: 'container', container: 'recorded-proxy' });
+  });
+
+  it('a container flag with a recorded mode keeps that mode', async () => {
+    const runtime = await resolveRecordedProxyRuntime({
+      proxyRoot: '/opt/infra/proxy',
+      flags: { container: 'flagged-proxy' },
+      recorded: { proxyMode: 'host' },
+      runCommand: fakeRunCommand(() => ({ exitCode: 0 })),
+    });
+
+    expect(runtime).toMatchObject({ mode: 'host', container: 'flagged-proxy' });
   });
 });

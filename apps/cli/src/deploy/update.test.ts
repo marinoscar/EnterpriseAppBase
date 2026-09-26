@@ -169,6 +169,89 @@ describe('runUpdate: adopting an unrecorded deployment (#not the NotInstalledErr
   });
 });
 
+// =============================================================================
+// The `publish` step resolves the proxy runtime ONCE (flag > record > detect),
+// and that is exactly what `runUpdate` later writes back into the state file
+// as `proxyMode`/`proxyContainer`. Asserting `context.proxyRuntime` here is
+// asserting the value that write reads from.
+// =============================================================================
+describe('the publish step resolves and records the proxy runtime', () => {
+  function publishStep() {
+    const step = buildUpdateSteps().find((candidate) => candidate.id === 'publish');
+    if (step === undefined) throw new Error('the "publish" step was removed or renamed');
+    return step;
+  }
+
+  function baseState(root: string, overrides: Record<string, unknown> = {}) {
+    return {
+      version: 1,
+      repoUrl: 'https://example.test/o/r',
+      ref: 'main',
+      commitSha: 'a'.repeat(40),
+      domain: 'app.example.test',
+      bindPort: 3535,
+      deployRoot: root,
+      installedAt: '2026-01-01T00:00:00.000Z',
+      lastDeployedAt: '2026-01-01T00:00:00.000Z',
+      lastCommand: 'update',
+      appctlVersion: '1.0.0',
+      proxyRoot: join(root, 'proxy'),
+      ...overrides,
+    };
+  }
+
+  function contextFor(root: string, state: Record<string, unknown>, options: Record<string, unknown> = {}) {
+    return {
+      options: { deployRoot: root, ...options },
+      state,
+      runCommand: (async (argv: readonly string[]) => {
+        if (argv[0] === 'docker') {
+          return { argv, cwd: root, exitCode: 0, stdout: '', stderr: '', durationMs: 0, timedOut: false };
+        }
+        throw new Error(`this test must not spawn: ${argv.join(' ')}`);
+      }) as never,
+      journal: { line: () => undefined, redact: (text: string) => text },
+      hooks: undefined,
+      completed: new Set<string>(),
+      env: new Map<string, string>(),
+      progress: [] as string[],
+      proxyRuntime: undefined as { mode: string; container: string; source: string } | undefined,
+    };
+  }
+
+  it('an explicit --proxy-mode/--proxy-container flag is what gets resolved and recorded', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'appctl-update-publish-'));
+    const context = contextFor(root, baseState(root), {
+      proxyMode: 'container',
+      proxyContainer: 'flagged-proxy',
+    });
+
+    await publishStep().run(context as never);
+
+    expect(context.proxyRuntime).toMatchObject({
+      mode: 'container',
+      container: 'flagged-proxy',
+      source: 'explicit',
+    });
+  });
+
+  it('with no flag, install\'s recorded runtime is what gets resolved and recorded', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'appctl-update-publish-'));
+    const context = contextFor(
+      root,
+      baseState(root, { proxyMode: 'container', proxyContainer: 'recorded-proxy' }),
+    );
+
+    await publishStep().run(context as never);
+
+    expect(context.proxyRuntime).toMatchObject({
+      mode: 'container',
+      container: 'recorded-proxy',
+      source: 'explicit',
+    });
+  });
+});
+
 describe('runUpdate: an unreadable state file is not an unrecorded deployment', () => {
   it('surfaces DeployStateError, not the adoption path and not NotInstalledError', async () => {
     const root = mkdtempSync(join(tmpdir(), 'appctl-badstate-'));

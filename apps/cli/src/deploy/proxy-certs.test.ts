@@ -271,4 +271,114 @@ describe('renewCertificate', () => {
     const certbot = run.mock.calls.find((call) => (call[0] as string[])[0] === 'certbot');
     expect(certbot?.[0]).toContain('--staging');
   });
+
+  // ===========================================================================
+  // The reload is load-bearing: a renewed certificate on disk is NOT a served
+  // one until the proxy reloads it. See renewCertificate's own header comment.
+  // ===========================================================================
+  describe('validating and reloading after a renewal', () => {
+    /** Every call after certbot answers `ok()`, unless overridden. */
+    function runWith(
+      after: (argv: readonly string[]) => ReturnType<typeof ok> | { exitCode: number; stderr?: string } | undefined,
+    ): ReturnType<typeof vi.fn> {
+      return vi.fn().mockImplementation(async (argv: readonly string[]) => {
+        if (argv[0] === 'certbot') return ok('notAfter=Mar 1 12:00:00 2027 GMT\n');
+        if (argv[0] === 'openssl') return ok('notAfter=Jun 1 12:00:00 2027 GMT\n');
+        const overridden = after(argv);
+        if (overridden === undefined) return ok('');
+        if ('exitCode' in overridden && overridden.exitCode !== 0) {
+          const error = new Error(overridden.stderr ?? 'failed');
+          (error as { result?: unknown }).result = { stdout: '', stderr: overridden.stderr ?? '' };
+          throw error;
+        }
+        return overridden;
+      });
+    }
+
+    it('validates then reloads on success: renewed and reloaded both true', async () => {
+      const proxyRoot = root();
+      const target = targetIn(proxyRoot);
+      installCert(target);
+      const run = runWith(() => undefined);
+
+      const result = await renewCertificate(target, {
+        runCommand: run as never,
+        email: 'ops@example.com',
+        force: true,
+      });
+
+      expect(result.renewed).toBe(true);
+      expect(result.reloaded).toBe(true);
+      expect(result.reason).toMatch(/renewed and the proxy reloaded/);
+
+      const calls = run.mock.calls.map((call) => (call[0] as string[]).join(' '));
+      expect(calls).toContain('nginx -t');
+      expect(calls).toContain('nginx -s reload');
+      // Validated BEFORE reloading, so a neighbour's broken vhost cannot be
+      // turned into a failed reload for every site on the box.
+      expect(calls.indexOf('nginx -t')).toBeLessThan(calls.indexOf('nginx -s reload'));
+    });
+
+    it('renewed but NOT reloaded when nginx -t fails after the renewal', async () => {
+      const proxyRoot = root();
+      const target = targetIn(proxyRoot);
+      installCert(target);
+      const run = runWith((argv) =>
+        argv.join(' ') === 'nginx -t' ? { exitCode: 1, stderr: 'nginx: [emerg] bad vhost' } : undefined,
+      );
+
+      const result = await renewCertificate(target, {
+        runCommand: run as never,
+        email: 'ops@example.com',
+        force: true,
+      });
+
+      expect(result.renewed).toBe(true);
+      expect(result.reloaded).toBe(false);
+      expect(result.reason).toMatch(/NOT reloaded/);
+      expect(result.reason).toContain('bad vhost');
+
+      // Never reloads what did not validate.
+      expect(run.mock.calls.map((call) => (call[0] as string[]).join(' '))).not.toContain(
+        'nginx -s reload',
+      );
+    });
+
+    it('renewed but NOT reloaded when the reload itself fails', async () => {
+      const proxyRoot = root();
+      const target = targetIn(proxyRoot);
+      installCert(target);
+      const run = runWith((argv) =>
+        argv.join(' ') === 'nginx -s reload' ? { exitCode: 1, stderr: 'reload refused' } : undefined,
+      );
+
+      const result = await renewCertificate(target, {
+        runCommand: run as never,
+        email: 'ops@example.com',
+        force: true,
+      });
+
+      expect(result.renewed).toBe(true);
+      expect(result.reloaded).toBe(false);
+      expect(result.reason).toMatch(/reload failed/);
+    });
+
+    it('uses the given runtime for validate/reload -- docker exec under a container runtime', async () => {
+      const proxyRoot = root();
+      const target = targetIn(proxyRoot);
+      installCert(target);
+      const run = runWith(() => undefined);
+
+      await renewCertificate(target, {
+        runCommand: run as never,
+        email: 'ops@example.com',
+        force: true,
+        runtime: { mode: 'container', container: 'infra-proxy-1', certRoot: '/etc/letsencrypt', webroot: '/var/www/certbot' },
+      });
+
+      const calls = run.mock.calls.map((call) => (call[0] as string[]).join(' '));
+      expect(calls).toContain('docker exec infra-proxy-1 nginx -t');
+      expect(calls).toContain('docker exec infra-proxy-1 nginx -s reload');
+    });
+  });
 });
