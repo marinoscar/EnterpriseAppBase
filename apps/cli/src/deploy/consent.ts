@@ -60,3 +60,16 @@ export async function obtainConsent(
   const yes = await confirm(question, { defaultValue: false }, options.promptContext);
   return yes ? 'granted' : 'declined';
 }
+
+/**
+ * Whether `obtainConsent` COULD answer anything but `unavailable` -- the flag
+ * was passed, or someone can be asked -- without asking. For a gate that wants
+ * to refuse early, before anything is cloned, exactly when the later gate is
+ * bound to refuse (#396). Never prompts.
+ */
+export function canObtainConsent(options: ConsentOptions): boolean {
+  if (options.flag === true) return true;
+  if (options.nonInteractive === true) return false;
+  if (options.ask !== undefined) return true;
+  return canPrompt(options.promptContext);
+}

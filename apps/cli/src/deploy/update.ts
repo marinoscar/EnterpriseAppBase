@@ -518,7 +518,8 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
       async run(context) {
         // #391: the same gate install uses. A database that vanished (a
         // restore gone wrong, a renamed POSTGRES_DB) is otherwise found by the
-        // migration, with the api container already stopped.
+        // migration, with the api container already stopped. #396: the same
+        // FUNCTION, too -- offer, create, re-verify -- so the two cannot drift.
         const env = context.env;
         if (env === undefined) {
           context.journal.line('No environment file; nothing to check.');
@@ -529,6 +530,7 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
           runCommand: context.runCommand,
           createDatabase: context.options.createDatabase,
           ...consentOptions(context),
+          envPath: envFilePath(context.options.deployRoot),
           onLine: (line) => context.journal.line(line),
         });
         context.journal.line(result.detail);
