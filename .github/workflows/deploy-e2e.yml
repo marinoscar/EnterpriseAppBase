@@ -183,6 +183,13 @@ jobs:
           # certificate request would fail on a fact about the environment
           # rather than about the code. The vhost path is exercised by unit
           # tests; this job is about the pipeline reaching a healthy stack.
+          #
+          # ⚠ --skip-oauth-check: the answers file carries PLACEHOLDER Google
+          # credentials (e2e-google-client-id), which install's OAuth check
+          # would rightly refuse -- a malformed client id fails, and the live
+          # probe would ask Google about credentials that do not exist. With
+          # the flag the shape problem is a warning, and neither the probe nor
+          # the post-deploy sign-in smoke runs.
           node apps/cli/dist/cli.js deploy install \
             --apps-root "$APPS_ROOT" \
             --name e2e \
@@ -192,7 +199,8 @@ jobs:
             --answers-file "$HOME/e2e/answers.env" \
             --non-interactive \
             --skip-proxy \
-            --skip-doctor
+            --skip-doctor \
+            --skip-oauth-check
 
       - name: The version bump was rolled back, not left ahead of origin
         run: |
@@ -270,7 +278,7 @@ jobs:
         run: |
           set -euo pipefail
           node apps/cli/dist/cli.js deploy update \
-            --apps-root "$APPS_ROOT" --name e2e --json > "$HOME/e2e/update-1.json"
+            --apps-root "$APPS_ROOT" --name e2e --skip-oauth-check --json > "$HOME/e2e/update-1.json"
           cat "$HOME/e2e/update-1.json"
 
           # ⚠ THE ASSERTION THE ROLLBACK EXISTS FOR. The push during install
@@ -295,7 +303,7 @@ jobs:
         run: |
           set -euo pipefail
           node apps/cli/dist/cli.js deploy update \
-            --apps-root "$APPS_ROOT" --name e2e --json > "$HOME/e2e/update-2.json"
+            --apps-root "$APPS_ROOT" --name e2e --skip-oauth-check --json > "$HOME/e2e/update-2.json"
           cat "$HOME/e2e/update-2.json"
           node -e '
             const r = require(process.env.HOME + "/e2e/update-2.json");

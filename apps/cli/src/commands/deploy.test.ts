@@ -3,21 +3,36 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { Command } from 'commander';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { Check, CompletedCheck } from '../deploy/checks/index.js';
 import { DEPLOY_STATE_VERSION, deployStatePath, type DeployState } from '../deploy/state.js';
 import type { CommandResult, RunCommandOptions } from '../deploy/executor.js';
+import type { HealthReport } from '../deploy/health.js';
+import * as installModule from '../deploy/install.js';
+import type { InstallOptions } from '../deploy/install.js';
+import * as updateModule from '../deploy/update.js';
+import type { UpdateOptions } from '../deploy/update.js';
 import { EXIT, exitCodeFor } from '../errors.js';
 import {
   buildReport,
   registerDeployCommand,
+  renderHealth,
   renderResult,
   renderSummary,
   type DeployContext,
   type DoctorReport,
 } from './deploy.js';
 import type { InventoryEntry } from '../deploy/inventory.js';
+
+vi.mock('../deploy/install.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../deploy/install.js')>();
+  return { ...actual, runInstall: vi.fn() };
+});
+vi.mock('../deploy/update.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../deploy/update.js')>();
+  return { ...actual, runUpdate: vi.fn() };
+});
 
 const ESC = String.fromCharCode(27);
 
@@ -724,5 +739,255 @@ describe('appctl deploy doctor --repo', () => {
 
     expect(result.error).toBeUndefined();
     expect(seen).toEqual([{ repoUrl: 'git@github.com:acme/widgets', gitCredentialed: undefined }]);
+  });
+});
+
+// =============================================================================
+// `renderHealth`'s Google sign-in line (#391): reported, but deliberately not
+// folded into the healthy/unhealthy verdict -- `status`'s exit code stays "is
+// it serving", which is what a monitoring script branches on.
+// =============================================================================
+describe('renderHealth: the Google sign-in line', () => {
+  const BASE: HealthReport = {
+    containers: [],
+    local: {
+      live: { ok: true, status: 200, durationMs: 1 },
+      ready: { ok: true, status: 200, durationMs: 1 },
+      frontend: { ok: true, status: 200, durationMs: 1 },
+    },
+    migrations: { known: true, pending: [] },
+  };
+
+  it('says nothing about sign-in when the smoke was not run', () => {
+    expect(renderHealth(BASE, true, false)).not.toContain('Google sign-in');
+  });
+
+  it('reports "ok" for a passing smoke, with no remedy line', () => {
+    const report: HealthReport = {
+      ...BASE,
+      oauth: { status: 'pass', detail: 'google is listed, and sign-in redirects correctly' },
+    };
+
+    const rendered = renderHealth(report, true, false);
+    expect(rendered).toContain('Google sign-in');
+    expect(rendered).toMatch(/Google sign-in\s+ok/);
+    expect(rendered).not.toContain('->');
+  });
+
+  it('reports FAILED with its remedy for a failing smoke, coloured only when asked', () => {
+    const report: HealthReport = {
+      ...BASE,
+      oauth: {
+        status: 'fail',
+        detail: 'the running API redirects with client_id is wrong, expected right',
+        remedy: 'Recreate the api container so it reads the .env.',
+      },
+    };
+
+    const plain = renderHealth(report, true, false);
+    expect(plain).toContain('FAILED');
+    expect(plain).toContain('the running API redirects with');
+    expect(plain).toContain('-> Recreate the api container');
+    expect(plain).not.toContain(ESC);
+
+    const coloured = renderHealth(report, true, true);
+    expect(coloured).toContain(ESC);
+  });
+
+  it('reports "unverified" (not FAILED) when the smoke could not be run at all', () => {
+    const report: HealthReport = {
+      ...BASE,
+      oauth: { status: 'warn', detail: 'could not ask /api/auth/providers: connection refused' },
+    };
+
+    expect(renderHealth(report, true, false)).toContain('unverified: could not ask');
+  });
+
+  it('never affects the healthy/unhealthy verdict passed in -- that is collectHealth/isHealthy\'s call', () => {
+    const failingSmoke: HealthReport = {
+      ...BASE,
+      oauth: { status: 'fail', detail: 'broken' },
+    };
+
+    // The verdict is a PARAMETER here, not derived from `report.oauth` -- this
+    // just pins that `renderHealth` renders whatever it is told, so a failing
+    // smoke cannot silently flip `status`'s exit code on its own.
+    expect(renderHealth(failingSmoke, true, false)).toContain('\n  healthy\n');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// `appctl deploy status`: the sign-in smoke end to end, and its exit code
+// ---------------------------------------------------------------------------
+describe('appctl deploy status: the OAuth smoke (#391)', () => {
+  const CLIENT_ID = '123456789012-abc123def456.apps.googleusercontent.com';
+  const CALLBACK = 'https://app.example.test/api/auth/google/callback';
+
+  /** A deployment root with a state file AND an `.env` naming a Google client. */
+  function rootWithOAuthEnv(callback = CALLBACK): string {
+    const root = installedRoot();
+    writeFileSync(
+      join(root, '.env'),
+      `GOOGLE_CLIENT_ID=${CLIENT_ID}\nGOOGLE_CLIENT_SECRET=irrelevant-here\nGOOGLE_CALLBACK_URL=${callback}\n`,
+    );
+    return root;
+  }
+
+  /** Answers health AND the two sign-in routes the smoke asks. */
+  function fetchWithOAuth(options: { redirectClientId?: string; redirectCallback?: string } = {}) {
+    return (async (input: string | URL) => {
+      const url = String(input);
+      if (url.endsWith('/api/auth/providers')) {
+        return new Response(JSON.stringify({ data: { providers: [{ name: 'google', enabled: true }] } }), {
+          status: 200,
+        });
+      }
+      if (url.endsWith('/api/auth/google')) {
+        const location = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+        location.searchParams.set('client_id', options.redirectClientId ?? CLIENT_ID);
+        location.searchParams.set('redirect_uri', options.redirectCallback ?? CALLBACK);
+        return new Response(null, { status: 302, headers: { location: location.href } });
+      }
+      return new Response('', { status: 200 });
+    }) as typeof globalThis.fetch;
+  }
+
+  it('reports the sign-in line as ok when the smoke passes', async () => {
+    const root = rootWithOAuthEnv();
+
+    const result = await runStatus(['--root', root], {
+      runCommand: composeRunCommand(ALL_RUNNING, 'Database schema is up to date!'),
+      fetch: fetchWithOAuth(),
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(result.stderr).toMatch(/Google sign-in\s+ok/);
+  });
+
+  it('includes oauth in --json, and a failing smoke does not change the exit code', async () => {
+    const root = rootWithOAuthEnv();
+
+    const result = await runStatus(['--root', root, '--json'], {
+      runCommand: composeRunCommand(ALL_RUNNING, 'Database schema is up to date!'),
+      // The redirect carries a DIFFERENT client id: the smoke fails.
+      fetch: fetchWithOAuth({ redirectClientId: 'someone-else.apps.googleusercontent.com' }),
+    });
+
+    // ⚠ THE WHOLE POINT (#391): the smoke is reported, never folded into
+    // `healthy` -- `isHealthy` does not read `report.oauth` at all.
+    expect(result.error).toBeUndefined();
+    const report = JSON.parse(result.stdout) as { healthy: boolean; oauth?: { status: string } };
+    expect(report.healthy).toBe(true);
+    expect(report.oauth?.status).toBe('fail');
+  });
+
+  it('runs no smoke at all, and reports nothing about sign-in, when the .env names no Google client', async () => {
+    const root = installedRoot();
+
+    const result = await runStatus(['--root', root, '--json'], {
+      runCommand: composeRunCommand(ALL_RUNNING, 'Database schema is up to date!'),
+      fetch: fetchWithOAuth(),
+    });
+
+    const report = JSON.parse(result.stdout) as { oauth?: unknown };
+    expect(report.oauth).toBeUndefined();
+  });
+});
+
+// =============================================================================
+// CLI flags land in the exact InstallOptions/UpdateOptions the pipelines read
+// (#391's four new flags: --bootstrap-proxy, --create-database,
+// --skip-renewal, --skip-oauth-check). `runInstall`/`runUpdate` are mocked so
+// these tests assert on the OPTIONS BUILT, not on a pipeline run.
+// =============================================================================
+describe('appctl deploy install / update: the #391 flags reach the pipeline options', () => {
+  async function runInstallCli(argv: readonly string[]): Promise<InstallOptions> {
+    vi.mocked(installModule.runInstall).mockReset();
+    vi.mocked(installModule.runInstall).mockResolvedValue({
+      deployRoot: '/tmp/x',
+      commitSha: 'a'.repeat(40),
+      journalPath: '/tmp/x/logs/1.log',
+      nextStep: 'Log in.',
+    });
+
+    const program = new Command();
+    program.exitOverride();
+    registerDeployCommand(program, {
+      stdout: { write: () => true },
+      stderr: { write: () => true },
+      isTty: false,
+    });
+
+    await program.parseAsync(
+      ['deploy', 'install', '--root', '/tmp/appctl-flags-test', '--domain', 'app.example.test', ...argv],
+      { from: 'user' },
+    );
+
+    return vi.mocked(installModule.runInstall).mock.calls[0]?.[0] as InstallOptions;
+  }
+
+  async function runUpdateCli(argv: readonly string[]): Promise<UpdateOptions> {
+    vi.mocked(updateModule.runUpdate).mockReset();
+    vi.mocked(updateModule.runUpdate).mockResolvedValue({
+      changed: false,
+      commitSha: 'a'.repeat(40),
+      journalPath: '/tmp/x/logs/1.log',
+      durationMs: 0,
+    });
+
+    const program = new Command();
+    program.exitOverride();
+    registerDeployCommand(program, {
+      stdout: { write: () => true },
+      stderr: { write: () => true },
+      isTty: false,
+    });
+
+    await program.parseAsync(['deploy', 'update', '--root', '/tmp/appctl-flags-test', ...argv], {
+      from: 'user',
+    });
+
+    return vi.mocked(updateModule.runUpdate).mock.calls[0]?.[0] as UpdateOptions;
+  }
+
+  it('--bootstrap-proxy, --create-database, --skip-renewal and --skip-oauth-check all reach install', async () => {
+    const options = await runInstallCli([
+      '--bootstrap-proxy',
+      '--create-database',
+      '--skip-renewal',
+      '--skip-oauth-check',
+    ]);
+
+    expect(options.bootstrapProxy).toBe(true);
+    expect(options.createDatabase).toBe(true);
+    expect(options.skipRenewal).toBe(true);
+    expect(options.skipOAuthCheck).toBe(true);
+  });
+
+  it('are absent from install\'s options when not passed, rather than false', async () => {
+    const options = await runInstallCli([]);
+
+    expect(options.bootstrapProxy).toBeUndefined();
+    expect(options.createDatabase).toBeUndefined();
+    expect(options.skipRenewal).toBeUndefined();
+    expect(options.skipOAuthCheck).toBeUndefined();
+  });
+
+  it('--create-database, --skip-renewal and --skip-oauth-check all reach update', async () => {
+    const options = await runUpdateCli(['--create-database', '--skip-renewal', '--skip-oauth-check']);
+
+    expect(options.createDatabase).toBe(true);
+    expect(options.skipRenewal).toBe(true);
+    expect(options.skipOAuthCheck).toBe(true);
+  });
+
+  it('update has no --bootstrap-proxy flag at all: install alone may create shared infrastructure', async () => {
+    const program = new Command();
+    program.exitOverride();
+    registerDeployCommand(program, { stdout: { write: () => true }, stderr: { write: () => true }, isTty: false });
+
+    await expect(
+      program.parseAsync(['deploy', 'update', '--root', '/tmp/x', '--bootstrap-proxy'], { from: 'user' }),
+    ).rejects.toBeDefined();
   });
 });

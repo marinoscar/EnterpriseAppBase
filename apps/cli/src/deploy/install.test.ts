@@ -1,22 +1,29 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { UsageError } from '../errors.js';
-import { runCommand } from './executor.js';
+import { PreconditionError, UsageError } from '../errors.js';
+import { CommandFailedError, type CommandResult, runCommand } from './executor.js';
 import {
   buildInstallSteps,
   composeArgv,
   composeCwd,
   defaultRootFor,
   runInstall,
+  scheduleRenewal,
   secretsFrom,
 } from './install.js';
 import { openJournal } from './journal.js';
 import { proxyRuntimeFor, type ResolvedProxyRuntime } from './proxy.js';
+import * as renewalModule from './renewal.js';
 import { DEPLOY_STATE_VERSION, writeState, type DeployState } from './state.js';
+
+vi.mock('./renewal.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./renewal.js')>();
+  return { ...actual, ensureRenewal: vi.fn() };
+});
 
 function installedRoot(): string {
   const root = mkdtempSync(join(tmpdir(), 'appctl-install-'));
@@ -46,6 +53,7 @@ describe('the install pipeline', () => {
       'checkout',
       'environment',
       'validate-environment',
+      'ensure-database',
       'version',
       'build',
       'migrate',
@@ -53,7 +61,9 @@ describe('the install pipeline', () => {
       'start',
       'health',
       'deploy-info',
+      'proxy-bootstrap',
       'publish',
+      'renewal',
       'verify',
       'publish-version',
     ]);
@@ -467,5 +477,386 @@ describe('the publish step resolves and records the proxy runtime', () => {
     await publishStep().run(context as never);
 
     expect(context.proxyRuntime).toMatchObject({ container: 'already-resolved' });
+  });
+});
+
+// =============================================================================
+// The `proxy-bootstrap` step: never touches an existing proxy, and asks for
+// consent at most once (#391).
+// =============================================================================
+describe('the proxy-bootstrap step', () => {
+  function proxyBootstrapStep() {
+    const step = buildInstallSteps().find((candidate) => candidate.id === 'proxy-bootstrap');
+    if (step === undefined) throw new Error('the "proxy-bootstrap" step was removed or renamed');
+    return step;
+  }
+
+  /** Routes by argv prefix; an unmatched call throws, like fake-vps. */
+  function routedRunCommand(
+    routes: readonly [readonly string[], () => { ok: boolean; stdout?: string; stderr?: string }][],
+  ): typeof runCommand {
+    return (async (argv: readonly string[], options: { cwd: string }): Promise<CommandResult> => {
+      const route = routes.find(([prefix]) => prefix.every((word, index) => argv[index] === word));
+      if (route === undefined) {
+        throw new Error(`unrouted command in proxy-bootstrap test: ${argv.join(' ')}`);
+      }
+      const reply = route[1]();
+      const result: CommandResult = {
+        argv,
+        cwd: options.cwd,
+        exitCode: reply.ok ? 0 : 1,
+        stdout: reply.stdout ?? '',
+        stderr: reply.stderr ?? '',
+        durationMs: 0,
+        timedOut: false,
+      };
+      if (!reply.ok) throw new CommandFailedError(result.stderr, result);
+      return result;
+    }) as typeof runCommand;
+  }
+
+  function contextFor(
+    root: string,
+    proxyRoot: string,
+    runtime: ResolvedProxyRuntime,
+    runCommandFn: typeof runCommand,
+    extraOptions: Record<string, unknown> = {},
+  ) {
+    return {
+      options: { deployRoot: root, proxyRoot, domain: 'app.example.test', ...extraOptions },
+      runCommand: runCommandFn,
+      journal: openJournal({ deployRoot: root, command: 'install' }),
+      hooks: undefined,
+      completed: new Set<string>(),
+      env: new Map<string, string>(),
+      progress: [] as string[],
+      proxyRuntime: runtime,
+      proxyBootstrapConsent: undefined as string | undefined,
+    };
+  }
+
+  const NO_CONTAINER = new CommandFailedError('no such container', {
+    argv: [],
+    cwd: '.',
+    exitCode: 1,
+    stdout: '',
+    stderr: 'Error: No such container: proxy-nginx',
+    durationMs: 0,
+    timedOut: false,
+  });
+
+  it('does nothing on the host: the proxy is the host\'s own nginx, never bootstrapped', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'appctl-proxy-step-'));
+    const proxyRoot = join(root, 'proxy');
+    const runtime = { ...proxyRuntimeFor('host', proxyRoot), source: 'explicit' as const };
+    // No command is ever issued in host mode; any call here is a bug.
+    const never: typeof runCommand = async (argv) => {
+      throw new Error(`must not spawn in host mode: ${argv.join(' ')}`);
+    };
+
+    await expect(
+      proxyBootstrapStep().run(contextFor(root, proxyRoot, runtime, never) as never),
+    ).resolves.toBeUndefined();
+    expect(existsSync(proxyRoot)).toBe(false);
+  });
+
+  it('does nothing when the proxy container is already running', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'appctl-proxy-step-'));
+    const proxyRoot = join(root, 'proxy');
+    const runtime = { ...proxyRuntimeFor('container', proxyRoot, 'proxy-nginx'), source: 'explicit' as const };
+    const run = routedRunCommand([
+      [['docker', 'inspect'], () => ({ ok: true, stdout: 'true' })],
+    ]);
+
+    await expect(
+      proxyBootstrapStep().run(contextFor(root, proxyRoot, runtime, run) as never),
+    ).resolves.toBeUndefined();
+    expect(existsSync(proxyRoot)).toBe(false);
+  });
+
+  it('refuses -- and does not start it -- when the container exists but is stopped', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'appctl-proxy-step-'));
+    const proxyRoot = join(root, 'proxy');
+    const runtime = { ...proxyRuntimeFor('container', proxyRoot, 'proxy-nginx'), source: 'explicit' as const };
+    const run = routedRunCommand([
+      [['docker', 'inspect'], () => ({ ok: true, stdout: 'false' })],
+    ]);
+
+    const error = await proxyBootstrapStep()
+      .run(contextFor(root, proxyRoot, runtime, run) as never)
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(PreconditionError);
+    expect((error as Error).message).toContain('shared infrastructure');
+    expect((error as Error).message).toContain('docker start proxy-nginx');
+    expect(existsSync(proxyRoot)).toBe(false);
+  });
+
+  it('refuses -- and never overwrites -- when a compose file makes the root somebody else\'s', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'appctl-proxy-step-'));
+    const proxyRoot = join(root, 'proxy');
+    mkdirSync(proxyRoot, { recursive: true });
+    const theirs = 'services:\n  proxy:\n    image: caddy\n';
+    writeFileSync(join(proxyRoot, 'compose.yml'), theirs);
+    const runtime = { ...proxyRuntimeFor('container', proxyRoot, 'proxy-nginx'), source: 'explicit' as const };
+    const run = routedRunCommand([
+      [['docker', 'inspect'], () => { throw NO_CONTAINER; }],
+    ]);
+
+    const error = await proxyBootstrapStep()
+      .run(contextFor(root, proxyRoot, runtime, run) as never)
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(PreconditionError);
+    expect((error as Error).message).toContain('belongs to whatever created it');
+    expect(readFileSync(join(proxyRoot, 'compose.yml'), 'utf8')).toBe(theirs);
+  });
+
+  it('when absent, reuses the preflight\'s consent rather than asking a second time', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'appctl-proxy-step-'));
+    const proxyRoot = join(root, 'proxy');
+    const runtime = { ...proxyRuntimeFor('container', proxyRoot, 'proxy-nginx'), source: 'explicit' as const };
+    const run = routedRunCommand([
+      [['docker', 'inspect'], () => { throw NO_CONTAINER; }],
+    ]);
+    const ask = vi.fn(async () => true);
+
+    const context = contextFor(root, proxyRoot, runtime, run, { ask });
+    context.proxyBootstrapConsent = 'declined';
+
+    const error = await proxyBootstrapStep()
+      .run(context as never)
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(PreconditionError);
+    expect((error as Error).message).toContain('declined');
+    // ⚠ THE WHOLE POINT: preflight already asked once (recorded on the
+    // context as 'declined'), so this step must not ask again.
+    expect(ask).not.toHaveBeenCalled();
+    expect(existsSync(proxyRoot)).toBe(false);
+  });
+
+  it('when absent and never yet asked, asks once, and on "yes" lays out and starts the proxy', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'appctl-proxy-step-'));
+    const proxyRoot = join(root, 'proxy');
+    const runtime = { ...proxyRuntimeFor('container', proxyRoot, 'proxy-nginx'), source: 'explicit' as const };
+    const run = routedRunCommand([
+      [['docker', 'inspect'], () => { throw NO_CONTAINER; }],
+      [['docker', 'compose', 'up', '-d'], () => ({ ok: true })],
+      [['docker', 'exec', 'proxy-nginx', 'nginx', '-t'], () => ({ ok: true })],
+    ]);
+    const ask = vi.fn(async () => true);
+
+    await proxyBootstrapStep().run(contextFor(root, proxyRoot, runtime, run, { ask }) as never);
+
+    expect(ask).toHaveBeenCalledTimes(1);
+    expect(existsSync(join(proxyRoot, 'compose.yml'))).toBe(true);
+    expect(existsSync(join(proxyRoot, 'nginx', 'conf.d'))).toBe(true);
+  });
+});
+
+// =============================================================================
+// The `preflight` step: the proxy-bootstrap consent gate it asks ONCE, before
+// the checks run, and the ONE outcome that turns "no shared proxy" from a
+// refusal into a pass -- so the `proxy-bootstrap` step (asked separately
+// above) never re-asks a question preflight already got an answer to (#391).
+// =============================================================================
+describe('the preflight step: the bootstrap-proxy consent gate', () => {
+  function preflightStep() {
+    const step = buildInstallSteps().find((candidate) => candidate.id === 'preflight');
+    if (step === undefined) throw new Error('the "preflight" step was removed or renamed');
+    return step;
+  }
+
+  const NO_CONTAINER_ERROR = new Error('Error: No such container: proxy-nginx');
+
+  /**
+   * Answers the three docker probes `docker-installed`/`docker-daemon`/
+   * `proxy-container` need to reach a real verdict; every other required
+   * check (git, disk space, DNS, gh...) is left unrouted, throws, and is
+   * caught by `runChecks` as an ordinary failed result -- which is fine, since
+   * none of these tests assert the WHOLE preflight passes, only what the
+   * proxy-container check and the consent gate itself did.
+   */
+  function routedRunCommand(inspectReply: () => { ok: boolean; stdout?: string }): typeof runCommand {
+    return (async (argv: readonly string[], options: { cwd: string }): Promise<CommandResult> => {
+      const line = argv.join(' ');
+      if (line === 'docker --version') {
+        return ok(argv, options.cwd, 'Docker version 27.3.1, build abc');
+      }
+      if (line === 'docker info --format {{.ServerVersion}}') {
+        return ok(argv, options.cwd, '27.3.1');
+      }
+      if (line.startsWith('docker inspect --type container')) {
+        const reply = inspectReply();
+        if (!reply.ok) throw NO_CONTAINER_ERROR;
+        return ok(argv, options.cwd, reply.stdout ?? '');
+      }
+      throw new Error(`unrouted (and expected to fail its own check only): ${line}`);
+    }) as typeof runCommand;
+
+    function ok(argv: readonly string[], cwd: string, stdout: string): CommandResult {
+      return { argv, cwd, exitCode: 0, stdout, stderr: '', durationMs: 0, timedOut: false };
+    }
+  }
+
+  function fakeJournal() {
+    const lines: string[] = [];
+    return { line: (text: string) => lines.push(text), redact: (text: string) => text, lines };
+  }
+
+  function contextFor(
+    root: string,
+    runCommandFn: typeof runCommand,
+    extraOptions: Record<string, unknown>,
+  ) {
+    const journal = fakeJournal();
+    return {
+      options: {
+        deployRoot: root,
+        proxyRoot: join(root, 'proxy'),
+        bindPort: 3535,
+        domain: 'app.example.test',
+        repo: 'https://example.test/o/r',
+        skipProxy: false,
+        ...extraOptions,
+      },
+      runCommand: runCommandFn,
+      journal: journal as never,
+      hooks: undefined,
+      completed: new Set<string>(),
+      proxyRuntime: { ...proxyRuntimeFor('container', join(root, 'proxy'), 'proxy-nginx'), source: 'explicit' as const },
+      proxyBootstrapConsent: undefined as string | undefined,
+      _journal: journal,
+    };
+  }
+
+  function proxyContainerLine(journal: { lines: string[] }): string | undefined {
+    return journal.lines.find((line) => / proxy-container:/.test(line));
+  }
+
+  it('non-interactive, no --bootstrap-proxy: fails, and the remedy names the flag', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'appctl-preflight-consent-'));
+    const context = contextFor(root, routedRunCommand(() => ({ ok: false })), { nonInteractive: true });
+
+    const error = await preflightStep()
+      .run(context as never)
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(PreconditionError);
+    expect((error as Error).message).toContain('--bootstrap-proxy');
+    expect(context.proxyBootstrapConsent).toBe('unavailable');
+    expect(proxyContainerLine(context._journal)).toContain('fail');
+  });
+
+  it('with --bootstrap-proxy: consent is "flag", and proxy-container itself passes', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'appctl-preflight-consent-'));
+    const context = contextFor(root, routedRunCommand(() => ({ ok: false })), { bootstrapProxy: true });
+
+    // The overall preflight still fails on unrelated required checks (DNS, git,
+    // disk space -- all left unrouted above), which is fine: what this test
+    // pins is that the PROXY question was answered and that ONE check passed.
+    await preflightStep()
+      .run(context as never)
+      .catch(() => undefined);
+
+    expect(context.proxyBootstrapConsent).toBe('flag');
+    expect(proxyContainerLine(context._journal)).toContain('pass');
+    expect(proxyContainerLine(context._journal)).toContain('bootstrap');
+  });
+
+  it('interactive and declined: asked exactly once, and the answer is recorded, not re-asked', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'appctl-preflight-consent-'));
+    const ask = vi.fn(async () => false);
+    const context = contextFor(root, routedRunCommand(() => ({ ok: false })), { ask });
+
+    await preflightStep()
+      .run(context as never)
+      .catch(() => undefined);
+
+    expect(context.proxyBootstrapConsent).toBe('declined');
+    expect(ask).toHaveBeenCalledTimes(1);
+    expect(proxyContainerLine(context._journal)).toContain('fail');
+  });
+
+  it('a running proxy asks nothing at all: there is no absence to consent to', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'appctl-preflight-consent-'));
+    const ask = vi.fn(async () => true);
+    const context = contextFor(root, routedRunCommand(() => ({ ok: true, stdout: 'true' })), {
+      nonInteractive: true,
+      ask,
+    });
+
+    await preflightStep()
+      .run(context as never)
+      .catch(() => undefined);
+
+    expect(context.proxyBootstrapConsent).toBeUndefined();
+    expect(ask).not.toHaveBeenCalled();
+    expect(proxyContainerLine(context._journal)).toContain('pass');
+  });
+});
+
+// =============================================================================
+// `scheduleRenewal`: acts on the ownership answer, and NEVER fails the deploy
+// over it -- a certificate renewal schedule is bookkeeping, not the deployment
+// (#391).
+// =============================================================================
+describe('scheduleRenewal', () => {
+  function fakeContext() {
+    const lines: string[] = [];
+    const progress: string[] = [];
+    return {
+      journal: { line: (text: string) => lines.push(text), redact: (text: string) => text } as never,
+      hooks: { onProgress: (message: string) => progress.push(message) },
+      runCommand: (async () => {
+        throw new Error('scheduleRenewal must not spawn directly; ensureRenewal is mocked');
+      }) as unknown as typeof runCommand,
+      lines,
+      progress,
+    };
+  }
+
+  const RUNTIME = proxyRuntimeFor('container', '/opt/proxy', 'proxy-nginx');
+
+  it('is a no-op, and never warns, when another mechanism owns renewal', async () => {
+    vi.mocked(renewalModule.ensureRenewal).mockResolvedValueOnce({
+      action: 'owned-elsewhere',
+      detail: 'renewal is owned by a central renewal script (found /etc/cron.d/renew-all)',
+      path: '/etc/cron.d/appctl-certbot-renew',
+      ownership: { owner: 'central-script', detail: 'found /etc/cron.d/renew-all', mechanisms: [] } as never,
+    });
+
+    const context = fakeContext();
+    await expect(scheduleRenewal(context, '/opt/proxy', RUNTIME)).resolves.toBeUndefined();
+
+    expect(context.lines.some((line) => line.includes('owned-elsewhere'))).toBe(true);
+    // The ordinary case: nothing to warn about, since a real mechanism already
+    // renews these certificates.
+    expect(context.progress).toEqual([context.lines[context.lines.length - 1]?.replace(/^renewal owned-elsewhere: /, '')]);
+  });
+
+  it('warns, but never throws, when the cron file cannot be written', async () => {
+    const content = '# Managed by appctl deploy.\n17 3,15 * * * root true\n';
+    vi.mocked(renewalModule.ensureRenewal).mockResolvedValueOnce({
+      action: 'not-writable',
+      detail: 'could not write /etc/cron.d/appctl-certbot-renew (EACCES); certificate renewal is NOT scheduled',
+      remedy: `As root, write /etc/cron.d/appctl-certbot-renew with exactly this content (mode 0644):\n${content}`,
+      content,
+      path: '/etc/cron.d/appctl-certbot-renew',
+      ownership: { owner: 'none', detail: 'nothing found', mechanisms: [] } as never,
+    });
+
+    const context = fakeContext();
+    // ⚠ THE WHOLE POINT: a renewal schedule the CLI could not write must never
+    // fail the deploy that got this far -- the stack is up, migrated and
+    // serving by the time this step runs.
+    await expect(scheduleRenewal(context, '/opt/proxy', RUNTIME)).resolves.toBeUndefined();
+
+    expect(context.progress.some((message) => message.includes('warning:') && message.includes('NOT scheduled'))).toBe(
+      true,
+    );
+    expect(context.progress.some((message) => message.includes('As root, write'))).toBe(true);
+    expect(context.lines.some((line) => line.includes('As root, write'))).toBe(true);
   });
 });

@@ -156,6 +156,14 @@ export const NOT_IN_TUI: Readonly<Record<string, string>> = Object.freeze({
     'Not offered yet: the screens resolve the proxy runtime the same way the CLI does (recorded, else detected), and the Advanced step that lets an operator override it lands in issue #393.',
   '--proxy-mode':
     'Not offered yet, for the same reason as --proxy-container: detection covers the ordinary case, and the Advanced step that exposes the override lands in issue #393.',
+  '--bootstrap-proxy':
+    'Not offered yet: surfaced by the install form in #393. Until then a screen install on a box with no proxy stops with a remedy naming this flag.',
+  '--create-database':
+    'Not offered yet: surfaced by the install form in #393. Until then a missing database stops a screen run with a remedy naming this flag.',
+  '--skip-renewal':
+    'Not offered yet: surfaced by the install form in #393. Renewal is scheduled only when nothing else owns it, so the default is safe.',
+  '--skip-oauth-check':
+    'Not offered yet: surfaced by the install form in #393. The check is what a real deployment wants; the flag exists for placeholder credentials in CI.',
 });
 
 /** The options object a set of chosen toggles produces. */

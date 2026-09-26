@@ -215,6 +215,15 @@ export interface CheckContext {
    * blockers. Doctor leaves it unset: it asks about a deployment in general.
    */
   skipProxy?: boolean | undefined;
+  /**
+   * True when this run is authorised to BOOTSTRAP the shared proxy if it is
+   * absent (#391: `--bootstrap-proxy`, or a yes at install's prompt). A proxy
+   * container that does not exist, in a proxy root with no compose file, is
+   * then not a blocker -- install is about to create it. An existing but
+   * stopped proxy, or a root with a compose file, still fails: those belong to
+   * somebody else and are never touched.
+   */
+  proxyBootstrap?: boolean | undefined;
 }
 
 export type Severity = 'required' | 'recommended';

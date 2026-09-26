@@ -17,6 +17,7 @@ describe('the update pipeline', () => {
       'preflight',
       'fetch',
       'environment-drift',
+      'ensure-database',
       'version',
       'build',
       'migrate',
@@ -25,6 +26,7 @@ describe('the update pipeline', () => {
       'health',
       'deploy-info',
       'publish',
+      'renewal',
       'verify',
       'publish-version',
     ]);
@@ -55,7 +57,7 @@ describe('the update pipeline', () => {
   it('stands every later step down when the revision has not moved', () => {
     // Several minutes of build and a restart for a no-op is exactly the
     // friction that stops people updating often.
-    for (const id of ['build', 'migrate', 'seed', 'restart', 'health', 'publish', 'verify']) {
+    for (const id of ['ensure-database', 'build', 'migrate', 'seed', 'restart', 'health', 'publish', 'renewal', 'verify']) {
       expect(skipReason(id, { unchanged: true, options: {}, state: {} })).toBe(
         'already up to date',
       );

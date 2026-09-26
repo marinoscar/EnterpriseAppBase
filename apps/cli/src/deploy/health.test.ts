@@ -7,6 +7,7 @@ import {
   migrationState,
   describeFetchFailure,
   isHealthy,
+  oauthSmoke,
   probe,
   waitForHealthy,
   type HealthReport,
@@ -386,5 +387,56 @@ describe('the compose project the health gate inspects', () => {
     // database, which is worse than the wrong answer it also gives.
     expect(seen[0]).toContain('-p');
     expect(seen[0]?.[seen[0].indexOf('-p') + 1]).toBe('myapp');
+  });
+});
+
+describe('oauthSmoke (#391)', () => {
+  const CLIENT = '123-abc.apps.googleusercontent.com';
+  const CALLBACK = 'https://app.example.test/api/auth/google/callback';
+
+  function api(options: { providers?: string[]; location?: string | null; status?: number }): typeof globalThis.fetch {
+    return (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith('/api/auth/providers')) {
+        return new Response(
+          JSON.stringify({ data: { providers: (options.providers ?? ['google']).map((name) => ({ name, enabled: true })) } }),
+          { status: 200 },
+        );
+      }
+      const headers = options.location === null ? undefined : { location: options.location ?? '' };
+      return new Response(null, { status: options.status ?? 302, ...(headers === undefined ? {} : { headers }) });
+    }) as typeof globalThis.fetch;
+  }
+
+  const good = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(CLIENT)}&redirect_uri=${encodeURIComponent(CALLBACK)}`;
+
+  it('passes when google is listed and the redirect carries the configured client and callback', async () => {
+    const smoke = await oauthSmoke({ base: 'http://x', clientId: CLIENT, callbackUrl: CALLBACK, fetch: api({ location: good }) });
+    expect(smoke.status).toBe('pass');
+  });
+
+  it('fails when google is not listed', async () => {
+    const smoke = await oauthSmoke({ base: 'http://x', clientId: CLIENT, callbackUrl: CALLBACK, fetch: api({ providers: [], location: good }) });
+    expect(smoke.status).toBe('fail');
+  });
+
+  it('fails when the redirect carries another client id or callback', async () => {
+    const other = good.replace(encodeURIComponent(CLIENT), 'someone-else');
+    const smoke = await oauthSmoke({ base: 'http://x', clientId: CLIENT, callbackUrl: CALLBACK, fetch: api({ location: other }) });
+    expect(smoke.status).toBe('fail');
+    expect(smoke.detail).toContain('client_id');
+  });
+
+  it('fails when there is no redirect to Google', async () => {
+    const smoke = await oauthSmoke({ base: 'http://x', clientId: CLIENT, callbackUrl: CALLBACK, fetch: api({ status: 500, location: null }) });
+    expect(smoke.status).toBe('fail');
+  });
+
+  it('only warns when the API cannot be asked', async () => {
+    const fetch = (async () => {
+      throw new TypeError('fetch failed', { cause: { code: 'ECONNREFUSED' } });
+    }) as unknown as typeof globalThis.fetch;
+    const smoke = await oauthSmoke({ base: 'http://x', clientId: CLIENT, callbackUrl: CALLBACK, fetch });
+    expect(smoke.status).toBe('warn');
   });
 });

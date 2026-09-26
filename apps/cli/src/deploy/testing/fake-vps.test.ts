@@ -2,6 +2,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   statSync,
@@ -14,11 +15,13 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { runStatusCommand } from '../../commands/deploy.js';
 import { isDeployment, resolveEnvPath } from '../deployment-evidence.js';
 import { parseEnvExample, parseEnvFile } from '../env-spec.js';
-import { runInstall } from '../install.js';
-import { deployStatePath, readState } from '../state.js';
+import { runInstall, type InstallOptions } from '../install.js';
+import { deployStatePath, readState, writeState, type DeployState } from '../state.js';
 import { runUpdate } from '../update.js';
 import {
+  FAKE_GOOGLE_CLIENT_ID,
   createFakeVps,
+  fakeGoogleFetch,
   listenForProbe,
   serveHealth,
   unattendedAnswers,
@@ -84,8 +87,9 @@ afterAll(async () => {
 
 function install(
   vps: ReturnType<typeof createFakeVps>,
-  overrides: Partial<Parameters<typeof runInstall>[0]> = {},
+  extra: Partial<InstallOptions> = {},
 ) {
+  const { answers: extraAnswers, ...rest } = extra;
   return runInstall({
     deployRoot: vps.deployRoot,
     bindPort: api.port,
@@ -94,10 +98,14 @@ function install(
     repo: 'https://example.test/o/r',
     ref: 'main',
     runCommand: vps.runCommand,
+    // #391: the OAuth credential probe answers `invalid_grant` (valid
+    // credentials) without ever reaching Google; everything else is the real
+    // fetch against `serveHealth`, which also serves the sign-in smoke.
+    fetch: fakeGoogleFetch().fetch,
     // ⚠ POSTGRES_PORT carries a template default, so `unattendedAnswers` does
     // not answer it and the override above never reaches the file. Supplied
     // here instead, which is also what `--answer` does on a real run.
-    answers: new Map([...ANSWERS, ['POSTGRES_PORT', String(probe.port)]]),
+    answers: new Map([...ANSWERS, ['POSTGRES_PORT', String(probe.port)], ...(extraAnswers ?? [])]),
     nonInteractive: true,
     skipDoctor: true,
     skipProxy: true,
@@ -108,7 +116,7 @@ function install(
     // rather than about the pipeline. The one test that is about versioning
     // turns it on and builds a real repository for it.
     noVersionBump: true,
-    ...overrides,
+    ...rest,
   });
 }
 
@@ -669,5 +677,213 @@ describe('host facts and deployment history (issue #392)', () => {
 
     expect(result.changed).toBe(false);
     expect(readState(vps.deployRoot)?.history).toEqual(before?.history);
+  });
+});
+
+// =============================================================================
+// Install acting on what it used to only report  (issue #391)
+// =============================================================================
+
+describe('ensure-database, through the real pipeline', () => {
+  /** psql against the application database answers 3D000; everything else works. */
+  function vpsWithoutDatabase(): ReturnType<typeof createFakeVps> {
+    const vps = vpsWithTemplate();
+    vps.route(
+      (invocation) =>
+        invocation.argv.includes('psql') &&
+        invocation.argv.includes('appdb') &&
+        invocation.argv[invocation.argv.length - 1] === 'select 1',
+      () =>
+        vps.calls('docker', 'run').some((call) => /CREATE DATABASE/.test(call.argv.join(' ')))
+          ? { stdout: '1' }
+          : { fail: new Error('FATAL:  database "appdb" does not exist (3D000)') },
+    );
+    vps.route(
+      (invocation) => invocation.argv.includes('psql') && /rolcreatedb/.test(invocation.argv.join(' ')),
+      't',
+    );
+    return vps;
+  }
+
+  const database = new Map([['POSTGRES_DB', 'appdb']]);
+
+  it('stops a non-interactive run without --create-database, naming the flag, and creates nothing', async () => {
+    const vps = vpsWithoutDatabase();
+
+    await expect(install(vps, { answers: database })).rejects.toThrow(/--create-database/);
+
+    expect(vps.invocations.some((call) => /CREATE DATABASE/.test(call.argv.join(' ')))).toBe(false);
+    expect(readState(vps.deployRoot)?.lastFailedStep).toBe('ensure-database');
+  });
+
+  it('creates it with --create-database and carries on to a healthy stack', async () => {
+    const vps = vpsWithoutDatabase();
+
+    await install(vps, { answers: database, createDatabase: true });
+
+    const creates = vps.invocations.filter((call) => /CREATE DATABASE/.test(call.argv.join(' ')));
+    expect(creates).toHaveLength(1);
+    expect(creates[0]?.argv).toContain('postgres');
+    expect(creates[0]?.argv[creates[0].argv.length - 1]).toBe('CREATE DATABASE "appdb"');
+    expect(readState(vps.deployRoot)?.lastOutcome).toBe('success');
+  });
+});
+
+// =============================================================================
+// --resume against a state predating the #391 steps  (backward compatibility)
+// =============================================================================
+//
+// `completedSteps` on a real deployment's state file was written by whatever
+// CLI version last succeeded there. A deployment installed BEFORE #391 added
+// `validate-environment`'s database gate, `ensure-database`, `proxy-bootstrap`
+// and `renewal` simply has no entry for any of them -- there is no migration
+// that could have retrofitted one. `--resume` must run them anyway: the
+// pipeline skips a step only when its OWN id is in `completed`, so an id that
+// never existed in an older run is, correctly, not "already done".
+// =============================================================================
+describe('--resume against an older state missing the #391 step ids', () => {
+  /** psql against the application database answers 3D000; everything else works. */
+  function vpsWithoutDatabase(): ReturnType<typeof createFakeVps> {
+    const vps = vpsWithTemplate();
+    vps.route(
+      (invocation) =>
+        invocation.argv.includes('psql') &&
+        invocation.argv.includes('appdb') &&
+        invocation.argv[invocation.argv.length - 1] === 'select 1',
+      () =>
+        vps.calls('docker', 'run').some((call) => /CREATE DATABASE/.test(call.argv.join(' ')))
+          ? { stdout: '1' }
+          : { fail: new Error('FATAL:  database "appdb" does not exist (3D000)') },
+    );
+    vps.route(
+      (invocation) => invocation.argv.includes('psql') && /rolcreatedb/.test(invocation.argv.join(' ')),
+      't',
+    );
+    return vps;
+  }
+
+  const database = new Map([['POSTGRES_DB', 'appdb']]);
+
+  it('re-runs validate-environment and ensure-database, reading the .env this CLI already wrote to disk', async () => {
+    const vps = vpsWithoutDatabase();
+    await install(vps, { answers: database, createDatabase: true });
+
+    const installed = readState(vps.deployRoot);
+    expect(installed?.completedSteps).toContain('ensure-database');
+
+    // ⚠ THE SETUP: a completedSteps list an OLDER CLI could actually have
+    // written -- `environment` (so `context.env` is undefined this run,
+    // exactly as it would be for a real pre-#391 deployment) but nothing that
+    // did not exist yet.
+    const preDatabaseGate = new Set(['validate-environment', 'ensure-database', 'proxy-bootstrap', 'renewal']);
+    const olderCompletedSteps = (installed?.completedSteps ?? []).filter((id) => !preDatabaseGate.has(id));
+    expect(olderCompletedSteps).toContain('environment');
+    expect(olderCompletedSteps).not.toContain('ensure-database');
+
+    writeState({
+      ...(installed as DeployState),
+      completedSteps: olderCompletedSteps,
+      lastOutcome: 'failure',
+      lastFailedStep: 'validate-environment',
+    } as DeployState);
+
+    const psqlCallsBefore = vps.calls('docker', 'run').filter((call) => call.argv.includes('psql')).length;
+
+    // ⚠ IF `ensure-database` HAD SILENTLY STAYED UNDEFINED (context.env), this
+    // would throw "No environment to read the database settings from" instead
+    // of resolving -- environmentOf's disk fallback is what makes it succeed.
+    await expect(install(vps, { answers: database, createDatabase: true, resume: true })).resolves.toBeDefined();
+
+    const resumed = readState(vps.deployRoot);
+    expect(resumed?.lastOutcome).toBe('success');
+    // Both ran again this time, rather than being treated as already done.
+    expect(resumed?.completedSteps).toContain('validate-environment');
+    expect(resumed?.completedSteps).toContain('ensure-database');
+
+    const psqlCallsAfter = vps.calls('docker', 'run').filter((call) => call.argv.includes('psql')).length;
+    expect(psqlCallsAfter).toBeGreaterThan(psqlCallsBefore);
+  });
+});
+
+describe('the OAuth check, through the real pipeline', () => {
+  it('stops before the build on invalid_client, and the secret never reaches the log', async () => {
+    const vps = vpsWithTemplate();
+    const google = fakeGoogleFetch({ status: 401, error: 'invalid_client' });
+
+    await expect(install(vps, { fetch: google.fetch })).rejects.toThrow(/rejected the client credentials/);
+
+    expect(google.tokenRequests).toHaveLength(1);
+    expect(vps.calls('docker', 'compose').some((call) => call.argv.includes('build'))).toBe(false);
+
+    const secret = ANSWERS.get('GOOGLE_CLIENT_SECRET') as string;
+    const logs = join(vps.deployRoot, 'logs');
+    for (const name of readdirSync(logs)) {
+      expect(readFileSync(join(logs, name), 'utf8')).not.toContain(secret);
+    }
+  });
+
+  it('fails verify when the running API redirects with another client id', async () => {
+    const vps = vpsWithTemplate();
+    api.setOAuth({ clientId: 'someone-else.apps.googleusercontent.com', callbackUrl: 'https://app.example.test/api/auth/google/callback' });
+    try {
+      await expect(install(vps)).rejects.toThrow(/Sign-in is broken/);
+      expect(readState(vps.deployRoot)?.lastFailedStep).toBe('verify');
+    } finally {
+      api.setOAuth({ clientId: FAKE_GOOGLE_CLIENT_ID, callbackUrl: 'https://app.example.test/api/auth/google/callback' });
+    }
+  });
+
+  it('runs neither the probe nor the smoke with --skip-oauth-check', async () => {
+    const vps = vpsWithTemplate();
+    const google = fakeGoogleFetch({ status: 401, error: 'invalid_client' });
+    api.setOAuth(undefined);
+    try {
+      await install(vps, { fetch: google.fetch, skipOAuthCheck: true });
+      expect(google.tokenRequests).toHaveLength(0);
+    } finally {
+      api.setOAuth({ clientId: FAKE_GOOGLE_CLIENT_ID, callbackUrl: 'https://app.example.test/api/auth/google/callback' });
+    }
+  });
+});
+
+describe('the stack\'s external networks exist before compose instantiates it (#391)', () => {
+  const BASE = 'networks:\n  app-network:\n    driver: bridge\n  devnet:\n    external: true\n    name: devnet\n';
+
+  function vpsWithNetworks(): ReturnType<typeof createFakeVps> {
+    return createFakeVps({
+      envExample: TEMPLATE,
+      files: { 'repo/infra/compose/base.compose.yml': BASE },
+    });
+  }
+
+  function indexOf(vps: ReturnType<typeof createFakeVps>, predicate: (argv: readonly string[]) => boolean): number {
+    return vps.invocations.findIndex((call) => predicate(call.argv));
+  }
+
+  const isCreate = (argv: readonly string[]) => argv.join(' ') === 'docker network create devnet';
+  const isFirstInstantiation = (argv: readonly string[]) =>
+    argv[0] === 'docker' && argv[1] === 'compose' && (argv.includes('run') || argv.includes('up'));
+
+  it('creates devnet before the first compose run/up when inspect cannot find it', async () => {
+    const vps = vpsWithNetworks();
+    vps.route(['docker', 'network', 'inspect', 'devnet'], { fail: new Error('Error: No such network: devnet') });
+
+    await install(vps);
+
+    const created = indexOf(vps, isCreate);
+    expect(created).toBeGreaterThanOrEqual(0);
+    expect(created).toBeLessThan(indexOf(vps, isFirstInstantiation));
+    expect(created).toBeLessThan(indexOf(vps, (argv) => argv[1] === 'compose' && argv.includes('up')));
+    // Once per run, not once per compose call.
+    expect(vps.calls('docker', 'network', 'create')).toHaveLength(1);
+  });
+
+  it('does not create it when it already exists', async () => {
+    const vps = vpsWithNetworks();
+
+    await install(vps);
+
+    expect(vps.calls('docker', 'network', 'inspect', 'devnet')).toHaveLength(1);
+    expect(vps.calls('docker', 'network', 'create')).toHaveLength(0);
   });
 });
