@@ -14,13 +14,20 @@
 // part. A storage part with no delivery is AI_INVALID_REQUEST (only the
 // runtime resolves storage objects; a direct caller cannot).
 //
-// PHASE 1 REFUSALS (AI_CAPABILITY_UNSUPPORTED), each a later story's scope:
-//   - a hosted tool (web_search, file_search, ...: the Phase 2 "hosted
-//     tools" story);
+// REFUSED (AI_CAPABILITY_UNSUPPORTED):
 //   - a reasoning `effort` for a model the classifier KNOWS does not reason
 //     (or an effort it does not offer). An unclassified model (`null`) is
 //     passed through — an administrator may have enabled it knowing more
 //     than this table does, and OpenAI's own 400 is then the answer.
+//
+// HOSTED TOOLS (#442) map one-to-one onto OpenAI's tool entries (`web_search`,
+// `file_search`, `code_interpreter`, `image_generation`, `mcp`); their output
+// items come back as typed `hosted_tool_call`s, and a message's
+// `url_citation` annotations as `citations`. Whether a tool may be used at
+// all (model capability, admin switch, MCP host allowlist) is the FACADE's
+// gate, not this file's. An MCP tool's `headers` are copied into the body and
+// nowhere else — this file never logs or echoes them.
+//
 // A malformed request (a media part with neither `url` nor
 // `storageObjectId`, a non-text part in an assistant message) is
 // AI_INVALID_REQUEST instead: nothing a later story adds would make it valid.
@@ -29,6 +36,8 @@
 import type {
   EasyInputMessage,
   FunctionTool,
+  ResponseOutputMessage,
+  Tool as OpenAiTool,
   Response as OpenAiSdkResponse,
   ResponseCreateParamsBase,
   ResponseInputContent,
@@ -45,13 +54,17 @@ import { parseStructured, toJsonSchema } from '../../core/structured-output';
 import type {
   AiContentPart,
   AiFinishReason,
-  AiHostedToolType,
+  AiHostedTool,
+  AiHostedToolCallItem,
   AiInputItem,
+  AiMcpCallResult,
+  AiMessageOutputItem,
   AiOutputItem,
   AiResponse,
   AiResponseRequest,
   AiTool,
   AiToolChoice,
+  AiUrlCitation,
   AiUsage,
 } from '../../core/types/responses.types';
 import { mapOpenAiResponseFailure, OPENAI_PROVIDER_ID } from './openai-errors';
@@ -197,9 +210,63 @@ function toInputItem(item: AiInputItem, storage: OpenAiStorageDeliveries | undef
   return message;
 }
 
-function toTool(tool: AiTool): FunctionTool {
+/** One of our hosted tools as OpenAI's tool entry. */
+export function toOpenAiHostedTool(tool: AiHostedTool): OpenAiTool {
+  switch (tool.type) {
+    case 'web_search':
+      return {
+        type: 'web_search',
+        ...(tool.searchContextSize ? { search_context_size: tool.searchContextSize } : {}),
+        ...(tool.userLocation
+          ? {
+              user_location: {
+                type: 'approximate' as const,
+                ...(tool.userLocation.country ? { country: tool.userLocation.country.toUpperCase() } : {}),
+                ...(tool.userLocation.city ? { city: tool.userLocation.city } : {}),
+              },
+            }
+          : {}),
+      };
+
+    case 'file_search':
+      return {
+        type: 'file_search',
+        vector_store_ids: tool.vectorStoreIds,
+        ...(tool.maxResults !== undefined ? { max_num_results: tool.maxResults } : {}),
+      };
+
+    case 'code_interpreter':
+      // OpenAI requires a container; `auto` (a managed one per call) is the only kind modelled.
+      return { type: 'code_interpreter', container: { type: 'auto' } };
+
+    case 'image_generation':
+      return {
+        type: 'image_generation',
+        ...(tool.size ? { size: tool.size } : {}),
+        ...(tool.quality ? { quality: tool.quality as NonNullable<OpenAiTool.ImageGeneration['quality']> } : {}),
+      };
+
+    case 'mcp':
+      return {
+        type: 'mcp',
+        server_label: tool.serverLabel,
+        server_url: tool.serverUrl,
+        ...(tool.allowedTools ? { allowed_tools: tool.allowedTools } : {}),
+        ...(tool.requireApproval ? { require_approval: tool.requireApproval } : {}),
+        ...(tool.headers && Object.keys(tool.headers).length > 0 ? { headers: tool.headers } : {}),
+      };
+
+    default: {
+      const unknown: { type: string } = tool;
+
+      throw unsupported(`Hosted tool "${unknown.type}" is not supported.`, { tool: unknown.type });
+    }
+  }
+}
+
+function toTool(tool: AiTool): FunctionTool | OpenAiTool {
   if (tool.type !== 'function') {
-    throw unsupported(`Hosted tool "${tool.type}" is not supported yet.`, { tool: tool.type });
+    return toOpenAiHostedTool(tool);
   }
 
   return {
@@ -310,30 +377,63 @@ export function toOpenAiRequest(
 
 // ---- response ---------------------------------------------------------------
 
-/** OpenAI's output item type for each hosted tool call this contract models. */
-const HOSTED_CALL_TOOLS: Record<string, AiHostedToolType> = {
-  web_search_call: 'web_search',
-  file_search_call: 'file_search',
-  code_interpreter_call: 'code_interpreter',
-  image_generation_call: 'image_generation',
-  mcp_call: 'mcp',
-  mcp_list_tools: 'mcp',
-  mcp_approval_request: 'mcp',
-};
+/** A message item: its text parts concatenated, and their url citations re-based onto that text. */
+function fromOpenAiMessage(item: ResponseOutputMessage): AiMessageOutputItem {
+  let text = '';
+  const citations: AiUrlCitation[] = [];
+
+  for (const part of item.content) {
+    if (part.type !== 'output_text') continue;
+
+    const offset = text.length;
+
+    for (const annotation of part.annotations ?? []) {
+      if (annotation.type !== 'url_citation') continue;
+
+      citations.push({
+        url: annotation.url,
+        title: annotation.title,
+        startIndex: annotation.start_index + offset,
+        endIndex: annotation.end_index + offset,
+      });
+    }
+
+    text += part.text;
+  }
+
+  return citations.length > 0 ? { type: 'message', text, citations } : { type: 'message', text };
+}
+
+const IMAGE_MIME: Record<string, string> = { png: 'image/png', jpeg: 'image/jpeg', webp: 'image/webp' };
+
+/** An MCP error, as one line: its kind and code — a server's own message may echo request detail. */
+function mcpError(error: unknown): string | null {
+  if (!error) return null;
+  if (typeof error === 'string') return error;
+
+  const { type, code } = error as { type?: unknown; code?: unknown };
+
+  return [typeof type === 'string' ? type : 'mcp_error', typeof code === 'number' ? String(code) : '']
+    .filter(Boolean)
+    .join(' ');
+}
+
+function withId(item: AiHostedToolCallItem, id: unknown): AiHostedToolCallItem {
+  return typeof id === 'string' && id ? { ...item, id } : item;
+}
 
 /**
  * Maps one SDK output item. `null` for an item type this contract does not
  * model (it is dropped, never guessed at).
+ *
+ * An `image_generation_call`'s base64 `result` is decoded into BYTES here
+ * (`result.image`); the facade's hosted-output seam removes them before the
+ * response leaves the runtime (see `AiImageGenerationCallResult`).
  */
 export function fromOpenAiOutputItem(item: ResponseOutputItem): AiOutputItem | null {
   switch (item.type) {
     case 'message':
-      return {
-        type: 'message',
-        text: item.content
-          .map((part) => (part.type === 'output_text' ? part.text : ''))
-          .join(''),
-      };
+      return fromOpenAiMessage(item);
 
     case 'reasoning':
       return { type: 'reasoning', summary: item.summary.map((part) => part.text) };
@@ -346,15 +446,125 @@ export function fromOpenAiOutputItem(item: ResponseOutputItem): AiOutputItem | n
         arguments: item.arguments,
       };
 
-    default: {
-      const tool = HOSTED_CALL_TOOLS[item.type];
+    case 'web_search_call': {
+      const action = item.action as { type?: string; query?: string; queries?: string[]; sources?: Array<{ url: string }> } | undefined;
+      const queries = action?.queries ?? (action?.query ? [action.query] : []);
 
-      if (!tool) return null;
-
-      const status = 'status' in item && typeof item.status === 'string' ? item.status : 'unknown';
-
-      return { type: 'hosted_tool_call', tool, status } as AiOutputItem;
+      return withId(
+        {
+          type: 'hosted_tool_call',
+          tool: 'web_search',
+          status: item.status,
+          result: { queries, sources: (action?.sources ?? []).map((source) => ({ url: source.url })) },
+        },
+        item.id,
+      );
     }
+
+    case 'file_search_call':
+      return withId(
+        {
+          type: 'hosted_tool_call',
+          tool: 'file_search',
+          status: item.status,
+          result: {
+            queries: item.queries ?? [],
+            results: (item.results ?? []).map((hit) => ({
+              ...(hit.file_id ? { fileId: hit.file_id } : {}),
+              ...(hit.filename ? { filename: hit.filename } : {}),
+              ...(typeof hit.score === 'number' ? { score: hit.score } : {}),
+              ...(hit.text ? { text: hit.text } : {}),
+            })),
+          },
+        },
+        item.id,
+      );
+
+    case 'code_interpreter_call':
+      return withId(
+        {
+          type: 'hosted_tool_call',
+          tool: 'code_interpreter',
+          status: item.status,
+          result: {
+            code: item.code ?? null,
+            containerId: item.container_id,
+            outputs: (item.outputs ?? []).map((output) =>
+              output.type === 'logs'
+                ? { type: 'logs' as const, logs: output.logs }
+                : { type: 'image' as const, url: output.url },
+            ),
+          },
+        },
+        item.id,
+      );
+
+    case 'image_generation_call': {
+      const format = item.output_format ?? 'png';
+      const mimeType = IMAGE_MIME[format] ?? 'image/png';
+
+      return withId(
+        {
+          type: 'hosted_tool_call',
+          tool: 'image_generation',
+          status: item.status,
+          result: {
+            storageObjectId: null,
+            mimeType,
+            ...(item.revised_prompt ? { revisedPrompt: item.revised_prompt } : {}),
+            ...(item.size ? { size: item.size } : {}),
+            ...(item.quality ? { quality: item.quality } : {}),
+            ...(item.result
+              ? { image: { data: new Uint8Array(Buffer.from(item.result, 'base64')), mimeType } }
+              : {}),
+          },
+        },
+        item.id,
+      );
+    }
+
+    case 'mcp_call':
+    case 'mcp_list_tools':
+    case 'mcp_approval_request': {
+      let result: AiMcpCallResult;
+
+      if (item.type === 'mcp_call') {
+        result = {
+          kind: 'call',
+          serverLabel: item.server_label,
+          name: item.name,
+          arguments: item.arguments,
+          output: item.output ?? null,
+          error: mcpError(item.error),
+        };
+      } else if (item.type === 'mcp_list_tools') {
+        result = {
+          kind: 'list_tools',
+          serverLabel: item.server_label,
+          tools: item.tools.map((tool) => ({
+            name: tool.name,
+            ...(tool.description ? { description: tool.description } : {}),
+          })),
+          error: item.error ?? null,
+        };
+      } else {
+        result = { kind: 'approval_request', serverLabel: item.server_label, name: item.name, arguments: item.arguments };
+      }
+
+      const status =
+        item.type === 'mcp_call'
+          ? item.status ?? (item.error ? 'failed' : 'completed')
+          : item.type === 'mcp_list_tools'
+            ? item.error
+              ? 'failed'
+              : 'completed'
+            : 'awaiting_approval';
+
+      return withId({ type: 'hosted_tool_call', tool: 'mcp', status, result }, item.id);
+    }
+
+    default:
+      return null;
   }
 }
 

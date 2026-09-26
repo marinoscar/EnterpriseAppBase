@@ -5,12 +5,13 @@ const REASONING: AiCapability[] = [
   'responses',
   'reasoning',
   'tools',
+  'hosted_tools',
   'structured_output',
   'streaming',
   'vision_input',
   'file_input',
 ];
-const CHAT: AiCapability[] = ['responses', 'tools', 'structured_output', 'streaming', 'vision_input', 'file_input'];
+const CHAT: AiCapability[] = ['responses', 'tools', 'hosted_tools', 'structured_output', 'streaming', 'vision_input', 'file_input'];
 
 describe('classifyOpenAiModel', () => {
   // ~20 real ids (snapshots included) -> the capability set expected.

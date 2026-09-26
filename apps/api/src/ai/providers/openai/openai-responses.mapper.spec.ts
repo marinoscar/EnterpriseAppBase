@@ -194,15 +194,6 @@ describe('toOpenAiRequest', () => {
     expect(toOpenAiRequest({ model: 'gpt-4o', input: 'x', toolChoice: 'required' }, GPT4O).tool_choice).toBe('required');
   });
 
-  it('rejects hosted tools with AI_CAPABILITY_UNSUPPORTED (Phase 1)', () => {
-    const err = expectAiError(
-      () => toOpenAiRequest({ model: 'gpt-4o', input: 'x', tools: [{ type: 'web_search' }] }, GPT4O),
-      'AI_CAPABILITY_UNSUPPORTED',
-    );
-
-    expect(err.toJSON().details).toMatchObject({ tool: 'web_search' });
-  });
-
   it('maps structured output to a strict json_schema text format', () => {
     const body = toOpenAiRequest(
       { model: 'gpt-4o', input: 'x', structuredOutput: { name: 'facts', schema: z.object({ a: z.string() }) } },
@@ -315,7 +306,7 @@ describe('fromOpenAiResponse', () => {
     expect(result.providerRequestId).toBeUndefined();
   });
 
-  it('maps a hosted tool call generically and drops unknown item types', () => {
+  it('maps a known hosted tool call and drops unknown item types', () => {
     const result = fromOpenAiResponse(
       responseFixture({
         output: [
@@ -328,7 +319,7 @@ describe('fromOpenAiResponse', () => {
     );
 
     expect(result.output).toEqual([
-      { type: 'hosted_tool_call', tool: 'web_search', status: 'completed' },
+      { type: 'hosted_tool_call', id: 'ws_1', tool: 'web_search', status: 'completed', result: { queries: [], sources: [] } },
       { type: 'message', text: 'Found it.' },
     ]);
   });
