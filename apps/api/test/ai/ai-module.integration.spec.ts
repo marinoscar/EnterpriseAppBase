@@ -2,10 +2,12 @@
 // AiModule boot (issue #424, epic #419)
 // =============================================================================
 //
-// The AI core must boot inside the full application with NO provider
-// registered, and on its own with NO database at all — every later AI story
-// (catalog, config, keys) layers onto this and must not find a hidden
-// dependency underneath.
+// The AI platform must boot inside the full application, and on its own with
+// NO database at all — every later AI story (catalog, config, keys) layers
+// onto this and must not find a hidden dependency underneath. Registering a
+// provider needs no database or network either: since #426 the OpenAI adapter
+// self-registers at boot (enabling it and giving it a key is runtime
+// configuration, not wiring).
 // =============================================================================
 
 import { Test } from '@nestjs/testing';
@@ -27,11 +29,11 @@ describe('AiModule', () => {
       await ctx?.app.close();
     });
 
-    it('boots with an empty provider registry', () => {
+    it('boots with the built-in providers registered', () => {
       const registry = ctx.app.get(AiProviderRegistry);
 
       expect(registry).toBeInstanceOf(AiProviderRegistry);
-      expect(registry.ids()).toEqual([]);
+      expect(registry.ids()).toEqual(['openai']);
     });
   });
 
@@ -40,7 +42,7 @@ describe('AiModule', () => {
       const moduleRef = await Test.createTestingModule({ imports: [AiModule] }).compile();
       await moduleRef.init();
 
-      expect(moduleRef.get(AiProviderRegistry).ids()).toEqual([]);
+      expect(moduleRef.get(AiProviderRegistry).ids()).toEqual(['openai']);
       expect(() => moduleRef.get(PrismaService, { strict: false })).toThrow();
 
       await moduleRef.close();
