@@ -1,6 +1,7 @@
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
+import { AI_HOSTED_TOOL_TYPES } from '../../core/types/responses.types';
 import { AI_RUN_STATUSES } from '../../runtime/ai-runtime.types';
 
 // =============================================================================
@@ -17,8 +18,75 @@ import { AI_RUN_STATUSES } from '../../runtime/ai-runtime.types';
 // them for the user's and the organisation's key.
 // =============================================================================
 
+/** A web-search citation: `text.slice(startIndex, endIndex)` is the passage it supports. */
+export const aiUrlCitationSchema = z.object({
+  url: z.string(),
+  title: z.string(),
+  startIndex: z.number().int(),
+  endIndex: z.number().int(),
+});
+
+/**
+ * A hosted tool call's `result`, by `tool` (#442). `image_generation` never
+ * carries image data inline: `storageObjectId` names the stored image (null
+ * until image persistence is wired).
+ */
+export const aiHostedToolResultSchema = z.union([
+  z.object({ queries: z.array(z.string()), sources: z.array(z.object({ url: z.string() })) }).describe('web_search'),
+  z
+    .object({
+      queries: z.array(z.string()),
+      results: z.array(
+        z.object({
+          fileId: z.string().optional(),
+          filename: z.string().optional(),
+          score: z.number().optional(),
+          text: z.string().optional(),
+        }),
+      ),
+    })
+    .describe('file_search'),
+  z
+    .object({
+      code: z.string().nullable(),
+      containerId: z.string(),
+      outputs: z.array(
+        z.union([
+          z.object({ type: z.literal('logs'), logs: z.string() }),
+          z.object({ type: z.literal('image'), url: z.string() }),
+        ]),
+      ),
+    })
+    .describe('code_interpreter'),
+  z
+    .object({
+      storageObjectId: z.string().nullable(),
+      mimeType: z.string().optional(),
+      revisedPrompt: z.string().optional(),
+      size: z.string().optional(),
+      quality: z.string().optional(),
+    })
+    .describe('image_generation'),
+  z
+    .object({
+      kind: z.enum(['call', 'list_tools', 'approval_request']),
+      serverLabel: z.string(),
+      name: z.string().optional(),
+      arguments: z.string().optional(),
+      output: z.string().nullable().optional(),
+      tools: z.array(z.object({ name: z.string(), description: z.string().optional() })).optional(),
+      error: z.string().nullable().optional(),
+    })
+    .describe('mcp'),
+]);
+
 export const aiOutputItemSchema = z.union([
-  z.object({ type: z.literal('message'), text: z.string() }),
+  z.object({
+    type: z.literal('message'),
+    text: z.string(),
+    /** Web sources the text cites (hosted `web_search`). */
+    citations: z.array(aiUrlCitationSchema).optional(),
+  }),
   z.object({ type: z.literal('reasoning'), summary: z.array(z.string()) }),
   z.object({
     type: z.literal('function_call'),
@@ -28,9 +96,12 @@ export const aiOutputItemSchema = z.union([
   }),
   z.object({
     type: z.literal('hosted_tool_call'),
-    tool: z.string(),
+    /** The provider's id for this output item. */
+    id: z.string().optional(),
+    tool: z.enum(AI_HOSTED_TOOL_TYPES),
+    /** Provider status, e.g. `in_progress`, `searching`, `completed`, `failed`. */
     status: z.string(),
-    result: z.unknown().optional(),
+    result: aiHostedToolResultSchema.optional(),
   }),
 ]);
 

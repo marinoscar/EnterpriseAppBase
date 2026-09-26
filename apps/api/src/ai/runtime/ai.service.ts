@@ -58,6 +58,21 @@
 // error carry no URL. `startRun` runs the checks now and the job resolves
 // again when it executes, with a fresh URL.
 //
+// HOSTED TOOLS (#442) add one gate between steps 2 and 3: every hosted
+// tool's shape is validated, its type must be switched on by an
+// administrator (`ai.hostedTools.<type>`) and an MCP server's host must pass
+// `mcpAllowedHosts` — else AI_TOOL_DISABLED (403); the model's
+// `hosted_tools` capability is then step 3's (AI_CAPABILITY_UNSUPPORTED).
+// Every result leaves through an `AiHostedOutputSettler`
+// (`ai-hosted-outputs.ts`): generated image bytes go to `persistHostedImage`
+// (the storage seam) and never onward, and MCP header values are scrubbed
+// from everything returned.
+//
+// ⚠ MCP HEADERS are secret like the key: never logged (the prompt preview
+// shows instructions and input only), never on a span (`ai.hosted_tools`
+// names tool TYPES), never in a usage row, never stored with a background
+// run (`toStoredRunRequest` refuses them).
+//
 // ⚠ THE KEY. `apiKey` exists in this file only between step 6 and the
 // adapter call. It is never logged, never put on a span, never persisted and
 // never part of an error. A presigned input URL gets the same treatment.
@@ -86,6 +101,12 @@ import {
   storageInputMaxBytes,
   storageInputModality,
 } from '../core/types/file-inputs.types';
+import {
+  assertHostedToolShapes,
+  assertHostedToolsAllowed,
+  hostedToolsOf,
+  mcpHeaderValues,
+} from '../core/hosted-tools';
 import { AiProviderRegistry } from '../core/provider-registry';
 import { parseStructured } from '../core/structured-output';
 import {
@@ -105,6 +126,8 @@ import {
 } from '../core/types/media.types';
 import type {
   AiContentPart,
+  AiHostedToolCallItem,
+  AiImageGenerationCallResult,
   AiResponse,
   AiResponseRequest,
   AiStreamEvent,
@@ -122,6 +145,7 @@ import {
   toImageGenerationRequest,
 } from './ai-image-run-request';
 import { toStoredRunRequest } from './ai-run-request';
+import { AiHostedOutputSettler, discardHostedImage } from './ai-hosted-outputs';
 import { AI_IMAGE_GENERATE_TYPE, AiRunsService } from './ai-runs.service';
 import type {
   AiCallOptions,
@@ -260,6 +284,8 @@ export interface AiCallTarget {
   modelId: string;
   baseUrl?: string;
   logPromptContent: boolean;
+  /** Hosted tool TYPES the request carries (for the span) — never their options. */
+  hostedTools?: string[];
 }
 
 /** The facade operations that are traced and recorded, and the usage `operation` each is billed as. */
@@ -460,7 +486,37 @@ export class AiService {
 
     await tracker.finish({ status: 'succeeded', result: response });
 
-    return response;
+    return this.hostedOutputs(scope, call).response(response);
+  }
+
+  // ---- hosted-tool outputs ---------------------------------------------------------
+
+  /** The settler every result of `call` leaves through (see `ai-hosted-outputs.ts`). */
+  private hostedOutputs(scope: AiClientScope, call: PreparedAiCall): AiHostedOutputSettler {
+    return new AiHostedOutputSettler(
+      { userId: scope.userId, ...(scope.jobId ? { jobId: scope.jobId } : {}) },
+      mcpHeaderValues(call.request.tools),
+      (owner, item, responseId) => this.persistHostedImage(owner, item, responseId),
+    );
+  }
+
+  /**
+   * THE IMAGE STORAGE SEAM (#442 -> #437). Receives one `image_generation`
+   * hosted call with its bytes in `item.result.image` and returns the result
+   * to publish, WITHOUT the bytes.
+   *
+   * Today it discards them (`storageObjectId: null`). The follow-up wires the
+   * AI output writer here: upload `image.data` (`image.mimeType`) as a
+   * user-owned storage object under `ai-outputs/<owner.userId>/<runId or
+   * responseId>/` and return `{ ...rest, storageObjectId }`. It is called once
+   * per image even when a stream shows the item twice.
+   */
+  protected async persistHostedImage(
+    owner: { userId: string; jobId?: string },
+    item: Extract<AiHostedToolCallItem, { tool: 'image_generation' }>,
+    _responseId: string | undefined,
+  ): Promise<AiImageGenerationCallResult> {
+    return discardHostedImage(owner, item);
   }
 
   // ---- embed ---------------------------------------------------------------------
@@ -590,6 +646,7 @@ export class AiService {
     const storageInputs = await this.materializeStorageInputs(call);
     const { ctx, keySource } = await this.context(scope, call, opts, () => responsePrompt(call.request), storageInputs);
     const tracker = this.track(scope, call, keySource, 'responses.stream');
+    const settler = this.hostedOutputs(scope, call);
     let iterator: AsyncIterator<AiStreamEvent>;
 
     // Prime the first event so a provider refusal that happens before the
@@ -618,13 +675,14 @@ export class AiService {
       throw new AiError(code, message);
     }
 
-    return this.relay(first, iterator, tracker, opts);
+    return this.relay(first, iterator, tracker, settler, opts);
   }
 
   private async *relay(
     first: IteratorResult<AiStreamEvent>,
     iterator: AsyncIterator<AiStreamEvent>,
     tracker: CallTracker,
+    settler: AiHostedOutputSettler,
     opts: AiCallOptions,
   ): AsyncGenerator<AiStreamEvent> {
     let finished = false;
@@ -644,7 +702,7 @@ export class AiService {
           outcome = { status: 'failed', errorCode: event.code };
         }
 
-        yield event;
+        yield await settler.event(event);
         result = await iterator.next();
       }
 
@@ -685,6 +743,7 @@ export class AiService {
         'ai.model': call.modelId,
         'ai.operation': operation,
         'ai.key_source': keySource,
+        ...(call.hostedTools?.length ? { 'ai.hosted_tools': call.hostedTools.join(',') } : {}),
       },
     });
     let done = false;
@@ -749,6 +808,12 @@ export class AiService {
     // 2. Provider enabled in settings AND registered in this process.
     const slot = await this.aiConfig.assertProviderEnabled(provider);
     const port = this.registry.get(provider)?.responses;
+    const policy = await this.aiConfig.resolve();
+
+    // 2b. Hosted tools (#442): well-formed, switched on by an administrator,
+    // and an MCP server on an allowed host.
+    assertHostedToolShapes(req.tools);
+    assertHostedToolsAllowed(req.tools, policy.hostedTools);
 
     // 3. Model enabled, capabilities (model AND provider port), key reach.
     const needed = requiredCapabilities(req, opts.streaming);
@@ -776,7 +841,6 @@ export class AiService {
     const storageInputs = await this.planStorageInputs(userId, provider, model, usable, req.input);
 
     // 5. Clamp output tokens.
-    const policy = await this.aiConfig.resolve();
     const maxOutputTokens = clampOutputTokens(
       req.maxOutputTokens,
       policy.defaults.maxOutputTokensCap,
@@ -790,6 +854,8 @@ export class AiService {
       request.maxOutputTokens = maxOutputTokens;
     }
 
+    const hostedTools = [...new Set(hostedToolsOf(request.tools).map((tool) => tool.type))];
+
     return {
       provider,
       modelId: model,
@@ -797,6 +863,7 @@ export class AiService {
       request,
       model: usable,
       storageInputs,
+      ...(hostedTools.length > 0 ? { hostedTools } : {}),
       baseUrl: slot.baseUrl,
       logPromptContent: policy.logPromptContent,
     };

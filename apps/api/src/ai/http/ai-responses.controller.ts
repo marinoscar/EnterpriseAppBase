@@ -58,8 +58,12 @@ export class AiResponsesController {
       '`model` and `provider` are optional: with both omitted your `ai.defaultModel` user ' +
       'setting is used. `structuredOutput.jsonSchema` is a JSON Schema document; when given, ' +
       'the response carries `parsed`, already validated against it (output that does not ' +
-      'match is `502` with `details.reason: "AI_STRUCTURED_OUTPUT_INVALID"`). Function tools ' +
-      'are **not** accepted over HTTP. `maxOutputTokens` is clamped to the deployment cap and ' +
+      'match is `502` with `details.reason: "AI_STRUCTURED_OUTPUT_INVALID"`). `tools` takes ' +
+      '**provider-hosted** tools only — `web_search`, `file_search`, `code_interpreter`, ' +
+      '`image_generation`, `mcp` — each switched on by an administrator (see `hostedTools` in ' +
+      '`GET /api/ai/config`); function tools are **not** accepted over HTTP. Hosted calls come ' +
+      'back as `hosted_tool_call` output items, and web-search citations as `citations` on the ' +
+      'message. `maxOutputTokens` is clamped to the deployment cap and ' +
       'the model\'s own limit. The request body is limited to 1 MB.\n\n' +
       'An `image`/`file` part names its bytes by `url` or by `storageObjectId` — one of your ' +
       'own `ready` storage objects (unknown `404`, another user\'s `403`). A stored image ' +
@@ -69,7 +73,7 @@ export class AiResponsesController {
       'storage is `503` `AI_STORAGE_UNAVAILABLE`.\n\n' +
       'Refusals carry the AI error code in `details.reason`: `AI_DISABLED`, ' +
       '`AI_PROVIDER_DISABLED`, `AI_MODEL_NOT_ENABLED`, `AI_KEY_REQUIRED`, ' +
-      '`AI_MODEL_NOT_REACHABLE` (403); `AI_CAPABILITY_UNSUPPORTED`, `AI_INVALID_REQUEST`, ' +
+      '`AI_MODEL_NOT_REACHABLE`, `AI_TOOL_DISABLED` (403); `AI_CAPABILITY_UNSUPPORTED`, `AI_INVALID_REQUEST`, ' +
       '`AI_KEY_INVALID` (400); `AI_RATE_LIMITED` (429, with `details.retryAfterMs` when the ' +
       'provider named one); `AI_CONTENT_FILTERED` (422); `AI_PROVIDER_UNAVAILABLE` (503).',
   })
@@ -83,7 +87,7 @@ export class AiResponsesController {
     status: 403,
     description:
       '`AI_DISABLED`, `AI_PROVIDER_DISABLED`, `AI_MODEL_NOT_ENABLED`, `AI_KEY_REQUIRED`, ' +
-      '`AI_MODEL_NOT_REACHABLE`, missing `ai:use`, or another user\'s `storageObjectId` input',
+      '`AI_MODEL_NOT_REACHABLE`, `AI_TOOL_DISABLED`, missing `ai:use`, or another user\'s `storageObjectId` input',
     type: ErrorDto,
   })
   @ApiResponse({ status: 404, description: 'A `storageObjectId` input that does not exist', type: ErrorDto })
@@ -163,7 +167,7 @@ export class AiResponsesController {
     status: 403,
     description:
       '`AI_DISABLED`, `AI_PROVIDER_DISABLED`, `AI_MODEL_NOT_ENABLED`, `AI_KEY_REQUIRED`, ' +
-      '`AI_MODEL_NOT_REACHABLE`, missing `ai:use`, or another user\'s `storageObjectId` input',
+      '`AI_MODEL_NOT_REACHABLE`, `AI_TOOL_DISABLED`, missing `ai:use`, or another user\'s `storageObjectId` input',
     type: ErrorDto,
   })
   @ApiResponse({ status: 404, description: 'A `storageObjectId` input that does not exist', type: ErrorDto })
