@@ -45,6 +45,7 @@ import { parseStructured, toJsonSchema } from '../../core/structured-output';
 import type {
   AiContentPart,
   AiFinishReason,
+  AiHostedToolType,
   AiInputItem,
   AiOutputItem,
   AiResponse,
@@ -309,10 +310,16 @@ export function toOpenAiRequest(
 
 // ---- response ---------------------------------------------------------------
 
-/** OpenAI output item types that are a provider-executed (hosted) tool call. */
-function isHostedToolCall(type: string): boolean {
-  return type.endsWith('_call') && type !== 'function_call';
-}
+/** OpenAI's output item type for each hosted tool call this contract models. */
+const HOSTED_CALL_TOOLS: Record<string, AiHostedToolType> = {
+  web_search_call: 'web_search',
+  file_search_call: 'file_search',
+  code_interpreter_call: 'code_interpreter',
+  image_generation_call: 'image_generation',
+  mcp_call: 'mcp',
+  mcp_list_tools: 'mcp',
+  mcp_approval_request: 'mcp',
+};
 
 /**
  * Maps one SDK output item. `null` for an item type this contract does not
@@ -340,11 +347,13 @@ export function fromOpenAiOutputItem(item: ResponseOutputItem): AiOutputItem | n
       };
 
     default: {
-      if (!isHostedToolCall(item.type)) return null;
+      const tool = HOSTED_CALL_TOOLS[item.type];
+
+      if (!tool) return null;
 
       const status = 'status' in item && typeof item.status === 'string' ? item.status : 'unknown';
 
-      return { type: 'hosted_tool_call', tool: item.type, status };
+      return { type: 'hosted_tool_call', tool, status } as AiOutputItem;
     }
   }
 }

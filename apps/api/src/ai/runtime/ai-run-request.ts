@@ -13,7 +13,10 @@
 //     run's output is exactly as strict as the provider's own contract.
 //   - FUNCTION tools carry an in-process `execute`; they cannot survive the
 //     hop at all and are refused by `startRun`. Hosted tools are plain data
-//     and pass through.
+//     and pass through — EXCEPT an MCP tool's `headers` (#442), which are
+//     secret material for the remote server: a run carrying them is refused
+//     too, and the stored MCP shape (`aiStoredHostedToolSchema`) has no
+//     `headers` member, so the column cannot hold one.
 //
 // ⚠ NEVER KEY MATERIAL. The key is resolved again, at execution time, by
 // the worker (docs/specs/ai-platform.md §3/§9): nothing in this shape can
@@ -25,8 +28,9 @@ import { z } from 'zod';
 
 import { AiError } from '../core/ai-error';
 import { AI_REASONING_EFFORTS } from '../core/capabilities';
+import { aiStoredHostedToolSchema } from '../core/hosted-tools';
 import { toJsonSchema } from '../core/structured-output';
-import type { AiHostedTool, AiResponseRequest } from '../core/types/responses.types';
+import type { AiHostedTool, AiMcpTool, AiResponseRequest } from '../core/types/responses.types';
 import type { AiRequest } from './ai-runtime.types';
 
 const contentPartSchema = z.discriminatedUnion('type', [
@@ -54,18 +58,13 @@ const inputItemSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('function_call_output'), callId: z.string(), output: z.string() }),
 ]);
 
-const hostedToolSchema = z.object({
-  type: z.enum(['web_search', 'file_search', 'code_interpreter', 'mcp']),
-  options: z.record(z.string(), z.unknown()).optional(),
-});
-
 /** The stored shape. Validated on the way back in: a JSONB column is a trust boundary. */
 export const storedAiRunRequestSchema = z.object({
   provider: z.string().min(1),
   model: z.string().min(1),
   instructions: z.string().optional(),
   input: z.union([z.string(), z.array(inputItemSchema)]),
-  tools: z.array(hostedToolSchema).optional(),
+  tools: z.array(aiStoredHostedToolSchema).optional(),
   toolChoice: z
     .union([
       z.enum(['auto', 'none', 'required']),
@@ -97,7 +96,8 @@ export type StoredAiRunRequest = z.infer<typeof storedAiRunRequestSchema>;
 /**
  * The JSON-safe form of an already-gated request.
  *
- * @throws AiError('AI_INVALID_REQUEST') for a function tool.
+ * @throws AiError('AI_INVALID_REQUEST') for a function tool, or an MCP tool
+ *   that carries `headers` (they would have to be stored to be re-sent).
  */
 export function toStoredRunRequest(provider: string, req: AiResponseRequest): StoredAiRunRequest {
   const hosted: AiHostedTool[] = [];
@@ -111,7 +111,15 @@ export function toStoredRunRequest(provider: string, req: AiResponseRequest): St
       );
     }
 
-    hosted.push(tool);
+    if (tool.type === 'mcp' && Object.keys(tool.headers ?? {}).length > 0) {
+      throw new AiError(
+        'AI_INVALID_REQUEST',
+        'An MCP tool with headers cannot run in a background run: its headers would have to be stored.',
+        { details: { tool: 'mcp', serverLabel: tool.serverLabel } },
+      );
+    }
+
+    hosted.push(tool.type === 'mcp' ? withoutHeaders(tool) : tool);
   }
 
   const stored: StoredAiRunRequest = {
@@ -139,6 +147,13 @@ export function toStoredRunRequest(provider: string, req: AiResponseRequest): St
 
   // One more parse: what goes into the column is exactly what comes back out.
   return storedAiRunRequestSchema.parse(stored);
+}
+
+/** An MCP tool minus `headers` — named fields only, so nothing else rides along either. */
+function withoutHeaders(tool: AiMcpTool): AiMcpTool {
+  const { headers: _headers, ...rest } = tool;
+
+  return rest;
 }
 
 /** The stored request as a runtime request again (Zod schema rebuilt). */

@@ -328,7 +328,7 @@ describe('fromOpenAiResponse', () => {
     );
 
     expect(result.output).toEqual([
-      { type: 'hosted_tool_call', tool: 'web_search_call', status: 'completed' },
+      { type: 'hosted_tool_call', tool: 'web_search', status: 'completed' },
       { type: 'message', text: 'Found it.' },
     ]);
   });
