@@ -6,6 +6,7 @@ import {
   BACKUP_TIME_OF_DAY_PATTERN,
   STORAGE_PROVIDER_KINDS,
   AI_KEY_POLICIES,
+  AI_USAGE_RETENTION_MAX_DAYS,
 } from '../../common/schemas/settings.schema';
 
 // The request-body schemas deliberately RESTATE `common/schemas/settings.schema.ts`
@@ -177,6 +178,7 @@ const aiSettingsSchema = z.object({
     allowBackgroundRuns: z.boolean(),
   }),
   logPromptContent: z.boolean(),
+  usageRetentionDays: z.number().int().min(1).max(AI_USAGE_RETENTION_MAX_DAYS),
 });
 
 // Full replacement (PUT)
@@ -335,6 +337,7 @@ export const patchSystemSettingsSchema = z.object({
         })
         .optional(),
       logPromptContent: z.boolean().optional(),
+      usageRetentionDays: z.number().int().min(1).max(AI_USAGE_RETENTION_MAX_DAYS).optional(),
     })
     .optional(),
 });

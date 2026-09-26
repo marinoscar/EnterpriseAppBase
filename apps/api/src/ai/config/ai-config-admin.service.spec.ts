@@ -16,6 +16,7 @@ function policy(overrides: Partial<SystemAiValue> = {}): SystemAiValue {
     providers: { openai: { enabled: false } },
     defaults: { allowBackgroundRuns: true },
     logPromptContent: false,
+    usageRetentionDays: 180,
     ...overrides,
   };
 }
@@ -178,6 +179,7 @@ describe('AiConfigAdminService', () => {
             logPromptContent: false,
             defaults: { allowBackgroundRuns: true, maxOutputTokensCap: null },
             providers: { openai: { enabled: true, baseUrl: null } },
+            usageRetentionDays: 180,
           },
         },
         'admin-1',
@@ -200,6 +202,21 @@ describe('AiConfigAdminService', () => {
         ConflictException,
       );
       expect(systemSettings.patchSettings).not.toHaveBeenCalled();
+    });
+
+    it('round-trips usageRetentionDays, and keeps the stored value when the body omits it (#443)', async () => {
+      stored = policy({ usageRetentionDays: 45 });
+
+      await service.replace(input(), 'admin-1');
+      expect(systemSettings.patchSettings.mock.calls[0][0].ai.usageRetentionDays).toBe(45);
+
+      await service.replace(input({ usageRetentionDays: 30 }), 'admin-1');
+      expect(systemSettings.patchSettings.mock.calls[1][0].ai.usageRetentionDays).toBe(30);
+      expect(prisma.auditEvent.create.mock.calls[1][0].data.meta.changedFields).toContain(
+        'usageRetentionDays',
+      );
+
+      await expect(service.describeForAdmin()).resolves.toMatchObject({ usageRetentionDays: 30 });
     });
 
     it('keeps a provider the body leaves out', async () => {

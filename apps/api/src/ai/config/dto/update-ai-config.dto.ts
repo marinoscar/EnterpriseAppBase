@@ -1,7 +1,7 @@
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
-import { AI_KEY_POLICIES } from '../../../common/schemas/settings.schema';
+import { AI_KEY_POLICIES, AI_USAGE_RETENTION_MAX_DAYS } from '../../../common/schemas/settings.schema';
 
 // =============================================================================
 // PUT /api/admin/ai/config — body (issue #428, epic #419)
@@ -40,6 +40,12 @@ export const updateAiConfigSchema = z.object({
     maxOutputTokensCap: z.number().int().positive().max(1_000_000).nullish(),
     allowBackgroundRuns: z.boolean(),
   }),
+  /**
+   * Days `ai_usage_events` rows are kept before the daily purge deletes them
+   * (#443). Omit to keep the stored value — the one field of this body that is
+   * not full-replace, so a client written before it existed still saves.
+   */
+  usageRetentionDays: z.number().int().min(1).max(AI_USAGE_RETENTION_MAX_DAYS).optional(),
   /**
    * Per-provider settings keyed by provider id. A provider left out keeps its
    * stored settings.

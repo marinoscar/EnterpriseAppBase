@@ -158,6 +158,7 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
     },
     defaults: { allowBackgroundRuns: true, ...(p.defaults ?? {}) },
     logPromptContent: p.logPromptContent ?? false,
+    usageRetentionDays: 180,
   };
 
   let orgKey: string | null = opts.orgKey ? HARNESS_ORG_KEY : null;

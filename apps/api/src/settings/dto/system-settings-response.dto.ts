@@ -102,6 +102,7 @@ export const systemSettingsResponseSchema = z.object({
       allowBackgroundRuns: z.boolean(),
     }),
     logPromptContent: z.boolean(),
+    usageRetentionDays: z.number().int(),
   }),
   updatedAt: z.iso.datetime(),
   updatedBy: z

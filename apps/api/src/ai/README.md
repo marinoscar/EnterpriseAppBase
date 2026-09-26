@@ -58,6 +58,11 @@ ai/
     ai-sse.ts                     pipeAiSse/formatSseEvent/abortOnDisconnect — see below
     ai-http-request.ts           toAiRequest — HTTP DTO -> AiRequest
     json-schema-structured-output.ts   HTTP callers send JSON Schema, not Zod
+  usage/                   Reading ai_usage_events back (issue #443)
+    ai-usage.service.ts          AiUsageService — the aggregate report (GROUPING SETS SQL)
+    ai-usage-admin.controller.ts GET /api/admin/ai/usage (ai_config:read)
+    ai-usage.controller.ts       GET /api/ai/usage/me (ai:use, caller only)
+    ai-usage-purge.handler.ts / .task.ts   `ai.usage.purge` job + daily enqueue-only cron
   testing/                 FakeAiProvider, describeAiProviderConformance, test harness
 ```
 

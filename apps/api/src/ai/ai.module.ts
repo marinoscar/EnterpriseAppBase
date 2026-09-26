@@ -7,6 +7,7 @@ import { AiHttpModule } from './http/ai-http.module';
 import { AiKeysModule } from './keys/ai-keys.module';
 import { OpenAiProviderModule } from './providers/openai/openai.module';
 import { AiRuntimeModule } from './runtime/ai-runtime.module';
+import { AiUsageModule } from './usage/ai-usage.module';
 
 /**
  * The AI platform's root module (epic #419).
@@ -25,6 +26,7 @@ import { AiRuntimeModule } from './runtime/ai-runtime.module';
     AiKeysModule,
     AiRuntimeModule,
     AiHttpModule,
+    AiUsageModule,
   ],
   // `AiRuntimeModule` is re-exported so a fork's module can simply
   // `imports: [AiModule]` and inject `AiService`.

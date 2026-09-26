@@ -1240,6 +1240,8 @@ export class SystemSettingsService {
         },
         logPromptContent:
           dto.ai?.logPromptContent ?? currentValue.ai.logPromptContent,
+        usageRetentionDays:
+          dto.ai?.usageRetentionDays ?? currentValue.ai.usageRetentionDays,
       },
     };
 
