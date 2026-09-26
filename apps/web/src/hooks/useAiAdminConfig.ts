@@ -74,6 +74,19 @@ function messageFor(err: unknown, fallback: string): string {
           err.message ||
           'That provider is not available in this build, so it can be switched off but not on.'
         );
+      // #448 — the provider-specific settings (Azure OpenAI, OpenAI-compatible).
+      case 'AI_BASE_URL_REQUIRED':
+        return (
+          err.message ||
+          'This provider needs an endpoint before it can be enabled. Enter its base URL, then save.'
+        );
+      case 'AI_PROVIDER_SETTINGS_INVALID':
+        return (
+          err.message ||
+          "One of this provider's settings was refused. Check the URL (https for Azure OpenAI, no user name, password or #fragment), the API version and the deployment names."
+        );
+      case 'AI_PROVIDER_FIELD_UNSUPPORTED':
+        return err.message || 'This provider does not accept one of the settings sent. Reload the page and try again.';
       default:
         // `PUT …/key` answers 503 when the provider could not be asked to
         // verify the key at all — nothing was stored, and retrying is the fix.

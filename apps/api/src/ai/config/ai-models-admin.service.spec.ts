@@ -41,8 +41,10 @@ describe('AiModelsAdminService', () => {
   let credentials: { describe: jest.Mock };
   let catalog: { enqueueRefresh: jest.Mock };
   let service: AiModelsAdminService;
+  let policy: { providers: Record<string, unknown> };
 
   beforeEach(() => {
+    policy = { providers: { openai: { enabled: true } } };
     prisma = {
       aiModel: {
         findMany: jest.fn().mockResolvedValue([row()]),
@@ -64,7 +66,7 @@ describe('AiModelsAdminService', () => {
       {} as never,
       {} as never,
       registry,
-      {} as never,
+      { resolve: jest.fn(async () => policy) } as never,
     );
 
     service = new AiModelsAdminService(
@@ -228,6 +230,14 @@ describe('AiModelsAdminService', () => {
         details: { reason: 'AI_KEY_REQUIRED', provider: 'openai' },
       });
       expect(catalog.enqueueRefresh).not.toHaveBeenCalled();
+    });
+
+    it('enqueues with no admin key for a keyless provider (#448)', async () => {
+      credentials.describe.mockResolvedValue(null);
+      policy.providers.openai = { enabled: true, requiresKey: false };
+
+      await expect(service.refresh('openai', 'admin-1')).resolves.toEqual({ jobId: 'job-1', status: 'pending' });
+      expect(catalog.enqueueRefresh).toHaveBeenCalledWith('openai', 'admin-1');
     });
 
     it('404s for an unregistered provider', async () => {

@@ -13,6 +13,12 @@ import {
   AI_LIMIT_MODEL_KEY_PATTERN,
   AI_LIMITS_PER_MODEL_MAX,
   AI_LIMIT_VALUE_MAX,
+  AI_AZURE_API_VERSION_PATTERN,
+  AI_AZURE_ENDPOINT_SCHEMES,
+  AI_COMPATIBLE_ENDPOINT_SCHEMES,
+  AI_OPENAI_API_STYLES,
+  aiAzureDeploymentsSchema,
+  aiEndpointUrlSchema,
 } from '../../common/schemas/settings.schema';
 
 // The request-body schemas deliberately RESTATE `common/schemas/settings.schema.ts`
@@ -216,6 +222,20 @@ const aiSettingsSchema = z.object({
       enabled: z.boolean(),
       baseUrl: z.string().url().optional(),
     }),
+    // #448 — see `systemAiAzureProviderSchema` / `systemAiCompatibleProviderSchema`.
+    'azure-openai': z.object({
+      enabled: z.boolean(),
+      baseUrl: aiEndpointUrlSchema(AI_AZURE_ENDPOINT_SCHEMES).optional(),
+      apiVersion: z.string().regex(AI_AZURE_API_VERSION_PATTERN).optional(),
+      apiStyle: z.enum(AI_OPENAI_API_STYLES).optional(),
+      deployments: aiAzureDeploymentsSchema.optional(),
+    }),
+    'openai-compatible': z.object({
+      enabled: z.boolean(),
+      baseUrl: aiEndpointUrlSchema(AI_COMPATIBLE_ENDPOINT_SCHEMES).optional(),
+      apiStyle: z.enum(AI_OPENAI_API_STYLES).optional(),
+      requiresKey: z.boolean().optional(),
+    }),
   }),
   defaults: z.object({
     maxOutputTokensCap: z.number().int().positive().optional(),
@@ -393,6 +413,25 @@ export const patchSystemSettingsSchema = z.object({
             .object({
               enabled: z.boolean().optional(),
               baseUrl: z.string().url().nullable().optional(),
+            })
+            .optional(),
+          // #448. `null` removes an optional field (back to its default);
+          // `deployments` replaces wholesale when present.
+          'azure-openai': z
+            .object({
+              enabled: z.boolean().optional(),
+              baseUrl: aiEndpointUrlSchema(AI_AZURE_ENDPOINT_SCHEMES).nullable().optional(),
+              apiVersion: z.string().regex(AI_AZURE_API_VERSION_PATTERN).nullable().optional(),
+              apiStyle: z.enum(AI_OPENAI_API_STYLES).nullable().optional(),
+              deployments: aiAzureDeploymentsSchema.nullable().optional(),
+            })
+            .optional(),
+          'openai-compatible': z
+            .object({
+              enabled: z.boolean().optional(),
+              baseUrl: aiEndpointUrlSchema(AI_COMPATIBLE_ENDPOINT_SCHEMES).nullable().optional(),
+              apiStyle: z.enum(AI_OPENAI_API_STYLES).nullable().optional(),
+              requiresKey: z.boolean().nullable().optional(),
             })
             .optional(),
         })

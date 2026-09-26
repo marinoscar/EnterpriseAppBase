@@ -46,6 +46,26 @@ import { parseRetryAfterMs } from '../../../jobs/rate-limit.error';
 export const OPENAI_PROVIDER_ID = 'openai';
 
 /**
+ * Which member of the OpenAI wire family an error or a response belongs to
+ * (#448). The OpenAI adapter, the Azure OpenAI adapter and the generic
+ * OpenAI-compatible adapter all speak the same wire protocol through the same
+ * SDK, so they share this file's mapping and the mappers beside it; the
+ * family only changes the provider id stamped on `details` / `AiResponse
+ * .provider` and the name in the generic, secret-free messages. Every
+ * function taking one defaults to {@link OPENAI_FAMILY}, so the OpenAI
+ * adapter's behaviour is exactly what it was before the extraction.
+ */
+export interface OpenAiFamily {
+  /** The adapter's permanent provider id (`'openai'`, `'azure-openai'`, ...). */
+  providerId: string;
+  /** How the generic error messages name the provider (`'OpenAI'`). */
+  label: string;
+}
+
+/** OpenAI itself. */
+export const OPENAI_FAMILY: OpenAiFamily = Object.freeze({ providerId: OPENAI_PROVIDER_ID, label: 'OpenAI' });
+
+/**
  * OpenAI error codes that mean "the provider refused this content", whatever
  * HTTP status (or none, mid-stream) carried them. `invalid_prompt` is what a
  * reasoning model answers when a prompt is flagged under the usage policy.
@@ -83,27 +103,38 @@ const CALLER_FAULT_CODES = new Set([
   'context_length_exceeded',
 ]);
 
-const MESSAGES: Record<AiErrorCode, string> = {
-  AI_DISABLED: 'AI is disabled.',
-  AI_PROVIDER_DISABLED: 'The AI provider is disabled.',
-  AI_KEY_REQUIRED: 'An API key is required for this AI provider.',
-  AI_KEY_INVALID: 'The OpenAI API key was rejected.',
-  AI_MODEL_NOT_ENABLED: 'The model is not enabled.',
-  AI_MODEL_NOT_REACHABLE: 'The OpenAI model is not reachable with this API key.',
-  AI_CAPABILITY_UNSUPPORTED: 'The request uses a capability OpenAI does not support here.',
-  AI_TOOL_DISABLED: 'The requested tool is not enabled in this deployment.',
-  AI_REALTIME_DISABLED: 'Realtime sessions are not enabled in this deployment.',
-  AI_RATE_LIMITED: 'OpenAI rate-limited the request.',
-  AI_PROVIDER_UNAVAILABLE: 'OpenAI is unavailable or the request failed.',
-  AI_CONTENT_FILTERED: 'OpenAI refused the request under its content policy.',
-  AI_INVALID_REQUEST: 'OpenAI rejected the request as invalid.',
-  AI_STRUCTURED_OUTPUT_INVALID: 'The model output does not match the requested schema.',
-  AI_STORAGE_UNAVAILABLE: 'Object storage is unavailable.',
-};
+function messagesFor(label: string): Record<AiErrorCode, string> {
+  return {
+    AI_DISABLED: 'AI is disabled.',
+    AI_PROVIDER_DISABLED: 'The AI provider is disabled.',
+    AI_KEY_REQUIRED: 'An API key is required for this AI provider.',
+    AI_KEY_INVALID: `The ${label} API key was rejected.`,
+    AI_MODEL_NOT_ENABLED: 'The model is not enabled.',
+    AI_MODEL_NOT_REACHABLE: `The ${label} model is not reachable with this API key.`,
+    AI_CAPABILITY_UNSUPPORTED: `The request uses a capability ${label} does not support here.`,
+    AI_TOOL_DISABLED: 'The requested tool is not enabled in this deployment.',
+    AI_REALTIME_DISABLED: 'Realtime sessions are not enabled in this deployment.',
+    AI_RATE_LIMITED: `${label} rate-limited the request.`,
+    AI_PROVIDER_UNAVAILABLE: `${label} is unavailable or the request failed.`,
+    AI_CONTENT_FILTERED: `${label} refused the request under its content policy.`,
+    AI_INVALID_REQUEST: `${label} rejected the request as invalid.`,
+    AI_STRUCTURED_OUTPUT_INVALID: 'The model output does not match the requested schema.',
+    AI_STORAGE_UNAVAILABLE: 'Object storage is unavailable.',
+  };
+}
 
-/** The generic, secret-free message this adapter uses for `code`. */
-export function openAiErrorMessage(code: AiErrorCode): string {
-  return MESSAGES[code];
+const MESSAGES_BY_LABEL = new Map<string, Record<AiErrorCode, string>>();
+
+/** The generic, secret-free message this adapter family uses for `code`. */
+export function openAiErrorMessage(code: AiErrorCode, family: OpenAiFamily = OPENAI_FAMILY): string {
+  let messages = MESSAGES_BY_LABEL.get(family.label);
+
+  if (!messages) {
+    messages = messagesFor(family.label);
+    MESSAGES_BY_LABEL.set(family.label, messages);
+  }
+
+  return messages[code];
 }
 
 function stringOrUndefined(value: unknown): string | undefined {
@@ -190,11 +221,11 @@ export function openAiErrorCode(err: unknown): AiErrorCode {
  * Turns anything an OpenAI call threw into an `AiError`. An `AiError` is
  * returned unchanged (the mapper's own `AI_CAPABILITY_UNSUPPORTED`, for one).
  */
-export function mapOpenAiError(err: unknown): AiError {
+export function mapOpenAiError(err: unknown, family: OpenAiFamily = OPENAI_FAMILY): AiError {
   if (err instanceof AiError) return err;
 
   const code = openAiErrorCode(err);
-  const details: Record<string, unknown> = { provider: OPENAI_PROVIDER_ID };
+  const details: Record<string, unknown> = { provider: family.providerId };
   let retryAfterMs: number | undefined;
 
   if (err instanceof APIUserAbortError) {
@@ -219,7 +250,7 @@ export function mapOpenAiError(err: unknown): AiError {
     }
   }
 
-  return new AiError(code, openAiErrorMessage(code), { cause: err, details, retryAfterMs });
+  return new AiError(code, openAiErrorMessage(code, family), { cause: err, details, retryAfterMs });
 }
 
 /**
@@ -230,13 +261,14 @@ export function mapOpenAiError(err: unknown): AiError {
 export function mapOpenAiResponseFailure(
   error: { code?: string | null } | null | undefined,
   providerRequestId?: string,
+  family: OpenAiFamily = OPENAI_FAMILY,
 ): AiError {
   const code = classifyOpenAiErrorCode(error?.code ?? undefined);
-  const details: Record<string, unknown> = { provider: OPENAI_PROVIDER_ID };
+  const details: Record<string, unknown> = { provider: family.providerId };
   const providerCode = stringOrUndefined(error?.code);
 
   if (providerCode) details.providerCode = providerCode;
   if (providerRequestId) details.providerRequestId = providerRequestId;
 
-  return new AiError(code, openAiErrorMessage(code), { details });
+  return new AiError(code, openAiErrorMessage(code, family), { details });
 }

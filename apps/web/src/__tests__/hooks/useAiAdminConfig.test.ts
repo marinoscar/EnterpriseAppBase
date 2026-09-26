@@ -144,6 +144,21 @@ describe('useAiAdminConfig', () => {
       expect(result.current.saveError).toBe('An org key is required for openai');
       expect(result.current.isSaving).toBe(false);
     });
+
+    it.each([
+      ['AI_BASE_URL_REQUIRED', /needs an endpoint before it can be enabled/i],
+      ['AI_PROVIDER_SETTINGS_INVALID', /https for Azure OpenAI/i],
+      ['AI_PROVIDER_FIELD_UNSUPPORTED', /does not accept one of the settings/i],
+    ])('words the #448 refusal %s when the API sends no message', async (reason, expected) => {
+      mockUpdate.mockRejectedValue(new ApiError('', 400, 'BAD_REQUEST', { reason }));
+      const { result } = await renderLoaded();
+
+      await act(async () => {
+        await result.current.save(input);
+      });
+
+      expect(result.current.saveError).toMatch(expected);
+    });
   });
 
   describe('keys', () => {

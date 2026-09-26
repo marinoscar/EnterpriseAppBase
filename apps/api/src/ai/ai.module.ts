@@ -6,8 +6,10 @@ import { AiCoreModule } from './core/ai-core.module';
 import { AiHttpModule } from './http/ai-http.module';
 import { AiKeysModule } from './keys/ai-keys.module';
 import { AnthropicProviderModule } from './providers/anthropic/anthropic.module';
+import { AzureOpenAiProviderModule } from './providers/azure-openai/azure-openai.module';
 import { GeminiProviderModule } from './providers/gemini/gemini.module';
 import { OpenAiProviderModule } from './providers/openai/openai.module';
+import { OpenAiCompatibleProviderModule } from './providers/openai-compatible/openai-compatible.module';
 import { AiRuntimeModule } from './runtime/ai-runtime.module';
 import { AiUsageModule } from './usage/ai-usage.module';
 
@@ -25,6 +27,8 @@ import { AiUsageModule } from './usage/ai-usage.module';
     OpenAiProviderModule,
     AnthropicProviderModule,
     GeminiProviderModule,
+    AzureOpenAiProviderModule,
+    OpenAiCompatibleProviderModule,
     AiCatalogModule,
     AiConfigModule,
     AiKeysModule,

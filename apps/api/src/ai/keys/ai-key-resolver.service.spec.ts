@@ -1,5 +1,6 @@
 import { AiConfigService, type AiPolicy } from '../config/ai-config.service';
 import { AiError } from '../core/ai-error';
+import { AI_KEYLESS_API_KEY } from '../core/provider-adapter.interface';
 import { AiProviderRegistry } from '../core/provider-registry';
 import { FakeAiProvider } from '../testing/fake-ai-provider';
 import { AiKeyResolver } from './ai-key-resolver.service';
@@ -36,7 +37,7 @@ const MATRIX: Case[] = [
   { userKey: false, keyPolicy: 'byok_with_org_fallback', orgKey: false, expected: 'AI_KEY_REQUIRED' },
 ];
 
-function build(c: Omit<Case, 'expected'>) {
+function build(c: Omit<Case, 'expected'>, compatible: { requiresKey?: boolean } = {}) {
   const getDecrypted = jest.fn(async () => (c.userKey ? USER_KEY : null));
   const getSecret = jest.fn(async () => (c.orgKey ? ORG_KEY : null));
   const describe_ = jest.fn(async () => (c.orgKey ? { hint: '••••9999' } : null));
@@ -45,7 +46,13 @@ function build(c: Omit<Case, 'expected'>) {
   const policy: AiPolicy = {
     enabled: true,
     keyPolicy: c.keyPolicy,
-    providers: { openai: { enabled: true }, anthropic: { enabled: false }, gemini: { enabled: false } },
+    providers: {
+      openai: { enabled: true },
+      anthropic: { enabled: false },
+      gemini: { enabled: false },
+      'azure-openai': { enabled: false },
+      'openai-compatible': { enabled: true, baseUrl: 'http://ollama.internal:11434/v1', ...compatible },
+    },
     defaults: { allowBackgroundRuns: true, allowRealtime: false },
     logPromptContent: false,
     usageRetentionDays: 180,
@@ -132,5 +139,38 @@ describe('AiKeyResolver', () => {
     await resolver.resolve('user-42', 'openai');
 
     expect(getDecrypted).toHaveBeenCalledWith('user-42', 'openai');
+  });
+
+  describe("a keyless provider (requiresKey: false, #448) resolves to keySource 'none'", () => {
+    describe.each(MATRIX.map((c) => [label(c).replace(/ -> .*/, ''), c] as const))('%s', (_name, c) => {
+      it('resolve() answers the placeholder without reading any key', async () => {
+        const { resolver, getDecrypted, getSecret, describe_ } = build(c, { requiresKey: false });
+
+        await expect(resolver.resolve('user-1', 'openai-compatible')).resolves.toEqual({
+          apiKey: AI_KEYLESS_API_KEY,
+          keySource: 'none',
+        });
+        await expect(resolver.sourceFor('openai-compatible', c.userKey)).resolves.toBe('none');
+        expect(getDecrypted).not.toHaveBeenCalled();
+        expect(getSecret).not.toHaveBeenCalled();
+        expect(describe_).not.toHaveBeenCalled();
+      });
+    });
+
+    it('is the admin opt-in only: requiresKey true or absent resolves keys as usual', async () => {
+      for (const compatible of [{}, { requiresKey: true }]) {
+        const { resolver } = build({ userKey: false, keyPolicy: 'byok', orgKey: false }, compatible);
+        const error = await resolver.resolve('user-1', 'openai-compatible').catch((e: unknown) => e);
+
+        expect((error as AiError).code).toBe('AI_KEY_REQUIRED');
+        await expect(resolver.sourceFor('openai-compatible', false)).resolves.toBeNull();
+      }
+    });
+
+    it('never makes another provider keyless', async () => {
+      const { resolver } = build({ userKey: false, keyPolicy: 'byok', orgKey: false }, { requiresKey: false });
+
+      await expect(resolver.resolve('user-1', 'openai')).rejects.toMatchObject({ code: 'AI_KEY_REQUIRED' });
+    });
   });
 });

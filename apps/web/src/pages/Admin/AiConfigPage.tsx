@@ -77,8 +77,15 @@ import { useAiAdminConfig } from '../../hooks/useAiAdminConfig';
 import { AiConfigContext } from '../../hooks/useAiConfig';
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
 import { AiProviderCard } from '../../components/admin/ai/AiProviderCard';
-import type { AiProviderFormValue } from '../../components/admin/ai/AiProviderCard';
-import { AI_HOSTED_TOOL_TYPES, AI_LIMIT_MAX } from '../../services/ai';
+import {
+  EMPTY_PROVIDER_FORM_VALUE,
+  hasProviderFormErrors,
+  toProviderFormValue,
+  toProviderInput,
+  validateProviderForm,
+} from '../../components/admin/ai/aiProviderForm';
+import type { AiProviderFormErrors, AiProviderFormValue } from '../../components/admin/ai/aiProviderForm';
+import { AI_HOSTED_TOOL_TYPES, AI_LIMIT_MAX, aiProviderSettingsFields } from '../../services/ai';
 import type {
   AiAdminConfig,
   AiAdminConfigInput,
@@ -131,8 +138,6 @@ interface AiFormState {
   providers: Record<string, AiProviderFormValue>;
 }
 
-const MAX_BASE_URL_LENGTH = 512;
-
 /** Label and helper per hosted tool type (#442), in the order the API lists them. */
 const HOSTED_TOOL_COPY: Record<AiHostedToolType, { label: string; help: string }> = {
   web_search: { label: 'Web search', help: 'Live web search, with the sources cited in the answer.' },
@@ -174,7 +179,7 @@ function compact<T extends Record<string, number | undefined>>(value: T): Partia
 function toFormState(config: AiAdminConfig): AiFormState {
   const providers: Record<string, AiProviderFormValue> = {};
   for (const provider of config.providers) {
-    providers[provider.id] = { enabled: provider.enabled, baseUrl: provider.baseUrl ?? '' };
+    providers[provider.id] = toProviderFormValue(provider);
   }
   return {
     enabled: config.enabled,
@@ -233,11 +238,15 @@ function toLimits(form: AiFormState, config: AiAdminConfig): AiLimits {
  * every value is sent EXPLICITLY, every time — the current override to keep
  * it, `null` to clear it — and every provider on screen is included. Omitting
  * "unchanged" fields, the instinct from a PATCH, would silently wipe them.
+ *
+ * Each provider entry carries only that provider's `settingsFields` (#448) —
+ * see `toProviderInput`.
  */
 function toInput(form: AiFormState, config: AiAdminConfig): AiAdminConfigInput {
   const providers: AiAdminConfigInput['providers'] = {};
-  for (const [id, value] of Object.entries(form.providers)) {
-    providers[id] = { enabled: value.enabled, baseUrl: value.baseUrl.trim() || null };
+  for (const provider of config.providers) {
+    const value = form.providers[provider.id];
+    if (value) providers[provider.id] = toProviderInput(provider, value);
   }
   const cap = form.maxOutputTokensCap.trim();
   return {
@@ -259,7 +268,8 @@ interface FormErrors {
   maxOutputTokensCap?: string;
   mcpAllowedHosts?: string;
   limits: Partial<Record<LimitField, string>>;
-  baseUrl: Record<string, string>;
+  /** Per provider id; only providers with a problem appear. */
+  providers: Record<string, AiProviderFormErrors>;
 }
 
 /** Blank, or a whole number from 1 to {@link AI_LIMIT_MAX}; else the error to show. */
@@ -276,8 +286,8 @@ function limitError(text: string): string | undefined {
 }
 
 /** Thin client-side validation — the API validates for real; this stops the obvious typo. */
-function validate(form: AiFormState): FormErrors {
-  const errors: FormErrors = { limits: {}, baseUrl: {} };
+function validate(form: AiFormState, config: AiAdminConfig): FormErrors {
+  const errors: FormErrors = { limits: {}, providers: {} };
   const cap = form.maxOutputTokensCap.trim();
   if (cap && (!/^\d+$/.test(cap) || Number(cap) <= 0)) {
     errors.maxOutputTokensCap = 'Must be a whole number greater than zero, or blank for no cap.';
@@ -292,14 +302,11 @@ function validate(form: AiFormState): FormErrors {
     const error = limitError(form.limits[field]);
     if (error) errors.limits[field] = error;
   }
-  for (const [id, value] of Object.entries(form.providers)) {
-    const baseUrl = value.baseUrl.trim();
-    if (!baseUrl) continue;
-    if (baseUrl.length > MAX_BASE_URL_LENGTH) {
-      errors.baseUrl[id] = `Keep the base URL to ${MAX_BASE_URL_LENGTH} characters or fewer.`;
-    } else if (!/^https?:\/\/\S+$/i.test(baseUrl)) {
-      errors.baseUrl[id] = 'Must be a full URL, e.g. https://gateway.example.com/v1.';
-    }
+  for (const provider of config.providers) {
+    const value = form.providers[provider.id];
+    if (!value) continue;
+    const providerErrors = validateProviderForm(provider, value);
+    if (hasProviderFormErrors(providerErrors)) errors.providers[provider.id] = providerErrors;
   }
   return errors;
 }
@@ -309,7 +316,7 @@ function hasErrors(errors: FormErrors): boolean {
     !!errors.maxOutputTokensCap ||
     !!errors.mcpAllowedHosts ||
     Object.keys(errors.limits).length > 0 ||
-    Object.keys(errors.baseUrl).length > 0
+    Object.keys(errors.providers).length > 0
   );
 }
 
@@ -363,7 +370,7 @@ export default function AiConfigPage() {
     return <LoadingSpinner />;
   }
 
-  const errors: FormErrors = form ? validate(form) : { limits: {}, baseUrl: {} };
+  const errors: FormErrors = form && config ? validate(form, config) : { limits: {}, providers: {} };
   const invalid = hasErrors(errors);
   const isDirty =
     !!form && !!config && JSON.stringify(form) !== JSON.stringify(toFormState(config));
@@ -403,7 +410,14 @@ export default function AiConfigPage() {
   const keylessEnabledProviders =
     form && config
       ? config.providers.filter(
-          (provider) => form.providers[provider.id]?.enabled && !provider.keyStatus.configured,
+          (provider) =>
+            form.providers[provider.id]?.enabled &&
+            !provider.keyStatus.configured &&
+            // A keyless server (#448) is served with no key: it needs no fallback.
+            !(
+              aiProviderSettingsFields(provider).includes('requiresKey') &&
+              form.providers[provider.id]?.requiresKey === false
+            ),
         )
       : [];
 
@@ -696,14 +710,14 @@ export default function AiConfigPage() {
                   <AiProviderCard
                     key={provider.id}
                     provider={provider}
-                    value={form.providers[provider.id] ?? { enabled: false, baseUrl: '' }}
+                    value={form.providers[provider.id] ?? EMPTY_PROVIDER_FORM_VALUE}
                     onChange={(next) =>
                       setForm((prev) =>
                         prev ? { ...prev, providers: { ...prev.providers, [provider.id]: next } } : prev,
                       )
                     }
                     canWrite={canWrite}
-                    baseUrlError={errors.baseUrl[provider.id]}
+                    errors={errors.providers[provider.id]}
                     aiEnabled={config.enabled}
                     keyAction={keyAction?.provider === provider.id ? keyAction.action : null}
                     busy={busy}

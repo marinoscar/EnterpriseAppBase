@@ -7,9 +7,9 @@ import { CredentialsService } from '../../credentials/credentials.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AiError } from '../core/ai-error';
 import { aiModelCapabilitiesSchema } from '../core/capabilities';
-import type { AiCallContext, AiProviderAdapter } from '../core/provider-adapter.interface';
+import { AI_KEYLESS_API_KEY, type AiCallContext, type AiProviderAdapter } from '../core/provider-adapter.interface';
 import { AiConfigAdminService } from './ai-config-admin.service';
-import { AiConfigService, providerPolicy } from './ai-config.service';
+import { AiConfigService, providerCallSettings, providerPolicy, providerRequiresKey } from './ai-config.service';
 import { AI_CREDENTIAL_PURPOSE, aiCredentialName } from './ai-credential.constants';
 import type {
   AiProviderTestCheck,
@@ -80,12 +80,20 @@ export class AiProviderTestService {
     const attemptedAt = new Date();
     const policy = await this.aiConfig.resolve({ fresh: true });
 
+    const slot = providerPolicy(policy, provider);
     const submittedKey = input.apiKey ?? '';
-    const usedStoredKey = submittedKey.length === 0;
-    const apiKey = usedStoredKey
-      ? await this.credentials.getSecret(AI_CREDENTIAL_PURPOSE, aiCredentialName(provider))
-      : submittedKey;
-    const baseUrl = input.baseUrl || providerPolicy(policy, provider)?.baseUrl || undefined;
+    const storedKey =
+      submittedKey.length === 0
+        ? await this.credentials.getSecret(AI_CREDENTIAL_PURPOSE, aiCredentialName(provider))
+        : null;
+    const usedStoredKey = submittedKey.length === 0 && storedKey !== null;
+    // A keyless provider (#448: `requiresKey: false`) is tested with no key at
+    // all when none is submitted or stored — exactly how it will be called.
+    const apiKey =
+      submittedKey.length > 0 ? submittedKey : (storedKey ?? (providerRequiresKey(slot) ? null : AI_KEYLESS_API_KEY));
+    // The slot's own settings, with a submitted endpoint taking the stored one's place.
+    const call = providerCallSettings(slot);
+    const baseUrl = input.baseUrl || call.baseUrl || undefined;
 
     if (!apiKey) {
       const detail = 'Nothing was attempted: no key was submitted and no admin key is stored.';
@@ -98,7 +106,8 @@ export class AiProviderTestService {
     const redact = (text: string) => text.split(apiKey).join('[redacted]');
     const ctx = (signal: AbortSignal): AiCallContext => ({
       apiKey,
-      baseUrl,
+      ...(baseUrl ? { baseUrl } : {}),
+      ...(call.providerSettings ? { providerSettings: call.providerSettings } : {}),
       signal,
       requestId: randomUUID(),
     });

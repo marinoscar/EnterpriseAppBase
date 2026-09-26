@@ -13,6 +13,20 @@ import type { UsableAiModel } from '../../services/ai';
 import { AiCapabilityChips } from './AiCapabilityChips';
 import { aiCapabilityLabel } from './aiCapabilities';
 
+/** Whose key pays, as a menu line says it. `'none'` (#448) is a keyless server. */
+const KEY_SOURCE_SHORT: Record<string, string> = {
+  user: 'your key',
+  org: 'organisation key',
+  none: 'no key needed',
+};
+
+/** Whose key pays, as the caption under the selection says it. */
+const KEY_SOURCE_BILLING: Record<string, string> = {
+  user: 'billed to your key',
+  org: 'billed to the organisation key',
+  none: 'keyless server — no key is billed',
+};
+
 /** Stable key for a provider/model pair. */
 export function aiModelKey(model: { provider: string; modelId: string }): string {
   return `${model.provider}:${model.modelId}`;
@@ -73,7 +87,7 @@ export function AiModelSelect({ models, value, onChange, disabled, capability = 
                 primary={aiModelLabel(model)}
                 secondary={
                   reason ??
-                  `${model.provider} · ${model.keySource === 'org' ? 'organisation key' : 'your key'}`
+                  `${model.provider} · ${KEY_SOURCE_SHORT[model.keySource] ?? 'your key'}`
                 }
               />
             </MenuItem>
@@ -84,7 +98,7 @@ export function AiModelSelect({ models, value, onChange, disabled, capability = 
         <Box sx={{ mt: 1 }}>
           <Typography variant="caption" color="text.secondary" component="p" sx={{ mb: 0.5 }}>
             {selected.provider} · {selected.modelId} ·{' '}
-            {selected.keySource === 'org' ? 'billed to the organisation key' : 'billed to your key'}
+            {KEY_SOURCE_BILLING[selected.keySource] ?? 'billed to your key'}
           </Typography>
           <AiCapabilityChips capabilities={selected.capabilities.capabilities} />
         </Box>

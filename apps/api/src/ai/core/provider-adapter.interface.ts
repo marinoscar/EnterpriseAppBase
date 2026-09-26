@@ -30,6 +30,15 @@ import type {
 import type { AiResponse, AiResponseRequest, AiStreamEvent } from './types/responses.types';
 
 /**
+ * The `apiKey` a call carries when its provider needs none (#448): an
+ * OpenAI-compatible server the administrator marked `requiresKey: false`.
+ * The key resolver returns it with `keySource: 'none'`, and an adapter that
+ * sees it sends NO credential at all — it is a marker, never put on the wire,
+ * in a log line or in a row.
+ */
+export const AI_KEYLESS_API_KEY = 'not-needed';
+
+/**
  * Per-call context. The key is resolved per call by the runtime (org key or
  * the user's own key, per policy) and handed to the adapter — adapters hold
  * no credentials of their own.
@@ -40,6 +49,14 @@ import type { AiResponse, AiResponseRequest, AiStreamEvent } from './types/respo
 export interface AiCallContext {
   apiKey: string;
   baseUrl?: string;
+  /**
+   * The provider's other NON-SECRET settings from its `ai.providers.<id>`
+   * slot (#448) — Azure's `apiVersion`/`apiStyle`/`deployments`, an
+   * OpenAI-compatible server's `apiStyle`/`requiresKey` — absent when the
+   * slot carries none. Each adapter reads it with its own schema; the
+   * runtime passes it through without interpreting it.
+   */
+  providerSettings?: Readonly<Record<string, unknown>>;
   signal?: AbortSignal;
   requestId: string;
   /**

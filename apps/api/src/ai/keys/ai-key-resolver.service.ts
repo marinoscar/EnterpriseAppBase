@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
 
-import { AiConfigService } from '../config/ai-config.service';
+import { AiConfigService, providerPolicy, providerRequiresKey } from '../config/ai-config.service';
 import { AiError } from '../core/ai-error';
+import { AI_KEYLESS_API_KEY } from '../core/provider-adapter.interface';
 import { UserAiKeysService } from './user-ai-keys.service';
 
 // =============================================================================
@@ -12,9 +13,21 @@ import { UserAiKeysService } from './user-ai-keys.service';
 // — the runtime facade (#432) and the usable-models computation — goes through
 // this file rather than re-deriving the rule:
 //
+//   0. the provider is keyless (`requiresKey: false`, #448)     -> { none }
 //   1. the user has a key for the provider                    -> { user }
 //   2. keyPolicy 'byok_with_org_fallback' AND an org key exists -> { org }
 //   3. otherwise                                               -> AI_KEY_REQUIRED
+//
+// RULE 0 IS AN ADMINISTRATOR'S OPT-IN, NEVER A FALLBACK. Only the
+// OpenAI-compatible slot has a `requiresKey` field, and only an administrator
+// (`ai_config:write`) can set it to false — for a self-hosted server (Ollama,
+// vLLM, LM Studio) that authenticates nobody. The call then carries the
+// `AI_KEYLESS_API_KEY` marker, which the adapter turns into NO credential on
+// the wire; no key is read or decrypted, and usage is recorded with
+// `keySource: 'none'`. It precedes rule 1 because the server would ignore a
+// user's key anyway, and it does not depend on the key policy: `byok`
+// promises that only a user's own account is BILLED, and a keyless server
+// bills no account.
 //
 // ⚠ UNDER keyPolicy = 'byok' THE ORG (ADMIN) KEY IS NEVER RETURNED — not read,
 // not decrypted, not handed to anyone. That is the platform's core security
@@ -27,11 +40,17 @@ import { UserAiKeysService } from './user-ai-keys.service';
 // an admin switching to strict BYOK stops the fallback within one cache window.
 // =============================================================================
 
-/** Whose key serves a user's call. `'admin_discovery'` is never a runtime answer. */
-export type AiKeySource = 'user' | 'org';
+/**
+ * Whose key serves a user's call — `'none'` (#448) for a keyless provider.
+ * `'admin_discovery'` is never a runtime answer.
+ */
+export type AiKeySource = 'user' | 'org' | 'none';
 
 export interface ResolvedAiKey {
-  /** ⚠ PLAINTEXT. Hand it straight to an adapter; never log, persist or return it. */
+  /**
+   * ⚠ PLAINTEXT. Hand it straight to an adapter; never log, persist or return
+   * it. `AI_KEYLESS_API_KEY` when `keySource` is `'none'`.
+   */
   apiKey: string;
   keySource: AiKeySource;
 }
@@ -49,6 +68,10 @@ export class AiKeyResolver {
    * @throws AiError('AI_KEY_REQUIRED') when neither rule applies.
    */
   async resolve(userId: string, provider: string): Promise<ResolvedAiKey> {
+    if (await this.keyless(provider)) {
+      return { apiKey: AI_KEYLESS_API_KEY, keySource: 'none' };
+    }
+
     const userKey = await this.userKeys.getDecrypted(userId, provider);
 
     if (userKey) {
@@ -76,6 +99,10 @@ export class AiKeyResolver {
    * here, so the ordering and the byok invariant live in one file.
    */
   async sourceFor(provider: string, hasUserKey: boolean): Promise<AiKeySource | null> {
+    if (await this.keyless(provider)) {
+      return 'none';
+    }
+
     if (hasUserKey) {
       return 'user';
     }
@@ -85,6 +112,11 @@ export class AiKeyResolver {
     }
 
     return null;
+  }
+
+  /** Rule 0: the administrator marked this provider `requiresKey: false`. */
+  private async keyless(provider: string): Promise<boolean> {
+    return !providerRequiresKey(providerPolicy(await this.aiConfig.resolve(), provider));
   }
 
   private async orgFallbackApplies(): Promise<boolean> {

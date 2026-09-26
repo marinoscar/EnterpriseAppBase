@@ -25,7 +25,7 @@ function policy(overrides: Partial<AiPolicy> = {}): AiPolicy {
   return {
     enabled: true,
     keyPolicy: 'byok',
-    providers: { openai: { enabled: true }, anthropic: { enabled: false }, gemini: { enabled: false } },
+    providers: { openai: { enabled: true }, anthropic: { enabled: false }, gemini: { enabled: false }, 'azure-openai': { enabled: false }, 'openai-compatible': { enabled: false } },
     defaults: { allowBackgroundRuns: true, allowRealtime: false },
     logPromptContent: false,
     usageRetentionDays: 180,
@@ -118,6 +118,22 @@ describe('UsableModelsService', () => {
       expect(await service.listForUser(USER)).toEqual([]);
     });
 
+    it("a keyless provider (requiresKey: false, #448) offers every enabled model with no key, keySource 'none'", async () => {
+      current = policy({
+        providers: { ...policy().providers, openai: { enabled: true, requiresKey: false } as AiPolicy['providers']['openai'] },
+      });
+
+      const models = await service.listForUser(USER);
+
+      // Like the org fallback: every enabled, non-deprecated model (an unclassified one included).
+      expect(models.map((m) => m.modelId)).toEqual(['embed-small', 'gpt-big', 'gpt-mini', 'weird']);
+      expect(models.every((m) => m.keySource === 'none')).toBe(true);
+      await expect(service.assertUsable(USER, 'openai', 'gpt-big', ['responses'])).resolves.toMatchObject({
+        keySource: 'none',
+      });
+      expect(getSecret).not.toHaveBeenCalled();
+    });
+
     it('with no key under the fallback, every enabled model with keySource org', async () => {
       current = policy({ keyPolicy: 'byok_with_org_fallback' });
       orgKeyStored = true;
@@ -168,7 +184,7 @@ describe('UsableModelsService', () => {
 
     it('is empty when the provider is disabled', async () => {
       addUserKey(USER, ['gpt-mini']);
-      current = policy({ providers: { openai: { enabled: false }, anthropic: { enabled: false }, gemini: { enabled: false } } });
+      current = policy({ providers: { openai: { enabled: false }, anthropic: { enabled: false }, gemini: { enabled: false }, 'azure-openai': { enabled: false }, 'openai-compatible': { enabled: false } } });
 
       expect(await service.listForUser(USER)).toEqual([]);
     });
@@ -236,7 +252,7 @@ describe('UsableModelsService', () => {
     it('AI_DISABLED / AI_PROVIDER_DISABLED before anything else', async () => {
       addUserKey(USER, ['gpt-mini']);
 
-      current = policy({ providers: { openai: { enabled: false }, anthropic: { enabled: false }, gemini: { enabled: false } } });
+      current = policy({ providers: { openai: { enabled: false }, anthropic: { enabled: false }, gemini: { enabled: false }, 'azure-openai': { enabled: false }, 'openai-compatible': { enabled: false } } });
       expect(await code(service.assertUsable(USER, 'openai', 'gpt-mini'))).toBe('AI_PROVIDER_DISABLED');
     });
   });

@@ -62,6 +62,7 @@ const KEY_SOURCE_LABELS: Record<string, string> = {
   user: "User's own key",
   org: 'Organization key',
   admin_discovery: 'Admin key (catalog discovery)',
+  none: 'No key (keyless server)',
 };
 
 export interface AiUsageQuery {

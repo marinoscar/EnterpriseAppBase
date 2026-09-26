@@ -22,7 +22,16 @@ import {
   aiCredentialLabel,
   aiCredentialName,
 } from './ai-credential.constants';
-import { AiConfigService, providerPolicy, type AiProviderPolicy } from './ai-config.service';
+import {
+  AI_PROVIDER_SETTINGS_FIELDS,
+  AiConfigService,
+  providerCallSettings,
+  providerPolicy,
+  providerRequiresKey,
+  providerSettingsFields,
+  providerSlotSchema,
+  type AiProviderPolicy,
+} from './ai-config.service';
 import type {
   AiAdminProvider,
   AiConfigResponse,
@@ -57,7 +66,20 @@ export const AI_CONFIG_REJECTIONS = {
   UNKNOWN_PROVIDER: 'AI_UNKNOWN_PROVIDER',
   PROVIDER_NOT_REGISTERED: 'AI_PROVIDER_NOT_REGISTERED',
   KEY_REQUIRED: 'AI_KEY_REQUIRED',
+  /** A provider-specific field (#448) sent for a provider whose slot has no such field. */
+  FIELD_UNSUPPORTED: 'AI_PROVIDER_FIELD_UNSUPPORTED',
+  /** A provider's settings failed its own slot schema (#448: an http Azure endpoint, credentials in a URL, ...). */
+  SETTINGS_INVALID: 'AI_PROVIDER_SETTINGS_INVALID',
+  /** Enabling a provider that cannot work without an endpoint (#448) before one is set. */
+  BASE_URL_REQUIRED: 'AI_BASE_URL_REQUIRED',
 } as const;
+
+/**
+ * Providers that have no default host and so cannot be enabled without a
+ * `baseUrl` (#448): an Azure resource and a self-hosted server are, by
+ * definition, somewhere only the administrator knows.
+ */
+const PROVIDERS_REQUIRING_BASE_URL = new Set(['azure-openai', 'openai-compatible']);
 
 type SettingsRow = {
   version: number;
@@ -224,6 +246,15 @@ export class AiConfigAdminService {
     };
   }
 
+  /**
+   * Whether calls to `provider` need a key (#448) — false only for an
+   * OpenAI-compatible server the administrator marked `requiresKey: false`.
+   * Read fresh: it gates an admin action.
+   */
+  async providerRequiresKey(provider: string): Promise<boolean> {
+    return providerRequiresKey(providerPolicy(await this.aiConfig.resolve({ fresh: true }), provider));
+  }
+
   /** The adapter for `provider`, or a 404 naming it. */
   requireRegistered(provider: string): AiProviderAdapter {
     const adapter = this.registry.get(provider);
@@ -256,6 +287,11 @@ export class AiConfigAdminService {
       registered: adapter !== undefined,
       enabled: slot?.enabled ?? false,
       baseUrl: slot?.baseUrl ?? null,
+      settingsFields: providerSettingsFields(id),
+      apiVersion: slot?.apiVersion ?? null,
+      apiStyle: slot?.apiStyle ?? null,
+      deployments: slot?.deployments ? { ...slot.deployments } : null,
+      requiresKey: slot?.requiresKey ?? null,
       keyStatus: {
         configured: keyInfo !== null,
         hint: keyInfo?.hint ?? null,
@@ -296,8 +332,7 @@ export class AiConfigAdminService {
         });
       }
 
-      const baseUrl = submitted.baseUrl || undefined;
-      providers[id] = baseUrl ? { enabled: submitted.enabled, baseUrl } : { enabled: submitted.enabled };
+      providers[id] = this.buildSlot(id, submitted);
     }
 
     const maxOutputTokensCap = input.defaults.maxOutputTokensCap ?? undefined;
@@ -328,6 +363,64 @@ export class AiConfigAdminService {
   }
 
   /**
+   * One provider's next slot from its submitted settings (#448). Every field
+   * the body leaves empty is ABSENT (the provider default) — full replace, as
+   * for `baseUrl` before it. A value for a field this provider's slot does not
+   * have is a 400 rather than silently dropped, and the built slot must pass
+   * the provider's own schema (an `https`-only Azure endpoint, no credentials
+   * in a URL): the admin form is the one place such a mistake can be caught
+   * before it breaks every call.
+   */
+  private buildSlot(id: string, submitted: UpdateAiConfigInput['providers'][string]): AiProviderPolicy {
+    const allowed = new Set<string>(providerSettingsFields(id));
+    const slot: Record<string, unknown> = { enabled: submitted.enabled };
+
+    for (const field of AI_PROVIDER_SETTINGS_FIELDS) {
+      const raw = submitted[field];
+      const empty =
+        raw === undefined ||
+        raw === null ||
+        raw === '' ||
+        (field === 'deployments' && typeof raw === 'object' && Object.keys(raw).length === 0);
+
+      if (empty) continue;
+
+      if (!allowed.has(field)) {
+        throw new BadRequestException({
+          message: `AI provider "${id}" has no "${field}" setting.`,
+          details: { reason: AI_CONFIG_REJECTIONS.FIELD_UNSUPPORTED, provider: id, field },
+        });
+      }
+
+      slot[field] = field === 'deployments' ? { ...(raw as Record<string, string>) } : raw;
+    }
+
+    const parsed = providerSlotSchema(id)?.safeParse(slot);
+
+    if (parsed && !parsed.success) {
+      throw new BadRequestException({
+        message: `The settings for AI provider "${id}" are not valid: ${parsed.error.issues
+          .map((issue) => `${issue.path.join('.') || id}: ${issue.message}`)
+          .join('; ')}.`,
+        details: {
+          reason: AI_CONFIG_REJECTIONS.SETTINGS_INVALID,
+          provider: id,
+          fields: [...new Set(parsed.error.issues.map((issue) => String(issue.path[0] ?? '')))].filter(Boolean),
+        },
+      });
+    }
+
+    if (submitted.enabled && PROVIDERS_REQUIRING_BASE_URL.has(id) && !slot.baseUrl) {
+      throw new BadRequestException({
+        message: `AI provider "${id}" needs a base URL before it can be enabled.`,
+        details: { reason: AI_CONFIG_REJECTIONS.BASE_URL_REQUIRED, provider: id },
+      });
+    }
+
+    return slot as unknown as AiProviderPolicy;
+  }
+
+  /**
    * `byok_with_org_fallback` promises users without a key that the org key
    * will serve them, so every provider that would be LIVE under the new
    * policy must actually have one.
@@ -342,7 +435,10 @@ export class AiConfigAdminService {
     }
 
     for (const id of Object.keys(next.providers)) {
-      if (!providerPolicy(next, id)?.enabled) continue;
+      const slot = providerPolicy(next, id);
+
+      // A keyless provider (#448) is served with no key at all: it needs no fallback.
+      if (!slot?.enabled || !providerRequiresKey(slot)) continue;
 
       const info = await this.credentials.describe(AI_CREDENTIAL_PURPOSE, aiCredentialName(id));
 
@@ -367,7 +463,7 @@ export class AiConfigAdminService {
     try {
       verification = await adapter.verifyKey({
         apiKey,
-        baseUrl: slot?.baseUrl,
+        ...providerCallSettings(slot),
         requestId: randomUUID(),
       });
     } catch (error) {
@@ -439,11 +535,20 @@ export class AiConfigAdminService {
 export function toPatch(next: SystemAiValue) {
   return {
     ...next,
+    // Every settings field the provider's slot HAS is sent, `null` when
+    // absent (#448), so a cleared `apiVersion`/`deployments`/... is removed.
     providers: Object.fromEntries(
-      Object.entries(next.providers).map(([id, slot]) => [
-        id,
-        { enabled: slot.enabled, baseUrl: slot.baseUrl ?? null },
-      ]),
+      Object.entries(next.providers).map(([id, slot]) => {
+        const policy = slot as AiProviderPolicy;
+
+        return [
+          id,
+          {
+            enabled: policy.enabled,
+            ...Object.fromEntries(providerSettingsFields(id).map((field) => [field, policy[field] ?? null])),
+          },
+        ];
+      }),
     ) as Record<keyof SystemAiValue['providers'], { enabled: boolean; baseUrl: string | null }>,
     defaults: {
       allowBackgroundRuns: next.defaults.allowBackgroundRuns,
@@ -483,8 +588,14 @@ export function diffFieldNames(before: SystemAiValue, after: SystemAiValue): str
     };
 
     for (const [id, slot] of Object.entries(value.providers)) {
-      out[`providers.${id}.enabled`] = slot.enabled;
-      out[`providers.${id}.baseUrl`] = slot.baseUrl;
+      const policy = slot as AiProviderPolicy;
+
+      out[`providers.${id}.enabled`] = policy.enabled;
+
+      for (const field of providerSettingsFields(id)) {
+        // Compared as one value, like the host list: the audit row names the map.
+        out[`providers.${id}.${field}`] = field === 'deployments' ? stableJson(policy.deployments ?? {}) : policy[field];
+      }
     }
 
     return out;

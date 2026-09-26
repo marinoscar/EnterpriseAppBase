@@ -331,6 +331,30 @@ describe('AI Administration Integration', () => {
             baseUrl: null,
             keyStatus: { configured: false, hint: null, updatedAt: null, updatedByUserId: null },
           },
+          // #448: each reports the settings fields its card renders.
+          {
+            id: 'azure-openai',
+            displayName: 'Azure OpenAI',
+            registered: true,
+            enabled: false,
+            baseUrl: null,
+            settingsFields: ['baseUrl', 'apiVersion', 'apiStyle', 'deployments'],
+            apiVersion: null,
+            apiStyle: null,
+            deployments: null,
+            requiresKey: null,
+            keyStatus: { configured: false, hint: null, updatedAt: null, updatedByUserId: null },
+          },
+          {
+            id: 'openai-compatible',
+            displayName: 'OpenAI-compatible',
+            registered: true,
+            enabled: false,
+            baseUrl: null,
+            settingsFields: ['baseUrl', 'apiStyle', 'requiresKey'],
+            requiresKey: null,
+            keyStatus: { configured: false, hint: null, updatedAt: null, updatedByUserId: null },
+          },
         ],
       });
       // Anthropic runs none of the neutral hosted tools, and says so (#446).
@@ -346,6 +370,12 @@ describe('AI Administration Integration', () => {
       );
       expect(capabilitiesOf('gemini')).not.toContain('hosted_tools');
       expect(capabilitiesOf('gemini')).not.toContain('image_generation');
+      // The OpenAI-family adapters (#448): responses + embeddings, no hosted tools, no media ports.
+      for (const id of ['azure-openai', 'openai-compatible']) {
+        expect(capabilitiesOf(id)).toEqual(expect.arrayContaining(['responses', 'tools', 'structured_output', 'embeddings']));
+        expect(capabilitiesOf(id)).not.toContain('hosted_tools');
+        expect(capabilitiesOf(id)).not.toContain('image_generation');
+      }
       expect(context.prismaMock.systemSettings.create).not.toHaveBeenCalled();
       expect(context.prismaMock.systemSettings.update).not.toHaveBeenCalled();
     });
@@ -398,6 +428,73 @@ describe('AI Administration Integration', () => {
         expect(persisted.defaults).toEqual({ allowBackgroundRuns: true, allowRealtime: false });
         expect(res.body.data.providers[0].baseUrl).toBeNull();
         expect(res.body.data.defaults.maxOutputTokensCap).toBeNull();
+      });
+
+      it('stores the Azure and OpenAI-compatible settings end to end (#448)', async () => {
+        const res = record(
+          await request(server())
+            .put(`${BASE}/config`)
+            .set(authHeader(admin.accessToken))
+            .send(
+              configBody({
+                providers: {
+                  openai: { enabled: true },
+                  'azure-openai': {
+                    enabled: true,
+                    baseUrl: 'https://contoso.openai.azure.com',
+                    apiVersion: '2024-10-21',
+                    apiStyle: 'chat_completions',
+                    deployments: { 'gpt-4o': 'prod-4o' },
+                  },
+                  'openai-compatible': {
+                    enabled: true,
+                    baseUrl: 'http://ollama.internal:11434/v1',
+                    apiStyle: null,
+                    requiresKey: false,
+                  },
+                },
+              }),
+            )
+            .expect(200),
+        );
+
+        const persisted = JSON.parse(JSON.stringify(storedAi));
+        expect(persisted.providers['azure-openai']).toEqual({
+          enabled: true,
+          baseUrl: 'https://contoso.openai.azure.com',
+          apiVersion: '2024-10-21',
+          apiStyle: 'chat_completions',
+          deployments: { 'gpt-4o': 'prod-4o' },
+        });
+        expect(persisted.providers['openai-compatible']).toEqual({
+          enabled: true,
+          baseUrl: 'http://ollama.internal:11434/v1',
+          requiresKey: false,
+        });
+
+        const byId = Object.fromEntries(
+          (res.body.data.providers as Array<{ id: string }>).map((provider) => [provider.id, provider]),
+        );
+        expect(byId['azure-openai']).toMatchObject({ apiStyle: 'chat_completions', deployments: { 'gpt-4o': 'prod-4o' } });
+        expect(byId['openai-compatible']).toMatchObject({ requiresKey: false, apiStyle: null });
+      });
+
+      it.each([
+        ['a plain-http Azure endpoint', { 'azure-openai': { enabled: false, baseUrl: 'http://contoso.openai.azure.com' } }, 'AI_PROVIDER_SETTINGS_INVALID'],
+        ['credentials in the URL', { 'openai-compatible': { enabled: false, baseUrl: 'http://u:p@ollama.internal/v1' } }, 'AI_PROVIDER_SETTINGS_INVALID'],
+        ['a field the provider does not have', { openai: { enabled: true, requiresKey: false } }, 'AI_PROVIDER_FIELD_UNSUPPORTED'],
+        ['enabling without an endpoint', { 'openai-compatible': { enabled: true } }, 'AI_BASE_URL_REQUIRED'],
+      ])('refuses %s with 400 and writes nothing (#448)', async (_label, providers, reason) => {
+        const res = record(
+          await request(server())
+            .put(`${BASE}/config`)
+            .set(authHeader(admin.accessToken))
+            .send(configBody({ providers }))
+            .expect(400),
+        );
+
+        expect(res.body.details).toMatchObject({ reason });
+        expect(context.prismaMock.systemSettings.update).not.toHaveBeenCalled();
       });
 
       it('answers 409 on a version mismatch and writes nothing', async () => {

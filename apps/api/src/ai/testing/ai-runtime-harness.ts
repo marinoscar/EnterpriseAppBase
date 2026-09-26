@@ -23,7 +23,7 @@ import { randomUUID } from 'node:crypto';
 
 import type { Job } from '@prisma/client';
 
-import { AiConfigService, type AiPolicy } from '../config/ai-config.service';
+import { AiConfigService, type AiPolicy, type AiProviderPolicy } from '../config/ai-config.service';
 import type { AiModelCapabilities } from '../core/capabilities';
 import { AiProviderRegistry } from '../core/provider-registry';
 import { AiKeyResolver } from '../keys/ai-key-resolver.service';
@@ -78,6 +78,12 @@ export interface AiRuntimeHarnessOptions {
     hostedTools?: Partial<AiPolicy['hostedTools']>;
     providerEnabled?: boolean;
     baseUrl?: string;
+    /**
+     * Extra settings on the fake's (`openai`) slot — the #448 fields
+     * (`apiStyle`, `requiresKey`, ...), which the runtime reads generically
+     * off whichever slot a provider has.
+     */
+    providerSlot?: Omit<AiProviderPolicy, 'enabled' | 'baseUrl'>;
     defaults?: Partial<AiPolicy['defaults']>;
   };
   /** Whether `HARNESS_USER` has a key. Default true. */
@@ -227,9 +233,15 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
     enabled: p.enabled ?? true,
     keyPolicy: p.keyPolicy ?? 'byok',
     providers: {
-      openai: { enabled: p.providerEnabled ?? true, ...(p.baseUrl ? { baseUrl: p.baseUrl } : {}) },
+      openai: {
+        enabled: p.providerEnabled ?? true,
+        ...(p.baseUrl ? { baseUrl: p.baseUrl } : {}),
+        ...(p.providerSlot ?? {}),
+      } as AiPolicy['providers']['openai'],
       anthropic: { enabled: false },
       gemini: { enabled: false },
+      'azure-openai': { enabled: false },
+      'openai-compatible': { enabled: false },
     },
     defaults: { allowBackgroundRuns: true, allowRealtime: false, ...(p.defaults ?? {}) },
     logPromptContent: p.logPromptContent ?? false,

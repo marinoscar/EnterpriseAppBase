@@ -13,7 +13,7 @@ function policy(overrides: Partial<SystemAiValue> = {}): SystemAiValue {
   return {
     enabled: false,
     keyPolicy: 'byok',
-    providers: { openai: { enabled: false }, anthropic: { enabled: false }, gemini: { enabled: false } },
+    providers: { openai: { enabled: false }, anthropic: { enabled: false }, gemini: { enabled: false }, 'azure-openai': { enabled: false }, 'openai-compatible': { enabled: false } },
     defaults: { allowBackgroundRuns: true, allowRealtime: false },
     logPromptContent: false,
     usageRetentionDays: 180,
@@ -36,7 +36,7 @@ function input(overrides: Partial<UpdateAiConfigInput> = {}): UpdateAiConfigInpu
     keyPolicy: 'byok',
     logPromptContent: false,
     defaults: { allowBackgroundRuns: true, allowRealtime: false },
-    providers: { openai: { enabled: true }, anthropic: { enabled: false }, gemini: { enabled: false } },
+    providers: { openai: { enabled: true }, anthropic: { enabled: false }, gemini: { enabled: false }, 'azure-openai': { enabled: false }, 'openai-compatible': { enabled: false } },
     ...overrides,
   };
 }
@@ -109,7 +109,7 @@ describe('AiConfigAdminService', () => {
   describe('describeForAdmin', () => {
     it('joins policy, provenance, registry and masked key status', async () => {
       credentials.describe.mockResolvedValue(KEY_INFO);
-      stored = policy({ providers: { openai: { enabled: true, baseUrl: 'https://gw.example.com' }, anthropic: { enabled: false }, gemini: { enabled: false } } });
+      stored = policy({ providers: { openai: { enabled: true, baseUrl: 'https://gw.example.com' }, anthropic: { enabled: false }, gemini: { enabled: false }, 'azure-openai': { enabled: false }, 'openai-compatible': { enabled: false } } });
 
       const view = await service.describeForAdmin();
 
@@ -128,6 +128,11 @@ describe('AiConfigAdminService', () => {
           registered: true,
           enabled: true,
           baseUrl: 'https://gw.example.com',
+          settingsFields: ['baseUrl'],
+          apiVersion: null,
+          apiStyle: null,
+          deployments: null,
+          requiresKey: null,
           keyStatus: {
             configured: true,
             hint: '••••leak',
@@ -139,6 +144,16 @@ describe('AiConfigAdminService', () => {
         // A settings slot with no adapter registered in this test (#446).
         expect.objectContaining({ id: 'anthropic', registered: false, enabled: false, baseUrl: null }),
         expect.objectContaining({ id: 'gemini', registered: false, enabled: false, baseUrl: null }),
+        expect.objectContaining({
+          id: 'azure-openai',
+          registered: false,
+          settingsFields: ['baseUrl', 'apiVersion', 'apiStyle', 'deployments'],
+        }),
+        expect.objectContaining({
+          id: 'openai-compatible',
+          registered: false,
+          settingsFields: ['baseUrl', 'apiStyle', 'requiresKey'],
+        }),
       ]);
       expect(credentials.describe).toHaveBeenCalledWith('ai', 'openai');
       expect(credentials.getSecret).not.toHaveBeenCalled();
@@ -162,6 +177,8 @@ describe('AiConfigAdminService', () => {
         ['openai', false],
         ['anthropic', false],
         ['gemini', false],
+        ['azure-openai', false],
+        ['openai-compatible', false],
       ]);
       expect(view.providers[1].supportedCapabilities).toEqual([]);
     });
@@ -192,7 +209,7 @@ describe('AiConfigAdminService', () => {
             keyPolicy: 'byok',
             logPromptContent: false,
             defaults: { allowBackgroundRuns: true, allowRealtime: false, maxOutputTokensCap: null },
-            providers: { openai: { enabled: true, baseUrl: null }, anthropic: { enabled: false, baseUrl: null }, gemini: { enabled: false, baseUrl: null } },
+            providers: { openai: { enabled: true, baseUrl: null }, anthropic: { enabled: false, baseUrl: null }, gemini: { enabled: false, baseUrl: null }, 'azure-openai': { enabled: false, baseUrl: null, apiVersion: null, apiStyle: null, deployments: null }, 'openai-compatible': { enabled: false, baseUrl: null, apiStyle: null, requiresKey: null } },
             usageRetentionDays: 180,
             hostedTools: {
               web_search: false,
@@ -277,7 +294,7 @@ describe('AiConfigAdminService', () => {
     });
 
     it('keeps a provider the body leaves out', async () => {
-      stored = policy({ providers: { openai: { enabled: true, baseUrl: 'https://gw.example.com' }, anthropic: { enabled: false }, gemini: { enabled: false } } });
+      stored = policy({ providers: { openai: { enabled: true, baseUrl: 'https://gw.example.com' }, anthropic: { enabled: false }, gemini: { enabled: false }, 'azure-openai': { enabled: false }, 'openai-compatible': { enabled: false } } });
 
       await service.replace(input({ providers: {} }), 'admin-1');
 
@@ -285,6 +302,8 @@ describe('AiConfigAdminService', () => {
         openai: { enabled: true, baseUrl: 'https://gw.example.com' },
         anthropic: { enabled: false, baseUrl: null },
         gemini: { enabled: false, baseUrl: null },
+        'azure-openai': { enabled: false, baseUrl: null, apiVersion: null, apiStyle: null, deployments: null },
+        'openai-compatible': { enabled: false, baseUrl: null, apiStyle: null, requiresKey: null },
       });
     });
 
@@ -340,7 +359,7 @@ describe('AiConfigAdminService', () => {
     });
 
     it('never blocks turning the kill switch off', async () => {
-      stored = policy({ enabled: true, keyPolicy: 'byok_with_org_fallback', providers: { openai: { enabled: true }, anthropic: { enabled: false }, gemini: { enabled: false } } });
+      stored = policy({ enabled: true, keyPolicy: 'byok_with_org_fallback', providers: { openai: { enabled: true }, anthropic: { enabled: false }, gemini: { enabled: false }, 'azure-openai': { enabled: false }, 'openai-compatible': { enabled: false } } });
 
       await expect(
         service.replace(input({ enabled: false, keyPolicy: 'byok_with_org_fallback' }), 'admin-1'),
@@ -352,7 +371,7 @@ describe('AiConfigAdminService', () => {
       ['null', null],
       ['omission', undefined],
     ])('clears a stored baseUrl sent as %s by patching it to null', async (_label, baseUrl) => {
-      stored = policy({ providers: { openai: { enabled: true, baseUrl: 'https://gw.example.com' }, anthropic: { enabled: false }, gemini: { enabled: false } } });
+      stored = policy({ providers: { openai: { enabled: true, baseUrl: 'https://gw.example.com' }, anthropic: { enabled: false }, gemini: { enabled: false }, 'azure-openai': { enabled: false }, 'openai-compatible': { enabled: false } } });
 
       await service.replace(
         input({ providers: { openai: { enabled: true, ...(baseUrl === undefined ? {} : { baseUrl }) } } }),
@@ -363,6 +382,8 @@ describe('AiConfigAdminService', () => {
         openai: { enabled: true, baseUrl: null },
         anthropic: { enabled: false, baseUrl: null },
         gemini: { enabled: false, baseUrl: null },
+        'azure-openai': { enabled: false, baseUrl: null, apiVersion: null, apiStyle: null, deployments: null },
+        'openai-compatible': { enabled: false, baseUrl: null, apiStyle: null, requiresKey: null },
       });
       expect(prisma.auditEvent.create.mock.calls[0][0].data.meta.changedFields).toContain(
         'providers.openai.baseUrl',
@@ -401,14 +422,14 @@ describe('AiConfigAdminService', () => {
       await service.replace(
         input({
           defaults: { allowBackgroundRuns: false, maxOutputTokensCap: 2048 },
-          providers: { openai: { enabled: true, baseUrl: 'https://gw.example.com' }, anthropic: { enabled: false }, gemini: { enabled: false } },
+          providers: { openai: { enabled: true, baseUrl: 'https://gw.example.com' }, anthropic: { enabled: false }, gemini: { enabled: false }, 'azure-openai': { enabled: false }, 'openai-compatible': { enabled: false } },
         }),
         'admin-1',
       );
 
       expect(systemSettings.patchSettings.mock.calls[0][0].ai).toMatchObject({
         defaults: { allowBackgroundRuns: false, maxOutputTokensCap: 2048 },
-        providers: { openai: { enabled: true, baseUrl: 'https://gw.example.com' }, anthropic: { enabled: false }, gemini: { enabled: false } },
+        providers: { openai: { enabled: true, baseUrl: 'https://gw.example.com' }, anthropic: { enabled: false }, gemini: { enabled: false }, 'azure-openai': { enabled: false }, 'openai-compatible': { enabled: false } },
       });
     });
   });
@@ -437,7 +458,7 @@ describe('AiConfigAdminService', () => {
     });
 
     it('passes the stored baseUrl to verification', async () => {
-      stored = policy({ providers: { openai: { enabled: true, baseUrl: 'https://gw.example.com' }, anthropic: { enabled: false }, gemini: { enabled: false } } });
+      stored = policy({ providers: { openai: { enabled: true, baseUrl: 'https://gw.example.com' }, anthropic: { enabled: false }, gemini: { enabled: false }, 'azure-openai': { enabled: false }, 'openai-compatible': { enabled: false } } });
 
       await service.setKey('openai', SECRET, 'admin-1');
 
@@ -508,10 +529,173 @@ describe('AiConfigAdminService', () => {
           policy(),
           policy({
             keyPolicy: 'byok_with_org_fallback',
-            providers: { openai: { enabled: false, baseUrl: 'https://x.example.com' }, anthropic: { enabled: false }, gemini: { enabled: false } },
+            providers: { openai: { enabled: false, baseUrl: 'https://x.example.com' }, anthropic: { enabled: false }, gemini: { enabled: false }, 'azure-openai': { enabled: false }, 'openai-compatible': { enabled: false } },
           }),
         ),
       ).toEqual(['keyPolicy', 'providers.openai.baseUrl']);
+    });
+  });
+
+  describe('OpenAI-family provider settings (#448)', () => {
+    beforeEach(() => {
+      registry.register(new FakeAiProvider({ id: 'azure-openai', validKeys: [SECRET] }));
+      registry.register(new FakeAiProvider({ id: 'openai-compatible', validKeys: [SECRET] }));
+    });
+
+    async function rejection(body: UpdateAiConfigInput): Promise<{ reason?: string; field?: string; fields?: string[] }> {
+      try {
+        await service.replace(body, 'admin-1');
+      } catch (err) {
+        expect(err).toBeInstanceOf(BadRequestException);
+
+        return ((err as BadRequestException).getResponse() as { details: { reason?: string } }).details;
+      }
+
+      throw new Error('expected a 400');
+    }
+
+    it('stores the Azure and OpenAI-compatible fields, sending every absent one as null', async () => {
+      await service.replace(
+        input({
+          providers: {
+            'azure-openai': {
+              enabled: true,
+              baseUrl: 'https://contoso.openai.azure.com',
+              apiVersion: '2024-10-21',
+              apiStyle: 'chat_completions',
+              deployments: { 'gpt-4o': 'prod-4o' },
+            },
+            'openai-compatible': { enabled: true, baseUrl: 'http://ollama.internal:11434/v1', requiresKey: false },
+          },
+        }),
+        'admin-1',
+      );
+
+      const providers = systemSettings.patchSettings.mock.calls[0][0].ai.providers;
+
+      expect(providers['azure-openai']).toEqual({
+        enabled: true,
+        baseUrl: 'https://contoso.openai.azure.com',
+        apiVersion: '2024-10-21',
+        apiStyle: 'chat_completions',
+        deployments: { 'gpt-4o': 'prod-4o' },
+      });
+      expect(providers['openai-compatible']).toEqual({
+        enabled: true,
+        baseUrl: 'http://ollama.internal:11434/v1',
+        apiStyle: null,
+        requiresKey: false,
+      });
+
+      const changed = prisma.auditEvent.create.mock.calls[0][0].data.meta.changedFields as string[];
+
+      expect(changed).toEqual(
+        expect.arrayContaining([
+          'providers.azure-openai.deployments',
+          'providers.azure-openai.apiVersion',
+          'providers.openai-compatible.requiresKey',
+        ]),
+      );
+      // Names only: no endpoint, deployment name or model id in the audit row.
+      expect(JSON.stringify(prisma.auditEvent.create.mock.calls[0][0].data.meta)).not.toMatch(/contoso|prod-4o|ollama/);
+    });
+
+    it('describes the stored fields back', async () => {
+      stored = policy({
+        providers: {
+          ...policy().providers,
+          'azure-openai': { enabled: false, baseUrl: 'https://contoso.openai.azure.com', deployments: { a: 'b' } },
+          'openai-compatible': { enabled: false, apiStyle: 'responses', requiresKey: false },
+        },
+      });
+
+      const view = await service.describeForAdmin();
+      const byId = Object.fromEntries(view.providers.map((p) => [p.id, p]));
+
+      expect(byId['azure-openai']).toMatchObject({
+        baseUrl: 'https://contoso.openai.azure.com',
+        apiVersion: null,
+        apiStyle: null,
+        deployments: { a: 'b' },
+        requiresKey: null,
+      });
+      expect(byId['openai-compatible']).toMatchObject({ baseUrl: null, apiStyle: 'responses', requiresKey: false, deployments: null });
+    });
+
+    it('treats an empty value as absent: {} deployments and an empty apiVersion clear the stored ones', async () => {
+      stored = policy({
+        providers: {
+          ...policy().providers,
+          'azure-openai': { enabled: false, apiVersion: '2024-10-21', deployments: { a: 'b' } },
+        },
+      });
+
+      await service.replace(
+        input({ providers: { 'azure-openai': { enabled: false, apiVersion: '', deployments: {} } } }),
+        'admin-1',
+      );
+
+      expect(systemSettings.patchSettings.mock.calls[0][0].ai.providers['azure-openai']).toEqual({
+        enabled: false,
+        baseUrl: null,
+        apiVersion: null,
+        apiStyle: null,
+        deployments: null,
+      });
+    });
+
+    it('refuses a field the provider has no slot for', async () => {
+      expect(await rejection(input({ providers: { openai: { enabled: true, requiresKey: false } } }))).toMatchObject({
+        reason: 'AI_PROVIDER_FIELD_UNSUPPORTED',
+        field: 'requiresKey',
+      });
+      expect(
+        await rejection(input({ providers: { 'openai-compatible': { enabled: false, deployments: { a: 'b' } } } })),
+      ).toMatchObject({ reason: 'AI_PROVIDER_FIELD_UNSUPPORTED', field: 'deployments' });
+      expect(systemSettings.patchSettings).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['a plain-http Azure endpoint', { 'azure-openai': { enabled: false, baseUrl: 'http://contoso.openai.azure.com' } }],
+      ['credentials in a compatible URL', { 'openai-compatible': { enabled: false, baseUrl: 'http://u:p@ollama.internal/v1' } }],
+    ])('refuses %s as AI_PROVIDER_SETTINGS_INVALID', async (_label, providers) => {
+      expect(await rejection(input({ providers }))).toMatchObject({
+        reason: 'AI_PROVIDER_SETTINGS_INVALID',
+        fields: ['baseUrl'],
+      });
+      expect(systemSettings.patchSettings).not.toHaveBeenCalled();
+    });
+
+    it.each(['azure-openai', 'openai-compatible'])('refuses enabling %s without a base URL', async (id) => {
+      expect(await rejection(input({ providers: { [id]: { enabled: true } } }))).toMatchObject({
+        reason: 'AI_BASE_URL_REQUIRED',
+      });
+    });
+
+    it('does not ask a keyless provider for an org key under byok_with_org_fallback', async () => {
+      credentials.describe.mockImplementation(async (_purpose: string, name: string) => (name === 'openai' ? KEY_INFO : null));
+
+      await expect(
+        service.replace(
+          input({
+            keyPolicy: 'byok_with_org_fallback',
+            providers: {
+              'openai-compatible': { enabled: true, baseUrl: 'http://ollama.internal:11434/v1', requiresKey: false },
+            },
+          }),
+          'admin-1',
+        ),
+      ).resolves.toBeDefined();
+
+      await expect(
+        service.replace(
+          input({
+            keyPolicy: 'byok_with_org_fallback',
+            providers: { 'openai-compatible': { enabled: true, baseUrl: 'http://ollama.internal:11434/v1' } },
+          }),
+          'admin-1',
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
     });
   });
 });

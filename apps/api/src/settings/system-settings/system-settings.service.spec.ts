@@ -1744,6 +1744,8 @@ describe('SystemSettingsService', () => {
           openai: { enabled: true, baseUrl: 'https://proxy.internal/v1' },
           anthropic: { enabled: false },
           gemini: { enabled: false },
+          'azure-openai': { enabled: false },
+          'openai-compatible': { enabled: false },
         },
         // `allowRealtime` is absent from the stored row (written before #449):
         // it reads as `false`, and the cap and switch beside it survive.
@@ -1804,6 +1806,8 @@ describe('SystemSettingsService', () => {
         openai: { enabled: true, baseUrl: 'https://proxy.internal/v1' },
         anthropic: { enabled: false },
         gemini: { enabled: false },
+        'azure-openai': { enabled: false },
+        'openai-compatible': { enabled: false },
       });
     });
 
@@ -1862,6 +1866,8 @@ describe('SystemSettingsService', () => {
         openai: { enabled: false },
         anthropic: { enabled: true, baseUrl: 'https://anthropic-gw.internal' },
         gemini: { enabled: false },
+        'azure-openai': { enabled: false },
+        'openai-compatible': { enabled: false },
       });
     });
 
@@ -1883,7 +1889,43 @@ describe('SystemSettingsService', () => {
         openai: { enabled: true },
         anthropic: { enabled: false },
         gemini: { enabled: true, baseUrl: 'https://gemini-gw.internal' },
+        'azure-openai': { enabled: false },
+        'openai-compatible': { enabled: false },
       });
+    });
+
+    it('keeps valid #448 slots and resets one that fails its own endpoint rules (#448)', async () => {
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        value: {
+          ai: {
+            providers: {
+              openai: { enabled: true },
+              'azure-openai': {
+                enabled: true,
+                baseUrl: 'https://contoso.openai.azure.com',
+                apiVersion: '2025-04-01-preview',
+                apiStyle: 'chat_completions',
+                deployments: { 'gpt-4o': 'prod-4o' },
+              },
+              // Plain http is refused for Azure; the slot falls back to its default.
+              'openai-compatible': { enabled: true, baseUrl: 'http://user:pw@ollama.internal:11434/v1' },
+            },
+          },
+        } as any,
+      } as any);
+
+      const result = await service.getAiPolicy();
+
+      expect(result.providers['azure-openai']).toEqual({
+        enabled: true,
+        baseUrl: 'https://contoso.openai.azure.com',
+        apiVersion: '2025-04-01-preview',
+        apiStyle: 'chat_completions',
+        deployments: { 'gpt-4o': 'prod-4o' },
+      });
+      // Credentials embedded in the URL: the whole slot resets to its default.
+      expect(result.providers['openai-compatible']).toEqual({ enabled: false });
+      expect(result.providers.openai).toEqual({ enabled: true });
     });
   });
 
@@ -1963,6 +2005,40 @@ describe('SystemSettingsService', () => {
       expect(ai.providers.gemini).toEqual({ enabled: true, baseUrl: 'https://gemini-gw.internal' });
       expect(ai.providers.openai).toEqual({ enabled: false, baseUrl: 'https://proxy.internal/v1' });
       expect(ai.providers.anthropic).toEqual({ enabled: false, baseUrl: undefined });
+    });
+
+    it('merges the #448 slots field by field: null removes, deployments replace whole (#448)', async () => {
+      await service.patchSettings(
+        {
+          ai: {
+            providers: {
+              'azure-openai': {
+                enabled: true,
+                baseUrl: 'https://contoso.openai.azure.com',
+                deployments: { 'gpt-4o': 'prod-4o' },
+              },
+              'openai-compatible': { baseUrl: 'http://ollama.internal:11434/v1', requiresKey: false },
+            },
+          },
+        },
+        mockUserId,
+      );
+
+      const ai = writtenAi() as any;
+      expect(ai.providers['azure-openai']).toEqual({
+        enabled: true,
+        baseUrl: 'https://contoso.openai.azure.com',
+        apiVersion: undefined,
+        apiStyle: undefined,
+        deployments: { 'gpt-4o': 'prod-4o' },
+      });
+      expect(ai.providers['openai-compatible']).toEqual({
+        enabled: false,
+        baseUrl: 'http://ollama.internal:11434/v1',
+        apiStyle: undefined,
+        requiresKey: false,
+      });
+      expect(ai.providers.openai).toEqual({ enabled: false, baseUrl: 'https://proxy.internal/v1' });
     });
 
     it('merges one hostedTools switch, defaulting the rest when the stored row predates them (#442)', async () => {
@@ -2077,6 +2153,8 @@ describe('SystemSettingsService', () => {
         openai: { enabled: false, baseUrl: 'https://proxy.internal/v1' },
         anthropic: { enabled: false, baseUrl: undefined },
         gemini: { enabled: false, baseUrl: undefined },
+        'azure-openai': { enabled: false, baseUrl: undefined, apiVersion: undefined, apiStyle: undefined, deployments: undefined },
+        'openai-compatible': { enabled: false, baseUrl: undefined, apiStyle: undefined, requiresKey: undefined },
       });
     });
 

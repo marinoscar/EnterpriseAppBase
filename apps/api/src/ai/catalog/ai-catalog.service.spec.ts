@@ -20,6 +20,7 @@ import type { PrismaService } from '../../prisma/prisma.service';
 import type { SystemSettingsService } from '../../settings/system-settings/system-settings.service';
 import { AiError } from '../core/ai-error';
 import { AiModelCapabilities } from '../core/capabilities';
+import { AI_KEYLESS_API_KEY } from '../core/provider-adapter.interface';
 import { AiProviderRegistry } from '../core/provider-registry';
 import { FAKE_TEXT_MODEL_CAPABILITIES, FakeAiProvider } from '../testing/fake-ai-provider';
 import {
@@ -124,6 +125,8 @@ class FakePrisma {
 const ADMIN_KEY = 'sk-admin-discovery';
 
 interface HarnessOptions {
+  /** Extra settings on the provider's slot (#448). */
+  slot?: Record<string, unknown>;
   aiEnabled?: boolean;
   providerEnabled?: boolean;
   baseUrl?: string;
@@ -149,6 +152,7 @@ function makeHarness(options: HarnessOptions = {}) {
       [provider.id]: {
         enabled: options.providerEnabled ?? true,
         ...(options.baseUrl ? { baseUrl: options.baseUrl } : {}),
+        ...(options.slot ?? {}),
       },
     },
     defaults: { allowBackgroundRuns: false },
@@ -223,6 +227,17 @@ describe('AiCatalogService.sync', () => {
       expect(h.provider.calls).toHaveLength(0);
       expect(h.prisma.$transaction).not.toHaveBeenCalled();
       expect(h.prisma.usage).toHaveLength(0);
+    });
+
+    it('discovers a keyless provider (#448) with no admin key, passing its slot settings', async () => {
+      const h = makeHarness({ adminKey: null, slot: { requiresKey: false, apiStyle: 'chat_completions' } });
+
+      await expect(h.service.sync('fake')).resolves.toMatchObject({ added: 2 });
+      expect(h.provider.calls).toHaveLength(1);
+      expect(h.provider.calls[0]).toMatchObject({
+        apiKey: AI_KEYLESS_API_KEY,
+        providerSettings: { requiresKey: false, apiStyle: 'chat_completions' },
+      });
     });
   });
 

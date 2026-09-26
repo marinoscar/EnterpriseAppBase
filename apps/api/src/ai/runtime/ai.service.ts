@@ -127,7 +127,7 @@ import { type Span, SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
 import { resolveServiceName } from '../../common/otel/service-name';
 import { userAiSettingsSchema } from '../../common/schemas/settings.schema';
 import { PrismaService } from '../../prisma/prisma.service';
-import { AiConfigService } from '../config/ai-config.service';
+import { AiConfigService, providerCallSettings } from '../config/ai-config.service';
 import { AiError } from '../core/ai-error';
 import type { AiCapability } from '../core/capabilities';
 import type { AiCallContext, AiResponsesPort } from '../core/provider-adapter.interface';
@@ -410,6 +410,8 @@ export interface AiCallTarget {
   /** The resolved model id. */
   modelId: string;
   baseUrl?: string;
+  /** The provider slot's other non-secret settings (#448), passed to the adapter as-is. */
+  providerSettings?: Readonly<Record<string, unknown>>;
   logPromptContent: boolean;
   /** Hosted tool TYPES the request carries (for the span) — never their options. */
   hostedTools?: string[];
@@ -1281,7 +1283,7 @@ export class AiService {
       model: usable,
       storageInputs,
       ...(hostedTools.length > 0 ? { hostedTools } : {}),
-      baseUrl: slot.baseUrl,
+      ...providerCallSettings(slot),
       logPromptContent: policy.logPromptContent,
     };
   }
@@ -1330,7 +1332,7 @@ export class AiService {
       modelId: model,
       port,
       request,
-      baseUrl: slot.baseUrl,
+      ...providerCallSettings(slot),
       logPromptContent: policy.logPromptContent,
     };
   }
@@ -1419,7 +1421,7 @@ export class AiService {
       port,
       stored,
       inputs,
-      baseUrl: slot.baseUrl,
+      ...providerCallSettings(slot),
       logPromptContent: policy.logPromptContent,
     };
   }
@@ -1624,7 +1626,7 @@ export class AiService {
       stored,
       input,
       maxBytes,
-      baseUrl: slot.baseUrl,
+      ...providerCallSettings(slot),
       logPromptContent: policy.logPromptContent,
     };
   }
@@ -1694,7 +1696,7 @@ export class AiService {
       modelId: model,
       speech,
       stored,
-      baseUrl: slot.baseUrl,
+      ...providerCallSettings(slot),
       logPromptContent: policy.logPromptContent,
     };
   }
@@ -1777,7 +1779,7 @@ export class AiService {
       modelId: model,
       port,
       request,
-      baseUrl: slot.baseUrl,
+      ...providerCallSettings(slot),
       logPromptContent: policy.logPromptContent,
     };
   }
@@ -1851,6 +1853,7 @@ export class AiService {
         apiKey,
         requestId,
         ...(call.baseUrl ? { baseUrl: call.baseUrl } : {}),
+        ...(call.providerSettings ? { providerSettings: call.providerSettings } : {}),
         ...(opts.signal ? { signal: opts.signal } : {}),
         ...(storageInputs ? { storageInputs } : {}),
       },

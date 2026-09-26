@@ -337,6 +337,14 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettingsValue = {
       gemini: {
         enabled: false,
       },
+      // #448 — off, and with no endpoint: each needs a `baseUrl` before it can
+      // be enabled. Every other field is optional and absent means its default.
+      'azure-openai': {
+        enabled: false,
+      },
+      'openai-compatible': {
+        enabled: false,
+      },
     },
     defaults: {
       allowBackgroundRuns: true,

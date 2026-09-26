@@ -64,6 +64,7 @@ function setup(limits: SystemAiLimitsValue) {
 
 const userCall: AiLimitCall = { userId: HARNESS_USER, provider: 'openai', modelId: HARNESS_MODEL, keySource: 'user' };
 const orgCall: AiLimitCall = { ...userCall, keySource: 'org' };
+const keylessCall: AiLimitCall = { ...userCall, keySource: 'none' };
 
 async function refusal(promise: Promise<unknown>): Promise<AiError> {
   const err = await promise.then(
@@ -251,6 +252,16 @@ describe('AiLimitsService (#450)', () => {
 
       await refusal(t.h.limits.enforce(userCall));
     });
+
+    it('counts keyless calls (keySource none, #448) like a user\'s own, and limits them too', async () => {
+      const t = setup({ perUser: { requestsPerDay: 2 } });
+
+      t.row({ at: T0 - 1_000, keySource: 'none' });
+      await t.h.limits.enforce(keylessCall);
+      t.row({ at: T0, keySource: 'none' });
+
+      await refusal(t.h.limits.enforce(keylessCall));
+    });
   });
 
   describe('orgKey limits', () => {
@@ -298,6 +309,15 @@ describe('AiLimitsService (#450)', () => {
       t.row({ at: T0 - 1_000, keySource: 'org' });
 
       await expect(t.h.limits.enforce(userCall)).resolves.toBeUndefined();
+      expect(t.queries()).toBe(0);
+    });
+
+    it('never applies to a keyless call (#448) — no org key pays for it', async () => {
+      const t = setup({ orgKey: { requestsPerDayPerUser: 1, tokensPerDayPerUser: 1 } });
+
+      t.row({ at: T0 - 1_000, keySource: 'org' });
+
+      await expect(t.h.limits.enforce(keylessCall)).resolves.toBeUndefined();
       expect(t.queries()).toBe(0);
     });
   });

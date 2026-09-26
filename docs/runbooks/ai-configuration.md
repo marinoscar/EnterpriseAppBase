@@ -264,11 +264,11 @@ reference; the full one is `docs/specs/ai-platform.md` §13.
 | `AI_KEY_INVALID` | 400 | A submitted key was rejected by the provider. | The key is wrong, revoked, or scoped incorrectly at the provider. Nothing was stored. |
 | `AI_MODEL_NOT_ENABLED` | 403 | The model is unknown, not admin-enabled, or deprecated. | Enable it (or pick an enabled one) on `/admin/settings/ai/models` — §5. |
 | `AI_MODEL_NOT_REACHABLE` | 403 | The model is enabled, but the resolved key can't reach it. | The key's own tier/org restrictions — try `POST /api/ai/keys/:provider/test`, or refresh reachability by re-testing/re-saving the key. |
-| `AI_CAPABILITY_UNSUPPORTED` | 400 | The model or provider lacks a capability the request needs (e.g. structured output, a tool, vision input), or the request chains with `previousResponseId` on a provider that stores no responses (Anthropic, Gemini — `details.capability: "previous_response_id"`). | Pick a model/provider that declares it, or drop that part of the request; for Anthropic or Gemini, send the conversation as `input` instead of chaining (§13, §14). |
+| `AI_CAPABILITY_UNSUPPORTED` | 400 | The model or provider lacks a capability the request needs (e.g. structured output, a tool, vision input), or the request chains with `previousResponseId` on a provider that stores no responses (Anthropic, Gemini — `details.capability: "previous_response_id"`). | Pick a model/provider that declares it, or drop that part of the request; for Anthropic, Gemini, Azure OpenAI or an OpenAI-compatible server, send the conversation as `input` instead of chaining (§13, §14, §17, §18). |
 | `AI_REALTIME_DISABLED` | 403 | A realtime voice session was requested, but realtime is switched off (the default). | §16 — set `defaults.allowRealtime` on `/admin/settings/ai` if you want voice sessions. |
 | `AI_TOOL_DISABLED` | 403 | A hosted tool (web search, file search, code interpreter, image generation, MCP) that is switched off, or an MCP server host outside the allowlist. | §12 — switch the tool on, or add the host, under **Hosted tools** on `/admin/settings/ai`. |
 | `AI_RATE_LIMITED` | 429 | The provider throttled the call, or one of this deployment's own limits was reached — then `details.limit` names which one. | Transient: wait `Retry-After` seconds (also `details.retryAfterMs`). For a background run this defers automatically rather than charging an attempt. If users hit a limit of yours too often, raise it — §15. |
-| `AI_PROVIDER_UNAVAILABLE` | 503 | The provider is unreachable or erroring at the transport level. | A provider-side outage, or `AI_PROVIDER_UNAVAILABLE` after an aborted/cancelled call. Check the provider's own status page. |
+| `AI_PROVIDER_UNAVAILABLE` | 503 | The provider is unreachable or erroring at the transport level. | A provider-side outage, or `AI_PROVIDER_UNAVAILABLE` after an aborted/cancelled call. Check the provider's own status page. For Azure OpenAI or an OpenAI-compatible server, also the endpoint itself: `details.providerCode: "redirect_refused"` means it answered with a redirect, which is never followed (usually a wrong `baseUrl`), and `details.missing: "baseUrl"` that none is configured — §17, §18. |
 | `AI_CONTENT_FILTERED` | 422 | The provider's own content filter rejected the request or response. | Not a platform bug — the provider refused this specific content. |
 | `AI_INVALID_REQUEST` | 400 | The request itself is malformed (no model/provider resolvable, a background run given a function tool, an invalid `maxOutputTokens`). | Check the request shape; function tools cannot run in a background run — use `runTools()` in-process instead. |
 | `AI_STRUCTURED_OUTPUT_INVALID` | 502 | The model's output didn't parse against the requested schema. | Usually a model/schema mismatch, or a model too weak to reliably follow the schema; consider `strict: true` or a different model. |
@@ -508,3 +508,142 @@ through this server; see the provider's own dashboard for realtime cost. If a
 provider base URL is set (a gateway), browsers are sent to that gateway's
 `/realtime/calls` too, so it must be reachable from users' browsers.
 
+## 17. Enabling Azure OpenAI
+
+Azure OpenAI (issue #448) serves OpenAI's models from your own Azure
+resource. It is configured like every provider — no environment variable
+(the adapter deliberately ignores `AZURE_OPENAI_ENDPOINT`,
+`AZURE_OPENAI_API_KEY`, `OPENAI_API_VERSION` and `OPENAI_BASE_URL` if they
+happen to be set on the host), no restart.
+
+1. In the Azure portal, open the Azure OpenAI resource and note its
+   **endpoint** (`https://<resource>.openai.azure.com`) and one of its
+   **keys**. Deploy the models you want and note each **deployment name**.
+2. On `/admin/settings/ai`, fill in the **Azure OpenAI** provider row and
+   switch it on (or `PUT /api/admin/ai/config`):
+
+   | Field | Value |
+   |---|---|
+   | `baseUrl` | The resource endpoint — **https only**, without `/openai` (added for you; typing it anyway is harmless). Required before the provider can be enabled. |
+   | `apiVersion` | The `api-version` to call. Empty means `2025-04-01-preview`. Pin a GA version (e.g. `2024-10-21`) if your governance requires one — then also set `apiStyle` to `chat_completions`, since older versions do not serve the Responses API. |
+   | `apiStyle` | `responses` (the default) or `chat_completions`. |
+   | `deployments` | `{ "<model id>": "<deployment name>" }` for every deployment users should see, e.g. `{ "gpt-4o": "prod-gpt4o", "text-embedding-3-small": "embed" }`. |
+
+   ```bash
+   appctl api put /api/admin/ai/config --data '{
+     "enabled": true, "keyPolicy": "byok_with_org_fallback", "logPromptContent": false,
+     "defaults": { "allowBackgroundRuns": true },
+     "providers": { "azure-openai": {
+       "enabled": true,
+       "baseUrl": "https://contoso.openai.azure.com",
+       "apiStyle": "responses",
+       "deployments": { "gpt-4o": "prod-gpt4o", "text-embedding-3-small": "embed" } } } }'
+   ```
+
+3. Add the resource key as the admin (org) key on the provider's row (§2)
+   and **Test** it (§3). The key travels in Azure's `api-key` header.
+4. Refresh the catalog for `azure-openai` (§4). **With a `deployments` map,
+   its keys are the model list** — Azure cannot list a resource's
+   deployments, and what it can list is every model the region offers,
+   deployed or not. Without a map you get that full regional list; enable
+   only what is actually deployed, each under a deployment named after the
+   model. Model ids classify like OpenAI's (`gpt-35-turbo` and custom names
+   stay unclassified — declare them in §5). Enable the models users should
+   see (§5).
+5. Users add their own Azure key on `/settings/ai` (§7) — it must be a key
+   for **this** resource, since the endpoint is the administrator's.
+
+What is different, and worth telling users:
+
+- **No `previousResponseId`** in either API style (as for Anthropic, §13):
+  send the conversation as `input`; `runTools()` and the Playground do.
+- **No hosted tools**, and no image or audio generation through Azure yet —
+  responses (text, vision, files, tools, structured output, streaming) and
+  embeddings only.
+- In the `chat_completions` style there is **no reasoning effort** (it is
+  refused) and no reasoning summary.
+
+Troubleshooting:
+
+| Symptom | Likely cause |
+|---|---|
+| Save refused, `AI_PROVIDER_SETTINGS_INVALID` on `baseUrl` | Not `https`, or credentials/a `#fragment` in the URL. |
+| Save refused, `AI_BASE_URL_REQUIRED` | Enabling with no endpoint. |
+| `AI_KEY_INVALID` on test | A key from another resource, or a regenerated key. |
+| `AI_MODEL_NOT_REACHABLE` / `AI_INVALID_REQUEST` naming the deployment | The deployment name in `deployments` is wrong, or the model id has no deployment of the same name. |
+| `AI_INVALID_REQUEST` on every response | The `api-version` does not serve the Responses API — set `apiStyle` to `chat_completions`, or use a newer `apiVersion`. |
+| `AI_PROVIDER_UNAVAILABLE`, `details.providerCode: "redirect_refused"` | The endpoint answered with a redirect; redirects are never followed. Check the endpoint (a custom domain or gateway in front of Azure). |
+
+## 18. Enabling a self-hosted OpenAI-compatible server (Ollama/vLLM/LM Studio)
+
+The **OpenAI-compatible** provider (issue #448) talks to any server that
+speaks OpenAI's API at a base URL you choose — Ollama, vLLM, LM Studio,
+llama.cpp's server, a LiteLLM gateway.
+
+1. Run the server where **this API** can reach it, and note its API root
+   **including the version segment**:
+
+   | Server | Typical `baseUrl` |
+   |---|---|
+   | Ollama | `http://ollama.internal:11434/v1` |
+   | vLLM (`vllm serve …`) | `http://vllm.internal:8000/v1` |
+   | LM Studio (local server) | `http://lmstudio.internal:1234/v1` |
+
+   `http` is allowed (a private network is the usual setup); credentials or a
+   `#fragment` in the URL are not. **Pointing the platform at an internal
+   host is your decision as an administrator** — only `ai_config:write` can
+   make it, and the server is called with exactly what users send it.
+   Redirects are never followed, so the URL must be the final one.
+2. On `/admin/settings/ai`, fill in the **OpenAI-compatible** provider row
+   and switch it on:
+
+   | Field | Value |
+   |---|---|
+   | `baseUrl` | The API root above. Required before the provider can be enabled. |
+   | `apiStyle` | `chat_completions` (the default — every compatible server serves it) or `responses` if yours also serves the Responses API. |
+   | `requiresKey` | Leave on (`true`) for a server that checks a key (vLLM `--api-key`, a gateway). Switch **off** (`false`) for one that authenticates nobody (a default Ollama). |
+
+   ```bash
+   appctl api put /api/admin/ai/config --data '{
+     "enabled": true, "keyPolicy": "byok", "logPromptContent": false,
+     "defaults": { "allowBackgroundRuns": true },
+     "providers": { "openai-compatible": {
+       "enabled": true, "baseUrl": "http://ollama.internal:11434/v1", "requiresKey": false } } }'
+   ```
+
+3. **Keys.** With `requiresKey: false` no key is needed anywhere: calls
+   carry no credential at all, no user has to add one, the admin **Test**
+   and the catalog refresh work without an admin key, and usage is recorded
+   with key source **"No key (keyless server)"** (`keySource: "none"`) — per-user and per-model
+   limits still apply, the organization-key limits never do. With
+   `requiresKey` on, keys work exactly as for OpenAI (§2, §6, §7).
+4. Refresh the catalog for `openai-compatible` (§4). Every model the server
+   reports is stored **unclassified** — a local model's name says nothing
+   reliable about what it can do. Declare each one's capabilities (§5):
+   typically `responses`, `streaming` and `tools`, plus `structured_output`
+   if the server enforces JSON schemas, `vision_input` for a vision model,
+   and `embeddings` for an embedding model (`nomic-embed-text`). Then enable
+   it.
+
+What is different, and worth telling users:
+
+- **No `previousResponseId`** and **no hosted tools**, in either style.
+- In the `chat_completions` style there is **no reasoning effort** (refused)
+  and no reasoning summary.
+- **Stored files** are sent inline (base64); the server never fetches from
+  this deployment's storage.
+- Only responses (text, vision, tools, structured output, streaming) and
+  embeddings — no images or audio through this provider.
+
+Troubleshooting:
+
+| Symptom | Likely cause |
+|---|---|
+| Save refused, `AI_PROVIDER_SETTINGS_INVALID` on `baseUrl` | Not `http`/`https`, or credentials/a `#fragment` in the URL. |
+| Save refused, `AI_BASE_URL_REQUIRED` | Enabling with no `baseUrl`. |
+| Test: `AI_KEY_INVALID` with `requiresKey` off | The server does check a key — turn `requiresKey` back on and add one. |
+| `AI_PROVIDER_UNAVAILABLE`, `details.transport: "connection"` | The API cannot reach the server (DNS, firewall, the server bound to `127.0.0.1` only — Ollama needs `OLLAMA_HOST=0.0.0.0`). |
+| `AI_PROVIDER_UNAVAILABLE`, `details.providerCode: "redirect_refused"` | The URL redirects — usually a missing `/v1` or a trailing-slash rule on a proxy. Use the final URL. |
+| `AI_INVALID_REQUEST` (404) on every response | `apiStyle` is `responses` but the server serves only Chat Completions — switch it to `chat_completions`. |
+| `AI_CAPABILITY_UNSUPPORTED` | A model not yet classified (§5), a reasoning effort in the Chat Completions style, or a hosted tool. |
+| `AI_STRUCTURED_OUTPUT_INVALID` | The server ignored the JSON schema (many do); do not declare `structured_output` for that model. |

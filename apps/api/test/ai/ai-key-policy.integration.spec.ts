@@ -23,6 +23,13 @@
 //                                        an org key is configured. This is the
 //                                        sharpest form of "the admin key is
 //                                        never spent on a user's own call".
+//   - the provider is keyless        -> (#448: an OpenAI-compatible server the
+//     (`requiresKey: false`)             administrator marked `requiresKey:
+//                                        false`) the call proceeds with NO key:
+//                                        the adapter receives only the
+//                                        `AI_KEYLESS_API_KEY` marker — never the
+//                                        user's key, never the org key — and the
+//                                        usage row says `keySource: 'none'`.
 //
 // `FakeAiProvider.calls` records the literal `apiKey` each provider call
 // carried (`ai/testing/fake-ai-provider.ts`'s own header explains why that is
@@ -41,6 +48,7 @@ import request from 'supertest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { AI_KEYLESS_API_KEY } from '../../src/ai/core/provider-adapter.interface';
 import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
 import { createMockTestUser, authHeader } from '../helpers/auth-mock.helper';
 import {
@@ -454,6 +462,109 @@ describe('AI key policy invariant — admin key never spent on a user’s own in
       expect(app.harness.usageEvents).toEqual([
         expect.objectContaining({ userId: HARNESS_USER, operation: 'audio.speech', keySource: 'user' }),
       ]);
+    });
+  });
+
+  describe("a keyless provider (requiresKey: false, #448) — no key at all, keySource 'none'", () => {
+    // The harness's fake provider sits in the `openai` slot; the runtime reads
+    // `requiresKey` generically off whichever slot a provider has, so marking
+    // that slot keyless models an Ollama-style `openai-compatible` provider.
+    const providers = (openai: Record<string, unknown>) => ({
+      openai: openai as { enabled: boolean },
+      anthropic: { enabled: false },
+      gemini: { enabled: false },
+      'azure-openai': { enabled: false },
+      'openai-compatible': { enabled: false },
+    });
+
+    beforeEach(() => {
+      // Strict BYOK, no user key, and an org key present — none of which may matter.
+      app.harness.setPolicy({ keyPolicy: 'byok', providers: providers({ enabled: true, requiresKey: false }) });
+      app.harness.removeUserKeys(HARNESS_USER);
+      app.harness.setOrgKey(HARNESS_ORG_KEY);
+    });
+
+    afterEach(() => {
+      app.harness.setPolicy({ providers: providers({ enabled: true }) });
+    });
+
+    const expectKeylessOnly = () => {
+      expect(app.harness.fake.calls.length).toBeGreaterThan(0);
+      expect(app.harness.fake.calls.every((call) => call.apiKey === AI_KEYLESS_API_KEY)).toBe(true);
+      expect(app.harness.fake.apiKeys).not.toContain(HARNESS_ORG_KEY);
+      expect(app.harness.fake.apiKeys).not.toContain(HARNESS_USER_KEY);
+    };
+
+    it('POST /api/ai/responses: works without a user key, usage row keySource none', async () => {
+      const res = await request(app.context.app.getHttpServer())
+        .post('/api/ai/responses')
+        .set(authHeader(holderToken))
+        .send(BODY)
+        .expect(200);
+
+      expect(res.body.data.outputText).toBeDefined();
+      expectKeylessOnly();
+      expect(app.harness.usageEvents).toEqual([expect.objectContaining({ userId: HARNESS_USER, keySource: 'none' })]);
+      expect(res.text).not.toContain(AI_KEYLESS_API_KEY);
+    });
+
+    it('POST /api/ai/responses/stream: streams without a user key', async () => {
+      const res = await request(app.context.app.getHttpServer())
+        .post('/api/ai/responses/stream')
+        .set(authHeader(holderToken))
+        .set('Accept', 'text/event-stream')
+        .send(BODY)
+        .expect(200);
+
+      expect(parseSse(res.text).some((frame) => frame.event === 'response.completed')).toBe(true);
+      expectKeylessOnly();
+      expect(res.text).not.toContain(AI_KEYLESS_API_KEY);
+    });
+
+    it('POST /api/ai/embeddings: embeds without a user key, usage row keySource none', async () => {
+      await request(app.context.app.getHttpServer())
+        .post('/api/ai/embeddings')
+        .set(authHeader(holderToken))
+        .send(EMBED_BODY)
+        .expect(200);
+
+      expectKeylessOnly();
+      expect(app.harness.usageEvents).toEqual([
+        expect.objectContaining({ userId: HARNESS_USER, operation: 'embeddings', keySource: 'none' }),
+      ]);
+    });
+
+    it('the queued run path (ai.response.run) executes without a key, keySource none', async () => {
+      const handler = app.context.app.get(JobHandlerRegistry).get('ai.response.run');
+      const created = await app.harness.prisma.aiRun.create({
+        data: {
+          userId: HARNESS_USER,
+          provider: 'openai',
+          modelId: 'fake-model',
+          status: 'pending',
+          request: { provider: 'openai', model: 'fake-model', input: 'hello' },
+        },
+      });
+
+      await handler!.process({ id: 'job-none-1', payload: { runId: created.id } } as never);
+
+      expect(app.harness.runRows.find((r) => r.id === created.id)?.status).toBe('succeeded');
+      expectKeylessOnly();
+      expect(app.harness.usageEvents).toEqual([expect.objectContaining({ keySource: 'none' })]);
+      expect(JSON.stringify(app.harness.runRows)).not.toContain(AI_KEYLESS_API_KEY);
+    });
+
+    it('is the admin opt-in only: with requiresKey back on, the same call is AI_KEY_REQUIRED again', async () => {
+      app.harness.setPolicy({ providers: providers({ enabled: true }) });
+
+      const res = await request(app.context.app.getHttpServer())
+        .post('/api/ai/responses')
+        .set(authHeader(holderToken))
+        .send(BODY)
+        .expect(403);
+
+      expect(res.body.details.reason).toBe('AI_KEY_REQUIRED');
+      expect(app.harness.fake.calls).toEqual([]);
     });
   });
 
