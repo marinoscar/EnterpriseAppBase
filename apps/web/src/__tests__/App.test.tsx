@@ -5,6 +5,7 @@ import { BrowserRouter, MemoryRouter } from 'react-router-dom';
 import { http, HttpResponse } from 'msw';
 import { server } from './mocks/server';
 import App from '../App';
+import { mockAiPublicConfigEnabled } from './mocks/fixtures/ai';
 
 /**
  * Every admin page is replaced with an UNGUARDED stand-in.
@@ -437,5 +438,102 @@ describe('App', () => {
       });
       expect(screen.queryByRole('heading', { name: 'Admin Users' })).not.toBeInTheDocument();
     });
+  });
+
+  /**
+   * Issue #425, epic #419. Every AI route is gated twice: `RequirePermission`
+   * on the card's exact permission, and — except `/admin/settings/ai`, which is
+   * where AI is switched on — `RequireAiEnabled` on `GET /api/ai/config`. The
+   * MSW default answers AI DISABLED; `aiOn()` overrides it. The pages are the
+   * real (placeholder) components.
+   */
+  describe('AI routes (#425)', () => {
+    const AI_ALL = ['user_settings:read', 'ai:use', 'ai_config:read', 'ai_config:write'];
+
+    function aiOn() {
+      server.use(
+        http.get(`${API_BASE}/ai/config`, () =>
+          HttpResponse.json({ data: mockAiPublicConfigEnabled }),
+        ),
+      );
+    }
+
+    function renderAt(path: string) {
+      render(
+        <MemoryRouter initialEntries={[path]}>
+          <App />
+        </MemoryRouter>,
+      );
+    }
+
+    it.each(['/ai', '/settings/ai', '/admin/settings/ai/models'])(
+      'redirects %s to / while AI is disabled, even for a fully permitted admin',
+      async (path) => {
+        signInAs(AI_ALL, ['admin']);
+        renderAt(path);
+
+        await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), {
+          timeout: 5000,
+        });
+        expect(
+          screen.queryByRole('heading', { level: 1, name: /^AI( Playground| Keys| Models)?$/ }),
+        ).not.toBeInTheDocument();
+      },
+    );
+
+    it('keeps /admin/settings/ai reachable while AI is disabled — it is where AI is switched on', async () => {
+      signInAs(AI_ALL, ['admin']);
+      renderAt('/admin/settings/ai');
+
+      await waitFor(
+        () => expect(screen.getByRole('heading', { level: 1, name: 'AI' })).toBeInTheDocument(),
+        { timeout: 5000 },
+      );
+    });
+
+    it.each([
+      ['/ai', 'AI Playground'],
+      ['/settings/ai', 'AI Keys'],
+      ['/admin/settings/ai', 'AI'],
+      ['/admin/settings/ai/models', 'AI Models'],
+    ])('routes %s to its placeholder once AI is enabled', async (path, heading) => {
+      aiOn();
+      signInAs(AI_ALL, ['admin']);
+      renderAt(path);
+
+      await waitFor(
+        () => expect(screen.getByRole('heading', { level: 1, name: heading })).toBeInTheDocument(),
+        { timeout: 5000 },
+      );
+    });
+
+    it.each(['/ai', '/settings/ai'])(
+      'redirects %s for a user without ai:use, even with AI enabled',
+      async (path) => {
+        aiOn();
+        signInAs(['user_settings:read']);
+        renderAt(path);
+
+        await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), {
+          timeout: 5000,
+        });
+        expect(
+          screen.queryByRole('heading', { level: 1, name: /^AI( Playground| Keys| Models)?$/ }),
+        ).not.toBeInTheDocument();
+      },
+    );
+
+    it.each(['/admin/settings/ai', '/admin/settings/ai/models'])(
+      'redirects %s for a user without ai_config:read, even with AI enabled',
+      async (path) => {
+        aiOn();
+        signInAs(['user_settings:read', 'ai:use']);
+        renderAt(path);
+
+        await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), {
+          timeout: 5000,
+        });
+      },
+    );
   });
 });

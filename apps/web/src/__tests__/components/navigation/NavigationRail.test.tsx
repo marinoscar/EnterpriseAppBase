@@ -640,4 +640,89 @@ describe('NavigationRail', () => {
       expect(screen.getByText('Console')).toBeInTheDocument();
     });
   });
+
+  /**
+   * Issue #425, epic #419. The AI destination and the AI Console rows obey the
+   * same two gates the hub does — permission AND the deployment feature map,
+   * read from the shell's `AiConfigProvider` (`aiEnabled` in the test wrapper).
+   */
+  describe('AI feature gating (#425)', () => {
+    it('shows no AI Playground row while AI is off, even to an ai:use holder', () => {
+      setPermissions(['ai:use']);
+      render(<NavigationRail />, { wrapperOptions: { aiEnabled: false } });
+
+      expect(screen.queryByRole('link', { name: 'AI Playground' })).not.toBeInTheDocument();
+    });
+
+    it('shows no AI Playground row with no provider at all — fails closed', () => {
+      setPermissions(['ai:use']);
+      render(<NavigationRail />);
+
+      expect(screen.queryByRole('link', { name: 'AI Playground' })).not.toBeInTheDocument();
+    });
+
+    it('shows no AI Playground row to a user without ai:use, even with AI on', () => {
+      setPermissions([]);
+      render(<NavigationRail />, { wrapperOptions: { aiEnabled: true } });
+
+      expect(screen.queryByRole('link', { name: 'AI Playground' })).not.toBeInTheDocument();
+    });
+
+    it('shows AI Playground → /ai in the library list with ai:use and AI on, active on /ai', () => {
+      setPermissions(['ai:use', ...ADMIN_PERMISSIONS], true);
+      render(<NavigationRail />, {
+        wrapperOptions: { aiEnabled: true, route: '/ai', user: mockAdminUser },
+      });
+
+      const row = screen.getByRole('link', { name: 'AI Playground' });
+      expect(row).toHaveAttribute('href', '/ai');
+      expect(row).toHaveAttribute('aria-current', 'page');
+      const nav = screen.getByRole('navigation', { name: /main navigation/i });
+      expect(within(nav).getAllByRole('link')).toHaveLength(4);
+    });
+
+    describe('Console rows', () => {
+      const AI_ADMIN = ['system_settings:read', 'users:read', 'ai_config:read'];
+
+      it('shows the AI row but not AI Models while AI is off', () => {
+        setPermissions(AI_ADMIN, true);
+        render(<NavigationRail />, {
+          wrapperOptions: { route: '/admin/settings/ai', user: mockAdminUser, aiEnabled: false },
+        });
+
+        expect(screen.getByRole('link', { name: 'AI' })).toHaveAttribute(
+          'href',
+          '/admin/settings/ai',
+        );
+        expect(screen.queryByRole('link', { name: 'AI Models' })).not.toBeInTheDocument();
+      });
+
+      it('shows AI Models once AI is on, and marks only it active on its nested route', () => {
+        setPermissions(AI_ADMIN, true);
+        render(<NavigationRail />, {
+          wrapperOptions: {
+            route: '/admin/settings/ai/models',
+            user: mockAdminUser,
+            aiEnabled: true,
+          },
+        });
+
+        expect(screen.getByRole('link', { name: 'AI Models' })).toHaveAttribute(
+          'aria-current',
+          'page',
+        );
+        expect(screen.getByRole('link', { name: 'AI' })).not.toHaveAttribute('aria-current');
+      });
+
+      it('shows no AI group to an admin without ai_config:read', () => {
+        setPermissions(['system_settings:read', 'users:read'], true);
+        render(<NavigationRail />, {
+          wrapperOptions: { route: '/admin/settings/users', user: mockAdminUser, aiEnabled: true },
+        });
+
+        expect(screen.queryByRole('link', { name: 'AI' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('link', { name: 'AI Models' })).not.toBeInTheDocument();
+      });
+    });
+  });
 });

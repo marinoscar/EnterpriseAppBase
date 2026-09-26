@@ -422,3 +422,57 @@ describe('destinations — route gate matches the console anyPermission (#92)', 
     ).toEqual([...destinationPermissions].sort());
   });
 });
+
+/**
+ * Issue #425, epic #419 — the fourth destination, `ai` → `/ai`, and the
+ * feature map `isDestinationVisible` now takes.
+ */
+describe('destinations — the AI Playground (#425)', () => {
+  const byKey = Object.fromEntries(DESTINATIONS.map((d) => [d.key, d]));
+  const holding = (granted: string[]) => (permission: string) => granted.includes(permission);
+
+  it('declares ai → /ai on ai:use, feature-gated, not pinned', () => {
+    expect(byKey.ai).toMatchObject({
+      label: 'AI Playground',
+      compactLabel: 'AI',
+      path: '/ai',
+      permission: 'ai:use',
+      feature: 'ai',
+    });
+    expect(byKey.ai.pinned).toBeFalsy();
+    expect(byKey.ai.anyPermission).toBeUndefined();
+  });
+
+  it('owns /ai and its children, and nothing else', () => {
+    expect(DESTINATION_ROUTES.ai).toEqual(['/ai']);
+    expect(resolveActiveDestination('/ai')).toBe('ai');
+    expect(resolveActiveDestination('/ai/runs/1')).toBe('ai');
+    expect(resolveActiveDestination('/aix')).toBeNull();
+    // The other two AI surfaces belong to the destinations whose subtrees hold them.
+    expect(resolveActiveDestination('/settings/ai')).toBe('settings');
+    expect(resolveActiveDestination('/admin/settings/ai')).toBe('console');
+    expect(resolveActiveDestination('/admin/settings/ai/models')).toBe('console');
+  });
+
+  it('is hidden unless the permission is held AND the feature is on', () => {
+    expect(isDestinationVisible(byKey.ai, holding(['ai:use']))).toBe(false);
+    expect(isDestinationVisible(byKey.ai, holding(['ai:use']), { ai: false })).toBe(false);
+    expect(isDestinationVisible(byKey.ai, holding([]), { ai: true })).toBe(false);
+    expect(isDestinationVisible(byKey.ai, holding(['ai:use']), { ai: true })).toBe(true);
+  });
+
+  it('leaves destinations without a feature untouched by the feature map', () => {
+    for (const key of ['home', 'settings'] as const) {
+      expect(isDestinationVisible(byKey[key], holding([]))).toBe(true);
+      expect(isDestinationVisible(byKey[key], holding([]), { ai: false })).toBe(true);
+    }
+  });
+
+  it('routes /ai under the same permission the destination declares', () => {
+    const source = readFileSync(APP_TSX, 'utf8');
+    const chunk = source.split('<Route').find((c) => /^\s*path="\/ai"/.test(c));
+    expect(chunk, '/ai has no route').toBeDefined();
+    expect(/permission="([^"]+)"/.exec(chunk ?? '')?.[1]).toBe(byKey.ai.permission);
+    expect(chunk).toContain('<RequireAiEnabled>');
+  });
+});
