@@ -13,7 +13,7 @@ function policy(overrides: Partial<SystemAiValue> = {}): SystemAiValue {
   return {
     enabled: false,
     keyPolicy: 'byok',
-    providers: { openai: { enabled: false }, anthropic: { enabled: false } },
+    providers: { openai: { enabled: false }, anthropic: { enabled: false }, gemini: { enabled: false } },
     defaults: { allowBackgroundRuns: true },
     logPromptContent: false,
     usageRetentionDays: 180,
@@ -36,7 +36,7 @@ function input(overrides: Partial<UpdateAiConfigInput> = {}): UpdateAiConfigInpu
     keyPolicy: 'byok',
     logPromptContent: false,
     defaults: { allowBackgroundRuns: true },
-    providers: { openai: { enabled: true }, anthropic: { enabled: false } },
+    providers: { openai: { enabled: true }, anthropic: { enabled: false }, gemini: { enabled: false } },
     ...overrides,
   };
 }
@@ -109,7 +109,7 @@ describe('AiConfigAdminService', () => {
   describe('describeForAdmin', () => {
     it('joins policy, provenance, registry and masked key status', async () => {
       credentials.describe.mockResolvedValue(KEY_INFO);
-      stored = policy({ providers: { openai: { enabled: true, baseUrl: 'https://gw.example.com' }, anthropic: { enabled: false } } });
+      stored = policy({ providers: { openai: { enabled: true, baseUrl: 'https://gw.example.com' }, anthropic: { enabled: false }, gemini: { enabled: false } } });
 
       const view = await service.describeForAdmin();
 
@@ -138,6 +138,7 @@ describe('AiConfigAdminService', () => {
         },
         // A settings slot with no adapter registered in this test (#446).
         expect.objectContaining({ id: 'anthropic', registered: false, enabled: false, baseUrl: null }),
+        expect.objectContaining({ id: 'gemini', registered: false, enabled: false, baseUrl: null }),
       ]);
       expect(credentials.describe).toHaveBeenCalledWith('ai', 'openai');
       expect(credentials.getSecret).not.toHaveBeenCalled();
@@ -160,6 +161,7 @@ describe('AiConfigAdminService', () => {
         ['fake', true],
         ['openai', false],
         ['anthropic', false],
+        ['gemini', false],
       ]);
       expect(view.providers[1].supportedCapabilities).toEqual([]);
     });
@@ -190,7 +192,7 @@ describe('AiConfigAdminService', () => {
             keyPolicy: 'byok',
             logPromptContent: false,
             defaults: { allowBackgroundRuns: true, maxOutputTokensCap: null },
-            providers: { openai: { enabled: true, baseUrl: null }, anthropic: { enabled: false, baseUrl: null } },
+            providers: { openai: { enabled: true, baseUrl: null }, anthropic: { enabled: false, baseUrl: null }, gemini: { enabled: false, baseUrl: null } },
             usageRetentionDays: 180,
             hostedTools: {
               web_search: false,
@@ -275,13 +277,14 @@ describe('AiConfigAdminService', () => {
     });
 
     it('keeps a provider the body leaves out', async () => {
-      stored = policy({ providers: { openai: { enabled: true, baseUrl: 'https://gw.example.com' }, anthropic: { enabled: false } } });
+      stored = policy({ providers: { openai: { enabled: true, baseUrl: 'https://gw.example.com' }, anthropic: { enabled: false }, gemini: { enabled: false } } });
 
       await service.replace(input({ providers: {} }), 'admin-1');
 
       expect(systemSettings.patchSettings.mock.calls[0][0].ai.providers).toEqual({
         openai: { enabled: true, baseUrl: 'https://gw.example.com' },
         anthropic: { enabled: false, baseUrl: null },
+        gemini: { enabled: false, baseUrl: null },
       });
     });
 
@@ -337,7 +340,7 @@ describe('AiConfigAdminService', () => {
     });
 
     it('never blocks turning the kill switch off', async () => {
-      stored = policy({ enabled: true, keyPolicy: 'byok_with_org_fallback', providers: { openai: { enabled: true }, anthropic: { enabled: false } } });
+      stored = policy({ enabled: true, keyPolicy: 'byok_with_org_fallback', providers: { openai: { enabled: true }, anthropic: { enabled: false }, gemini: { enabled: false } } });
 
       await expect(
         service.replace(input({ enabled: false, keyPolicy: 'byok_with_org_fallback' }), 'admin-1'),
@@ -349,7 +352,7 @@ describe('AiConfigAdminService', () => {
       ['null', null],
       ['omission', undefined],
     ])('clears a stored baseUrl sent as %s by patching it to null', async (_label, baseUrl) => {
-      stored = policy({ providers: { openai: { enabled: true, baseUrl: 'https://gw.example.com' }, anthropic: { enabled: false } } });
+      stored = policy({ providers: { openai: { enabled: true, baseUrl: 'https://gw.example.com' }, anthropic: { enabled: false }, gemini: { enabled: false } } });
 
       await service.replace(
         input({ providers: { openai: { enabled: true, ...(baseUrl === undefined ? {} : { baseUrl }) } } }),
@@ -359,6 +362,7 @@ describe('AiConfigAdminService', () => {
       expect(systemSettings.patchSettings.mock.calls[0][0].ai.providers).toEqual({
         openai: { enabled: true, baseUrl: null },
         anthropic: { enabled: false, baseUrl: null },
+        gemini: { enabled: false, baseUrl: null },
       });
       expect(prisma.auditEvent.create.mock.calls[0][0].data.meta.changedFields).toContain(
         'providers.openai.baseUrl',
@@ -383,14 +387,14 @@ describe('AiConfigAdminService', () => {
       await service.replace(
         input({
           defaults: { allowBackgroundRuns: false, maxOutputTokensCap: 2048 },
-          providers: { openai: { enabled: true, baseUrl: 'https://gw.example.com' }, anthropic: { enabled: false } },
+          providers: { openai: { enabled: true, baseUrl: 'https://gw.example.com' }, anthropic: { enabled: false }, gemini: { enabled: false } },
         }),
         'admin-1',
       );
 
       expect(systemSettings.patchSettings.mock.calls[0][0].ai).toMatchObject({
         defaults: { allowBackgroundRuns: false, maxOutputTokensCap: 2048 },
-        providers: { openai: { enabled: true, baseUrl: 'https://gw.example.com' }, anthropic: { enabled: false } },
+        providers: { openai: { enabled: true, baseUrl: 'https://gw.example.com' }, anthropic: { enabled: false }, gemini: { enabled: false } },
       });
     });
   });
@@ -419,7 +423,7 @@ describe('AiConfigAdminService', () => {
     });
 
     it('passes the stored baseUrl to verification', async () => {
-      stored = policy({ providers: { openai: { enabled: true, baseUrl: 'https://gw.example.com' }, anthropic: { enabled: false } } });
+      stored = policy({ providers: { openai: { enabled: true, baseUrl: 'https://gw.example.com' }, anthropic: { enabled: false }, gemini: { enabled: false } } });
 
       await service.setKey('openai', SECRET, 'admin-1');
 
@@ -490,7 +494,7 @@ describe('AiConfigAdminService', () => {
           policy(),
           policy({
             keyPolicy: 'byok_with_org_fallback',
-            providers: { openai: { enabled: false, baseUrl: 'https://x.example.com' }, anthropic: { enabled: false } },
+            providers: { openai: { enabled: false, baseUrl: 'https://x.example.com' }, anthropic: { enabled: false }, gemini: { enabled: false } },
           }),
         ),
       ).toEqual(['keyPolicy', 'providers.openai.baseUrl']);

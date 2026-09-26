@@ -18,7 +18,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { SystemSettingsService } from '../../settings/system-settings/system-settings.service';
 import { AiError } from '../core/ai-error';
 import { AiModelCapabilities, aiModelCapabilitiesSchema } from '../core/capabilities';
-import { AiDiscoveredModel, AiProviderAdapter } from '../core/provider-adapter.interface';
+import { AiDiscoveredModel, AiDiscoveredModelMetadata, AiProviderAdapter } from '../core/provider-adapter.interface';
 import { AiProviderRegistry } from '../core/provider-registry';
 import { AI_CREDENTIAL_PURPOSE, aiCredentialName } from '../config/ai-credential.constants';
 
@@ -161,8 +161,8 @@ export class AiCatalogService {
     }
 
     const discovered = await this.discover(adapter, providerId, apiKey, providerPolicy, options);
-    const modelIds = uniqueModelIds(discovered);
-    const counts = await this.persist(adapter, providerId, modelIds);
+    const { modelIds, metadata } = uniqueModels(discovered);
+    const counts = await this.persist(adapter, providerId, modelIds, metadata);
 
     await this.audit(providerId, options.actorUserId ?? null, counts);
 
@@ -206,6 +206,7 @@ export class AiCatalogService {
     adapter: AiProviderAdapter,
     providerId: string,
     modelIds: string[],
+    metadata: ReadonlyMap<string, AiDiscoveredModelMetadata> = new Map(),
   ): Promise<AiCatalogSyncCounts> {
     const now = new Date();
 
@@ -244,7 +245,7 @@ export class AiCatalogService {
 
       for (const modelId of modelIds) {
         const row = byModelId.get(modelId);
-        const classified = this.classify(adapter, modelId);
+        const classified = this.classify(adapter, modelId, metadata.get(modelId));
 
         if (!row) {
           inserts.push({
@@ -338,8 +339,11 @@ export class AiCatalogService {
   private classify(
     adapter: AiProviderAdapter,
     modelId: string,
+    metadata: AiDiscoveredModelMetadata | undefined,
   ): { capabilities: AiModelCapabilities; source: AiCapabilitySource } {
-    const raw = adapter.classifyModel(modelId);
+    // The listing's own metadata goes back to the adapter that produced it
+    // (#447); an adapter whose listing carries none is called with the id alone.
+    const raw = metadata ? adapter.classifyModel(modelId, metadata) : adapter.classifyModel(modelId);
 
     if (raw === null) {
       return { capabilities: EMPTY_AI_MODEL_CAPABILITIES, source: 'unclassified' };
@@ -400,18 +404,30 @@ export class AiCatalogService {
 }
 
 /** Distinct, non-empty model ids, in first-seen order. */
-function uniqueModelIds(models: AiDiscoveredModel[]): string[] {
+/**
+ * The distinct, trimmed ids of a listing, in order, plus the listing metadata
+ * of each (#447) — the first listing of an id wins, the same as for the id.
+ */
+function uniqueModels(models: AiDiscoveredModel[]): {
+  modelIds: string[];
+  metadata: Map<string, AiDiscoveredModelMetadata>;
+} {
   const ids = new Set<string>();
+  const metadata = new Map<string, AiDiscoveredModelMetadata>();
 
   for (const model of models) {
     const id = typeof model?.id === 'string' ? model.id.trim() : '';
 
-    if (id.length > 0) {
+    if (id.length > 0 && !ids.has(id)) {
       ids.add(id);
+
+      if (model.metadata && typeof model.metadata === 'object') {
+        metadata.set(id, model.metadata);
+      }
     }
   }
 
-  return [...ids];
+  return { modelIds: [...ids], metadata };
 }
 
 function toJson(capabilities: AiModelCapabilities): Prisma.InputJsonValue {

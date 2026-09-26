@@ -7,7 +7,7 @@ function policy(overrides: Partial<AiPolicy> = {}): AiPolicy {
   return {
     enabled: true,
     keyPolicy: 'byok',
-    providers: { openai: { enabled: true }, anthropic: { enabled: false } },
+    providers: { openai: { enabled: true }, anthropic: { enabled: false }, gemini: { enabled: false } },
     defaults: { allowBackgroundRuns: true },
     logPromptContent: false,
     usageRetentionDays: 180,
@@ -107,7 +107,7 @@ describe('AiConfigService', () => {
   describe('assertProviderEnabled', () => {
     it('returns the provider slot when everything agrees', async () => {
       getAiPolicy.mockResolvedValue(
-        policy({ providers: { openai: { enabled: true, baseUrl: 'https://proxy.example.com' }, anthropic: { enabled: false } } }),
+        policy({ providers: { openai: { enabled: true, baseUrl: 'https://proxy.example.com' }, anthropic: { enabled: false }, gemini: { enabled: false } } }),
       );
 
       await expect(service.assertProviderEnabled('openai')).resolves.toEqual({
@@ -125,7 +125,7 @@ describe('AiConfigService', () => {
     });
 
     it('throws AI_PROVIDER_DISABLED when the provider is off in settings', async () => {
-      getAiPolicy.mockResolvedValue(policy({ providers: { openai: { enabled: false }, anthropic: { enabled: false } } }));
+      getAiPolicy.mockResolvedValue(policy({ providers: { openai: { enabled: false }, anthropic: { enabled: false }, gemini: { enabled: false } } }));
 
       await expect(service.assertProviderEnabled('openai')).rejects.toMatchObject({
         code: 'AI_PROVIDER_DISABLED',

@@ -198,6 +198,8 @@ describe('Public AI config and kill switch', () => {
           // answers "configured" for every provider. Anthropic stores no
           // responses, so a client must resend the conversation.
           { id: 'anthropic', displayName: 'Anthropic', enabled: false, hasOrgKey: true, supportsPreviousResponseId: false },
+          // Gemini (#447): likewise registered, off, and stateless.
+          { id: 'gemini', displayName: 'Google Gemini', enabled: false, hasOrgKey: true, supportsPreviousResponseId: false },
         ],
       });
       expect(res.text).not.toContain(ORG_KEY);

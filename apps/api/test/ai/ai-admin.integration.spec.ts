@@ -323,6 +323,14 @@ describe('AI Administration Integration', () => {
             baseUrl: null,
             keyStatus: { configured: false, hint: null, updatedAt: null, updatedByUserId: null },
           },
+          {
+            id: 'gemini',
+            displayName: 'Google Gemini',
+            registered: true,
+            enabled: false,
+            baseUrl: null,
+            keyStatus: { configured: false, hint: null, updatedAt: null, updatedByUserId: null },
+          },
         ],
       });
       // Anthropic runs none of the neutral hosted tools, and says so (#446).
@@ -332,6 +340,12 @@ describe('AI Administration Integration', () => {
       expect(capabilitiesOf('openai')).toContain('hosted_tools');
       expect(capabilitiesOf('anthropic')).toEqual(expect.arrayContaining(['responses', 'reasoning', 'tools']));
       expect(capabilitiesOf('anthropic')).not.toContain('hosted_tools');
+      // Gemini carries responses AND embeddings, and no hosted tools yet (#447).
+      expect(capabilitiesOf('gemini')).toEqual(
+        expect.arrayContaining(['responses', 'reasoning', 'tools', 'embeddings']),
+      );
+      expect(capabilitiesOf('gemini')).not.toContain('hosted_tools');
+      expect(capabilitiesOf('gemini')).not.toContain('image_generation');
       expect(context.prismaMock.systemSettings.create).not.toHaveBeenCalled();
       expect(context.prismaMock.systemSettings.update).not.toHaveBeenCalled();
     });

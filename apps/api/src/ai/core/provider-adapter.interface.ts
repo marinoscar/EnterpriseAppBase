@@ -51,10 +51,33 @@ export interface AiCallContext {
   storageInputs?: AiResolvedStorageInputs;
 }
 
+/**
+ * What a provider's model listing says about one model, beyond its id
+ * (#447). Every field is optional and PROVIDER-REPORTED: an adapter fills
+ * what its listing carries (Gemini reports token limits, supported methods
+ * and a thinking flag; OpenAI and Anthropic list ids only) and its own
+ * `classifyModel` is the only reader. It is never stored as-is — the
+ * classifier folds it into `AiModelCapabilities`, which is what the catalog
+ * keeps.
+ */
+export interface AiDiscoveredModelMetadata {
+  displayName?: string;
+  /** The most input tokens the provider says the model accepts. */
+  inputTokenLimit?: number;
+  /** The most output tokens the provider says the model produces. */
+  outputTokenLimit?: number;
+  /** Provider-named operations the model supports (Gemini: `generateContent`, `embedContent`, ...). */
+  supportedActions?: string[];
+  /** Whether the provider says the model thinks (extended reasoning). */
+  thinking?: boolean;
+}
+
 export interface AiDiscoveredModel {
   id: string;
   ownedBy?: string;
   createdAt?: Date;
+  /** Optional listing metadata the adapter's `classifyModel` may use (#447). */
+  metadata?: AiDiscoveredModelMetadata;
 }
 
 /**
@@ -80,8 +103,17 @@ export interface AiProviderAdapter {
 
   listModels(ctx: AiCallContext): Promise<AiDiscoveredModel[]>;
   verifyKey(ctx: AiCallContext): Promise<AiKeyVerification>;
-  /** `null` means "unclassified": the catalog stores it and an admin decides. */
-  classifyModel(modelId: string): AiModelCapabilities | null;
+  /**
+   * `null` means "unclassified": the catalog stores it and an admin decides.
+   *
+   * `metadata` (#447) is what this adapter's own `listModels` reported for
+   * the id, passed back by the catalog sync so a classifier can ENRICH its
+   * rule table from provider facts (token limits, supported methods). It is
+   * absent everywhere else — a request-time lookup, a test, an adapter whose
+   * listing carries ids only — so a classifier must answer from the id alone
+   * when it is missing, and an adapter that ignores it stays correct.
+   */
+  classifyModel(modelId: string, metadata?: AiDiscoveredModelMetadata): AiModelCapabilities | null;
 
   /**
    * How this adapter wants storage-object image/file inputs delivered (#441).

@@ -50,6 +50,7 @@ import { AiCapability, AiModelCapabilities } from '../core/capabilities';
 import {
   AiCallContext,
   AiDiscoveredModel,
+  AiDiscoveredModelMetadata,
   AiKeyVerification,
   AiProviderAdapter,
   AiResponsesPort,
@@ -170,7 +171,9 @@ export interface FakeAiProviderOptions {
    * Classification per model id. Defaults: every id in `models` gets
    * `FAKE_TEXT_MODEL_CAPABILITIES`, anything else is unclassified (`null`).
    */
-  classify?: Record<string, AiModelCapabilities> | ((modelId: string) => AiModelCapabilities | null);
+  classify?:
+    | Record<string, AiModelCapabilities>
+    | ((modelId: string, metadata?: AiDiscoveredModelMetadata) => AiModelCapabilities | null);
   /** Hosted tools the fake accepts. Defaults to none. */
   hostedTools?: AiHostedToolType[];
   /** `false` omits the responses port entirely. Defaults to `true`. */
@@ -401,11 +404,11 @@ export class FakeAiProvider implements AiProviderAdapter {
       : { ok: false, code: 'AI_KEY_INVALID', detail: 'The fake provider rejected this key.' };
   }
 
-  classifyModel(modelId: string): AiModelCapabilities | null {
+  classifyModel(modelId: string, metadata?: AiDiscoveredModelMetadata): AiModelCapabilities | null {
     const { classify } = this.options;
 
     if (typeof classify === 'function') {
-      return classify(modelId);
+      return metadata ? classify(modelId, metadata) : classify(modelId);
     }
 
     if (classify) {
