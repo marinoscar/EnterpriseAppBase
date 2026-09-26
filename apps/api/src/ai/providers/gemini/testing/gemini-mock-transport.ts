@@ -61,7 +61,9 @@ export type MockGeminiReply =
     }
   | { kind: 'network' }
   /** A hand-written SSE script of `data:` payloads. `hang` keeps the connection open until aborted. */
-  | { kind: 'sse'; frames: unknown[]; hang?: boolean };
+  | { kind: 'sse'; frames: unknown[]; hang?: boolean }
+  /** Raw body chunks, written as given — for a bare JSON error object mid-stream. */
+  | { kind: 'raw'; chunks: string[] };
 
 export interface RecordedGeminiRequest {
   method: string;
@@ -119,12 +121,20 @@ function abortError(): Error {
 }
 
 function sseResponse(frames: unknown[], hang: boolean, signal?: AbortSignal): Response {
+  return rawResponse(
+    frames.map((frame) => `data: ${typeof frame === 'string' ? frame : JSON.stringify(frame)}\r\n\r\n`),
+    hang,
+    signal,
+  );
+}
+
+function rawResponse(chunks: string[], hang: boolean, signal?: AbortSignal): Response {
   const encoder = new TextEncoder();
 
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
-      for (const frame of frames) {
-        controller.enqueue(encoder.encode(`data: ${typeof frame === 'string' ? frame : JSON.stringify(frame)}\r\n\r\n`));
+      for (const chunk of chunks) {
+        controller.enqueue(encoder.encode(chunk));
       }
 
       if (!hang) {
@@ -405,6 +415,9 @@ export class GeminiMockServer {
 
         case 'sse':
           return sseResponse(reply.frames, reply.hang ?? false, signal);
+
+        case 'raw':
+          return rawResponse(reply.chunks, false, signal);
 
         case 'response':
           if (streaming && url.searchParams.get('alt') !== 'sse') {

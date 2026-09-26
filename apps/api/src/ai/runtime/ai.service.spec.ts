@@ -506,7 +506,7 @@ describe('AiService', () => {
     const dir = __dirname;
     const offenders = readdirSync(dir)
       .filter((file) => file.endsWith('.ts'))
-      .filter((file) => /from\s+['"](openai|@anthropic-ai\/[^'"]+)['"]/.test(readFileSync(join(dir, file), 'utf8')));
+      .filter((file) => /from\s+['"](openai|@anthropic-ai\/[^'"]+|@google\/genai(?:\/[^'"]+)?)['"]/.test(readFileSync(join(dir, file), 'utf8')));
 
     expect(offenders).toEqual([]);
   });
