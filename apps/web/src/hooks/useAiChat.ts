@@ -7,11 +7,20 @@
  * the assistant message is appended up front and filled in as the answer
  * arrives, so the thread never jumps.
  *
- * MULTI-TURN IS SERVER-SIDE. The provider keeps the conversation; each turn
- * sends only the new prompt plus `previousResponseId` — the id of the last
- * COMPLETED response. A stopped, failed or still-streaming turn never
- * advances it, so the next turn continues from the last answer that actually
- * finished.
+ * MULTI-TURN IS SERVER-SIDE WHERE THE PROVIDER ALLOWS IT. A provider that
+ * keeps the conversation (OpenAI) is sent only the new prompt plus
+ * `previousResponseId` — the id of the last COMPLETED response. A stopped,
+ * failed or still-streaming turn never advances it, so the next turn
+ * continues from the last answer that actually finished.
+ *
+ * A stateless provider (Anthropic, `supportsPreviousResponseId: false` in
+ * `GET /api/ai/config` — #446) refuses `previousResponseId` with
+ * `AI_CAPABILITY_UNSUPPORTED`, so for it the caller passes
+ * `chainResponses: false` and the turn carries the whole conversation as
+ * `input` instead: every COMPLETED prior exchange as text message items (the
+ * same "completed only" rule as the id above), then the new prompt. The
+ * message list alone is enough to rebuild that, so switching from a chaining
+ * provider to a stateless one mid-conversation just works.
  *
  * STOP IS IMMEDIATE ON THE CLIENT. `stop()` aborts the request (the API
  * observes the disconnect and aborts the provider call — #433) and marks the
@@ -23,6 +32,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   createAiResponse,
   streamAiResponse,
+  type AiInputItem,
   type AiResponse,
   type AiResponseRequest,
   type AiUsage,
@@ -54,6 +64,12 @@ export interface AiChatMessage {
 export type AiChatRequestOptions = Omit<AiResponseRequest, 'input' | 'previousResponseId'> & {
   /** `false` sends one JSON round trip instead of streaming. Default `true`. */
   stream?: boolean;
+  /**
+   * `false` for a provider that cannot continue a conversation by
+   * `previousResponseId` (#446): the turn resends the conversation so far as
+   * `input` instead. Default `true` (chain by id).
+   */
+  chainResponses?: boolean;
 };
 
 export interface UseAiChatReturn {
@@ -66,6 +82,39 @@ export interface UseAiChatReturn {
   reset: () => void;
   /** Append a finished exchange produced elsewhere (a background run). */
   appendExchange: (prompt: string, response: AiResponse, extra?: { runId?: string }) => void;
+  /**
+   * The conversation so far plus `prompt`, as `input` items — what a turn
+   * sends to a provider that cannot chain (#446). See {@link buildHistoryInput}.
+   */
+  historyInput: (prompt: string) => AiInputItem[];
+}
+
+function textMessage(role: 'user' | 'assistant', text: string): AiInputItem {
+  return { type: 'message', role, content: [{ type: 'text', text }] };
+}
+
+/**
+ * Every completed prior exchange, then `prompt`, as message items (#446).
+ *
+ * An exchange is a user message and the assistant message that follows it;
+ * it is resent only when that answer finished (`done`) with text — a
+ * stopped, failed or still-streaming turn is dropped, user half included,
+ * exactly as it never advances `previousResponseId`. Text only: the
+ * playground's turns carry no attachments.
+ */
+export function buildHistoryInput(messages: readonly AiChatMessage[], prompt: string): AiInputItem[] {
+  const items: AiInputItem[] = [];
+  for (let i = 0; i < messages.length - 1; i += 1) {
+    const user = messages[i];
+    const assistant = messages[i + 1];
+    if (user.role !== 'user' || assistant.role !== 'assistant') continue;
+    if (assistant.status === 'done' && assistant.text !== '' && user.text !== '') {
+      items.push(textMessage('user', user.text), textMessage('assistant', assistant.text));
+    }
+    i += 1;
+  }
+  items.push(textMessage('user', prompt));
+  return items;
 }
 
 let sequence = 0;
@@ -92,6 +141,11 @@ export function useAiChat(): UseAiChatReturn {
   const activeIdRef = useRef<string | null>(null);
   // Read inside `send` without making it depend on the state value.
   const previousIdRef = useRef<string | null>(null);
+  // The committed message list, for building a stateless turn's history.
+  const messagesRef = useRef<AiChatMessage[]>([]);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
   const isMounted = useIsMounted();
 
   const setPrevious = useCallback((id: string | null) => {
@@ -128,12 +182,14 @@ export function useAiChat(): UseAiChatReturn {
       const text = prompt.trim();
       if (!text || controllerRef.current) return;
 
-      const { stream = true, ...rest } = options;
-      const request: AiResponseRequest = {
-        ...rest,
-        input: text,
-        ...(previousIdRef.current ? { previousResponseId: previousIdRef.current } : {}),
-      };
+      const { stream = true, chainResponses = true, ...rest } = options;
+      const request: AiResponseRequest = chainResponses
+        ? {
+            ...rest,
+            input: text,
+            ...(previousIdRef.current ? { previousResponseId: previousIdRef.current } : {}),
+          }
+        : { ...rest, input: buildHistoryInput(messagesRef.current, text) };
 
       const userId = nextId('user');
       const assistantId = nextId('assistant');
@@ -239,5 +295,7 @@ export function useAiChat(): UseAiChatReturn {
     [setPrevious],
   );
 
-  return { messages, isStreaming, previousResponseId, send, stop, reset, appendExchange };
+  const historyInput = useCallback((prompt: string) => buildHistoryInput(messagesRef.current, prompt), []);
+
+  return { messages, isStreaming, previousResponseId, send, stop, reset, appendExchange, historyInput };
 }
