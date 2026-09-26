@@ -343,3 +343,59 @@ export function withFlags(
   rows.set('__flags', [...chosen].join(' ') || 'none');
   return rows;
 }
+
+export interface AdvancedStepProps {
+  title: string;
+  /** The settings as they stand, one row each: what "use these" means. */
+  summary: ReadonlyArray<{ label: string; value: string }>;
+  /** The form shown when the operator chooses to change them. */
+  fields: readonly FieldSpec[];
+  /** Undefined: keep every default. A map: the form's answers. */
+  onComplete: (answers: ReadonlyMap<string, string> | undefined) => void;
+}
+
+const USE_DEFAULTS = 'defaults';
+const CUSTOMISE = 'customise';
+
+/**
+ * Where the deployment lives and how its proxy runs  (issue #393).
+ *
+ * Opens on a summary with "Use these" SELECTED, so the common path costs one
+ * Enter. Only "Change them" opens the form -- the same `FieldWizard` every
+ * other question uses, prefilled with the values the summary just showed, so
+ * Enter through it changes nothing.
+ *
+ * One input at a time: the select, then (maybe) the wizard, never both.
+ */
+export function AdvancedStep({ title, summary, fields, onComplete }: AdvancedStepProps): ReactNode {
+  const [editing, setEditing] = useState(false);
+
+  if (editing) {
+    return <FieldWizard title={`${title} — advanced`} fields={fields} onComplete={onComplete} />;
+  }
+
+  const items = [
+    { key: USE_DEFAULTS, label: 'Use these', value: USE_DEFAULTS },
+    { key: CUSTOMISE, label: 'Change them…', value: CUSTOMISE },
+  ];
+
+  return (
+    <Frame title={`${title} — advanced`} hints={['enter select', 'ctrl-c quit']}>
+      <Text dimColor>Where this runs. Recorded values where there are any, else the defaults.</Text>
+      <Box marginTop={1} flexDirection="column">
+        {summary.map((row) => (
+          <Field key={row.label} label={row.label} value={row.value} />
+        ))}
+      </Box>
+      <Box marginTop={1}>
+        <SelectInput
+          items={items}
+          onSelect={(item) => {
+            if (item.value === CUSTOMISE) setEditing(true);
+            else onComplete(undefined);
+          }}
+        />
+      </Box>
+    </Frame>
+  );
+}

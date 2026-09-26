@@ -232,8 +232,9 @@ describe('UserAiKeysPage', () => {
       const group = within(list).getByRole('region', { name: 'OpenAI models' });
       expect(within(group).getByText('gpt-5-mini')).toBeInTheDocument();
       expect(within(group).getAllByText('via organization key')).toHaveLength(1);
-      expect(within(group).getAllByText('responses').length).toBeGreaterThan(0);
-      expect(within(group).getByText('structured output')).toBeInTheDocument();
+      // The shared AiCapabilityChips labels, not the raw capability strings.
+      expect(within(group).getAllByText('Text').length).toBeGreaterThan(0);
+      expect(within(group).getByText('Structured output')).toBeInTheDocument();
       // No display name: the id stands in for it, and is listed as the id too.
       expect(within(group).getAllByText('text-embedding-3-small')).toHaveLength(2);
     });

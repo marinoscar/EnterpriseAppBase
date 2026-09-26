@@ -16,6 +16,10 @@
  * or, for components under the shell provider, renders with
  * `wrapperOptions: { aiEnabled: true }` (see `utils/test-utils.tsx`).
  *
+ * Capability strings are the API's permanent `AI_CAPABILITIES` values
+ * (`responses`, `vision_input`, `tools`, … — apps/api/src/ai/core/capabilities.ts),
+ * never display names or legacy aliases.
+ *
  * NO FIXTURE CARRIES A KEY. Masked hints only, exactly as the API answers.
  */
 import type {
@@ -54,7 +58,9 @@ export const mockAiAdminConfig: AiAdminConfig = {
     {
       id: 'openai',
       displayName: 'OpenAI',
+      registered: true,
       enabled: false,
+      baseUrl: null,
       keyStatus: {
         configured: true,
         hint: '••••abcd',
@@ -62,10 +68,10 @@ export const mockAiAdminConfig: AiAdminConfig = {
         updatedByUserId: 'admin-user-id',
       },
       supportedCapabilities: [
-        'text',
-        'vision',
+        'responses',
+        'vision_input',
         'structured_output',
-        'function_tools',
+        'tools',
         'reasoning',
         'streaming',
       ],
@@ -80,6 +86,8 @@ export const mockAiProbeResultPassed: AiProbeResult = {
   success: true,
   provider: 'openai',
   usedStoredKey: true,
+  modelCount: 42,
+  smokeModelId: null,
   checks: [
     { id: 'credentials', label: 'Credentials', status: 'passed', code: 'ok', detail: 'Key accepted', error: null },
     { id: 'list_models', label: 'List models', status: 'passed', code: 'ok', detail: '42 models', error: null },
@@ -99,6 +107,8 @@ export const mockAiProbeResultFailed: AiProbeResult = {
   success: false,
   provider: 'openai',
   usedStoredKey: false,
+  modelCount: null,
+  smokeModelId: null,
   checks: [
     {
       id: 'credentials',
@@ -108,8 +118,22 @@ export const mockAiProbeResultFailed: AiProbeResult = {
       detail: 'The provider rejected this key',
       error: 'Incorrect API key provided',
     },
-    { id: 'list_models', label: 'List models', status: 'skipped', code: 'not_attempted', detail: null, error: null },
-    { id: 'responses_smoke', label: 'Responses smoke test', status: 'skipped', code: 'not_attempted', detail: null, error: null },
+    {
+      id: 'list_models',
+      label: 'List models',
+      status: 'skipped',
+      code: 'not_attempted',
+      detail: 'Skipped — the key was refused',
+      error: null,
+    },
+    {
+      id: 'responses_smoke',
+      label: 'Responses smoke test',
+      status: 'skipped',
+      code: 'not_attempted',
+      detail: 'Skipped — the key was refused',
+      error: null,
+    },
   ],
   attemptedAt: T0,
 };
@@ -121,7 +145,7 @@ export const mockAiModels: AiModel[] = [
     modelId: 'gpt-5-mini',
     displayName: 'GPT-5 mini',
     capabilities: {
-      capabilities: ['text', 'vision', 'structured_output', 'function_tools', 'reasoning', 'streaming'],
+      capabilities: ['responses', 'vision_input', 'structured_output', 'tools', 'reasoning', 'streaming'],
       inputModalities: ['text', 'image'],
       outputModalities: ['text'],
       reasoningEfforts: ['minimal', 'low', 'medium', 'high'],
@@ -130,8 +154,13 @@ export const mockAiModels: AiModel[] = [
     },
     capabilitySource: 'catalog',
     enabled: true,
-    deprecatedAt: null,
+    contextWindow: 400000,
+    maxOutputTokens: 128000,
+    discoveredAt: T0,
     lastSeenAt: T0,
+    deprecatedAt: null,
+    updatedAt: T0,
+    updatedByUserId: 'admin-user-id',
   },
   {
     id: 'model-2',
@@ -145,19 +174,30 @@ export const mockAiModels: AiModel[] = [
     },
     capabilitySource: 'catalog',
     enabled: false,
-    deprecatedAt: null,
+    contextWindow: null,
+    maxOutputTokens: null,
+    discoveredAt: T0,
     lastSeenAt: T0,
+    deprecatedAt: null,
+    updatedAt: T0,
+    updatedByUserId: null,
   },
   {
     id: 'model-3',
     provider: 'openai',
     modelId: 'ft:custom-model',
     displayName: null,
-    capabilities: { capabilities: [], inputModalities: [], outputModalities: [] },
+    // Unclassified: the provider's classifier did not recognise the id.
+    capabilities: null,
     capabilitySource: 'unclassified',
     enabled: false,
-    deprecatedAt: null,
+    contextWindow: null,
+    maxOutputTokens: null,
+    discoveredAt: T0,
     lastSeenAt: T0,
+    deprecatedAt: null,
+    updatedAt: T0,
+    updatedByUserId: null,
   },
 ];
 
@@ -186,7 +226,7 @@ export const mockUsableAiModels: UsableAiModel[] = [
     provider: 'openai',
     modelId: 'gpt-5-mini',
     displayName: 'GPT-5 mini',
-    capabilities: mockAiModels[0].capabilities,
+    capabilities: mockAiModels[0].capabilities!,
     keySource: 'user',
   },
 ];

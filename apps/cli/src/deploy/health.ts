@@ -54,6 +54,13 @@ export interface HealthReport {
   local: { live: ProbeResult; ready: ProbeResult; frontend: ProbeResult };
   external?: { url: string; probe: ProbeResult } | undefined;
   migrations: MigrationState;
+  /**
+   * The OAuth wiring, end to end (#391). Present only when the caller asked
+   * for it with `oauth`; deliberately NOT part of `isHealthy`, so `status`'s
+   * exit code keeps meaning "is it serving" -- the verify step decides what a
+   * failed smoke means for a deploy.
+   */
+  oauth?: OAuthSmoke | undefined;
   deployed?: Pick<DeployState, 'commitSha' | 'ref' | 'lastDeployedAt' | 'lastCommand'> | undefined;
 }
 
@@ -85,6 +92,11 @@ export interface HealthOptions {
    * `composeProjectFor` states for the state file.
    */
   composeProject?: string | undefined;
+  /**
+   * The Google OAuth client this deployment is configured with. When given,
+   * `collectHealth` also runs the OAuth smoke (`oauthSmoke`).
+   */
+  oauth?: { clientId: string; callbackUrl: string } | undefined;
 }
 
 function composeArgs(options: Pick<HealthOptions, 'deployRoot' | 'composeProject'>): string[] {
@@ -261,11 +273,17 @@ export async function collectHealth(options: HealthOptions): Promise<HealthRepor
           probe: await probe(`https://${options.domain}/api/health/ready`, fetchOptions),
         };
 
+  const oauth =
+    options.oauth === undefined
+      ? undefined
+      : await oauthSmoke({ base, ...options.oauth, ...fetchOptions });
+
   return {
     containers,
     local: { live, ready, frontend },
     ...(external === undefined ? {} : { external }),
     migrations,
+    ...(oauth === undefined ? {} : { oauth }),
     ...(options.state === undefined
       ? {}
       : {
@@ -345,4 +363,139 @@ export async function waitForHealthy(options: WaitOptions): Promise<ProbeResult>
     );
     await sleep(interval);
   }
+}
+
+// =============================================================================
+// The OAuth smoke  (issue #391)
+// =============================================================================
+//
+// Proves the sign-in wiring end to end with NO credentials in flight:
+//
+//   1. GET /api/auth/providers lists `google` -- the API loaded a client id AND
+//      secret (it lists the provider only when both are set);
+//   2. GET /api/auth/google redirects to Google carrying the configured client
+//      id and redirect URI -- the running container has the values the `.env`
+//      says it has, not a stale or default copy.
+//
+// Three outcomes: `pass`; `fail` when the API answered and the answer is wrong
+// (a real misconfiguration); `warn` when the API could not be asked at all
+// (unreachable, timed out) -- that is the health probes' question, not this
+// one's, and they report it already.
+// =============================================================================
+
+export interface OAuthSmoke {
+  status: 'pass' | 'warn' | 'fail';
+  detail: string;
+  remedy?: string | undefined;
+}
+
+/** Hosts a Google sign-in redirect may legitimately point at. */
+const GOOGLE_AUTH_HOST = /(^|\.)accounts\.google\.com$/i;
+
+function providerNames(body: unknown): string[] {
+  const root = body as { data?: unknown; providers?: unknown } | undefined;
+  const candidates = [
+    (root?.data as { providers?: unknown } | undefined)?.providers,
+    root?.providers,
+    root?.data,
+  ];
+  const list = candidates.find((candidate) => Array.isArray(candidate)) as unknown[] | undefined;
+  return (list ?? [])
+    .map((entry) =>
+      typeof entry === 'string' ? entry : String((entry as { name?: unknown } | null)?.name ?? ''),
+    )
+    .filter((name) => name !== '');
+}
+
+export async function oauthSmoke(options: {
+  base: string;
+  clientId: string;
+  callbackUrl: string;
+  fetch?: FetchLike | undefined;
+  timeoutMs?: number | undefined;
+}): Promise<OAuthSmoke> {
+  const doFetch = options.fetch ?? globalThis.fetch.bind(globalThis);
+  const signal = (): AbortSignal => AbortSignal.timeout(options.timeoutMs ?? 10_000);
+
+  let providers: string[];
+  try {
+    const response = await doFetch(`${options.base}/api/auth/providers`, {
+      signal: signal(),
+      headers: { accept: 'application/json' },
+    });
+    if (response.status < 200 || response.status >= 300) {
+      return {
+        status: 'fail',
+        detail: `GET /api/auth/providers answered HTTP ${response.status}`,
+        remedy: 'The API is up but not serving its auth routes; check the api container logs.',
+      };
+    }
+    providers = providerNames(await response.json().catch(() => undefined));
+  } catch (error) {
+    return { status: 'warn', detail: `could not ask /api/auth/providers: ${describeFetchFailure(error)}` };
+  }
+
+  if (!providers.includes('google')) {
+    return {
+      status: 'fail',
+      detail: `/api/auth/providers does not list google (${providers.length === 0 ? 'none listed' : providers.join(', ')})`,
+      remedy:
+        'The API lists Google only when GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are both set in its environment. ' +
+        'Check the .env, then recreate the api container so it reads it.',
+    };
+  }
+
+  let location: string | null;
+  let status: number;
+  try {
+    const response = await doFetch(`${options.base}/api/auth/google`, { signal: signal(), redirect: 'manual' });
+    status = response.status;
+    location = response.headers.get('location');
+  } catch (error) {
+    return { status: 'warn', detail: `could not ask /api/auth/google: ${describeFetchFailure(error)}` };
+  }
+
+  if (status < 300 || status >= 400 || location === null) {
+    return {
+      status: 'fail',
+      detail: `GET /api/auth/google answered HTTP ${status}${location === null ? ' with no redirect' : ''}, not a redirect to Google`,
+      remedy: 'Sign-in cannot start. Check the api container logs for the Google strategy.',
+    };
+  }
+
+  let target: URL;
+  try {
+    target = new URL(location);
+  } catch {
+    return { status: 'fail', detail: `GET /api/auth/google redirected to an unparseable location` };
+  }
+
+  if (!GOOGLE_AUTH_HOST.test(target.hostname)) {
+    return {
+      status: 'fail',
+      detail: `GET /api/auth/google redirects to ${target.hostname}, not accounts.google.com`,
+      remedy: 'Something in front of the API is rewriting the redirect, or the strategy is misconfigured.',
+    };
+  }
+
+  const clientId = target.searchParams.get('client_id');
+  const redirectUri = target.searchParams.get('redirect_uri');
+  const mismatches = [
+    clientId === options.clientId ? undefined : `client_id is ${clientId ?? 'absent'}, expected ${options.clientId}`,
+    redirectUri === options.callbackUrl
+      ? undefined
+      : `redirect_uri is ${redirectUri ?? 'absent'}, expected ${options.callbackUrl}`,
+  ].filter((entry): entry is string => entry !== undefined);
+
+  if (mismatches.length > 0) {
+    return {
+      status: 'fail',
+      detail: `the running API redirects with ${mismatches.join('; ')}`,
+      remedy:
+        'The api container is not running with the values in the .env. Recreate it so it reads them: ' +
+        'the update/install `start` step, or docker compose up -d --force-recreate api.',
+    };
+  }
+
+  return { status: 'pass', detail: 'google is listed, and sign-in redirects with the configured client id and callback' };
 }

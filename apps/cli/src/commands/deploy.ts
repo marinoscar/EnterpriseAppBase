@@ -25,7 +25,8 @@ import { resolveRepoUrl } from '../deploy/repo.js';
 import { readState } from '../deploy/state.js';
 import { readAbout, renderAbout } from '../deploy/about.js';
 import { readAnswersFile } from '../deploy/answers-file.js';
-import { isDeployment } from '../deploy/deployment-evidence.js';
+import { isDeployment, resolveEnvPath } from '../deploy/deployment-evidence.js';
+import { readEnvFile } from '../deploy/env-file.js';
 import { collectInventory, renderInventory } from '../deploy/inventory.js';
 import {
   planUninstall,
@@ -50,6 +51,7 @@ import {
 } from '../deploy/layout.js';
 import {
   composeProjectFor,
+  oauthSmokeTarget,
   runInstall,
   type InstallOptions,
 } from '../deploy/install.js';
@@ -223,6 +225,10 @@ export function registerDeployCommand(
     .option('--skip-doctor', 'Skip the prerequisite checks')
     .option('--skip-proxy', 'Do not touch the reverse proxy or request a certificate')
     .option('--skip-seed', 'Do not run the database seed')
+    .option('--bootstrap-proxy', 'Create the shared proxy if this server has none (no prompt)')
+    .option('--create-database', 'Create the database if it does not exist (no prompt)')
+    .option('--skip-renewal', 'Do not schedule certificate renewal')
+    .option('--skip-oauth-check', 'Do not verify the Google OAuth credentials with Google')
     .option('--no-cache', 'Rebuild images without the layer cache')
     .option('--force', 'Discard uncommitted changes in the checkout')
     .option('--staging', "Use Let's Encrypt staging while working out the setup")
@@ -242,9 +248,14 @@ export function registerDeployCommand(
         `  ${CLI_NAME} deploy install --non-interactive --domain app.example.com`,
         '',
         'What it does, in order: checks prerequisites, clones the repository,',
-        'collects the environment, validates the database, builds the images,',
-        'migrates, seeds, starts the stack, waits for health, issues the',
-        'certificate and publishes the vhost, then verifies the result.',
+        'collects the environment, validates the database and the Google OAuth',
+        'credentials, creates the database if it is missing (asked, or',
+        '--create-database), builds the images, migrates, seeds, starts the',
+        'stack, waits for health, creates the shared proxy if the server has',
+        'none (asked, or --bootstrap-proxy), issues the certificate and',
+        'publishes the vhost, schedules renewal unless something already owns',
+        'it, then verifies the result -- including that sign-in redirects to',
+        'Google with the configured client.',
         '',
         'The repository and branch come from THIS checkout\'s git remote unless',
         'you pass --repo/--ref, so a fork deploys itself with no configuration.',
@@ -277,6 +288,9 @@ export function registerDeployCommand(
     .option('--answers-file <path>', 'Read answers from a KEY=value file (like .env)')
     .option('--skip-seed', 'Do not re-run the database seed')
     .option('--skip-proxy', 'Do not touch the reverse proxy')
+    .option('--create-database', 'Create the database if it does not exist (no prompt)')
+    .option('--skip-renewal', 'Do not schedule certificate renewal')
+    .option('--skip-oauth-check', 'Do not run the post-deploy OAuth sign-in smoke')
     .option('--proxy-container <name>', PROXY_CONTAINER_HELP)
     .option('--proxy-mode <mode>', PROXY_MODE_HELP)
     .option(
@@ -881,7 +895,8 @@ export function buildReport(results: readonly CompletedCheck[]): DoctorReport {
   };
 }
 
-const MARKS: Record<CheckStatus, string> = {
+/** The status glyphs, shared with the deploy screens so both say the same thing. */
+export const MARKS: Readonly<Record<CheckStatus, string>> = {
   pass: 'OK',
   warn: '!!',
   fail: 'XX',
@@ -1049,6 +1064,10 @@ export async function runStatusCommand(
       : { composeProject: composeProjectFor(state) }),
     ...(state === undefined ? {} : { state }),
     ...(ctx?.fetch === undefined ? {} : { fetch: ctx.fetch }),
+    // #391: the sign-in wiring, from the deployment's own .env. Reported, and
+    // deliberately NOT part of `healthy` -- that stays "is it serving", which
+    // is what a monitoring script branches on.
+    ...oauthSmokeTarget(false, statusEnvironment(app.deployRoot)),
   });
 
   const healthy = isHealthy(report);
@@ -1068,6 +1087,17 @@ export async function runStatusCommand(
     throw new DeploymentUnhealthyError(
       `The deployment at ${app.deployRoot} is not healthy.`,
     );
+  }
+}
+
+/** The deployment's .env for the OAuth smoke, or undefined when unreadable. */
+function statusEnvironment(deployRoot: string): Map<string, string> | undefined {
+  const path = resolveEnvPath(deployRoot);
+  if (path === undefined) return undefined;
+  try {
+    return readEnvFile(path);
+  } catch {
+    return undefined;
   }
 }
 
@@ -1107,6 +1137,18 @@ export function renderHealth(
   lines.push(probeLine('Frontend', report.local.frontend));
   if (report.external !== undefined) {
     lines.push(probeLine('External HTTPS', report.external.probe));
+  }
+  if (report.oauth !== undefined) {
+    const outcome =
+      report.oauth.status === 'pass'
+        ? 'ok'
+        : `${report.oauth.status === 'fail' ? 'FAILED' : 'unverified'}: ${report.oauth.detail}`;
+    const painted =
+      colour && report.oauth.status === 'fail' ? `${ESC}[31m${outcome}${RESET}` : outcome;
+    lines.push(`  ${'Google sign-in'.padEnd(TITLE_WIDTH)}${painted}\n`);
+    if (report.oauth.status !== 'pass' && report.oauth.remedy !== undefined) {
+      lines.push(`       -> ${report.oauth.remedy}\n`);
+    }
   }
 
   lines.push('\n  Schema\n\n');
@@ -1163,6 +1205,10 @@ export interface InstallCommandOptions {
   skipDoctor?: boolean | undefined;
   skipProxy?: boolean | undefined;
   skipSeed?: boolean | undefined;
+  bootstrapProxy?: boolean | undefined;
+  createDatabase?: boolean | undefined;
+  skipRenewal?: boolean | undefined;
+  skipOauthCheck?: boolean | undefined;
   cache: boolean;
   force?: boolean | undefined;
   staging?: boolean | undefined;
@@ -1311,6 +1357,10 @@ export async function runInstallCommand(
     ...(options.skipDoctor === undefined ? {} : { skipDoctor: options.skipDoctor }),
     ...(options.skipProxy === undefined ? {} : { skipProxy: options.skipProxy }),
     ...(options.skipSeed === undefined ? {} : { skipSeed: options.skipSeed }),
+    ...(options.bootstrapProxy === undefined ? {} : { bootstrapProxy: options.bootstrapProxy }),
+    ...(options.createDatabase === undefined ? {} : { createDatabase: options.createDatabase }),
+    ...(options.skipRenewal === undefined ? {} : { skipRenewal: options.skipRenewal }),
+    ...(options.skipOauthCheck === undefined ? {} : { skipOAuthCheck: options.skipOauthCheck }),
     ...(options.cache === false ? { noCache: true } : {}),
     ...(options.force === undefined ? {} : { force: options.force }),
     ...(options.staging === undefined ? {} : { staging: options.staging }),
@@ -1378,6 +1428,9 @@ export interface UpdateCommandOptions {
   nonInteractive?: boolean | undefined;
   skipSeed?: boolean | undefined;
   skipProxy?: boolean | undefined;
+  createDatabase?: boolean | undefined;
+  skipRenewal?: boolean | undefined;
+  skipOauthCheck?: boolean | undefined;
   proxyContainer?: string | undefined;
   proxyMode?: string | undefined;
   appVersion?: string | undefined;
@@ -1419,6 +1472,9 @@ export async function runUpdateCommand(
     ...(options.nonInteractive === undefined ? {} : { nonInteractive: options.nonInteractive }),
     ...(options.skipSeed === undefined ? {} : { skipSeed: options.skipSeed }),
     ...(options.skipProxy === undefined ? {} : { skipProxy: options.skipProxy }),
+    ...(options.createDatabase === undefined ? {} : { createDatabase: options.createDatabase }),
+    ...(options.skipRenewal === undefined ? {} : { skipRenewal: options.skipRenewal }),
+    ...(options.skipOauthCheck === undefined ? {} : { skipOAuthCheck: options.skipOauthCheck }),
     ...(options.appVersion === undefined ? {} : { appVersion: options.appVersion }),
     ...(options.versionBump === false ? { noVersionBump: true } : {}),
     ...(answers === undefined ? {} : { answers }),

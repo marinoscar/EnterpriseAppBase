@@ -105,8 +105,15 @@ export interface SecretStatus {
 export interface AiAdminProvider {
   id: string;
   displayName: string;
+  /**
+   * Whether this build has an adapter for the provider. `false` for a
+   * provider that exists only as a settings key (a removed adapter): it can
+   * be switched off but not on (`400 AI_PROVIDER_NOT_REGISTERED`).
+   */
+  registered: boolean;
   enabled: boolean;
-  baseUrl?: string;
+  /** The operator's endpoint override; `null` means the provider's default. */
+  baseUrl: string | null;
   keyStatus: SecretStatus;
   supportedCapabilities: string[];
 }
@@ -116,30 +123,41 @@ export interface AiAdminConfig {
   enabled: boolean;
   keyPolicy: AiKeyPolicy;
   logPromptContent: boolean;
-  defaults: { maxOutputTokensCap?: number; allowBackgroundRuns: boolean };
+  /** `maxOutputTokensCap: null` means no cap. */
+  defaults: { maxOutputTokensCap: number | null; allowBackgroundRuns: boolean };
   providers: AiAdminProvider[];
   version: number;
   updatedAt: string | null;
-  updatedBy?: { id: string; email: string } | null;
-  /** Present on a key deletion that leaves an org-fallback policy keyless. */
-  warnings?: string[];
+  updatedBy: { id: string; email: string } | null;
 }
 
-/** `PUT /admin/ai/config` body. Providers are keyed by id. */
+/** `DELETE /admin/ai/providers/:p/key` — the config view plus warnings. */
+export interface AiAdminConfigWithWarnings extends AiAdminConfig {
+  /** `['ORG_FALLBACK_WITHOUT_KEY']` when an org-fallback policy is left keyless; else `[]`. */
+  warnings: string[];
+}
+
+/**
+ * `PUT /admin/ai/config` body — a FULL REPLACE. For every provider included,
+ * an omitted, `''` or `null` `baseUrl` CLEARS the stored override, and an
+ * omitted or `null` `maxOutputTokensCap` clears the cap; so a caller that
+ * wants to keep either must send it. A provider left out of `providers`
+ * entirely keeps its settings.
+ */
 export interface AiAdminConfigInput {
   enabled: boolean;
   keyPolicy: AiKeyPolicy;
   logPromptContent: boolean;
-  defaults: { maxOutputTokensCap?: number; allowBackgroundRuns: boolean };
-  providers: Record<string, { enabled: boolean; baseUrl?: string }>;
+  defaults: { maxOutputTokensCap?: number | null; allowBackgroundRuns: boolean };
+  providers: Record<string, { enabled: boolean; baseUrl?: string | null }>;
 }
 
 export interface AiProbeCheck {
-  id: string;
+  id: 'credentials' | 'list_models' | 'responses_smoke' | (string & {});
   label: string;
   status: 'passed' | 'failed' | 'skipped';
-  code: string | null;
-  detail: string | null;
+  code: string;
+  detail: string;
   error: string | null;
 }
 
@@ -148,6 +166,10 @@ export interface AiProbeResult {
   success: boolean;
   provider: string;
   usedStoredKey: boolean;
+  /** Models the key can list; `null` when listing was not reached. */
+  modelCount: number | null;
+  /** The model the smoke call used; `null` when it was skipped. */
+  smokeModelId: string | null;
   checks: AiProbeCheck[];
   attemptedAt: string;
 }
@@ -171,11 +193,18 @@ export interface AiModel {
   provider: string;
   modelId: string;
   displayName: string | null;
-  capabilities: AiModelCapabilities;
+  /** `null` for an `unclassified` model nobody has described yet. */
+  capabilities: AiModelCapabilities | null;
   capabilitySource: 'catalog' | 'admin_override' | 'unclassified';
   enabled: boolean;
-  deprecatedAt: string | null;
+  contextWindow: number | null;
+  maxOutputTokens: number | null;
+  discoveredAt: string;
   lastSeenAt: string;
+  /** Set once the provider stopped listing the model. */
+  deprecatedAt: string | null;
+  updatedAt: string;
+  updatedByUserId: string | null;
 }
 
 export interface AiModelListFilter {
@@ -364,8 +393,10 @@ export async function setAiProviderKey(
   );
 }
 
-export async function deleteAiProviderKey(provider: string): Promise<AiAdminConfig> {
-  return api.delete<AiAdminConfig>(`${ADMIN}/providers/${encodeURIComponent(provider)}/key`, {
+export async function deleteAiProviderKey(
+  provider: string,
+): Promise<AiAdminConfigWithWarnings> {
+  return api.delete<AiAdminConfigWithWarnings>(`${ADMIN}/providers/${encodeURIComponent(provider)}/key`, {
     body: JSON.stringify({ confirmation: AI_KEY_REMOVE_CONFIRMATION }),
   });
 }
@@ -398,9 +429,15 @@ export async function updateAiModel(id: string, input: AiModelUpdateInput): Prom
   return api.patch<AiModel>(`${ADMIN}/models/${encodeURIComponent(id)}`, input);
 }
 
-/** Enqueue a catalogue refresh for one provider. 409 when it has no org key. */
-export async function refreshAiModels(provider: string): Promise<{ jobId: string }> {
-  return api.post<{ jobId: string }>(`${ADMIN}/models/refresh`, { provider });
+/** `POST /admin/ai/models/refresh` — the queued job. */
+export interface AiCatalogRefreshQueued {
+  jobId: string;
+  status: string;
+}
+
+/** Enqueue a catalogue refresh for one provider. 409 `AI_KEY_REQUIRED` when it has no org key. */
+export async function refreshAiModels(provider: string): Promise<AiCatalogRefreshQueued> {
+  return api.post<AiCatalogRefreshQueued>(`${ADMIN}/models/refresh`, { provider });
 }
 
 // =============================================================================

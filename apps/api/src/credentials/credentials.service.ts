@@ -113,7 +113,7 @@ const HINT_MIN_LENGTH_TO_REVEAL = 8;
  * and blows up on the way into a Postgres `text` column — a passphrase with an
  * emoji in it would make saving fail with a completely unrelated error.
  */
-function deriveHint(plaintext: string): string {
+export function deriveHint(plaintext: string): string {
   const codePoints = Array.from(plaintext);
 
   if (codePoints.length < HINT_MIN_LENGTH_TO_REVEAL) {

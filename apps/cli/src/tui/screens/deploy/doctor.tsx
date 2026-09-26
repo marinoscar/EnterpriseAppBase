@@ -1,16 +1,28 @@
+import { Box, Text } from 'ink';
 import { useState, type ReactNode } from 'react';
 
-import { ALL_CHECKS, checksPassed, runChecks, type CompletedCheck } from '../../../deploy/checks/index.js';
+import { ALL_CHECKS, runChecks, type CompletedCheck } from '../../../deploy/checks/index.js';
 import { runCommand, withSignal } from '../../../deploy/executor.js';
 import type { DeployHooks } from '../../../deploy/hooks.js';
 import { DEFAULT_APPS_ROOT, deployRootFor } from '../../../deploy/layout.js';
 import { describeProxyRuntime, resolveRecordedProxyRuntime } from '../../../deploy/proxy.js';
-import { readState } from '../../../deploy/state.js';
-import { DEFAULT_BIND_PORT, DEFAULT_PROXY_ROOT } from '../../../commands/deploy.js';
-import { FieldWizard, NameStep, optionalHostname } from './fields.js';
-import { seedFor, validatePort, type AppName } from './install-model.js';
+import { readState, type DeployState } from '../../../deploy/state.js';
+import { Frame } from '../../layout.js';
+import {
+  advancedDefaults,
+  advancedFields,
+  advancedFromAnswers,
+  advancedSummary,
+  advancedValues,
+  proxyOverrides,
+  type AdvancedSettings,
+} from './advanced-model.js';
+import { doctorLine, groupDoctorResults, type DoctorReport } from './doctor-model.js';
+import { AdvancedStep, FieldWizard, NameStep, optionalHostname } from './fields.js';
+import { seedAt, type AppName } from './install-model.js';
 import type { FieldSpec } from './model.js';
 import { RunFrame, useDeployRun } from './run.js';
+import { rerunCommand } from './run-model.js';
 
 // =============================================================================
 // `deploy doctor`, as a screen  (issue #406)
@@ -25,7 +37,12 @@ import { RunFrame, useDeployRun } from './run.js';
 // ⚠ ROOT, PROXY ROOT AND PORT ARE ASKED FOR, NOT ASSUMED. The screen this
 // replaces hardcoded all three, so a deployment installed anywhere else was
 // checked against a directory it does not live in - every answer correct about
-// the wrong server.
+// the wrong server. They live on the Advanced step (issue #393), prefilled from
+// the record and skipped with one Enter, alongside the proxy container/mode.
+//
+// ⚠ THE RESULT IS GROUPED, WITH REMEDIES. Fail, warn, pass, skip - each with
+// its glyph as well as its colour, and the remedy beneath every failure and
+// warning. See doctor-model.ts.
 // =============================================================================
 
 export interface DoctorScreenProps {
@@ -35,23 +52,6 @@ export interface DoctorScreenProps {
 }
 
 const DOCTOR_FIELDS: readonly FieldSpec[] = [
-  {
-    key: '__proxyRoot',
-    label: 'proxy-root',
-    help: 'The shared reverse proxy this host runs. Checked for a vhost directory and a live container.',
-    placeholder: DEFAULT_PROXY_ROOT,
-    secret: false,
-    prefilled: false,
-  },
-  {
-    key: '__port',
-    label: 'port',
-    help: 'Loopback port the proxy forwards to. Checked for a conflict with something already listening.',
-    placeholder: String(DEFAULT_BIND_PORT),
-    secret: false,
-    prefilled: false,
-    validate: validatePort,
-  },
   {
     key: '__domain',
     label: 'domain',
@@ -63,41 +63,164 @@ const DOCTOR_FIELDS: readonly FieldSpec[] = [
   },
 ];
 
+type Step =
+  | { kind: 'name' }
+  | {
+      kind: 'advanced';
+      name: AppName & { resolved: string };
+      defaults: AdvancedSettings;
+      state: DeployState | undefined;
+    }
+  | {
+      kind: 'questions';
+      name: AppName & { resolved: string };
+      settings: AdvancedSettings;
+      state: DeployState | undefined;
+    };
+
 export function DoctorScreen({ onDone, located }: DoctorScreenProps): ReactNode {
-  const [name, setName] = useState<AppName | undefined>(undefined);
-  // Every step before the run is a text field, so Esc is off until the run
-  // starts - after which it is the cancel. `started` rather than the run's own
-  // phase because the phase is what the hook returns, and the hook needs this.
+  const [step, setStep] = useState<Step>({ kind: 'name' });
+  // The full results, kept so the done frame can group them. Set only by the
+  // run itself, just before it resolves.
+  const [report, setReport] = useState<DoctorReport | undefined>(undefined);
+  // Every step before the run is a text field or the Advanced step, so Esc is
+  // off until the run starts - after which it is the cancel. `started` rather
+  // than the run's own phase because the phase is what the hook returns, and
+  // the hook needs this.
   const [started, setStarted] = useState(false);
   const run = useDeployRun({ onEscape: onDone, escapeActive: started });
 
+  if (run.phase.kind === 'done' && report !== undefined) return <DoctorReportFrame report={report} />;
   if (run.phase.kind !== 'idle') return <RunFrame action="doctor" run={run} />;
 
-  if (name === undefined) {
+  if (step.kind === 'name') {
     return (
       <NameStep
         title="Doctor"
         located={located}
         appsRoot={DEFAULT_APPS_ROOT}
-        onSubmit={setName}
+        onSubmit={(name) => {
+          const resolved = name.resolved;
+          if (resolved === undefined) return;
+          const state = recordFor(deployRootFor(DEFAULT_APPS_ROOT, resolved));
+          setStep({
+            kind: 'advanced',
+            name: { ...name, resolved },
+            defaults: advancedDefaults(DEFAULT_APPS_ROOT, resolved, state),
+            state,
+          });
+        }}
+      />
+    );
+  }
+
+  if (step.kind === 'advanced') {
+    return (
+      <AdvancedStep
+        title={`Doctor — ${step.name.display}`}
+        summary={advancedSummary('doctor', step.defaults)}
+        fields={advancedFields('doctor', step.defaults, step.state)}
+        onComplete={(answers) => {
+          const settings =
+            answers === undefined ? step.defaults : advancedFromAnswers(step.defaults, answers);
+          const state =
+            settings.deployRoot === step.defaults.deployRoot
+              ? step.state
+              : recordFor(settings.deployRoot);
+          setStep({ kind: 'questions', name: step.name, settings, state });
+        }}
       />
     );
   }
 
   return (
     <FieldWizard
-      title={`Doctor — ${name.display}`}
+      title={`Doctor — ${step.name.display}`}
+      subtitle={`At ${step.settings.deployRoot}`}
       fields={DOCTOR_FIELDS}
       onComplete={(answers) => {
         // ⚠ `name.resolved`, never `name.display`. A fallback display name must
         // not reach a path or a port probe; `NameStep` refuses to submit an
         // unresolved name, which is what makes this narrowing sound.
-        const resolved = name.resolved;
-        if (resolved === undefined) return;
+        const { name, settings, state } = step;
+        const domain = answers.get('__domain') ?? '';
         setStarted(true);
-        run.start(async (signal, hooks) => await performDoctor(resolved, answers, signal, hooks));
+        run.start(
+          async (signal, hooks) =>
+            await performDoctor(
+              { name: name.resolved, settings, state, domain },
+              signal,
+              hooks,
+              setReport,
+            ),
+          {
+            rerun: rerunCommand({
+              action: 'doctor',
+              name: name.resolved,
+              values: new Map([
+                ...advancedValues('doctor', settings, state),
+                ['__domain', domain],
+              ]),
+              chosen: new Set(),
+            }),
+          },
+        );
       }}
     />
+  );
+}
+
+/** The state recorded for a deployment, or undefined when there is none to read. */
+function recordFor(deployRoot: string): DeployState | undefined {
+  try {
+    return readState(deployRoot);
+  } catch {
+    // Doctor's job includes reporting an unreadable record; it is not this
+    // step's to guess about. Prefill as if there were none.
+    return undefined;
+  }
+}
+
+/**
+ * The grouped result: fail, warn, pass, skip.
+ *
+ * ⚠ The verdict is in the TITLE as a word, not only in a colour, and each row
+ * leads with the same glyph the subcommand prints. The TUI exits 0 either way,
+ * so this frame is the only place a failed doctor is carried.
+ */
+function DoctorReportFrame({ report }: { report: DoctorReport }): ReactNode {
+  return (
+    <Frame
+      title={`doctor — ${report.passed ? 'passed' : 'FAILED'}`}
+      hints={['esc return to the menu']}
+    >
+      <Text color={report.passed ? 'green' : 'red'} bold>
+        {report.passed ? 'All required checks passed' : 'Required checks failed'} — {report.headline}
+      </Text>
+      {report.groups.map((group) => (
+        <Box key={group.status} marginTop={1} flexDirection="column">
+          <Text color={group.colour} bold>
+            {group.glyph} {group.heading} ({group.items.length})
+          </Text>
+          {group.items.map((item) => (
+            <Box key={item.id} flexDirection="column">
+              <Text>
+                <Text color={group.colour}>{'  '}{group.glyph} </Text>
+                {item.title}
+                {item.optional ? ' (recommended, not required)' : ''}
+                <Text dimColor>  {item.detail}</Text>
+              </Text>
+              {item.remedy === undefined ? null : (
+                <Text>
+                  {'     -> '}
+                  {item.remedy}
+                </Text>
+              )}
+            </Box>
+          ))}
+        </Box>
+      ))}
+    </Frame>
   );
 }
 
@@ -109,36 +232,36 @@ export function DoctorScreen({ onDone, located }: DoctorScreenProps): ReactNode 
  * `runDoctorCommand` already answers.
  */
 async function performDoctor(
-  resolved: string,
-  answers: ReadonlyMap<string, string>,
+  target: {
+    name: string;
+    settings: AdvancedSettings;
+    state: DeployState | undefined;
+    domain: string;
+  },
   signal: AbortSignal,
   hooks: DeployHooks,
+  onReport: (report: DoctorReport) => void,
 ): Promise<string[]> {
-  const deployRoot = deployRootFor(DEFAULT_APPS_ROOT, resolved);
-  const domain = answers.get('__domain') ?? '';
+  const { settings, domain } = target;
+  const deployRoot = settings.deployRoot;
   // The deployment's own environment, so the database checks have credentials
   // to probe with. `runDoctorCommand` reads it for the same reason; this goes
   // through `seedFor`, which knows both the current `.env` location and the
   // legacy one, so an older deployment is not checked with no environment at
   // all merely because its file is in the other place.
-  const seed = seedFor(DEFAULT_APPS_ROOT, resolved);
+  const seed = seedAt(deployRoot, target.name);
 
   // Every child process runs under the screen's signal, so Esc reaches it.
   const run = withSignal(runCommand, signal);
-  const proxyRoot = answers.get('__proxyRoot') ?? DEFAULT_PROXY_ROOT;
+  const proxyRoot = settings.proxyRoot;
 
-  // Same resolution as `deploy doctor`: the record, else detection. The
-  // override flags reach the screens with the Advanced step (issue #393).
-  let recorded: ReturnType<typeof readState>;
-  try {
-    recorded = readState(deployRoot);
-  } catch {
-    recorded = undefined;
-  }
+  // Same resolution as `deploy doctor`: the flags, else the record, else
+  // detection. The flags are the Advanced step's overrides, and nothing else.
+  const overrides = proxyOverrides(settings, target.state);
   const proxyRuntime = await resolveRecordedProxyRuntime({
     proxyRoot,
-    flags: {},
-    recorded,
+    flags: { mode: overrides.proxyMode, container: overrides.proxyContainer },
+    recorded: target.state,
     runCommand: run,
   });
   hooks.onLog?.(describeProxyRuntime(proxyRuntime));
@@ -148,21 +271,20 @@ async function performDoctor(
     {
       runCommand: run,
       deployRoot,
-      bindPort: Number(answers.get('__port') ?? DEFAULT_BIND_PORT),
+      bindPort: settings.bindPort,
       proxyRoot,
       proxyRuntime,
       ...(domain === '' ? {} : { domain }),
       ...(seed.values.size === 0 ? {} : { env: seed.values }),
     },
-    (result) => hooks.onLog?.(`${result.status.toUpperCase()} ${result.title}: ${result.detail}`),
+    // Glyph first, as the subcommand prints it: the stream is read while it
+    // scrolls, and a glyph survives a terminal with no colour.
+    (result) => hooks.onLog?.(doctorLine(result)),
   );
 
-  return checksPassed(results)
-    ? ['All required checks passed.']
-    : [
-        'Required checks failed:',
-        ...results
-          .filter((result) => result.severity === 'required' && result.status === 'fail')
-          .map((result) => `  ${result.title}: ${result.detail}`),
-      ];
+  // Handed to the screen BEFORE resolving, so the done frame that follows is
+  // the grouped one rather than the plain summary below.
+  const report = groupDoctorResults(results);
+  onReport(report);
+  return [report.headline];
 }

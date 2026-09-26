@@ -768,3 +768,55 @@ describe('requiredChecks(ALL_CHECKS, ctx): context-driven promotion across the w
     }
   });
 });
+
+describe('proxy-container when install may bootstrap the proxy (#391)', () => {
+  const containerRuntime = {
+    mode: 'container' as const,
+    container: 'proxy-nginx',
+    certRoot: '/etc/letsencrypt',
+    webroot: '/var/www/certbot',
+  };
+  const noContainer = fakeRunCommand((argv) =>
+    argv.join(' ').startsWith('docker inspect')
+      ? { exitCode: 1, stderr: 'Error: No such container: proxy-nginx' }
+      : HEALTHY(argv),
+  );
+
+  it('passes an absent proxy in an unconfigured root when bootstrap is authorised', async () => {
+    const result = await find('proxy-container').run(
+      context({ proxyRuntime: containerRuntime, runCommand: noContainer, fs: emptyFs, proxyBootstrap: true }),
+    );
+    expect(result.status).toBe('pass');
+    expect(result.detail).toContain('bootstrap');
+  });
+
+  it('still fails, naming --bootstrap-proxy, when bootstrap is not authorised', async () => {
+    const result = await find('proxy-container').run(
+      context({ proxyRuntime: containerRuntime, runCommand: noContainer, fs: emptyFs }),
+    );
+    expect(result.status).toBe('fail');
+    expect(result.remedy).toContain('--bootstrap-proxy');
+  });
+
+  it('still fails when the root has a compose file -- that proxy is somebody else\'s', async () => {
+    const result = await find('proxy-container').run(
+      context({ proxyRuntime: containerRuntime, runCommand: noContainer, fs: permissiveFs, proxyBootstrap: true }),
+    );
+    expect(result.status).toBe('fail');
+    expect(result.remedy).not.toContain('--bootstrap-proxy');
+  });
+
+  it('still fails for a stopped container, bootstrap or not', async () => {
+    const result = await find('proxy-container').run(
+      context({
+        proxyRuntime: containerRuntime,
+        fs: emptyFs,
+        proxyBootstrap: true,
+        runCommand: fakeRunCommand((argv) =>
+          argv.join(' ').startsWith('docker inspect') ? { exitCode: 0, stdout: 'false' } : HEALTHY(argv),
+        ),
+      }),
+    );
+    expect(result.status).toBe('fail');
+  });
+});

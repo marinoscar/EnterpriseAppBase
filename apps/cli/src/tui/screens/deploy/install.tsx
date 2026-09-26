@@ -2,7 +2,6 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { useState, type ReactNode } from 'react';
 
-import { DEFAULT_BIND_PORT, DEFAULT_PROXY_ROOT } from '../../../commands/deploy.js';
 import type { EnvGroup } from '../../../deploy/env-metadata.js';
 import { parseEnvExample, type EnvVarSpec } from '../../../deploy/env-spec.js';
 import { runCommand, withSignal } from '../../../deploy/executor.js';
@@ -10,15 +9,31 @@ import type { DeployHooks } from '../../../deploy/hooks.js';
 import { runInstall } from '../../../deploy/install.js';
 import { DEFAULT_APPS_ROOT, deployRootFor } from '../../../deploy/layout.js';
 import { readState, type DeployState } from '../../../deploy/state.js';
-import { ConfirmStep, FieldWizard, NameStep, ToggleStep, toggled, withFlags } from './fields.js';
-import { INSTALL_TOGGLES, optionsFromToggles } from './flags-model.js';
+import {
+  advancedDefaults,
+  advancedFields,
+  advancedFromAnswers,
+  advancedSummary,
+  advancedValues,
+  proxyOverrides,
+  type AdvancedSettings,
+} from './advanced-model.js';
+import {
+  AdvancedStep,
+  ConfirmStep,
+  FieldWizard,
+  NameStep,
+  ToggleStep,
+  toggled,
+  withFlags,
+} from './fields.js';
+import { INSTALL_TOGGLES, optionsFromToggles, VALUE_FLAGS } from './flags-model.js';
 import {
   decideResume,
   envAnswers,
   installFields,
   reconcileSeed,
-  seedFor,
-  validatePort,
+  seedAt,
   EMPTY_SEED,
   type AppName,
   type ResumeDecision,
@@ -26,6 +41,7 @@ import {
 } from './install-model.js';
 import type { FieldSpec } from './model.js';
 import { RunFrame, useDeployRun } from './run.js';
+import { rerunCommand } from './run-model.js';
 
 // =============================================================================
 // `deploy install`, as a screen  (issue #406, epic #397)
@@ -53,6 +69,11 @@ import { RunFrame, useDeployRun } from './run.js';
 // and their secrets, and an operator pressing Enter through the defaults would
 // confirm it.
 //
+// ⚠ WHERE IT RUNS IS STEP 1½. The Advanced step (issue #393) comes between
+// the name and the questions, because it can move the deploy root -- and the
+// root is what the seed, the record and the template are read from. It opens
+// on "Use these" with the recorded values, so the common path costs one Enter.
+//
 // ⚠ RESUME IS DECIDED, NOT ASKED. See `decideResume` and `NOT_IN_TUI` in
 // flags-model.ts: whether the collected answers still match the file is a fact
 // this screen knows and an operator should not have to assert.
@@ -64,13 +85,27 @@ export interface InstallScreenProps {
   located: string | undefined;
 }
 
+/** The name, resolved, and where it runs: fixed once the Advanced step is done. */
+interface Target {
+  name: AppName & { resolved: string };
+  settings: AdvancedSettings;
+  /** The record at `settings.deployRoot`, read once. */
+  state: DeployState | undefined;
+}
+
 type Step =
   | { kind: 'name' }
-  | { kind: 'questions'; name: AppName; fields: readonly FieldSpec[] }
-  | { kind: 'flags'; name: AppName; answers: ReadonlyMap<string, string> }
+  | {
+      kind: 'advanced';
+      name: AppName & { resolved: string };
+      defaults: AdvancedSettings;
+      state: DeployState | undefined;
+    }
+  | { kind: 'questions'; target: Target; fields: readonly FieldSpec[] }
+  | { kind: 'flags'; target: Target; answers: ReadonlyMap<string, string> }
   | {
       kind: 'confirm';
-      name: AppName;
+      target: Target;
       answers: ReadonlyMap<string, string>;
       resume: ResumeDecision;
     };
@@ -83,7 +118,7 @@ export function InstallScreen({ onDone, located }: InstallScreenProps): ReactNod
   const [chosen, setChosen] = useState<ReadonlySet<string>>(new Set());
   // Off while a text field owns the keyboard, on everywhere else - including
   // during the run, where Esc is the two-press cancel.
-  const escapeActive = step.kind !== 'name' && step.kind !== 'questions';
+  const escapeActive = step.kind !== 'name' && step.kind !== 'questions' && step.kind !== 'advanced';
   const run = useDeployRun({ onEscape: onDone, escapeActive });
 
   if (run.phase.kind !== 'idle') return <RunFrame action="install" run={run} />;
@@ -100,17 +135,46 @@ export function InstallScreen({ onDone, located }: InstallScreenProps): ReactNod
           setSeed((current) => reconcileSeed(current, name.resolved));
         }}
         onSubmit={(name) => {
-          // ⚠ `name.resolved` is the only thing allowed to reach `seedFor` or a
+          // ⚠ `name.resolved` is the only thing allowed to reach a seed or a
           // path. `name.display` exists for the titles below and nothing else.
           const resolved = name.resolved;
-          const fresh = seedFor(DEFAULT_APPS_ROOT, resolved);
+          if (resolved === undefined) return;
+          const state = recordFor(deployRootFor(DEFAULT_APPS_ROOT, resolved));
+          setStep({
+            kind: 'advanced',
+            name: { ...name, resolved },
+            defaults: advancedDefaults(DEFAULT_APPS_ROOT, resolved, state),
+            state,
+          });
+        }}
+      />
+    );
+  }
+
+  if (step.kind === 'advanced') {
+    return (
+      <AdvancedStep
+        title={`Install — ${step.name.display}`}
+        summary={advancedSummary('install', step.defaults)}
+        fields={advancedFields('install', step.defaults, step.state)}
+        onComplete={(answers) => {
+          const settings =
+            answers === undefined ? step.defaults : advancedFromAnswers(step.defaults, answers);
+          // A moved root is a different deployment on disk: its own record,
+          // its own `.env`, its own template. Re-read all three from there.
+          const state =
+            settings.deployRoot === step.defaults.deployRoot
+              ? step.state
+              : recordFor(settings.deployRoot);
+          const fresh = seedAt(settings.deployRoot, step.name.resolved);
           setSeed(fresh);
+          const target: Target = { name: step.name, settings, state };
           setStep({
             kind: 'questions',
-            name,
+            target,
             fields: [
-              ...installFields(loadSpecs(resolved), fresh),
-              ...installFlagFields(recordFor(resolved), fresh),
+              ...installFields(loadSpecs(settings.deployRoot), fresh),
+              ...installFlagFields(state, fresh),
             ],
           });
         }}
@@ -121,11 +185,11 @@ export function InstallScreen({ onDone, located }: InstallScreenProps): ReactNod
   if (step.kind === 'questions') {
     return (
       <FieldWizard
-        title={`Install — ${step.name.display}`}
-        subtitle={`Into ${pathFor(step.name.resolved)}`}
+        title={`Install — ${step.target.name.display}`}
+        subtitle={`Into ${step.target.settings.deployRoot}`}
         fields={step.fields}
         onComplete={(answers) => {
-          setStep({ kind: 'flags', name: step.name, answers });
+          setStep({ kind: 'flags', target: step.target, answers });
         }}
       />
     );
@@ -134,7 +198,7 @@ export function InstallScreen({ onDone, located }: InstallScreenProps): ReactNod
   if (step.kind === 'flags') {
     return (
       <ToggleStep
-        title={`Install — ${step.name.display}`}
+        title={`Install — ${step.target.name.display}`}
         toggles={INSTALL_TOGGLES}
         chosen={chosen}
         onToggle={(flag) => {
@@ -143,9 +207,9 @@ export function InstallScreen({ onDone, located }: InstallScreenProps): ReactNod
         onContinue={() => {
           setStep({
             kind: 'confirm',
-            name: step.name,
+            target: step.target,
             answers: step.answers,
-            resume: decideResumeFor(step.name.resolved, step.answers, seed),
+            resume: decideResumeFor(step.target.settings.deployRoot, step.answers, seed),
           });
         }}
       />
@@ -159,7 +223,11 @@ export function InstallScreen({ onDone, located }: InstallScreenProps): ReactNod
       // written to is on the review, not merely in the frame's title. It is a
       // screen field, so `envAnswers` strips it before it can reach the `.env`.
       answers={withFlags(
-        new Map([['__name', step.name.display], ...step.answers]),
+        new Map([
+          ['__name', step.target.name.display],
+          ...advancedValues('install', step.target.settings, step.target.state),
+          ...step.answers,
+        ]),
         chosen,
       )}
       notes={[
@@ -168,24 +236,43 @@ export function InstallScreen({ onDone, located }: InstallScreenProps): ReactNod
         `Resume: ${step.resume.resume ? 'yes' : 'no'} — ${step.resume.reason}`,
       ]}
       onNo={() => {
-        setStep({ kind: 'flags', name: step.name, answers: step.answers });
+        setStep({ kind: 'flags', target: step.target, answers: step.answers });
       }}
       onYes={() => {
-        const resolved = step.name.resolved;
-        if (resolved === undefined) return;
+        const target = step.target;
         const answers = step.answers;
         const flags = chosen;
         const resume = step.resume.resume;
         run.start(
-          async (signal, hooks) => await performInstall(resolved, answers, flags, resume, signal, hooks),
+          async (signal, hooks) => await performInstall(target, answers, flags, resume, signal, hooks),
+          { rerun: installRerun(target, answers, flags) },
         );
       }}
     />
   );
 }
 
-function pathFor(resolved: string | undefined): string {
-  return resolved === undefined ? DEFAULT_APPS_ROOT : deployRootFor(DEFAULT_APPS_ROOT, resolved);
+/**
+ * The shell command that continues this install, shown if it fails.
+ *
+ * ⚠ Built from the screen fields `VALUE_FLAGS` names and the toggles ONLY --
+ * never from the environment answers, which is where the secrets are.
+ */
+function installRerun(
+  target: Target,
+  answers: ReadonlyMap<string, string>,
+  chosen: ReadonlySet<string>,
+): string {
+  const fields = new Set(VALUE_FLAGS.install.map((flag) => flag.field));
+  return rerunCommand({
+    action: 'install',
+    name: target.name.resolved,
+    values: new Map([
+      ...advancedValues('install', target.settings, target.state),
+      ...[...answers].filter(([key]) => fields.has(key)),
+    ]),
+    chosen,
+  });
 }
 
 /**
@@ -195,14 +282,10 @@ function pathFor(resolved: string | undefined): string {
  * `.env.example` is the specification of its own environment and no other
  * deployment's will do.
  */
-function loadSpecs(resolved: string | undefined): EnvVarSpec[] {
-  if (resolved === undefined) return [];
+function loadSpecs(deployRoot: string): EnvVarSpec[] {
   try {
     return parseEnvExample(
-      readFileSync(
-        join(deployRootFor(DEFAULT_APPS_ROOT, resolved), 'repo', 'infra', 'compose', '.env.example'),
-        'utf8',
-      ),
+      readFileSync(join(deployRoot, 'repo', 'infra', 'compose', '.env.example'), 'utf8'),
     );
   } catch {
     // Before a first checkout there is no template to read; the domain
@@ -212,10 +295,9 @@ function loadSpecs(resolved: string | undefined): EnvVarSpec[] {
 }
 
 /** The state recorded for a deployment, or undefined when there is none to read. */
-function recordFor(resolved: string | undefined): DeployState | undefined {
-  if (resolved === undefined) return undefined;
+function recordFor(deployRoot: string): DeployState | undefined {
   try {
-    return readState(deployRootFor(DEFAULT_APPS_ROOT, resolved));
+    return readState(deployRoot);
   } catch {
     // ⚠ An UNREADABLE record is not an absent one, but for prefilling the two
     // are the same. `runInstall` reports the real problem properly.
@@ -225,6 +307,9 @@ function recordFor(resolved: string | undefined): DeployState | undefined {
 
 /**
  * The text-valued flags, prefilled from what this deployment already records.
+ *
+ * Proxy root and port are not here: they moved to the Advanced step, which
+ * prefills them from the same record and is skipped with one Enter.
  *
  * ⚠ THE PLACEHOLDER IS THE RECORDED VALUE, for exactly the reason the
  * environment fields' are. A deployment installed on a non-default proxy root
@@ -239,23 +324,6 @@ function recordFor(resolved: string | undefined): DeployState | undefined {
  */
 function installFlagFields(state: DeployState | undefined, seed: Seed): FieldSpec[] {
   return [
-    {
-      key: '__proxyRoot',
-      label: 'proxy-root',
-      help: 'The shared reverse proxy this host runs. The vhost and certificate are written under it.',
-      placeholder: state?.proxyRoot ?? DEFAULT_PROXY_ROOT,
-      secret: false,
-      prefilled: state?.proxyRoot !== undefined,
-    },
-    {
-      key: '__port',
-      label: 'port',
-      help: 'Loopback port the proxy forwards to. One per application on this host.',
-      placeholder: String(state?.bindPort ?? DEFAULT_BIND_PORT),
-      secret: false,
-      prefilled: state?.bindPort !== undefined,
-      validate: validatePort,
-    },
     {
       key: '__repo',
       label: 'repo',
@@ -338,17 +406,13 @@ function selectedGroups(value: string): EnvGroup[] {
  * skips every recorded step and reports an install that did nothing.
  */
 function decideResumeFor(
-  resolved: string | undefined,
+  deployRoot: string,
   answers: ReadonlyMap<string, string>,
   seed: Seed,
 ): ResumeDecision {
-  if (resolved === undefined) {
-    return { resume: false, reason: 'no deployment is named' };
-  }
-
   let state: DeployState | undefined;
   try {
-    state = readState(deployRootFor(DEFAULT_APPS_ROOT, resolved));
+    state = readState(deployRoot);
   } catch {
     return {
       resume: false,
@@ -366,7 +430,7 @@ function decideResumeFor(
 }
 
 async function performInstall(
-  resolved: string,
+  target: Target,
   answers: ReadonlyMap<string, string>,
   chosen: ReadonlySet<string>,
   resume: boolean,
@@ -380,13 +444,15 @@ async function performInstall(
   const groups = selectedGroups(answers.get('__group') ?? '');
 
   const result = await runInstall({
-    deployRoot: deployRootFor(DEFAULT_APPS_ROOT, resolved),
+    deployRoot: target.settings.deployRoot,
     // Load-bearing: every child process runs under the screen's signal, so
     // aborting the controller SIGTERMs the `docker compose build` rather than
     // leaving it running on a production server.
     runCommand: withSignal(runCommand, signal),
-    bindPort: Number(answers.get('__port') ?? DEFAULT_BIND_PORT),
-    proxyRoot: answers.get('__proxyRoot') ?? DEFAULT_PROXY_ROOT,
+    bindPort: target.settings.bindPort,
+    proxyRoot: target.settings.proxyRoot,
+    // Only what OVERRIDES the record; see `proxyOverrides`.
+    ...proxyOverrides(target.settings, target.state),
     // ⚠ Screen fields stripped. `runInstall` writes `answers` into the `.env`
     // as template keys, so a `__domain` reaching it becomes a variable of that
     // name in a production environment file.

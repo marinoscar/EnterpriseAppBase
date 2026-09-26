@@ -91,8 +91,17 @@ export const EMPTY_SEED: Seed = { name: undefined, values: new Map() };
 
 export function seedFor(appsRoot: string, name: string | undefined): Seed {
   if (name === undefined) return EMPTY_SEED;
+  return seedAt(deployRootFor(appsRoot, name), name);
+}
 
-  const envPath = resolveEnvPath(deployRootFor(appsRoot, name));
+/**
+ * The same, for a deploy root given outright (the Advanced step's `root`).
+ *
+ * ⚠ Still keyed on the NAME for `reconcileSeed`'s sake: the root is chosen
+ * after the name, and a changed name must still retract whatever was read.
+ */
+export function seedAt(deployRoot: string, name: string): Seed {
+  const envPath = resolveEnvPath(deployRoot);
   if (envPath === undefined) return { name, values: new Map() };
 
   try {

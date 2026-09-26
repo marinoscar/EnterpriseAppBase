@@ -3,7 +3,9 @@ import { Module } from '@nestjs/common';
 import { AiCatalogModule } from './catalog/ai-catalog.module';
 import { AiConfigModule } from './config/ai-config.module';
 import { AiCoreModule } from './core/ai-core.module';
+import { AiKeysModule } from './keys/ai-keys.module';
 import { OpenAiProviderModule } from './providers/openai/openai.module';
+import { AiRuntimeModule } from './runtime/ai-runtime.module';
 
 /**
  * The AI platform's root module (epic #419).
@@ -14,7 +16,16 @@ import { OpenAiProviderModule } from './providers/openai/openai.module';
  * graph is the registration" rule `app.module.ts` states for `JobsModule`.
  */
 @Module({
-  imports: [AiCoreModule, OpenAiProviderModule, AiCatalogModule, AiConfigModule],
-  exports: [AiCoreModule, AiConfigModule],
+  imports: [
+    AiCoreModule,
+    OpenAiProviderModule,
+    AiCatalogModule,
+    AiConfigModule,
+    AiKeysModule,
+    AiRuntimeModule,
+  ],
+  // `AiRuntimeModule` is re-exported so a fork's module can simply
+  // `imports: [AiModule]` and inject `AiService`.
+  exports: [AiCoreModule, AiConfigModule, AiRuntimeModule],
 })
 export class AiModule {}

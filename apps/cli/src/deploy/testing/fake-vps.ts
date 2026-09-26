@@ -307,6 +307,8 @@ export function unattendedAnswers(
  * can read and one you cannot.
  */
 function candidateFor(key: string): string {
+  // Shaped like a real one, because install checks the shape (#391).
+  if (key === 'GOOGLE_CLIENT_ID') return FAKE_GOOGLE_CLIENT_ID;
   if (/EMAIL/.test(key)) return 'admin@example.test';
   if (/ENCRYPTION_KEY/.test(key)) {
     // Base64 of 32 bytes, because that is what an AES-256 key must decode to.
@@ -321,6 +323,41 @@ function candidateFor(key: string): string {
   if (/URL/.test(key)) return 'http://localhost:3535';
   if (/HOST/.test(key)) return 'localhost';
   return `fake-${key.toLowerCase().replace(/_/g, '-')}`;
+}
+
+/** A well-formed, obviously fake Google OAuth client id. */
+export const FAKE_GOOGLE_CLIENT_ID = '000000000000-fakevps0000000000.apps.googleusercontent.com';
+
+/** The domain the harness installs under, and the callback derived from it. */
+export const FAKE_DOMAIN = 'app.example.test';
+export const FAKE_GOOGLE_CALLBACK_URL = `https://${FAKE_DOMAIN}/api/auth/google/callback`;
+
+/**
+ * A `fetch` that answers Google's token endpoint the way it answers VALID
+ * credentials and an invalid code -- `invalid_grant` (#391) -- and passes every
+ * other request through to the real `fetch`, so the health gate still probes
+ * the real `serveHealth` server.
+ *
+ * ⚠ Nothing in a test ever reaches Google. `oauthAnswer` makes the other
+ * outcomes (`invalid_client`, a network failure) drivable.
+ */
+export function fakeGoogleFetch(
+  oauthAnswer: { status?: number; error?: string; throws?: Error } = { status: 400, error: 'invalid_grant' },
+): { fetch: typeof globalThis.fetch; tokenRequests: URLSearchParams[] } {
+  const tokenRequests: URLSearchParams[] = [];
+  const fetch: typeof globalThis.fetch = async (input, init) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    if (url.startsWith('https://oauth2.googleapis.com/')) {
+      tokenRequests.push(new URLSearchParams(String(init?.body ?? '')));
+      if (oauthAnswer.throws !== undefined) throw oauthAnswer.throws;
+      return new Response(JSON.stringify({ error: oauthAnswer.error ?? 'invalid_grant' }), {
+        status: oauthAnswer.status ?? 400,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    return await globalThis.fetch(input, init);
+  };
+  return { fetch, tokenRequests };
 }
 
 /**
@@ -373,15 +410,48 @@ export interface FakeApi {
   port: number;
   /** Flip to make `/api/health/ready` answer 503, as an unmigrated API would. */
   setReady(ready: boolean): void;
+  /**
+   * What the fake sign-in routes answer (#391's OAuth smoke): the client id
+   * and callback `/api/auth/google` redirects with, or `undefined` for an API
+   * that lists no Google provider at all.
+   */
+  setOAuth(oauth: { clientId: string; callbackUrl: string } | undefined): void;
   close(): Promise<void>;
 }
 
 export async function serveHealth(): Promise<FakeApi> {
   const { createServer } = await import('node:http');
   let ready = true;
+  let oauth: { clientId: string; callbackUrl: string } | undefined = {
+    clientId: FAKE_GOOGLE_CLIENT_ID,
+    callbackUrl: FAKE_GOOGLE_CALLBACK_URL,
+  };
 
   const server = createServer((request, response) => {
     const path = request.url ?? '/';
+
+    if (path.startsWith('/api/auth/providers')) {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(
+        JSON.stringify({ data: { providers: oauth === undefined ? [] : [{ name: 'google', enabled: true }] } }),
+      );
+      return;
+    }
+
+    if (path.startsWith('/api/auth/google')) {
+      if (oauth === undefined) {
+        response.writeHead(404, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ code: 'NOT_FOUND' }));
+        return;
+      }
+      const location = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+      location.searchParams.set('response_type', 'code');
+      location.searchParams.set('client_id', oauth.clientId);
+      location.searchParams.set('redirect_uri', oauth.callbackUrl);
+      response.writeHead(302, { location: location.href });
+      response.end();
+      return;
+    }
 
     if (path.startsWith('/api/health/ready') && !ready) {
       response.writeHead(503, { 'content-type': 'application/json' });
@@ -414,6 +484,9 @@ export async function serveHealth(): Promise<FakeApi> {
     port: address.port,
     setReady(value: boolean) {
       ready = value;
+    },
+    setOAuth(value) {
+      oauth = value;
     },
     close: () =>
       new Promise<void>((resolve) => {

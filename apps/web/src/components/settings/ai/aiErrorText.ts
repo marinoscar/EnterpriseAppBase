@@ -2,11 +2,11 @@
  * Turning AI error codes into sentences a user can act on — issue #430.
  *
  * The AI API answers with a GENERIC top-level `code` (`BAD_REQUEST`,
- * `FORBIDDEN`, …) and puts the AI-specific code in `details.reason`, so
- * `aiErrorReason` reads `details.reason` first and only falls back to `code`.
- * Switching on `ApiError.code` alone would never see `AI_KEY_INVALID`.
+ * `FORBIDDEN`, …) and puts the AI-specific code in `details.reason`. Reading
+ * it is `toAiErrorInfo`'s job (`services/aiErrors.ts`, the one helper every
+ * AI surface uses); this module only words the code for the AI Keys page.
  */
-import { ApiError } from '../../../services/api';
+import { toAiErrorInfo } from '../../../services/aiErrors';
 
 const FRIENDLY: Record<string, string> = {
   AI_KEY_INVALID: 'The provider rejected this key',
@@ -17,17 +17,6 @@ const FRIENDLY: Record<string, string> = {
   AI_RATE_LIMITED: 'The provider is rate limiting requests. Try again shortly',
 };
 
-/** The AI-specific reason carried by an API error, if any. */
-export function aiErrorReason(err: unknown): string | null {
-  if (!(err instanceof ApiError)) return null;
-  const details = err.details;
-  if (details && typeof details === 'object' && 'reason' in details) {
-    const reason = (details as { reason?: unknown }).reason;
-    if (typeof reason === 'string') return reason;
-  }
-  return err.code ?? null;
-}
-
 /** A friendly sentence for an AI error code; unknown codes get a generic one. */
 export function aiCodeText(code: string | null | undefined): string {
   if (!code) return 'Something went wrong';
@@ -36,7 +25,7 @@ export function aiCodeText(code: string | null | undefined): string {
 
 /** A friendly sentence for a thrown error from an AI call. */
 export function aiErrorText(err: unknown, fallback: string): string {
-  const reason = aiErrorReason(err);
+  const reason = toAiErrorInfo(err).code;
   if (reason && FRIENDLY[reason]) return FRIENDLY[reason];
   if (err instanceof Error && err.message) return err.message;
   return fallback;

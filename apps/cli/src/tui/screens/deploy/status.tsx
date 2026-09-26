@@ -4,11 +4,12 @@ import { CLI_NAME } from '../../../branding.js';
 import { DEFAULT_BIND_PORT } from '../../../commands/deploy.js';
 import { runCommand, withSignal } from '../../../deploy/executor.js';
 import { collectHealth, isHealthy, type HealthReport } from '../../../deploy/health.js';
+import { oauthSmokeTarget } from '../../../deploy/install.js';
 import { DEFAULT_APPS_ROOT, deployRootFor } from '../../../deploy/layout.js';
 import { readState } from '../../../deploy/state.js';
 import { UsageError } from '../../../errors.js';
 import { FieldWizard, NameStep, optionalHostname } from './fields.js';
-import { validatePort, type AppName } from './install-model.js';
+import { seedFor, validatePort, type AppName } from './install-model.js';
 import type { FieldSpec } from './model.js';
 import { RunFrame, useDeployRun } from './run.js';
 
@@ -106,6 +107,7 @@ async function performStatus(
     // Passed, not re-read: `collectHealth` reports what is deployed from it and
     // a second read could disagree with the one the guard above just made.
     state,
+    ...oauthSmokeTarget(false, seedFor(DEFAULT_APPS_ROOT, resolved).values),
   });
 
   return [
@@ -122,5 +124,11 @@ async function performStatus(
     // /api/health/ready issues SELECT 1, which passes against an empty
     // database, so a green probe is not proof that the schema is current.
     `Migrations: ${report.migrations.known ? `${report.migrations.pending.length} pending` : 'unknown'}`,
+    // #391: reported, never folded into the verdict above -- see collectHealth.
+    ...(report.oauth === undefined
+      ? []
+      : [
+          `Sign-in:    ${report.oauth.status === 'pass' ? 'ok' : `${report.oauth.status === 'fail' ? 'FAILED' : 'unverified'}: ${report.oauth.detail}`}`,
+        ]),
   ];
 }

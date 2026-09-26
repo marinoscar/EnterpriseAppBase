@@ -163,6 +163,18 @@ describe('AiConfigService', () => {
     });
   });
 
+  describe('hasOrgKey', () => {
+    it('answers from the credential metadata without decrypting', async () => {
+      await expect(service.hasOrgKey('openai')).resolves.toBe(false);
+
+      describe_.mockResolvedValue({ hint: '••••1234' });
+      await expect(service.hasOrgKey('openai')).resolves.toBe(true);
+
+      expect(describe_).toHaveBeenCalledWith('ai', 'openai');
+      expect(getSecret).not.toHaveBeenCalled();
+    });
+  });
+
   describe('onModuleInit', () => {
     it('warms the cache without reading any key', async () => {
       service.onModuleInit();

@@ -18,16 +18,29 @@ import { isDeployment } from './deployment-evidence.js';
 import { runEnvWizard } from './env-wizard.js';
 import type { EnvGroup } from './env-metadata.js';
 import { runCommand as defaultRunCommand } from './executor.js';
-import { waitForHealthy, collectHealth, isHealthy } from './health.js';
+import { consented, obtainConsent, type ConsentOptions, type ConsentOutcome } from './consent.js';
+import { ensureDatabase, onlyDatabaseMissing } from './database.js';
+import { waitForHealthy, collectHealth, isHealthy, type FetchLike, type OAuthSmoke } from './health.js';
+import { runOAuthCheck } from './oauth-check.js';
+import {
+  bootstrapProxy,
+  ensureExternalNetworks,
+  externalNetworksIn,
+  inspectProxy,
+  type ProxyPresence,
+} from './proxy-bootstrap.js';
+import { ensureRenewal } from './renewal.js';
 import type { DeployHooks } from './hooks.js';
 import { openJournal, type Journal, type SecretEntry } from './journal.js';
 import {
   bootstrapProxyRoot,
+  certificateStatus,
   describeProxyRuntime,
   installVhost,
   issueCertificate,
   resolveRecordedProxyRuntime,
   type ProxyMode,
+  type ProxyRuntime,
   type ProxyTarget,
   type ResolvedProxyRuntime,
 } from './proxy.js';
@@ -129,9 +142,34 @@ export interface InstallOptions {
    * text input and hands them over, then runs the wizard non-interactively.
    */
   answers?: ReadonlyMap<string, string> | undefined;
+  /**
+   * `--bootstrap-proxy`: consent, given in advance, to create the shared proxy
+   * when this box has none (#391). Interactive runs are asked instead.
+   */
+  bootstrapProxy?: boolean | undefined;
+  /**
+   * `--create-database`: consent, given in advance, to CREATE the configured
+   * database when it is the only thing missing (#391). Interactive runs are
+   * asked instead.
+   */
+  createDatabase?: boolean | undefined;
+  /** `--skip-renewal`: do not schedule certificate renewal. */
+  skipRenewal?: boolean | undefined;
+  /**
+   * `--skip-oauth-check`: no live Google credential probe and no post-deploy
+   * OAuth smoke, and a malformed client id only warns. For deployments with
+   * placeholder credentials (CI) or no outbound HTTPS.
+   */
+  skipOAuthCheck?: boolean | undefined;
+  /** The HTTP client for the OAuth probe and the health/OAuth smoke. Test seam. */
+  fetch?: FetchLike | undefined;
+  /** Replaces the terminal yes/no question for the consent gates. Test seam. */
+  ask?: ((question: string) => Promise<boolean>) | undefined;
 }
 
 interface InstallContext extends StepContext {
+  /** Set once the stack's external networks are known to exist; see ensureStackNetworks. */
+  networksEnsured?: boolean | undefined;
   options: InstallOptions;
   runCommand: typeof defaultRunCommand;
   journal: Journal;
@@ -151,6 +189,44 @@ interface InstallContext extends StepContext {
   existingState?: DeployState | undefined;
   /** Collected once, on first use; see `hostFactsOf`. */
   hostFacts?: HostFacts | undefined;
+  /**
+   * What `validate-environment` learned about the database: `exists`, or
+   * `missing` (the ONE failure `ensure-database` may act on). Undefined when it
+   * did not run in this process -- a resumed run -- and then `ensure-database`
+   * asks for itself.
+   */
+  database?: 'exists' | 'missing' | undefined;
+  /** The proxy-bootstrap consent preflight obtained, so it is asked once. */
+  proxyBootstrapConsent?: ConsentOutcome | undefined;
+}
+
+/**
+ * The environment this run acts on: the wizard's, or -- on a resumed run that
+ * skipped the `environment` step -- the file on disk.
+ */
+function environmentOf(context: InstallContext): Map<string, string> | undefined {
+  if (context.env !== undefined) return context.env;
+  const path = envFilePath(context.options.deployRoot);
+  return existsSync(path) ? parseEnvFile(readFileSync(path, 'utf8')) : undefined;
+}
+
+/** The question the proxy-bootstrap gate asks. */
+function bootstrapQuestion(proxyRoot: string, container: string): string {
+  return (
+    `This server has no shared reverse proxy. Create one in ${proxyRoot} ` +
+    `(nginx container "${container}" on ports 80/443, serving every application on this host)?`
+  );
+}
+
+/** The refusal when the proxy is absent and nobody consented to create it. */
+function bootstrapRefusal(outcome: ConsentOutcome, proxyRoot: string): PreconditionError {
+  return new PreconditionError(
+    (outcome === 'declined'
+      ? 'Creating the shared proxy was declined.'
+      : 'This server has no shared reverse proxy, and nothing could be asked in this mode.') +
+      ` Re-run with --bootstrap-proxy to have install create it in ${proxyRoot}, ` +
+      `bring up an existing one (cd ${proxyRoot} && docker compose up -d), or pass --skip-proxy.`,
+  );
 }
 
 /**
@@ -328,6 +404,7 @@ async function compose(
   options?: { timeoutMs?: number },
 ): Promise<void> {
   ensureBindSources(context.options.deployRoot);
+  await ensureStackNetworks(context, extra);
 
   const result = await context.runCommand(composeArgv(extra, context.composeProject), {
     cwd: composeCwd(context.options.deployRoot),
@@ -338,6 +415,34 @@ async function compose(
       : { onLine: (line: string) => context.hooks?.onLog?.(line) }),
   });
   context.journal.command(result);
+}
+
+/** Compose subcommands that instantiate services, and so need their networks. */
+const INSTANTIATING = new Set(['up', 'run', 'create', 'start', 'restart']);
+
+/**
+ * Ensures the stack's external networks exist before the FIRST compose call
+ * that instantiates a service -- `migrate`'s `compose run`, before `start`'s
+ * `up`. Once per run (`networksEnsured`), and guarded on the CALL for the same
+ * reason `ensureBindSources` is: an earlier compose step added later cannot
+ * reintroduce the fresh-box failure. Shared with update.
+ */
+export async function ensureStackNetworks(
+  context: Pick<StepContext, 'journal'> & {
+    runCommand: typeof defaultRunCommand;
+    options: { deployRoot: string };
+    networksEnsured?: boolean | undefined;
+  },
+  extra: readonly string[],
+): Promise<void> {
+  if (context.networksEnsured === true || !INSTANTIATING.has(extra[0] ?? '')) return;
+  const composeDir = composeCwd(context.options.deployRoot);
+  await ensureExternalNetworks({
+    composeFiles: COMPOSE_FILES.map((file) => join(composeDir, file)),
+    runCommand: context.runCommand,
+    onLine: (line) => context.journal.line(line),
+  });
+  context.networksEnsured = true;
 }
 
 export function buildInstallSteps(): DeployStep<InstallContext>[] {
@@ -373,6 +478,30 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
         });
         const gitCredentialed = await gitCredentialStateFor(repoUrl, context.runCommand);
 
+        // #391: a box with no proxy at all is bootstrappable -- ask NOW, with
+        // the other questions, rather than after a four-minute build. Consent
+        // lets the proxy-container check stand down; the `proxy-bootstrap`
+        // step does the work later, just before `publish`.
+        const runtime = await proxyRuntimeOf(context);
+        if (
+          context.options.skipProxy !== true &&
+          context.options.domain !== undefined &&
+          runtime.mode === 'container'
+        ) {
+          const presence = await inspectProxy({
+            proxyRoot: context.options.proxyRoot,
+            runtime,
+            runCommand: context.runCommand,
+          });
+          if (presence.state === 'absent') {
+            context.proxyBootstrapConsent = await obtainConsent(
+              bootstrapQuestion(context.options.proxyRoot, runtime.container),
+              consentOptions(context, context.options.bootstrapProxy),
+            );
+            context.journal.line(`Shared proxy absent; bootstrap consent: ${context.proxyBootstrapConsent}`);
+          }
+        }
+
         const checkContext: CheckContext = {
           runCommand: context.runCommand,
           deployRoot: context.options.deployRoot,
@@ -381,13 +510,16 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
           // Resolved before the checks, because it decides which of them are
           // required: certbot-installed only on the host, renewal-path hygiene
           // only in a container.
-          proxyRuntime: await proxyRuntimeOf(context),
+          proxyRuntime: runtime,
           ...(context.options.domain === undefined
             ? {}
             : { domain: context.options.domain }),
           ...(repoUrl === undefined ? {} : { repoUrl }),
           ...(gitCredentialed === undefined ? {} : { gitCredentialed }),
           ...(context.options.skipProxy === true ? { skipProxy: true } : {}),
+          ...(context.proxyBootstrapConsent !== undefined && consented(context.proxyBootstrapConsent)
+            ? { proxyBootstrap: true }
+            : {}),
         };
 
         const results = await runChecks(requiredChecks(ALL_CHECKS, checkContext), checkContext);
@@ -533,6 +665,11 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
         writeEnvFile(path, values, specs);
 
         context.env = values;
+        // ⚠ BEFORE ANYTHING USES THEM. A fresh install's journal was opened
+        // with no secrets (there was no .env to seed it from); the OAuth probe
+        // in the next step sends GOOGLE_CLIENT_SECRET over the network, and an
+        // error quoting the request must not put it in the log.
+        context.journal.addSecrets(secretsFrom(values));
         context.journal.line(`Wrote ${path} (${values.size} variables)`);
       },
     },
@@ -557,7 +694,15 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
           context.journal.line(`${result.status} ${result.id}: ${result.detail}`);
         }
 
-        if (!checksPassed(results)) {
+        if (checksPassed(results)) {
+          context.database = 'exists';
+        } else if (onlyDatabaseMissing(results)) {
+          // #391: the ONE failure `ensure-database` may act on -- reachable,
+          // authenticated, and only the database itself absent. Deferred, not
+          // thrown; every other failure still stops the install right here.
+          context.database = 'missing';
+          context.journal.line('The database does not exist yet; ensure-database decides what to do about it.');
+        } else {
           throw new PreconditionError(
             `The database is not usable with these settings:\n` +
               results
@@ -566,6 +711,56 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
                 .join('\n'),
           );
         }
+
+        // #391: the OAuth credentials, BEFORE the build -- a wrong secret was
+        // otherwise found by the first user to sign in, after everything.
+        const oauth = await runOAuthCheck({
+          env: context.env,
+          ...(context.options.domain === undefined ? {} : { domain: context.options.domain }),
+          skipLiveProbe: context.options.skipOAuthCheck === true,
+          ...(context.options.fetch === undefined ? {} : { fetch: context.options.fetch }),
+        });
+        for (const finding of oauth.findings) {
+          context.journal.line(`${finding.status} ${finding.id}: ${finding.detail}`);
+          if (finding.status === 'warn') {
+            context.hooks?.onProgress?.(`warning: ${finding.detail}`);
+          }
+        }
+        if (!oauth.ok) {
+          throw new PreconditionError(
+            'The Google OAuth settings would fail every sign-in:\n' +
+              oauth.findings
+                .filter((finding) => finding.status === 'fail')
+                .map((finding) => `  - ${finding.detail}\n    ${finding.remedy ?? ''}`)
+                .join('\n') +
+              '\nFix them in the environment file (or pass --skip-oauth-check for placeholder credentials), then re-run with --resume.',
+          );
+        }
+      },
+    },
+    {
+      id: 'ensure-database',
+      title: 'Make sure the database exists',
+      async run(context) {
+        // Already known to exist: no second round of psql containers.
+        if (context.database === 'exists') return;
+
+        const env = environmentOf(context);
+        if (env === undefined) {
+          context.journal.line('No environment file; nothing to check.');
+          return;
+        }
+
+        const result = await ensureDatabase({
+          env,
+          runCommand: context.runCommand,
+          createDatabase: context.options.createDatabase,
+          ...consentOptions(context),
+          onLine: (line) => context.journal.line(line),
+        });
+        context.database = 'exists';
+        context.journal.line(result.detail);
+        if (result.outcome === 'created') context.hooks?.onProgress?.(result.detail);
       },
     },
     {
@@ -717,6 +912,77 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
       },
     },
     {
+      id: 'proxy-bootstrap',
+      title: 'Make sure the shared proxy is running',
+      skip: (context) => {
+        if (context.options.skipProxy === true) return 'skipped with --skip-proxy';
+        if (context.options.domain === undefined) return 'no --domain given';
+        return undefined;
+      },
+      async run(context) {
+        const runtime = await proxyRuntimeOf(context);
+        if (runtime.mode !== 'container') {
+          context.journal.line('The proxy runs on the host; it is the host\'s to run, and nothing is bootstrapped.');
+          return;
+        }
+
+        const proxyRoot = context.options.proxyRoot;
+        const presence: ProxyPresence = await inspectProxy({
+          proxyRoot,
+          runtime,
+          runCommand: context.runCommand,
+        });
+        context.journal.line(presence.detail);
+
+        switch (presence.state) {
+          case 'running':
+            // The ordinary case on every deployment after a box's first.
+            return;
+          case 'stopped':
+            // ⚠ NOT STARTED FOR THEM. It is shared, and somebody stopped it --
+            // possibly on purpose. Say so and let them decide.
+            throw new PreconditionError(
+              `The shared proxy container ${runtime.container} exists but is stopped. It is shared infrastructure, so ` +
+                `this install will not start it. Start it: docker start ${runtime.container} (or: cd ${proxyRoot} && docker compose up -d), then re-run with --resume.`,
+            );
+          case 'configured':
+            throw new PreconditionError(
+              `${presence.detail}. That proxy belongs to whatever created it, so this install will not touch it. ` +
+                `Start it: cd ${proxyRoot} && docker compose up -d -- or, if its container has another name, pass --proxy-container <name>. Then re-run with --resume.`,
+            );
+          case 'unknown':
+            throw new PreconditionError(`${presence.detail}. Check it by hand: docker inspect ${runtime.container}`);
+          case 'absent':
+            break;
+        }
+
+        // Asked once: preflight's answer, when it asked; otherwise now (a
+        // resumed run, or --skip-doctor). A "no" is not asked twice.
+        const consent =
+          context.proxyBootstrapConsent ??
+          (await obtainConsent(
+            bootstrapQuestion(proxyRoot, runtime.container),
+            consentOptions(context, context.options.bootstrapProxy),
+          ));
+        if (!consented(consent)) throw bootstrapRefusal(consent, proxyRoot);
+
+        const composeDir = composeCwd(context.options.deployRoot);
+        const result = await bootstrapProxy({
+          proxyRoot,
+          runtime,
+          runCommand: context.runCommand,
+          hooks: context.hooks,
+          // The networks the APPLICATION's compose files declare external,
+          // read from the checkout -- never a name this CLI makes up.
+          networks: externalNetworksIn(COMPOSE_FILES.map((file) => join(composeDir, file))),
+          onLine: (line) => context.journal.line(line),
+        });
+        context.hooks?.onProgress?.(
+          `Created the shared proxy in ${proxyRoot} (${result.created.length} file(s)/directories)`,
+        );
+      },
+    },
+    {
       id: 'publish',
       title: 'Publish over HTTPS',
       skip: (context) => {
@@ -763,6 +1029,30 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
       },
     },
     {
+      id: 'renewal',
+      title: 'Schedule certificate renewal',
+      skip: (context) => {
+        if (context.options.skipRenewal === true) return 'skipped with --skip-renewal';
+        if (context.options.skipProxy === true) return 'skipped with --skip-proxy';
+        if (context.options.domain === undefined) return 'no --domain given';
+        return undefined;
+      },
+      async run(context) {
+        const proxyRoot = context.options.proxyRoot;
+        const status = certificateStatus({
+          domain: context.options.domain as string,
+          bindPort: context.options.bindPort,
+          proxyRoot,
+        });
+        if (!status.exists) {
+          context.journal.line(`No certificate at ${status.path}; nothing to renew yet.`);
+          return;
+        }
+
+        await scheduleRenewal(context, proxyRoot, await proxyRuntimeOf(context));
+      },
+    },
+    {
       id: 'verify',
       title: 'Verify the deployment',
       async run(context) {
@@ -776,6 +1066,8 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
           ...(context.options.domain === undefined || context.options.skipProxy === true
             ? {}
             : { domain: context.options.domain }),
+          ...(context.options.fetch === undefined ? {} : { fetch: context.options.fetch }),
+          ...oauthSmokeTarget(context.options.skipOAuthCheck, environmentOf(context)),
         });
 
         context.journal.line(
@@ -789,6 +1081,8 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
               ' deploy status` for the detail.',
           );
         }
+
+        reportOAuthSmoke(context, report.oauth);
       },
     },
     {
@@ -816,6 +1110,84 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
       },
     },
   ];
+}
+
+/**
+ * The consent options every gate in this pipeline shares. `flag` is the one
+ * gate-specific part.
+ */
+export function consentOptions(
+  context: { options: Omit<ConsentOptions, 'flag'> },
+  flag?: boolean | undefined,
+): ConsentOptions {
+  return {
+    flag,
+    nonInteractive: context.options.nonInteractive,
+    promptContext: context.options.promptContext,
+    ask: context.options.ask,
+  };
+}
+
+/**
+ * What the post-deploy OAuth smoke checks against, or nothing when it is
+ * skipped or the environment names no Google client. Shared with update.
+ */
+export function oauthSmokeTarget(
+  skip: boolean | undefined,
+  env: ReadonlyMap<string, string> | undefined,
+): { oauth?: { clientId: string; callbackUrl: string } } {
+  if (skip === true || env === undefined) return {};
+  const clientId = env.get('GOOGLE_CLIENT_ID') ?? '';
+  const callbackUrl = env.get('GOOGLE_CALLBACK_URL') ?? '';
+  if (clientId === '' || callbackUrl === '') return {};
+  return { oauth: { clientId, callbackUrl } };
+}
+
+/**
+ * What a smoke result means for a deploy (#391): `fail` fails `verify` -- the
+ * API answered, and what it said means nobody can sign in; `warn` (the API
+ * could not be asked) is reported and does not, since the health probes above
+ * already judged reachability.
+ */
+export function reportOAuthSmoke(
+  context: Pick<StepContext, 'journal' | 'hooks'>,
+  smoke: OAuthSmoke | undefined,
+): void {
+  if (smoke === undefined) return;
+  context.journal.line(`${smoke.status} oauth-smoke: ${smoke.detail}`);
+  if (smoke.status === 'warn') {
+    context.hooks?.onProgress?.(`warning: OAuth smoke: ${smoke.detail}`);
+    return;
+  }
+  if (smoke.status === 'fail') {
+    throw new Error(`Sign-in is broken: ${smoke.detail}${smoke.remedy === undefined ? '' : `\n${smoke.remedy}`}`);
+  }
+}
+
+/**
+ * Acts on the renewal-ownership answer and reports it. Shared with update.
+ *
+ * ⚠ NEVER FAILS THE DEPLOY. Renewal is not the deployment: a file that could
+ * not be written is a loud warning carrying the exact content to install.
+ */
+export async function scheduleRenewal(
+  context: Pick<StepContext, 'journal' | 'hooks'> & { runCommand: typeof defaultRunCommand },
+  proxyRoot: string,
+  runtime: ProxyRuntime,
+): Promise<void> {
+  const result = await ensureRenewal({ proxyRoot, runtime, runCommand: context.runCommand });
+  context.journal.line(`renewal ${result.action}: ${result.detail}`);
+
+  if (result.action === 'not-writable') {
+    context.journal.line(result.remedy ?? '');
+    context.hooks?.onProgress?.(`warning: ${result.detail}`);
+    context.hooks?.onProgress?.(result.remedy ?? '');
+    return;
+  }
+  if (result.warning !== undefined) {
+    context.hooks?.onProgress?.(`warning: ${result.warning}. ${result.remedy ?? ''}`);
+  }
+  context.hooks?.onProgress?.(result.detail);
 }
 
 export interface InstallResult {
@@ -864,6 +1236,8 @@ export async function runInstall(options: InstallOptions): Promise<InstallResult
       ? secretsFrom(parseEnvFile(readFileSync(envFilePath(options.deployRoot), 'utf8')))
       : [],
   });
+  // Announced at once, so a screen can show where the log is while it runs.
+  options.hooks?.onJournal?.(journal.path);
 
   // A FRESH install gets its own compose project; anything already here keeps
   // the one it is running under. See composeProjectFor for why renaming an

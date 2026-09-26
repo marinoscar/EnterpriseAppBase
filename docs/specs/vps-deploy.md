@@ -47,17 +47,35 @@ Source of truth for every claim below:
   document follows, and the key model `env-metadata.ts`'s validator for
   `SECRETS_ENCRYPTION_KEY` must match.
 
-**Nothing described past this line exists yet.** There is no `apps/cli/src/deploy/`
-directory, no `deploy` subcommand, no `deploy` TUI screen or route, no
-`infra/compose/vps.compose.yml`, and none of the four Phase 0 infra fixes in
-section 2 have been made. This document is what the epic and its 17 child
-issues build *against*, not a description of code already in the repository.
-Every fact cited above about the *existing* codebase has been verified
-against the files named; the *proposed* architecture in every other section
-is a design, not an implementation report, and a child issue is free to
-discover a better answer to a specific sub-problem as long as it keeps the
-contracts this document promises to the pieces around it (the hooks shape,
-the exit codes, the state file location, the log redaction guarantee).
+**Everything described past this line has been built.** `apps/cli/src/deploy/`,
+the `deploy` subcommand family, the `deploy` TUI screen and route,
+`infra/compose/vps.compose.yml`, and the four Phase 0 infra fixes in section 2
+all shipped under epic #168. This document was written before any of that
+landed, and for a long time correctly warned that it described a design, not
+code — that warning is itself now stale, and has been since #168 closed;
+leaving it in place stopped being honest documentation and started being a
+trap for the next reader. Sections 1–12 below remain the durable design
+record: they describe what was built and, where a later issue changed the
+detail (the `checks/`, `steps/` and `proxy.ts` module shapes in particular
+evolved once real code existed to make them concrete), the surrounding prose
+has been kept in the present tense to describe the actual implementation
+rather than a plan for one. Treat a disagreement between this document and
+the source it cites as this document being out of date, and fix the
+document — the source files listed above remain the source of truth.
+
+**Epic #388 is the second wave.** #168 built the command family against an
+*assumed* server shape: a host `nginx` and a host `certbot`, no `gh`, a
+database the operator had already created, OAuth credentials taken on faith,
+and no record of any of it left for the running application to read. Running
+the pipeline against the actual documented target architecture — one
+long-lived, *containerised* nginx fronting every app on the box — surfaced
+five gaps that only show up once a real VPS is in the loop, closed by
+issues #389–#393 and documented in section 19. Section 10 below is updated in
+place to describe the resulting `ProxyRuntime` split; a new section 19 covers
+the four gaps that did not fit naturally into an existing section (renewal
+ownership, the database-creation prompt, the OAuth probe, and the v2 state
+shape / About-page carrier decision) rather than scattering them through
+sections written before any of the five gaps were known.
 
 ---
 
@@ -503,6 +521,66 @@ every app deployed to that box. `proxy.ts`'s job:
    or a bad vhost render must never take down every other app sharing that
    proxy.
 
+**`ProxyRuntime`: making "container or host" an explicit fact, not an
+assumption (issue #389).** Steps 1–6 above describe the containerised proxy
+this whole design targets, but the first implementation of `proxy.ts` did not
+actually carry that distinction anywhere — `renderVhost` and `issueCertificate`
+simply assumed host binaries (a host `nginx`, a host `certbot` writing under
+`<proxyRoot>/letsencrypt`), which happens to render a working config only when
+the proxy is *not* containerised. Every certificate and webroot path exists in
+two forms — the **host** path (`<proxyRoot>/letsencrypt/...`), which is what
+this process itself stats and what `openssl` reads, and the **config** path,
+which is what has to appear inside an nginx vhost or a certbot invocation. In
+host mode those two coincide. In container mode — one long-lived nginx
+container fronting every app on the box, with `./letsencrypt` mounted at
+`/etc/letsencrypt` and `./webroot` at `/var/www/certbot` — they do not, and a
+host path written into a vhost names a file that does not exist inside the
+container, which fails `nginx -t` for *every* site sharing that proxy, not
+just this one.
+
+The fix makes the runtime an explicit, resolved value — `ProxyRuntime`
+(`apps/cli/src/deploy/proxy.ts`), carrying `mode: 'container' | 'host'`, the
+container name (default `proxy-nginx`), and `certRoot`/`webroot` **as nginx
+sees them**: `/etc/letsencrypt` and `/var/www/certbot` in container mode, the
+literal host paths in host mode. `livePath()` stays the host accessor
+(`certificateStatus`, the TLS doctor checks); a separate `configLivePath()`
+is what `renderVhost` uses, and nothing else may write a certificate path into
+a config. `resolveProxyRuntime` decides which mode applies, in order: an
+explicit `--proxy-mode`/`--proxy-container` flag wins outright; otherwise
+`docker inspect` finding a running container of that name means container
+mode; otherwise a host `nginx -v` succeeding means host mode; **otherwise
+container mode**, because that is the documented target architecture (the
+six-step recipe above) and the shape a fresh, undecided server is being
+prepared for — defaulting to host would silently do the wrong thing on the
+one server this whole design is written for. `resolveRecordedProxyRuntime`
+layers a fourth source between the flag and detection: the deployment's own
+recorded `proxyMode`/`proxyContainer` from a previous run, so `update`,
+`certs` and `uninstall` act under the same runtime `install` resolved rather
+than re-detecting against a proxy that happens to be stopped at that moment.
+
+In container mode, `validateProxy`/`reloadProxy` run `docker exec
+<container> nginx -t`/`nginx -s reload` instead of the bare host binary (the
+missing half of steps 4–5 above — the runtime was accepted as a parameter but
+no caller ever passed one), and `issueCertificate` runs the **dockerised**
+certbot (`certbot/certbot:latest`, `docker run --rm` with the same two mounts
+the proxy container uses) with **no** `--config-dir`/`--work-dir`/`--logs-dir`
+— those flags are exactly what write host paths into
+`letsencrypt/renewal/<domain>.conf`, which a dockerised `certbot renew` then
+cannot follow (it reports the target "expected ... to be a symlink" and the
+certificate silently stops renewing). Host mode keeps the original argv,
+config-dir flags included, because there the host paths are the *correct*
+paths. Two doctor checks turn each of those failure modes into something
+`doctor` reports before an install ever reaches them: `certificate-renewal-paths`
+fails when this deployment's own `letsencrypt/renewal/<domain>.conf` still
+records host paths under a containerised proxy, and `certificate-served`
+compares the certificate the proxy actually serves against the one on disk
+and warns when disk is newer — a renewed certificate on disk is not a served
+certificate; the gap between the two is a reload that did not happen, and it
+presents as an expired certificate on a server whose files all look correct.
+`certbot-installed` is `required` only when the resolved runtime is `host` (or
+unknown) — in container mode a missing host `certbot` binary is not a defect,
+and failing `doctor` over it would fail a correctly configured server.
+
 Illustrative shape of a rendered vhost (abbreviated — the real template also
 carries the standard TLS cipher/protocol hardening lines, omitted here):
 
@@ -914,3 +992,200 @@ anticipating that move, but `install.ts`/`update.ts` still *write* `.env` at
 the legacy path only, and neither pipeline has a version step. Whoever picks
 either of these up next should read `deployment-evidence.ts`'s existing
 forward compatibility before assuming the read side needs work too.
+
+## 19. Epic #388: closing the gaps a real VPS surfaced
+
+Sections 1–18 describe a pipeline built against an *assumed* server. Running
+it against the actual documented target architecture (section 10's
+container proxy, a private GitHub repository, an operator who has not
+necessarily already run `CREATE DATABASE` or typed their OAuth secret
+correctly) surfaced four more gaps, closed by issues #390–#392. Section 10
+above already covers the proxy-runtime half (#389); this section covers the
+rest.
+
+### 19.1 Renewal ownership: acting on "who already renews here", not assuming nobody does
+
+`certificate-renewal` (`checks/tls.ts`) used to look only for a systemd
+`certbot.timer` or `/etc/cron.d/certbot`. A server whose certificates are
+renewed by a **central script** covering every application on the box —
+the ordinary shape on a multi-app VPS — has neither, so the check reported
+"no renewal timer or cron entry found," which is not merely unhelpful but
+actively wrong: acting on it schedules a *second* renewal process against
+the same certificates, which is not redundancy, it is a race that also
+spends a Let's Encrypt rate-limit budget shared by every subdomain on the
+box.
+
+`detectRenewalOwner` answers a different, more specific question: not
+"does anything renew," but "which mechanism owns it, by precedence" —
+a central script (a cron line, in root's crontab, `/etc/crontab` or
+`/etc/cron.d/*`, that runs an existing file which itself invokes
+`certbot ... renew`), then a systemd timer (`certbot.timer` enabled), then
+any other direct cron line invoking `certbot ... renew`, then this CLI's own
+file (`CLI_RENEWAL_CRON_PATH`, `/etc/cron.d/<cli-name>-certbot-renew`), then
+`none`. The install step built on top of it (`renewal.ts`'s `ensureRenewal`)
+acts on exactly that answer: an owner other than `none`/`appctl` means
+**do nothing**, and say which mechanism owns it; `appctl`'s own file means
+make sure its content is current; `none` means install a twice-daily entry
+running the dockerised `certbot renew`, followed by a validate-and-reload of
+the proxy — the reload is the load-bearing half, because nginx reads
+certificates only when it loads its configuration, so a renewal that writes
+a new certificate to disk without reloading leaves the *old* one served
+until it expires, on a server whose files all look correct.
+
+**Why a host certbot timer does not count as an owner in container mode.**
+A host-mode `certbot.timer` or a cron line running the host `certbot`
+binary renews `/etc/letsencrypt` **on the host filesystem**. When the proxy
+is containerised, that is not the same tree the container reads its
+certificates from at all (the container's `/etc/letsencrypt` is the
+`<proxyRoot>/letsencrypt` bind mount, not the host's own `/etc/letsencrypt`
+path) — so a host timer renewing host state has renewed nothing this proxy
+will ever see. `RenewalMechanism.owns` records exactly this: `cronLineOwns`
+treats a direct cron line as owning renewal unconditionally outside
+container mode, but inside it only when the line names the proxy root or
+invokes the dockerised `certbot/certbot` image. A host mechanism that does
+not own the containerised proxy's certificates is still reported (so it is
+never silently lost from the diagnosis) but never returned as the *owner* —
+counting it would tell an operator renewal is handled when the certificate
+their site actually serves is not being touched at all.
+
+### 19.2 The database-creation prompt: why a prompt, not a silent `CREATE DATABASE`
+
+`database-exists` used to fail with a `createdb` remedy even when the
+server was reachable, the credentials worked, and the configured role held
+`CREATEDB` — an install that could have proceeded stopped anyway to have a
+human type one command. `ensureDatabase` (`database.ts`) closes that gap,
+under three rules, each pinned by its own test:
+
+1. **Only the one failure.** The database is created only when the server
+   is reachable, the credentials authenticate, and the *only* problem is
+   that the named database does not exist (`3D000`). Anything else —
+   refused, bad password, `pg_hba` — is reported exactly as before;
+   creating a database is not the remedy for any of those.
+2. **Never silently — this is the reason it prompts at all.** A typo in
+   `POSTGRES_DB` is, from here, indistinguishable from a database that
+   simply does not exist yet. Creating it unconditionally would silently
+   migrate into a second, empty database, and the operator's first evidence
+   of the mistake would be an application with no data days later. A prompt
+   — or `--create-database`/`--non-interactive`'s explicit consent — is what
+   distinguishes "it does not exist yet, please create it" from "I pointed
+   this at the wrong name."
+3. **Create, never drop or alter.** The only statement ever issued is
+   `CREATE DATABASE "<name>"`, against the `postgres` maintenance database,
+   with the password passed through `PGPASSWORD` (by name in the argv, by
+   value in the environment) rather than ever appearing in a command line an
+   operator or a process list could read. The identifier is validated against
+   a conservative grammar (`CREATABLE_DATABASE_NAME`, no quotes, no spaces)
+   and then double-quoted, so nothing from `.env` can extend the statement.
+
+`doctor`'s `database-create-privilege` check (a live `CREATEDB` probe, added
+alongside `certificate-renewal-paths`/`certificate-served` by issue #390)
+answers the capability question ahead of time, so a role that cannot create
+databases gets a `GRANT`/`ALTER ROLE` remedy immediately rather than a
+prompt it could never act on successfully.
+
+### 19.3 The OAuth probe: three layers, and why `invalid_grant` is a pass
+
+The environment wizard validates that `GOOGLE_CLIENT_ID` is not a
+placeholder, which cannot tell a well-formed *wrong* value from a right one
+— a mismatched client secret was previously discovered only when the first
+user tried to sign in, after the build, the migration, the seed, the
+certificate and the vhost had all already succeeded. `oauth-check.ts` adds
+three layers, cheapest first, run inside `validate-environment` at install
+time and again as a post-deploy smoke in `verify`/`status`:
+
+1. **Shape** — `GOOGLE_CLIENT_ID` matches
+   `<digits>-<token>.apps.googleusercontent.com`. Catches a paste error in
+   microseconds, with no network call.
+2. **Callback** — `GOOGLE_CALLBACK_URL` matches
+   `https://<domain>/api/auth/google/callback` **exactly**, derived from the
+   same `env-metadata.ts` the wizard itself uses so the two cannot disagree
+   about the path. This is the top row of the operator runbook's
+   troubleshooting table, and a mismatch that otherwise "looks right" at a
+   glance.
+3. **A live credential probe** — a POST to Google's token endpoint
+   (`https://oauth2.googleapis.com/token`) with `grant_type=authorization_code`
+   and a deliberately invalid, recognisably-fake code
+   (`INVALID_PROBE_CODE`). Google validates the **client** before it looks at
+   the code, so the response classifies the credentials themselves:
+   - `invalid_client`/`unauthorized_client` → the client id and secret do not
+     belong together, or the client was deleted — a **fail**;
+   - `redirect_uri_mismatch` → the client is real but does not allow this
+     redirect URI — a **fail**, with the console link to add it;
+   - **`invalid_grant` → the client id and secret were *accepted*, and only
+     the deliberately-wrong code was rejected. This is the pass.** It is
+     counterintuitive only until the ordering is stated plainly: Google
+     cannot get as far as evaluating an authorization code without first
+     accepting the client presenting it, so a rejected code is proof the
+     client was accepted, not evidence against it.
+   - anything else (a non-JSON body, an unrecognised error, a timeout) is a
+     **warning**, never a hard failure — an egress firewall blocking
+     `oauth2.googleapis.com` is not a wrong secret, and failing the install
+     over a network condition unrelated to the credentials would be exactly
+     the wrong failure mode.
+
+   No browser is opened, no user consents, and no real token is ever issued
+   — the probe only asks "would Google recognise this client if a real flow
+   reached it." The client secret never appears in a thrown message or log
+   line built by this module; it travels only in the POST body, and the
+   install pipeline registers it with the journal's redactor *before* this
+   check runs, so even a runtime error quoting the request cannot put it in
+   the log.
+
+`--skip-oauth-check` disables the live probe and downgrades a malformed
+client id to a warning — a test deployment with dummy credentials must
+still be installable.
+
+### 19.4 Deploy state v2, and the About page as its carrier
+
+Issue #392 is `DEPLOY_STATE_VERSION` moving from 1 to 2, adding `host`
+(hostname, OS, kernel, architecture, CPU count, memory, Docker and Compose
+versions, all captured once per successful run by `collectHostFacts` and
+each individually `null` rather than throwing when a probe fails), `history`
+(one entry per successful `install`/`update`, newest first, capped at 20 —
+timestamp, command, commit, previous commit, ref, duration, `appctl`
+version; **success-only by construction**, not by filtering, since an entry
+is appended only from the success path and a failed run therefore leaves
+the prior list exactly as it found it), and `proxy` (domain, bind port,
+mode, container, certificate expiry — the resolved `ProxyRuntime`'s own
+facts, recorded so a later command need not re-detect against a proxy that
+happens to be stopped at that moment). `upgradeState` is what makes the bump
+survive contact with a server already running a v1 file: a v1 record is
+upgraded forward in place (`history: []`, `host`/`proxy` left **absent**
+rather than fabricated, since nothing observed them yet) rather than
+refused, because a hard refusal on version mismatch would make this build
+of the CLI report a live, working deployment as uninstalled the first time
+it ran against a server predating this change. Only a version this CLI has
+never written at all — a hand edit, or a state file from a *newer* appctl —
+is refused, with a message naming the exact remedy (upgrade the CLI, or
+remove the file to reinstall).
+
+**Why the About page, and not a new Deployment page (issue #392's
+recorded decision).** Epic #397's own design (section 18 above; issue #401
+in particular) had already built an About page and a `deploy-info/info.json`
+document read by `apps/api/src/about/deploy-info.ts` and mounted read-only
+into the api container by `vps.compose.yml` — before issue #392's v2 state
+fields existed to put there. The natural-looking alternative was a second,
+parallel "Deployment" admin page and a `GET /api/admin/deployment` endpoint
+under a new `deployment:read` permission, one for each new field this issue
+adds. That was rejected in favour of **extending** the existing carrier
+(decision recorded in a comment on issue #392):
+the new fields (`lastCommand`, `bindPort`, `proxy`, `host`, `history`) are
+additive members of the same `deploy-info/info.json` document, `schema`
+stays `1` (the reader already validates leniently field-by-field, dropping
+anything invalid rather than bumping a version that would make every
+already-deployed API answer `invalid` the instant a newer CLI wrote its
+file, before the container it describes had necessarily restarted), the
+endpoint stays `GET /api/admin/about` gated on the existing
+`system_settings:read`, and the card stays **About** at
+`/admin/settings/about` — `/admin/settings/deployment` is a redirect to it,
+not a second destination (Settings UI Pattern rule 2: this is one
+destination gaining more content, not two destinations answering
+overlapping questions). The API's one addition is a **live** `runtime`
+block (`processStartedAt`, `nodeVersion`, `environment`) describing the
+process answering the request right now, layered alongside the document's
+own, CLI-observed-at-deploy-time facts — the two are never conflated: a
+CLI-recorded `host`/`proxy` fact is what the *server* looked like when it
+was last deployed, and `runtime` is what the *process* looks like at this
+exact moment. See [`docs/runbooks/deployment-info.md`](../runbooks/deployment-info.md)
+for the operator-facing picture of what the page shows and why it can
+legitimately read "not configured."

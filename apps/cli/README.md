@@ -246,6 +246,20 @@ pointing straight at one deployment's own directory, so pass it explicitly
 box. See the runbook's section on running more than one application for the
 detail.
 
+**Everything below is also reachable from the interactive menu's "deploy this
+server" screens** (`doctor`, `install`, `update`), which run the exact same
+pipelines through the same flags — never a second implementation. An
+**Advanced** step (root, proxy root, port, proxy container, proxy mode) opens
+pre-filled with the recorded or default values and "Use these" selected, so
+one Enter keeps the common path exactly as short as it was. Doctor results
+render grouped by failed/warnings/passed, each with its remedy, using the same
+glyphs the subcommand prints. The install/update forms ask the same
+`--create-database`/`--bootstrap-proxy`/`--skip-renewal`/`--skip-oauth-check`
+questions as yes/no fields, since the TUI cannot prompt mid-run. While a
+deploy runs, the screen shows the journal path live; on failure it shows the
+step that failed, its last output lines, and the exact re-run command
+(including `--resume` for `install`) with no secret in it.
+
 For the full walkthrough — prerequisites, the manual step after install,
 troubleshooting — see [`docs/deployment/vps.md`](../../docs/deployment/vps.md).
 For why it's built this way, see
@@ -260,12 +274,19 @@ appctl deploy doctor --domain app.example.com
 
 Nothing is installed, written or started — it's read-only, so it's safe to
 run against a production server at any time, not just before a first
-install. It runs around 27 checks: Docker and its daemon, the Compose v2
-plugin, git, node, disk and memory headroom, the loopback port, the shared
-reverse proxy's directory and its `conf.d`/webroot being writable, certbot,
-ports 80 and 443, the proxy's current config, the external PostgreSQL
-database (reachable, credentials valid, database exists, can create tables,
-TLS), and — once `--domain` turns them on — DNS and the certificate.
+install. It runs around 30 checks: Docker and its daemon, the Compose v2
+plugin, git, node, disk and memory headroom, the loopback port, `gh` installed
+and authenticated (required only when the resolved repository is a private
+HTTPS GitHub URL git cannot already read), the shared reverse proxy's
+directory and its `conf.d`/webroot being writable, the proxy container itself
+running (container mode), certbot (required only in host mode), ports 80 and
+443, the proxy's current config, renewal ownership (who, if anyone, already
+renews here, and whether it actually covers a containerised proxy's
+certificates), whether the renewal configs on disk use paths a dockerised
+`certbot renew` can follow, whether the certificate the proxy serves matches
+the one on disk, the external PostgreSQL database (reachable, credentials
+valid, database exists, `CREATEDB` privilege, can create tables, TLS), and —
+once `--domain` turns them on — DNS and the certificate.
 
 ```bash
 appctl deploy doctor --json | jq '.checks[] | select(.status=="fail")'
@@ -279,13 +300,21 @@ Other flags, from `appctl deploy doctor --help`:
 
 ```
 Options:
-  --root <path>        Deployment directory (default: "/opt/infra/apps")
-  --proxy-root <path>  Shared reverse proxy directory (default:
-                       "/opt/infra/proxy")
-  --port <port>        Loopback port the proxy forwards to (default: "3535")
-  --domain <domain>    Public domain; enables the DNS and TLS checks
-  --json               Print a machine-readable report on stdout
-  --no-color           Disable colour even on a terminal
+  --root <path>            Deployment directory (rank 1: an explicit path)
+  --apps-root <path>       Directory holding the deployments (rank 3 walks up
+                           inside it) (default: "/opt/infra/apps")
+  --name <app>             Which deployment to act on, by name
+  --proxy-root <path>      Shared reverse proxy directory (default:
+                           "/opt/infra/proxy")
+  --port <port>            Loopback port the proxy forwards to (default:
+                           "3535")
+  --domain <domain>        Public domain; enables the DNS and TLS checks
+  --proxy-container <name> The proxy container's name (default: "proxy-nginx")
+  --proxy-mode <mode>      "container" or "host"; skips runtime detection
+  --repo <url>             Repository whose access to check (default: the
+                           recorded one, then this checkout's origin)
+  --json                   Print a machine-readable report on stdout
+  --no-color               Disable colour even on a terminal
 ```
 
 `install` and `update` both run the same required checks as their own
@@ -299,9 +328,13 @@ an unreachable database before you're mid-pipeline, not partway through one.
 appctl deploy install --domain app.example.com
 ```
 
-Runs preflight → checkout → environment → validate-environment → build →
-migrate → seed → start → health → publish → verify, in that order, printing
-each step's result as it completes. `--domain` is the one required flag.
+Runs preflight → checkout → environment → validate-environment →
+ensure-database → build → migrate → seed → start → health → proxy-bootstrap →
+publish → renewal → verify, in that order, printing each step's result as it
+completes. `--domain` is the one required flag. `validate-environment` now
+also checks the Google OAuth credentials (shape, callback URL, and a live,
+harmless probe against Google's token endpoint), and `verify` includes an
+OAuth sign-in smoke check alongside the external HTTPS one.
 
 The repository and ref come from **this checkout's own git remote**, not a
 value hardcoded in the CLI — a fork deploys itself with no configuration
@@ -327,33 +360,62 @@ the step that failed rather than re-running everything before it.
 `--reinstall` installs over an existing deployment on purpose; `--force`
 discards uncommitted changes in the checkout it manages; `--skip-doctor`,
 `--skip-proxy` and `--skip-seed` each skip exactly the one stage they name.
+Three more steps prompt before acting and each takes a `--non-interactive`
+opt-in flag: `--bootstrap-proxy` (bring up a fresh container-mode proxy when
+this box has none — an existing proxy is never touched either way),
+`--create-database` (run `CREATE DATABASE` when the configured database does
+not exist and nothing else about the connection is wrong), and
+`--skip-renewal` (opt **out** of the renewal-scheduling step, which otherwise
+schedules a twice-daily renewal only when nothing already owns it).
+`--skip-oauth-check` skips the live Google credentials probe (a malformed
+client id then only warns instead of failing).
 
 Other flags, from `appctl deploy install --help`:
 
 ```
 Options:
-  --root <path>        Deployment directory (default: "/opt/infra/apps")
-  --domain <domain>    Public domain to publish under
-  --proxy-root <path>  Shared reverse proxy directory (default:
-                       "/opt/infra/proxy")
-  --port <port>        Loopback port the proxy forwards to (default: "3535")
-  --repo <url>         Repository to deploy (default: this checkout's origin)
-  --ref <ref>          Branch, tag or commit (default: the remote default
-                       branch)
-  --email <email>      Certificate registration address
-  --group <name>       Optional feature group; repeat for more (default: [])
-  --all                Review every environment variable, not only the essential
-                       ones
-  --non-interactive    Never prompt; fail listing anything unresolved
-  --reinstall          Install over an existing deployment
-  --resume             Continue from the step that failed
-  --skip-doctor        Skip the prerequisite checks
-  --skip-proxy         Do not touch the reverse proxy or request a certificate
-  --skip-seed          Do not run the database seed
-  --no-cache           Rebuild images without the layer cache
-  --force              Discard uncommitted changes in the checkout
-  --staging            Use Let's Encrypt staging while working out the setup
-  --json               Print a machine-readable result on stdout
+  --root <path>            Deployment directory (rank 1: an explicit path)
+  --apps-root <path>       Directory holding the deployments (default:
+                           "/opt/infra/apps")
+  --name <app>             Which deployment to act on, by name
+  --domain <domain>        Public domain to publish under
+  --proxy-root <path>      Shared reverse proxy directory (default:
+                           "/opt/infra/proxy")
+  --proxy-container <name> The proxy container's name (default: "proxy-nginx")
+  --proxy-mode <mode>      "container" or "host"; skips runtime detection
+  --port <port>            Loopback port the proxy forwards to (default:
+                           "3535")
+  --repo <url>             Repository to deploy (default: this checkout's
+                           origin)
+  --ref <ref>              Branch, tag or commit (default: the remote default
+                           branch)
+  --email <email>          Certificate registration address
+  --group <name>           Optional feature group; repeat for more (default:
+                           [])
+  --all                    Review every environment variable, not only the
+                           essential ones
+  --non-interactive        Never prompt; fail listing anything unresolved
+  --answers-file <path>    Read answers from a KEY=value file (like .env)
+  --reinstall              Install over an existing deployment
+  --resume                 Continue from the step that failed
+  --skip-doctor            Skip the prerequisite checks
+  --skip-proxy             Do not touch the reverse proxy or request a
+                           certificate
+  --skip-seed              Do not run the database seed
+  --bootstrap-proxy        Create the shared proxy if this server has none
+                           (no prompt)
+  --create-database        Create the database if it does not exist (no
+                           prompt)
+  --skip-renewal           Do not schedule certificate renewal
+  --skip-oauth-check       Do not verify the Google OAuth credentials with
+                           Google
+  --no-cache               Rebuild images without the layer cache
+  --force                  Discard uncommitted changes in the checkout
+  --staging                Use Let's Encrypt staging while working out the
+                           setup
+  --no-version-bump        Deploy the current version: no write, no commit,
+                           no push
+  --json                   Print a machine-readable result on stdout
 ```
 
 **`install` does not create an admin user.** The seed writes the allowlist
@@ -382,8 +444,14 @@ appctl deploy update
 ```
 
 Brings an already-installed server up to the latest revision (or, with
-`--ref`, to a specific one): fetch, build, migrate, seed, restart, verify.
-It refuses to run at all if nothing is installed at `--root` yet.
+`--ref`, to a specific one): preflight, fetch, environment-drift,
+ensure-database, version, build, migrate, seed, restart, health, publish,
+renewal, verify. It refuses to run at all if nothing is installed at
+`--root` yet. `ensure-database` and `renewal` are the same steps `install`
+runs (see above): a database that has since been dropped or renamed gets the
+same create-with-consent prompt, and renewal ownership is (re-)checked and
+acted on the same way. `verify` includes the same OAuth sign-in smoke check
+as `install`'s.
 
 ```bash
 appctl deploy update --ref v1.4.0
@@ -412,14 +480,26 @@ Other flags, from `appctl deploy update --help`:
 
 ```
 Options:
-  --root <path>      Deployment directory (default: "/opt/infra/apps")
-  --ref <ref>        Branch, tag or commit to move to
-  --force            Rebuild even when the revision has not changed
-  --no-cache         Rebuild images without the layer cache
-  --non-interactive  Never prompt; fail listing anything unresolved
-  --skip-seed        Do not re-run the database seed
-  --skip-proxy       Do not touch the reverse proxy
-  --json             Print a machine-readable result on stdout
+  --root <path>            Deployment directory (rank 1: an explicit path)
+  --apps-root <path>       Directory holding the deployments (default:
+                           "/opt/infra/apps")
+  --name <app>             Which deployment to act on, by name
+  --ref <ref>              Branch, tag or commit to move to
+  --force                  Rebuild even when the revision has not changed
+  --no-cache               Rebuild images without the layer cache
+  --non-interactive        Never prompt; fail listing anything unresolved
+  --answers-file <path>    Read answers from a KEY=value file (like .env)
+  --skip-seed              Do not re-run the database seed
+  --skip-proxy             Do not touch the reverse proxy
+  --create-database        Create the database if it does not exist (no
+                           prompt)
+  --skip-renewal           Do not schedule certificate renewal
+  --skip-oauth-check       Do not run the post-deploy OAuth sign-in smoke
+  --proxy-container <name> The proxy container's name (default: "proxy-nginx")
+  --proxy-mode <mode>      "container" or "host"; skips runtime detection
+  --no-version-bump        Deploy the current version: no write, no commit,
+                           no push
+  --json                   Print a machine-readable result on stdout
 ```
 
 ### Checking status
@@ -565,22 +645,32 @@ reported as exactly that, never treated as "not due."
 appctl deploy certs --renew --domain app.example.com
 ```
 
-Exit codes: `0` for a report or a successful renewal, `1` when the
-certificate is due or expired and `--renew` was not passed (so a cron wrapper
-notices), `2` when nothing is installed at `--root`.
+Exit codes: `0` for a report, or a renewal that both succeeded and was
+followed by a successful proxy reload; `1` when the certificate is due or
+expired and `--renew` was not passed, **or when a renewal ran but the
+proxy's `nginx -t`/reload afterward failed** — a certificate renewed on disk
+but not reloaded is still being served as the old one, so this is reported as
+a failure, not a success, and a cron wrapper notices either way; `2` when
+nothing is installed at `--root`.
 
 Other flags, from `appctl deploy certs --help`:
 
 ```
 Options:
-  --root <path>         Deployment directory (default: "/opt/infra/apps")
-  --proxy-root <path>   Shared reverse proxy directory (default: "/opt/infra/proxy")
-  --domain <domain>     Domain to act on (default: the recorded one)
-  --renew               Renew when the certificate is inside the renewal window
-  --force               Renew even when it is not due. Spends rate-limit budget.
-  --email <email>       Registration address (default: INITIAL_ADMIN_EMAIL)
-  --staging              Use Let's Encrypt staging, which is not trusted by browsers
-  --json                 Print a machine-readable report on stdout
+  --root <path>            Deployment directory (default: "/opt/infra/apps")
+  --proxy-root <path>      Shared reverse proxy directory (default:
+                           "/opt/infra/proxy")
+  --domain <domain>        Domain to act on (default: the recorded one)
+  --proxy-container <name> The proxy container's name (default: "proxy-nginx")
+  --proxy-mode <mode>      "container" or "host"; skips runtime detection
+  --renew                  Renew when the certificate is inside the renewal
+                           window
+  --force                  Renew even when it is not due. Spends rate-limit
+                           budget.
+  --email <email>          Registration address (default: INITIAL_ADMIN_EMAIL)
+  --staging                Use Let's Encrypt staging, which is not trusted by
+                           browsers
+  --json                   Print a machine-readable report on stdout
 ```
 
 ### Removing a deployment
@@ -627,6 +717,8 @@ Other flags, from `appctl deploy uninstall --help`:
 Options:
   --root <path>                  Deployment directory (default: "/opt/infra/apps")
   --proxy-root <path>            Shared reverse proxy directory (default: "/opt/infra/proxy")
+  --proxy-container <name>       The proxy container's name (default: "proxy-nginx")
+  --proxy-mode <mode>            "container" or "host"; skips runtime detection
   --dry-run                      Report what would be removed and change nothing
   --drop-database                Also drop the database (needs --confirm-database)
   --confirm-database <name>      The database's own name, typed back
