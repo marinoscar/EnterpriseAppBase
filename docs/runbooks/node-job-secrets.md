@@ -14,7 +14,7 @@ over in exactly one HTTP response, and drops it again when the job settles.
 Design: [`docs/specs/worker-nodes.md`](../specs/worker-nodes.md) (the fleet,
 the claim, the lease, why a node persists no job credential) and
 [`docs/specs/database-backup.md`](../specs/database-backup.md) (what a backup
-is). Running a node: [`docs/deployment/worker-nodes.md`](../deployment/worker-nodes.md).
+is). Running a node: [`docs/runbooks/run-worker-nodes.md`](run-worker-nodes.md).
 A `pg_dump` client/server mismatch: [`postgres-client-version.md`](postgres-client-version.md).
 
 Source of truth for every claim below:

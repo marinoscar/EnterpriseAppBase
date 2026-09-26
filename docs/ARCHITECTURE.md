@@ -212,7 +212,7 @@ Whether a structurally eligible type is actually offered to nodes is a runtime d
 - **Code:** `apps/api/src/nodes/`, `apps/cli/src/node/`, `infra/compose/worker.compose.yml`
 - **UI:** `/admin/settings/workers`
 - **Permissions:** `nodes:read`, `nodes:write`
-- **Read more:** [specs/worker-nodes.md](specs/worker-nodes.md), [deployment/worker-nodes.md](deployment/worker-nodes.md), [runbooks/node-job-secrets.md](runbooks/node-job-secrets.md)
+- **Read more:** [specs/worker-nodes.md](specs/worker-nodes.md), [runbooks/run-worker-nodes.md](runbooks/run-worker-nodes.md), [runbooks/node-job-secrets.md](runbooks/node-job-secrets.md)
 
 ### 5.9 `appctl` CLI
 
@@ -229,7 +229,7 @@ Whether a structurally eligible type is actually offered to nodes is a runtime d
 In a real terminal with no arguments it opens an interactive ink menu. `appctl deploy` writes a state document the API reads for the About page ([§5.15](#515-about-and-deployment-info)).
 
 - **Code:** `apps/cli/src/` (`commands/`, `deploy/`, `node/`, `tui/`)
-- **Read more:** [apps/cli/README.md](../apps/cli/README.md), [specs/vps-deploy.md](specs/vps-deploy.md), [deployment/vps.md](deployment/vps.md)
+- **Read more:** [apps/cli/README.md](../apps/cli/README.md), [specs/vps-deploy.md](specs/vps-deploy.md), [runbooks/deploy-to-vps.md](runbooks/deploy-to-vps.md)
 
 ### 5.10 AI platform
 

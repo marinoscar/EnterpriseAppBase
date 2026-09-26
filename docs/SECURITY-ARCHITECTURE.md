@@ -180,7 +180,7 @@ admin, since `nodes:write` is Admin-only), so the guard confines it.
   equally unreachable with a `nod_` token.
 
 Design: [specs/worker-nodes.md](specs/worker-nodes.md). Operator guide:
-[deployment/worker-nodes.md](deployment/worker-nodes.md).
+[runbooks/run-worker-nodes.md](runbooks/run-worker-nodes.md).
 
 ### Device-flow tokens
 

@@ -8,7 +8,7 @@ was found. `/admin/settings/deployment` redirects to the same page.
 The design (why About is one page, why the endpoint always answers `200`, why
 the document is read leniently) is in
 [`docs/specs/vps-deploy.md`](../specs/vps-deploy.md). Installing and updating
-a deployment is [`docs/deployment/vps.md`](../deployment/vps.md).
+a deployment is [`docs/runbooks/deploy-to-vps.md`](deploy-to-vps.md).
 
 Source of truth for every claim below:
 

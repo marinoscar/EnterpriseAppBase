@@ -1,6 +1,6 @@
 # VPS Deployment (`appctl deploy`)
 
-> **Status:** shipped · **Code:** `apps/cli/src/deploy/`, `apps/cli/src/commands/deploy.ts`, `apps/cli/src/tui/screens/deploy.tsx`, `infra/compose/vps.compose.yml`, `apps/api/src/about/`, `apps/web/src/pages/Admin/AboutPage.tsx` · **API:** `GET /api/admin/about` (see `/api/docs`) · **Admin UI:** `/admin/settings/about` · **Runbooks:** [vps.md](../deployment/vps.md), [deployment-info.md](../runbooks/deployment-info.md) · **Command reference:** [apps/cli/README.md](../../apps/cli/README.md#deploying-to-a-server)
+> **Status:** shipped · **Code:** `apps/cli/src/deploy/`, `apps/cli/src/commands/deploy.ts`, `apps/cli/src/tui/screens/deploy.tsx`, `infra/compose/vps.compose.yml`, `apps/api/src/about/`, `apps/web/src/pages/Admin/AboutPage.tsx` · **API:** `GET /api/admin/about` (see `/api/docs`) · **Admin UI:** `/admin/settings/about` · **Runbooks:** [deploy-to-vps.md](../runbooks/deploy-to-vps.md), [deployment-info.md](../runbooks/deployment-info.md) · **Command reference:** [apps/cli/README.md](../../apps/cli/README.md#deploying-to-a-server)
 
 `appctl deploy` installs, updates, inspects and removes this application on a
 Linux server with Docker. The operator runs it on the server itself. It clones
@@ -475,7 +475,7 @@ PostgreSQL:
    the full pipeline against real Docker.
 
 The operator procedure, prerequisites and troubleshooting are in
-[vps.md](../deployment/vps.md).
+[deploy-to-vps.md](../runbooks/deploy-to-vps.md).
 
 ## History
 

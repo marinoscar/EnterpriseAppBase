@@ -21,8 +21,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
   packages/shared/            # product identity (identity.json) shared by api, web, cli
   docs/
     specs/                    # feature design and rationale
-    runbooks/                 # operator procedures
-    deployment/               # VPS and worker-node guides
+    runbooks/                 # operator procedures (incl. VPS deploy, worker nodes)
   infra/
     compose/
       base.compose.yml        # nginx, api, web; no database
@@ -70,7 +69,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
 | Spec: VPS deploy | [docs/specs/vps-deploy.md](docs/specs/vps-deploy.md) |
 | Spec: worker nodes | [docs/specs/worker-nodes.md](docs/specs/worker-nodes.md) |
 | Runbooks (operator procedures) | [docs/README.md#runbooks](docs/README.md#runbooks) |
-| Deployment guides | [docs/deployment/vps.md](docs/deployment/vps.md), [docs/deployment/worker-nodes.md](docs/deployment/worker-nodes.md) |
+| Runbooks: deploy to a VPS, run worker nodes | [docs/runbooks/deploy-to-vps.md](docs/runbooks/deploy-to-vps.md), [docs/runbooks/run-worker-nodes.md](docs/runbooks/run-worker-nodes.md) |
 | `appctl` CLI command reference | [apps/cli/README.md](apps/cli/README.md) |
 | Recipe: add a job type | [apps/api/src/jobs/handlers/README.md](apps/api/src/jobs/handlers/README.md) |
 | Recipe: use AI in a feature | [apps/api/src/ai/README.md](apps/api/src/ai/README.md) |

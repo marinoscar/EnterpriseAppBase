@@ -328,7 +328,7 @@ interactive menu (**Deploy (this server)**), running the same pipelines with
 the same flags; the runbook describes them.
 
 For the full walkthrough — prerequisites, the manual step after install,
-troubleshooting — see [`docs/deployment/vps.md`](../../docs/deployment/vps.md).
+troubleshooting — see [`docs/runbooks/deploy-to-vps.md`](../../docs/runbooks/deploy-to-vps.md).
 For why it's built this way, see
 [`docs/specs/vps-deploy.md`](../../docs/specs/vps-deploy.md).
 
@@ -500,7 +500,7 @@ URL and ref from the checkout you run them in (override with `--repo` and
 `--ref`), and the environment wizard reads that checkout's own
 `infra/compose/.env.example`. Clone your fork on the server, build `appctl`
 from it, and run `appctl deploy install` there. See
-[`docs/deployment/vps.md`, "Deploying a fork"](../../docs/deployment/vps.md#6-deploying-a-fork).
+[`docs/runbooks/deploy-to-vps.md`, "Deploying a fork"](../../docs/runbooks/deploy-to-vps.md#6-deploying-a-fork).
 
 ### Updating
 
@@ -702,7 +702,7 @@ appctl deploy certs --renew --domain app.example.com
 
 `--force` renews even when the certificate is not due, and spends rate-limit
 budget. Why the window matters, and how automatic renewal is scheduled, is in
-[`docs/deployment/vps.md`, "Inspecting and renewing the certificate directly"](../../docs/deployment/vps.md#10-inspecting-and-renewing-the-certificate-directly).
+[`docs/runbooks/deploy-to-vps.md`, "Inspecting and renewing the certificate directly"](../../docs/runbooks/deploy-to-vps.md#10-inspecting-and-renewing-the-certificate-directly).
 
 Exit codes: `0` reported, or renewed and the proxy reloaded; `1` the
 certificate is due or expired and `--renew` was not passed, or a renewal ran
@@ -747,7 +747,7 @@ the renewal cron entry. Each destructive extra needs its own flag plus that
 resource's real name typed back. `--drop-database` checks its confirmation
 but does not drop the database; drop it yourself. What each step does, and
 why, is in
-[`docs/deployment/vps.md`, "Removing a deployment"](../../docs/deployment/vps.md#11-removing-a-deployment).
+[`docs/runbooks/deploy-to-vps.md`, "Removing a deployment"](../../docs/runbooks/deploy-to-vps.md#11-removing-a-deployment).
 
 Exit codes: `0` removed, or a `--dry-run` report; `2` nothing to uninstall at
 `--root`, a confirmation that does not match, or a storage purge that failed
@@ -965,7 +965,7 @@ dropped when the job settles.
 `install-deps` ships as a **framework**, not a set of real installs: this
 template has no native dependencies, so it provides the ordered-step structure,
 per-step outcomes, distro detection and `--dry-run`, and a fork fills in its own
-steps. See [`docs/deployment/worker-nodes.md`](../../docs/deployment/worker-nodes.md).
+steps. See [`docs/runbooks/run-worker-nodes.md`](../../docs/runbooks/run-worker-nodes.md).
 
 `service install` writes a systemd **user** unit (no root needed) whose name
 and description derive from the CLI and app names. It sets
@@ -1036,7 +1036,7 @@ Only `APPCTL_SERVER_URL` and `APPCTL_TOKEN` are required. Leave
 `APPCTL_NODE_NAME` and `APPCTL_NODE_ID` unset when scaling. Why, and what the
 compose file's `restart`, `stop_grace_period` and exec-form `ENTRYPOINT` are
 for, is in
-[`docs/deployment/worker-nodes.md`, "Run a fleet in containers"](../../docs/deployment/worker-nodes.md#4-run-a-fleet-in-containers).
+[`docs/runbooks/run-worker-nodes.md`, "Run a fleet in containers"](../../docs/runbooks/run-worker-nodes.md#4-run-a-fleet-in-containers).
 
 ### The interactive dashboard
 

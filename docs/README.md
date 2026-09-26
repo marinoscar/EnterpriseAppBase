@@ -47,6 +47,8 @@ In this order:
 
 | Runbook | When you need it |
 |---|---|
+| [runbooks/deploy-to-vps.md](runbooks/deploy-to-vps.md) | Taking an Ubuntu VPS to a running HTTPS deployment with `appctl deploy`, and keeping it current |
+| [runbooks/run-worker-nodes.md](runbooks/run-worker-nodes.md) | Enrolling, running and operating worker nodes with `appctl node` |
 | [runbooks/storage-configuration.md](runbooks/storage-configuration.md) | Setting up object storage, creating the bucket, rotating its key |
 | [runbooks/ai-configuration.md](runbooks/ai-configuration.md) | Turning AI on, choosing the key policy, curating models, switching it off |
 | [runbooks/vapid-keys.md](runbooks/vapid-keys.md) | Generating, enabling, rotating or removing Web Push keys |
@@ -56,15 +58,6 @@ In this order:
 | [runbooks/node-job-secrets.md](runbooks/node-job-secrets.md) | Letting worker nodes take backups with short-lived database roles |
 | [runbooks/rotate-secrets-encryption-key.md](runbooks/rotate-secrets-encryption-key.md) | Rotating or recovering from the loss of `SECRETS_ENCRYPTION_KEY` |
 | [runbooks/deployment-info.md](runbooks/deployment-info.md) | Reading the About page's deployment sections |
-
-## Deployment
-
-Operator guides for running the application outside a dev machine.
-
-| Guide | What it covers |
-|---|---|
-| [deployment/vps.md](deployment/vps.md) | Taking an Ubuntu VPS to a running HTTPS deployment with `appctl deploy`, and keeping it current |
-| [deployment/worker-nodes.md](deployment/worker-nodes.md) | Enrolling, running and operating worker nodes with `appctl node` |
 
 ## Developer recipes in the code
 

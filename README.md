@@ -30,7 +30,7 @@ interactive API reference (Scalar) at `/api/docs`. On top of that stack:
 | Settings framework | Registry-driven hubs at `/settings` and `/admin/settings`; JSONB system and user settings | [Settings UI spec](docs/specs/settings-ui.md) | `/admin/settings`; user `/settings` |
 | Object storage | S3, Cloudflare R2 or S3-compatible, configured at runtime; resumable uploads, profile images | [Spec](docs/specs/storage-providers.md), [runbook](docs/runbooks/storage-configuration.md) | `/admin/settings/storage` |
 | Background job queue | Postgres-backed queue with leases, retries, dedup and throughput insights | [Spec](docs/specs/job-queue.md), [handler recipe](apps/api/src/jobs/handlers/README.md) | `/admin/settings/jobs`, `/admin/settings/jobs/insights` |
-| Worker nodes | Remote machines that claim node-eligible jobs, with `nod_` credentials and per-job secrets | [Spec](docs/specs/worker-nodes.md), [guide](docs/deployment/worker-nodes.md), [secrets runbook](docs/runbooks/node-job-secrets.md) | `/admin/settings/workers` |
+| Worker nodes | Remote machines that claim node-eligible jobs, with `nod_` credentials and per-job secrets | [Spec](docs/specs/worker-nodes.md), [guide](docs/runbooks/run-worker-nodes.md), [secrets runbook](docs/runbooks/node-job-secrets.md) | `/admin/settings/workers` |
 | **AI platform** | Admin-governed, bring-your-own-key AI over OpenAI, Anthropic, Gemini, Azure OpenAI and OpenAI-compatible servers: responses, streaming, structured output, tools, embeddings, images, audio, realtime, background runs, usage reports, and an AI Playground at `/ai` | [Spec](docs/specs/ai-platform.md), [module README](apps/api/src/ai/README.md), [runbook](docs/runbooks/ai-configuration.md) | `/admin/settings/ai`, `/admin/settings/ai/models`, `/admin/settings/ai/usage`; user `/settings/ai` |
 | Notifications | Event registry, email (SMTP), in-app and browser Web Push channels, per-user preferences | [Spec](docs/specs/browser-notifications.md), [VAPID runbook](docs/runbooks/vapid-keys.md) | `/admin/settings/notifications`, `/admin/settings/email`, `/admin/settings/push`; user `/settings/notifications` |
 | Admin broadcasts | Message every active user, now or scheduled, fanned out through the job queue | [Spec](docs/specs/notification-broadcasts.md) | `/admin/settings/broadcasts` |
@@ -183,8 +183,7 @@ EnterpriseAppBase/
 │   └── shared/               # Product identity (name, repo, colours) shared by all apps
 ├── docs/
 │   ├── specs/                # Design and rationale, one file per feature
-│   ├── runbooks/             # Operator procedures
-│   └── deployment/           # VPS and worker-node deployment guides
+│   └── runbooks/             # Operator procedures, including VPS deploy and worker nodes
 ├── infra/
 │   ├── compose/              # base, dev, devdb, otel, prod, test, vps, worker, worker.build (*.compose.yml)
 │   ├── nginx/                # Same-origin routing and CSP
@@ -211,9 +210,9 @@ Coding agents follow [CLAUDE.md](CLAUDE.md).
 ## Deploying
 
 - **VPS:** run `appctl deploy install` on the server. See
-  [docs/deployment/vps.md](docs/deployment/vps.md).
+  [docs/runbooks/deploy-to-vps.md](docs/runbooks/deploy-to-vps.md).
 - **Worker nodes:** run jobs on other machines with `appctl node`. See
-  [docs/deployment/worker-nodes.md](docs/deployment/worker-nodes.md).
+  [docs/runbooks/run-worker-nodes.md](docs/runbooks/run-worker-nodes.md).
 
 ## Troubleshooting
 
