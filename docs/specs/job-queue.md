@@ -2377,6 +2377,19 @@ listener, why the audience is a permission, and why an ordinary retry or
 deferral raises nothing are in
 [`browser-notifications.md` §10](browser-notifications.md#10-operational-events-an-audience-that-is-a-permission-not-a-user).
 
+`BroadcastFailureListener` (`apps/api/src/notifications/broadcasts/
+broadcast-failure.listener.ts`, issue #459) is the same shape applied to a
+feature's own state rather than to an operator notification: on the same
+`job.settled` event it CASes an `admin.broadcast.start`/`admin.broadcast.chunk`
+job's broadcast row `sending` -> `failed` when that job settled permanently
+failed. It is one bounded, single-row, indexed `UPDATE`, so it does not need
+to itself be a queue job (CLAUDE.md rule 1's "duration worth accounting for"
+does not apply) — the same class as `JobFailureNotifier` above and
+`NodeSecretRevoker` (`apps/api/src/nodes/ops/node-secret-revoker.ts`, epic
+#345). See [`notification-broadcasts.md` §4](notification-broadcasts.md#4-lifecycle-and-the-state-machine)
+for the full mechanism, including the one gap this event structurally cannot
+cover (the lease reaper's own give-up never emits it).
+
 ## Rejected alternatives
 
 - **Redis / BullMQ.** A second datastore on a template's default path, paid

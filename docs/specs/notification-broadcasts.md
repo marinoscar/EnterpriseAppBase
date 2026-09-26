@@ -162,11 +162,13 @@ than edge cases discovered later:
 draft --(unreachable in this epic)--> …
 scheduled --[start handler CAS]--> sending --[chunk handler, empty page]--> sent
    |                                  |
-   +--[cancel: status in (scheduled,sending)]--> canceled
-                                       |
-                                  (a handler error sets `failed` via the
-                                   job queue's own retry/terminal path,
-                                   not a broadcast-specific write)
+   |                                  +--[fan-out job settles permanently:
+   |                                      BroadcastFailureListener CAS]--> failed
+   |                                                                         |
+   |                                            [resume: BroadcastsService.resume CAS] |
+   |                                                        sending <-----------+
+   |
+   +--[cancel: status in (scheduled, sending, failed)]--> canceled
 ```
 
 Six statuses (`NotificationBroadcastStatus`): `draft`, `scheduled`,
@@ -178,6 +180,29 @@ transaction Prisma wraps a migration in. Paying for the slot now, while it
 costs nothing, buys the escape hatch for a future "save and finish composing
 later" feature without a migration on a table that by then holds real data.
 Do not remove it as dead code — it is deliberately dead, not left over.
+
+**`sending -> failed` and `failed -> sending` are both compare-and-swaps,
+added by issue #459.** Before #459, a fan-out job (`admin.broadcast.start` or
+`admin.broadcast.chunk`) that spent its attempt or rate-limit budget left the
+broadcast `sending` forever — nothing wrote a terminal status, and the admin
+list showed a send "in progress" that would never progress. `BroadcastFailure-
+Listener` (`broadcast-failure.listener.ts`) closes that: it subscribes to
+`JOB_SETTLED_EVENT` (§5's job queue), and when a fan-out job for a given
+broadcast settles permanently `failed`, it CASes that broadcast `sending` ->
+`failed`, `WHERE status = 'sending'` — so a cancel racing the same failure
+wins if it lands first, and a broadcast already `sent`/`canceled`/`failed` is
+untouched. `lastError` is set to `"<Start|Chunk> job <id> failed permanently
+after <N> attempt(s): <cause>"` and `finishedAt` to the job's own
+`finishedAt` — the moment the fan-out stopped, not "now" if that differs.
+`POST /admin/broadcasts/:id/resume` (`BroadcastsService.resume`) is the way
+back: a CAS `failed` -> `sending` (requiring `audienceCutoff` to be set, so a
+row that was never actually claimed cannot be "resumed" into a no-op),
+clearing `lastError`/`finishedAt` and enqueuing a fresh chunk job
+(`skipDedup: true`, `reason: 'rerun'`) from the persisted cursor. See §9 for
+the full mechanism and its two remaining gaps, and §11 for its tests. It is a
+listener rather than a job for the same reason `JobFailureNotifier` and
+`NodeSecretRevoker` are: one bounded, single-row, indexed UPDATE is not
+"duration worth accounting for" under CLAUDE.md rule 1.
 
 **Every transition that matters is a compare-and-swap, never a
 read-then-write**, because a read-then-write has a real window a concurrent
@@ -195,10 +220,14 @@ await prisma.notificationBroadcast.updateMany({
 ```ts
 // POST /:id/cancel — the recall
 await prisma.notificationBroadcast.updateMany({
-  where: { id, status: { in: ['scheduled', 'sending'] } },
+  where: { id, status: { in: ['scheduled', 'sending', 'failed'] } },
   data: { status: 'canceled', canceledAt: new Date() },
 });
 ```
+
+(`'failed'` since #459 — cancelling a `failed` broadcast is how an operator
+who will not resume it closes the record honestly, rather than leaving it
+sitting as `failed` indefinitely.)
 
 ```ts
 // the chunk handler's terminal write, on an exhausted audience
@@ -343,6 +372,24 @@ out of order behind the throttled recipient is re-sent, not skipped, and the
 duplicate this time is bounded by `BROADCAST_SEND_CONCURRENCY` (5) rather than
 by the chunk size, since only sends already in flight when the refusal landed
 can have gotten past it. §9 has the full mechanism.
+
+**The progress commit is itself a compare-and-swap, on the cursor this
+execution read (issue #459).** `WHERE id = ? AND cursorUserId = <cursor read
+at the top of this run>` (`IS NULL` for the first page). This matters because
+two executions of the fan-out for the same broadcast can legitimately be
+walking it at once: a `resume` (§4) enqueuing a fresh chunk from the
+persisted cursor while an operator, from the Jobs page, separately retries
+the old chunk job that failed — or a lease-expired chunk still finishing
+beside the duplicate that reclaimed its slot. Both read the same cursor and
+therefore send the identical page (that page is the ordinary bounded
+duplicate described above), but only whichever commits first actually moves
+the cursor; the other matches zero rows, logs it, and returns **without**
+enqueuing a successor or writing a finish. Two chains collapse to one within
+the one page they overlapped on, rather than each continuing to double every
+page after it. Losing this race on a throttled page (#456) also returns
+normally instead of throwing `RateLimitError` — the winning chain now owns
+the broadcast, and deferring the loser would only resurrect the duplicate
+that just lost.
 
 ## 6. Per-broadcast channel selection
 
@@ -573,13 +620,57 @@ once the page has stopped wins over the throttle: the chunk returns normally
 without deferring, rather than committing an admin to a cooldown for a
 broadcast they already called off.
 
-**Known limit, unchanged by this issue.** `rateLimitHits` lives on the one
-chunk row that keeps deferring, not on the broadcast — so a chunk throttled
-more than `JOBS_RATELIMIT_MAX_HITS` times (default 10) fails that row
-permanently, the same as any other permanently failed chunk today, leaving
-the broadcast `sending` with its cursor at the last committed prefix until an
-operator intervenes. Making a broadcast recover from that on its own is
-tracked separately.
+`rateLimitHits` lives on the one chunk row that keeps deferring, not on the
+broadcast — so a chunk throttled more than `JOBS_RATELIMIT_MAX_HITS` times
+(default 10) fails that row permanently, the same as any other permanently
+failed chunk. Since issue #459 that is no longer a silent dead end: a
+permanently failed fan-out job (this one, or an ordinary attempt-budget
+exhaustion) is caught by `BroadcastFailureListener` on `JOB_SETTLED_EVENT`
+and flips the broadcast `sending` -> `failed`, with `lastError` naming the
+job, its attempt count and the underlying cause, and `finishedAt` set to when
+the job gave up. An operator sees a `failed` row on the Broadcasts page (not
+a stuck "in progress" one), reads why, and either resumes it (`POST
+/admin/broadcasts/:id/resume`, which flips `failed` back to `sending`, clears
+`lastError`/`finishedAt`, and enqueues a fresh chunk with `skipDedup: true`
+from the persisted cursor) or cancels it (§4). See §4 for the state-machine
+detail and §5 for the cursor compare-and-swap that keeps a resume and a stray
+retry of the old chunk from double-sending more than one page's worth.
+
+**Retrying the failed chunk job from the Jobs page does NOT resume the
+broadcast.** That retry re-runs `BroadcastChunkHandler.process()` against a
+broadcast that is still `failed`, and the handler's status guard (§4, §5) only
+acts on `sending` — every other status, `failed` included, sends nothing and
+returns. The only way back to `sending` is `POST
+/admin/broadcasts/:id/resume`, which is the sole writer of that transition.
+An admin who retries the dead job from the Jobs dashboard sees it succeed
+(having done nothing) and the broadcast still reads `failed`, exactly as
+designed — that job's retry and the broadcast's resume are deliberately two
+different actions.
+
+**Two limits remain, tracked as separate issues rather than papered over
+here.** First (#468): the lease reaper's permanent give-up
+(`JobStuckService`, `jobs/job-stuck.service.ts` phase 1 — a job whose
+executor died on *every* attempt) writes `status: 'failed'` directly and does
+not emit `JOB_SETTLED_EVENT` (see `broadcast-failure.listener.ts`'s own
+header). A chunk that dies that way still strands its broadcast in `sending`
+with nothing to catch it. Second (#469): a start job that fails on a *non-
+final* attempt after it has already claimed the broadcast (its compare-and-
+swap to `sending` committed, but the first-chunk enqueue then threw) leaves
+the broadcast `sending` while the start job itself retries — if that retry
+never succeeds and the job is eventually re-claimed and fails a different
+way, the broadcast can still end up stranded before a terminal `failed` job
+row exists for the listener to react to. Neither is a `failed`-transition bug
+in what #459 shipped; both are gaps in what settles far enough upstream to
+notice.
+
+**The approximate delivery window closes and reopens with `failed`/resume
+(#459).** The `[startedAt, finishedAt ?? now]` window below treats a
+`failed` row's `finishedAt` as the moment the fan-out stopped, so the window
+for a `failed` broadcast is closed and stable rather than still counting
+against "now." A resume clears `finishedAt`, and the window reopens to "now"
+until the resumed fan-out itself finishes, fails again, or is cancelled;
+`startedAt` never moves, so the window still spans the whole broadcast,
+pause included, rather than restarting at the resume.
 
 **The SSE per-process boundary matters more here than for a single-recipient
 event.** `notification-stream.service.ts`'s per-process fan-out (no replay,
@@ -707,10 +798,16 @@ screen.
 | A retried chunk resumes from the persisted cursor rather than replaying earlier pages | `broadcast-chunk.handler.spec.ts`, `describe('idempotence under at-least-once delivery')` |
 | Every database error in either handler propagates (throws to fail) rather than being swallowed | Both handler specs, `describe('throw to fail')` |
 | Literal routes (`/audience`, `/test`) resolve ahead of `/:id` through the real Nest router | `apps/api/test/broadcasts/broadcasts.integration.spec.ts`, `describe('literal routes resolve before :id')` |
-| All seven routes require Admin + the correct `broadcasts:read`/`broadcasts:write` permission | `broadcasts.integration.spec.ts`, `describe('authorization')` |
+| All eight routes require Admin + the correct `broadcasts:read`/`broadcasts:write` permission | `broadcasts.integration.spec.ts`, `describe('authorization')` |
 | `critical: true` without `browser` in `channels` is a 400; the event key is derived and a client-supplied `eventKey` is ignored | `broadcasts.integration.spec.ts`, `describe('POST /admin/broadcasts validation')` |
-| Cancel is a conditional `updateMany` (status in `WHERE`), 404 for a missing row vs. 409 for a wrong-status row, and deletes no queued job row | `apps/api/src/notifications/broadcasts/broadcasts.service.spec.ts`, `describe('cancel')` |
-| Delete refuses with 409 while `sending`; a cancelled or sent broadcast can be deleted | `broadcasts.service.spec.ts`, `describe('remove')`; `broadcasts.integration.spec.ts`'s 409-on-cancel-of-sent case |
+| Cancel is a conditional `updateMany` (status in `WHERE`, `failed` included since #459), 404 for a missing row vs. 409 for a wrong-status row, and deletes no queued job row | `apps/api/src/notifications/broadcasts/broadcasts.service.spec.ts`, `describe('cancel')` |
+| Delete refuses with 409 while `sending`; a cancelled, sent or failed broadcast can be deleted | `broadcasts.service.spec.ts`, `describe('remove')`; `broadcasts.integration.spec.ts`'s 409-on-cancel-of-sent case |
+| A permanently `failed` fan-out job (`admin.broadcast.start` or `admin.broadcast.chunk`) CASes its broadcast `sending` -> `failed` with a prefixed `lastError` and `finishedAt`; matches only `sending` (a broadcast already `sent`/`canceled`/`failed`, or one belonging to a different subject, is untouched); errors inside the listener are caught and logged, never rethrown into the settle path | `apps/api/src/notifications/broadcasts/broadcast-failure.listener.spec.ts` |
+| The chunk handler's progress commit is a CAS on the cursor it read (`IS NULL` for the first page); losing it returns normally with no successor enqueued and no `RateLimitError` thrown, even on a throttled page | `apps/api/src/notifications/broadcasts/handlers/broadcast-chunk.handler.spec.ts` |
+| `BroadcastsService.resume`: CASes `failed` -> `sending` only when `audienceCutoff` is set, clears `lastError`/`finishedAt`, enqueues a fresh chunk with `skipDedup: true` and `reason: 'rerun'`, 404 for a missing row, 409 for any non-`failed` status, and compensates back to `failed` with a `lastError` naming the enqueue failure (then rethrows) if the enqueue itself throws | `apps/api/src/notifications/broadcasts/broadcasts.service.spec.ts`, `describe('resume')` |
+| `POST /admin/broadcasts/:id/resume` requires Admin + `broadcasts:write`, returns the resumed row on 200, and 409s for a broadcast that is not `failed` | `apps/api/test/broadcasts/broadcasts.integration.spec.ts`, `describe('POST /admin/broadcasts/:id/resume')` |
+| Against real Postgres: a permanently failed fan-out job flips its broadcast to `failed` through the real `JobTerminalService` (not a mocked settle event); a cancel racing that failure lands on whichever write commits first; a resume reaches exactly the remainder of the frozen audience; two concurrent fan-out chains for the same broadcast (a resume and a stray retry of the old failed chunk) collapse to one within the page they overlap on | `apps/api/test/broadcasts/broadcast-fanout.db.spec.ts` |
+| The admin Broadcasts page renders a Resume row action (disabled unless `failed` + `broadcasts:write`), its confirm names the bounded duplicate window, the cancel confirm has a `failed` branch, and the detail dialog shows a "Stopped after X of Y" summary on a `failed` row | `apps/web/src/__tests__/pages/Admin/BroadcastsPage.test.tsx` |
 | `sendTest` dispatches to the caller only, writes no row, queues no job | `broadcasts.service.spec.ts`, `describe('sendTest')` |
 | `audience()` counts with the same `audienceWhere()` the fan-out pages with | `broadcasts.service.spec.ts`, `describe('audience')` |
 | The approximate delivery breakdown windows by event key and `[startedAt, finishedAt ?? now]`, and is empty before `startedAt` exists | `broadcasts.service.spec.ts`, `describe('get')` |
