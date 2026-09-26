@@ -35,6 +35,11 @@ ai/
                              stateless). ONLY place `@anthropic-ai/sdk` is imported —
                              `anthropic-sdk-boundary.spec.ts` pins it; `core/no-provider-sdk.spec.ts`
                              and `test/ai/ai-no-sdk-leak.spec.ts` keep every SDK out of the rest.
+    gemini/                  The Phase 3 Gemini adapter (#447; generateContent, `responses` +
+                             `embeddings` ports, stateless, no hosted tools). ONLY place
+                             `@google/genai` is imported — `gemini-sdk-boundary.spec.ts` pins it.
+                             Its classifier is enriched by the model listing's own metadata
+                             (`AiDiscoveredModel.metadata`, `classifyModel`'s optional 2nd arg).
   catalog/                 Model discovery + classification (ai_models table)
     ai-catalog.service.ts    Read/query the catalog
     ai-catalog-refresh.handler.ts   `ai.catalog.refresh` job (server-only)
@@ -189,17 +194,19 @@ stream per input and passes them to the adapter as `ctx.storageInputs`
 OpenAI sends images as `image_url` and uploads files to its Files API,
 deleting them after the response; Anthropic sends images by the same
 presigned URL and documents inline (a base64 PDF or plain text), so nothing
-is uploaded to it. See `docs/specs/ai-platform.md` §5.3.
+is uploaded to it; Gemini sends both images and files inline (base64
+`inlineData`) — a presigned URL is not a `fileData` URI Gemini accepts. See `docs/specs/ai-platform.md` §5.3.
 
 **Stateless providers** (issue #446): an adapter declaring
-`supportsPreviousResponseId: false` (Anthropic) cannot chain onto a stored
+`supportsPreviousResponseId: false` (Anthropic, Gemini) cannot chain onto a stored
 response. `prepare()` refuses a caller's `previousResponseId` with
 `AI_CAPABILITY_UNSUPPORTED` (step 2a, before any key is resolved), and
 `runTools` resends the whole conversation each round instead of chaining —
 the original input plus every round's output replayed with
 `core/conversation.ts`'s `replayOutput`, then the tool outputs. A
 `reasoning` item carries the provider's opaque replay state (Anthropic's
-thinking signature) under the `AI_PROVIDER_STATE` symbol, which
+thinking signature; Gemini's per-part `thoughtSignature`, tagged with the
+part it belongs on) under the `AI_PROVIDER_STATE` symbol, which
 `JSON.stringify` never sees — it survives the in-process hop and nothing
 else. `GET /api/ai/config` publishes the flag per provider
 (`providers[].supportsPreviousResponseId`) so a client resends history
@@ -326,12 +333,14 @@ Two things never leave the facade, both handled by
   implemented) speech returns audio bytes, lists its voices and refuses
   input over 4096 characters, and every error surfaces as an
   `AiError`, never a raw SDK exception. `providers/openai/openai.adapter.conformance.spec.ts`
-  and `providers/anthropic/anthropic.adapter.conformance.spec.ts` are the two
+  `providers/anthropic/anthropic.adapter.conformance.spec.ts` and
+  `providers/gemini/gemini.adapter.conformance.spec.ts` are the three
   worked examples of wiring a real adapter through it over a mocked
-  transport (the real SDK with an injected `fetch`); the Anthropic mock is
-  as stateless as the real API, so its tool round-trip passes only because
-  the kit reads `supportsPreviousResponseId: false` and resends the
-  conversation. `openai.adapter.live.spec.ts` is the separate, opt-in suite
+  transport (the real SDK with an injected `fetch`); the Anthropic and
+  Gemini mocks are as stateless as the real APIs, so their tool round-trips
+  pass only because the kit reads `supportsPreviousResponseId: false` and
+  resends the conversation (and the Gemini 3 mock refuses the resent turn
+  unless its thought signature came back). `openai.adapter.live.spec.ts` is the separate, opt-in suite
   that hits the real OpenAI API. `FakeAiProvider` takes
   `supportsPreviousResponseId: false` to drive the full-history tool loop.
 - **`InMemoryAiKeysPrisma`** (`testing/in-memory-ai-keys-prisma.ts`) backs

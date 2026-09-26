@@ -67,7 +67,9 @@ OpenAI adapter) is an adapter implementation, not a rewrite of the platform.
 Phase 3 proved it: the Anthropic adapter (issue #446, §14.1) fits the same
 contract with one declared, behavioural adapter flag
 (`supportsPreviousResponseId`, §5.7) and no change to any `AiService`
-caller.
+caller, and the Gemini adapter (issue #447, §14.2) — a third API shape —
+fits it with the same flags plus one optional, backward-compatible
+classifier argument (listing metadata, §6).
 
 ## 2. The configuration model
 
@@ -616,7 +618,7 @@ declared fact, and the contract one small widening.
 adapter written before it are unchanged). It is a behavioural flag, not a
 capability: the conversation still works, it travels differently.
 `AiProviderRegistry.supportsPreviousResponseId(id)` is its derivation.
-Anthropic declares `false`.
+Anthropic and Gemini (§14.2) declare `false`.
 
 **A caller's `previousResponseId` is refused, not ignored.** The gate
 pipeline (step 2a, after the provider is known and before any key is
@@ -657,6 +659,18 @@ it. An adapter reads only state whose `provider` is its own id. A stored
 background run drops replayed `reasoning` items entirely (their state is
 in-process only by design).
 
+Gemini (#447) uses the same mechanism for a different shape of state: its
+opaque `thoughtSignature` sits on individual response PARTS — a thought
+summary, a text part, or a function call (Gemini 3 requires the function
+call's signature back on the resent turn). Each signature becomes a
+`reasoning` item whose state names the part it belongs to (`target:
+'thought' | 'text' | 'function_call'`, plus the `callId` for a call); the
+signature-only items carry an empty `summary`. Replaying puts each signature
+back on exactly that part. No contract change was needed: `replayOutput`
+already keeps a reasoning item's state and nothing else's, which is why the
+signature travels on a reasoning item rather than on the `function_call`
+item itself.
+
 Rejected: **ignoring `previousResponseId`** on a stateless provider (a
 silently wrong answer); **an in-process response cache** in the adapter to
 emulate chaining (it breaks across replicas, background runs and restarts,
@@ -673,14 +687,26 @@ not a capability list. Discovery and classification are therefore two
 separate steps, both driven by the admin/org key, both server-only:
 
 1. **Discovery**: `adapter.listModels(ctx)` returns `AiDiscoveredModel[]`
-   (`{ id, ownedBy?, createdAt? }`) — ids only.
-2. **Classification**: `adapter.classifyModel(modelId)` applies a curated,
-   per-provider pattern classifier (e.g. matching `gpt-4o*` against known
-   capability sets) and returns `AiModelCapabilities | null`. `null` means
-   the provider's own classifier does not recognize the id — the row is
-   persisted with `capabilitySource: 'unclassified'`, never guessed at by a
-   generic heuristic that could be silently wrong about what a model can
-   actually do.
+   (`{ id, ownedBy?, createdAt?, metadata? }`) — ids, plus whatever the
+   provider's listing says about each model in `metadata`
+   (`AiDiscoveredModelMetadata`: `displayName`, `inputTokenLimit`,
+   `outputTokenLimit`, `supportedActions`, `thinking`; all optional, #447).
+   OpenAI and Anthropic list ids only; Gemini's listing carries all five.
+2. **Classification**: `adapter.classifyModel(modelId, metadata?)` applies a
+   curated, per-provider pattern classifier (e.g. matching `gpt-4o*` against
+   known capability sets) and returns `AiModelCapabilities | null`. `null`
+   means the provider's own classifier does not recognize the id — the row
+   is persisted with `capabilitySource: 'unclassified'`, never guessed at by
+   a generic heuristic that could be silently wrong about what a model can
+   actually do. The catalog sync hands each id's `metadata` back to the
+   adapter that listed it (the second argument is omitted when there is
+   none, so a one-argument classifier is called exactly as before); a
+   classifier may use it to ENRICH its rule table — the provider's own token
+   limits, or a listing that says a model cannot generate at all — but must
+   answer from the id alone when it is absent, because every request-time
+   lookup and every other caller passes the id only. `metadata` is never
+   stored as-is: what the catalog keeps is the classifier's
+   `AiModelCapabilities`.
 
 Every `ai_models` row carries `capabilitySource: 'catalog' | 'admin_override'
 | 'unclassified'`, and this field is the entire reason catalog refresh is
@@ -1139,6 +1165,9 @@ existing contract, not a platform change, by design:
    recognize (§6). This is deliberately hand-curated per provider, not a
    generic heuristic, because guessing a model's capabilities wrong is worse
    than admitting "unclassified, an administrator should look at this."
+   If the provider's model list carries facts about each model, return them
+   as `AiDiscoveredModel.metadata` and let the classifier enrich its table
+   from its optional second argument (§6, §14.2).
 3. **Declare whether it can chain.** A provider that stores no responses
    declares `supportsPreviousResponseId: false` (§5.7); the runtime then
    refuses a caller's `previousResponseId` and runs the tool loop by
@@ -1167,9 +1196,11 @@ Nothing about the registry, the gate pipeline (§9 of #432), the admin API
 (§9 below) or the HTTP surface (§10 below) changes to add a provider — they
 already operate on `AiProviderAdapter` and `AiProviderRegistry.ids()`.
 
-There are two worked examples, deliberately different in shape:
-`providers/openai/` (the Responses API — every port, chaining) and
-`providers/anthropic/` (the Messages API — `responses` only, stateless).
+There are three worked examples, deliberately different in shape:
+`providers/openai/` (the Responses API — every port, chaining),
+`providers/anthropic/` (the Messages API — `responses` only, stateless) and
+`providers/gemini/` (`generateContent` — `responses` and `embeddings`,
+stateless, part-level replay state, metadata-enriched classifier).
 
 ### 14.1 The Anthropic adapter (Phase 3, issue #446)
 
@@ -1271,6 +1302,176 @@ resends the conversation so far (the completed user and assistant turns) as
 `input` instead of sending `previousResponseId`; for OpenAI it keeps
 chaining.
 
+### 14.2 The Gemini adapter (Phase 3, issue #447)
+
+`apps/api/src/ai/providers/gemini/` mirrors the Anthropic layout — client
+factory, content mapper, stream mapper, embeddings mapper, errors, model
+catalog, module, and a `testing/` mock transport — and is the only place
+`@google/genai` is imported (`gemini-sdk-boundary.spec.ts` pins it). The
+adapter is `'gemini'` / "Google Gemini", carries the `responses` and
+`embeddings` ports, and declares `supportsPreviousResponseId: false`,
+`supportsHostedTools: false` and `fileInputStrategy: { image: 'inline',
+file: 'inline' }`. Images, audio and realtime are absent: Gemini's
+image-output, speech and Live models are a different surface this adapter
+does not map (and its classifier leaves them unclassified).
+
+**The client** is built per call on the Gemini Developer API with the key,
+an explicit base URL, API version `v1beta` and no `retryOptions` (the SDK
+then never retries). Everything the SDK would read from the environment is
+overridden: `vertexai: false` (so `GOOGLE_GENAI_USE_VERTEXAI` can never route
+a call to a Vertex project's credentials), the explicit key
+(`GOOGLE_API_KEY`/`GEMINI_API_KEY` ignored) and base URL
+(`GOOGLE_GEMINI_BASE_URL` ignored). There are still no AI environment
+variables (§2).
+
+**Request mapping.** `instructions` (plus `system`/`developer` messages) →
+`systemInstruction`; `message` items → `user`/`model` turns of parts:
+`text`; `inlineData` (base64) for a `data:` URL or a storage object's
+bytes; `fileData { fileUri, mimeType? }` for any other URL (the MIME type
+from the path's extension when it names one — Gemini is the authority
+otherwise). `function_call` → model `functionCall { name, args, id? }`;
+`function_call_output` → user `functionResponse { name, response, id? }`.
+Gemini matches a response to its call by NAME, so the mapper reads the name
+off the matching `function_call` earlier in the (full-history) input, and
+refuses an output whose call is not there. A JSON-object output is sent as
+the `response`; anything else is wrapped as `{ output }`, the key Gemini
+documents. Consecutive items of one role merge into one turn. Function
+tools → one tool of `functionDeclarations` with `parametersJsonSchema`;
+`toolChoice` → `functionCallingConfig.mode` `AUTO`/`NONE`/`ANY`
+(`required`), a named function → `ANY` + `allowedFunctionNames`.
+`maxOutputTokens` and `temperature` map to the same-named config fields;
+`metadata` is dropped (the API has no free-form request metadata);
+`providerOptions.gemini` is merged into the config last.
+
+**Function-call ids.** Gemini 3 names each call; earlier models do not. An
+id-less call gets a synthetic `callId` (`gemini_call_<uuid>`) so the neutral
+contract's non-empty id holds; a synthetic id is never sent back.
+
+**Reasoning.** With a reasoning effort or a summary requested, the config
+carries `thinkingConfig { includeThoughts: true }` — Gemini then returns
+thought SUMMARIES (parts marked `thought: true`), which become reasoning
+items' `summary`; the raw chain of thought is never returned. An effort is
+expressed per family (`GeminiModelProfile.thinking`):
+- *level* (Gemini 3.x): `thinkingLevel` — Flash all four levels, Pro only
+  `LOW` (minimal/low) and `HIGH` (medium/high);
+- *budget* (Gemini 2.5, and any unclassified model): `thinkingBudget` from
+  `GEMINI_THINKING_BUDGETS` (512 / 2,048 / 8,192 / 24,576 — inside the
+  ranges of 2.5 Pro, Flash and Flash-Lite alike);
+- *none* (Gemini 2.0, 1.5): an effort is `AI_CAPABILITY_UNSUPPORTED`.
+
+**Thought signatures** are replayed through `AI_PROVIDER_STATE` on reasoning
+items that name the part they came from (§5.7) — required by Gemini 3 on a
+function-call turn, which the mock transport enforces as the real API does.
+
+**Structured output** → `responseMimeType: 'application/json'` +
+`responseJsonSchema`, then `parseStructured`, exactly as for the other
+providers. It is refused (`AI_CAPABILITY_UNSUPPORTED`) on Gemini 2.0/1.5
+(not declared `structured_output`) and, on Gemini 2.5, together with
+function tools (that pair is a 400 there; Gemini 3 accepts it). A filtered
+answer to a structured request is `AI_CONTENT_FILTERED` — there is nothing
+to parse.
+
+**Streaming** uses `generateContentStream` (`:streamGenerateContent?alt=sse`).
+Gemini streams partial responses with no terminal event: the first chunk →
+`response.created`; text slices → `output_text.delta`; thought slices →
+`reasoning_summary.delta`; a function call (sent whole) →
+`function_call.arguments.delta` + `output_item.done`; a change of part kind
+closes the open item (`output_item.done`); the end of the stream →
+`response.completed`, but only if a finish reason (or a blocked prompt) was
+seen — a stream that ends without one is truncated and ends with an `error`
+event. Both paths assemble parts with the same `GeminiOutputAssembler` and
+finish with the same function, so a streamed and a non-streamed response
+have identical output items. A consumer that stops early aborts the request
+through the adapter's own abort controller (the SDK's iterator only releases
+its reader).
+
+**Finish reasons.** `MAX_TOKENS` → `length`; `SAFETY`, `RECITATION`,
+`BLOCKLIST`, `PROHIBITED_CONTENT`, `SPII`, `LANGUAGE`, `IMAGE_*` safety →
+`content_filter` (and a prompt blocked with no candidate); malformed or
+unexpected tool calls and `OTHER` → `error`; otherwise `tool_calls` when the
+output holds a call, else `stop`. **Usage**: `inputTokens` =
+`promptTokenCount` + `toolUsePromptTokenCount`; `outputTokens` =
+`candidatesTokenCount` + `thoughtsTokenCount` (thinking is billed as output,
+as OpenAI's and Anthropic's counts include it); `reasoningTokens` =
+`thoughtsTokenCount`; `cachedInputTokens` = `cachedContentTokenCount`.
+
+**Embeddings** (§5.1) via `embedContent` (`:batchEmbedContents` on the wire):
+every input is its own `Content` — a bare string array would be folded by
+the SDK into ONE multimodal content (one vector) for `gemini-embedding-2`;
+`dimensions` → `outputDimensionality`; the answer must be one finite vector
+per input, all one length, or it is `AI_PROVIDER_UNAVAILABLE`. The Gemini API
+reports no token count for embeddings, so `usage` is `{}`.
+
+**Hosted tools are not mapped** (`supportsHostedTools: false`; every hosted
+tool is refused with `AI_CAPABILITY_UNSUPPORTED`). Google Search grounding
+and code execution exist, but neither maps cleanly onto §5.4's result types:
+grounding cites sources through `vertexaisearch.cloud.google.com` redirect
+links rather than the source URLs `AiWebSearchCallResult.sources` and
+`AiUrlCitation.url` promise, and locates citations by UTF-8 byte offsets per
+part where `AiUrlCitation` means character offsets into the message text;
+code execution has no container (`containerId` is required) and returns
+plots as inline bytes where the type carries a URL; and Gemini 2.5 cannot
+combine either tool with function calling. A lossy mapping would be worse
+than an honest refusal — this is a follow-up.
+
+**Storage-object inputs** (§5.3) are `inline` for both modalities: the
+runtime reads the bytes under its 20 MiB / 50 MiB caps and the adapter sends
+them as base64 `inlineData`. A presigned URL is not usable as `fileData`
+(Gemini expects a Files API or Cloud Storage URI there), and the Files API
+would add an upload, a wait for the file to become `ACTIVE` and a delete for
+bytes that fit inline. Nothing is uploaded, so nothing is left to delete;
+Gemini's own inline request-size limit is the authority on a very large
+file, and its 400 is `AI_INVALID_REQUEST`.
+
+**Discovery and classification.** `listModels` pages `GET /v1beta/models`
+(1,000 per page), strips the `models/` prefix, and returns each model's
+listing facts as `metadata` (§6); `verifyKey` lists one model. The
+classifier (`gemini-model-catalog.ts`) is a curated, ordered rule table —
+Gemini 3.x Pro/Flash/Flash-Lite, 2.5 Pro/Flash/Flash-Lite, 2.0 Flash /
+Flash-Lite, 1.5 Pro/Flash, and the embedding models
+(`gemini-embedding-*`, `text-embedding-004`) — that deliberately leaves
+image-output, TTS, Live/native-audio, computer-use and robotics variants and
+the non-Gemini families (Imagen, Veo, Gemma, AQA, LearnLM) unclassified. The
+listing metadata then enriches it: the provider's `inputTokenLimit` /
+`outputTokenLimit` replace the table's limits; a `supportedActions` list
+that lacks the method a profile needs (`generateContent`, or
+`embedContent`/`batchEmbedContents`) makes the id unclassified, whatever its
+name suggests; and an id no rule knows is still classified when the listing
+is clear — a `gemini-*` model supporting `generateContent` gets the generic
+current-generation profile (reasoning only if `thinking` says so), a model
+supporting `embedContent` the embedding profile. Aliases such as
+`gemini-flash-latest` classify this way. Every generative Gemini model
+declares `vision_input` and `file_input`; none declares `hosted_tools`.
+
+**Errors** (`gemini-errors.ts`). The SDK throws one typed error, `ApiError
+{ status, message }`, whose message is Google's JSON error body (or, for an
+error object mid-stream, `got status: <STATUS>. <json>`). Only three facts
+are read from it — the canonical `status`, `ErrorInfo.reason` and
+`RetryInfo.retryDelay` — and only those, the HTTP status and nothing of the
+provider's text reach `details`.
+
+| Gemini answer | `AiErrorCode` |
+|---|---|
+| 400 `INVALID_ARGUMENT` with reason `API_KEY_INVALID` (Gemini's answer to a bad key) | `AI_KEY_INVALID` |
+| 401 `UNAUTHENTICATED`, 403 `PERMISSION_DENIED` | `AI_KEY_INVALID` |
+| 404 `NOT_FOUND` | `AI_MODEL_NOT_REACHABLE` |
+| 429 `RESOURCE_EXHAUSTED` | `AI_RATE_LIMITED`, `retryAfterMs` from `RetryInfo` |
+| 408, 499, 5xx (`INTERNAL`, `UNAVAILABLE`, `DEADLINE_EXCEEDED`) | `AI_PROVIDER_UNAVAILABLE` (with the retry delay when named) |
+| any other 4xx (`INVALID_ARGUMENT`, `FAILED_PRECONDITION`, ...) | `AI_INVALID_REQUEST` |
+| the caller's signal aborted the request | `AI_PROVIDER_UNAVAILABLE`, `details.aborted` |
+| the client's own timeout aborted it | `AI_PROVIDER_UNAVAILABLE`, `details.transport: "timeout"` |
+| `fetch` failed | `AI_PROVIDER_UNAVAILABLE`, `details.transport: "connection"` |
+| anything else (a malformed SSE chunk, ...) | `AI_PROVIDER_UNAVAILABLE` |
+
+**Conformance.** `gemini.adapter.conformance.spec.ts` runs the unchanged kit
+twice over a mock transport injected into the real SDK: Gemini 2.5 (id-less
+calls, embeddings with `dimensions`) and Gemini 3 (named calls whose
+`thoughtSignature` the mock requires back). The mock validates what the real
+API validates: the bad-key 400, unknown fields, alternating turns starting
+with a user turn, a function-response turn immediately after its call turn
+with one response per call, `thinkingConfig` only on thinking models, no
+JSON response together with function calling on Gemini 2.5.
+
 ### HTTP surface
 
 **Admin** (`/api/admin/ai/*`, `@ApiTags('AI Administration')`):
@@ -1296,7 +1497,7 @@ every consumer-facing route (as opposed to `/api/admin/ai/*`'s
 
 | Method & path | Auth | Behaviour |
 |---|---|---|
-| `GET /api/ai/config` | `@Auth()` | `{ enabled, keyPolicy, allowBackgroundRuns, hostedTools:{ web_search, file_search, code_interpreter, image_generation, mcp }, providers:[{ id, displayName, enabled, hasOrgKey, supportsPreviousResponseId }] }` — `supportsPreviousResponseId: false` (Anthropic) means send the conversation as `input`; `previousResponseId` is refused (§5.7). When `enabled=false`: `{ enabled:false, keyPolicy, allowBackgroundRuns:false, hostedTools:{ …all false }, providers:[] }`. Never includes hints or keys. Reachable even while `ai.enabled=false` (§8). |
+| `GET /api/ai/config` | `@Auth()` | `{ enabled, keyPolicy, allowBackgroundRuns, hostedTools:{ web_search, file_search, code_interpreter, image_generation, mcp }, providers:[{ id, displayName, enabled, hasOrgKey, supportsPreviousResponseId }] }` — `supportsPreviousResponseId: false` (Anthropic, Gemini) means send the conversation as `input`; `previousResponseId` is refused (§5.7). When `enabled=false`: `{ enabled:false, keyPolicy, allowBackgroundRuns:false, hostedTools:{ …all false }, providers:[] }`. Never includes hints or keys. Reachable even while `ai.enabled=false` (§8). |
 
 **User keys and usable models** (`/api/ai/*`, all
 `@UseGuards(AiEnabledGuard)`, `@Auth({ permissions:[PERMISSIONS.AI_USE] })`):
@@ -1423,4 +1624,5 @@ every consumer-facing route (as opposed to `/api/admin/ai/*`'s
 | The conformance kit (`describeAiProviderConformance`) passes against `FakeAiProvider` | `apps/api/src/ai/testing/fake-ai-provider.conformance.spec.ts` |
 | Storage-object inputs: ownership/modality/size/strategy gates, delivery by presigned URL and by Files API upload with provider-side deletion (success, failure, stream end), queued runs storing only the id, and no presigned URL in any response, row or log line | `apps/api/src/ai/runtime/ai-file-inputs.spec.ts`, `apps/api/src/ai/providers/openai/openai-file-inputs.spec.ts`, `apps/api/test/ai/ai-file-inputs.integration.spec.ts`, `apps/api/test/ai/ai-secret-egress.integration.spec.ts` |
 | Stateless providers (#446): a caller's `previousResponseId` refused before any key is resolved, `runTools` resending full history with reasoning state replayed and never serialised, the Anthropic adapter passing the conformance kit (forced-tool and native structured outputs) over a mock as stateless as the real API, its mapping/stream/error/classifier tables, and both providers registered under every #435 guard suite | `apps/api/src/ai/runtime/ai-tool-loop.spec.ts`, `apps/api/src/ai/providers/anthropic/*.spec.ts`, `apps/api/src/common/schemas/settings-parity.spec.ts`, `apps/api/test/ai/*.spec.ts` |
+| The Gemini adapter (#447): the conformance kit (unchanged) passing over a mock as strict as the real API, including Gemini 3 thought-signature replay and the embeddings port; the mapping, stream, embeddings, error and classifier tables, the classifier's enrichment from listing metadata, the catalog handing that metadata to `classifyModel`, `@google/genai` confined to its folder, and three providers registered under every #435 guard suite | `apps/api/src/ai/providers/gemini/*.spec.ts`, `apps/api/src/ai/catalog/ai-catalog.service.spec.ts`, `apps/api/src/common/schemas/settings-parity.spec.ts`, `apps/api/test/ai/*.spec.ts` |
 | Embeddings: one vector per input in order, `dimensions` honoured, a model without `embeddings` → `AI_CAPABILITY_UNSUPPORTED`, > 256 inputs → `AI_INVALID_REQUEST`, one `operation: 'embeddings'` usage row; the #435 key-policy and secret-egress suites drive `POST /api/ai/embeddings` | `apps/api/src/ai/providers/openai/openai-embeddings.spec.ts`, `apps/api/src/ai/runtime/ai-embed.spec.ts`, `apps/api/test/ai/ai-embeddings.integration.spec.ts`, the conformance kit's `embeddings.*` scenarios |
