@@ -273,6 +273,12 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
     getSecret,
     userKeys,
     addUserKey,
+    /** Remove every key `userId` has stored. */
+    removeUserKeys(userId: string) {
+      for (let i = db.keys.length - 1; i >= 0; i -= 1) {
+        if (db.keys[i].userId === userId) db.keys.splice(i, 1);
+      }
+    },
     /** Change the policy; the config cache is dropped so the next call sees it. */
     setPolicy(patch: Partial<AiPolicy>) {
       Object.assign(policy, patch);
