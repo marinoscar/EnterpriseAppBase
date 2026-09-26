@@ -192,6 +192,22 @@ you're deploying to, which turns on the DNS and certificate checks.
 behalf — you SSH in yourself, with your own credentials, and everything below
 runs **on the VPS**.
 
+**Everything in this section also has a screen in `appctl`'s interactive
+menu** (run `appctl` with no arguments, in a real terminal, then choose
+"deploy this server"), driving the exact same `install`/`update`/`doctor`
+pipelines described below rather than a second implementation of them. An
+**Advanced** step lets you set the root, proxy root, port, proxy container
+and proxy mode — pre-filled with the recorded or default values, one Enter to
+keep them. Doctor results are grouped into failed/warnings/passed, each
+failure or warning with its remedy shown beneath it. Because the TUI holds
+the terminal and cannot prompt you mid-run the way the command line does, the
+install/update forms ask the create-database, bootstrap-proxy,
+skip-renewal and skip-OAuth-check questions up front, as yes/no fields. While
+a deploy runs, the screen shows the run journal's path live; if it fails, it
+shows the step that failed, that step's last output lines, and the exact
+command to re-run from there (`--resume`, for `install`) — with no secret in
+it.
+
 1. **SSH into the VPS.**
 
 2. **Clone the repository you want to deploy** (your fork, if you have one —

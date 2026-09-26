@@ -246,6 +246,20 @@ pointing straight at one deployment's own directory, so pass it explicitly
 box. See the runbook's section on running more than one application for the
 detail.
 
+**Everything below is also reachable from the interactive menu's "deploy this
+server" screens** (`doctor`, `install`, `update`), which run the exact same
+pipelines through the same flags — never a second implementation. An
+**Advanced** step (root, proxy root, port, proxy container, proxy mode) opens
+pre-filled with the recorded or default values and "Use these" selected, so
+one Enter keeps the common path exactly as short as it was. Doctor results
+render grouped by failed/warnings/passed, each with its remedy, using the same
+glyphs the subcommand prints. The install/update forms ask the same
+`--create-database`/`--bootstrap-proxy`/`--skip-renewal`/`--skip-oauth-check`
+questions as yes/no fields, since the TUI cannot prompt mid-run. While a
+deploy runs, the screen shows the journal path live; on failure it shows the
+step that failed, its last output lines, and the exact re-run command
+(including `--resume` for `install`) with no secret in it.
+
 For the full walkthrough — prerequisites, the manual step after install,
 troubleshooting — see [`docs/deployment/vps.md`](../../docs/deployment/vps.md).
 For why it's built this way, see
