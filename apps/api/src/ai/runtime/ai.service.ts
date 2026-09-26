@@ -35,6 +35,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { Injectable, Logger } from '@nestjs/common';
+import type { z } from 'zod';
 import { type Span, SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
 
 import { resolveServiceName } from '../../common/otel/service-name';
@@ -45,11 +46,20 @@ import { AiError } from '../core/ai-error';
 import type { AiCapability } from '../core/capabilities';
 import type { AiCallContext, AiResponsesPort } from '../core/provider-adapter.interface';
 import { AiProviderRegistry } from '../core/provider-registry';
+import { parseStructured } from '../core/structured-output';
 import type { AiResponse, AiResponseRequest, AiStreamEvent } from '../core/types/responses.types';
 import { AiKeyResolver, type AiKeySource } from '../keys/ai-key-resolver.service';
 import type { UsableAiModel } from '../keys/dto/usable-ai-model.dto';
 import { UsableModelsService } from '../keys/usable-models.service';
-import type { AiCallOptions, AiRequest } from './ai-runtime.types';
+import type {
+  AiCallOptions,
+  AiRequest,
+  AiStructuredRequest,
+  AiStructuredResponse,
+  AiToolLoopRequest,
+  AiToolLoopResult,
+} from './ai-runtime.types';
+import { runToolLoop } from './ai-tool-loop';
 import { AiUsageRecorder, type AiUsageStatus } from './ai-usage.recorder';
 
 /** The facade's span — one per provider round-trip. The adapter's own `ai.provider.call` nests inside it. */
@@ -86,6 +96,22 @@ export interface AiUserClient {
    * `error` event and the iterable ends.
    */
   openStream(req: AiRequest, opts?: AiCallOptions): Promise<AsyncIterable<AiStreamEvent>>;
+
+  /**
+   * A response validated against `schema` — `parsed` is typed and always
+   * present. Output that is not JSON or does not match is
+   * `AiError('AI_STRUCTURED_OUTPUT_INVALID')` (502).
+   */
+  respondStructured<S extends z.ZodTypeAny>(
+    req: AiStructuredRequest<S>,
+    opts?: AiCallOptions,
+  ): Promise<AiStructuredResponse<z.output<S>>>;
+
+  /**
+   * The function-calling agent loop (`ai-tool-loop.ts`): up to `maxSteps`
+   * (default 8, max 20) gated round-trips, each with its own usage row.
+   */
+  runTools(req: AiToolLoopRequest, opts?: AiCallOptions): Promise<AiToolLoopResult>;
 }
 
 /** Internal: who a client acts for, and under which job (for usage rows). */
@@ -148,6 +174,12 @@ export class AiService {
       respond: (req, opts) => this.respond(bound, req, opts),
       stream: (req, opts) => this.lazyStream(bound, req, opts),
       openStream: (req, opts) => this.openStream(bound, req, opts),
+      respondStructured: (req, opts) => this.respondStructured(bound, req, opts),
+      runTools: (req, opts = {}) =>
+        runToolLoop((next, callOpts) => this.respond(bound, next, callOpts), req, {
+          userId,
+          signal: opts.signal,
+        }),
     };
   }
 
@@ -157,6 +189,21 @@ export class AiService {
     const call = await this.prepare(scope.userId, req, { streaming: false });
 
     return this.invoke(scope, call, opts);
+  }
+
+  private async respondStructured<S extends z.ZodTypeAny>(
+    scope: AiClientScope,
+    req: AiStructuredRequest<S>,
+    opts: AiCallOptions = {},
+  ): Promise<AiStructuredResponse<z.output<S>>> {
+    const { schema, schemaName, strict, ...rest } = req;
+    const response = await this.respond(
+      scope,
+      { ...rest, structuredOutput: { name: schemaName ?? 'response', schema, strict: strict ?? true } },
+      opts,
+    );
+
+    return response as AiStructuredResponse<z.output<S>>;
   }
 
   /** Steps 6-7 for an already-gated call. */
@@ -173,6 +220,23 @@ export class AiService {
 
       await tracker.finish(failure(error, opts.signal));
       throw error;
+    }
+
+    // Adapters validate structured output themselves; a response they left
+    // unparsed (a truncated answer, say) is validated here, so a caller that
+    // asked for a schema never receives an unvalidated result.
+    const spec = call.request.structuredOutput;
+
+    if (spec && response.parsed === undefined) {
+      try {
+        response = { ...response, parsed: parseStructured(spec.schema, response.outputText) };
+      } catch (err) {
+        const error = toAiError(err, opts.signal);
+
+        // The round-trip happened (and was billed): keep its tokens.
+        await tracker.finish({ status: 'failed', response, errorCode: error.code });
+        throw error;
+      }
     }
 
     await tracker.finish({ status: 'succeeded', response });
