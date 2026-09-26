@@ -4,7 +4,6 @@ import { AiProviderRegistry } from '../core/provider-registry';
 import { FAKE_TEXT_MODEL_CAPABILITIES, FakeAiProvider } from '../testing/fake-ai-provider';
 import { AiConfigAdminService } from './ai-config-admin.service';
 import {
-  AI_CATALOG_REFRESH_JOB_TYPE,
   AiModelsAdminService,
   buildModelWhere,
   toModelView,
@@ -40,7 +39,7 @@ describe('AiModelsAdminService', () => {
     auditEvent: { create: jest.Mock };
   };
   let credentials: { describe: jest.Mock };
-  let jobs: { enqueue: jest.Mock };
+  let catalog: { enqueueRefresh: jest.Mock };
   let service: AiModelsAdminService;
 
   beforeEach(() => {
@@ -56,7 +55,7 @@ describe('AiModelsAdminService', () => {
       auditEvent: { create: jest.fn().mockResolvedValue({}) },
     };
     credentials = { describe: jest.fn().mockResolvedValue({ hint: '••••1234' }) };
-    jobs = { enqueue: jest.fn().mockResolvedValue({ id: 'job-1', status: 'pending' }) };
+    catalog = { enqueueRefresh: jest.fn().mockResolvedValue({ id: 'job-1', status: 'pending' }) };
 
     const registry = new AiProviderRegistry();
     registry.register(new FakeAiProvider({ id: 'openai' }));
@@ -71,7 +70,7 @@ describe('AiModelsAdminService', () => {
     service = new AiModelsAdminService(
       prisma as never,
       credentials as never,
-      jobs as never,
+      catalog as never,
       admin,
     );
   });
@@ -201,20 +200,13 @@ describe('AiModelsAdminService', () => {
   });
 
   describe('refresh', () => {
-    it('enqueues ai.catalog.refresh with the provider as subject and audits', async () => {
+    it('enqueues through AiCatalogService.enqueueRefresh and audits', async () => {
       await expect(service.refresh('openai', 'admin-1')).resolves.toEqual({
         jobId: 'job-1',
         status: 'pending',
       });
 
-      expect(jobs.enqueue).toHaveBeenCalledWith({
-        type: AI_CATALOG_REFRESH_JOB_TYPE,
-        reason: 'rerun',
-        subjectType: 'ai_provider',
-        subjectId: 'openai',
-        payload: { providerId: 'openai' },
-      });
-      expect(AI_CATALOG_REFRESH_JOB_TYPE).toBe('ai.catalog.refresh');
+      expect(catalog.enqueueRefresh).toHaveBeenCalledWith('openai', 'admin-1');
       expect(prisma.auditEvent.create).toHaveBeenCalledWith({
         data: {
           actorUserId: 'admin-1',
@@ -235,7 +227,7 @@ describe('AiModelsAdminService', () => {
       expect((error as ConflictException).getResponse()).toMatchObject({
         details: { reason: 'AI_KEY_REQUIRED', provider: 'openai' },
       });
-      expect(jobs.enqueue).not.toHaveBeenCalled();
+      expect(catalog.enqueueRefresh).not.toHaveBeenCalled();
     });
 
     it('404s for an unregistered provider', async () => {

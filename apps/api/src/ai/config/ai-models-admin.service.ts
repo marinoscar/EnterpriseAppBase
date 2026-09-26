@@ -8,8 +8,8 @@ import {
 import type { AiModel, Prisma } from '@prisma/client';
 
 import { CredentialsService } from '../../credentials/credentials.service';
-import { JobsService } from '../../jobs/jobs.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AiCatalogService } from '../catalog/ai-catalog.service';
 import { aiModelCapabilitiesSchema } from '../core/capabilities';
 import { AiConfigAdminService } from './ai-config-admin.service';
 import { AI_CREDENTIAL_PURPOSE, aiCredentialName } from './ai-credential.constants';
@@ -29,7 +29,9 @@ import {
 // Reads and edits `ai_models` rows directly. Discovery itself — inserting rows,
 // classifying, deprecating — is the catalog sync's job (#427, the
 // `ai.catalog.refresh` handler); this service only lets an administrator act on
-// what discovery found, and ask for another discovery run.
+// what discovery found, and ask for another discovery run — which it queues
+// through `AiCatalogService.enqueueRefresh`, the one place that knows the job's
+// type, subject and payload.
 //
 // The rules it enforces are docs/specs/ai-platform.md §6's:
 //   - enabling is exclusively an administrator's act, and
@@ -40,17 +42,6 @@ import {
 //     never overwrites.
 // =============================================================================
 
-/**
- * The catalog-refresh job type. Declared here rather than imported from the
- * catalog module (#427) so this story has no compile-time dependency on it;
- * the string is permanent once jobs of that type exist, so the two cannot
- * drift without breaking the queue for both.
- */
-export const AI_CATALOG_REFRESH_JOB_TYPE = 'ai.catalog.refresh';
-
-/** `subjectType` of a catalog-refresh job — one refresh per provider at a time (dedup). */
-export const AI_PROVIDER_SUBJECT_TYPE = 'ai_provider';
-
 @Injectable()
 export class AiModelsAdminService {
   private readonly logger = new Logger(AiModelsAdminService.name);
@@ -58,7 +49,7 @@ export class AiModelsAdminService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly credentials: CredentialsService,
-    private readonly jobs: JobsService,
+    private readonly catalog: AiCatalogService,
     private readonly admin: AiConfigAdminService,
   ) {}
 
@@ -186,13 +177,7 @@ export class AiModelsAdminService {
       });
     }
 
-    const job = await this.jobs.enqueue({
-      type: AI_CATALOG_REFRESH_JOB_TYPE,
-      reason: 'rerun',
-      subjectType: AI_PROVIDER_SUBJECT_TYPE,
-      subjectId: provider,
-      payload: { providerId: provider },
-    });
+    const job = await this.catalog.enqueueRefresh(provider, userId);
 
     await this.prisma.auditEvent.create({
       data: {

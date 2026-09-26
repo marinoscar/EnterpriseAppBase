@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
 
 import { CredentialsModule } from '../../credentials/credentials.module';
-import { JobsModule } from '../../jobs/jobs.module';
 import { SettingsModule } from '../../settings/settings.module';
+import { AiCatalogModule } from '../catalog/ai-catalog.module';
 import { AiCoreModule } from '../core/ai-core.module';
 import { AiAdminController } from './ai-admin.controller';
 import { AiConfigAdminService } from './ai-config-admin.service';
@@ -26,7 +26,7 @@ import { AiPublicController } from './ai-public.controller';
 // =============================================================================
 
 @Module({
-  imports: [SettingsModule, CredentialsModule, JobsModule, AiCoreModule],
+  imports: [SettingsModule, CredentialsModule, AiCoreModule, AiCatalogModule],
   controllers: [AiAdminController, AiPublicController],
   providers: [
     AiConfigService,

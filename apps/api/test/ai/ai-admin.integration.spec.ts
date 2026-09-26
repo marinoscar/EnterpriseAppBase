@@ -657,7 +657,7 @@ describe('AI Administration Integration', () => {
           reason: 'rerun',
           subjectType: 'ai_provider',
           subjectId: 'openai',
-          payload: { providerId: 'openai' },
+          payload: { providerId: 'openai', actorUserId: admin.id },
         });
         expect(auditCalls()).toContainEqual(
           expect.objectContaining({ action: 'ai_catalog:refresh_requested', targetType: 'ai_config' }),
