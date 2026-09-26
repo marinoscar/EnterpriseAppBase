@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { AiConfigModule } from '../config/ai-config.module';
 import { AiRuntimeModule } from '../runtime/ai-runtime.module';
 import { AiEmbeddingsController } from './ai-embeddings.controller';
+import { AiImagesController } from './ai-images.controller';
 import { AiResponsesController } from './ai-responses.controller';
 import { AiRunsController } from './ai-runs.controller';
 
@@ -18,6 +19,6 @@ import { AiRunsController } from './ai-runs.controller';
 
 @Module({
   imports: [AiConfigModule, AiRuntimeModule],
-  controllers: [AiResponsesController, AiRunsController, AiEmbeddingsController],
+  controllers: [AiResponsesController, AiRunsController, AiEmbeddingsController, AiImagesController],
 })
 export class AiHttpModule {}

@@ -33,7 +33,9 @@ import { AiRunDto, AiRunStartedDto, type AiRunHttpView } from './dto/ai-response
 // from one that does not exist.
 //
 // The view published here omits the stored request (the prompt) and the job
-// internals; `output` is the completed `AiResponse`. Nothing carries a key.
+// internals; `output` is the completed `AiResponse`, or an image run's stored
+// images (#437 — `POST /api/ai/images*` queue those). Nothing carries a key.
+// Cancel works the same for both kinds of run.
 // =============================================================================
 
 const RUN_ID_PARAM = { name: 'runId', description: 'The run id returned by `POST /api/ai/runs`.' } as const;
@@ -84,8 +86,10 @@ export class AiRunsController {
     summary: 'Get one of my background AI runs',
     description:
       '`status` is `pending`, `running`, `succeeded`, `failed` or `cancelled`. `output` is ' +
-      'the completed response once `succeeded`; `errorCode` (an AI error code) and ' +
-      '`errorMessage` once `failed`. Only your own runs: any other id is a 404.',
+      'the completed response once `succeeded` — or, for an image run started by ' +
+      '`POST /api/ai/images` or `/api/ai/images/edits`, `{ type: "images", storageObjectIds, … }` ' +
+      '(download each with `GET /api/storage/objects/{id}/download`); `errorCode` (an AI error ' +
+      'code) and `errorMessage` once `failed`. Only your own runs: any other id is a 404.',
   })
   @ApiParam(RUN_ID_PARAM)
   @ApiDataResponse(AiRunDto, { description: 'The run' })
