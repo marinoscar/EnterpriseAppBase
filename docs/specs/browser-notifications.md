@@ -591,12 +591,17 @@ and it does not. `EVENT_BROWSER_TEMPLATES` has no entry for `jobs.job_failed`,
 which agrees with the registry rather than shadowing it.
 
 **`jobs.job_failed` is terminal-only.** It is raised on `status === 'failed'`,
-which `JobTerminalService` writes from exactly two places: the attempt budget
-running out (or a caller declaring the job unrunnable), and the rate-limit
-give-up past `jobs.rateLimitMaxHits`. An ordinary retry and an ordinary
-deferral write `status: 'pending'` and **emit nothing at all**, so "terminal
-only" is a property of the emitter rather than something the listener
-reconstructs.
+which is written from three places: `JobTerminalService`'s attempt budget
+running out (or a caller declaring the job unrunnable), its rate-limit
+give-up past `jobs.rateLimitMaxHits`, and — since #468 — the lease reaper's
+own permanent give-up (`JobStuckService`, `docs/specs/job-queue.md` §7.2),
+which now emits `job.settled` for each row it fails through the same shared
+`emitJobSettled` helper. This closed a real gap: a job whose executor died on
+every attempt (an OOM kill, a hard crash each time) previously reached
+`failed` without ever raising this notification. An ordinary retry and an
+ordinary deferral — including the reaper's own requeue phase — write
+`status: 'pending'` and **emit nothing at all**, so "terminal only" is a
+property of the emitter rather than something the listener reconstructs.
 
 ### 10.2 The recipient rule: `notifyPermissionHolders`
 

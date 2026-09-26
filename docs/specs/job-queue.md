@@ -909,6 +909,15 @@ either budget. **A retry emits nothing. A deferral emits nothing.** It is
 always emitted *after* the write, so the database already agrees with the
 event, and it carries the row the write returned.
 
+Since #468, "the terminal branches" is not limited to
+`JobTerminalService`: the lease reaper's own permanent give-up
+(`JobStuckService`'s phase 1, §7.2) is a terminal write too — it stamps
+`failed` on behalf of an executor that will never write that row itself — and
+it emits exactly the same event, through the same shared `emitJobSettled`
+helper (`jobs/job-settled.emit.ts`). Phase 2 (the requeue) is not a
+settlement and still emits nothing, for the same reason a retry doesn't:
+the row goes back to `pending`, not to a terminal state.
+
 **Rejected: emitting on every state change** (`job.running`, `job.retried`,
 `job.deferred`, …). It looks more useful and is strictly less useful, because
 it moves work into every subscriber: a listener that wants to know "did this
@@ -1519,6 +1528,20 @@ these two decisions are one decision seen from two ends.
 Neither phase touches `attempts`. The attempt genuinely happened: the executor
 started the work and died doing it.
 
+**Since #468, phase 1 announces each row it actually changes.** The give-up
+write is `updateManyAndReturn` — one autocommitted `UPDATE … WHERE <still
+stuck> AND id = … RETURNING *` per row — rather than `updateMany`, and every
+row it returns is fed to the same `emitJobSettled` helper the terminal path
+uses (§5.8). This is exactly once across replicas, and for the same
+mechanism that already made this phase safe to run concurrently: under READ
+COMMITTED, a second reaper's identical statement against the same row blocks
+on the row lock, re-checks its `WHERE` once the first commits, finds the row
+no longer "still stuck", and gets `[]` back — so only the write that actually
+changed the row emits for it. The same re-check is what stops the reaper from
+overwriting *and re-announcing* a row a late executor already settled on its
+own. Phase 2 (the requeue) still emits nothing, precisely because it is not a
+terminal write — the row goes back to `pending`, not to `failed`.
+
 ### 7.3 The primitives are extracted, so a control plane can reap
 
 `getStuckThresholdMinutes()`, `stuckRunningWhere()` and `resetStuck()` live in
@@ -1782,7 +1805,7 @@ array in `cron-enqueue-only.spec.ts` in a pull request that argues for it.**
 |---|---|
 | `jobs/tasks/job-stuck-reset.task.ts` | The lease reaper is **what recovers abandoned jobs**. Recovery that depends on the thing it recovers is not recovery: a queue wedged badly enough to strand a reaper job is exactly the queue that needs reaping. |
 | `jobs/tasks/temp-file-janitor.task.ts` | It cleans up after a SIGKILLed worker and sweeps **this process's local disk** (§7.8). A node — or another replica — claiming that job would sweep the wrong filesystem and leave the full one untouched. |
-| `nodes/tasks/node-secret-sweep.task.ts` | It destroys the short-lived PostgreSQL roles brokered to worker nodes (#349), and its own header lists three cases the settle-event path structurally cannot cover — the first being "a job settled by the reaper". Making credential revocation depend on the queue means a wedged queue leaks live database credentials for as long as it stays wedged. The reaper's argument, applied to a security control. |
+| `nodes/tasks/node-secret-sweep.task.ts` | It destroys the short-lived PostgreSQL roles brokered to worker nodes (#349), and its own header lists three cases the settle-event path structurally cannot cover — the first being "a job requeued by the reaper" (the reaper's *own* permanent give-up now emits the event, since #468 — see §7.2 and §5.8). Making credential revocation depend on the queue means a wedged queue leaks live database credentials for as long as it stays wedged. The reaper's argument, applied to a security control. |
 
 **The honest cost, stated once.** Every converted type is server-only by
 derivation (§2), so a `JOBS_WORKER_MODE=system` process still runs all of them
@@ -2387,8 +2410,10 @@ to itself be a queue job (CLAUDE.md rule 1's "duration worth accounting for"
 does not apply) — the same class as `JobFailureNotifier` above and
 `NodeSecretRevoker` (`apps/api/src/nodes/ops/node-secret-revoker.ts`, epic
 #345). See [`notification-broadcasts.md` §4](notification-broadcasts.md#4-lifecycle-and-the-state-machine)
-for the full mechanism, including the one gap this event structurally cannot
-cover (the lease reaper's own give-up never emits it).
+for the full mechanism. The lease reaper's own permanent give-up now emits
+this event too (#468, §7.2), so a chunk whose executor died on every attempt
+fails its broadcast through this same listener, exactly as an ordinary
+in-process failure does.
 
 ## Rejected alternatives
 
@@ -2692,6 +2717,7 @@ throws, and a filesystem sweep.
 | A renewal presenting a `claimToken` that is no longer on the row is refused — the two-replica case #361 exists to close (§6.9) — and a settled or reaped row always carries `claim_token: null` | `test/jobs/job-lease-renewal.db.spec.ts`, `test/jobs/job-claim.db.spec.ts`, `src/jobs/job-lease.service.spec.ts` |
 | The in-process worker renews for the whole of `process()`, on the type's own lease, and its ticker is cancelled by `stop()` | `src/jobs/job.worker.spec.ts` |
 | The give-up phase runs one row at a time so each message names that job's attempts; neither phase writes `attempts` | `src/jobs/job-stuck.service.spec.ts` |
+| The reaper's give-up emits exactly one `job.settled` per row it failed, none for requeues, none when it loses a concurrent race | `src/jobs/job-stuck.service.spec.ts`, `src/jobs/job-settled.emit.spec.ts`, `test/jobs/job-stuck-reset.db.spec.ts` |
 | A settings read that throws falls back to the shipped threshold; a missing `jobs.maxAttempts` falls back to 3 rather than `NaN` | `src/jobs/job-stuck.service.spec.ts` |
 | The reaper runs under **every** worker mode, including `off`, and stops only for `JOBS_REAPER_ENABLED=false` | `src/jobs/tasks/job-stuck-reset.task.spec.ts` |
 | A failed sweep is swallowed rather than rejecting out of the `@Cron` handler | `src/jobs/tasks/job-stuck-reset.task.spec.ts`, and the same for the purge scheduler |

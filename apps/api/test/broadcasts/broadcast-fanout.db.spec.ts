@@ -58,6 +58,7 @@ import { JobTerminalService } from '../../src/jobs/job-terminal.service';
 import { ProviderThrottleService } from '../../src/jobs/provider-throttle.service';
 import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
 import { JOB_SETTLED_EVENT, JobSettledEvent } from '../../src/jobs/events/job-settled.event';
+import { JobStuckService } from '../../src/jobs/job-stuck.service';
 import { BroadcastFailureListener } from '../../src/notifications/broadcasts/broadcast-failure.listener';
 import { BroadcastsService } from '../../src/notifications/broadcasts/broadcasts.service';
 import { BroadcastChunkHandler, BROADCAST_CHUNK_TYPE } from '../../src/notifications/broadcasts/handlers/broadcast-chunk.handler';
@@ -1186,5 +1187,129 @@ describeWithDb('Admin broadcast fan-out (real Postgres)', () => {
       });
       expect(finalState.status).toBe('scheduled');
     });
+  });
+
+  // ===========================================================================
+  // 8. Lease reaper give-up (#468)
+  // ===========================================================================
+  //
+  // Section 7 above proves the TERMINAL path (`JobTerminalService.completeFailed`)
+  // flips a `sending` broadcast to `failed` through a real `BroadcastFailureListener`.
+  // This section proves the OTHER path that can fail a chunk job permanently:
+  // the lease reaper's phase-1 give-up (`JobStuckService.resetStuck`), which
+  // until #468 settled the row silently and never told the listener anything —
+  // exactly the gap `broadcast-failure.listener.ts`'s own header used to
+  // document. Wired end to end here with a REAL `JobStuckService`, a REAL
+  // `EventEmitter2`, and a REAL `BroadcastFailureListener`, over real Postgres.
+  describe('lease reaper give-up (#468)', () => {
+    /** `jobs.maxAttempts` this scenario runs with — 1, so the seeded job is already at its cap. */
+    const MAX_ATTEMPTS = 1;
+    const STUCK_THRESHOLD_MINUTES = 30;
+
+    /**
+     * A real `JobStuckService` whose real `EventEmitter2` is wired to a real
+     * `BroadcastFailureListener` over `client` — the same
+     * "construct the two real objects a `@OnEvent` decorator would otherwise
+     * connect" shape `terminalWithRealListener` uses above for
+     * `JobTerminalService`, applied to the reaper instead.
+     */
+    function reaperWithRealListener(client: PrismaClient) {
+      const config = {
+        get: (key: string) => (key === 'jobs.maxAttempts' ? MAX_ATTEMPTS : undefined),
+      } as unknown as ConfigService;
+      const settings = {
+        getJobsPolicy: async () => ({
+          history: { retentionDays: 30, purgeEnabled: true },
+          stuckThresholdMinutes: STUCK_THRESHOLD_MINUTES,
+        }),
+      } as unknown as SystemSettingsService;
+
+      const emitter = new EventEmitter2();
+      const listener = new BroadcastFailureListener(client as unknown as PrismaService);
+      const events: JobSettledEvent[] = [];
+      emitter.on(JOB_SETTLED_EVENT, (event: JobSettledEvent) => {
+        events.push(event);
+        listener.handleJobSettled(event);
+      });
+
+      const reaper = new JobStuckService(
+        client as unknown as PrismaService,
+        config,
+        settings,
+        new JobHandlerRegistry(),
+        emitter
+      );
+
+      return { reaper, events };
+    }
+
+    /** Polls until the broadcast reaches `status`, or fails the test. */
+    async function waitUntilBroadcastStatus(broadcastId: string, status: string, timeoutMs = 2000) {
+      const deadline = Date.now() + timeoutMs;
+      for (;;) {
+        const row = await clientA.notificationBroadcast.findUniqueOrThrow({
+          where: { id: broadcastId },
+        });
+        if (row.status === status) return row;
+        if (Date.now() > deadline) {
+          throw new Error(
+            `broadcast ${broadcastId} did not reach '${status}' within ${timeoutMs}ms ` +
+              `(currently '${row.status}')`
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+    }
+
+    it(
+      'fails a chunk job the reaper gives up on, flips its broadcast to failed, and leaves ' +
+        'the cursor and dispatch count where the last committed page put them',
+      async () => {
+        const [cursorUserId] = await createUsers(1, 'reaper-cursor');
+        const broadcast = await createBroadcast({ status: 'sending' });
+        await clientA.notificationBroadcast.update({
+          where: { id: broadcast.id },
+          data: { audienceCutoff: new Date(), cursorUserId, recipientsDispatched: 42 },
+        });
+
+        // A `running` chunk job, already at its (1-attempt) cap, with an
+        // EXPIRED lease — signal 3 ("dead owner") alone is enough to make the
+        // reaper reclaim it, regardless of how recently it started.
+        const job = await clientA.job.create({
+          data: {
+            type: BROADCAST_CHUNK_TYPE,
+            subjectType: BROADCAST_SUBJECT_TYPE,
+            subjectId: broadcast.id,
+            status: 'running',
+            reason: 'backfill',
+            attempts: MAX_ATTEMPTS,
+            startedAt: new Date(),
+            leaseExpiresAt: new Date(Date.now() - 60_000),
+          },
+        });
+
+        const { reaper, events } = reaperWithRealListener(clientA);
+
+        const result = await reaper.resetStuck();
+
+        expect(result.failed).toBeGreaterThanOrEqual(1);
+
+        // Exactly one settled event for THIS job — the sweep is global (see
+        // the file header above and this suite's own db-test-support notes),
+        // so other rows left `running` by a concurrently-running suite could
+        // in principle also be reaped in the same pass; what must hold for
+        // this test is that this job's own give-up was announced exactly once.
+        const eventsForThisJob = events.filter((event) => event.jobId === job.id);
+        expect(eventsForThisJob).toHaveLength(1);
+
+        const finalState = await waitUntilBroadcastStatus(broadcast.id, 'failed');
+
+        expect(finalState.lastError).toContain(job.id);
+        expect(finalState.lastError).toContain('lease reaper');
+        // Nobody past the last committed page is marked as sent.
+        expect(finalState.cursorUserId).toBe(cursorUserId);
+        expect(finalState.recipientsDispatched).toBe(42);
+      }
+    );
   });
 });

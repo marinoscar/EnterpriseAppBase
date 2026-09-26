@@ -56,6 +56,7 @@
 
 import { PrismaClient, Prisma } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { JobClaimService } from '../../src/jobs/job-claim.service';
 import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
@@ -184,7 +185,8 @@ describeWithDb('Two executors and the reaper, against real Postgres', () => {
       clientA as unknown as PrismaService,
       config,
       settings,
-      new JobHandlerRegistry()
+      new JobHandlerRegistry(),
+      new EventEmitter2()
     );
 
     await clientA.job.create({ data: { type, reason: 'backfill' } });

@@ -28,6 +28,7 @@
 // =============================================================================
 
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaClient, type Job } from '@prisma/client';
 
 import { DEFAULT_SYSTEM_SETTINGS } from '../../src/common/types/settings.types';
@@ -106,7 +107,13 @@ describeWithDb('Worker-node fleet lifecycle (real Postgres)', () => {
 
     sweep = new NodeFleetSweepHandler(registry, prismaService, lifecycle, config, notifications);
     prune = new NodeFleetPruneHandler(registry, prismaService, lifecycle);
-    reaper = new JobStuckService(prismaService, config, settings, new JobHandlerRegistry());
+    reaper = new JobStuckService(
+      prismaService,
+      config,
+      settings,
+      new JobHandlerRegistry(),
+      new EventEmitter2()
+    );
   });
 
   afterEach(async () => {

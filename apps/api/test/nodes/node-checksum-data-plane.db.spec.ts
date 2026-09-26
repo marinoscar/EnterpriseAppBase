@@ -383,7 +383,8 @@ describeWithDb('example.checksum end to end on a worker node (real Postgres)', (
       {
         getJobsPolicy: async () => ({ ...DEFAULT_SYSTEM_SETTINGS.jobs }),
       } as unknown as SystemSettingsService,
-      registry
+      registry,
+      new EventEmitter2()
     );
 
     const owner = await prisma.user.create({

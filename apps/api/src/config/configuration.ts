@@ -210,8 +210,9 @@ export default () => {
   // `secretSweepEnabled` (#349, epic #345) is the third of the same kind, and
   // its default matters more than the other two. It gates the sweep that
   // revokes per-job credentials the settle-event path missed — and that path
-  // STRUCTURALLY CANNOT cover three cases (a job reaped by an `updateMany`
-  // that emits nothing, a replica that died between settling and revoking, a
+  // STRUCTURALLY CANNOT cover three cases (a job the reaper requeues, which
+  // is not a settlement and emits nothing, a replica that died between
+  // settling and revoking, a
   // `write-failed` terminal outcome), so this is not belt-and-braces. Switched
   // off, a deployment accumulates live database credentials nobody destroys
   // until each one's own expiry catches up. Note it does NOT gate whether

@@ -202,8 +202,7 @@
 // nobody past it is marked as sent. `POST /api/admin/broadcasts/:id/resume`
 // (`BroadcastsService.resume`) flips it back to `sending` and enqueues a fresh
 // chunk (with `skipDedup: true`, per the warning above), which pages from
-// that persisted cursor like any retry. See the listener's header for the one
-// gap (the lease reaper's give-up emits no event).
+// that persisted cursor like any retry.
 //
 // -----------------------------------------------------------------------------
 // CANCEL IS A STATUS, NOT A DELETION

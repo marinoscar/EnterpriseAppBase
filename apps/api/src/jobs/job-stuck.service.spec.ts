@@ -14,7 +14,9 @@
 
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { EventEmitter2 } from '@nestjs/event-emitter';
 
+import { JOB_SETTLED_EVENT, JobSettledEvent } from './events/job-settled.event';
 import { JobExecutionProfile, resetJobProfileWarnings } from './job-execution-profile';
 import { JobHandler } from './job-handler.interface';
 import { JobHandlerRegistry } from './job-handler.registry';
@@ -32,6 +34,8 @@ const HORIZON = new Date('2026-01-01T12:45:00.000Z');
 function makeService(overrides: {
   findMany?: jest.Mock;
   updateMany?: jest.Mock;
+  /** Phase 1's per-row give-up write (#468). Defaults to "changed nothing". */
+  updateManyAndReturn?: jest.Mock;
   config?: Record<string, unknown>;
   jobsPolicy?: jest.Mock;
   /**
@@ -45,7 +49,13 @@ function makeService(overrides: {
   const findMany = overrides.findMany ?? jest.fn().mockResolvedValue([]);
   const updateMany = overrides.updateMany ?? jest.fn().mockResolvedValue({ count: 0 });
 
-  const prisma = { job: { findMany, updateMany } } as unknown as PrismaService;
+  const updateManyAndReturn = overrides.updateManyAndReturn ?? jest.fn().mockResolvedValue([]);
+
+  const prisma = {
+    job: { findMany, updateMany, updateManyAndReturn },
+  } as unknown as PrismaService;
+
+  const events = { emit: jest.fn() };
 
   const config = {
     get: jest.fn((key: string) => (overrides.config ?? { 'jobs.maxAttempts': 3 })[key]),
@@ -67,12 +77,30 @@ function makeService(overrides: {
   }
 
   return {
-    service: new JobStuckService(prisma, config, systemSettings, registry),
+    service: new JobStuckService(
+      prisma,
+      config,
+      systemSettings,
+      registry,
+      events as unknown as EventEmitter2
+    ),
     findMany,
     updateMany,
+    updateManyAndReturn,
+    events,
     systemSettings,
     registry,
   };
+}
+
+/**
+ * A `updateManyAndReturn` mock whose every call "changed" the one row it was
+ * aimed at, echoing that row back (#468).
+ */
+function givesUpEachRow(rows: Array<{ id: string; type: string; attempts: number }>): jest.Mock {
+  return jest.fn(async ({ where }: { where: { id: string } }) =>
+    rows.filter((row) => row.id === where.id).map((row) => ({ ...row, status: 'failed' }))
+  );
 }
 
 /** A handler that exists only to carry (or not carry) a profile. */
@@ -229,23 +257,26 @@ describe('JobStuckService.getStuckThresholdMinutes', () => {
 
 describe('JobStuckService.resetStuck', () => {
   it('fails the rows at or over the attempt cap, one at a time, naming their own count', async () => {
-    const findMany = jest.fn().mockResolvedValue([
+    const stuck = [
       { id: 'job-a', type: 'example.echo', attempts: 3 },
       { id: 'job-b', type: 'example.echo', attempts: 7 },
-    ]);
+    ];
+    const findMany = jest.fn().mockResolvedValue(stuck);
     const updateMany = jest.fn().mockResolvedValue({ count: 1 });
-    const { service } = makeService({ findMany, updateMany });
+    const updateManyAndReturn = givesUpEachRow(stuck);
+    const { service } = makeService({ findMany, updateMany, updateManyAndReturn });
 
     const result = await service.resetStuck();
 
     // Two give-up updates plus the single requeue sweep.
-    expect(updateMany).toHaveBeenCalledTimes(3);
+    expect(updateManyAndReturn).toHaveBeenCalledTimes(2);
+    expect(updateMany).toHaveBeenCalledTimes(1);
     expect(result.failed).toBe(2);
 
-    const [first] = updateMany.mock.calls[0] as [
+    const [first] = updateManyAndReturn.mock.calls[0] as [
       { where: Record<string, unknown>; data: Record<string, unknown> },
     ];
-    const [second] = updateMany.mock.calls[1] as [
+    const [second] = updateManyAndReturn.mock.calls[1] as [
       { where: Record<string, unknown>; data: Record<string, unknown> },
     ];
 
@@ -296,15 +327,17 @@ describe('JobStuckService.resetStuck', () => {
     // The claim-time charge is the ONLY evidence a poison pill leaves behind
     // — the executor died before anything could count the failure — so the
     // reaper must not spend it, refund it, or reset it.
-    const findMany = jest
-      .fn()
-      .mockResolvedValue([{ id: 'job-a', type: 'example.echo', attempts: 3 }]);
+    const stuck = [{ id: 'job-a', type: 'example.echo', attempts: 3 }];
+    const findMany = jest.fn().mockResolvedValue(stuck);
     const updateMany = jest.fn().mockResolvedValue({ count: 1 });
-    const { service } = makeService({ findMany, updateMany });
+    const updateManyAndReturn = givesUpEachRow(stuck);
+    const { service } = makeService({ findMany, updateMany, updateManyAndReturn });
 
     await service.resetStuck();
 
-    for (const call of updateMany.mock.calls) {
+    expect(updateManyAndReturn).toHaveBeenCalledTimes(1);
+
+    for (const call of [...updateManyAndReturn.mock.calls, ...updateMany.mock.calls]) {
       const [{ data }] = call as [{ data: Record<string, unknown> }];
       expect(data).not.toHaveProperty('attempts');
     }
@@ -358,17 +391,18 @@ describe('JobStuckService.resetStuck', () => {
   });
 
   it('judges every row in a sweep against the same pair of instants', async () => {
-    const findMany = jest
-      .fn()
-      .mockResolvedValue([{ id: 'job-a', type: 'example.echo', attempts: 9 }]);
+    const stuck = [{ id: 'job-a', type: 'example.echo', attempts: 9 }];
+    const findMany = jest.fn().mockResolvedValue(stuck);
     const updateMany = jest.fn().mockResolvedValue({ count: 1 });
-    const { service } = makeService({ findMany, updateMany });
+    const updateManyAndReturn = givesUpEachRow(stuck);
+    const { service } = makeService({ findMany, updateMany, updateManyAndReturn });
 
     await service.resetStuck();
 
     const readWhere = findMany.mock.calls[0][0].where as { OR: unknown[] };
-    const failWhere = (updateMany.mock.calls[0][0] as { where: { OR: unknown[] } }).where;
-    const requeueWhere = (updateMany.mock.calls[1][0] as { where: { OR: unknown[] } }).where;
+    const failWhere = (updateManyAndReturn.mock.calls[0][0] as { where: { OR: unknown[] } })
+      .where;
+    const requeueWhere = (updateMany.mock.calls[0][0] as { where: { OR: unknown[] } }).where;
 
     expect(failWhere.OR).toEqual(readWhere.OR);
     expect(requeueWhere.OR).toEqual(readWhere.OR);
@@ -446,13 +480,14 @@ describe('JobStuckService.resetStuck', () => {
     });
 
     it('FAILS a maxAttempts:1 job the reaper finds, naming its own budget', async () => {
-      const findMany = jest
-        .fn()
-        .mockResolvedValue([{ id: 'job-a', type: 'never.retry', attempts: 1 }]);
-      const updateMany = jest.fn().mockResolvedValue({ count: 1 });
+      const stuck = [{ id: 'job-a', type: 'never.retry', attempts: 1 }];
+      const findMany = jest.fn().mockResolvedValue(stuck);
+      const updateMany = jest.fn().mockResolvedValue({ count: 0 });
+      const updateManyAndReturn = givesUpEachRow(stuck);
       const { service } = makeService({
         findMany,
         updateMany,
+        updateManyAndReturn,
         handlers: [handler('never.retry', { maxRuntimeMs: 30_000, maxAttempts: 1 })],
       });
 
@@ -460,7 +495,9 @@ describe('JobStuckService.resetStuck', () => {
 
       expect(result.failed).toBe(1);
 
-      const [failCall] = updateMany.mock.calls[0] as [{ data: Record<string, unknown> }];
+      const [failCall] = updateManyAndReturn.mock.calls[0] as [
+        { data: Record<string, unknown> },
+      ];
 
       expect(failCall.data).toMatchObject({ status: 'failed' });
       // The quoted cap is THIS type's, not the deployment's 3.
@@ -566,12 +603,115 @@ describe('JobStuckService.resetStuck', () => {
     const findMany = jest
       .fn()
       .mockResolvedValue([{ id: 'job-a', type: 'example.echo', attempts: 3 }]);
-    const updateMany = jest
-      .fn()
-      .mockResolvedValueOnce({ count: 0 })
-      .mockResolvedValueOnce({ count: 0 });
-    const { service } = makeService({ findMany, updateMany });
+    const updateMany = jest.fn().mockResolvedValueOnce({ count: 0 });
+    // `UPDATE … RETURNING` changed nothing: the re-asserted `where` no longer
+    // matched, so no row comes back (#468).
+    const updateManyAndReturn = jest.fn().mockResolvedValueOnce([]);
+    const { service } = makeService({ findMany, updateMany, updateManyAndReturn });
 
     await expect(service.resetStuck()).resolves.toEqual({ reset: 0, failed: 0 });
+  });
+
+  // ===========================================================================
+  // The give-up is a settlement, so it is announced (#468)
+  // ===========================================================================
+
+  describe('JOB_SETTLED_EVENT on the phase-1 give-up', () => {
+    beforeEach(() => {
+      // `emitJobSettled` logs through the service's own `Logger` when a
+      // listener throws; silence it here the same way the per-type budget
+      // block above silences `warn`/`log`, so a deliberately-thrown listener
+      // does not spam the test run.
+      jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('emits once per row phase 1 actually changed, each carrying that exact row', async () => {
+      const stuck = [
+        { id: 'job-a', type: 'example.echo', attempts: 3 },
+        { id: 'job-b', type: 'example.echo', attempts: 7 },
+      ];
+      const findMany = jest.fn().mockResolvedValue(stuck);
+      const updateMany = jest.fn().mockResolvedValue({ count: 0 });
+      // Distinct object identities per row, so `event.job === row` is a
+      // meaningful assertion rather than one two `{...spread}` copies would
+      // pass by coincidence.
+      const settledRows = stuck.map((row) => ({ ...row, status: 'failed' }));
+      const updateManyAndReturn = jest.fn(async ({ where }: { where: { id: string } }) =>
+        settledRows.filter((row) => row.id === where.id)
+      );
+      const { service, events } = makeService({ findMany, updateMany, updateManyAndReturn });
+
+      const result = await service.resetStuck();
+
+      expect(result.failed).toBe(2);
+      expect(events.emit).toHaveBeenCalledTimes(2);
+
+      expect(events.emit.mock.calls[0][0]).toBe(JOB_SETTLED_EVENT);
+      expect(events.emit.mock.calls[1][0]).toBe(JOB_SETTLED_EVENT);
+
+      const firstEvent = events.emit.mock.calls[0][1] as JobSettledEvent;
+      const secondEvent = events.emit.mock.calls[1][1] as JobSettledEvent;
+
+      expect(firstEvent).toBeInstanceOf(JobSettledEvent);
+      // The exact row object `updateManyAndReturn` handed back — not a copy,
+      // not a re-read — is what the event carries.
+      expect(firstEvent.job).toBe(settledRows[0]);
+      expect(secondEvent.job).toBe(settledRows[1]);
+    });
+
+    it('emits nothing when updateManyAndReturn returns no rows (lost the race)', async () => {
+      const findMany = jest
+        .fn()
+        .mockResolvedValue([{ id: 'job-a', type: 'example.echo', attempts: 3 }]);
+      const updateMany = jest.fn().mockResolvedValue({ count: 0 });
+      // A late executor (or a faster replica) settled the row first: the
+      // re-asserted `where` no longer matches, so `UPDATE ... RETURNING`
+      // changes and returns nothing.
+      const updateManyAndReturn = jest.fn().mockResolvedValue([]);
+      const { service, events } = makeService({ findMany, updateMany, updateManyAndReturn });
+
+      const result = await service.resetStuck();
+
+      expect(result).toEqual({ reset: 0, failed: 0 });
+      expect(events.emit).not.toHaveBeenCalled();
+    });
+
+    it('never emits on the phase-2 requeue — a requeue is not a settlement', async () => {
+      const updateMany = jest.fn().mockResolvedValue({ count: 4 });
+      const { service, events } = makeService({ updateMany });
+
+      const result = await service.resetStuck();
+
+      expect(result).toEqual({ reset: 4, failed: 0 });
+      expect(events.emit).not.toHaveBeenCalled();
+    });
+
+    it('contains a throwing listener: the rest of phase 1 and phase 2 still run', async () => {
+      const stuck = [
+        { id: 'job-a', type: 'example.echo', attempts: 3 },
+        { id: 'job-b', type: 'example.echo', attempts: 7 },
+      ];
+      const findMany = jest.fn().mockResolvedValue(stuck);
+      const updateMany = jest.fn().mockResolvedValue({ count: 4 });
+      const updateManyAndReturn = givesUpEachRow(stuck);
+      const { service, events } = makeService({ findMany, updateMany, updateManyAndReturn });
+
+      events.emit.mockImplementation(() => {
+        throw new Error('listener blew up');
+      });
+
+      // Neither row's give-up, nor the requeue sweep that follows, is
+      // aborted by the throwing listener.
+      await expect(service.resetStuck()).resolves.toEqual({ reset: 4, failed: 2 });
+
+      expect(updateManyAndReturn).toHaveBeenCalledTimes(2);
+      expect(updateMany).toHaveBeenCalledTimes(1);
+      // The emit was still attempted for both rows, even though both threw.
+      expect(events.emit).toHaveBeenCalledTimes(2);
+    });
   });
 });

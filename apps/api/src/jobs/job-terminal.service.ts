@@ -72,8 +72,8 @@ import { Job, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
 import { computeBackoffMs, JOB_RANDOM } from './backoff.util';
-import { JobSettledEvent, JOB_SETTLED_EVENT } from './events/job-settled.event';
 import { JobClock, JOB_CLOCK, systemJobClock } from './job-clock';
+import { emitJobSettled } from './job-settled.emit';
 import { resolveMaxAttempts } from './job-execution-profile';
 import { JobHandlerRegistry } from './job-handler.registry';
 import { ProviderThrottleService } from './provider-throttle.service';
@@ -604,25 +604,12 @@ export class JobTerminalService {
   }
 
   /**
-   * Announces a genuinely settled job.
-   *
-   * WRAPPED IN try/catch BECAUSE `EventEmitter2` DISPATCHES SYNCHRONOUSLY: a
-   * listener that throws would otherwise throw out of `completeSucceeded`,
-   * into a worker that has already written a correct terminal row, and the
-   * worker would be handling an "error" for a job that finished perfectly.
-   * A listener is a bystander; it must not be able to affect the row or the
-   * slot.
+   * Announces a genuinely settled job. The listener-containment rule (a
+   * listener is a bystander; it must not be able to affect the row or the
+   * slot) lives in `emitJobSettled`, shared with the lease reaper (#468).
    */
   private emitSettled(job: Job): void {
-    try {
-      this.events.emit(JOB_SETTLED_EVENT, new JobSettledEvent(job));
-    } catch (error) {
-      this.logger.error(
-        `A ${JOB_SETTLED_EVENT} listener threw for job ${job.id}; the job's ` +
-          `${job.status} row is unaffected: ` +
-          `${error instanceof Error ? error.message : String(error)}`
-      );
-    }
+    emitJobSettled(this.events, job, this.logger);
   }
 
   /**

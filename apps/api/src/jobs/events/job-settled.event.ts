@@ -32,10 +32,12 @@
 //     agrees with the event. A listener that re-reads the job by id sees the
 //     terminal row, not the running one.
 //   - It is emitted through `EventEmitter2`, which dispatches
-//     SYNCHRONOUSLY to listeners. `JobTerminalService` wraps the emit in
-//     try/catch precisely so a throwing listener cannot affect the row that
-//     was just written — but a listener that BLOCKS still blocks the worker
-//     slot. Do real work in a queued job (there is a queue right here), not
+//     SYNCHRONOUSLY to listeners. Every emitter (`JobTerminalService` and,
+//     since #468, the lease reaper's give-up) goes through `emitJobSettled`
+//     (`jobs/job-settled.emit.ts`), which wraps the emit in try/catch
+//     precisely so a throwing listener cannot affect the row that was just
+//     written — but a listener that BLOCKS still blocks the worker slot (or
+//     the reaper's sweep). Do real work in a queued job (there is a queue right here), not
 //     in a listener.
 //   - The carried `Job` is a snapshot as of the terminal write. It is not
 //     live, and a `failed` job can later be re-run by an operator; the event
