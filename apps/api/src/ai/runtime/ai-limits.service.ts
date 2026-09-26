@@ -240,7 +240,9 @@ export class AiLimitsService {
     const where = {
       userId: call.userId,
       keySource: { in: COUNTED_KEY_SOURCES },
-      createdAt: { gte: new Date(now - AI_LIMIT_MINUTE_MS) },
+      // Strictly after: a call exactly a minute old has just left the window,
+      // the same boundary the local log and `retryAfterMs` use.
+      createdAt: { gt: new Date(now - AI_LIMIT_MINUTE_MS) },
       ...(window.model ? { provider: window.model.provider, modelId: window.model.modelId } : {}),
     };
     const count = await this.prisma.aiUsageEvent.count({ where });
