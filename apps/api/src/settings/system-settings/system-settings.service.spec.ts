@@ -12,6 +12,8 @@ import {
   SystemSettingsValue,
 } from '../../common/types/settings.types';
 import { systemSettingsResponseSchema } from '../dto/system-settings-response.dto';
+import { patchSystemSettingsSchema } from '../dto/update-system-settings.dto';
+import { systemSettingsPatchSchema } from '../../common/schemas/settings.schema';
 
 /**
  * The operations namespaces (#256, epic #254) with their defaults.
@@ -1811,6 +1813,59 @@ describe('SystemSettingsService', () => {
       expect(ai.providers).toEqual({
         openai: { enabled: false, baseUrl: 'https://proxy.internal/v1' },
       });
+    });
+
+    it('removes providers.openai.baseUrl when the patch sends null (#428)', async () => {
+      await service.patchSettings(
+        { ai: { providers: { openai: { baseUrl: null } } } },
+        mockUserId,
+      );
+
+      const ai = writtenAi() as any;
+      expect(ai.providers.openai).toEqual({ enabled: false });
+      expect(JSON.parse(JSON.stringify(ai)).providers.openai).not.toHaveProperty('baseUrl');
+      // Siblings untouched.
+      expect(ai.defaults.maxOutputTokensCap).toBe(2048);
+    });
+
+    it('removes defaults.maxOutputTokensCap when the patch sends null (#428)', async () => {
+      await service.patchSettings(
+        { ai: { defaults: { maxOutputTokensCap: null } } },
+        mockUserId,
+      );
+
+      const ai = writtenAi() as any;
+      expect(ai.defaults).toEqual({ allowBackgroundRuns: true });
+      expect(ai.providers.openai.baseUrl).toBe('https://proxy.internal/v1');
+    });
+
+    it.each([
+      ['wire DTO', patchSystemSettingsSchema],
+      ['canonical patch schema', systemSettingsPatchSchema],
+    ] as const)('%s accepts null for the two optional ai fields (#428)', (_name, schema) => {
+      const body = {
+        ai: { providers: { openai: { baseUrl: null } }, defaults: { maxOutputTokensCap: null } },
+      };
+
+      expect(schema.parse(body)).toEqual(body);
+      // A required field still refuses null.
+      expect(schema.safeParse({ ai: { enabled: null } }).success).toBe(false);
+    });
+
+    it('replaces an optional field with a new value, and keeps it when absent', async () => {
+      await service.patchSettings(
+        {
+          ai: {
+            providers: { openai: { baseUrl: 'https://other.internal/v1' } },
+            defaults: { allowBackgroundRuns: false },
+          },
+        },
+        mockUserId,
+      );
+
+      const ai = writtenAi() as any;
+      expect(ai.providers.openai.baseUrl).toBe('https://other.internal/v1');
+      expect(ai.defaults.maxOutputTokensCap).toBe(2048);
     });
 
     it('carries no API key field through the merge, whatever the caller sends', async () => {
