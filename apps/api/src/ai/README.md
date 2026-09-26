@@ -24,6 +24,7 @@ ai/
     provider-registry.ts     AiProviderRegistry — self-registration, adapterCapabilities()
     structured-output.ts     Zod <-> JSON Schema conversion for structured output
     tools.ts                 defineTool() — function-tool definition + argument validation
+    hosted-tools.ts          Hosted-tool shape, admin gate (AI_TOOL_DISABLED), MCP header secrets
     types/                   AiResponse, AiResponseRequest, AiStreamEvent, media types,
                              file-inputs.types.ts (storage-object inputs: caps, strategies, #441)
   providers/
@@ -53,6 +54,7 @@ ai/
     ai-image-generate.handler.ts  `ai.image.generate` job (server-only, #437) — image runs
     ai-run-request.ts         toStoredRunRequest/fromStoredRunRequest (ai_runs.request JSON)
     ai-image-run-request.ts   an image run's stored request; `request.operation` tells runs apart
+    ai-hosted-outputs.ts      AiHostedOutputSettler — image bytes -> storage seam, MCP header scrub
     ai-tool-loop.ts            runToolLoop — the function-calling agent loop
     ai-usage.recorder.ts       One ai_usage_events row per provider round-trip
   http/                    The consumer HTTP surface (issue #433)
@@ -92,6 +94,7 @@ header comment:
 ```
  1. kill switch                      -> AI_DISABLED
  2. provider enabled + registered    -> AI_PROVIDER_DISABLED
+ 2b. hosted tools: shape, admin switch, MCP host  -> AI_INVALID_REQUEST / AI_TOOL_DISABLED
  3. model enabled / capability match /  AI_MODEL_NOT_ENABLED
     key exists / key reaches model      AI_CAPABILITY_UNSUPPORTED
     (UsableModelsService.assertUsable)  AI_KEY_REQUIRED
@@ -154,6 +157,33 @@ stream per input and passes them to the adapter as `ctx.storageInputs`
 (never in the request, so nothing logged, queued or recorded carries a URL).
 OpenAI sends images as `image_url` and uploads files to its Files API,
 deleting them after the response. See `docs/specs/ai-platform.md` §5.3.
+
+## Hosted tools (issue #442)
+
+`AiResponseRequest.tools` may carry provider-hosted tools — `web_search`,
+`file_search`, `code_interpreter`, `image_generation`, `mcp` — a typed union
+in `core/types/responses.types.ts`. Two gates: the tool type must be switched
+on in `ai.hostedTools` (all off by default; `AI_TOOL_DISABLED`, 403, from
+`core/hosted-tools.ts`, which also enforces `mcpAllowedHosts`), and the model
+must declare `hosted_tools` (step 3). Results come back as `hosted_tool_call`
+items with a typed `result` per tool, and web-search citations as
+`citations` on the message item.
+
+Two things never leave the facade, both handled by
+`runtime/ai-hosted-outputs.ts` on every response and stream event:
+
+- **Image bytes.** An `image_generation` item arrives from the adapter with
+  its bytes in `result.image`; `AiService.persistHostedImage` stores them once
+  per image through `storage/AiOutputWriter` (a `ready` object the user owns,
+  under `ai-outputs/<userId>/<runId|responseId>/`) and publishes only its
+  `storageObjectId`. Storage unavailable publishes `storageObjectId: null`
+  with `storageError: 'AI_STORAGE_UNAVAILABLE'` rather than failing the
+  response.
+- **MCP `headers`.** Secret like a key: sent to the adapter and nowhere
+  else — not the prompt log line, the span (`ai.hosted_tools` names types
+  only), a usage row, or `ai_runs.request` (`startRun` refuses an MCP tool
+  with headers, and the stored shape has no `headers` member). Any header
+  value a server echoes back is replaced by `[REDACTED]`.
 
 ## Streaming, end to end
 

@@ -248,6 +248,7 @@ reference; the full one is `docs/specs/ai-platform.md` §13.
 | `AI_MODEL_NOT_ENABLED` | 403 | The model is unknown, not admin-enabled, or deprecated. | Enable it (or pick an enabled one) on `/admin/settings/ai/models` — §5. |
 | `AI_MODEL_NOT_REACHABLE` | 403 | The model is enabled, but the resolved key can't reach it. | The key's own tier/org restrictions — try `POST /api/ai/keys/:provider/test`, or refresh reachability by re-testing/re-saving the key. |
 | `AI_CAPABILITY_UNSUPPORTED` | 400 | The model or provider lacks a capability the request needs (e.g. structured output, a tool, vision input). | Pick a model/provider that declares it, or drop that part of the request. |
+| `AI_TOOL_DISABLED` | 403 | A hosted tool (web search, file search, code interpreter, image generation, MCP) that is switched off, or an MCP server host outside the allowlist. | §12 — switch the tool on, or add the host, under **Hosted tools** on `/admin/settings/ai`. |
 | `AI_RATE_LIMITED` | 429 | The provider throttled the call. | Transient; for a background run this defers automatically rather than charging an attempt. |
 | `AI_PROVIDER_UNAVAILABLE` | 503 | The provider is unreachable or erroring at the transport level. | A provider-side outage, or `AI_PROVIDER_UNAVAILABLE` after an aborted/cancelled call. Check the provider's own status page. |
 | `AI_CONTENT_FILTERED` | 422 | The provider's own content filter rejected the request or response. | Not a platform bug — the provider refused this specific content. |
@@ -268,3 +269,21 @@ log by construction — but the prompt text itself is the user's, so treat
 this switch the same way you would treat verbose request logging anywhere
 else in the app: on only for as long as you are actively debugging, and off
 by default.
+
+## 12. Hosted tools
+
+Under **Hosted tools** on `/admin/settings/ai` there is one switch per
+provider-hosted tool — web search, file search, code interpreter, image
+generation and remote MCP servers — all **off** on a fresh deployment. Each
+reaches outside this deployment (the open web, a third-party MCP server) and
+is billed per use by the provider on whichever key pays for the call (§6), so
+switch on only what users need. A request naming a switched-off tool is
+refused with `AI_TOOL_DISABLED`; users also need a model that declares
+**Hosted tools** on `/admin/settings/ai/models`.
+
+**Allowed MCP hosts** narrows which servers users may point the model at —
+one hostname per line (`mcp.example.com`), or `*.example.com` for its
+subdomains. Leave it empty to allow any `https://` server (the page warns
+while MCP is on with no list). MCP credentials are never configured here:
+users send them per request in the tool's `headers`, which are never stored,
+logged or returned — and a background run cannot carry them at all.

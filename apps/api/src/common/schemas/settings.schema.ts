@@ -721,6 +721,19 @@ export const AI_KEY_POLICIES = ['byok', 'byok_with_org_fallback'] as const;
 /** Upper bound on `ai.usageRetentionDays` — ten years; anything longer is "forever" in practice. */
 export const AI_USAGE_RETENTION_MAX_DAYS = 3650;
 
+/**
+ * One `ai.hostedTools.mcpAllowedHosts` entry: a hostname (`mcp.example.com`)
+ * or a subdomain wildcard (`*.example.com`). No scheme, port or path — the
+ * scheme is always `https`, and the entry is compared with the URL's host.
+ */
+export const AI_MCP_ALLOWED_HOST_PATTERN =
+  /^(\*\.)?[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+
+/** Most entries `ai.hostedTools.mcpAllowedHosts` may hold. */
+export const AI_MCP_ALLOWED_HOSTS_MAX = 100;
+
+const mcpAllowedHostSchema = z.string().max(253).regex(AI_MCP_ALLOWED_HOST_PATTERN);
+
 /** How the deployment sources a call's API key. See {@link AI_KEY_POLICIES}. */
 export type AiKeyPolicy = (typeof AI_KEY_POLICIES)[number];
 
@@ -776,6 +789,16 @@ export type AiKeyPolicy = (typeof AI_KEY_POLICIES)[number];
  * comfortably past the 90-day window the usage report can show. It is a data
  * retention decision, so it applies whether or not AI is currently enabled.
  *
+ * `hostedTools` (#442) switches each provider-hosted tool type on for the
+ * deployment — web search, file search, code interpreter, image generation
+ * and remote MCP. ALL OFF BY DEFAULT: each one reaches outside this
+ * deployment (the open web, a third-party MCP server) and bills per use, so
+ * it is an administrator's decision, never a side effect of upgrading.
+ * `mcpAllowedHosts` optionally narrows which hosts an MCP `serverUrl` may
+ * name (`*.example.com` for subdomains); empty means any `https` host. It is
+ * a list of HOSTNAMES — MCP credentials travel per request, in the tool's
+ * `headers`, and are never stored here or anywhere else.
+ *
  * NO `.default()` ON ANY FIELD, matching every namespace above it in this
  * file. The defaults live in `DEFAULT_SYSTEM_SETTINGS` (settings.types.ts)
  * and nowhere else.
@@ -795,6 +818,14 @@ export const systemAiSchema = z.object({
   }),
   logPromptContent: z.boolean(),
   usageRetentionDays: z.number().int().min(1).max(AI_USAGE_RETENTION_MAX_DAYS),
+  hostedTools: z.object({
+    web_search: z.boolean(),
+    file_search: z.boolean(),
+    code_interpreter: z.boolean(),
+    image_generation: z.boolean(),
+    mcp: z.boolean(),
+    mcpAllowedHosts: z.array(mcpAllowedHostSchema).max(AI_MCP_ALLOWED_HOSTS_MAX),
+  }),
 });
 
 export type SystemAiValue = z.infer<typeof systemAiSchema>;
@@ -835,6 +866,18 @@ export const systemAiPatchSchema = z.object({
     .optional(),
   logPromptContent: z.boolean().optional(),
   usageRetentionDays: z.number().int().min(1).max(AI_USAGE_RETENTION_MAX_DAYS).optional(),
+  // Field by field; `mcpAllowedHosts` REPLACES wholesale (RFC 7396's rule
+  // for arrays, and `notifications.disabledEvents`' precedent).
+  hostedTools: z
+    .object({
+      web_search: z.boolean().optional(),
+      file_search: z.boolean().optional(),
+      code_interpreter: z.boolean().optional(),
+      image_generation: z.boolean().optional(),
+      mcp: z.boolean().optional(),
+      mcpAllowedHosts: z.array(mcpAllowedHostSchema).max(AI_MCP_ALLOWED_HOSTS_MAX).optional(),
+    })
+    .optional(),
 });
 
 export const systemSettingsSchema = z.object({

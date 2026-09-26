@@ -41,6 +41,19 @@ export const aiPublicConfigSchema = z.object({
    * request (#433). Always false while `enabled` is false.
    */
   allowBackgroundRuns: z.boolean(),
+  /**
+   * Which provider-hosted tool types an administrator has switched on (#442)
+   * — a client offers a tool only when its flag is true (a request naming a
+   * disabled one is `403 AI_TOOL_DISABLED`). All false while `enabled` is
+   * false. Booleans only: the MCP host allowlist is not published.
+   */
+  hostedTools: z.object({
+    web_search: z.boolean(),
+    file_search: z.boolean(),
+    code_interpreter: z.boolean(),
+    image_generation: z.boolean(),
+    mcp: z.boolean(),
+  }),
   /** Every registered provider; empty while `enabled` is false. */
   providers: z.array(aiPublicProviderSchema),
 });

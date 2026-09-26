@@ -2,6 +2,7 @@ import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
 import { AI_REASONING_EFFORTS } from '../../core/capabilities';
+import { aiHostedToolSchema } from '../../core/hosted-tools';
 
 // =============================================================================
 // POST /api/ai/responses, /api/ai/responses/stream, /api/ai/runs — request
@@ -13,11 +14,13 @@ import { AI_REASONING_EFFORTS } from '../../core/capabilities';
 //   * `structuredOutput` carries a JSON SCHEMA (`jsonSchema`), not Zod — an
 //     HTTP client cannot send Zod. `json-schema-structured-output.ts` turns it
 //     into the facade's Zod spec.
-//   * NO `tools`. Function tools execute server-side code, which is what the
-//     in-process `runTools` is for; hosted tools arrive in Phase 2. The object
-//     is `.strict()`, so a body carrying `tools` (or any other unknown key,
-//     such as a `stream` flag) is a 400 rather than silently ignored — a
-//     client should learn that its tools were not sent to the model.
+//   * `tools` holds HOSTED tools only (#442) — web_search, file_search,
+//     code_interpreter, image_generation, mcp — validated by the core's own
+//     `aiHostedToolSchema`. Function tools execute server-side code, which is
+//     what the in-process `runTools` is for: a `{ "type": "function" }` entry
+//     matches no variant and is a 400. The object is `.strict()`, so any other
+//     unknown key (a `stream` flag, say) is a 400 too rather than silently
+//     ignored.
 //
 // Media parts name their bytes by exactly ONE of `url` (a public http(s)
 // URL) or `storageObjectId` (#441: one of the caller's own `ready` storage
@@ -89,6 +92,15 @@ export const aiResponseRequestSchema = z
     instructions: z.string().max(100_000).optional(),
     /** A prompt, or a list of typed input items. */
     input: z.union([z.string().min(1), z.array(inputItemSchema).min(1)]),
+    /**
+     * Provider-hosted tools (web search, file search, code interpreter, image
+     * generation, remote MCP). Each type must be switched on by an
+     * administrator (`403 AI_TOOL_DISABLED` otherwise — `GET /api/ai/config`
+     * lists which are) and the model must support hosted tools. An MCP
+     * `serverUrl` must be `https://`; its `headers` are sent to that server
+     * and never stored or logged (a background run refuses them).
+     */
+    tools: z.array(aiHostedToolSchema).max(16).optional(),
     /** Ask for JSON matching `jsonSchema`; the response then carries a validated `parsed`. */
     structuredOutput: z
       .object({

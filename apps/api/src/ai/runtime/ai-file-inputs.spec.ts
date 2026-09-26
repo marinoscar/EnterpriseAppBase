@@ -412,7 +412,7 @@ describe('AiService — storage-object inputs (#441)', () => {
 
   describe('background runs', () => {
     function handlerFor(h: ReturnType<typeof setup>['h']) {
-      const handler = new AiResponseRunHandler(new JobHandlerRegistry(), h.ai, h.runs);
+      const handler = new AiResponseRunHandler(new JobHandlerRegistry(), h.ai, h.runs, h.outputs);
       const job = (handle: { runId: string; jobId: string }) =>
         ({ id: handle.jobId, type: AI_RESPONSE_RUN_TYPE, payload: { runId: handle.runId } }) as unknown as Job;
 

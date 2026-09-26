@@ -17,6 +17,17 @@
 //   response.completed | response.incomplete-> response.completed
 //   response.failed | error                 -> error
 //
+// HOSTED TOOL PROGRESS (#442). `response.web_search_call.*`,
+// `response.file_search_call.*`, `response.code_interpreter_call.*` (and its
+// `_code.delta`), `response.image_generation_call.*` (partial images
+// included), `response.mcp_call.*` and `response.mcp_list_tools.*` carry only
+// an item id and a phase — no result. They are consumed here on purpose: each
+// hosted call surfaces ONCE, as the `output_item.done` its own
+// `response.output_item.done` produces, carrying the same typed
+// `hosted_tool_call` (status + result) `create` returns. Likewise
+// `response.output_text.annotation.added`: citations arrive on the message's
+// `output_item.done` and on the completed response.
+//
 // `response.incomplete` is terminal too (the turn hit `max_output_tokens` or
 // a content filter): it completes with `finishReason` `length` /
 // `content_filter`, exactly as the same response would from `create`.

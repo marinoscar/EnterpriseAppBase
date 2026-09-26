@@ -82,8 +82,8 @@ describeAiProviderConformance('OpenAiProviderAdapter (mocked transport)', () => 
       },
       responses: {
         model: MODEL,
-        // Hosted tools are Phase 2 (#420).
-        unsupportedRequest: { model: MODEL, input: 'search the web', tools: [{ type: 'web_search' }] },
+        // gpt-4o does not reason: a reasoning effort is refused before any call.
+        unsupportedRequest: { model: MODEL, input: 'think hard', reasoning: { effort: 'high' } },
         failingRequest: { model: BROKEN_MODEL, input: 'anything' },
       },
       embeddings: {

@@ -63,7 +63,9 @@ export interface HarnessModel {
 
 export interface AiRuntimeHarnessOptions {
   /** Merged over an enabled, byok, openai-on, no-cap policy. */
-  policy?: Partial<Omit<AiPolicy, 'providers' | 'defaults'>> & {
+  policy?: Partial<Omit<AiPolicy, 'providers' | 'defaults' | 'hostedTools'>> & {
+    /** Merged over every hosted tool switched off. */
+    hostedTools?: Partial<AiPolicy['hostedTools']>;
     providerEnabled?: boolean;
     baseUrl?: string;
     defaults?: Partial<AiPolicy['defaults']>;
@@ -180,6 +182,15 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
     defaults: { allowBackgroundRuns: true, ...(p.defaults ?? {}) },
     logPromptContent: p.logPromptContent ?? false,
     usageRetentionDays: 180,
+    hostedTools: {
+      web_search: false,
+      file_search: false,
+      code_interpreter: false,
+      image_generation: false,
+      mcp: false,
+      mcpAllowedHosts: [],
+      ...(p.hostedTools ?? {}),
+    },
   };
 
   let orgKey: string | null = opts.orgKey ? HARNESS_ORG_KEY : null;
@@ -290,7 +301,7 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
   const runs = new AiRunsService(prisma as never, jobs as never);
   const inputs = new AiStorageInputResolver(prisma as never, storage.provider);
   const outputs = new AiOutputWriter(prisma as never, storage.provider, storage.storageConfig as never);
-  const ai = new AiService(aiConfig, registry, usableModels, resolver, prisma as never, recorder, runs, inputs);
+  const ai = new AiService(aiConfig, registry, usableModels, resolver, prisma as never, recorder, runs, inputs, outputs);
 
   return {
     ai,

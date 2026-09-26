@@ -7,6 +7,8 @@ import {
   STORAGE_PROVIDER_KINDS,
   AI_KEY_POLICIES,
   AI_USAGE_RETENTION_MAX_DAYS,
+  AI_MCP_ALLOWED_HOST_PATTERN,
+  AI_MCP_ALLOWED_HOSTS_MAX,
 } from '../../common/schemas/settings.schema';
 
 // The request-body schemas deliberately RESTATE `common/schemas/settings.schema.ts`
@@ -179,6 +181,16 @@ const aiSettingsSchema = z.object({
   }),
   logPromptContent: z.boolean(),
   usageRetentionDays: z.number().int().min(1).max(AI_USAGE_RETENTION_MAX_DAYS),
+  hostedTools: z.object({
+    web_search: z.boolean(),
+    file_search: z.boolean(),
+    code_interpreter: z.boolean(),
+    image_generation: z.boolean(),
+    mcp: z.boolean(),
+    mcpAllowedHosts: z
+      .array(z.string().max(253).regex(AI_MCP_ALLOWED_HOST_PATTERN))
+      .max(AI_MCP_ALLOWED_HOSTS_MAX),
+  }),
 });
 
 // Full replacement (PUT)
@@ -338,6 +350,20 @@ export const patchSystemSettingsSchema = z.object({
         .optional(),
       logPromptContent: z.boolean().optional(),
       usageRetentionDays: z.number().int().min(1).max(AI_USAGE_RETENTION_MAX_DAYS).optional(),
+      // #442. Booleans field by field; `mcpAllowedHosts` replaces wholesale.
+      hostedTools: z
+        .object({
+          web_search: z.boolean().optional(),
+          file_search: z.boolean().optional(),
+          code_interpreter: z.boolean().optional(),
+          image_generation: z.boolean().optional(),
+          mcp: z.boolean().optional(),
+          mcpAllowedHosts: z
+            .array(z.string().max(253).regex(AI_MCP_ALLOWED_HOST_PATTERN))
+            .max(AI_MCP_ALLOWED_HOSTS_MAX)
+            .optional(),
+        })
+        .optional(),
     })
     .optional(),
 });

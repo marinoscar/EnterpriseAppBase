@@ -36,6 +36,14 @@ function policy(overrides: Partial<AiPolicy> = {}): AiPolicy {
     defaults: { allowBackgroundRuns: true },
     logPromptContent: false,
     usageRetentionDays: 180,
+    hostedTools: {
+      web_search: false,
+      file_search: false,
+      code_interpreter: false,
+      image_generation: false,
+      mcp: false,
+      mcpAllowedHosts: [],
+    },
     ...overrides,
   };
 }

@@ -243,7 +243,7 @@ describe('OpenAiProviderAdapter', () => {
     it('rejects an unsupported request before any network call', async () => {
       const { adapter, ctx, server } = setup();
       const err = await caught(() =>
-        adapter.responses.create({ model: 'gpt-4o', input: 'x', tools: [{ type: 'code_interpreter' }] }, ctx),
+        adapter.responses.create({ model: 'gpt-4o', input: 'x', reasoning: { effort: 'high' } }, ctx),
       );
 
       expect(err.code).toBe('AI_CAPABILITY_UNSUPPORTED');

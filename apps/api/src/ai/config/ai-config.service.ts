@@ -178,7 +178,19 @@ export class AiConfigService implements OnModuleInit {
 
     if (!policy.enabled) {
       // Nothing is available while AI is off — background runs included.
-      return { enabled: false, keyPolicy: policy.keyPolicy, allowBackgroundRuns: false, providers: [] };
+      return {
+        enabled: false,
+        keyPolicy: policy.keyPolicy,
+        allowBackgroundRuns: false,
+        hostedTools: {
+          web_search: false,
+          file_search: false,
+          code_interpreter: false,
+          image_generation: false,
+          mcp: false,
+        },
+        providers: [],
+      };
     }
 
     const providers = await Promise.all(
@@ -199,6 +211,14 @@ export class AiConfigService implements OnModuleInit {
       enabled: true,
       keyPolicy: policy.keyPolicy,
       allowBackgroundRuns: policy.defaults.allowBackgroundRuns,
+      // Named booleans only — never the host allowlist.
+      hostedTools: {
+        web_search: policy.hostedTools.web_search,
+        file_search: policy.hostedTools.file_search,
+        code_interpreter: policy.hostedTools.code_interpreter,
+        image_generation: policy.hostedTools.image_generation,
+        mcp: policy.hostedTools.mcp,
+      },
       providers,
     };
   }

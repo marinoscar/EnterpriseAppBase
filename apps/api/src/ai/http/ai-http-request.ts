@@ -19,6 +19,7 @@ export function toAiRequest(body: AiResponseRequestInput): AiRequest {
   if (body.provider !== undefined) request.provider = body.provider;
   if (body.model !== undefined) request.model = body.model;
   if (body.instructions !== undefined) request.instructions = body.instructions;
+  if (body.tools !== undefined) request.tools = body.tools;
   if (body.structuredOutput) request.structuredOutput = fromJsonSchemaStructuredOutput(body.structuredOutput);
   if (body.reasoning !== undefined) request.reasoning = body.reasoning;
   if (body.maxOutputTokens !== undefined) request.maxOutputTokens = body.maxOutputTokens;

@@ -87,6 +87,12 @@ export function aiErrorCopy(error: AiErrorInfo): AiErrorCopy {
         body: 'The selected model does not support an option in this request. Turn the option off or pick another model.',
         severity: 'warning',
       };
+    case 'AI_TOOL_DISABLED':
+      return {
+        title: "This tool isn't enabled",
+        body: 'Your administrator has not switched this tool on for this application. Turn it off in the request and try again.',
+        severity: 'warning',
+      };
     case 'AI_CONTENT_FILTERED':
       return {
         title: 'Blocked by the content filter',

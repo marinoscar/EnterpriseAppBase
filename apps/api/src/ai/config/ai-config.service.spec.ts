@@ -11,6 +11,14 @@ function policy(overrides: Partial<AiPolicy> = {}): AiPolicy {
     defaults: { allowBackgroundRuns: true },
     logPromptContent: false,
     usageRetentionDays: 180,
+    hostedTools: {
+      web_search: false,
+      file_search: false,
+      code_interpreter: false,
+      image_generation: false,
+      mcp: false,
+      mcpAllowedHosts: [],
+    },
     ...overrides,
   };
 }
@@ -201,6 +209,50 @@ describe('AiConfigService', () => {
       await expect(service.describePublic()).resolves.toMatchObject({ allowBackgroundRuns: false });
     });
 
+    it('publishes each hosted tool switch as a boolean, never the MCP host allowlist (#442)', async () => {
+      getAiPolicy.mockResolvedValue(
+        policy({
+          hostedTools: {
+            web_search: true,
+            file_search: false,
+            code_interpreter: true,
+            image_generation: false,
+            mcp: true,
+            mcpAllowedHosts: ['secret-host.example.com'],
+          },
+        }),
+      );
+
+      const view = await service.describePublic();
+
+      expect(view.hostedTools).toEqual({
+        web_search: true,
+        file_search: false,
+        code_interpreter: true,
+        image_generation: false,
+        mcp: true,
+      });
+      expect(JSON.stringify(view)).not.toContain('secret-host');
+    });
+
+    it('reports every hosted tool off while AI is off, whatever is stored (#442)', async () => {
+      getAiPolicy.mockResolvedValue(
+        policy({
+          enabled: false,
+          hostedTools: {
+            web_search: true,
+            file_search: true,
+            code_interpreter: true,
+            image_generation: true,
+            mcp: true,
+            mcpAllowedHosts: [],
+          },
+        }),
+      );
+
+      expect(Object.values((await service.describePublic()).hostedTools)).toEqual([false, false, false, false, false]);
+    });
+
     it('returns no providers while AI is off', async () => {
       getAiPolicy.mockResolvedValue(policy({ enabled: false, keyPolicy: 'byok_with_org_fallback' }));
 
@@ -208,6 +260,7 @@ describe('AiConfigService', () => {
         enabled: false,
         keyPolicy: 'byok_with_org_fallback',
         allowBackgroundRuns: false,
+        hostedTools: { web_search: false, file_search: false, code_interpreter: false, image_generation: false, mcp: false },
         providers: [],
       });
       expect(describe_).not.toHaveBeenCalled();
@@ -222,6 +275,7 @@ describe('AiConfigService', () => {
         enabled: true,
         keyPolicy: 'byok',
         allowBackgroundRuns: true,
+        hostedTools: { web_search: false, file_search: false, code_interpreter: false, image_generation: false, mcp: false },
         providers: [{ id: 'openai', displayName: 'Fake AI', enabled: true, hasOrgKey: true }],
       });
       expect(JSON.stringify(view)).not.toContain('123');

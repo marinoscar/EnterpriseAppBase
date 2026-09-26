@@ -60,6 +60,14 @@ export const mockAiAdminConfig: AiAdminConfig = {
   keyPolicy: 'byok',
   logPromptContent: false,
   defaults: { maxOutputTokensCap: 4096, allowBackgroundRuns: true },
+  hostedTools: {
+    web_search: false,
+    file_search: false,
+    code_interpreter: false,
+    image_generation: false,
+    mcp: false,
+    mcpAllowedHosts: [],
+  },
   providers: [
     {
       id: 'openai',

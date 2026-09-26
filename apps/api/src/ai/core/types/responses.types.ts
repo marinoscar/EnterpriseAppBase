@@ -19,6 +19,7 @@ import type { z } from 'zod';
 
 import type { AiErrorCode } from '../ai-error';
 import type { AiReasoningEffort } from '../capabilities';
+import type { AiBinaryPayload } from './media.types';
 
 export type AiMessageRole = 'user' | 'assistant' | 'system' | 'developer';
 
@@ -51,10 +52,78 @@ export interface AiFunctionTool<P extends z.ZodTypeAny = z.ZodTypeAny> {
   strict?: boolean;
 }
 
-/** A tool the PROVIDER executes (web search, code interpreter, ...). */
-export type AiHostedToolType = 'web_search' | 'file_search' | 'code_interpreter' | 'mcp';
+/**
+ * The tools the PROVIDER executes inside one response (issue #442): live web
+ * search, file search over provider-side vector stores, sandboxed code
+ * execution, image generation and remote MCP servers. Each is gated twice —
+ * the model must declare `hosted_tools` AND an administrator must have
+ * switched that tool type on (`ai.hostedTools.<type>`, all off by default) —
+ * see `AiService.prepare` and `core/hosted-tools.ts`.
+ */
+export const AI_HOSTED_TOOL_TYPES = [
+  'web_search',
+  'file_search',
+  'code_interpreter',
+  'image_generation',
+  'mcp',
+] as const;
 
-export type AiHostedTool = { type: AiHostedToolType; options?: Record<string, unknown> };
+export type AiHostedToolType = (typeof AI_HOSTED_TOOL_TYPES)[number];
+
+export interface AiWebSearchTool {
+  type: 'web_search';
+  searchContextSize?: 'low' | 'medium' | 'high';
+  /** Approximate location to bias results toward (ISO-3166 alpha-2 `country`). */
+  userLocation?: { country?: string; city?: string };
+}
+
+export interface AiFileSearchTool {
+  type: 'file_search';
+  /** Provider-side vector store ids to search (at least one). */
+  vectorStoreIds: string[];
+  maxResults?: number;
+}
+
+export interface AiCodeInterpreterTool {
+  type: 'code_interpreter';
+  /** The sandbox; only a provider-managed `auto` container is modelled. */
+  container?: { type: 'auto' };
+}
+
+export interface AiImageGenerationTool {
+  type: 'image_generation';
+  /** Provider-validated, e.g. `1024x1024` or `auto`. */
+  size?: string;
+  /** Provider-validated, e.g. `low` / `medium` / `high` / `auto`. */
+  quality?: string;
+}
+
+export interface AiMcpTool {
+  type: 'mcp';
+  /** A short label the model and the output items name the server by. */
+  serverLabel: string;
+  /** MUST be `https://`; the host must pass `ai.hostedTools.mcpAllowedHosts` when that list is set. */
+  serverUrl: string;
+  /** Restrict the model to these of the server's tools. */
+  allowedTools?: string[];
+  requireApproval?: 'never' | 'always';
+  /**
+   * Sent to the MCP server with each request (typically `Authorization`).
+   *
+   * ⚠ SECRET MATERIAL. Header values are never logged, never put on a span or
+   * a usage row, never stored in `ai_runs.request` (a background run carrying
+   * them is refused), never part of an `AiError`, and scrubbed from the
+   * response should the server echo one back (`AiService`).
+   */
+  headers?: Record<string, string>;
+}
+
+export type AiHostedTool =
+  | AiWebSearchTool
+  | AiFileSearchTool
+  | AiCodeInterpreterTool
+  | AiImageGenerationTool
+  | AiMcpTool;
 
 export type AiTool = AiFunctionTool | AiHostedTool;
 
@@ -88,11 +157,106 @@ export interface AiResponseRequest<S extends z.ZodTypeAny = z.ZodTypeAny> {
   providerOptions?: Record<string, Record<string, unknown>>;
 }
 
+/** A web-search citation on a message: `text.slice(startIndex, endIndex)` is what it supports. */
+export interface AiUrlCitation {
+  url: string;
+  title: string;
+  startIndex: number;
+  endIndex: number;
+}
+
+export interface AiMessageOutputItem {
+  type: 'message';
+  text: string;
+  /** Web sources the text cites (hosted `web_search`), in the provider's order. */
+  citations?: AiUrlCitation[];
+}
+
+/** `web_search`: what was searched and the sources consulted. */
+export interface AiWebSearchCallResult {
+  queries: string[];
+  sources: Array<{ url: string }>;
+}
+
+/** `file_search`: the queries run and the chunks retrieved (when the provider returned them). */
+export interface AiFileSearchCallResult {
+  queries: string[];
+  results: Array<{ fileId?: string; filename?: string; score?: number; text?: string }>;
+}
+
+/** `code_interpreter`: the code run and what it printed or drew. */
+export interface AiCodeInterpreterCallResult {
+  code: string | null;
+  containerId: string;
+  outputs: Array<{ type: 'logs'; logs: string } | { type: 'image'; url: string }>;
+}
+
+/**
+ * `image_generation`: the generated image.
+ *
+ * `image` holds the raw BYTES between the adapter and the facade ONLY — the
+ * facade's hosted-output settler (`runtime/ai-hosted-outputs.ts`) always
+ * removes it before a response leaves the runtime, so no API response, SSE
+ * frame or `ai_runs.output` row ever carries image data inline.
+ * `storageObjectId` is the user-owned storage object the image was persisted
+ * as, or `null` when it could not be stored — `storageError` then says why.
+ */
+export interface AiImageGenerationCallResult {
+  storageObjectId: string | null;
+  /** Set when the image was generated but could not be stored. */
+  storageError?: 'AI_STORAGE_UNAVAILABLE';
+  mimeType?: string;
+  revisedPrompt?: string;
+  size?: string;
+  quality?: string;
+  image?: AiBinaryPayload;
+}
+
+/** `mcp`: one of the three things a remote MCP server contributes to a response. */
+export type AiMcpCallResult =
+  | {
+      kind: 'call';
+      serverLabel: string;
+      name: string;
+      arguments: string;
+      output: string | null;
+      error: string | null;
+    }
+  | {
+      kind: 'list_tools';
+      serverLabel: string;
+      tools: Array<{ name: string; description?: string }>;
+      error: string | null;
+    }
+  | { kind: 'approval_request'; serverLabel: string; name: string; arguments: string };
+
+/** Result shape per hosted tool type. */
+export interface AiHostedToolResults {
+  web_search: AiWebSearchCallResult;
+  file_search: AiFileSearchCallResult;
+  code_interpreter: AiCodeInterpreterCallResult;
+  image_generation: AiImageGenerationCallResult;
+  mcp: AiMcpCallResult;
+}
+
+/** A provider-executed tool call, discriminated by `tool`. */
+export type AiHostedToolCallItem = {
+  [T in AiHostedToolType]: {
+    type: 'hosted_tool_call';
+    /** The provider's id for this output item. */
+    id?: string;
+    tool: T;
+    /** Provider status, e.g. `in_progress`, `searching`, `completed`, `failed`. */
+    status: string;
+    result?: AiHostedToolResults[T];
+  };
+}[AiHostedToolType];
+
 export type AiOutputItem =
-  | { type: 'message'; text: string }
+  | AiMessageOutputItem
   | { type: 'reasoning'; summary: string[] }
   | { type: 'function_call'; callId: string; name: string; arguments: string }
-  | { type: 'hosted_tool_call'; tool: string; status: string; result?: unknown };
+  | AiHostedToolCallItem;
 
 export interface AiUsage {
   inputTokens?: number;

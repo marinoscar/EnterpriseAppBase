@@ -103,6 +103,14 @@ export const systemSettingsResponseSchema = z.object({
     }),
     logPromptContent: z.boolean(),
     usageRetentionDays: z.number().int(),
+    hostedTools: z.object({
+      web_search: z.boolean(),
+      file_search: z.boolean(),
+      code_interpreter: z.boolean(),
+      image_generation: z.boolean(),
+      mcp: z.boolean(),
+      mcpAllowedHosts: z.array(z.string()),
+    }),
   }),
   updatedAt: z.iso.datetime(),
   updatedBy: z

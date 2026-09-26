@@ -49,6 +49,14 @@ function build(c: Omit<Case, 'expected'>) {
     defaults: { allowBackgroundRuns: true },
     logPromptContent: false,
     usageRetentionDays: 180,
+    hostedTools: {
+      web_search: false,
+      file_search: false,
+      code_interpreter: false,
+      image_generation: false,
+      mcp: false,
+      mcpAllowedHosts: [],
+    },
   };
   const aiConfig = new AiConfigService(
     { getAiPolicy: jest.fn(async () => policy) } as never,

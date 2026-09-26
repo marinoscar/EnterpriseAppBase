@@ -41,6 +41,7 @@ function reasoningMultimodal(efforts: AiReasoningEffort[]): AiModelCapabilities 
       'responses',
       'reasoning',
       'tools',
+      'hosted_tools',
       'structured_output',
       'streaming',
       'vision_input',
@@ -60,9 +61,15 @@ const REASONING_TEXT: AiModelCapabilities = {
   reasoningEfforts: O_SERIES_EFFORTS,
 };
 
-/** A non-reasoning multimodal chat model (gpt-4o, gpt-4.1, gpt-5-chat). */
+/**
+ * A non-reasoning multimodal chat model (gpt-4o, gpt-4.1, gpt-5-chat). It and
+ * the reasoning multimodal family above carry `hosted_tools` (#442): the
+ * Responses API offers them web search, file search, code interpreter,
+ * image generation and remote MCP. An individual model that lacks one is
+ * refused by OpenAI itself; an administrator can override the chip.
+ */
 const CHAT_MULTIMODAL: AiModelCapabilities = {
-  capabilities: ['responses', 'tools', 'structured_output', 'streaming', 'vision_input', 'file_input'],
+  capabilities: ['responses', 'tools', 'hosted_tools', 'structured_output', 'streaming', 'vision_input', 'file_input'],
   inputModalities: ['text', 'image', 'file'],
   outputModalities: ['text'],
 };

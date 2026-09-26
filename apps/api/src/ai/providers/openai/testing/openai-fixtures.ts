@@ -50,6 +50,88 @@ export function functionCallItem(name: string, args: string, callId = nextId('ca
   } as ResponseOutputItem;
 }
 
+// ---- hosted tools (#442) -------------------------------------------------------
+
+/** A message whose text carries `url_citation` annotations (web search). */
+export function citedMessageItem(
+  parts: Array<{ text: string; citations?: Array<{ url: string; title: string; start: number; end: number }> }>,
+): ResponseOutputItem {
+  return {
+    id: nextId('msg'),
+    type: 'message',
+    role: 'assistant',
+    status: 'completed',
+    content: parts.map((part) => ({
+      type: 'output_text' as const,
+      text: part.text,
+      annotations: (part.citations ?? []).map((c) => ({
+        type: 'url_citation' as const,
+        url: c.url,
+        title: c.title,
+        start_index: c.start,
+        end_index: c.end,
+      })),
+    })),
+  } as ResponseOutputItem;
+}
+
+export function webSearchCallItem(query: string, sources: string[] = []): ResponseOutputItem {
+  return {
+    id: nextId('ws'),
+    type: 'web_search_call',
+    status: 'completed',
+    action: { type: 'search', query, sources: sources.map((url) => ({ type: 'url', url })) },
+  } as ResponseOutputItem;
+}
+
+export function fileSearchCallItem(queries: string[], results: Array<Record<string, unknown>> | null): ResponseOutputItem {
+  return { id: nextId('fs'), type: 'file_search_call', status: 'completed', queries, results } as ResponseOutputItem;
+}
+
+export function codeInterpreterCallItem(code: string, logs: string, imageUrl?: string): ResponseOutputItem {
+  return {
+    id: nextId('ci'),
+    type: 'code_interpreter_call',
+    status: 'completed',
+    code,
+    container_id: 'cntr_1',
+    outputs: [{ type: 'logs', logs }, ...(imageUrl ? [{ type: 'image', url: imageUrl }] : [])],
+  } as ResponseOutputItem;
+}
+
+export function imageGenerationCallItem(bytes: Uint8Array, extra: Record<string, unknown> = {}): ResponseOutputItem {
+  return {
+    id: nextId('ig'),
+    type: 'image_generation_call',
+    status: 'completed',
+    result: Buffer.from(bytes).toString('base64'),
+    output_format: 'png',
+    ...extra,
+  } as ResponseOutputItem;
+}
+
+export function mcpCallItem(name: string, args: string, output: string | null, error: unknown = null): ResponseOutputItem {
+  return {
+    id: nextId('mcp'),
+    type: 'mcp_call',
+    server_label: 'docs',
+    name,
+    arguments: args,
+    output,
+    error,
+    status: error ? 'failed' : 'completed',
+  } as ResponseOutputItem;
+}
+
+export function mcpListToolsItem(tools: Array<{ name: string; description?: string }>): ResponseOutputItem {
+  return {
+    id: nextId('mcpl'),
+    type: 'mcp_list_tools',
+    server_label: 'docs',
+    tools: tools.map((tool) => ({ ...tool, input_schema: {} })),
+  } as ResponseOutputItem;
+}
+
 export interface ResponseFixtureOptions {
   id?: string;
   model?: string;

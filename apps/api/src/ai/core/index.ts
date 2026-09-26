@@ -9,3 +9,4 @@ export * from './types/file-inputs.types';
 export * from './provider-registry';
 export * from './structured-output';
 export * from './tools';
+export * from './hosted-tools';

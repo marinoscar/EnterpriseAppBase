@@ -21,13 +21,14 @@ import {
   HARNESS_USER_KEY,
   type AiRuntimeHarnessOptions,
 } from '../testing/ai-runtime-harness';
+import { FAKE_TEXT_MODEL_CAPABILITIES } from '../testing/fake-ai-provider';
 import { AiResponseRunHandler } from './ai-response-run.handler';
 import { AI_RESPONSE_RUN_TYPE } from './ai-runs.service';
 
 function setup(opts: AiRuntimeHarnessOptions = {}) {
   const h = createAiRuntimeHarness(opts);
   const registry = new JobHandlerRegistry();
-  const handler = new AiResponseRunHandler(registry, h.ai, h.runs);
+  const handler = new AiResponseRunHandler(registry, h.ai, h.runs, h.outputs);
   const jobFor = (handle: { runId: string; jobId: string }) =>
     ({ id: handle.jobId, type: AI_RESPONSE_RUN_TYPE, payload: { runId: handle.runId } }) as unknown as Job;
   const row = (runId: string) => h.runRows.find((r) => r.id === runId)!;
@@ -190,6 +191,69 @@ describe('AiResponseRunHandler', () => {
       expect(h.fake.calls[0].aborted).toBe(true);
       expect(row(handle.runId).status).toBe('cancelled');
       expect(h.usageEvents).toEqual([expect.objectContaining({ status: 'cancelled' })]);
+    });
+
+    describe('hosted image_generation outputs (#442)', () => {
+      const imageRun = () =>
+        setup({
+          models: [
+            {
+              modelId: HARNESS_MODEL,
+              capabilities: {
+                ...FAKE_TEXT_MODEL_CAPABILITIES,
+                capabilities: [...FAKE_TEXT_MODEL_CAPABILITIES.capabilities, 'hosted_tools'],
+              },
+            },
+          ],
+          policy: { hostedTools: { image_generation: true } },
+          fake: {
+            hostedTools: ['image_generation'],
+            responses: () => ({
+              output: [
+                {
+                  type: 'hosted_tool_call',
+                  id: 'ig_1',
+                  tool: 'image_generation',
+                  status: 'completed',
+                  result: { storageObjectId: null, mimeType: 'image/png', image: { data: new Uint8Array([1, 2, 3]), mimeType: 'image/png' } },
+                },
+              ],
+            }),
+          },
+        });
+
+      it('stores the image under the run id and records its object id in the output', async () => {
+        const { h, handler, jobFor, row } = imageRun();
+        const handle = await h.ai
+          .forUser(HARNESS_USER)
+          .startRun({ model: HARNESS_MODEL, input: 'draw', tools: [{ type: 'image_generation' }] });
+
+        await handler.process(jobFor(handle));
+
+        expect(h.storage.objects).toHaveLength(1);
+        expect(h.storage.objects[0].storageKey.startsWith(`ai-outputs/${HARNESS_USER}/${handle.runId}/`)).toBe(true);
+        const output = row(handle.runId).output as AiResponse;
+        expect(output.output[0]).toMatchObject({ result: { storageObjectId: h.storage.objects[0].id } });
+        expect(JSON.stringify(output)).not.toContain('"data"');
+      });
+
+      it('discards the stored image when the run was cancelled while it ran', async () => {
+        const { h, handler, jobFor, row } = imageRun();
+        const handle = await h.ai
+          .forUser(HARNESS_USER)
+          .startRun({ model: HARNESS_MODEL, input: 'draw', tools: [{ type: 'image_generation' }] });
+        const create = h.fake.responses!.create;
+        h.fake.responses!.create = async (req, ctx) => {
+          const response = await create(req, ctx);
+          await h.runs.cancel(HARNESS_USER, handle.runId);
+          return response;
+        };
+
+        await handler.process(jobFor(handle));
+
+        expect(row(handle.runId).status).toBe('cancelled');
+        expect(h.storage.objects).toHaveLength(0);
+      });
     });
 
     it('kill switch off at process time: run failed with AI_DISABLED, the job does NOT fail', async () => {
