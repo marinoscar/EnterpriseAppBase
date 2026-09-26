@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "app": {
-    "name": "EnterpriseAppBase",
+    "name": "acme-app",
     "version": "1.6.0",
     "commitSha": "4e7a1c9b2d3f5a6e8c0b1d2f3a4b5c6d7e8f9a0b",
     "ref": "main"
