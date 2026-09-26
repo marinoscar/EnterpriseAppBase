@@ -122,6 +122,7 @@ interface AiFormState {
   logPromptContent: boolean;
   maxOutputTokensCap: string;
   allowBackgroundRuns: boolean;
+  allowRealtime: boolean;
   hostedTools: Record<AiHostedToolType, boolean>;
   /** One host per line, as typed. */
   mcpAllowedHosts: string;
@@ -182,6 +183,8 @@ function toFormState(config: AiAdminConfig): AiFormState {
     maxOutputTokensCap:
       config.defaults.maxOutputTokensCap === null ? '' : String(config.defaults.maxOutputTokensCap),
     allowBackgroundRuns: config.defaults.allowBackgroundRuns,
+    // Absent from an API older than #449 — read as off.
+    allowRealtime: config.defaults.allowRealtime ?? false,
     hostedTools: {
       web_search: config.hostedTools?.web_search ?? false,
       file_search: config.hostedTools?.file_search ?? false,
@@ -244,6 +247,7 @@ function toInput(form: AiFormState, config: AiAdminConfig): AiAdminConfigInput {
     defaults: {
       maxOutputTokensCap: cap ? Number(cap) : null,
       allowBackgroundRuns: form.allowBackgroundRuns,
+      allowRealtime: form.allowRealtime,
     },
     hostedTools: { ...form.hostedTools, mcpAllowedHosts: [...new Set(parseHosts(form.mcpAllowedHosts))] },
     limits: toLimits(form, config),
@@ -569,6 +573,24 @@ export default function AiConfigPage() {
                   />
                   <FormHelperText sx={{ mt: 0 }}>
                     Long requests run on the job queue instead of holding a connection open.
+                  </FormHelperText>
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={form.allowRealtime}
+                        onChange={(e) => update('allowRealtime', e.target.checked)}
+                        disabled={!canWrite}
+                        slotProps={{ input: { 'aria-label': 'Allow realtime voice sessions' } }}
+                      />
+                    }
+                    label="Allow realtime voice sessions"
+                  />
+                  <FormHelperText sx={{ mt: 0 }}>
+                    Live voice conversations in the playground. The user&apos;s browser connects
+                    directly to the provider with a short-lived, single-session secret the server
+                    mints; the user&apos;s API key never leaves the server.
                   </FormHelperText>
                 </Grid>
               </Grid>
