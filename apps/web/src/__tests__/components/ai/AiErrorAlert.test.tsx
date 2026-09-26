@@ -1,10 +1,17 @@
 import { describe, it, expect, vi } from 'vitest';
 import { screen } from '@testing-library/react';
 import { render } from '../../utils/test-utils';
-import { AiErrorAlert, AI_KEYS_PATH, aiErrorCopy } from '../../../components/ai/AiErrorAlert';
+import {
+  AiErrorAlert,
+  AI_KEYS_PATH,
+  aiErrorCopy,
+  formatRetryAfter,
+} from '../../../components/ai/AiErrorAlert';
 import { AiConfigContext, type UseAiConfigReturn } from '../../../hooks/useAiConfig';
 import { mockAiPublicConfigEnabled } from '../../mocks/fixtures/ai';
+import { toAiErrorInfo } from '../../../services/aiErrors';
 import type { AiErrorInfo } from '../../../services/aiErrors';
+import { ApiError } from '../../../services/api';
 
 /**
  * `AiErrorAlert` — issue #434. The single code → copy mapping every AI
@@ -94,6 +101,93 @@ describe('AiErrorAlert', () => {
     expect(aiErrorCopy({ code: 'AI_KEY_REQUIRED', message: '' }).action).toEqual({
       label: 'Add API key',
       to: AI_KEYS_PATH,
+    });
+  });
+
+  describe('a deployment limit (#450)', () => {
+    it('names the limit and says when to retry, with no raw server message', () => {
+      renderAlert({
+        code: 'AI_RATE_LIMITED',
+        message: 'The per-minute AI request limit (20) has been reached.',
+        retryAfterMs: 42_100,
+        limit: 'perUser.requestsPerMinute',
+        max: 20,
+        window: 'minute',
+      });
+      expect(screen.getByText('Limit reached (20 requests per minute)')).toBeInTheDocument();
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Try again in 43 seconds. This limit is set by your administrator.',
+      );
+      expect(screen.queryByText(/has been reached/)).not.toBeInTheDocument();
+      expect(screen.queryByRole('link')).not.toBeInTheDocument();
+    });
+
+    it('a daily limit says it resets at midnight UTC, in hours', () => {
+      renderAlert({
+        code: 'AI_RATE_LIMITED',
+        message: 'x',
+        retryAfterMs: 5 * 60 * 60 * 1000 - 1,
+        limit: 'perUser.requestsPerDay',
+        max: 1000,
+        window: 'day',
+      });
+      expect(screen.getByText('Limit reached (1,000 requests per day)')).toBeInTheDocument();
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Try again in 5 hours. Daily limits reset at midnight UTC.',
+      );
+    });
+
+    it("an organization-key limit offers the user's own key as the way out", () => {
+      const copy = aiErrorCopy({
+        code: 'AI_RATE_LIMITED',
+        message: 'x',
+        retryAfterMs: 90_000,
+        limit: 'orgKey.tokensPerDayPerUser',
+        max: 50_000,
+        window: 'day',
+      });
+      expect(copy.title).toBe("Limit reached (50,000 tokens per day on the organization's key)");
+      expect(copy.body).toMatch(/^Try again in 2 minutes\..*Adding your own API key lifts it\.$/);
+      expect(copy.action).toEqual({ label: 'Add API key', to: AI_KEYS_PATH });
+    });
+
+    it('a per-model limit is worded for the model', () => {
+      expect(
+        aiErrorCopy({
+          code: 'AI_RATE_LIMITED',
+          message: 'x',
+          limit: 'perModel.requestsPerMinutePerUser',
+          max: 1,
+        }).title,
+      ).toBe('Limit reached (1 request per minute for this model)');
+    });
+
+    it('formats the back-off in seconds, minutes or hours, rounding up', () => {
+      expect(formatRetryAfter(1)).toBe('1 second');
+      expect(formatRetryAfter(89_000)).toBe('89 seconds');
+      expect(formatRetryAfter(90_000)).toBe('2 minutes');
+      expect(formatRetryAfter(60 * 60_000)).toBe('60 minutes');
+      expect(formatRetryAfter(3 * 60 * 60_000)).toBe('3 hours');
+    });
+
+    it('toAiErrorInfo reads limit, max and window off a 429', () => {
+      const err = new ApiError('The per-minute AI request limit (20) has been reached.', 429, 'TOO_MANY_REQUESTS', {
+        reason: 'AI_RATE_LIMITED',
+        limit: 'perUser.requestsPerMinute',
+        max: 20,
+        window: 'minute',
+        retryAfterMs: 1_000,
+        provider: 'openai',
+      });
+      expect(toAiErrorInfo(err)).toEqual({
+        code: 'AI_RATE_LIMITED',
+        message: 'The per-minute AI request limit (20) has been reached.',
+        status: 429,
+        retryAfterMs: 1_000,
+        limit: 'perUser.requestsPerMinute',
+        max: 20,
+        window: 'minute',
+      });
     });
   });
 });

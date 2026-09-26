@@ -9,6 +9,8 @@
  *   3. An override `PATCH`es `{ capabilities }` and the row adopts the
  *      server's `admin_override` source.
  *   4. Refresh posts `{ provider }` and reports the queued job.
+ *   5. Per-model limits (#450) go out as a `PUT /admin/ai/config` with
+ *      `If-Match`, carrying the loaded config with only that entry changed.
  */
 
 import { describe, it, expect, afterEach, beforeEach } from 'vitest';
@@ -18,12 +20,13 @@ import { delay, http, HttpResponse } from 'msw';
 import { render, mockAdminUser } from '../../utils/test-utils';
 import { server } from '../../mocks/server';
 import AiModelsPage from '../../../pages/Admin/AiModelsPage';
-import { mockAiModelList } from '../../mocks/fixtures/ai';
+import { mockAiAdminConfig, mockAiModelList } from '../../mocks/fixtures/ai';
 
 interface Captured {
   method: string;
   url: URL;
   body: unknown;
+  ifMatch: string | null;
 }
 
 async function renderLoaded() {
@@ -42,14 +45,16 @@ describe('AiModelsPage — wire contract', () => {
     captured = [];
     server.events.on('request:start', async ({ request }) => {
       const url = new URL(request.url);
-      if (!url.pathname.includes('/admin/ai/models')) return;
+      if (!url.pathname.includes('/admin/ai/models') && !url.pathname.endsWith('/admin/ai/config')) {
+        return;
+      }
       let body: unknown = null;
       try {
         body = await request.clone().json();
       } catch {
         body = null;
       }
-      captured.push({ method: request.method, url, body });
+      captured.push({ method: request.method, url, body, ifMatch: request.headers.get('If-Match') });
     });
   });
 
@@ -154,6 +159,33 @@ describe('AiModelsPage — wire contract', () => {
     expect(await screen.findByText('admin override')).toBeInTheDocument();
     // Classified now, so the switch is live.
     expect(screen.getByRole('switch', { name: 'Enable ft:custom-model' })).toBeEnabled();
+  });
+
+  it('saves per-model limits with a PATCH and an If-Match config PUT (#450)', async () => {
+    const user = await renderLoaded();
+
+    await user.click(screen.getByRole('button', { name: 'Edit capabilities for gpt-5-mini' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.type(within(dialog).getByLabelText('Max output tokens per call'), '2048');
+    await user.type(within(dialog).getByLabelText('Requests per minute per user'), '6');
+    await user.click(within(dialog).getByRole('button', { name: /^save$/i }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(captured.find((c) => c.method === 'PATCH')?.url.pathname).toMatch(/\/admin\/ai\/models\/model-1$/);
+    const put = captured.find((c) => c.method === 'PUT');
+    expect(put?.url.pathname).toMatch(/\/admin\/ai\/config$/);
+    expect(put?.ifMatch).toBe(String(mockAiAdminConfig.version));
+    expect(put?.body).toMatchObject({
+      enabled: mockAiAdminConfig.enabled,
+      defaults: mockAiAdminConfig.defaults,
+      providers: { openai: { enabled: false, baseUrl: null } },
+      limits: { perModel: { 'openai:gpt-5-mini': { maxOutputTokens: 2048, requestsPerMinutePerUser: 6 } } },
+    });
+
+    // The saved configuration is the new baseline: reopening shows the limits.
+    await user.click(screen.getByRole('button', { name: 'Edit capabilities for gpt-5-mini' }));
+    const reopened = await screen.findByRole('dialog');
+    expect(within(reopened).getByLabelText('Max output tokens per call')).toHaveValue('2048');
   });
 
   it('queues a refresh for the provider with a key', async () => {
