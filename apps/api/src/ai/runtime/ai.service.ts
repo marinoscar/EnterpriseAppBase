@@ -98,6 +98,21 @@
 // records one usage row (`operation: 'audio.speech'`, `units: { characters }`).
 // The handler stores the audio as the user's storage object.
 //
+// REALTIME (#449, docs/specs/ai-platform.md §5.8): `createRealtimeSession`
+// runs `prepareRealtime` (kill switch -> `ai.defaults.allowRealtime`
+// (AI_REALTIME_DISABLED) -> shape -> target, defaulting to the first usable
+// `realtime` model -> provider -> model with `realtime` -> the voice) and
+// then, synchronously, the shared key + rate-limit step and ONE adapter
+// call that mints an ephemeral client secret; one usage row
+// (`operation: 'realtime'`, `units: { sessions: 1 }`, no tokens — the media
+// never passes through here). No job: the long-running part is the call
+// between the browser and the provider.
+//
+// ⚠ THE EPHEMERAL SECRET is the one credential this facade returns. It
+// leaves through the result and nowhere else — no log line, no span, no
+// usage row — exactly like the key it was minted with, which never leaves
+// at all.
+//
 // ⚠ THE KEY. `apiKey` exists in this file only between step 6 and the
 // adapter call. It is never logged, never put on a span, never persisted and
 // never part of an error. A presigned input URL gets the same treatment.
@@ -151,6 +166,7 @@ import {
   AI_IMAGE_MASK_MIME_TYPES,
   AI_IMAGE_PROMPT_MAX_CHARS,
   AI_IMAGES_MAX_N,
+  AI_REALTIME_INSTRUCTIONS_MAX_CHARS,
   type AiBinaryPayload,
   type AiEmbeddingRequest,
   type AiEmbeddingResult,
@@ -159,6 +175,8 @@ import {
   type AiImageResult,
   type AiImagesPort,
   type AiMediaInput,
+  type AiRealtimePort,
+  type AiRealtimeSessionRequest,
   type AiSpeechRequest,
   type AiSpeechResult,
   type AiTranscriptionRequest,
@@ -207,6 +225,8 @@ import type {
   AiEditImageRequest,
   AiEmbedRequest,
   AiGenerateImageRequest,
+  AiRealtimeRequest,
+  AiRealtimeSessionResult,
   AiRequest,
   AiRunHandle,
   AiSpeakRequest,
@@ -355,6 +375,22 @@ export interface AiUserClient {
    *   AiError('AI_CAPABILITY_UNSUPPORTED') for a model without `audio_speech`.
    */
   speak(req: AiSpeakRequest): Promise<AiRunHandle>;
+
+  /**
+   * Mints a realtime voice session (#449): an EPHEMERAL provider secret the
+   * browser opens one WebRTC session with, directly to the provider. The
+   * caller's key is spent server-side on the mint and never returned.
+   * Synchronous — no job. Counts as one request against the rate limits and
+   * records one usage row (`operation: 'realtime'`, `units: { sessions: 1 }`).
+   * See `AiRealtimeRequest` for how an omitted model or voice is chosen.
+   *
+   * @throws AiError('AI_REALTIME_DISABLED') when `ai.defaults.allowRealtime`
+   *   is off; AiError('AI_CAPABILITY_UNSUPPORTED') for a model without
+   *   `realtime`; AiError('AI_KEY_REQUIRED') with no key;
+   *   AiError('AI_INVALID_REQUEST') for a voice the model does not list or
+   *   over-long instructions.
+   */
+  createRealtimeSession(req: AiRealtimeRequest, opts?: AiCallOptions): Promise<AiRealtimeSessionResult>;
 }
 
 /** Internal: who a client acts for, and under which job (for usage rows). */
@@ -388,6 +424,7 @@ const TRACKED_OPERATIONS = {
   'images.edit': 'images',
   'audio.transcribe': 'audio.transcribe',
   'audio.speech': 'audio.speech',
+  'realtime.session': 'realtime',
 } as const satisfies Record<string, AiUsageOperation>;
 
 type AiTrackedOperation = keyof typeof TRACKED_OPERATIONS;
@@ -445,6 +482,13 @@ export interface PreparedAiSpeechCall extends AiCallTarget {
   speech: NonNullable<AiAudioPort['speech']>;
   /** The request as it is stored in `ai_runs.request` — voice and format resolved, never a key. */
   stored: StoredAiSpeechRunRequest;
+}
+
+/** Everything the gate pipeline settled for one realtime session mint. */
+export interface PreparedAiRealtimeCall extends AiCallTarget {
+  port: AiRealtimePort;
+  /** The request the adapter receives — model and voice resolved, named fields only. */
+  request: AiRealtimeSessionRequest & { voice: string };
 }
 
 /** `executeImageRun`'s (and the audio runs') options. */
@@ -522,6 +566,7 @@ export class AiService {
       editImage: (req) => this.startImageRun(bound, 'images.edit', req),
       transcribe: (req) => this.startTranscriptionRun(bound, req),
       speak: (req) => this.startSpeechRun(bound, req),
+      createRealtimeSession: (req, opts) => this.createRealtimeSession(bound, req, opts),
     };
   }
 
@@ -696,6 +741,47 @@ export class AiService {
     await tracker.finish({ status: 'succeeded', result });
 
     return result;
+  }
+
+  // ---- realtime ---------------------------------------------------------------------
+
+  private async createRealtimeSession(
+    scope: AiClientScope,
+    req: AiRealtimeRequest,
+    opts: AiCallOptions = {},
+  ): Promise<AiRealtimeSessionResult> {
+    const call = await this.prepareRealtime(scope.userId, req);
+    const { ctx, keySource } = await this.context(scope, call, opts, () => ({
+      instructions: call.request.instructions,
+    }));
+    const tracker = this.track(scope, call, keySource, 'realtime.session');
+
+    let session;
+
+    try {
+      session = await call.port.createSession(call.request, ctx);
+    } catch (err) {
+      const error = toAiError(err, opts.signal);
+
+      await tracker.finish(failure(error, opts.signal));
+      throw error;
+    }
+
+    // ⚠ Only the request id reaches the tracker — never the secret.
+    await tracker.finish({
+      status: 'succeeded',
+      result: { providerRequestId: session.providerRequestId },
+      units: { sessions: 1 },
+    });
+
+    return {
+      provider: call.provider,
+      model: session.model || call.modelId,
+      voice: session.voice ?? call.request.voice,
+      clientSecret: session.clientSecret,
+      expiresAt: session.expiresAt,
+      connectUrl: session.connectUrl,
+    };
   }
 
   // ---- images ---------------------------------------------------------------------
@@ -1614,6 +1700,89 @@ export class AiService {
   }
 
   /**
+   * The gate pipeline for a realtime session (#449): kill switch,
+   * `ai.defaults.allowRealtime`, request shape, target (an omitted model is
+   * the first usable `realtime` model), provider, model with `realtime`
+   * (model AND provider port), then the voice — the request's, else the
+   * model's first — checked against the model's catalog `voices`, else the
+   * port's. The deployment's output-token cap becomes the session's initial
+   * `maxOutputTokens`. Decrypts nothing.
+   */
+  async prepareRealtime(userId: string, req: AiRealtimeRequest): Promise<PreparedAiRealtimeCall> {
+    // 1. Kill switch — before anything else is read.
+    await this.aiConfig.assertEnabled();
+
+    // 1b. The realtime switch: minting hands the browser a provider secret
+    // and the server stops seeing the call, so it is opt-in (§5.8).
+    const policy = await this.aiConfig.resolve();
+
+    if (!policy.defaults.allowRealtime) {
+      throw new AiError('AI_REALTIME_DISABLED', 'Realtime voice sessions are disabled in this deployment.');
+    }
+
+    assertRealtimeShape(req);
+
+    const { provider, model } = req.model?.trim()
+      ? await this.resolveTarget(userId, req)
+      : await this.firstUsableModel(userId, 'realtime', req.provider);
+
+    // 2. Provider enabled in settings AND registered in this process.
+    const slot = await this.aiConfig.assertProviderEnabled(provider);
+    const port = this.registry.get(provider)?.realtime;
+
+    // 3. Model enabled, `realtime` declared (model AND port), key reach.
+    const { model: usable } = await this.usableModels.assertUsable(userId, provider, model, ['realtime']);
+
+    if (!port) {
+      // assertUsable already refused a provider without the port; this narrows the type.
+      throw capabilityUnsupported(provider, model, 'realtime');
+    }
+
+    // 4. The voice: one this model speaks.
+    const voices: readonly string[] | undefined = usable.capabilities.voices ?? port.voices;
+    const voice = req.voice ?? voices?.[0];
+
+    if (!voice) {
+      throw new AiError('AI_INVALID_REQUEST', `Name a voice: model "${model}" lists none.`, {
+        details: { provider, model },
+      });
+    }
+
+    if (voices && !voices.includes(voice)) {
+      throw new AiError('AI_INVALID_REQUEST', `Model "${model}" does not speak in voice "${voice}".`, {
+        details: { provider, model, voice, voices: [...voices] },
+      });
+    }
+
+    // 5. The deployment's output cap as the session's initial default — the
+    // client may change it over its data channel, so it bounds nothing the
+    // user cannot lift; it is a sensible starting point, not an enforcement.
+    const maxOutputTokens = clampOutputTokens(
+      undefined,
+      effectiveOutputTokensCap(policy.defaults.maxOutputTokensCap, policy.limits, provider, model),
+      usable.capabilities.maxOutputTokens,
+    );
+
+    // Named fields only: whatever else the caller's object carried stays here.
+    const request: PreparedAiRealtimeCall['request'] = { model, voice };
+
+    if (req.instructions !== undefined) request.instructions = req.instructions;
+    if (req.turnDetection !== undefined) request.turnDetection = req.turnDetection;
+    if (req.tools !== undefined) request.tools = req.tools;
+    if (req.providerOptions !== undefined) request.providerOptions = req.providerOptions;
+    if (maxOutputTokens !== undefined) request.maxOutputTokens = maxOutputTokens;
+
+    return {
+      provider,
+      modelId: model,
+      port,
+      request,
+      baseUrl: slot.baseUrl,
+      logPromptContent: policy.logPromptContent,
+    };
+  }
+
+  /**
    * The first model `userId` can use right now that declares `capability`
    * (on `provider`, when given) — in `GET /api/ai/models` order. For an
    * operation whose model is never the chat `ai.defaultModel`.
@@ -1993,6 +2162,24 @@ function transcriptionFields(
  * given, a known format, instructions within their limit, and a speed in
  * range.
  */
+/**
+ * A realtime request's shape, checked before any gate reads a table:
+ * instructions within `AI_REALTIME_INSTRUCTIONS_MAX_CHARS`, and only function
+ * tools (a hosted tool has no meaning in a browser-held session).
+ */
+function assertRealtimeShape(req: AiRealtimeRequest): void {
+  if (req.instructions !== undefined && req.instructions.length > AI_REALTIME_INSTRUCTIONS_MAX_CHARS) {
+    throw new AiError(
+      'AI_INVALID_REQUEST',
+      `Realtime instructions may be at most ${AI_REALTIME_INSTRUCTIONS_MAX_CHARS} characters.`,
+    );
+  }
+
+  if (req.tools?.some((tool) => tool.type !== 'function')) {
+    throw new AiError('AI_INVALID_REQUEST', 'A realtime session takes function tools only.');
+  }
+}
+
 function assertSpeechShape(req: AiSpeakRequest): void {
   if (typeof req.input !== 'string' || req.input.trim().length === 0) {
     throw new AiError('AI_INVALID_REQUEST', 'Speech needs non-empty input text.');

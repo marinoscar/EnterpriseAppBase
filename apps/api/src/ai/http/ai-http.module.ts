@@ -5,6 +5,7 @@ import { AiRuntimeModule } from '../runtime/ai-runtime.module';
 import { AiAudioController } from './ai-audio.controller';
 import { AiEmbeddingsController } from './ai-embeddings.controller';
 import { AiImagesController } from './ai-images.controller';
+import { AiRealtimeController } from './ai-realtime.controller';
 import { AiResponsesController } from './ai-responses.controller';
 import { AiRunsController } from './ai-runs.controller';
 
@@ -26,6 +27,7 @@ import { AiRunsController } from './ai-runs.controller';
     AiEmbeddingsController,
     AiImagesController,
     AiAudioController,
+    AiRealtimeController,
   ],
 })
 export class AiHttpModule {}

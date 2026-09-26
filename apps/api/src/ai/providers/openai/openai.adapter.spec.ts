@@ -147,7 +147,7 @@ describe('OpenAiProviderAdapter', () => {
       expect(server.requestsTo('/v1/models')).toHaveLength(1);
     });
 
-    it('carries the responses, embeddings, images and audio ports (realtime stays undefined)', () => {
+    it('carries the responses, embeddings, images, audio and realtime ports', () => {
       const { adapter, registry } = setup();
 
       adapter.onModuleInit();
@@ -159,13 +159,14 @@ describe('OpenAiProviderAdapter', () => {
       expect(typeof port.audio?.transcribe).toBe('function');
       expect(typeof port.audio?.speech).toBe('function');
       expect(port.embeddings).toBeDefined();
-      expect(port.realtime).toBeUndefined();
+      expect(typeof port.realtime?.createSession).toBe('function');
       expect(registry.supports('openai', 'responses')).toBe(true);
       expect(registry.supports('openai', 'image_generation')).toBe(true);
       expect(registry.supports('openai', 'image_edit')).toBe(true);
       expect(registry.supports('openai', 'audio_transcription')).toBe(true);
       expect(registry.supports('openai', 'audio_speech')).toBe(true);
       expect(registry.supports('openai', 'embeddings')).toBe(true);
+      expect(registry.supports('openai', 'realtime')).toBe(true);
     });
 
     it('classifyModel delegates to the classifier table', () => {
