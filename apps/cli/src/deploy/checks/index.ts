@@ -1,4 +1,5 @@
-import type { Check } from './types.js';
+import type { Check, CheckContext } from './types.js';
+import { severityOf } from './types.js';
 import { DATABASE_CHECKS } from './database.js';
 import { DNS_CHECKS } from './dns.js';
 import { HOST_CHECKS } from './host.js';
@@ -23,9 +24,24 @@ export const ALL_CHECKS: readonly Check[] = [
   ...TLS_CHECKS,
 ];
 
-/** The subset install and update must pass before they touch anything. */
-export function requiredChecks(checks: readonly Check[] = ALL_CHECKS): Check[] {
-  return checks.filter((check) => check.severity === 'required');
+/**
+ * The subset install and update must pass before they touch anything.
+ *
+ * ⚠ PASS THE CONTEXT. With one, the filter uses each check's EFFECTIVE
+ * severity (`severityOf`), so a check its context promotes to required -- a
+ * renewal config with host paths in container mode, say -- is in the preflight.
+ * Without one, only the static severity is known, which is the historical
+ * behaviour and is kept for callers that have no context yet.
+ */
+export function requiredChecks(
+  checks: readonly Check[] = ALL_CHECKS,
+  context?: CheckContext,
+): Check[] {
+  return checks.filter((check) =>
+    context === undefined
+      ? check.severity === 'required'
+      : severityOf(check, context) === 'required',
+  );
 }
 
 export * from './types.js';

@@ -3,9 +3,9 @@ import { describe, expect, it } from 'vitest';
 import { CommandFailedError, type CommandResult, type RunCommandOptions } from '../executor.js';
 import { DATABASE_CHECKS, databaseSettings } from './database.js';
 import { DNS_CHECKS } from './dns.js';
-import { ALL_CHECKS } from './index.js';
+import { ALL_CHECKS, requiredChecks } from './index.js';
 import { TLS_CHECKS, parseNotAfter } from './tls.js';
-import { runChecks, type Check, type CheckContext, type CheckFs } from './types.js';
+import { runChecks, severityOf, type Check, type CheckContext, type CheckFs } from './types.js';
 
 type Canned = { exitCode: number; stdout?: string; stderr?: string };
 type Responder = (argv: readonly string[], options: RunCommandOptions) => Canned | undefined;
@@ -27,8 +27,20 @@ function fakeRunCommand(respond: Responder): typeof import('../executor.js').run
   }) as typeof import('../executor.js').runCommand;
 }
 
-const presentFs: CheckFs = { exists: () => true, isDirectory: () => true, isWritable: () => true };
-const absentFs: CheckFs = { exists: () => false, isDirectory: () => false, isWritable: () => false };
+const presentFs: CheckFs = {
+  exists: () => true,
+  isDirectory: () => true,
+  isWritable: () => true,
+  readFile: () => '',
+  readdir: () => [],
+};
+const absentFs: CheckFs = {
+  exists: () => false,
+  isDirectory: () => false,
+  isWritable: () => false,
+  readFile: () => undefined,
+  readdir: () => [],
+};
 
 const ENV = new Map([
   ['POSTGRES_HOST', 'db.internal'],
@@ -47,6 +59,10 @@ function context(overrides: Partial<CheckContext> = {}): CheckContext {
     domain: 'app.example.test',
     env: ENV,
     fs: presentFs,
+    // No test opens a socket: the served-certificate probe is stubbed out.
+    servedCertificate: async () => {
+      throw new Error('no network in tests');
+    },
     ...overrides,
   };
 }
@@ -283,6 +299,226 @@ describe('tls checks', () => {
     );
 
     expect(result.status).toBe('skip');
+  });
+});
+
+describe('certificate-renewal-paths', () => {
+  const CONTAINER_RUNTIME = {
+    mode: 'container' as const,
+    container: 'infra-proxy-1',
+    certRoot: '/etc/letsencrypt',
+    webroot: '/var/www/certbot',
+  };
+  const HOST_RUNTIME = { ...CONTAINER_RUNTIME, mode: 'host' as const };
+
+  /** An fs whose renewal dir holds the given conf files, each with the given contents. */
+  function fsWithConfs(confs: Record<string, string>): CheckFs {
+    return {
+      ...presentFs,
+      readdir: (path) =>
+        path.endsWith('/letsencrypt/renewal') ? Object.keys(confs) : [],
+      readFile: (path) => {
+        const name = path.slice(path.lastIndexOf('/') + 1);
+        return confs[name];
+      },
+    };
+  }
+
+  it('skips entirely when the proxy runs on the host: host paths are correct there', async () => {
+    const result = await find(TLS_CHECKS, 'certificate-renewal-paths').run(
+      context({ proxyRuntime: HOST_RUNTIME, fs: fsWithConfs({ 'app.example.test.conf': '/opt/infra/proxy/letsencrypt/...' }) }),
+    );
+
+    expect(result.status).toBe('skip');
+  });
+
+  it('skips when the proxy runtime is unknown', async () => {
+    const result = await find(TLS_CHECKS, 'certificate-renewal-paths').run(
+      context({ proxyRuntime: undefined }),
+    );
+
+    expect(result.status).toBe('skip');
+  });
+
+  it('passes when every renewal config already uses container paths', async () => {
+    const result = await find(TLS_CHECKS, 'certificate-renewal-paths').run(
+      context({
+        proxyRuntime: CONTAINER_RUNTIME,
+        fs: fsWithConfs({ 'app.example.test.conf': 'archive_dir = /etc/letsencrypt/archive/app.example.test' }),
+      }),
+    );
+
+    expect(result.status).toBe('pass');
+  });
+
+  it("REQUIRED and FAILS when THIS deployment's own renewal config records host paths", async () => {
+    const check = TLS_CHECKS.find((candidate) => candidate.id === 'certificate-renewal-paths');
+    const ctx = context({
+      proxyRuntime: CONTAINER_RUNTIME,
+      fs: fsWithConfs({
+        'app.example.test.conf': 'archive_dir = /opt/infra/proxy/letsencrypt/archive/app.example.test',
+      }),
+    });
+
+    // The context promotes it to required -- exactly what makes it block install.
+    expect(check?.severityFor?.(ctx)).toBe('required');
+
+    const result = await check?.run(ctx);
+    expect(result?.status).toBe('fail');
+    expect(result?.detail).toContain('app.example.test');
+    expect(result?.remedy).toContain('sed -i');
+  });
+
+  it("WARNS (never fails) when only ANOTHER application's renewal config records host paths", async () => {
+    const check = TLS_CHECKS.find((candidate) => candidate.id === 'certificate-renewal-paths');
+    const ctx = context({
+      proxyRuntime: CONTAINER_RUNTIME,
+      fs: fsWithConfs({
+        'neighbour.example.test.conf': 'archive_dir = /opt/infra/proxy/letsencrypt/archive/neighbour.example.test',
+      }),
+    });
+
+    // This deployment cannot fix a neighbour's config and does not depend on
+    // it, so it must never be promoted to required over somebody else's problem.
+    expect(check?.severityFor?.(ctx)).toBe('recommended');
+
+    const result = await check?.run(ctx);
+    expect(result?.status).toBe('warn');
+    expect(result?.detail).toContain('neighbour.example.test');
+  });
+
+  it('with no domain in the context, an offending config is recommended throughout (there is no "own" to promote)', async () => {
+    const check = TLS_CHECKS.find((candidate) => candidate.id === 'certificate-renewal-paths');
+    const ctx = context({
+      domain: undefined,
+      proxyRuntime: CONTAINER_RUNTIME,
+      fs: fsWithConfs({
+        'somebody.example.test.conf': 'archive_dir = /opt/infra/proxy/letsencrypt/archive/somebody.example.test',
+      }),
+    });
+
+    expect(check?.severityFor?.(ctx)).toBe('recommended');
+    const result = await check?.run(ctx);
+    expect(result?.status).toBe('warn');
+  });
+});
+
+describe('certificate-served', () => {
+  const notAfterOutput = (iso: string) => `notAfter=${new Date(iso).toUTCString()}\n`;
+
+  it('passes when the served certificate matches the one on disk', async () => {
+    const onDisk = '2027-06-01T12:00:00Z';
+    const result = await find(TLS_CHECKS, 'certificate-served').run(
+      context({
+        runCommand: fakeRunCommand(() => ({ exitCode: 0, stdout: notAfterOutput(onDisk) })),
+        servedCertificate: async () => ({ notAfter: new Date(onDisk) }),
+      }),
+    );
+
+    expect(result.status).toBe('pass');
+  });
+
+  it('warns, naming the reload remedy, when the on-disk certificate is newer than the served one', async () => {
+    const result = await find(TLS_CHECKS, 'certificate-served').run(
+      context({
+        proxyRuntime: { mode: 'container', container: 'infra-proxy-1', certRoot: '/etc/letsencrypt', webroot: '/var/www/certbot' },
+        runCommand: fakeRunCommand(() => ({ exitCode: 0, stdout: notAfterOutput('2027-06-01T12:00:00Z') })),
+        // The proxy is still serving an older certificate: a renewal was not
+        // followed by a reload.
+        servedCertificate: async () => ({ notAfter: new Date('2027-03-01T12:00:00Z') }),
+      }),
+    );
+
+    expect(result.status).toBe('warn');
+    expect(result.detail).toContain('on disk expires');
+    expect(result.remedy).toContain('docker exec infra-proxy-1 nginx -t');
+    expect(result.remedy).toContain('docker exec infra-proxy-1 nginx -s reload');
+  });
+
+  it('warns when the SERVED certificate is newer than the one on disk (something else may be answering)', async () => {
+    const result = await find(TLS_CHECKS, 'certificate-served').run(
+      context({
+        runCommand: fakeRunCommand(() => ({ exitCode: 0, stdout: notAfterOutput('2027-03-01T12:00:00Z') })),
+        servedCertificate: async () => ({ notAfter: new Date('2027-06-01T12:00:00Z') }),
+      }),
+    );
+
+    expect(result.status).toBe('warn');
+    expect(result.remedy).toContain('CDN');
+  });
+
+  it('skips (never fails) when reading the served certificate fails -- reachability is a different check\'s job', async () => {
+    const result = await find(TLS_CHECKS, 'certificate-served').run(
+      context({
+        runCommand: fakeRunCommand(() => ({ exitCode: 0, stdout: notAfterOutput('2027-03-01T12:00:00Z') })),
+        servedCertificate: async () => {
+          throw new Error('ECONNREFUSED');
+        },
+      }),
+    );
+
+    expect(result.status).toBe('skip');
+    expect(result.detail).toContain('ECONNREFUSED');
+  });
+});
+
+describe('severityOf / requiredChecks with a context', () => {
+  it('reads the context-promoted severity, not the static one', () => {
+    const promoted: Check = {
+      id: 'promoted',
+      title: 'Promoted',
+      severity: 'recommended',
+      severityFor: () => 'required',
+      run: async () => ({ status: 'pass', detail: '' }),
+    };
+
+    expect(severityOf(promoted, context())).toBe('required');
+  });
+
+  it('falls back to the static severity when severityFor throws', () => {
+    const broken: Check = {
+      id: 'broken-severity',
+      title: 'Broken',
+      severity: 'recommended',
+      severityFor: () => {
+        throw new Error('boom');
+      },
+      run: async () => ({ status: 'pass', detail: '' }),
+    };
+
+    expect(severityOf(broken, context())).toBe('recommended');
+  });
+
+  it('requiredChecks(checks, ctx) includes a check the context promotes to required', () => {
+    const promoted: Check = {
+      id: 'promoted',
+      title: 'Promoted',
+      severity: 'recommended',
+      severityFor: () => 'required',
+      run: async () => ({ status: 'pass', detail: '' }),
+    };
+    const plainRecommended: Check = {
+      id: 'plain',
+      title: 'Plain',
+      severity: 'recommended',
+      run: async () => ({ status: 'pass', detail: '' }),
+    };
+
+    const required = requiredChecks([promoted, plainRecommended], context());
+
+    expect(required.map((check) => check.id)).toEqual(['promoted']);
+  });
+
+  it('with no context, only the STATIC severity counts, even for a check with severityFor', () => {
+    const promoted: Check = {
+      id: 'promoted',
+      title: 'Promoted',
+      severity: 'recommended',
+      severityFor: () => 'required',
+      run: async () => ({ status: 'pass', detail: '' }),
+    };
+
+    expect(requiredChecks([promoted]).map((check) => check.id)).toEqual([]);
   });
 });
 

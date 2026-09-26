@@ -16,7 +16,16 @@ import { runCommand as defaultRunCommand } from './executor.js';
 import { collectHealth, isHealthy, waitForHealthy } from './health.js';
 import type { DeployHooks } from './hooks.js';
 import { openJournal, type Journal } from './journal.js';
-import { certificateStatus, installVhost, issueCertificate, type ProxyTarget } from './proxy.js';
+import {
+  certificateStatus,
+  describeProxyRuntime,
+  installVhost,
+  issueCertificate,
+  resolveRecordedProxyRuntime,
+  type ProxyMode,
+  type ProxyTarget,
+  type ResolvedProxyRuntime,
+} from './proxy.js';
 import { ensureCheckout, resolveRepoTarget, type RepoTarget } from './repo.js';
 import { NotInstalledError, readState, writeState, type DeployState } from './state.js';
 import { runPipeline, type DeployStep, type StepContext } from './steps/pipeline.js';
@@ -66,6 +75,10 @@ export interface UpdateOptions {
   nonInteractive?: boolean | undefined;
   skipSeed?: boolean | undefined;
   skipProxy?: boolean | undefined;
+  /** Overrides the recorded proxy mode; absent means "as recorded, else detected". */
+  proxyMode?: ProxyMode | undefined;
+  /** Overrides the recorded proxy container name. */
+  proxyContainer?: string | undefined;
   runCommand?: typeof defaultRunCommand | undefined;
   hooks?: DeployHooks | undefined;
   promptContext?: PromptContext | undefined;
@@ -101,6 +114,8 @@ interface UpdateContext extends StepContext {
   unchanged?: boolean | undefined;
   /** The result of the `version` step, read by `publish-version`. */
   version?: VersionStepResult | undefined;
+  /** Resolved by `publish` when it runs; recorded in the state afterwards. */
+  proxyRuntime?: ResolvedProxyRuntime | undefined;
 }
 
 /** Certificates are renewed within this window, not on every deploy. */
@@ -144,6 +159,26 @@ function proxyRootFor(context: UpdateContext): string {
   );
 }
 
+/**
+ * The proxy runtime this update acts under, resolved once and reused.
+ *
+ * Flags, then the record install left, then detection -- never a fresh guess
+ * that could disagree with how install published this deployment.
+ */
+async function proxyRuntimeOf(context: UpdateContext): Promise<ResolvedProxyRuntime> {
+  if (context.proxyRuntime !== undefined) return context.proxyRuntime;
+
+  const runtime = await resolveRecordedProxyRuntime({
+    proxyRoot: proxyRootFor(context),
+    flags: { mode: context.options.proxyMode, container: context.options.proxyContainer },
+    recorded: context.state,
+    runCommand: context.runCommand,
+  });
+  context.proxyRuntime = runtime;
+  context.journal.line(describeProxyRuntime(runtime));
+  return runtime;
+}
+
 function skipWhenUnchanged(context: UpdateContext): string | undefined {
   return context.unchanged === true ? 'already up to date' : undefined;
 }
@@ -176,6 +211,12 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
           // --proxy-root given at install time, and wrote the vhost somewhere
           // the proxy does not read.
           proxyRoot: proxyRootFor(context),
+          // Resolved here only when this update may touch the proxy; the
+          // checks above do not read it today, but a check promoted by the
+          // runtime must see the same one `publish` will use.
+          ...(context.options.skipProxy === true || context.state.domain === undefined
+            ? {}
+            : { proxyRuntime: await proxyRuntimeOf(context) }),
           },
         );
 
@@ -544,6 +585,8 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
         return undefined;
       },
       async run(context) {
+        const runtime = await proxyRuntimeOf(context);
+
         const target: ProxyTarget = {
           domain: context.state.domain as string,
           bindPort: context.state.bindPort,
@@ -560,6 +603,7 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
           if (email !== '') {
             await issueCertificate(target, {
               runCommand: context.runCommand,
+              runtime,
               email,
               ...(context.hooks === undefined ? {} : { hooks: context.hooks }),
             });
@@ -576,6 +620,7 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
         // than that starts failing with a 413 after an unrelated update.
         await installVhost(target, {
           runCommand: context.runCommand,
+          runtime,
           ...(context.hooks === undefined ? {} : { hooks: context.hooks }),
           ...(context.env?.get('MAX_FILE_SIZE') === undefined
             ? {}
@@ -759,6 +804,11 @@ export async function runUpdate(options: UpdateOptions): Promise<UpdateResult> {
     lastDeployedAt: new Date().toISOString(),
     lastCommand: 'update',
     appctlVersion: CLI_VERSION,
+    // Only when `publish` ran: an update that did not touch the proxy has
+    // learned nothing new about it, and keeps what was recorded.
+    ...(context.proxyRuntime === undefined
+      ? {}
+      : { proxyMode: context.proxyRuntime.mode, proxyContainer: context.proxyRuntime.container }),
   } as DeployState);
 
   journal.finish('success');

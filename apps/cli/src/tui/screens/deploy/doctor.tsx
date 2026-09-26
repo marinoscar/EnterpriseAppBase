@@ -4,6 +4,8 @@ import { ALL_CHECKS, checksPassed, runChecks, type CompletedCheck } from '../../
 import { runCommand, withSignal } from '../../../deploy/executor.js';
 import type { DeployHooks } from '../../../deploy/hooks.js';
 import { DEFAULT_APPS_ROOT, deployRootFor } from '../../../deploy/layout.js';
+import { describeProxyRuntime, resolveRecordedProxyRuntime } from '../../../deploy/proxy.js';
+import { readState } from '../../../deploy/state.js';
 import { DEFAULT_BIND_PORT, DEFAULT_PROXY_ROOT } from '../../../commands/deploy.js';
 import { FieldWizard, NameStep, optionalHostname } from './fields.js';
 import { seedFor, validatePort, type AppName } from './install-model.js';
@@ -121,14 +123,34 @@ async function performDoctor(
   // all merely because its file is in the other place.
   const seed = seedFor(DEFAULT_APPS_ROOT, resolved);
 
+  // Every child process runs under the screen's signal, so Esc reaches it.
+  const run = withSignal(runCommand, signal);
+  const proxyRoot = answers.get('__proxyRoot') ?? DEFAULT_PROXY_ROOT;
+
+  // Same resolution as `deploy doctor`: the record, else detection. The
+  // override flags reach the screens with the Advanced step (issue #393).
+  let recorded: ReturnType<typeof readState>;
+  try {
+    recorded = readState(deployRoot);
+  } catch {
+    recorded = undefined;
+  }
+  const proxyRuntime = await resolveRecordedProxyRuntime({
+    proxyRoot,
+    flags: {},
+    recorded,
+    runCommand: run,
+  });
+  hooks.onLog?.(describeProxyRuntime(proxyRuntime));
+
   const results: CompletedCheck[] = await runChecks(
     ALL_CHECKS,
     {
-      // Every child process runs under the screen's signal, so Esc reaches it.
-      runCommand: withSignal(runCommand, signal),
+      runCommand: run,
       deployRoot,
       bindPort: Number(answers.get('__port') ?? DEFAULT_BIND_PORT),
-      proxyRoot: answers.get('__proxyRoot') ?? DEFAULT_PROXY_ROOT,
+      proxyRoot,
+      proxyRuntime,
       ...(domain === '' ? {} : { domain }),
       ...(seed.values.size === 0 ? {} : { env: seed.values }),
     },

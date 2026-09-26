@@ -360,12 +360,35 @@ const acmeWebroot: Check = {
   },
 };
 
+/** True when the context says the proxy runs in a container. */
+function containerMode(context: CheckContext): boolean {
+  return context.proxyRuntime?.mode === 'container';
+}
+
 const certbotInstalled: Check = {
   id: 'certbot-installed',
   title: 'certbot available',
+  // Static `required` is the HOST-mode answer, and the answer when the runtime
+  // is unknown. In container mode certificates are issued by the dockerised
+  // certbot, so a missing host binary is not a problem at all -- failing
+  // doctor over it fails a correctly configured server.
   severity: 'required',
+  severityFor: (context) => (containerMode(context) ? 'recommended' : 'required'),
   async run(context) {
     const host = await probe(context, ['certbot', '--version']);
+
+    if (containerMode(context)) {
+      return host.ok
+        ? {
+            status: 'pass',
+            detail: `${(host.stdout || host.stderr).split('\n')[0] ?? 'installed'} (unused: the proxy is containerised, so certbot/certbot is used)`,
+          }
+        : {
+            status: 'skip',
+            detail: 'not needed: the proxy is containerised, so certificates are issued with certbot/certbot',
+          };
+    }
+
     if (host.ok) {
       // certbot prints its version on stderr in some builds.
       return { status: 'pass', detail: (host.stdout || host.stderr).split('\n')[0] ?? 'installed' };
@@ -373,7 +396,8 @@ const certbotInstalled: Check = {
     return {
       status: 'fail',
       detail: 'not installed',
-      remedy: 'Install certbot: apt-get install certbot',
+      remedy:
+        'Install certbot: apt-get install certbot -- or, if the proxy runs in a container, say so with --proxy-mode container.',
     };
   },
 };
@@ -400,15 +424,45 @@ const proxyConfigValid: Check = {
   severity: 'recommended',
   requires: ['proxy-root'],
   async run(context) {
+    const runtime = context.proxyRuntime;
+
+    if (runtime?.mode === 'container') {
+      // Validated where nginx actually runs. A host `nginx -t` would test a
+      // binary that is not the proxy, against paths that are not its paths.
+      const inContainer = await probe(context, [
+        'docker', 'exec', runtime.container, 'nginx', '-t',
+      ]);
+      if (inContainer.ok) {
+        return { status: 'pass', detail: `nginx -t passes in ${runtime.container}` };
+      }
+
+      if (/no such container|is not running/i.test(inContainer.stderr)) {
+        return {
+          status: 'warn',
+          detail: `proxy container ${runtime.container} is not running`,
+          remedy: `Start the shared proxy (docker start ${runtime.container}, or docker compose up -d in ${context.proxyRoot}), or name the right one with --proxy-container.`,
+        };
+      }
+
+      return {
+        status: 'warn',
+        detail:
+          inContainer.stderr.split('\n').find((line) => line.includes('nginx:')) ??
+          `nginx -t failed in ${runtime.container}`,
+        remedy:
+          'The shared proxy is already misconfigured. Fix it before deploying, or the reload at the end of the install will fail for every site on this host.',
+      };
+    }
+
     const host = await probe(context, ['nginx', '-t']);
     if (host.ok) return { status: 'pass', detail: 'nginx -t passes' };
 
     // A containerised proxy is the documented setup, so a missing host binary
     // is not itself a problem - it just means this check cannot answer.
-    if (/command not found/i.test(host.stderr)) {
+    if (/command not found|ENOENT/i.test(host.stderr)) {
       return {
         status: 'skip',
-        detail: 'no host nginx binary; the proxy is probably containerised',
+        detail: 'no host nginx binary; the proxy is probably containerised (see --proxy-mode)',
       };
     }
 

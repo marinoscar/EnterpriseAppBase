@@ -15,6 +15,7 @@ import {
   secretsFrom,
 } from './install.js';
 import { openJournal } from './journal.js';
+import { proxyRuntimeFor, type ResolvedProxyRuntime } from './proxy.js';
 import { DEPLOY_STATE_VERSION, writeState, type DeployState } from './state.js';
 
 function installedRoot(): string {
@@ -376,5 +377,95 @@ describe('the environment step: blank answers vs. an on-disk value', () => {
     const written = readFileSync(join(composeCwd(root), '.env'), 'utf8');
     expect(written).toContain(`JWT_SECRET=${NEW_SECRET}`);
     expect(written).not.toContain(KNOWN_SECRET);
+  });
+});
+
+// =============================================================================
+// The `publish` step resolves the proxy runtime ONCE, and that resolution is
+// exactly what `runInstall` later records into the state file as
+// `proxyMode`/`proxyContainer` (see `recordedRuntime`, install.ts). Asserting
+// `context.proxyRuntime` here is asserting the value that write reads from.
+// =============================================================================
+describe('the publish step resolves and records the proxy runtime', () => {
+  function publishStep() {
+    const step = buildInstallSteps().find((candidate) => candidate.id === 'publish');
+    if (step === undefined) throw new Error('the "publish" step was removed or renamed');
+    return step;
+  }
+
+  const noSubprocess: typeof runCommand = async (argv) => {
+    throw new Error(`this test must not spawn: ${argv.join(' ')}`);
+  };
+
+  function contextFor(root: string, options: Record<string, unknown>) {
+    return {
+      options: {
+        deployRoot: root,
+        domain: 'app.example.test',
+        bindPort: 3535,
+        proxyRoot: join(root, 'proxy'),
+        email: 'admin@example.test',
+        ...options,
+      },
+      runCommand: (async (argv: readonly string[]) => {
+        // Every command the publish step issues under a container runtime:
+        // the dockerised certbot, and `docker exec ... nginx`.
+        if (argv[0] === 'docker') return { argv, cwd: root, exitCode: 0, stdout: '', stderr: '', durationMs: 0, timedOut: false };
+        return noSubprocess(argv, { cwd: root });
+      }) as typeof runCommand,
+      journal: openJournal({ deployRoot: root, command: 'install' }),
+      hooks: undefined,
+      completed: new Set<string>(),
+      env: new Map<string, string>(),
+      progress: [] as string[],
+      proxyRuntime: undefined as ResolvedProxyRuntime | undefined,
+    };
+  }
+
+  it('an explicit --proxy-mode/--proxy-container flag is what gets resolved and recorded', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'appctl-publish-step-'));
+    const context = contextFor(root, { proxyMode: 'container', proxyContainer: 'my-proxy' });
+
+    await publishStep().run(context as never);
+
+    expect(context.proxyRuntime).toMatchObject({
+      mode: 'container',
+      container: 'my-proxy',
+      source: 'explicit',
+    });
+  });
+
+  it('with no flag, a previous run\'s recorded runtime is what gets resolved and recorded', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'appctl-publish-step-'));
+    const context = {
+      ...contextFor(root, {}),
+      recordedProxy: { proxyMode: 'container' as const, proxyContainer: 'recorded-proxy' },
+    };
+
+    await publishStep().run(context as never);
+
+    expect(context.proxyRuntime).toMatchObject({
+      mode: 'container',
+      container: 'recorded-proxy',
+      source: 'explicit',
+    });
+  });
+
+  it('resolves the runtime only ONCE: preflight and publish must never disagree', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'appctl-publish-step-'));
+    const context = contextFor(root, { proxyMode: 'host' });
+    // A HOST runtime would call `certbot certonly` and `nginx -t`/`-s reload`
+    // directly, none of which this test's runCommand answers -- so a second,
+    // independent resolution inside the step would throw here, while reusing
+    // the ALREADY-RESOLVED value (set below, as `proxyRuntimeOf` does on a
+    // second call) does not.
+    context.proxyRuntime = {
+      ...proxyRuntimeFor('container', root, 'already-resolved'),
+      source: 'explicit',
+    };
+
+    await publishStep().run(context as never);
+
+    expect(context.proxyRuntime).toMatchObject({ container: 'already-resolved' });
   });
 });

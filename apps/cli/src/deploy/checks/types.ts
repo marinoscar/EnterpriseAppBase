@@ -1,8 +1,10 @@
-import { accessSync, constants, statSync } from 'node:fs';
+import { accessSync, constants, readFileSync, readdirSync, statSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { totalmem } from 'node:os';
+import { connect as tlsConnect } from 'node:tls';
 
 import type { runCommand } from '../executor.js';
+import type { ProxyRuntime } from '../proxy.js';
 
 // =============================================================================
 // The doctor check contract  (issue #176, epic #168)
@@ -46,6 +48,10 @@ export interface CheckFs {
   exists(path: string): boolean;
   isDirectory(path: string): boolean;
   isWritable(path: string): boolean;
+  /** UTF-8 contents, or undefined when absent or unreadable. Never throws. */
+  readFile(path: string): string | undefined;
+  /** Entry names, or [] when absent or unreadable. Never throws. */
+  readdir(path: string): string[];
 }
 
 export const realFs: CheckFs = {
@@ -72,7 +78,64 @@ export const realFs: CheckFs = {
       return false;
     }
   },
+  readFile(path) {
+    try {
+      return readFileSync(path, 'utf8');
+    } catch {
+      return undefined;
+    }
+  },
+  readdir(path) {
+    try {
+      return readdirSync(path);
+    } catch {
+      return [];
+    }
+  },
 };
+
+/** What the certificate ON THE WIRE says, as opposed to the one on disk. */
+export interface ServedCertificate {
+  /** The peer certificate's `valid_to`. */
+  notAfter: Date;
+}
+
+/**
+ * Reads the certificate a TLS server presents for `domain`.
+ *
+ * `rejectUnauthorized: false` because the question is WHICH certificate is
+ * served, not whether it is trusted -- an expired or staging certificate is
+ * exactly the one this has to be able to read. Nothing is sent after the
+ * handshake. Rejects on any failure; the caller decides what that means.
+ */
+export async function fetchServedCertificate(
+  domain: string,
+  options: { port?: number; timeoutMs?: number } = {},
+): Promise<ServedCertificate> {
+  return await new Promise<ServedCertificate>((resolve, reject) => {
+    const socket = tlsConnect({
+      host: domain,
+      port: options.port ?? 443,
+      servername: domain,
+      rejectUnauthorized: false,
+    });
+
+    socket.setTimeout(options.timeoutMs ?? 10_000, () => {
+      socket.destroy(new Error(`timed out reading the certificate served for ${domain}`));
+    });
+    socket.once('error', reject);
+    socket.once('secureConnect', () => {
+      const certificate = socket.getPeerCertificate();
+      socket.end();
+      const notAfter = new Date(certificate.valid_to ?? '');
+      if (Number.isNaN(notAfter.getTime())) {
+        reject(new Error(`unrecognised served expiry: ${String(certificate.valid_to)}`));
+        return;
+      }
+      resolve({ notAfter });
+    });
+  });
+}
 
 /**
  * True when nothing is listening on the loopback address for `port`.
@@ -124,22 +187,63 @@ export interface CheckContext {
   resolveHost?: ((hostname: string) => Promise<string[]>) | undefined;
   /** This host's own public addresses, when they can be determined. */
   ownAddresses?: (() => Promise<string[]>) | undefined;
+  /**
+   * How the shared proxy runs, resolved once by the command building this
+   * context (see `resolveProxyRuntime`). Absent means unknown, and the checks
+   * that care fall back to their historical host-mode behaviour.
+   */
+  proxyRuntime?: ProxyRuntime | undefined;
+  /** Reads the certificate served on the wire; injected so no test opens a socket. */
+  servedCertificate?: ((domain: string) => Promise<ServedCertificate>) | undefined;
 }
+
+export type Severity = 'required' | 'recommended';
 
 export interface Check {
   /** Stable, kebab-case. Used by --json and by tests. */
   id: string;
   title: string;
-  severity: 'required' | 'recommended';
+  /**
+   * The static severity: what the check is when nothing about the context
+   * says otherwise. Read it through `severityOf`, never directly, once a
+   * context exists.
+   */
+  severity: Severity;
+  /**
+   * The severity for THIS context, when it depends on one -- `certbot-installed`
+   * is required only when the proxy runs on the host. Must be read-only and
+   * cheap; a throw falls back to `severity`.
+   */
+  severityFor?: ((context: CheckContext) => Severity) | undefined;
   /** Ids that must pass first; otherwise this reports `skip`. */
   requires?: readonly string[] | undefined;
   run(context: CheckContext): Promise<CheckResult>;
 }
 
+/**
+ * A check's EFFECTIVE severity in a context.
+ *
+ * ⚠ Everything that decides an exit code -- `requiredChecks`, `checksPassed`
+ * via `CompletedCheck.severity`, the doctor and preflight renderers -- goes
+ * through this, so a check promoted or demoted by its context is promoted or
+ * demoted everywhere at once rather than in whichever caller remembered.
+ */
+export function severityOf(check: Check, context: CheckContext): Severity {
+  if (check.severityFor === undefined) return check.severity;
+  try {
+    return check.severityFor(context);
+  } catch {
+    // Rule 1 extends to this: a broken severity function must not abort the
+    // run. The static severity is the documented fallback.
+    return check.severity;
+  }
+}
+
 export interface CompletedCheck extends CheckResult {
   id: string;
   title: string;
-  severity: 'required' | 'recommended';
+  /** The EFFECTIVE severity this run evaluated it under -- see `severityOf`. */
+  severity: Severity;
   durationMs: number;
 }
 
@@ -153,6 +257,12 @@ export function contextMemory(context: CheckContext): number {
 
 export function contextPortFree(context: CheckContext): (port: number) => Promise<boolean> {
   return context.portFree ?? isLoopbackPortFree;
+}
+
+export function contextServedCertificate(
+  context: CheckContext,
+): (domain: string) => Promise<ServedCertificate> {
+  return context.servedCertificate ?? ((domain) => fetchServedCertificate(domain));
 }
 
 export function contextPortListening(
@@ -201,7 +311,7 @@ export async function runChecks(
       ...result,
       id: check.id,
       title: check.title,
-      severity: check.severity,
+      severity: severityOf(check, context),
       durationMs: Date.now() - startedAt,
     };
 
@@ -213,7 +323,12 @@ export async function runChecks(
   return results;
 }
 
-/** True when every required check passed. Warnings do not fail a run. */
+/**
+ * True when every required check passed. Warnings do not fail a run.
+ *
+ * Reads `CompletedCheck.severity`, which `runChecks` already set to the
+ * EFFECTIVE severity, so a context-promoted check fails the run here too.
+ */
 export function checksPassed(results: readonly CompletedCheck[]): boolean {
   return !results.some(
     (result) => result.severity === 'required' && result.status === 'fail',

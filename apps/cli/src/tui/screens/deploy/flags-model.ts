@@ -152,6 +152,10 @@ export const NOT_IN_TUI: Readonly<Record<string, string>> = Object.freeze({
     'Every answer is collected by the screen itself; a second channel for them would be two sources of truth for one value.',
   '--answers-file':
     'Same as --answer: the screen collects them.',
+  '--proxy-container':
+    'Not offered yet: the screens resolve the proxy runtime the same way the CLI does (recorded, else detected), and the Advanced step that lets an operator override it lands in issue #393.',
+  '--proxy-mode':
+    'Not offered yet, for the same reason as --proxy-container: detection covers the ordinary case, and the Advanced step that exposes the override lands in issue #393.',
 });
 
 /** The options object a set of chosen toggles produces. */

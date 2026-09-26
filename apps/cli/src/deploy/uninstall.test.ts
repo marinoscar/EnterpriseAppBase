@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { UsageError } from '../errors.js';
 import { confirmationMatches, planUninstall, runUninstall } from './uninstall.js';
 import { OBJECT_IN_USE, dropDatabase, quoteIdentifier } from './database-drop.js';
+import { DEPLOY_STATE_VERSION, writeState, type DeployState } from './state.js';
 
 function deployment(env = 'POSTGRES_DB=appdb\nAPP_BIND_PORT=3535\n'): string {
   const root = mkdtempSync(join(tmpdir(), 'appctl-uninstall-'));
@@ -212,6 +213,89 @@ describe('dropDatabase', () => {
   it('quotes an identifier rather than interpolating it raw', () => {
     expect(quoteIdentifier('appdb')).toBe('"appdb"');
     expect(quoteIdentifier('we"ird')).toBe('"we""ird"');
+  });
+});
+
+describe('uninstall reuses the recorded proxy runtime when no flag overrides it', () => {
+  function deploymentWithProxyState(overrides: Partial<DeployState> = {}): string {
+    const root = deployment();
+    const state: DeployState = {
+      version: DEPLOY_STATE_VERSION,
+      repoUrl: 'https://example.test/o/r',
+      ref: 'main',
+      commitSha: 'a'.repeat(40),
+      domain: 'app.example.test',
+      bindPort: 3535,
+      deployRoot: root,
+      installedAt: '2026-01-01T00:00:00.000Z',
+      lastDeployedAt: '2026-01-01T00:00:00.000Z',
+      lastCommand: 'install',
+      appctlVersion: '1.0.0',
+      proxyMode: 'container',
+      proxyContainer: 'recorded-proxy',
+      ...overrides,
+    };
+    writeState(state);
+
+    // A vhost this tool wrote, so `removeVhost` actually has something to
+    // validate and reload around, rather than a silent no-op.
+    const vhostDir = join(root, 'proxy', 'nginx', 'conf.d');
+    mkdirSync(vhostDir, { recursive: true });
+    writeFileSync(join(vhostDir, 'app.example.test.conf'), '# Managed by appctl deploy\n');
+
+    return root;
+  }
+
+  it('plan carries the recorded proxyMode/proxyContainer forward', () => {
+    const root = deploymentWithProxyState();
+
+    const plan = planUninstall({ deployRoot: root, proxyRoot: join(root, 'proxy') });
+
+    expect(plan.proxyMode).toBe('container');
+    expect(plan.proxyContainer).toBe('recorded-proxy');
+  });
+
+  it('with no --proxy-mode/--proxy-container flag, the removal uses the RECORDED container', async () => {
+    const root = deploymentWithProxyState();
+    const run = vi.fn().mockResolvedValue(okResult());
+
+    await runUninstall({ deployRoot: root, proxyRoot: join(root, 'proxy'), runCommand: run as never });
+
+    const argvs = run.mock.calls.map((call) => (call[0] as string[]).join(' '));
+    expect(argvs).toContain('docker exec recorded-proxy nginx -t');
+    expect(argvs).toContain('docker exec recorded-proxy nginx -s reload');
+  });
+
+  it('an explicit --proxy-container flag overrides the recorded one', async () => {
+    const root = deploymentWithProxyState();
+    const run = vi.fn().mockResolvedValue(okResult());
+
+    await runUninstall({
+      deployRoot: root,
+      proxyRoot: join(root, 'proxy'),
+      proxyContainer: 'flagged-proxy',
+      runCommand: run as never,
+    });
+
+    const argvs = run.mock.calls.map((call) => (call[0] as string[]).join(' '));
+    expect(argvs).toContain('docker exec flagged-proxy nginx -t');
+    expect(argvs).not.toContain('docker exec recorded-proxy nginx -t');
+  });
+
+  it('an explicit --proxy-mode flag overrides the recorded mode (host, not container)', async () => {
+    const root = deploymentWithProxyState();
+    const run = vi.fn().mockResolvedValue(okResult());
+
+    await runUninstall({
+      deployRoot: root,
+      proxyRoot: join(root, 'proxy'),
+      proxyMode: 'host',
+      runCommand: run as never,
+    });
+
+    const argvs = run.mock.calls.map((call) => (call[0] as string[]).join(' '));
+    expect(argvs).toContain('nginx -t');
+    expect(argvs.some((argv) => argv.startsWith('docker exec'))).toBe(false);
   });
 });
 
