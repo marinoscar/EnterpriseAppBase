@@ -679,7 +679,7 @@ describe('NotificationsService', () => {
 
       await expect(
         service.notifyNow('user.welcome', USER_ID, {}),
-      ).resolves.toBeUndefined();
+      ).resolves.toEqual({ rateLimited: false, retryAfterMs: null });
 
       expect(mockPrisma.notificationDelivery.update).toHaveBeenCalledTimes(1);
       const [[updateArgs]] = mockPrisma.notificationDelivery.update.mock
@@ -693,7 +693,7 @@ describe('NotificationsService', () => {
 
       await expect(
         service.notifyNow('user.welcome', 'ghost-user', {}),
-      ).resolves.toBeUndefined();
+      ).resolves.toEqual({ rateLimited: false, retryAfterMs: null });
 
       expect(mockPrisma.notificationDelivery.create).not.toHaveBeenCalled();
     });
@@ -701,7 +701,7 @@ describe('NotificationsService', () => {
     it('for an unknown event key, is a no-op that records nothing', async () => {
       await expect(
         service.notifyNow('no.such.event', USER_ID, {}),
-      ).resolves.toBeUndefined();
+      ).resolves.toEqual({ rateLimited: false, retryAfterMs: null });
 
       expect(mockPrisma.user.findUnique).not.toHaveBeenCalled();
       expect(mockPrisma.notificationDelivery.create).not.toHaveBeenCalled();

@@ -30,6 +30,7 @@ import type { ConfigService } from '@nestjs/config';
 import type { JobHandler } from '../../../jobs/job-handler.interface';
 import type { JobsService } from '../../../jobs/jobs.service';
 import type { JobHandlerRegistry } from '../../../jobs/job-handler.registry';
+import type { ProviderThrottleService } from '../../../jobs/provider-throttle.service';
 import type { NotificationsService } from '../../notifications.service';
 import type { PrismaService } from '../../../prisma/prisma.service';
 import { BROADCAST_CHUNK_SIZE, BROADCAST_SUBJECT_TYPE } from '../broadcast-audience';
@@ -149,8 +150,10 @@ function makeHandler(
   const register = jest.fn();
   const registry = { register } as unknown as JobHandlerRegistry;
 
+  const throttle = { registerProviderKey: jest.fn() } as unknown as ProviderThrottleService;
+
   return {
-    handler: new BroadcastChunkHandler(prisma, notifications, jobs, config, registry),
+    handler: new BroadcastChunkHandler(prisma, notifications, jobs, config, registry, throttle),
     state,
     findUnique,
     updateMany,

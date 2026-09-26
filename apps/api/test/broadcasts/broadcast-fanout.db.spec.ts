@@ -56,6 +56,7 @@ import { BROADCAST_CHUNK_SIZE, BROADCAST_SUBJECT_TYPE } from '../../src/notifica
 import { JobsService } from '../../src/jobs/jobs.service';
 import type { ConfigService } from '@nestjs/config';
 import type { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
+import type { ProviderThrottleService } from '../../src/jobs/provider-throttle.service';
 import type { NotificationsService } from '../../src/notifications/notifications.service';
 import type { NotifyOptions } from '../../src/notifications/notification.types';
 import type { PrismaService } from '../../src/prisma/prisma.service';
@@ -295,7 +296,14 @@ describeWithDb('Admin broadcast fan-out (real Postgres)', () => {
     const prisma = client as unknown as PrismaService;
     return {
       startHandler: new BroadcastStartHandler(prisma, jobs, registryStub()),
-      chunkHandler: new BroadcastChunkHandler(prisma, stub.notifications, jobs, configStub(), registryStub()),
+      chunkHandler: new BroadcastChunkHandler(
+        prisma,
+        stub.notifications,
+        jobs,
+        configStub(),
+        registryStub(),
+        { registerProviderKey: jest.fn() } as unknown as ProviderThrottleService
+      ),
       stub,
     };
   }
