@@ -235,7 +235,13 @@ export type AiContentPart =
 export interface AiFunctionTool<P extends z.ZodTypeAny = z.ZodTypeAny> {
   type: 'function'; name: string; description: string; parameters: P; strict?: boolean;
 }
-export type AiHostedTool = { type: 'web_search' | 'file_search' | 'code_interpreter' | 'mcp'; options?: Record<string, unknown> };
+export type AiHostedTool =                                         // §5.4 (#442)
+  | { type: 'web_search'; searchContextSize?: 'low'|'medium'|'high'; userLocation?: { country?: string; city?: string } }
+  | { type: 'file_search'; vectorStoreIds: string[]; maxResults?: number }
+  | { type: 'code_interpreter'; container?: { type: 'auto' } }
+  | { type: 'image_generation'; size?: string; quality?: string }
+  | { type: 'mcp'; serverLabel: string; serverUrl: string; allowedTools?: string[];
+      requireApproval?: 'never'|'always'; headers?: Record<string, string> };
 export interface AiResponseRequest<S extends z.ZodTypeAny = z.ZodTypeAny> {
   model: string;
   instructions?: string;
@@ -251,10 +257,10 @@ export interface AiResponseRequest<S extends z.ZodTypeAny = z.ZodTypeAny> {
   providerOptions?: Record<string, Record<string, unknown>>;   // keyed by provider id; escape hatch
 }
 export type AiOutputItem =
-  | { type: 'message'; text: string }
+  | { type: 'message'; text: string; citations?: { url: string; title: string; startIndex: number; endIndex: number }[] }
   | { type: 'reasoning'; summary: string[] }
   | { type: 'function_call'; callId: string; name: string; arguments: string }
-  | { type: 'hosted_tool_call'; tool: string; status: string; result?: unknown };
+  | { type: 'hosted_tool_call'; id?: string; tool: AiHostedToolType; status: string; result?: /* typed per tool, §5.4 */ };
 export interface AiUsage { inputTokens?: number; outputTokens?: number; reasoningTokens?: number; cachedInputTokens?: number; }
 export interface AiResponse<T = unknown> {
   id: string; provider: string; model: string;
@@ -383,8 +389,8 @@ API response or a database row.
   `hd` on DALL·E 3. A URL-only answer is `AI_PROVIDER_UNAVAILABLE`, never
   fetched. `moderation_blocked` → `AI_CONTENT_FILTERED`.
 
-Out of scope: the Responses API `image_generation` hosted tool (#442) and
-the UI (#445).
+The Responses API `image_generation` hosted tool (#442) is §5.4; the UI is
+#445.
 
 ### 5.3 File and image inputs from storage objects (Phase 2, issue #441)
 
@@ -441,6 +447,51 @@ one of the two. No new port, method or route: every Responses entry point
   switching AI on and enabling a provider (§8); only the caller's own
   objects (or, with `storage:read_any`, anyone's) can be sent, and only in
   a request the caller makes.
+
+### 5.4 Hosted tools (Phase 2, issue #442)
+
+Tools the **provider** executes inside one Responses call: live web search,
+file search over provider-side vector stores, a sandboxed code interpreter,
+image generation and remote MCP servers.
+
+- **Two gates.** The tool type must be switched on by an administrator
+  (`ai.hostedTools.<type>`, all **off** by default — each one reaches outside
+  the deployment and bills per use), else `AI_TOOL_DISABLED` (403); and the
+  model must declare `hosted_tools` (§4), else `AI_CAPABILITY_UNSUPPORTED`.
+  The admin gate runs first, right after provider enablement
+  (`core/hosted-tools.ts`); every tool's shape is validated there too.
+- **MCP.** `serverUrl` must be `https://` with no credentials in it. An
+  optional `ai.hostedTools.mcpAllowedHosts` (hostnames, or `*.example.com`
+  for subdomains) narrows which hosts it may name — empty means any host —
+  and a host outside it is `AI_TOOL_DISABLED`. `headers` (the MCP server's
+  own credential) are secret material: passed to the adapter and nowhere
+  else — never in the prompt log line, a span, an `ai_usage_events` row or
+  an `AiError`; a background run carrying them is refused with
+  `AI_INVALID_REQUEST` rather than stored (the `ai_runs.request` shape has no
+  `headers` member); and any header value a server echoes back is replaced
+  with `[REDACTED]` in the response and every stream frame.
+- **Outputs.** Each call is a `hosted_tool_call` item with a typed `result`:
+  `web_search` `{ queries, sources[{ url }] }`, `file_search` `{ queries,
+  results[{ fileId?, filename?, score?, text? }] }`, `code_interpreter`
+  `{ code, containerId, outputs[logs|image url] }`, `image_generation`
+  `{ storageObjectId, mimeType?, revisedPrompt?, size?, quality? }`, `mcp`
+  `{ kind: 'call'|'list_tools'|'approval_request', serverLabel, … }`. Web
+  search citations are `citations[{ url, title, startIndex, endIndex }]` on
+  the message item, re-based onto its concatenated text.
+- **Generated images never travel inline.** The adapter decodes the image
+  into bytes; the facade's output settler hands them to
+  `AiService.persistHostedImage` (once per image, even though a stream shows
+  the item twice) and publishes only what that returns. Until the AI output
+  writer is wired in there, the bytes are dropped and `storageObjectId` is
+  `null`.
+- **Streaming.** Provider progress events (`response.web_search_call.*`,
+  `response.code_interpreter_call.*`, …) are consumed by the stream mapper;
+  each hosted call surfaces once, as the `output_item.done` carrying its
+  final typed item — identical to what `create` returns.
+- **Clients.** `GET /api/ai/config` publishes the five switches as
+  `hostedTools` booleans (all false while AI is off; never the allowlist).
+  The OpenAI classifier declares `hosted_tools` for its reasoning and chat
+  multimodal families; an administrator can override the chip per model.
 
 ## 6. Model discovery and classification
 
@@ -862,6 +913,7 @@ one HTTP status:
 | `AI_MODEL_NOT_ENABLED` | 403 | The model is not admin-enabled, or is deprecated (§6, §7). |
 | `AI_MODEL_NOT_REACHABLE` | 403 | The model is enabled, but the resolved key cannot reach it (§7). |
 | `AI_CAPABILITY_UNSUPPORTED` | 400 | The model/provider lacks a capability the request needs (§4). |
+| `AI_TOOL_DISABLED` | 403 | A hosted tool type an administrator has not switched on, or an MCP server host outside `ai.hostedTools.mcpAllowedHosts` (§5.4). |
 | `AI_RATE_LIMITED` | 429 | The provider rate-limited the call; convertible to the queue's `RateLimitError` via `toRateLimitError()` so a job defers rather than burning an attempt. |
 | `AI_PROVIDER_UNAVAILABLE` | 503 | The provider is unreachable or erroring at the transport level. |
 | `AI_CONTENT_FILTERED` | 422 | The provider's own content filter rejected the request or response. |
@@ -880,7 +932,7 @@ specific code from the table above travels **only** in `details.reason`,
 written last inside `AiError`'s constructor so a caller-supplied
 `details.reason` can never disagree with it; a client switches on
 `details.reason`, never on the top-level `code`, to learn which of these
-thirteen conditions occurred. Its `apiKey`/key material must never appear in
+fourteen conditions occurred. Its `apiKey`/key material must never appear in
 `details` or in any log line derived from it, regardless of how the error
 was constructed (a unit test asserts `JSON.stringify(new AiError(...))`
 never includes a key passed via `cause`).
@@ -925,8 +977,8 @@ already operate on `AiProviderAdapter` and `AiProviderRegistry.ids()`.
 
 | Method & path | Permission | Behaviour |
 |---|---|---|
-| `GET /api/admin/ai/config` | `ai_config:read` | `describeForAdmin()` — `{ enabled, keyPolicy, logPromptContent, defaults, usageRetentionDays, providers:[{ id, displayName, enabled, baseUrl, keyStatus, supportedCapabilities }], version, updatedAt, updatedBy }`. `keyStatus = { configured, hint, updatedAt, updatedByUserId }` from `credentials.describe` — **never** `getSecret`. `providers` = registry ids ∪ settings keys. |
-| `PUT /api/admin/ai/config` | `ai_config:write` | Body `{ enabled, keyPolicy, logPromptContent, defaults, usageRetentionDays?, providers:{ [id]: { enabled, baseUrl? } } }` (`usageRetentionDays` omitted keeps the stored value — the one non-full-replace field, so older clients still save); `If-Match: <version>` (mismatch → 409, like storage). Enabling a provider id not in the registry → 400. Setting `keyPolicy='byok_with_org_fallback'` while that provider has no admin key → 400 `AI_KEY_REQUIRED`. Audit `ai_config:replace` (field names only). |
+| `GET /api/admin/ai/config` | `ai_config:read` | `describeForAdmin()` — `{ enabled, keyPolicy, logPromptContent, defaults, usageRetentionDays, hostedTools, providers:[{ id, displayName, enabled, baseUrl, keyStatus, supportedCapabilities }], version, updatedAt, updatedBy }`. `keyStatus = { configured, hint, updatedAt, updatedByUserId }` from `credentials.describe` — **never** `getSecret`. `providers` = registry ids ∪ settings keys. |
+| `PUT /api/admin/ai/config` | `ai_config:write` | Body `{ enabled, keyPolicy, logPromptContent, defaults, usageRetentionDays?, hostedTools?, providers:{ [id]: { enabled, baseUrl? } } }` (`usageRetentionDays` and `hostedTools` omitted keep the stored value — the two non-full-replace fields, so older clients still save; the audit names each changed switch and `hostedTools.mcpAllowedHosts`, never a host); `If-Match: <version>` (mismatch → 409, like storage). Enabling a provider id not in the registry → 400. Setting `keyPolicy='byok_with_org_fallback'` while that provider has no admin key → 400 `AI_KEY_REQUIRED`. Audit `ai_config:replace` (field names only). |
 | `PUT /api/admin/ai/providers/:provider/key` | `ai_config:write` | Body `{ apiKey }` (min 8). Verified with `adapter.verifyKey` **first**; invalid → 400 `AI_KEY_INVALID`, nothing stored. Audit `ai_config:set_key`. |
 | `DELETE /api/admin/ai/providers/:provider/key` | `ai_config:write` | Body `{ confirmation: 'REMOVE' }`. Audit `ai_config:delete_key`. Under `byok_with_org_fallback`, response includes `warnings:['ORG_FALLBACK_WITHOUT_KEY']`. |
 | `POST /api/admin/ai/providers/:provider/test` | `ai_config:write` | `@HttpCode(200)` always. Body `{ apiKey?, baseUrl? }` (blank ⇒ stored key). Checks: `credentials`, `list_models`, `responses_smoke`. Audit `ai_config:test` (codes only). |
@@ -944,7 +996,7 @@ every consumer-facing route (as opposed to `/api/admin/ai/*`'s
 
 | Method & path | Auth | Behaviour |
 |---|---|---|
-| `GET /api/ai/config` | `@Auth()` | `{ enabled, keyPolicy, allowBackgroundRuns, providers:[{ id, displayName, enabled, hasOrgKey }] }`. When `enabled=false`: `{ enabled:false, keyPolicy, allowBackgroundRuns:false, providers:[] }`. Never includes hints or keys. Reachable even while `ai.enabled=false` (§8). |
+| `GET /api/ai/config` | `@Auth()` | `{ enabled, keyPolicy, allowBackgroundRuns, hostedTools:{ web_search, file_search, code_interpreter, image_generation, mcp }, providers:[{ id, displayName, enabled, hasOrgKey }] }`. When `enabled=false`: `{ enabled:false, keyPolicy, allowBackgroundRuns:false, hostedTools:{ …all false }, providers:[] }`. Never includes hints or keys. Reachable even while `ai.enabled=false` (§8). |
 
 **User keys and usable models** (`/api/ai/*`, all
 `@UseGuards(AiEnabledGuard)`, `@Auth({ permissions:[PERMISSIONS.AI_USE] })`):
@@ -962,7 +1014,7 @@ every consumer-facing route (as opposed to `/api/admin/ai/*`'s
 | Method & path | Behaviour |
 |---|---|
 | `POST /api/ai/responses` | `forUser(id).respond(...)` → `AiResponse` (includes `parsed` when structured). |
-| `POST /api/ai/responses/stream` | SSE (§10). Function tools are not accepted over this route in Phase 1 — they execute server-side code and are for in-process `runTools()` only; hosted tools arrive in Phase 2. Request body limit 1 MB. |
+| `POST /api/ai/responses/stream` | SSE (§10). `tools` takes hosted tools only (§5.4); function tools are not accepted over HTTP — they execute server-side code and are for in-process `runTools()` only. Request body limit 1 MB. |
 | `POST /api/ai/embeddings` | `forUser(id).embed(...)` → `{ provider, model, dimensions, vectors, usage }` (§5.1). `model` required; > 256 inputs → 400 `AI_INVALID_REQUEST`; a model without `embeddings` → 400 `AI_CAPABILITY_UNSUPPORTED`. Request body limit 1 MB. |
 | `POST /api/ai/images` | `generateImage(...)` → `{ runId, jobId }`, status 202 (§5.2). A model without `image_generation` → 400 `AI_CAPABILITY_UNSUPPORTED`. |
 | `POST /api/ai/images/edits` | `editImage(...)` → `{ runId, jobId }`, status 202. Inputs by storage object id: unknown → 404, another user's → 403, not ready / wrong type / too large → 400 `AI_INVALID_REQUEST`. |
