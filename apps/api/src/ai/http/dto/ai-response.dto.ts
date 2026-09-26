@@ -2,6 +2,7 @@ import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
 import { AI_HOSTED_TOOL_TYPES } from '../../core/types/responses.types';
+import { AI_SPEECH_FORMATS } from '../../core/types/media.types';
 import { AI_RUN_STATUSES } from '../../runtime/ai-runtime.types';
 
 // =============================================================================
@@ -137,7 +138,7 @@ export class AiResponseDto extends createZodDto(aiResponseSchema) {}
 export const aiRunStartedSchema = z.object({
   /** Poll `GET /api/ai/runs/{runId}`. */
   runId: z.uuid(),
-  /** The queue job executing it (`ai.response.run`; `ai.image.generate` / `ai.audio.transcribe` for a media run). */
+  /** The queue job executing it (`ai.response.run`; `ai.image.generate` / `ai.audio.*` for a media run). */
   jobId: z.uuid(),
 });
 
@@ -192,6 +193,27 @@ export const aiTranscriptionRunOutputSchema = z.object({
   usage: aiUsageSchema,
 });
 
+/**
+ * A succeeded speech run's `output` (#439): the audio, a storage object the
+ * caller owns (download it with `GET /api/storage/objects/{id}/download`).
+ * `aiGenerated` is always `true` — tell listeners the voice is AI-generated.
+ */
+export const aiSpeechRunOutputSchema = z.object({
+  type: z.literal('speech'),
+  provider: z.string(),
+  model: z.string(),
+  storageObjectId: z.uuid(),
+  mimeType: z.string(),
+  /** Bytes. */
+  size: z.number().int(),
+  format: z.enum(AI_SPEECH_FORMATS),
+  voice: z.string(),
+  /** Characters spoken. */
+  characters: z.number().int(),
+  aiGenerated: z.literal(true),
+  usage: aiUsageSchema,
+});
+
 export const aiRunSchema = z.object({
   id: z.uuid(),
   status: z.enum(AI_RUN_STATUSES),
@@ -200,9 +222,12 @@ export const aiRunSchema = z.object({
   /**
    * Once `succeeded`: the completed response; for an image run
    * (`type: "images"`) the storage objects it created; for a transcription
-   * (`type: "transcription"`) the transcript. Otherwise null.
+   * (`type: "transcription"`) the transcript; for speech (`type: "speech"`)
+   * the stored audio. Otherwise null.
    */
-  output: z.union([aiResponseSchema, aiImageRunOutputSchema, aiTranscriptionRunOutputSchema]).nullable(),
+  output: z
+    .union([aiResponseSchema, aiImageRunOutputSchema, aiTranscriptionRunOutputSchema, aiSpeechRunOutputSchema])
+    .nullable(),
   /** The AI error code (e.g. `AI_KEY_REQUIRED`) once `failed`; otherwise null. */
   errorCode: z.string().nullable(),
   /** A safe, generic description of the failure; never provider output. */
