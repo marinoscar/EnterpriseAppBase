@@ -28,6 +28,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   createAiResponse,
   streamAiResponse,
+  type AiOutputItem,
   type AiResponse,
   type AiResponseRequest,
   type AiUsage,
@@ -58,6 +59,11 @@ export interface AiChatMessage {
   error?: AiErrorInfo;
   /** Set on an assistant message that came from a background run. */
   runId?: string;
+  /**
+   * The completed response's output items (assistant only) — where hosted
+   * tool calls and web-search citations live (#442, rendered by #445).
+   */
+  output?: AiOutputItem[];
   /** Files sent with a user message (#445). */
   attachments?: AiChatAttachment[];
 }
@@ -97,6 +103,7 @@ function fromResponse(response: AiResponse): Partial<AiChatMessage> {
     parsed: response.parsed,
     responseId: response.id,
     model: response.model,
+    output: response.output,
   };
 }
 

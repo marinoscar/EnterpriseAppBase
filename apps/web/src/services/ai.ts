@@ -309,11 +309,70 @@ export type AiInputItem =
  * JSON Schema for structured output, never Zod; function tools are not
  * accepted over HTTP in Phase 1.
  */
+/**
+ * A provider-hosted tool a request may carry (#442) — mirrors
+ * `aiHostedToolSchema` (`apps/api/src/ai/core/hosted-tools.ts`), which is
+ * `.strict()`. Offered only when the model has `hosted_tools` AND the tool's
+ * `GET /ai/config` `hostedTools` flag is on; otherwise `403 AI_TOOL_DISABLED`.
+ */
+export type AiHostedTool =
+  | {
+      type: 'web_search';
+      searchContextSize?: 'low' | 'medium' | 'high';
+      userLocation?: { country?: string; city?: string };
+    }
+  | { type: 'file_search'; vectorStoreIds: string[]; maxResults?: number }
+  | { type: 'code_interpreter'; container?: { type: 'auto' } }
+  | { type: 'image_generation'; size?: string; quality?: string }
+  | {
+      type: 'mcp';
+      serverLabel: string;
+      serverUrl: string;
+      allowedTools?: string[];
+      requireApproval?: 'never' | 'always';
+      /** ⚠ Secret; refused on a background run. */
+      headers?: Record<string, string>;
+    };
+
+/** `web_search` result (#442): what was searched and the sources consulted. */
+export interface AiWebSearchCallResult {
+  queries: string[];
+  sources: Array<{ url: string }>;
+}
+
+/** `file_search` result: queries run and chunks retrieved. */
+export interface AiFileSearchCallResult {
+  queries: string[];
+  results: Array<{ fileId?: string; filename?: string; score?: number; text?: string }>;
+}
+
+/** `code_interpreter` result: the code run and what it printed or drew. */
+export interface AiCodeInterpreterCallResult {
+  code: string | null;
+  containerId: string;
+  outputs: Array<{ type: 'logs'; logs: string } | { type: 'image'; url: string }>;
+}
+
+/**
+ * `image_generation` result: the image was saved as the caller's storage
+ * object, or `storageObjectId` is `null` and `storageError` says why.
+ */
+export interface AiImageGenerationCallResult {
+  storageObjectId: string | null;
+  storageError?: 'AI_STORAGE_UNAVAILABLE';
+  mimeType?: string;
+  revisedPrompt?: string;
+  size?: string;
+  quality?: string;
+}
+
 export interface AiResponseRequest {
   provider?: string;
   model?: string;
   instructions?: string;
   input: string | AiInputItem[];
+  /** Provider-hosted tools (#442); function tools are not accepted over HTTP. */
+  tools?: AiHostedTool[];
   structuredOutput?: { name: string; jsonSchema: object; strict?: boolean };
   reasoning?: {
     effort?: 'minimal' | 'low' | 'medium' | 'high';

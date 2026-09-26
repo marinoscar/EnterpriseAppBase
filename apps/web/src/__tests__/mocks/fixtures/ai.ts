@@ -680,3 +680,76 @@ export const mockPlaygroundFileModel: UsableAiModel = {
   },
   keySource: 'user',
 };
+
+// -----------------------------------------------------------------------------
+// Hosted tools (#442 contract, #445 UI)
+// -----------------------------------------------------------------------------
+
+/** AI on, with every hosted tool type switched on by the administrator. */
+export const mockAiPublicConfigHostedTools: AiPublicConfig = {
+  ...mockAiPublicConfigEnabled,
+  hostedTools: { web_search: true, file_search: true, code_interpreter: true, image_generation: true, mcp: true },
+};
+
+/** A text model that can run provider-hosted tools. */
+export const mockPlaygroundHostedToolsModel: UsableAiModel = {
+  provider: 'openai',
+  modelId: 'gpt-5.1',
+  displayName: 'GPT-5.1',
+  capabilities: {
+    capabilities: ['responses', 'streaming', 'hosted_tools'],
+    inputModalities: ['text'],
+    outputModalities: ['text'],
+  },
+  keySource: 'user',
+};
+
+export const HOSTED_IMAGE_OBJECT_ID = '88888888-8888-4888-8888-888888888888';
+
+/** A response exercising every rendered hosted-tool result, plus citations. */
+export const mockAiHostedToolsResponse: AiResponse = {
+  id: 'resp_tools_1',
+  provider: 'openai',
+  model: 'gpt-5.1',
+  output: [
+    {
+      type: 'hosted_tool_call',
+      id: 'ws_1',
+      tool: 'web_search',
+      status: 'completed',
+      result: { queries: ['lighthouse history'], sources: [{ url: 'https://example.org/lighthouses' }] },
+    },
+    {
+      type: 'hosted_tool_call',
+      id: 'ci_1',
+      tool: 'code_interpreter',
+      status: 'completed',
+      result: { code: 'print(2 + 2)', containerId: 'cntr_1', outputs: [{ type: 'logs', logs: '4' }] },
+    },
+    {
+      type: 'hosted_tool_call',
+      id: 'ig_1',
+      tool: 'image_generation',
+      status: 'completed',
+      result: { storageObjectId: HOSTED_IMAGE_OBJECT_ID, mimeType: 'image/png', revisedPrompt: 'A red lighthouse' },
+    },
+    {
+      type: 'hosted_tool_call',
+      id: 'ig_2',
+      tool: 'image_generation',
+      status: 'completed',
+      result: { storageObjectId: null, storageError: 'AI_STORAGE_UNAVAILABLE' },
+    },
+    {
+      type: 'message',
+      text: 'The first lighthouse was the Pharos of Alexandria.',
+      citations: [
+        { url: 'https://example.org/pharos', title: 'Pharos of Alexandria', startIndex: 4, endIndex: 20 },
+        { url: 'javascript:alert(1)', title: 'Suspicious source', startIndex: 0, endIndex: 3 },
+      ],
+    },
+  ],
+  outputText: 'The first lighthouse was the Pharos of Alexandria.',
+  usage: { inputTokens: 30, outputTokens: 12 },
+  finishReason: 'stop',
+};

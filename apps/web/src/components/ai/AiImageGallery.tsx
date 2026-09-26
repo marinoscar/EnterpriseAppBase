@@ -35,7 +35,7 @@ function extensionFor(mimeType: string): string {
   return subtype === 'jpeg' ? 'jpg' : subtype;
 }
 
-interface TileProps {
+export interface AiImageTileProps {
   storageObjectId: string;
   mimeType: string;
   alt: string;
@@ -43,7 +43,7 @@ interface TileProps {
   revisedPrompt?: string;
 }
 
-function AiImageTile({ storageObjectId, mimeType, alt, index, revisedPrompt }: TileProps) {
+export function AiImageTile({ storageObjectId, mimeType, alt, index, revisedPrompt }: AiImageTileProps) {
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const isMounted = useIsMounted();

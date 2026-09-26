@@ -5,6 +5,13 @@
  * user's way to prove their setup works end to end: pick a usable model, chat
  * with it token by token, stop it, and see what each turn cost.
  *
+ * HOSTED TOOLS (#445, API #442). Web search, file search, code interpreter
+ * and image generation are offered as toggles only when the model declares
+ * `hosted_tools` and an administrator switched that tool on (`GET /ai/config`
+ * `hostedTools`); their results render under the answer
+ * (`AiHostedToolOutputs`). MCP is left to feature code — see
+ * `AiHostedToolControls`.
+ *
  * ATTACHMENTS (#445, API #441). Chat turns may carry images and files the
  * selected model can read (see `AiChatAttachmentPicker`). They are uploaded
  * through the storage API when the turn is sent, then named by
@@ -106,6 +113,13 @@ import {
 import { uploadStorageObjectAndWait } from '../services/storage';
 import { toAiErrorInfo, type AiErrorInfo } from '../services/aiErrors';
 import { AiErrorAlert } from '../components/ai/AiErrorAlert';
+import {
+  AiHostedToolControls,
+  INITIAL_HOSTED_TOOL_SELECTION,
+  buildHostedTools,
+  offeredHostedTools,
+  type HostedToolSelection,
+} from '../components/ai/AiHostedToolControls';
 import {
   AI_SCHEMA_PRESETS,
   CUSTOM_SCHEMA_ID,
@@ -263,7 +277,12 @@ export default function AiPlaygroundPage() {
   const maxTokens = parseTokens(controls.maxOutputTokens, maxTokensCap);
   const temperature = parseTemperature(controls.temperature);
 
+  const [hostedSelection, setHostedSelection] = useState<HostedToolSelection>(INITIAL_HOSTED_TOOL_SELECTION);
+  const offeredTools = offeredHostedTools(selected, aiConfig.hostedTools);
+  const hosted = buildHostedTools(hostedSelection, offeredTools);
+
   const controlsValid =
+    hosted.error === null &&
     maxTokens !== null && (supportsReasoning || temperature !== null) && (schema === null || schema.ok);
 
   const update = <K extends keyof PlaygroundControls>(key: K, value: PlaygroundControls[K]) =>
@@ -286,8 +305,9 @@ export default function AiPlaygroundPage() {
       if (effort || summary) options.reasoning = { ...(effort ? { effort } : {}), ...(summary ? { summary } : {}) };
     }
     if (schema?.ok) options.structuredOutput = { name: schemaName, jsonSchema: schema.schema, strict: true };
+    if (hosted.tools.length > 0) options.tools = hosted.tools;
     return options;
-  }, [selected, controlsValid, controls, maxTokens, supportsReasoning, temperature, efforts, schema, schemaName]);
+  }, [selected, controlsValid, controls, maxTokens, supportsReasoning, temperature, efforts, schema, schemaName, hosted.tools]);
 
   const choosePreset = (id: string) => {
     const preset = AI_SCHEMA_PRESETS.find((entry) => entry.id === id);
@@ -498,6 +518,12 @@ export default function AiPlaygroundPage() {
           )}
         </>
       )}
+      <AiHostedToolControls
+        offered={offeredTools}
+        value={hostedSelection}
+        onChange={setHostedSelection}
+        error={hosted.error}
+      />
       {backgroundAllowed && (
         <FormControlLabel
           control={

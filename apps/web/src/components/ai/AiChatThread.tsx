@@ -19,6 +19,7 @@ import { AiErrorAlert } from './AiErrorAlert';
 import { AiReasoningPanel } from './AiReasoningPanel';
 import { AiStructuredOutputPanel } from './AiStructuredOutputPanel';
 import { AiAttachmentChips } from './AiAttachmentChips';
+import { AiHostedToolOutputs } from './AiHostedToolOutputs';
 
 export function formatAiUsage(usage: AiUsage | undefined): string | null {
   if (!usage) return null;
@@ -144,6 +145,7 @@ export function AiChatThread({ messages }: AiChatThreadProps) {
             sx={{ alignSelf: 'stretch', px: 1.5, py: 1, minWidth: 0 }}
           >
             <AssistantBody message={message} />
+            {message.status === 'done' && <AiHostedToolOutputs output={message.output} />}
           </Paper>
         ),
       )}
