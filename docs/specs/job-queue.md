@@ -833,9 +833,12 @@ shortens** — a sibling's short backoff must not cut a provider's long one.
 
 `resolveKey(jobType)` returns `null` for a type with no external provider,
 which makes the gate a **zero-cost no-op**: no wait, no timer, nothing to act
-on. That is the default and the common case, and this framework ships no job
-type that talks to an external provider, so out of the box the gate does
-nothing at all. A fork declares its own mapping beside the registration that
+on. That is the default and the common case: exactly one framework job type
+registers a key today, `admin.broadcast.chunk` under `'notifications.email'`
+(issue #456 — the broadcast fan-out throws `RateLimitError` when the
+configured email provider throttles it; see
+[`docs/specs/notification-broadcasts.md`](notification-broadcasts.md) §9). A
+fork declares its own mapping the same way, beside the registration that
 makes the handler exist:
 
 ```ts
