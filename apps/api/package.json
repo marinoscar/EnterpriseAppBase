@@ -44,6 +44,7 @@
     "@aws-sdk/s3-request-presigner": "^3.975.0",
     "@fastify/cookie": "~11.0.2",
     "@fastify/multipart": "^10.0.0",
+    "@google/genai": "^2.24.0",
     "@nestjs/common": "^11.1.12",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.1.12",
