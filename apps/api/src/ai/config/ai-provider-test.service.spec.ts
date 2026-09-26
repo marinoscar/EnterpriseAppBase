@@ -14,7 +14,7 @@ function policy(overrides: Partial<SystemAiValue> = {}): SystemAiValue {
   return {
     enabled: true,
     keyPolicy: 'byok',
-    providers: { openai: { enabled: true }, anthropic: { enabled: false } },
+    providers: { openai: { enabled: true }, anthropic: { enabled: false }, gemini: { enabled: false } },
     defaults: { allowBackgroundRuns: true },
     logPromptContent: false,
     usageRetentionDays: 180,
@@ -106,7 +106,7 @@ describe('AiProviderTestService', () => {
 
   it('falls back to the stored baseUrl', async () => {
     aiConfig.resolve.mockResolvedValue(
-      policy({ providers: { openai: { enabled: true, baseUrl: 'https://stored.example.com' }, anthropic: { enabled: false } } }),
+      policy({ providers: { openai: { enabled: true, baseUrl: 'https://stored.example.com' }, anthropic: { enabled: false }, gemini: { enabled: false } } }),
     );
 
     await service.test('openai', {}, 'admin-1');

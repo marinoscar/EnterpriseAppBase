@@ -369,6 +369,9 @@ export const DEFAULT_SYSTEM_SETTINGS = {
       anthropic: {
         enabled: false,
       },
+      gemini: {
+        enabled: false,
+      },
     },
     defaults: {
       allowBackgroundRuns: true,

@@ -333,6 +333,10 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettingsValue = {
       anthropic: {
         enabled: false,
       },
+      // #447 — off, like every provider slot.
+      gemini: {
+        enabled: false,
+      },
     },
     defaults: {
       allowBackgroundRuns: true,
