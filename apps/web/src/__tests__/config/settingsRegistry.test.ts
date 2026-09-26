@@ -156,8 +156,20 @@ describe('visibleSettingsSections — search', () => {
 });
 
 describe('visibleSettingsSections — works identically against USER_SETTINGS_SECTIONS', () => {
-  it('shows every user-settings card, since none of them declare a permission', () => {
+  it('shows every user-settings card that declares no permission and no feature, with no permissions held', () => {
+    // Since #425 one user card (`AI Keys`) declares both a permission (`ai:use`)
+    // and a feature (`ai`); every other one is still open to any signed-in user.
     const result = visibleSettingsSections(USER_SETTINGS_SECTIONS, () => false);
+    const ungated = USER_SETTINGS_SECTIONS.flatMap((section) => section.cards)
+      .filter((card) => !card.permission && !card.feature)
+      .map((card) => card.title);
+
+    expect(titlesOf(result).sort()).toEqual(ungated.sort());
+    expect(titlesOf(result)).not.toContain('AI Keys');
+  });
+
+  it('shows every user-settings card once the permission is held and AI is on', () => {
+    const result = visibleSettingsSections(USER_SETTINGS_SECTIONS, () => true, '', { ai: true });
 
     expect(titlesOf(result).sort()).toEqual(titlesOf(USER_SETTINGS_SECTIONS).sort());
   });
@@ -678,10 +690,12 @@ describe('the Operations group (#266)', () => {
   );
 
   it('is a third group, and the first two are untouched', () => {
+    // `AI` (#425) is APPENDED as a fourth group after it — see the AI suite.
     expect(ADMIN_SECTIONS.map((section) => section.label)).toEqual([
       'General',
       'Access',
       'Operations',
+      'AI',
     ]);
   });
 

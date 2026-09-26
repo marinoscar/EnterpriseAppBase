@@ -23,9 +23,10 @@
  *
  * NO `RequirePermission` ON THIS ROUTE, unlike `/admin/settings`. Every
  * authenticated user owns their own settings; `USER_SETTINGS_SECTIONS` declares
- * no `permission` on any card, and `visibleSettingsSections` passes everything
- * through when none is declared. Adding a gate would invent an authorization
- * rule the API does not enforce.
+ * no `permission` on the cards for them, and `visibleSettingsSections` passes
+ * those through. Adding a gate would invent an authorization rule the API does
+ * not enforce. The one card that does declare one — `AI Keys` (`ai:use`, #425)
+ * — is filtered per card by that same helper, not by a route gate here.
  */
 
 import { SettingsHub } from '../components/settings/SettingsHub';

@@ -51,6 +51,8 @@ import CampaignOutlinedIcon from '@mui/icons-material/CampaignOutlined';
 // About (#401, epic #397) — the running system's own identity: which commit,
 // which version, installed when.
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import AutoAwesomeOutlinedIcon from '@mui/icons-material/AutoAwesomeOutlined';
+import ModelTrainingOutlinedIcon from '@mui/icons-material/ModelTrainingOutlined';
 
 /**
  * One settings page, fully described for every surface that draws it.
@@ -527,6 +529,46 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
         Icon: InfoOutlinedIcon,
         path: '/admin/settings/about',
         permission: 'system_settings:read',
+      },
+    ],
+  },
+  {
+    // Issue #425, epic #419. A FOURTH group, APPENDED — the same append-only
+    // rule `Broadcasts` and `About` followed inside Operations, one level up:
+    // the hub, the rail and the drill-down list render this array in
+    // declaration order, and appending keeps every existing card where it was
+    // (the pixel baselines in `tests/visual` hold at `maxDiffPixels: 4`).
+    //
+    // Both cards gate on `ai_config:read`, the literal string the admin AI
+    // controller enforces on its reads (`PERMISSIONS.AI_CONFIG_READ`, #423 /
+    // #428). Saving, storing a key, probing a provider and editing a model all
+    // need `ai_config:write`, which each PAGE gates internally — the card gate
+    // is about REACHABILITY.
+    label: 'AI',
+    cards: [
+      {
+        // NO `feature`, deliberately: this is the page an administrator
+        // switches AI ON from. Gating it on AI being on would make the switch
+        // unreachable in exactly the state it exists to change.
+        title: 'AI',
+        description:
+          'Switch AI on for this deployment, choose whose keys pay for calls, and configure each provider.',
+        Icon: AutoAwesomeOutlinedIcon,
+        path: '/admin/settings/ai',
+        permission: 'ai_config:read',
+      },
+      {
+        // Nested UNDER the AI route, so `settingsPageTitle`'s longest-prefix
+        // rule titles it "AI Models" rather than "AI" — the Job Insights
+        // precedent. Feature-gated: a model catalogue for a switched-off
+        // feature is a page about nothing.
+        title: 'AI Models',
+        description:
+          'Review the models each provider offers, classify what they can do, and choose which ones users may call.',
+        Icon: ModelTrainingOutlinedIcon,
+        path: '/admin/settings/ai/models',
+        permission: 'ai_config:read',
+        feature: 'ai',
       },
     ],
   },

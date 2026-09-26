@@ -184,16 +184,17 @@ describe('destinations — reachability regression', () => {
     }
   });
 
-  it('offers three destinations, with the two admin rows merged into Console', () => {
+  it('offers four destinations: the two admin rows merged into Console, plus AI (#425)', () => {
     // NOT four any more (#92). `/admin/users` stops being a destination PATH
     // while staying a resolvable route — it redirects to
     // `/admin/settings/users`, and the assertion above is what proves the
     // merge cost no reachability.
-    expect(DESTINATIONS.map((destination) => destination.path).sort()).toEqual([
-      '/',
-      '/admin/settings',
-      '/settings',
-    ]);
+    //
+    // `/ai` (#425, epic #419) is the fourth — the bottom bar's ceiling, asserted
+    // below — and is hidden unless the user holds `ai:use` AND AI is on.
+    expect(DESTINATIONS.map((destination) => destination.path).sort()).toEqual(
+      ['/', '/admin/settings', '/settings', '/ai'].sort(),
+    );
   });
 });
 

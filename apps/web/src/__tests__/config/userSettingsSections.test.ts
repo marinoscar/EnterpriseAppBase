@@ -54,10 +54,29 @@ describe('USER_SETTINGS_SECTIONS - Notifications card (issue #126)', () => {
   // regression that added a permission ANYWHERE in USER_SETTINGS_SECTIONS
   // would be exactly the kind of invented gate that CLAUDE.md's Settings UI
   // Pattern rule 3 warns against.
-  it('no card in USER_SETTINGS_SECTIONS declares a permission', () => {
+  /**
+   * Replaces "no card declares a permission" (#425, epic #419), deliberately.
+   *
+   * Every per-user card edits something the API grants all three roles, so for
+   * those a permission would invent a rule the API does not enforce. `AI Keys`
+   * is the first exception, and a real one: `ai:use` is a grant a deployment
+   * can withhold from a role (AI calls cost money), and the `/api/ai/keys`
+   * controller enforces exactly that string. The allow-list keeps the rule for
+   * everything else — a new gated user card has to be added here on purpose.
+   */
+  const PERMISSION_GATED_USER_CARDS: Record<string, string> = {
+    '/settings/ai': 'ai:use',
+  };
+
+  it('only cards listed in PERMISSION_GATED_USER_CARDS declare a permission', () => {
     const allCards = USER_SETTINGS_SECTIONS.flatMap((section) => section.cards);
     for (const card of allCards) {
-      expect(card.permission).toBeUndefined();
+      const expected = card.path ? PERMISSION_GATED_USER_CARDS[card.path] : undefined;
+      expect(card.permission, `${card.title} permission`).toBe(expected);
+    }
+    // Every allow-listed card still exists — a stale entry is a silent hole.
+    for (const path of Object.keys(PERMISSION_GATED_USER_CARDS)) {
+      expect(allCards.some((card) => card.path === path), `${path} is registered`).toBe(true);
     }
   });
 });

@@ -483,7 +483,11 @@ describe('UserMenu', () => {
         expect(screen.getByRole('menu')).toBeInTheDocument();
       });
 
-      const expected = DESTINATIONS.filter((d) => d.key !== 'home').map((d) => d.label);
+      // Feature-gated destinations (`ai`, #425) are absent with no feature
+      // provider above the menu — AI is off, failing closed.
+      const expected = DESTINATIONS.filter((d) => d.key !== 'home' && !d.feature).map(
+        (d) => d.label,
+      );
       for (const label of expected) {
         expect(screen.getByRole('menuitem', { name: label })).toBeInTheDocument();
       }

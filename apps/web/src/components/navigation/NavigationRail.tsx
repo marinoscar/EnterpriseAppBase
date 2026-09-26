@@ -276,8 +276,12 @@ export function NavigationRail() {
   // `isDestinationVisible`, never an inline `destination.permission` check:
   // `console` is gated on EITHER `system_settings:read` OR `users:read` (#92),
   // and an inline check would have shown that row to everyone.
+  //
+  // The feature map (#425) hides the AI destination while AI is switched off,
+  // and the Console sections below read the same map.
+  const features = useAiFeatures();
   const visibleDestinations = DESTINATIONS.filter((destination) =>
-    isDestinationVisible(destination, hasPermission),
+    isDestinationVisible(destination, hasPermission, features),
   );
 
   // TWO GROUPS, ONE MODEL (#105). Console is a MODE, not a peer of the library
@@ -301,7 +305,7 @@ export function NavigationRail() {
   //
   // The FEATURE map (#425) is the same one the hub passes, so a card for a
   // switched-off feature (AI Models while AI is off) is absent from both.
-  const aiEnabled = useAiFeatures().ai;
+  const aiEnabled = features.ai;
   const consoleSections = useMemo(
     () =>
       consoleMode
