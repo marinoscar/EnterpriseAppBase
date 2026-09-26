@@ -5,7 +5,8 @@
  * seven more functions to `services/api.ts`. That file is the transport
  * (`ApiService`, the refresh dance, the maintenance recogniser) plus the
  * endpoints that predate the convention; this epic's surface — an audience
- * count, a test send, a list, a create, a read, a cancel and a delete — is
+ * count, a test send, a list, a create, a read, a cancel, a resume and a
+ * delete — is
  * large enough that keeping it together is what lets the types below sit next
  * to the calls that produce them. Everything still goes through the shared
  * `api` client, so a broadcast request inherits the token refresh, the 401
@@ -232,12 +233,24 @@ export async function createBroadcast(
 /**
  * The only recall mechanism this feature has.
  *
- * 409 for anything that is not `scheduled` or `sending` — mirrored by
+ * 409 for anything that is not `scheduled`, `sending` or `failed` — mirrored by
  * `isBroadcastCancelable` so the UI disables rather than merely handles the
- * failure.
+ * failure. Cancelling a `failed` broadcast (issue #459) is how an operator says
+ * "do not resume this": it records the decision without deleting the row.
  */
 export async function cancelBroadcast(id: string): Promise<Broadcast> {
   return api.post<Broadcast>(`/admin/broadcasts/${id}/cancel`);
+}
+
+/**
+ * Continue a `failed` broadcast from where its fan-out stopped (issue #459).
+ *
+ * Answers the row, now `sending`, to the SAME frozen audience — the cutoff is
+ * not re-stamped. 409 for anything that is not `failed`, mirrored by
+ * `isBroadcastResumable`; 404 when the row is gone.
+ */
+export async function resumeBroadcast(id: string): Promise<Broadcast> {
+  return api.post<Broadcast>(`/admin/broadcasts/${id}/resume`);
 }
 
 /** Remove the record. 409 while `sending` — see `isBroadcastDeletable`. */
@@ -280,14 +293,31 @@ export async function getBroadcastAudience(): Promise<BroadcastAudience> {
  * Whether a cancel will be accepted at all.
  *
  * A MIRROR of the API's own refusal (`broadcasts.service.ts` raises 409 outside
- * `scheduled` and `sending`), not an independent policy. Restated in the UI
- * because a `sent` broadcast has nothing to cancel: offering the action and
- * then reporting a 409 tells the operator the system failed, when in fact the
- * message had already gone out and the only honest answer is that it cannot be
- * recalled.
+ * `scheduled`, `sending` and `failed`), not an independent policy. Restated in
+ * the UI because a `sent` broadcast has nothing to cancel: offering the action
+ * and then reporting a 409 tells the operator the system failed, when in fact
+ * the message had already gone out and the only honest answer is that it cannot
+ * be recalled. `failed` is accepted since issue #459: a stopped broadcast is
+ * resumable, and cancelling it is the explicit "leave it stopped" decision.
  */
 export function isBroadcastCancelable(broadcast: Pick<Broadcast, 'status'>): boolean {
-  return broadcast.status === 'scheduled' || broadcast.status === 'sending';
+  return (
+    broadcast.status === 'scheduled' ||
+    broadcast.status === 'sending' ||
+    broadcast.status === 'failed'
+  );
+}
+
+/**
+ * Whether a resume will be accepted (issue #459).
+ *
+ * A MIRROR of the API's own refusal — `POST /:id/resume` answers 409 for every
+ * status except `failed` — not an independent policy. Only a broadcast whose
+ * fan-out stopped on a permanently failed chunk has anything left to continue;
+ * a `sent` one is finished and a `canceled` one was stopped on purpose.
+ */
+export function isBroadcastResumable(broadcast: Pick<Broadcast, 'status'>): boolean {
+  return broadcast.status === 'failed';
 }
 
 /**

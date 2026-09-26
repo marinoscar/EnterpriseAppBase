@@ -251,10 +251,11 @@ describe('localInputToIso / isoToLocalInput', () => {
 // =============================================================================
 
 describe('the shared predicates mirror the API’s 409s', () => {
-  it('allows cancel only for scheduled and sending', () => {
+  it('allows cancel only for scheduled, sending and failed', () => {
     expect(isBroadcastCancelable({ status: 'scheduled' })).toBe(true);
     expect(isBroadcastCancelable({ status: 'sending' })).toBe(true);
-    for (const status of ['draft', 'sent', 'canceled', 'failed'] as const) {
+    expect(isBroadcastCancelable({ status: 'failed' })).toBe(true);
+    for (const status of ['draft', 'sent', 'canceled'] as const) {
       expect(isBroadcastCancelable({ status }), status).toBe(false);
     }
   });

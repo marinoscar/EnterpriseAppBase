@@ -14,7 +14,8 @@
  * dispatched carry the old text forever, so "editing" a half-sent broadcast
  * would produce one announcement that said two different things. Cancel and
  * recreate expresses the same intent without racing the fan-out, and both of
- * those actions live on the row, not here.
+ * those actions live on the row, not here — as does resuming a `failed`
+ * broadcast (issue #459), which this dialog only points to.
  */
 
 import {
@@ -81,6 +82,7 @@ export function BroadcastDetailDialog({
   // dialog holding 2,000 characters of body text is a full screen on a phone or
   // it is a scroll trap.
   const isCompactWindow = useMediaQuery(theme.breakpoints.down('sm'));
+  const isFailed = broadcast?.status === 'failed';
 
   return (
     <Dialog
@@ -148,7 +150,9 @@ export function BroadcastDetailDialog({
               <Field label="Started">
                 <Typography variant="body2">{formatDateTime(broadcast.startedAt)}</Typography>
               </Field>
-              <Field label="Finished">
+              {/* For a `failed` row `finishedAt` is when the fan-out STOPPED
+                  (issue #459), not when it completed — labelled accordingly. */}
+              <Field label={isFailed ? 'Stopped' : 'Finished'}>
                 <Typography variant="body2">{formatDateTime(broadcast.finishedAt)}</Typography>
               </Field>
               <Field label="Canceled">
@@ -200,6 +204,17 @@ export function BroadcastDetailDialog({
                 </Typography>
               )}
             </Box>
+
+            {isFailed && (
+              // Issue #459: a failed broadcast is resumable, and the action for
+              // that lives on the row (this dialog stays read-only — see the
+              // file header), so the summary says where to go.
+              <Alert severity="error" data-testid="broadcast-failed-summary">
+                Stopped after {broadcast.recipientsDispatched} of{' '}
+                {broadcast.recipientsTargeted ?? '—'} recipients — resume it from the
+                broadcasts list.
+              </Alert>
+            )}
 
             {broadcast.lastError && (
               <Alert severity="error">

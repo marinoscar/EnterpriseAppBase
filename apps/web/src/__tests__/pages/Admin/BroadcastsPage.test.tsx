@@ -160,6 +160,7 @@ function setActionsState(overrides: { isWorking?: boolean; error?: string | null
     clearError: vi.fn(),
     create: mockCreate,
     cancel: mockCancel,
+    resume: vi.fn(),
     remove: mockRemove,
     sendTest: mockSendTest,
   });
