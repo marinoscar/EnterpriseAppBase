@@ -371,7 +371,10 @@ exact and total on the *consumer* side while leaving the *admin* side
 reachable, so a deployment can always turn itself back on:
 
 - Every route under `/api/ai/*` **except** `GET /api/ai/config` responds
-  `403 { code: 'AI_DISABLED' }` — enforced by `AiEnabledGuard`, applied at
+  `403` with `details.reason: 'AI_DISABLED'` — the envelope's top-level
+  `code` is the published, status-derived `FORBIDDEN` (§13's own note on
+  why an `AiError`'s code travels in `details.reason`, never at the top
+  level) — enforced by `AiEnabledGuard`, applied at
   the controller level on every user-facing AI controller (§10, §11). `GET
   /api/ai/config` is the one exception, deliberately: it is how a signed-in
   user's browser learns AI is off at all, and a route that answers "AI is
@@ -410,7 +413,16 @@ server-only, never node-eligible** — no `nodeResultSchema` +
   `profile: { maxRuntimeMs: 30*60_000, maxAttempts: 1 }` — a model call is
   neither idempotent nor cheap to blindly retry, so this type opts out of
   the deployment default attempt count rather than accept an automatic
-  second charge against a user's own provider account.
+  second charge against a user's own provider account. `ai_runs.request`
+  stores the **full normalized request** — `instructions`, the complete
+  `input` (whatever text/image/file content the caller sent), tool
+  definitions, structured-output schema — everything `toStoredRunRequest`
+  (`runtime/ai-run-request.ts`) needs to re-issue an identical call when the
+  job executes, minus only the key. It is not redacted or truncated: the
+  worker that later claims this job must reconstruct the exact request the
+  user made, and truncating a prompt to store it would make the replayed
+  call diverge from the one the user actually asked for. It is still never
+  key material — see the ⚠ in that file and in §3 above.
 - Phase 2/3 media jobs (image generation/edit, audio transcription/speech,
   embeddings at scale) will follow the identical posture once implemented.
 
@@ -436,6 +448,35 @@ read settings or rows to decide *whether* work is due, then call
 `enqueueHousekeepingJob` (that helper dedups by type alone, and both tasks'
 payloads differ per subject), and both must pass
 `apps/api/test/jobs/cron-enqueue-only.spec.ts`.
+
+`ai.keys.recheck` is also enqueued **outside** its weekly cron, on
+`AI_CATALOG_SYNCED_EVENT` (`ai/catalog/ai-catalog.events.ts`): every
+`ai.catalog.refresh` job that actually ran a sync (never one that was
+skipped) emits this event, and a listener in the keys module (never the
+reverse — the catalog module imports nothing from `keys/`, so the
+dependency stays one-directional) enqueues a recheck for the affected
+provider's users at once rather than waiting up to a week for a model a
+sync just deprecated or newly classified. `EventEmitter2` dispatches this
+event **synchronously inside the job's own `process()`**, so the listener
+must return immediately and only enqueue — it may never itself await a
+provider round trip or a sweep, per MANDATORY queue rule 1.
+
+A background run's own terminal handling (`ai.response.run`) draws a line
+between an **expected** refusal and an **operator incident**:
+`AI_RUN_TERMINAL_CODES` (`runtime/ai-response-run.handler.ts`) is the fixed
+set of `AiErrorCode`s — `AI_DISABLED`, `AI_PROVIDER_DISABLED`,
+`AI_KEY_REQUIRED`, `AI_KEY_INVALID`, `AI_MODEL_NOT_ENABLED`,
+`AI_MODEL_NOT_REACHABLE`, `AI_CAPABILITY_UNSUPPORTED`, `AI_INVALID_REQUEST`,
+`AI_CONTENT_FILTERED`, `AI_STRUCTURED_OUTPUT_INVALID` — that end the run
+`failed` with the code recorded, while the *job* still **returns normally**
+(no retry, no `jobs.job_failed`): the platform being off, a key being
+rejected, or a model no longer being enabled are outcomes the user caused
+or an administrator chose, not a bug the queue dashboard should surface as
+an incident. `AI_RATE_LIMITED` is handled earlier and separately (the run
+goes back to `pending`, the job defers via `toRateLimitError()`); every
+other code — a provider outage, a timeout, an unexpected exception — is
+**not** in this set, so the job throws and is retried/flagged the ordinary
+way.
 
 ## 10. Streaming
 
@@ -611,11 +652,19 @@ one HTTP status:
 
 `AiError` follows the `StorageNotConfiguredError` style already established
 in this codebase: it serializes through the global `HttpExceptionFilter` as
-`{ statusCode, code, message, details: { reason: code, retryAfterMs? } }`,
-and its `apiKey`/key material must never appear in `details` or in any log
-line derived from it, regardless of how the error was constructed (a unit
-test asserts `JSON.stringify(new AiError(...))` never includes a key passed
-via `cause`).
+`{ statusCode, code, message, details: { reason: code, retryAfterMs? } }`.
+**The envelope's top-level `code`** is always the status-derived, published,
+closed enum (`FORBIDDEN`, `TOO_MANY_REQUESTS`, ...) that `common/dto/error.dto.ts`
+and the filter's own header already define for every error in this API —
+`AiError` does not get a second, competing meaning for that field. The AI-
+specific code from the table above travels **only** in `details.reason`,
+written last inside `AiError`'s constructor so a caller-supplied
+`details.reason` can never disagree with it; a client switches on
+`details.reason`, never on the top-level `code`, to learn which of these
+twelve conditions occurred. Its `apiKey`/key material must never appear in
+`details` or in any log line derived from it, regardless of how the error
+was constructed (a unit test asserts `JSON.stringify(new AiError(...))`
+never includes a key passed via `cause`).
 
 ## 14. Adding a provider
 
@@ -667,7 +716,11 @@ already operate on `AiProviderAdapter` and `AiProviderRegistry.ids()`.
 | `POST /api/admin/ai/models/refresh` | `ai_config:write` | Body `{ provider }`. 409 if no admin key. Enqueues `ai.catalog.refresh`; returns `{ jobId }`. Audit `ai_catalog:refresh_requested`. |
 
 **Public config** (any authenticated user, no `ai_config` permission
-needed — the `/api/notifications/config` pattern):
+needed — the `/api/notifications/config` pattern), and **user keys/usable
+models** below, both carry `@ApiTags('AI')` — issue #431 moved
+`GET /api/ai/config` onto this tag alongside the rest of `/api/ai/*`, so
+every consumer-facing route (as opposed to `/api/admin/ai/*`'s
+`AI Administration` tag) groups under one heading in the API reference:
 
 | Method & path | Auth | Behaviour |
 |---|---|---|
@@ -681,7 +734,7 @@ needed — the `/api/notifications/config` pattern):
 | `GET /api/ai/keys` | List the caller's `UserAiKeyView[]` — one per enabled provider, configured or not. |
 | `PUT /api/ai/keys/:provider` | Body `{ apiKey }` (min 8, max 512). Verifies, then computes reachable models, then stores. |
 | `DELETE /api/ai/keys/:provider` | 204. Idempotent. |
-| `POST /api/ai/keys/:provider/test` | `@HttpCode(200)`. Body `{ apiKey? }` (blank ⇒ stored key). |
+| `POST /api/ai/keys/:provider/test` | `@HttpCode(200)`. Body `{ apiKey? }` (blank ⇒ stored key). **Two checks only** — `credentials` (the provider accepts the key) and `list_models` (how many catalog models it can reach) — deliberately **not** the admin probe's third `responses_smoke` check above: a real model call bills whoever's key is being tested, and it is this platform's own money for the admin probe but a user's own provider account for this one, so this route never spends it on their behalf. |
 | `GET /api/ai/models` | `UsableAiModel[]` = `{ provider, modelId, displayName, capabilities, keySource }` (§7). |
 
 **Consumer responses and background runs** (`/api/ai/*`, same guard/auth):

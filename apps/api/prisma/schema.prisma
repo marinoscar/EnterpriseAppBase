@@ -2329,10 +2329,14 @@ model AiRun {
   provider String
   modelId  String @map("model_id")
 
-  // The NORMALIZED request — model id, parameters, a redacted/truncated
-  // prompt shape — and NEVER the caller's key material, which this run's
-  // executor holds separately and only for the duration of the call. See the
-  // ⚠ block comment above this section.
+  // The NORMALIZED request — model id, parameters, and the FULL prompt shape
+  // (instructions, input, tools, structured-output schema) `toStoredRunRequest`
+  // (`runtime/ai-run-request.ts`) built from it — and NEVER the caller's key
+  // material, which this run's executor holds separately and only for the
+  // duration of the call. Deliberately not redacted or truncated: the
+  // worker that claims this job re-issues the user's exact request, and a
+  // truncated prompt would make the replayed call diverge from the one the
+  // user actually asked for. See the ⚠ block comment above this section.
   request Json
 
   output       Json?

@@ -270,8 +270,9 @@ This section states the rules; that file explains why.
 4. **New settings surfaces MUST reuse the shared
    `apps/web/src/components/settings/SettingsHub.tsx` component.** Do not
    fork it, do not copy it. The worked example is `/settings`
-   (`apps/web/src/pages/UserSettingsHubPage.tsx`): it is a 4-prop binding
-   (`sections`, `hubKey`, `title`, `subtitle`) over the exact same component
+   (`apps/web/src/pages/UserSettingsHubPage.tsx`): it is a binding
+   (`sections`, `hubKey`, `title`, `subtitle`, and — since issue #425's
+   feature-gated cards — `features`) over the exact same component
    `/admin/settings` uses — nothing more.
 
 5. **The five coupled breakpoint gates move together or not at all.** Never
@@ -366,6 +367,101 @@ section states the four rules that follow from it.
    `leaseMs` or `heartbeatMs` to the profile — a declared duration that can
    disagree with `maxRuntimeMs` is exactly the state this rule exists to rule
    out.
+
+## MANDATORY: AI Platform Rules
+
+Epic #419 adds one admin-governed, bring-your-own-key, multi-provider AI
+capability to this template (`apps/api/src/ai/**`). It is documented in full,
+with rationale and rejected alternatives, in
+[`docs/specs/ai-platform.md`](docs/specs/ai-platform.md); this section states
+the rules that follow from it. The module's own developer README is
+[`apps/api/src/ai/README.md`](apps/api/src/ai/README.md); the operator runbook
+is [`docs/runbooks/ai-configuration.md`](docs/runbooks/ai-configuration.md).
+
+### Core Rules (MANDATORY)
+
+1. **Never import a provider SDK outside `apps/api/src/ai/providers/<provider>/`.**
+   A feature that wants AI injects `AiService` (`apps/api/src/ai/runtime`,
+   re-exported by `AiModule`) and calls `AiService.forUser(userId)` — never an
+   SDK client of its own. `apps/api/src/ai/core/no-provider-sdk.spec.ts` is
+   this rule's executable form for the `openai` package today; a second
+   provider's SDK gets the identical guard when its adapter is added (§14 of
+   the spec).
+2. **Never call AI from the browser; keys never leave the server.** Every
+   provider call happens server-side, under a key `AiKeyResolver` resolved
+   for that call — the admin/org key or a user's own BYOK key
+   (`docs/specs/ai-platform.md` §3) — and the key exists in the runtime only
+   between resolving it and calling the adapter (`ai.service.ts`'s own header
+   comment marks the exact window). No route, log line, span, `AiError`,
+   `ai_usage_events` row or `ai_runs.request` row may ever carry key
+   material.
+3. **Long AI work is a queue job and is server-only, never node-eligible.**
+   `ai.catalog.refresh` and `ai.response.run` (and any Phase 2/3 media job)
+   implement neither `nodeResultSchema` nor `persistNodeResult` — this is
+   permanent, not provisional: a user's BYOK key, and the platform's own
+   admin/org key, must never be brokered to a worker node under any
+   circumstance (this is on top of, not instead of, the queue rules in
+   "MANDATORY: Every Long-Running Activity Is a Queue Job" above — see
+   `docs/specs/ai-platform.md` §9 for the full argument).
+4. **Every new AI route sits behind `AiEnabledGuard` plus `ai:use`** (consumer
+   routes under `/api/ai/*`) **or `ai_config:read`/`ai_config:write`** (admin
+   routes under `/api/admin/ai/*`, which are deliberately **not** behind
+   `AiEnabledGuard` — an administrator must always be able to turn the
+   platform back on).
+   `apps/api/test/ai/ai-kill-switch.integration.spec.ts` (issue #435) is
+   the executable form of this rule: it discovers every `/api/ai/*` and
+   `/api/admin/ai/*` route by reflecting on the real Nest router (via
+   `createOpenApiDocument`, never a hand-written list), then asserts that
+   while `ai.enabled=false` every discovered `/api/ai/*` route except
+   `GET /api/ai/config` answers `403` with `details.reason: 'AI_DISABLED'`
+   (unauthenticated — `AiEnabledGuard` runs at controller/class level and
+   so denies before `@Auth()`'s own guard is reached, per
+   `ai-enabled.guard.ts`'s header) while every `/api/admin/ai/*` route stays
+   reachable (answering its own auth/RBAC outcome, never the kill switch).
+   A route added later without the guard, or an admin route accidentally
+   given it, fails this suite the moment it is registered — nobody edits a
+   list. It also drives every `ai.*` job type from `JobHandlerRegistry
+   .types()` (also discovered, not hand-listed) through its handler with AI
+   disabled and asserts zero provider calls reach `FakeAiProvider`.
+
+   Five more #435 suites are the same "discover, never hand-list" tripwire
+   shape, each pinning one more platform-wide invariant — all under
+   `apps/api/test/ai/` unless noted, and all covering a future AI route or
+   job type automatically, with no edit to the suite itself:
+   - `ai-rbac-matrix.integration.spec.ts` — every discovered route crossed
+     against Admin/Contributor/Viewer/unauthenticated, with the *expected*
+     permission read off the route's own `@Auth()` metadata and the seeded
+     grant read off `prisma/seed-data.ts`'s `ROLE_PERMISSIONS`, so a route
+     and a seed drifting apart fails this suite, not a reviewer's memory.
+   - `ai-secret-egress.integration.spec.ts` — a distinct sentinel key per
+     role (admin/org, this user, another user) must never appear in any
+     response body, response header, captured log line, `audit_events.meta`
+     row, `ai_usage_events` row, `ai_runs.request` row, or thrown error body.
+   - `ai-key-policy.integration.spec.ts` — the byok/org resolution rule
+     (rule 2 above) proven over every inference route, synchronous and
+     queued, by inspecting `FakeAiProvider.calls`' literal `apiKey`.
+   - `ai-jobs-server-only.spec.ts` — every job type whose type begins `ai.`
+     carries neither `nodeResultSchema` nor `persistNodeResult`, read off
+     `JobHandlerRegistry.serverOnlyTypes()` — the executable form of rule 3.
+   - `ai-no-sdk-leak.spec.ts` — no file outside `ai/providers/<provider>/`
+     imports a provider SDK package (by package name, not a string grep for
+     `"openai"`), in either `apps/api/src` or `apps/web/src` — the executable
+     form of rule 1, wider than `ai/core/no-provider-sdk.spec.ts`'s own
+     narrower, permanent pin.
+   - `apps/web/src/__tests__/config/aiSettingsRegistry.test.ts` — every
+     registry card tagged `feature: 'ai'` or routed under an AI path has its
+     `permission` checked against the literal string the real API controller
+     source enforces, read off disk — the mechanical half of Settings UI
+     Pattern rule 3, generic over future AI cards.
+5. **New AI settings pages follow the Settings UI Pattern and declare
+   `feature: 'ai'`.** A registry card behind the AI platform (the admin `AI
+   Models` card, the user `AI Keys` card) is invisible while AI is switched
+   off, the same way a Settings UI Pattern rule 1 card is invisible without
+   its permission — see the `AI` admin group and `AI Keys` user card below.
+   The admin `AI` card itself is the one deliberate exception, carrying no
+   `feature`: it is the page an administrator switches AI on from, and
+   gating it on AI being on would make the switch unreachable in exactly the
+   state it exists to change.
 
 ## Architecture Principles
 
@@ -613,6 +709,40 @@ the distinct blast radius that justified splitting out
 `push:*`/`broadcasts:*`/`nodes:*`/`storage_config:*`.
 - `GET /api/admin/about` - Deployment report: API version, deploy document fields, live `runtime` block, database liveness (`system_settings:read`)
 
+### AI (Admin-only)
+Runtime-configurable, admin-governed, bring-your-own-key AI (epic #419) — the
+kill switch, key policy, per-provider enablement and admin/org key, and the
+model catalog, all editable with no restart at `/admin/settings/ai` and
+`/admin/settings/ai/models`. `@ApiTags('AI Administration')`. See
+[`docs/specs/ai-platform.md`](docs/specs/ai-platform.md) and
+[`docs/runbooks/ai-configuration.md`](docs/runbooks/ai-configuration.md).
+- `GET /api/admin/ai/config` - The `ai` namespace plus one entry per provider (`enabled`, `baseUrl`, capabilities, masked `keyStatus`); the admin key itself is never returned (`ai_config:read`)
+- `PUT /api/admin/ai/config` - Full replace of the non-secret configuration; `If-Match` version check (`ai_config:write`)
+- `PUT /api/admin/ai/providers/{provider}/key` - Set/replace the admin (org) key; verified against the provider first, 400 `AI_KEY_INVALID` and nothing stored on rejection (`ai_config:write`)
+- `DELETE /api/admin/ai/providers/{provider}/key` - Remove the admin key; body `{"confirmation":"REMOVE"}`, warns if this leaves `byok_with_org_fallback` with no fallback (`ai_config:write`)
+- `POST /api/admin/ai/providers/{provider}/test` - Three checks — `credentials`, `list_models`, `responses_smoke` (a real, billed call) — against the submitted or stored key; always 200, read `success` (`ai_config:write`)
+- `GET /api/admin/ai/models` - Paginated model catalog, filterable by provider/capability/enabled/deprecated (`ai_config:read`)
+- `PATCH /api/admin/ai/models/{id}` - Enable/disable a model or override its capabilities; sets `capabilitySource: "admin_override"` (`ai_config:write`)
+- `POST /api/admin/ai/models/refresh` - Enqueue `ai.catalog.refresh` for one provider using the admin key; 409 with no admin key configured (`ai_config:write`)
+
+### AI
+The caller's own AI surface: usable models, BYOK keys, and calling AI itself.
+`@ApiTags('AI')`. Every route except `GET /api/ai/config` sits behind
+`AiEnabledGuard` (403 `details.reason: "AI_DISABLED"` while AI is off) and
+requires `ai:use`. See
+[`docs/specs/ai-platform.md`](docs/specs/ai-platform.md).
+- `GET /api/ai/config` - Whether AI is enabled, the key policy, `allowBackgroundRuns` (whether `POST /api/ai/runs` accepts a request at all), and which providers are enabled/carry an org key; reachable while AI is disabled — how a client learns to hide its AI surfaces (any authenticated user, no `ai:use` required)
+- `GET /api/ai/keys` - List the caller's provider keys, masked (`ai:use`)
+- `PUT /api/ai/keys/{provider}` - Set/replace the caller's key; verified against the provider first, then reachable models computed, then stored (`ai:use`)
+- `DELETE /api/ai/keys/{provider}` - Remove the caller's key; 204, idempotent (`ai:use`)
+- `POST /api/ai/keys/{provider}/test` - Two checks only — `credentials`, `list_models` — deliberately no billed smoke call against the caller's own account; always 200 (`ai:use`)
+- `GET /api/ai/models` - Models the caller can use right now: admin-enabled, not deprecated, and reachable with their resolved key (`ai:use`)
+- `POST /api/ai/responses` - One AI response via `AiService.forUser(id).respond(...)`; 1 MB body limit, function tools not accepted over HTTP (`ai:use`)
+- `POST /api/ai/responses/stream` - The same request as SSE (`Accept: text/event-stream`, no `stream` flag) — `event: <type>` frames, `: ping` every 15s, ending with `response.completed` or an in-band `error` frame; every pre-stream refusal is an ordinary JSON error over an unbuffered nginx route (issue #433, epic #419) (`ai:use`)
+- `POST /api/ai/runs` - Queue a background AI response (`ai.response.run`); 202 `{ runId, jobId }`; 400 `AI_INVALID_REQUEST` when `ai.defaults.allowBackgroundRuns` is off (`ai:use`)
+- `GET /api/ai/runs/{id}` - Get one background run, scoped to the caller — `{ id, status, provider, modelId, output, errorCode, errorMessage, createdAt, completedAt }`; 404 for another user's run (`ai:use`)
+- `POST /api/ai/runs/{id}/cancel` - Cancel a background run, scoped to the caller; idempotent — a finished run is returned unchanged (`ai:use`)
+
 ### Health
 - `GET /api/health/live` - Liveness check
 - `GET /api/health/ready` - Readiness check (includes DB)
@@ -659,6 +789,20 @@ the distinct blast radius that justified splitting out
   and is seeded to Viewer and Contributor, so reusing it would put this
   credential-bearing configuration screen in front of the entire user base. See
   [`docs/specs/storage-providers.md`](docs/specs/storage-providers.md)
+- `ai_config:read/write` - Deployment-wide AI configuration: kill switch, key policy, provider
+  enablement, admin/org keys, model catalog enablement and overrides (epic #419). Seeded
+  **Admin only**. **Not a reuse of `system_settings:*`** — a wrong key policy or a wrongly
+  enabled model has a blast radius specific to this platform, the identical argument that
+  split out `storage_config:*`, `push:*`, `broadcasts:*` and `nodes:*` rather than folding
+  each into a permission seeded far more broadly for unrelated settings
+- `ai:use` - May call AI with the caller's own key (or the org fallback key, when the
+  deployment's key policy allows it): every consumer-facing route under `/api/ai/*` except
+  the always-open `GET /api/ai/config`. Seeded to **all three roles** — using AI with a key
+  the caller themselves supplied is not an administrative act, the same posture managing
+  one's own settings or storage objects already takes. Deliberately **not** folded into
+  `ai_config:*`: an administrator must be able to grant "may use AI" broadly while keeping
+  "may reconfigure the AI platform for the whole deployment" Admin-only — see
+  [`docs/specs/ai-platform.md`](docs/specs/ai-platform.md) §11
 
 ## Database Tables
 
@@ -728,6 +872,43 @@ the distinct blast radius that justified splitting out
   `running`) is enforced by `database_backup_runs_active_uniq_idx`, the same
   raw-SQL-only partial unique index pattern as `jobs` above — never by a `findFirst`
   before the insert, which cannot close the race a concurrent request needs closed.
+- `ai_models` - The discovered/classified model catalog (epic #419), one row per
+  `(provider, modelId)`. `capabilities` is JSONB (`AiModelCapabilities`, Zod-validated at
+  the consuming layer) rather than typed columns because its shape is provider-specific and
+  grows with Phase 2/3 capabilities; `capabilitySource` (`'unclassified'` default) records
+  whether it came from a provider's own classifier or an `admin_override`. `enabled`
+  defaults to `false` — the same "discovery alone changes nothing" posture
+  `WorkerNode.status` and `databaseBackup.enabled` both take — so a freshly discovered
+  model is inert until an administrator (or a later sync's own policy) turns it on.
+  `discoveredAt` vs. `lastSeenAt` splits creation time from liveness, mirroring
+  `WorkerNode.registeredAt`/`.lastHeartbeatAt`.
+- `user_ai_keys` - One BYOK row per `(userId, provider)`, cascade-deleted with the user.
+  `secret` is ciphertext only (`encryptSecret(plaintext, 'ai_user_key')`) — a cipher
+  *purpose* dedicated to this table and distinct from the `'ai'` purpose the admin/org key's
+  `CredentialsService` row uses, so the two secret spaces cannot be confused by construction
+  even by accident. `reachableModelIds` is a DEPLOYMENT-independent fact about the key
+  itself (which models it can actually reach, as opposed to `ai_models.enabled`, which is a
+  deployment-wide policy decision) — a key with a narrower API scope or a provider-side
+  allowlist can legitimately reach fewer models than the deployment otherwise offers.
+  Recomputed at key-set time, on the weekly `ai.keys.recheck` job, and whenever
+  `ai.catalog.refresh` emits `AI_CATALOG_SYNCED_EVENT`.
+- `ai_runs` - One row per background AI response (`ai.response.run`, epic #419).
+  `jobId` is nullable and deliberately **not a foreign key**, mirroring `jobs.subjectType`/
+  `subjectId`'s polymorphism argument above. `request` holds the **full normalized
+  request** — instructions, the complete input, tool definitions, structured-output
+  schema — built by `toStoredRunRequest` so the job that executes it can re-issue an
+  identical call; it is never truncated or redacted, and it is never the caller's key,
+  which the executor resolves separately at run time. `status` is `pending
+  |running|succeeded|failed|cancelled`, a plain string for the same forward-compatibility
+  reason other state-machine columns in this schema are.
+- `ai_usage_events` - One row per provider round-trip (success, failure or cancellation;
+  epic #419) — `userId` nullable/`SetNull` for a system-initiated catalog sync, `keySource`
+  (`user|org|admin_discovery`) records whose key paid, `operation`
+  (`responses|images|audio.transcribe|audio.speech|embeddings|catalog`) is a plain string
+  for the same reason `AiUsageEvent.operation`'s own comment gives: a new operation kind
+  must cost zero migrations here. Token columns are all nullable (not every operation or
+  provider reports every count); `units` is JSONB for non-token-metered operations
+  (`{ images: 2 }`, `{ audioSeconds: 31.4 }`).
 
 ## Operations Admin Settings Group
 
@@ -756,6 +937,37 @@ each page (disabling controls) rather than by a second card permission — the
 card gate is about reachability, the page gates content; About has no write
 side at all. `Maintenance` is a `General` card, not an `Operations` one — it
 is a system setting, not a running-system view.
+
+## AI Admin Settings Group
+
+A fourth `ADMIN_SECTIONS` group, **appended** after `Operations` — issue #425,
+epic #419, the same append-only rule `Broadcasts` and `About` already follow:
+the hub, the rail and the drill-down list render this array in declaration
+order, so an insertion would move every existing card for a reader who has
+learnt where they are. Two cards at `/admin/settings/ai*`, both gated on
+`ai_config:read` — the literal string `ai-admin.controller.ts` enforces on its
+reads (Settings UI Pattern rule 3):
+
+- **AI** (`/admin/settings/ai`, `ai_config:read`, no `feature`) — switches AI
+  on for the deployment, chooses the key policy, and configures each
+  provider. Deliberately carries no `feature: 'ai'`: it is the page an
+  administrator switches AI **on** from, and gating it on AI already being on
+  would make the switch unreachable in exactly the state it exists to change.
+- **AI Models** (`/admin/settings/ai/models`, `ai_config:read`,
+  `feature: 'ai'`) — nested under the AI route so `settingsPageTitle`'s
+  longest-prefix rule titles it "AI Models" rather than "AI" (the Job
+  Insights precedent). Feature-gated: a model catalog for a switched-off
+  platform is a page about nothing.
+
+Both cards gate writes internally (`ai_config:write`) rather than by a second
+card permission, the same reachability-vs-content posture every other group
+in this file takes. The per-user counterpart is the `AI Keys` card in
+`USER_SETTINGS_SECTIONS` (`/settings/ai`, `permission: 'ai:use'`,
+`feature: 'ai'`) — `ai:use` is seeded to all three roles, so this card is
+gated by a real, withholdable grant rather than by role, and hidden while AI
+is off by the identical `feature` mechanism. See
+[`docs/specs/ai-platform.md`](docs/specs/ai-platform.md) and the MANDATORY AI
+Platform Rules above.
 
 ## Access Control: Email Allowlist
 
@@ -870,6 +1082,19 @@ the CLI's `APPCTL_` prefix; see `infra/compose/.env.example` for the full commen
 - `OTEL_ENABLED` - Enable OpenTelemetry (default: true)
 - `OTEL_EXPORTER_OTLP_ENDPOINT` - OTEL Collector endpoint
 - `UPTRACE_DSN` - Uptrace connection string
+
+**AI Platform:**
+
+There are no AI environment variables; AI is configured entirely at runtime,
+with no restart, at `/admin/settings/ai` (epic #419). Do not add
+`OPENAI_API_KEY` or any equivalent to `infra/compose/.env.example` — this is
+the identical two-sources-of-truth rule already stated for object storage
+above: the kill switch, key policy, provider enablement and the admin/org key
+all live in the `ai` system-settings namespace plus `CredentialsService`
+(purpose `'ai'`), resolved per call, never read from `process.env`. See
+[`docs/specs/ai-platform.md`](docs/specs/ai-platform.md) §2 and §14's
+rejected alternative, and
+[`docs/runbooks/ai-configuration.md`](docs/runbooks/ai-configuration.md).
 
 ## Common Patterns
 
@@ -1061,6 +1286,148 @@ with `maxAttempts: 1`, `deriveOutputKey` re-reading the backup's own run row,
 [`docs/specs/worker-nodes.md`](docs/specs/worker-nodes.md) for the full design
 — the claim's `FOR UPDATE SKIP LOCKED`, the lease, the data plane's presigned
 URLs, and the rejected alternatives.
+
+### Using AI in a Feature
+
+The AI platform (epic #419) is documented in full in
+[`docs/specs/ai-platform.md`](docs/specs/ai-platform.md) and
+[`apps/api/src/ai/README.md`](apps/api/src/ai/README.md); this is the
+day-to-day recipe. Import `AiModule`, inject `AiService`, and call
+`forUser(userId)`:
+
+```ts
+@Module({ imports: [AiModule], providers: [MyFeatureService] })
+export class MyFeatureModule {}
+```
+
+```ts
+constructor(private readonly ai: AiService) {}
+
+async summarize(userId: string, text: string) {
+  const res = await this.ai.forUser(userId).respond({ input: `Summarise: ${text}` });
+  return res.outputText;
+}
+```
+
+No SDK, no key, no policy check of your own — `forUser` runs the full gate
+pipeline (kill switch, provider/model enablement, capability match, key
+resolution, output-token clamp), records one `ai_usage_events` row per
+round-trip, and traces the call. Six entry points, all on the client
+`forUser` returns:
+
+- **`respond(req, opts?)`** — one response. `req.input` is a string or
+  `AiInputItem[]` (text/image/file parts); `opts.signal` aborts it.
+- **`stream(req, opts?)`** — an `AsyncIterable<AiStreamEvent>`. Lazy: a gate
+  or pre-stream provider failure surfaces on the first iteration. Use this
+  for an in-process consumer that is already committed to iterating.
+- **`openStream(req, opts?)`** — the SSE-route form: the returned promise
+  itself rejects with the `AiError` for anything that fails *before* the
+  first event, so an HTTP handler can answer it as an ordinary JSON error
+  rather than an in-band frame; after that, iterate exactly like `stream`.
+- **`respondStructured({ schema, schemaName?, strict?, ...req }, opts?)`** —
+  `schema` is a Zod schema; `parsed` on the result is typed and always
+  present, or the call throws `AiError('AI_STRUCTURED_OUTPUT_INVALID')`.
+
+  ```ts
+  const weather = z.object({ city: z.string(), tempC: z.number() });
+  const { parsed } = await this.ai.forUser(userId).respondStructured({
+    schema: weather,
+    input: 'What is the weather in Paris right now, roughly?',
+  });
+  ```
+- **`runTools({ input, tools, maxSteps? }, opts?)`** — the function-calling
+  agent loop (up to 8 gated round-trips by default, max 20). Define a tool
+  with `defineTool` (`ai/core/tools.ts`) — one Zod schema doubles as the
+  provider-facing JSON Schema and the validation of the model's arguments:
+
+  ```ts
+  const getWeather = defineTool({
+    name: 'get_weather',
+    description: 'Look up the current weather for a city.',
+    parameters: z.object({ city: z.string() }),
+    execute: async ({ city }, ctx) => lookupWeather(city, ctx.userId),
+  });
+
+  const result = await this.ai.forUser(userId).runTools({
+    input: 'What is the weather in Paris?',
+    tools: [getWeather.tool],
+  });
+  ```
+- **`startRun(req)`** — queues the request as a background `ai.response.run`
+  job and returns `{ runId, jobId }` at once; poll with
+  `AiRunsService.get(userId, runId)` / cancel with `.cancel(...)`. Throws
+  `AiError('AI_INVALID_REQUEST')` for a function tool (it cannot survive the
+  queue hop — use `runTools` in-process instead) or when
+  `ai.defaults.allowBackgroundRuns` is off.
+
+**Picking a model**: pass `req.model` (and `req.provider` when more than one
+is registered) to pin it, or leave both unset to fall back to the caller's
+own `user_settings.ai.defaultModel` — `AiService` resolves this the same way
+either path is called, so a feature never re-implements the fallback.
+
+**Handling `AiError`**: every failure this platform can produce is an
+`AiError` with a stable `.code` (never a raw provider SDK error) — catch it
+and switch on `.code`, not on `err.message`, which is deliberately generic
+for anything wrapping a caught SDK error. `docs/specs/ai-platform.md` §13
+has the full table (`AI_DISABLED`, `AI_KEY_REQUIRED`, `AI_MODEL_NOT_ENABLED`,
+`AI_CAPABILITY_UNSUPPORTED`, `AI_RATE_LIMITED`, …); a job handler does
+`throw err.toRateLimitError() ?? err;` so a provider throttle defers the job
+rather than charging an attempt, the same idiom `RateLimitError` already
+uses elsewhere in this codebase.
+
+### Adding an AI Provider
+
+A second (or third) provider is an adapter implementation against the
+existing contract, never a platform change — see
+[`docs/specs/ai-platform.md`](docs/specs/ai-platform.md) §14 for the full
+design; this is the summary, and `apps/api/src/ai/providers/openai/` is the
+one worked example today.
+
+1. **Implement `AiProviderAdapter`** (`ai/core/provider-adapter.interface.ts`)
+   in its own `apps/api/src/ai/providers/<provider>/` folder: `id` (permanent
+   once jobs/usage/keys reference it), `displayName`, `listModels`,
+   `verifyKey`, `classifyModel`, and whichever capability ports
+   (`responses`, `images`, `audio`, `embeddings`, `realtime`) the provider
+   genuinely supports — **presence is the declaration**, exactly like
+   `JobHandler.nodeResultSchema`/`persistNodeResult`; there is no
+   `supportsImages: boolean` to disagree with the code.
+2. **Self-register** from `onModuleInit()`:
+   ```ts
+   onModuleInit(): void {
+     this.registry.register(this);
+   }
+   ```
+   `AiProviderRegistry` mirrors `JobHandlerRegistry` deliberately: explicit
+   registration, last registration wins with a warning, one pattern to
+   learn across both registries.
+3. **Write a classifier** for `classifyModel` — a curated, per-provider
+   pattern match against known model-id shapes, returning
+   `AiModelCapabilities` (`ai/core/capabilities.ts`) or `null` for an id the
+   classifier does not recognize. Hand-curated on purpose: guessing a
+   model's capabilities wrong is worse than an honest "unclassified, an
+   administrator should look at this" (`capabilitySource: 'unclassified'`).
+4. **Map the adapter's own errors onto `AiErrorCode`** (`ai/core/ai-error.ts`)
+   — no SDK error may ever escape an adapter; wrap with `AiError.wrap(err,
+   code, message)` or throw a specific `AiError` directly. `AiError`'s
+   `cause` is stored non-enumerable specifically so an SDK error that echoes
+   request headers or a masked key in its message never reaches
+   `JSON.stringify` or a structured log line.
+5. **Run the conformance kit** (`describeAiProviderConformance`,
+   `apps/api/src/ai/testing/conformance.ts`) against the new adapter. It
+   asserts, uniformly across every provider, that `listModels` returns ids,
+   `verifyKey`'s ok/invalid mapping is correct, `classifyModel` returns
+   schema-valid capabilities or `null`, and — if `responses` is implemented
+   — `create`/`stream`/structured output/a tool round-trip all behave, and
+   every error surfaces as an `AiError`, never a raw SDK exception.
+6. **Register the provider id.** Add it to `AI_PROVIDER_IDS`
+   (`common/schemas/settings.schema.ts`) — a growing, code-owned list, not a
+   closed set — so the `ai.providers.<id>` settings slot and the admin UI's
+   provider list both recognize it, and add the new provider module
+   (`<provider>.module.ts`) to `AiModule`'s `imports`.
+
+Nothing about the registry, the gate pipeline, the admin API or the HTTP
+surface changes to add a provider — they already operate on
+`AiProviderAdapter` and `AiProviderRegistry.ids()`.
 
 ### Worker Node Fleet, Maintenance Mode
 

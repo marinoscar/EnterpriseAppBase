@@ -166,6 +166,8 @@ controllers below, not assumed:
 | `nodes:read` | the worker-node admin controller — `PERMISSIONS.NODES_READ` |
 | `db_backup:read` | the database-backup controller — `PERMISSIONS.DB_BACKUP_READ` |
 | `broadcasts:read` | `notifications/broadcasts/broadcasts.controller.ts` — `PERMISSIONS.BROADCASTS_READ` |
+| `ai_config:read` | `ai/config/ai-admin.controller.ts` — `PERMISSIONS.AI_CONFIG_READ` (the `AI` and `AI Models` cards, the fourth `ADMIN_SECTIONS` group, epic #419) |
+| `ai:use` | `ai/keys/user-ai-keys.controller.ts` — `PERMISSIONS.AI_USE` (the per-user `AI Keys` card in `USER_SETTINGS_SECTIONS`; seeded to all three roles, unlike every other row in this table) |
 
 The reason this has to be a mirror and never an invented string is what a
 registry is *for*: the hub, the rail and the title resolver decide whether a
@@ -199,18 +201,20 @@ this literally, both already true of the live registry:
 
 ## 4. Every new surface reuses `SettingsHub`, parameterised
 
-`SettingsHub.tsx` takes `sections`, `hubKey`, `title` and `subtitle` as props
-and names neither surface internally — its own header states the reason
-directly: a second hub built by copying the first "is precisely the failure
-epic #90 was filed to remove," the identical argument
-`visibleSettingsSections` makes for taking `sections` as a parameter instead
-of closing over `ADMIN_SECTIONS`. `UserSettingsHubPage.tsx` is the worked
-example: a four-prop binding with no rendering logic of its own, contributing
-only the registry, a scroll-restoration key namespaced so the two hubs never
-clobber each other's scroll offset, and surface-specific prose. Its own
-header is explicit that this must stay true: "a hub COPIED from the admin one
-would duplicate two responsive treatments and an empty state: four places to
-fix every future bug."
+`SettingsHub.tsx` takes `sections`, `hubKey`, `title`, `subtitle` and —
+since issue #425 added feature-gated cards (the AI platform, epic #419, is
+the first consumer) — `features` as props, and names neither surface
+internally — its own header states the reason directly: a second hub built
+by copying the first "is precisely the failure epic #90 was filed to
+remove," the identical argument `visibleSettingsSections` makes for taking
+`sections` as a parameter instead of closing over `ADMIN_SECTIONS`.
+`UserSettingsHubPage.tsx` is the worked example: a binding with no rendering
+logic of its own, contributing only the registry, a scroll-restoration key
+namespaced so the two hubs never clobber each other's scroll offset,
+surface-specific prose, and (since #425) the deployment feature map it reads
+from `useAiConfig()`. Its own header is explicit that this must stay true:
+"a hub COPIED from the admin one would duplicate two responsive treatments
+and an empty state: four places to fix every future bug."
 
 ## 5. The five coupled breakpoint gates
 
