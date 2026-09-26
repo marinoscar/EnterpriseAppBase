@@ -20,8 +20,9 @@
 //
 // `resolve` answers both from the ROW ALONE — no storage call — so an HTTP
 // route can refuse a bad input synchronously, before anything is queued.
-// `read`/`open` fetch the bytes later (in the job), and both re-enforce the
-// size cap as the bytes arrive: `storage_objects.size` is `0` for a simple
+// `read`/`open`/`openCapped` fetch the bytes later (in the job), and each
+// re-enforces the size cap as the bytes arrive (`openCapped` also names the
+// error afterwards, #438): `storage_objects.size` is `0` for a simple
 // upload until post-processing fills it in, so the row cannot be trusted to
 // bound memory on its own.
 //
@@ -51,7 +52,10 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** What an input must be. Every field is optional; omitted means "any". */
 export interface AiStorageInputConstraints {
-  /** Allowed MIME types (compared case-insensitively, parameters ignored). */
+  /**
+   * Allowed MIME types (compared case-insensitively, parameters ignored). An
+   * entry `type/*` allows every subtype — `audio/*` (#438).
+   */
   mimeTypes?: readonly string[];
   /** Largest acceptable object, in bytes. */
   maxBytes?: number;
@@ -59,7 +63,16 @@ export interface AiStorageInputConstraints {
   label?: string;
 }
 
-/** A resolved, usable input — metadata only; fetch the bytes with `read`/`open`. */
+/** `AiStorageInputResolver.openCapped`'s answer. */
+export interface AiCappedInputStream {
+  stream: AsyncIterable<Uint8Array>;
+  /** The size-cap error, once the stream has thrown it. */
+  exceeded(): AiError | undefined;
+  /** Releases the underlying download. Idempotent. */
+  close(): void;
+}
+
+/** A resolved, usable input — metadata only; fetch the bytes with `read`/`open`/`openCapped`. */
 export interface AiStorageInput {
   id: string;
   name: string;
@@ -118,7 +131,7 @@ export class AiStorageInputResolver {
 
     const mimeType = normaliseMime(row.mimeType);
 
-    if (constraints.mimeTypes && !constraints.mimeTypes.map(normaliseMime).includes(mimeType)) {
+    if (constraints.mimeTypes && !mimeAllowed(mimeType, constraints.mimeTypes)) {
       throw new AiError(
         'AI_INVALID_REQUEST',
         `The ${label} storage object must be one of ${constraints.mimeTypes.join(', ')} (it is ${row.mimeType}).`,
@@ -201,6 +214,47 @@ export class AiStorageInputResolver {
     return this.storage.getSignedDownloadUrl(input.storageKey, { expiresIn: expiresInSeconds });
   }
 
+  /**
+   * The input's bytes as a stream that FAILS (with `AI_INVALID_REQUEST`) as
+   * soon as more than `maxBytes` have passed through it, whatever the row
+   * claimed — for a provider upload that should not buffer the file (#438).
+   * `exceeded()` names that error after the fact, so a caller whose consumer
+   * wrapped it (an SDK turning a body-stream failure into a network error)
+   * can still answer with it; `close()` releases the download.
+   */
+  async openCapped(
+    input: AiStorageInput,
+    opts: { maxBytes: number; label?: string },
+  ): Promise<AiCappedInputStream> {
+    const source = await this.open(input);
+    let exceeded: AiError | undefined;
+
+    async function* capped(): AsyncGenerator<Uint8Array> {
+      let total = 0;
+
+      for await (const chunk of source) {
+        const bytes = chunk instanceof Uint8Array ? chunk : Buffer.from(chunk as string);
+
+        total += bytes.byteLength;
+
+        if (total > opts.maxBytes) {
+          exceeded = tooLarge(opts.label ?? 'input', input.id, opts.maxBytes);
+          throw exceeded;
+        }
+
+        yield bytes;
+      }
+    }
+
+    return {
+      stream: capped(),
+      exceeded: () => exceeded,
+      close: () => {
+        source.destroy();
+      },
+    };
+  }
+
   /** Whether `userId` holds `storage:read_any` through any role. One indexed query. */
   private async canReadAny(userId: string): Promise<boolean> {
     const count = await this.prisma.user.count({
@@ -218,6 +272,13 @@ export class AiStorageInputResolver {
 
 function normaliseMime(mimeType: string): string {
   return mimeType.split(';')[0].trim().toLowerCase();
+}
+
+/** Whether normalised `mimeType` matches an entry of `allowed` (`type/*` matches every subtype). */
+function mimeAllowed(mimeType: string, allowed: readonly string[]): boolean {
+  return allowed.map(normaliseMime).some((entry) =>
+    entry.endsWith('/*') ? mimeType.startsWith(entry.slice(0, -1)) && mimeType.length > entry.length - 1 : entry === mimeType,
+  );
 }
 
 function tooLarge(label: string, objectId: string, maxBytes: number): AiError {

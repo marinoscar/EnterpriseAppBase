@@ -101,6 +101,25 @@ describe('AiStorageInputResolver', () => {
       });
     });
 
+    it('understands `type/*` wildcards (#438): any audio subtype, but not a lookalike', async () => {
+      const { storage, resolver } = setup();
+      const allowed = ['audio/*', 'video/mp4', 'video/webm'];
+
+      for (const mimeType of ['audio/mpeg', 'audio/x-m4a', 'AUDIO/WAV; codecs=1', 'video/mp4', 'video/webm']) {
+        const row = storage.addObject({ uploadedById: OWNER, mimeType });
+
+        await expect(resolver.resolve(OWNER, row.id, { mimeTypes: allowed })).resolves.toMatchObject({ id: row.id });
+      }
+
+      for (const mimeType of ['video/quicktime', 'audiox/mpeg', 'audio/', 'image/png', 'application/ogg']) {
+        const row = storage.addObject({ uploadedById: OWNER, mimeType });
+
+        await expect(resolver.resolve(OWNER, row.id, { mimeTypes: allowed, label: 'audio' })).rejects.toMatchObject({
+          code: 'AI_INVALID_REQUEST',
+        });
+      }
+    });
+
     it('refuses an object whose recorded size exceeds the cap', async () => {
       const { storage, resolver } = setup();
       const row = storage.addObject({ uploadedById: OWNER, bytes: Buffer.alloc(100) });
@@ -181,6 +200,41 @@ describe('AiStorageInputResolver', () => {
       storage.setConfigured(false);
 
       await expect(resolver.read(input)).rejects.toMatchObject({ status: 503 });
+    });
+  });
+
+  describe('openCapped', () => {
+    async function drain(stream: AsyncIterable<Uint8Array>): Promise<Buffer> {
+      const chunks: Buffer[] = [];
+
+      for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+
+      return Buffer.concat(chunks);
+    }
+
+    it('streams the bytes through unchanged while they stay within the cap', async () => {
+      const { storage, resolver } = setup();
+      const bytes = Buffer.from('a short recording');
+      const row = storage.addObject({ uploadedById: OWNER, bytes, mimeType: 'audio/mpeg' });
+      const capped = await resolver.openCapped(await resolver.resolve(OWNER, row.id), { maxBytes: bytes.length });
+
+      expect((await drain(capped.stream)).equals(bytes)).toBe(true);
+      expect(capped.exceeded()).toBeUndefined();
+      capped.close();
+    });
+
+    it('fails the stream past the cap, whatever the row claimed, and names that error afterwards', async () => {
+      const { storage, resolver } = setup();
+      const row = storage.addObject({ uploadedById: OWNER, bytes: Buffer.alloc(64), size: 16, mimeType: 'audio/mpeg' });
+      const capped = await resolver.openCapped(await resolver.resolve(OWNER, row.id), { maxBytes: 32, label: 'audio' });
+
+      const err = (await caught(() => drain(capped.stream))) as AiError;
+
+      expect(err).toBeInstanceOf(AiError);
+      expect(err.code).toBe('AI_INVALID_REQUEST');
+      expect(err.message).toContain('audio');
+      expect(capped.exceeded()).toBe(err);
+      capped.close();
     });
   });
 });

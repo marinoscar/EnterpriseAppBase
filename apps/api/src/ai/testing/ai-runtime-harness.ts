@@ -6,7 +6,7 @@
 //
 //   - `FakeAiProvider` registered as `openai` (the only id the settings
 //     schema has a slot for), recording every call and the key it carried,
-//     with its embeddings and images ports on and classifying each model
+//     with its embeddings, images and audio ports on and classifying each model
 //     exactly as the catalog row below does;
 //   - the REAL `AiStorageInputResolver` and `AiOutputWriter` (#437) over the
 //     in-memory object storage from `in-memory-ai-storage.ts`;
@@ -37,6 +37,7 @@ import {
   FAKE_EMBEDDING_MODEL_CAPABILITIES,
   FAKE_IMAGE_MODEL_CAPABILITIES,
   FAKE_TEXT_MODEL_CAPABILITIES,
+  FAKE_TRANSCRIPTION_MODEL_CAPABILITIES,
   FakeAiProvider,
   type FakeAiProviderOptions,
 } from './fake-ai-provider';
@@ -53,6 +54,8 @@ export const HARNESS_MODEL = 'fake-model';
 export const HARNESS_EMBEDDING_MODEL = 'fake-embedding-model';
 /** The default catalog's image model (`FAKE_IMAGE_MODEL_CAPABILITIES`: generate + edit). */
 export const HARNESS_IMAGE_MODEL = 'fake-image-model';
+/** The default catalog's transcription model (`FAKE_TRANSCRIPTION_MODEL_CAPABILITIES`). */
+export const HARNESS_TRANSCRIPTION_MODEL = 'fake-transcription-model';
 
 export interface HarnessModel {
   modelId: string;
@@ -76,7 +79,10 @@ export interface AiRuntimeHarnessOptions {
   reachable?: string[];
   /** Whether an org key is stored. Default false. */
   orgKey?: boolean;
-  /** Catalog rows. Default: a fully capable `fake-model`, `fake-embedding-model` and `fake-image-model`. */
+  /**
+   * Catalog rows. Default: a fully capable `fake-model`, `fake-embedding-model`,
+   * `fake-image-model` and `fake-transcription-model`.
+   */
   models?: HarnessModel[];
   fake?: FakeAiProviderOptions;
   /** `HARNESS_USER`'s `ai.defaultModel` setting. Default none. */
@@ -136,6 +142,7 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
     { modelId: HARNESS_MODEL },
     { modelId: HARNESS_EMBEDDING_MODEL, capabilities: FAKE_EMBEDDING_MODEL_CAPABILITIES },
     { modelId: HARNESS_IMAGE_MODEL, capabilities: FAKE_IMAGE_MODEL_CAPABILITIES },
+    { modelId: HARNESS_TRANSCRIPTION_MODEL, capabilities: FAKE_TRANSCRIPTION_MODEL_CAPABILITIES },
   ];
 
   for (const model of models) {
@@ -278,6 +285,7 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
     classify: (modelId) => catalogCapabilities.get(modelId) ?? null,
     embeddingsPort: true,
     imagesPort: true,
+    audioPort: true,
     ...opts.fake,
   });
 

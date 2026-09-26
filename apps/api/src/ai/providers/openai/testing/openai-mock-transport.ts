@@ -69,6 +69,55 @@ export interface MockStoredFile {
   purpose: string;
 }
 
+export type MockTranscriptionReply =
+  /** A `/v1/audio/transcriptions` body: JSON when an object, `text/plain` when a string. */
+  | { kind: 'transcription'; body: Record<string, unknown> | string }
+  | { kind: 'error'; status: number; error: Record<string, unknown>; headers?: Record<string, string> }
+  | { kind: 'network' };
+
+/** The transcript every default mock transcription answers with. */
+export const MOCK_TRANSCRIPT = 'Hello from the mock transcription.';
+
+/**
+ * The default `/v1/audio/transcriptions` answer for `body`, shaped by its
+ * `response_format` exactly as OpenAI shapes it: a bare string for `text`,
+ * `{ text, usage }` for `json` (tokens for the GPT-4o family, a duration for
+ * Whisper), and the verbose object — language, duration, segments, and
+ * words when asked — for `verbose_json`.
+ */
+export function mockTranscriptionBody(body: Record<string, unknown>): Record<string, unknown> | string {
+  const format = String(body.response_format ?? 'json');
+  const whisper = String(body.model ?? '').startsWith('whisper-');
+
+  if (format === 'text') return `${MOCK_TRANSCRIPT}\n`;
+
+  if (format === 'verbose_json') {
+    const granularities = ([] as unknown[]).concat(body['timestamp_granularities[]'] ?? []);
+
+    return {
+      task: 'transcribe',
+      language: 'english',
+      duration: 3.5,
+      text: MOCK_TRANSCRIPT,
+      segments: [
+        { id: 0, seek: 0, start: 0, end: 1.5, text: ' Hello from', tokens: [1], temperature: 0, avg_logprob: -0.2, compression_ratio: 1, no_speech_prob: 0 },
+        { id: 1, seek: 0, start: 1.5, end: 3.5, text: ' the mock transcription.', tokens: [2], temperature: 0, avg_logprob: -0.2, compression_ratio: 1, no_speech_prob: 0 },
+      ],
+      ...(granularities.includes('word')
+        ? { words: [{ word: 'Hello', start: 0, end: 0.4 }, { word: 'from', start: 0.4, end: 0.8 }] }
+        : {}),
+      usage: { type: 'duration', seconds: 4 },
+    };
+  }
+
+  return whisper
+    ? { text: MOCK_TRANSCRIPT, usage: { type: 'duration', seconds: 4 } }
+    : {
+        text: MOCK_TRANSCRIPT,
+        usage: { type: 'tokens', input_tokens: 40, output_tokens: 8, total_tokens: 48, input_token_details: { audio_tokens: 38, text_tokens: 2 } },
+      };
+}
+
 /** Which images endpoint a request hit. */
 export type MockImagesOperation = 'generations' | 'edits';
 
@@ -102,10 +151,12 @@ export function mockImagesBody(body: Record<string, unknown>): Record<string, un
 }
 
 /** A multipart body as a plain record: repeated keys become arrays, files `{ filename, type, size }`. */
-async function formDataRecord(form: FormData): Promise<Record<string, unknown>> {
+async function formDataRecord(form: FormData, uploads?: Buffer[]): Promise<Record<string, unknown>> {
   const record: Record<string, unknown> = {};
 
   for (const [key, value] of form.entries()) {
+    if (typeof value !== 'string' && uploads) uploads.push(Buffer.from(await value.arrayBuffer()));
+
     const entry: unknown =
       typeof value === 'string' ? value : { filename: value.name, type: value.type, size: value.size };
 
@@ -167,6 +218,8 @@ export interface OpenAiMockServerOptions {
   embed?(body: Record<string, unknown>): MockEmbeddingReply;
   /** `/images/*` responder. Defaults to `mockImagesBody`. */
   images?(operation: MockImagesOperation, body: Record<string, unknown>): MockImagesReply;
+  /** `/audio/transcriptions` responder. Defaults to `mockTranscriptionBody`. */
+  transcribe?(body: Record<string, unknown>): MockTranscriptionReply;
 }
 
 function json(status: number, payload: unknown, headers: Record<string, string>): Response {
@@ -230,6 +283,8 @@ export function framesFor(events: ResponseStreamEvent[]): MockSseFrame[] {
 
 export class OpenAiMockServer {
   readonly requests: RecordedRequest[] = [];
+  /** The bytes of every uploaded file part, in order (images, audio). */
+  readonly uploads: Buffer[] = [];
 
   private readonly validKeys: Set<string>;
   private readonly models: string[];
@@ -247,6 +302,7 @@ export class OpenAiMockServer {
 
   /** Ids of every file deleted, in order. */
   readonly deletedFileIds: string[] = [];
+  private transcribeFn: (body: Record<string, unknown>) => MockTranscriptionReply;
 
   constructor(opts: OpenAiMockServerOptions) {
     this.validKeys = new Set(opts.validKeys);
@@ -254,6 +310,12 @@ export class OpenAiMockServer {
     this.respondFn = opts.respond ?? (() => ({ kind: 'network' }));
     this.embedFn = opts.embed ?? ((body) => ({ kind: 'embeddings', body: mockEmbeddingsBody(body) }));
     this.imagesFn = opts.images ?? ((_operation, body) => ({ kind: 'images', body: mockImagesBody(body) }));
+    this.transcribeFn = opts.transcribe ?? ((body) => ({ kind: 'transcription', body: mockTranscriptionBody(body) }));
+  }
+
+  /** Replaces the `/audio/transcriptions` responder. */
+  transcribeWith(fn: (body: Record<string, unknown>) => MockTranscriptionReply): void {
+    this.transcribeFn = fn;
   }
 
   /** Replaces the `/images/*` responder. */
@@ -297,12 +359,19 @@ export class OpenAiMockServer {
     const auth = headers.get('authorization');
     const apiKey = auth?.startsWith('Bearer ') ? auth.slice('Bearer '.length) : null;
     const rawBody = typeof init?.body === 'string' ? init.body : undefined;
+    const contentType = headers.get('content-type') ?? '';
     const body =
       init?.body instanceof FormData
-        ? await formDataRecord(init.body)
-        : rawBody
-          ? (JSON.parse(rawBody) as Record<string, unknown>)
-          : undefined;
+        ? await formDataRecord(init.body, this.uploads)
+        : init?.body instanceof ReadableStream && contentType.startsWith('multipart/form-data')
+          ? // A lazily streamed multipart body (`toStreamingFile`): read it the way a server would.
+            await formDataRecord(
+              await new Response(init.body, { headers: { 'content-type': contentType } }).formData(),
+              this.uploads,
+            )
+          : rawBody
+            ? (JSON.parse(rawBody) as Record<string, unknown>)
+            : undefined;
     const signal = init?.signal ?? undefined;
 
     this.requests.push({ method: init?.method ?? 'GET', path: url.pathname, apiKey, headers, body, signal });
@@ -463,6 +532,23 @@ export class OpenAiMockServer {
 
         case 'images':
           return json(200, reply.body, replyHeaders);
+      }
+    }
+
+    if (url.pathname.endsWith('/audio/transcriptions') && init?.method === 'POST' && body) {
+      const reply = this.transcribeFn(body);
+
+      switch (reply.kind) {
+        case 'network':
+          throw new TypeError('fetch failed');
+
+        case 'error':
+          return json(reply.status, { error: reply.error }, { ...replyHeaders, ...(reply.headers ?? {}) });
+
+        case 'transcription':
+          return typeof reply.body === 'string'
+            ? new Response(reply.body, { status: 200, headers: { 'content-type': 'text/plain; charset=utf-8', ...replyHeaders } })
+            : json(200, reply.body, replyHeaders);
       }
     }
 

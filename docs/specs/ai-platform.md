@@ -500,6 +500,52 @@ image generation and remote MCP servers.
   The OpenAI classifier declares `hosted_tools` for its reasoning and chat
   multimodal families; an administrator can override the chip per model.
 
+### 5.5 Audio transcription (Phase 2, issue #438)
+
+The §5.2 shape with the recording as the one input and the transcript as
+the run's output: an adapter method (`audio.transcribe`), one facade
+method, one usage `operation` (`'audio.transcribe'`), one job type
+(`ai.audio.transcribe`, §9) and one route.
+
+- **Facade.** `ai.forUser(userId).transcribe({ storageObjectId, model?,
+  language?, prompt?, timestampGranularities? })` → `{ runId, jobId }`.
+  Always asynchronous and not subject to `allowBackgroundRuns`. `model` is
+  optional: omitted, it is the first model the caller can use that declares
+  `audio_transcription` (in `GET /api/ai/models` order) — never the chat
+  `ai.defaultModel`; none → `AI_INVALID_REQUEST`.
+- **The recording** is a storage object resolved by the same
+  `AiStorageInputResolver` (§5.2): the caller's own (or `storage:read_any`),
+  unknown → **404**, another user's → **403** (the storage API's answers,
+  kept deliberately rather than the 404 the issue sketched), `ready`, a type
+  matching `audio/*`, `video/mp4` or `video/webm` (the resolver understands
+  `type/*`), and no larger than the port's `transcriptionMaxBytes` (OpenAI:
+  25 MiB) — else `AI_INVALID_REQUEST`, refused at queue time from the row
+  alone, before anything is queued or called.
+- **The job** (`ai.audio.transcribe`, `{ runId }`) re-runs the gates, then
+  **streams** the recording to the adapter (`AiMediaInput` may be bytes or
+  an `AsyncIterable`): a row that knows its size is read through
+  `openCapped`, which fails past the cap whatever the row said; a simple
+  upload whose size is still 0 is read with the cap enforced first, so an
+  oversized file never reaches the provider. One usage row, `units: {
+  audioSeconds }` whenever the provider reports a duration (tokens are
+  recorded where it reports those instead). The run completes with
+  `output = { type: 'transcription', provider, model, storageObjectId, text,
+  language?, durationSeconds?, segments?, words?, usage }`; nothing is
+  written to object storage.
+- **Retries.** Transcription is idempotent, so the job declares
+  `maxAttempts: 2`: an unexpected failure with an attempt left puts the run
+  back to `pending` for the queue's retry (a run left `running` under the
+  same job by a crashed process is resumed); expected refusals are never
+  retried. The shared lifecycle lives in `AiMediaRunHandler`, which
+  `ai.image.generate` uses too.
+- **OpenAI wire detail.** `POST /v1/audio/transcriptions`, multipart; a
+  streamed input goes through the SDK's `toStreamingFile`, so the body is
+  sent as it is read. Whisper is asked for `verbose_json` (language,
+  duration, segments, `timestamp_granularities`); the GPT-4o transcribe
+  family for `json`, without `timestamp_granularities` (it does not take
+  them). The upload is named with an extension OpenAI can decode (`memo` +
+  `audio/mp4` → `memo.m4a`).
+
 ## 6. Model discovery and classification
 
 A provider's model-listing endpoint returns IDs and little else useful —
@@ -645,8 +691,12 @@ node-eligible** — no `nodeResultSchema` +
   10*60_000, maxAttempts: 1 }` for the same reason as `ai.response.run`:
   images are billed per image. Same terminal-code handling as below, plus
   `AI_STORAGE_UNAVAILABLE`, which fails the run and **throws**.
-- The remaining Phase 2/3 media jobs (audio transcription/speech) will
-  follow the identical posture once implemented. Embeddings ship no job
+- `ai.audio.transcribe` (#438) — executes one transcription run (§5.5).
+  Payload `{ runId }`. `profile: { maxRuntimeMs: 15*60_000, maxAttempts: 2
+  }` — the one AI job allowed an automatic retry, because transcribing the
+  same recording twice changes nothing but the bill.
+- The remaining Phase 2/3 media jobs (speech) will follow the identical
+  posture once implemented. Embeddings ship no job
   type of their own: `embed` is synchronous, and a large backfill is a
   fork's own server-only job calling it per chunk (§5.1).
 
@@ -831,7 +881,8 @@ the admin key, §6, `keySource: 'admin_discovery'`) and no
 `inputTokens`/`outputTokens` (discovery/classification are not token-metered
 calls); `units` exists for non-token-metered operations (`{ images: 2 }`,
 `{ audioSeconds: 31.4 }`). `AiUsageRecorder` writes it from the facade's
-round-trip outcome (#437 — `images` records `{ images: n }`), keeping only
+round-trip outcome (#437 — `images` records `{ images: n }`; #438 —
+`audio.transcribe` records `{ audioSeconds }`), keeping only
 finite, non-negative numbers and storing nothing when none are left.
 
 **Reading it back (#443).** Two routes aggregate these rows, both answering
@@ -1025,9 +1076,10 @@ every consumer-facing route (as opposed to `/api/admin/ai/*`'s
 | `POST /api/ai/embeddings` | `forUser(id).embed(...)` → `{ provider, model, dimensions, vectors, usage }` (§5.1). `model` required; > 256 inputs → 400 `AI_INVALID_REQUEST`; a model without `embeddings` → 400 `AI_CAPABILITY_UNSUPPORTED`. Request body limit 1 MB. |
 | `POST /api/ai/images` | `generateImage(...)` → `{ runId, jobId }`, status 202 (§5.2). A model without `image_generation` → 400 `AI_CAPABILITY_UNSUPPORTED`. |
 | `POST /api/ai/images/edits` | `editImage(...)` → `{ runId, jobId }`, status 202. Inputs by storage object id: unknown → 404, another user's → 403, not ready / wrong type / too large → 400 `AI_INVALID_REQUEST`. |
+| `POST /api/ai/audio/transcriptions` | `transcribe(...)` → `{ runId, jobId }`, status 202 (§5.5). The recording by storage object id: unknown → 404, another user's → 403, not ready / not audio / over the provider limit → 400 `AI_INVALID_REQUEST`; a model without `audio_transcription` → 400 `AI_CAPABILITY_UNSUPPORTED`. |
 | `POST /api/ai/runs` | `startRun(...)` → `{ runId, jobId }`, status 202. |
 | (all three responses routes) | `image`/`file` parts take `url` **or** `storageObjectId` (§5.3): unknown object → 404, another user's → 403, wrong modality → 400 `AI_CAPABILITY_UNSUPPORTED`, over 20/50 MiB → 400 `AI_INVALID_REQUEST`, storage unusable → 503 `AI_STORAGE_UNAVAILABLE`. |
-| `GET /api/ai/runs/:id` | Scoped to caller → `{ id, status, provider, modelId, output, errorCode, errorMessage, createdAt, completedAt }` (never the stored prompt, never the job id); `output` is the `AiResponse`, or an image run's `{ type: 'images', storageObjectIds, … }`; 404 for another user's run. |
+| `GET /api/ai/runs/:id` | Scoped to caller → `{ id, status, provider, modelId, output, errorCode, errorMessage, createdAt, completedAt }` (never the stored prompt, never the job id); `output` is the `AiResponse`, an image run's `{ type: 'images', storageObjectIds, … }`, or a transcript `{ type: 'transcription', text, … }`; 404 for another user's run. |
 | `POST /api/ai/runs/:id/cancel` | Scoped to caller; 200. |
 | `GET /api/ai/usage/me` | Query `from?, to?, groupBy?(day\|model)` → the caller's own usage report (§12). |
 

@@ -192,6 +192,7 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
     const KNOWN_AI_JOB_PAYLOADS: Record<string, unknown> = {
       'ai.response.run': null, // filled in per-test: needs a live run row
       'ai.image.generate': null, // filled in per-test: needs a live image run row (#437)
+      'ai.audio.transcribe': null, // filled in per-test: needs a live transcription run row (#438)
       'ai.catalog.refresh': { providerId: 'openai' },
       'ai.keys.recheck': { provider: 'openai' },
       'ai.usage.purge': {},
@@ -268,6 +269,42 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
 
       expect(app.harness.fake.calls).toEqual([]);
       expect(app.harness.storage.provider.upload).not.toHaveBeenCalled();
+      const stored = app.harness.runRows.find((r) => r.id === created.id);
+      expect(stored?.status).toBe('failed');
+      expect(stored?.errorCode).toBe('AI_DISABLED');
+    });
+
+    it('ai.audio.transcribe: disabled makes zero provider calls and reads no recording, run fails with AI_DISABLED, job does not throw', async () => {
+      app.harness.setPolicy({ enabled: false });
+
+      const handler = registry.get('ai.audio.transcribe');
+      expect(handler).toBeDefined();
+
+      const recording = app.harness.storage.addObject({ uploadedById: HARNESS_USER, mimeType: 'audio/mpeg' });
+      (app.harness.storage.provider.download as jest.Mock).mockClear();
+
+      // A stored transcription run the way `transcribe` writes one (#438): the
+      // handler parses it before any gate, so a malformed stub would fail
+      // AI_INVALID_REQUEST without ever reaching the kill switch.
+      const created = await app.harness.prisma.aiRun.create({
+        data: {
+          userId: HARNESS_USER,
+          provider: 'openai',
+          modelId: 'fake-transcription-model',
+          status: 'pending',
+          request: {
+            operation: 'audio.transcribe',
+            provider: 'openai',
+            model: 'fake-transcription-model',
+            storageObjectId: recording.id,
+          },
+        },
+      });
+
+      await handler!.process({ id: 'job-kill-switch', payload: { runId: created.id } } as never);
+
+      expect(app.harness.fake.calls).toEqual([]);
+      expect(app.harness.storage.provider.download).not.toHaveBeenCalled();
       const stored = app.harness.runRows.find((r) => r.id === created.id);
       expect(stored?.status).toBe('failed');
       expect(stored?.errorCode).toBe('AI_DISABLED');

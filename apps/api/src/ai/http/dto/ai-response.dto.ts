@@ -137,7 +137,7 @@ export class AiResponseDto extends createZodDto(aiResponseSchema) {}
 export const aiRunStartedSchema = z.object({
   /** Poll `GET /api/ai/runs/{runId}`. */
   runId: z.uuid(),
-  /** The queue job executing it (`ai.response.run`, or `ai.image.generate` for an image run). */
+  /** The queue job executing it (`ai.response.run`; `ai.image.generate` / `ai.audio.transcribe` for a media run). */
   jobId: z.uuid(),
 });
 
@@ -168,16 +168,41 @@ export const aiImageRunOutputSchema = z.object({
   usage: aiUsageSchema,
 });
 
+/**
+ * A succeeded transcription run's `output` (#438): the transcript.
+ * `storageObjectId` is the recording it was made from.
+ */
+export const aiTranscriptionRunOutputSchema = z.object({
+  type: z.literal('transcription'),
+  provider: z.string(),
+  model: z.string(),
+  /** The recording that was transcribed (your storage object). */
+  storageObjectId: z.uuid(),
+  text: z.string(),
+  /** As the provider reports it — an ISO code, or a name such as `english` (OpenAI Whisper). */
+  language: z.string().optional(),
+  /** The recording's length, when the provider reports it. */
+  durationSeconds: z.number().optional(),
+  /** Timestamped segments, where the model produces them. */
+  segments: z
+    .array(z.object({ startSeconds: z.number(), endSeconds: z.number(), text: z.string() }))
+    .optional(),
+  /** Word timestamps, when requested and supported. */
+  words: z.array(z.object({ startSeconds: z.number(), endSeconds: z.number(), word: z.string() })).optional(),
+  usage: aiUsageSchema,
+});
+
 export const aiRunSchema = z.object({
   id: z.uuid(),
   status: z.enum(AI_RUN_STATUSES),
   provider: z.string(),
   modelId: z.string(),
   /**
-   * Once `succeeded`: the completed response, or — for an image run
-   * (`type: "images"`) — the storage objects it created. Otherwise null.
+   * Once `succeeded`: the completed response; for an image run
+   * (`type: "images"`) the storage objects it created; for a transcription
+   * (`type: "transcription"`) the transcript. Otherwise null.
    */
-  output: z.union([aiResponseSchema, aiImageRunOutputSchema]).nullable(),
+  output: z.union([aiResponseSchema, aiImageRunOutputSchema, aiTranscriptionRunOutputSchema]).nullable(),
   /** The AI error code (e.g. `AI_KEY_REQUIRED`) once `failed`; otherwise null. */
   errorCode: z.string().nullable(),
   /** A safe, generic description of the failure; never provider output. */

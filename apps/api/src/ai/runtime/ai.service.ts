@@ -74,6 +74,17 @@
 // names tool TYPES), never in a usage row, never stored with a background
 // run (`toStoredRunRequest` refuses them).
 //
+// TRANSCRIPTION (#438) is the same shape: `transcribe` runs
+// `prepareTranscription` (kill switch -> shape -> target, defaulting to the
+// first usable `audio_transcription` model -> provider -> model -> the
+// recording's storage object: ownership, readiness, `audio/*`/`video/mp4|webm`
+// and the port's `transcriptionMaxBytes`, all from the row) and queues an
+// `ai.audio.transcribe` run; `executeTranscriptionRun` gates again, STREAMS
+// the recording to the adapter through a size-capped reader (or, when the
+// row does not know the size yet, reads it with the cap enforced before the
+// call) and records one usage row (`operation: 'audio.transcribe'`,
+// `units: { audioSeconds }` when the provider reports a duration).
+//
 // ⚠ THE KEY. `apiKey` exists in this file only between step 6 and the
 // adapter call. It is never logged, never put on a span, never persisted and
 // never part of an error. A presigned input URL gets the same treatment.
@@ -111,6 +122,10 @@ import {
 import { AiProviderRegistry } from '../core/provider-registry';
 import { parseStructured } from '../core/structured-output';
 import {
+  AI_TRANSCRIPTION_DEFAULT_MAX_BYTES,
+  AI_TRANSCRIPTION_INPUT_MIME_TYPES,
+  AI_TRANSCRIPTION_PROMPT_MAX_CHARS,
+  AI_TRANSCRIPTION_TIMESTAMP_GRANULARITIES,
   AI_EMBEDDINGS_MAX_INPUTS,
   AI_IMAGE_EDIT_MAX_INPUTS,
   AI_IMAGE_INPUT_MAX_BYTES,
@@ -121,9 +136,13 @@ import {
   type AiBinaryPayload,
   type AiEmbeddingRequest,
   type AiEmbeddingResult,
+  type AiAudioPort,
   type AiEmbeddingsPort,
   type AiImageResult,
   type AiImagesPort,
+  type AiMediaInput,
+  type AiTranscriptionRequest,
+  type AiTranscriptionResult,
 } from '../core/types/media.types';
 import type {
   AiContentPart,
@@ -141,6 +160,12 @@ import { AiOutputWriter } from '../storage/ai-output-writer';
 import { aiErrorFromStorage } from '../storage/ai-storage-errors';
 import { AiStorageInputResolver, type AiStorageInput } from '../storage/ai-storage-input.resolver';
 import {
+  AI_LANGUAGE_CODE,
+  AI_TRANSCRIBE_OPERATION,
+  storedAiTranscriptionRunRequestSchema,
+  type StoredAiTranscriptionRunRequest,
+} from './ai-audio-run-request';
+import {
   type AiImageOperation,
   storedAiImageRunRequestSchema,
   type StoredAiImageRunRequest,
@@ -148,7 +173,7 @@ import {
 } from './ai-image-run-request';
 import { toStoredRunRequest } from './ai-run-request';
 import { type AiHostedOutputOwner, AiHostedOutputSettler, discardHostedImage } from './ai-hosted-outputs';
-import { AI_IMAGE_GENERATE_TYPE, AiRunsService } from './ai-runs.service';
+import { AI_AUDIO_TRANSCRIBE_TYPE, AI_IMAGE_GENERATE_TYPE, AiRunsService } from './ai-runs.service';
 import type {
   AiCallOptions,
   AiEditImageRequest,
@@ -157,6 +182,7 @@ import type {
   AiRequest,
   AiRunHandle,
   AiStructuredRequest,
+  AiTranscribeRequest,
   AiStructuredResponse,
   AiToolLoopRequest,
   AiToolLoopResult,
@@ -268,6 +294,23 @@ export interface AiUserClient {
    *   allowed image type, or too large.
    */
   editImage(req: AiEditImageRequest): Promise<AiRunHandle>;
+
+  /**
+   * Queues a transcription of one of the caller's recordings (an
+   * `ai.audio.transcribe` job) and returns at once; poll
+   * `AiRunsService.get(userId, runId)` — a succeeded run's `output.text` is
+   * the transcript. Always asynchronous, and not subject to
+   * `ai.defaults.allowBackgroundRuns`. The gates run now and again when the
+   * job executes. See `AiTranscribeRequest` for the input's rules and how an
+   * omitted `model` is chosen.
+   *
+   * @throws NotFoundException / ForbiddenException for an unknown recording
+   *   or another user's; AiError('AI_INVALID_REQUEST') for one that is not
+   *   ready, not audio (or MP4/WebM video), or larger than the provider
+   *   accepts; AiError('AI_CAPABILITY_UNSUPPORTED') for a model without
+   *   `audio_transcription`.
+   */
+  transcribe(req: AiTranscribeRequest): Promise<AiRunHandle>;
 }
 
 /** Internal: who a client acts for, and under which job (for usage rows). */
@@ -299,6 +342,7 @@ const TRACKED_OPERATIONS = {
   'embeddings.create': 'embeddings',
   'images.generate': 'images',
   'images.edit': 'images',
+  'audio.transcribe': 'audio.transcribe',
 } as const satisfies Record<string, AiUsageOperation>;
 
 type AiTrackedOperation = keyof typeof TRACKED_OPERATIONS;
@@ -340,7 +384,18 @@ export interface PreparedAiImageCall extends AiCallTarget {
   inputs: { images: AiStorageInput[]; mask?: AiStorageInput };
 }
 
-/** `executeImageRun`'s options. */
+/** Everything the gate pipeline settled for one transcription. */
+export interface PreparedAiTranscriptionCall extends AiCallTarget {
+  transcribe: NonNullable<AiAudioPort['transcribe']>;
+  /** The request as it is stored in `ai_runs.request` — named fields only, never a key. */
+  stored: StoredAiTranscriptionRunRequest;
+  /** The recording (metadata only — bytes are read when the job runs). */
+  input: AiStorageInput;
+  /** The largest recording the provider accepts. */
+  maxBytes: number;
+}
+
+/** `executeImageRun`'s (and `executeTranscriptionRun`'s) options. */
 export interface AiImageRunExecutionOptions extends AiCallOptions {
   /** The job the round-trip is incurred under, for its usage row. */
   jobId?: string;
@@ -411,6 +466,7 @@ export class AiService {
       embed: (req, opts) => this.embed(bound, req, opts),
       generateImage: (req) => this.startImageRun(bound, 'images.generate', req),
       editImage: (req) => this.startImageRun(bound, 'images.edit', req),
+      transcribe: (req) => this.startTranscriptionRun(bound, req),
     };
   }
 
@@ -666,6 +722,106 @@ export class AiService {
     await tracker.finish({ status: 'succeeded', result, units: { images: result.images.length } });
 
     return result;
+  }
+
+  // ---- transcription ------------------------------------------------------------------
+
+  private async startTranscriptionRun(scope: AiClientScope, req: AiTranscribeRequest): Promise<AiRunHandle> {
+    const call = await this.prepareTranscription(scope.userId, req);
+
+    return this.runs.create({
+      userId: scope.userId,
+      provider: call.provider,
+      modelId: call.modelId,
+      request: call.stored,
+      jobType: AI_AUDIO_TRANSCRIBE_TYPE,
+    });
+  }
+
+  /**
+   * Executes one stored transcription run for `userId` — the
+   * `ai.audio.transcribe` handler's entry point, not a fork's (a fork calls
+   * `transcribe`, which queues). Re-runs every gate, opens the recording,
+   * then makes ONE provider round-trip with one usage row.
+   */
+  async executeTranscriptionRun(
+    userId: string,
+    stored: StoredAiTranscriptionRunRequest,
+    opts: AiImageRunExecutionOptions = {},
+  ): Promise<AiTranscriptionResult> {
+    const scope: AiClientScope = { userId, jobId: opts.jobId };
+    const call = await this.prepareTranscription(userId, {
+      storageObjectId: stored.storageObjectId,
+      provider: stored.provider,
+      model: stored.model,
+      ...transcriptionFields(stored),
+    });
+
+    await opts.beforeCall?.();
+
+    const audio = await this.openRecording(call);
+
+    let result: AiTranscriptionResult;
+
+    try {
+      const { ctx, keySource } = await this.context(scope, call, opts, () => ({
+        language: call.stored.language,
+        prompt: call.stored.prompt,
+      }));
+      const tracker = this.track(scope, call, keySource, 'audio.transcribe');
+      const request: AiTranscriptionRequest = { model: call.modelId, audio: audio.payload, ...transcriptionFields(call.stored) };
+
+      try {
+        result = await call.transcribe(request, ctx);
+      } catch (err) {
+        // A recording that turned out larger than its row said: the cap
+        // stopped the upload, and THAT is the answer, not the transport
+        // failure the SDK saw.
+        const error = audio.exceeded() ?? toAiError(err, opts.signal);
+
+        await tracker.finish(failure(error, opts.signal));
+        throw error;
+      }
+
+      await tracker.finish({
+        status: 'succeeded',
+        result,
+        ...(result.durationSeconds !== undefined ? { units: { audioSeconds: result.durationSeconds } } : {}),
+      });
+    } finally {
+      audio.close();
+    }
+
+    return result;
+  }
+
+  /**
+   * The recording as the adapter receives it. A row that knows its size
+   * (already checked against the cap) is STREAMED through a reader that
+   * fails past `maxBytes`; a simple upload whose size is not recorded yet
+   * (`0`) is read with the cap enforced first, so an oversized file is
+   * refused before the provider is called either way.
+   */
+  private async openRecording(call: PreparedAiTranscriptionCall): Promise<{
+    payload: AiMediaInput;
+    exceeded(): AiError | undefined;
+    close(): void;
+  }> {
+    const { input, maxBytes } = call;
+
+    if (input.size > 0) {
+      const capped = await this.inputs.openCapped(input, { maxBytes, label: 'audio' });
+
+      return {
+        payload: { stream: capped.stream, mimeType: input.mimeType, filename: input.name, size: input.size },
+        exceeded: capped.exceeded,
+        close: capped.close,
+      };
+    }
+
+    const bytes = await this.inputs.read(input, { maxBytes, label: 'audio' });
+
+    return { payload: bytes, exceeded: () => undefined, close: () => undefined };
   }
 
   // ---- stream -------------------------------------------------------------------
@@ -1192,6 +1348,97 @@ export class AiService {
   }
 
   /**
+   * The gate pipeline for a transcription: kill switch, request shape,
+   * target (an omitted model is the first usable `audio_transcription`
+   * model), provider, model with `audio_transcription` (model AND provider
+   * port), then the recording's storage object — ownership, readiness, an
+   * audio (or MP4/WebM video) type, and the port's size limit — from its row
+   * alone. Decrypts nothing and reads no bytes.
+   */
+  async prepareTranscription(userId: string, req: AiTranscribeRequest): Promise<PreparedAiTranscriptionCall> {
+    // 1. Kill switch — before anything else is read.
+    await this.aiConfig.assertEnabled();
+
+    assertTranscriptionShape(req);
+
+    const { provider, model } = req.model?.trim()
+      ? await this.resolveTarget(userId, req)
+      : await this.firstUsableModel(userId, 'audio_transcription', req.provider);
+
+    // 2. Provider enabled in settings AND registered in this process.
+    const slot = await this.aiConfig.assertProviderEnabled(provider);
+    const port = this.registry.get(provider)?.audio;
+
+    // 3. Model enabled, `audio_transcription` declared (model AND port), key reach.
+    await this.usableModels.assertUsable(userId, provider, model, ['audio_transcription']);
+
+    const transcribe = port?.transcribe?.bind(port);
+
+    if (!port || !transcribe) {
+      // assertUsable already refused a provider without the method; this narrows the type.
+      throw capabilityUnsupported(provider, model, 'audio_transcription');
+    }
+
+    // 4. The recording: the caller's own, ready, audio, within the provider's limit.
+    const maxBytes = port.transcriptionMaxBytes ?? AI_TRANSCRIPTION_DEFAULT_MAX_BYTES;
+    const input = await this.inputs.resolve(userId, req.storageObjectId, {
+      mimeTypes: AI_TRANSCRIPTION_INPUT_MIME_TYPES,
+      maxBytes,
+      label: 'audio',
+    });
+
+    const policy = await this.aiConfig.resolve();
+    // Named fields only: whatever else the caller's object carried stays here.
+    const stored = storedAiTranscriptionRunRequestSchema.parse({
+      operation: AI_TRANSCRIBE_OPERATION,
+      provider,
+      model,
+      storageObjectId: input.id,
+      ...transcriptionFields(req),
+    });
+
+    return {
+      provider,
+      modelId: model,
+      transcribe,
+      stored,
+      input,
+      maxBytes,
+      baseUrl: slot.baseUrl,
+      logPromptContent: policy.logPromptContent,
+    };
+  }
+
+  /**
+   * The first model `userId` can use right now that declares `capability`
+   * (on `provider`, when given) — in `GET /api/ai/models` order. For an
+   * operation whose model is never the chat `ai.defaultModel`.
+   */
+  private async firstUsableModel(
+    userId: string,
+    capability: AiCapability,
+    provider?: string,
+  ): Promise<{ provider: string; model: string }> {
+    const usable = await this.usableModels.listForUser(userId);
+    const match = usable.find(
+      (m) =>
+        (provider === undefined || m.provider === provider) &&
+        m.capabilities.capabilities.includes(capability) &&
+        this.registry.supports(m.provider, capability),
+    );
+
+    if (!match) {
+      throw new AiError(
+        'AI_INVALID_REQUEST',
+        `No model selected, and no model available to you supports ${capability}.`,
+        { details: { capability, ...(provider ? { provider } : {}) } },
+      );
+    }
+
+    return { provider: match.provider, model: match.modelId };
+  }
+
+  /**
    * Step 6: resolve the key and build the adapter context. `prompt` is the
    * request's content, rendered only for the opt-in debug line.
    */
@@ -1472,6 +1719,57 @@ function outputFolder(responseId: string | undefined): string {
   const safe = (responseId ?? '').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 128);
 
   return safe || randomUUID();
+}
+
+/**
+ * A transcription request's shape, checked before any gate reads a table: a
+ * storage object id, an ISO-639 language code, a prompt within
+ * `AI_TRANSCRIPTION_PROMPT_MAX_CHARS`, and known, distinct timestamp
+ * granularities.
+ */
+function assertTranscriptionShape(req: AiTranscribeRequest): void {
+  if (typeof req.storageObjectId !== 'string' || req.storageObjectId.trim().length === 0) {
+    throw new AiError('AI_INVALID_REQUEST', 'A transcription needs the recording\'s storageObjectId.');
+  }
+
+  if (req.language !== undefined && !AI_LANGUAGE_CODE.test(req.language)) {
+    throw new AiError('AI_INVALID_REQUEST', 'language must be an ISO-639-1 code such as "en".', {
+      details: { language: req.language },
+    });
+  }
+
+  if (req.prompt !== undefined && (req.prompt.length === 0 || req.prompt.length > AI_TRANSCRIPTION_PROMPT_MAX_CHARS)) {
+    throw new AiError('AI_INVALID_REQUEST', `prompt must be 1 to ${AI_TRANSCRIPTION_PROMPT_MAX_CHARS} characters.`, {
+      details: { max: AI_TRANSCRIPTION_PROMPT_MAX_CHARS },
+    });
+  }
+
+  const granularities = req.timestampGranularities;
+
+  if (
+    granularities !== undefined &&
+    (!Array.isArray(granularities) ||
+      granularities.length === 0 ||
+      new Set(granularities).size !== granularities.length ||
+      granularities.some((g) => !(AI_TRANSCRIPTION_TIMESTAMP_GRANULARITIES as readonly string[]).includes(g)))
+  ) {
+    throw new AiError(
+      'AI_INVALID_REQUEST',
+      `timestampGranularities must be distinct values of ${AI_TRANSCRIPTION_TIMESTAMP_GRANULARITIES.join(', ')}.`,
+    );
+  }
+}
+
+/** The optional, provider-facing fields of a transcription request (named fields only). */
+function transcriptionFields(
+  req: Pick<AiTranscribeRequest, 'language' | 'prompt' | 'timestampGranularities' | 'providerOptions'>,
+): Pick<AiTranscriptionRequest, 'language' | 'prompt' | 'timestampGranularities' | 'providerOptions'> {
+  return {
+    ...(req.language !== undefined ? { language: req.language } : {}),
+    ...(req.prompt !== undefined ? { prompt: req.prompt } : {}),
+    ...(req.timestampGranularities !== undefined ? { timestampGranularities: [...req.timestampGranularities] } : {}),
+    ...(req.providerOptions !== undefined ? { providerOptions: req.providerOptions } : {}),
+  };
 }
 
 /** The outcome of a round-trip that threw. An abort is a cancellation, not a failure. */

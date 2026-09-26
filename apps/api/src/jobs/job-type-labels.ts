@@ -107,6 +107,8 @@ export const JOB_TYPE_LABELS: Readonly<Record<string, string>> = {
   'ai.response.run': 'AI background response',
   // One user's queued image generation or edit (#437) — `generateImage`/`editImage`.
   'ai.image.generate': 'AI image generation',
+  // One user's queued transcription of an uploaded recording (#438) — `transcribe`.
+  'ai.audio.transcribe': 'AI audio transcription',
   // Daily deletion of `ai_usage_events` past `ai.usageRetentionDays` (#443).
   'ai.usage.purge': 'AI usage purge',
 };

@@ -11,7 +11,13 @@ import { describeAiProviderConformance } from '../../testing/conformance';
 import { OpenAiClientFactory } from './openai-client.factory';
 import { OpenAiProviderAdapter } from './openai.adapter';
 import { functionCallItem, messageItem, responseFixture } from './testing/openai-fixtures';
-import { MockReply, OpenAiMockServer, mockEmbeddingsBody, mockImagesBody } from './testing/openai-mock-transport';
+import {
+  MockReply,
+  OpenAiMockServer,
+  mockEmbeddingsBody,
+  mockImagesBody,
+  mockTranscriptionBody,
+} from './testing/openai-mock-transport';
 
 const VALID_KEY = 'sk-proj-conformance-valid-000000';
 const INVALID_KEY = 'sk-proj-conformance-revoked-0000';
@@ -21,6 +27,8 @@ const EMBEDDING_MODEL = 'text-embedding-3-small';
 const BROKEN_EMBEDDING_MODEL = 'text-embedding-3-broken';
 const IMAGE_MODEL = 'gpt-image-1';
 const BROKEN_IMAGE_MODEL = 'gpt-image-broken';
+const TRANSCRIPTION_MODEL = 'whisper-1';
+const BROKEN_TRANSCRIPTION_MODEL = 'gpt-4o-transcribe-broken';
 
 function reply(response: OpenAiSdkResponse): MockReply {
   return { kind: 'response', response, chunkSize: 5 };
@@ -68,6 +76,10 @@ describeAiProviderConformance('OpenAiProviderAdapter (mocked transport)', () => 
       body.model === BROKEN_IMAGE_MODEL
         ? { kind: 'error', status: 500, error: { message: 'The server had an error.', type: 'server_error', param: null, code: null } }
         : { kind: 'images', body: mockImagesBody(body) },
+    transcribe: (body) =>
+      body.model === BROKEN_TRANSCRIPTION_MODEL
+        ? { kind: 'error', status: 500, error: { message: 'The server had an error.', type: 'server_error', param: null, code: null } }
+        : { kind: 'transcription', body: mockTranscriptionBody(body) },
   });
 
   return {
@@ -94,6 +106,10 @@ describeAiProviderConformance('OpenAiProviderAdapter (mocked transport)', () => 
       images: {
         model: IMAGE_MODEL,
         failingRequest: { model: BROKEN_IMAGE_MODEL, prompt: 'anything' },
+      },
+      transcription: {
+        model: TRANSCRIPTION_MODEL,
+        failingModel: BROKEN_TRANSCRIPTION_MODEL,
       },
     },
   };
