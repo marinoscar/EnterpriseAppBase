@@ -5,7 +5,8 @@
  * where the user saves (server-verified), tests and removes their own key;
  * then the models that key (or the organisation's) can reach, and the user's
  * default model — the one part stored in the user settings document
- * (`ai.defaultModel`, PATCH `/api/user-settings`).
+ * (`ai.defaultModel`, PATCH `/api/user-settings`) — and, last, the user's own
+ * usage over the last 30 days (#444), a section of this page rather than a tab.
  *
  * A THIN PAGE WRAPPER, NOT `UserSettingsSection` — the same call as
  * `UserTokensPage`. Keys are their own resource behind `/api/ai/keys`, not part
@@ -26,6 +27,7 @@ import { useUserSettings } from '../hooks/useUserSettings';
 import { UserAiKeyCard } from '../components/settings/ai/UserAiKeyCard';
 import { UsableAiModelsList } from '../components/settings/ai/UsableAiModelsList';
 import { DefaultAiModelPicker } from '../components/settings/ai/DefaultAiModelPicker';
+import { MyAiUsageSection } from '../components/settings/ai/MyAiUsageSection';
 import type { AiDefaultModel } from '../types';
 
 export default function UserAiKeysPage() {
@@ -103,6 +105,8 @@ export default function UserAiKeysPage() {
               disabled={settingsLoading || usable.isLoading || !settings}
               providerNames={providerNames}
             />
+
+            <MyAiUsageSection />
           </Stack>
         )}
       </Box>
