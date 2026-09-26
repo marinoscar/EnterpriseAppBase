@@ -99,6 +99,8 @@ export const JOB_TYPE_LABELS: Readonly<Record<string, string>> = {
   // are the words the handlers, the settings and the runbook already use.
   'nodes.fleet.sweep': 'Fleet sweep',
   'nodes.fleet.prune': 'Fleet prune',
+  // AI platform (#427, epic #419): one provider's model discovery sync.
+  'ai.catalog.refresh': 'AI model catalog refresh',
 };
 
 /**
