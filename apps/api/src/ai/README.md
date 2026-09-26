@@ -187,3 +187,15 @@ then hands a JSON-safe copy of the request (`toStoredRunRequest`) to
 No test in this module — or in a fork's own feature tests — should need a
 real provider account or network access; every scenario above is reachable
 through `FakeAiProvider` and the harness.
+
+**Cross-cutting guard suites** (`apps/api/test/ai/`, issue #435) are a
+different kind of test: each discovers its own subject (every `/api/ai/*`
+route, every `ai.*` job type, every file in `apps/api/src`/`apps/web/src`)
+from the real router/registry/filesystem rather than a hand-written list, so
+a future route, job type or provider adapter is covered automatically, with
+no edit to the suite — `ai-kill-switch.integration.spec.ts`,
+`ai-rbac-matrix.integration.spec.ts`, `ai-secret-egress.integration.spec.ts`,
+`ai-key-policy.integration.spec.ts`, `ai-jobs-server-only.spec.ts`, and
+`ai-no-sdk-leak.spec.ts` (plus the web-side
+`apps/web/src/__tests__/config/aiSettingsRegistry.test.ts`). See
+`CLAUDE.md`'s "MANDATORY: AI Platform Rules" rule 4 for what each one pins.

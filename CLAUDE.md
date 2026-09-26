@@ -407,11 +407,52 @@ is [`docs/runbooks/ai-configuration.md`](docs/runbooks/ai-configuration.md).
    routes under `/api/ai/*`) **or `ai_config:read`/`ai_config:write`** (admin
    routes under `/api/admin/ai/*`, which are deliberately **not** behind
    `AiEnabledGuard` — an administrator must always be able to turn the
-   platform back on). `apps/api/test/ai/ai-kill-switch.integration.spec.ts`
-   discovers every `/api/ai/*` route from the OpenAPI document rather than
-   from a hand list, so a route added without the guard fails automatically;
-   `GET /api/ai/config` is the one deliberate exception (it is how a client
-   learns AI is off at all).
+   platform back on).
+   `apps/api/test/ai/ai-kill-switch.integration.spec.ts` (issue #435) is
+   the executable form of this rule: it discovers every `/api/ai/*` and
+   `/api/admin/ai/*` route by reflecting on the real Nest router (via
+   `createOpenApiDocument`, never a hand-written list), then asserts that
+   while `ai.enabled=false` every discovered `/api/ai/*` route except
+   `GET /api/ai/config` answers `403` with `details.reason: 'AI_DISABLED'`
+   (unauthenticated — `AiEnabledGuard` runs at controller/class level and
+   so denies before `@Auth()`'s own guard is reached, per
+   `ai-enabled.guard.ts`'s header) while every `/api/admin/ai/*` route stays
+   reachable (answering its own auth/RBAC outcome, never the kill switch).
+   A route added later without the guard, or an admin route accidentally
+   given it, fails this suite the moment it is registered — nobody edits a
+   list. It also drives every `ai.*` job type from `JobHandlerRegistry
+   .types()` (also discovered, not hand-listed) through its handler with AI
+   disabled and asserts zero provider calls reach `FakeAiProvider`.
+
+   Five more #435 suites are the same "discover, never hand-list" tripwire
+   shape, each pinning one more platform-wide invariant — all under
+   `apps/api/test/ai/` unless noted, and all covering a future AI route or
+   job type automatically, with no edit to the suite itself:
+   - `ai-rbac-matrix.integration.spec.ts` — every discovered route crossed
+     against Admin/Contributor/Viewer/unauthenticated, with the *expected*
+     permission read off the route's own `@Auth()` metadata and the seeded
+     grant read off `prisma/seed-data.ts`'s `ROLE_PERMISSIONS`, so a route
+     and a seed drifting apart fails this suite, not a reviewer's memory.
+   - `ai-secret-egress.integration.spec.ts` — a distinct sentinel key per
+     role (admin/org, this user, another user) must never appear in any
+     response body, response header, captured log line, `audit_events.meta`
+     row, `ai_usage_events` row, `ai_runs.request` row, or thrown error body.
+   - `ai-key-policy.integration.spec.ts` — the byok/org resolution rule
+     (rule 2 above) proven over every inference route, synchronous and
+     queued, by inspecting `FakeAiProvider.calls`' literal `apiKey`.
+   - `ai-jobs-server-only.spec.ts` — every job type whose type begins `ai.`
+     carries neither `nodeResultSchema` nor `persistNodeResult`, read off
+     `JobHandlerRegistry.serverOnlyTypes()` — the executable form of rule 3.
+   - `ai-no-sdk-leak.spec.ts` — no file outside `ai/providers/<provider>/`
+     imports a provider SDK package (by package name, not a string grep for
+     `"openai"`), in either `apps/api/src` or `apps/web/src` — the executable
+     form of rule 1, wider than `ai/core/no-provider-sdk.spec.ts`'s own
+     narrower, permanent pin.
+   - `apps/web/src/__tests__/config/aiSettingsRegistry.test.ts` — every
+     registry card tagged `feature: 'ai'` or routed under an AI path has its
+     `permission` checked against the literal string the real API controller
+     source enforces, read off disk — the mechanical half of Settings UI
+     Pattern rule 3, generic over future AI cards.
 5. **New AI settings pages follow the Settings UI Pattern and declare
    `feature: 'ai'`.** A registry card behind the AI platform (the admin `AI
    Models` card, the user `AI Keys` card) is invisible while AI is switched
