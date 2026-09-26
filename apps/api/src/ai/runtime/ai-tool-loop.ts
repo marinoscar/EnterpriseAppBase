@@ -36,12 +36,8 @@
 
 import { AiError } from '../core/ai-error';
 import type { AiDefinedTool } from '../core/tools';
-import {
-  AI_PROVIDER_STATE,
-  type AiInputItem,
-  type AiOutputItem,
-  type AiResponse,
-} from '../core/types/responses.types';
+import { asInputItems, replayOutput } from '../core/conversation';
+import type { AiInputItem, AiOutputItem, AiResponse } from '../core/types/responses.types';
 import {
   AI_TOOL_DEFAULT_TIMEOUT_MS,
   AI_TOOL_LOOP_DEFAULT_MAX_STEPS,
@@ -160,49 +156,6 @@ export async function runToolLoop(
       next = { ...rest, input: history };
     }
   }
-}
-
-/** A request's `input` as items: a bare string is one user message. */
-function asInputItems(input: AiRequest['input']): AiInputItem[] {
-  return typeof input === 'string'
-    ? [{ type: 'message', role: 'user', content: [{ type: 'text', text: input }] }]
-    : [...input];
-}
-
-/**
- * One response's output as the input items that replay it (#446). A
- * `reasoning` item keeps its symbol-keyed provider state — the reason it is
- * copied with a spread rather than rebuilt field by field.
- */
-export function replayOutput(output: AiOutputItem[]): AiInputItem[] {
-  const items: AiInputItem[] = [];
-
-  for (const item of output) {
-    switch (item.type) {
-      case 'message':
-        if (item.text.length > 0) {
-          items.push({ type: 'message', role: 'assistant', content: [{ type: 'text', text: item.text }] });
-        }
-        break;
-
-      case 'function_call':
-        items.push({ type: 'function_call', callId: item.callId, name: item.name, arguments: item.arguments });
-        break;
-
-      case 'reasoning': {
-        const state = item[AI_PROVIDER_STATE];
-
-        items.push({ type: 'reasoning', summary: [...item.summary], ...(state ? { [AI_PROVIDER_STATE]: state } : {}) });
-        break;
-      }
-
-      default:
-        // hosted_tool_call: executed by the provider inside that response; not replayable.
-        break;
-    }
-  }
-
-  return items;
 }
 
 function emit(steps: AiToolStep[], step: AiToolStep, onStep?: (step: AiToolStep) => void): void {
