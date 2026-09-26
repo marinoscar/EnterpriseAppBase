@@ -8,6 +8,7 @@ import {
   mockAiResponse,
   mockAiRun,
   mockAiStreamEvents,
+  mockAiUsageReport,
   mockUsableAiModels,
   mockUserAiKeys,
   toSseBody,
@@ -18,6 +19,7 @@ import type {
   AiAdminConfigWithWarnings,
   AiModel,
   AiModelUpdateInput,
+  AiUsageGroupBy,
 } from '../../services/ai';
 
 // Use wildcard pattern to match relative URLs
@@ -410,6 +412,18 @@ export const handlers = [
         ...(body.capabilities ? { capabilitySource: 'admin_override' as const } : {}),
       } satisfies AiModel,
     });
+  }),
+
+  // Usage aggregates (#443 contract, #444 UI): a populated report for
+  // whichever `groupBy` was asked for.
+  http.get(`${API_BASE}/admin/ai/usage`, ({ request }) => {
+    const groupBy = (new URL(request.url).searchParams.get('groupBy') ?? 'day') as AiUsageGroupBy;
+    return HttpResponse.json({ data: mockAiUsageReport(groupBy) });
+  }),
+
+  http.get(`${API_BASE}/ai/usage/me`, ({ request }) => {
+    const groupBy = (new URL(request.url).searchParams.get('groupBy') ?? 'day') as AiUsageGroupBy;
+    return HttpResponse.json({ data: mockAiUsageReport(groupBy) });
   }),
 
   http.get(`${API_BASE}/ai/keys`, () => {

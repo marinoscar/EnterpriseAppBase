@@ -55,7 +55,7 @@ describe('AI settings registry — literal permission parity with the API (#435)
 
   it('finds the AI-tagged cards at all, so a broken discovery cannot pass vacuously', () => {
     const { admin, user } = allAiTaggedCards();
-    expect(admin.length).toBeGreaterThanOrEqual(2); // AI, AI Models
+    expect(admin.length).toBeGreaterThanOrEqual(3); // AI, AI Models, AI Usage
     expect(user.length).toBeGreaterThanOrEqual(1); // AI Keys
   });
 
@@ -137,6 +137,7 @@ describe('AI settings registry — literal permission parity with the API (#435)
       const titles = result.flatMap((section) => section.cards.map((card) => card.title));
       expect(titles).not.toContain('AI');
       expect(titles).not.toContain('AI Models');
+      expect(titles).not.toContain('AI Usage');
     });
   });
 });

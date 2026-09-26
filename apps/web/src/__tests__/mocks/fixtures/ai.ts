@@ -31,6 +31,10 @@ import type {
   AiResponse,
   AiRun,
   AiStreamEvent,
+  AiUsageCounters,
+  AiUsageGroupBy,
+  AiUsageReport,
+  AiUsageSeriesEntry,
   UsableAiModel,
   UserAiKey,
 } from '../../../services/ai';
@@ -452,4 +456,86 @@ export const mockAiStructuredResponse: AiResponse = {
 /** An API error body as the global filter shapes it: generic `code`, AI code in `details.reason`. */
 export function aiErrorBody(reason: string, message = 'AI request failed', extra: Record<string, unknown> = {}) {
   return { code: 'FORBIDDEN', message, details: { reason, ...extra } };
+}
+
+// =============================================================================
+// Usage aggregates (#443 contract, #444 UI)
+// =============================================================================
+
+const USAGE_RANGE = { from: '2026-08-28', to: '2026-09-26' };
+
+function usageEntry(key: string, label: string, counters: Partial<AiUsageCounters>): AiUsageSeriesEntry {
+  return {
+    key,
+    label,
+    requests: 0,
+    failed: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    reasoningTokens: 0,
+    cachedInputTokens: 0,
+    units: {},
+    ...counters,
+  };
+}
+
+/** Totals every populated usage fixture agrees on (120 requests, 6 failed). */
+export const mockAiUsageTotals: AiUsageReport['totals'] = {
+  requests: 120,
+  failed: 6,
+  inputTokens: 48_000,
+  outputTokens: 12_500,
+  reasoningTokens: 3_200,
+  cachedInputTokens: 9_000,
+  units: { images: 4 },
+  orgKeyRequests: 30,
+  orgKeyInputTokens: 11_000,
+  orgKeyOutputTokens: 2_400,
+};
+
+const USAGE_SERIES: Record<AiUsageGroupBy, AiUsageSeriesEntry[]> = {
+  day: [
+    usageEntry('2026-09-24', '2026-09-24', { requests: 40, failed: 2, inputTokens: 16_000, outputTokens: 4_000 }),
+    usageEntry('2026-09-25', '2026-09-25', { requests: 0 }),
+    usageEntry('2026-09-26', '2026-09-26', { requests: 80, failed: 4, inputTokens: 32_000, outputTokens: 8_500 }),
+  ],
+  user: [
+    usageEntry('user-dana', 'dana@acme.test', { requests: 90, failed: 5, inputTokens: 36_000, outputTokens: 9_000 }),
+    usageEntry('user-lee', 'lee@acme.test', { requests: 30, failed: 1, inputTokens: 12_000, outputTokens: 3_500 }),
+  ],
+  model: [
+    usageEntry('gpt-5-mini', 'gpt-5-mini', { requests: 100, failed: 5, inputTokens: 40_000, outputTokens: 10_000 }),
+    usageEntry('gpt-5', 'gpt-5', { requests: 20, failed: 1, inputTokens: 8_000, outputTokens: 2_500, reasoningTokens: 3_200 }),
+  ],
+  provider: [usageEntry('openai', 'OpenAI', { requests: 120, failed: 6, inputTokens: 48_000, outputTokens: 12_500 })],
+  keySource: [
+    usageEntry('user', 'user', { requests: 90, failed: 4, inputTokens: 37_000, outputTokens: 10_100 }),
+    usageEntry('org', 'org', { requests: 30, failed: 2, inputTokens: 11_000, outputTokens: 2_400 }),
+  ],
+};
+
+/** A populated report for any grouping — the default MSW answer. */
+export function mockAiUsageReport<G extends AiUsageGroupBy>(groupBy: G): AiUsageReport<G> {
+  return { range: USAGE_RANGE, groupBy, totals: mockAiUsageTotals, series: USAGE_SERIES[groupBy] };
+}
+
+/** Nothing recorded in the range. */
+export function mockAiUsageEmpty<G extends AiUsageGroupBy>(groupBy: G): AiUsageReport<G> {
+  return {
+    range: USAGE_RANGE,
+    groupBy,
+    totals: {
+      requests: 0,
+      failed: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      reasoningTokens: 0,
+      cachedInputTokens: 0,
+      units: {},
+      orgKeyRequests: 0,
+      orgKeyInputTokens: 0,
+      orgKeyOutputTokens: 0,
+    },
+    series: [],
+  };
 }

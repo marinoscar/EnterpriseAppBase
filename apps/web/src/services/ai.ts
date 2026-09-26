@@ -17,7 +17,7 @@
  *   on (see `hooks/useAiConfig.ts`). It never carries a key hint.
  * - `/admin/ai/*` — `ai_config:read` / `ai_config:write`. The organisation's
  *   configuration, provider keys and model catalogue.
- * - `/ai/keys`, `/ai/models`, `/ai/responses`, `/ai/runs` — `ai:use`, and
+ * - `/ai/keys`, `/ai/models`, `/ai/responses`, `/ai/runs`, `/ai/usage/me` — `ai:use`, and
  *   refused with `403 AI_DISABLED` while AI is off.
  *
  * =============================================================================
@@ -570,6 +570,117 @@ export async function getAiRun(id: string): Promise<AiRun> {
 
 export async function cancelAiRun(id: string): Promise<AiRun> {
   return api.post<AiRun>(`/ai/runs/${encodeURIComponent(id)}/cancel`);
+}
+
+// =============================================================================
+// Usage aggregates (#443 API, #444 UI)
+// =============================================================================
+//
+// ⚠ EVERY usage type lives HERE and nowhere else, so a backend report that
+// differs slightly from #443's contract is a one-place edit. Both routes answer
+// the same shape; only the scope (everyone vs. the caller) and the allowed
+// `groupBy` values differ.
+
+/** `groupBy` values `GET /admin/ai/usage` accepts. */
+export const AI_USAGE_ADMIN_GROUP_BY = ['day', 'user', 'model', 'provider', 'keySource'] as const;
+export type AiUsageGroupBy = (typeof AI_USAGE_ADMIN_GROUP_BY)[number];
+
+/** `groupBy` values `GET /ai/usage/me` accepts — a user sees only their own rows. */
+export const AI_USAGE_MY_GROUP_BY = ['day', 'model'] as const;
+export type AiMyUsageGroupBy = (typeof AI_USAGE_MY_GROUP_BY)[number];
+
+/** The range options the UI offers. The API caps a range at 90 days. */
+export const AI_USAGE_RANGE_OPTIONS = [7, 30, 90] as const;
+export type AiUsageRangeDays = (typeof AI_USAGE_RANGE_OPTIONS)[number];
+/** The API's own default when `from`/`to` are omitted. */
+export const AI_USAGE_DEFAULT_RANGE_DAYS: AiUsageRangeDays = 30;
+
+/** Counters shared by the totals block and each series entry. */
+export interface AiUsageCounters {
+  requests: number;
+  failed: number;
+  inputTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  cachedInputTokens: number;
+  /** Non-token units summed per key (`{ images: 2 }`, `{ audioSeconds: 31.4 }`). */
+  units: Record<string, number>;
+}
+
+export interface AiUsageTotals extends AiUsageCounters {
+  /** The subset paid for by the organisation's key (`keySource = 'org'`). */
+  orgKeyRequests: number;
+  orgKeyInputTokens: number;
+  orgKeyOutputTokens: number;
+}
+
+/**
+ * One group. `key` is the grouping value — `YYYY-MM-DD` for `day`, the user id
+ * for `user`, the model id for `model`, and so on; `label` is what to show
+ * (the email for `user`).
+ */
+export interface AiUsageSeriesEntry extends AiUsageCounters {
+  key: string;
+  label: string;
+}
+
+/** `GET /admin/ai/usage` and `GET /ai/usage/me`. */
+export interface AiUsageReport<G extends string = AiUsageGroupBy> {
+  range: { from: string; to: string };
+  groupBy: G;
+  totals: AiUsageTotals;
+  series: AiUsageSeriesEntry[];
+}
+
+/** `from` / `to` as ISO dates (`YYYY-MM-DD`, inclusive, UTC). */
+export interface AiUsageRange {
+  from: string;
+  to: string;
+}
+
+export interface AiUsageQuery extends Partial<AiUsageRange> {
+  groupBy: AiUsageGroupBy;
+  userId?: string;
+  provider?: string;
+  model?: string;
+}
+
+export interface AiMyUsageQuery extends Partial<AiUsageRange> {
+  groupBy: AiMyUsageGroupBy;
+}
+
+/**
+ * The last `days` days, ending today (UTC), as the inclusive ISO-date pair the
+ * usage routes take. `now` is injectable for tests.
+ */
+export function aiUsageRangeForDays(days: number, now: Date = new Date()): AiUsageRange {
+  const to = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const from = new Date(to.getTime() - (days - 1) * 86_400_000);
+  return { from: toIsoDate(from), to: toIsoDate(to) };
+}
+
+function toIsoDate(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function usageQueryString(query: object): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query) as [string, unknown][]) {
+    if (typeof value === 'string' && value !== '') params.set(key, value);
+  }
+  return params.toString();
+}
+
+/** `GET /admin/ai/usage` — `ai_config:read`. Not behind the AI kill switch. */
+export async function getAiUsage(query: AiUsageQuery): Promise<AiUsageReport> {
+  return api.get<AiUsageReport>(`${ADMIN}/usage?${usageQueryString(query)}`);
+}
+
+/** `GET /ai/usage/me` — `ai:use`, the caller's own usage only. */
+export async function getMyAiUsage(
+  query: AiMyUsageQuery,
+): Promise<AiUsageReport<AiMyUsageGroupBy>> {
+  return api.get<AiUsageReport<AiMyUsageGroupBy>>(`/ai/usage/me?${usageQueryString(query)}`);
 }
 
 // =============================================================================

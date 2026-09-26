@@ -946,7 +946,7 @@ A fourth `ADMIN_SECTIONS` group, **appended** after `Operations` — issue #425,
 epic #419, the same append-only rule `Broadcasts` and `About` already follow:
 the hub, the rail and the drill-down list render this array in declaration
 order, so an insertion would move every existing card for a reader who has
-learnt where they are. Two cards at `/admin/settings/ai*`, both gated on
+learnt where they are. Three cards at `/admin/settings/ai*`, all gated on
 `ai_config:read` — the literal string `ai-admin.controller.ts` enforces on its
 reads (Settings UI Pattern rule 3):
 
@@ -960,8 +960,13 @@ reads (Settings UI Pattern rule 3):
   longest-prefix rule titles it "AI Models" rather than "AI" (the Job
   Insights precedent). Feature-gated: a model catalog for a switched-off
   platform is a page about nothing.
+- **AI Usage** (`/admin/settings/ai/usage`, `ai_config:read`,
+  `feature: 'ai'`, issue #444, epic #420) — appended after AI Models:
+  totals, the organization-key share, requests per day and a breakdown by
+  user/model/provider/key source. Read-only. The per-user counterpart is a
+  **Usage section inside** `/settings/ai`, not a tab or a card of its own.
 
-Both cards gate writes internally (`ai_config:write`) rather than by a second
+The cards gate writes internally (`ai_config:write`) rather than by a second
 card permission, the same reachability-vs-content posture every other group
 in this file takes. The per-user counterpart is the `AI Keys` card in
 `USER_SETTINGS_SECTIONS` (`/settings/ai`, `permission: 'ai:use'`,

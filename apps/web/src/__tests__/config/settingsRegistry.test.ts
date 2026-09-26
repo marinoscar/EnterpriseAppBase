@@ -1065,12 +1065,36 @@ describe('the AI group (#425)', () => {
 
   it('is APPENDED as the last group, leaving every earlier card in place', () => {
     expect(ADMIN_SECTIONS[ADMIN_SECTIONS.length - 1]).toBe(aiSection);
-    expect(aiSection?.cards.map((card) => card.title)).toEqual(['AI', 'AI Models']);
+    // `AI Usage` (#444) is appended after `AI Models`, never inserted.
+    expect(aiSection?.cards.map((card) => card.title)).toEqual(['AI', 'AI Models', 'AI Usage']);
   });
 
   it('gates both cards on ai_config:read — the admin AI controller’s read permission', () => {
     expect(cards.get('AI')?.permission).toBe('ai_config:read');
     expect(cards.get('AI Models')?.permission).toBe('ai_config:read');
+  });
+
+  it('gates AI Usage (#444) on ai_config:read, feature-gated, nested under the AI route', () => {
+    expect(cards.get('AI Usage')).toMatchObject({
+      path: '/admin/settings/ai/usage',
+      permission: 'ai_config:read',
+      feature: 'ai',
+    });
+  });
+
+  it('hides AI Usage while AI is off, and titles its route by longest prefix only while on', () => {
+    const titles = (features: { ai?: boolean }) =>
+      visibleSettingsSections(ADMIN_SECTIONS, () => true, '', features).flatMap((section) =>
+        section.cards.map((card) => card.title),
+      );
+    expect(titles({ ai: false })).not.toContain('AI Usage');
+    expect(titles({ ai: true })).toContain('AI Usage');
+
+    const path = '/admin/settings/ai/usage';
+    expect(settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, path, { ai: true })).toBe(
+      'AI Usage',
+    );
+    expect(settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, path)).toBe('AI');
   });
 
   it('never feature-gates the AI card — it is where AI is switched on', () => {

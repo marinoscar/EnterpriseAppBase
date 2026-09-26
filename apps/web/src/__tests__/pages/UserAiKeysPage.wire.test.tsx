@@ -27,6 +27,7 @@ import {
   mockUserAiKeys,
   mockUserAiKeysNone,
   mockUsableAiModelsMixed,
+  mockAiUsageReport,
 } from '../mocks/fixtures/ai';
 import type { UserSettings } from '../../types';
 
@@ -164,5 +165,22 @@ describe('UserAiKeysPage — wire', () => {
 
     expect(await screen.findByText('Invalid settings')).toBeInTheDocument();
     expect(screen.queryByText('Default model saved.')).not.toBeInTheDocument();
+  });
+
+  it('shows the caller\'s own last-30-days usage at the foot of the page (#444)', async () => {
+    const reads: string[] = [];
+    server.use(
+      http.get('*/api/ai/usage/me', ({ request }) => {
+        reads.push(new URL(request.url).searchParams.get('groupBy') ?? '');
+        return HttpResponse.json({ data: mockAiUsageReport('model') });
+      }),
+    );
+    await renderPage();
+
+    const section = await screen.findByRole('region', { name: 'Usage' });
+    expect(await within(section).findByText('gpt-5-mini')).toBeInTheDocument();
+    expect(reads).toEqual(['model']);
+    // A section of this page, not a tab strip (Settings UI Pattern rule 2).
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
   });
 });

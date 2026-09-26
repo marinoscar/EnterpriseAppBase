@@ -53,6 +53,7 @@ import CampaignOutlinedIcon from '@mui/icons-material/CampaignOutlined';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import AutoAwesomeOutlinedIcon from '@mui/icons-material/AutoAwesomeOutlined';
 import ModelTrainingOutlinedIcon from '@mui/icons-material/ModelTrainingOutlined';
+import DataUsageOutlinedIcon from '@mui/icons-material/DataUsageOutlined';
 
 /**
  * One settings page, fully described for every surface that draws it.
@@ -567,6 +568,21 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
           'Review the models each provider offers, classify what they can do, and choose which ones users may call.',
         Icon: ModelTrainingOutlinedIcon,
         path: '/admin/settings/ai/models',
+        permission: 'ai_config:read',
+        feature: 'ai',
+      },
+      {
+        // Issue #444, epic #420. APPENDED to the AI group (append-only, as
+        // above). `ai_config:read` is the literal string the admin AI usage
+        // route (`GET /api/admin/ai/usage`, #443) enforces — the same read
+        // permission as the rest of `/api/admin/ai/*`. Read-only: the page has
+        // no write side. Nested under the AI route (longest prefix titles it
+        // "AI Usage") and feature-gated like AI Models.
+        title: 'AI Usage',
+        description:
+          "See who is calling AI, which models they use, and how much of it the organization's key pays for.",
+        Icon: DataUsageOutlinedIcon,
+        path: '/admin/settings/ai/usage',
         permission: 'ai_config:read',
         feature: 'ai',
       },

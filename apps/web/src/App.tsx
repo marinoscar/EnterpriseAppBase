@@ -87,6 +87,8 @@ const AdminUsersPage = lazy(() => import('./pages/Admin/UsersPage'));
 // Issue #425, epic #419 — placeholders, filled in by #429, #430 and #434.
 const AiConfigPage = lazy(() => import('./pages/Admin/AiConfigPage'));
 const AiModelsPage = lazy(() => import('./pages/Admin/AiModelsPage'));
+// Issue #444, epic #420 — AI usage aggregates.
+const AiUsagePage = lazy(() => import('./pages/Admin/AiUsagePage'));
 const UserAiKeysPage = lazy(() => import('./pages/UserAiKeysPage'));
 const AiPlaygroundPage = lazy(() => import('./pages/AiPlaygroundPage'));
 
@@ -611,6 +613,19 @@ function AppRoutes() {
                       >
                         <RequireAiEnabled>
                           <AiModelsPage />
+                        </RequireAiEnabled>
+                      </RequirePermission>
+                    }
+                  />
+                  <Route
+                    path="/admin/settings/ai/usage"
+                    element={
+                      <RequirePermission
+                        permission="ai_config:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <RequireAiEnabled>
+                          <AiUsagePage />
                         </RequireAiEnabled>
                       </RequirePermission>
                     }
