@@ -73,6 +73,7 @@ export const mockAiAdminConfig: AiAdminConfig = {
     mcp: false,
     mcpAllowedHosts: [],
   },
+  limits: {},
   providers: [
     {
       id: 'openai',

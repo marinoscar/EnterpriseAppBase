@@ -15,6 +15,9 @@ import {
 } from '../mocks/fixtures/ai';
 import {
   AI_KEY_REMOVE_CONFIRMATION,
+  aiAdminConfigToInput,
+  aiModelLimitKey,
+  withModelLimits,
   cancelAiRun,
   createAiResponse,
   createAiRun,
@@ -357,5 +360,44 @@ describe('streamAiResponse', () => {
     controller.abort();
 
     await expect(streamAiResponse({ input: 'hi' }, {}, controller.signal)).resolves.toBeNull();
+  });
+});
+
+describe('AI limits helpers (#450)', () => {
+  it('aiModelLimitKey is <provider>:<modelId>, colons in the id kept', () => {
+    expect(aiModelLimitKey('openai', 'ft:gpt-4.1:acme')).toBe('openai:ft:gpt-4.1:acme');
+  });
+
+  it('withModelLimits replaces one entry and keeps everything else', () => {
+    const limits = {
+      perUser: { requestsPerMinute: 10 },
+      perModel: { 'openai:a': { maxOutputTokens: 1 }, 'openai:b': { requestsPerMinutePerUser: 2 } },
+    };
+    expect(withModelLimits(limits, 'openai:a', { requestsPerMinutePerUser: 3 })).toEqual({
+      perUser: { requestsPerMinute: 10 },
+      perModel: { 'openai:a': { requestsPerMinutePerUser: 3 }, 'openai:b': { requestsPerMinutePerUser: 2 } },
+    });
+    // The input is not mutated.
+    expect(limits.perModel['openai:a']).toEqual({ maxOutputTokens: 1 });
+  });
+
+  it('withModelLimits removes an empty entry, and perModel once it is empty', () => {
+    expect(withModelLimits({ perModel: { 'openai:a': { maxOutputTokens: 1 } } }, 'openai:a', {})).toEqual({});
+    expect(withModelLimits(undefined, 'openai:a', { maxOutputTokens: 5 })).toEqual({
+      perModel: { 'openai:a': { maxOutputTokens: 5 } },
+    });
+  });
+
+  it('aiAdminConfigToInput re-sends the configuration as loaded, limits included', () => {
+    const limits = { perUser: { requestsPerDay: 7 } };
+    expect(aiAdminConfigToInput({ ...mockAiAdminConfig, limits })).toEqual({
+      enabled: mockAiAdminConfig.enabled,
+      keyPolicy: mockAiAdminConfig.keyPolicy,
+      logPromptContent: mockAiAdminConfig.logPromptContent,
+      defaults: mockAiAdminConfig.defaults,
+      hostedTools: mockAiAdminConfig.hostedTools,
+      limits,
+      providers: { openai: { enabled: false, baseUrl: null } },
+    });
   });
 });

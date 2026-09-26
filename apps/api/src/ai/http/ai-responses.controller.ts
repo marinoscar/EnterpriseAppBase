@@ -74,8 +74,8 @@ export class AiResponsesController {
       'Refusals carry the AI error code in `details.reason`: `AI_DISABLED`, ' +
       '`AI_PROVIDER_DISABLED`, `AI_MODEL_NOT_ENABLED`, `AI_KEY_REQUIRED`, ' +
       '`AI_MODEL_NOT_REACHABLE`, `AI_TOOL_DISABLED` (403); `AI_CAPABILITY_UNSUPPORTED`, `AI_INVALID_REQUEST`, ' +
-      '`AI_KEY_INVALID` (400); `AI_RATE_LIMITED` (429, with `details.retryAfterMs` when the ' +
-      'provider named one); `AI_CONTENT_FILTERED` (422); `AI_PROVIDER_UNAVAILABLE` (503).',
+      '`AI_KEY_INVALID` (400); `AI_RATE_LIMITED` (429 — a provider throttle, or a deployment ' +
+      'rate limit named in `details.limit`; with `details.retryAfterMs` and `Retry-After` when known); `AI_CONTENT_FILTERED` (422); `AI_PROVIDER_UNAVAILABLE` (503).',
   })
   @ApiDataResponse(AiResponseDto, { description: 'The completed response' })
   @ApiResponse({
@@ -92,7 +92,12 @@ export class AiResponsesController {
   })
   @ApiResponse({ status: 404, description: 'A `storageObjectId` input that does not exist', type: ErrorDto })
   @ApiResponse({ status: 422, description: '`AI_CONTENT_FILTERED`', type: ErrorDto })
-  @ApiResponse({ status: 429, description: '`AI_RATE_LIMITED`', type: ErrorDto })
+  @ApiResponse({
+    status: 429,
+    description:
+      '`AI_RATE_LIMITED` — the provider throttled the call, or a deployment rate limit (`ai.limits`, named in `details.limit`) was reached. `details.retryAfterMs` and the `Retry-After` header (seconds) say when to retry',
+    type: ErrorDto,
+  })
   @ApiResponse({ status: 502, description: '`AI_STRUCTURED_OUTPUT_INVALID`', type: ErrorDto })
   @ApiResponse({ status: 503, description: '`AI_PROVIDER_UNAVAILABLE`, `AI_STORAGE_UNAVAILABLE`', type: ErrorDto })
   async respond(
@@ -171,7 +176,12 @@ export class AiResponsesController {
     type: ErrorDto,
   })
   @ApiResponse({ status: 404, description: 'A `storageObjectId` input that does not exist', type: ErrorDto })
-  @ApiResponse({ status: 429, description: '`AI_RATE_LIMITED` before streaming began', type: ErrorDto })
+  @ApiResponse({
+    status: 429,
+    description:
+      '`AI_RATE_LIMITED` — the provider throttled the call, or a deployment rate limit (`ai.limits`, named in `details.limit`) was reached. `details.retryAfterMs` and the `Retry-After` header (seconds) say when to retry — before streaming began, as an ordinary JSON error',
+    type: ErrorDto,
+  })
   @ApiResponse({
     status: 503,
     description: '`AI_PROVIDER_UNAVAILABLE` or `AI_STORAGE_UNAVAILABLE` before streaming began',

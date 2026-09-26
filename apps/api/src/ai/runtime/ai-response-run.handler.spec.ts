@@ -284,6 +284,23 @@ describe('AiResponseRunHandler', () => {
       expect(row(handle.runId).status).toBe('pending');
     });
 
+    it('an ai.limits refusal (#450) DEFERS the job with its retryAfterMs — the run is not failed', async () => {
+      const { h, handler, jobFor, row } = setup({ policy: { limits: { perUser: { requestsPerMinute: 1 } } } });
+      const handle = await h.ai.forUser(HARNESS_USER).startRun({ model: HARNESS_MODEL, input: 'x' });
+
+      // The user's one call this minute, made synchronously.
+      await h.ai.forUser(HARNESS_USER).respond({ model: HARNESS_MODEL, input: 'first' });
+
+      const error = await handler.process(jobFor(handle)).catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(RateLimitError);
+      expect((error as RateLimitError).retryAfterMs).toBeGreaterThanOrEqual(1_000);
+      expect((error as RateLimitError).retryAfterMs).toBeLessThanOrEqual(60_000);
+      expect(row(handle.runId)).toMatchObject({ status: 'pending', errorCode: null });
+      // One provider call — the synchronous one; the run never reached it.
+      expect(h.fake.calls).toHaveLength(1);
+    });
+
     it('a provider outage fails the run AND the job (visible to operators)', async () => {
       const { h, handler, jobFor, row } = setup({
         fake: {
