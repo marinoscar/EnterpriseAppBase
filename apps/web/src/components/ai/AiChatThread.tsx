@@ -18,6 +18,7 @@ import type { AiChatMessage } from '../../hooks/useAiChat';
 import { AiErrorAlert } from './AiErrorAlert';
 import { AiReasoningPanel } from './AiReasoningPanel';
 import { AiStructuredOutputPanel } from './AiStructuredOutputPanel';
+import { AiAttachmentChips } from './AiAttachmentChips';
 
 export function formatAiUsage(usage: AiUsage | undefined): string | null {
   if (!usage) return null;
@@ -118,6 +119,20 @@ export function AiChatThread({ messages }: AiChatThreadProps) {
             }}
           >
             {message.text}
+            {message.attachments && message.attachments.length > 0 && (
+              <Box sx={{ mt: 0.75, whiteSpace: 'normal' }}>
+                <AiAttachmentChips
+                  tone="contrast"
+                  label="Attached files"
+                  items={message.attachments.map((attachment) => ({
+                    key: attachment.storageObjectId,
+                    name: attachment.name,
+                    size: attachment.size,
+                    kind: attachment.kind,
+                  }))}
+                />
+              </Box>
+            )}
           </Paper>
         ) : (
           <Paper

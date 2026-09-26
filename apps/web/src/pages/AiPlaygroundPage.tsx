@@ -5,6 +5,12 @@
  * user's way to prove their setup works end to end: pick a usable model, chat
  * with it token by token, stop it, and see what each turn cost.
  *
+ * ATTACHMENTS (#445, API #441). Chat turns may carry images and files the
+ * selected model can read (see `AiChatAttachmentPicker`). They are uploaded
+ * through the storage API when the turn is sent, then named by
+ * `storageObjectId` in `image`/`file` content parts — for a streamed turn and
+ * a background run alike.
+ *
  * MODES (#445). A segmented control switches between Chat, Image,
  * Transcribe, Speech and Embeddings. Each mode lists only the usable models
  * that declare its capability, and a mode no usable model can serve is
@@ -85,6 +91,21 @@ import { AiModePlaceholder } from '../components/ai/playground/AiModePlaceholder
 import { AiImageMode } from '../components/ai/playground/AiImageMode';
 import { AiEmbeddingsMode } from '../components/ai/playground/AiEmbeddingsMode';
 import { usePlaygroundModel } from '../components/ai/playground/usePlaygroundModel';
+import {
+  AiChatAttachButtons,
+  AiChatPendingAttachments,
+  pendingAttachmentProblems,
+  type PendingAttachment,
+} from '../components/ai/AiChatAttachmentPicker';
+import {
+  attachmentKind,
+  chatTurnInput,
+  withAttachmentContext,
+  type AiChatAttachment,
+} from '../components/ai/playground/chatAttachments';
+import { uploadStorageObjectAndWait } from '../services/storage';
+import { toAiErrorInfo, type AiErrorInfo } from '../services/aiErrors';
+import { AiErrorAlert } from '../components/ai/AiErrorAlert';
 import {
   AI_SCHEMA_PRESETS,
   CUSTOM_SCHEMA_ID,
@@ -181,14 +202,22 @@ export default function AiPlaygroundPage() {
   // The prompt of the current background run, for its card and for the thread.
   const [runPrompt, setRunPrompt] = useState('');
   const runPromptRef = useRef('');
+  const runAttachmentsRef = useRef<AiChatAttachment[]>([]);
   const { appendExchange } = chat;
   const run = useAiRun({
     onSettled: (settled) => {
       if (settled.status === 'succeeded' && isAiResponseRunOutput(settled.output)) {
-        appendExchange(runPromptRef.current, settled.output, { runId: settled.id });
+        appendExchange(runPromptRef.current, settled.output, {
+          runId: settled.id,
+          attachments: runAttachmentsRef.current,
+        });
       }
     },
   });
+  // Files chosen for the next turn, uploaded when it is sent.
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [attachError, setAttachError] = useState<AiErrorInfo | null>(null);
 
   const [controls, setControls] = useState<PlaygroundControls>(INITIAL_CONTROLS);
   const [prompt, setPrompt] = useState('');
@@ -270,29 +299,62 @@ export default function AiPlaygroundPage() {
     if (preset && isUntouchedPrompt(prompt)) setPrompt(preset.examplePrompt);
   };
 
-  const busy = chat.isStreaming || run.isActive;
-  const canSend = !!selected && controlsValid && prompt.trim() !== '' && !busy;
+  const busy = chat.isStreaming || run.isActive || isUploading;
+  const attachmentProblems = pendingAttachmentProblems(pendingAttachments, selected);
+  const canSend =
+    !!selected && controlsValid && prompt.trim() !== '' && !busy && attachmentProblems.length === 0;
   const useBackground = backgroundAllowed && controls.background;
 
-  const submit = (event?: FormEvent) => {
+  /** Upload the pending files; `null` (with the error shown) when any upload fails. */
+  const uploadPending = async (): Promise<AiChatAttachment[] | null> => {
+    if (pendingAttachments.length === 0) return [];
+    setIsUploading(true);
+    setAttachError(null);
+    try {
+      return await Promise.all(
+        pendingAttachments.map(async ({ file }) => {
+          const object = await uploadStorageObjectAndWait(file);
+          return {
+            storageObjectId: object.id,
+            name: file.name,
+            mimeType: file.type || object.mimeType,
+            size: file.size,
+            kind: attachmentKind(file.type || object.mimeType),
+          };
+        }),
+      );
+    } catch (err) {
+      setAttachError(toAiErrorInfo(err, 'Could not upload the attachments'));
+      return null;
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const submit = async (event?: FormEvent) => {
     event?.preventDefault();
     const options = buildOptions();
     if (!canSend || !options) return;
     const text = prompt.trim();
+    // The prompt and the chips stay put until the files are safely uploaded.
+    const attachments = await uploadPending();
+    if (attachments === null) return;
     setPrompt('');
+    setPendingAttachments([]);
     if (useBackground) {
       // A run is not streamed; it answers once, through polling.
       const { stream: _unused, ...request } = options;
       runPromptRef.current = text;
+      runAttachmentsRef.current = attachments;
       setRunPrompt(text);
       void run.start({
         ...request,
-        input: text,
+        input: chatTurnInput(text, attachments),
         ...(chat.previousResponseId ? { previousResponseId: chat.previousResponseId } : {}),
       });
       return;
     }
-    void chat.send(text, options);
+    void chat.send(text, options, attachments);
   };
 
   const startNewConversation = () => {
@@ -306,7 +368,7 @@ export default function AiPlaygroundPage() {
   const onPromptKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
-      submit();
+      void submit();
     }
   };
 
@@ -468,7 +530,7 @@ export default function AiPlaygroundPage() {
         <AiRunCard
           prompt={runPrompt}
           run={run.run}
-          error={run.error}
+          error={run.error && withAttachmentContext(run.error, runAttachmentsRef.current.length > 0)}
           isStarting={run.isStarting}
           isCancelling={run.isCancelling}
           onCancel={() => void run.cancel()}
@@ -481,7 +543,18 @@ export default function AiPlaygroundPage() {
 
       <Divider />
 
-      <Box component="form" onSubmit={submit} sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+      <Box
+        component="form"
+        onSubmit={(event) => void submit(event)}
+        sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}
+      >
+        {attachError && <AiErrorAlert error={attachError} onClose={() => setAttachError(null)} />}
+        <AiChatPendingAttachments
+          model={selected}
+          pending={pendingAttachments}
+          disabled={isUploading}
+          onRemove={(key) => setPendingAttachments((current) => current.filter((item) => item.key !== key))}
+        />
         <TextField
           label="Message"
           placeholder="Ask something…"
@@ -493,7 +566,18 @@ export default function AiPlaygroundPage() {
           onChange={(event) => setPrompt(event.target.value)}
           onKeyDown={onPromptKeyDown}
         />
-        <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, flexWrap: 'wrap' }}>
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+          <AiChatAttachButtons
+            model={selected}
+            disabled={busy}
+            onAdd={(items) => setPendingAttachments((current) => [...current, ...items])}
+          />
+          <Box sx={{ flex: 1 }} />
+          {isUploading && (
+            <Typography variant="body2" color="text.secondary" role="status">
+              Uploading attachments…
+            </Typography>
+          )}
           {chat.isStreaming ? (
             <Button variant="outlined" color="inherit" startIcon={<StopIcon />} onClick={chat.stop}>
               Stop

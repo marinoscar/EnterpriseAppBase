@@ -663,3 +663,20 @@ export function mockAiEmbeddingsFor(input: string | string[], dimensions = 16): 
     usage: { inputTokens: inputs.length * 4 },
   };
 }
+
+// -----------------------------------------------------------------------------
+// Chat attachments (#441 contract, #445 UI): capability AND input modality.
+// -----------------------------------------------------------------------------
+
+/** Reads images and files: both attach buttons. */
+export const mockPlaygroundFileModel: UsableAiModel = {
+  provider: 'openai',
+  modelId: 'gpt-5',
+  displayName: 'GPT-5',
+  capabilities: {
+    capabilities: ['responses', 'streaming', 'vision_input', 'file_input'],
+    inputModalities: ['text', 'image', 'file'],
+    outputModalities: ['text'],
+  },
+  keySource: 'user',
+};
