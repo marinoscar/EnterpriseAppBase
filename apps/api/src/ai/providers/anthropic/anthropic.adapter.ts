@@ -19,7 +19,9 @@
 // PORTS. `responses` only. Anthropic has no embeddings, image-generation or
 // audio endpoints, so `embeddings`, `images`, `audio` and `realtime` are
 // ABSENT — presence is the declaration, and `AiProviderRegistry.supports()`
-// stays truthful.
+// stays truthful. `supportsHostedTools: false` keeps it truthful for the one
+// capability that rides on the responses port without a port of its own:
+// Anthropic's server tools are a different set, and none is mapped yet.
 //
 // STATELESS (#446). `supportsPreviousResponseId: false`: Anthropic stores no
 // response to chain onto. The facade refuses a caller's `previousResponseId`
@@ -88,6 +90,9 @@ export class AnthropicProviderAdapter implements AiProviderAdapter, OnModuleInit
 
   /** Stateless: the runtime resends history instead of chaining (#446). */
   readonly supportsPreviousResponseId = false;
+
+  /** None of the neutral hosted tools are mapped — the mapper refuses them. */
+  readonly supportsHostedTools = false;
 
   /** Images by presigned URL, documents inline — see the file header. */
   readonly fileInputStrategy: AiFileInputStrategies = { image: 'presigned_url', file: 'inline' };

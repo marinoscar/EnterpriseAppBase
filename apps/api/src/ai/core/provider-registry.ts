@@ -31,7 +31,8 @@ const CAPABILITY_PORT: Record<AiCapability, (adapter: AiProviderAdapter) => bool
   responses: (a) => a.responses !== undefined,
   reasoning: (a) => a.responses !== undefined,
   tools: (a) => a.responses !== undefined,
-  hosted_tools: (a) => a.responses !== undefined,
+  // Rides on the responses port, unless the adapter declares it runs none (#446).
+  hosted_tools: (a) => a.responses !== undefined && a.supportsHostedTools !== false,
   structured_output: (a) => a.responses !== undefined,
   streaming: (a) => a.responses !== undefined,
   vision_input: (a) => a.responses !== undefined,

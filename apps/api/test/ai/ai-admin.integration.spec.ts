@@ -325,6 +325,13 @@ describe('AI Administration Integration', () => {
           },
         ],
       });
+      // Anthropic runs none of the neutral hosted tools, and says so (#446).
+      const capabilitiesOf = (id: string) =>
+        (res.body.data.providers as Array<{ id: string; supportedCapabilities: string[] }>).find((p) => p.id === id)
+          ?.supportedCapabilities;
+      expect(capabilitiesOf('openai')).toContain('hosted_tools');
+      expect(capabilitiesOf('anthropic')).toEqual(expect.arrayContaining(['responses', 'reasoning', 'tools']));
+      expect(capabilitiesOf('anthropic')).not.toContain('hosted_tools');
       expect(context.prismaMock.systemSettings.create).not.toHaveBeenCalled();
       expect(context.prismaMock.systemSettings.update).not.toHaveBeenCalled();
     });

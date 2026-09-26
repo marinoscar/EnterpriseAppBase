@@ -110,6 +110,23 @@ export interface AiProviderAdapter {
    */
   readonly supportsPreviousResponseId?: boolean;
 
+  /**
+   * Whether this provider executes the neutral hosted tools (#442: web
+   * search, file search, code interpreter, image generation, MCP) inside a
+   * response. ABSENT MEANS `true` — the pre-flag derivation, and what OpenAI
+   * and the fake provider rely on.
+   *
+   * Why a flag and not a port: hosted tools run INSIDE the `responses` port,
+   * so there is no separate port whose presence could declare them, and
+   * `hosted_tools` used to be derived from the `responses` port alone. A
+   * provider with a responses port but none of these tools (Anthropic, whose
+   * server tools are a different, unmapped set) declares `false`, so
+   * `AiProviderRegistry.supports(id, 'hosted_tools')` — and the admin view's
+   * `supportedCapabilities`, and the usable-models gate — stop claiming a
+   * capability the adapter's mapper would refuse.
+   */
+  readonly supportsHostedTools?: boolean;
+
   // Capability ports — presence IS the declaration.
   readonly responses?: AiResponsesPort;
   readonly images?: AiImagesPort;

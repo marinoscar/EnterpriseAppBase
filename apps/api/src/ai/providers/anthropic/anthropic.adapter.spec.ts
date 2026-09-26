@@ -164,6 +164,10 @@ describe('AnthropicProviderAdapter', () => {
       expect(registry.supports('anthropic', 'responses')).toBe(true);
       expect(registry.supports('anthropic', 'embeddings')).toBe(false);
       expect(registry.supports('anthropic', 'image_generation')).toBe(false);
+      // Hosted tools ride on the responses port, but Anthropic maps none (#446).
+      expect(adapter.supportsHostedTools).toBe(false);
+      expect(registry.supports('anthropic', 'hosted_tools')).toBe(false);
+      expect(registry.capabilities('anthropic')).not.toContain('hosted_tools');
       expect(adapter.fileInputStrategy).toEqual({ image: 'presigned_url', file: 'inline' });
     });
 

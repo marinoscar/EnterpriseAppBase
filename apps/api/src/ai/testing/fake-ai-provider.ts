@@ -214,6 +214,8 @@ export interface FakeAiProviderOptions {
    * stateless provider for runtime tests of the full-history tool loop.
    */
   supportsPreviousResponseId?: boolean;
+  /** The adapter's `supportsHostedTools`. Omitted: declares nothing (`true`). */
+  supportsHostedTools?: boolean;
   /** Characters per streamed delta. Defaults to 4. */
   chunkSize?: number;
   /** Delay before a create and between stream events, in ms (abort-aware). Defaults to 0. */
@@ -298,6 +300,7 @@ export class FakeAiProvider implements AiProviderAdapter {
   readonly realtime?: AiRealtimePort;
   readonly fileInputStrategy?: AiFileInputStrategies;
   readonly supportsPreviousResponseId?: boolean;
+  readonly supportsHostedTools?: boolean;
 
   /** Every call, in order. */
   readonly calls: FakeAiCall[] = [];
@@ -356,6 +359,10 @@ export class FakeAiProvider implements AiProviderAdapter {
 
     if (options.supportsPreviousResponseId !== undefined) {
       this.supportsPreviousResponseId = options.supportsPreviousResponseId;
+    }
+
+    if (options.supportsHostedTools !== undefined) {
+      this.supportsHostedTools = options.supportsHostedTools;
     }
   }
 
