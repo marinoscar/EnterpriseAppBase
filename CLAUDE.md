@@ -599,6 +599,20 @@ and [`docs/runbooks/vapid-keys.md`](docs/runbooks/vapid-keys.md).
 - `POST /api/admin/push-config/rotate` - Replace the key pair (body `{"confirmation":"ROTATE"}`; 400 if nothing configured yet) (`push:write`)
 - `DELETE /api/admin/push-config` - Delete both the credential and the settings row (body `{"confirmation":"REMOVE"}`) (`push:write`)
 
+### About (Admin-only)
+What is actually deployed here (issue #401, epic #397): the API's own version,
+the `appctl deploy` state document (commit, ref, domain, bind port, proxy
+runtime, host facts, deploy history — written by the CLI, described in full in
+[`docs/runbooks/deployment-info.md`](docs/runbooks/deployment-info.md)), and a
+live database-liveness fact. Always answers `200` — a missing or malformed
+deploy document is a field (`deployInfoStatus: "absent"`/`"invalid"`), never an
+error status, because this is read precisely when something has gone wrong.
+Gated on the existing `system_settings:read`, deliberately with **no
+permission of its own** — a read-only report of what is deployed does not have
+the distinct blast radius that justified splitting out
+`push:*`/`broadcasts:*`/`nodes:*`/`storage_config:*`.
+- `GET /api/admin/about` - Deployment report: API version, deploy document fields, live `runtime` block, database liveness (`system_settings:read`)
+
 ### Health
 - `GET /api/health/live` - Liveness check
 - `GET /api/health/ready` - Readiness check (includes DB)
@@ -718,7 +732,7 @@ A third `ADMIN_SECTIONS` group (`apps/web/src/config/adminSections.tsx`),
 alongside `General` and `Access` — issue #266, epic #254. `General` is
 configuration an administrator *sets*; `Operations` is the running system: work
 in flight, the machines executing it, and the copies of the data taken while it
-ran. Five cards at `/admin/settings/*`, each gated on the exact permission its
+ran. Six cards at `/admin/settings/*`, each gated on the exact permission its
 controller enforces (Settings UI Pattern rule 3):
 
 - **Jobs** (`/admin/settings/jobs`, `jobs:read`) and **Job Insights**
@@ -726,12 +740,19 @@ controller enforces (Settings UI Pattern rule 3):
 - **Worker Nodes** (`/admin/settings/workers`, `nodes:read`)
 - **Database Backup** (`/admin/settings/db-backup`, `db_backup:read`)
 - **Broadcasts** (`/admin/settings/broadcasts`, `broadcasts:read`, epic #319)
+- **About** (`/admin/settings/about`, `system_settings:read`, issue #401,
+  epic #397) — what commit is running, when it was installed, and (since
+  issue #392, epic #388) the deploy host, proxy runtime and history left by
+  `appctl deploy`. `/admin/settings/deployment` redirects here: this card is
+  the extension of the existing About feature the deployment-visibility work
+  landed on, not a second destination — see
+  [`docs/runbooks/deployment-info.md`](docs/runbooks/deployment-info.md).
 
-All five read permissions are seeded Admin-only, so writes are gated inside
+All six read permissions are seeded Admin-only, so writes are gated inside
 each page (disabling controls) rather than by a second card permission — the
-card gate is about reachability, the page gates content. `Maintenance` is a
-`General` card, not an `Operations` one — it is a system setting, not a
-running-system view.
+card gate is about reachability, the page gates content; About has no write
+side at all. `Maintenance` is a `General` card, not an `Operations` one — it
+is a system setting, not a running-system view.
 
 ## Access Control: Email Allowlist
 
