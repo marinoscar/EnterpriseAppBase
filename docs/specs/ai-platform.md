@@ -215,6 +215,15 @@ for. The capability model instead lets a caller (or the gate pipeline in
 provider ship supporting only a subset of capabilities without changing the
 interface anyone else depends on.
 
+**Model metadata beyond the capability list.** `AiModelCapabilities` also
+carries optional descriptive fields a picker needs — `reasoningEfforts`,
+`contextWindow`, `maxOutputTokens`, and (#439) `voices`: the voices an
+`audio_speech` model speaks. Optional, so every stored row stays valid; the
+classifier fills it (OpenAI: nine voices for `tts-1`/`tts-1-hd`, thirteen
+for the GPT-4o TTS family), an administrator may override it like any
+other capability field, and `GET /api/ai/models` publishes it. When a model
+lists none, the provider's static `AiAudioPort.voices` is the fallback.
+
 ## 5. The normalized request/response
 
 Requests and responses are shaped after the OpenAI Responses API — not
@@ -546,6 +555,43 @@ method, one usage `operation` (`'audio.transcribe'`), one job type
   them). The upload is named with an extension OpenAI can decode (`memo` +
   `audio/mp4` → `memo.m4a`).
 
+### 5.6 Speech synthesis (Phase 2, issue #439)
+
+§5.2 the other way round: text in, **one storage object the user owns**
+out. An adapter method (`audio.speech`) plus a static `audio.voices` list,
+one facade method, one usage `operation` (`'audio.speech'`), one job type
+(`ai.audio.speech`, §9) and one route.
+
+- **Facade.** `ai.forUser(userId).speak({ input, voice?, model?, format?,
+  instructions?, speed? })` → `{ runId, jobId }`. Always asynchronous and
+  not subject to `allowBackgroundRuns`. `input` is 1–4096 characters
+  (`AI_SPEECH_INPUT_MAX_CHARS`, OpenAI's limit) — longer is
+  `AI_INVALID_REQUEST` before any gate reads a table, and before any call;
+  split long text into several runs. `model` defaults as for transcription
+  (first usable `audio_speech` model); `voice` defaults to the first the
+  model lists, and must be one of the model's `voices` (§4), else the
+  port's — anything else is `AI_INVALID_REQUEST`. `format` defaults to
+  `mp3` (`mp3|wav|opus|aac|flac|pcm`); `speed` is 0.25–4.
+- **The job** (`ai.audio.speech`, `{ runId }`): gates → storage pre-flight
+  (`assertWritable`, so audio that could not be kept is never paid for) →
+  one provider call (one usage row, `units: { characters }`) → the audio
+  written as one `ready` object at `ai-outputs/<userId>/<runId>/speech.<ext>`
+  (`AiOutputWriter`'s `keyName`) → the run completes with `output = {
+  type: 'speech', provider, model, storageObjectId, mimeType, size, format,
+  voice, characters, aiGenerated: true, usage }`. Download it through
+  `GET /api/storage/objects/{id}/download`. `maxAttempts: 2` — re-synthesis
+  writes equivalent audio to the same key.
+- **Disclosure.** Provider usage policies — OpenAI's among them — require
+  making clear to end users that a voice they hear is AI-generated, not a
+  human. Every speech output therefore carries `aiGenerated: true`, and the
+  stored object's metadata carries `aiGenerated: 'true'` so the fact travels
+  with the file; a client that plays the audio must surface it. This is a
+  deployment's obligation the platform makes easy, not one it can discharge.
+- **OpenAI wire detail.** `POST /v1/audio/speech` with `response_format`;
+  the answer is the audio file itself (never a URL). `instructions` is sent
+  only to models that take it — the `tts-1` family rejects it, so it is
+  dropped there rather than sent to a 400.
+
 ## 6. Model discovery and classification
 
 A provider's model-listing endpoint returns IDs and little else useful —
@@ -695,8 +741,13 @@ node-eligible** — no `nodeResultSchema` +
   Payload `{ runId }`. `profile: { maxRuntimeMs: 15*60_000, maxAttempts: 2
   }` — the one AI job allowed an automatic retry, because transcribing the
   same recording twice changes nothing but the bill.
-- The remaining Phase 2/3 media jobs (speech) will follow the identical
-  posture once implemented. Embeddings ship no job
+- `ai.audio.speech` (#439) — executes one speech run (§5.6). Payload
+  `{ runId }`. `profile: { maxRuntimeMs: 5*60_000, maxAttempts: 2 }` — at
+  most 4096 characters, and a retry rewrites the same `speech.<ext>` key.
+  Like `ai.image.generate`, `AI_STORAGE_UNAVAILABLE` fails the run and
+  **throws**.
+- Every media job extends `AiMediaRunHandler` (claim, cancel, deadline,
+  outcomes, retries for a multi-attempt profile, the settle safety net). Embeddings ship no job
   type of their own: `embed` is synchronous, and a large backfill is a
   fork's own server-only job calling it per chunk (§5.1).
 
@@ -882,7 +933,8 @@ the admin key, §6, `keySource: 'admin_discovery'`) and no
 calls); `units` exists for non-token-metered operations (`{ images: 2 }`,
 `{ audioSeconds: 31.4 }`). `AiUsageRecorder` writes it from the facade's
 round-trip outcome (#437 — `images` records `{ images: n }`; #438 —
-`audio.transcribe` records `{ audioSeconds }`), keeping only
+`audio.transcribe` records `{ audioSeconds }`; #439 — `audio.speech` records
+`{ characters }`), keeping only
 finite, non-negative numbers and storing nothing when none are left.
 
 **Reading it back (#443).** Two routes aggregate these rows, both answering
@@ -1077,9 +1129,10 @@ every consumer-facing route (as opposed to `/api/admin/ai/*`'s
 | `POST /api/ai/images` | `generateImage(...)` → `{ runId, jobId }`, status 202 (§5.2). A model without `image_generation` → 400 `AI_CAPABILITY_UNSUPPORTED`. |
 | `POST /api/ai/images/edits` | `editImage(...)` → `{ runId, jobId }`, status 202. Inputs by storage object id: unknown → 404, another user's → 403, not ready / wrong type / too large → 400 `AI_INVALID_REQUEST`. |
 | `POST /api/ai/audio/transcriptions` | `transcribe(...)` → `{ runId, jobId }`, status 202 (§5.5). The recording by storage object id: unknown → 404, another user's → 403, not ready / not audio / over the provider limit → 400 `AI_INVALID_REQUEST`; a model without `audio_transcription` → 400 `AI_CAPABILITY_UNSUPPORTED`. |
+| `POST /api/ai/audio/speech` | `speak(...)` → `{ runId, jobId }`, status 202 (§5.6). `input` over 4096 characters → 400; a voice the model does not speak → 400 `AI_INVALID_REQUEST`; a model without `audio_speech` → 400 `AI_CAPABILITY_UNSUPPORTED`. The output carries `aiGenerated: true`. |
 | `POST /api/ai/runs` | `startRun(...)` → `{ runId, jobId }`, status 202. |
 | (all three responses routes) | `image`/`file` parts take `url` **or** `storageObjectId` (§5.3): unknown object → 404, another user's → 403, wrong modality → 400 `AI_CAPABILITY_UNSUPPORTED`, over 20/50 MiB → 400 `AI_INVALID_REQUEST`, storage unusable → 503 `AI_STORAGE_UNAVAILABLE`. |
-| `GET /api/ai/runs/:id` | Scoped to caller → `{ id, status, provider, modelId, output, errorCode, errorMessage, createdAt, completedAt }` (never the stored prompt, never the job id); `output` is the `AiResponse`, an image run's `{ type: 'images', storageObjectIds, … }`, or a transcript `{ type: 'transcription', text, … }`; 404 for another user's run. |
+| `GET /api/ai/runs/:id` | Scoped to caller → `{ id, status, provider, modelId, output, errorCode, errorMessage, createdAt, completedAt }` (never the stored prompt, never the job id); `output` is the `AiResponse`, an image run's `{ type: 'images', storageObjectIds, … }`, a transcript `{ type: 'transcription', text, … }`, or speech `{ type: 'speech', storageObjectId, aiGenerated: true, … }`; 404 for another user's run. |
 | `POST /api/ai/runs/:id/cancel` | Scoped to caller; 200. |
 | `GET /api/ai/usage/me` | Query `from?, to?, groupBy?(day\|model)` → the caller's own usage report (§12). |
 
