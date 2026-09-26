@@ -229,6 +229,7 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
     providers: {
       openai: { enabled: p.providerEnabled ?? true, ...(p.baseUrl ? { baseUrl: p.baseUrl } : {}) },
       anthropic: { enabled: false },
+      gemini: { enabled: false },
     },
     defaults: { allowBackgroundRuns: true, allowRealtime: false, ...(p.defaults ?? {}) },
     logPromptContent: p.logPromptContent ?? false,

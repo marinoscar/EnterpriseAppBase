@@ -242,7 +242,7 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
 
     // Both mock users are created LAST, after every reset above, so neither
     // registration is wiped by the other context's setup.
-    const holder = await createMockTestUser(app.context, { id: HARNESS_USER, roleName: 'viewer' });
+    const holder = await createMockTestUser(app.context, { id: HARNESS_USER, roleName: 'contributor' });
     holderToken = holder.accessToken;
     const admin = await createMockAdminUser(adminCtx);
     adminToken = admin.accessToken;

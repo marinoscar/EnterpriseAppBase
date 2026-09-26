@@ -191,7 +191,7 @@ describe('AiService', () => {
       const structured = { ...hello, structuredOutput: { name: 'x', schema: z.object({}) } };
 
       expect(await codeOf(client.respond({ ...structured, model: 'missing' }))).toBe('AI_PROVIDER_DISABLED');
-      h.setPolicy({ providers: { openai: { enabled: true }, anthropic: { enabled: false } } });
+      h.setPolicy({ providers: { openai: { enabled: true }, anthropic: { enabled: false }, gemini: { enabled: false } } });
       expect(await codeOf(client.respond({ ...structured, model: 'missing' }))).toBe('AI_MODEL_NOT_ENABLED');
       expect(await codeOf(client.respond(structured))).toBe('AI_CAPABILITY_UNSUPPORTED');
       expect(await codeOf(client.respond(hello))).toBe('AI_KEY_REQUIRED');
@@ -506,7 +506,7 @@ describe('AiService', () => {
     const dir = __dirname;
     const offenders = readdirSync(dir)
       .filter((file) => file.endsWith('.ts'))
-      .filter((file) => /from\s+['"](openai|@anthropic-ai\/[^'"]+)['"]/.test(readFileSync(join(dir, file), 'utf8')));
+      .filter((file) => /from\s+['"](openai|@anthropic-ai\/[^'"]+|@google\/genai(?:\/[^'"]+)?)['"]/.test(readFileSync(join(dir, file), 'utf8')));
 
     expect(offenders).toEqual([]);
   });

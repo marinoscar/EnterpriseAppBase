@@ -77,7 +77,7 @@ describe('AI hosted tools HTTP Integration (#442)', () => {
   beforeEach(async () => {
     t.reset();
     t.harness.setPolicy({ hostedTools: { ...ALL_ON } });
-    alice = await createMockTestUser(t.context, { id: HARNESS_USER, roleName: 'viewer' });
+    alice = await createMockTestUser(t.context, { id: HARNESS_USER, roleName: 'contributor' });
   });
 
   const server = () => t.context.app.getHttpServer();

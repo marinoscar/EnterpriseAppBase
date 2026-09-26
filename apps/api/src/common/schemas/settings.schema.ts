@@ -694,10 +694,10 @@ export const systemMaintenancePatchSchema = z.object({
 //
 // `AI_PROVIDER_IDS` NAMES A REGISTRATION, NOT A CLOSED SET FOREVER — `as const`
 // listed `'openai'` alone through Phase 1, and Phase 3 appends to the array
-// rather than replacing it (`'anthropic'`, #446). A fork adding its own
+// rather than replacing it (`'anthropic'`, #446; `'gemini'`, #447). A fork adding its own
 // provider extends this array; nothing about the shape below assumes a fixed
 // number of members. Append only: the order is the admin UI's order.
-export const AI_PROVIDER_IDS = ['openai', 'anthropic'] as const;
+export const AI_PROVIDER_IDS = ['openai', 'anthropic', 'gemini'] as const;
 
 /** A registered AI provider id. See {@link AI_PROVIDER_IDS}. */
 export type AiProviderId = (typeof AI_PROVIDER_IDS)[number];
@@ -814,7 +814,7 @@ export type AiKeyPolicy = (typeof AI_KEY_POLICIES)[number];
  * exact counterpart of `systemStorageSchema.endpoint`. It exists for
  * OpenAI-compatible proxies and self-hosted gateways, and is optional because
  * absent means "use the provider's own default host". `providers` is closed
- * to `AI_PROVIDER_IDS` (`openai`, `anthropic`) rather than an open
+ * to `AI_PROVIDER_IDS` (`openai`, `anthropic`, `gemini`) rather than an open
  * `z.record`, for the same reason `STORAGE_PROVIDER_KINDS` is a closed enum
  * and not a free string: this value is read by name at the consuming layer, a
  * `z.record` cannot be validated field-by-field by `readNamespace` below (it
@@ -896,6 +896,8 @@ export const systemAiSchema = z.object({
     // #446. Appended; a stored row written before this slot existed is
     // salvaged per provider by `SystemSettingsService`, never reset.
     anthropic: systemAiProviderSchema,
+    // #447. Appended, and salvaged per provider exactly like `anthropic`.
+    gemini: systemAiProviderSchema,
   }),
   defaults: z.object({
     maxOutputTokensCap: z.number().int().positive().optional(),
@@ -946,6 +948,7 @@ export const systemAiPatchSchema = z.object({
     .object({
       openai: systemAiProviderPatchSchema.optional(),
       anthropic: systemAiProviderPatchSchema.optional(),
+      gemini: systemAiProviderPatchSchema.optional(),
     })
     .optional(),
   defaults: z

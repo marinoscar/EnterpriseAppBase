@@ -42,7 +42,7 @@ describe('AI background runs HTTP API Integration', () => {
   beforeEach(async () => {
     t.reset();
     bodies = [];
-    alice = await createMockTestUser(t.context, { id: HARNESS_USER, roleName: 'viewer' });
+    alice = await createMockTestUser(t.context, { id: HARNESS_USER, roleName: 'contributor' });
     bob = await createMockTestUser(t.context, { id: HARNESS_OTHER_USER, roleName: 'contributor' });
   });
 

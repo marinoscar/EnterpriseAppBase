@@ -293,3 +293,33 @@ describe('databaseSettings (sanity, shared with external.test.ts)', () => {
     expect(databaseSettings(ENV)).toEqual(SETTINGS);
   });
 });
+
+// =============================================================================
+// doctor stays read-only about a missing database  (issue #396)
+// =============================================================================
+//
+// install now TREATS a missing database as a question (ensure-database offers
+// to create it). doctor must not: it still FAILS `database-exists`, as a
+// required check, with the `createdb` remedy -- and issues nothing but a read.
+// =============================================================================
+describe('database-exists, as doctor runs it (#396)', () => {
+  it('fails, required, with the createdb remedy, and issues nothing but `select 1`', async () => {
+    const seen: string[] = [];
+    const result = await find('database-exists').run(
+      context({
+        runCommand: fakeRunCommand((argv) => {
+          seen.push(argv.join(' '));
+          return { exitCode: 2, stderr: 'psql: error: FATAL:  database "appdb" does not exist (3D000)' };
+        }),
+      }),
+    );
+
+    expect(find('database-exists').severity).toBe('required');
+    expect(result.status).toBe('fail');
+    expect(result.detail).toContain('does not exist');
+    expect(result.remedy).toContain(`createdb -h ${SETTINGS.host} -U ${SETTINGS.user} ${SETTINGS.database}`);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.endsWith('select 1')).toBe(true);
+    expect(seen.join('\n')).not.toMatch(/CREATE|DROP|ALTER/);
+  });
+});

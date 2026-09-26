@@ -54,7 +54,7 @@ describe('AI storage-object inputs over HTTP (#441)', () => {
 
   beforeEach(async () => {
     t.reset();
-    const holder = await createMockTestUser(t.context, { id: HARNESS_USER, roleName: 'viewer' });
+    const holder = await createMockTestUser(t.context, { id: HARNESS_USER, roleName: 'contributor' });
     token = holder.accessToken;
   });
 

@@ -386,7 +386,8 @@ is [`docs/runbooks/ai-configuration.md`](docs/runbooks/ai-configuration.md).
    SDK client of its own. `apps/api/src/ai/core/no-provider-sdk.spec.ts`
    keeps every SDK out of `ai/core`, and each provider's SDK is pinned to its
    own folder — `@anthropic-ai/sdk` by
-   `providers/anthropic/anthropic-sdk-boundary.spec.ts` (#446); a further
+   `providers/anthropic/anthropic-sdk-boundary.spec.ts` (#446), `@google/genai`
+   by `providers/gemini/gemini-sdk-boundary.spec.ts` (#447); a further
    provider's SDK gets the identical pin when its adapter is added (§14 of
    the spec).
 2. **Never call AI from the browser; keys never leave the server.** Every
@@ -738,7 +739,7 @@ The caller's own AI surface: usable models, BYOK keys, and calling AI itself.
 `AiEnabledGuard` (403 `details.reason: "AI_DISABLED"` while AI is off) and
 requires `ai:use`. See
 [`docs/specs/ai-platform.md`](docs/specs/ai-platform.md).
-- `GET /api/ai/config` - Whether AI is enabled, the key policy, `allowBackgroundRuns` (whether `POST /api/ai/runs` accepts a request at all), `allowRealtime` (whether `POST /api/ai/realtime/sessions` mints — #449), `hostedTools` (which hosted tool types are switched on, booleans only — #442), and which providers are enabled/carry an org key/`supportsPreviousResponseId` (false for Anthropic: send the conversation as `input`, #446); reachable while AI is disabled — how a client learns to hide its AI surfaces (any authenticated user, no `ai:use` required)
+- `GET /api/ai/config` - Whether AI is enabled, the key policy, `allowBackgroundRuns` (whether `POST /api/ai/runs` accepts a request at all), `allowRealtime` (whether `POST /api/ai/realtime/sessions` mints — #449), `hostedTools` (which hosted tool types are switched on, booleans only — #442), and which providers are enabled/carry an org key/`supportsPreviousResponseId` (false for Anthropic and Gemini: send the conversation as `input`, #446/#447); reachable while AI is disabled — how a client learns to hide its AI surfaces (any authenticated user, no `ai:use` required)
 - `GET /api/ai/keys` - List the caller's provider keys, masked (`ai:use`)
 - `PUT /api/ai/keys/{provider}` - Set/replace the caller's key; verified against the provider first, then reachable models computed, then stored (`ai:use`)
 - `DELETE /api/ai/keys/{provider}` - Remove the caller's key; 204, idempotent (`ai:use`)
@@ -811,11 +812,16 @@ requires `ai:use`. See
   each into a permission seeded far more broadly for unrelated settings
 - `ai:use` - May call AI with the caller's own key (or the org fallback key, when the
   deployment's key policy allows it): every consumer-facing route under `/api/ai/*` except
-  the always-open `GET /api/ai/config`. Seeded to **all three roles** — using AI with a key
-  the caller themselves supplied is not an administrative act, the same posture managing
-  one's own settings or storage objects already takes. Deliberately **not** folded into
-  `ai_config:*`: an administrator must be able to grant "may use AI" broadly while keeping
-  "may reconfigure the AI platform for the whole deployment" Admin-only — see
+  the always-open `GET /api/ai/config`. Seeded to **Admin and Contributor, deliberately NOT
+  Viewer** (issue #499) — using AI with a key the caller themselves supplied is not an
+  administrative act, the same posture managing one's own settings or storage objects
+  already takes, but Viewer is the DEFAULT role every new signup lands in, and a default
+  grant meant a brand-new account could spend the deployment's own org key under
+  `byok_with_org_fallback` with no administrator having decided that. An administrator
+  grants `ai:use` back to a specific Viewer (a `role_permissions` row) or promotes the
+  account to Contributor. Deliberately **not** folded into `ai_config:*`: an administrator
+  must be able to grant "may use AI" broadly while keeping "may reconfigure the AI platform
+  for the whole deployment" Admin-only — see
   [`docs/specs/ai-platform.md`](docs/specs/ai-platform.md) §11
 
 ## Database Tables
@@ -833,6 +839,15 @@ requires `ai:use`. See
 - `storage_objects` - File metadata, status, storage references
 - `storage_object_chunks` - Multipart upload chunk tracking
 - `personal_access_tokens` - User-created long-lived API tokens (hashed)
+- `user_credentials` - Per-user encrypted credentials (issue #387): a sibling of
+  `credentials` (untouched) for secrets a USER owns (bring-your-own-key), addressed by
+  `(userId, purpose, name)` and cascade-deleted with the user. Encrypted under an
+  owner-bound cipher domain, `user:<userId>:<purpose>` — not the bare purpose
+  `credentials` uses — so a row moved to another owner fails GCM authentication rather
+  than decrypting into the wrong user's context. Ships with an empty purpose registry
+  (`USER_CREDENTIAL_PURPOSES`) in production: the only BYO key type today, a user's AI
+  provider key, already lives in `user_ai_keys` below. See
+  [`docs/specs/user-credentials.md`](docs/specs/user-credentials.md).
 - `jobs` - The background queue (epic #254). `subject_type`/`subject_id` are both plain
   `text`, nullable, no FK either way — a job's subject is polymorphic (a storage object
   today, something else tomorrow), and a fork's own tables cannot be enumerated by a
@@ -986,9 +1001,10 @@ The cards gate writes internally (`ai_config:write`) rather than by a second
 card permission, the same reachability-vs-content posture every other group
 in this file takes. The per-user counterpart is the `AI Keys` card in
 `USER_SETTINGS_SECTIONS` (`/settings/ai`, `permission: 'ai:use'`,
-`feature: 'ai'`) — `ai:use` is seeded to all three roles, so this card is
-gated by a real, withholdable grant rather than by role, and hidden while AI
-is off by the identical `feature` mechanism. See
+`feature: 'ai'`) — `ai:use` is seeded to Admin and Contributor, deliberately
+not Viewer (issue #499), so this card is gated by a real, withholdable grant
+rather than by role, and hidden while AI is off by the identical `feature`
+mechanism. See
 [`docs/specs/ai-platform.md`](docs/specs/ai-platform.md) and the MANDATORY AI
 Platform Rules above.
 
@@ -1133,6 +1149,16 @@ rejected alternative, and
 2. Add migration if schema structure changes
 3. Update TypeScript types
 4. Add frontend UI if user-facing
+
+### Adding a User Key Type (Bring-Your-Own-Key)
+
+A user's own credential for something (as opposed to `CredentialsService`'s
+deployment-owned secrets) is one entry in `USER_CREDENTIAL_PURPOSES`
+(`apps/api/src/user-credentials/user-credential-purposes.ts`) plus whatever
+controller the feature needs — `UserCredentialsModule` ships no HTTP surface
+of its own, no migration required. See
+[`docs/specs/user-credentials.md`](docs/specs/user-credentials.md) §9 for the
+full recipe.
 
 ### Adding a Notification
 
@@ -1351,7 +1377,7 @@ round-trip, and traces the call. A call over a limit throws
 - **`respond(req, opts?)`** — one response. `req.input` is a string or
   `AiInputItem[]` (text/image/file parts); `opts.signal` aborts it.
   `req.previousResponseId` chains onto an earlier response only on a
-  provider that stores them (OpenAI); Anthropic refuses it with
+  provider that stores them (OpenAI); Anthropic and Gemini refuse it with
   `AI_CAPABILITY_UNSUPPORTED` — send the conversation as `input` instead
   (`runTools` already does, spec §5.7).
 - **`stream(req, opts?)`** — an `AsyncIterable<AiStreamEvent>`. Lazy: a gate
@@ -1444,10 +1470,13 @@ uses elsewhere in this codebase.
 A second (or third) provider is an adapter implementation against the
 existing contract, never a platform change — see
 [`docs/specs/ai-platform.md`](docs/specs/ai-platform.md) §14 for the full
-design; this is the summary. There are two worked examples, deliberately
+design; this is the summary. There are three worked examples, deliberately
 different in shape: `apps/api/src/ai/providers/openai/` (Responses API,
-every port) and `apps/api/src/ai/providers/anthropic/` (Messages API,
-`responses` only, stateless — issue #446, spec §14.1).
+every port), `apps/api/src/ai/providers/anthropic/` (Messages API,
+`responses` only, stateless — issue #446, spec §14.1) and
+`apps/api/src/ai/providers/gemini/` (`generateContent`, `responses` +
+`embeddings`, stateless, metadata-enriched classifier — issue #447, spec
+§14.2).
 
 1. **Implement `AiProviderAdapter`** (`ai/core/provider-adapter.interface.ts`)
    in its own `apps/api/src/ai/providers/<provider>/` folder: `id` (permanent
@@ -1472,6 +1501,9 @@ every port) and `apps/api/src/ai/providers/anthropic/` (Messages API,
    classifier does not recognize. Hand-curated on purpose: guessing a
    model's capabilities wrong is worse than an honest "unclassified, an
    administrator should look at this" (`capabilitySource: 'unclassified'`).
+   If the provider's model list says more than ids, return it as
+   `AiDiscoveredModel.metadata`; the catalog hands it back as
+   `classifyModel`'s optional second argument to enrich the table (#447).
 4. **Map the adapter's own errors onto `AiErrorCode`** (`ai/core/ai-error.ts`)
    — no SDK error may ever escape an adapter; wrap with `AiError.wrap(err,
    code, message)` or throw a specific `AiError` directly. `AiError`'s
@@ -1493,7 +1525,8 @@ every port) and `apps/api/src/ai/providers/anthropic/` (Messages API,
    `AI_CAPABILITY_UNSUPPORTED`, and `runTools` — and the kit's tool
    round-trip — resend the full conversation instead of chaining (spec
    §5.7); `GET /api/ai/config` publishes the flag per provider. Opaque
-   replay state (Anthropic's thinking signatures) rides on a `reasoning`
+   replay state (Anthropic's thinking signatures, Gemini's per-part
+   thought signatures) rides on a `reasoning`
    item under the `AI_PROVIDER_STATE` symbol, never in a serialisable
    field. Likewise a provider with a `responses` port but none of the
    hosted tools declares `supportsHostedTools: false` (absent means

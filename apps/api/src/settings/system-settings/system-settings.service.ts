@@ -380,7 +380,7 @@ export class SystemSettingsService {
       //
       // `providers` is salvaged one level deeper, PER PROVIDER, first
       // (`readAiProviders`): a slot appended to `AI_PROVIDER_IDS` later
-      // (`anthropic`, #446) is absent from every row written before it, and
+      // (`anthropic`, #446; `gemini`, #447) is absent from every row written before it, and
       // validating `providers` as one unit would then reset the operator's
       // OpenAI switch and endpoint to the defaults on the first read after
       // upgrading. `defaults` gets the same treatment, field by field, so
@@ -1300,6 +1300,15 @@ export class SystemSettingsService {
             baseUrl: mergeOptional(
               dto.ai?.providers?.anthropic?.baseUrl,
               currentValue.ai.providers.anthropic.baseUrl,
+            ),
+          },
+          gemini: {
+            enabled:
+              dto.ai?.providers?.gemini?.enabled ??
+              currentValue.ai.providers.gemini.enabled,
+            baseUrl: mergeOptional(
+              dto.ai?.providers?.gemini?.baseUrl,
+              currentValue.ai.providers.gemini.baseUrl,
             ),
           },
         },

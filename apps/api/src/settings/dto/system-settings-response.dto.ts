@@ -100,6 +100,10 @@ export const systemSettingsResponseSchema = z.object({
         enabled: z.boolean(),
         baseUrl: z.string().optional(),
       }),
+      gemini: z.object({
+        enabled: z.boolean(),
+        baseUrl: z.string().optional(),
+      }),
     }),
     defaults: z.object({
       maxOutputTokensCap: z.number().optional(),

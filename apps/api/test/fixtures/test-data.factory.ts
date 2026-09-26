@@ -159,8 +159,11 @@ export const mockPermissions = {
     name: 'storage_config:write',
     description: 'Change, test and provision the object-storage configuration',
   },
-  // AI platform (#423, #428, epic #419), mirrored from `prisma/seed-data.ts`:
-  // `ai_config:*` is Admin-only; `ai:use` is held by all three roles.
+  // AI platform (#423, #428, epic #419; #499), mirrored from
+  // `prisma/seed-data.ts`: `ai_config:*` is Admin-only; `ai:use` is held by
+  // Admin and Contributor but deliberately NOT Viewer (#499) — see
+  // `rolePermissionsMap.viewer` below and `prisma/seed-data.ts`'s comment on
+  // the same grant for the full reasoning.
   aiConfigRead: {
     id: randomUUID(),
     name: 'ai_config:read',
@@ -498,11 +501,13 @@ export const rolePermissionsMap = {
     mockPermissions.userSettingsWrite,
     mockPermissions.aiUse,
   ],
-  viewer: [
-    mockPermissions.userSettingsRead,
-    mockPermissions.userSettingsWrite,
-    mockPermissions.aiUse,
-  ],
+  // #499 — deliberately NO `aiUse` here, unlike Contributor above. Viewer is
+  // the DEFAULT role every new user lands in, so a fixture that granted it
+  // AI use more generously than the real seed would make an integration test
+  // asserting a viewer is refused an AI route pass for the wrong reason. A
+  // test that needs an "everyday, allowed" AI caller uses `roleName:
+  // 'contributor'` instead.
+  viewer: [mockPermissions.userSettingsRead, mockPermissions.userSettingsWrite],
 };
 
 // ============================================================================

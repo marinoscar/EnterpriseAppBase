@@ -212,6 +212,10 @@ const aiSettingsSchema = z.object({
       enabled: z.boolean(),
       baseUrl: z.string().url().optional(),
     }),
+    gemini: z.object({
+      enabled: z.boolean(),
+      baseUrl: z.string().url().optional(),
+    }),
   }),
   defaults: z.object({
     maxOutputTokensCap: z.number().int().positive().optional(),
@@ -380,6 +384,12 @@ export const patchSystemSettingsSchema = z.object({
             })
             .optional(),
           anthropic: z
+            .object({
+              enabled: z.boolean().optional(),
+              baseUrl: z.string().url().nullable().optional(),
+            })
+            .optional(),
+          gemini: z
             .object({
               enabled: z.boolean().optional(),
               baseUrl: z.string().url().nullable().optional(),

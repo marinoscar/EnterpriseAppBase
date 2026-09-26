@@ -47,7 +47,8 @@ variable for any of it, and there must never be one (CLAUDE.md's
    "AI_DISABLED"`, and no AI-shaped card or navigation entry appears
    anywhere else in the app.
 3. Enable the provider(s) you intend to use — `openai` and, since #446,
-   `anthropic` (§13 covers what is different about Anthropic).
+   `anthropic` (§13 covers what is different about Anthropic), and since
+   #447 `gemini` (§14).
    Enabling AI overall does nothing by itself if every individual provider
    stays disabled — a provider existing in the adapter registry does not
    mean it is reachable.
@@ -147,8 +148,9 @@ one into existence.
 ## 6. Choosing the key policy
 
 - **`byok` (default)** — every user must bring their own key
-  (`/settings/ai`, gated by `ai:use`, seeded to all three roles) before they
-  can call any model. No admin key, however well-funded, is ever used to
+  (`/settings/ai`, gated by `ai:use`, seeded to Admin and Contributor — NOT
+  Viewer, since issue #499) before they can call any model. No admin key,
+  however well-funded, is ever used to
   serve a user's request under this policy — this is the platform's core
   security invariant, and it is enforced in one place
   (`AiKeyResolver.resolve`), not scattered across call sites.
@@ -166,6 +168,19 @@ appctl api PUT /admin/ai/config --data '{"keyPolicy":"byok_with_org_fallback", .
 (`PUT` replaces the whole non-secret configuration and takes an `If-Match`
 version header, like the storage-configuration endpoint — read the current
 config first to get the current `version`.)
+
+### Letting Viewers use AI
+
+Viewer no longer holds `ai:use` by default (issue #499) — it is the DEFAULT
+role every new signup lands in, and under `byok_with_org_fallback` a
+default grant meant a brand-new account could spend the deployment's own
+org key with no administrator having decided that. To let a Viewer use AI
+anyway, either:
+
+- Grant `ai:use` back to that account specifically (or to the whole Viewer
+  role) via `rbac:manage` — add a `role_permissions` row for
+  `('viewer', 'ai:use')` if you want every Viewer to have it; or
+- Promote the account to Contributor, which already carries the grant.
 
 ## 7. How users add their own key
 
@@ -249,10 +264,10 @@ reference; the full one is `docs/specs/ai-platform.md` §13.
 | `AI_KEY_INVALID` | 400 | A submitted key was rejected by the provider. | The key is wrong, revoked, or scoped incorrectly at the provider. Nothing was stored. |
 | `AI_MODEL_NOT_ENABLED` | 403 | The model is unknown, not admin-enabled, or deprecated. | Enable it (or pick an enabled one) on `/admin/settings/ai/models` — §5. |
 | `AI_MODEL_NOT_REACHABLE` | 403 | The model is enabled, but the resolved key can't reach it. | The key's own tier/org restrictions — try `POST /api/ai/keys/:provider/test`, or refresh reachability by re-testing/re-saving the key. |
-| `AI_CAPABILITY_UNSUPPORTED` | 400 | The model or provider lacks a capability the request needs (e.g. structured output, a tool, vision input), or the request chains with `previousResponseId` on a provider that stores no responses (Anthropic — `details.capability: "previous_response_id"`). | Pick a model/provider that declares it, or drop that part of the request; for Anthropic, send the conversation as `input` instead of chaining (§13). |
-| `AI_REALTIME_DISABLED` | 403 | A realtime voice session was requested, but realtime is switched off (the default). | §15 — set `defaults.allowRealtime` on `/admin/settings/ai` if you want voice sessions. |
+| `AI_CAPABILITY_UNSUPPORTED` | 400 | The model or provider lacks a capability the request needs (e.g. structured output, a tool, vision input), or the request chains with `previousResponseId` on a provider that stores no responses (Anthropic, Gemini — `details.capability: "previous_response_id"`). | Pick a model/provider that declares it, or drop that part of the request; for Anthropic or Gemini, send the conversation as `input` instead of chaining (§13, §14). |
+| `AI_REALTIME_DISABLED` | 403 | A realtime voice session was requested, but realtime is switched off (the default). | §16 — set `defaults.allowRealtime` on `/admin/settings/ai` if you want voice sessions. |
 | `AI_TOOL_DISABLED` | 403 | A hosted tool (web search, file search, code interpreter, image generation, MCP) that is switched off, or an MCP server host outside the allowlist. | §12 — switch the tool on, or add the host, under **Hosted tools** on `/admin/settings/ai`. |
-| `AI_RATE_LIMITED` | 429 | The provider throttled the call, or one of this deployment's own limits was reached — then `details.limit` names which one. | Transient: wait `Retry-After` seconds (also `details.retryAfterMs`). For a background run this defers automatically rather than charging an attempt. If users hit a limit of yours too often, raise it — §14. |
+| `AI_RATE_LIMITED` | 429 | The provider throttled the call, or one of this deployment's own limits was reached — then `details.limit` names which one. | Transient: wait `Retry-After` seconds (also `details.retryAfterMs`). For a background run this defers automatically rather than charging an attempt. If users hit a limit of yours too often, raise it — §15. |
 | `AI_PROVIDER_UNAVAILABLE` | 503 | The provider is unreachable or erroring at the transport level. | A provider-side outage, or `AI_PROVIDER_UNAVAILABLE` after an aborted/cancelled call. Check the provider's own status page. |
 | `AI_CONTENT_FILTERED` | 422 | The provider's own content filter rejected the request or response. | Not a platform bug — the provider refused this specific content. |
 | `AI_INVALID_REQUEST` | 400 | The request itself is malformed (no model/provider resolvable, a background run given a function tool, an invalid `maxOutputTokens`). | Check the request shape; function tools cannot run in a background run — use `runTools()` in-process instead. |
@@ -343,7 +358,66 @@ What is different, and worth telling users:
   the provider's `retry-after`; a background run defers on the latter
   without charging an attempt.
 
-## 14. Rate limits and output caps
+## 14. Enabling Google Gemini
+
+Gemini (issue #447) is configured exactly like OpenAI and Anthropic — no
+environment variable (the adapter deliberately ignores `GEMINI_API_KEY`,
+`GOOGLE_API_KEY`, `GOOGLE_GEMINI_BASE_URL` and `GOOGLE_GENAI_USE_VERTEXAI`
+if they happen to be set on the host), no restart:
+
+1. Create an API key in Google AI Studio (the **Gemini Developer API** — this
+   adapter does not use Vertex AI or a service account).
+2. On `/admin/settings/ai`, switch the **Google Gemini** provider on (or
+   `PUT /api/admin/ai/config` with `providers.gemini.enabled: true`).
+   `baseUrl` is optional and only for a gateway that speaks the Gemini API
+   itself; leave it empty for `https://generativelanguage.googleapis.com`.
+3. Add the admin (org) key on the provider's row (§2) and **Test** it (§3).
+   The key is verified by listing models before anything is stored — Google
+   answers a bad key with `400 API_KEY_INVALID`, which the platform reports
+   as `AI_KEY_INVALID` like any other provider's rejection. The billed
+   `responses_smoke` check is one tiny `generateContent` call.
+4. Refresh the catalog for `gemini` (§4):
+   `appctl api POST /admin/ai/models/refresh --data '{"provider":"gemini"}'`.
+   Gemini's model list says more than the others' — token limits, supported
+   methods, whether a model thinks — so the classifier uses it: context
+   window and output limit come from Google, and an alias such as
+   `gemini-flash-latest` is classified from what the listing says about it.
+   Image-output, text-to-speech, Live/native-audio, computer-use and
+   robotics variants, and Imagen, Veo and Gemma, stay `unclassified` —
+   nothing in this platform drives them. Enable the models users should
+   see (§5), including an embedding model (`gemini-embedding-001`) if
+   anything calls `POST /api/ai/embeddings`.
+5. Users add their own Gemini key on `/settings/ai` exactly as for OpenAI
+   (§7), under the key policy you chose (§6).
+
+What is different, and worth telling users:
+
+- **No `previousResponseId`**, exactly as for Anthropic (§13): send the
+  conversation as `input`; `runTools()` and the AI Playground already do.
+- **No hosted tools.** Google Search grounding and code execution are not
+  mapped yet (their results do not fit the platform's citation and
+  code-interpreter shapes honestly); the provider row does not list
+  **Hosted tools**, and a request with one is refused with
+  `AI_CAPABILITY_UNSUPPORTED`.
+- **Reasoning.** A reasoning effort becomes Gemini's thinking config — a
+  thinking level on Gemini 3 (Pro has only low and high), a thinking-token
+  budget on Gemini 2.5. Users see thought summaries, never the raw
+  thoughts. Gemini 2.0 and 1.5 do not think and refuse an effort.
+- **Structured output with tools** works on Gemini 3 but not on Gemini
+  2.5 (refused up front); Gemini 2.0 and 1.5 are not offered structured
+  output at all.
+- **Stored files** (`storageObjectId` inputs) are sent inline to Gemini;
+  nothing is uploaded to Google's Files API, so nothing is left behind
+  there. A very large file may exceed Gemini's own inline request limit —
+  that answers `AI_INVALID_REQUEST`.
+- **Embeddings** accept `dimensions` (Gemini truncates the vector); Google
+  reports no token counts for them, so their usage rows carry none.
+- **Errors.** `429 RESOURCE_EXHAUSTED` answers as `AI_RATE_LIMITED` with
+  Google's own retry delay; `503 UNAVAILABLE` and other 5xx as
+  `AI_PROVIDER_UNAVAILABLE`; a background run defers on a rate limit
+  without charging an attempt.
+
+## 15. Rate limits and output caps
 
 `ai.limits` protects the deployment from runaway request volume, the
 organization key from one user draining it, and budgets from runaway
@@ -402,7 +476,7 @@ flight on the others (there is deliberately no Redis — see
 `docs/specs/ai-platform.md` §15). Use the **AI Usage** page, not these limits,
 for accounting. Catalog refreshes run on the admin key and never count.
 
-## 15. Realtime voice sessions
+## 16. Realtime voice sessions
 
 `POST /api/ai/realtime/sessions` mints a short-lived **ephemeral** provider
 secret (OpenAI `ek_…`, 60 seconds to connect). The user's browser uses it to
@@ -427,7 +501,7 @@ curl -X PUT https://app.example.com/api/admin/ai/config \
 need an **enabled** realtime model (`gpt-realtime*`, `gpt-4o-realtime-preview*`,
 `gpt-4o-mini-realtime*`) on `/admin/settings/ai/models`, and a key that
 reaches it. `GET /api/ai/config` publishes `allowRealtime`, so the AI
-Playground (`/ai`) hides its **Voice** mode while it is off. Each mint counts as one request against the §14
+Playground (`/ai`) hides its **Voice** mode while it is off. Each mint counts as one request against the §15
 limits and is recorded on the **AI Usage** page as operation `realtime`,
 `units.sessions` = 1. No tokens are recorded, because the audio never passes
 through this server; see the provider's own dashboard for realtime cost. If a

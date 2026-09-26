@@ -214,6 +214,8 @@ describe('Public AI config and kill switch', () => {
           // answers "configured" for every provider. Anthropic stores no
           // responses, so a client must resend the conversation.
           { id: 'anthropic', displayName: 'Anthropic', enabled: false, hasOrgKey: true, supportsPreviousResponseId: false },
+          // Gemini (#447): likewise registered, off, and stateless.
+          { id: 'gemini', displayName: 'Google Gemini', enabled: false, hasOrgKey: true, supportsPreviousResponseId: false },
         ],
       });
       expect(res.text).not.toContain(ORG_KEY);
@@ -241,16 +243,19 @@ describe('Public AI config and kill switch', () => {
 
     it('lets the request through while AI is on', async () => {
       storedAi = { ...storedAi, enabled: true };
-      const viewer = await createMockViewerUser(context);
+      // #499: the probe controller also requires `ai:use`, which Viewer no
+      // longer holds — a Contributor stands in as the "everyday, allowed"
+      // caller so this test exercises the guard, not RBAC.
+      const contributor = await createMockContributorUser(context);
 
-      await request(server()).get('/api/ai/probe').set(authHeader(viewer.accessToken)).expect(200);
+      await request(server()).get('/api/ai/probe').set(authHeader(contributor.accessToken)).expect(200);
     });
 
     it('an admin turning AI on is effective on the next request (cache invalidated)', async () => {
       const admin = await createMockAdminUser(context);
-      const viewer = await createMockViewerUser(context);
+      const contributor = await createMockContributorUser(context);
 
-      await request(server()).get('/api/ai/probe').set(authHeader(viewer.accessToken)).expect(403);
+      await request(server()).get('/api/ai/probe').set(authHeader(contributor.accessToken)).expect(403);
 
       await request(server())
         .put('/api/admin/ai/config')
@@ -264,23 +269,23 @@ describe('Public AI config and kill switch', () => {
         })
         .expect(200);
 
-      await request(server()).get('/api/ai/probe').set(authHeader(viewer.accessToken)).expect(200);
+      await request(server()).get('/api/ai/probe').set(authHeader(contributor.accessToken)).expect(200);
     });
 
     it('a change made elsewhere lands once the cache window passes', async () => {
-      const viewer = await createMockViewerUser(context);
+      const contributor = await createMockContributorUser(context);
       let now = Date.now();
       const spy = jest.spyOn(Date, 'now').mockImplementation(() => now);
 
       try {
-        await request(server()).get('/api/ai/probe').set(authHeader(viewer.accessToken)).expect(403);
+        await request(server()).get('/api/ai/probe').set(authHeader(contributor.accessToken)).expect(403);
 
         // Another instance flips the row; this one still has the old answer cached.
         storedAi = { ...storedAi, enabled: true };
-        await request(server()).get('/api/ai/probe').set(authHeader(viewer.accessToken)).expect(403);
+        await request(server()).get('/api/ai/probe').set(authHeader(contributor.accessToken)).expect(403);
 
         now += AI_POLICY_CACHE_MS;
-        await request(server()).get('/api/ai/probe').set(authHeader(viewer.accessToken)).expect(200);
+        await request(server()).get('/api/ai/probe').set(authHeader(contributor.accessToken)).expect(200);
       } finally {
         spy.mockRestore();
       }

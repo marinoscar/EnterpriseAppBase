@@ -336,4 +336,110 @@ describe('secret-cipher', () => {
       });
     });
   });
+
+  // ===========================================================================
+  // Owner-bound sub-key domains for per-user credentials (issue #387)
+  // ===========================================================================
+  describe('userCredentialPurpose (owner-bound domains, #387)', () => {
+    const ALICE = '0b6f1d7e-3c2a-4f5b-9e8d-7a6c5b4d3e2f';
+    const BOB = '9f8e7d6c-5b4a-4392-8170-6f5e4d3c2b1a';
+    let cipher: SecretCipherModule;
+
+    beforeEach(() => {
+      cipher = loadCipher(VALID_KEY);
+    });
+
+    it('builds `user:<userId>:<purpose>`', () => {
+      expect(cipher.userCredentialPurpose(ALICE, 'webhook')).toBe(`user:${ALICE}:webhook`);
+      expect(cipher.USER_CREDENTIAL_DOMAIN_PREFIX).toBe('user:');
+    });
+
+    it('round-trips under the owner-bound domain', () => {
+      const domain = cipher.userCredentialPurpose(ALICE, 'webhook');
+      const payload = cipher.encryptSecret('alice-key', domain);
+      expect(cipher.decryptSecret(payload, domain)).toBe('alice-key');
+    });
+
+    it("fails GCM auth when one user's ciphertext is read as another's", () => {
+      const payload = cipher.encryptSecret(
+        'alice-key',
+        cipher.userCredentialPurpose(ALICE, 'webhook'),
+      );
+
+      expect(() =>
+        cipher.decryptSecret(payload, cipher.userCredentialPurpose(BOB, 'webhook')),
+      ).toThrow(/Failed to decrypt secret/);
+    });
+
+    it('fails when the same owner reads it under another purpose', () => {
+      const payload = cipher.encryptSecret(
+        'alice-key',
+        cipher.userCredentialPurpose(ALICE, 'webhook'),
+      );
+
+      expect(() =>
+        cipher.decryptSecret(payload, cipher.userCredentialPurpose(ALICE, 'other')),
+      ).toThrow(/Failed to decrypt secret/);
+    });
+
+    it('user and system domains for the same purpose cannot decrypt each other', () => {
+      const systemPayload = cipher.encryptSecret('org-key', 'webhook');
+      const userDomain = cipher.userCredentialPurpose(ALICE, 'webhook');
+      const userPayload = cipher.encryptSecret('alice-key', userDomain);
+
+      expect(() => cipher.decryptSecret(systemPayload, userDomain)).toThrow(
+        /Failed to decrypt secret/,
+      );
+      expect(() => cipher.decryptSecret(userPayload, 'webhook')).toThrow(
+        /Failed to decrypt secret/,
+      );
+    });
+
+    it('keeps decrypting correctly across repeated calls (per-user keys are derived, not cached)', () => {
+      const domain = cipher.userCredentialPurpose(ALICE, 'webhook');
+      const payload = cipher.encryptSecret('alice-key', domain);
+      for (let i = 0; i < 5; i++) {
+        expect(cipher.decryptSecret(payload, domain)).toBe('alice-key');
+      }
+    });
+
+    it.each([
+      ['an uppercase UUID', ALICE.toUpperCase()],
+      ['a brace-wrapped UUID', `{${ALICE}}`],
+      ['a UUID without hyphens', ALICE.replace(/-/g, '')],
+      ['a non-UUID string', 'alice'],
+      ['an empty string', ''],
+    ])('rejects %s as the owner', (_label, userId) => {
+      expect(() => cipher.userCredentialPurpose(userId, 'webhook')).toThrow(
+        /canonical/,
+      );
+    });
+
+    it('rejects a purpose containing ":" so the domain decomposes one way only', () => {
+      // Without this, (ALICE, 'a:b') and a hypothetical (ALICE + ':a', 'b')
+      // would be the same string. The canonical-UUID rule removes the second
+      // spelling; this removes the first.
+      expect(() => cipher.userCredentialPurpose(ALICE, 'a:b')).toThrow(/":"/);
+    });
+
+    it('rejects an empty purpose', () => {
+      expect(() => cipher.userCredentialPurpose(ALICE, '')).toThrow(/non-empty/);
+    });
+
+    it('never puts the supplied values in its error messages', () => {
+      try {
+        cipher.userCredentialPurpose('NOT-A-UUID-sentinel', 'webhook');
+        throw new Error('expected a throw');
+      } catch (err) {
+        expect((err as Error).message).not.toContain('sentinel');
+      }
+    });
+
+    it('isCanonicalUuid accepts lowercase hyphenated UUIDs only', () => {
+      expect(cipher.isCanonicalUuid(ALICE)).toBe(true);
+      expect(cipher.isCanonicalUuid(ALICE.toUpperCase())).toBe(false);
+      expect(cipher.isCanonicalUuid(undefined)).toBe(false);
+      expect(cipher.isCanonicalUuid(42)).toBe(false);
+    });
+  });
 });

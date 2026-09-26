@@ -1738,11 +1738,12 @@ describe('SystemSettingsService', () => {
       expect(result).toEqual({
         enabled: true,
         keyPolicy: 'byok_with_org_fallback',
-        // The row predates the `anthropic` slot (#446): that slot takes its
-        // default, and the stored OpenAI slot survives untouched.
+        // The row predates the `anthropic` (#446) and `gemini` (#447) slots:
+        // each takes its default, and the stored OpenAI slot survives untouched.
         providers: {
           openai: { enabled: true, baseUrl: 'https://proxy.internal/v1' },
           anthropic: { enabled: false },
+          gemini: { enabled: false },
         },
         // `allowRealtime` is absent from the stored row (written before #449):
         // it reads as `false`, and the cap and switch beside it survive.
@@ -1802,6 +1803,7 @@ describe('SystemSettingsService', () => {
       expect(result.providers).toEqual({
         openai: { enabled: true, baseUrl: 'https://proxy.internal/v1' },
         anthropic: { enabled: false },
+        gemini: { enabled: false },
       });
     });
 
@@ -1859,6 +1861,28 @@ describe('SystemSettingsService', () => {
       expect(result.providers).toEqual({
         openai: { enabled: false },
         anthropic: { enabled: true, baseUrl: 'https://anthropic-gw.internal' },
+        gemini: { enabled: false },
+      });
+    });
+
+    it('keeps a stored gemini slot beside its siblings (#447)', async () => {
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        value: {
+          ai: {
+            providers: {
+              openai: { enabled: true },
+              gemini: { enabled: true, baseUrl: 'https://gemini-gw.internal' },
+            },
+          },
+        } as any,
+      } as any);
+
+      const result = await service.getAiPolicy();
+
+      expect(result.providers).toEqual({
+        openai: { enabled: true },
+        anthropic: { enabled: false },
+        gemini: { enabled: true, baseUrl: 'https://gemini-gw.internal' },
       });
     });
   });
@@ -1927,6 +1951,18 @@ describe('SystemSettingsService', () => {
       const ai = writtenAi() as any;
       expect(ai.providers.anthropic).toEqual({ enabled: true, baseUrl: 'https://anthropic-gw.internal' });
       expect(ai.providers.openai).toEqual({ enabled: false, baseUrl: 'https://proxy.internal/v1' });
+    });
+
+    it('enables providers.gemini on a row that predates the slot, leaving the others untouched (#447)', async () => {
+      await service.patchSettings(
+        { ai: { providers: { gemini: { enabled: true, baseUrl: 'https://gemini-gw.internal' } } } },
+        mockUserId,
+      );
+
+      const ai = writtenAi() as any;
+      expect(ai.providers.gemini).toEqual({ enabled: true, baseUrl: 'https://gemini-gw.internal' });
+      expect(ai.providers.openai).toEqual({ enabled: false, baseUrl: 'https://proxy.internal/v1' });
+      expect(ai.providers.anthropic).toEqual({ enabled: false, baseUrl: undefined });
     });
 
     it('merges one hostedTools switch, defaulting the rest when the stored row predates them (#442)', async () => {
@@ -2040,6 +2076,7 @@ describe('SystemSettingsService', () => {
       expect(ai.providers).toEqual({
         openai: { enabled: false, baseUrl: 'https://proxy.internal/v1' },
         anthropic: { enabled: false, baseUrl: undefined },
+        gemini: { enabled: false, baseUrl: undefined },
       });
     });
 
