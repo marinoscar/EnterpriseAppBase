@@ -238,7 +238,15 @@ describe('AiPlaygroundPage', () => {
 
       await user.click(screen.getByRole('button', { name: 'Stop' }));
 
-      await waitFor(() => expect(stream.requests[0].signal.aborted).toBe(true));
+      // `clientSignal` is the exact AbortSignal the hook passed to `fetch` —
+      // it flips synchronously with `stop()`'s `abort()` call, unlike the
+      // interceptor-side `signal` below, which MSW links asynchronously and
+      // which can lag under CI/CPU load (issue #483).
+      expect(stream.requests[0].clientSignal.aborted).toBe(true);
+      // Secondary, network-side proof the abort actually reached the
+      // intercepted request; a generous timeout is safe here because the
+      // synchronous assertion above already proves the abort happened.
+      await waitFor(() => expect(stream.requests[0].signal.aborted).toBe(true), { timeout: 5000 });
       expect(screen.getByText('Stopped')).toBeInTheDocument();
       expect(screen.getByTestId('assistant-message')).toHaveAttribute('data-status', 'stopped');
       act(() => stream.push({ type: 'output_text.delta', delta: ' a time' }));
