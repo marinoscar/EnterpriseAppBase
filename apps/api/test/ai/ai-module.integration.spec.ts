@@ -2,18 +2,26 @@
 // AiModule boot (issue #424, epic #419)
 // =============================================================================
 //
-// The AI platform must boot inside the full application, and on its own with
-// NO database at all — every later AI story (catalog, config, keys) layers
-// onto this and must not find a hidden dependency underneath. Registering a
-// provider needs no database or network either: since #426 the OpenAI adapter
-// self-registers at boot (enabling it and giving it a key is runtime
-// configuration, not wiring).
+// The AI platform must boot inside the full application, and its core on its
+// own with NO database at all — every later AI story (catalog, config, keys)
+// layers onto this and must not find a hidden dependency underneath.
+// Registering a provider needs no database or network either: since #426 the
+// OpenAI adapter self-registers at boot (enabling it and giving it a key is
+// runtime configuration, not wiring).
+//
+// "On its own" targets `AiCoreModule`, not `AiModule`: since #427 `AiModule`
+// also imports the catalog, which legitimately needs the database. The claim
+// being pinned is about the provider-agnostic core, and that is unchanged —
+// provider adapters are checked alongside it, since they must not need the
+// database either.
 // =============================================================================
 
 import { Test } from '@nestjs/testing';
 
 import { AiModule } from '../../src/ai/ai.module';
 import { AiProviderRegistry } from '../../src/ai/core';
+import { AiCoreModule } from '../../src/ai/core/ai-core.module';
+import { OpenAiProviderModule } from '../../src/ai/providers/openai/openai.module';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { createTestApp, TestContext } from '../helpers/test-app.helper';
 
@@ -37,9 +45,11 @@ describe('AiModule', () => {
     });
   });
 
-  describe('on its own', () => {
+  describe('AiCoreModule + provider adapters on their own', () => {
     it('compiles with no PrismaService anywhere in the graph', async () => {
-      const moduleRef = await Test.createTestingModule({ imports: [AiModule] }).compile();
+      const moduleRef = await Test.createTestingModule({
+        imports: [AiCoreModule, OpenAiProviderModule],
+      }).compile();
       await moduleRef.init();
 
       expect(moduleRef.get(AiProviderRegistry).ids()).toEqual(['openai']);
