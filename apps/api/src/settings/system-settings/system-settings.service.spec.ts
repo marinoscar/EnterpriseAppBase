@@ -558,6 +558,7 @@ describe('SystemSettingsService', () => {
                 },
                 notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
                 storage: DEFAULT_SYSTEM_SETTINGS.storage,
+                ai: DEFAULT_SYSTEM_SETTINGS.ai,
                 branding: { logoUrl: 'https://example.com/logo.png' },
               },
             }),
@@ -617,6 +618,7 @@ describe('SystemSettingsService', () => {
                 },
                 notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
                 storage: DEFAULT_SYSTEM_SETTINGS.storage,
+                ai: DEFAULT_SYSTEM_SETTINGS.ai,
               },
             }),
           }),
@@ -962,6 +964,7 @@ describe('SystemSettingsService', () => {
                 nodes: { ...DEFAULT_SYSTEM_SETTINGS.nodes, jobSecretBrokerEnabled: true },
                 notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
                 storage: DEFAULT_SYSTEM_SETTINGS.storage,
+                ai: DEFAULT_SYSTEM_SETTINGS.ai,
                 branding: { logoUrl: 'https://example.com/logo.png' },
               },
             }),
@@ -1094,6 +1097,7 @@ describe('SystemSettingsService', () => {
                 nodes: { ...DEFAULT_SYSTEM_SETTINGS.nodes, jobSecretBrokerEnabled: true },
                 notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
                 storage: DEFAULT_SYSTEM_SETTINGS.storage,
+                ai: DEFAULT_SYSTEM_SETTINGS.ai,
               },
             } as any,
           },
@@ -1674,6 +1678,158 @@ describe('SystemSettingsService', () => {
           }),
         }),
       );
+    });
+  });
+
+  // ===========================================================================
+  // AI platform policy (#423, epic #419, umbrella #418)
+  // ===========================================================================
+  //
+  // Schema only: nothing in this build reads `ai.enabled` to gate a route.
+  // What is under test here mirrors `getStoragePolicy`'s own coverage —
+  // the narrow accessor's defaults, and the nested PATCH merge — plus the
+  // guarantee that no API key field can ever reach this row.
+  describe('getAiPolicy (#423)', () => {
+    it('returns the defaults when no row exists', async () => {
+      mockPrisma.systemSettings.findUnique.mockResolvedValue(null);
+
+      const result = await service.getAiPolicy();
+
+      expect(result).toEqual(DEFAULT_SYSTEM_SETTINGS.ai);
+      expect(result.enabled).toBe(false);
+      expect(result.keyPolicy).toBe('byok');
+    });
+
+    it('does not create a row as a side effect of reading the policy', async () => {
+      mockPrisma.systemSettings.findUnique.mockResolvedValue(null);
+
+      await service.getAiPolicy();
+
+      expect(mockPrisma.systemSettings.create).not.toHaveBeenCalled();
+    });
+
+    it('degrades to the defaults when the stored value is malformed', async () => {
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        value: 'not-an-object' as any,
+      } as any);
+
+      const result = await service.getAiPolicy();
+
+      expect(result).toEqual(DEFAULT_SYSTEM_SETTINGS.ai);
+    });
+
+    it('reads a stored value straight through when it validates', async () => {
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        value: {
+          ai: {
+            enabled: true,
+            keyPolicy: 'byok_with_org_fallback',
+            providers: { openai: { enabled: true, baseUrl: 'https://proxy.internal/v1' } },
+            defaults: { maxOutputTokensCap: 4096, allowBackgroundRuns: false },
+            logPromptContent: true,
+          },
+        } as any,
+      } as any);
+
+      const result = await service.getAiPolicy();
+
+      expect(result).toEqual({
+        enabled: true,
+        keyPolicy: 'byok_with_org_fallback',
+        providers: { openai: { enabled: true, baseUrl: 'https://proxy.internal/v1' } },
+        defaults: { maxOutputTokensCap: 4096, allowBackgroundRuns: false },
+        logPromptContent: true,
+      });
+    });
+  });
+
+  describe('PATCH merges ai.providers.openai.enabled without clobbering its siblings (#423)', () => {
+    beforeEach(() => {
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        ...mockSystemSettings,
+        value: {
+          ...DEFAULT_SYSTEM_SETTINGS,
+          ai: {
+            enabled: true,
+            keyPolicy: 'byok',
+            providers: {
+              openai: { enabled: false, baseUrl: 'https://proxy.internal/v1' },
+            },
+            defaults: { maxOutputTokensCap: 2048, allowBackgroundRuns: true },
+            logPromptContent: false,
+          },
+        } as any,
+      } as any);
+
+      mockPrisma.systemSettings.update.mockResolvedValue({
+        ...mockSystemSettings,
+        version: 2,
+      } as any);
+      mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+    });
+
+    /** The `ai` block that actually reached Prisma. */
+    function writtenAi(): Record<string, unknown> {
+      expect(mockPrisma.systemSettings.update).toHaveBeenCalledTimes(1);
+
+      const call = mockPrisma.systemSettings.update.mock.calls[0][0] as {
+        data: { value: { ai: Record<string, unknown> } };
+      };
+
+      return call.data.value.ai;
+    }
+
+    it('flips providers.openai.enabled while leaving baseUrl, defaults and enabled untouched', async () => {
+      await service.patchSettings(
+        { ai: { providers: { openai: { enabled: true } } } },
+        mockUserId,
+      );
+
+      const ai = writtenAi() as any;
+      expect(ai.providers.openai.enabled).toBe(true);
+      expect(ai.providers.openai.baseUrl).toBe('https://proxy.internal/v1');
+      expect(ai.defaults).toEqual({
+        maxOutputTokensCap: 2048,
+        allowBackgroundRuns: true,
+      });
+      expect(ai.enabled).toBe(true);
+      expect(ai.keyPolicy).toBe('byok');
+      expect(ai.logPromptContent).toBe(false);
+    });
+
+    it('merges a defaults field without touching providers', async () => {
+      await service.patchSettings(
+        { ai: { defaults: { allowBackgroundRuns: false } } },
+        mockUserId,
+      );
+
+      const ai = writtenAi() as any;
+      expect(ai.defaults).toEqual({
+        maxOutputTokensCap: 2048,
+        allowBackgroundRuns: false,
+      });
+      expect(ai.providers).toEqual({
+        openai: { enabled: false, baseUrl: 'https://proxy.internal/v1' },
+      });
+    });
+
+    it('carries no API key field through the merge, whatever the caller sends', async () => {
+      // `patchSystemSettingsSchema` strips any key it does not declare
+      // before the service ever sees the body — asserted here on the actual
+      // write, not merely on the schema, so a future refactor of the merge
+      // itself would also be caught.
+      await service.patchSettings(
+        {
+          ai: { enabled: true },
+          evilApiKey: 'sk-should-not-be-stored',
+        } as any,
+        mockUserId,
+      );
+
+      const ai = writtenAi();
+      expect(ai).not.toHaveProperty('apiKey');
+      expect(ai).not.toHaveProperty('secret');
+      expect(ai).not.toHaveProperty('evilApiKey');
     });
   });
 });

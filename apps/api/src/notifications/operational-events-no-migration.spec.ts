@@ -54,6 +54,10 @@ const MIGRATIONS_AT_288 = [
   // the same job at different times can be told apart. A schema change, and
   // about the queue's lease ownership rather than about notifications.
   '20260908120000_add_job_claim_token',
+  // #423 (epic #419, umbrella #418): the AI platform's four tables
+  // (ai_models, user_ai_keys, ai_runs, ai_usage_events). A schema change, and
+  // not about notifications — see the ⚠ above.
+  '20260926034919_add_ai_platform',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');

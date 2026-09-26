@@ -215,6 +215,48 @@ describe('seed data', () => {
 
       expect(leaked).toEqual([]);
     });
+
+    it('grants ai_config:* to Admin only, and ai:use to Admin, Contributor and Viewer alike (#423)', () => {
+      // `ai_config:*` is the deployment-wide policy — same "narrow,
+      // operational surface" posture as `storage_config:*`, `push:*`,
+      // `broadcasts:*` and `nodes:*` above: Admin only, including the read
+      // half.
+      const aiConfig = ['ai_config:read', 'ai_config:write'];
+
+      for (const permission of aiConfig) {
+        expect(ROLE_PERMISSIONS.admin).toContain(permission);
+      }
+
+      const leakedConfig = Object.entries(ROLE_PERMISSIONS)
+        .filter(([role]) => role !== 'admin')
+        .flatMap(([role, permissions]) =>
+          permissions
+            .filter((permission) => aiConfig.includes(permission))
+            .map((permission) => `${role}: ${permission}`),
+        );
+
+      expect(leakedConfig).toEqual([]);
+
+      // `ai:use` is the opposite axis — may this caller invoke AI with their
+      // OWN key — and is granted to every role, exactly like `user_settings
+      // :read`/`:write` above.
+      expect(ROLE_PERMISSIONS.admin).toContain('ai:use');
+      expect(ROLE_PERMISSIONS.contributor).toContain('ai:use');
+      expect(ROLE_PERMISSIONS.viewer).toContain('ai:use');
+    });
+
+    it('⚠ keeps ai_config:* distinct from ai:use, which every role holds (#423)', () => {
+      // One character apart in spirit (a colon vs. an underscore) and mean
+      // completely different things — the same distinction
+      // `storage_config:*` vs. `storage:*` draws two tests above.
+      // `ai_config:*` decides whether AI is enabled for the whole deployment
+      // and under which policy; `ai:use` decides whether one caller, with
+      // their own key, may call it at all.
+      expect(ROLE_PERMISSIONS.viewer).toContain('ai:use');
+      expect(ROLE_PERMISSIONS.viewer).not.toContain('ai_config:read');
+      expect(ROLE_PERMISSIONS.contributor).toContain('ai:use');
+      expect(ROLE_PERMISSIONS.contributor).not.toContain('ai_config:write');
+    });
   });
 
   describe('seeded system settings', () => {
