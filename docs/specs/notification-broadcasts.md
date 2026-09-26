@@ -199,7 +199,7 @@ back: a CAS `failed` -> `sending` (requiring `audienceCutoff` to be set, so a
 row that was never actually claimed cannot be "resumed" into a no-op),
 clearing `lastError`/`finishedAt` and enqueuing a fresh chunk job
 (`skipDedup: true`, `reason: 'rerun'`) from the persisted cursor. See §9 for
-the full mechanism and its two remaining gaps, and §11 for its tests. It is a
+the full mechanism and its one remaining gap, and §11 for its tests. It is a
 listener rather than a job for the same reason `JobFailureNotifier` and
 `NodeSecretRevoker` are: one bounded, single-row, indexed UPDATE is not
 "duration worth accounting for" under CLAUDE.md rule 1.
@@ -647,21 +647,25 @@ An admin who retries the dead job from the Jobs dashboard sees it succeed
 designed — that job's retry and the broadcast's resume are deliberately two
 different actions.
 
-**Two limits remain, tracked as separate issues rather than papered over
-here.** First (#468): the lease reaper's permanent give-up
-(`JobStuckService`, `jobs/job-stuck.service.ts` phase 1 — a job whose
-executor died on *every* attempt) writes `status: 'failed'` directly and does
-not emit `JOB_SETTLED_EVENT` (see `broadcast-failure.listener.ts`'s own
-header). A chunk that dies that way still strands its broadcast in `sending`
-with nothing to catch it. Second (#469): a start job that fails on a *non-
-final* attempt after it has already claimed the broadcast (its compare-and-
-swap to `sending` committed, but the first-chunk enqueue then threw) leaves
-the broadcast `sending` while the start job itself retries — if that retry
-never succeeds and the job is eventually re-claimed and fails a different
-way, the broadcast can still end up stranded before a terminal `failed` job
-row exists for the listener to react to. Neither is a `failed`-transition bug
-in what #459 shipped; both are gaps in what settles far enough upstream to
-notice.
+**One limit remains, tracked as a separate issue rather than papered over
+here** (#469): a start job that fails on a *non-final* attempt after it has
+already claimed the broadcast (its compare-and-swap to `sending` committed,
+but the first-chunk enqueue then threw) leaves the broadcast `sending` while
+the start job itself retries — if that retry never succeeds and the job is
+eventually re-claimed and fails a different way, the broadcast can still end
+up stranded before a terminal `failed` job row exists for the listener to
+react to. This is not a `failed`-transition bug in what #459 shipped; it is a
+gap in what settles far enough upstream to notice.
+
+A related gap closed rather than remaining: the lease reaper's permanent
+give-up (`JobStuckService`, `jobs/job-stuck.service.ts` phase 1 — a job whose
+executor died on *every* attempt) used to write `status: 'failed'` directly
+without emitting `JOB_SETTLED_EVENT`, so a chunk that died that way stranded
+its broadcast in `sending` with nothing to catch it. Since #468 the reaper's
+give-up emits the event too (`docs/specs/job-queue.md` §7.2), through the
+same `emitJobSettled` helper the terminal path uses, so `broadcast-failure
+.listener.ts` now sees it and fails the broadcast exactly as it would for an
+in-process give-up.
 
 **The approximate delivery window closes and reopens with `failed`/resume
 (#459).** The `[startedAt, finishedAt ?? now]` window below treats a
@@ -818,6 +822,7 @@ screen.
 | Replaying the same chunk job after its cursor has advanced pages only the window after the cursor, never earlier ids | `broadcast-fanout.db.spec.ts` |
 | A cancel landing between two chunk jobs stops the fan-out | `broadcast-fanout.db.spec.ts` |
 | A cancel committed while a chunk is mid-dispatch: the in-flight send completes, but the terminal compare-and-swap cannot flip `canceled` to `sent` — `finishedAt` stays null and no successor is enqueued | `broadcast-fanout.db.spec.ts` |
+| A chunk the lease reaper gives up on (its executor died on every attempt) still flips its broadcast `sending` -> `failed`, end to end, through the reaper's `job.settled` emit rather than `JobTerminalService`'s | `apps/api/test/broadcasts/broadcast-fanout.db.spec.ts` |
 
 **What this still doesn't prove.** `broadcast-fanout.db.spec.ts` drives the
 real `BroadcastStartHandler` and `BroadcastChunkHandler` against a real
