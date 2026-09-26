@@ -1741,6 +1741,9 @@ describe('SystemSettingsService', () => {
         providers: { openai: { enabled: true, baseUrl: 'https://proxy.internal/v1' } },
         defaults: { maxOutputTokensCap: 4096, allowBackgroundRuns: false },
         logPromptContent: true,
+        // Absent from the stored row (written before #443) -> the default,
+        // without disturbing any sibling field.
+        usageRetentionDays: 180,
       });
     });
   });

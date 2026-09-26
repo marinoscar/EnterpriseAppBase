@@ -103,6 +103,7 @@ export class AiConfigAdminService {
         maxOutputTokensCap: policy.defaults.maxOutputTokensCap ?? null,
         allowBackgroundRuns: policy.defaults.allowBackgroundRuns,
       },
+      usageRetentionDays: policy.usageRetentionDays,
       providers: ids.map((id, index) => this.describeProvider(id, policy, keyInfos[index])),
       version: row?.version ?? 0,
       updatedAt: row?.updatedAt.toISOString() ?? null,
@@ -307,6 +308,9 @@ export class AiConfigAdminService {
         allowBackgroundRuns: input.defaults.allowBackgroundRuns,
       },
       providers: providers as SystemAiValue['providers'],
+      // Optional in the body (#443): a client written before the field
+      // existed keeps the stored retention rather than failing validation.
+      usageRetentionDays: input.usageRetentionDays ?? current.usageRetentionDays,
     };
   }
 
@@ -447,6 +451,7 @@ export function diffFieldNames(before: SystemAiValue, after: SystemAiValue): str
       logPromptContent: value.logPromptContent,
       'defaults.maxOutputTokensCap': value.defaults.maxOutputTokensCap,
       'defaults.allowBackgroundRuns': value.defaults.allowBackgroundRuns,
+      usageRetentionDays: value.usageRetentionDays,
     };
 
     for (const [id, slot] of Object.entries(value.providers)) {

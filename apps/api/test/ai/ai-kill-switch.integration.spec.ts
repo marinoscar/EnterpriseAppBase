@@ -38,6 +38,8 @@ import request from 'supertest';
 import { createOpenApiDocument } from '../../src/openapi/document';
 import { forEachOperation, MutableDocument } from '../../src/openapi/types';
 import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
+import { DEFAULT_SYSTEM_SETTINGS } from '../../src/common/types/settings.types';
+import { SystemSettingsService } from '../../src/settings/system-settings/system-settings.service';
 import { AiProviderRegistry } from '../../src/ai/core';
 import { createMockTestUser, createMockViewerUser, authHeader } from '../helpers/auth-mock.helper';
 import { HARNESS_USER } from '../../src/ai/testing/ai-runtime-harness';
@@ -191,6 +193,7 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
       'ai.response.run': null, // filled in per-test: needs a live run row
       'ai.catalog.refresh': { providerId: 'openai' },
       'ai.keys.recheck': { provider: 'openai' },
+      'ai.usage.purge': {},
     };
 
     let registry: JobHandlerRegistry;
@@ -279,6 +282,35 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
       ).resolves.toBeUndefined();
 
       expect(getSpy).not.toHaveBeenCalled();
+      getSpy.mockRestore();
+    });
+
+    it('ai.usage.purge: makes no provider call, and still purges while AI is off (retention is not AI use)', async () => {
+      app.harness.setPolicy({ enabled: false });
+
+      const settings = app.context.app.get(SystemSettingsService);
+      jest.spyOn(settings, 'getAiPolicy').mockResolvedValueOnce({
+        ...DEFAULT_SYSTEM_SETTINGS.ai,
+        usageRetentionDays: 180,
+      });
+      (app.context.prismaMock.aiUsageEvent.findMany as jest.Mock).mockResolvedValueOnce([{ id: 'old-1' }]);
+      (app.context.prismaMock.aiUsageEvent.deleteMany as jest.Mock).mockResolvedValueOnce({ count: 1 });
+
+      const handler = registry.get('ai.usage.purge');
+      expect(handler).toBeDefined();
+
+      const providerRegistry = app.context.app.get(AiProviderRegistry);
+      const getSpy = jest.spyOn(providerRegistry, 'get');
+
+      await expect(
+        handler!.process({ id: 'job-kill-switch', payload: {} } as never),
+      ).resolves.toBeUndefined();
+
+      expect(getSpy).not.toHaveBeenCalled();
+      expect(app.harness.fake.calls).toEqual([]);
+      expect(app.context.prismaMock.aiUsageEvent.deleteMany).toHaveBeenCalledWith({
+        where: { id: { in: ['old-1'] } },
+      });
       getSpy.mockRestore();
     });
   });

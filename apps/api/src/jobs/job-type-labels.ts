@@ -105,6 +105,8 @@ export const JOB_TYPE_LABELS: Readonly<Record<string, string>> = {
   'ai.keys.recheck': 'AI key recheck',
   // One user's queued AI response (#432) — `AiUserClient.startRun`.
   'ai.response.run': 'AI background response',
+  // Daily deletion of `ai_usage_events` past `ai.usageRetentionDays` (#443).
+  'ai.usage.purge': 'AI usage purge',
 };
 
 /**

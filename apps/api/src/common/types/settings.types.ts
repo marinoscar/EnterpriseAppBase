@@ -333,5 +333,8 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettingsValue = {
       allowBackgroundRuns: true,
     },
     logPromptContent: false,
+    // #443: `ai_usage_events` kept 180 days — twice the longest usage report
+    // window, so a 90-day report never reads a half-purged range.
+    usageRetentionDays: 180,
   },
 };

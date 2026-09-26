@@ -48,6 +48,7 @@ function build(c: Omit<Case, 'expected'>) {
     providers: { openai: { enabled: true } },
     defaults: { allowBackgroundRuns: true },
     logPromptContent: false,
+    usageRetentionDays: 180,
   };
   const aiConfig = new AiConfigService(
     { getAiPolicy: jest.fn(async () => policy) } as never,

@@ -371,5 +371,6 @@ export const DEFAULT_SYSTEM_SETTINGS = {
       allowBackgroundRuns: true,
     },
     logPromptContent: false,
+    usageRetentionDays: 180,
   },
 };

@@ -17,6 +17,7 @@ function policy(overrides: Partial<SystemAiValue> = {}): SystemAiValue {
     providers: { openai: { enabled: true } },
     defaults: { allowBackgroundRuns: true },
     logPromptContent: false,
+    usageRetentionDays: 180,
     ...overrides,
   };
 }

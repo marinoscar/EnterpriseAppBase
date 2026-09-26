@@ -718,6 +718,9 @@ export type AiProviderId = (typeof AI_PROVIDER_IDS)[number];
  */
 export const AI_KEY_POLICIES = ['byok', 'byok_with_org_fallback'] as const;
 
+/** Upper bound on `ai.usageRetentionDays` — ten years; anything longer is "forever" in practice. */
+export const AI_USAGE_RETENTION_MAX_DAYS = 3650;
+
 /** How the deployment sources a call's API key. See {@link AI_KEY_POLICIES}. */
 export type AiKeyPolicy = (typeof AI_KEY_POLICIES)[number];
 
@@ -768,6 +771,11 @@ export type AiKeyPolicy = (typeof AI_KEY_POLICIES)[number];
  * copied verbatim into every settings audit row, so a secret here is one
  * admin GET away from being on the wire.
  *
+ * `usageRetentionDays` (#443) is how long `ai_usage_events` rows are kept
+ * before the daily `ai.usage.purge` job deletes them — 180 days by default,
+ * comfortably past the 90-day window the usage report can show. It is a data
+ * retention decision, so it applies whether or not AI is currently enabled.
+ *
  * NO `.default()` ON ANY FIELD, matching every namespace above it in this
  * file. The defaults live in `DEFAULT_SYSTEM_SETTINGS` (settings.types.ts)
  * and nowhere else.
@@ -786,6 +794,7 @@ export const systemAiSchema = z.object({
     allowBackgroundRuns: z.boolean(),
   }),
   logPromptContent: z.boolean(),
+  usageRetentionDays: z.number().int().min(1).max(AI_USAGE_RETENTION_MAX_DAYS),
 });
 
 export type SystemAiValue = z.infer<typeof systemAiSchema>;
@@ -825,6 +834,7 @@ export const systemAiPatchSchema = z.object({
     })
     .optional(),
   logPromptContent: z.boolean().optional(),
+  usageRetentionDays: z.number().int().min(1).max(AI_USAGE_RETENTION_MAX_DAYS).optional(),
 });
 
 export const systemSettingsSchema = z.object({

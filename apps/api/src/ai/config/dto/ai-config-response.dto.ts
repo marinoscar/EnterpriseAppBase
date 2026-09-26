@@ -54,6 +54,8 @@ export const aiConfigResponseSchema = z.object({
     maxOutputTokensCap: z.number().int().nullable(),
     allowBackgroundRuns: z.boolean(),
   }),
+  /** Days usage events are kept before the daily `ai.usage.purge` deletes them. */
+  usageRetentionDays: z.number().int(),
   /** Registered providers ∪ providers with a settings slot. */
   providers: z.array(aiAdminProviderSchema),
   /** The system-settings row version — send it back as `If-Match` on `PUT`. `0` when nothing is stored yet. */
