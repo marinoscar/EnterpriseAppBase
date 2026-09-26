@@ -452,6 +452,41 @@ describe('Admin broadcasts API (Integration)', () => {
         .expect(409);
     });
 
+    it('409s a resume of a broadcast that has already been sent (issue #459)', async () => {
+      const admin = await createMockAdminUser(context);
+      prisma.notificationBroadcast.updateMany.mockResolvedValue({ count: 0 });
+      prisma.notificationBroadcast.findUnique.mockResolvedValue(broadcastRow({ status: 'sent' }));
+
+      await request(server())
+        .post(`/api/admin/broadcasts/${BROADCAST_ID}/resume`)
+        .set(authHeader(admin.accessToken))
+        .expect(409);
+
+      expect(prisma.job.create).not.toHaveBeenCalled();
+    });
+
+    it('404s a resume of a broadcast that does not exist', async () => {
+      const admin = await createMockAdminUser(context);
+      prisma.notificationBroadcast.updateMany.mockResolvedValue({ count: 0 });
+      prisma.notificationBroadcast.findUnique.mockResolvedValue(null);
+
+      await request(server())
+        .post(`/api/admin/broadcasts/${BROADCAST_ID}/resume`)
+        .set(authHeader(admin.accessToken))
+        .expect(404);
+    });
+
+    it('400s a resume of a malformed id rather than reaching the service', async () => {
+      const admin = await createMockAdminUser(context);
+
+      await request(server())
+        .post('/api/admin/broadcasts/not-a-uuid/resume')
+        .set(authHeader(admin.accessToken))
+        .expect(400);
+
+      expect(prisma.notificationBroadcast.updateMany).not.toHaveBeenCalled();
+    });
+
     it('returns the detail with an approximate delivery breakdown', async () => {
       const admin = await createMockAdminUser(context);
       prisma.notificationBroadcast.findUnique.mockResolvedValue(

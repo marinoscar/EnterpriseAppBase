@@ -728,6 +728,91 @@ describe('BroadcastChunkHandler', () => {
     });
   });
 
+  describe('the cursor compare-and-swap (issue #459)', () => {
+    it('lost race on an ordinary page: resolves normally, queues no successor, writes no finish', async () => {
+      const { handler, update, updateMany, enqueue, notifyNow } = makeHandler({
+        users: userIds(3),
+      });
+      // Another execution already moved the cursor by the time this one tries
+      // to commit — the CAS's `where` no longer matches.
+      update.mockResolvedValueOnce({ count: 0 });
+
+      await expect(handler.process(chunkJob)).resolves.toBeUndefined();
+
+      expect(notifyNow).toHaveBeenCalledTimes(3);
+      expect(enqueue).not.toHaveBeenCalled();
+      // No 'sent' (or any other) status write — the loser must not finish a
+      // broadcast it no longer owns.
+      expect(updateMany).not.toHaveBeenCalled();
+    });
+
+    it('lost race on a full page still enqueues no successor', async () => {
+      const { handler, update, enqueue } = makeHandler({
+        users: userIds(BROADCAST_CHUNK_SIZE),
+      });
+      update.mockResolvedValueOnce({ count: 0 });
+
+      await handler.process(chunkJob);
+
+      expect(enqueue).not.toHaveBeenCalled();
+    });
+
+    it('lost race on a THROTTLED page returns normally rather than throwing RateLimitError', async () => {
+      const { handler, update, enqueue } = makeHandler({
+        users: userIds(5),
+        rateLimitedAt: new Map([[2, 9_000]]),
+      });
+      update.mockResolvedValueOnce({ count: 0 });
+
+      // The winning chain owns the broadcast now; deferring the loser would
+      // only resurrect the duplicate this CAS exists to prevent.
+      await expect(handler.process(chunkJob)).resolves.toBeUndefined();
+      expect(enqueue).not.toHaveBeenCalled();
+    });
+
+    it('a lost race after a mid-page cancel still returns normally, not via the cancel branch twice', async () => {
+      const { handler, update, updateMany } = makeHandler({
+        users: userIds(BROADCAST_CHUNK_SIZE),
+        onNotify: (current, index) => {
+          if (index === 24) {
+            current.status = 'canceled';
+          }
+        },
+      });
+      update.mockResolvedValueOnce({ count: 0 });
+
+      await expect(handler.process(chunkJob)).resolves.toBeUndefined();
+
+      // The CAS loss is checked before the cancel branch, and both lead to the
+      // same safe outcome: nothing else is written.
+      expect(updateMany).not.toHaveBeenCalled();
+    });
+
+    it('a WON race commits the CAS and proceeds normally (full page enqueues a successor)', async () => {
+      const { handler, update, enqueue } = makeHandler({ users: userIds(BROADCAST_CHUNK_SIZE) });
+
+      await handler.process(chunkJob);
+
+      expect(update).toHaveReturned();
+      expect(enqueue).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('the chunk sends nothing for a failed broadcast (issue #459)', () => {
+    it('no-ops on a failed broadcast exactly like any other non-sending status', async () => {
+      const { handler, findMany, notifyNow, update, enqueue } = makeHandler({
+        broadcast: { status: 'failed' },
+      });
+
+      await expect(handler.process(chunkJob)).resolves.toBeUndefined();
+
+      expect(findMany).not.toHaveBeenCalled();
+      expect(notifyNow).not.toHaveBeenCalled();
+      expect(update).not.toHaveBeenCalled();
+      expect(enqueue).not.toHaveBeenCalled();
+    });
+  });
+
   describe('throw to fail', () => {
     it('propagates a failure to read the page', async () => {
       const { handler, findMany } = makeHandler();

@@ -48,9 +48,18 @@
 // `DATABASE_URL` is stripped before connecting.
 // =============================================================================
 
+import { ConflictException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Job, PrismaClient } from '@prisma/client';
 
 import { RateLimitError } from '../../src/jobs/rate-limit.error';
+import { JobTerminalService } from '../../src/jobs/job-terminal.service';
+import { ProviderThrottleService } from '../../src/jobs/provider-throttle.service';
+import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
+import { JOB_SETTLED_EVENT, JobSettledEvent } from '../../src/jobs/events/job-settled.event';
+import { BroadcastFailureListener } from '../../src/notifications/broadcasts/broadcast-failure.listener';
+import { BroadcastsService } from '../../src/notifications/broadcasts/broadcasts.service';
 import { BroadcastChunkHandler, BROADCAST_CHUNK_TYPE } from '../../src/notifications/broadcasts/handlers/broadcast-chunk.handler';
 import { BroadcastStartHandler, BROADCAST_START_TYPE } from '../../src/notifications/broadcasts/handlers/broadcast-start.handler';
 import {
@@ -59,12 +68,10 @@ import {
   BROADCAST_SUBJECT_TYPE,
 } from '../../src/notifications/broadcasts/broadcast-audience';
 import { JobsService } from '../../src/jobs/jobs.service';
-import type { ConfigService } from '@nestjs/config';
-import type { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
-import type { ProviderThrottleService } from '../../src/jobs/provider-throttle.service';
 import type { NotificationsService } from '../../src/notifications/notifications.service';
 import type { NotifyOptions } from '../../src/notifications/notification.types';
 import type { PrismaService } from '../../src/prisma/prisma.service';
+import type { SystemSettingsService } from '../../src/settings/system-settings/system-settings.service';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
 
 const { describeWithDb } = resolveDbSuite('broadcast-fanout.db.spec');
@@ -220,6 +227,9 @@ describeWithDb('Admin broadcast fan-out (real Postgres)', () => {
     // first purely to mirror that dependency conceptually.
     if (createdBroadcastIds.length > 0) {
       await clientA.job.deleteMany({ where: { subjectId: { in: createdBroadcastIds } } });
+      // Audit rows the resume tests write via the real `BroadcastsService`
+      // (issue #459) — cleaned by target id, same as jobs above.
+      await clientA.auditEvent.deleteMany({ where: { targetId: { in: createdBroadcastIds } } });
       await clientA.notificationBroadcast.deleteMany({ where: { id: { in: createdBroadcastIds } } });
     }
     // Users are cleaned every test, not just at the end of the suite: the
@@ -765,5 +775,416 @@ describeWithDb('Admin broadcast fan-out (real Postgres)', () => {
         }
       }
     );
+  });
+
+  // ===========================================================================
+  // 7. Permanent failure and resume (issue #459, epic #319)
+  // ===========================================================================
+  //
+  // The listener and the service's own decisions are proven against mocks in
+  // `broadcast-failure.listener.spec.ts` and `broadcasts.service.spec.ts`.
+  // What only a real database can answer is the same class of question
+  // `job-lease-renewal.db.spec.ts`'s header states for its own suite: does the
+  // REAL `JobTerminalService`, dispatching through a REAL `EventEmitter2`, to
+  // a REAL `BroadcastFailureListener`, actually flip a `sending` broadcast to
+  // `failed` under real row locks — and does `BroadcastsService.resume`,
+  // driven by the REAL `JobsService` against the REAL `jobs` table, actually
+  // walk the rest of a real audience to completion afterwards, with the
+  // concurrency guarantees the chunk handler's own header claims (two
+  // executions racing the same cursor collapse to one).
+  //
+  // `BroadcastFailureListener.markFailed` runs DETACHED off the terminal
+  // write (see its own file header, section 2) — `EventEmitter2.emit` is
+  // synchronous, but the listener's own database write is not, so a test
+  // cannot assume the broadcast row has already flipped the instant
+  // `completeFailed` resolves. `waitUntilBroadcastStatus` polls briefly rather
+  // than asserting immediately, which is the same shape `job-claim.db.spec.ts`
+  // uses for asynchronous side effects it does not control the timing of.
+  describe('permanent failure and resume (#459)', () => {
+    /** `jobs.maxAttempts` this suite's terminal service runs with — 1, so a single `completeFailed` call is already the give-up. */
+    const MAX_ATTEMPTS = 1;
+
+    function configStubWithMaxAttempts(): ConfigService {
+      return {
+        get: (key: string) => (key === 'jobs.maxAttempts' ? MAX_ATTEMPTS : undefined),
+      } as unknown as ConfigService;
+    }
+
+    /**
+     * A real `JobTerminalService` wired, by a plain `emitter.on`, to a real
+     * `BroadcastFailureListener` over `client`. Not `EventEmitterModule` +
+     * Nest's `@OnEvent` discovery (as `job-failure-notifier.spec.ts` uses) —
+     * that machinery is what proves the DECORATOR is wired, which is not in
+     * question here (it is proven once, there); this suite only needs the two
+     * real objects the decorator would otherwise connect to actually agree
+     * over a real broadcast row.
+     */
+    function terminalWithRealListener(client: PrismaClient) {
+      const emitter = new EventEmitter2();
+      const listener = new BroadcastFailureListener(client as unknown as PrismaService);
+      emitter.on(JOB_SETTLED_EVENT, (event: JobSettledEvent) => listener.handleJobSettled(event));
+
+      const terminal = new JobTerminalService(
+        client as unknown as PrismaService,
+        configStubWithMaxAttempts(),
+        new ProviderThrottleService(configStubWithMaxAttempts()),
+        emitter,
+        new JobHandlerRegistry()
+      );
+
+      return { terminal, listener };
+    }
+
+    function broadcastsServiceFor(client: PrismaClient, jobs: JobsService): BroadcastsService {
+      const notifications = {
+        notifyNow: jest.fn().mockResolvedValue(undefined),
+        notify: jest.fn(),
+      } as unknown as NotificationsService;
+      const systemSettings = {
+        getNotificationsPolicy: jest.fn().mockResolvedValue({ browserEnabled: true, disabledEvents: [] }),
+      } as unknown as SystemSettingsService;
+      const config = { get: jest.fn().mockReturnValue(undefined) } as unknown as ConfigService;
+
+      return new BroadcastsService(client as unknown as PrismaService, jobs, notifications, systemSettings, config);
+    }
+
+    /** Creates a `running` chunk job row already charged for its one attempt — the claim-time charge `completeFailed` assumes happened. */
+    async function claimedChunkJob(broadcastId: string): Promise<Job> {
+      return clientA.job.create({
+        data: {
+          type: BROADCAST_CHUNK_TYPE,
+          subjectType: BROADCAST_SUBJECT_TYPE,
+          subjectId: broadcastId,
+          status: 'running',
+          reason: 'backfill',
+          attempts: MAX_ATTEMPTS,
+        },
+      });
+    }
+
+    /** Polls until the broadcast reaches `status`, or fails the test — see the describe-block header for why polling is necessary here. */
+    async function waitUntilBroadcastStatus(
+      broadcastId: string,
+      status: string,
+      timeoutMs = 2000
+    ) {
+      const deadline = Date.now() + timeoutMs;
+      for (;;) {
+        const row = await clientA.notificationBroadcast.findUniqueOrThrow({
+          where: { id: broadcastId },
+        });
+        if (row.status === status) return row;
+        if (Date.now() > deadline) {
+          throw new Error(
+            `broadcast ${broadcastId} did not reach '${status}' within ${timeoutMs}ms ` +
+              `(currently '${row.status}')`
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+    }
+
+    /** A user to attribute a real `BroadcastsService.resume` audit write to. */
+    async function createActor(): Promise<string> {
+      const [id] = await createUsers(1, 'resume-actor');
+      return id;
+    }
+
+    // -------------------------------------------------------------------------
+    // 7a. The real listener flips sending -> failed
+    // -------------------------------------------------------------------------
+
+    it('flips a sending broadcast to failed when its chunk job settles permanently failed', async () => {
+      const [cursorUserId] = await createUsers(1, 'permfail-cursor');
+      const broadcast = await createBroadcast({ status: 'sending' });
+      await clientA.notificationBroadcast.update({
+        where: { id: broadcast.id },
+        data: { audienceCutoff: new Date(), cursorUserId, recipientsDispatched: 100 },
+      });
+      const job = await claimedChunkJob(broadcast.id);
+      const { terminal } = terminalWithRealListener(clientA);
+
+      await terminal.completeFailed(job, new Error('the email provider refused the batch'));
+
+      const finalState = await waitUntilBroadcastStatus(broadcast.id, 'failed');
+
+      expect(finalState.lastError).toContain(job.id);
+      expect(finalState.lastError).toContain('the email provider refused the batch');
+      // The cursor and the counter are left exactly where the last committed
+      // page put them — nobody past the cursor is marked as sent.
+      expect(finalState.cursorUserId).toBe(cursorUserId);
+      expect(finalState.recipientsDispatched).toBe(100);
+      expect(finalState.finishedAt).toBeInstanceOf(Date);
+    });
+
+    it('flips a sending admin.broadcast.start job the same way', async () => {
+      const broadcast = await createBroadcast({ status: 'sending' });
+      const job = await clientA.job.create({
+        data: {
+          type: BROADCAST_START_TYPE,
+          subjectType: BROADCAST_SUBJECT_TYPE,
+          subjectId: broadcast.id,
+          status: 'running',
+          reason: 'backfill',
+          attempts: MAX_ATTEMPTS,
+        },
+      });
+      const { terminal } = terminalWithRealListener(clientA);
+
+      await terminal.completeFailed(job, new Error('could not enqueue the first chunk'));
+
+      const finalState = await waitUntilBroadcastStatus(broadcast.id, 'failed');
+      expect(finalState.lastError).toContain(job.id);
+    });
+
+    // -------------------------------------------------------------------------
+    // 7b. Cancel and the failure flip race each other; cancel always wins if
+    // it lands first, and a `failed` row is still cancelable afterwards.
+    // -------------------------------------------------------------------------
+
+    it('a cancel that lands before the give-up leaves the broadcast canceled, not failed', async () => {
+      const broadcast = await createBroadcast({ status: 'sending' });
+      await clientA.notificationBroadcast.update({
+        where: { id: broadcast.id },
+        data: { audienceCutoff: new Date() },
+      });
+      const job = await claimedChunkJob(broadcast.id);
+
+      // The cancel: the same conditional write `BroadcastsService.cancel` performs.
+      const canceled = await clientA.notificationBroadcast.updateMany({
+        where: { id: broadcast.id, status: { in: ['scheduled', 'sending', 'failed'] } },
+        data: { status: 'canceled', canceledAt: new Date() },
+      });
+      expect(canceled.count).toBe(1);
+
+      const { terminal } = terminalWithRealListener(clientA);
+      await terminal.completeFailed(job, new Error('too late, already canceled'));
+
+      // Give the detached listener write a moment to run (or not run) before
+      // asserting the negative — there is no "reached failed" state to poll
+      // for here, so a short, fixed wait is used instead of
+      // `waitUntilBroadcastStatus`.
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      const finalState = await clientA.notificationBroadcast.findUniqueOrThrow({
+        where: { id: broadcast.id },
+      });
+      expect(finalState.status).toBe('canceled');
+      expect(finalState.lastError).toBeNull();
+    });
+
+    it('a broadcast already failed can still be cancelled through BroadcastsService.cancel', async () => {
+      const broadcast = await createBroadcast({ status: 'sending' });
+      await clientA.notificationBroadcast.update({
+        where: { id: broadcast.id },
+        data: { audienceCutoff: new Date() },
+      });
+      const job = await claimedChunkJob(broadcast.id);
+      const { terminal } = terminalWithRealListener(clientA);
+
+      await terminal.completeFailed(job, new Error('smtp outage'));
+      await waitUntilBroadcastStatus(broadcast.id, 'failed');
+
+      const actorId = await createActor();
+      const service = broadcastsServiceFor(clientA, jobsA);
+      const result = await service.cancel(broadcast.id, actorId);
+
+      expect(result.status).toBe('canceled');
+
+      const finalState = await clientA.notificationBroadcast.findUniqueOrThrow({
+        where: { id: broadcast.id },
+      });
+      expect(finalState.status).toBe('canceled');
+    });
+
+    // -------------------------------------------------------------------------
+    // 7c. Resume drives the rest of a real audience to completion
+    // -------------------------------------------------------------------------
+
+    it(
+      'resumes a broadcast whose second chunk failed permanently, reaching every remaining ' +
+        'recipient exactly once and finishing the audience',
+      async () => {
+        const PAGE_ONE_SIZE = BROADCAST_CHUNK_SIZE;
+        const PAGE_TWO_SIZE = 30;
+        await createUsers(PAGE_ONE_SIZE + PAGE_TWO_SIZE, 'resume-audience');
+        const broadcast = await createBroadcast();
+        const { startHandler, chunkHandler, stub } = handlersFor(clientA, jobsA);
+
+        await startHandler.process(startJobFor(broadcast.id));
+
+        // Page one: a full, successfully committed page. Its successor
+        // (page two) is enqueued but never run — it is about to be made to
+        // fail permanently instead, standing in for a chunk that could not
+        // reach the provider at all (its own dispatch never got a chance to
+        // run, unlike the throttle suite above).
+        const firstChunkJob = await nextPendingChunk(broadcast.id);
+        await chunkHandler.process(firstChunkJob!);
+        await markProcessed(firstChunkJob!.id);
+        expect(stub.calls).toHaveLength(PAGE_ONE_SIZE);
+
+        const afterPageOne = await clientA.notificationBroadcast.findUniqueOrThrow({
+          where: { id: broadcast.id },
+        });
+        const cursorAfterPageOne = afterPageOne.cursorUserId;
+
+        const secondChunkJob = await nextPendingChunk(broadcast.id);
+        expect(secondChunkJob).not.toBeNull();
+        // Simulate the claim charge and drive it straight to permanent
+        // failure, exactly as 7a does.
+        const claimedSecondChunk = await clientA.job.update({
+          where: { id: secondChunkJob!.id },
+          data: { attempts: MAX_ATTEMPTS, status: 'running' },
+        });
+        const { terminal } = terminalWithRealListener(clientA);
+        await terminal.completeFailed(claimedSecondChunk, new Error('connection reset'));
+
+        const failedState = await waitUntilBroadcastStatus(broadcast.id, 'failed');
+        expect(failedState.cursorUserId).toBe(cursorAfterPageOne);
+        expect(failedState.recipientsDispatched).toBe(PAGE_ONE_SIZE);
+
+        // --- resume, through the real service ---
+        const actorId = await createActor();
+        const service = broadcastsServiceFor(clientA, jobsA);
+        const resumed = await service.resume(broadcast.id, actorId);
+        expect(resumed.status).toBe('sending');
+
+        await runChunksToCompletion(chunkHandler, broadcast.id);
+
+        const finalState = await clientA.notificationBroadcast.findUniqueOrThrow({
+          where: { id: broadcast.id },
+        });
+        expect(finalState.status).toBe('sent');
+        // The failed chunk never actually dispatched anything (it failed
+        // before doing any work), so the resumed run reaches EXACTLY the
+        // remainder, with no overlap at all.
+        const dispatchedAfterFirstPage = dispatchedIds(stub.calls).slice(PAGE_ONE_SIZE);
+        expect(dispatchedAfterFirstPage).toHaveLength(PAGE_TWO_SIZE);
+        expect(new Set(dispatchedAfterFirstPage).size).toBe(PAGE_TWO_SIZE);
+        expect(finalState.recipientsDispatched).toBe(PAGE_ONE_SIZE + PAGE_TWO_SIZE);
+
+        // Every audience member was reached exactly once.
+        const counts = new Map<string, number>();
+        for (const id of dispatchedIds(stub.calls)) {
+          counts.set(id, (counts.get(id) ?? 0) + 1);
+        }
+        expect(counts.size).toBe(PAGE_ONE_SIZE + PAGE_TWO_SIZE);
+        for (const [, count] of counts) {
+          expect(count).toBe(1);
+        }
+
+        // The audit trail records the resume, never the composed content.
+        const auditRows = await clientA.auditEvent.findMany({
+          where: { targetId: broadcast.id, action: 'notification_broadcast.resumed' },
+        });
+        expect(auditRows).toHaveLength(1);
+        expect(JSON.stringify(auditRows[0].meta)).not.toContain(broadcast.title);
+      }
+    );
+
+    // -------------------------------------------------------------------------
+    // 7d. Two concurrent chunk executions from the same cursor collapse to one
+    // -------------------------------------------------------------------------
+
+    it(
+      'two concurrent chunk executions racing the same cursor commit exactly once, ' +
+        'enqueue exactly one successor, and still finish the whole audience',
+      async () => {
+        const PAGE_ONE_SIZE = BROADCAST_CHUNK_SIZE;
+        const PAGE_TWO_SIZE = BROADCAST_CHUNK_SIZE;
+        const PAGE_THREE_SIZE = 10;
+        await createUsers(PAGE_ONE_SIZE + PAGE_TWO_SIZE + PAGE_THREE_SIZE, 'race-audience');
+        const broadcast = await createBroadcast();
+        const stub = makeNotificationsStub();
+        const { startHandler } = handlersFor(clientA, jobsA, stub);
+        const { chunkHandler: chunkA } = handlersFor(clientA, jobsA, stub);
+        const { chunkHandler: chunkB } = handlersFor(clientB, jobsB, stub);
+
+        await startHandler.process(startJobFor(broadcast.id));
+
+        const firstChunkJob = await nextPendingChunk(broadcast.id);
+        await chunkA.process(firstChunkJob!);
+        await markProcessed(firstChunkJob!.id);
+        expect(stub.calls).toHaveLength(PAGE_ONE_SIZE);
+
+        // The second chunk — a full page again — is handed to TWO independent
+        // executions concurrently, standing in for a resumed chain racing a
+        // re-queued copy of the same failed chunk (issue #459's own scenario)
+        // or a lease-expired duplicate. Both read the same cursor.
+        const secondChunkJob = await nextPendingChunk(broadcast.id);
+        expect(secondChunkJob).not.toBeNull();
+
+        await expect(
+          Promise.all([chunkA.process(secondChunkJob!), chunkB.process({ ...secondChunkJob! })])
+        ).resolves.toBeDefined();
+        await markProcessed(secondChunkJob!.id);
+
+        const afterRace = await clientA.notificationBroadcast.findUniqueOrThrow({
+          where: { id: broadcast.id },
+        });
+        // Exactly one execution's commit won: the counter reflects ONE page's
+        // worth of progress on top of page one, never two.
+        expect(afterRace.recipientsDispatched).toBe(PAGE_ONE_SIZE + PAGE_TWO_SIZE);
+
+        // Exactly one successor was enqueued for the (full) second page — the
+        // loser's CAS matched zero rows and returned before reaching enqueue.
+        const chunkRows = await clientA.job.findMany({
+          where: { type: BROADCAST_CHUNK_TYPE, subjectType: BROADCAST_SUBJECT_TYPE, subjectId: broadcast.id },
+        });
+        // firstChunkJob + secondChunkJob (now succeeded) + exactly one successor.
+        expect(chunkRows).toHaveLength(3);
+
+        // Drive the successor (the short, final page) to completion.
+        const { chunkHandler: chunkFinisher } = handlersFor(clientA, jobsA, stub);
+        await runChunksToCompletion(chunkFinisher, broadcast.id);
+
+        const finalState = await clientA.notificationBroadcast.findUniqueOrThrow({
+          where: { id: broadcast.id },
+        });
+        expect(finalState.status).toBe('sent');
+        expect(finalState.recipientsDispatched).toBe(PAGE_ONE_SIZE + PAGE_TWO_SIZE + PAGE_THREE_SIZE);
+
+        // Every audience member was dispatched to at least once, and at most
+        // twice — the second page's recipients are the only ones that could
+        // have been sent by both racing executions before one lost the CAS.
+        const counts = new Map<string, number>();
+        for (const id of dispatchedIds(stub.calls)) {
+          counts.set(id, (counts.get(id) ?? 0) + 1);
+        }
+        expect(counts.size).toBe(PAGE_ONE_SIZE + PAGE_TWO_SIZE + PAGE_THREE_SIZE);
+        for (const [, count] of counts) {
+          expect(count).toBeGreaterThanOrEqual(1);
+          expect(count).toBeLessThanOrEqual(2);
+        }
+      }
+    );
+
+    // -------------------------------------------------------------------------
+    // 7e. Resume refuses anything that is not failed
+    // -------------------------------------------------------------------------
+
+    it('refuses to resume a broadcast that is not failed, and creates no chunk job', async () => {
+      const broadcast = await createBroadcast({ status: 'scheduled' });
+      const actorId = await createActor();
+      const service = broadcastsServiceFor(clientA, jobsA);
+
+      const before = await clientA.job.count({
+        where: { type: BROADCAST_CHUNK_TYPE, subjectType: BROADCAST_SUBJECT_TYPE, subjectId: broadcast.id },
+      });
+
+      await expect(service.resume(broadcast.id, actorId)).rejects.toBeInstanceOf(
+        ConflictException
+      );
+
+      const after = await clientA.job.count({
+        where: { type: BROADCAST_CHUNK_TYPE, subjectType: BROADCAST_SUBJECT_TYPE, subjectId: broadcast.id },
+      });
+      expect(after).toBe(before);
+
+      const finalState = await clientA.notificationBroadcast.findUniqueOrThrow({
+        where: { id: broadcast.id },
+      });
+      expect(finalState.status).toBe('scheduled');
+    });
   });
 });
