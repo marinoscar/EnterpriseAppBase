@@ -182,6 +182,7 @@ export class AiConfigService implements OnModuleInit {
         enabled: false,
         keyPolicy: policy.keyPolicy,
         allowBackgroundRuns: false,
+        allowRealtime: false,
         hostedTools: {
           web_search: false,
           file_search: false,
@@ -212,6 +213,7 @@ export class AiConfigService implements OnModuleInit {
       enabled: true,
       keyPolicy: policy.keyPolicy,
       allowBackgroundRuns: policy.defaults.allowBackgroundRuns,
+      allowRealtime: policy.defaults.allowRealtime,
       // Named booleans only — never the host allowlist.
       hostedTools: {
         web_search: policy.hostedTools.web_search,

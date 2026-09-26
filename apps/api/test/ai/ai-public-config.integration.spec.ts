@@ -172,9 +172,24 @@ describe('Public AI config and kill switch', () => {
         enabled: false,
         keyPolicy: 'byok',
         allowBackgroundRuns: false,
+        allowRealtime: false,
         hostedTools: { web_search: false, file_search: false, code_interpreter: false, image_generation: false, mcp: false },
         providers: [],
       });
+    });
+
+    it('publishes allowRealtime only while AI is on (#449)', async () => {
+      storedAi = { ...storedAi, enabled: true, providers: { openai: { enabled: true } }, defaults: { allowBackgroundRuns: true, allowRealtime: true } };
+      const viewer = await createMockViewerUser(context);
+
+      const on = await request(server()).get('/api/ai/config').set(authHeader(viewer.accessToken)).expect(200);
+      expect(on.body.data.allowRealtime).toBe(true);
+
+      storedAi = { ...storedAi, enabled: false };
+      app.get(AiConfigService).invalidateCache();
+
+      const off = await request(server()).get('/api/ai/config').set(authHeader(viewer.accessToken)).expect(200);
+      expect(off.body.data.allowRealtime).toBe(false);
     });
 
     it('lists providers with hasOrgKey when AI is on, and never a key or hint', async () => {
@@ -191,6 +206,7 @@ describe('Public AI config and kill switch', () => {
         enabled: true,
         keyPolicy: 'byok_with_org_fallback',
         allowBackgroundRuns: true,
+        allowRealtime: false,
         hostedTools: { web_search: false, file_search: false, code_interpreter: false, image_generation: false, mcp: false },
         providers: [
           { id: 'openai', displayName: 'Fake AI', enabled: true, hasOrgKey: true, supportsPreviousResponseId: true },

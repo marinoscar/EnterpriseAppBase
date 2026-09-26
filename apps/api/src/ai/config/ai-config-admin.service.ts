@@ -102,6 +102,7 @@ export class AiConfigAdminService {
       defaults: {
         maxOutputTokensCap: policy.defaults.maxOutputTokensCap ?? null,
         allowBackgroundRuns: policy.defaults.allowBackgroundRuns,
+        allowRealtime: policy.defaults.allowRealtime,
       },
       usageRetentionDays: policy.usageRetentionDays,
       hostedTools: { ...policy.hostedTools, mcpAllowedHosts: [...policy.hostedTools.mcpAllowedHosts] },
@@ -308,6 +309,8 @@ export class AiConfigAdminService {
       defaults: {
         ...(maxOutputTokensCap !== undefined ? { maxOutputTokensCap } : {}),
         allowBackgroundRuns: input.defaults.allowBackgroundRuns,
+        // Optional in the body (#449): omitted keeps the stored value.
+        allowRealtime: input.defaults.allowRealtime ?? current.defaults.allowRealtime,
       },
       providers: providers as SystemAiValue['providers'],
       // Optional in the body (#443): a client written before the field
@@ -444,6 +447,7 @@ export function toPatch(next: SystemAiValue) {
     ) as Record<keyof SystemAiValue['providers'], { enabled: boolean; baseUrl: string | null }>,
     defaults: {
       allowBackgroundRuns: next.defaults.allowBackgroundRuns,
+      allowRealtime: next.defaults.allowRealtime,
       maxOutputTokensCap: next.defaults.maxOutputTokensCap ?? null,
     },
   };
@@ -461,6 +465,7 @@ export function diffFieldNames(before: SystemAiValue, after: SystemAiValue): str
       logPromptContent: value.logPromptContent,
       'defaults.maxOutputTokensCap': value.defaults.maxOutputTokensCap,
       'defaults.allowBackgroundRuns': value.defaults.allowBackgroundRuns,
+      'defaults.allowRealtime': value.defaults.allowRealtime,
       usageRetentionDays: value.usageRetentionDays,
       'hostedTools.web_search': value.hostedTools.web_search,
       'hostedTools.file_search': value.hostedTools.file_search,

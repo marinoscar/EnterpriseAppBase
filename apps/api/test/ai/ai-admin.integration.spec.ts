@@ -381,7 +381,7 @@ describe('AI Administration Integration', () => {
         // As persisted (JSON drops undefined): the keys are gone.
         const persisted = JSON.parse(JSON.stringify(storedAi));
         expect(persisted.providers.openai).toEqual({ enabled: true });
-        expect(persisted.defaults).toEqual({ allowBackgroundRuns: true });
+        expect(persisted.defaults).toEqual({ allowBackgroundRuns: true, allowRealtime: false });
         expect(res.body.data.providers[0].baseUrl).toBeNull();
         expect(res.body.data.defaults.maxOutputTokensCap).toBeNull();
       });

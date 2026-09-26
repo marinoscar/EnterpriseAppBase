@@ -46,7 +46,7 @@ function build(c: Omit<Case, 'expected'>) {
     enabled: true,
     keyPolicy: c.keyPolicy,
     providers: { openai: { enabled: true }, anthropic: { enabled: false } },
-    defaults: { allowBackgroundRuns: true },
+    defaults: { allowBackgroundRuns: true, allowRealtime: false },
     logPromptContent: false,
     usageRetentionDays: 180,
     hostedTools: {
