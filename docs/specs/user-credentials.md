@@ -16,7 +16,7 @@
 > `apps/api/src/common/crypto/secret-cipher.ts` (`userCredentialPurpose`,
 > `USER_CREDENTIAL_DOMAIN_PREFIX`, `isCanonicalUuid`). Schema:
 > `apps/api/prisma/schema.prisma` (`UserCredential`), migration
-> `apps/api/prisma/migrations/20260926140000_add_user_credentials/`.
+> `apps/api/prisma/migrations/20260927120000_add_user_credentials/`.
 >
 > **On what is here.** §1 is the problem and why this is a sibling table, not
 > a column on `credentials`. §2 is the schema. §3 is the owner-bound cipher
