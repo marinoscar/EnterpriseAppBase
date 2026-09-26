@@ -208,6 +208,12 @@ export interface FakeAiProviderOptions {
    * refuses them, as one without file support does).
    */
   fileInputStrategy?: AiFileInputStrategies | false;
+  /**
+   * The adapter's `supportsPreviousResponseId` (#446). Omitted: the fake
+   * declares nothing, which means `true` — `false` makes it behave like a
+   * stateless provider for runtime tests of the full-history tool loop.
+   */
+  supportsPreviousResponseId?: boolean;
   /** Characters per streamed delta. Defaults to 4. */
   chunkSize?: number;
   /** Delay before a create and between stream events, in ms (abort-aware). Defaults to 0. */
@@ -291,6 +297,7 @@ export class FakeAiProvider implements AiProviderAdapter {
   readonly embeddings?: AiEmbeddingsPort;
   readonly realtime?: AiRealtimePort;
   readonly fileInputStrategy?: AiFileInputStrategies;
+  readonly supportsPreviousResponseId?: boolean;
 
   /** Every call, in order. */
   readonly calls: FakeAiCall[] = [];
@@ -346,6 +353,10 @@ export class FakeAiProvider implements AiProviderAdapter {
     this.realtime = options.ports?.realtime;
     this.fileInputStrategy =
       options.fileInputStrategy === false ? undefined : (options.fileInputStrategy ?? FAKE_FILE_INPUT_STRATEGY);
+
+    if (options.supportsPreviousResponseId !== undefined) {
+      this.supportsPreviousResponseId = options.supportsPreviousResponseId;
+    }
   }
 
   /** Every distinct key the fake was called with, in first-use order. */

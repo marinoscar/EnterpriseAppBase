@@ -55,6 +55,7 @@ const inputItemSchema = z.discriminatedUnion('type', [
     role: z.enum(['user', 'assistant', 'system', 'developer']),
     content: z.array(contentPartSchema),
   }),
+  z.object({ type: z.literal('function_call'), callId: z.string(), name: z.string(), arguments: z.string() }),
   z.object({ type: z.literal('function_call_output'), callId: z.string(), output: z.string() }),
 ]);
 
@@ -125,7 +126,10 @@ export function toStoredRunRequest(provider: string, req: AiResponseRequest): St
   const stored: StoredAiRunRequest = {
     provider,
     model: req.model,
-    input: req.input,
+    // A replayed `reasoning` item is dropped (#446): what makes it worth
+    // replaying is its opaque, symbol-keyed provider state, which is
+    // in-process only by design and never written to a column.
+    input: typeof req.input === 'string' ? req.input : req.input.filter((item) => item.type !== 'reasoning'),
   };
 
   if (req.instructions !== undefined) stored.instructions = req.instructions;

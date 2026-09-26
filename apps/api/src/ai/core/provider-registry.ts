@@ -106,6 +106,17 @@ export class AiProviderRegistry {
     return adapter !== undefined && CAPABILITY_PORT[cap](adapter);
   }
 
+  /**
+   * Whether provider `id` can chain a request onto a stored response with
+   * `previousResponseId` (#446) — `AiProviderAdapter.supportsPreviousResponseId`,
+   * absent meaning `true`. An unknown id answers `true`: there is nothing
+   * registered to refuse on its behalf, and the gate pipeline refuses the id
+   * itself.
+   */
+  supportsPreviousResponseId(id: string): boolean {
+    return this.adapters.get(id)?.supportsPreviousResponseId !== false;
+  }
+
   /** Every capability provider `id` supports; empty for an unknown id. */
   capabilities(id: string): AiCapability[] {
     const adapter = this.adapters.get(id);

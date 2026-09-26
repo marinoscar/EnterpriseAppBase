@@ -13,6 +13,8 @@
 //
 //   1. kill switch                     AI_DISABLED
 //   2. provider enabled + registered   AI_PROVIDER_DISABLED
+//      previousResponseId on a provider AI_CAPABILITY_UNSUPPORTED
+//      that cannot chain (#446)
 //   3. model enabled / capabilities /  AI_MODEL_NOT_ENABLED,
 //      key exists / key reaches model  AI_CAPABILITY_UNSUPPORTED,
 //                                      AI_KEY_REQUIRED, AI_MODEL_NOT_REACHABLE
@@ -507,6 +509,7 @@ export class AiService {
         runToolLoop((next, callOpts) => this.respond(bound, next, callOpts), req, {
           userId,
           signal: opts.signal,
+          supportsPreviousResponseId: (provider) => this.registry.supportsPreviousResponseId(provider),
         }),
       startRun: (req) => this.startRun(bound, req),
       embed: (req, opts) => this.embed(bound, req, opts),
@@ -1119,6 +1122,17 @@ export class AiService {
     const slot = await this.aiConfig.assertProviderEnabled(provider);
     const port = this.registry.get(provider)?.responses;
     const policy = await this.aiConfig.resolve();
+
+    // 2a. Response chaining (#446): a stateless provider stores no response
+    // to chain onto. Refused, not silently dropped — ignoring it would answer
+    // as if the conversation had just begun.
+    if (req.previousResponseId !== undefined && !this.registry.supportsPreviousResponseId(provider)) {
+      throw new AiError(
+        'AI_CAPABILITY_UNSUPPORTED',
+        `Provider "${provider}" does not support previousResponseId; send the conversation history as input instead.`,
+        { details: { provider, model, capability: 'previous_response_id' } },
+      );
+    }
 
     // 2b. Hosted tools (#442): well-formed, switched on by an administrator,
     // and an MCP server on an allowed host.

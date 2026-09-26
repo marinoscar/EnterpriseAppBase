@@ -35,9 +35,57 @@ export type AiContentPart =
   | { type: 'image'; url?: string; storageObjectId?: string; detail?: 'low' | 'high' | 'auto' }
   | { type: 'file'; storageObjectId?: string; url?: string; filename?: string };
 
+// ---- provider continuation state (#446) ---------------------------------------
+//
+// A STATELESS provider (Anthropic's Messages API) cannot resume a response by
+// id, so a multi-round conversation — the tool loop — resends the whole
+// history, including the model's own earlier turns. Some of what the model
+// produced must then be echoed back byte-for-byte even though it is not
+// something a caller may see: Anthropic signs every `thinking` block and
+// requires the signed block (or the encrypted `redacted_thinking` block) back
+// on the next request of a tool-use turn.
+//
+// That opaque material rides on the `reasoning` item under a SYMBOL key, so
+// it is invisible by construction to everything that serialises a response:
+// `JSON.stringify` (every HTTP body, SSE frame, log line and `ai_runs.output`
+// row) skips symbol keys, and so do DTO mappers that name their fields. It
+// survives only an in-process object copy (`{ ...item }`), which is exactly
+// the tool loop's hop from one round's output to the next round's input.
+// An adapter reads only state whose `provider` is its own id.
+
+/** The symbol key provider continuation state travels under (see above). */
+export const AI_PROVIDER_STATE: unique symbol = Symbol('ai.providerState');
+
+/**
+ * Opaque, provider-owned continuation state. ⚠ Never exposed: it may hold a
+ * signature or encrypted reasoning, which a caller must not see.
+ */
+export interface AiProviderState {
+  /** The adapter id that produced it — only that adapter reads it. */
+  provider: string;
+  data: unknown;
+}
+
+/** A reasoning summary, plus the provider's opaque state for replaying it. */
+export interface AiReasoningItem {
+  type: 'reasoning';
+  summary: string[];
+  [AI_PROVIDER_STATE]?: AiProviderState;
+}
+
+/**
+ * A request's input. Beyond messages and tool outputs, an input may REPLAY
+ * the model's own earlier `function_call` and `reasoning` items (#446) — how
+ * a caller, or the tool loop, carries a conversation to a provider that
+ * cannot chain with `previousResponseId` (see
+ * `AiProviderAdapter.supportsPreviousResponseId`). A provider that chains may
+ * ignore replayed reasoning it cannot use.
+ */
 export type AiInputItem =
   | { type: 'message'; role: AiMessageRole; content: AiContentPart[] }
-  | { type: 'function_call_output'; callId: string; output: string };
+  | { type: 'function_call'; callId: string; name: string; arguments: string }
+  | { type: 'function_call_output'; callId: string; output: string }
+  | AiReasoningItem;
 
 /**
  * A function the model may call. `parameters` is a Zod schema; it is both
@@ -146,7 +194,12 @@ export interface AiResponseRequest<S extends z.ZodTypeAny = z.ZodTypeAny> {
   reasoning?: { effort?: AiReasoningEffort; summary?: 'auto' | 'concise' | 'detailed' };
   maxOutputTokens?: number;
   temperature?: number;
-  /** Chain onto an earlier response instead of resending history (where supported). */
+  /**
+   * Chain onto an earlier response instead of resending history. Only for a
+   * provider that stores responses — one declaring
+   * `supportsPreviousResponseId: false` (Anthropic) refuses it with
+   * `AI_CAPABILITY_UNSUPPORTED`; send the full history as `input` instead.
+   */
   previousResponseId?: string;
   metadata?: Record<string, string>;
   /**
@@ -254,7 +307,7 @@ export type AiHostedToolCallItem = {
 
 export type AiOutputItem =
   | AiMessageOutputItem
-  | { type: 'reasoning'; summary: string[] }
+  | AiReasoningItem
   | { type: 'function_call'; callId: string; name: string; arguments: string }
   | AiHostedToolCallItem;
 
