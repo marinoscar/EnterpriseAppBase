@@ -65,6 +65,25 @@ export const aiConfigResponseSchema = z.object({
     mcp: z.boolean(),
     mcpAllowedHosts: z.array(z.string()),
   }),
+  /**
+   * Rate limits and output caps (#450), exactly as stored — every field
+   * optional, absent means unlimited; `{}` when none are configured.
+   */
+  limits: z.object({
+    perUser: z
+      .object({ requestsPerMinute: z.number().int().optional(), requestsPerDay: z.number().int().optional() })
+      .optional(),
+    orgKey: z
+      .object({ requestsPerDayPerUser: z.number().int().optional(), tokensPerDayPerUser: z.number().int().optional() })
+      .optional(),
+    /** Keyed `<provider>:<modelId>`. */
+    perModel: z
+      .record(
+        z.string(),
+        z.object({ maxOutputTokens: z.number().int().optional(), requestsPerMinutePerUser: z.number().int().optional() }),
+      )
+      .optional(),
+  }),
   /** Registered providers ∪ providers with a settings slot. */
   providers: z.array(aiAdminProviderSchema),
   /** The system-settings row version — send it back as `If-Match` on `PUT`. `0` when nothing is stored yet. */

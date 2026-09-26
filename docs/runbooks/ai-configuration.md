@@ -251,7 +251,7 @@ reference; the full one is `docs/specs/ai-platform.md` §13.
 | `AI_MODEL_NOT_REACHABLE` | 403 | The model is enabled, but the resolved key can't reach it. | The key's own tier/org restrictions — try `POST /api/ai/keys/:provider/test`, or refresh reachability by re-testing/re-saving the key. |
 | `AI_CAPABILITY_UNSUPPORTED` | 400 | The model or provider lacks a capability the request needs (e.g. structured output, a tool, vision input), or the request chains with `previousResponseId` on a provider that stores no responses (Anthropic — `details.capability: "previous_response_id"`). | Pick a model/provider that declares it, or drop that part of the request; for Anthropic, send the conversation as `input` instead of chaining (§13). |
 | `AI_TOOL_DISABLED` | 403 | A hosted tool (web search, file search, code interpreter, image generation, MCP) that is switched off, or an MCP server host outside the allowlist. | §12 — switch the tool on, or add the host, under **Hosted tools** on `/admin/settings/ai`. |
-| `AI_RATE_LIMITED` | 429 | The provider throttled the call. | Transient; for a background run this defers automatically rather than charging an attempt. |
+| `AI_RATE_LIMITED` | 429 | The provider throttled the call, or one of this deployment's own limits was reached — then `details.limit` names which one. | Transient: wait `Retry-After` seconds (also `details.retryAfterMs`). For a background run this defers automatically rather than charging an attempt. If users hit a limit of yours too often, raise it — §14. |
 | `AI_PROVIDER_UNAVAILABLE` | 503 | The provider is unreachable or erroring at the transport level. | A provider-side outage, or `AI_PROVIDER_UNAVAILABLE` after an aborted/cancelled call. Check the provider's own status page. |
 | `AI_CONTENT_FILTERED` | 422 | The provider's own content filter rejected the request or response. | Not a platform bug — the provider refused this specific content. |
 | `AI_INVALID_REQUEST` | 400 | The request itself is malformed (no model/provider resolvable, a background run given a function tool, an invalid `maxOutputTokens`). | Check the request shape; function tools cannot run in a background run — use `runTools()` in-process instead. |
@@ -342,3 +342,61 @@ What is different, and worth telling users:
   the provider's `retry-after`; a background run defers on the latter
   without charging an attempt.
 
+## 14. Rate limits and output caps
+
+`ai.limits` protects the deployment from runaway request volume, the
+organization key from one user draining it, and budgets from runaway
+generation. **Nothing is limited on a fresh deployment** — every field is
+optional, and an absent field is no limit at all.
+
+| Setting | What it limits |
+|---|---|
+| `perUser.requestsPerMinute` | Each user's AI calls in any 60 seconds, whoever's key pays. |
+| `perUser.requestsPerDay` | Each user's AI calls per UTC day, whoever's key pays. |
+| `orgKey.requestsPerDayPerUser` | Each user's calls **paid by the organization key**, per UTC day. Users on their own key are never counted. |
+| `orgKey.tokensPerDayPerUser` | Input + output tokens each user may spend **on the organization key** per UTC day. |
+| `perModel["openai:<modelId>"].requestsPerMinutePerUser` | Each user's calls to that one model in any 60 seconds. |
+| `perModel["openai:<modelId>"].maxOutputTokens` | Caps every call's output tokens for that model. Combined with **Max output tokens** (the deployment cap) — the smaller wins — and applied even when the caller asked for no limit. |
+
+Configure them in the **Limits** section of `/admin/settings/ai` (per-model
+fields are in the model's override dialog on `/admin/settings/ai/models`), or
+through the API. `limits` in `PUT /api/admin/ai/config` is sent **whole**:
+what you send replaces every stored limit, so leaving a field out lifts it,
+and `{}` lifts them all; omitting `limits` from the body keeps what is
+stored. A per-model key is the provider id, a colon, and the model id exactly
+as the catalog lists it:
+
+```bash
+curl -X PUT https://app.example.com/api/admin/ai/config \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -H "If-Match: $VERSION" \
+  -d '{
+    "enabled": true, "keyPolicy": "byok_with_org_fallback", "logPromptContent": false,
+    "defaults": { "allowBackgroundRuns": true, "maxOutputTokensCap": 4096 },
+    "providers": { "openai": { "enabled": true } },
+    "limits": {
+      "perUser":  { "requestsPerMinute": 20, "requestsPerDay": 1000 },
+      "orgKey":   { "requestsPerDayPerUser": 200, "tokensPerDayPerUser": 500000 },
+      "perModel": { "openai:gpt-4.1": { "maxOutputTokens": 2048, "requestsPerMinutePerUser": 5 } }
+    }
+  }'
+```
+
+(`appctl api put /api/admin/ai/config …` sends the same body.) Changes apply
+within about five seconds on every API instance, with no restart.
+
+**What users see.** A call over a limit is refused with **429**,
+`details.reason: "AI_RATE_LIMITED"`, `details.limit` naming the limit (for
+example `"orgKey.tokensPerDayPerUser"`), and a `Retry-After` header: for a
+per-minute limit, until enough earlier calls leave the 60-second window; for a
+daily one, until midnight UTC. A queued job (a background response, an image,
+a transcription, speech) that meets a limit is **deferred and retried then**,
+never failed; the queued request itself is counted only when it runs.
+
+**What counts, and how precise it is.** Every call that reaches a provider
+counts once — including each step of a tool-calling loop and failed calls —
+and a refused call does not. Per-minute limits are exact within one API
+instance; with several instances they can be overshot by the calls still in
+flight on the others (there is deliberately no Redis — see
+`docs/specs/ai-platform.md` §15). Use the **AI Usage** page, not these limits,
+for accounting. Catalog refreshes run on the admin key and never count.

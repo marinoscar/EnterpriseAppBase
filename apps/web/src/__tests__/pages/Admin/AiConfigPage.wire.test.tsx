@@ -112,6 +112,25 @@ describe('AiConfigPage — wire contract', () => {
     });
   });
 
+  it('sends limits in the config PUT and adopts the stored answer (#450)', async () => {
+    const user = await renderLoaded();
+
+    await user.type(screen.getByLabelText('Requests per minute, per user'), '20');
+    await user.type(screen.getByLabelText('Organization key: tokens per day, per user'), '100000');
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
+
+    await screen.findByText('AI configuration saved');
+    const put = captured.find((c) => c.method === 'PUT' && c.path.endsWith('/admin/ai/config'));
+    expect(put?.ifMatch).toBe(String(mockAiAdminConfig.version));
+    expect((put?.body as { limits: unknown }).limits).toEqual({
+      perUser: { requestsPerMinute: 20 },
+      orgKey: { tokensPerDayPerUser: 100000 },
+    });
+    // Adopted: the fields keep the stored values and the form is clean.
+    expect(screen.getByLabelText('Requests per minute, per user')).toHaveValue('20');
+    expect(screen.getByRole('button', { name: /save changes/i })).toBeDisabled();
+  });
+
   it('clearing the base URL and the cap sends explicit nulls', async () => {
     const user = await renderLoaded();
 

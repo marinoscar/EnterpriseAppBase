@@ -29,17 +29,32 @@ export interface AiErrorInfo {
   message: string;
   /** HTTP status, when the failure was an HTTP response. */
   status?: number;
-  /** Provider back-off hint on `AI_RATE_LIMITED`, in milliseconds. */
+  /** Back-off hint on `AI_RATE_LIMITED`, in milliseconds. */
   retryAfterMs?: number;
+  /**
+   * On an `AI_RATE_LIMITED` refused by one of this deployment's own limits
+   * (#450): which one (`perUser.requestsPerMinute`, …), its value, and its
+   * window. Absent when the PROVIDER throttled the call instead.
+   */
+  limit?: string;
+  max?: number;
+  window?: 'minute' | 'day';
 }
 
-function readDetails(details: unknown): { reason?: string; retryAfterMs?: number } {
+type AiErrorDetails = Pick<AiErrorInfo, 'retryAfterMs' | 'limit' | 'max' | 'window'> & {
+  reason?: string;
+};
+
+function readDetails(details: unknown): AiErrorDetails {
   if (!details || typeof details !== 'object') return {};
   const record = details as Record<string, unknown>;
-  return {
-    reason: typeof record.reason === 'string' ? record.reason : undefined,
-    retryAfterMs: typeof record.retryAfterMs === 'number' ? record.retryAfterMs : undefined,
-  };
+  const out: AiErrorDetails = {};
+  if (typeof record.reason === 'string') out.reason = record.reason;
+  if (typeof record.retryAfterMs === 'number') out.retryAfterMs = record.retryAfterMs;
+  if (typeof record.limit === 'string') out.limit = record.limit;
+  if (typeof record.max === 'number') out.max = record.max;
+  if (record.window === 'minute' || record.window === 'day') out.window = record.window;
+  return out;
 }
 
 /**
@@ -53,7 +68,7 @@ const STORAGE_UNAVAILABLE_REASONS = new Set(['storage_not_configured', 'storage_
 /** Any thrown value from an AI call → {@link AiErrorInfo}. */
 export function toAiErrorInfo(err: unknown, fallback = 'Something went wrong'): AiErrorInfo {
   if (err instanceof ApiError) {
-    const { reason: rawReason, retryAfterMs } = readDetails(err.details);
+    const { reason: rawReason, ...rest } = readDetails(err.details);
     const reason =
       rawReason && STORAGE_UNAVAILABLE_REASONS.has(rawReason) ? 'AI_STORAGE_UNAVAILABLE' : rawReason;
     const code = reason ?? (err.code?.startsWith('AI_') ? err.code : null);
@@ -61,7 +76,7 @@ export function toAiErrorInfo(err: unknown, fallback = 'Something went wrong'): 
       code,
       message: err.message || fallback,
       status: err.status,
-      ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
+      ...rest,
     };
   }
   if (err instanceof Error) {

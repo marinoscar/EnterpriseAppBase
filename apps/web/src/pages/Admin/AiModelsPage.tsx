@@ -25,6 +25,17 @@
  * `POST /admin/ai/models/refresh` enqueues `ai.catalog.refresh` and returns a
  * job id at once. The snackbar says so and links to the Jobs page; the table
  * is not re-read, because nothing has changed yet.
+ *
+ * =============================================================================
+ * PER-MODEL LIMITS LIVE IN THE CONFIGURATION, NOT ON THE MODEL
+ * =============================================================================
+ *
+ * The override dialog also edits a model's limits (#450), which are stored in
+ * `ai.limits.perModel['<provider>:<modelId>']` — `PATCH /admin/ai/models/:id`
+ * does not accept them. Saving the dialog therefore PATCHes the capabilities
+ * as before and, only when a limit changed, re-saves the loaded configuration
+ * with just this model's entry replaced (`PUT /admin/ai/config`, `If-Match:
+ * version`, so a concurrent edit 409s instead of being overwritten).
  */
 
 import { useCallback, useMemo, useState } from 'react';
@@ -63,14 +74,28 @@ import {
   buildAiModelColumns,
   isDeprecated,
 } from '../../components/admin/ai/aiModelColumns';
-import type { AiModel, AiModelCapabilities, AiModelListFilter } from '../../services/ai';
+import { aiAdminConfigToInput, aiModelLimitKey, withModelLimits } from '../../services/ai';
+import type {
+  AiModel,
+  AiModelCapabilities,
+  AiModelLimits,
+  AiModelListFilter,
+} from '../../services/ai';
 
 export default function AiModelsPage() {
   const { hasPermission } = usePermissions();
   const canWrite = hasPermission('ai_config:write');
 
   // Providers (and whether each has a key) come from the admin configuration.
-  const { config, loadError: configError } = useAiAdminConfig();
+  // Per-model limits (#450) are read from, and saved to, the same document.
+  const {
+    config,
+    loadError: configError,
+    save: saveConfig,
+    isSaving: isSavingConfig,
+    saveError: configSaveError,
+    clearSaveError: clearConfigSaveError,
+  } = useAiAdminConfig();
 
   const [provider, setProvider] = useState('');
   const [capability, setCapability] = useState('');
@@ -130,11 +155,12 @@ export default function AiModelsPage() {
         disabled: (model) => isDeprecated(model),
         onClick: (model) => {
           clearUpdateError();
+          clearConfigSaveError();
           setEditing(model);
         },
       },
     ] satisfies DataTableRowAction<AiModel>[];
-  }, [canWrite, clearUpdateError]);
+  }, [canWrite, clearUpdateError, clearConfigSaveError]);
 
   // Defence, not the gate — the route's `RequirePermission` checks the same
   // string. After every hook so the hook order never changes.
@@ -165,10 +191,27 @@ export default function AiModelsPage() {
     if (jobIds.length > 0) setQueuedJobIds(jobIds);
   };
 
-  const handleSaveCapabilities = async (capabilities: AiModelCapabilities) => {
+  const editingLimits = editing
+    ? config?.limits?.perModel?.[aiModelLimitKey(editing.provider, editing.modelId)]
+    : undefined;
+
+  const handleSave = async (capabilities: AiModelCapabilities, limits: AiModelLimits) => {
     if (!editing) return;
     const ok = await updateCapabilities(editing, capabilities);
-    if (ok) setEditing(null);
+    if (!ok) return;
+    const limitsChanged =
+      limits.maxOutputTokens !== editingLimits?.maxOutputTokens ||
+      limits.requestsPerMinutePerUser !== editingLimits?.requestsPerMinutePerUser;
+    if (limitsChanged && config) {
+      // Read-modify-write: everything as loaded, only this model's entry replaced.
+      const key = aiModelLimitKey(editing.provider, editing.modelId);
+      const saved = await saveConfig({
+        ...aiAdminConfigToInput(config),
+        limits: withModelLimits(config.limits, key, limits),
+      });
+      if (!saved) return;
+    }
+    setEditing(null);
   };
 
   const emptyState = (
@@ -343,12 +386,15 @@ export default function AiModelsPage() {
 
         <AiModelOverrideDialog
           model={editing}
-          isSaving={!!editing && pendingIds.has(editing.id)}
-          error={editing ? updateError : null}
-          onSave={(capabilities) => void handleSaveCapabilities(capabilities)}
+          isSaving={!!editing && (pendingIds.has(editing.id) || isSavingConfig)}
+          error={editing ? (updateError ?? configSaveError) : null}
+          limits={editingLimits}
+          limitsUnavailable={!config}
+          onSave={(capabilities, limits) => void handleSave(capabilities, limits)}
           onClose={() => {
             setEditing(null);
             clearUpdateError();
+            clearConfigSaveError();
           }}
         />
 

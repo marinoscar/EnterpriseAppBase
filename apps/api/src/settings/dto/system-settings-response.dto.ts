@@ -115,6 +115,26 @@ export const systemSettingsResponseSchema = z.object({
       mcp: z.boolean(),
       mcpAllowedHosts: z.array(z.string()),
     }),
+    limits: z.object({
+      perUser: z
+        .object({ requestsPerMinute: z.number().int().optional(), requestsPerDay: z.number().int().optional() })
+        .optional(),
+      orgKey: z
+        .object({
+          requestsPerDayPerUser: z.number().int().optional(),
+          tokensPerDayPerUser: z.number().int().optional(),
+        })
+        .optional(),
+      perModel: z
+        .record(
+          z.string(),
+          z.object({
+            maxOutputTokens: z.number().int().optional(),
+            requestsPerMinutePerUser: z.number().int().optional(),
+          }),
+        )
+        .optional(),
+    }),
   }),
   updatedAt: z.iso.datetime(),
   updatedBy: z

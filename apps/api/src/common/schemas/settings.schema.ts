@@ -734,6 +734,70 @@ export const AI_MCP_ALLOWED_HOSTS_MAX = 100;
 
 const mcpAllowedHostSchema = z.string().max(253).regex(AI_MCP_ALLOWED_HOST_PATTERN);
 
+/**
+ * One `ai.limits.perModel` key: `<provider>:<modelId>` — a lower-case
+ * provider id, a colon, then the model id exactly as the catalog lists it
+ * (`openai:gpt-4.1-mini`). The model id may itself contain colons.
+ */
+export const AI_LIMIT_MODEL_KEY_PATTERN = /^[a-z0-9-]+:.+$/;
+
+/** Longest accepted `ai.limits.perModel` key. */
+export const AI_LIMIT_MODEL_KEY_MAX = 256;
+
+/** Most entries `ai.limits.perModel` may hold. */
+export const AI_LIMITS_PER_MODEL_MAX = 500;
+
+/** Upper bound on any one `ai.limits` number — a billion is "unlimited" in practice. */
+export const AI_LIMIT_VALUE_MAX = 1_000_000_000;
+
+const aiLimitValueSchema = z.number().int().positive().max(AI_LIMIT_VALUE_MAX);
+
+/**
+ * `ai.limits` (#450) — per-user and per-model rate limits and output caps.
+ * EVERY FIELD IS OPTIONAL, AND ABSENT MEANS UNLIMITED: `{}` (the default) is
+ * a deployment with no limits at all, which is exactly Phase 1's behaviour.
+ *
+ *  - `perUser.requestsPerMinute` / `.requestsPerDay` — every inference call a
+ *    user makes, whoever's key pays.
+ *  - `orgKey.requestsPerDayPerUser` / `.tokensPerDayPerUser` — only calls the
+ *    ORG key pays for (`keySource: 'org'`); a user on their own key is never
+ *    counted against these.
+ *  - `perModel['<provider>:<modelId>']` — `maxOutputTokens` clamps the call
+ *    (together with `defaults.maxOutputTokensCap`, the smaller wins), and
+ *    `requestsPerMinutePerUser` limits each user's calls to that one model.
+ *
+ * Enforced by `AiLimitsService` (`ai/runtime/ai-limits.service.ts`); see
+ * `docs/specs/ai-platform.md` §15.
+ */
+export const systemAiLimitsSchema = z.object({
+  perUser: z
+    .object({
+      requestsPerMinute: aiLimitValueSchema.optional(),
+      requestsPerDay: aiLimitValueSchema.optional(),
+    })
+    .optional(),
+  orgKey: z
+    .object({
+      requestsPerDayPerUser: aiLimitValueSchema.optional(),
+      tokensPerDayPerUser: aiLimitValueSchema.optional(),
+    })
+    .optional(),
+  perModel: z
+    .record(
+      z.string().max(AI_LIMIT_MODEL_KEY_MAX).regex(AI_LIMIT_MODEL_KEY_PATTERN),
+      z.object({
+        maxOutputTokens: aiLimitValueSchema.optional(),
+        requestsPerMinutePerUser: aiLimitValueSchema.optional(),
+      }),
+    )
+    .refine((value) => Object.keys(value).length <= AI_LIMITS_PER_MODEL_MAX, {
+      message: `At most ${AI_LIMITS_PER_MODEL_MAX} per-model limits`,
+    })
+    .optional(),
+});
+
+export type SystemAiLimitsValue = z.infer<typeof systemAiLimitsSchema>;
+
 /** How the deployment sources a call's API key. See {@link AI_KEY_POLICIES}. */
 export type AiKeyPolicy = (typeof AI_KEY_POLICIES)[number];
 
@@ -799,6 +863,10 @@ export type AiKeyPolicy = (typeof AI_KEY_POLICIES)[number];
  * a list of HOSTNAMES — MCP credentials travel per request, in the tool's
  * `headers`, and are never stored here or anywhere else.
  *
+ * `limits` (#450) holds the per-user and per-model rate limits and output
+ * caps — see `systemAiLimitsSchema`. Every field inside it is optional and
+ * absent means unlimited; the default is `{}`.
+ *
  * NO `.default()` ON ANY FIELD, matching every namespace above it in this
  * file. The defaults live in `DEFAULT_SYSTEM_SETTINGS` (settings.types.ts)
  * and nowhere else.
@@ -835,6 +903,7 @@ export const systemAiSchema = z.object({
     mcp: z.boolean(),
     mcpAllowedHosts: z.array(mcpAllowedHostSchema).max(AI_MCP_ALLOWED_HOSTS_MAX),
   }),
+  limits: systemAiLimitsSchema,
 });
 
 export type SystemAiValue = z.infer<typeof systemAiSchema>;
@@ -889,6 +958,11 @@ export const systemAiPatchSchema = z.object({
       mcpAllowedHosts: z.array(mcpAllowedHostSchema).max(AI_MCP_ALLOWED_HOSTS_MAX).optional(),
     })
     .optional(),
+  // #450. REPLACES WHOLESALE when present — the whole `limits` object is the
+  // new value. A field-by-field merge could never REMOVE a limit (or a
+  // per-model entry), and "absent means unlimited" is the one way to lift
+  // one; the same reasoning as `mcpAllowedHosts` above.
+  limits: systemAiLimitsSchema.optional(),
 });
 
 export const systemSettingsSchema = z.object({

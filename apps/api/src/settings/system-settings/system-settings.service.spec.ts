@@ -1757,7 +1757,26 @@ describe('SystemSettingsService', () => {
           mcp: false,
           mcpAllowedHosts: [],
         },
+        // Absent from the stored row (written before #450) -> no limits.
+        limits: {},
       });
+    });
+
+    it('degrades a corrupt ai.limits to {} (unlimited) without touching its siblings (#450)', async () => {
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        value: {
+          ai: {
+            ...DEFAULT_SYSTEM_SETTINGS.ai,
+            enabled: true,
+            limits: { perUser: { requestsPerMinute: -1 } },
+          },
+        } as any,
+      } as any);
+
+      const result = await service.getAiPolicy();
+
+      expect(result.limits).toEqual({});
+      expect(result.enabled).toBe(true);
     });
   });
 
@@ -1903,6 +1922,66 @@ describe('SystemSettingsService', () => {
       await expect(
         service.patchSettings({ ai: { hostedTools: { mcpAllowedHosts: ['https://mcp.example.com/'] } } } as any, mockUserId),
       ).rejects.toThrow();
+      expect(mockPrisma.systemSettings.update).not.toHaveBeenCalled();
+    });
+
+    it('defaults limits to {} (unlimited) when the stored row predates them (#450)', async () => {
+      await service.patchSettings({ ai: { enabled: false } }, mockUserId);
+
+      expect((writtenAi() as any).limits).toEqual({});
+    });
+
+    it('replaces ai.limits WHOLESALE — the submitted object is the new value (#450)', async () => {
+      await service.patchSettings(
+        {
+          ai: {
+            limits: {
+              perUser: { requestsPerMinute: 10 },
+              perModel: { 'openai:gpt-4.1-mini': { maxOutputTokens: 512 } },
+            },
+          },
+        },
+        mockUserId,
+      );
+      expect((writtenAi() as any).limits).toEqual({
+        perUser: { requestsPerMinute: 10 },
+        perModel: { 'openai:gpt-4.1-mini': { maxOutputTokens: 512 } },
+      });
+
+      // A second PATCH naming only orgKey drops the rest: absent = unlimited.
+      mockPrisma.systemSettings.update.mockClear();
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        ...mockSystemSettings,
+        value: {
+          ...DEFAULT_SYSTEM_SETTINGS,
+          ai: { ...DEFAULT_SYSTEM_SETTINGS.ai, limits: { perUser: { requestsPerMinute: 10 } } },
+        } as any,
+      } as any);
+
+      await service.patchSettings({ ai: { limits: { orgKey: { tokensPerDayPerUser: 50_000 } } } }, mockUserId);
+
+      expect((writtenAi() as any).limits).toEqual({ orgKey: { tokensPerDayPerUser: 50_000 } });
+    });
+
+    it('keeps the stored limits when a PATCH does not name them (#450)', async () => {
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        ...mockSystemSettings,
+        value: {
+          ...DEFAULT_SYSTEM_SETTINGS,
+          ai: { ...DEFAULT_SYSTEM_SETTINGS.ai, limits: { perUser: { requestsPerDay: 99 } } },
+        } as any,
+      } as any);
+
+      await service.patchSettings({ ai: { logPromptContent: true } }, mockUserId);
+
+      expect((writtenAi() as any).limits).toEqual({ perUser: { requestsPerDay: 99 } });
+    });
+
+    it.each([
+      ['a zero limit', { perUser: { requestsPerMinute: 0 } }],
+      ['a per-model key with no provider', { perModel: { 'gpt-4.1-mini': { maxOutputTokens: 1 } } }],
+    ])('refuses %s (#450)', async (_name, limits) => {
+      await expect(service.patchSettings({ ai: { limits } } as any, mockUserId)).rejects.toThrow();
       expect(mockPrisma.systemSettings.update).not.toHaveBeenCalled();
     });
 

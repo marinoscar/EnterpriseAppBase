@@ -10,6 +10,12 @@
  * Only the API's own vocabulary is offered (`AI_CAPABILITY_VALUES` and the
  * modality lists), so every save is schema-valid; a string the current row
  * carries that is not in that vocabulary is dropped rather than re-sent.
+ *
+ * The dialog also edits the model's LIMITS (#450) — an output-token cap and a
+ * per-user requests-per-minute limit. They are not model fields: they live in
+ * the AI configuration's `limits.perModel['<provider>:<modelId>']`, so the
+ * page saves them with a `PUT /admin/ai/config` beside the capability PATCH.
+ * This component only reports the entry as typed; blank means unlimited.
  */
 
 import { useEffect, useState } from 'react';
@@ -30,7 +36,8 @@ import {
   Grid,
   TextField,
 } from '@mui/material';
-import type { AiModel, AiModelCapabilities } from '../../../services/ai';
+import { AI_LIMIT_MAX } from '../../../services/ai';
+import type { AiModel, AiModelCapabilities, AiModelLimits } from '../../../services/ai';
 import {
   AI_CAPABILITY_GROUPS,
   AI_CAPABILITY_LABELS,
@@ -47,6 +54,9 @@ interface OverrideForm {
   reasoningEfforts: string[];
   contextWindow: string;
   maxOutputTokens: string;
+  /** `limits.perModel` (#450) — strings so blank (unlimited) is representable. */
+  limitMaxOutputTokens: string;
+  limitRequestsPerMinutePerUser: string;
 }
 
 function only(values: readonly string[], allowed: readonly string[]): string[] {
@@ -58,7 +68,7 @@ function only(values: readonly string[], allowed: readonly string[]): string[] {
  * null` and starts empty; the row's own `contextWindow`/`maxOutputTokens`
  * (what discovery learned) seed the numbers when the capability set has none.
  */
-function toForm(model: AiModel): OverrideForm {
+function toForm(model: AiModel, limits: AiModelLimits | undefined): OverrideForm {
   const capabilities = model.capabilities;
   const contextWindow = capabilities?.contextWindow ?? model.contextWindow;
   const maxOutputTokens = capabilities?.maxOutputTokens ?? model.maxOutputTokens;
@@ -69,6 +79,10 @@ function toForm(model: AiModel): OverrideForm {
     reasoningEfforts: only(capabilities?.reasoningEfforts ?? [], AI_REASONING_EFFORT_VALUES),
     contextWindow: contextWindow ? String(contextWindow) : '',
     maxOutputTokens: maxOutputTokens ? String(maxOutputTokens) : '',
+    limitMaxOutputTokens:
+      limits?.maxOutputTokens !== undefined ? String(limits.maxOutputTokens) : '',
+    limitRequestsPerMinutePerUser:
+      limits?.requestsPerMinutePerUser !== undefined ? String(limits.requestsPerMinutePerUser) : '',
   };
 }
 
@@ -76,6 +90,27 @@ function positiveIntError(raw: string): string | null {
   const value = raw.trim();
   if (!value) return null;
   return /^\d+$/.test(value) && Number(value) > 0 ? null : 'A whole number greater than zero.';
+}
+
+/** {@link positiveIntError}, plus the API's ceiling on every limit value. */
+function limitError(raw: string): string | null {
+  const error = positiveIntError(raw);
+  if (error) return error;
+  return Number(raw.trim()) > AI_LIMIT_MAX
+    ? `At most ${AI_LIMIT_MAX.toLocaleString('en-US')}.`
+    : null;
+}
+
+/** The typed limits as a `perModel` entry; blank fields are omitted (unlimited). */
+function toLimits(form: OverrideForm): AiModelLimits {
+  const maxOutputTokens = form.limitMaxOutputTokens.trim();
+  const requestsPerMinutePerUser = form.limitRequestsPerMinutePerUser.trim();
+  return {
+    ...(maxOutputTokens ? { maxOutputTokens: Number(maxOutputTokens) } : {}),
+    ...(requestsPerMinutePerUser
+      ? { requestsPerMinutePerUser: Number(requestsPerMinutePerUser) }
+      : {}),
+  };
 }
 
 function toCapabilities(form: OverrideForm): AiModelCapabilities {
@@ -137,7 +172,15 @@ export interface AiModelOverrideDialogProps {
   model: AiModel | null;
   isSaving: boolean;
   error: string | null;
-  onSave: (capabilities: AiModelCapabilities) => void;
+  /** The model's current `limits.perModel` entry, if any — prefills the limit fields. */
+  limits?: AiModelLimits;
+  /**
+   * `true` when the AI configuration (where limits live) is not loaded, so
+   * the limit fields cannot be read or saved; they are shown disabled.
+   */
+  limitsUnavailable?: boolean;
+  /** `limits` is the entry as typed; `{}` when both fields are blank. */
+  onSave: (capabilities: AiModelCapabilities, limits: AiModelLimits) => void;
   onClose: () => void;
 }
 
@@ -145,14 +188,20 @@ export function AiModelOverrideDialog({
   model,
   isSaving,
   error,
+  limits,
+  limitsUnavailable = false,
   onSave,
   onClose,
 }: AiModelOverrideDialogProps) {
   const [form, setForm] = useState<OverrideForm | null>(null);
 
+  // Seeded when a model is opened (or the configuration holding its limits
+  // arrives) — not on every `limits` identity change, which would wipe what
+  // the admin is typing.
   useEffect(() => {
-    setForm(model ? toForm(model) : null);
-  }, [model]);
+    setForm(model ? toForm(model, limits) : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [model, limitsUnavailable]);
 
   if (!model || !form) return null;
 
@@ -167,11 +216,14 @@ export function AiModelOverrideDialog({
       : form.inputModalities.length === 0 || form.outputModalities.length === 0
         ? 'Choose at least one input and one output modality.'
         : null;
-  const invalid = !!missing || !!contextError || !!maxOutputError;
+  const limitMaxOutputError = limitError(form.limitMaxOutputTokens);
+  const limitRpmError = limitError(form.limitRequestsPerMinutePerUser);
+  const invalid =
+    !!missing || !!contextError || !!maxOutputError || !!limitMaxOutputError || !!limitRpmError;
 
   return (
     <Dialog open onClose={onClose} maxWidth="md" fullWidth>
-      <DialogTitle>Edit capabilities — {model.modelId}</DialogTitle>
+      <DialogTitle>Edit capabilities and limits — {model.modelId}</DialogTitle>
       <DialogContent dividers>
         {error && (
           <Alert severity="error" sx={{ mb: 2 }}>
@@ -257,6 +309,49 @@ export function AiModelOverrideDialog({
             <FormHelperText error>{missing}</FormHelperText>
           </Box>
         )}
+
+        <FormControl
+          component="fieldset"
+          disabled={limitsUnavailable}
+          sx={{ mt: 3, display: 'block' }}
+          data-testid="ai-model-limits"
+        >
+          <FormLabel component="legend">Limits</FormLabel>
+          <FormHelperText sx={{ mt: 0, mb: 2 }}>
+            {limitsUnavailable
+              ? 'The AI configuration could not be loaded, so this model’s limits cannot be changed here.'
+              : 'Leave a field blank for no limit. These apply to every user of this model, on any key.'}
+          </FormHelperText>
+          <Grid container spacing={2}>
+            <Grid size={{ xs: 12, sm: 6 }}>
+              <TextField
+                fullWidth
+                label="Max output tokens per call"
+                value={form.limitMaxOutputTokens}
+                onChange={(e) => update('limitMaxOutputTokens', e.target.value)}
+                disabled={limitsUnavailable}
+                slotProps={{ htmlInput: { inputMode: 'numeric' } }}
+                error={!!limitMaxOutputError}
+                helperText={
+                  limitMaxOutputError ??
+                  'Caps each answer. The lower of this and the deployment-wide cap applies.'
+                }
+              />
+            </Grid>
+            <Grid size={{ xs: 12, sm: 6 }}>
+              <TextField
+                fullWidth
+                label="Requests per minute per user"
+                value={form.limitRequestsPerMinutePerUser}
+                onChange={(e) => update('limitRequestsPerMinutePerUser', e.target.value)}
+                disabled={limitsUnavailable}
+                slotProps={{ htmlInput: { inputMode: 'numeric' } }}
+                error={!!limitRpmError}
+                helperText={limitRpmError ?? 'How often each user may call this model.'}
+              />
+            </Grid>
+          </Grid>
+        </FormControl>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={isSaving}>
@@ -265,9 +360,9 @@ export function AiModelOverrideDialog({
         <Button
           variant="contained"
           disabled={invalid || isSaving}
-          onClick={() => onSave(toCapabilities(form))}
+          onClick={() => onSave(toCapabilities(form), toLimits(form))}
         >
-          {isSaving ? 'Saving…' : 'Save capabilities'}
+          {isSaving ? 'Saving…' : 'Save'}
         </Button>
       </DialogActions>
     </Dialog>

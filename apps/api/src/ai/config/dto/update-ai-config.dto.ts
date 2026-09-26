@@ -3,6 +3,10 @@ import { z } from 'zod';
 
 import {
   AI_KEY_POLICIES,
+  AI_LIMIT_MODEL_KEY_MAX,
+  AI_LIMIT_MODEL_KEY_PATTERN,
+  AI_LIMIT_VALUE_MAX,
+  AI_LIMITS_PER_MODEL_MAX,
   AI_MCP_ALLOWED_HOST_PATTERN,
   AI_MCP_ALLOWED_HOSTS_MAX,
   AI_USAGE_RETENTION_MAX_DAYS,
@@ -59,6 +63,53 @@ export const aiHostedToolsSettingsSchema = z.object({
     .max(AI_MCP_ALLOWED_HOSTS_MAX),
 });
 
+const aiLimitValueSchema = z.number().int().positive().max(AI_LIMIT_VALUE_MAX);
+
+/**
+ * `ai.limits` (#450) — per-user and per-model rate limits and output caps.
+ * Every field is optional; ABSENT MEANS UNLIMITED. Sent whole: the object
+ * submitted replaces the stored one, so leaving a field (or a per-model entry)
+ * out is how a limit is lifted.
+ */
+export const aiLimitsSettingsSchema = z.object({
+  /** Every inference call a user makes, whoever's key pays. */
+  perUser: z
+    .object({
+      requestsPerMinute: aiLimitValueSchema.optional(),
+      requestsPerDay: aiLimitValueSchema.optional(),
+    })
+    .optional(),
+  /** Only calls the organization key pays for — a user on their own key is never counted. */
+  orgKey: z
+    .object({
+      requestsPerDayPerUser: aiLimitValueSchema.optional(),
+      /** Input + output tokens per user per UTC day. */
+      tokensPerDayPerUser: aiLimitValueSchema.optional(),
+    })
+    .optional(),
+  /**
+   * Keyed `<provider>:<modelId>` (`openai:gpt-4.1-mini`). `maxOutputTokens`
+   * clamps every call to that model (the smaller of it and
+   * `defaults.maxOutputTokensCap` wins); `requestsPerMinutePerUser` limits each
+   * user's calls to it.
+   */
+  perModel: z
+    .record(
+      z
+        .string()
+        .max(AI_LIMIT_MODEL_KEY_MAX)
+        .regex(AI_LIMIT_MODEL_KEY_PATTERN, 'A "<provider>:<modelId>" key, e.g. "openai:gpt-4.1-mini"'),
+      z.object({
+        maxOutputTokens: aiLimitValueSchema.optional(),
+        requestsPerMinutePerUser: aiLimitValueSchema.optional(),
+      }),
+    )
+    .refine((value) => Object.keys(value).length <= AI_LIMITS_PER_MODEL_MAX, {
+      message: `At most ${AI_LIMITS_PER_MODEL_MAX} per-model limits`,
+    })
+    .optional(),
+});
+
 export const updateAiConfigSchema = z.object({
   enabled: z.boolean(),
   keyPolicy: z.enum(AI_KEY_POLICIES),
@@ -80,6 +131,12 @@ export const updateAiConfigSchema = z.object({
    * written before it existed still saves.
    */
   hostedTools: aiHostedToolsSettingsSchema.optional(),
+  /**
+   * Rate limits and output caps (#450), none by default. Omit to keep the
+   * stored value, like `hostedTools`; when sent, it REPLACES the stored limits
+   * wholesale (`{}` lifts every limit).
+   */
+  limits: aiLimitsSettingsSchema.optional(),
   /**
    * Per-provider settings keyed by provider id. A provider left out keeps its
    * stored settings.
