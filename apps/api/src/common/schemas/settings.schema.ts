@@ -798,6 +798,13 @@ export type SystemAiValue = z.infer<typeof systemAiSchema>;
  * `logPromptContent` untouched. See `SystemSettingsService.patchSettings`
  * for the merge this shape is built to support.
  */
+//
+// `baseUrl` and `maxOutputTokensCap` are the two OPTIONAL fields of the stored
+// value, so they are the two a PATCH must be able to REMOVE: absent leaves the
+// stored value alone, explicit `null` deletes it (back to "provider default
+// host" / "no cap"). The same absent-vs-null distinction
+// `storage.forcePathStyle` and `maintenance.startedAt` already draw; without
+// it an override, once set, could be changed but never cleared (#428).
 export const systemAiPatchSchema = z.object({
   enabled: z.boolean().optional(),
   keyPolicy: z.enum(AI_KEY_POLICIES).optional(),
@@ -806,14 +813,14 @@ export const systemAiPatchSchema = z.object({
       openai: z
         .object({
           enabled: z.boolean().optional(),
-          baseUrl: z.string().url().optional(),
+          baseUrl: z.string().url().nullable().optional(),
         })
         .optional(),
     })
     .optional(),
   defaults: z
     .object({
-      maxOutputTokensCap: z.number().int().positive().optional(),
+      maxOutputTokensCap: z.number().int().positive().nullable().optional(),
       allowBackgroundRuns: z.boolean().optional(),
     })
     .optional(),
