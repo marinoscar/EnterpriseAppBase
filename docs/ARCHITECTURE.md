@@ -310,7 +310,7 @@ The API is instrumented with OpenTelemetry for traces and metrics and logs with 
 
 ### 5.19 Testing
 
-The API uses Jest and Supertest for mocked integration tests (`*.integration.spec.ts`) and real-PostgreSQL tests (`*.db.spec.ts`, `npm run test:db`). The web app and CLI use Vitest. Playwright end-to-end and visual baseline tests live in `tests/e2e`. See [TESTING.md](TESTING.md).
+The API uses Jest and Supertest for mocked integration tests (`*.integration.spec.ts`) and real-PostgreSQL tests (`*.db.spec.ts`, `npm run test:db`). The web app and CLI use Vitest. Playwright end-to-end tests live in `tests/e2e`; pixel-baseline visual tests live in `tests/visual`, with their harness in `apps/web/visual`. See [TESTING.md](TESTING.md).
 
 ---
 
