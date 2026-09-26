@@ -17,8 +17,9 @@
  *   on (see `hooks/useAiConfig.ts`). It never carries a key hint.
  * - `/admin/ai/*` — `ai_config:read` / `ai_config:write`. The organisation's
  *   configuration, provider keys and model catalogue.
- * - `/ai/keys`, `/ai/models`, `/ai/responses`, `/ai/runs`, `/ai/usage/me` — `ai:use`, and
- *   refused with `403 AI_DISABLED` while AI is off.
+ * - `/ai/keys`, `/ai/models`, `/ai/responses`, `/ai/runs`, `/ai/images`,
+ *   `/ai/usage/me` — `ai:use`, and refused with `403 AI_DISABLED` while AI
+ *   is off.
  *
  * =============================================================================
  * A KEY ONLY EVER TRAVELS ONE WAY
@@ -376,13 +377,48 @@ export interface AiRunStarted {
   jobId: string;
 }
 
+/**
+ * A succeeded image run's `output` (#437): storage objects the caller owns.
+ * Download each through `GET /storage/objects/:id/download`
+ * (`services/storage.ts`); the bytes are never in the run.
+ */
+export interface AiImageRunOutput {
+  type: 'images';
+  provider: string;
+  model: string;
+  /** One per image, in the order the provider returned them. */
+  storageObjectIds: string[];
+  images: {
+    storageObjectId: string;
+    mimeType: string;
+    /** Bytes. */
+    size: number;
+    /** The prompt the provider actually used, where it rewrote it. */
+    revisedPrompt?: string;
+  }[];
+  usage: AiUsage;
+}
+
+/** Every shape a succeeded run's `output` can take — discriminate with the guards below. */
+export type AiRunOutput = AiResponse | AiImageRunOutput;
+
+export function isAiImageRunOutput(output: AiRunOutput | null | undefined): output is AiImageRunOutput {
+  return !!output && 'type' in output && output.type === 'images';
+}
+
+/** A text run's output (`POST /ai/runs`): an {@link AiResponse}. */
+export function isAiResponseRunOutput(output: AiRunOutput | null | undefined): output is AiResponse {
+  return !!output && !isAiImageRunOutput(output);
+}
+
 /** `GET /ai/runs/:id` — scoped to the caller. */
 export interface AiRun {
   id: string;
   status: AiRunStatus;
   provider: string;
   modelId: string;
-  output: AiResponse | null;
+  /** Once `succeeded`; otherwise `null`. */
+  output: AiRunOutput | null;
   errorCode: string | null;
   /** A safe, generic description of the failure once `failed`. */
   errorMessage: string | null;
@@ -607,6 +643,48 @@ export async function getAiRun(id: string): Promise<AiRun> {
 
 export async function cancelAiRun(id: string): Promise<AiRun> {
   return api.post<AiRun>(`/ai/runs/${encodeURIComponent(id)}/cancel`);
+}
+
+// =============================================================================
+// Images (#437) — always asynchronous: 202 { runId, jobId }, then poll the run
+// =============================================================================
+
+/** Mirrors `apps/api/src/ai/core/types/media.types.ts`. */
+export const AI_IMAGES_MAX_N = 4;
+export const AI_IMAGE_QUALITIES = ['low', 'medium', 'high', 'auto'] as const;
+export const AI_IMAGE_INPUT_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const;
+export const AI_IMAGE_MASK_MIME_TYPES = ['image/png'] as const;
+/** The largest source image (or mask) an edit reads, in bytes (25 MiB). */
+export const AI_IMAGE_INPUT_MAX_BYTES = 25 * 1024 * 1024;
+export const AI_IMAGE_PROMPT_MAX_CHARS = 32_000;
+
+/** `POST /ai/images` body. `model` is required — never inferred from the chat default. */
+export interface AiImageGenerateRequest {
+  provider?: string;
+  model: string;
+  prompt: string;
+  /** `WIDTHxHEIGHT` or `auto`; the provider decides which sizes a model accepts. */
+  size?: string;
+  quality?: (typeof AI_IMAGE_QUALITIES)[number];
+  background?: 'transparent' | 'opaque' | 'auto';
+  outputFormat?: 'png' | 'jpeg' | 'webp';
+  /** 1 to {@link AI_IMAGES_MAX_N}. */
+  n?: number;
+  providerOptions?: Record<string, Record<string, unknown>>;
+}
+
+/** `POST /ai/images/edits` body: inputs are the caller's own, `ready` storage objects. */
+export interface AiImageEditRequest extends AiImageGenerateRequest {
+  imageStorageObjectIds: string[];
+  maskStorageObjectId?: string;
+}
+
+export async function createAiImageRun(req: AiImageGenerateRequest): Promise<AiRunStarted> {
+  return api.post<AiRunStarted>('/ai/images', req);
+}
+
+export async function createAiImageEditRun(req: AiImageEditRequest): Promise<AiRunStarted> {
+  return api.post<AiRunStarted>('/ai/images/edits', req);
 }
 
 // =============================================================================

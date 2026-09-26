@@ -60,7 +60,12 @@ import { useAiChat, type AiChatRequestOptions } from '../hooks/useAiChat';
 import { useAiRun } from '../hooks/useAiRun';
 import { useAiConfig } from '../hooks/useAiConfig';
 import { ApiError } from '../services/api';
-import { listUsableAiModels, type AiResponseRequest, type UsableAiModel } from '../services/ai';
+import {
+  isAiResponseRunOutput,
+  listUsableAiModels,
+  type AiResponseRequest,
+  type UsableAiModel,
+} from '../services/ai';
 import { useIsMounted } from '../hooks/useIsMounted';
 import { AiModelSelect, hasAiCapability } from '../components/ai/AiModelSelect';
 import { AiChatThread } from '../components/ai/AiChatThread';
@@ -68,7 +73,6 @@ import { AI_KEYS_PATH } from '../components/ai/AiErrorAlert';
 import { AiRunCard } from '../components/ai/AiRunCard';
 import {
   AI_PLAYGROUND_MODES,
-  aiPlaygroundMode,
   initialPlaygroundMode,
   modelsForMode,
   unavailableModes,
@@ -78,6 +82,7 @@ import {
 import { AiPlaygroundModeSelector } from '../components/ai/playground/AiPlaygroundModeSelector';
 import { AiPlaygroundPanels } from '../components/ai/playground/AiPlaygroundPanels';
 import { AiModePlaceholder } from '../components/ai/playground/AiModePlaceholder';
+import { AiImageMode } from '../components/ai/playground/AiImageMode';
 import { usePlaygroundModel } from '../components/ai/playground/usePlaygroundModel';
 import {
   AI_SCHEMA_PRESETS,
@@ -178,7 +183,7 @@ export default function AiPlaygroundPage() {
   const { appendExchange } = chat;
   const run = useAiRun({
     onSettled: (settled) => {
-      if (settled.status === 'succeeded' && settled.output) {
+      if (settled.status === 'succeeded' && isAiResponseRunOutput(settled.output)) {
         appendExchange(runPromptRef.current, settled.output, { runId: settled.id });
       }
     },
@@ -203,7 +208,16 @@ export default function AiPlaygroundPage() {
   // `UserSettings['ai']` (#430): every mode starts on it when it is listed there.
   const preferredModel: NonNullable<UserSettings['ai']>['defaultModel'] = settings?.ai?.defaultModel;
   const modelsReady = !modelsLoading && !settingsLoading;
-  const chatModels = useMemo(() => modelsForMode(models, aiPlaygroundMode('chat')), [models]);
+  // Each mode's models, filtered by its capability alone (never by name).
+  const modeModels = useMemo(
+    () =>
+      Object.fromEntries(AI_PLAYGROUND_MODES.map((entry) => [entry.id, modelsForMode(models, entry)])) as Record<
+        AiPlaygroundModeId,
+        UsableAiModel[]
+      >,
+    [models],
+  );
+  const chatModels = modeModels.chat;
   const { modelKey, setModelKey, selected } = usePlaygroundModel(chatModels, preferredModel, modelsReady);
 
   const supportsReasoning = hasAiCapability(selected, 'reasoning');
@@ -498,7 +512,9 @@ export default function AiPlaygroundPage() {
     switch (entry.id) {
       case 'chat':
         return null;
-      // Image (#437), Transcribe (#438), Speech (#439), Embeddings (#440).
+      case 'image':
+        return <AiImageMode models={modeModels.image} preferredModel={preferredModel} ready={modelsReady} />;
+      // Transcribe (#438), Speech (#439), Embeddings (#440).
       default:
         return <AiModePlaceholder mode={entry} />;
     }

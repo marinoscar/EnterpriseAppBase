@@ -6,8 +6,12 @@ import {
   mockAiProbeResultPassed,
   mockAiPublicConfigDisabled,
   mockAiResponse,
+  mockAiImageRun,
   mockAiRun,
   mockAiStreamEvents,
+  mockSignedUrl,
+  mockStorageObject,
+  MOCK_IMAGE_RUN_PREFIX,
   mockAiUsageReport,
   mockUsableAiModels,
   mockUserAiKeys,
@@ -464,7 +468,32 @@ export const handlers = [
   }),
 
   http.get(`${API_BASE}/ai/runs/:id`, ({ params }) => {
-    return HttpResponse.json({ data: { ...mockAiRun, id: String(params.id) } });
+    const id = String(params.id);
+    const run = id.startsWith(MOCK_IMAGE_RUN_PREFIX) ? mockAiImageRun : mockAiRun;
+    return HttpResponse.json({ data: { ...run, id } });
+  }),
+
+  // Image runs (#437): always 202, then polled through `GET /ai/runs/:id`.
+  http.post(`${API_BASE}/ai/images`, () => {
+    return HttpResponse.json({ data: { runId: 'run_img_1', jobId: 'job-ai-image-1' } }, { status: 202 });
+  }),
+
+  http.post(`${API_BASE}/ai/images/edits`, () => {
+    return HttpResponse.json({ data: { runId: 'run_img_edit_1', jobId: 'job-ai-image-2' } }, { status: 202 });
+  }),
+
+  // Storage objects (#445 playground inputs/outputs): an upload answers
+  // `processing`, a read answers `ready`, and a download is a signed URL.
+  http.post(`${API_BASE}/storage/objects`, () => {
+    return HttpResponse.json({ data: mockStorageObject() }, { status: 201 });
+  }),
+
+  http.get(`${API_BASE}/storage/objects/:id/download`, ({ params }) => {
+    return HttpResponse.json({ data: { url: mockSignedUrl(String(params.id)), expiresIn: 300 } });
+  }),
+
+  http.get(`${API_BASE}/storage/objects/:id`, ({ params }) => {
+    return HttpResponse.json({ data: mockStorageObject({ id: String(params.id), status: 'ready' }) });
   }),
 
   http.post(`${API_BASE}/ai/runs/:id/cancel`, ({ params }) => {

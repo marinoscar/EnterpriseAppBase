@@ -22,8 +22,10 @@
  *
  * NO FIXTURE CARRIES A KEY. Masked hints only, exactly as the API answers.
  */
+import type { StorageObject } from '../../../services/storage';
 import type {
   AiAdminConfig,
+  AiImageRunOutput,
   AiModel,
   AiModelListResponse,
   AiProbeResult,
@@ -546,4 +548,91 @@ export function mockAiUsageEmpty<G extends AiUsageGroupBy>(groupBy: G): AiUsageR
     },
     series: [],
   };
+}
+
+// =============================================================================
+// Playground modes (#445) — image runs (#437 contract) and the storage objects
+// they read and write. Capabilities are the API's permanent strings; the
+// model ids are deliberately NOT what the playground keys on.
+// =============================================================================
+
+/** Generates and edits images. */
+export const mockPlaygroundImageModel: UsableAiModel = {
+  provider: 'openai',
+  modelId: 'gpt-image-1',
+  displayName: 'GPT Image 1',
+  capabilities: {
+    capabilities: ['image_generation', 'image_edit'],
+    inputModalities: ['text', 'image'],
+    outputModalities: ['image'],
+  },
+  keySource: 'user',
+};
+
+/** Generates, but cannot edit. */
+export const mockPlaygroundImageGenerateOnlyModel: UsableAiModel = {
+  provider: 'openai',
+  modelId: 'dall-e-3',
+  displayName: 'DALL·E 3',
+  capabilities: { capabilities: ['image_generation'], inputModalities: ['text'], outputModalities: ['image'] },
+  keySource: 'org',
+};
+
+/** Every playground mode that has a panel, plus chat. */
+export const mockPlaygroundAllModeModels: UsableAiModel[] = [
+  ...mockPlaygroundModels,
+  mockPlaygroundImageModel,
+  mockPlaygroundImageGenerateOnlyModel,
+];
+
+export const mockAiImageRunOutput: AiImageRunOutput = {
+  type: 'images',
+  provider: 'openai',
+  model: 'gpt-image-1',
+  storageObjectIds: ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'],
+  images: [
+    {
+      storageObjectId: '11111111-1111-4111-8111-111111111111',
+      mimeType: 'image/png',
+      size: 204800,
+      revisedPrompt: 'A watercolour lighthouse at dusk, soft light',
+    },
+    { storageObjectId: '22222222-2222-4222-8222-222222222222', mimeType: 'image/png', size: 198000 },
+  ],
+  usage: { inputTokens: 12 },
+};
+
+/** Run ids the default handlers answer as image runs start with this. */
+export const MOCK_IMAGE_RUN_PREFIX = 'run_img';
+
+export const mockAiImageRun: AiRun = {
+  id: 'run_img_1',
+  status: 'succeeded',
+  provider: 'openai',
+  modelId: 'gpt-image-1',
+  output: mockAiImageRunOutput,
+  errorCode: null,
+  errorMessage: null,
+  createdAt: T0,
+  completedAt: T0,
+};
+
+/** A just-uploaded object: `processing` until post-processing marks it `ready`. */
+export function mockStorageObject(overrides: Partial<StorageObject> = {}): StorageObject {
+  return {
+    id: '33333333-3333-4333-8333-333333333333',
+    name: 'photo.png',
+    size: '1024',
+    mimeType: 'image/png',
+    status: 'processing',
+    metadata: null,
+    createdAt: T0,
+    updatedAt: T0,
+    ...overrides,
+  };
+}
+
+/** The signed URL the default handler answers for an object — never a real host. */
+export function mockSignedUrl(id: string): string {
+  return `https://storage.example.test/objects/${id}?signature=test`;
 }

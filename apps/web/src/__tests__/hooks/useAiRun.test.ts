@@ -180,3 +180,29 @@ describe('useAiRun', () => {
     expect(reads).toHaveLength(count);
   });
 });
+
+describe('useAiRun — startWith (#445)', () => {
+  it('polls a run created by any 202 { runId } call, and reports a refused one', async () => {
+    server.use(
+      http.get('*/api/ai/runs/:id', ({ params }) =>
+        HttpResponse.json({ data: runWith('succeeded', { id: String(params.id) }) }),
+      ),
+    );
+    const onSettled = vi.fn();
+    const { result } = renderHook(() => useAiRun({ intervalMs: FAST, onSettled }));
+
+    await act(async () => {
+      await result.current.startWith(async () => ({ runId: 'run_img_7', jobId: 'job_7' }));
+    });
+    await waitFor(() => expect(onSettled).toHaveBeenCalledTimes(1));
+    expect(onSettled.mock.calls[0][0]).toMatchObject({ id: 'run_img_7', status: 'succeeded' });
+
+    let id: string | null = 'unset';
+    await act(async () => {
+      id = await result.current.startWith(() => Promise.reject(new Error('refused')));
+    });
+    expect(id).toBeNull();
+    expect(result.current.error).toMatchObject({ code: null, message: 'refused' });
+    expect(result.current.isActive).toBe(false);
+  });
+});
