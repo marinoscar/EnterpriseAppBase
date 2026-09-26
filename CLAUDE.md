@@ -692,7 +692,10 @@ the distinct blast radius that justified splitting out
   extend that other replica's lease without knowing it lost the row. Minted fresh, per row,
   by the claim statement itself (`gen_random_uuid()`, never a bound parameter); non-null
   **exactly while the row is claimed** — every un-claim path (settle, the lease reaper, a
-  retry reset) clears it alongside `claimedByNodeId`/`leaseExpiresAt`. Not published by the
+  retry reset) clears it alongside `claimedByNodeId`/`leaseExpiresAt`, and every write that
+  speaks for a claim — lease renewal and every `JobTerminalService` settle/retry/defer write
+  (#477) — is conditional on it, so a stalled executor cannot settle, retry or re-announce a
+  row that was reaped or re-claimed. Not published by the
   admin job list (`JOB_LIST_SELECT` omits it, same as `payload`) — it is internal ownership
   machinery, not something an operator reads. The node control plane is token-matched too
   (issue #364): the claim response hands the token to the node, which quotes it back on all

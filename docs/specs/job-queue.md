@@ -651,8 +651,10 @@ sharing one claim statement, applied to the other end of the row's life.
 
 `completeSucceeded` and `completeFailed` return a `JobSettleOutcome`
 (`succeeded` | `failed` | `retry-scheduled` | `rate-limit-deferred` |
-`write-failed`) so a worker can log what happened without reverse-engineering
-it from the row it did not write.
+`write-failed` | `claim-lost`) so a worker can log what happened without
+reverse-engineering it from the row it did not write. `claim-lost` (#477) is
+covered in §5.7: it means the write was refused because the row is no longer
+held by the claim settling it, not that anything failed.
 
 ### 5.2 Three ways in, one classification order
 
@@ -746,6 +748,15 @@ lease (`leaseExpiresAt`), and every branch records the error message in
 `lastError` (truncated at 2000 characters — some SDKs embed a whole response
 body in a message, and the admin job list renders this string).
 
+**Every one of these branches is also, since #477, conditional on still
+holding the claim.** Settle, retry and rate-limit deferral alike write through
+`safeTerminalUpdate`, which matches `heldClaimWhere(job)` — this id, still
+`running`, the same `claim_token`, the same `claimed_by_node_id` — rather than
+the id alone. A write that matches nothing means the row was reaped or
+re-claimed while this executor was still working it, and the branch answers
+`claim-lost` instead of landing: see §5.7 for the guard itself and §5.8 for
+what that does to `job.settled`.
+
 **`executor` is deliberately never cleared; `claimToken` is deliberately
 always cleared, on every branch, alongside it.** `succeeded` and `failed` are
 terminal, so there is no stale ownership to null out, and *which side ran the
@@ -779,6 +790,16 @@ decrement applied twice subtracts two, silently **granting the job an extra
 attempt it never earned**, and repeated across a long throttled backfill it
 would drive `attempts` negative and make the budget unreachable — a bug that
 would surface months later as "why did this job retry eleven times".
+
+**The absolute value is also what makes the #477 retry guarded, not merely
+retried.** The second application of this write goes through the same
+`heldClaimWhere` guard as every other terminal write, and that guard's own
+retry (§5.7) can only decide whether an ambiguous first attempt committed by
+comparing the row it reads back against the payload it tried to write —
+`rowMatchesWrite`. That comparison only has a meaning for an absolute value; a
+Prisma operator like `{ decrement: 1 }` has no "equals the row" reading at
+all, and `assertPlainTerminalData` throws rather than let one through
+silently as `false`.
 
 ### 5.5 Equal-jitter exponential backoff, with an injectable RNG
 
@@ -875,31 +896,80 @@ The gate is tripped **before** the terminal write, on both the thrown and the
 node-reported paths: sibling slots are calling that provider right now, and
 the provider does not care which machine a request came from.
 
-### 5.7 `safeTerminalUpdate` logs and swallows — and that is the feature
+### 5.7 `safeTerminalUpdate`: a guarded write, retried once, that can now be lost rather than failed
 
-The terminal write is retried **once**, after a short unref'd sleep, and then
-logged at `error` and swallowed.
+Every one of the five terminal writes — settle succeeded, permanent failure,
+ordinary retry, rate-limit deferral, rate-limit give-up — goes through
+`safeTerminalUpdate`, and since #477 that write is `updateManyAndReturn({
+where: heldClaimWhere(job) })`, not `update({ where: { id } })`. `heldClaimWhere`
+is this id, still `running`, the same `claim_token`, the same
+`claimed_by_node_id` — the sibling of `heldLeaseWhere` (§6.9), and
+**deliberately carrying no lease-expiry clause**: the settle guard asks an
+IDENTITY question ("is this still the claim I was given?"), not a LIVENESS one
+("is my lease still running?"), and identity is already fully answered by the
+other three columns — every re-claim mints a fresh `claim_token`, and the
+reaper always moves `status` off `running` when it takes a row away. So a row
+still `running` under this token has not been given to anybody else, whatever
+its lease says, and letting an expired-but-not-yet-reaped settle land is
+strictly better than the alternative, which is to throw away a finished result
+and make the reaper requeue work that is already done. Renewal is different,
+and keeps its expiry clause, for exactly the opposite reason: a late renewal
+would **re-take** a lease — it asserts the future — while a settle only
+records the past.
 
-Every caller is a worker finishing a job and about to free its slot. If a
-database blip could throw out of here, that exception would propagate into the
-worker's slot accounting and either crash the worker or leave the slot
-accounted for but never released. **A slot lost that way is lost for the life
-of the process**, and losing all of them reduces the queue's throughput to zero
-with nothing in the logs but one stack trace from an hour ago.
+**A write that matches nothing is `claim-lost`, a normal outcome, not an
+error.** It means the row is no longer this executor's to describe — reaped,
+re-claimed, or already settled by somebody else. Nothing is written, nothing
+is emitted, and nothing throws: the worker logs it (naming the row's current
+holder, when a diagnostic re-read can get one) and frees its slot, and the
+node plane turns it into the same 409 a stale read would have produced (§17 /
+`docs/specs/worker-nodes.md`).
 
-So the worst case is deliberately bounded and recoverable: the slot is freed,
-and the row is left `running` with an expiring lease — precisely the state the
-lease reaper (#263) exists to find and requeue. The job is delayed by one lease
-interval; nothing is lost and nothing wedges.
+The retry itself is unchanged from before #477: **once**, after a short
+unref'd sleep, then logged and swallowed. Every caller is a worker finishing a
+job and about to free its slot. If a database blip could throw out of here,
+that exception would propagate into the worker's slot accounting and either
+crash the worker or leave the slot accounted for but never released. **A slot
+lost that way is lost for the life of the process**, and losing all of them
+reduces the queue's throughput to zero with nothing in the logs but one stack
+trace from an hour ago. One retry, not zero and not many. Zero would fail the
+whole terminal write on a single recycled connection, which is common enough
+to be worth covering. Many, with waits between them, would hold the worker
+slot open for the duration of an outage — the exact resource this method is
+protecting. The 250ms pause is short for the same reason: it is covering a
+blip, not an outage.
 
-One retry, not zero and not many. Zero would fail the whole terminal write on
-a single recycled connection, which is common enough to be worth covering.
-Many, with waits between them, would hold the worker slot open for the duration
-of an outage — the exact resource this method is protecting. The 250ms pause is
-short for the same reason: it is covering a blip, not an outage.
+**⚠ The guard adds one rule the retry did not need before: a write can COMMIT
+and THEN THROW** (the connection drops on the way back), and its guarded retry
+then matches nothing too — not because somebody else took the row, but because
+the *first* write already moved it off `running` and cleared the token.
+Answering `claim-lost` there would silently drop a settled event for a settle
+that genuinely happened. So the full decision tree is:
 
-When both writes fail, the outcome is `write-failed` and **no settled event is
-emitted** — the row does not say what the event would claim.
+  (a) The first attempt returns no row, without throwing ⇒ `claim-lost`,
+      final. Nothing is ambiguous: the statement ran and told the truth.
+  (b) The first attempt throws, and the guarded retry also returns no row ⇒
+      **re-read the row by id.** If it already carries every value this
+      write's payload would have written (`rowMatchesWrite`, exact equality on
+      scalars, `Date`s compared by instant), the first attempt committed and
+      the write is this settle's own ⇒ `written`, with the re-read row — so a
+      terminal branch still emits, exactly once. Otherwise the row belongs to
+      whatever moved it ⇒ `claim-lost`. If the re-read itself throws, the two
+      cases cannot be told apart ⇒ `write-failed` — the conservative answer,
+      and no settled event either way.
+  (c) The retry itself throws (not merely matches nothing) ⇒ `write-failed`,
+      as before #477: the row is left `running` for the lease reaper.
+
+`rowMatchesWrite` is why every terminal payload is written as **plain scalars,
+`Date`s and `null` — never a Prisma operator**: a payload with no "equals the
+row" reading (`{ increment: 1 }`) would make rule (b) undecidable, so
+`assertPlainTerminalData` throws on one immediately, on every write, rather
+than only discovering the problem on the rare ambiguous path. §5.4's
+absolute-value un-charge is the running example of a payload this rule
+depends on.
+
+When both attempts throw, the outcome is `write-failed` and **no settled
+event is emitted** — the row does not say what the event would claim.
 
 ### 5.8 `job.settled` fires only when the job is genuinely over
 
@@ -917,6 +987,18 @@ it emits exactly the same event, through the same shared `emitJobSettled`
 helper (`jobs/job-settled.emit.ts`). Phase 2 (the requeue) is not a
 settlement and still emits nothing, for the same reason a retry doesn't:
 the row goes back to `pending`, not to a terminal state.
+
+**#477 is what makes "exactly once" hold end to end, across both executors
+AND the reaper, not just across two executors.** Before it, a stalled
+executor's terminal write matched the row by id alone, so it could land on —
+and re-announce `job.settled` for — a row the reaper had already reclaimed and
+requeued or failed on its own. The reaper's own give-up already re-checked its
+`WHERE` clause and only emitted for the write that actually changed the row
+(§7.2); #477 closes the other direction, the one §7.2 could not: the reaper
+clears the token and moves `status` off `running` in the same write that
+settles or requeues a row, so a stale executor's own guarded write, arriving
+after, matches nothing and answers `claim-lost` instead of overwriting or
+re-announcing what the reaper already decided.
 
 **Rejected: emitting on every state change** (`job.running`, `job.retried`,
 `job.deferred`, …). It looks more useful and is strictly less useful, because
@@ -1325,6 +1407,30 @@ deliberately so: it is audit ("which side ran this job"), while a random uuid
 records nothing worth keeping, so it is cleared everywhere the claim itself is
 released — see §5.3 and §8.5 for exactly which fields survive which reset.
 
+**Every write that speaks for a claim matches the token, not only renewal.**
+Renewal (`heldLeaseWhere`) was the first; #477 extends the same shape to
+`JobTerminalService`'s own writes — settle, retry and rate-limit deferral
+alike, through `heldClaimWhere` — so a stalled executor cannot renew, settle,
+retry or re-announce a row that was reaped or re-claimed out from under it.
+The two predicates are siblings, not one predicate reused: `heldClaimWhere`
+carries **no `leaseExpiresAt` clause**, and that absence is the design, not an
+oversight. Renewal is a LIVENESS question — "is my lease still running?" —
+because a renewal that succeeds asserts the future, extending a lease that
+must not have already been handed to someone else. A settle is an IDENTITY
+question — "is this still the claim I was given?" — because it only records
+the past, and identity is already fully decided by `status`, `claim_token` and
+`claimed_by_node_id`: every re-claim mints a fresh token, and the reaper always
+moves `status` off `running` when it takes a row away, so a row still
+`running` under this token has not been given to anyone else regardless of
+what its lease says. Refusing an expired-but-unreaped settle on lease grounds
+alone would only throw away a finished result and force the reaper to requeue
+work that already happened. `heldClaimWhere`'s null-token and rolling-deploy
+behaviour is identical to `heldLeaseWhere`'s, described above: `claimToken:
+null` renders `claim_token IS NULL` (a pre-#361 claim, still a real, matchable
+state), and a replica still running pre-#477 code settles by id alone for as
+long as it is up, exactly as an old replica can still over-extend a lease
+today.
+
 **⚠ The node plane is token-matched too, as of #364 — and the fix was
 crossing the wire, not adding a comparison.** `NodesService.renewLease`
 already read the job row before renewing, which is exactly why a token taken
@@ -1540,7 +1646,12 @@ no longer "still stuck", and gets `[]` back — so only the write that actually
 changed the row emits for it. The same re-check is what stops the reaper from
 overwriting *and re-announcing* a row a late executor already settled on its
 own. Phase 2 (the requeue) still emits nothing, precisely because it is not a
-terminal write — the row goes back to `pending`, not to `failed`.
+terminal write — the row goes back to `pending`, not to `failed`. The converse
+— a late executor's own write landing after the reaper has already moved the
+row — is closed on the terminal path instead: since #477 that write is guarded
+by `heldClaimWhere`, so a stale executor's settle after a reap matches nothing
+and is a no-op (`claim-lost`, §5.7), never an overwrite of what the reaper
+decided.
 
 ### 7.3 The primitives are extracted, so a control plane can reap
 
@@ -2035,13 +2146,21 @@ that does not exist. The refusal is not caution, it is correctness:
 - Resetting a running row gives a second worker the same job while the first
   may still be alive on the other end of that claim, and the dedup index cannot
   stop it — the key moves with the row.
-- Deleting a running row does not stop its executor. The work carries on, its
-  terminal write updates zero rows and is swallowed by `safeTerminalUpdate`
-  (§5.7), and the job runs to completion with no record that it existed — while
-  its freed dedup key lets a duplicate be enqueued underneath it.
+- Deleting a running row does not stop its executor. The work carries on, and
+  its terminal write matches no row and is answered `claim-lost` by
+  `safeTerminalUpdate` (§5.7 — #477: every terminal write is conditional on
+  the claim, so a deleted row is simply one that claim no longer holds), and
+  the job runs to completion with no record that it ever existed — while its
+  freed dedup key lets a duplicate be enqueued underneath it.
 
 An operator who believes the executor is gone has a correct tool for exactly
 that: `reset-stuck`, which checks the lease before it acts.
+
+Deleting a **pending** `admin.broadcast.start`/`admin.broadcast.chunk` job is
+allowed by the same 400-only-for-`running` rule above, but it leaves that
+broadcast stuck in `scheduled`/`sending` with nothing left to advance it;
+recovering it is the broadcast's own Cancel action, not this endpoint's job.
+Tracked separately (#480).
 
 The guard is a re-read followed by a **conditional** write
 (`where: { id, status: { not: 'running' } }`), not a check-then-update by id. A
@@ -2715,6 +2834,7 @@ throws, and a filesystem sweep.
 | `stuckRunningWhere` carries all four signals, OR'd, each compared against its own instant (ages against the threshold, an expired lease against `now`, an implausible one against the lease horizon), and no age clause ever matches a leased row | `src/jobs/job-stuck.service.spec.ts`, and against real rows in `test/jobs/job-lease-renewal.db.spec.ts` |
 | A continuously renewed job is never requeued at any age; renewal refuses an expired lease, a requeued row and a row a node now holds | `test/jobs/job-lease-renewal.db.spec.ts`, `src/jobs/job-lease.service.spec.ts` |
 | A renewal presenting a `claimToken` that is no longer on the row is refused — the two-replica case #361 exists to close (§6.9) — and a settled or reaped row always carries `claim_token: null` | `test/jobs/job-lease-renewal.db.spec.ts`, `test/jobs/job-claim.db.spec.ts`, `src/jobs/job-lease.service.spec.ts` |
+| `heldClaimWhere` is exactly `{id, status: 'running', claimToken, claimedByNodeId}`, carries no lease clause, and states a null token/node as `IS NULL` rather than dropping the field (#477) | `src/jobs/job-lease.service.spec.ts` |
 | The in-process worker renews for the whole of `process()`, on the type's own lease, and its ticker is cancelled by `stop()` | `src/jobs/job.worker.spec.ts` |
 | The give-up phase runs one row at a time so each message names that job's attempts; neither phase writes `attempts` | `src/jobs/job-stuck.service.spec.ts` |
 | The reaper's give-up emits exactly one `job.settled` per row it failed, none for requeues, none when it loses a concurrent race | `src/jobs/job-stuck.service.spec.ts`, `src/jobs/job-settled.emit.spec.ts`, `test/jobs/job-stuck-reset.db.spec.ts` |
@@ -2796,10 +2916,14 @@ recorded payload *is* the assertion.
 | `job.settled` fires on success and on give-up (both budgets), NEVER on a deferral or an intermediate retry | `src/jobs/job-terminal.service.spec.ts` |
 | A THROWING listener does not affect the row or the outcome | `src/jobs/job-terminal.service.spec.ts`, on both terminal branches |
 | The event fires AFTER the write, and not at all when the write failed | `src/jobs/job-terminal.service.spec.ts` — call-order assertion |
-| A simulated write failure frees the slot and leaves the row `running` | `src/jobs/job-terminal.service.spec.ts` — both writes rejected, `write-failed` returned rather than thrown, on all four branches |
+| A simulated write failure frees the slot and leaves the row `running` | `src/jobs/job-terminal.service.spec.ts` — both writes rejected, `write-failed` returned rather than thrown, on all five branches |
 | The terminal write retries exactly once, after 250ms, with an identical payload | `src/jobs/job-terminal.service.spec.ts` |
 | `executor` is never cleared, on success or on failure | `src/jobs/job-terminal.service.spec.ts` |
 | Missing config degrades to the shipped defaults, not to `NaN` dates | `src/jobs/job-terminal.service.spec.ts`, `src/jobs/provider-throttle.service.spec.ts` |
+| Every one of the five terminal branches writes `WHERE heldClaimWhere(job)` — id, `claimToken`, `claimedByNodeId`, no lease clause — and a guard that matches nothing answers `claim-lost` with no emit, no retry and no throw, while the throttle side effect (rate-limit branches) still fires (#477) | `src/jobs/job-terminal.service.spec.ts`, `src/jobs/job-lease.service.spec.ts` |
+| An ambiguous commit — first write throws, guarded retry matches nothing — is recognised as this settle's own when the re-read row carries exactly the written values (`rowMatchesWrite`), answered `claim-lost` when it carries somebody else's, and `write-failed` when the re-read itself throws; `rowMatchesWrite` throws on a Prisma operator rather than silently comparing `false` (#477) | `src/jobs/job-terminal.service.spec.ts` |
+| A `claim-lost` settle passes through `JobWorker.runJob` without throwing, on both the success and failure paths, and a node's `result`/`failure` submission answers the same 409 `lease_not_held` a stale read would have, including on the persist-throws path (a 409, never the false "settled by this server" 500) (#477) | `src/jobs/job.worker.spec.ts`, `src/nodes/nodes.service.spec.ts` |
+| Against a real Postgres: a settle guarded by a stale `claimToken` after a re-claim matches nothing and is `claim-lost`; a settle arriving after the reaper has reclaimed the row is equally a no-op (#477) | `apps/api/test/jobs/job-terminal-claim-guard.db.spec.ts` |
 | The module graph still boots with the new providers wired | `src/jobs/job-handler.registry.spec.ts` — boots `JobsModule` for real, so a missing provider or a broken injection fails here |
 
 Be honest about the limits of #263 too. Nothing here proves the `@Cron`

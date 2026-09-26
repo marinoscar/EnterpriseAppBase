@@ -1909,7 +1909,7 @@ Issues the one short-lived, job-scoped credential this job's type declares it ne
 - 503 Service Unavailable - The broker exists but cannot mint a credential right now, carrying an operator-facing `remedy` in `details` (a database that cannot grant `CREATEROLE` is the ordinary case — see [`docs/runbooks/node-job-secrets.md`](runbooks/node-job-secrets.md))
 
 ##### POST /nodes/:id/jobs/:jobId/result
-Submits a result, validated against the handler's `nodeResultSchema` and persisted through `persistNodeResult`. `400` on a type mismatch, a non-node-persistable type, or a schema failure; `409` on an expired lease, or a `claimToken` no longer on the row (nothing persisted either way); `500` if persisting threw (the server already settled the job through its own failure path — do not resubmit). Accepts `claimToken` alongside `type`/`result` — a stale claim's result must not settle a job a newer claim is still running.
+Submits a result, validated against the handler's `nodeResultSchema` and persisted through `persistNodeResult`. `400` on a type mismatch, a non-node-persistable type, or a schema failure; `409` on an expired lease, or a `claimToken` no longer on the row; `500` if persisting threw (the server already settled the job through its own failure path — do not resubmit). ⚠ `409` no longer always means "nothing persisted either way": since #477 the settle itself is guarded by the job's claim, and that guard can find the claim lost — reaped or re-claimed between the read check and the settle's write — **after** `persistNodeResult` has already run successfully; in that case the settle is refused (the same 409) even though the result was persisted, because whoever holds the row now, not this request, decides what happens to it. Accepts `claimToken` alongside `type`/`result` — a stale claim's result must not settle a job a newer claim is still running.
 
 **Response:**
 ```json
@@ -1917,7 +1917,7 @@ Submits a result, validated against the handler's `nodeResultSchema` and persist
 ```
 
 ##### POST /nodes/:id/jobs/:jobId/failure
-Reports a failure through the same terminal state machine a thrown error in `process()` uses. `rateLimited: true` defers rather than charging an attempt. Accepts `claimToken` for the same reason `result` does — a stale claim's failure must not settle a job a newer claim is still running fine.
+Reports a failure through the same terminal state machine a thrown error in `process()` uses. `rateLimited: true` defers rather than charging an attempt. `409` on an expired lease, a `claimToken` no longer on the row, or the claim being lost mid-settle (reaped or re-claimed between the read check and the settle's own guarded write; #477) — nothing is charged or written in any of the three cases. Accepts `claimToken` for the same reason `result` does — a stale claim's failure must not settle a job a newer claim is still running fine.
 
 **Request Body:**
 ```json
