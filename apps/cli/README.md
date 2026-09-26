@@ -221,6 +221,25 @@ prefix is optional — `appctl api GET /api/auth/me` and `appctl api GET
 /auth/me` request the same thing, since the client's base URL already ends
 in `/api`.
 
+Since this is a generic `api` command, it reaches the AI platform (epic
+#419) the same way as any other endpoint — no dedicated `appctl ai` command
+exists or is needed:
+
+```bash
+appctl api post /ai/responses --data '{"input":"hello"}'
+```
+
+This requires the caller's account to hold `ai:use`, AI to be enabled for
+the deployment (`ai.enabled`, see
+[`docs/runbooks/ai-configuration.md`](../../docs/runbooks/ai-configuration.md)),
+and either a stored BYOK key for the target provider
+(`appctl api put /ai/keys/openai --data '{"apiKey":"sk-..."}'`) or an
+admin/org fallback key under `byok_with_org_fallback` — otherwise it answers
+`403` with `details.reason: "AI_KEY_REQUIRED"` or `"AI_DISABLED"`. The
+streaming route (`POST /api/ai/responses/stream`) is not reachable through
+`appctl api`, which is built for a single request/response cycle, not
+Server-Sent Events — use the web Playground for a streamed response.
+
 ## Deploying to a server
 
 ```bash
