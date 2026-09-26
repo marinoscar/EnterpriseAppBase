@@ -3,6 +3,8 @@ import { dirname, join, resolve } from 'node:path';
 
 import { CLI_NAME } from '../branding.js';
 import { UsageError } from '../errors.js';
+import { probe } from './checks/host.js';
+import { gitCredentialStateFor, isHttpsGithubUrl, nonInteractiveGitEnv } from './checks/source.js';
 import type { DeployHooks } from './hooks.js';
 import type { runCommand } from './executor.js';
 import type { DeployState } from './state.js';
@@ -239,6 +241,11 @@ export async function ensureCheckout(
   const exists = existsSync(join(path, '.git'));
 
   if (!exists) {
+    // Before the FIRST clone only: a fetch reuses whatever the clone used.
+    const gh = await configureGhCredentials(target.url, options.runCommand);
+    if (gh === 'configured') {
+      options.hooks?.onProgress?.('Configured git to use the GitHub CLI\'s credentials (gh auth setup-git)');
+    }
     options.hooks?.onProgress?.(`Cloning ${displayRepoUrl(target.url)}`);
     await runGit(options, options.deployRoot, [
       'clone',
@@ -289,6 +296,45 @@ export async function ensureCheckout(
     changed: previousSha !== sha,
     path,
   };
+}
+
+export type GhCredentialOutcome =
+  /** Not an HTTPS GitHub URL: gh is not how it authenticates. */
+  | 'not-applicable'
+  /** git can already read it (public, a helper, a stored token). */
+  | 'already-readable'
+  /** gh is missing or not logged in; the clone proceeds and reports its own error. */
+  | 'gh-unavailable'
+  /** `gh auth setup-git` ran. */
+  | 'configured';
+
+/**
+ * Lets the GitHub CLI supply clone credentials, when that is what is needed
+ * (#391).
+ *
+ * Only for an HTTPS GitHub URL that git cannot already read, and only when
+ * `gh auth status` says gh is logged in: then `gh auth setup-git` registers gh
+ * as git's credential helper for that host. The clone itself is still a plain
+ * `git clone` -- `gh repo clone` was rejected because it makes gh a hard
+ * prerequisite even for a public repository, and breaks a server whose access
+ * is an SSH deploy key.
+ *
+ * Never throws: every outcome ends with the clone being attempted exactly as
+ * before, and a clone that still cannot authenticate says so itself.
+ */
+export async function configureGhCredentials(
+  url: string,
+  run: typeof runCommand,
+): Promise<GhCredentialOutcome> {
+  if (!isHttpsGithubUrl(url)) return 'not-applicable';
+  if ((await gitCredentialStateFor(url, run)) !== false) return 'already-readable';
+
+  const env = nonInteractiveGitEnv();
+  const status = await probe({ runCommand: run }, ['gh', 'auth', 'status'], { env });
+  if (!status.ok) return 'gh-unavailable';
+
+  const setup = await probe({ runCommand: run }, ['gh', 'auth', 'setup-git'], { env, timeoutMs: 30_000 });
+  return setup.ok ? 'configured' : 'gh-unavailable';
 }
 
 /** Resolves a branch, tag or SHA to a commit, preferring the remote branch. */

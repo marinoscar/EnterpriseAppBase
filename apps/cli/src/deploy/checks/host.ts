@@ -1,5 +1,6 @@
 import { basename } from 'node:path';
 
+import { PROXY_COMPOSE_FILES } from '../proxy-bootstrap.js';
 import type { Check, CheckContext, CheckResult, Severity } from './types.js';
 import {
   contextFs,
@@ -480,10 +481,26 @@ const proxyContainer: Check = {
     }
 
     if (/no such (container|object)/i.test(inspect.stderr)) {
+      const fs = contextFs(context);
+      const composeFile = PROXY_COMPOSE_FILES.map((name) => `${context.proxyRoot}/${name}`).find((path) =>
+        fs.exists(path),
+      );
+      // #391: install may create the proxy -- but only in a root nobody has
+      // configured. A compose file there means the proxy is somebody's.
+      if (context.proxyBootstrap === true && composeFile === undefined) {
+        return {
+          status: 'pass',
+          detail: `no container named ${runtime.container}; install will bootstrap the shared proxy`,
+        };
+      }
       return {
         status: 'fail',
         detail: `no container named ${runtime.container}`,
-        remedy: `Bring the shared proxy up: ${start} -- or, if it runs under another name, pass --proxy-container <name>.`,
+        remedy:
+          `Bring the shared proxy up: ${start} -- or, if it runs under another name, pass --proxy-container <name>.` +
+          (composeFile === undefined
+            ? ` On a box with no proxy at all, install can create one: pass --bootstrap-proxy.`
+            : ''),
       };
     }
 

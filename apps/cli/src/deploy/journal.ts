@@ -93,8 +93,27 @@ export interface Journal {
   finish(outcome: 'success' | 'failure', summary?: string): void;
   /** The human log's path, for the "see the log" line on failure. */
   readonly path: string;
-  /** Seeded with this run's secrets; hand it to `runCommand`. */
+  /**
+   * Seeded with this run's secrets; hand it to `runCommand`.
+   *
+   * A STABLE reference: `addSecrets` widens what it redacts in place, so a
+   * `redact` already handed to a long-running command picks the new values up
+   * on its next line rather than keeping the older, narrower set.
+   */
   readonly redact: Redactor;
+  /**
+   * Registers more secret values with the redactor, from this line on.
+   *
+   * ⚠ WHY THE REDACTOR IS NO LONGER IMMUTABLE (#391). A fresh install learns
+   * its secrets from the wizard, AFTER the journal is open -- the only secrets
+   * it could be seeded with were those of an `.env` already on disk, which a
+   * first install does not have. The OAuth credential probe then sends
+   * GOOGLE_CLIENT_SECRET to Google, and an error message quoting the request
+   * would have written it into a log whose purpose is to be pasted into bug
+   * reports. Registering the wizard's secrets the moment they exist closes
+   * that. Entries already known are ignored; nothing is ever un-registered.
+   */
+  addSecrets(entries: readonly SecretEntry[]): void;
 }
 
 export interface OpenJournalOptions {
@@ -115,7 +134,11 @@ export function timestampSlug(date: Date): string {
 
 export function openJournal(options: OpenJournalOptions): Journal {
   const now = options.now ?? (() => new Date());
-  const redact = createRedactor(options.secrets ?? []);
+  const secrets: SecretEntry[] = [...(options.secrets ?? [])];
+  let current = createRedactor(secrets);
+  // One function for the whole run, delegating to the CURRENT redactor, so a
+  // reference taken before `addSecrets` still redacts what was added after.
+  const redact: Redactor = (value) => current(value);
   const warnStream = options.warnStream ?? process.stderr;
 
   const logsDir = join(options.deployRoot, 'logs');
@@ -179,6 +202,16 @@ export function openJournal(options: OpenJournalOptions): Journal {
   return {
     path: logPath,
     redact,
+
+    addSecrets(entries: readonly SecretEntry[]): void {
+      let added = false;
+      for (const entry of entries) {
+        if (secrets.some((known) => known.value === entry.value)) continue;
+        secrets.push({ key: entry.key, value: entry.value });
+        added = true;
+      }
+      if (added) current = createRedactor(secrets);
+    },
 
     step(id: string, title: string): void {
       human('');

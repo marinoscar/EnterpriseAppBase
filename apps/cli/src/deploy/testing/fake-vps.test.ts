@@ -2,6 +2,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   statSync,
@@ -14,11 +15,13 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { runStatusCommand } from '../../commands/deploy.js';
 import { isDeployment, resolveEnvPath } from '../deployment-evidence.js';
 import { parseEnvExample, parseEnvFile } from '../env-spec.js';
-import { runInstall } from '../install.js';
+import { runInstall, type InstallOptions } from '../install.js';
 import { deployStatePath, readState } from '../state.js';
 import { runUpdate } from '../update.js';
 import {
+  FAKE_GOOGLE_CLIENT_ID,
   createFakeVps,
+  fakeGoogleFetch,
   listenForProbe,
   serveHealth,
   unattendedAnswers,
@@ -84,8 +87,9 @@ afterAll(async () => {
 
 function install(
   vps: ReturnType<typeof createFakeVps>,
-  overrides: Partial<Parameters<typeof runInstall>[0]> = {},
+  extra: Partial<InstallOptions> = {},
 ) {
+  const { answers: extraAnswers, ...rest } = extra;
   return runInstall({
     deployRoot: vps.deployRoot,
     bindPort: api.port,
@@ -94,10 +98,14 @@ function install(
     repo: 'https://example.test/o/r',
     ref: 'main',
     runCommand: vps.runCommand,
+    // #391: the OAuth credential probe answers `invalid_grant` (valid
+    // credentials) without ever reaching Google; everything else is the real
+    // fetch against `serveHealth`, which also serves the sign-in smoke.
+    fetch: fakeGoogleFetch().fetch,
     // ⚠ POSTGRES_PORT carries a template default, so `unattendedAnswers` does
     // not answer it and the override above never reaches the file. Supplied
     // here instead, which is also what `--answer` does on a real run.
-    answers: new Map([...ANSWERS, ['POSTGRES_PORT', String(probe.port)]]),
+    answers: new Map([...ANSWERS, ['POSTGRES_PORT', String(probe.port)], ...(extraAnswers ?? [])]),
     nonInteractive: true,
     skipDoctor: true,
     skipProxy: true,
@@ -108,7 +116,7 @@ function install(
     // rather than about the pipeline. The one test that is about versioning
     // turns it on and builds a real repository for it.
     noVersionBump: true,
-    ...overrides,
+    ...rest,
   });
 }
 
@@ -669,5 +677,95 @@ describe('host facts and deployment history (issue #392)', () => {
 
     expect(result.changed).toBe(false);
     expect(readState(vps.deployRoot)?.history).toEqual(before?.history);
+  });
+});
+
+// =============================================================================
+// Install acting on what it used to only report  (issue #391)
+// =============================================================================
+
+describe('ensure-database, through the real pipeline', () => {
+  /** psql against the application database answers 3D000; everything else works. */
+  function vpsWithoutDatabase(): ReturnType<typeof createFakeVps> {
+    const vps = vpsWithTemplate();
+    vps.route(
+      (invocation) =>
+        invocation.argv.includes('psql') &&
+        invocation.argv.includes('appdb') &&
+        invocation.argv[invocation.argv.length - 1] === 'select 1',
+      () =>
+        vps.calls('docker', 'run').some((call) => /CREATE DATABASE/.test(call.argv.join(' ')))
+          ? { stdout: '1' }
+          : { fail: new Error('FATAL:  database "appdb" does not exist (3D000)') },
+    );
+    vps.route(
+      (invocation) => invocation.argv.includes('psql') && /rolcreatedb/.test(invocation.argv.join(' ')),
+      't',
+    );
+    return vps;
+  }
+
+  const database = new Map([['POSTGRES_DB', 'appdb']]);
+
+  it('stops a non-interactive run without --create-database, naming the flag, and creates nothing', async () => {
+    const vps = vpsWithoutDatabase();
+
+    await expect(install(vps, { answers: database })).rejects.toThrow(/--create-database/);
+
+    expect(vps.invocations.some((call) => /CREATE DATABASE/.test(call.argv.join(' ')))).toBe(false);
+    expect(readState(vps.deployRoot)?.lastFailedStep).toBe('ensure-database');
+  });
+
+  it('creates it with --create-database and carries on to a healthy stack', async () => {
+    const vps = vpsWithoutDatabase();
+
+    await install(vps, { answers: database, createDatabase: true });
+
+    const creates = vps.invocations.filter((call) => /CREATE DATABASE/.test(call.argv.join(' ')));
+    expect(creates).toHaveLength(1);
+    expect(creates[0]?.argv).toContain('postgres');
+    expect(creates[0]?.argv[creates[0].argv.length - 1]).toBe('CREATE DATABASE "appdb"');
+    expect(readState(vps.deployRoot)?.lastOutcome).toBe('success');
+  });
+});
+
+describe('the OAuth check, through the real pipeline', () => {
+  it('stops before the build on invalid_client, and the secret never reaches the log', async () => {
+    const vps = vpsWithTemplate();
+    const google = fakeGoogleFetch({ status: 401, error: 'invalid_client' });
+
+    await expect(install(vps, { fetch: google.fetch })).rejects.toThrow(/rejected the client credentials/);
+
+    expect(google.tokenRequests).toHaveLength(1);
+    expect(vps.calls('docker', 'compose').some((call) => call.argv.includes('build'))).toBe(false);
+
+    const secret = ANSWERS.get('GOOGLE_CLIENT_SECRET') as string;
+    const logs = join(vps.deployRoot, 'logs');
+    for (const name of readdirSync(logs)) {
+      expect(readFileSync(join(logs, name), 'utf8')).not.toContain(secret);
+    }
+  });
+
+  it('fails verify when the running API redirects with another client id', async () => {
+    const vps = vpsWithTemplate();
+    api.setOAuth({ clientId: 'someone-else.apps.googleusercontent.com', callbackUrl: 'https://app.example.test/api/auth/google/callback' });
+    try {
+      await expect(install(vps)).rejects.toThrow(/Sign-in is broken/);
+      expect(readState(vps.deployRoot)?.lastFailedStep).toBe('verify');
+    } finally {
+      api.setOAuth({ clientId: FAKE_GOOGLE_CLIENT_ID, callbackUrl: 'https://app.example.test/api/auth/google/callback' });
+    }
+  });
+
+  it('runs neither the probe nor the smoke with --skip-oauth-check', async () => {
+    const vps = vpsWithTemplate();
+    const google = fakeGoogleFetch({ status: 401, error: 'invalid_client' });
+    api.setOAuth(undefined);
+    try {
+      await install(vps, { fetch: google.fetch, skipOAuthCheck: true });
+      expect(google.tokenRequests).toHaveLength(0);
+    } finally {
+      api.setOAuth({ clientId: FAKE_GOOGLE_CLIENT_ID, callbackUrl: 'https://app.example.test/api/auth/google/callback' });
+    }
   });
 });

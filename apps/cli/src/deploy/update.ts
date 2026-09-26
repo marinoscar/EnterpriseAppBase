@@ -21,7 +21,8 @@ import { writeEnvFile } from './env-file.js';
 import { metadataFor, type EnvGroup } from './env-metadata.js';
 import { runEnvWizard } from './env-wizard.js';
 import { runCommand as defaultRunCommand } from './executor.js';
-import { collectHealth, isHealthy, waitForHealthy } from './health.js';
+import { ensureDatabase } from './database.js';
+import { collectHealth, isHealthy, waitForHealthy, type FetchLike } from './health.js';
 import type { DeployHooks } from './hooks.js';
 import { openJournal, type Journal } from './journal.js';
 import {
@@ -54,7 +55,16 @@ import {
 import { writeDeployInfo, type DeployInfoInput } from './deploy-info.js';
 import { collectHostFacts } from './host-facts.js';
 import { observeProxy, proxyInfoOf } from './run-record.js';
-import { composeArgv, composeCwd, composeProjectFor, secretsFrom } from './install.js';
+import {
+  composeArgv,
+  composeCwd,
+  composeProjectFor,
+  consentOptions,
+  oauthSmokeTarget,
+  reportOAuthSmoke,
+  scheduleRenewal,
+  secretsFrom,
+} from './install.js';
 import type { PromptContext } from '../prompt.js';
 
 // =============================================================================
@@ -116,6 +126,16 @@ export interface UpdateOptions {
   appVersion?: string | undefined;
   /** Deploy the clone's current version unchanged: no write, no commit, no push. */
   noVersionBump?: boolean | undefined;
+  /** `--create-database`; see InstallOptions.createDatabase. */
+  createDatabase?: boolean | undefined;
+  /** `--skip-renewal`; see InstallOptions.skipRenewal. */
+  skipRenewal?: boolean | undefined;
+  /** `--skip-oauth-check`: no post-deploy OAuth smoke. */
+  skipOAuthCheck?: boolean | undefined;
+  /** The HTTP client for the health/OAuth smoke. Test seam. */
+  fetch?: FetchLike | undefined;
+  /** Replaces the terminal yes/no question for the consent gates. Test seam. */
+  ask?: ((question: string) => Promise<boolean>) | undefined;
 }
 
 interface UpdateContext extends StepContext {
@@ -486,6 +506,30 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
       },
     },
     {
+      id: 'ensure-database',
+      title: 'Make sure the database exists',
+      skip: skipWhenUnchanged,
+      async run(context) {
+        // #391: the same gate install uses. A database that vanished (a
+        // restore gone wrong, a renamed POSTGRES_DB) is otherwise found by the
+        // migration, with the api container already stopped.
+        const env = context.env;
+        if (env === undefined) {
+          context.journal.line('No environment file; nothing to check.');
+          return;
+        }
+        const result = await ensureDatabase({
+          env,
+          runCommand: context.runCommand,
+          createDatabase: context.options.createDatabase,
+          ...consentOptions(context),
+          onLine: (line) => context.journal.line(line),
+        });
+        context.journal.line(result.detail);
+        if (result.outcome === 'created') context.hooks?.onProgress?.(result.detail);
+      },
+    },
+    {
       id: 'version',
       title: 'Choose the release version',
       // ⚠ `skipWhenUnchanged` FIRST, and it is load-bearing. An update that
@@ -715,6 +759,30 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
       },
     },
     {
+      id: 'renewal',
+      title: 'Schedule certificate renewal',
+      skip: (context) => {
+        if (context.unchanged === true) return 'already up to date';
+        if (context.options.skipRenewal === true) return 'skipped with --skip-renewal';
+        if (context.options.skipProxy === true) return 'skipped with --skip-proxy';
+        if (context.state.domain === undefined) return 'this deployment is not published';
+        return undefined;
+      },
+      async run(context) {
+        const proxyRoot = proxyRootFor(context);
+        const status = certificateStatus({
+          domain: context.state.domain as string,
+          bindPort: context.state.bindPort,
+          proxyRoot,
+        });
+        if (!status.exists) {
+          context.journal.line(`No certificate at ${status.path}; nothing to renew yet.`);
+          return;
+        }
+        await scheduleRenewal(context, proxyRoot, await proxyRuntimeOf(context));
+      },
+    },
+    {
       id: 'verify',
       title: 'Verify the deployment',
       skip: skipWhenUnchanged,
@@ -729,6 +797,8 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
           ...(context.state.domain === undefined || context.options.skipProxy === true
             ? {}
             : { domain: context.state.domain }),
+          ...(context.options.fetch === undefined ? {} : { fetch: context.options.fetch }),
+          ...oauthSmokeTarget(context.options.skipOAuthCheck, context.env),
         });
 
         if (!isHealthy(report)) {
@@ -736,6 +806,8 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
             `The stack restarted but is not healthy. Run \`${CLI_NAME} deploy status\` for the detail.`,
           );
         }
+
+        reportOAuthSmoke(context, report.oauth);
       },
     },
     {

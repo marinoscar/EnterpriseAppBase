@@ -304,3 +304,38 @@ describe('timestampSlug', () => {
     expect(earlier < later).toBe(true);
   });
 });
+
+describe('Journal.addSecrets (#391)', () => {
+  it('redacts values registered after the journal was opened, through the same redact reference', () => {
+    const root = makeRoot();
+    const journal = openJournal({ deployRoot: root, command: 'install' });
+    // Taken BEFORE the secret exists, as runCommand is handed it.
+    const redact = journal.redact;
+
+    journal.line('before: GOCSPX-late-secret');
+    journal.addSecrets([{ key: 'GOOGLE_CLIENT_SECRET', value: 'GOCSPX-late-secret' }]);
+    journal.line('after: GOCSPX-late-secret');
+    journal.finish('success');
+
+    expect(redact('x GOCSPX-late-secret y')).toBe('x ***REDACTED:GOOGLE_CLIENT_SECRET*** y');
+    const log = readFileSync(journal.path, 'utf8');
+    expect(log).toContain('after: ***REDACTED:GOOGLE_CLIENT_SECRET***');
+  });
+
+  it('keeps the secrets it was seeded with, and ignores a value it already knows', () => {
+    const root = makeRoot();
+    const journal = openJournal({
+      deployRoot: root,
+      command: 'install',
+      secrets: [{ key: 'JWT_SECRET', value: 'seeded-secret-value' }],
+    });
+    journal.addSecrets([
+      { key: 'JWT_SECRET', value: 'seeded-secret-value' },
+      { key: 'POSTGRES_PASSWORD', value: 'added-password' },
+    ]);
+
+    expect(journal.redact('seeded-secret-value added-password')).toBe(
+      '***REDACTED:JWT_SECRET*** ***REDACTED:POSTGRES_PASSWORD***',
+    );
+  });
+});

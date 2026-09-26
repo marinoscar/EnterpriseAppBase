@@ -46,6 +46,7 @@ describe('the install pipeline', () => {
       'checkout',
       'environment',
       'validate-environment',
+      'ensure-database',
       'version',
       'build',
       'migrate',
@@ -53,7 +54,9 @@ describe('the install pipeline', () => {
       'start',
       'health',
       'deploy-info',
+      'proxy-bootstrap',
       'publish',
+      'renewal',
       'verify',
       'publish-version',
     ]);
