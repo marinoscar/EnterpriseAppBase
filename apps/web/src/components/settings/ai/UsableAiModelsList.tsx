@@ -5,9 +5,7 @@
  * capability chips; "via organization key" marks a model the caller reaches
  * only through the organisation's key (`keySource: 'org'`).
  *
- * The chips are a deliberately minimal LOCAL rendering. #429 (admin AI pages)
- * is built in parallel and may ship a shared `components/ai/AiCapabilityChips`;
- * whichever story lands second dedupes into it (see the #430 issue text).
+ * The chips are the shared `components/ai/AiCapabilityChips` (#429 dedupe).
  */
 import {
   Alert,
@@ -23,6 +21,7 @@ import {
   Typography,
 } from '@mui/material';
 import type { UsableAiModel } from '../../../services/ai';
+import { AiCapabilityChips } from '../../ai/AiCapabilityChips';
 
 export interface UsableAiModelsListProps {
   models: UsableAiModel[];
@@ -30,17 +29,6 @@ export interface UsableAiModelsListProps {
   error: string | null;
   /** Provider id → display name, for the group headings. */
   providerNames: Record<string, string>;
-}
-
-function CapabilityChips({ capabilities }: { capabilities: string[] }) {
-  if (capabilities.length === 0) return null;
-  return (
-    <Stack sx={{ flexWrap: 'wrap' }} direction="row" spacing={0.5} useFlexGap>
-      {capabilities.map((capability) => (
-        <Chip key={capability} size="small" variant="outlined" label={capability.replace(/_/g, ' ')} />
-      ))}
-    </Stack>
-  );
 }
 
 export function UsableAiModelsList({ models, isLoading, error, providerNames }: UsableAiModelsListProps) {
@@ -115,7 +103,7 @@ export function UsableAiModelsList({ models, isLoading, error, providerNames }: 
                         )}
                       </Stack>
                       <Box sx={{ mt: 0.5 }}>
-                        <CapabilityChips capabilities={model.capabilities.capabilities} />
+                        <AiCapabilityChips capabilities={model.capabilities.capabilities} />
                       </Box>
                     </ListItem>
                   ))}

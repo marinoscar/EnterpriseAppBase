@@ -46,6 +46,7 @@ import {
 import { Link as RouterLink, Navigate } from 'react-router-dom';
 import { usePermissions } from '../hooks/usePermissions';
 import { useUserSettings } from '../hooks/useUserSettings';
+import type { UserSettings } from '../types';
 import { useAiChat, type AiChatRequestOptions } from '../hooks/useAiChat';
 import { useAiRun } from '../hooks/useAiRun';
 import { useAiConfig } from '../hooks/useAiConfig';
@@ -71,14 +72,6 @@ import {
 
 type ReasoningEffort = NonNullable<NonNullable<AiResponseRequest['reasoning']>['effort']>;
 const REASONING_EFFORTS: ReasoningEffort[] = ['minimal', 'low', 'medium', 'high'];
-
-/**
- * `user_settings.ai.defaultModel` (docs/specs/ai-platform.md §2), read
- * structurally: the typed field is added to `UserSettings` by #430.
- */
-interface WithAiDefault {
-  ai?: { defaultModel?: { provider: string; modelId: string } | null };
-}
 
 interface PlaygroundControls {
   instructions: string;
@@ -188,7 +181,9 @@ export default function AiPlaygroundPage() {
   // Default selection: the user's saved default when it is usable here, else the first pickable model.
   useEffect(() => {
     if (modelKey || modelsLoading || settingsLoading || pickable.length === 0) return;
-    const preferred = (settings as WithAiDefault | null)?.ai?.defaultModel;
+    // `user_settings.ai.defaultModel` (docs/specs/ai-platform.md §2), typed
+    // by `UserSettings['ai']` (#430).
+    const preferred: NonNullable<UserSettings['ai']>['defaultModel'] = settings?.ai?.defaultModel;
     const match = preferred ? pickable.find((model) => aiModelKey(model) === aiModelKey(preferred)) : undefined;
     setModelKey(aiModelKey(match ?? pickable[0]));
   }, [modelKey, modelsLoading, settingsLoading, pickable, settings]);
