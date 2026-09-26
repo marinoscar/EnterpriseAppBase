@@ -115,7 +115,17 @@ describe('useAiChat', () => {
 
     expect(result.current.isStreaming).toBe(false);
     expect(assistant(result)).toMatchObject({ status: 'stopped', text: 'Once upon' });
-    await waitFor(() => expect(stream.requests[0].signal.aborted).toBe(true));
+    // `clientSignal` is the exact AbortSignal the hook passed to `fetch` — the
+    // same object `stop()`'s AbortController owns — so it flips synchronously
+    // with `abort()`, no `waitFor` needed (issue #483).
+    expect(stream.requests[0].clientSignal.aborted).toBe(true);
+    // Secondary, network-side proof that the abort actually reached the
+    // intercepted request and not just the app's own controller. MSW's fetch
+    // interceptor links its own Request's signal to the caller's ASYNCHRONOUSLY,
+    // so this can lag the synchronous assertion above under CI/CPU load — a
+    // generous timeout here is safe precisely because the assertion above
+    // already proves the abort happened; this one is only checking propagation.
+    await waitFor(() => expect(stream.requests[0].signal.aborted).toBe(true), { timeout: 5000 });
 
     // Anything that still arrives is ignored.
     act(() => stream.push({ type: 'output_text.delta', delta: ' a time' }));
