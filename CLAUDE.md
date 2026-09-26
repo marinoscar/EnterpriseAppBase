@@ -387,9 +387,11 @@ is [`docs/runbooks/ai-configuration.md`](docs/runbooks/ai-configuration.md).
    keeps every SDK out of `ai/core`, and each provider's SDK is pinned to its
    own folder — `@anthropic-ai/sdk` by
    `providers/anthropic/anthropic-sdk-boundary.spec.ts` (#446), `@google/genai`
-   by `providers/gemini/gemini-sdk-boundary.spec.ts` (#447); a further
-   provider's SDK gets the identical pin when its adapter is added (§14 of
-   the spec).
+   by `providers/gemini/gemini-sdk-boundary.spec.ts` (#447), and `openai` —
+   shared by the OpenAI, Azure OpenAI and OpenAI-compatible adapters — to
+   those three folders by `providers/openai/openai-sdk-boundary.spec.ts`
+   (#448); a further provider's SDK gets the identical pin when its adapter
+   is added (§14 of the spec).
 2. **Never call AI from the browser; keys never leave the server.** Every
    provider call happens server-side, under a key `AiKeyResolver` resolved
    for that call — the admin/org key or a user's own BYOK key
@@ -719,14 +721,14 @@ model catalog, all editable with no restart at `/admin/settings/ai` and
 `/admin/settings/ai/models`. `@ApiTags('AI Administration')`. See
 [`docs/specs/ai-platform.md`](docs/specs/ai-platform.md) and
 [`docs/runbooks/ai-configuration.md`](docs/runbooks/ai-configuration.md).
-- `GET /api/admin/ai/config` - The `ai` namespace plus one entry per provider (`enabled`, `baseUrl`, capabilities, masked `keyStatus`); the admin key itself is never returned (`ai_config:read`)
+- `GET /api/admin/ai/config` - The `ai` namespace plus one entry per provider (`enabled`, `baseUrl`, capabilities, masked `keyStatus`, and — #448 — `settingsFields` plus `apiVersion`/`apiStyle`/`deployments`/`requiresKey`, `null` where unset); the admin key itself is never returned (`ai_config:read`)
 - `PUT /api/admin/ai/config` - Full replace of the non-secret configuration, including the `hostedTools` switches and MCP host allowlist (#442) and the `limits` rate limits/output caps (#450: `perUser`, `orgKey`, `perModel['<provider>:<modelId>']`, all optional, absent = unlimited; sent whole, so `{}` lifts them all) — like `usageRetentionDays`, each omitted keeps the stored value; `If-Match` version check (`ai_config:write`)
 - `PUT /api/admin/ai/providers/{provider}/key` - Set/replace the admin (org) key; verified against the provider first, 400 `AI_KEY_INVALID` and nothing stored on rejection (`ai_config:write`)
 - `DELETE /api/admin/ai/providers/{provider}/key` - Remove the admin key; body `{"confirmation":"REMOVE"}`, warns if this leaves `byok_with_org_fallback` with no fallback (`ai_config:write`)
 - `POST /api/admin/ai/providers/{provider}/test` - Three checks — `credentials`, `list_models`, `responses_smoke` (a real, billed call) — against the submitted or stored key; always 200, read `success` (`ai_config:write`)
 - `GET /api/admin/ai/models` - Paginated model catalog, filterable by provider/capability/enabled/deprecated (`ai_config:read`)
 - `PATCH /api/admin/ai/models/{id}` - Enable/disable a model or override its capabilities; sets `capabilitySource: "admin_override"` (`ai_config:write`)
-- `POST /api/admin/ai/models/refresh` - Enqueue `ai.catalog.refresh` for one provider using the admin key; 409 with no admin key configured (`ai_config:write`)
+- `POST /api/admin/ai/models/refresh` - Enqueue `ai.catalog.refresh` for one provider using the admin key; 409 with no admin key configured, unless the provider is keyless (`requiresKey: false`, #448) (`ai_config:write`)
 - `GET /api/admin/ai/usage?from&to&groupBy&userId&provider&model` - Usage report over `ai_usage_events`: `{ range, groupBy, totals, series[{ key, label, … }] }`, grouped by `day|user|model|provider|keySource` (user labels are emails), with an `orgKey*` subtotal; UTC days, default 30, max 90 (`ai_config:read`). Rows are purged after `ai.usageRetentionDays` (default 180) by the daily `ai.usage.purge` job
 
 ### AI
@@ -735,7 +737,7 @@ The caller's own AI surface: usable models, BYOK keys, and calling AI itself.
 `AiEnabledGuard` (403 `details.reason: "AI_DISABLED"` while AI is off) and
 requires `ai:use`. See
 [`docs/specs/ai-platform.md`](docs/specs/ai-platform.md).
-- `GET /api/ai/config` - Whether AI is enabled, the key policy, `allowBackgroundRuns` (whether `POST /api/ai/runs` accepts a request at all), `hostedTools` (which hosted tool types are switched on, booleans only — #442), and which providers are enabled/carry an org key/`supportsPreviousResponseId` (false for Anthropic and Gemini: send the conversation as `input`, #446/#447); reachable while AI is disabled — how a client learns to hide its AI surfaces (any authenticated user, no `ai:use` required)
+- `GET /api/ai/config` - Whether AI is enabled, the key policy, `allowBackgroundRuns` (whether `POST /api/ai/runs` accepts a request at all), `hostedTools` (which hosted tool types are switched on, booleans only — #442), and which providers are enabled/carry an org key/`supportsPreviousResponseId` (false for Anthropic, Gemini, Azure OpenAI and OpenAI-compatible: send the conversation as `input`, #446/#447/#448); reachable while AI is disabled — how a client learns to hide its AI surfaces (any authenticated user, no `ai:use` required)
 - `GET /api/ai/keys` - List the caller's provider keys, masked (`ai:use`)
 - `PUT /api/ai/keys/{provider}` - Set/replace the caller's key; verified against the provider first, then reachable models computed, then stored (`ai:use`)
 - `DELETE /api/ai/keys/{provider}` - Remove the caller's key; 204, idempotent (`ai:use`)
@@ -917,7 +919,8 @@ requires `ai:use`. See
   reason other state-machine columns in this schema are.
 - `ai_usage_events` - One row per provider round-trip (success, failure or cancellation;
   epic #419) — `userId` nullable/`SetNull` for a system-initiated catalog sync, `keySource`
-  (`user|org|admin_discovery`) records whose key paid, `operation`
+  (`user|org|none|admin_discovery`; `none` — #448 — for a keyless OpenAI-compatible server
+  the administrator marked `requiresKey: false`) records whose key paid, `operation`
   (`responses|images|audio.transcribe|audio.speech|embeddings|catalog`) is a plain string
   for the same reason `AiUsageEvent.operation`'s own comment gives: a new operation kind
   must cost zero migrations here. Token columns are all nullable (not every operation or
@@ -1347,7 +1350,8 @@ round-trip, and traces the call. A call over a limit throws
 - **`respond(req, opts?)`** — one response. `req.input` is a string or
   `AiInputItem[]` (text/image/file parts); `opts.signal` aborts it.
   `req.previousResponseId` chains onto an earlier response only on a
-  provider that stores them (OpenAI); Anthropic and Gemini refuse it with
+  provider that stores them (OpenAI); Anthropic, Gemini, Azure OpenAI and
+  OpenAI-compatible refuse it with
   `AI_CAPABILITY_UNSUPPORTED` — send the conversation as `input` instead
   (`runTools` already does, spec §5.7).
 - **`stream(req, opts?)`** — an `AsyncIterable<AiStreamEvent>`. Lazy: a gate
@@ -1441,7 +1445,11 @@ every port), `apps/api/src/ai/providers/anthropic/` (Messages API,
 `responses` only, stateless — issue #446, spec §14.1) and
 `apps/api/src/ai/providers/gemini/` (`generateContent`, `responses` +
 `embeddings`, stateless, metadata-enriched classifier — issue #447, spec
-§14.2).
+§14.2). A server speaking OpenAI's wire protocol is a composition of the
+first instead: `providers/azure-openai/` and `providers/openai-compatible/`
+(issue #448, spec §14.3) reuse the OpenAI adapter's shared mappers and
+engines (Responses and Chat Completions) with their own client factory and
+per-slot settings, passed to an adapter as `AiCallContext.providerSettings`.
 
 1. **Implement `AiProviderAdapter`** (`ai/core/provider-adapter.interface.ts`)
    in its own `apps/api/src/ai/providers/<provider>/` folder: `id` (permanent

@@ -84,7 +84,14 @@ through `SystemSettingsService`) holds everything that is *not* secret:
 { enabled: boolean /*false*/,
   keyPolicy: 'byok' | 'byok_with_org_fallback' /*'byok'*/,
   providers: { openai:    { enabled: boolean /*false*/, baseUrl?: string },
-               anthropic: { enabled: boolean /*false*/, baseUrl?: string } /*§14.1, #446*/ },
+               anthropic: { enabled: boolean /*false*/, baseUrl?: string } /*§14.1, #446*/,
+               gemini:    { enabled: boolean /*false*/, baseUrl?: string } /*§14.2, #447*/,
+               'azure-openai': { enabled: boolean /*false*/, baseUrl?: string /*https*/,
+                                 apiVersion?: string, apiStyle?: 'responses' | 'chat_completions',
+                                 deployments?: Record<modelId, deploymentName> } /*§14.3, #448*/,
+               'openai-compatible': { enabled: boolean /*false*/, baseUrl?: string /*http(s)*/,
+                                      apiStyle?: 'responses' | 'chat_completions',
+                                      requiresKey?: boolean } /*§14.3, #448*/ },
   defaults: { maxOutputTokensCap?: number, allowBackgroundRuns: boolean /*true*/ },
   logPromptContent: boolean /*false*/,
   usageRetentionDays: number /*180, 1–3650 — §12, #443*/,
@@ -147,11 +154,23 @@ implemented, and every caller — the runtime facade (§9's `AiService`), the
 usable-models computation (§7) — goes through it rather than re-deriving it:
 
 ```ts
-resolve(userId, provider): Promise<{ apiKey: string; keySource: 'user' | 'org' }>
+resolve(userId, provider): Promise<{ apiKey: string; keySource: 'user' | 'org' | 'none' }>
+// 0. provider slot says requiresKey: false (#448)        -> { none }  (AI_KEYLESS_API_KEY)
 // 1. user key exists                                    -> { user }
 // 2. policy 'byok_with_org_fallback' AND org key exists  -> { org }
 // 3. otherwise                                           -> throw AiError('AI_KEY_REQUIRED')
 ```
+
+**Rule 0 is an administrator's opt-in, never a fallback** (#448, §14.3).
+Only the `openai-compatible` slot has a `requiresKey` field, and only an
+administrator (`ai_config:write`) can set it to `false` — for a self-hosted
+server (Ollama, vLLM, LM Studio) that authenticates nobody. No key is read
+or decrypted; the call carries the `AI_KEYLESS_API_KEY` marker
+(`ai/core/provider-adapter.interface.ts`), which the adapter turns into **no
+credential on the wire**, and the usage row says `keySource: 'none'`. It
+precedes rule 1 (the server would ignore a user's key anyway) and holds under
+either key policy: `byok` promises that only a user's own provider account
+is *billed*, and a keyless server bills no account.
 
 **Under `keyPolicy = 'byok'` the org/admin key must never be returned by this
 method, full stop** — not as a convenience, not as a "just this once" for an
@@ -164,9 +183,9 @@ records **zero** calls with the org key") is listed once, here, and again
 verbatim in #431's and #432's acceptance criteria, precisely because two
 independent stories both depend on it holding.
 
-`ai_usage_events.keySource` records which of the three values actually
-resolved a given call: `'user'`, `'org'`, or `'admin_discovery'` (§12) — the
-third is reserved for calls the *platform itself* makes with the admin key
+`ai_usage_events.keySource` records which value actually resolved a given
+call: `'user'`, `'org'`, `'none'` (a keyless provider, #448), or
+`'admin_discovery'` (§12) — the last is reserved for calls the *platform itself* makes with the admin key
 (catalog sync) and is never a value `AiKeyResolver` returns to a runtime
 caller.
 
@@ -760,8 +779,10 @@ a key that lacks GPT-4-class access must not advertise those models as
 usable just because an administrator enabled them). If the user has *no*
 key and the deployment's `keyPolicy = 'byok_with_org_fallback'`, every
 admin-enabled, non-deprecated model for that provider is usable, with
-`keySource: 'org'`. Otherwise, that provider contributes nothing to the
-user's usable set.
+`keySource: 'org'`. If the provider is keyless (`requiresKey: false`, §3
+rule 0, #448), every admin-enabled, non-deprecated model for it is usable by
+everyone, with `keySource: 'none'`. Otherwise, that provider contributes
+nothing to the user's usable set.
 
 `UsableModelsService.assertUsable(userId, provider, modelId, capability?)` is
 the single-model form of the same check, called by the runtime facade's
@@ -1064,7 +1085,7 @@ subtotal — what the organization key paid for. Keys: `day` →
 `YYYY-MM-DD` (chronological, **zero-filled** across the range); `user` → the
 user id (label: the **email**; no-user rows key `system`); `model` →
 `<provider>:<modelId>` (label: the model id); `provider` → the id (label:
-the adapter's display name); `keySource` → `user`/`org`/`admin_discovery`.
+the adapter's display name); `keySource` → `user`/`org`/`none`/`admin_discovery`.
 Non-day series are ordered by `requests` descending. Default range is the
 last 30 days; more than 90 days, or `from` after `to`, is a **400**
 `AI_USAGE_RANGE_INVALID` — refused, never clamped. Totals and groups come
@@ -1132,11 +1153,25 @@ one HTTP status:
 | `AI_CAPABILITY_UNSUPPORTED` | 400 | The model/provider lacks a capability the request needs (§4) — including `previousResponseId` on a provider that stores no responses (`details.capability: "previous_response_id"`, §5.7). |
 | `AI_TOOL_DISABLED` | 403 | A hosted tool type an administrator has not switched on, or an MCP server host outside `ai.hostedTools.mcpAllowedHosts` (§5.4). |
 | `AI_RATE_LIMITED` | 429 | The provider rate-limited the call, **or** a deployment limit in `ai.limits` was reached (§15 — then `details.limit` names it, with `details.max` and `details.window`); convertible to the queue's `RateLimitError` via `toRateLimitError()` so a job defers rather than burning an attempt. `details.retryAfterMs` (and, over HTTP, a `Retry-After` header in whole seconds, rounded up) says when to retry, whenever it is known. |
-| `AI_PROVIDER_UNAVAILABLE` | 503 | The provider is unreachable or erroring at the transport level. |
+| `AI_PROVIDER_UNAVAILABLE` | 503 | The provider is unreachable or erroring at the transport level — including, for the #448 adapters, an endpoint that answered with a **redirect** (`details.providerCode: "redirect_refused"`, `details.status` the 3xx; never followed, its `Location` never echoed) and a slot with no endpoint at all (`details.missing: "baseUrl"`), §14.3. |
 | `AI_CONTENT_FILTERED` | 422 | The provider's own content filter rejected the request or response. |
 | `AI_INVALID_REQUEST` | 400 | The request itself is malformed (e.g. no model selected and no default set). |
 | `AI_STRUCTURED_OUTPUT_INVALID` | 502 | The model's output failed to parse against the requested schema. |
 | `AI_STORAGE_UNAVAILABLE` | 503 | An operation whose inputs or outputs are storage objects (§5.2, §5.3) met unconfigured or unwritable object storage (or storage that cannot presign an input); an administrator fixes it at `/admin/settings/storage`. Seen as a background run's `errorCode`, or directly on a synchronous response with a stored input. |
+
+**Admin configuration refusals (#448).** `PUT /api/admin/ai/config`
+validates each provider's settings against that provider's own slot schema
+before anything is written. These are ordinary `400`s (not `AiError`s),
+with the reason in `details.reason` and the provider in `details.provider`:
+
+| `details.reason` | When |
+|---|---|
+| `AI_UNKNOWN_PROVIDER` | The body names a provider id with no settings slot. |
+| `AI_PROVIDER_NOT_REGISTERED` | Enabling a provider no adapter is registered for. |
+| `AI_KEY_REQUIRED` | `byok_with_org_fallback` while an enabled, key-requiring provider has no admin key (a keyless provider is exempt). |
+| `AI_PROVIDER_FIELD_UNSUPPORTED` | A value for a field the provider's slot does not have (`details.field`) — e.g. `requiresKey` on `openai`. An empty/null value is simply absent. |
+| `AI_PROVIDER_SETTINGS_INVALID` | The built slot fails its schema (`details.fields`): a non-`https` Azure endpoint, credentials or a fragment in a URL, a malformed `apiVersion` or deployment name. |
+| `AI_BASE_URL_REQUIRED` | Enabling `azure-openai` or `openai-compatible` without a `baseUrl` — neither has a default host. |
 
 `AiError` follows the `StorageNotConfiguredError` style already established
 in this codebase: it serializes through the global `HttpExceptionFilter` as
@@ -1207,7 +1242,11 @@ There are three worked examples, deliberately different in shape:
 `providers/openai/` (the Responses API — every port, chaining),
 `providers/anthropic/` (the Messages API — `responses` only, stateless) and
 `providers/gemini/` (`generateContent` — `responses` and `embeddings`,
-stateless, part-level replay state, metadata-enriched classifier).
+stateless, part-level replay state, metadata-enriched classifier). A
+provider that speaks OpenAI's wire protocol is not a fourth shape but a
+composition of the first: `providers/azure-openai/` and
+`providers/openai-compatible/` (§14.3) reuse the OpenAI adapter's mappers
+and engines with their own client factory and settings.
 
 ### 14.1 The Anthropic adapter (Phase 3, issue #446)
 
@@ -1479,20 +1518,201 @@ with a user turn, a function-response turn immediately after its call turn
 with one response per call, `thinkingConfig` only on thinking models, no
 JSON response together with function calling on Gemini 2.5.
 
+### 14.3 The OpenAI-compatible adapters: Azure OpenAI and generic servers (Phase 3, issue #448)
+
+Enterprise deployments frequently must use **Azure OpenAI** (data
+residency, an existing enterprise agreement) or a **self-hosted** model
+server — Ollama, vLLM, LM Studio, llama.cpp's server, a LiteLLM gateway —
+that exposes OpenAI's API at its own base URL. Two adapters cover them:
+`azure-openai` ("Azure OpenAI") and `openai-compatible`
+("OpenAI-compatible"). Neither is a new mapping. Both are **compositions of
+the OpenAI adapter's own pieces**, extracted into shared helpers under
+`providers/openai/` rather than copied (the OpenAI adapter's behaviour and
+tests are unchanged by the extraction):
+
+| Shared piece (`providers/openai/`) | What it is |
+|---|---|
+| `openai-errors.ts` — `OpenAiFamily` | `{ providerId, label }`: the one thing that differs in an error or a response between family members — the provider id stamped on `details`/`AiResponse.provider` and the name in the generic, secret-free messages. Every mapper takes it, defaulting to OpenAI. |
+| `openai-responses.engine.ts` | `create`/`stream` against `POST /responses`, with the #441 storage delivery and an optional **wire model** (an Azure deployment name). |
+| `openai-chat-completions.mapper.ts` / `-stream.mapper.ts` / `.engine.ts` | The **Chat Completions** path (below) — new in #448, shared by both adapters. |
+| `openai-call-telemetry.ts` | The `ai.provider.call` span and debug line (§12). |
+| `openai-client.factory.ts` — `pinnedOpenAiClientOptions` | Every SDK option pinned: no `OPENAI_*` environment read, `maxRetries: 0`, no SDK logging. |
+| `openai-redirect-guard.ts` — `noRedirectFetch` | The SSRF control below. |
+| `openai-embeddings.mapper.ts` | `/embeddings`, reused by both adapters' embeddings port. |
+
+`openai-sdk-boundary.spec.ts` pins the `openai` package to exactly these
+three directories (`openai/`, `azure-openai/`, `openai-compatible/`).
+
+**Settings** (§2). Each adapter's slot extends the common `{ enabled,
+baseUrl? }`, and the runtime hands every non-secret field besides `enabled`
+and `baseUrl` to the adapter as `AiCallContext.providerSettings`, which the
+adapter reads with its own schema and defaults (`providerCallSettings(slot)`
+in `ai-config.service.ts` builds both for every call site: the facade, the
+catalog sync, the admin key verification and connection test, and the user
+key probe):
+
+| Slot | Field | Meaning | Default |
+|---|---|---|---|
+| `azure-openai` | `baseUrl` | The resource endpoint, `https://<resource>.openai.azure.com` (the adapter appends `/openai`, once). **https only.** Named `baseUrl` like every slot, so every generic consumer handles it with no Azure special case. | none — required to enable |
+| | `apiVersion` | The `api-version` query value. | `2025-04-01-preview` (`AZURE_OPENAI_DEFAULT_API_VERSION`) |
+| | `apiStyle` | `responses` or `chat_completions`. | `responses` — current api-versions serve the Responses API |
+| | `deployments` | `Record<modelId, deploymentName>`; replaced whole on write. | none — each model id is sent as its own deployment name |
+| `openai-compatible` | `baseUrl` | The server's API root **including** its version segment (`http://ollama.internal:11434/v1`). **http or https.** | none — required to enable |
+| | `apiStyle` | `chat_completions` or `responses`. | `chat_completions` — what every compatible server serves |
+| | `requiresKey` | `false` is the administrator's opt-in to a **keyless** server (below). | `true` |
+
+The admin view (`GET /api/admin/ai/config`) reports each provider's
+`settingsFields` (read off its slot schema) and the stored `apiVersion`,
+`apiStyle`, `deployments`, `requiresKey` (`null` when unset, i.e. the
+default); `PUT` accepts them per provider and refuses a field the provider
+does not have, a slot that fails its schema, or enabling either adapter with
+no endpoint — the §13 admin refusal table.
+
+**Azure OpenAI** (`providers/azure-openai/`).
+
+- *Client*: one `AzureOpenAI` per call with `baseURL: <endpoint>/openai`,
+  the slot's `apiVersion` and the key in Azure's **`api-key` header**.
+  `baseURL`, `apiVersion` and `apiKey` are always explicit: `AzureOpenAI`
+  falls back to `OPENAI_BASE_URL` / `OPENAI_API_VERSION` /
+  `AZURE_OPENAI_API_KEY`, and an ambient variable on a host must not move or
+  break a call (a spec pins this with the variables set).
+- *Deployments*: Azure routes by **deployment name**. A model id is looked
+  up in `deployments` and falls back to itself (Azure's common convention of
+  naming a deployment after its model); the deployment goes on the wire
+  (the body's `model` for the Responses API, `/deployments/<name>/…` for
+  Chat Completions and embeddings), while the model id stays what
+  classification, telemetry, usage rows and the neutral response use.
+- *Model list*: `GET /openai/models` is always called (it is also how a key
+  is verified). With a `deployments` map configured, **its keys are the
+  model list** — Azure's data plane cannot enumerate a resource's
+  deployments, and the listing it does return names every model the region
+  offers, deployed or not. Without a map the listing is returned as-is and
+  the administrator enables what is deployed.
+- *Classifier*: Azure models are OpenAI models, so ids classify with
+  OpenAI's own table (`classifyOpenAiModel`) **minus `hosted_tools`**; an id
+  the table does not know (`gpt-35-turbo`, a custom map key) is
+  unclassified.
+- *Ports*: `responses` and `embeddings`. Images and audio are absent for now
+  (their Azure routing differs per api-version).
+- *Storage inputs* (§5.3): images by `presigned_url`, files `inline`.
+
+**OpenAI-compatible** (`providers/openai-compatible/`).
+
+- *Client*: the OpenAI SDK per call at `baseUrl`, key as a bearer token
+  (what vLLM's `--api-key`, LM Studio and most gateways check).
+- *Model list*: `GET {baseUrl}/models`. **`classifyModel` answers `null` for
+  every id**: a compatible server's ids (`llama3.1:8b`,
+  `Qwen/Qwen2.5-7B-Instruct`) say nothing reliable about capabilities, so
+  every discovered model is stored `unclassified` and an administrator
+  declares it in the Models UI (an `admin_override`, §6) before enabling it.
+  The conformance kit's `classifyModel` scenario is skipped for this reason
+  (it needs at least one classified id); the adapter's own spec pins `null`.
+- *Ports*: `responses` and `embeddings` (`POST {baseUrl}/embeddings`, which
+  Ollama, vLLM and LM Studio serve, through the shared mapper).
+- *Storage inputs*: `inline` for both modalities — a self-hosted server
+  usually cannot reach this deployment's object storage, and `data:` images
+  are what Ollama and vLLM accept.
+- *Token limit parameter*: `max_tokens` (Azure's Chat Completions path uses
+  `max_completion_tokens`, its current name and the only one its reasoning
+  deployments accept).
+
+**The Chat Completions mapper** — graceful degradation. Compatible servers
+nearly always serve `POST /chat/completions` and rarely the Responses API.
+`instructions` become a leading `system` message; `developer` turns are sent
+as `system` (compatible servers rarely know the role); image parts become
+`image_url` (a URL, presigned URL or `data:` URL) and file parts `file` with
+inline `file_data` or a `file_id` (a remote file URL is refused);
+function tools become `tools[].function` with the Zod schema's JSON Schema;
+a replayed tool round-trip becomes `tool_calls` on the preceding assistant
+turn and one `tool` message per output; replayed `reasoning` items are
+dropped; structured output becomes `response_format: { type: 'json_schema',
+json_schema: { name, schema, strict } }`, then `parseStructured` (§5).
+Streaming asks for `stream_options: { include_usage: true }` so the last
+chunk carries token usage; the stream mapper accumulates text and
+tool-call-argument deltas (keyed by the call id each call announced in its
+first fragment) and completes through the same `fromChatCompletion` the
+non-streamed path uses, so both paths agree on what a response means and a
+stream that ends without a finish reason is failed as truncated. Refused
+with `AI_CAPABILITY_UNSUPPORTED`: a reasoning **effort** (Chat Completions
+has no reasoning summaries and compatible servers no effort knob — a summary
+request alone is a no-op), `previousResponseId`, and any hosted tool.
+`metadata` is not forwarded.
+
+**Flags — static and conservative.** Both adapters declare
+`supportsPreviousResponseId: false` and `supportsHostedTools: false`, in
+**both** API styles. A flag is per adapter while `apiStyle` is per slot; the
+alternative — resolving the flag per call from settings — was rejected as
+more machinery than it buys: Azure's Responses API does store responses,
+but declaring `false` only means the tool loop resends the full history
+(§5.7), which works in both styles, and the public config's published flag
+(§5.7) stays a fact about the provider rather than about a setting that can
+change between two requests of one conversation. A hosted tool that reaches
+either port directly is refused before any request.
+
+**`keySource: 'none'`** (§3 rule 0). With `openai-compatible` enabled and
+`requiresKey: false`:
+
+- `AiKeyResolver` answers `{ apiKey: AI_KEYLESS_API_KEY, keySource: 'none' }`
+  first, under either key policy, reading no key; `sourceFor` answers
+  `'none'`, so every admin-enabled model is usable with no BYOK key (§7).
+- The client factory sees the marker and removes the SDK's `Authorization`
+  header entirely — the marker never reaches the wire (the adapter spec
+  asserts no request carries it), nor any response, log line, usage or run
+  row (`ai-secret-egress.integration.spec.ts`).
+- Usage rows record `keySource: 'none'`; the rate limits count it like a
+  user's own call and never against `orgKey.*` (§15).
+- The catalog sync and the admin connection test run keyless with no admin
+  key stored, `POST /api/admin/ai/models/refresh` does not 409 for such a
+  provider, and `byok_with_org_fallback` does not require it to have an org
+  key.
+- `ai_usage_events.key_source` is a plain string, so `'none'` costs no
+  migration.
+
+**SSRF posture.** Both adapters send this server's requests to a host an
+administrator typed in.
+
+- *Validated*: `aiEndpointUrlSchema` (`settings.schema.ts`) — scheme `https`
+  only for Azure, `http`/`https` for a compatible server; no credentials in
+  the URL (`https://user:pass@…` — a key belongs in the credential store,
+  never in a document `GET /api/system-settings` returns wholesale); no
+  fragment. A stored slot that fails it resets to its default on read, and
+  the admin `PUT` refuses it (`AI_PROVIDER_SETTINGS_INVALID`).
+- *Not refused*: an internal host. `http://ollama.internal:11434/v1` is the
+  canonical self-hosted setup; **pointing the platform at an internal host
+  is an explicit administrator decision**, writable only with
+  `ai_config:write` / `system_settings:write`, both seeded Admin-only.
+- *Never redirected*: `noRedirectFetch` sends every request with `redirect:
+  'manual'` and turns **any** 3xx — same-origin included — into a synthetic
+  `redirect_refused` error the SDK raises as an ordinary `APIError`,
+  mapped to `AI_PROVIDER_UNAVAILABLE` with `details.status` and
+  `details.providerCode: "redirect_refused"`; the `Location` is never
+  followed or echoed. Refusing all redirects rather than only cross-origin
+  ones is deliberate: an OpenAI-shaped API root has no business redirecting
+  a POST, a same-origin redirect is nearly always a misconfigured `baseUrl`
+  (a missing `/v1`) better reported than absorbed, and "same origin" is
+  exactly the check a hostile DNS answer or proxy would aim to confuse.
+- `providers.openai.baseUrl` is left exactly as it was (#428).
+
+**Conformance.** The unchanged kit runs four times over the mocked
+transport (the real SDK with an injected `fetch`; the mock checks Azure's
+`api-key` header, not a bearer token): Azure in the Responses and the Chat
+Completions style, and the compatible adapter in both. The kit skips the
+ports neither adapter carries.
+
 ### HTTP surface
 
 **Admin** (`/api/admin/ai/*`, `@ApiTags('AI Administration')`):
 
 | Method & path | Permission | Behaviour |
 |---|---|---|
-| `GET /api/admin/ai/config` | `ai_config:read` | `describeForAdmin()` — `{ enabled, keyPolicy, logPromptContent, defaults, usageRetentionDays, hostedTools, limits, providers:[{ id, displayName, enabled, baseUrl, keyStatus, supportedCapabilities }], version, updatedAt, updatedBy }`. `keyStatus = { configured, hint, updatedAt, updatedByUserId }` from `credentials.describe` — **never** `getSecret`. `providers` = registry ids ∪ settings keys. |
-| `PUT /api/admin/ai/config` | `ai_config:write` | Body `{ enabled, keyPolicy, logPromptContent, defaults, usageRetentionDays?, hostedTools?, limits?, providers:{ [id]: { enabled, baseUrl? } } }` (`usageRetentionDays`, `hostedTools` and `limits` omitted keep the stored value — the non-full-replace fields, so older clients still save; a `limits` that IS sent replaces the stored limits wholesale, so `{}` lifts them all (§15); the audit names each changed switch, `hostedTools.mcpAllowedHosts`, each changed `limits.*` number and `limits.perModel` as one field — never a host, never a value); `If-Match: <version>` (mismatch → 409, like storage). Enabling a provider id not in the registry → 400. Setting `keyPolicy='byok_with_org_fallback'` while that provider has no admin key → 400 `AI_KEY_REQUIRED`. Audit `ai_config:replace` (field names only). |
+| `GET /api/admin/ai/config` | `ai_config:read` | `describeForAdmin()` — `{ enabled, keyPolicy, logPromptContent, defaults, usageRetentionDays, hostedTools, limits, providers:[{ id, displayName, enabled, baseUrl, settingsFields, apiVersion, apiStyle, deployments, requiresKey, keyStatus, supportedCapabilities }], version, updatedAt, updatedBy }` (the four provider-specific fields are `null` where unset or not applicable — §14.3). `keyStatus = { configured, hint, updatedAt, updatedByUserId }` from `credentials.describe` — **never** `getSecret`. `providers` = registry ids ∪ settings keys. |
+| `PUT /api/admin/ai/config` | `ai_config:write` | Body `{ enabled, keyPolicy, logPromptContent, defaults, usageRetentionDays?, hostedTools?, limits?, providers:{ [id]: { enabled, baseUrl?, apiVersion?, apiStyle?, deployments?, requiresKey? } } }` (the last four only for a provider whose `settingsFields` lists them; empty or null means the default — §14.3) (`usageRetentionDays`, `hostedTools` and `limits` omitted keep the stored value — the non-full-replace fields, so older clients still save; a `limits` that IS sent replaces the stored limits wholesale, so `{}` lifts them all (§15); the audit names each changed switch, `hostedTools.mcpAllowedHosts`, each changed `limits.*` number and `limits.perModel` as one field — never a host, never a value); `If-Match: <version>` (mismatch → 409, like storage). Enabling a provider id not in the registry → 400. Setting `keyPolicy='byok_with_org_fallback'` while that provider has no admin key → 400 `AI_KEY_REQUIRED` (a keyless provider is exempt). A provider's settings are validated against its own slot — 400 `AI_PROVIDER_FIELD_UNSUPPORTED` / `AI_PROVIDER_SETTINGS_INVALID` / `AI_BASE_URL_REQUIRED` (§13). Audit `ai_config:replace` (field names only). |
 | `PUT /api/admin/ai/providers/:provider/key` | `ai_config:write` | Body `{ apiKey }` (min 8). Verified with `adapter.verifyKey` **first**; invalid → 400 `AI_KEY_INVALID`, nothing stored. Audit `ai_config:set_key`. |
 | `DELETE /api/admin/ai/providers/:provider/key` | `ai_config:write` | Body `{ confirmation: 'REMOVE' }`. Audit `ai_config:delete_key`. Under `byok_with_org_fallback`, response includes `warnings:['ORG_FALLBACK_WITHOUT_KEY']`. |
-| `POST /api/admin/ai/providers/:provider/test` | `ai_config:write` | `@HttpCode(200)` always. Body `{ apiKey?, baseUrl? }` (blank ⇒ stored key). Checks: `credentials`, `list_models`, `responses_smoke`. Audit `ai_config:test` (codes only). |
+| `POST /api/admin/ai/providers/:provider/test` | `ai_config:write` | `@HttpCode(200)` always. Body `{ apiKey?, baseUrl? }` (blank ⇒ stored key). Checks: `credentials`, `list_models`, `responses_smoke`. The provider slot's other settings (§14.3) apply; a keyless provider with no key submitted or stored is tested with no key. Audit `ai_config:test` (codes only). |
 | `GET /api/admin/ai/models` | `ai_config:read` | Query `provider?, capability?, enabled?, includeDeprecated?(default false), q?`, paginated like `GET /api/admin/jobs`. |
 | `PATCH /api/admin/ai/models/:id` | `ai_config:write` | Body `{ enabled?, displayName?, capabilities? }`. Sets `capabilitySource='admin_override'`. Enabling a deprecated model → 409. Enabling an unclassified model with no capabilities supplied → 400. Audit `ai_model:update`. |
-| `POST /api/admin/ai/models/refresh` | `ai_config:write` | Body `{ provider }`. 409 if no admin key. Enqueues `ai.catalog.refresh`; returns `{ jobId }`. Audit `ai_catalog:refresh_requested`. |
+| `POST /api/admin/ai/models/refresh` | `ai_config:write` | Body `{ provider }`. 409 if no admin key — unless the provider is keyless (`requiresKey: false`, §14.3). Enqueues `ai.catalog.refresh`; returns `{ jobId }`. Audit `ai_catalog:refresh_requested`. |
 | `GET /api/admin/ai/usage` | `ai_config:read` | Query `from?, to?, groupBy?(day), userId?, provider?, model?` → the usage report (§12). |
 
 **Public config** (any authenticated user, no `ai_config` permission
@@ -1579,8 +1799,11 @@ the separate rate-limit budget (`JOBS_RATELIMIT_*`), and the run returns to
 `pending`.
 
 **What counts.** One `ai_usage_events` row (§12) is one request. Only
-`keySource` `user`/`org` rows count — a catalog sync (`admin_discovery`) is
-the deployment's own call. Failed and cancelled round-trips count (they
+`keySource` `user`/`org`/`none` rows count — a catalog sync
+(`admin_discovery`) is the deployment's own call. A keyless call (`none`,
+#448) counts like a user's own-key call: against `perUser.*` and
+`perModel.*`, never against `orgKey.*`, since no organization key pays for
+it. Failed and cancelled round-trips count (they
 reached the provider). A call a limit refused records **no** row, so
 hammering a limit does not extend the lock-out.
 

@@ -29,8 +29,12 @@ ai/
     types/                   AiResponse, AiResponseRequest, AiStreamEvent, media types,
                              file-inputs.types.ts (storage-object inputs: caps, strategies, #441)
   providers/
-    openai/                  The Phase 1 adapter (Responses API; every port). ONLY place the
-                             `openai` SDK is imported.
+    openai/                  The Phase 1 adapter (Responses API; every port), and the OpenAI
+                             wire family's SHARED pieces (#448): OpenAiFamily errors, the
+                             Responses and Chat Completions engines/mappers, call telemetry,
+                             pinned client options, noRedirectFetch. With the two dirs below,
+                             the ONLY place the `openai` SDK is imported —
+                             `openai-sdk-boundary.spec.ts` pins it.
     anthropic/               The Phase 3 adapter (#446; Messages API, `responses` port only,
                              stateless). ONLY place `@anthropic-ai/sdk` is imported —
                              `anthropic-sdk-boundary.spec.ts` pins it; `core/no-provider-sdk.spec.ts`
@@ -40,6 +44,14 @@ ai/
                              `@google/genai` is imported — `gemini-sdk-boundary.spec.ts` pins it.
                              Its classifier is enriched by the model listing's own metadata
                              (`AiDiscoveredModel.metadata`, `classifyModel`'s optional 2nd arg).
+    azure-openai/            The Azure OpenAI adapter (#448): AzureOpenAI client per call
+                             (endpoint, api-version, `api-key` header), `apiStyle` responses |
+                             chat_completions, model id -> deployment map, OpenAI classifier
+                             minus hosted_tools; `responses` + `embeddings`, stateless flags.
+    openai-compatible/       The generic OpenAI-compatible adapter (#448; Ollama, vLLM, LM
+                             Studio): `baseUrl` + `apiStyle` (chat_completions default),
+                             every model unclassified, keyless when `requiresKey: false`
+                             (keySource 'none'); `responses` + `embeddings`.
   catalog/                 Model discovery + classification (ai_models table)
     ai-catalog.service.ts    Read/query the catalog
     ai-catalog-refresh.handler.ts   `ai.catalog.refresh` job (server-only)
@@ -198,10 +210,14 @@ OpenAI sends images as `image_url` and uploads files to its Files API,
 deleting them after the response; Anthropic sends images by the same
 presigned URL and documents inline (a base64 PDF or plain text), so nothing
 is uploaded to it; Gemini sends both images and files inline (base64
-`inlineData`) — a presigned URL is not a `fileData` URI Gemini accepts. See `docs/specs/ai-platform.md` §5.3.
+`inlineData`) — a presigned URL is not a `fileData` URI Gemini accepts. Azure
+OpenAI takes images by presigned URL and files inline; an OpenAI-compatible
+server gets both inline (it usually cannot reach this deployment's storage).
+See `docs/specs/ai-platform.md` §5.3.
 
 **Stateless providers** (issue #446): an adapter declaring
-`supportsPreviousResponseId: false` (Anthropic, Gemini) cannot chain onto a stored
+`supportsPreviousResponseId: false` (Anthropic, Gemini, and — conservatively,
+in both API styles — Azure OpenAI and OpenAI-compatible, #448) cannot chain onto a stored
 response. `prepare()` refuses a caller's `previousResponseId` with
 `AI_CAPABILITY_UNSUPPORTED` (step 2a, before any key is resolved), and
 `runTools` resends the whole conversation each round instead of chaining —
@@ -214,6 +230,32 @@ part it belongs on) under the `AI_PROVIDER_STATE` symbol, which
 else. `GET /api/ai/config` publishes the flag per provider
 (`providers[].supportsPreviousResponseId`) so a client resends history
 rather than being refused. See `docs/specs/ai-platform.md` §5.7.
+
+## OpenAI-compatible endpoints and keyless servers (issue #448)
+
+`azure-openai` and `openai-compatible` are compositions of the OpenAI
+adapter's shared pieces, not new mappings: each has its own client factory
+(Azure: `AzureOpenAI`, `api-key` header, explicit `apiVersion`; compatible:
+the OpenAI SDK at `baseUrl`) and settings reader, and picks the
+**Responses** engine or the **Chat Completions** engine per call from the
+slot's `apiStyle`. The Chat Completions mapper
+(`providers/openai/openai-chat-completions.mapper.ts`) is the graceful
+degradation most compatible servers need: messages, image/file parts,
+function tools and `tool_calls` replay, `response_format: json_schema` +
+`parseStructured`, streaming with `stream_options.include_usage`; a
+reasoning effort, `previousResponseId` and hosted tools are refused.
+
+A slot's settings besides `enabled`/`baseUrl` reach the adapter as
+`AiCallContext.providerSettings` — `config/ai-config.service.ts`'s
+`providerCallSettings(slot)` builds `{ baseUrl, providerSettings }` for every
+call site. With `requiresKey: false` on `openai-compatible`, `AiKeyResolver`
+answers `{ apiKey: AI_KEYLESS_API_KEY, keySource: 'none' }` before any key
+lookup, every enabled model is usable without BYOK, the adapter sends no
+credential, and the limits count it like a user's own call. SSRF: the
+endpoints are validated by `aiEndpointUrlSchema` (https for Azure, http/https
+for compatible; no credentials, no fragment), an internal host is an explicit
+admin decision, and `noRedirectFetch` refuses every redirect. See
+`docs/specs/ai-platform.md` §14.3.
 
 ## Rate limits and output caps (issue #450)
 
@@ -364,7 +406,10 @@ Two things never leave the facade, both handled by
   `AiError`, never a raw SDK exception. `providers/openai/openai.adapter.conformance.spec.ts`
   `providers/anthropic/anthropic.adapter.conformance.spec.ts` and
   `providers/gemini/gemini.adapter.conformance.spec.ts` are the three
-  worked examples of wiring a real adapter through it over a mocked
+  worked examples (the #448 adapters run it too, each in both API styles —
+  `providers/azure-openai/` and `providers/openai-compatible/`, over the
+  same OpenAI mock transport, which also speaks `/chat/completions`,
+  Azure's `api-key` header and keyless requests) of wiring a real adapter through it over a mocked
   transport (the real SDK with an injected `fetch`); the Anthropic and
   Gemini mocks are as stateless as the real APIs, so their tool round-trips
   pass only because the kit reads `supportsPreviousResponseId: false` and
