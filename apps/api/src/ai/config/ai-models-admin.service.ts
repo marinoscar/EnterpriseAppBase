@@ -159,7 +159,8 @@ export class AiModelsAdminService {
   /**
    * `POST /api/admin/ai/models/refresh` — enqueue `ai.catalog.refresh` for one
    * provider. 409 when no admin key is stored: discovery runs under that key
-   * (§6), so the job could only fail.
+   * (§6), so the job could only fail — unless the provider is keyless
+   * (#448), which discovers with no key at all.
    *
    * Enqueued with the provider as the job's subject, so a second click while a
    * refresh is still pending or running returns that job instead of queueing a
@@ -170,7 +171,8 @@ export class AiModelsAdminService {
 
     const key = await this.credentials.describe(AI_CREDENTIAL_PURPOSE, aiCredentialName(provider));
 
-    if (!key) {
+    // A keyless provider (#448: `requiresKey: false`) discovers with no key.
+    if (!key && (await this.admin.providerRequiresKey(provider))) {
       throw new ConflictException({
         message: `No admin key is stored for "${provider}". Save one before refreshing its model catalog.`,
         details: { reason: 'AI_KEY_REQUIRED', provider },

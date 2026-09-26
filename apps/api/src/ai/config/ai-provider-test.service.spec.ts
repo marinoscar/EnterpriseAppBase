@@ -2,6 +2,7 @@ import { NotFoundException } from '@nestjs/common';
 
 import type { SystemAiValue } from '../../common/schemas/settings.schema';
 import { AiError } from '../core/ai-error';
+import { AI_KEYLESS_API_KEY } from '../core/provider-adapter.interface';
 import { AiProviderRegistry } from '../core/provider-registry';
 import { FAKE_TEXT_MODEL_CAPABILITIES, FakeAiProvider } from '../testing/fake-ai-provider';
 import { AiConfigAdminService } from './ai-config-admin.service';
@@ -158,6 +159,29 @@ describe('AiProviderTestService', () => {
       true,
     );
     expect(fake.calls).toHaveLength(0);
+  });
+
+  it('tests a keyless provider (#448) with no key, passing the slot settings', async () => {
+    credentials.getSecret.mockResolvedValue(null);
+    aiConfig.resolve.mockResolvedValue(
+      policy({
+        providers: {
+          ...policy().providers,
+          openai: { enabled: true, baseUrl: 'http://ollama.internal:11434/v1', requiresKey: false, apiStyle: 'chat_completions' } as SystemAiValue['providers']['openai'],
+        },
+      }),
+    );
+    build(new FakeAiProvider({ id: 'openai', models: ['llama3'] }));
+
+    const result = await service.test('openai', {}, 'admin-1');
+
+    expect(result.usedStoredKey).toBe(false);
+    expect(result.checks[0]).toMatchObject({ status: 'passed' });
+    expect(fake.calls.every((call) => call.apiKey === AI_KEYLESS_API_KEY)).toBe(true);
+    expect(fake.calls[0]).toMatchObject({
+      baseUrl: 'http://ollama.internal:11434/v1',
+      providerSettings: { requiresKey: false, apiStyle: 'chat_completions' },
+    });
   });
 
   it('maps a thrown adapter error to its AI code and redacts the key from the message', async () => {

@@ -12,9 +12,11 @@
 // round-trip the facade records (responses, each step of a tool loop,
 // embeddings, and the queued media runs WHEN THEY EXECUTE; `startRun`,
 // `generateImage`, `transcribe` and `speak` only enqueue, never pass this
-// gate, and so are never counted twice). Only `keySource` `user`/`org` rows
-// count: a catalog discovery sync (`admin_discovery`) is the deployment's own
-// call, not any user's. Failed and cancelled round-trips count too — they
+// gate, and so are never counted twice). Only `keySource` `user`/`org`/`none`
+// rows count: a catalog discovery sync (`admin_discovery`) is the deployment's
+// own call, not any user's. A keyless call (`none`, #448) counts like a user's
+// own-key call — against the per-user and per-model limits, never the org-key
+// ones, since no org key pays for it. Failed and cancelled round-trips count too — they
 // reached the provider. A call THIS gate refused records no row, so a user
 // hammering a limit does not extend their own lock-out.
 //
@@ -78,7 +80,7 @@ export type AiLimitsClock = () => number;
 const LOCAL_SWEEP_THRESHOLD = 10_000;
 
 /** The `keySource` values that are a user's request — never `admin_discovery`. */
-const COUNTED_KEY_SOURCES = ['user', 'org'];
+const COUNTED_KEY_SOURCES = ['user', 'org', 'none'];
 
 /** The names a refusal's `details.limit` carries. Permanent strings. */
 export type AiLimitName =

@@ -116,6 +116,8 @@ export interface FakeAiCall {
   apiKey: string;
   requestId: string;
   baseUrl?: string;
+  /** The provider slot's other settings the runtime passed through (#448). */
+  providerSettings?: Readonly<Record<string, unknown>>;
   request?: AiResponseRequest;
   /** The request an `embeddings.embed` call received. */
   embeddingRequest?: AiEmbeddingRequest;
@@ -900,6 +902,7 @@ export class FakeAiProvider implements AiProviderAdapter {
       apiKey: ctx.apiKey,
       requestId: ctx.requestId,
       baseUrl: ctx.baseUrl,
+      ...(ctx.providerSettings ? { providerSettings: ctx.providerSettings } : {}),
       request,
     };
 

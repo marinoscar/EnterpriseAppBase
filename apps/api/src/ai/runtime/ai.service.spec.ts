@@ -11,6 +11,7 @@ import { z } from 'zod';
 
 import { AiError, type AiErrorCode } from '../core/ai-error';
 import type { AiModelCapabilities } from '../core/capabilities';
+import { AI_KEYLESS_API_KEY } from '../core/provider-adapter.interface';
 import type { AiStreamEvent } from '../core/types/responses.types';
 import {
   createAiRuntimeHarness,
@@ -244,6 +245,26 @@ describe('AiService', () => {
 
       expect(h.fake.calls[0].baseUrl).toBe('https://gateway.example.com/v1');
       expect(h.fake.calls[0].requestId).not.toBe(h.fake.calls[1].requestId);
+      expect(h.fake.calls[0]).not.toHaveProperty('providerSettings');
+    });
+
+    it("keyless provider (requiresKey: false, #448): served with no key, keySource 'none', under strict byok", async () => {
+      const h = createAiRuntimeHarness({
+        userKey: false,
+        orgKey: true,
+        policy: { keyPolicy: 'byok', providerSlot: { requiresKey: false, apiStyle: 'chat_completions' } },
+      });
+
+      await h.ai.forUser(HARNESS_USER).respond(hello);
+      await collect(h.ai.forUser(HARNESS_USER).stream(hello));
+
+      expect(h.fake.calls.map((call) => call.apiKey)).toEqual([AI_KEYLESS_API_KEY, AI_KEYLESS_API_KEY]);
+      expect(h.usageEvents.map((row) => row.keySource)).toEqual(['none', 'none']);
+      expect(h.getSecret).not.toHaveBeenCalled();
+      // The slot's other settings reach the adapter as-is.
+      expect(h.fake.calls[0].providerSettings).toEqual({ requiresKey: false, apiStyle: 'chat_completions' });
+      // The marker is never recorded anywhere a row or a log could carry it.
+      expect(JSON.stringify(h.usageEvents)).not.toContain(AI_KEYLESS_API_KEY);
     });
   });
 

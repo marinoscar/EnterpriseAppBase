@@ -245,6 +245,15 @@ export class AiConfigAdminService {
     };
   }
 
+  /**
+   * Whether calls to `provider` need a key (#448) — false only for an
+   * OpenAI-compatible server the administrator marked `requiresKey: false`.
+   * Read fresh: it gates an admin action.
+   */
+  async providerRequiresKey(provider: string): Promise<boolean> {
+    return providerRequiresKey(providerPolicy(await this.aiConfig.resolve({ fresh: true }), provider));
+  }
+
   /** The adapter for `provider`, or a 404 naming it. */
   requireRegistered(provider: string): AiProviderAdapter {
     const adapter = this.registry.get(provider);

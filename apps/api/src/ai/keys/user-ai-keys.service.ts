@@ -6,7 +6,7 @@ import type { Prisma } from '@prisma/client';
 import { decryptSecret, encryptSecret } from '../../common/crypto/secret-cipher';
 import { deriveHint } from '../../credentials/credentials.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { AiConfigService, providerPolicy } from '../config/ai-config.service';
+import { AiConfigService, providerCallSettings, providerPolicy } from '../config/ai-config.service';
 import { withTimeout as withAiCallTimeout } from '../config/ai-provider-test.service';
 import { AiError, type AiErrorCode } from '../core/ai-error';
 import type { AiCallContext, AiProviderAdapter } from '../core/provider-adapter.interface';
@@ -121,8 +121,8 @@ export class UserAiKeysService {
    * outage stores nothing either (its own error). Replaces any earlier key.
    */
   async set(userId: string, provider: string, apiKey: string): Promise<UserAiKeyView> {
-    const { adapter, baseUrl } = await this.providerContext(provider);
-    const probe = await this.probe(adapter, provider, apiKey, baseUrl);
+    const { adapter, call } = await this.providerContext(provider);
+    const probe = await this.probe(adapter, provider, apiKey, call);
 
     if (probe.error) {
       throw probe.error;
@@ -166,7 +166,7 @@ export class UserAiKeysService {
    * Never throws for a key or provider problem — the route answers 200.
    */
   async test(userId: string, provider: string, apiKey?: string | null): Promise<UserAiKeyTestResult> {
-    const { adapter, baseUrl } = await this.providerContext(provider);
+    const { adapter, call } = await this.providerContext(provider);
     const attemptedAt = new Date();
     const submitted = apiKey?.trim() ?? '';
     const usedStoredKey = submitted.length === 0;
@@ -188,7 +188,7 @@ export class UserAiKeysService {
       };
     }
 
-    const probe = await this.probe(adapter, provider, key, baseUrl);
+    const probe = await this.probe(adapter, provider, key, call);
 
     if (usedStoredKey) {
       await this.recordProbe(userId, provider, probe, attemptedAt);
@@ -229,14 +229,14 @@ export class UserAiKeysService {
    * was, to be retried next time.
    */
   async recheckReachable(userId: string, provider: string): Promise<UserAiKeyRecheckOutcome> {
-    const { adapter, baseUrl } = await this.providerContext(provider);
+    const { adapter, call } = await this.providerContext(provider);
     const key = await this.getDecrypted(userId, provider);
 
     if (!key) {
       return 'missing';
     }
 
-    const probe = await this.probe(adapter, provider, key, baseUrl);
+    const probe = await this.probe(adapter, provider, key, call);
 
     if (probe.error?.code === 'AI_RATE_LIMITED') {
       throw probe.error;
@@ -309,15 +309,19 @@ export class UserAiKeysService {
 
   // ---------------------------------------------------------------------------
 
-  /** The adapter and base URL for an enabled provider; throws `AI_DISABLED` / `AI_PROVIDER_DISABLED`. */
+  /**
+   * The adapter and the slot's call settings (endpoint and, #448, the other
+   * non-secret settings) for an enabled provider; throws `AI_DISABLED` /
+   * `AI_PROVIDER_DISABLED`.
+   */
   private async providerContext(
     provider: string,
-  ): Promise<{ adapter: AiProviderAdapter; baseUrl: string | undefined }> {
+  ): Promise<{ adapter: AiProviderAdapter; call: ReturnType<typeof providerCallSettings> }> {
     const slot = await this.aiConfig.assertProviderEnabled(provider);
     // `assertProviderEnabled` has just proven an adapter is registered.
     const adapter = this.registry.get(provider) as AiProviderAdapter;
 
-    return { adapter, baseUrl: slot.baseUrl || undefined };
+    return { adapter, call: providerCallSettings(slot) };
   }
 
   /**
@@ -329,12 +333,12 @@ export class UserAiKeysService {
     adapter: AiProviderAdapter,
     provider: string,
     apiKey: string,
-    baseUrl: string | undefined,
+    call: ReturnType<typeof providerCallSettings>,
   ): Promise<UserAiKeyProbe> {
     const redact = (text: string) => text.split(apiKey).join('[redacted]');
     const ctx = (signal: AbortSignal): AiCallContext => ({
       apiKey,
-      baseUrl,
+      ...call,
       signal,
       requestId: randomUUID(),
     });

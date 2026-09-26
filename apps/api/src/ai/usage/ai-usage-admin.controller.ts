@@ -42,7 +42,7 @@ export class AiUsageAdminController {
       `${MAX_AI_USAGE_RANGE_DAYS} — as \`totals\` plus one \`series\` entry per group.\n\n` +
       '`groupBy`: `day` (chronological, zero-filled), `user` (label is the email; events ' +
       'with no user are keyed `system`), `model` (key `<provider>:<modelId>`), `provider`, or ' +
-      '`keySource` (`user` / `org` / `admin_discovery`). The `orgKey*` fields of every bucket ' +
+      '`keySource` (`user` / `org` / `none` / `admin_discovery`). The `orgKey*` fields of every bucket ' +
       'are the part paid for by the organization key.\n\n' +
       'Reachable while AI is disabled. Refused with **400** (`details.reason: ' +
       '"AI_USAGE_RANGE_INVALID"`) for a reversed or over-long range.',

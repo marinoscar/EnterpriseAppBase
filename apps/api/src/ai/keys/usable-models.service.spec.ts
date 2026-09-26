@@ -118,6 +118,22 @@ describe('UsableModelsService', () => {
       expect(await service.listForUser(USER)).toEqual([]);
     });
 
+    it("a keyless provider (requiresKey: false, #448) offers every enabled model with no key, keySource 'none'", async () => {
+      current = policy({
+        providers: { ...policy().providers, openai: { enabled: true, requiresKey: false } as AiPolicy['providers']['openai'] },
+      });
+
+      const models = await service.listForUser(USER);
+
+      // Like the org fallback: every enabled, non-deprecated model (an unclassified one included).
+      expect(models.map((m) => m.modelId)).toEqual(['embed-small', 'gpt-big', 'gpt-mini', 'weird']);
+      expect(models.every((m) => m.keySource === 'none')).toBe(true);
+      await expect(service.assertUsable(USER, 'openai', 'gpt-big', ['responses'])).resolves.toMatchObject({
+        keySource: 'none',
+      });
+      expect(getSecret).not.toHaveBeenCalled();
+    });
+
     it('with no key under the fallback, every enabled model with keySource org', async () => {
       current = policy({ keyPolicy: 'byok_with_org_fallback' });
       orgKeyStored = true;

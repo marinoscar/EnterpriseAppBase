@@ -99,7 +99,7 @@ export const aiUsageSeriesItemSchema = aiUsageBucketSchema.extend({
   /**
    * The group's stable key: `YYYY-MM-DD` (day), a user id or `system` for
    * events with no user (user), `<provider>:<modelId>` (model), a provider id
-   * (provider), or `user` / `org` / `admin_discovery` (keySource).
+   * (provider), or `user` / `org` / `none` / `admin_discovery` (keySource).
    */
   key: z.string(),
   /**
