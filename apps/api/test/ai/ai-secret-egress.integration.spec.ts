@@ -33,6 +33,12 @@
 // likewise allows exactly one secret-named response property:
 // `AiRealtimeSessionResponseDto.clientSecret`.
 //
+// #448 adds a keyless provider (`requiresKey: false`, `keySource: 'none'`):
+// its calls carry the `AI_KEYLESS_API_KEY` marker instead of a key. The marker
+// is not a secret, but it is held to the same rule — it exists only between
+// the key resolver and the adapter, and the adapter turns it into NO
+// credential on the wire — so it must appear in none of the places above.
+//
 // Two app contexts, because the admin surface (`AiConfigAdminService` and
 // friends) and the consumer surface (`AiService`/`AiRunsService`, exercised
 // through `ai-http.helper`'s harness) are wired through different services
@@ -56,6 +62,7 @@ import { CredentialsService } from '../../src/credentials/credentials.service';
 import { AiProviderRegistry } from '../../src/ai/core';
 import { AiConfigService } from '../../src/ai/config/ai-config.service';
 import { FAKE_REALTIME_SECRET_PREFIX, FakeAiProvider } from '../../src/ai/testing/fake-ai-provider';
+import { AI_KEYLESS_API_KEY } from '../../src/ai/core/provider-adapter.interface';
 import {
   AI_SETTINGS_CARRIES_NO_SECRET,
   systemAiSchema,
@@ -928,6 +935,78 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
 
       expect(res.body.details.reason).toBe('AI_TOOL_DISABLED');
       assertNoLeak('MCP: AI_TOOL_DISABLED body', JSON.stringify(res.body));
+    });
+  });
+
+  describe("keyless providers (requiresKey: false, keySource 'none', #448)", () => {
+    const providers = (openai: Record<string, unknown>) => ({
+      openai: openai as { enabled: boolean },
+      anthropic: { enabled: false },
+      gemini: { enabled: false },
+      'azure-openai': { enabled: false },
+      'openai-compatible': { enabled: false },
+    });
+
+    /** The sentinels plus the keyless marker. */
+    function assertNoLeakOrMarker(label: string, haystack: string): void {
+      assertNoLeak(label, haystack);
+      expect(`${label}: ${haystack.includes(AI_KEYLESS_API_KEY) ? 'carries the keyless marker' : 'clean'}`).toBe(`${label}: clean`);
+    }
+
+    beforeEach(() => {
+      app.harness.setPolicy({ providers: providers({ enabled: true, requiresKey: false }) });
+    });
+
+    afterEach(() => {
+      app.harness.setPolicy({ providers: providers({ enabled: true }) });
+    });
+
+    it('responses, stream, embeddings and a queued run: the marker reaches the adapter and nothing else', async () => {
+      const server = app.context.app.getHttpServer();
+
+      const res = await request(server)
+        .post('/api/ai/responses')
+        .set(authHeader(holderToken))
+        .send({ model: 'fake-model', input: 'hello' })
+        .expect(200);
+      const streamed = await request(server)
+        .post('/api/ai/responses/stream')
+        .set(authHeader(holderToken))
+        .set('Accept', 'text/event-stream')
+        .send({ model: 'fake-model', input: 'hello' })
+        .expect(200);
+      const embedded = await request(server)
+        .post('/api/ai/embeddings')
+        .set(authHeader(holderToken))
+        .send({ model: HARNESS_EMBEDDING_MODEL, input: 'hello' })
+        .expect(200);
+      const started = await request(server)
+        .post('/api/ai/runs')
+        .set(authHeader(holderToken))
+        .send({ model: 'fake-model', input: 'hello' })
+        .expect(202);
+
+      const handler = app.context.app.get(JobHandlerRegistry).get('ai.response.run');
+      await handler!.process({ id: started.body.data.jobId, payload: { runId: started.body.data.runId } } as never);
+
+      const run = await request(server)
+        .get(`/api/ai/runs/${started.body.data.runId}`)
+        .set(authHeader(holderToken))
+        .expect(200);
+
+      // It did reach the adapter — and only as the marker, never a real key.
+      expect(app.harness.fake.calls.length).toBeGreaterThanOrEqual(4);
+      expect(app.harness.fake.calls.every((call) => call.apiKey === AI_KEYLESS_API_KEY)).toBe(true);
+      expect(app.harness.usageEvents.every((row) => row.keySource === 'none')).toBe(true);
+
+      assertNoLeakOrMarker('POST /api/ai/responses body', JSON.stringify(res.body));
+      assertNoLeakOrMarker('POST /api/ai/responses headers', JSON.stringify(res.headers));
+      assertNoLeakOrMarker('SSE frames', streamed.text);
+      assertNoLeakOrMarker('POST /api/ai/embeddings body', JSON.stringify(embedded.body));
+      assertNoLeakOrMarker('run body', JSON.stringify(run.body));
+      assertNoLeakOrMarker('ai_runs rows', JSON.stringify(app.harness.runRows));
+      assertNoLeakOrMarker('ai_usage_events', JSON.stringify(app.harness.usageEvents));
+      assertNoLeakOrMarker('log output', logLines.join('\n'));
     });
   });
 

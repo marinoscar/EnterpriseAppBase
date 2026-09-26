@@ -337,10 +337,24 @@ export const handlers = [
         { status: 409 },
       );
     }
-    for (const id of Object.keys(body.providers)) {
-      if (!mockAiAdminConfig.providers.some((provider) => provider.id === id)) {
+    for (const [id, entry] of Object.entries(body.providers)) {
+      const known = mockAiAdminConfig.providers.find((provider) => provider.id === id);
+      if (!known) {
         return HttpResponse.json(
           { code: 'BAD_REQUEST', message: `Unknown AI provider: ${id}`, details: { reason: 'AI_UNKNOWN_PROVIDER' } },
+          { status: 400 },
+        );
+      }
+      // #448: a field the provider does not list in `settingsFields` is refused.
+      const allowed = new Set<string>(['enabled', ...(known.settingsFields ?? ['baseUrl'])]);
+      const field = Object.keys(entry).find((key) => !allowed.has(key));
+      if (field) {
+        return HttpResponse.json(
+          {
+            code: 'BAD_REQUEST',
+            message: `The ${id} provider does not accept ${field}`,
+            details: { reason: 'AI_PROVIDER_FIELD_UNSUPPORTED', provider: id, field },
+          },
           { status: 400 },
         );
       }
@@ -361,7 +375,15 @@ export const handlers = [
         providers: mockAiAdminConfig.providers.map((provider) => {
           const next = body.providers[provider.id];
           if (!next) return provider;
-          return { ...provider, enabled: next.enabled, baseUrl: next.baseUrl || null };
+          return {
+            ...provider,
+            enabled: next.enabled,
+            baseUrl: next.baseUrl || null,
+            apiVersion: next.apiVersion || null,
+            apiStyle: next.apiStyle ?? null,
+            deployments: next.deployments && Object.keys(next.deployments).length > 0 ? next.deployments : null,
+            requiresKey: next.requiresKey ?? null,
+          };
         }),
         version: mockAiAdminConfig.version + 1,
       } satisfies AiAdminConfig,

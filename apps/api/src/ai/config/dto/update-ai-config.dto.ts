@@ -2,7 +2,10 @@ import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
 import {
+  AI_AZURE_API_VERSION_PATTERN,
   AI_KEY_POLICIES,
+  AI_OPENAI_API_STYLES,
+  aiAzureDeploymentsSchema,
   AI_LIMIT_MODEL_KEY_MAX,
   AI_LIMIT_MODEL_KEY_PATTERN,
   AI_LIMIT_VALUE_MAX,
@@ -18,7 +21,9 @@ import {
 //
 // The whole `ai` namespace, in a shape a form can send back unchanged:
 // `providers` is keyed by provider id (the admin view lists them as an array
-// with more fields; only `enabled` and `baseUrl` are writable).
+// with more fields; `enabled`, `baseUrl` and — for the providers whose
+// `settingsFields` name them (#448) — `apiVersion`, `apiStyle`, `deployments`
+// and `requiresKey` are writable).
 //
 // There is NO key field here and there must never be one. The admin key has
 // its own routes (`PUT`/`DELETE /api/admin/ai/providers/:provider/key`) so it
@@ -38,6 +43,27 @@ export const aiProviderSettingsInputSchema = z.object({
   baseUrl: z
     .union([z.url().max(2048), z.literal('')])
     .nullish(),
+  /**
+   * The rest are provider-specific (#448) — only a provider whose
+   * `settingsFields` lists the field accepts a value for it; for any other
+   * provider it must be omitted, null or empty. Omit / null / empty CLEARS a
+   * stored value, back to the provider default. The per-provider rules (an
+   * `https`-only Azure endpoint, no credentials in a URL, ...) are applied by
+   * the service against the provider's own settings schema.
+   */
+  /** Azure OpenAI: the `api-version` query value. Default `2025-04-01-preview`. */
+  apiVersion: z
+    .union([z.string().regex(AI_AZURE_API_VERSION_PATTERN), z.literal('')])
+    .nullish(),
+  /** Azure OpenAI (default `responses`) and OpenAI-compatible (default `chat_completions`). */
+  apiStyle: z.enum(AI_OPENAI_API_STYLES).nullish(),
+  /** Azure OpenAI: model id -> deployment name. Replaces the stored map whole; `{}` or null clears it. */
+  deployments: aiAzureDeploymentsSchema.nullish(),
+  /**
+   * OpenAI-compatible: `false` opts in to a keyless server — calls carry no
+   * credential and usage is recorded with `keySource: "none"`. Default `true`.
+   */
+  requiresKey: z.boolean().nullish(),
 });
 
 /** `ai.hostedTools` (#442) — every provider-hosted tool type's switch, and the MCP host allowlist. */

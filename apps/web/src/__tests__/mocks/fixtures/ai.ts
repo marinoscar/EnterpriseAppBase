@@ -81,6 +81,11 @@ export const mockAiAdminConfig: AiAdminConfig = {
       registered: true,
       enabled: false,
       baseUrl: null,
+      settingsFields: ['baseUrl'],
+      apiVersion: null,
+      apiStyle: null,
+      deployments: null,
+      requiresKey: null,
       keyStatus: {
         configured: true,
         hint: '••••abcd',
@@ -100,6 +105,64 @@ export const mockAiAdminConfig: AiAdminConfig = {
   version: 3,
   updatedAt: T0,
   updatedBy: { id: 'admin-user-id', email: 'admin@example.com' },
+};
+
+/**
+ * The admin view with the two #448 providers beside OpenAI: an Azure OpenAI
+ * resource (every Azure field set) and an OpenAI-compatible server left at
+ * its defaults, disabled and with no endpoint yet.
+ */
+export const mockAiAdminConfigWithCompatible: AiAdminConfig = {
+  ...mockAiAdminConfig,
+  providers: [
+    ...mockAiAdminConfig.providers,
+    {
+      id: 'azure-openai',
+      displayName: 'Azure OpenAI',
+      registered: true,
+      enabled: true,
+      baseUrl: 'https://contoso.openai.azure.com',
+      settingsFields: ['baseUrl', 'apiVersion', 'apiStyle', 'deployments'],
+      apiVersion: '2024-10-21',
+      apiStyle: null,
+      deployments: { 'gpt-4o': 'contoso-gpt-4o' },
+      requiresKey: null,
+      keyStatus: { configured: true, hint: '••••az12', updatedAt: T0, updatedByUserId: 'admin-user-id' },
+      supportedCapabilities: ['responses', 'structured_output', 'tools', 'streaming'],
+    },
+    {
+      id: 'openai-compatible',
+      displayName: 'OpenAI-compatible',
+      registered: true,
+      enabled: false,
+      baseUrl: null,
+      settingsFields: ['baseUrl', 'apiStyle', 'requiresKey'],
+      apiVersion: null,
+      apiStyle: null,
+      deployments: null,
+      requiresKey: null,
+      keyStatus: { configured: false, hint: null, updatedAt: null, updatedByUserId: null },
+      supportedCapabilities: ['responses', 'tools', 'streaming'],
+    },
+  ],
+};
+
+/** `GET /ai/config` with a keyless OpenAI-compatible server beside OpenAI (#448). */
+export const mockAiPublicConfigKeyless: AiPublicConfig = {
+  enabled: true,
+  keyPolicy: 'byok',
+  allowBackgroundRuns: true,
+  providers: [
+    { id: 'openai', displayName: 'OpenAI', enabled: true, hasOrgKey: false, supportsPreviousResponseId: true, requiresKey: true },
+    {
+      id: 'openai-compatible',
+      displayName: 'Local Ollama',
+      enabled: true,
+      hasOrgKey: false,
+      supportsPreviousResponseId: false,
+      requiresKey: false,
+    },
+  ],
 };
 
 export const mockAiProbeResultPassed: AiProbeResult = {
@@ -555,6 +618,8 @@ const USAGE_SERIES: Record<AiUsageGroupBy, AiUsageSeriesEntry[]> = {
   keySource: [
     usageEntry('user', 'user', { requests: 90, failed: 4, inputTokens: 37_000, outputTokens: 10_100 }),
     usageEntry('org', 'org', { requests: 30, failed: 2, inputTokens: 11_000, outputTokens: 2_400 }),
+    // A keyless OpenAI-compatible server (#448): nobody's key paid.
+    usageEntry('none', 'none', { requests: 4, inputTokens: 900, outputTokens: 300 }),
   ],
 };
 

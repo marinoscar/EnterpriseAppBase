@@ -75,6 +75,7 @@ const KEY_SOURCE_LABELS: Record<string, string> = {
   user: "User's own key",
   org: 'Organization key',
   admin_discovery: 'Catalog sync (admin key)',
+  none: 'No key (keyless server)',
 };
 
 function OrgKeySummary({ totals }: { totals: Totals }) {

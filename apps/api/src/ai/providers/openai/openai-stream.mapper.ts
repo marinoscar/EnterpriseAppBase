@@ -46,6 +46,8 @@ import type { AiResponseRequest, AiStreamEvent } from '../../core/types/response
 import {
   classifyOpenAiErrorCode,
   mapOpenAiResponseFailure,
+  OPENAI_FAMILY,
+  type OpenAiFamily,
   openAiErrorMessage,
 } from './openai-errors';
 import { fromOpenAiOutputItem, fromOpenAiResponse } from './openai-responses.mapper';
@@ -53,6 +55,8 @@ import { fromOpenAiOutputItem, fromOpenAiResponse } from './openai-responses.map
 export interface OpenAiStreamMapperOptions {
   request: AiResponseRequest;
   providerRequestId?: string | null;
+  /** Which OpenAI-family provider is streaming (#448); OpenAI by default. */
+  family?: OpenAiFamily;
 }
 
 function errorEvent(err: AiError): AiStreamEvent {
@@ -65,6 +69,10 @@ export class OpenAiStreamMapper {
   private terminalFlag = false;
 
   constructor(private readonly opts: OpenAiStreamMapperOptions) {}
+
+  private get family(): OpenAiFamily {
+    return this.opts.family ?? OPENAI_FAMILY;
+  }
 
   /** Whether `response.created` has been emitted. */
   get started(): boolean {
@@ -122,12 +130,16 @@ export class OpenAiStreamMapper {
         return this.complete(event.response);
 
       case 'response.failed':
-        return this.fail(mapOpenAiResponseFailure(event.response.error, this.opts.providerRequestId ?? undefined));
+        return this.fail(
+          mapOpenAiResponseFailure(event.response.error, this.opts.providerRequestId ?? undefined, this.family),
+        );
 
       case 'error': {
         const code = classifyOpenAiErrorCode(event.code);
 
-        return this.fail(new AiError(code, openAiErrorMessage(code), { details: { provider: 'openai' } }));
+        return this.fail(
+          new AiError(code, openAiErrorMessage(code, this.family), { details: { provider: this.family.providerId } }),
+        );
       }
 
       default:
@@ -150,6 +162,7 @@ export class OpenAiStreamMapper {
       mapped = fromOpenAiResponse(response, {
         request: this.opts.request,
         providerRequestId: this.opts.providerRequestId,
+        family: this.family,
       });
     } catch (err) {
       return this.fail(AiError.wrap(err));

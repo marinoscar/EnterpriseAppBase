@@ -18,9 +18,15 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { SystemSettingsService } from '../../settings/system-settings/system-settings.service';
 import { AiError } from '../core/ai-error';
 import { AiModelCapabilities, aiModelCapabilitiesSchema } from '../core/capabilities';
-import { AiDiscoveredModel, AiDiscoveredModelMetadata, AiProviderAdapter } from '../core/provider-adapter.interface';
+import {
+  AI_KEYLESS_API_KEY,
+  AiDiscoveredModel,
+  AiDiscoveredModelMetadata,
+  AiProviderAdapter,
+} from '../core/provider-adapter.interface';
 import { AiProviderRegistry } from '../core/provider-registry';
 import { AI_CREDENTIAL_PURPOSE, aiCredentialName } from '../config/ai-credential.constants';
+import { type AiProviderPolicy, providerCallSettings, providerRequiresKey } from '../config/ai-config.service';
 
 /** The job type that runs {@link AiCatalogService.sync} for one provider. PERMANENT. */
 export const AI_CATALOG_REFRESH_TYPE = 'ai.catalog.refresh';
@@ -77,12 +83,6 @@ export const EMPTY_AI_MODEL_CAPABILITIES: AiModelCapabilities = {
 };
 
 export type AiCapabilitySource = 'catalog' | 'admin_override' | 'unclassified';
-
-/** The policy slice a provider carries in the `ai` namespace. */
-interface AiProviderPolicy {
-  enabled: boolean;
-  baseUrl?: string;
-}
 
 @Injectable()
 export class AiCatalogService {
@@ -156,11 +156,15 @@ export class AiCatalogService {
       aiCredentialName(providerId),
     );
 
-    if (!apiKey) {
+    // A keyless provider (#448: `requiresKey: false`) lists its models with
+    // no key at all; every other provider needs the admin key to discover.
+    const discoveryKey = apiKey ?? (providerRequiresKey(providerPolicy) ? null : AI_KEYLESS_API_KEY);
+
+    if (!discoveryKey) {
       return { skipped: 'NO_ADMIN_KEY' };
     }
 
-    const discovered = await this.discover(adapter, providerId, apiKey, providerPolicy, options);
+    const discovered = await this.discover(adapter, providerId, discoveryKey, providerPolicy, options);
     const { modelIds, metadata } = uniqueModels(discovered);
     const counts = await this.persist(adapter, providerId, modelIds, metadata);
 
@@ -185,7 +189,7 @@ export class AiCatalogService {
     try {
       const models = await adapter.listModels({
         apiKey,
-        baseUrl: providerPolicy.baseUrl,
+        ...providerCallSettings(providerPolicy),
         requestId: randomUUID(),
       });
 

@@ -396,7 +396,7 @@ export class SystemSettingsService {
 
   /**
    * `stored` (the raw `ai` namespace) with `providers` rebuilt slot by slot —
-   * each `AI_PROVIDER_IDS` slot that passes `systemAiProviderSchema` is kept,
+   * each `AI_PROVIDER_IDS` slot that passes its own slot schema is kept,
    * any other falls back to that provider's default — and `defaults` rebuilt
    * field by field the same way (#449). Everything else in the namespace is
    * left for `readNamespace` to salvage as usual.
@@ -417,7 +417,10 @@ export class SystemSettingsService {
       ...source,
       providers: Object.fromEntries(
         AI_PROVIDER_IDS.map((id) => {
-          const parsed = systemAiProviderSchema.safeParse(providers[id]);
+          // Each slot against its OWN schema (#448: the Azure and
+          // OpenAI-compatible slots carry more than `enabled`/`baseUrl`).
+          const slotSchema = systemAiSchema.shape.providers.shape[id];
+          const parsed = slotSchema.safeParse(providers[id]);
 
           return [
             id,
@@ -1309,6 +1312,46 @@ export class SystemSettingsService {
             baseUrl: mergeOptional(
               dto.ai?.providers?.gemini?.baseUrl,
               currentValue.ai.providers.gemini.baseUrl,
+            ),
+          },
+          // #448. Every optional field merges like `baseUrl` (absent keeps,
+          // `null` removes); `deployments` is one value, replaced whole.
+          'azure-openai': {
+            enabled:
+              dto.ai?.providers?.['azure-openai']?.enabled ??
+              currentValue.ai.providers['azure-openai'].enabled,
+            baseUrl: mergeOptional(
+              dto.ai?.providers?.['azure-openai']?.baseUrl,
+              currentValue.ai.providers['azure-openai'].baseUrl,
+            ),
+            apiVersion: mergeOptional(
+              dto.ai?.providers?.['azure-openai']?.apiVersion,
+              currentValue.ai.providers['azure-openai'].apiVersion,
+            ),
+            apiStyle: mergeOptional(
+              dto.ai?.providers?.['azure-openai']?.apiStyle,
+              currentValue.ai.providers['azure-openai'].apiStyle,
+            ),
+            deployments: mergeOptional(
+              dto.ai?.providers?.['azure-openai']?.deployments,
+              currentValue.ai.providers['azure-openai'].deployments,
+            ),
+          },
+          'openai-compatible': {
+            enabled:
+              dto.ai?.providers?.['openai-compatible']?.enabled ??
+              currentValue.ai.providers['openai-compatible'].enabled,
+            baseUrl: mergeOptional(
+              dto.ai?.providers?.['openai-compatible']?.baseUrl,
+              currentValue.ai.providers['openai-compatible'].baseUrl,
+            ),
+            apiStyle: mergeOptional(
+              dto.ai?.providers?.['openai-compatible']?.apiStyle,
+              currentValue.ai.providers['openai-compatible'].apiStyle,
+            ),
+            requiresKey: mergeOptional(
+              dto.ai?.providers?.['openai-compatible']?.requiresKey,
+              currentValue.ai.providers['openai-compatible'].requiresKey,
             ),
           },
         },

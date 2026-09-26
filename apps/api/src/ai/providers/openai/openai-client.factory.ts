@@ -21,7 +21,7 @@ import { OpenAI } from 'openai';
 
 import { AiError } from '../../core/ai-error';
 import type { AiCallContext } from '../../core/provider-adapter.interface';
-import { OPENAI_PROVIDER_ID } from './openai-errors';
+import { OPENAI_FAMILY, type OpenAiFamily } from './openai-errors';
 
 export const OPENAI_DEFAULT_BASE_URL = 'https://api.openai.com/v1';
 
@@ -34,6 +34,39 @@ export type OpenAiFetch = (input: string | URL | Request, init?: RequestInit) =>
 export interface OpenAiClientOptions {
   fetch?: OpenAiFetch;
   timeoutMs?: number;
+}
+
+/**
+ * Every SDK option this application pins, whatever member of the OpenAI
+ * family the client talks to (#448): nothing may be read from the
+ * environment (`OPENAI_ORG_ID`, `OPENAI_PROJECT_ID`, `OPENAI_LOG`, ...), the
+ * SDK never retries, and it never logs. The Azure and OpenAI-compatible
+ * factories spread this into their own clients.
+ */
+export function pinnedOpenAiClientOptions(options: OpenAiClientOptions, fetch?: OpenAiFetch) {
+  const chosenFetch = fetch ?? options.fetch;
+
+  return {
+    organization: null,
+    project: null,
+    adminAPIKey: null,
+    webhookSecret: null,
+    maxRetries: 0,
+    timeout: options.timeoutMs ?? OPENAI_DEFAULT_TIMEOUT_MS,
+    // The SDK's own logger writes to the console and, at debug level, the
+    // request — never let an ambient OPENAI_LOG turn that on.
+    logLevel: 'off' as const,
+    ...(chosenFetch ? { fetch: chosenFetch } : {}),
+  };
+}
+
+/** Throws `AI_KEY_INVALID` for an empty key — before any client is built. */
+export function assertOpenAiApiKey(ctx: AiCallContext, family: OpenAiFamily = OPENAI_FAMILY): void {
+  if (!ctx.apiKey || ctx.apiKey.trim().length === 0) {
+    throw new AiError('AI_KEY_INVALID', `No ${family.label} API key was supplied.`, {
+      details: { provider: family.providerId },
+    });
+  }
 }
 
 /** DI token for `OpenAiClientOptions` (optional; tests and forks provide it). */
@@ -49,25 +82,12 @@ export class OpenAiClientFactory {
 
   /** The SDK client for one call. Throws `AI_KEY_INVALID` for an empty key. */
   create(ctx: AiCallContext): OpenAI {
-    if (!ctx.apiKey || ctx.apiKey.trim().length === 0) {
-      throw new AiError('AI_KEY_INVALID', 'No OpenAI API key was supplied.', {
-        details: { provider: OPENAI_PROVIDER_ID },
-      });
-    }
+    assertOpenAiApiKey(ctx);
 
     return new OpenAI({
       apiKey: ctx.apiKey,
       baseURL: ctx.baseUrl ?? OPENAI_DEFAULT_BASE_URL,
-      organization: null,
-      project: null,
-      adminAPIKey: null,
-      webhookSecret: null,
-      maxRetries: 0,
-      timeout: this.options.timeoutMs ?? OPENAI_DEFAULT_TIMEOUT_MS,
-      // The SDK's own logger writes to the console and, at debug level, the
-      // request — never let an ambient OPENAI_LOG turn that on.
-      logLevel: 'off',
-      ...(this.options.fetch ? { fetch: this.options.fetch } : {}),
+      ...pinnedOpenAiClientOptions(this.options),
     });
   }
 }

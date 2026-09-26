@@ -1,6 +1,12 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 
-import type { SystemAiValue } from '../../common/schemas/settings.schema';
+import type { z } from 'zod';
+
+import {
+  type AiOpenAiApiStyle,
+  systemAiSchema,
+  type SystemAiValue,
+} from '../../common/schemas/settings.schema';
 import { CredentialsService } from '../../credentials/credentials.service';
 import { SystemSettingsService } from '../../settings/system-settings/system-settings.service';
 import { AiError } from '../core/ai-error';
@@ -36,8 +42,78 @@ export const AI_POLICY_CACHE_MS = 5_000;
 /** The deployment-wide AI policy (`ai` settings namespace). */
 export type AiPolicy = SystemAiValue;
 
-/** One provider's slot in the policy. */
-export type AiProviderPolicy = SystemAiValue['providers']['openai'];
+/**
+ * One provider's slot in the policy — the union of every slot's fields
+ * (#448: the Azure OpenAI and OpenAI-compatible slots carry more than
+ * `enabled`/`baseUrl`), so a generic reader can ask for any of them and get
+ * `undefined` where a provider has no such field.
+ */
+export interface AiProviderPolicy {
+  enabled: boolean;
+  baseUrl?: string;
+  apiVersion?: string;
+  apiStyle?: AiOpenAiApiStyle;
+  deployments?: Record<string, string>;
+  requiresKey?: boolean;
+}
+
+/** The provider-specific settings a slot may carry besides `enabled` (#448). */
+export const AI_PROVIDER_SETTINGS_FIELDS = ['baseUrl', 'apiVersion', 'apiStyle', 'deployments', 'requiresKey'] as const;
+export type AiProviderSettingsField = (typeof AI_PROVIDER_SETTINGS_FIELDS)[number];
+
+/** A provider's own slot schema, or `undefined` for an id with no settings slot. */
+export function providerSlotSchema(providerId: string): z.ZodObject<z.ZodRawShape> | undefined {
+  const shape = systemAiSchema.shape.providers.shape as Record<string, z.ZodObject<z.ZodRawShape> | undefined>;
+
+  return Object.prototype.hasOwnProperty.call(shape, providerId) ? shape[providerId] : undefined;
+}
+
+/**
+ * The settings fields `providerId`'s slot accepts besides `enabled`, read off
+ * its schema — so a slot that gains a field gains it here with no list to
+ * update. Empty for an id with no slot.
+ */
+export function providerSettingsFields(providerId: string): AiProviderSettingsField[] {
+  const schema = providerSlotSchema(providerId);
+
+  if (!schema) return [];
+
+  const keys = new Set(Object.keys(schema.shape));
+
+  return AI_PROVIDER_SETTINGS_FIELDS.filter((field) => keys.has(field));
+}
+
+/**
+ * Whether calls to this provider need a key (#448). Only the
+ * OpenAI-compatible slot can say no — `requiresKey: false` is the
+ * administrator's opt-in to a keyless server, resolved as `keySource:
+ * 'none'` — and absent means yes, as it does for every other provider.
+ */
+export function providerRequiresKey(slot: AiProviderPolicy | undefined): boolean {
+  return slot?.requiresKey !== false;
+}
+
+/**
+ * What an adapter call carries from the provider's slot (#448): the endpoint
+ * as `baseUrl`, and every other non-secret setting (`apiVersion`,
+ * `apiStyle`, `deployments`, `requiresKey`) as `providerSettings`, for the
+ * adapter to read with its own schema. `enabled` is the runtime's business,
+ * never the adapter's. Nothing here can hold a secret — the slot has no
+ * field able to (see `settings.schema.ts`'s compile-time proof).
+ */
+export function providerCallSettings(
+  slot: AiProviderPolicy | undefined,
+): { baseUrl?: string; providerSettings?: Readonly<Record<string, unknown>> } {
+  if (!slot) return {};
+
+  const { enabled: _enabled, baseUrl, ...rest } = slot;
+  const settings = Object.fromEntries(Object.entries(rest).filter(([, value]) => value !== undefined));
+
+  return {
+    ...(baseUrl ? { baseUrl } : {}),
+    ...(Object.keys(settings).length > 0 ? { providerSettings: settings } : {}),
+  };
+}
 
 /**
  * A provider's policy slot by id, or `undefined` for an id the settings schema
@@ -205,6 +281,7 @@ export class AiConfigService implements OnModuleInit {
           enabled: providerPolicy(policy, id)?.enabled ?? false,
           hasOrgKey: info !== null,
           supportsPreviousResponseId: this.registry.supportsPreviousResponseId(id),
+          requiresKey: providerRequiresKey(providerPolicy(policy, id)),
         };
       }),
     );

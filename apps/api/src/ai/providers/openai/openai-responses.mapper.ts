@@ -67,7 +67,7 @@ import type {
   AiUrlCitation,
   AiUsage,
 } from '../../core/types/responses.types';
-import { mapOpenAiResponseFailure, OPENAI_PROVIDER_ID } from './openai-errors';
+import { mapOpenAiResponseFailure, OPENAI_FAMILY, type OpenAiFamily } from './openai-errors';
 
 /** The request body minus `stream`, which the port sets. */
 export type OpenAiRequestBody = Omit<ResponseCreateParamsBase, 'stream'>;
@@ -87,15 +87,23 @@ export interface OpenAiStorageDelivery {
 /** Deliveries keyed by storage object id. */
 export type OpenAiStorageDeliveries = ReadonlyMap<string, OpenAiStorageDelivery>;
 
+/**
+ * The provider id stamped on the errors this file raises. Set for the
+ * duration of one synchronous `toOpenAiRequest` call (#448) — every helper
+ * below is synchronous, so no other call can observe it — rather than
+ * threaded through a dozen signatures.
+ */
+let currentProviderId = OPENAI_FAMILY.providerId;
+
 function unsupported(message: string, details: Record<string, unknown>): AiError {
   return new AiError('AI_CAPABILITY_UNSUPPORTED', message, {
-    details: { provider: OPENAI_PROVIDER_ID, ...details },
+    details: { provider: currentProviderId, ...details },
   });
 }
 
 function invalid(message: string, details: Record<string, unknown> = {}): AiError {
   return new AiError('AI_INVALID_REQUEST', message, {
-    details: { provider: OPENAI_PROVIDER_ID, ...details },
+    details: { provider: currentProviderId, ...details },
   });
 }
 
@@ -356,6 +364,24 @@ export function toOpenAiRequest(
   req: AiResponseRequest,
   caps: AiModelCapabilities | null,
   storage?: OpenAiStorageDeliveries,
+  family: OpenAiFamily = OPENAI_FAMILY,
+): OpenAiRequestBody {
+  const previous = currentProviderId;
+
+  currentProviderId = family.providerId;
+
+  try {
+    return buildOpenAiRequest(req, caps, storage, family);
+  } finally {
+    currentProviderId = previous;
+  }
+}
+
+function buildOpenAiRequest(
+  req: AiResponseRequest,
+  caps: AiModelCapabilities | null,
+  storage: OpenAiStorageDeliveries | undefined,
+  family: OpenAiFamily,
 ): OpenAiRequestBody {
   const body: OpenAiRequestBody = {
     model: req.model,
@@ -390,7 +416,7 @@ export function toOpenAiRequest(
   if (req.previousResponseId !== undefined) body.previous_response_id = req.previousResponseId;
   if (req.metadata !== undefined) body.metadata = req.metadata;
 
-  const { stream: _stream, ...escapeHatch } = req.providerOptions?.[OPENAI_PROVIDER_ID] ?? {};
+  const { stream: _stream, ...escapeHatch } = req.providerOptions?.[family.providerId] ?? {};
 
   return { ...body, ...(escapeHatch as Partial<OpenAiRequestBody>) };
 }
@@ -631,6 +657,8 @@ export interface FromOpenAiResponseOptions {
   request: AiResponseRequest;
   /** The `x-request-id` OpenAI answered with. */
   providerRequestId?: string | null;
+  /** Which OpenAI-family provider answered (#448); OpenAI by default. */
+  family?: OpenAiFamily;
 }
 
 /**
@@ -647,9 +675,10 @@ export function fromOpenAiResponse(
   opts: FromOpenAiResponseOptions,
 ): AiResponse {
   const providerRequestId = opts.providerRequestId ?? undefined;
+  const family = opts.family ?? OPENAI_FAMILY;
 
   if (resp.status === 'failed') {
-    throw mapOpenAiResponseFailure(resp.error, providerRequestId);
+    throw mapOpenAiResponseFailure(resp.error, providerRequestId, family);
   }
 
   const output = resp.output
@@ -664,7 +693,7 @@ export function fromOpenAiResponse(
 
   const result: AiResponse = {
     id: resp.id,
-    provider: OPENAI_PROVIDER_ID,
+    provider: family.providerId,
     model: resp.model,
     output,
     outputText,

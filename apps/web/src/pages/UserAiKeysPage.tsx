@@ -25,6 +25,7 @@ import { useUserAiKeys } from '../hooks/useUserAiKeys';
 import { useUsableAiModels } from '../hooks/useUsableAiModels';
 import { useUserSettings } from '../hooks/useUserSettings';
 import { UserAiKeyCard } from '../components/settings/ai/UserAiKeyCard';
+import { KeylessProviderCard } from '../components/settings/ai/KeylessProviderCard';
 import { UsableAiModelsList } from '../components/settings/ai/UsableAiModelsList';
 import { DefaultAiModelPicker } from '../components/settings/ai/DefaultAiModelPicker';
 import { MyAiUsageSection } from '../components/settings/ai/MyAiUsageSection';
@@ -78,18 +79,23 @@ export default function UserAiKeysPage() {
           <Stack spacing={3}>
             {keysError && <Alert severity="error">{keysError}</Alert>}
 
-            {providers.map((provider) => (
-              <UserAiKeyCard
-                key={provider.id}
-                provider={provider}
-                keyView={keys.find((entry) => entry.provider === provider.id)}
-                orgFallback={fallbackPolicy && provider.hasOrgKey}
-                onSave={setKey}
-                onTest={testKey}
-                onRemove={deleteKey}
-                onChanged={() => void refreshModels()}
-              />
-            ))}
+            {providers.map((provider) =>
+              // A keyless server (#448) has no key to add — say so instead.
+              provider.requiresKey === false ? (
+                <KeylessProviderCard key={provider.id} provider={provider} />
+              ) : (
+                <UserAiKeyCard
+                  key={provider.id}
+                  provider={provider}
+                  keyView={keys.find((entry) => entry.provider === provider.id)}
+                  orgFallback={fallbackPolicy && provider.hasOrgKey}
+                  onSave={setKey}
+                  onTest={testKey}
+                  onRemove={deleteKey}
+                  onChanged={() => void refreshModels()}
+                />
+              ),
+            )}
 
             <UsableAiModelsList
               models={usable.models}

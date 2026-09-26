@@ -175,6 +175,8 @@ describe('AiUsagePage', () => {
     const table = screen.getByTestId('admin-ai-usage-breakdown-table');
     expect(within(table).getByText('Organization key')).toBeInTheDocument();
     expect(within(table).getByText("User's own key")).toBeInTheDocument();
+    // #448: a keyless server's calls — `keySource: 'none'`.
+    expect(within(table).getByText('No key (keyless server)')).toBeInTheDocument();
     expect(mockUseAiUsage).toHaveBeenLastCalledWith(expect.objectContaining({ groupBy: 'keySource' }));
   });
 

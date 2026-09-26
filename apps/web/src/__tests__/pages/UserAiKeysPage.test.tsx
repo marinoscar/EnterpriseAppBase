@@ -25,6 +25,7 @@ import {
   mockAiKeyInvalidErrorBody,
   mockAiProbeResultFailed,
   mockAiPublicConfigByok,
+  mockAiPublicConfigKeyless,
   mockAiPublicConfigNoProviders,
   mockUserAiKeys,
   mockUserAiKeysErrored,
@@ -64,6 +65,23 @@ describe('UserAiKeysPage', () => {
     expect(
       screen.getByText(/Your key is encrypted, never shown again, and only used for requests you make/),
     ).toBeInTheDocument();
+  });
+
+  describe('keyless provider (#448)', () => {
+    it('says no key is needed instead of offering key entry', async () => {
+      useConfig(mockAiPublicConfigKeyless);
+      useKeys(mockUserAiKeysNone);
+      await renderPage({ fetchConfig: true });
+
+      const keyless = screen.getByRole('region', { name: 'Local Ollama key' });
+      expect(within(keyless).getByText(/No key needed — this server is keyless/)).toBeInTheDocument();
+      expect(within(keyless).queryByLabelText(/API key/i, { selector: 'input' })).not.toBeInTheDocument();
+      expect(within(keyless).queryByRole('button', { name: /Save & verify/ })).not.toBeInTheDocument();
+
+      // A provider that does need a key keeps its key field.
+      const openai = screen.getByRole('region', { name: 'OpenAI key' });
+      expect(within(openai).getByLabelText(/API key/i, { selector: 'input' })).toBeInTheDocument();
+    });
   });
 
   describe('no key', () => {
