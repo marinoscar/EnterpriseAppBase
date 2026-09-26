@@ -9,8 +9,9 @@
 //     array of rows, and `user.count` answering the `storage:read_any` query
 //     from a set of user ids;
 //   - `provider`: a `StorageProvider` whose `upload`/`download`/`delete` move
-//     bytes in and out of a `Map`, and whose every other method throws (an AI
-//     path that reaches for a presigned URL is a bug this should surface);
+//     bytes in and out of a `Map`, whose `getSignedDownloadUrl` (#441) mints a
+//     fake presigned URL carrying `IN_MEMORY_PRESIGNED_SIGNATURE` (a sentinel
+//     the secret-egress suite hunts for), and whose every other method throws;
 //   - `storageConfig`: `resolve()`/`activeProvider()`, switchable to the
 //     unconfigured state with `setConfigured(false)` — which also makes every
 //     provider call throw `StorageNotConfiguredError`, exactly as
@@ -39,6 +40,15 @@ export interface InMemoryStorageObject {
 }
 
 const BUCKET = 'in-memory-bucket';
+
+/**
+ * Every presigned URL this storage mints carries this signature — a sentinel
+ * that must never appear in a response, log line or persisted row (#441).
+ */
+export const IN_MEMORY_PRESIGNED_SIGNATURE = 'presigned-sentinel-5f3a9c';
+
+/** The origin of every presigned URL this storage mints. */
+export const IN_MEMORY_PRESIGNED_ORIGIN = 'https://in-memory-storage.test';
 
 function pick(row: object, select?: Record<string, boolean>): Record<string, unknown> {
   const source = row as Record<string, unknown>;
@@ -93,7 +103,16 @@ export function createInMemoryAiStorage() {
     getSignedUploadUrl: unsupported('getSignedUploadUrl'),
     completeMultipartUpload: unsupported('completeMultipartUpload'),
     abortMultipartUpload: unsupported('abortMultipartUpload'),
-    getSignedDownloadUrl: unsupported('getSignedDownloadUrl'),
+    getSignedDownloadUrl: jest.fn(async (key: string, options?: { expiresIn?: number }) => {
+      assertConfigured();
+
+      if (!blobs.has(key)) throw new Error(`in-memory storage: no object at ${key}`);
+
+      return (
+        `${IN_MEMORY_PRESIGNED_ORIGIN}/${BUCKET}/${key}?X-Amz-Expires=${options?.expiresIn ?? 3600}` +
+        `&X-Amz-Signature=${IN_MEMORY_PRESIGNED_SIGNATURE}-${randomUUID()}`
+      );
+    }),
     getSignedPutUrl: unsupported('getSignedPutUrl'),
     getMetadata: unsupported('getMetadata'),
     setMetadata: unsupported('setMetadata'),

@@ -44,9 +44,23 @@
 // bytes, resolves the key, calls the port and records one usage row
 // (`operation: 'images'`, `units: { images: n }`).
 //
+// STORAGE-OBJECT INPUTS (#441). An `image`/`file` part naming a
+// `storageObjectId` is resolved INSIDE `prepare`, after step 4: the object
+// must be the caller's own (or they hold `storage:read_any`) and `ready`;
+// its MIME type decides its modality (an image type needs `vision_input`,
+// anything else `file_input`, both in the model's capabilities AND
+// `inputModalities`) and its size cap (`AI_STORAGE_INPUT_*_MAX_BYTES`); and
+// the provider must declare a `fileInputStrategy`. Only then — after the
+// gates, before the key — does `materializeStorageInputs` prepare what that
+// strategy needs (a 10-minute presigned GET URL, or a capped byte stream),
+// handed to the adapter in `ctx.storageInputs`. The REQUEST is never
+// rewritten: it keeps the id, so the prompt log, `ai_runs.request` and every
+// error carry no URL. `startRun` runs the checks now and the job resolves
+// again when it executes, with a fresh URL.
+//
 // ⚠ THE KEY. `apiKey` exists in this file only between step 6 and the
 // adapter call. It is never logged, never put on a span, never persisted and
-// never part of an error.
+// never part of an error. A presigned input URL gets the same treatment.
 // =============================================================================
 
 import { randomUUID } from 'node:crypto';
@@ -62,6 +76,16 @@ import { AiConfigService } from '../config/ai-config.service';
 import { AiError } from '../core/ai-error';
 import type { AiCapability } from '../core/capabilities';
 import type { AiCallContext, AiResponsesPort } from '../core/provider-adapter.interface';
+import {
+  AI_STORAGE_INPUT_URL_TTL_SECONDS,
+  AI_STORAGE_INPUTS_MAX,
+  type AiFileInputStrategy,
+  type AiResolvedStorageInput,
+  type AiResolvedStorageInputs,
+  type AiStorageInputModality,
+  storageInputMaxBytes,
+  storageInputModality,
+} from '../core/types/file-inputs.types';
 import { AiProviderRegistry } from '../core/provider-registry';
 import { parseStructured } from '../core/structured-output';
 import {
@@ -79,10 +103,17 @@ import {
   type AiImageResult,
   type AiImagesPort,
 } from '../core/types/media.types';
-import type { AiResponse, AiResponseRequest, AiStreamEvent, AiUsage } from '../core/types/responses.types';
+import type {
+  AiContentPart,
+  AiResponse,
+  AiResponseRequest,
+  AiStreamEvent,
+  AiUsage,
+} from '../core/types/responses.types';
 import { AiKeyResolver, type AiKeySource } from '../keys/ai-key-resolver.service';
 import type { UsableAiModel } from '../keys/dto/usable-ai-model.dto';
 import { UsableModelsService } from '../keys/usable-models.service';
+import { aiErrorFromStorage } from '../storage/ai-storage-errors';
 import { AiStorageInputResolver, type AiStorageInput } from '../storage/ai-storage-input.resolver';
 import {
   type AiImageOperation,
@@ -248,6 +279,18 @@ export interface PreparedAiCall extends AiCallTarget {
   /** The request the adapter receives — model resolved, tokens clamped. */
   request: AiResponseRequest;
   model: UsableAiModel;
+  /**
+   * The request's storage-object inputs (#441), authorised and checked from
+   * their rows — nothing read, nothing presigned yet. Empty when it has none.
+   */
+  storageInputs: PlannedStorageInput[];
+}
+
+/** One storage-object input `prepare` accepted, and how its provider wants it. */
+export interface PlannedStorageInput {
+  input: AiStorageInput;
+  modality: AiStorageInputModality;
+  strategy: AiFileInputStrategy;
 }
 
 /** Everything the gate pipeline settled for one `embeddings` call. */
@@ -383,7 +426,8 @@ export class AiService {
 
   /** Steps 6-7 for an already-gated call. */
   private async invoke(scope: AiClientScope, call: PreparedAiCall, opts: AiCallOptions): Promise<AiResponse> {
-    const { ctx, keySource } = await this.context(scope, call, opts, () => responsePrompt(call.request));
+    const storageInputs = await this.materializeStorageInputs(call);
+    const { ctx, keySource } = await this.context(scope, call, opts, () => responsePrompt(call.request), storageInputs);
     const tracker = this.track(scope, call, keySource, 'responses.create');
 
     let response: AiResponse;
@@ -543,7 +587,8 @@ export class AiService {
     opts: AiCallOptions = {},
   ): Promise<AsyncIterable<AiStreamEvent>> {
     const call = await this.prepare(scope.userId, req, { streaming: true });
-    const { ctx, keySource } = await this.context(scope, call, opts, () => responsePrompt(call.request));
+    const storageInputs = await this.materializeStorageInputs(call);
+    const { ctx, keySource } = await this.context(scope, call, opts, () => responsePrompt(call.request), storageInputs);
     const tracker = this.track(scope, call, keySource, 'responses.stream');
     let iterator: AsyncIterator<AiStreamEvent>;
 
@@ -727,6 +772,9 @@ export class AiService {
       );
     }
 
+    // 4b. Storage-object inputs: ownership, readiness, modality, size, strategy.
+    const storageInputs = await this.planStorageInputs(userId, provider, model, usable, req.input);
+
     // 5. Clamp output tokens.
     const policy = await this.aiConfig.resolve();
     const maxOutputTokens = clampOutputTokens(
@@ -748,6 +796,7 @@ export class AiService {
       port,
       request,
       model: usable,
+      storageInputs,
       baseUrl: slot.baseUrl,
       logPromptContent: policy.logPromptContent,
     };
@@ -892,6 +941,149 @@ export class AiService {
   }
 
   /**
+   * Step 4b: every storage-object part of `input`, authorised and checked
+   * from its row alone (see the file header). Reads no bytes and presigns
+   * nothing — `startRun` calls this too, and must not.
+   *
+   * @throws NotFoundException / ForbiddenException for an unknown object or
+   *   another user's (the answers `ObjectsService` gives);
+   *   AiError('AI_INVALID_REQUEST') for a part with both `url` and
+   *   `storageObjectId`, too many parts, an object not ready, an image part
+   *   that is not an image, or an object over its modality's cap;
+   *   AiError('AI_CAPABILITY_UNSUPPORTED') when the model lacks the
+   *   modality or the provider declares no `fileInputStrategy`.
+   */
+  private async planStorageInputs(
+    userId: string,
+    provider: string,
+    model: string,
+    usable: UsableAiModel,
+    input: AiResponseRequest['input'],
+  ): Promise<PlannedStorageInput[]> {
+    const parts = storageParts(input);
+
+    if (parts.length === 0) return [];
+
+    for (const part of parts) {
+      if (part.url !== undefined) {
+        throw new AiError('AI_INVALID_REQUEST', `An ${part.type} part takes a url OR a storageObjectId, not both.`, {
+          details: { part: part.type, storageObjectId: part.storageObjectId },
+        });
+      }
+    }
+
+    const distinct = new Set(parts.map((part) => part.storageObjectId));
+
+    if (distinct.size > AI_STORAGE_INPUTS_MAX) {
+      throw new AiError('AI_INVALID_REQUEST', `At most ${AI_STORAGE_INPUTS_MAX} stored files per request.`, {
+        details: { storageInputs: distinct.size, max: AI_STORAGE_INPUTS_MAX },
+      });
+    }
+
+    const strategies = this.registry.get(provider)?.fileInputStrategy;
+
+    if (!strategies) {
+      throw new AiError(
+        'AI_CAPABILITY_UNSUPPORTED',
+        `The "${provider}" provider does not accept stored files as inputs; pass a url.`,
+        { details: { provider, model, capability: 'file_input' } },
+      );
+    }
+
+    const planned = new Map<string, PlannedStorageInput>();
+
+    for (const part of parts) {
+      const id = part.storageObjectId;
+      let plan = planned.get(id);
+
+      if (!plan) {
+        const resolved = await this.inputs.resolve(userId, id, { label: part.type });
+        const modality = storageInputModality(resolved.mimeType);
+        const maxBytes = storageInputMaxBytes(modality);
+
+        if (resolved.size > maxBytes) {
+          throw new AiError(
+            'AI_INVALID_REQUEST',
+            `The ${modality} storage object is larger than ${maxBytes} bytes (${maxBytes / 1024 / 1024} MiB).`,
+            { details: { storageObjectId: id, size: resolved.size, maxBytes } },
+          );
+        }
+
+        const capability: AiCapability = modality === 'image' ? 'vision_input' : 'file_input';
+        const caps = usable.capabilities;
+
+        if (!caps.capabilities.includes(capability) || !caps.inputModalities.includes(modality)) {
+          throw new AiError(
+            'AI_CAPABILITY_UNSUPPORTED',
+            `Model "${model}" does not accept ${modality} inputs (${resolved.mimeType}).`,
+            { details: { provider, model, capability, storageObjectId: id, mimeType: resolved.mimeType } },
+          );
+        }
+
+        plan = { input: resolved, modality, strategy: strategies[modality] };
+        planned.set(id, plan);
+      }
+
+      if (part.type === 'image' && plan.modality !== 'image') {
+        throw new AiError(
+          'AI_INVALID_REQUEST',
+          `An image part must reference an image (PNG, JPEG, GIF or WebP); this object is ` +
+            `${plan.input.mimeType} — send it as a file part.`,
+          { details: { storageObjectId: id, mimeType: plan.input.mimeType } },
+        );
+      }
+    }
+
+    return [...planned.values()];
+  }
+
+  /**
+   * After the gates, before the key: what each planned input's delivery
+   * strategy needs, for ONE provider call — a fresh presigned URL, or a
+   * capped byte stream. A storage failure here is `AI_STORAGE_UNAVAILABLE`
+   * (nothing was sent, so no usage row).
+   *
+   * ⚠ The URLs exist only in the returned map, which only `ctx` carries.
+   */
+  private async materializeStorageInputs(call: PreparedAiCall): Promise<AiResolvedStorageInputs | undefined> {
+    if (call.storageInputs.length === 0) return undefined;
+
+    const resolved = new Map<string, AiResolvedStorageInput>();
+
+    for (const { input, modality, strategy } of call.storageInputs) {
+      const base = {
+        storageObjectId: input.id,
+        modality,
+        mimeType: input.mimeType,
+        filename: input.name,
+        strategy,
+      };
+
+      if (strategy === 'presigned_url') {
+        let url: string;
+
+        try {
+          url = await this.inputs.presign(input, AI_STORAGE_INPUT_URL_TTL_SECONDS);
+        } catch (err) {
+          throw storageInputFailure(err);
+        }
+
+        resolved.set(input.id, { ...base, url });
+      } else {
+        const limits = { maxBytes: storageInputMaxBytes(modality), label: modality };
+
+        resolved.set(input.id, {
+          ...base,
+          open: () => this.inputs.open(input, limits).catch((err: unknown) => Promise.reject(storageInputFailure(err))),
+          read: () => this.inputs.read(input, limits).catch((err: unknown) => Promise.reject(storageInputFailure(err))),
+        });
+      }
+    }
+
+    return resolved;
+  }
+
+  /**
    * Step 6: resolve the key and build the adapter context. `prompt` is the
    * request's content, rendered only for the opt-in debug line.
    */
@@ -900,6 +1092,7 @@ export class AiService {
     call: AiCallTarget,
     opts: AiCallOptions,
     prompt: () => unknown,
+    storageInputs?: AiResolvedStorageInputs,
   ): Promise<{ ctx: AiCallContext; keySource: AiKeySource }> {
     if (opts.signal?.aborted) {
       throw cancelled(call.provider);
@@ -920,6 +1113,7 @@ export class AiService {
         requestId,
         ...(call.baseUrl ? { baseUrl: call.baseUrl } : {}),
         ...(opts.signal ? { signal: opts.signal } : {}),
+        ...(storageInputs ? { storageInputs } : {}),
       },
       keySource,
     };
@@ -1002,6 +1196,9 @@ export function requiredCapabilities(
       if (item.type !== 'message') continue;
 
       for (const part of item.content) {
+        // A stored object's modality follows its MIME type, not the part's
+        // type; `planStorageInputs` checks it once the row is read.
+        if (part.type !== 'text' && part.storageObjectId !== undefined) continue;
         if (part.type === 'image') needed.add('vision_input');
         if (part.type === 'file') needed.add('file_input');
       }
@@ -1113,6 +1310,40 @@ function assertImageShape(req: AiGenerateImageRequest | AiEditImageRequest, edit
   if (new Set(ids).size !== ids.length) {
     throw new AiError('AI_INVALID_REQUEST', 'imageStorageObjectIds must not repeat an id.');
   }
+}
+
+type StoragePart = Extract<AiContentPart, { type: 'image' | 'file' }> & { storageObjectId: string };
+
+/** Every image/file part of `input` that names a storage object, in order. */
+function storageParts(input: AiResponseRequest['input']): StoragePart[] {
+  if (!Array.isArray(input)) return [];
+
+  const parts: StoragePart[] = [];
+
+  for (const item of input) {
+    if (item.type !== 'message') continue;
+
+    for (const part of item.content) {
+      if (part.type !== 'text' && part.storageObjectId !== undefined) parts.push(part as StoragePart);
+    }
+  }
+
+  return parts;
+}
+
+/**
+ * A storage failure while preparing or reading an input, as an `AiError`:
+ * the input resolver's own `AiError` (a too-large stream) unchanged,
+ * unconfigured storage (and a vanished object) as `aiErrorFromStorage` maps
+ * them, anything else `AI_STORAGE_UNAVAILABLE`. Never the URL.
+ */
+function storageInputFailure(err: unknown): AiError {
+  if (err instanceof AiError) return err;
+
+  return (
+    aiErrorFromStorage(err) ??
+    new AiError('AI_STORAGE_UNAVAILABLE', 'A stored input could not be read from object storage.', { cause: err })
+  );
 }
 
 /** The outcome of a round-trip that threw. An abort is a cancellation, not a failure. */

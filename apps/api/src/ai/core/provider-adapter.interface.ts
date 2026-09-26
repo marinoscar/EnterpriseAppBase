@@ -20,6 +20,7 @@
 
 import type { AiErrorCode } from './ai-error';
 import type { AiModelCapabilities } from './capabilities';
+import type { AiFileInputStrategies, AiResolvedStorageInputs } from './types/file-inputs.types';
 import type {
   AiAudioPort,
   AiEmbeddingsPort,
@@ -41,6 +42,13 @@ export interface AiCallContext {
   baseUrl?: string;
   signal?: AbortSignal;
   requestId: string;
+  /**
+   * The request's storage-object inputs (#441), resolved and authorised by the
+   * runtime, keyed by `storageObjectId` — present only when the request
+   * carries any. ⚠ May hold presigned URLs: the same never-log rule as
+   * `apiKey` applies (see `types/file-inputs.types.ts`).
+   */
+  storageInputs?: AiResolvedStorageInputs;
 }
 
 export interface AiDiscoveredModel {
@@ -74,6 +82,13 @@ export interface AiProviderAdapter {
   verifyKey(ctx: AiCallContext): Promise<AiKeyVerification>;
   /** `null` means "unclassified": the catalog stores it and an admin decides. */
   classifyModel(modelId: string): AiModelCapabilities | null;
+
+  /**
+   * How this adapter wants storage-object image/file inputs delivered (#441).
+   * Presence is the declaration that it accepts them at all; absent, a
+   * request carrying one is refused with `AI_CAPABILITY_UNSUPPORTED`.
+   */
+  readonly fileInputStrategy?: AiFileInputStrategies;
 
   // Capability ports — presence IS the declaration.
   readonly responses?: AiResponsesPort;

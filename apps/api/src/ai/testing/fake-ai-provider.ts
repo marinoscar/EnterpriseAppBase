@@ -21,7 +21,14 @@
 //     `dimensions`, and refuses a model classified without `embeddings`;
 //   - with `imagesPort: true`, `images.generate()`/`images.edit()` return
 //     `n` tiny PNGs (as bytes, in the requested `outputFormat`'s MIME type)
-//     and refuse a model classified without `image_generation`/`image_edit`.
+//     and refuse a model classified without `image_generation`/`image_edit`;
+//   - storage-object inputs (#441) are delivered the way OpenAI's are by
+//     default (`fileInputStrategy`: images by presigned URL, files by
+//     upload): each is looked up in `ctx.storageInputs` (a part the runtime
+//     did not resolve is `AI_INVALID_REQUEST`), an `upload` input's stream is
+//     drained into a fake provider-side file that is "deleted" once the
+//     response ends, and the call records WHAT it received — a URL or a file
+//     id — in `FakeAiCall.storageInputs`, plus `deletedFileIds`.
 //
 // And it RECORDS every call, including the `apiKey` it was called with —
 // that is what lets a test prove the organisation key is never used for a
@@ -50,7 +57,13 @@ import {
   AiImagesPort,
   AiRealtimePort,
 } from '../core/types/media.types';
+import type {
+  AiFileInputStrategies,
+  AiResolvedStorageInput,
+  AiStorageInputModality,
+} from '../core/types/file-inputs.types';
 import {
+  AiContentPart,
   AiHostedToolType,
   AiOutputItem,
   AiResponse,
@@ -90,7 +103,27 @@ export interface FakeAiCall {
   imageRequest?: AiImageGenerationRequest | AiImageEditRequest;
   /** Set when the call observed `ctx.signal` aborting. */
   aborted?: boolean;
+  /** What a responses call received for each storage-object part (#441), in part order. */
+  storageInputs?: FakeAiDeliveredInput[];
 }
+
+/** One storage-object input as the fake received it. */
+export interface FakeAiDeliveredInput {
+  storageObjectId: string;
+  modality: AiStorageInputModality;
+  strategy: AiResolvedStorageInput['strategy'];
+  filename: string;
+  mimeType: string;
+  /** `presigned_url`: the URL the provider would fetch. */
+  url?: string;
+  /** `upload`: the fake provider-side file id. */
+  fileId?: string;
+  /** `upload`/`inline`: how many bytes the fake read. */
+  bytes?: number;
+}
+
+/** OpenAI's delivery strategies — the fake's default. */
+export const FAKE_FILE_INPUT_STRATEGY: AiFileInputStrategies = { image: 'presigned_url', file: 'upload' };
 
 export interface FakeAiProviderOptions {
   /** Registry id. Defaults to `'fake'`; a test may register it as a real id. */
@@ -134,6 +167,12 @@ export interface FakeAiProviderOptions {
     embeddings?: AiEmbeddingsPort;
     realtime?: AiRealtimePort;
   };
+  /**
+   * How storage-object inputs are delivered (#441). Defaults to
+   * `FAKE_FILE_INPUT_STRATEGY`; `false` declares none (the provider then
+   * refuses them, as one without file support does).
+   */
+  fileInputStrategy?: AiFileInputStrategies | false;
   /** Characters per streamed delta. Defaults to 4. */
   chunkSize?: number;
   /** Delay before a create and between stream events, in ms (abort-aware). Defaults to 0. */
@@ -198,9 +237,15 @@ export class FakeAiProvider implements AiProviderAdapter {
   readonly audio?: AiAudioPort;
   readonly embeddings?: AiEmbeddingsPort;
   readonly realtime?: AiRealtimePort;
+  readonly fileInputStrategy?: AiFileInputStrategies;
 
   /** Every call, in order. */
   readonly calls: FakeAiCall[] = [];
+
+  /** Fake provider-side files uploaded for an input and deleted after the response (#441). */
+  readonly deletedFileIds: string[] = [];
+
+  private fileCounter = 0;
 
   private readonly models: string[];
   private readonly validKeys?: Set<string>;
@@ -237,6 +282,8 @@ export class FakeAiProvider implements AiProviderAdapter {
       options.ports?.embeddings ??
       (options.embeddingsPort ? { embed: (req, ctx) => this.embed(req, ctx) } : undefined);
     this.realtime = options.ports?.realtime;
+    this.fileInputStrategy =
+      options.fileInputStrategy === false ? undefined : (options.fileInputStrategy ?? FAKE_FILE_INPUT_STRATEGY);
   }
 
   /** Every distinct key the fake was called with, in first-use order. */
@@ -252,6 +299,7 @@ export class FakeAiProvider implements AiProviderAdapter {
   /** Forget recorded calls and rewind an array script. */
   reset(): void {
     this.calls.length = 0;
+    this.deletedFileIds.length = 0;
     this.scriptCursor = 0;
   }
 
@@ -290,20 +338,41 @@ export class FakeAiProvider implements AiProviderAdapter {
 
   private async create(req: AiResponseRequest, ctx: AiCallContext): Promise<AiResponse> {
     const call = this.record('responses.create', ctx, req);
+    const uploaded: string[] = [];
 
-    await this.pause(ctx, call);
+    try {
+      await this.pause(ctx, call);
+      call.storageInputs = await this.receiveStorageInputs(req, ctx, uploaded);
 
-    return this.produce(req, ctx, false);
+      return await this.produce(req, ctx, false, call.storageInputs);
+    } finally {
+      this.deleteUploaded(uploaded);
+    }
   }
 
   private async *stream(req: AiResponseRequest, ctx: AiCallContext): AsyncGenerator<AiStreamEvent> {
     const call = this.record('responses.stream', ctx, req);
+    const uploaded: string[] = [];
 
+    try {
+      yield* this.streamEvents(req, ctx, call, uploaded);
+    } finally {
+      this.deleteUploaded(uploaded);
+    }
+  }
+
+  private async *streamEvents(
+    req: AiResponseRequest,
+    ctx: AiCallContext,
+    call: FakeAiCall,
+    uploaded: string[],
+  ): AsyncGenerator<AiStreamEvent> {
     let response: AiResponse;
 
     try {
       this.throwIfAborted(ctx, call);
-      response = await this.produce(req, ctx, true);
+      call.storageInputs = await this.receiveStorageInputs(req, ctx, uploaded);
+      response = await this.produce(req, ctx, true, call.storageInputs);
     } catch (err) {
       // A caller's abort is not a provider failure: surface it as-is, the
       // way `fetch` does, rather than as an `error` event.
@@ -423,9 +492,76 @@ export class FakeAiProvider implements AiProviderAdapter {
 
   // ---- internals ----------------------------------------------------------------
 
-  private async produce(req: AiResponseRequest, ctx: AiCallContext, streaming: boolean): Promise<AiResponse> {
+  /**
+   * Each storage-object part, delivered as its resolved strategy says: a URL
+   * is noted, an upload is drained into a fake file (id pushed to
+   * `uploaded`), an inline input is read. Never the key in anything recorded
+   * beyond `apiKey` itself.
+   */
+  private async receiveStorageInputs(
+    req: AiResponseRequest,
+    ctx: AiCallContext,
+    uploaded: string[],
+  ): Promise<FakeAiDeliveredInput[] | undefined> {
+    const parts = storageParts(req);
+
+    if (parts.length === 0) return undefined;
+
     this.assertKey(ctx);
-    this.assertSupported(req, streaming);
+
+    const delivered: FakeAiDeliveredInput[] = [];
+
+    for (const part of parts) {
+      const input = ctx.storageInputs?.get(part.storageObjectId);
+
+      if (!input) {
+        throw new AiError('AI_INVALID_REQUEST', 'A storage-object input was not resolved by the runtime.', {
+          details: { storageObjectId: part.storageObjectId },
+        });
+      }
+
+      const received: FakeAiDeliveredInput = {
+        storageObjectId: input.storageObjectId,
+        modality: input.modality,
+        strategy: input.strategy,
+        filename: input.filename,
+        mimeType: input.mimeType,
+      };
+
+      if (input.strategy === 'presigned_url') {
+        if (!input.url) throw new AiError('AI_INVALID_REQUEST', 'A presigned input carries no url.');
+        received.url = input.url;
+      } else if (input.strategy === 'upload') {
+        let bytes = 0;
+
+        for await (const chunk of await input.open!()) bytes += (chunk as Uint8Array).length;
+
+        this.fileCounter += 1;
+        received.fileId = `fake_file_${this.fileCounter}`;
+        received.bytes = bytes;
+        uploaded.push(received.fileId);
+      } else {
+        received.bytes = (await input.read!()).data.length;
+      }
+
+      delivered.push(received);
+    }
+
+    return delivered;
+  }
+
+  private deleteUploaded(uploaded: string[]): void {
+    this.deletedFileIds.push(...uploaded.splice(0));
+  }
+
+  private async produce(
+    req: AiResponseRequest,
+    ctx: AiCallContext,
+    streaming: boolean,
+    storageInputs?: FakeAiDeliveredInput[],
+  ): Promise<AiResponse> {
+    this.assertKey(ctx);
+    this.assertSupported(req, streaming, storageInputs);
 
     let scripted: FakeAiScriptedResponse;
 
@@ -463,7 +599,11 @@ export class FakeAiProvider implements AiProviderAdapter {
       return script[this.scriptCursor++];
     }
 
-    return { outputText: `fake: ${lastUserText(req)}` };
+    const files = storageParts(req).map((part) => ctx.storageInputs?.get(part.storageObjectId)?.filename);
+
+    return {
+      outputText: files.length > 0 ? `fake: ${lastUserText(req)} [${files.join(', ')}]` : `fake: ${lastUserText(req)}`,
+    };
   }
 
   private complete(req: AiResponseRequest, scripted: FakeAiScriptedResponse): AiResponse {
@@ -498,7 +638,11 @@ export class FakeAiProvider implements AiProviderAdapter {
     };
   }
 
-  private assertSupported(req: AiResponseRequest, streaming: boolean): void {
+  private assertSupported(
+    req: AiResponseRequest,
+    streaming: boolean,
+    storageInputs: FakeAiDeliveredInput[] = [],
+  ): void {
     const hostedAllowed = new Set(this.options.hostedTools ?? []);
 
     for (const tool of req.tools ?? []) {
@@ -517,7 +661,7 @@ export class FakeAiProvider implements AiProviderAdapter {
       return;
     }
 
-    for (const capability of requiredCapabilities(req, streaming)) {
+    for (const capability of requiredCapabilities(req, streaming, storageInputs)) {
       if (capability === 'hosted_tools' && hostedAllowed.size > 0) {
         continue;
       }
@@ -596,7 +740,11 @@ export class FakeAiProvider implements AiProviderAdapter {
 // ---- helpers ------------------------------------------------------------------
 
 /** The capabilities a request needs from its model, as the #431 gates derive them. */
-function requiredCapabilities(req: AiResponseRequest, streaming: boolean): AiCapability[] {
+function requiredCapabilities(
+  req: AiResponseRequest,
+  streaming: boolean,
+  storageInputs: FakeAiDeliveredInput[],
+): AiCapability[] {
   const needed = new Set<AiCapability>(['responses']);
 
   if (streaming) needed.add('streaming');
@@ -612,13 +760,33 @@ function requiredCapabilities(req: AiResponseRequest, streaming: boolean): AiCap
       if (item.type !== 'message') continue;
 
       for (const part of item.content) {
+        // A stored object's modality is its MIME type's, not the part's.
+        if (part.type !== 'text' && part.storageObjectId !== undefined) continue;
         if (part.type === 'image') needed.add('vision_input');
         if (part.type === 'file') needed.add('file_input');
       }
     }
   }
 
+  for (const input of storageInputs) {
+    needed.add(input.modality === 'image' ? 'vision_input' : 'file_input');
+  }
+
   return [...needed];
+}
+
+type FakeStoragePart = Extract<AiContentPart, { type: 'image' | 'file' }> & { storageObjectId: string };
+
+function storageParts(req: AiResponseRequest): FakeStoragePart[] {
+  if (!Array.isArray(req.input)) return [];
+
+  return req.input.flatMap((item) =>
+    item.type === 'message'
+      ? item.content.filter(
+          (part): part is FakeStoragePart => part.type !== 'text' && part.storageObjectId !== undefined,
+        )
+      : [],
+  );
 }
 
 function lastUserText(req: AiResponseRequest): string {

@@ -30,6 +30,10 @@
 //     (provider down, timeout,     failure is visible in the queue dashboard
 //     a bug)                       and notifies operators
 //
+// A stored input (#441) that is gone or no longer the owner's when the job
+// runs is `AI_INVALID_REQUEST` (a request outcome); unconfigured storage is
+// `AI_STORAGE_UNAVAILABLE` (an operator's) — see `aiErrorFromStorage`.
+//
 // And a safety net: if the job settles `failed` without the handler having
 // finished the run (the worker's own timeout, a rate-limit budget exhausted),
 // the settle listener fails the run, so no run stays `pending` forever.
@@ -45,6 +49,7 @@ import { JobExecutionProfile } from '../../jobs/job-execution-profile';
 import { JobHandler } from '../../jobs/job-handler.interface';
 import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
 import { AiError, type AiErrorCode } from '../core/ai-error';
+import { aiErrorFromStorage } from '../storage/ai-storage-errors';
 import { AiService } from './ai.service';
 import { fromStoredRunRequest } from './ai-run-request';
 import { AI_RESPONSE_RUN_TYPE, AI_RUN_SUBJECT_TYPE, AiRunsService } from './ai-runs.service';
@@ -207,7 +212,10 @@ export class AiResponseRunHandler implements JobHandler, OnModuleInit {
       throw new Error(`AI run ${runId} exceeded its ${RUN_DEADLINE_MS}ms deadline`);
     }
 
-    const error = AiError.wrap(err);
+    // A stored input that vanished or is no longer the owner's (#441) is the
+    // request's problem (`AI_INVALID_REQUEST`), unconfigured storage the
+    // deployment's (`AI_STORAGE_UNAVAILABLE`) — never "the provider failed".
+    const error = aiErrorFromStorage(err) ?? AiError.wrap(err);
     const rateLimit = error.toRateLimitError();
 
     if (rateLimit) {
