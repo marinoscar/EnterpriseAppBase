@@ -67,10 +67,15 @@ The user must supply three things nothing can generate:
 Then bring it up, migrate and seed:
 
 ```bash
-docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml up
-npm run prisma:migrate --workspace=api
-npm run prisma:seed --workspace=api
+docker network create devnet    # once per machine; base.compose.yml expects it
+cd infra/compose
+docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml up -d
+docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml exec api npm run prisma:migrate
+docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml exec api npm run prisma:seed
 ```
+
+With the `devdb` overlay, `.env` must say `POSTGRES_HOST=db`. Leave the overlay
+off if `POSTGRES_*` points at a database the user already runs.
 
 **Do not skip the seed, and do not invent a variant of that command.** Running
 `prisma/seed.ts` directly fails, because `DATABASE_URL` is constructed by the

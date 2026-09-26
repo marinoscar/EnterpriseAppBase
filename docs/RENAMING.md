@@ -33,17 +33,14 @@ Pick one of two equivalent routes:
 node scripts/rename.mjs --name "Acme Hub" --repo oscar/acme-hub --theme '#7c3aed'
 ```
 
-Either way, three things happen after the codemod finishes, and none of them
-are optional:
+Either way, four things follow the codemod, and none of them are optional
+(details in [The manual steps](#the-manual-steps)):
 
-```bash
-npm install                                   # the lockfile carries the old workspace name too
-```
-
-Then regenerate the visual baselines — see [step 5](#5-the-manual-steps) —
-and expect CI to be red until you do; that's covered in its own section
-below because it's the thing most likely to cause a moment of panic on a
-first fork.
+1. `npm install` — the lockfile carries the old workspace name too.
+2. Regenerate the visual baselines. CI is red until you do; see
+   [CI will be red until you regenerate the baselines](#ci-will-be-red-until-you-regenerate-the-baselines).
+3. Rename the repository on GitHub and re-point your `origin` remote.
+4. Update the OAuth redirect URIs in the Google Cloud Console.
 
 ## What gets renamed, and what doesn't
 
@@ -216,9 +213,19 @@ human, in this order:
    rendering differences between browser builds would produce false diffs):
 
    ```bash
-   docker run --rm -it -v "$PWD":/w -w /w mcr.microsoft.com/playwright:v1.62.1-noble \
-     npx playwright test --config=tests/visual/playwright.config.ts --update-snapshots
+   REPO=$(git rev-parse --show-toplevel)
+   docker run --rm --user "$(id -u):$(id -g)" -v "$REPO:$REPO" -w "$REPO" \
+     mcr.microsoft.com/playwright:v1.62.1-noble \
+     tests/visual/node_modules/.bin/playwright test --config=tests/visual/playwright.config.ts --update-snapshots
    ```
+
+   This needs the root and `tests/visual` dependencies installed for Linux
+   (`npm ci` and `npm ci --prefix tests/visual` on a Linux host). Without
+   Docker, or on macOS or Windows, run the **Regenerate visual baselines**
+   workflow on your branch instead (Actions → Run workflow); it runs the same
+   command in the same image and commits the result. See
+   [Testing](TESTING.md#visual-regression) for why the pinned binary and not
+   `npx`.
 
    See [CI will be red until you regenerate the baselines](#ci-will-be-red-until-you-regenerate-the-baselines)
    below for why this isn't optional.
@@ -260,7 +267,7 @@ that include the AppBar wordmark, and the suite runs at `maxDiffPixels: 4` —
 effectively zero pixel tolerance. Changing the product name is a genuine
 pixel change to every one of those seven screenshots, so the very next CI
 run after a rename will show seven failing visual tests until you run the
-[baseline regeneration command](#5-the-manual-steps) above and commit the
+[baseline regeneration command](#the-manual-steps) above and commit the
 result. The remaining four baselines are rail-scoped or drill-down shots
 that don't include the wordmark and are unaffected.
 
@@ -403,9 +410,10 @@ declared unconditionally.
 ### 5. Bring it up, migrate, seed
 
 ```bash
-docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml up
-npm run prisma:migrate --workspace=api
-npm run prisma:seed --workspace=api
+cd infra/compose
+docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml up -d
+docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml exec api npm run prisma:migrate
+docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml exec api npm run prisma:seed
 ```
 
 Leave `-f devdb.compose.yml` off if `.env`'s `POSTGRES_*` variables already
