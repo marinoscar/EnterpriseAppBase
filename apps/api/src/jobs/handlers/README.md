@@ -403,6 +403,51 @@ settle path cannot. **Nothing it returns may be persisted except the handle**
 for the worked example, including the two separate opt-in settings that gate
 whether this ever reaches a node at all.
 
+### Vetoing an admin delete (`canDelete`, optional)
+
+Most handlers need nothing here: any non-`running` row of their type may be
+deleted from the admin Jobs page, exactly as before #480. Implement
+`canDelete(job)` only when a **non-terminal** row of this type is load-bearing
+for state your feature keeps outside the `jobs` table — a row whose deletion
+would strand that state with nothing left to advance it:
+
+```ts
+async canDelete(job: Job): Promise<string | null> {
+  if (job.status === 'succeeded' || job.status === 'failed') return null;
+
+  const record = await this.prisma.myFeatureRecord.findUnique({
+    where: { id: job.subjectId! },
+    select: { status: true },
+  });
+
+  if (!record || record.status !== 'in_progress') return null;
+
+  return `Record ${job.subjectId} is still in progress; deleting this job would ` +
+    `strand it. Cancel the record instead of deleting its job.`;
+}
+```
+
+Return the refusal reason as a sentence written for the operator — it becomes
+the 409's `message` verbatim — or `null` to allow the delete. Three rules:
+
+- **A cheap read, never a write.** It runs inside the admin HTTP request,
+  before the delete; it must not mutate anything, and in particular must not
+  "helpfully" cancel your feature's own state on the caller's behalf.
+- **Answer `null` once the job itself is terminal.** `succeeded`/`failed` is
+  history, never machinery, so it is always safe to delete.
+- **A throw refuses the delete too (fail closed).** The admin service logs it
+  and answers the same 409 — deleting is irreversible and a refusal is not, so
+  when you cannot say "yes", say "no".
+
+`broadcast-job-delete-guard.ts` (shared by `BroadcastStartHandler` and
+`BroadcastChunkHandler`, #480) is the worked example: it refuses while the
+job is non-terminal and its broadcast is `scheduled` or `sending` — the
+pending row is what advances that broadcast, and deleting it would strand it
+with nothing left to do so. See
+[`docs/specs/job-queue.md`](../../../../../docs/specs/job-queue.md) §8.5 and
+[`docs/specs/notification-broadcasts.md`](../../../../../docs/specs/notification-broadcasts.md)
+for the full reasoning.
+
 ## Example Handlers
 
 See `example-echo.handler.ts` — a server-only handler that logs its payload

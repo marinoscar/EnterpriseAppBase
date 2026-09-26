@@ -523,7 +523,7 @@ it destroys unrecoverable rollup history, not a job).
 - `POST /api/admin/jobs/reset-stuck` - Run the lease reaper on demand (`olderThanMinutes` overrides the system setting)
 - `GET /api/admin/jobs` - List jobs, paginated and filterable (payloads not included)
 - `POST /api/admin/jobs/{id}/retry` - Requeue one job (400 if it is currently running)
-- `DELETE /api/admin/jobs/{id}` - Delete one job (400 if it is currently running)
+- `DELETE /api/admin/jobs/{id}` - Delete one job (400 if it is currently running; 409 if the job's owner refuses — e.g. a broadcast job while its broadcast is scheduled or sending)
 
 ### Worker Nodes — the fleet that executes jobs remotely
 Three surfaces; see [`docs/specs/worker-nodes.md`](docs/specs/worker-nodes.md).
@@ -1028,7 +1028,7 @@ method so a job's stored result cannot depend on which executor claimed it —
 that "one write, two paths" shape is the one thing to copy when writing a
 node-eligible handler of your own.
 
-Four more optional members, all on `JobHandler`, each following the same
+Five more optional members, all on `JobHandler`, each following the same
 "presence is the declaration" rule as the pair above — implement one only
 when the default is genuinely wrong for this type (see the MANDATORY rules
 above for the first two as binding policy, not just options):
@@ -1051,6 +1051,13 @@ above for the first two as binding policy, not just options):
 - `nodeSecretBroker?: JobSecretBroker` — declares that a remote executor of
   this type needs a credential, and how to mint/revoke one. See MANDATORY
   rule 3 above and `apps/api/src/jobs/job-secret-broker.ts`.
+- `canDelete?(job): Promise<string | null>` — a reason to refuse an admin
+  delete of this job (`DELETE /api/admin/jobs/{id}`), or `null` to allow.
+  Implement it only when a non-terminal row of this type is load-bearing for
+  state the feature keeps outside the `jobs` table; return `null` once the
+  job is terminal. A cheap read, never a write — and a throw refuses the
+  delete (fail closed). The broadcast start/chunk handlers are the worked
+  example (issue #480).
 
 `db-backup/handlers/db-backup-run.handler.ts` (`db.backup.run`, epic #345) is the
 worked example that uses all four: a `profile` sized for a multi-hour dump

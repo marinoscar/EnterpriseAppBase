@@ -293,7 +293,12 @@ export async function retryJob(id: string): Promise<Job> {
   return api.post<Job>(`/admin/jobs/${id}/retry`);
 }
 
-/** Delete ONE job. The API refuses a `running` job with a 400. */
+/**
+ * Delete ONE job. The API refuses a `running` job with a 400, and refuses
+ * with a 409 when the job's owning feature vetoes the delete (e.g. a
+ * broadcast job while its broadcast is `scheduled`/`sending`) — the 409's
+ * `message` is the owner's reason, meant to be shown to the operator verbatim.
+ */
 export async function deleteJob(id: string): Promise<void> {
   await api.delete<void>(`/admin/jobs/${id}`);
 }

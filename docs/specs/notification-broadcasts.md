@@ -281,7 +281,17 @@ this feature has, and it is honest about its limits. It flips the status
 (above); it does **not** delete queued `jobs` rows — deleting one would race
 a worker claiming it, whereas the status guard is durable, and letting a
 stale job run to a no-op keeps the `jobs` table's audit trail of what the
-fan-out actually did intact. Both handlers re-check status (`process()`'s
+fan-out actually did intact. Since #480, an operator cannot delete one either:
+`BroadcastStartHandler`/`BroadcastChunkHandler` both implement
+`JobHandler.canDelete`, refusing `DELETE /api/admin/jobs/:id` (409,
+`owner_refused`) for a non-terminal fan-out job while its broadcast is still
+`scheduled` or `sending` — that row is what advances the broadcast, and a
+delete is not a settlement (no `job.settled` fires), so nothing would ever
+learn the broadcast was stranded. Cancel the broadcast instead; the job then
+either runs to a no-op against the cancelled status or is freely deletable
+once terminal. See
+[`docs/specs/job-queue.md`](job-queue.md#85-retry-resets-the-row-completely-and-refuses-a-running-job)
+§8.5 and `broadcast-job-delete-guard.ts`. Both handlers re-check status (`process()`'s
 first real branch in the chunk handler; every claim in the start handler) and
 return without sending anything once it no longer reads `sending`. But the
 chunk handler also re-checks status **mid-page**, every
@@ -862,6 +872,7 @@ screen.
 | `critical: true` without `browser` in `channels` is a 400; the event key is derived and a client-supplied `eventKey` is ignored | `broadcasts.integration.spec.ts`, `describe('POST /admin/broadcasts validation')` |
 | Cancel is a conditional `updateMany` (status in `WHERE`, `failed` included since #459), 404 for a missing row vs. 409 for a wrong-status row, and deletes no queued job row | `apps/api/src/notifications/broadcasts/broadcasts.service.spec.ts`, `describe('cancel')` |
 | Delete refuses with 409 while `sending`; a cancelled, sent or failed broadcast can be deleted | `broadcasts.service.spec.ts`, `describe('remove')`; `broadcasts.integration.spec.ts`'s 409-on-cancel-of-sent case |
+| `broadcastJobDeleteRefusal` (shared by both fan-out handlers' `canDelete`) refuses a non-terminal job whose broadcast is `scheduled`/`sending`, and allows it once the job is terminal or the broadcast has no row, is missing, or is `sent`/`canceled`/`failed` | `apps/api/src/notifications/broadcasts/broadcast-job-delete-guard.spec.ts` |
 | A permanently `failed` fan-out job (`admin.broadcast.start` or `admin.broadcast.chunk`) CASes its broadcast `sending` -> `failed` with a prefixed `lastError` and `finishedAt`; matches only `sending` (a broadcast already `sent`/`canceled`/`failed`, or one belonging to a different subject, is untouched); errors inside the listener are caught and logged, never rethrown into the settle path | `apps/api/src/notifications/broadcasts/broadcast-failure.listener.spec.ts` |
 | The chunk handler's progress commit is a CAS on the cursor it read (`IS NULL` for the first page); losing it returns normally with no successor enqueued and no `RateLimitError` thrown, even on a throttled page | `apps/api/src/notifications/broadcasts/handlers/broadcast-chunk.handler.spec.ts` |
 | `BroadcastsService.resume`: CASes `failed` -> `sending` only when `audienceCutoff` is set, clears `lastError`/`finishedAt`, enqueues a fresh chunk with `skipDedup: true` and `reason: 'rerun'`, 404 for a missing row, 409 for any non-`failed` status, and compensates back to `failed` with a `lastError` naming the enqueue failure (then rethrows) if the enqueue itself throws | `apps/api/src/notifications/broadcasts/broadcasts.service.spec.ts`, `describe('resume')` |

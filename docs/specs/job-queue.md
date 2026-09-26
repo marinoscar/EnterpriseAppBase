@@ -1962,7 +1962,7 @@ the same permission split and the same declaration-order rule.)
 | `POST /api/admin/jobs/retry-failed` | `jobs:write` | Requeues failed jobs, optionally of one type |
 | `POST /api/admin/jobs/reset-stuck` | `jobs:write` | Runs the lease reaper (§7) on demand |
 | `POST /api/admin/jobs/{id}/retry` | `jobs:write` | Requeues one job |
-| `DELETE /api/admin/jobs/{id}` | `jobs:write` | Deletes one job |
+| `DELETE /api/admin/jobs/{id}` | `jobs:write` | Deletes one job (409 if the job's owning handler vetoes it — §8.5) |
 
 Every route is `@Auth({ roles: [ROLES.ADMIN], permissions: [...] })`, and both
 permissions are seeded to Admin alone (`prisma/seed-data.ts`). The read/write
@@ -2156,11 +2156,27 @@ that does not exist. The refusal is not caution, it is correctness:
 An operator who believes the executor is gone has a correct tool for exactly
 that: `reset-stuck`, which checks the lease before it acts.
 
-Deleting a **pending** `admin.broadcast.start`/`admin.broadcast.chunk` job is
-allowed by the same 400-only-for-`running` rule above, but it leaves that
-broadcast stuck in `scheduled`/`sending` with nothing left to advance it;
-recovering it is the broadcast's own Cancel action, not this endpoint's job.
-Tracked separately (#480).
+**A non-running row can still be load-bearing, and #480 gives its handler a
+veto.** A `pending` `admin.broadcast.start`/`admin.broadcast.chunk` job is
+what advances its broadcast — deleting it strands that broadcast in
+`scheduled`/`sending` with nothing left to move it, and a delete is not a
+settlement: no `job.settled` fires, so no listener ever learns the row is
+gone. So before the conditional write below, `remove` asks the row's handler
+through the optional `JobHandler.canDelete(job)`: a non-null return is a
+**409** (`ConflictException`, `details: { jobId, status, reason:
+'owner_refused' }`) carrying the handler's reason as `message`, and a throw
+refuses the same way (`reason: 'owner_check_failed'`) rather than risking the
+delete — fail closed, because deleting is irreversible and a refusal is not.
+A type with no registered handler, or a handler without `canDelete`, keeps the
+pre-#480 behaviour: any non-running row may be deleted. The broadcast start
+and chunk handlers refuse for **both** `scheduled` and `sending` broadcasts —
+see `broadcast-job-delete-guard.ts` and
+[`docs/specs/notification-broadcasts.md`](notification-broadcasts.md) — and
+recovering an active broadcast is its own Cancel action, not this endpoint's
+job. The check is one indexed read outside any transaction, so it is advisory
+against a concurrent state change in the feature's own table; the race that
+matters to the queue itself (the row becoming `running` in between) is still
+closed by the conditional write, unaffected by this addition.
 
 The guard is a re-read followed by a **conditional** write
 (`where: { id, status: { not: 'running' } }`), not a check-then-update by id. A
@@ -2970,6 +2986,9 @@ the cache TTL and the two time windows are exact timestamps rather than ranges.
 | Retry writes the complete reset, and never touches `dedupKey` | `src/jobs/job-admin.service.spec.ts` — asserts the exact `data` payload on both the single and the bulk path |
 | Retry and delete both 400 on a running job and 404 on a missing one | `src/jobs/job-admin.service.spec.ts` and `test/jobs/job-admin.integration.spec.ts` |
 | The 400 also wins the RACE: a job that starts running between the read and the write is refused by the conditional write | `src/jobs/job-admin.service.spec.ts`, both routes |
+| `remove` consults the row's handler through `canDelete`: a registered handler with none is unaffected, a non-null return is a 409 (`owner_refused`) carrying the reason as `message`, and a throw is a 409 too (`owner_check_failed`) rather than letting the delete through | `src/jobs/job-admin.service.spec.ts` |
+| The broadcast start and chunk handlers refuse a non-terminal job whose broadcast is `scheduled` or `sending`, and allow it once the job is terminal or the broadcast is not one of those two statuses | `apps/api/src/notifications/broadcasts/broadcast-job-delete-guard.spec.ts` |
+| Against real Postgres: deleting a pending broadcast job answers 409 while its broadcast is `scheduled`/`sending`, and succeeds once the broadcast is canceled/sent/failed or the job itself is terminal | `apps/api/test/jobs/job-admin-delete-veto.db.spec.ts` |
 | A dedup collision is a 409 on the single retry and a `skipped` on the bulk sweep — and a P2002 on any OTHER constraint still propagates | `src/jobs/job-admin.service.spec.ts` |
 | `retry-failed` scopes by type when given, is idempotent when nothing is failed, and caps the batch while reporting `remaining` | `src/jobs/job-admin.service.spec.ts` |
 | `reset-stuck` DELEGATES — it issues no query of its own — and an explicit `0` is honoured rather than falling back to the setting | `src/jobs/job-admin.service.spec.ts` |
