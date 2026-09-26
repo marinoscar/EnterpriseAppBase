@@ -12,6 +12,12 @@
 // permanently unreadable. It is not a rename. It is also deliberately NOT the
 // `'ai_user_key'` purpose the per-user BYOK keys are encrypted under — the two
 // secret spaces cannot decrypt each other's ciphertext by construction.
+//
+// ONE DEFINITION, EVERY READER: the admin config API (#428) that stores the key
+// and the catalog sync (#427) that reads it back both import THIS file. It is a
+// leaf — it imports nothing — so either module can depend on it without a
+// module import cycle. A second copy of the purpose string that differed by a
+// character would store keys that can never be decrypted back.
 // =============================================================================
 
 /** `CredentialsService` purpose for every admin/org AI provider key. */

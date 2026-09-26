@@ -20,7 +20,7 @@ import { AiError } from '../core/ai-error';
 import { AiModelCapabilities, aiModelCapabilitiesSchema } from '../core/capabilities';
 import { AiDiscoveredModel, AiProviderAdapter } from '../core/provider-adapter.interface';
 import { AiProviderRegistry } from '../core/provider-registry';
-import { AI_CREDENTIAL_PURPOSE, aiCredentialName } from './ai-credential.constants';
+import { AI_CREDENTIAL_PURPOSE, aiCredentialName } from '../config/ai-credential.constants';
 
 /** The job type that runs {@link AiCatalogService.sync} for one provider. PERMANENT. */
 export const AI_CATALOG_REFRESH_TYPE = 'ai.catalog.refresh';
