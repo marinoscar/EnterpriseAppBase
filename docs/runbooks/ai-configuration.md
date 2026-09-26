@@ -410,7 +410,9 @@ talk to the provider **directly** over WebRTC. The user's key (or the org key,
 under fallback) is spent on the server to mint it and never reaches the
 browser. It is **off by default**: once a session is connected, this server
 can no longer see, cap or meter the conversation. Switch it on only if you
-accept that:
+accept that. On `/admin/settings/ai`, turn on **Allow realtime voice
+sessions** under *Defaults* (it needs `ai_config:write`) and save. Or use the
+API:
 
 ```bash
 curl -X PUT https://app.example.com/api/admin/ai/config \
@@ -424,8 +426,8 @@ curl -X PUT https://app.example.com/api/admin/ai/config \
 (`allowRealtime` omitted from the body keeps the stored value.) Users also
 need an **enabled** realtime model (`gpt-realtime*`, `gpt-4o-realtime-preview*`,
 `gpt-4o-mini-realtime*`) on `/admin/settings/ai/models`, and a key that
-reaches it. `GET /api/ai/config` publishes `allowRealtime`, so clients hide
-voice mode while it is off. Each mint counts as one request against the §14
+reaches it. `GET /api/ai/config` publishes `allowRealtime`, so the AI
+Playground (`/ai`) hides its **Voice** mode while it is off. Each mint counts as one request against the §14
 limits and is recorded on the **AI Usage** page as operation `realtime`,
 `units.sessions` = 1. No tokens are recorded, because the audio never passes
 through this server; see the provider's own dashboard for realtime cost. If a

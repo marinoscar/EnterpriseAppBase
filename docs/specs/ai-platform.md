@@ -1689,16 +1689,16 @@ limits then in force, when it executes.
   (§12). Every provider call in this platform happens server-side, with no
   exception.
 
-## The Playground (`/ai`, web reference UI — #434, #445)
+## The Playground (`/ai`, web reference UI — #434, #445, #449)
 
 The Playground is the template's copyable example of consuming every AI
 capability from the browser, and a user's way to prove their key works. It
 calls only the HTTP surface above — never a provider, never a key.
 
 - **Modes.** A segmented control (not a settings tab strip) switches between
-  Chat, Image, Transcribe, Speech and Embeddings. Each mode is defined by one
-  capability (`responses`, `image_generation`, `audio_transcription`,
-  `audio_speech`, `embeddings`) and lists only the usable models (§7) that
+  Chat, Image, Transcribe, Speech, Embeddings and Voice. Each mode is defined
+  by one capability (`responses`, `image_generation`, `audio_transcription`,
+  `audio_speech`, `embeddings`, `realtime`) and lists only the usable models (§7) that
   declare it; a mode no usable model serves stays focusable but
   `aria-disabled`, with the reason as its tooltip. Nothing is keyed on a model
   name (`apps/web/src/components/ai/playground/aiPlaygroundModes.ts`). A
@@ -1726,9 +1726,44 @@ calls only the HTTP surface above — never a provider, never a key.
 - **Embeddings** is synchronous: one input per line (≤ 256), then count,
   dimensions, the first 8 values per vector and — for ≤ 10 inputs — a cosine
   similarity matrix computed in the browser from the returned vectors.
+- **Voice** (#449, §5.8) is a live speech-to-speech call. It is **hidden**,
+  not merely disabled, unless `GET /api/ai/config` reports
+  `allowRealtime: true` (an older API that omits the flag reads as off), and
+  it is disabled with a reason when no usable model declares `realtime`.
+  Model, voice (the model's `capabilities.voices`) and optional instructions
+  are chosen before Start. `useAiRealtimeSession`
+  (`apps/web/src/hooks/useAiRealtimeSession.ts`) asks for the microphone
+  **first**, so a slow permission prompt cannot eat the secret's ~60-second
+  connect window. It then mints the session and opens an `RTCPeerConnection`
+  with the mic track and the `oai-events` data channel. It POSTs the SDP offer
+  straight to `connectUrl` with `Authorization: Bearer <clientSecret>` and
+  plays the remote track through an `<audio autoplay>` element. The
+  `clientSecret` lives only in a local variable for that one exchange; it is
+  never put in React state, rendered or logged, and a secret already past
+  `expiresAt` is never sent. When the channel opens, the hook sends a
+  `session.update` that turns on input transcription. It then reads both
+  sides into one `aria-live="polite"` transcript labelled You / Assistant.
+  The events it reads are `conversation.item.input_audio_transcription.*`,
+  `response.output_audio_transcript.*`, and the beta
+  `response.audio_transcript.*` names. Each line is keyed by `item_id` and
+  ordered by `conversation.item.created`. Mute disables the mic track. The
+  controls also include Stop and an elapsed `mm:ss` timer. Stop, a failure
+  and unmount all close the channel and the connection, stop the mic and clear
+  the timer. The call keeps running while another mode is shown. Each failure
+  has its own copy: mic blocked (`NotAllowedError`), no mic
+  (`NotFoundError`), no WebRTC, the mint's AI code (`AI_REALTIME_DISABLED`
+  and the rest through `AiErrorAlert`), an SDP exchange the provider refused,
+  a connection that went `failed`/`disconnected`, and an expired session. A
+  provider `error` event is shown without ending the call. The unit tests fake
+  `RTCPeerConnection` and `getUserMedia`, so **manual verification needs a real
+  provider key, a model with `realtime` enabled, `allowRealtime` switched on at
+  `/admin/settings/ai`, and a real microphone**. Start a call, speak, hear the
+  answer, and watch both transcript lines appear.
 - **Errors** of every road (a refused request, an SSE `error` frame, a failed
   run's `errorCode`) render through the one `AiErrorAlert` mapping; the
   storage API's own "not configured" reasons read as `AI_STORAGE_UNAVAILABLE`.
+  `AI_REALTIME_DISABLED` (like `AI_DISABLED`) also re-reads the AI config, so
+  Voice disappears when an administrator switches realtime off mid-session.
 
 ## Verification
 
