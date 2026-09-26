@@ -228,9 +228,10 @@ describe('AiConfigPage', () => {
         enabled: true,
         keyPolicy: 'byok',
         logPromptContent: false,
-        // Blank cap is OMITTED, not sent as '' or 0.
-        defaults: { allowBackgroundRuns: true },
-        providers: { openai: { enabled: true } },
+        // A full replace: a cleared cap and an absent base URL are sent as
+        // explicit nulls, never omitted and never '' or 0.
+        defaults: { maxOutputTokensCap: null, allowBackgroundRuns: true },
+        providers: { openai: { enabled: true, baseUrl: null } },
       });
       expect(await screen.findByText('AI configuration saved')).toBeInTheDocument();
     });

@@ -12,6 +12,13 @@ import {
   mockUserAiKeys,
   toSseBody,
 } from './fixtures/ai';
+import type {
+  AiAdminConfig,
+  AiAdminConfigInput,
+  AiAdminConfigWithWarnings,
+  AiModel,
+  AiModelUpdateInput,
+} from '../../services/ai';
 
 // Use wildcard pattern to match relative URLs
 const API_BASE = '*/api';
@@ -308,20 +315,25 @@ export const handlers = [
     return HttpResponse.json({ data: mockAiAdminConfig });
   }),
 
+  // PUT is a FULL REPLACE (#428): for each provider in the body, an omitted,
+  // '' or null `baseUrl` clears the override; an omitted or null
+  // `maxOutputTokensCap` clears the cap. A provider left out keeps its row.
   http.put(`${API_BASE}/admin/ai/config`, async ({ request }) => {
-    const body = (await request.json()) as {
-      enabled: boolean;
-      keyPolicy: typeof mockAiAdminConfig.keyPolicy;
-      logPromptContent: boolean;
-      defaults: typeof mockAiAdminConfig.defaults;
-      providers: Record<string, { enabled: boolean; baseUrl?: string }>;
-    };
+    const body = (await request.json()) as AiAdminConfigInput;
     const ifMatch = request.headers.get('If-Match');
     if (ifMatch !== null && Number(ifMatch) !== mockAiAdminConfig.version) {
       return HttpResponse.json(
-        { code: 'VERSION_CONFLICT', message: 'Settings were changed by someone else' },
+        { code: 'CONFLICT', message: 'The AI configuration was changed by someone else' },
         { status: 409 },
       );
+    }
+    for (const id of Object.keys(body.providers)) {
+      if (!mockAiAdminConfig.providers.some((provider) => provider.id === id)) {
+        return HttpResponse.json(
+          { code: 'BAD_REQUEST', message: `Unknown AI provider: ${id}`, details: { reason: 'AI_UNKNOWN_PROVIDER' } },
+          { status: 400 },
+        );
+      }
     }
     return HttpResponse.json({
       data: {
@@ -329,13 +341,17 @@ export const handlers = [
         enabled: body.enabled,
         keyPolicy: body.keyPolicy,
         logPromptContent: body.logPromptContent,
-        defaults: body.defaults,
-        providers: mockAiAdminConfig.providers.map((provider) => ({
-          ...provider,
-          ...(body.providers[provider.id] ?? {}),
-        })),
+        defaults: {
+          maxOutputTokensCap: body.defaults.maxOutputTokensCap ?? null,
+          allowBackgroundRuns: body.defaults.allowBackgroundRuns,
+        },
+        providers: mockAiAdminConfig.providers.map((provider) => {
+          const next = body.providers[provider.id];
+          if (!next) return provider;
+          return { ...provider, enabled: next.enabled, baseUrl: next.baseUrl || null };
+        }),
         version: mockAiAdminConfig.version + 1,
-      },
+      } satisfies AiAdminConfig,
     });
   }),
 
@@ -351,7 +367,8 @@ export const handlers = [
           ...provider,
           keyStatus: { configured: false, hint: null, updatedAt: null, updatedByUserId: null },
         })),
-      },
+        warnings: [],
+      } satisfies AiAdminConfigWithWarnings,
     });
   }),
 
@@ -365,21 +382,33 @@ export const handlers = [
   }),
 
   http.post(`${API_BASE}/admin/ai/models/refresh`, () => {
-    return HttpResponse.json({ data: { jobId: 'job-ai-refresh-1' } });
+    return HttpResponse.json({ data: { jobId: 'job-ai-refresh-1', status: 'pending' } });
   }),
 
   http.patch(`${API_BASE}/admin/ai/models/:id`, async ({ params, request }) => {
-    const body = (await request.json()) as Record<string, unknown>;
+    const body = (await request.json()) as AiModelUpdateInput;
     const model = mockAiModels.find((entry) => entry.id === params.id);
     if (!model) {
       return HttpResponse.json({ code: 'NOT_FOUND', message: 'Model not found' }, { status: 404 });
+    }
+    if (body.enabled && model.deprecatedAt) {
+      return HttpResponse.json(
+        { code: 'CONFLICT', message: 'This model has been withdrawn by the provider', details: { reason: 'AI_MODEL_DEPRECATED' } },
+        { status: 409 },
+      );
+    }
+    if (body.enabled && model.capabilitySource === 'unclassified' && !body.capabilities) {
+      return HttpResponse.json(
+        { code: 'BAD_REQUEST', message: 'Classify this model before enabling it', details: { reason: 'AI_MODEL_UNCLASSIFIED' } },
+        { status: 400 },
+      );
     }
     return HttpResponse.json({
       data: {
         ...model,
         ...body,
-        ...(body.capabilities ? { capabilitySource: 'admin_override' } : {}),
-      },
+        ...(body.capabilities ? { capabilitySource: 'admin_override' as const } : {}),
+      } satisfies AiModel,
     });
   }),
 

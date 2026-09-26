@@ -92,24 +92,25 @@ function toFormState(config: AiAdminConfig): AiFormState {
     keyPolicy: config.keyPolicy,
     logPromptContent: config.logPromptContent,
     maxOutputTokensCap:
-      config.defaults.maxOutputTokensCap === undefined
-        ? ''
-        : String(config.defaults.maxOutputTokensCap),
+      config.defaults.maxOutputTokensCap === null ? '' : String(config.defaults.maxOutputTokensCap),
     allowBackgroundRuns: config.defaults.allowBackgroundRuns,
     providers,
   };
 }
 
 /**
- * The `PUT` body. Blank optionals are OMITTED rather than sent empty: the
- * API reads absence as "no cap" / "provider default", and an empty string
- * would be an invalid URL or number.
+ * The `PUT` body.
+ *
+ * ⚠ THE PUT IS A FULL REPLACE. For every provider it names, an omitted
+ * `baseUrl` CLEARS the stored override, and an omitted cap clears the cap. So
+ * every value is sent EXPLICITLY, every time — the current override to keep
+ * it, `null` to clear it — and every provider on screen is included. Omitting
+ * "unchanged" fields, the instinct from a PATCH, would silently wipe them.
  */
 function toInput(form: AiFormState): AiAdminConfigInput {
   const providers: AiAdminConfigInput['providers'] = {};
   for (const [id, value] of Object.entries(form.providers)) {
-    const baseUrl = value.baseUrl.trim();
-    providers[id] = { enabled: value.enabled, ...(baseUrl ? { baseUrl } : {}) };
+    providers[id] = { enabled: value.enabled, baseUrl: value.baseUrl.trim() || null };
   }
   const cap = form.maxOutputTokensCap.trim();
   return {
@@ -117,7 +118,7 @@ function toInput(form: AiFormState): AiAdminConfigInput {
     keyPolicy: form.keyPolicy,
     logPromptContent: form.logPromptContent,
     defaults: {
-      ...(cap ? { maxOutputTokensCap: Number(cap) } : {}),
+      maxOutputTokensCap: cap ? Number(cap) : null,
       allowBackgroundRuns: form.allowBackgroundRuns,
     },
     providers,

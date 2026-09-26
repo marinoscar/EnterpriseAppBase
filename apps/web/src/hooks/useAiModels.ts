@@ -9,8 +9,8 @@
  * sent — not the last one to land — is the one on screen.
  *
  * ⚠ ENABLING IS OPTIMISTIC. `setEnabled` flips the row at once and rolls it
- * back if the API refuses (409 for a withdrawn model, 400 for an unclassified
- * one). Resolves `true`/`false`; the refusal lands in `updateError`, worded
+ * back if the API refuses (409 `AI_MODEL_DEPRECATED`, 400
+ * `AI_MODEL_UNCLASSIFIED`, or anything else). Resolves `true`/`false`; the refusal lands in `updateError`, worded
  * from the AI code in `details.reason`.
  *
  * `refreshCatalog` enqueues discovery on the job queue and resolves the job
@@ -30,9 +30,6 @@ function messageFor(err: unknown, fallback: string): string {
     if (err.status === 403 && !aiErrorReason(err)) {
       return 'You do not have permission to manage AI models';
     }
-    if (aiErrorReason(err) === 'AI_KEY_REQUIRED') {
-      return 'Save an organization key for this provider first — discovery uses it.';
-    }
     return err.message || fallback;
   }
   return fallback;
@@ -40,15 +37,14 @@ function messageFor(err: unknown, fallback: string): string {
 
 /** Why a model's enablement was refused, in words an admin can act on. */
 function enableRefusalMessage(err: unknown, enabling: boolean): string {
-  if (err instanceof ApiError && enabling) {
-    if (err.status === 409) {
+  switch (aiErrorReason(err)) {
+    case 'AI_MODEL_DEPRECATED':
       return 'This model has been withdrawn by the provider and cannot be enabled.';
-    }
-    if (err.status === 400) {
-      return err.message || 'Classify this model first — edit its capabilities, then enable it.';
-    }
+    case 'AI_MODEL_UNCLASSIFIED':
+      return 'Classify this model first — edit its capabilities, then enable it.';
+    default:
+      return messageFor(err, enabling ? 'Failed to enable the model' : 'Failed to disable the model');
   }
-  return messageFor(err, enabling ? 'Failed to enable the model' : 'Failed to disable the model');
 }
 
 export interface UseAiModelsReturn {
@@ -179,7 +175,7 @@ export function useAiModels(filter: AiModelListFilter): UseAiModelsReturn {
       } catch (err) {
         if (isMounted()) {
           setRefreshError(
-            err instanceof ApiError && err.status === 409
+            aiErrorReason(err) === 'AI_KEY_REQUIRED'
               ? 'This provider has no organization key, so its models cannot be discovered. Save a key on the AI page first.'
               : messageFor(err, 'The catalogue refresh could not be queued'),
           );

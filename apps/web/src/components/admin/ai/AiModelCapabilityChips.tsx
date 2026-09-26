@@ -14,7 +14,6 @@
  */
 
 import { Chip, Stack, Tooltip, Typography } from '@mui/material';
-import type { AiModelCapabilities } from '../../../services/ai';
 
 /** Mirrors `AI_CAPABILITIES` (#424). What an admin override may set. */
 export const AI_CAPABILITY_VALUES = [
@@ -95,13 +94,13 @@ export function groupCapabilities(capabilities: readonly string[]): {
 }
 
 /** Plain-text summary of the groups — the table's CSV value and search text. */
-export function capabilitySummary(capabilities: AiModelCapabilities): string {
-  const { groups, unknown } = groupCapabilities(capabilities.capabilities);
+export function capabilitySummary(capabilities: readonly string[]): string {
+  const { groups, unknown } = groupCapabilities(capabilities);
   return [...groups.map((entry) => entry.group.label), ...unknown].join(', ');
 }
 
-export function AiModelCapabilityChips({ capabilities }: { capabilities: AiModelCapabilities }) {
-  const { groups, unknown } = groupCapabilities(capabilities.capabilities);
+export function AiModelCapabilityChips({ capabilities }: { capabilities: readonly string[] }) {
+  const { groups, unknown } = groupCapabilities(capabilities);
 
   if (groups.length === 0 && unknown.length === 0) {
     return (

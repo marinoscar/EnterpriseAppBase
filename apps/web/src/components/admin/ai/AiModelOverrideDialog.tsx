@@ -53,14 +53,22 @@ function only(values: readonly string[], allowed: readonly string[]): string[] {
   return values.filter((value) => allowed.includes(value));
 }
 
-function toForm(capabilities: AiModelCapabilities): OverrideForm {
+/**
+ * The form a model opens with. An unclassified model has `capabilities:
+ * null` and starts empty; the row's own `contextWindow`/`maxOutputTokens`
+ * (what discovery learned) seed the numbers when the capability set has none.
+ */
+function toForm(model: AiModel): OverrideForm {
+  const capabilities = model.capabilities;
+  const contextWindow = capabilities?.contextWindow ?? model.contextWindow;
+  const maxOutputTokens = capabilities?.maxOutputTokens ?? model.maxOutputTokens;
   return {
-    capabilities: only(capabilities.capabilities, AI_CAPABILITY_VALUES),
-    inputModalities: only(capabilities.inputModalities, AI_INPUT_MODALITY_VALUES),
-    outputModalities: only(capabilities.outputModalities, AI_OUTPUT_MODALITY_VALUES),
-    reasoningEfforts: only(capabilities.reasoningEfforts ?? [], AI_REASONING_EFFORT_VALUES),
-    contextWindow: capabilities.contextWindow ? String(capabilities.contextWindow) : '',
-    maxOutputTokens: capabilities.maxOutputTokens ? String(capabilities.maxOutputTokens) : '',
+    capabilities: only(capabilities?.capabilities ?? [], AI_CAPABILITY_VALUES),
+    inputModalities: only(capabilities?.inputModalities ?? [], AI_INPUT_MODALITY_VALUES),
+    outputModalities: only(capabilities?.outputModalities ?? [], AI_OUTPUT_MODALITY_VALUES),
+    reasoningEfforts: only(capabilities?.reasoningEfforts ?? [], AI_REASONING_EFFORT_VALUES),
+    contextWindow: contextWindow ? String(contextWindow) : '',
+    maxOutputTokens: maxOutputTokens ? String(maxOutputTokens) : '',
   };
 }
 
@@ -143,7 +151,7 @@ export function AiModelOverrideDialog({
   const [form, setForm] = useState<OverrideForm | null>(null);
 
   useEffect(() => {
-    setForm(model ? toForm(model.capabilities) : null);
+    setForm(model ? toForm(model) : null);
   }, [model]);
 
   if (!model || !form) return null;

@@ -101,7 +101,7 @@ describe('AiModelsPage — wire contract', () => {
     server.use(
       http.patch('*/api/admin/ai/models/:id', () =>
         HttpResponse.json(
-          { code: 'CONFLICT', message: 'Model is deprecated' },
+          { code: 'CONFLICT', message: 'Model is deprecated', details: { reason: 'AI_MODEL_DEPRECATED' } },
           { status: 409 },
         ),
       ),
@@ -168,6 +168,25 @@ describe('AiModelsPage — wire contract', () => {
     const post = captured.find((c) => c.method === 'POST');
     expect(post?.url.pathname).toMatch(/\/admin\/ai\/models\/refresh$/);
     expect(post?.body).toEqual({ provider: 'openai' });
+  });
+
+  it('a refresh refused with AI_KEY_REQUIRED explains the missing key', async () => {
+    server.use(
+      http.post('*/api/admin/ai/models/refresh', () =>
+        HttpResponse.json(
+          { code: 'CONFLICT', message: 'No key', details: { reason: 'AI_KEY_REQUIRED' } },
+          { status: 409 },
+        ),
+      ),
+    );
+    const user = await renderLoaded();
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /refresh from provider/i })).toBeEnabled(),
+    );
+    await user.click(screen.getByRole('button', { name: /refresh from provider/i }));
+
+    expect(await screen.findByText(/has no organization key/i)).toBeInTheDocument();
   });
 
   it('explains an empty catalogue', async () => {

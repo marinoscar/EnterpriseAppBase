@@ -225,11 +225,18 @@ export function AiProviderCard({
     if (ok) setRemoveOpen(false);
   };
 
+  // A provider with no adapter in this build (`registered: false`) exists
+  // only as a settings row: it can be switched OFF, never on, and a key for
+  // it cannot be verified or tested because there is nothing to call.
+  const unregistered = !provider.registered;
+
   const testBlockedReason = !canWrite
     ? 'Testing asks the provider to do work, so it needs ai_config:write.'
-    : !typedKey && !status.configured
-      ? 'Type a key to test it — none is stored yet.'
-      : null;
+    : unregistered
+      ? 'This provider is not available in this build, so there is nothing to test.'
+      : !typedKey && !status.configured
+        ? 'Type a key to test it — none is stored yet.'
+        : null;
 
   return (
     <Paper variant="outlined" sx={{ p: { xs: 2, sm: 3 } }} data-testid={`ai-provider-${provider.id}`}>
@@ -242,9 +249,14 @@ export function AiProviderCard({
           <Typography variant="h6" component="h3">
             {provider.displayName}
           </Typography>
-          <Typography variant="body2" color="text.secondary">
-            {provider.id}
-          </Typography>
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+            <Typography variant="body2" color="text.secondary">
+              {provider.id}
+            </Typography>
+            {unregistered && (
+              <Chip size="small" color="warning" label="Not available in this build" />
+            )}
+          </Stack>
         </Box>
         <FormControlLabel
           control={
@@ -252,7 +264,8 @@ export function AiProviderCard({
               id={switchId}
               checked={value.enabled}
               onChange={(e) => onChange({ ...value, enabled: e.target.checked })}
-              disabled={!canWrite}
+              // Off is always allowed; on only for a provider this build has.
+              disabled={!canWrite || (unregistered && !value.enabled)}
               slotProps={{ input: { 'aria-label': `Enable ${provider.displayName}` } }}
             />
           }
@@ -337,7 +350,7 @@ export function AiProviderCard({
           variant="contained"
           startIcon={<SaveOutlinedIcon />}
           onClick={() => void handleSaveKey()}
-          disabled={!canWrite || !typedKey || keyTooShort || busy}
+          disabled={!canWrite || unregistered || !typedKey || keyTooShort || busy}
         >
           {keyAction === 'save' ? 'Verifying…' : 'Save key'}
         </Button>

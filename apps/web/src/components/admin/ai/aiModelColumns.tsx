@@ -91,10 +91,10 @@ export function buildAiModelColumns({
       priority: 'secondary',
       minWidth: 240,
       flex: 1.6,
-      value: (model) => capabilitySummary(model.capabilities),
+      value: (model) => capabilitySummary(model.capabilities?.capabilities ?? []),
       render: (model) => (
         <Dimmed model={model}>
-          <AiModelCapabilityChips capabilities={model.capabilities} />
+          <AiModelCapabilityChips capabilities={model.capabilities?.capabilities ?? []} />
         </Dimmed>
       ),
     },

@@ -94,10 +94,12 @@ describe('useAiModels', () => {
       expect(result.current.pendingIds.has(model.id)).toBe(false);
     });
 
-    it('rolls back on a refusal and words it', async () => {
+    it('rolls back on a refusal and words it from details.reason', async () => {
       const model = mockAiModels[2]; // unclassified, disabled
       mockUpdate.mockRejectedValue(
-        new ApiError('Classify this model first', 400, 'BAD_REQUEST'),
+        new ApiError('Model is unclassified', 400, 'BAD_REQUEST', {
+          reason: 'AI_MODEL_UNCLASSIFIED',
+        }),
       );
       const { result } = await renderLoaded();
 
@@ -108,11 +110,13 @@ describe('useAiModels', () => {
 
       expect(ok).toBe(false);
       expect(result.current.models.find((m) => m.id === model.id)?.enabled).toBe(false);
-      expect(result.current.updateError).toBe('Classify this model first');
+      expect(result.current.updateError).toMatch(/classify this model first/i);
     });
 
-    it('words a 409 as a withdrawn model', async () => {
-      mockUpdate.mockRejectedValue(new ApiError('Conflict', 409, 'CONFLICT'));
+    it('words AI_MODEL_DEPRECATED as a withdrawn model', async () => {
+      mockUpdate.mockRejectedValue(
+        new ApiError('Conflict', 409, 'CONFLICT', { reason: 'AI_MODEL_DEPRECATED' }),
+      );
       const { result } = await renderLoaded();
 
       await act(async () => {
@@ -147,7 +151,7 @@ describe('useAiModels', () => {
 
   describe('refreshCatalog', () => {
     it('resolves the queued job id', async () => {
-      mockRefresh.mockResolvedValue({ jobId: 'job-42' });
+      mockRefresh.mockResolvedValue({ jobId: 'job-42', status: 'pending' });
       const { result } = await renderLoaded();
 
       let jobId: string | null = null;
@@ -159,8 +163,10 @@ describe('useAiModels', () => {
       expect(mockRefresh).toHaveBeenCalledWith('openai');
     });
 
-    it('explains a 409 as a missing organization key', async () => {
-      mockRefresh.mockRejectedValue(new ApiError('No key', 409, 'CONFLICT'));
+    it('explains AI_KEY_REQUIRED as a missing organization key', async () => {
+      mockRefresh.mockRejectedValue(
+        new ApiError('No key', 409, 'CONFLICT', { reason: 'AI_KEY_REQUIRED' }),
+      );
       const { result } = await renderLoaded();
 
       let jobId: string | null = 'x';

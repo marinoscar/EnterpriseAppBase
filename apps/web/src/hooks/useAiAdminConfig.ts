@@ -78,7 +78,19 @@ function messageFor(err: unknown, fallback: string): string {
         );
       case 'AI_PROVIDER_UNAVAILABLE':
         return 'The provider could not be reached to verify the key. Try again shortly.';
+      case 'AI_UNKNOWN_PROVIDER':
+        return err.message || 'That provider does not exist in this deployment.';
+      case 'AI_PROVIDER_NOT_REGISTERED':
+        return (
+          err.message ||
+          'That provider is not available in this build, so it can be switched off but not on.'
+        );
       default:
+        // `PUT …/key` answers 503 when the provider could not be asked to
+        // verify the key at all — nothing was stored, and retrying is the fix.
+        if (err.status === 503) {
+          return 'The provider could not be reached to verify the key, so nothing was stored. Try again shortly.';
+        }
         return err.message || fallback;
     }
   }
@@ -231,9 +243,9 @@ export function useAiAdminConfig(): UseAiAdminConfigReturn {
         setKeyWarnings([]);
         const data = await deleteAiProviderKey(provider);
         if (isMounted()) {
-          const { warnings, ...rest } = data;
-          setConfig(rest);
-          setKeyWarnings(warnings ?? []);
+          const { warnings, ...view } = data;
+          setConfig(view);
+          setKeyWarnings(warnings);
           setTestResults((prev) => without(prev, provider));
         }
         return true;

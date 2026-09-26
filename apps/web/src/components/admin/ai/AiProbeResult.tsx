@@ -109,6 +109,8 @@ export function AiProbeResult({ result, onClose }: AiProbeResultProps) {
       <Typography variant="body2" sx={{ mb: 1 }}>
         {result.provider} ·{' '}
         {result.usedStoredKey ? 'tested with the stored key' : 'tested with the key typed above'}
+        {result.modelCount !== null && ` · ${result.modelCount} models visible`}
+        {result.smokeModelId && ` · smoke test on ${result.smokeModelId}`}
       </Typography>
       <Stack spacing={1.5} sx={{ mt: 1 }}>
         {result.checks.map((check) => (
