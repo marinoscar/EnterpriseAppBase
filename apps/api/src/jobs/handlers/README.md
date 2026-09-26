@@ -138,7 +138,7 @@ Two more optional fields worth knowing about:
 
 The full reasoning — why the database decides dedup instead of a
 `findFirst` pre-check, and why `skipDedup` costs nothing — is
-[`docs/specs/job-queue.md`](../../../../../docs/specs/job-queue.md) §4.
+[`docs/specs/job-queue.md`](../../../../../docs/specs/job-queue.md#enqueue-and-dedup).
 
 ### The Type Appears in the Dashboard Automatically
 
@@ -159,7 +159,7 @@ database connection (`db.backup.run`, for `pg_dump`) may declare a
 `nodeSecretBroker` that mints one short-lived, job-scoped credential per job,
 held in the node's memory only and revoked when the job settles — see
 `../job-secret-broker.ts` and
-[`docs/specs/database-backup.md` §16](../../../../../docs/specs/database-backup.md#16-running-the-dump-on-a-worker-node-352-epic-345).
+[`docs/specs/database-backup.md`](../../../../../docs/specs/database-backup.md#running-the-dump-on-a-worker-node).
 Nothing brokered this way is ever written to disk, to config, or to a log
 line; that is the rule this section's opening claim narrows to, not one it
 gives up.
@@ -381,8 +381,8 @@ never be auto-retried).
 
 ### A per-job credential (`nodeSecretBroker`, optional)
 
-A node has no *durable* database access or storage credentials (§8 of
-[`docs/specs/worker-nodes.md`](../../../../../docs/specs/worker-nodes.md)), so
+A node has no *durable* database access or storage credentials (see the data plane in
+[`docs/specs/worker-nodes.md`](../../../../../docs/specs/worker-nodes.md#data-plane)), so
 almost every node-eligible type needs none. The exception is a type whose work
 genuinely requires a live connection to something this deployment guards — a
 `pg_dump` needs PostgreSQL — and for that, presence of a `nodeSecretBroker`
@@ -399,7 +399,7 @@ destroys it again when the job settles or on the sweep that catches what the
 settle path cannot. **Nothing it returns may be persisted except the handle**
 — `job_node_secrets` has no column that could hold the material itself. See
 `../job-secret-broker.ts` for the full contract and
-[`docs/specs/database-backup.md` §16](../../../../../docs/specs/database-backup.md#16-running-the-dump-on-a-worker-node-352-epic-345)
+[`docs/specs/database-backup.md`](../../../../../docs/specs/database-backup.md#running-the-dump-on-a-worker-node)
 for the worked example, including the two separate opt-in settings that gate
 whether this ever reaches a node at all.
 
@@ -444,7 +444,7 @@ the 409's `message` verbatim — or `null` to allow the delete. Three rules:
 job is non-terminal and its broadcast is `scheduled` or `sending` — the
 pending row is what advances that broadcast, and deleting it would strand it
 with nothing left to do so. See
-[`docs/specs/job-queue.md`](../../../../../docs/specs/job-queue.md) §8.5 and
+[`docs/specs/job-queue.md`](../../../../../docs/specs/job-queue.md#admin-api-behaviour) and
 [`docs/specs/notification-broadcasts.md`](../../../../../docs/specs/notification-broadcasts.md)
 for the full reasoning.
 
