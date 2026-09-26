@@ -48,7 +48,7 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useScrollRestoration } from '../../hooks/useScrollRestoration';
 import { visibleSettingsSections } from '../../config/adminSections';
-import type { SettingsSectionDef } from '../../config/adminSections';
+import type { SettingsFeatures, SettingsSectionDef } from '../../config/adminSections';
 
 export interface SettingsHubProps {
   /**
@@ -75,9 +75,17 @@ export interface SettingsHubProps {
   title: string;
   /** The `body1` secondary line under the title. Surface-specific prose. */
   subtitle: string;
+  /**
+   * Which deployment features are on (#425) — checked against each card's
+   * `feature`. Optional and passed straight through to
+   * `visibleSettingsSections`; omitted, every feature-gated card stays hidden.
+   * The hub holds no opinion of its own about what is on: the page binding
+   * reads `useAiConfig` and hands the answer down.
+   */
+  features?: SettingsFeatures;
 }
 
-export function SettingsHub({ sections, hubKey, title, subtitle }: SettingsHubProps) {
+export function SettingsHub({ sections, hubKey, title, subtitle, features }: SettingsHubProps) {
   const navigate = useNavigate();
   const theme = useTheme();
   const { hasPermission } = usePermissions();
@@ -109,7 +117,7 @@ export function SettingsHub({ sections, hubKey, title, subtitle }: SettingsHubPr
   // page, the Console rail (#94) and the AppBar title resolver (#95) cannot
   // disagree about what the current user may see. Sections emptied by either
   // gate are dropped by the helper, so no bare group header ever renders.
-  const visibleSections = visibleSettingsSections(sections, hasPermission, query);
+  const visibleSections = visibleSettingsSections(sections, hasPermission, query, features);
   const trimmedQuery = query.trim();
 
   return (

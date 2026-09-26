@@ -720,6 +720,9 @@ describe('QuickActions', () => {
 
       for (const destination of DESTINATIONS) {
         if (destination.key === 'home') continue;
+        // Feature-gated (`ai`, #425): hidden while AI is off, which is what an
+        // absent feature provider means.
+        if (destination.feature) continue;
         expect(
           screen.getByRole('button', { name: new RegExp(destination.label, 'i') }),
           `${destination.label} missing from Quick Actions`,

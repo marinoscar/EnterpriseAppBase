@@ -25,6 +25,7 @@ import {
 } from '@mui/material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { usePermissions } from '../../hooks/usePermissions';
+import { useAiFeatures } from '../../hooks/useAiConfig';
 import {
   DESTINATIONS,
   isDestinationVisible,
@@ -42,11 +43,13 @@ export function BottomNav() {
   const navigate = useNavigate();
   const location = useLocation();
   const { hasPermission } = usePermissions();
+  // Before the early return, per the rules of hooks.
+  const features = useAiFeatures();
 
   if (!isCompactWindow) return null;
 
   const visibleDestinations = DESTINATIONS.filter((destination) =>
-    isDestinationVisible(destination, hasPermission),
+    isDestinationVisible(destination, hasPermission, features),
   );
 
   const resolved = resolveActiveDestination(location.pathname);

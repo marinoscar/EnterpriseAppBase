@@ -74,6 +74,7 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import { Link as RouterLink, useLocation } from 'react-router-dom';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useNavigationPrefs } from '../../hooks/useNavigationPrefs';
+import { useAiFeatures } from '../../hooks/useAiConfig';
 import {
   DESTINATIONS,
   isDestinationVisible,
@@ -275,8 +276,12 @@ export function NavigationRail() {
   // `isDestinationVisible`, never an inline `destination.permission` check:
   // `console` is gated on EITHER `system_settings:read` OR `users:read` (#92),
   // and an inline check would have shown that row to everyone.
+  //
+  // The feature map (#425) hides the AI destination while AI is switched off,
+  // and the Console sections below read the same map.
+  const features = useAiFeatures();
   const visibleDestinations = DESTINATIONS.filter((destination) =>
-    isDestinationVisible(destination, hasPermission),
+    isDestinationVisible(destination, hasPermission, features),
   );
 
   // TWO GROUPS, ONE MODEL (#105). Console is a MODE, not a peer of the library
@@ -297,9 +302,16 @@ export function NavigationRail() {
   // field cannot live in 220px beside the rows it filters, and the rail is
   // persistent chrome — filtering it would leave the user staring at navigation
   // that no longer lists where they are.
+  //
+  // The FEATURE map (#425) is the same one the hub passes, so a card for a
+  // switched-off feature (AI Models while AI is off) is absent from both.
+  const aiEnabled = features.ai;
   const consoleSections = useMemo(
-    () => (consoleMode ? visibleSettingsSections(ADMIN_SECTIONS, hasPermission) : []),
-    [consoleMode, hasPermission],
+    () =>
+      consoleMode
+        ? visibleSettingsSections(ADMIN_SECTIONS, hasPermission, '', { ai: aiEnabled })
+        : [],
+    [consoleMode, hasPermission, aiEnabled],
   );
 
   // LONGEST PREFIX WINS, not `owns` alone. Admin paths genuinely nest

@@ -7,6 +7,11 @@ import { vi } from 'vitest';
 // Import AuthContext and ThemeContextProvider
 import { AuthContext } from '../../contexts/AuthContext';
 import { ThemeContextProvider } from '../../contexts/ThemeContext';
+import { AiConfigContext, type UseAiConfigReturn } from '../../hooks/useAiConfig';
+import {
+  mockAiPublicConfigDisabled,
+  mockAiPublicConfigEnabled,
+} from '../mocks/fixtures/ai';
 import type { AuthProvider as AuthProviderType } from '../../types';
 
 interface WrapperOptions {
@@ -16,6 +21,13 @@ interface WrapperOptions {
   user?: MockUser | null;
   isLoading?: boolean;
   providers?: AuthProviderType[];
+  /**
+   * Stand in for the shell's `AiConfigProvider` (#425) with a settled answer:
+   * `true` → AI on (`mockAiPublicConfigEnabled`), `false` → AI off. Omitted,
+   * no provider is mounted — `useAiFeatures()` then answers "off" and
+   * `useAiConfig()` fetches `GET /ai/config` itself (MSW default: disabled).
+   */
+  aiEnabled?: boolean;
 }
 
 export interface MockUser {
@@ -39,7 +51,8 @@ export const mockUser: MockUser = {
   displayName: 'Test User',
   profileImageUrl: null,
   roles: [{ name: 'viewer' }],
-  permissions: ['user_settings:read', 'user_settings:write'],
+  // `ai:use` (#425): seeded to every role by default, withholdable per role.
+  permissions: ['user_settings:read', 'user_settings:write', 'ai:use'],
   isActive: true,
   createdAt: new Date().toISOString(),
 };
@@ -92,6 +105,9 @@ export const mockAdminUser: MockUser = {
     // a user that cannot exist.
     'storage_config:read',
     'storage_config:write',
+    'ai_config:read',
+    'ai_config:write',
+    'ai:use',
   ],
   isActive: true,
   createdAt: new Date().toISOString(),
@@ -142,7 +158,18 @@ function createWrapper(options: WrapperOptions = {}) {
     user = mockUser,
     isLoading = false,
     providers = defaultMockProviders,
+    aiEnabled,
   } = options;
+
+  const aiValue: UseAiConfigReturn | null =
+    aiEnabled === undefined
+      ? null
+      : {
+          config: aiEnabled ? mockAiPublicConfigEnabled : mockAiPublicConfigDisabled,
+          isLoading: false,
+          error: null,
+          refresh: vi.fn().mockResolvedValue(undefined),
+        };
 
   return function Wrapper({ children }: { children: ReactNode }) {
     return (
@@ -155,7 +182,11 @@ function createWrapper(options: WrapperOptions = {}) {
             isLoading={isLoading}
             providers={providers}
           >
-            {children}
+            {aiValue ? (
+              <AiConfigContext.Provider value={aiValue}>{children}</AiConfigContext.Provider>
+            ) : (
+              children
+            )}
           </MockAuthProvider>
         </ThemeContextProvider>
       </MemoryRouter>
