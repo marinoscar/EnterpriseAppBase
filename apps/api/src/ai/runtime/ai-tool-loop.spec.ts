@@ -6,7 +6,7 @@ import { z } from 'zod';
 
 import { AiError } from '../core/ai-error';
 import { defineTool } from '../core/tools';
-import type { AiInputItem, AiResponseRequest } from '../core/types/responses.types';
+import { AI_PROVIDER_STATE, type AiInputItem, type AiResponseRequest } from '../core/types/responses.types';
 import { createAiRuntimeHarness, HARNESS_MODEL, HARNESS_USER } from '../testing/ai-runtime-harness';
 import type { FakeAiScriptedResponse } from '../testing/fake-ai-provider';
 import type { AiToolStep } from './ai-runtime.types';
@@ -278,5 +278,116 @@ describe('runTools', () => {
         .runTools({ model: HARNESS_MODEL, input: 'x', tools: [blocking] }, { signal: controller.signal }),
     ).rejects.toMatchObject({ code: 'AI_PROVIDER_UNAVAILABLE' });
     expect(h.fake.callsTo('responses.create')).toHaveLength(1);
+  });
+
+  describe('a provider that cannot chain (supportsPreviousResponseId: false, #446)', () => {
+    it('resends the full history each round instead of chaining', async () => {
+      const state = { provider: 'openai', data: { signature: 'sig-1' } };
+      const h = createAiRuntimeHarness({
+        fake: {
+          supportsPreviousResponseId: false,
+          responses: [
+            {
+              output: [
+                { type: 'reasoning', summary: ['Need the city first.'], [AI_PROVIDER_STATE]: state },
+                { type: 'message', text: 'Let me look that up.' },
+                { type: 'function_call', callId: 'c1', name: 'lookup_city', arguments: '{"person":"Ana"}' },
+              ],
+            },
+            call('c2', 'weather', { city: 'Lima' }),
+            { outputText: 'Ana is in Lima: 22C, sunny.' },
+          ],
+        },
+      });
+
+      const result = await h.ai.forUser(HARNESS_USER).runTools({
+        model: HARNESS_MODEL,
+        instructions: 'Be brief.',
+        input: "What's the weather where Ana lives?",
+        tools: [lookupCity, weather],
+      });
+
+      expect(result.stopReason).toBe('completed');
+      expect(result.final.outputText).toBe('Ana is in Lima: 22C, sunny.');
+
+      const requests = h.fake.callsTo('responses.create').map((c) => c.request);
+      expect(requests).toHaveLength(3);
+
+      for (const req of requests) {
+        expect(req?.previousResponseId).toBeUndefined();
+        expect(req?.instructions).toBe('Be brief.');
+      }
+
+      const user: AiInputItem = {
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'text', text: "What's the weather where Ana lives?" }],
+      };
+      const round1: AiInputItem[] = [
+        { type: 'reasoning', summary: ['Need the city first.'], [AI_PROVIDER_STATE]: state },
+        { type: 'message', role: 'assistant', content: [{ type: 'text', text: 'Let me look that up.' }] },
+        { type: 'function_call', callId: 'c1', name: 'lookup_city', arguments: '{"person":"Ana"}' },
+        { type: 'function_call_output', callId: 'c1', output: result.steps[0].calls[0].output },
+      ];
+      const round2: AiInputItem[] = [
+        { type: 'function_call', callId: 'c2', name: 'weather', arguments: '{"city":"Lima"}' },
+        { type: 'function_call_output', callId: 'c2', output: 'Lima: 22C, sunny' },
+      ];
+
+      expect(requests[0]?.input).toBe("What's the weather where Ana lives?");
+      expect(requests[1]?.input).toEqual([user, ...round1]);
+      expect(requests[2]?.input).toEqual([user, ...round1, ...round2]);
+
+      // The reasoning item's opaque provider state is replayed with it (the
+      // equality above compares symbol keys) — and stays invisible to JSON.
+      const replayed = (requests[2]?.input as AiInputItem[])[1] as Extract<AiInputItem, { type: 'reasoning' }>;
+      expect(replayed[AI_PROVIDER_STATE]).toEqual(state);
+      expect(JSON.stringify(replayed)).not.toContain('sig-1');
+    });
+
+    it('keeps an array input as the head of the history', async () => {
+      const h = createAiRuntimeHarness({
+        fake: { supportsPreviousResponseId: false, responses: [call('c1', 'weather', { city: 'Quito' }), { outputText: 'ok' }] },
+      });
+      const input: AiInputItem[] = [
+        { type: 'message', role: 'user', content: [{ type: 'text', text: 'first' }] },
+        { type: 'message', role: 'assistant', content: [{ type: 'text', text: 'answer' }] },
+        { type: 'message', role: 'user', content: [{ type: 'text', text: 'weather?' }] },
+      ];
+
+      await h.ai.forUser(HARNESS_USER).runTools({ model: HARNESS_MODEL, input, tools: [weather] });
+
+      const second = h.fake.callsTo('responses.create')[1]?.request;
+      expect((second?.input as AiInputItem[]).slice(0, 3)).toEqual(input);
+      expect(outputsOf(second)).toEqual([{ type: 'function_call_output', callId: 'c1', output: 'Quito: 22C, sunny' }]);
+    });
+
+    it('refuses a caller-supplied previousResponseId before calling the provider', async () => {
+      const h = createAiRuntimeHarness({ fake: { supportsPreviousResponseId: false } });
+
+      await expect(
+        h.ai.forUser(HARNESS_USER).respond({ model: HARNESS_MODEL, input: 'more', previousResponseId: 'resp_1' }),
+      ).rejects.toMatchObject({
+        code: 'AI_CAPABILITY_UNSUPPORTED',
+        response: { details: { capability: 'previous_response_id' } },
+      });
+      await expect(
+        h.ai.forUser(HARNESS_USER).runTools({
+          model: HARNESS_MODEL,
+          input: 'more',
+          previousResponseId: 'resp_1',
+          tools: [weather],
+        }),
+      ).rejects.toMatchObject({ code: 'AI_CAPABILITY_UNSUPPORTED' });
+      expect(h.fake.calls.filter((c) => c.method === 'responses.create')).toHaveLength(0);
+    });
+
+    it('still accepts previousResponseId on a provider that chains', async () => {
+      const h = createAiRuntimeHarness({ fake: { responses: [{ outputText: 'ok' }] } });
+
+      await expect(
+        h.ai.forUser(HARNESS_USER).respond({ model: HARNESS_MODEL, input: 'more', previousResponseId: 'resp_1' }),
+      ).resolves.toMatchObject({ outputText: 'ok' });
+    });
   });
 });

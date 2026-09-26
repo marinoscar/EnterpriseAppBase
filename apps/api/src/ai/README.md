@@ -25,11 +25,16 @@ ai/
     structured-output.ts     Zod <-> JSON Schema conversion for structured output
     tools.ts                 defineTool() — function-tool definition + argument validation
     hosted-tools.ts          Hosted-tool shape, admin gate (AI_TOOL_DISABLED), MCP header secrets
+    conversation.ts          asInputItems/replayOutput — a turn as input, for stateless providers (#446)
     types/                   AiResponse, AiResponseRequest, AiStreamEvent, media types,
                              file-inputs.types.ts (storage-object inputs: caps, strategies, #441)
   providers/
-    openai/                  The Phase 1 adapter. ONLY place the `openai` SDK is imported —
-                             `core/no-provider-sdk.spec.ts` enforces this statically.
+    openai/                  The Phase 1 adapter (Responses API; every port). ONLY place the
+                             `openai` SDK is imported.
+    anthropic/               The Phase 3 adapter (#446; Messages API, `responses` port only,
+                             stateless). ONLY place `@anthropic-ai/sdk` is imported —
+                             `anthropic-sdk-boundary.spec.ts` pins it; `core/no-provider-sdk.spec.ts`
+                             and `test/ai/ai-no-sdk-leak.spec.ts` keep every SDK out of the rest.
   catalog/                 Model discovery + classification (ai_models table)
     ai-catalog.service.ts    Read/query the catalog
     ai-catalog-refresh.handler.ts   `ai.catalog.refresh` job (server-only)
@@ -185,7 +190,23 @@ the adapter's `fileInputStrategy`). Just before the key,
 stream per input and passes them to the adapter as `ctx.storageInputs`
 (never in the request, so nothing logged, queued or recorded carries a URL).
 OpenAI sends images as `image_url` and uploads files to its Files API,
-deleting them after the response. See `docs/specs/ai-platform.md` §5.3.
+deleting them after the response; Anthropic sends images by the same
+presigned URL and documents inline (a base64 PDF or plain text), so nothing
+is uploaded to it. See `docs/specs/ai-platform.md` §5.3.
+
+**Stateless providers** (issue #446): an adapter declaring
+`supportsPreviousResponseId: false` (Anthropic) cannot chain onto a stored
+response. `prepare()` refuses a caller's `previousResponseId` with
+`AI_CAPABILITY_UNSUPPORTED` (step 2a, before any key is resolved), and
+`runTools` resends the whole conversation each round instead of chaining —
+the original input plus every round's output replayed with
+`core/conversation.ts`'s `replayOutput`, then the tool outputs. A
+`reasoning` item carries the provider's opaque replay state (Anthropic's
+thinking signature) under the `AI_PROVIDER_STATE` symbol, which
+`JSON.stringify` never sees — it survives the in-process hop and nothing
+else. `GET /api/ai/config` publishes the flag per provider
+(`providers[].supportsPreviousResponseId`) so a client resends history
+rather than being refused. See `docs/specs/ai-platform.md` §5.7.
 
 ## Rate limits and output caps (issue #450)
 
@@ -334,8 +355,14 @@ Two things never leave the facade, both handled by
   implemented) speech returns audio bytes, lists its voices and refuses
   input over 4096 characters, and every error surfaces as an
   `AiError`, never a raw SDK exception. `providers/openai/openai.adapter.conformance.spec.ts`
-  is the worked example of wiring a real adapter through it; `openai.adapter.live.spec.ts`
-  is the separate, opt-in suite that hits the real OpenAI API.
+  and `providers/anthropic/anthropic.adapter.conformance.spec.ts` are the two
+  worked examples of wiring a real adapter through it over a mocked
+  transport (the real SDK with an injected `fetch`); the Anthropic mock is
+  as stateless as the real API, so its tool round-trip passes only because
+  the kit reads `supportsPreviousResponseId: false` and resends the
+  conversation. `openai.adapter.live.spec.ts` is the separate, opt-in suite
+  that hits the real OpenAI API. `FakeAiProvider` takes
+  `supportsPreviousResponseId: false` to drive the full-history tool loop.
 - **`InMemoryAiKeysPrisma`** (`testing/in-memory-ai-keys-prisma.ts`) backs
   the harness's key storage for tests that need `user_ai_keys`/credential
   behaviour without a real database.

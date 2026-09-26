@@ -32,7 +32,7 @@ function policy(overrides: Partial<AiPolicy> = {}): AiPolicy {
   return {
     enabled: true,
     keyPolicy: 'byok',
-    providers: { openai: { enabled: true } },
+    providers: { openai: { enabled: true }, anthropic: { enabled: false } },
     defaults: { allowBackgroundRuns: true },
     logPromptContent: false,
     usageRetentionDays: 180,
@@ -150,7 +150,7 @@ describe('UserAiKeysService', () => {
     });
 
     it('refuses a disabled provider, and everything while AI is off', async () => {
-      setPolicy(policy({ providers: { openai: { enabled: false } } }));
+      setPolicy(policy({ providers: { openai: { enabled: false }, anthropic: { enabled: false } } }));
       await expect(service.set(USER_A, 'openai', KEY_A)).rejects.toMatchObject({
         code: 'AI_PROVIDER_DISABLED',
       });
@@ -161,7 +161,7 @@ describe('UserAiKeysService', () => {
     });
 
     it('passes the admin-configured base URL to the provider', async () => {
-      current = policy({ providers: { openai: { enabled: true, baseUrl: 'https://proxy.example/v1' } } });
+      current = policy({ providers: { openai: { enabled: true, baseUrl: 'https://proxy.example/v1' }, anthropic: { enabled: false } } });
       await service.set(USER_A, 'openai', KEY_A);
 
       expect(fake.calls.every((call) => call.baseUrl === 'https://proxy.example/v1')).toBe(true);

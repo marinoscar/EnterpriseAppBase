@@ -383,9 +383,11 @@ is [`docs/runbooks/ai-configuration.md`](docs/runbooks/ai-configuration.md).
 1. **Never import a provider SDK outside `apps/api/src/ai/providers/<provider>/`.**
    A feature that wants AI injects `AiService` (`apps/api/src/ai/runtime`,
    re-exported by `AiModule`) and calls `AiService.forUser(userId)` — never an
-   SDK client of its own. `apps/api/src/ai/core/no-provider-sdk.spec.ts` is
-   this rule's executable form for the `openai` package today; a second
-   provider's SDK gets the identical guard when its adapter is added (§14 of
+   SDK client of its own. `apps/api/src/ai/core/no-provider-sdk.spec.ts`
+   keeps every SDK out of `ai/core`, and each provider's SDK is pinned to its
+   own folder — `@anthropic-ai/sdk` by
+   `providers/anthropic/anthropic-sdk-boundary.spec.ts` (#446); a further
+   provider's SDK gets the identical pin when its adapter is added (§14 of
    the spec).
 2. **Never call AI from the browser; keys never leave the server.** Every
    provider call happens server-side, under a key `AiKeyResolver` resolved
@@ -732,7 +734,7 @@ The caller's own AI surface: usable models, BYOK keys, and calling AI itself.
 `AiEnabledGuard` (403 `details.reason: "AI_DISABLED"` while AI is off) and
 requires `ai:use`. See
 [`docs/specs/ai-platform.md`](docs/specs/ai-platform.md).
-- `GET /api/ai/config` - Whether AI is enabled, the key policy, `allowBackgroundRuns` (whether `POST /api/ai/runs` accepts a request at all), `hostedTools` (which hosted tool types are switched on, booleans only — #442), and which providers are enabled/carry an org key; reachable while AI is disabled — how a client learns to hide its AI surfaces (any authenticated user, no `ai:use` required)
+- `GET /api/ai/config` - Whether AI is enabled, the key policy, `allowBackgroundRuns` (whether `POST /api/ai/runs` accepts a request at all), `hostedTools` (which hosted tool types are switched on, booleans only — #442), and which providers are enabled/carry an org key/`supportsPreviousResponseId` (false for Anthropic: send the conversation as `input`, #446); reachable while AI is disabled — how a client learns to hide its AI surfaces (any authenticated user, no `ai:use` required)
 - `GET /api/ai/keys` - List the caller's provider keys, masked (`ai:use`)
 - `PUT /api/ai/keys/{provider}` - Set/replace the caller's key; verified against the provider first, then reachable models computed, then stored (`ai:use`)
 - `DELETE /api/ai/keys/{provider}` - Remove the caller's key; 204, idempotent (`ai:use`)
@@ -1343,6 +1345,10 @@ round-trip, and traces the call. A call over a limit throws
 
 - **`respond(req, opts?)`** — one response. `req.input` is a string or
   `AiInputItem[]` (text/image/file parts); `opts.signal` aborts it.
+  `req.previousResponseId` chains onto an earlier response only on a
+  provider that stores them (OpenAI); Anthropic refuses it with
+  `AI_CAPABILITY_UNSUPPORTED` — send the conversation as `input` instead
+  (`runTools` already does, spec §5.7).
 - **`stream(req, opts?)`** — an `AsyncIterable<AiStreamEvent>`. Lazy: a gate
   or pre-stream provider failure surfaces on the first iteration. Use this
   for an in-process consumer that is already committed to iterating.
@@ -1428,8 +1434,10 @@ uses elsewhere in this codebase.
 A second (or third) provider is an adapter implementation against the
 existing contract, never a platform change — see
 [`docs/specs/ai-platform.md`](docs/specs/ai-platform.md) §14 for the full
-design; this is the summary, and `apps/api/src/ai/providers/openai/` is the
-one worked example today.
+design; this is the summary. There are two worked examples, deliberately
+different in shape: `apps/api/src/ai/providers/openai/` (Responses API,
+every port) and `apps/api/src/ai/providers/anthropic/` (Messages API,
+`responses` only, stateless — issue #446, spec §14.1).
 
 1. **Implement `AiProviderAdapter`** (`ai/core/provider-adapter.interface.ts`)
    in its own `apps/api/src/ai/providers/<provider>/` folder: `id` (permanent
@@ -1466,7 +1474,20 @@ one worked example today.
    `verifyKey`'s ok/invalid mapping is correct, `classifyModel` returns
    schema-valid capabilities or `null`, and — if `responses` is implemented
    — `create`/`stream`/structured output/a tool round-trip all behave, and
-   every error surfaces as an `AiError`, never a raw SDK exception.
+   every error surfaces as an `AiError`, never a raw SDK exception. Run it
+   over a mocked transport that validates what the real API does.
+
+   A provider that stores no responses (no `previousResponseId`) declares
+   `supportsPreviousResponseId: false` on the adapter (absent means `true`):
+   the gate pipeline then refuses a caller's `previousResponseId` with
+   `AI_CAPABILITY_UNSUPPORTED`, and `runTools` — and the kit's tool
+   round-trip — resend the full conversation instead of chaining (spec
+   §5.7); `GET /api/ai/config` publishes the flag per provider. Opaque
+   replay state (Anthropic's thinking signatures) rides on a `reasoning`
+   item under the `AI_PROVIDER_STATE` symbol, never in a serialisable
+   field. Likewise a provider with a `responses` port but none of the
+   hosted tools declares `supportsHostedTools: false` (absent means
+   `true`), so the registry stops deriving `hosted_tools` for it.
 6. **Register the provider id.** Add it to `AI_PROVIDER_IDS`
    (`common/schemas/settings.schema.ts`) — a growing, code-owned list, not a
    closed set — so the `ai.providers.<id>` settings slot and the admin UI's

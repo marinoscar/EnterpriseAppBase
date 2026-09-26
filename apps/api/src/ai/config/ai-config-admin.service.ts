@@ -441,7 +441,7 @@ export function toPatch(next: SystemAiValue) {
         id,
         { enabled: slot.enabled, baseUrl: slot.baseUrl ?? null },
       ]),
-    ) as { openai: { enabled: boolean; baseUrl: string | null } },
+    ) as Record<keyof SystemAiValue['providers'], { enabled: boolean; baseUrl: string | null }>,
     defaults: {
       allowBackgroundRuns: next.defaults.allowBackgroundRuns,
       maxOutputTokensCap: next.defaults.maxOutputTokensCap ?? null,

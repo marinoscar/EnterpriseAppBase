@@ -90,6 +90,43 @@ export interface AiProviderAdapter {
    */
   readonly fileInputStrategy?: AiFileInputStrategies;
 
+  /**
+   * Whether this provider stores responses, so a request may chain onto one
+   * with `AiResponseRequest.previousResponseId` (#446). ABSENT MEANS `true` —
+   * the Responses-shaped default, and what every adapter written before this
+   * flag (OpenAI, the fake provider) already does.
+   *
+   * A stateless provider (Anthropic's Messages API) declares `false`, and the
+   * runtime then:
+   *   - refuses a caller-supplied `previousResponseId` with
+   *     `AI_CAPABILITY_UNSUPPORTED` before any key is resolved (the caller
+   *     must send the conversation as `input` instead);
+   *   - runs the tool loop by RESENDING THE FULL HISTORY each round — the
+   *     original input, the model's own `message`/`reasoning`/`function_call`
+   *     items, and the tool outputs — instead of chaining.
+   *
+   * Unlike a capability port this is a behaviour flag, not a capability: the
+   * conversation still works, it just travels differently.
+   */
+  readonly supportsPreviousResponseId?: boolean;
+
+  /**
+   * Whether this provider executes the neutral hosted tools (#442: web
+   * search, file search, code interpreter, image generation, MCP) inside a
+   * response. ABSENT MEANS `true` — the pre-flag derivation, and what OpenAI
+   * and the fake provider rely on.
+   *
+   * Why a flag and not a port: hosted tools run INSIDE the `responses` port,
+   * so there is no separate port whose presence could declare them, and
+   * `hosted_tools` used to be derived from the `responses` port alone. A
+   * provider with a responses port but none of these tools (Anthropic, whose
+   * server tools are a different, unmapped set) declares `false`, so
+   * `AiProviderRegistry.supports(id, 'hosted_tools')` — and the admin view's
+   * `supportedCapabilities`, and the usable-models gate — stop claiming a
+   * capability the adapter's mapper would refuse.
+   */
+  readonly supportsHostedTools?: boolean;
+
   // Capability ports — presence IS the declaration.
   readonly responses?: AiResponsesPort;
   readonly images?: AiImagesPort;

@@ -46,7 +46,8 @@ variable for any of it, and there must never be one (CLAUDE.md's
    learns AI is off at all) answers `403` with `details.reason:
    "AI_DISABLED"`, and no AI-shaped card or navigation entry appears
    anywhere else in the app.
-3. Enable the provider(s) you intend to use (Phase 1 ships `openai`).
+3. Enable the provider(s) you intend to use — `openai` and, since #446,
+   `anthropic` (§13 covers what is different about Anthropic).
    Enabling AI overall does nothing by itself if every individual provider
    stays disabled — a provider existing in the adapter registry does not
    mean it is reachable.
@@ -105,6 +106,7 @@ on demand from `/admin/settings/ai/models` (**Refresh catalog**), or:
 
 ```bash
 appctl api POST /admin/ai/models/refresh --data '{"provider":"openai"}'
+appctl api POST /admin/ai/models/refresh --data '{"provider":"anthropic"}'
 ```
 
 This enqueues the `ai.catalog.refresh` job (server-only, always — see
@@ -247,9 +249,9 @@ reference; the full one is `docs/specs/ai-platform.md` §13.
 | `AI_KEY_INVALID` | 400 | A submitted key was rejected by the provider. | The key is wrong, revoked, or scoped incorrectly at the provider. Nothing was stored. |
 | `AI_MODEL_NOT_ENABLED` | 403 | The model is unknown, not admin-enabled, or deprecated. | Enable it (or pick an enabled one) on `/admin/settings/ai/models` — §5. |
 | `AI_MODEL_NOT_REACHABLE` | 403 | The model is enabled, but the resolved key can't reach it. | The key's own tier/org restrictions — try `POST /api/ai/keys/:provider/test`, or refresh reachability by re-testing/re-saving the key. |
-| `AI_CAPABILITY_UNSUPPORTED` | 400 | The model or provider lacks a capability the request needs (e.g. structured output, a tool, vision input). | Pick a model/provider that declares it, or drop that part of the request. |
+| `AI_CAPABILITY_UNSUPPORTED` | 400 | The model or provider lacks a capability the request needs (e.g. structured output, a tool, vision input), or the request chains with `previousResponseId` on a provider that stores no responses (Anthropic — `details.capability: "previous_response_id"`). | Pick a model/provider that declares it, or drop that part of the request; for Anthropic, send the conversation as `input` instead of chaining (§13). |
 | `AI_TOOL_DISABLED` | 403 | A hosted tool (web search, file search, code interpreter, image generation, MCP) that is switched off, or an MCP server host outside the allowlist. | §12 — switch the tool on, or add the host, under **Hosted tools** on `/admin/settings/ai`. |
-| `AI_RATE_LIMITED` | 429 | The provider throttled the call, or one of this deployment's own limits was reached — then `details.limit` names which one. | Transient: wait `Retry-After` seconds (also `details.retryAfterMs`). For a background run this defers automatically rather than charging an attempt. If users hit a limit of yours too often, raise it — §13. |
+| `AI_RATE_LIMITED` | 429 | The provider throttled the call, or one of this deployment's own limits was reached — then `details.limit` names which one. | Transient: wait `Retry-After` seconds (also `details.retryAfterMs`). For a background run this defers automatically rather than charging an attempt. If users hit a limit of yours too often, raise it — §14. |
 | `AI_PROVIDER_UNAVAILABLE` | 503 | The provider is unreachable or erroring at the transport level. | A provider-side outage, or `AI_PROVIDER_UNAVAILABLE` after an aborted/cancelled call. Check the provider's own status page. |
 | `AI_CONTENT_FILTERED` | 422 | The provider's own content filter rejected the request or response. | Not a platform bug — the provider refused this specific content. |
 | `AI_INVALID_REQUEST` | 400 | The request itself is malformed (no model/provider resolvable, a background run given a function tool, an invalid `maxOutputTokens`). | Check the request shape; function tools cannot run in a background run — use `runTools()` in-process instead. |
@@ -288,7 +290,59 @@ while MCP is on with no list). MCP credentials are never configured here:
 users send them per request in the tool's `headers`, which are never stored,
 logged or returned — and a background run cannot carry them at all.
 
-## 13. Rate limits and output caps
+## 13. Enabling Anthropic
+
+Anthropic (issue #446) is configured exactly like OpenAI — nothing here is
+an environment variable, and nothing needs a restart:
+
+1. On `/admin/settings/ai`, switch the **Anthropic** provider on (or
+   `PUT /api/admin/ai/config` with `providers.anthropic.enabled: true`).
+   `baseUrl` is optional and only for a gateway that speaks Anthropic's own
+   API; leave it empty for `https://api.anthropic.com`.
+2. Add the admin (org) key from the Anthropic Console on the provider's row
+   (§2) and **Test** it (§3). The key is verified with `GET /v1/models`
+   before anything is stored; the third, billed `responses_smoke` check is
+   one tiny Messages call.
+3. Refresh the catalog for `anthropic` (§4). The classifier recognises the
+   Claude families (Claude 3 through the current Opus, Sonnet, Haiku, Fable
+   and Mythos releases) and marks every other id `unclassified` — enable
+   the models users should see (§5). No Anthropic model declares **Hosted
+   tools**, embeddings, images or audio: the adapter implements text,
+   reasoning, function tools, structured output, streaming, and image and
+   PDF input only.
+4. Users add their own Anthropic key on `/settings/ai` exactly as for
+   OpenAI (§7), under the key policy you chose (§6).
+
+What is different, and worth telling users:
+
+- **No `previousResponseId`.** Anthropic keeps no conversation on its side.
+  A request that chains onto an earlier response is refused with
+  `AI_CAPABILITY_UNSUPPORTED` (`details.capability:
+  "previous_response_id"`); send the conversation so far as `input`
+  instead (user and assistant messages). In-process `runTools()` does this
+  automatically, and `GET /api/ai/config` publishes
+  `supportsPreviousResponseId` per provider so clients know to: the AI
+  Playground resends the conversation itself for a Claude model and keeps
+  chaining for OpenAI, so multi-turn chat works with both.
+- **No hosted tools.** Anthropic's provider row on `/admin/settings/ai`
+  does not list **Hosted tools** among its capabilities, and no Claude model
+  declares them: web search, file search, code interpreter, image
+  generation and MCP are OpenAI-only here.
+- **Reasoning.** A reasoning effort becomes Anthropic's extended thinking:
+  adaptive thinking with an effort level on Claude 4.6 and later, a fixed
+  thinking-token budget on older families. Users see a summary of the
+  thinking, never the raw chain of thought. A family without extended
+  thinking (Claude 3.5 and earlier) refuses an effort.
+- **Temperature.** Newer Claude models reject sampling parameters
+  outright, and every Claude model rejects a temperature combined with
+  extended thinking; both are refused up front with
+  `AI_CAPABILITY_UNSUPPORTED` rather than sent.
+- **Errors.** Anthropic's `529 overloaded` answers as
+  `AI_PROVIDER_UNAVAILABLE` and its `429` as `AI_RATE_LIMITED`, each with
+  the provider's `retry-after`; a background run defers on the latter
+  without charging an attempt.
+
+## 14. Rate limits and output caps
 
 `ai.limits` protects the deployment from runaway request volume, the
 organization key from one user draining it, and budgets from runaway

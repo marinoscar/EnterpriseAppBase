@@ -1,5 +1,5 @@
 import { AiError } from '../core/ai-error';
-import type { AiResponseRequest } from '../core/types/responses.types';
+import { AI_PROVIDER_STATE, type AiResponseRequest } from '../core/types/responses.types';
 import { fromStoredRunRequest, toStoredRunRequest } from './ai-run-request';
 
 describe('stored background-run request — hosted tools (#442)', () => {
@@ -56,5 +56,27 @@ describe('stored background-run request — hosted tools (#442)', () => {
     };
 
     expect(() => fromStoredRunRequest(row)).toThrow(AiError);
+  });
+});
+
+describe('stored background-run request — replayed history (#446)', () => {
+  it('keeps replayed function calls and drops replayed reasoning (its state is in-process only)', () => {
+    const stored = toStoredRunRequest('anthropic', {
+      model: 'm',
+      input: [
+        { type: 'message', role: 'user', content: [{ type: 'text', text: 'hi' }] },
+        { type: 'reasoning', summary: ['s'], [AI_PROVIDER_STATE]: { provider: 'anthropic', data: { signature: 'sig' } } },
+        { type: 'function_call', callId: 'c1', name: 'f', arguments: '{}' },
+        { type: 'function_call_output', callId: 'c1', output: 'ok' },
+      ],
+    });
+
+    expect(stored.input).toEqual([
+      { type: 'message', role: 'user', content: [{ type: 'text', text: 'hi' }] },
+      { type: 'function_call', callId: 'c1', name: 'f', arguments: '{}' },
+      { type: 'function_call_output', callId: 'c1', output: 'ok' },
+    ]);
+    expect(JSON.stringify(stored)).not.toContain('sig');
+    expect(fromStoredRunRequest(JSON.parse(JSON.stringify(stored))).input).toEqual(stored.input);
   });
 });

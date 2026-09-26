@@ -28,6 +28,7 @@ import { z } from 'zod';
 
 import { AiError, isAiErrorCode } from '../core/ai-error';
 import { aiModelCapabilitiesSchema } from '../core/capabilities';
+import { asInputItems, replayOutput } from '../core/conversation';
 import { AiCallContext, AiProviderAdapter } from '../core/provider-adapter.interface';
 import { defineTool } from '../core/tools';
 import {
@@ -205,6 +206,13 @@ export const conformanceWeatherTool = defineTool({
 });
 
 export function conformanceRequests(model: string) {
+  const toolCall = {
+    model,
+    input: [{ type: 'message', role: 'user', content: [{ type: 'text', text: CONFORMANCE_TOOL_PROMPT }] }],
+    tools: [conformanceWeatherTool.tool],
+    toolChoice: 'required',
+  } satisfies AiResponseRequest;
+
   return {
     text: { model, input: CONFORMANCE_TEXT_PROMPT, maxOutputTokens: 64 } satisfies AiResponseRequest,
     structured: {
@@ -212,16 +220,26 @@ export function conformanceRequests(model: string) {
       input: CONFORMANCE_STRUCTURED_PROMPT,
       structuredOutput: { name: 'city_facts', schema: conformanceStructuredSchema, strict: true },
     } satisfies AiResponseRequest,
-    toolCall: {
-      model,
-      input: [{ type: 'message', role: 'user', content: [{ type: 'text', text: CONFORMANCE_TOOL_PROMPT }] }],
-      tools: [conformanceWeatherTool.tool],
-      toolChoice: 'required',
-    } satisfies AiResponseRequest,
+    toolCall,
     toolResult: (previousResponseId: string, callId: string, output: string): AiResponseRequest => ({
       model,
       previousResponseId,
       input: [{ type: 'function_call_output', callId, output }],
+      tools: [conformanceWeatherTool.tool],
+    }),
+    /**
+     * The same follow-up for a provider that stores no responses
+     * (`supportsPreviousResponseId: false`, #446): the whole conversation —
+     * the tool-call request's input, the model's first answer replayed, and
+     * the tool's result — exactly as the runtime's tool loop sends it.
+     */
+    toolResultFromHistory: (firstOutput: AiOutputItem[], callId: string, output: string): AiResponseRequest => ({
+      model,
+      input: [
+        ...asInputItems(toolCall.input),
+        ...replayOutput(firstOutput),
+        { type: 'function_call_output', callId, output },
+      ],
       tools: [conformanceWeatherTool.tool],
     }),
   };
@@ -504,10 +522,14 @@ export function describeAiProviderConformance(
 
         await subject.fixtures.arrange?.('responses.toolResult');
 
-        const second = await responses.create(
-          requests.toolResult(first.id, call!.callId, JSON.stringify(result)),
-          subject.ctx,
-        );
+        // The adapter's declared flag (#446) decides how the follow-up
+        // travels: chained onto the first response, or as full history.
+        const followUp =
+          subject.adapter.supportsPreviousResponseId === false
+            ? requests.toolResultFromHistory(first.output, call!.callId, JSON.stringify(result))
+            : requests.toolResult(first.id, call!.callId, JSON.stringify(result));
+
+        const second = await responses.create(followUp, subject.ctx);
 
         expectWellFormedResponse(second, subject.adapter);
         expect(second.finishReason).toBe('stop');

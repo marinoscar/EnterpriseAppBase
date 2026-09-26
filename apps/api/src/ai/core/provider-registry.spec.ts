@@ -72,6 +72,52 @@ describe('AiProviderRegistry', () => {
     }
   });
 
+  describe('supportsPreviousResponseId() (#446)', () => {
+    it('is true when the adapter declares nothing (the default), and for an unknown id', () => {
+      registry.register(bareAdapter('chains'));
+
+      expect(registry.supportsPreviousResponseId('chains')).toBe(true);
+      expect(registry.supportsPreviousResponseId('unknown')).toBe(true);
+    });
+
+    it('is false only when the adapter declares false', () => {
+      registry.register(bareAdapter('stateless', { supportsPreviousResponseId: false }));
+      registry.register(bareAdapter('explicit', { supportsPreviousResponseId: true }));
+
+      expect(registry.supportsPreviousResponseId('stateless')).toBe(false);
+      expect(registry.supportsPreviousResponseId('explicit')).toBe(true);
+    });
+  });
+
+  describe('hosted_tools and supportsHostedTools (#446)', () => {
+    it('rides on the responses port when the adapter declares nothing', () => {
+      registry.register(bareAdapter('p', { responses: responsesPort }));
+
+      expect(registry.supports('p', 'hosted_tools')).toBe(true);
+    });
+
+    it('is withdrawn by supportsHostedTools: false, leaving every other text capability', () => {
+      registry.register(bareAdapter('p', { responses: responsesPort, supportsHostedTools: false }));
+
+      expect(registry.supports('p', 'hosted_tools')).toBe(false);
+      expect(registry.capabilities('p')).toEqual([
+        'responses',
+        'reasoning',
+        'tools',
+        'structured_output',
+        'streaming',
+        'vision_input',
+        'file_input',
+      ]);
+    });
+
+    it('never appears without a responses port, whatever is declared', () => {
+      registry.register(bareAdapter('p', { supportsHostedTools: true }));
+
+      expect(registry.supports('p', 'hosted_tools')).toBe(false);
+    });
+  });
+
   describe('supports() — derived purely from port presence', () => {
     it('is false for every capability on an unknown provider', () => {
       for (const cap of AI_CAPABILITIES) {

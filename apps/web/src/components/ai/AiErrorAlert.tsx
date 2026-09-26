@@ -164,6 +164,15 @@ export function aiErrorCopy(error: AiErrorInfo): AiErrorCopy {
         body: 'The model returned output that does not satisfy the requested JSON Schema. Try again or simplify the schema.',
         severity: 'error',
       };
+    case 'AI_STORAGE_UNAVAILABLE':
+      // #437: an operation whose inputs or outputs are storage objects (an
+      // image run, and the media modes after it) on a deployment with no
+      // usable object storage. Only an administrator can fix it.
+      return {
+        title: "File storage isn't available",
+        body: 'This application has no file storage set up to keep AI inputs and results in. Ask your administrator to configure storage.',
+        severity: 'error',
+      };
     case 'AI_INVALID_REQUEST':
       return {
         title: 'The request was invalid',

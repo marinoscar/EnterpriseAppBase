@@ -7,7 +7,7 @@ function policy(overrides: Partial<AiPolicy> = {}): AiPolicy {
   return {
     enabled: true,
     keyPolicy: 'byok',
-    providers: { openai: { enabled: true } },
+    providers: { openai: { enabled: true }, anthropic: { enabled: false } },
     defaults: { allowBackgroundRuns: true },
     logPromptContent: false,
     usageRetentionDays: 180,
@@ -107,7 +107,7 @@ describe('AiConfigService', () => {
   describe('assertProviderEnabled', () => {
     it('returns the provider slot when everything agrees', async () => {
       getAiPolicy.mockResolvedValue(
-        policy({ providers: { openai: { enabled: true, baseUrl: 'https://proxy.example.com' } } }),
+        policy({ providers: { openai: { enabled: true, baseUrl: 'https://proxy.example.com' }, anthropic: { enabled: false } } }),
       );
 
       await expect(service.assertProviderEnabled('openai')).resolves.toEqual({
@@ -125,7 +125,7 @@ describe('AiConfigService', () => {
     });
 
     it('throws AI_PROVIDER_DISABLED when the provider is off in settings', async () => {
-      getAiPolicy.mockResolvedValue(policy({ providers: { openai: { enabled: false } } }));
+      getAiPolicy.mockResolvedValue(policy({ providers: { openai: { enabled: false }, anthropic: { enabled: false } } }));
 
       await expect(service.assertProviderEnabled('openai')).rejects.toMatchObject({
         code: 'AI_PROVIDER_DISABLED',
@@ -277,7 +277,9 @@ describe('AiConfigService', () => {
         keyPolicy: 'byok',
         allowBackgroundRuns: true,
         hostedTools: { web_search: false, file_search: false, code_interpreter: false, image_generation: false, mcp: false },
-        providers: [{ id: 'openai', displayName: 'Fake AI', enabled: true, hasOrgKey: true }],
+        providers: [
+          { id: 'openai', displayName: 'Fake AI', enabled: true, hasOrgKey: true, supportsPreviousResponseId: true },
+        ],
       });
       expect(JSON.stringify(view)).not.toContain('123');
       expect(getSecret).not.toHaveBeenCalled();
@@ -293,7 +295,17 @@ describe('AiConfigService', () => {
         displayName: 'Other',
         enabled: false,
         hasOrgKey: false,
+        supportsPreviousResponseId: true,
       });
+    });
+
+    it('publishes supportsPreviousResponseId from the adapter declaration (#446)', async () => {
+      registry.register(new FakeAiProvider({ id: 'stateless', displayName: 'Stateless', supportsPreviousResponseId: false }));
+
+      const view = await service.describePublic();
+
+      expect(view.providers.find((p) => p.id === 'stateless')).toMatchObject({ supportsPreviousResponseId: false });
+      expect(view.providers.find((p) => p.id === 'openai')).toMatchObject({ supportsPreviousResponseId: true });
     });
   });
 });

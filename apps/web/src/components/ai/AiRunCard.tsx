@@ -5,7 +5,11 @@
  * while the run can still be stopped. A successful run's answer is appended to
  * the conversation by the page; this card only says so. A failed run renders
  * its `errorCode` through the shared {@link AiErrorAlert} mapping.
+ *
+ * Every run-backed Playground mode reuses it (#445): `title` names the run
+ * ("Image run") and `successMessage` says where its result went.
  */
+import type { ReactNode } from 'react';
 import { Box, Button, Chip, CircularProgress, Paper, Typography } from '@mui/material';
 import type { AiRun, AiRunStatus } from '../../services/ai';
 import type { AiErrorInfo } from '../../services/aiErrors';
@@ -28,19 +32,33 @@ export interface AiRunCardProps {
   isCancelling: boolean;
   onCancel: () => void;
   onDismiss: () => void;
+  /** The card's heading and accessible name. Defaults to "Background run". */
+  title?: string;
+  /** Shown once the run succeeds; `null` shows nothing. */
+  successMessage?: ReactNode;
 }
 
-export function AiRunCard({ prompt, run, error, isStarting, isCancelling, onCancel, onDismiss }: AiRunCardProps) {
+export function AiRunCard({
+  prompt,
+  run,
+  error,
+  isStarting,
+  isCancelling,
+  onCancel,
+  onDismiss,
+  title = 'Background run',
+  successMessage = 'The answer was added to the conversation.',
+}: AiRunCardProps) {
   const status: AiRunStatus = run?.status ?? 'pending';
   const terminal = run ? isAiRunTerminal(run.status) : false;
   const settledOrBroken = terminal || (error !== null && !isStarting);
   const meta = STATUS[status];
 
   return (
-    <Paper variant="outlined" sx={{ p: 1.5, minWidth: 0 }} aria-label="Background run" role="region">
+    <Paper variant="outlined" sx={{ p: 1.5, minWidth: 0 }} aria-label={title} role="region">
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
         <Typography variant="subtitle2" component="h2">
-          Background run
+          {title}
         </Typography>
         {!error || run ? (
           <Chip size="small" label={isStarting ? 'Starting' : meta.label} color={meta.color} data-testid="run-status" />
@@ -65,14 +83,14 @@ export function AiRunCard({ prompt, run, error, isStarting, isCancelling, onCanc
       >
         {prompt}
       </Typography>
-      {status === 'succeeded' && (
+      {status === 'succeeded' && successMessage !== null && (
         <Typography variant="body2" sx={{ mt: 1 }}>
-          The answer was added to the conversation.
+          {successMessage}
         </Typography>
       )}
       {status === 'failed' && run && (
         <Box sx={{ mt: 1 }}>
-          <AiErrorAlert error={{ code: run.errorCode, message: 'The background run failed.' }} />
+          <AiErrorAlert error={{ code: run.errorCode, message: run.errorMessage ?? 'The run failed.' }} />
         </Box>
       )}
       {error && (

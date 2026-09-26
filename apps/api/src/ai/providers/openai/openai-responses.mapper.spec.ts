@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { AiError } from '../../core/ai-error';
-import { AiResponseRequest } from '../../core/types/responses.types';
+import { AI_PROVIDER_STATE, AiResponseRequest } from '../../core/types/responses.types';
 import { defineTool } from '../../core/tools';
 import { classifyOpenAiModel } from './openai-model-catalog';
 import { fromOpenAiResponse, toOpenAiRequest } from './openai-responses.mapper';
@@ -54,6 +54,27 @@ describe('toOpenAiRequest', () => {
       previous_response_id: 'resp_1',
       metadata: { feature: 'test' },
     });
+  });
+
+  it('maps replayed function calls and drops replayed reasoning (#446)', () => {
+    const body = toOpenAiRequest(
+      {
+        model: 'gpt-4o',
+        input: [
+          { type: 'message', role: 'user', content: [{ type: 'text', text: 'weather?' }] },
+          { type: 'reasoning', summary: ['think'], [AI_PROVIDER_STATE]: { provider: 'anthropic', data: { x: 1 } } },
+          { type: 'function_call', callId: 'call_1', name: 'get_weather', arguments: '{"city":"Paris"}' },
+          { type: 'function_call_output', callId: 'call_1', output: 'sunny' },
+        ],
+      },
+      GPT4O,
+    );
+
+    expect(body.input).toEqual([
+      { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'weather?' }] },
+      { type: 'function_call', call_id: 'call_1', name: 'get_weather', arguments: '{"city":"Paris"}' },
+      { type: 'function_call_output', call_id: 'call_1', output: 'sunny' },
+    ]);
   });
 
   it('maps message items with text, image and file parts', () => {

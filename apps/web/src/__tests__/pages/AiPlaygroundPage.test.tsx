@@ -104,11 +104,27 @@ describe('AiPlaygroundPage', () => {
       expect(screen.queryByRole('textbox', { name: 'Message' })).not.toBeInTheDocument();
     });
 
-    it('shows the empty state when no usable model can answer text prompts', async () => {
+    it('opens on the first usable mode when no model can answer text prompts', async () => {
       serveModels([mockPlaygroundEmbeddingsModel]);
       await renderPage();
 
-      expect(await screen.findByText(/None of the models available to you can answer text/)).toBeInTheDocument();
+      expect(await screen.findByRole('button', { name: 'Embeddings' })).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByRole('button', { name: 'Chat' })).toHaveAttribute('aria-disabled', 'true');
+      expect(screen.queryByRole('textbox', { name: 'Message' })).not.toBeInTheDocument();
+    });
+
+    it('explains when no usable model can serve any playground mode', async () => {
+      serveModels([
+        {
+          ...mockPlaygroundEmbeddingsModel,
+          modelId: 'realtime-only',
+          capabilities: { capabilities: ['realtime'], inputModalities: ['audio'], outputModalities: ['audio'] },
+        },
+      ]);
+      await renderPage();
+
+      expect(await screen.findByText(/None of the models available to you can be used in the playground/)).toBeInTheDocument();
+      expect(screen.queryByRole('group', { name: 'Playground mode' })).not.toBeInTheDocument();
     });
 
     it("selects the user's saved default model when it is usable", async () => {
@@ -125,14 +141,14 @@ describe('AiPlaygroundPage', () => {
       await waitForModel('GPT-5 mini');
     });
 
-    it('lists a model without the responses capability as disabled, with the reason', async () => {
+    it('lists only the models Chat can use — capability-driven, not by name', async () => {
       const { user } = await renderPage();
       await waitForModel('GPT-5 mini');
 
       await user.click(screen.getByRole('combobox', { name: 'Model' }));
-      const option = screen.getByRole('option', { name: /text-embedding-3-small/ });
-      expect(option).toHaveAttribute('aria-disabled', 'true');
-      expect(option).toHaveTextContent('Does not support text responses');
+      expect(screen.getByRole('option', { name: /GPT-5 mini/ })).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: /GPT-4.1 mini/ })).toBeInTheDocument();
+      expect(screen.queryByRole('option', { name: /text-embedding-3-small/ })).not.toBeInTheDocument();
     });
 
     it('shows the selected model’s capabilities as chips', async () => {
@@ -149,6 +165,68 @@ describe('AiPlaygroundPage', () => {
         wrapperOptions: { aiEnabled: true, user: { ...mockUser, permissions: ['user_settings:read'] } },
       });
       expect(screen.queryByRole('heading', { name: 'AI Playground' })).not.toBeInTheDocument();
+    });
+  });
+
+  describe('mode selector (#445)', () => {
+    it('offers the five modes in a labelled group, Chat selected', async () => {
+      await renderPage();
+      await waitForModel('GPT-5 mini');
+
+      const group = screen.getByRole('group', { name: 'Playground mode' });
+      const names = within(group)
+        .getAllByRole('button')
+        .map((button) => button.textContent);
+      expect(names).toEqual(['Chat', 'Image', 'Transcribe', 'Speech', 'Embeddings']);
+      expect(within(group).getByRole('button', { name: 'Chat' })).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('disables a mode no usable model can serve, with the reason as its tooltip', async () => {
+      const { user } = await renderPage();
+      await waitForModel('GPT-5 mini');
+
+      const image = screen.getByRole('button', { name: 'Image' });
+      expect(image).toHaveAttribute('aria-disabled', 'true');
+      expect(screen.getByRole('button', { name: 'Embeddings' })).not.toHaveAttribute('aria-disabled');
+
+      await user.hover(image);
+      expect(await screen.findByRole('tooltip')).toHaveTextContent('None of the models available to you can generate images');
+
+      // Clicking it does nothing.
+      await user.click(image);
+      expect(image).toHaveAttribute('aria-pressed', 'false');
+      expect(screen.getByRole('button', { name: 'Chat' })).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('is keyboard-operable: arrows move focus, Enter selects', async () => {
+      const { user } = await renderPage();
+      await waitForModel('GPT-5 mini');
+
+      screen.getByRole('button', { name: 'Chat' }).focus();
+      await user.keyboard('{End}');
+      const embeddings = screen.getByRole('button', { name: 'Embeddings' });
+      expect(embeddings).toHaveFocus();
+      await user.keyboard('{ArrowRight}');
+      expect(screen.getByRole('button', { name: 'Chat' })).toHaveFocus();
+      await user.keyboard('{ArrowLeft}');
+      expect(embeddings).toHaveFocus();
+
+      await user.keyboard('{Enter}');
+      expect(embeddings).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.queryByRole('textbox', { name: 'Message' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'New conversation' })).not.toBeInTheDocument();
+    });
+
+    it('keeps the chat thread when switching modes and back', async () => {
+      const { user } = await renderPage();
+      await waitForModel('GPT-5 mini');
+      await sendPrompt(user, 'Hello');
+      await screen.findByText('Hello! How can I help?');
+
+      await user.click(screen.getByRole('button', { name: 'Embeddings' }));
+      expect(screen.queryByText('Hello! How can I help?')).not.toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'Chat' }));
+      expect(screen.getByText('Hello! How can I help?')).toBeInTheDocument();
     });
   });
 

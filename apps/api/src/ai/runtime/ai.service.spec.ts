@@ -191,7 +191,7 @@ describe('AiService', () => {
       const structured = { ...hello, structuredOutput: { name: 'x', schema: z.object({}) } };
 
       expect(await codeOf(client.respond({ ...structured, model: 'missing' }))).toBe('AI_PROVIDER_DISABLED');
-      h.setPolicy({ providers: { openai: { enabled: true } } });
+      h.setPolicy({ providers: { openai: { enabled: true }, anthropic: { enabled: false } } });
       expect(await codeOf(client.respond({ ...structured, model: 'missing' }))).toBe('AI_MODEL_NOT_ENABLED');
       expect(await codeOf(client.respond(structured))).toBe('AI_CAPABILITY_UNSUPPORTED');
       expect(await codeOf(client.respond(hello))).toBe('AI_KEY_REQUIRED');

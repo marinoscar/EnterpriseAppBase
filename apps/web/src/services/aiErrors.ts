@@ -57,10 +57,20 @@ function readDetails(details: unknown): AiErrorDetails {
   return out;
 }
 
+/**
+ * The storage API's own "no usable object storage" reasons
+ * (`storage-not-configured.error.ts`). An AI media call that uploads its
+ * input first (#445) meets them before any AI route does; they mean exactly
+ * what `AI_STORAGE_UNAVAILABLE` means, so they render as it.
+ */
+const STORAGE_UNAVAILABLE_REASONS = new Set(['storage_not_configured', 'storage_bucket_unknown']);
+
 /** Any thrown value from an AI call → {@link AiErrorInfo}. */
 export function toAiErrorInfo(err: unknown, fallback = 'Something went wrong'): AiErrorInfo {
   if (err instanceof ApiError) {
-    const { reason, ...rest } = readDetails(err.details);
+    const { reason: rawReason, ...rest } = readDetails(err.details);
+    const reason =
+      rawReason && STORAGE_UNAVAILABLE_REASONS.has(rawReason) ? 'AI_STORAGE_UNAVAILABLE' : rawReason;
     const code = reason ?? (err.code?.startsWith('AI_') ? err.code : null);
     return {
       code,

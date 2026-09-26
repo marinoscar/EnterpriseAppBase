@@ -13,9 +13,19 @@
 //      the outcome into a `function_call_output` string. NOTHING THROWS
 //      HERE: invalid arguments, an unknown tool, a tool that throws or times
 //      out are all fed back to the model as text, so it can correct itself;
-//   4. send the outputs back, chained with `previousResponseId` — the neutral
-//      contract has no way to replay the model's own `function_call` items,
-//      so response chaining is how the provider sees the calls it made;
+//   4. send the outputs back so the provider sees the calls it made, one of
+//      two ways, decided per round by the provider that answered (#446):
+//        - CHAINED (the default): only the new `function_call_output`s, with
+//          `previousResponseId` naming the response that asked for them —
+//          the provider already holds everything before it;
+//        - FULL HISTORY, for a provider declaring
+//          `supportsPreviousResponseId: false` (Anthropic, which stores
+//          nothing): the original input, then every round's model output
+//          replayed as input (`message` as an assistant message,
+//          `function_call` and `reasoning` as themselves — the latter with
+//          its opaque provider state, see `AI_PROVIDER_STATE`), then its
+//          tool outputs. Hosted-tool items are not replayed: the provider ran
+//          them, and a stateless provider has none of ours to run;
 //   5. stop after `maxSteps` round-trips (`steps_exhausted`), leaving the
 //      last round's calls unexecuted: there is no round-trip left to hand
 //      their results to.
@@ -26,6 +36,7 @@
 
 import { AiError } from '../core/ai-error';
 import type { AiDefinedTool } from '../core/tools';
+import { asInputItems, replayOutput } from '../core/conversation';
 import type { AiInputItem, AiOutputItem, AiResponse } from '../core/types/responses.types';
 import {
   AI_TOOL_DEFAULT_TIMEOUT_MS,
@@ -45,6 +56,12 @@ export type AiRespondFn = (req: AiRequest, opts: AiCallOptions) => Promise<AiRes
 export interface AiToolLoopContext {
   userId: string;
   signal?: AbortSignal;
+  /**
+   * Whether the provider that produced a response can be chained onto with
+   * `previousResponseId` — `AiProviderRegistry.supportsPreviousResponseId`.
+   * Absent: every provider chains (the pre-#446 behaviour).
+   */
+  supportsPreviousResponseId?: (provider: string) => boolean;
 }
 
 type FunctionCall = Extract<AiOutputItem, { type: 'function_call' }>;
@@ -92,7 +109,10 @@ export async function runToolLoop(
   }
 
   const steps: AiToolStep[] = [];
+  const chains = ctx.supportsPreviousResponseId ?? (() => true);
   let next: AiRequest = { ...base, tools: tools.map((tool) => tool.tool) };
+  // Everything said so far, as input — only sent for a provider that cannot chain.
+  let history: AiInputItem[] = asInputItems(base.input);
 
   for (let step = 1; ; step += 1) {
     const response = await respond(next, { signal: ctx.signal });
@@ -126,7 +146,15 @@ export async function runToolLoop(
       output: record.output,
     }));
 
-    next = { ...next, input: outputs, previousResponseId: response.id };
+    if (chains(response.provider)) {
+      next = { ...next, input: outputs, previousResponseId: response.id };
+    } else {
+      history = [...history, ...replayOutput(response.output), ...outputs];
+
+      const { previousResponseId: _chained, ...rest } = next;
+
+      next = { ...rest, input: history };
+    }
   }
 }
 

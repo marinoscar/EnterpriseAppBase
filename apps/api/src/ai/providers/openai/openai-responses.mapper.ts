@@ -180,9 +180,24 @@ export function storageObjectIdsOf(req: AiResponseRequest): string[] {
   return [...ids];
 }
 
-function toInputItem(item: AiInputItem, storage: OpenAiStorageDeliveries | undefined): ResponseInputItem {
+function toInputItem(item: AiInputItem, storage: OpenAiStorageDeliveries | undefined): ResponseInputItem | null {
   if (item.type === 'function_call_output') {
     return { type: 'function_call_output', call_id: item.callId, output: item.output };
+  }
+
+  // A replayed call (#446) — the Responses API accepts the model's own
+  // `function_call` items as input, so a full-history conversation works here
+  // too, not only a chained one.
+  if (item.type === 'function_call') {
+    return { type: 'function_call', call_id: item.callId, name: item.name, arguments: item.arguments };
+  }
+
+  // A replayed reasoning item cannot be sent back: OpenAI needs its own item
+  // id (and encrypted content), which the neutral contract does not carry. It
+  // is dropped; chaining with `previous_response_id` is how OpenAI keeps its
+  // reasoning across turns.
+  if (item.type === 'reasoning') {
+    return null;
   }
 
   // The Responses API reads an assistant turn as OUTPUT text, so it cannot
@@ -344,7 +359,12 @@ export function toOpenAiRequest(
 ): OpenAiRequestBody {
   const body: OpenAiRequestBody = {
     model: req.model,
-    input: typeof req.input === 'string' ? req.input : req.input.map((item) => toInputItem(item, storage)),
+    input:
+      typeof req.input === 'string'
+        ? req.input
+        : req.input
+            .map((item) => toInputItem(item, storage))
+            .filter((item): item is ResponseInputItem => item !== null),
   };
 
   if (req.instructions !== undefined) body.instructions = req.instructions;
