@@ -86,6 +86,12 @@ export interface AiPublicConfig {
   keyPolicy: AiKeyPolicy;
   /** Empty while `enabled` is false. */
   providers: { id: string; displayName: string; enabled: boolean; hasOrgKey: boolean }[];
+  /**
+   * `defaults.allowBackgroundRuns`, when the API surfaces it here (#434).
+   * Optional: absent means "unknown" — the playground offers background runs
+   * and handles a refusal, and only hides them on an explicit `false`.
+   */
+  allowBackgroundRuns?: boolean;
 }
 
 /** Masked status of a stored credential — never the credential itself. */

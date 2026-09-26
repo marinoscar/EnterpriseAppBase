@@ -18,7 +18,7 @@
  * page: the route's `RequirePermission` is the real gate, and this is defence
  * in depth for a render reached some other way.
  */
-import { useCallback, useEffect, useId, useMemo, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import {
   Alert,
   Box,
@@ -47,6 +47,8 @@ import { Link as RouterLink, Navigate } from 'react-router-dom';
 import { usePermissions } from '../hooks/usePermissions';
 import { useUserSettings } from '../hooks/useUserSettings';
 import { useAiChat, type AiChatRequestOptions } from '../hooks/useAiChat';
+import { useAiRun } from '../hooks/useAiRun';
+import { useAiConfig } from '../hooks/useAiConfig';
 import { ApiError } from '../services/api';
 import { listUsableAiModels, type AiResponseRequest, type UsableAiModel } from '../services/ai';
 import { useIsMounted } from '../hooks/useIsMounted';
@@ -58,6 +60,7 @@ import {
 } from '../components/ai/AiModelSelect';
 import { AiChatThread } from '../components/ai/AiChatThread';
 import { AI_KEYS_PATH } from '../components/ai/AiErrorAlert';
+import { AiRunCard } from '../components/ai/AiRunCard';
 import {
   AI_SCHEMA_PRESETS,
   CUSTOM_SCHEMA_ID,
@@ -89,6 +92,8 @@ interface PlaygroundControls {
   structured: boolean;
   schemaPreset: string;
   schemaText: string;
+  /** Send as a background run (`POST /ai/runs`) instead of streaming. */
+  background: boolean;
 }
 
 const INITIAL_CONTROLS: PlaygroundControls = {
@@ -100,6 +105,7 @@ const INITIAL_CONTROLS: PlaygroundControls = {
   structured: false,
   schemaPreset: AI_SCHEMA_PRESETS[0].id,
   schemaText: formatSchema(AI_SCHEMA_PRESETS[0].jsonSchema),
+  background: false,
 };
 
 function useUsableModels() {
@@ -152,6 +158,19 @@ export default function AiPlaygroundPage() {
   const { models, isLoading: modelsLoading, error: modelsError } = useUsableModels();
   const { settings, isLoading: settingsLoading } = useUserSettings({ syncTheme: false });
   const chat = useAiChat();
+  const { config: aiConfig } = useAiConfig();
+  const backgroundAllowed = aiConfig.allowBackgroundRuns !== false;
+  // The prompt of the current background run, for its card and for the thread.
+  const [runPrompt, setRunPrompt] = useState('');
+  const runPromptRef = useRef('');
+  const { appendExchange } = chat;
+  const run = useAiRun({
+    onSettled: (settled) => {
+      if (settled.status === 'succeeded' && settled.output) {
+        appendExchange(runPromptRef.current, settled.output, { runId: settled.id });
+      }
+    },
+  });
 
   const [modelKey, setModelKey] = useState('');
   const [controls, setControls] = useState<PlaygroundControls>(INITIAL_CONTROLS);
@@ -218,15 +237,37 @@ export default function AiPlaygroundPage() {
     if (preset && prompt.trim() === '') setPrompt(preset.examplePrompt);
   };
 
-  const canSend = !!selected && controlsValid && prompt.trim() !== '' && !chat.isStreaming;
+  const busy = chat.isStreaming || run.isActive;
+  const canSend = !!selected && controlsValid && prompt.trim() !== '' && !busy;
+  const useBackground = backgroundAllowed && controls.background;
 
   const submit = (event?: FormEvent) => {
     event?.preventDefault();
     const options = buildOptions();
     if (!canSend || !options) return;
-    const text = prompt;
+    const text = prompt.trim();
     setPrompt('');
+    if (useBackground) {
+      // A run is not streamed; it answers once, through polling.
+      const { stream: _unused, ...request } = options;
+      runPromptRef.current = text;
+      setRunPrompt(text);
+      void run.start({
+        ...request,
+        input: text,
+        ...(chat.previousResponseId ? { previousResponseId: chat.previousResponseId } : {}),
+      });
+      return;
+    }
     void chat.send(text, options);
+  };
+
+  const startNewConversation = () => {
+    chat.reset();
+    if (!run.isActive) {
+      run.clear();
+      setRunPrompt('');
+    }
   };
 
   const onPromptKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -246,7 +287,7 @@ export default function AiPlaygroundPage() {
         models={models}
         value={modelKey}
         onChange={setModelKey}
-        disabled={chat.isStreaming}
+        disabled={busy}
       />
       <TextField
         label="Instructions"
@@ -359,6 +400,17 @@ export default function AiPlaygroundPage() {
           )}
         </>
       )}
+      {backgroundAllowed && (
+        <FormControlLabel
+          control={
+            <Switch
+              checked={controls.background}
+              onChange={(event) => update('background', event.target.checked)}
+            />
+          }
+          label="Run in background"
+        />
+      )}
     </Stack>
   );
 
@@ -386,8 +438,8 @@ export default function AiPlaygroundPage() {
         </Box>
         <Button
           startIcon={<AddIcon />}
-          onClick={chat.reset}
-          disabled={chat.messages.length === 0}
+          onClick={startNewConversation}
+          disabled={chat.messages.length === 0 || run.isActive}
         >
           New conversation
         </Button>
@@ -459,12 +511,27 @@ export default function AiPlaygroundPage() {
             aria-label="Chat"
             sx={{ flex: 1, minWidth: 0, p: { xs: 1.5, sm: 2 }, display: 'flex', flexDirection: 'column', gap: 2 }}
           >
-            {chat.messages.length === 0 ? (
+            {chat.messages.length === 0 && !runPrompt ? (
               <Typography variant="body2" color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
                 Send a message to start a conversation.
               </Typography>
             ) : (
               <AiChatThread messages={chat.messages} />
+            )}
+
+            {runPrompt && (run.isActive || run.run || run.error) && (
+              <AiRunCard
+                prompt={runPrompt}
+                run={run.run}
+                error={run.error}
+                isStarting={run.isStarting}
+                isCancelling={run.isCancelling}
+                onCancel={() => void run.cancel()}
+                onDismiss={() => {
+                  run.clear();
+                  setRunPrompt('');
+                }}
+              />
             )}
 
             <Divider />
@@ -488,7 +555,7 @@ export default function AiPlaygroundPage() {
                   </Button>
                 ) : (
                   <Button type="submit" variant="contained" endIcon={<SendIcon />} disabled={!canSend}>
-                    Send
+                    {useBackground ? 'Start run' : 'Send'}
                   </Button>
                 )}
               </Box>
