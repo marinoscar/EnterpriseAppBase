@@ -138,6 +138,44 @@ export function mockSpeechBytes(body: Record<string, unknown>): Buffer {
   return Buffer.from(`MOCK-${String(body.response_format ?? 'mp3').toUpperCase()}:${String(body.voice)}:${String(body.input)}`);
 }
 
+export type MockRealtimeReply =
+  /** The `client_secrets` answer body. */
+  | { kind: 'client_secret'; body: Record<string, unknown> }
+  | { kind: 'error'; status: number; error: Record<string, unknown>; headers?: Record<string, string> }
+  | { kind: 'network' };
+
+/** Every ephemeral secret the mock mints starts with this. */
+export const MOCK_REALTIME_SECRET_PREFIX = 'ek_mock_';
+
+/**
+ * The default `/v1/realtime/client_secrets` answer for `body`: a fresh
+ * ephemeral secret, `expires_at` from `expires_after.seconds` (600 when
+ * omitted, the SDK-documented default), and the effective session echoed.
+ */
+export function mockClientSecretBody(body: Record<string, unknown>, counter: number): Record<string, unknown> {
+  const session = (body.session ?? {}) as Record<string, any>;
+  const seconds = Number((body.expires_after as { seconds?: number } | undefined)?.seconds ?? 600);
+
+  return {
+    value: `${MOCK_REALTIME_SECRET_PREFIX}${counter}`,
+    expires_at: 1_700_000_000 + seconds,
+    session: {
+      id: `sess_mock_${counter}`,
+      object: 'realtime.session',
+      type: 'realtime',
+      model: session.model,
+      output_modalities: session.output_modalities ?? ['audio'],
+      instructions: session.instructions ?? '',
+      max_output_tokens: session.max_output_tokens ?? 'inf',
+      audio: {
+        input: { turn_detection: session.audio?.input?.turn_detection ?? { type: 'server_vad', threshold: 0.5 } },
+        output: { voice: session.audio?.output?.voice ?? 'alloy' },
+      },
+      tools: session.tools ?? [],
+    },
+  };
+}
+
 /** Which images endpoint a request hit. */
 export type MockImagesOperation = 'generations' | 'edits';
 
@@ -242,6 +280,8 @@ export interface OpenAiMockServerOptions {
   transcribe?(body: Record<string, unknown>): MockTranscriptionReply;
   /** `/audio/speech` responder. Defaults to `mockSpeechBytes`. */
   speech?(body: Record<string, unknown>): MockSpeechReply;
+  /** `/realtime/client_secrets` responder. Defaults to `mockClientSecretBody`. */
+  realtime?(body: Record<string, unknown>): MockRealtimeReply;
 }
 
 function json(status: number, payload: unknown, headers: Record<string, string>): Response {
@@ -326,6 +366,8 @@ export class OpenAiMockServer {
   readonly deletedFileIds: string[] = [];
   private transcribeFn: (body: Record<string, unknown>) => MockTranscriptionReply;
   private speechFn: (body: Record<string, unknown>) => MockSpeechReply;
+  private realtimeFn: (body: Record<string, unknown>) => MockRealtimeReply;
+  private secretCounter = 0;
 
   constructor(opts: OpenAiMockServerOptions) {
     this.validKeys = new Set(opts.validKeys);
@@ -335,6 +377,18 @@ export class OpenAiMockServer {
     this.imagesFn = opts.images ?? ((_operation, body) => ({ kind: 'images', body: mockImagesBody(body) }));
     this.transcribeFn = opts.transcribe ?? ((body) => ({ kind: 'transcription', body: mockTranscriptionBody(body) }));
     this.speechFn = opts.speech ?? ((body) => ({ kind: 'speech', bytes: mockSpeechBytes(body) }));
+    this.realtimeFn =
+      opts.realtime ??
+      ((body) => {
+        this.secretCounter += 1;
+
+        return { kind: 'client_secret', body: mockClientSecretBody(body, this.secretCounter) };
+      });
+  }
+
+  /** Replaces the `/realtime/client_secrets` responder. */
+  realtimeWith(fn: (body: Record<string, unknown>) => MockRealtimeReply): void {
+    this.realtimeFn = fn;
   }
 
   /** Replaces the `/audio/speech` responder. */
@@ -599,6 +653,21 @@ export class OpenAiMockServer {
               ...replyHeaders,
             },
           });
+      }
+    }
+
+    if (url.pathname.endsWith('/realtime/client_secrets') && init?.method === 'POST' && body) {
+      const reply = this.realtimeFn(body);
+
+      switch (reply.kind) {
+        case 'network':
+          throw new TypeError('fetch failed');
+
+        case 'error':
+          return json(reply.status, { error: reply.error }, { ...replyHeaders, ...(reply.headers ?? {}) });
+
+        case 'client_secret':
+          return json(200, reply.body, replyHeaders);
       }
     }
 

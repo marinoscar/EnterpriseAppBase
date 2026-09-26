@@ -23,6 +23,16 @@
 // above either — and never an `ai_runs.request` row, because a background
 // run carrying headers is refused outright.
 //
+// #449 adds the ONE deliberate exception: a realtime session's EPHEMERAL
+// client secret is returned to the browser by `POST /api/ai/realtime/sessions`
+// — that is its whole purpose. The allowlist for it is explicit and narrow:
+// the fake provider mints a distinct sentinel (`FAKE_REALTIME_SECRET_PREFIX`),
+// which may appear in that one route's `data.clientSecret` and nowhere else
+// (no other field, header, log line or usage row), while every REAL key
+// sentinel stays banned everywhere — that response included. The DTO scan
+// likewise allows exactly one secret-named response property:
+// `AiRealtimeSessionResponseDto.clientSecret`.
+//
 // Two app contexts, because the admin surface (`AiConfigAdminService` and
 // friends) and the consumer surface (`AiService`/`AiRunsService`, exercised
 // through `ai-http.helper`'s harness) are wired through different services
@@ -45,7 +55,7 @@ import { createMockAdminUser, createMockTestUser, authHeader } from '../helpers/
 import { CredentialsService } from '../../src/credentials/credentials.service';
 import { AiProviderRegistry } from '../../src/ai/core';
 import { AiConfigService } from '../../src/ai/config/ai-config.service';
-import { FakeAiProvider } from '../../src/ai/testing/fake-ai-provider';
+import { FAKE_REALTIME_SECRET_PREFIX, FakeAiProvider } from '../../src/ai/testing/fake-ai-provider';
 import {
   AI_SETTINGS_CARRIES_NO_SECRET,
   systemAiSchema,
@@ -54,6 +64,7 @@ import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
 import {
   FAKE_EMBEDDING_MODEL_CAPABILITIES,
   FAKE_IMAGE_MODEL_CAPABILITIES,
+  FAKE_REALTIME_MODEL_CAPABILITIES,
   FAKE_SPEECH_MODEL_CAPABILITIES,
   FAKE_TRANSCRIPTION_MODEL_CAPABILITIES,
   FAKE_TEXT_MODEL_CAPABILITIES,
@@ -62,6 +73,7 @@ import {
   HARNESS_EMBEDDING_MODEL,
   HARNESS_IMAGE_MODEL,
   HARNESS_MODEL,
+  HARNESS_REALTIME_MODEL,
   HARNESS_SPEECH_MODEL,
   HARNESS_TRANSCRIPTION_MODEL,
   HARNESS_USER,
@@ -85,6 +97,7 @@ import {
   aiTranscriptionRunOutputSchema,
 } from '../../src/ai/http/dto/ai-response.dto';
 import { aiEmbeddingsResponseSchema } from '../../src/ai/http/dto/ai-embeddings.dto';
+import { aiRealtimeSessionResponseSchema } from '../../src/ai/http/dto/ai-realtime.dto';
 
 const ADMIN_KEY_SENTINEL = 'sk-admin-egress-sentinel-Zq81xY';
 /** An MCP server credential, sent as a hosted `mcp` tool's `Authorization` header (#442). */
@@ -136,6 +149,7 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
         { modelId: HARNESS_IMAGE_MODEL, capabilities: FAKE_IMAGE_MODEL_CAPABILITIES },
         { modelId: HARNESS_TRANSCRIPTION_MODEL, capabilities: FAKE_TRANSCRIPTION_MODEL_CAPABILITIES },
         { modelId: HARNESS_SPEECH_MODEL, capabilities: FAKE_SPEECH_MODEL_CAPABILITIES },
+        { modelId: HARNESS_REALTIME_MODEL, capabilities: FAKE_REALTIME_MODEL_CAPABILITIES },
       ],
       fake: { hostedTools: ['mcp'] },
     });
@@ -335,7 +349,27 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
       AiImageRunOutput: aiImageRunOutputSchema,
       AiTranscriptionRunOutput: aiTranscriptionRunOutputSchema,
       AiSpeechRunOutput: aiSpeechRunOutputSchema,
+      AiRealtimeSessionResponseDto: aiRealtimeSessionResponseSchema,
     };
+
+    /**
+     * #449: the ONLY response property allowed a secret-shaped name. It holds
+     * the provider's ephemeral realtime secret — the single deliberate
+     * credential egress (docs/specs/ai-platform.md §5.8) — never a key.
+     */
+    const ALLOWED_SECRET_PROPERTIES = new Set(['AiRealtimeSessionResponseDto.clientSecret']);
+
+    it('only AiRealtimeSessionResponseDto.clientSecret carries a secret-shaped name (#449 allowlist)', () => {
+      const found: string[] = [];
+
+      for (const [name, schema] of Object.entries(responseSchemas)) {
+        for (const prop of collectPropertyNames(schema)) {
+          if (/secret|credential|apikey/i.test(prop)) found.push(`${name}.${prop}`);
+        }
+      }
+
+      expect(found).toEqual([...ALLOWED_SECRET_PROPERTIES]);
+    });
 
     it('finds every response schema, so a broken import list cannot pass vacuously', () => {
       expect(Object.keys(responseSchemas).length).toBeGreaterThanOrEqual(10);
@@ -706,6 +740,68 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
       assertNoLeak('ai_runs rows (storage inputs)', JSON.stringify(app.harness.runRows));
       assertNoLeak('ai_usage_events (storage inputs)', JSON.stringify(app.harness.usageEvents));
       assertNoLeak('log output (storage inputs)', logLines.join('\n'));
+    });
+
+    it('POST /api/ai/realtime/sessions: the ephemeral secret is in data.clientSecret and nowhere else; no key anywhere (#449)', async () => {
+      app.harness.setPolicy({ defaults: { allowBackgroundRuns: true, allowRealtime: true } });
+
+      const res = await request(app.context.app.getHttpServer())
+        .post('/api/ai/realtime/sessions')
+        .set(authHeader(holderToken))
+        .send({ model: HARNESS_REALTIME_MODEL, instructions: 'hello' })
+        .expect(201);
+
+      // The real key paid for the mint, server-side, as the provider call's key only.
+      expect(app.harness.fake.callsTo('realtime.createSession').map((c) => c.apiKey)).toEqual([HARNESS_USER_KEY]);
+
+      // The allowlisted field: the ephemeral sentinel, and it is not a key.
+      const ephemeral: string = res.body.data.clientSecret;
+      expect(ephemeral.startsWith(FAKE_REALTIME_SECRET_PREFIX)).toBe(true);
+      expect(ALL_SENTINELS).not.toContain(ephemeral);
+
+      // Every real-key sentinel stays banned — this response included.
+      assertNoLeak('POST /api/ai/realtime/sessions body', JSON.stringify(res.body));
+      assertNoLeak('POST /api/ai/realtime/sessions headers', JSON.stringify(res.headers));
+      assertNoLeak('ai_usage_events (realtime)', JSON.stringify(app.harness.usageEvents));
+      assertNoLeak('log output (realtime)', logLines.join('\n'));
+
+      // …and the ephemeral secret appears ONLY in that one field.
+      const { clientSecret: _allowed, ...rest } = res.body.data;
+      const elsewhere = {
+        restOfBody: JSON.stringify({ ...res.body, data: rest }),
+        headers: JSON.stringify(res.headers),
+        usageRows: JSON.stringify(app.harness.usageEvents),
+        runRows: JSON.stringify(app.harness.runRows),
+        logs: logLines.join('\n'),
+      };
+
+      for (const [where, haystack] of Object.entries(elsewhere)) {
+        expect({ where, leaked: haystack.includes(FAKE_REALTIME_SECRET_PREFIX) }).toEqual({ where, leaked: false });
+      }
+    });
+
+    it('a realtime mint the provider refuses carries no sentinel in its error body or logs (#449)', async () => {
+      app.harness.setPolicy({ defaults: { allowBackgroundRuns: true, allowRealtime: true } });
+
+      const port = app.harness.fake.realtime!;
+      const original = port.createSession;
+      port.createSession = async () => {
+        throw new Error(`upstream rejected ${HARNESS_USER_KEY}`);
+      };
+
+      try {
+        const res = await request(app.context.app.getHttpServer())
+          .post('/api/ai/realtime/sessions')
+          .set(authHeader(holderToken))
+          .send({ model: HARNESS_REALTIME_MODEL })
+          .expect(503);
+
+        assertNoLeak('realtime error body', JSON.stringify(res.body));
+        assertNoLeak('realtime error log output', logLines.join('\n'));
+        assertNoLeak('ai_usage_events (realtime failure)', JSON.stringify(app.harness.usageEvents));
+      } finally {
+        port.createSession = original;
+      }
     });
 
     it('every ai_usage_events row and every ai_runs.request row carries no sentinel', async () => {
