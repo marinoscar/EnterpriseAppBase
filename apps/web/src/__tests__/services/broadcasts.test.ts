@@ -47,8 +47,10 @@ import {
   getBroadcasts,
   isBroadcastCancelable,
   isBroadcastDeletable,
+  isBroadcastResumable,
   isoToLocalInput,
   localInputToIso,
+  resumeBroadcast,
   sendTestBroadcast,
 } from '../../services/broadcasts';
 import type { Broadcast, CreateBroadcastRequest } from '../../services/broadcasts';
@@ -266,13 +268,20 @@ describe('the shared predicates mirror the API’s 409s', () => {
       expect(isBroadcastDeletable({ status }), status).toBe(true);
     }
   });
+
+  it('allows resume only for failed (issue #459)', () => {
+    expect(isBroadcastResumable({ status: 'failed' })).toBe(true);
+    for (const status of ['draft', 'scheduled', 'sending', 'sent', 'canceled'] as const) {
+      expect(isBroadcastResumable({ status }), status).toBe(false);
+    }
+  });
 });
 
 // =============================================================================
 // The requests
 // =============================================================================
 
-describe('the seven calls', () => {
+describe('the eight calls', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
   });
@@ -429,6 +438,26 @@ describe('the seven calls', () => {
     const result = await cancelBroadcast('11111111-1111-4111-8111-111111111111');
 
     expect(result.status).toBe('canceled');
+  });
+
+  it('POST /:id/resume takes no body and returns the updated row (issue #459)', async () => {
+    let path: string | null = null;
+    let method: string | null = null;
+    server.use(
+      http.post('*/api/admin/broadcasts/:id/resume', ({ request, params }) => {
+        path = new URL(request.url).pathname;
+        method = request.method;
+        return HttpResponse.json({
+          data: broadcast({ id: params.id as string, status: 'sending' }),
+        });
+      }),
+    );
+
+    const result = await resumeBroadcast('11111111-1111-4111-8111-111111111111');
+
+    expect(method).toBe('POST');
+    expect(path).toBe('/api/admin/broadcasts/11111111-1111-4111-8111-111111111111/resume');
+    expect(result.status).toBe('sending');
   });
 
   it('DELETE /:id resolves on the API’s 204', async () => {

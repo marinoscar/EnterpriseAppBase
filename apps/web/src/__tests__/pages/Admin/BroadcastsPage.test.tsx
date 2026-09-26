@@ -139,6 +139,7 @@ const mockRefresh = vi.fn();
 const mockFetch = vi.fn();
 const mockCreate = vi.fn();
 const mockCancel = vi.fn();
+const mockResume = vi.fn();
 const mockRemove = vi.fn();
 const mockSendTest = vi.fn();
 
@@ -160,7 +161,7 @@ function setActionsState(overrides: { isWorking?: boolean; error?: string | null
     clearError: vi.fn(),
     create: mockCreate,
     cancel: mockCancel,
-    resume: vi.fn(),
+    resume: mockResume,
     remove: mockRemove,
     sendTest: mockSendTest,
   });
@@ -214,6 +215,7 @@ describe('BroadcastsPage', () => {
       approximateDeliveryAttempts: [{ channel: 'email', status: 'sent', count: 1200 }],
     });
     mockCancel.mockResolvedValue(true);
+    mockResume.mockResolvedValue(true);
     mockRemove.mockResolvedValue(true);
     mockCreate.mockResolvedValue({ broadcast: scheduledBroadcast, warnings: [] });
     mockSendTest.mockResolvedValue({
@@ -331,6 +333,153 @@ describe('BroadcastsPage', () => {
         within(menu).getByRole('menuitem', { name: /view broadcast/i }),
       ).not.toHaveAttribute('aria-disabled', 'true');
     });
+
+    it('leaves Resume present but inert for a read-only admin, even on a failed row (issue #459)', async () => {
+      const user = userEvent.setup();
+      setListState([failedBroadcast]);
+      renderPage(READ_ONLY);
+
+      const menu = await openRowMenu(user, 'Release notes');
+
+      expect(within(menu).getByRole('menuitem', { name: /resume broadcast/i })).toHaveAttribute(
+        'aria-disabled',
+        'true',
+      );
+    });
+
+    it('orders the row actions View, Resume, Cancel, Delete', async () => {
+      const user = userEvent.setup();
+      setListState([failedBroadcast]);
+      renderPage(READ_WRITE);
+
+      const menu = await openRowMenu(user, 'Release notes');
+      const names = within(menu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent);
+
+      expect(names).toEqual([
+        expect.stringMatching(/view broadcast/i),
+        expect.stringMatching(/resume broadcast/i),
+        expect.stringMatching(/cancel broadcast/i),
+        expect.stringMatching(/delete broadcast/i),
+      ]);
+    });
+  });
+
+  // =========================================================================
+  // Resume — the mirror of the API's 409, and the source of the duplicate
+  // window (issue #459)
+  // =========================================================================
+
+  describe('resume', () => {
+    it('is enabled for a failed broadcast', async () => {
+      const user = userEvent.setup();
+      setListState([failedBroadcast]);
+      renderPage(READ_WRITE);
+
+      const menu = await openRowMenu(user, 'Release notes');
+
+      expect(
+        within(menu).getByRole('menuitem', { name: /resume broadcast/i }),
+      ).not.toHaveAttribute('aria-disabled', 'true');
+    });
+
+    it.each([
+      ['scheduled', scheduledBroadcast],
+      ['sent', sentBroadcast],
+      ['sending', sendingBroadcast],
+    ] as const)('is disabled for a %s broadcast, because there is nothing to continue', async (_status, row) => {
+      const user = userEvent.setup();
+      setListState([row]);
+      renderPage(READ_WRITE);
+
+      const menu = await openRowMenu(user, row.title);
+
+      expect(within(menu).getByRole('menuitem', { name: /resume broadcast/i })).toHaveAttribute(
+        'aria-disabled',
+        'true',
+      );
+    });
+
+    it('is disabled while another write is in flight', async () => {
+      const user = userEvent.setup();
+      setListState([failedBroadcast]);
+      setActionsState({ isWorking: true });
+      renderPage(READ_WRITE);
+
+      const menu = await openRowMenu(user, 'Release notes');
+
+      expect(within(menu).getByRole('menuitem', { name: /resume broadcast/i })).toHaveAttribute(
+        'aria-disabled',
+        'true',
+      );
+    });
+
+    it('states the duplicate-window warning with the known recipient count', async () => {
+      const user = userEvent.setup();
+      const withCounts = { ...failedBroadcast, recipientsTargeted: 1284, recipientsDispatched: 400 };
+      setListState([withCounts]);
+      renderPage(READ_WRITE);
+
+      const menu = await openRowMenu(user, 'Release notes');
+      await user.click(within(menu).getByRole('menuitem', { name: /resume broadcast/i }));
+
+      const dialog = await screen.findByRole('dialog', { name: /resume this broadcast\?/i });
+      expect(
+        within(dialog).getByText(
+          /stopped after 400 of 1284 recipients\. resuming continues from where it stopped/i,
+        ),
+      ).toBeInTheDocument();
+      expect(within(dialog).getByText(/up to 200 recipients near the stopping point/i)).toBeInTheDocument();
+      // Nothing has been resumed yet — the dialog is the gate.
+      expect(mockResume).not.toHaveBeenCalled();
+    });
+
+    it('states an uncounted audience when recipientsTargeted is null', async () => {
+      const user = userEvent.setup();
+      const uncounted = { ...failedBroadcast, recipientsTargeted: null, recipientsDispatched: 0 };
+      setListState([uncounted]);
+      renderPage(READ_WRITE);
+
+      const menu = await openRowMenu(user, 'Release notes');
+      await user.click(within(menu).getByRole('menuitem', { name: /resume broadcast/i }));
+
+      const dialog = await screen.findByRole('dialog', { name: /resume this broadcast\?/i });
+      expect(
+        within(dialog).getByText(/of an uncounted number of recipients/i),
+      ).toBeInTheDocument();
+    });
+
+    it('calls actions.resume when confirmed, and shows a notice only on success', async () => {
+      const user = userEvent.setup();
+      setListState([failedBroadcast]);
+      renderPage(READ_WRITE);
+
+      const menu = await openRowMenu(user, 'Release notes');
+      await user.click(within(menu).getByRole('menuitem', { name: /resume broadcast/i }));
+
+      const dialog = await screen.findByRole('dialog', { name: /resume this broadcast\?/i });
+      await user.click(within(dialog).getByRole('button', { name: /^resume broadcast$/i }));
+
+      await waitFor(() => expect(mockResume).toHaveBeenCalledWith(failedBroadcast.id));
+      expect(await screen.findByText('Broadcast resumed.')).toBeInTheDocument();
+    });
+
+    it('shows no success notice when the resume fails', async () => {
+      const user = userEvent.setup();
+      mockResume.mockResolvedValue(false);
+      setListState([failedBroadcast]);
+      renderPage(READ_WRITE);
+
+      const menu = await openRowMenu(user, 'Release notes');
+      await user.click(within(menu).getByRole('menuitem', { name: /resume broadcast/i }));
+
+      const dialog = await screen.findByRole('dialog', { name: /resume this broadcast\?/i });
+      await user.click(within(dialog).getByRole('button', { name: /^resume broadcast$/i }));
+
+      await waitFor(() => expect(mockResume).toHaveBeenCalledWith(failedBroadcast.id));
+      expect(screen.queryByText('Broadcast resumed.')).not.toBeInTheDocument();
+    });
   });
 
   // =========================================================================
@@ -361,6 +510,34 @@ describe('BroadcastsPage', () => {
         'aria-disabled',
         'true',
       );
+    });
+
+    it('is enabled for a failed broadcast (issue #459)', async () => {
+      const user = userEvent.setup();
+      setListState([failedBroadcast]);
+      renderPage(READ_WRITE);
+
+      const menu = await openRowMenu(user, 'Release notes');
+
+      expect(
+        within(menu).getByRole('menuitem', { name: /cancel broadcast/i }),
+      ).not.toHaveAttribute('aria-disabled', 'true');
+    });
+
+    it('states that a failed broadcast will not be resumed, rather than the sending or scheduled wording', async () => {
+      const user = userEvent.setup();
+      const withCounts = { ...failedBroadcast, recipientsTargeted: 1284, recipientsDispatched: 400 };
+      setListState([withCounts]);
+      renderPage(READ_WRITE);
+
+      const menu = await openRowMenu(user, 'Release notes');
+      await user.click(within(menu).getByRole('menuitem', { name: /cancel broadcast/i }));
+
+      const dialog = await screen.findByRole('dialog');
+      expect(
+        within(dialog).getByText(/stopped after 400 of 1284 recipients\. it will not be resumed/i),
+      ).toBeInTheDocument();
+      expect(within(dialog).queryByText(/in-flight batch/i)).not.toBeInTheDocument();
     });
 
     it('warns that one in-flight batch may still go out when cancelling a send', async () => {
