@@ -1,6 +1,6 @@
 import { AiResponseRequest } from '../core/types/responses.types';
 import { describeAiProviderConformance } from './conformance';
-import { FakeAiProvider, FakeAiScriptedResponse } from './fake-ai-provider';
+import { FAKE_EMBEDDING_MODEL_CAPABILITIES, FAKE_TEXT_MODEL_CAPABILITIES, FakeAiProvider, FakeAiScriptedResponse } from './fake-ai-provider';
 
 /**
  * Answers the kit's canonical requests the way a real model would. The
@@ -47,6 +47,33 @@ describeAiProviderConformance('FakeAiProvider', () => ({
       // The fake declares no hosted tools.
       unsupportedRequest: { model: 'fake-model', input: 'search the web', tools: [{ type: 'web_search' }] },
       failingRequest: { model: 'fake-broken', input: 'anything' },
+    },
+  },
+}));
+
+describeAiProviderConformance('FakeAiProvider with its embeddings port', () => ({
+  adapter: new FakeAiProvider({
+    models: ['fake-model', 'fake-embedding-model'],
+    validKeys: ['fake-valid-key'],
+    responses: conformanceScript,
+    embeddingsPort: true,
+    classify: (id) =>
+      id === 'fake-embedding-model' ? FAKE_EMBEDDING_MODEL_CAPABILITIES : id === 'fake-model' ? FAKE_TEXT_MODEL_CAPABILITIES : null,
+  }),
+  ctx: { apiKey: 'fake-valid-key', requestId: 'conformance-3' },
+  fixtures: {
+    invalidApiKey: 'fake-invalid-key',
+    classify: { known: ['fake-model', 'fake-embedding-model'], unknown: ['nope'] },
+    responses: {
+      model: 'fake-model',
+      unsupportedRequest: { model: 'fake-model', input: 'search the web', tools: [{ type: 'web_search' }] },
+      failingRequest: { model: 'fake-broken', input: 'anything' },
+    },
+    embeddings: {
+      model: 'fake-embedding-model',
+      shortenTo: 4,
+      // A model classified without `embeddings` is refused as an AiError.
+      failingRequest: { model: 'fake-model', input: 'anything' },
     },
   },
 }));

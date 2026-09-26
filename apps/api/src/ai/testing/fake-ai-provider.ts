@@ -15,7 +15,10 @@
 //     hosted tool the fake was not told it supports, is
 //     `AI_CAPABILITY_UNSUPPORTED`;
 //   - `structuredOutput` responses are validated into `parsed`;
-//   - `stream()` chunks the scripted response into well-ordered events.
+//   - `stream()` chunks the scripted response into well-ordered events;
+//   - with `embeddingsPort: true`, `embeddings.embed()` returns one
+//     deterministic vector per input (equal texts embed equally), honours
+//     `dimensions`, and refuses a model classified without `embeddings`.
 //
 // And it RECORDS every call, including the `apiKey` it was called with —
 // that is what lets a test prove the organisation key is never used for a
@@ -35,6 +38,8 @@ import {
 import { parseStructured } from '../core/structured-output';
 import {
   AiAudioPort,
+  AiEmbeddingRequest,
+  AiEmbeddingResult,
   AiEmbeddingsPort,
   AiImagesPort,
   AiRealtimePort,
@@ -58,7 +63,12 @@ export type FakeAiScript =
   | FakeAiScriptedResponse[]
   | ((req: AiResponseRequest, ctx: AiCallContext) => FakeAiScriptedResponse | Promise<FakeAiScriptedResponse>);
 
-export type FakeAiCallMethod = 'listModels' | 'verifyKey' | 'responses.create' | 'responses.stream';
+export type FakeAiCallMethod =
+  | 'listModels'
+  | 'verifyKey'
+  | 'responses.create'
+  | 'responses.stream'
+  | 'embeddings.embed';
 
 export interface FakeAiCall {
   method: FakeAiCallMethod;
@@ -66,6 +76,8 @@ export interface FakeAiCall {
   requestId: string;
   baseUrl?: string;
   request?: AiResponseRequest;
+  /** The request an `embeddings.embed` call received. */
+  embeddingRequest?: AiEmbeddingRequest;
   /** Set when the call observed `ctx.signal` aborting. */
   aborted?: boolean;
 }
@@ -93,6 +105,13 @@ export interface FakeAiProviderOptions {
   hostedTools?: AiHostedToolType[];
   /** `false` omits the responses port entirely. Defaults to `true`. */
   responsesPort?: boolean;
+  /**
+   * `true` carries the built-in scripted `embeddings` port (see the file
+   * header). Defaults to `false`; `ports.embeddings`, when given, wins.
+   */
+  embeddingsPort?: boolean;
+  /** Native vector length of the built-in embeddings port. Defaults to 8. */
+  embeddingDimensions?: number;
   /** Extra ports to carry, for registry/runtime tests. */
   ports?: {
     images?: AiImagesPort;
@@ -123,6 +142,22 @@ export const FAKE_TEXT_MODEL_CAPABILITIES: AiModelCapabilities = {
   contextWindow: 128_000,
   maxOutputTokens: 16_384,
 };
+
+/** The classification a fake embedding model is given in tests. */
+export const FAKE_EMBEDDING_MODEL_CAPABILITIES: AiModelCapabilities = {
+  capabilities: ['embeddings'],
+  inputModalities: ['text'],
+  outputModalities: ['embedding'],
+};
+
+/** A deterministic vector for `text` — equal texts embed equally. */
+export function fakeEmbeddingVector(text: string, dimensions: number): number[] {
+  let seed = 7;
+
+  for (const char of text) seed = (seed * 31 + char.charCodeAt(0)) % 10_007;
+
+  return Array.from({ length: dimensions }, (_, i) => ((seed * (i + 1)) % 1000) / 1000);
+}
 
 export class FakeAiProvider implements AiProviderAdapter {
   readonly id: string;
@@ -161,7 +196,9 @@ export class FakeAiProvider implements AiProviderAdapter {
 
     this.images = options.ports?.images;
     this.audio = options.ports?.audio;
-    this.embeddings = options.ports?.embeddings;
+    this.embeddings =
+      options.ports?.embeddings ??
+      (options.embeddingsPort ? { embed: (req, ctx) => this.embed(req, ctx) } : undefined);
     this.realtime = options.ports?.realtime;
   }
 
@@ -271,6 +308,39 @@ export class FakeAiProvider implements AiProviderAdapter {
       await this.pause(ctx, call);
       yield event;
     }
+  }
+
+  // ---- Embeddings port ------------------------------------------------------------
+
+  private async embed(req: AiEmbeddingRequest, ctx: AiCallContext): Promise<AiEmbeddingResult> {
+    const call = this.record('embeddings.embed', ctx);
+
+    call.embeddingRequest = req;
+
+    await this.pause(ctx, call);
+    this.assertKey(ctx);
+
+    const classification = this.classifyModel(req.model);
+
+    if (classification && !classification.capabilities.includes('embeddings')) {
+      throw new AiError('AI_CAPABILITY_UNSUPPORTED', `Model "${req.model}" does not support embeddings.`, {
+        details: { capability: 'embeddings', model: req.model },
+      });
+    }
+
+    const inputs = typeof req.input === 'string' ? [req.input] : req.input;
+    const dimensions = req.dimensions ?? this.options.embeddingDimensions ?? 8;
+
+    this.responseCounter += 1;
+
+    return {
+      provider: this.id,
+      model: req.model,
+      vectors: inputs.map((text) => fakeEmbeddingVector(text, dimensions)),
+      dimensions,
+      usage: { inputTokens: inputs.reduce((sum, text) => sum + Math.ceil(text.length / 4), 0) },
+      providerRequestId: `fake_req_${this.responseCounter}`,
+    };
   }
 
   // ---- internals ----------------------------------------------------------------

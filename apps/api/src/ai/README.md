@@ -111,6 +111,17 @@ unusable request fails fast, synchronously, before anything is queued) and
 then hands a JSON-safe copy of the request (`toStoredRunRequest`) to
 `AiRunsService.create`, which enqueues `ai.response.run`.
 
+`embed` (issue #440) is the first non-responses operation and the template
+for the rest of Phase 2: `prepareEmbedding()` runs steps 1–3 with
+`embeddings` as the one capability needed (plus a shape check: `model`
+required, 1–256 non-empty inputs, positive `dimensions`), then it shares
+steps 6–9 with `respond` — `context()` and `track()` take a provider-neutral
+`AiCallTarget`, and `TRACKED_OPERATIONS` maps the span operation
+(`embeddings.create`) to the usage `operation` (`embeddings`). A new port is
+one more `prepare…`, one more map entry and one more `AiUserClient` method.
+Synchronous, no job; a large backfill is a fork's own server-only job type
+calling `embed` per chunk of ≤ 256 rows (`docs/specs/ai-platform.md` §5.1).
+
 ## Streaming, end to end
 
 1. A client `POST`s `/api/ai/responses/stream` with `Accept:
@@ -166,13 +177,16 @@ then hands a JSON-safe copy of the request (`toStoredRunRequest`) to
 - **`FakeAiProvider`** (`testing/fake-ai-provider.ts`) implements
   `AiProviderAdapter` entirely in memory: scriptable responses, a call log
   (so a test can assert exactly which key/model/request reached it — the
-  BYOK invariant tests all read this log), and streaming support. Register
+  BYOK invariant tests all read this log), and streaming support. With
+  `embeddingsPort: true` it also carries a deterministic embeddings port,
+  recorded as `embeddings.embed` calls with their `apiKey`. Register
   it in `AiProviderRegistry` in place of a real adapter for any integration
   test that exercises `AiService`.
 - **`createAiRuntimeHarness()`** (`testing/ai-runtime-harness.ts`) wires up
   an in-memory Prisma-shaped store, a seeded user key (`HARNESS_USER_KEY`)
   and org key (`HARNESS_ORG_KEY`), and a `FakeAiProvider` behind
-  `HARNESS_PROVIDER`/`HARNESS_MODEL`, so a test can call
+  `HARNESS_PROVIDER`/`HARNESS_MODEL` (plus `HARNESS_EMBEDDING_MODEL`, with
+  the fake's embeddings port on), so a test can call
   `AiService.forUser(HARNESS_USER)` immediately without standing up the
   whole Nest module tree.
 - **`describeAiProviderConformance()`** (`testing/conformance.ts`) is the
@@ -181,7 +195,8 @@ then hands a JSON-safe copy of the request (`toStoredRunRequest`) to
   for every provider: `listModels` returns ids, `verifyKey`'s ok/invalid
   mapping is correct, `classifyModel` returns schema-valid capabilities or
   `null`, and (when `responses` is implemented) `create`/`stream`/structured
-  output/a tool round-trip all behave and every error surfaces as an
+  output/a tool round-trip all behave, (when `embeddings` is implemented)
+  single/batch/`dimensions` embeddings are well formed, and every error surfaces as an
   `AiError`, never a raw SDK exception. `providers/openai/openai.adapter.conformance.spec.ts`
   is the worked example of wiring a real adapter through it; `openai.adapter.live.spec.ts`
   is the separate, opt-in suite that hits the real OpenAI API.

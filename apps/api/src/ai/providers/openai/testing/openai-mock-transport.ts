@@ -35,6 +35,41 @@ export type MockReply =
   /** A hand-written SSE script. `hang` keeps the connection open after the last frame until aborted. */
   | { kind: 'sse'; frames: MockSseFrame[]; hang?: boolean };
 
+export type MockEmbeddingReply =
+  /** A `/v1/embeddings` JSON body, sent as-is (so a test can make it malformed). */
+  | { kind: 'embeddings'; body: Record<string, unknown> }
+  | { kind: 'error'; status: number; error: Record<string, unknown>; headers?: Record<string, string> }
+  | { kind: 'network' };
+
+/** The native vector length the mock gives an embedding model. */
+export function mockEmbeddingLength(model: string): number {
+  return model.includes('large') ? 3072 : 1536;
+}
+
+/** A deterministic, input-dependent vector — equal texts embed equally. */
+export function mockEmbeddingVector(text: string, length: number): number[] {
+  let seed = 0;
+
+  for (const char of text) seed = (seed * 31 + char.charCodeAt(0)) % 9973;
+
+  return Array.from({ length }, (_, i) => ((seed + i * 7) % 1000) / 1000);
+}
+
+/** The default `/v1/embeddings` answer for `body`. */
+export function mockEmbeddingsBody(body: Record<string, unknown>): Record<string, unknown> {
+  const model = String(body.model);
+  const inputs = Array.isArray(body.input) ? (body.input as string[]) : [String(body.input)];
+  const length = typeof body.dimensions === 'number' ? body.dimensions : mockEmbeddingLength(model);
+  const promptTokens = inputs.reduce((sum, text) => sum + Math.ceil(text.length / 4), 0);
+
+  return {
+    object: 'list',
+    model,
+    data: inputs.map((text, index) => ({ object: 'embedding', index, embedding: mockEmbeddingVector(text, length) })),
+    usage: { prompt_tokens: promptTokens, total_tokens: promptTokens },
+  };
+}
+
 export interface RecordedRequest {
   method: string;
   path: string;
@@ -48,6 +83,8 @@ export interface OpenAiMockServerOptions {
   validKeys: string[];
   models?: string[];
   respond?(body: Record<string, unknown>): MockReply;
+  /** `/embeddings` responder. Defaults to `mockEmbeddingsBody`. */
+  embed?(body: Record<string, unknown>): MockEmbeddingReply;
 }
 
 function json(status: number, payload: unknown, headers: Record<string, string>): Response {
@@ -118,11 +155,18 @@ export class OpenAiMockServer {
   private requestCounter = 0;
   private respondFn: (body: Record<string, unknown>) => MockReply;
   private readonly queued: MockReply[] = [];
+  private embedFn: (body: Record<string, unknown>) => MockEmbeddingReply;
 
   constructor(opts: OpenAiMockServerOptions) {
     this.validKeys = new Set(opts.validKeys);
     this.models = opts.models ?? ['gpt-4o', 'gpt-4o-mini', 'o3', 'text-embedding-3-small'];
     this.respondFn = opts.respond ?? (() => ({ kind: 'network' }));
+    this.embedFn = opts.embed ?? ((body) => ({ kind: 'embeddings', body: mockEmbeddingsBody(body) }));
+  }
+
+  /** Replaces the `/embeddings` responder. */
+  embedWith(fn: (body: Record<string, unknown>) => MockEmbeddingReply): void {
+    this.embedFn = fn;
   }
 
   /** Replaces the `/responses` responder. */
@@ -218,6 +262,21 @@ export class OpenAiMockServer {
           return body.stream === true
             ? sseResponse(framesFor(streamEventsFor(reply.response, reply.chunkSize)), replyHeaders, false, signal)
             : json(200, reply.response, replyHeaders);
+      }
+    }
+
+    if (url.pathname.endsWith('/embeddings') && init?.method === 'POST' && body) {
+      const reply = this.embedFn(body);
+
+      switch (reply.kind) {
+        case 'network':
+          throw new TypeError('fetch failed');
+
+        case 'error':
+          return json(reply.status, { error: reply.error }, { ...replyHeaders, ...(reply.headers ?? {}) });
+
+        case 'embeddings':
+          return json(200, reply.body, replyHeaders);
       }
     }
 

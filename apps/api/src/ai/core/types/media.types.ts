@@ -112,15 +112,30 @@ export interface AiAudioPort {
 
 // ---- Embeddings -------------------------------------------------------------
 
+/**
+ * The most inputs one `embed` call accepts. A larger batch is refused with
+ * `AI_INVALID_REQUEST` rather than silently split: chunk it yourself, and for
+ * a backfill of thousands of rows enqueue your own job type that calls
+ * `embed` per chunk (docs/specs/ai-platform.md, "Embeddings").
+ */
+export const AI_EMBEDDINGS_MAX_INPUTS = 256;
+
 export interface AiEmbeddingRequest extends AiMediaRequestBase {
+  /** One text, or up to `AI_EMBEDDINGS_MAX_INPUTS` texts. None may be empty. */
   input: string | string[];
-  /** Truncate to this many dimensions where supported. */
+  /**
+   * Shorten every vector to this many dimensions where the model supports it
+   * (OpenAI: `text-embedding-3-*`). A model that cannot is refused with
+   * `AI_INVALID_REQUEST` rather than answered at its native length.
+   */
   dimensions?: number;
 }
 
 export interface AiEmbeddingResult extends AiMediaResultBase {
-  /** One vector per input, in input order. */
-  embeddings: number[][];
+  /** One vector per input, in input order (a single string input yields one). */
+  vectors: number[][];
+  /** The length of every vector in `vectors`. */
+  dimensions: number;
 }
 
 export interface AiEmbeddingsPort {

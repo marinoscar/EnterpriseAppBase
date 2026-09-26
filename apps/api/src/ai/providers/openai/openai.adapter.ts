@@ -10,11 +10,12 @@
 //   openai-stream.mapper.ts      stream events -> AiStreamEvent
 //   openai-errors.ts             SDK error -> AiError
 //   openai-model-catalog.ts      classifyModel()'s rule table
+//   openai-embeddings.mapper.ts  AiEmbeddingRequest <-> /v1/embeddings
 //
-// PORTS. Only `responses` is carried. `images`, `audio`, `embeddings` and
-// `realtime` are deliberately ABSENT until Phase 2 (#420) implements them —
-// presence is the declaration, so `AiProviderRegistry.supports()` stays
-// truthful about what this adapter can actually do today.
+// PORTS. `responses` and `embeddings` (#440) are carried. `images`, `audio`
+// and `realtime` are deliberately ABSENT until Phase 2 (#420) implements
+// them — presence is the declaration, so `AiProviderRegistry.supports()`
+// stays truthful about what this adapter can actually do today.
 //
 // OBSERVABILITY. Every provider call runs inside an `ai.provider.call` span
 // carrying `ai.provider`, `ai.model`, `ai.operation` and `ai.status` (`ok` or
@@ -38,9 +39,11 @@ import type {
   AiResponsesPort,
 } from '../../core/provider-adapter.interface';
 import { AiProviderRegistry } from '../../core/provider-registry';
+import type { AiEmbeddingRequest, AiEmbeddingResult, AiEmbeddingsPort } from '../../core/types/media.types';
 import type { AiResponse, AiResponseRequest, AiStreamEvent } from '../../core/types/responses.types';
 import { resolveServiceName } from '../../../common/otel/service-name';
 import { OpenAiClientFactory } from './openai-client.factory';
+import { fromOpenAiEmbeddingResponse, toOpenAiEmbeddingRequest } from './openai-embeddings.mapper';
 import { mapOpenAiError, OPENAI_PROVIDER_ID } from './openai-errors';
 import { classifyOpenAiModel } from './openai-model-catalog';
 import { fromOpenAiResponse, toOpenAiRequest } from './openai-responses.mapper';
@@ -48,7 +51,7 @@ import { OpenAiStreamMapper } from './openai-stream.mapper';
 
 export const AI_PROVIDER_CALL_SPAN = 'ai.provider.call';
 
-type OpenAiOperation = 'models.list' | 'verify_key' | 'responses.create' | 'responses.stream';
+type OpenAiOperation = 'models.list' | 'verify_key' | 'responses.create' | 'responses.stream' | 'embeddings.create';
 
 const tracer = trace.getTracer(resolveServiceName());
 
@@ -60,6 +63,10 @@ export class OpenAiProviderAdapter implements AiProviderAdapter, OnModuleInit {
   readonly responses: AiResponsesPort = {
     create: (req, ctx) => this.createResponse(req, ctx),
     stream: (req, ctx) => this.streamResponse(req, ctx),
+  };
+
+  readonly embeddings: AiEmbeddingsPort = {
+    embed: (req, ctx) => this.embed(req, ctx),
   };
 
   private readonly logger = new Logger(OpenAiProviderAdapter.name);
@@ -226,6 +233,20 @@ export class OpenAiProviderAdapter implements AiProviderAdapter, OnModuleInit {
       this.endSpan(span, status);
       this.logCall('responses.stream', req.model, ctx, status, started, providerRequestId);
     }
+  }
+
+  // ---- embeddings port ------------------------------------------------------
+
+  /** `POST /v1/embeddings`, floats on the wire — see `openai-embeddings.mapper.ts`. */
+  private embed(req: AiEmbeddingRequest, ctx: AiCallContext): Promise<AiEmbeddingResult> {
+    return this.call('embeddings.create', req.model, ctx, async () => {
+      const body = toOpenAiEmbeddingRequest(req);
+      const client = this.clients.create(ctx);
+
+      const { data, request_id } = await client.embeddings.create(body, { signal: ctx.signal }).withResponse();
+
+      return fromOpenAiEmbeddingResponse(data, { request: req, providerRequestId: request_id });
+    });
   }
 
   // ---- telemetry ------------------------------------------------------------

@@ -11,6 +11,7 @@
 import type { z } from 'zod';
 
 import type { AiDefinedTool } from '../core/tools';
+import type { AiEmbeddingRequest } from '../core/types/media.types';
 import type { AiResponse, AiResponseRequest, AiStreamEvent } from '../core/types/responses.types';
 
 /**
@@ -22,6 +23,13 @@ import type { AiResponse, AiResponseRequest, AiStreamEvent } from '../core/types
  *                      only registered provider, else `AI_INVALID_REQUEST`.
  */
 export type AiRequest = Omit<AiResponseRequest, 'model'> & { provider?: string; model?: string };
+
+/**
+ * `embed`'s request. `model` is REQUIRED — vectors from different models are
+ * not comparable, so an embedding model is never inferred from the caller's
+ * chat `ai.defaultModel`. `provider` resolves as for `AiRequest`.
+ */
+export type AiEmbedRequest = Omit<AiEmbeddingRequest, 'model'> & { provider?: string; model: string };
 
 /** Per-call options every facade method accepts. */
 export interface AiCallOptions {

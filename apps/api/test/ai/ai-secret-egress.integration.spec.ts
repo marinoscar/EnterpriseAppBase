@@ -39,6 +39,7 @@ import {
   systemAiSchema,
 } from '../../src/common/schemas/settings.schema';
 import {
+  HARNESS_EMBEDDING_MODEL,
   HARNESS_USER,
   HARNESS_USER_KEY,
   HARNESS_ORG_KEY,
@@ -51,6 +52,7 @@ import { aiPublicConfigSchema } from '../../src/ai/config/dto/ai-public-config.d
 import { usableAiModelSchema } from '../../src/ai/keys/dto/usable-ai-model.dto';
 import { userAiKeyViewSchema, userAiKeyTestResultSchema } from '../../src/ai/keys/dto/user-ai-key.dto';
 import { aiResponseSchema, aiRunStartedSchema, aiRunSchema } from '../../src/ai/http/dto/ai-response.dto';
+import { aiEmbeddingsResponseSchema } from '../../src/ai/http/dto/ai-embeddings.dto';
 
 const ADMIN_KEY_SENTINEL = 'sk-admin-egress-sentinel-Zq81xY';
 /** Every value that must never appear anywhere this suite inspects. */
@@ -265,6 +267,7 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
       AiResponseDto: aiResponseSchema,
       AiRunStartedDto: aiRunStartedSchema,
       AiRunDto: aiRunSchema,
+      AiEmbeddingsResponseDto: aiEmbeddingsResponseSchema,
     };
 
     it('finds every response schema, so a broken import list cannot pass vacuously', () => {
@@ -306,6 +309,41 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
       const frames = parseSse(res.text);
       assertNoLeak('SSE frames', JSON.stringify(frames));
       assertNoLeak('SSE response headers', JSON.stringify(res.headers));
+    });
+
+    it('POST /api/ai/embeddings: no sentinel in the body, headers, usage rows or log output', async () => {
+      const res = await request(app.context.app.getHttpServer())
+        .post('/api/ai/embeddings')
+        .set(authHeader(holderToken))
+        .send({ model: HARNESS_EMBEDDING_MODEL, input: ['hello', 'world'] })
+        .expect(200);
+
+      expect(app.harness.fake.callsTo('embeddings.embed')).toHaveLength(1);
+      assertNoLeak('POST /api/ai/embeddings body', JSON.stringify(res.body));
+      assertNoLeak('POST /api/ai/embeddings headers', JSON.stringify(res.headers));
+      assertNoLeak('ai_usage_events (embeddings)', JSON.stringify(app.harness.usageEvents));
+      assertNoLeak('log output (embeddings)', logLines.join('\n'));
+    });
+
+    it('POST /api/ai/embeddings refused by the provider: the error body carries no sentinel', async () => {
+      const port = app.harness.fake.embeddings!;
+      const original = port.embed;
+      port.embed = async () => {
+        throw new Error(`upstream rejected ${HARNESS_USER_KEY}`);
+      };
+
+      try {
+        const res = await request(app.context.app.getHttpServer())
+          .post('/api/ai/embeddings')
+          .set(authHeader(holderToken))
+          .send({ model: HARNESS_EMBEDDING_MODEL, input: 'hello' })
+          .expect(503);
+
+        assertNoLeak('embeddings error body', JSON.stringify(res.body));
+        assertNoLeak('embeddings error log output', logLines.join('\n'));
+      } finally {
+        port.embed = original;
+      }
     });
 
     it('a rejected key (AI_KEY_INVALID) carries no sentinel in its error body', async () => {

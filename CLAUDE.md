@@ -740,6 +740,7 @@ requires `ai:use`. See
 - `GET /api/ai/models` - Models the caller can use right now: admin-enabled, not deprecated, and reachable with their resolved key (`ai:use`)
 - `POST /api/ai/responses` - One AI response via `AiService.forUser(id).respond(...)`; 1 MB body limit, function tools not accepted over HTTP (`ai:use`)
 - `POST /api/ai/responses/stream` - The same request as SSE (`Accept: text/event-stream`, no `stream` flag) — `event: <type>` frames, `: ping` every 15s, ending with `response.completed` or an in-band `error` frame; every pre-stream refusal is an ordinary JSON error over an unbuffered nginx route (issue #433, epic #419) (`ai:use`)
+- `POST /api/ai/embeddings` - Embeddings via `AiService.forUser(id).embed(...)` → `{ provider, model, dimensions, vectors, usage }`; `model` required, at most 256 inputs (400 `AI_INVALID_REQUEST` beyond — chunk it, and queue your own job for a backfill), `dimensions` where the model supports it; synchronous (issue #440, epic #420) (`ai:use`)
 - `POST /api/ai/runs` - Queue a background AI response (`ai.response.run`); 202 `{ runId, jobId }`; 400 `AI_INVALID_REQUEST` when `ai.defaults.allowBackgroundRuns` is off (`ai:use`)
 - `GET /api/ai/runs/{id}` - Get one background run, scoped to the caller — `{ id, status, provider, modelId, output, errorCode, errorMessage, createdAt, completedAt }`; 404 for another user's run (`ai:use`)
 - `POST /api/ai/runs/{id}/cancel` - Cancel a background run, scoped to the caller; idempotent — a finished run is returned unchanged (`ai:use`)
@@ -1326,7 +1327,7 @@ async summarize(userId: string, text: string) {
 No SDK, no key, no policy check of your own — `forUser` runs the full gate
 pipeline (kill switch, provider/model enablement, capability match, key
 resolution, output-token clamp), records one `ai_usage_events` row per
-round-trip, and traces the call. Six entry points, all on the client
+round-trip, and traces the call. Seven entry points, all on the client
 `forUser` returns:
 
 - **`respond(req, opts?)`** — one response. `req.input` is a string or
@@ -1373,6 +1374,10 @@ round-trip, and traces the call. Six entry points, all on the client
   `AiError('AI_INVALID_REQUEST')` for a function tool (it cannot survive the
   queue hop — use `runTools` in-process instead) or when
   `ai.defaults.allowBackgroundRuns` is off.
+- **`embed({ model, input, dimensions? }, opts?)`** — one vector per input
+  (a string or up to 256 strings), synchronous; `model` is required. For a
+  large backfill, enqueue your own server-only job that embeds one chunk
+  per run (`docs/specs/ai-platform.md` §5.1).
 
 **Picking a model**: pass `req.model` (and `req.provider` when more than one
 is registered) to pin it, or leave both unset to fall back to the caller's

@@ -284,12 +284,55 @@ Media (images/audio/embeddings/realtime) request/response types live in
 only in Phase 2/3: `AiImagesPort { generate(req, ctx); edit?(req, ctx) }`,
 `AiAudioPort { transcribe?(req, ctx); speech?(req, ctx) }`,
 `AiEmbeddingsPort { embed(req, ctx) }`, `AiRealtimePort { createSession(req,
-ctx) }`. Every one of these returns **bytes plus a MIME type** — never a
+ctx) }`. Every binary result is **bytes plus a MIME type** — never a
 provider URL and never a filesystem path — so that the caller (not the AI
 platform) decides whether and how to persist the result, through the
 existing Storage Objects surface (`docs/specs/storage-providers.md`), the
 same separation of concerns already enforced everywhere else media touches
-storage in this repository.
+storage in this repository. (Embeddings are the exception by nature: their
+result is numbers, `{ vectors, dimensions }`, returned inline.)
+
+### 5.1 Embeddings (Phase 2, issue #440)
+
+The first Phase 2 port, and the shape the others follow: an adapter port
+(`embeddings.embed`), one facade method (`AiUserClient.embed`), one usage
+`operation` (`'embeddings'`), and one route (`POST /api/ai/embeddings`).
+
+- **Facade.** `ai.forUser(userId).embed({ model, input, dimensions? })` →
+  `{ provider, model, vectors, dimensions, usage }`, one vector per input in
+  input order. It runs the same gate pipeline as `respond` (§7, §8), with
+  `embeddings` as the one capability needed (model **and** provider port),
+  then records one `ai_usage_events` row (`operation: 'embeddings'`,
+  `inputTokens`). Synchronous — no job.
+- **`model` is required.** Vectors are only comparable within one model, so
+  an embedding model is never inferred from the caller's chat
+  `ai.defaultModel`; store `model` and `dimensions` beside every vector.
+- **Batch limit.** At most `AI_EMBEDDINGS_MAX_INPUTS` (256) non-empty texts
+  per call. A larger batch is refused with `AI_INVALID_REQUEST` and a
+  message telling the caller to chunk — never silently split.
+- **`dimensions`** shortens every vector where the model supports it
+  (OpenAI `text-embedding-3-*`); `text-embedding-ada-002` with `dimensions`
+  is refused by the adapter as `AI_INVALID_REQUEST` rather than sent to a
+  provider 400. Other ids pass through — the provider is the authority.
+- **OpenAI wire detail.** The adapter pins `encoding_format: 'float'`: the
+  SDK's own default (base64, decoded into `Float32Array`) does not survive
+  `JSON.stringify` as an array. A reply with the wrong vector count or
+  ragged lengths is `AI_PROVIDER_UNAVAILABLE`.
+- **Large backfills are the fork's own job.** Embedding thousands of rows
+  is long-running work (MANDATORY queue rule 1): declare a job type of your
+  own (server-only, like every `ai.*` type, §9), enqueue one job per chunk
+  of ≤ 256 rows with a payload of **row ids** (not texts), and have its
+  `process()` re-read the rows, call `ai.forUser(ownerId).embed(...)` once,
+  and write the vectors back; on `AI_RATE_LIMITED`, `throw err.toRateLimitError() ?? err` so the
+  job defers instead of spending an attempt. No worked `example.ai-embed`
+  handler ships; `ai.response.run` is the pattern to copy.
+
+**Future work — out of scope for #440.** Vector *storage* and *search*:
+a `pgvector` column/extension, an index (HNSW/IVFFlat), and a similarity
+query API (`nearest(k)`, cosine/inner-product) are a future epic. Until
+then a fork stores vectors itself (a `Float[]`/JSONB column, or its own
+`vector` column behind a migration it owns) and computes similarity in the
+query or in process.
 
 ## 6. Model discovery and classification
 
@@ -431,8 +474,10 @@ server-only, never node-eligible** — no `nodeResultSchema` +
   maxAttempts: 3 }`. Enqueued daily at 05:00 by `AiUsagePurgeTask` through
   `enqueueHousekeepingJob` — the one AI cron that uses that helper, because
   it is global (no per-provider subject).
-- Phase 2/3 media jobs (image generation/edit, audio transcription/speech,
-  embeddings at scale) will follow the identical posture once implemented.
+- Phase 2/3 media jobs (image generation/edit, audio transcription/speech)
+  will follow the identical posture once implemented. Embeddings ship no job
+  type of their own: `embed` is synchronous, and a large backfill is a
+  fork's own server-only job calling it per chunk (§5.1).
 
 The reason is not incidental — it is **MANDATORY queue rule 3**
 (CLAUDE.md): a node never persists a job-scoped credential, and every
@@ -802,6 +847,7 @@ every consumer-facing route (as opposed to `/api/admin/ai/*`'s
 |---|---|
 | `POST /api/ai/responses` | `forUser(id).respond(...)` → `AiResponse` (includes `parsed` when structured). |
 | `POST /api/ai/responses/stream` | SSE (§10). Function tools are not accepted over this route in Phase 1 — they execute server-side code and are for in-process `runTools()` only; hosted tools arrive in Phase 2. Request body limit 1 MB. |
+| `POST /api/ai/embeddings` | `forUser(id).embed(...)` → `{ provider, model, dimensions, vectors, usage }` (§5.1). `model` required; > 256 inputs → 400 `AI_INVALID_REQUEST`; a model without `embeddings` → 400 `AI_CAPABILITY_UNSUPPORTED`. Request body limit 1 MB. |
 | `POST /api/ai/runs` | `startRun(...)` → `{ runId, jobId }`, status 202. |
 | `GET /api/ai/runs/:id` | Scoped to caller → `{ id, status, provider, modelId, output, errorCode, errorMessage, createdAt, completedAt }` (never the stored prompt, never the job id); 404 for another user's run. |
 | `POST /api/ai/runs/:id/cancel` | Scoped to caller; 200. |
@@ -902,3 +948,4 @@ every consumer-facing route (as opposed to `/api/admin/ai/*`'s
 | `infra/nginx/nginx.conf` contains the `/api/ai/responses/stream` location with `proxy_buffering off` | a config-assertion spec reading the nginx file directly, mirroring `apps/api/test/production-image.spec.ts` |
 | Seed grants: Admin holds all three AI permissions; Contributor and Viewer hold `ai:use` only | `apps/api/test/prisma/seed-data.spec.ts` |
 | The conformance kit (`describeAiProviderConformance`) passes against `FakeAiProvider` | `apps/api/src/ai/testing/fake-ai-provider.conformance.spec.ts` |
+| Embeddings: one vector per input in order, `dimensions` honoured, a model without `embeddings` → `AI_CAPABILITY_UNSUPPORTED`, > 256 inputs → `AI_INVALID_REQUEST`, one `operation: 'embeddings'` usage row; the #435 key-policy and secret-egress suites drive `POST /api/ai/embeddings` | `apps/api/src/ai/providers/openai/openai-embeddings.spec.ts`, `apps/api/src/ai/runtime/ai-embed.spec.ts`, `apps/api/test/ai/ai-embeddings.integration.spec.ts`, the conformance kit's `embeddings.*` scenarios |
