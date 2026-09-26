@@ -57,6 +57,8 @@ const CONTENT_FILTER_CODES = new Set([
   'invalid_prompt',
   'bio_policy',
   'misalignment_policy_violation',
+  // The images API's refusal (`/v1/images/*` answers 400 with this code).
+  'moderation_blocked',
 ]);
 
 /** Codes that name the model as the problem — the key cannot reach it. */

@@ -41,6 +41,64 @@ export type MockEmbeddingReply =
   | { kind: 'error'; status: number; error: Record<string, unknown>; headers?: Record<string, string> }
   | { kind: 'network' };
 
+export type MockImagesReply =
+  /** A `/v1/images/*` JSON body, sent as-is (so a test can make it malformed). */
+  | { kind: 'images'; body: Record<string, unknown> }
+  | { kind: 'error'; status: number; error: Record<string, unknown>; headers?: Record<string, string> }
+  | { kind: 'network' };
+
+/** Which images endpoint a request hit. */
+export type MockImagesOperation = 'generations' | 'edits';
+
+/** A real, 1x1 transparent PNG — what the mock "generates". */
+export const MOCK_PNG_BASE64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+
+/** The default `/v1/images/*` answer for `body`: `n` PNGs (1 by default), with token usage. */
+export function mockImagesBody(body: Record<string, unknown>): Record<string, unknown> {
+  const n = Number(body.n ?? 1) || 1;
+  const dallE = String(body.model ?? '').startsWith('dall-e-');
+
+  return {
+    created: 1_700_000_000,
+    data: Array.from({ length: n }, (_, i) => ({
+      b64_json: MOCK_PNG_BASE64,
+      ...(dallE ? { revised_prompt: `revised: ${String(body.prompt)} #${i + 1}` } : {}),
+    })),
+    ...(dallE ? {} : { output_format: body.output_format ?? 'png' }),
+    ...(dallE
+      ? {}
+      : {
+          usage: {
+            input_tokens: 12,
+            input_tokens_details: { image_tokens: 0, text_tokens: 12 },
+            output_tokens: 272 * n,
+            total_tokens: 12 + 272 * n,
+          },
+        }),
+  };
+}
+
+/** A multipart body as a plain record: repeated keys become arrays, files `{ filename, type, size }`. */
+async function formDataRecord(form: FormData): Promise<Record<string, unknown>> {
+  const record: Record<string, unknown> = {};
+
+  for (const [key, value] of form.entries()) {
+    const entry: unknown =
+      typeof value === 'string' ? value : { filename: value.name, type: value.type, size: value.size };
+
+    if (key in record) {
+      const existing = record[key];
+
+      record[key] = Array.isArray(existing) ? [...existing, entry] : [existing, entry];
+    } else {
+      record[key] = key.endsWith('[]') ? [entry] : entry;
+    }
+  }
+
+  return record;
+}
+
 /** The native vector length the mock gives an embedding model. */
 export function mockEmbeddingLength(model: string): number {
   return model.includes('large') ? 3072 : 1536;
@@ -85,6 +143,8 @@ export interface OpenAiMockServerOptions {
   respond?(body: Record<string, unknown>): MockReply;
   /** `/embeddings` responder. Defaults to `mockEmbeddingsBody`. */
   embed?(body: Record<string, unknown>): MockEmbeddingReply;
+  /** `/images/*` responder. Defaults to `mockImagesBody`. */
+  images?(operation: MockImagesOperation, body: Record<string, unknown>): MockImagesReply;
 }
 
 function json(status: number, payload: unknown, headers: Record<string, string>): Response {
@@ -156,12 +216,19 @@ export class OpenAiMockServer {
   private respondFn: (body: Record<string, unknown>) => MockReply;
   private readonly queued: MockReply[] = [];
   private embedFn: (body: Record<string, unknown>) => MockEmbeddingReply;
+  private imagesFn: (operation: MockImagesOperation, body: Record<string, unknown>) => MockImagesReply;
 
   constructor(opts: OpenAiMockServerOptions) {
     this.validKeys = new Set(opts.validKeys);
     this.models = opts.models ?? ['gpt-4o', 'gpt-4o-mini', 'o3', 'text-embedding-3-small'];
     this.respondFn = opts.respond ?? (() => ({ kind: 'network' }));
     this.embedFn = opts.embed ?? ((body) => ({ kind: 'embeddings', body: mockEmbeddingsBody(body) }));
+    this.imagesFn = opts.images ?? ((_operation, body) => ({ kind: 'images', body: mockImagesBody(body) }));
+  }
+
+  /** Replaces the `/images/*` responder. */
+  imagesWith(fn: (operation: MockImagesOperation, body: Record<string, unknown>) => MockImagesReply): void {
+    this.imagesFn = fn;
   }
 
   /** Replaces the `/embeddings` responder. */
@@ -186,11 +253,21 @@ export class OpenAiMockServer {
 
   readonly fetch: OpenAiFetch = async (input, init) => {
     const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
+
+    // The SDK probes a custom `fetch` for FormData support with a `data:` URL
+    // before its first multipart request; that is not an API call.
+    if (url.protocol === 'data:') return new Response('');
+
     const headers = new Headers(init?.headers);
     const auth = headers.get('authorization');
     const apiKey = auth?.startsWith('Bearer ') ? auth.slice('Bearer '.length) : null;
     const rawBody = typeof init?.body === 'string' ? init.body : undefined;
-    const body = rawBody ? (JSON.parse(rawBody) as Record<string, unknown>) : undefined;
+    const body =
+      init?.body instanceof FormData
+        ? await formDataRecord(init.body)
+        : rawBody
+          ? (JSON.parse(rawBody) as Record<string, unknown>)
+          : undefined;
     const signal = init?.signal ?? undefined;
 
     this.requests.push({ method: init?.method ?? 'GET', path: url.pathname, apiKey, headers, body, signal });
@@ -276,6 +353,23 @@ export class OpenAiMockServer {
           return json(reply.status, { error: reply.error }, { ...replyHeaders, ...(reply.headers ?? {}) });
 
         case 'embeddings':
+          return json(200, reply.body, replyHeaders);
+      }
+    }
+
+    const images = /\/images\/(generations|edits)$/.exec(url.pathname);
+
+    if (images && init?.method === 'POST' && body) {
+      const reply = this.imagesFn(images[1] as MockImagesOperation, body);
+
+      switch (reply.kind) {
+        case 'network':
+          throw new TypeError('fetch failed');
+
+        case 'error':
+          return json(reply.status, { error: reply.error }, { ...replyHeaders, ...(reply.headers ?? {}) });
+
+        case 'images':
           return json(200, reply.body, replyHeaders);
       }
     }

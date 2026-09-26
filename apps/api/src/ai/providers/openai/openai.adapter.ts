@@ -11,11 +11,13 @@
 //   openai-errors.ts             SDK error -> AiError
 //   openai-model-catalog.ts      classifyModel()'s rule table
 //   openai-embeddings.mapper.ts  AiEmbeddingRequest <-> /v1/embeddings
+//   openai-images.mapper.ts      AiImage*Request <-> /v1/images/{generations,edits}
 //
-// PORTS. `responses` and `embeddings` (#440) are carried. `images`, `audio`
-// and `realtime` are deliberately ABSENT until Phase 2 (#420) implements
-// them — presence is the declaration, so `AiProviderRegistry.supports()`
-// stays truthful about what this adapter can actually do today.
+// PORTS. `responses`, `embeddings` (#440) and `images` (#437, generate AND
+// edit) are carried. `audio` and `realtime` are deliberately ABSENT until
+// Phase 2 (#420) implements them — presence is the declaration, so
+// `AiProviderRegistry.supports()` stays truthful about what this adapter can
+// actually do today.
 //
 // OBSERVABILITY. Every provider call runs inside an `ai.provider.call` span
 // carrying `ai.provider`, `ai.model`, `ai.operation` and `ai.status` (`ok` or
@@ -39,19 +41,39 @@ import type {
   AiResponsesPort,
 } from '../../core/provider-adapter.interface';
 import { AiProviderRegistry } from '../../core/provider-registry';
-import type { AiEmbeddingRequest, AiEmbeddingResult, AiEmbeddingsPort } from '../../core/types/media.types';
+import type {
+  AiEmbeddingRequest,
+  AiEmbeddingResult,
+  AiEmbeddingsPort,
+  AiImageEditRequest,
+  AiImageGenerationRequest,
+  AiImageResult,
+  AiImagesPort,
+} from '../../core/types/media.types';
 import type { AiResponse, AiResponseRequest, AiStreamEvent } from '../../core/types/responses.types';
 import { resolveServiceName } from '../../../common/otel/service-name';
 import { OpenAiClientFactory } from './openai-client.factory';
 import { fromOpenAiEmbeddingResponse, toOpenAiEmbeddingRequest } from './openai-embeddings.mapper';
 import { mapOpenAiError, OPENAI_PROVIDER_ID } from './openai-errors';
+import {
+  fromOpenAiImagesResponse,
+  toOpenAiImageEditRequest,
+  toOpenAiImageGenerateRequest,
+} from './openai-images.mapper';
 import { classifyOpenAiModel } from './openai-model-catalog';
 import { fromOpenAiResponse, toOpenAiRequest } from './openai-responses.mapper';
 import { OpenAiStreamMapper } from './openai-stream.mapper';
 
 export const AI_PROVIDER_CALL_SPAN = 'ai.provider.call';
 
-type OpenAiOperation = 'models.list' | 'verify_key' | 'responses.create' | 'responses.stream' | 'embeddings.create';
+type OpenAiOperation =
+  | 'models.list'
+  | 'verify_key'
+  | 'responses.create'
+  | 'responses.stream'
+  | 'embeddings.create'
+  | 'images.generate'
+  | 'images.edit';
 
 const tracer = trace.getTracer(resolveServiceName());
 
@@ -67,6 +89,11 @@ export class OpenAiProviderAdapter implements AiProviderAdapter, OnModuleInit {
 
   readonly embeddings: AiEmbeddingsPort = {
     embed: (req, ctx) => this.embed(req, ctx),
+  };
+
+  readonly images: AiImagesPort = {
+    generate: (req, ctx) => this.generateImages(req, ctx),
+    edit: (req, ctx) => this.editImages(req, ctx),
   };
 
   private readonly logger = new Logger(OpenAiProviderAdapter.name);
@@ -246,6 +273,32 @@ export class OpenAiProviderAdapter implements AiProviderAdapter, OnModuleInit {
       const { data, request_id } = await client.embeddings.create(body, { signal: ctx.signal }).withResponse();
 
       return fromOpenAiEmbeddingResponse(data, { request: req, providerRequestId: request_id });
+    });
+  }
+
+  // ---- images port ------------------------------------------------------------
+
+  /** `POST /v1/images/generations`, always answered as base64 bytes — see `openai-images.mapper.ts`. */
+  private generateImages(req: AiImageGenerationRequest, ctx: AiCallContext): Promise<AiImageResult> {
+    return this.call('images.generate', req.model, ctx, async () => {
+      const body = toOpenAiImageGenerateRequest(req);
+      const client = this.clients.create(ctx);
+
+      const { data, request_id } = await client.images.generate(body, { signal: ctx.signal }).withResponse();
+
+      return fromOpenAiImagesResponse(data, { request: req, providerRequestId: request_id });
+    });
+  }
+
+  /** `POST /v1/images/edits` (multipart: the source images and the optional mask). */
+  private editImages(req: AiImageEditRequest, ctx: AiCallContext): Promise<AiImageResult> {
+    return this.call('images.edit', req.model, ctx, async () => {
+      const body = await toOpenAiImageEditRequest(req);
+      const client = this.clients.create(ctx);
+
+      const { data, request_id } = await client.images.edit(body, { signal: ctx.signal }).withResponse();
+
+      return fromOpenAiImagesResponse(data, { request: req, providerRequestId: request_id });
     });
   }
 

@@ -18,7 +18,10 @@
 //   - `stream()` chunks the scripted response into well-ordered events;
 //   - with `embeddingsPort: true`, `embeddings.embed()` returns one
 //     deterministic vector per input (equal texts embed equally), honours
-//     `dimensions`, and refuses a model classified without `embeddings`.
+//     `dimensions`, and refuses a model classified without `embeddings`;
+//   - with `imagesPort: true`, `images.generate()`/`images.edit()` return
+//     `n` tiny PNGs (as bytes, in the requested `outputFormat`'s MIME type)
+//     and refuse a model classified without `image_generation`/`image_edit`.
 //
 // And it RECORDS every call, including the `apiKey` it was called with —
 // that is what lets a test prove the organisation key is never used for a
@@ -41,6 +44,9 @@ import {
   AiEmbeddingRequest,
   AiEmbeddingResult,
   AiEmbeddingsPort,
+  AiImageEditRequest,
+  AiImageGenerationRequest,
+  AiImageResult,
   AiImagesPort,
   AiRealtimePort,
 } from '../core/types/media.types';
@@ -68,7 +74,9 @@ export type FakeAiCallMethod =
   | 'verifyKey'
   | 'responses.create'
   | 'responses.stream'
-  | 'embeddings.embed';
+  | 'embeddings.embed'
+  | 'images.generate'
+  | 'images.edit';
 
 export interface FakeAiCall {
   method: FakeAiCallMethod;
@@ -78,6 +86,8 @@ export interface FakeAiCall {
   request?: AiResponseRequest;
   /** The request an `embeddings.embed` call received. */
   embeddingRequest?: AiEmbeddingRequest;
+  /** The request an `images.generate`/`images.edit` call received. */
+  imageRequest?: AiImageGenerationRequest | AiImageEditRequest;
   /** Set when the call observed `ctx.signal` aborting. */
   aborted?: boolean;
 }
@@ -110,6 +120,11 @@ export interface FakeAiProviderOptions {
    * header). Defaults to `false`; `ports.embeddings`, when given, wins.
    */
   embeddingsPort?: boolean;
+  /**
+   * `true` carries the built-in scripted `images` port (generate AND edit).
+   * Defaults to `false`; `ports.images`, when given, wins.
+   */
+  imagesPort?: boolean;
   /** Native vector length of the built-in embeddings port. Defaults to 8. */
   embeddingDimensions?: number;
   /** Extra ports to carry, for registry/runtime tests. */
@@ -149,6 +164,21 @@ export const FAKE_EMBEDDING_MODEL_CAPABILITIES: AiModelCapabilities = {
   inputModalities: ['text'],
   outputModalities: ['embedding'],
 };
+
+/** The classification a fake image model is given in tests. */
+export const FAKE_IMAGE_MODEL_CAPABILITIES: AiModelCapabilities = {
+  capabilities: ['image_generation', 'image_edit'],
+  inputModalities: ['text', 'image'],
+  outputModalities: ['image'],
+};
+
+/** The bytes every fake-generated image carries: a real 1x1 PNG. */
+export const FAKE_IMAGE_BYTES = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+  'base64',
+);
+
+const FAKE_IMAGE_MIME: Record<string, string> = { png: 'image/png', jpeg: 'image/jpeg', webp: 'image/webp' };
 
 /** A deterministic vector for `text` — equal texts embed equally. */
 export function fakeEmbeddingVector(text: string, dimensions: number): number[] {
@@ -194,7 +224,14 @@ export class FakeAiProvider implements AiProviderAdapter {
       };
     }
 
-    this.images = options.ports?.images;
+    this.images =
+      options.ports?.images ??
+      (options.imagesPort
+        ? {
+            generate: (req, ctx) => this.generateImages('images.generate', req, ctx),
+            edit: (req, ctx) => this.generateImages('images.edit', req, ctx),
+          }
+        : undefined);
     this.audio = options.ports?.audio;
     this.embeddings =
       options.ports?.embeddings ??
@@ -339,6 +376,47 @@ export class FakeAiProvider implements AiProviderAdapter {
       vectors: inputs.map((text) => fakeEmbeddingVector(text, dimensions)),
       dimensions,
       usage: { inputTokens: inputs.reduce((sum, text) => sum + Math.ceil(text.length / 4), 0) },
+      providerRequestId: `fake_req_${this.responseCounter}`,
+    };
+  }
+
+  // ---- Images port ----------------------------------------------------------------
+
+  private async generateImages(
+    method: 'images.generate' | 'images.edit',
+    req: AiImageGenerationRequest | AiImageEditRequest,
+    ctx: AiCallContext,
+  ): Promise<AiImageResult> {
+    const call = this.record(method, ctx);
+
+    call.imageRequest = req;
+
+    await this.pause(ctx, call);
+    this.assertKey(ctx);
+
+    const capability: AiCapability = method === 'images.edit' ? 'image_edit' : 'image_generation';
+    const classification = this.classifyModel(req.model);
+
+    if (classification && !classification.capabilities.includes(capability)) {
+      throw new AiError('AI_CAPABILITY_UNSUPPORTED', `Model "${req.model}" does not support ${capability}.`, {
+        details: { capability, model: req.model },
+      });
+    }
+
+    if (method === 'images.edit' && (req as AiImageEditRequest).images.length === 0) {
+      throw new AiError('AI_INVALID_REQUEST', 'An image edit needs at least one source image.');
+    }
+
+    const n = req.n ?? 1;
+    const mimeType = FAKE_IMAGE_MIME[req.outputFormat ?? 'png'];
+
+    this.responseCounter += 1;
+
+    return {
+      provider: this.id,
+      model: req.model,
+      images: Array.from({ length: n }, () => ({ data: Buffer.from(FAKE_IMAGE_BYTES), mimeType })),
+      usage: { inputTokens: Math.ceil(req.prompt.length / 4) },
       providerRequestId: `fake_req_${this.responseCounter}`,
     };
   }

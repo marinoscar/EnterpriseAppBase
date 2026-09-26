@@ -30,7 +30,12 @@ import { AiError, isAiErrorCode } from '../core/ai-error';
 import { aiModelCapabilitiesSchema } from '../core/capabilities';
 import { AiCallContext, AiProviderAdapter } from '../core/provider-adapter.interface';
 import { defineTool } from '../core/tools';
-import { AiEmbeddingRequest, AiEmbeddingResult } from '../core/types/media.types';
+import {
+  AiEmbeddingRequest,
+  AiEmbeddingResult,
+  AiImageGenerationRequest,
+  AiImageResult,
+} from '../core/types/media.types';
 import { AiOutputItem, AiResponse, AiResponseRequest, AiStreamEvent } from '../core/types/responses.types';
 
 export type AiConformanceScenario =
@@ -52,7 +57,11 @@ export type AiConformanceScenario =
   | 'embeddings.batch'
   | 'embeddings.dimensions'
   | 'embeddings.invalidKey'
-  | 'embeddings.providerError';
+  | 'embeddings.providerError'
+  | 'images.generate'
+  | 'images.edit'
+  | 'images.invalidKey'
+  | 'images.providerError';
 
 export interface AiConformanceFixtures {
   /** A key the provider rejects. */
@@ -83,6 +92,13 @@ export interface AiConformanceFixtures {
     /** A request that makes the provider fail. */
     failingRequest: AiEmbeddingRequest;
   };
+  /** Required when the adapter carries an `images` port. */
+  images?: {
+    /** A model with `image_generation` (and `image_edit`, when the port carries `edit`). */
+    model: string;
+    /** A request that makes the provider fail. */
+    failingRequest: AiImageGenerationRequest;
+  };
   /** Runs before each scenario's calls — for a mocked transport that queues replies. */
   arrange?(scenario: AiConformanceScenario): void | Promise<void>;
 }
@@ -105,6 +121,13 @@ export const CONFORMANCE_TEXT_PROMPT = 'Reply with a short friendly greeting.';
 export const CONFORMANCE_STRUCTURED_PROMPT = 'What is the capital of France and roughly how many people live there?';
 export const CONFORMANCE_TOOL_PROMPT = 'What is the weather in Paris right now? Use the tool.';
 export const CONFORMANCE_EMBEDDING_INPUTS = ['The quick brown fox.', 'jumps over', 'the lazy dog.'];
+export const CONFORMANCE_IMAGE_PROMPT = 'A watercolour lighthouse at dusk.';
+
+/** A real 1x1 PNG — the source image the kit's edit scenario sends. */
+export const CONFORMANCE_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+  'base64',
+);
 
 /** The structured-output schema the kit requests. */
 export const conformanceStructuredSchema = z.object({
@@ -202,6 +225,19 @@ function expectWellFormedEmbedding(result: AiEmbeddingResult, adapter: AiProvide
     expect(Array.isArray(vector)).toBe(true);
     expect(vector).toHaveLength(result.dimensions);
     expect(vector.every((value) => typeof value === 'number' && Number.isFinite(value))).toBe(true);
+  }
+}
+
+function expectWellFormedImages(result: AiImageResult, adapter: AiProviderAdapter, count: number): void {
+  expect(result.provider).toBe(adapter.id);
+  expect(typeof result.model).toBe('string');
+  expect(typeof result.usage).toBe('object');
+  expect(result.images).toHaveLength(count);
+
+  for (const image of result.images) {
+    expect(image.data).toBeInstanceOf(Uint8Array);
+    expect(image.data.length).toBeGreaterThan(0);
+    expect(image.mimeType).toMatch(/^image\//);
   }
 }
 
@@ -516,6 +552,69 @@ export function describeAiProviderConformance(
         const { embeddings, fixture } = port();
 
         await expectAiError(() => embeddings.embed(fixture.failingRequest, subject.ctx));
+      }));
+    });
+
+    describe('images port', () => {
+      const port = () => {
+        const images = subject.adapter.images;
+        const fixture = subject.fixtures.images;
+
+        if (!images || !fixture) {
+          throw new Error('unreachable: guarded by whenPort()');
+        }
+
+        return { images, fixture };
+      };
+
+      const whenPort = (fn: () => Promise<void>) => async () => {
+        if (!subject.adapter.images) {
+          return;
+        }
+
+        expect(subject.fixtures.images).toBeDefined();
+        await fn();
+      };
+
+      scenario('images.generate', 'generate returns n images as bytes + an image MIME type, never a URL', whenPort(async () => {
+        const { images, fixture } = port();
+        const result = await images.generate({ model: fixture.model, prompt: CONFORMANCE_IMAGE_PROMPT, n: 2 }, subject.ctx);
+
+        expectWellFormedImages(result, subject.adapter, 2);
+      }));
+
+      scenario('images.edit', 'edit (when carried) returns images for a source image', whenPort(async () => {
+        const { images, fixture } = port();
+
+        if (!images.edit) {
+          return;
+        }
+
+        const result = await images.edit(
+          {
+            model: fixture.model,
+            prompt: CONFORMANCE_IMAGE_PROMPT,
+            images: [{ data: CONFORMANCE_PNG, mimeType: 'image/png', filename: 'source.png' }],
+          },
+          subject.ctx,
+        );
+
+        expectWellFormedImages(result, subject.adapter, 1);
+      }));
+
+      scenario('images.invalidKey', 'a rejected key surfaces as AI_KEY_INVALID', whenPort(async () => {
+        const { images, fixture } = port();
+
+        await expectAiError(
+          () => images.generate({ model: fixture.model, prompt: CONFORMANCE_IMAGE_PROMPT }, invalidCtx()),
+          'AI_KEY_INVALID',
+        );
+      }));
+
+      scenario('images.providerError', 'a provider failure surfaces as AiError, never a raw error', whenPort(async () => {
+        const { images, fixture } = port();
+
+        await expectAiError(() => images.generate(fixture.failingRequest, subject.ctx));
       }));
     });
   });
