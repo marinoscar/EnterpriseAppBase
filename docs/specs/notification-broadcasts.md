@@ -199,7 +199,7 @@ back: a CAS `failed` -> `sending` (requiring `audienceCutoff` to be set, so a
 row that was never actually claimed cannot be "resumed" into a no-op),
 clearing `lastError`/`finishedAt` and enqueuing a fresh chunk job
 (`skipDedup: true`, `reason: 'rerun'`) from the persisted cursor. See §9 for
-the full mechanism and its one remaining gap, and §11 for its tests. It is a
+the full mechanism, and §11 for its tests. It is a
 listener rather than a job for the same reason `JobFailureNotifier` and
 `NodeSecretRevoker` are: one bounded, single-row, indexed UPDATE is not
 "duration worth accounting for" under CLAUDE.md rule 1.
@@ -260,12 +260,21 @@ branch on rather than an exception to interpret.
 
 This is also what makes an operator's manual rerun of an already-succeeded
 start job (available from the admin Jobs dashboard) harmless: on rerun the
-broadcast is `sending`, `sent`, or `canceled` — never `scheduled` — so the
-swap matches nothing and re-stamps nothing. That matters specifically for
-`audienceCutoff`, which is written in the same statement that consumes the
-only status a claim can happen from, so no second execution can move it —
-a rerun cannot silently redefine who the broadcast was for while chunks are
-already walking the original population.
+broadcast is `sending`, `sent`, `failed`, or `canceled` — never `scheduled` —
+so the swap matches nothing. That matters specifically for `audienceCutoff`,
+which is written in the same statement that consumes the only status a claim
+can happen from, so no second execution can move it — a rerun cannot silently
+redefine who the broadcast was for while chunks are already walking the
+original population.
+
+A `sending` row is the one case that is not simply a no-op (issue #469): the
+handler routes it to a resume check instead of the swap above, and that check
+only *acts* — recounting against the stored `audienceCutoff` and enqueuing a
+first chunk — when the hand-off the claim began demonstrably never finished
+(no cursor, no dispatches, no chunk job for it in any status). A `sending`
+broadcast with a chunk chain already running still re-stamps nothing and
+enqueues nothing, for the same reason a `sent`/`failed`/`canceled` rerun does;
+see §5 for the four checks and why each is load-bearing.
 
 **What cancel can and cannot un-send.** Cancel is the only recall mechanism
 this feature has, and it is honest about its limits. It flips the status
@@ -310,6 +319,48 @@ while one is pending or running. It loads the broadcast (a missing row is a
 no-op, not a failure — the admin may have deleted it while the job sat
 queued), performs the compare-and-swap in §4, counts the frozen audience with
 `audienceWhere()` into `recipientsTargeted`, and enqueues the first chunk.
+
+**Idempotent past its claim (issue #469).** The claim and the hand-off
+(count, write `recipientsTargeted`, enqueue the first chunk) are separate
+statements, so a start job that claims the broadcast and then throws — a
+connection drop between the CAS and the enqueue, say — leaves the row
+`sending` with nothing behind it. Its retry (or any later start execution for
+this broadcast) finds `status: 'sending'` and, before touching the CAS at
+all, checks whether that hand-off ever finished. It resumes — recounting
+against the **stored** `audienceCutoff`, never a fresh `now`, so the frozen
+audience never widens — only when **all four** hold:
+
+- the row is `sending` with `audienceCutoff` set (a claim actually happened);
+- `cursorUserId` is null **and** `recipientsDispatched` is `0` — on their own
+  these miss a first chunk that is still `pending`, or one deferred by a
+  rate limit at its very first recipient (#456), which has made no progress
+  yet but is alive;
+- no `admin.broadcast.chunk` job exists for this broadcast, **in any
+  status** — on its own this misses a chain whose old chunk rows were
+  removed by the job history purge, which is why the two checks above stay.
+  "Any status" is deliberate: a chunk that ended `failed` already flipped the
+  broadcast to `failed` through `BroadcastFailureListener`, so a `failed`
+  chunk beside a `sending` broadcast is not a state this path needs to heal.
+
+Both the fresh-claim path and the resume path call one shared hand-off
+method, and its `recipientsTargeted` write is conditional on
+`status = 'sending'` in both — so a cancel landing between the claim and the
+count stops the enqueue exactly the same way whichever path is running. Any
+start job for the broadcast may finish the hand-off safely, not only the one
+that claimed it. A double execution racing through the resume check (a
+zombie whose lease was reaped, still running beside its replacement) can
+enqueue two first chunks in a narrow window; §5's own cursor CAS (below,
+added by #459) collapses that to one chain with at most one page
+(`BROADCAST_CHUNK_SIZE`, 200) of duplicate sends and an exact
+`recipientsDispatched`.
+
+**Operator side effect.** A broadcast already stranded `sending` by this bug
+before the fix — no cursor, no dispatches, no chunk job — is repaired by
+retrying its start job from the admin Jobs page: the retry now finishes the
+hand-off instead of reporting a hollow `succeeded`. `BroadcastFailureListener`
+(§4, §9) still covers the other half — a start job that spends its **final**
+attempt before a retry manages to resume — by CASing the broadcast to
+`failed` once that job settles, so it can be resumed the ordinary way.
 
 **`admin.broadcast.chunk`** — enqueued with **`skipDedup: true`**, and this
 is load-bearing in a way that fails **silently** if it is ever dropped.
@@ -647,25 +698,28 @@ An admin who retries the dead job from the Jobs dashboard sees it succeed
 designed — that job's retry and the broadcast's resume are deliberately two
 different actions.
 
-**One limit remains, tracked as a separate issue rather than papered over
-here** (#469): a start job that fails on a *non-final* attempt after it has
-already claimed the broadcast (its compare-and-swap to `sending` committed,
-but the first-chunk enqueue then threw) leaves the broadcast `sending` while
-the start job itself retries — if that retry never succeeds and the job is
-eventually re-claimed and fails a different way, the broadcast can still end
-up stranded before a terminal `failed` job row exists for the listener to
-react to. This is not a `failed`-transition bug in what #459 shipped; it is a
-gap in what settles far enough upstream to notice.
+**Both gaps this section used to track are closed, by #468 and #469
+respectively.** The lease reaper's permanent give-up (`JobStuckService`,
+`jobs/job-stuck.service.ts` phase 1 — a job whose executor died on *every*
+attempt) used to write `status: 'failed'` directly without emitting
+`JOB_SETTLED_EVENT`, so a chunk that died that way stranded its broadcast in
+`sending` with nothing to catch it. Since #468 the reaper's give-up emits the
+event too (`docs/specs/job-queue.md` §7.2), through the same `emitJobSettled`
+helper the terminal path uses, so `broadcast-failure.listener.ts` now sees it
+and fails the broadcast exactly as it would for an in-process give-up.
 
-A related gap closed rather than remaining: the lease reaper's permanent
-give-up (`JobStuckService`, `jobs/job-stuck.service.ts` phase 1 — a job whose
-executor died on *every* attempt) used to write `status: 'failed'` directly
-without emitting `JOB_SETTLED_EVENT`, so a chunk that died that way stranded
-its broadcast in `sending` with nothing to catch it. Since #468 the reaper's
-give-up emits the event too (`docs/specs/job-queue.md` §7.2), through the
-same `emitJobSettled` helper the terminal path uses, so `broadcast-failure
-.listener.ts` now sees it and fails the broadcast exactly as it would for an
-in-process give-up.
+The other gap was upstream of the listener entirely: a start job that fails
+on a *non-final* attempt after its compare-and-swap to `sending` committed
+but before the first-chunk enqueue leaves the broadcast `sending` with no
+terminal job row yet for the listener to react to. Since #469 that retry (or
+any later start execution for the broadcast) is idempotent past its claim —
+it finishes the interrupted hand-off itself against the stored
+`audienceCutoff` rather than being a no-op — so the broadcast heals on the
+very next attempt instead of depending on the attempt budget running out
+first. See §5 for the four checks that decide when a resume finishes the
+hand-off. `BroadcastFailureListener` remains the backstop for the case #469
+does not touch: a start job whose *final* attempt is the one that fails after
+the claim, with no further retry left to resume it.
 
 **The approximate delivery window closes and reopens with `failed`/resume
 (#459).** The `[startedAt, finishedAt ?? now]` window below treats a
@@ -793,6 +847,8 @@ screen.
 | Both event keys map to the one `'broadcast'` email template and the one shared browser/push renderer | `email-notification.channel.ts` / `browser-notification.channel.ts` registrations, exercised via the handler specs' dispatch assertions |
 | The start handler's claim puts `status` in the `WHERE`, stamps `startedAt`/`audienceCutoff` from one instant, counts with `audienceWhere()`, and enqueues the first chunk with `skipDedup: true` | `apps/api/src/notifications/broadcasts/handlers/broadcast-start.handler.spec.ts` |
 | A compare-and-swap that claims nothing (already `sending`/`sent`/`canceled`) re-stamps nothing and enqueues nothing | `broadcast-start.handler.spec.ts`, `describe('when the compare-and-swap claims nothing')` |
+| A `sending` broadcast resumes its hand-off only when all four conditions hold (cutoff set, no cursor, zero dispatched, no chunk job in any status), recounts against the **stored** `audienceCutoff` rather than a fresh `now`, and is a no-op — no recount, no write, no enqueue — the moment any one condition fails (fan-out already progressing, or a chunk job already exists) | `apps/api/src/notifications/broadcasts/handlers/broadcast-start.handler.spec.ts` |
+| A cancel landing between the claim and the hand-off's `recipientsTargeted` write stops the enqueue, on both the fresh-claim path and the resume path, because the write is conditional on `status = 'sending'` in both | `broadcast-start.handler.spec.ts` |
 | The chunk handler's status guard neutralises a cancelled, finished, deleted, or cutoff-less broadcast | `apps/api/src/notifications/broadcasts/handlers/broadcast-chunk.handler.spec.ts`, `describe('the status guard')` |
 | Paging is keyset (`id > cursor`, `orderBy: id asc`), frozen at the cutoff, and skips inactive users | `broadcast-chunk.handler.spec.ts`, `describe('paging')` |
 | Dispatch uses `notifyNow` (never the detached `notify`) with the broadcast's stored channels | `broadcast-chunk.handler.spec.ts`, `describe('dispatch')` |
@@ -823,6 +879,9 @@ screen.
 | A cancel landing between two chunk jobs stops the fan-out | `broadcast-fanout.db.spec.ts` |
 | A cancel committed while a chunk is mid-dispatch: the in-flight send completes, but the terminal compare-and-swap cannot flip `canceled` to `sent` — `finishedAt` stays null and no successor is enqueued | `broadcast-fanout.db.spec.ts` |
 | A chunk the lease reaper gives up on (its executor died on every attempt) still flips its broadcast `sending` -> `failed`, end to end, through the reaper's `job.settled` emit rather than `JobTerminalService`'s | `apps/api/test/broadcasts/broadcast-fanout.db.spec.ts` |
+| A start job that claims a broadcast and then fails on a non-final attempt (before the first chunk is enqueued) is retried and completes the fan-out end to end, against the original `audienceCutoff`, with no chunk skipped or duplicated beyond the ordinary bound | `apps/api/test/broadcasts/broadcast-fanout.db.spec.ts` |
+| A `sending` broadcast whose fan-out has already made progress, or whose cursor was reset by an admin cancel/resume in between, is left alone by a later start execution | `broadcast-fanout.db.spec.ts` |
+| Two concurrent start executions that both reach the resume path for the same stranded broadcast (a double execution of the same zombie start job) collapse to one chunk chain, via the #459 cursor CAS, with `recipientsDispatched` exact and duplicates bounded to at most one page | `broadcast-fanout.db.spec.ts` |
 
 **What this still doesn't prove.** `broadcast-fanout.db.spec.ts` drives the
 real `BroadcastStartHandler` and `BroadcastChunkHandler` against a real

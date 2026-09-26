@@ -1312,4 +1312,313 @@ describeWithDb('Admin broadcast fan-out (real Postgres)', () => {
       }
     );
   });
+
+  // ===========================================================================
+  // 9. Hand-off after a post-claim failure (issue #469)
+  // ===========================================================================
+  //
+  // `broadcast-start.handler.spec.ts` proves the SHAPE of the resume path
+  // against mocks. What only a real database can answer is whether a start
+  // job that genuinely fails AFTER the claim CAS (a thrown error from the
+  // enqueue call, standing in for a connection drop, a worker crash, or a
+  // process OOM) really does leave the broadcast recoverably `sending`, and
+  // whether a subsequent execution (whether the queue's own retry or a
+  // second execution racing it) really does finish the hand-off exactly
+  // once against the STORED cutoff rather than starting a second fan-out.
+  describe('hand-off after a post-claim failure (#469)', () => {
+    /**
+     * Wraps a real `JobsService` so its very first `enqueue` call rejects
+     * (standing in for the crash/connection-drop this suite needs to land
+     * strictly AFTER the claim CAS has already committed) and every
+     * subsequent call delegates to the real service.
+     */
+    function jobsFailingFirstEnqueue(real: JobsService): JobsService {
+      let failed = false;
+      return {
+        enqueue: async (params: Parameters<JobsService['enqueue']>[0]) => {
+          if (!failed) {
+            failed = true;
+            throw new Error('simulated post-claim failure (#469)');
+          }
+          return real.enqueue(params);
+        },
+      } as unknown as JobsService;
+    }
+
+    it(
+      'a retry after the first attempt fails past its claim finishes the hand-off against the ' +
+        'stored cutoff, excluding a user created after that cutoff, and reaches sent',
+      async () => {
+        const audienceIds = await createUsers(5, 'posthandoff-audience');
+        const broadcast = await createBroadcast();
+
+        const failingJobs = jobsFailingFirstEnqueue(jobsA);
+        const failingStartHandler = new BroadcastStartHandler(
+          clientA as unknown as PrismaService,
+          failingJobs,
+          registryStub()
+        );
+
+        // --- attempt 1: claims, then fails inside handOff's enqueue ---
+        await expect(
+          failingStartHandler.process(startJobFor(broadcast.id, 'start-attempt-1'))
+        ).rejects.toThrow('simulated post-claim failure (#469)');
+
+        const afterAttempt1 = await clientA.notificationBroadcast.findUniqueOrThrow({
+          where: { id: broadcast.id },
+        });
+        expect(afterAttempt1.status).toBe('sending');
+        expect(afterAttempt1.audienceCutoff).toBeInstanceOf(Date);
+        expect(afterAttempt1.startedAt).toBeInstanceOf(Date);
+        // The claim committed, and handOff's count + conditional write run
+        // BEFORE the enqueue call — so recipientsTargeted IS already written
+        // by the time the simulated failure throws. What genuinely never
+        // happened is the chunk enqueue itself.
+        expect(afterAttempt1.recipientsTargeted).toBe(audienceIds.length);
+        const chunksAfterAttempt1 = await clientA.job.findMany({
+          where: { type: BROADCAST_CHUNK_TYPE, subjectType: BROADCAST_SUBJECT_TYPE, subjectId: broadcast.id },
+        });
+        expect(chunksAfterAttempt1).toHaveLength(0);
+
+        // A user created AFTER the first (failed) attempt — the cutoff was
+        // already frozen by the claim, so this user must be excluded from
+        // both recipientsTargeted and dispatch on the resumed hand-off.
+        const [lateUserId] = await createUsers(1, 'posthandoff-late');
+
+        // --- attempt 2: the retry, now via the real (non-failing) jobs service ---
+        const retryStartHandler = new BroadcastStartHandler(
+          clientA as unknown as PrismaService,
+          jobsA,
+          registryStub()
+        );
+
+        await expect(
+          retryStartHandler.process(startJobFor(broadcast.id, 'start-attempt-2'))
+        ).resolves.toBeUndefined();
+
+        const afterAttempt2 = await clientA.notificationBroadcast.findUniqueOrThrow({
+          where: { id: broadcast.id },
+        });
+        expect(afterAttempt2.status).toBe('sending');
+        // The cutoff and startedAt are UNCHANGED — the resume path reuses
+        // the stamp the (only) claim made, it never re-stamps.
+        expect(afterAttempt2.audienceCutoff!.getTime()).toBe(afterAttempt1.audienceCutoff!.getTime());
+        expect(afterAttempt2.startedAt!.getTime()).toBe(afterAttempt1.startedAt!.getTime());
+        // recipientsTargeted reflects the audience AT THE STORED CUTOFF —
+        // the late user is excluded.
+        expect(afterAttempt2.recipientsTargeted).toBe(audienceIds.length);
+
+        const chunksAfterAttempt2 = await clientA.job.findMany({
+          where: { type: BROADCAST_CHUNK_TYPE, subjectType: BROADCAST_SUBJECT_TYPE, subjectId: broadcast.id },
+        });
+        expect(chunksAfterAttempt2).toHaveLength(1);
+
+        // --- drive to completion ---
+        const { chunkHandler, stub } = handlersFor(clientA, jobsA);
+        await runChunksToCompletion(chunkHandler, broadcast.id);
+
+        const finalState = await clientA.notificationBroadcast.findUniqueOrThrow({
+          where: { id: broadcast.id },
+        });
+        expect(finalState.status).toBe('sent');
+        expect(finalState.recipientsTargeted).toBe(audienceIds.length);
+        expect(finalState.recipientsDispatched).toBe(audienceIds.length);
+
+        const dispatched = dispatchedIds(stub.calls);
+        expect(dispatched.sort()).toEqual([...audienceIds].sort());
+        expect(dispatched).not.toContain(lateUserId);
+      }
+    );
+
+    it('a second retry after a chunk already exists is a clean no-op (still exactly one chunk)', async () => {
+      await createUsers(3, 'already-chunked-audience');
+      const broadcast = await createBroadcast();
+      const { startHandler } = handlersFor(clientA, jobsA);
+
+      // A normal, successful start — claims, hands off, enqueues one chunk.
+      await startHandler.process(startJobFor(broadcast.id, 'start-normal'));
+
+      const afterFirst = await clientA.notificationBroadcast.findUniqueOrThrow({
+        where: { id: broadcast.id },
+      });
+      expect(afterFirst.status).toBe('sending');
+      expect(afterFirst.cursorUserId).toBeNull();
+      expect(afterFirst.recipientsDispatched).toBe(0);
+
+      const chunksAfterFirst = await clientA.job.findMany({
+        where: { type: BROADCAST_CHUNK_TYPE, subjectType: BROADCAST_SUBJECT_TYPE, subjectId: broadcast.id },
+      });
+      expect(chunksAfterFirst).toHaveLength(1);
+
+      // An operator (or a duplicated worker) reruns the start job. Cutoff
+      // is set, cursor/dispatched are still zero (no chunk has RUN yet), but
+      // a chunk job now exists — the resume guard's third check must catch
+      // this and no-op.
+      await startHandler.process(startJobFor(broadcast.id, 'start-rerun'));
+
+      const chunksAfterRerun = await clientA.job.findMany({
+        where: { type: BROADCAST_CHUNK_TYPE, subjectType: BROADCAST_SUBJECT_TYPE, subjectId: broadcast.id },
+      });
+      expect(chunksAfterRerun).toHaveLength(1);
+      expect(chunksAfterRerun[0].id).toBe(chunksAfterFirst[0].id);
+    });
+
+    it('a sending broadcast with real fan-out progress creates no chunk on retry', async () => {
+      const [cursorUserId] = await createUsers(1, 'progress-cursor');
+      const broadcast = await createBroadcast({ status: 'sending' });
+      await clientA.notificationBroadcast.update({
+        where: { id: broadcast.id },
+        data: { audienceCutoff: new Date(), cursorUserId, recipientsDispatched: 1 },
+      });
+      // Deliberately NO chunk job row — standing in for one purged by job
+      // history retention, which is exactly why the cursor/dispatched checks
+      // must not depend on a chunk row existing.
+      const { startHandler } = handlersFor(clientA, jobsA);
+
+      await startHandler.process(startJobFor(broadcast.id, 'start-progress-retry'));
+
+      const chunkCount = await clientA.job.count({
+        where: { type: BROADCAST_CHUNK_TYPE, subjectType: BROADCAST_SUBJECT_TYPE, subjectId: broadcast.id },
+      });
+      expect(chunkCount).toBe(0);
+
+      const finalState = await clientA.notificationBroadcast.findUniqueOrThrow({
+        where: { id: broadcast.id },
+      });
+      // Untouched — the resume guard's no-op leaves the row exactly as found.
+      expect(finalState.status).toBe('sending');
+      expect(finalState.cursorUserId).toBe(cursorUserId);
+      expect(finalState.recipientsDispatched).toBe(1);
+    });
+
+    it('a broadcast canceled before the resume creates no chunk', async () => {
+      await createUsers(2, 'canceled-before-resume-audience');
+      const broadcast = await createBroadcast({ status: 'canceled' });
+      await clientA.notificationBroadcast.update({
+        where: { id: broadcast.id },
+        data: { audienceCutoff: new Date(), canceledAt: new Date() },
+      });
+      const { startHandler } = handlersFor(clientA, jobsA);
+
+      await expect(
+        startHandler.process(startJobFor(broadcast.id, 'start-after-cancel'))
+      ).resolves.toBeUndefined();
+
+      const chunkCount = await clientA.job.count({
+        where: { type: BROADCAST_CHUNK_TYPE, subjectType: BROADCAST_SUBJECT_TYPE, subjectId: broadcast.id },
+      });
+      expect(chunkCount).toBe(0);
+
+      const finalState = await clientA.notificationBroadcast.findUniqueOrThrow({
+        where: { id: broadcast.id },
+      });
+      expect(finalState.status).toBe('canceled');
+    });
+
+    it(
+      'two concurrent resume executions after a post-claim failure produce at most two chunks, ' +
+        'and the #459 cursor CAS still collapses the fan-out to exactly one delivery per recipient',
+      async () => {
+        // At least two full BROADCAST_CHUNK_SIZE pages, so a genuine
+        // duplicate-first-chunk race (both resume executions passing the
+        // "no chunk exists" check before either enqueues) has real paging
+        // behaviour to collapse, not just a single short page.
+        const audienceIds = await createUsers(2 * BROADCAST_CHUNK_SIZE + 15, 'double-resume-audience');
+        const broadcast = await createBroadcast();
+
+        const failingJobs = jobsFailingFirstEnqueue(jobsA);
+        const failingStartHandler = new BroadcastStartHandler(
+          clientA as unknown as PrismaService,
+          failingJobs,
+          registryStub()
+        );
+
+        // The claim, deliberately failing past it — broadcast is `sending`,
+        // cutoff stamped, NO chunk row.
+        await expect(
+          failingStartHandler.process(startJobFor(broadcast.id, 'start-claim'))
+        ).rejects.toThrow('simulated post-claim failure (#469)');
+
+        const chunksBeforeResume = await clientA.job.count({
+          where: { type: BROADCAST_CHUNK_TYPE, subjectType: BROADCAST_SUBJECT_TYPE, subjectId: broadcast.id },
+        });
+        expect(chunksBeforeResume).toBe(0);
+
+        // Two SEPARATE PrismaClients, exactly like the "exactly one of two
+        // concurrent start executions" test above, so the race is resolved
+        // by real Postgres row locking rather than an in-process mutex.
+        const resumeA = new BroadcastStartHandler(clientA as unknown as PrismaService, jobsA, registryStub());
+        const resumeB = new BroadcastStartHandler(clientB as unknown as PrismaService, jobsB, registryStub());
+
+        await expect(
+          Promise.all([
+            resumeA.process(startJobFor(broadcast.id, 'start-resume-a')),
+            resumeB.process(startJobFor(broadcast.id, 'start-resume-b')),
+          ])
+        ).resolves.toBeDefined();
+
+        const chunkRows = await clientA.job.findMany({
+          where: { type: BROADCAST_CHUNK_TYPE, subjectType: BROADCAST_SUBJECT_TYPE, subjectId: broadcast.id },
+          orderBy: { createdAt: 'asc' },
+        });
+        // Both resume executions may pass the "no chunk exists" read before
+        // either commits its recipientsTargeted write, so up to two FIRST
+        // chunks may be enqueued (unlike the single-claim CAS test above,
+        // this resume guard's existence check is not itself atomic with the
+        // enqueue — the #459 cursor CAS inside the chunk handler is what
+        // bounds the resulting duplication, not this check).
+        expect(chunkRows.length).toBeGreaterThanOrEqual(1);
+        expect(chunkRows.length).toBeLessThanOrEqual(2);
+
+        const { chunkHandler, stub } = handlersFor(clientA, jobsA);
+        // Drive every chunk row (both first-chunk duplicates, if two were
+        // created, plus every successor either enqueues) to completion.
+        let guard = 0;
+        for (;;) {
+          guard += 1;
+          if (guard > 50) {
+            throw new Error('runaway chunk chain in double-resume test');
+          }
+          const job = await clientA.job.findFirst({
+            where: { type: BROADCAST_CHUNK_TYPE, subjectType: BROADCAST_SUBJECT_TYPE, subjectId: broadcast.id, status: 'pending' },
+            orderBy: { createdAt: 'asc' },
+          });
+          if (!job) break;
+          await chunkHandler.process(job);
+          await clientA.job.update({ where: { id: job.id }, data: { status: 'succeeded' } });
+        }
+
+        const finalState = await clientA.notificationBroadcast.findUniqueOrThrow({
+          where: { id: broadcast.id },
+        });
+        expect(finalState.status).toBe('sent');
+        // The #459 cursor CAS allows at most one increment per page, so the
+        // final dispatched count equals the audience size exactly, never
+        // more, however many duplicate first chunks were created above.
+        expect(finalState.recipientsDispatched).toBe(audienceIds.length);
+
+        const dispatched = dispatchedIds(stub.calls);
+        const uniqueDispatched = new Set(dispatched);
+        for (const id of audienceIds) {
+          expect(uniqueDispatched.has(id)).toBe(true);
+        }
+        expect(uniqueDispatched.size).toBe(audienceIds.length);
+
+        // Duplicate dispatches (from the same recipient being paged by two
+        // racing first chunks before the cursor CAS resolved) are bounded by
+        // one full chunk size — the whole first page could, in the worst
+        // case, be sent by both racing executions before one loses its CAS.
+        const counts = new Map<string, number>();
+        for (const id of dispatched) {
+          counts.set(id, (counts.get(id) ?? 0) + 1);
+        }
+        let duplicateCount = 0;
+        for (const [, count] of counts) {
+          expect(count).toBeGreaterThanOrEqual(1);
+          duplicateCount += count - 1;
+        }
+        expect(duplicateCount).toBeLessThanOrEqual(BROADCAST_CHUNK_SIZE);
+      }
+    );
+  });
 });

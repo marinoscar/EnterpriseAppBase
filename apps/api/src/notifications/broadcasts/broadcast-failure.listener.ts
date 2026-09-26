@@ -74,6 +74,12 @@ import { BROADCAST_START_TYPE } from './handlers/broadcast-start.handler';
 // no live job is visible and cancelable/deletable, and is not what #459 is
 // about.
 //
+// Since #469 only the FINAL attempt matters here. A NON-final start attempt
+// that claims and then throws heals itself: its retry finds the broadcast
+// `sending` with no cursor, no dispatches and no chunk job, and finishes the
+// hand-off against the stored cutoff. This listener is the backstop for the
+// attempt budget running out before that retry succeeds.
+//
 // -----------------------------------------------------------------------------
 // 4. THE `sending`-ONLY MATCH IS WHAT MAKES A RACING CANCEL WIN
 // -----------------------------------------------------------------------------

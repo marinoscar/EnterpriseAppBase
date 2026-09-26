@@ -46,7 +46,39 @@
 // Note that dedup is a CONVENIENCE here, not the correctness argument. It is
 // scoped to jobs that are still active, so it says nothing about a start job
 // that already succeeded and is rerun by an operator from the admin dashboard.
-// The compare-and-swap below is what makes that harmless.
+// The compare-and-swap below is what makes that harmless for a broadcast that
+// is already under way, and the resume guard (next section) is what makes it
+// harmless for one whose hand-off never finished.
+//
+// -----------------------------------------------------------------------------
+// IDEMPOTENT PAST ITS CLAIM (issue #469)
+// -----------------------------------------------------------------------------
+//
+// The claim and the hand-off are separate statements: the CAS flips
+// `scheduled` -> `sending` and stamps `startedAt`/`audienceCutoff`, and only
+// then is the audience counted, `recipientsTargeted` written and the first
+// chunk enqueued. If anything after the claim throws, the retry finds the
+// broadcast already `sending` — so a CAS-only handler would match nothing,
+// report `succeeded`, and strand the broadcast in `sending` with no chunk
+// chain behind it.
+//
+// So a start job is idempotent past its claim: any start execution that finds
+// the broadcast `sending` with no cursor, no dispatches and NO chunk job (in
+// any status) finishes the hand-off itself, using the STORED cutoff. Any job
+// for this broadcast may do that safely, not only the one that claimed it:
+//
+//   - the cutoff is frozen by the claim and is never re-stamped, so the
+//     resumed hand-off pages exactly the population the claim defined;
+//   - the recount is the same documented snapshot the fresh path takes
+//     (`recipientsTargeted` means "targeted at send time", not a guarantee);
+//   - if two executions race through the resume (a zombie whose lease was
+//     reaped still running alongside its replacement), each may enqueue a
+//     first chunk, and #459's cursor compare-and-swap in the chunk handler
+//     collapses that to at most one page of duplicate deliveries.
+//
+// Side effect worth knowing operationally: a broadcast already stuck in
+// `sending` from before this fix can be repaired by retrying its start job
+// from the admin Jobs page.
 // =============================================================================
 
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
@@ -97,8 +129,9 @@ export class BroadcastStartHandler implements JobHandler, OnModuleInit {
    *
    * THROWS TO FAIL. Every database call below is unguarded on purpose: a
    * connection error must reach the worker so it lands in `Job.lastError` and
-   * is retried on the queue's budget. The compare-and-swap is what makes that
-   * retry safe — see below.
+   * is retried on the queue's budget. The compare-and-swap makes a retry
+   * that fails BEFORE the claim safe, and `resumeHandOff` makes one that fails
+   * AFTER it safe (#469) — see the file header.
    */
   async process(job: Job): Promise<void> {
     const broadcastId = job.subjectId;
@@ -114,7 +147,13 @@ export class BroadcastStartHandler implements JobHandler, OnModuleInit {
 
     const broadcast = await this.prisma.notificationBroadcast.findUnique({
       where: { id: broadcastId },
-      select: { id: true, status: true },
+      select: {
+        id: true,
+        status: true,
+        audienceCutoff: true,
+        cursorUserId: true,
+        recipientsDispatched: true,
+      },
     });
 
     if (!broadcast) {
@@ -128,6 +167,16 @@ export class BroadcastStartHandler implements JobHandler, OnModuleInit {
       this.logger.log(
         `Broadcast ${broadcastId} no longer exists; start job ${job.id} is a no-op`
       );
+
+      return;
+    }
+
+    // ALREADY CLAIMED: finish an interrupted hand-off, or do nothing (#469).
+    // The CAS below could only match nothing for a `sending` row, so going
+    // straight to the resume path loses nothing — and the resume path's own
+    // guards decide whether there is anything left to do.
+    if (broadcast.status === 'sending') {
+      await this.resumeHandOff(job, broadcast);
 
       return;
     }
@@ -178,12 +227,15 @@ export class BroadcastStartHandler implements JobHandler, OnModuleInit {
     //   2. AN OPERATOR'S MANUAL RERUN OF A SUCCEEDED START JOB IS HARMLESS.
     //      The admin Jobs dashboard offers a rerun, and dedup does not cover
     //      an already-terminal row. On the rerun the broadcast is `sending`,
-    //      `sent` or `canceled` — never `scheduled` — so the swap matches
-    //      nothing and the handler returns having sent nothing and, crucially,
-    //      having re-stamped nothing.
+    //      `sent`, `failed` or `canceled` — never `scheduled` — so nothing is
+    //      claimed and, crucially, nothing is re-stamped. A `sending` row is
+    //      routed to `resumeHandOff` before this statement (#469), which only
+    //      acts when the hand-off demonstrably never finished — no cursor, no
+    //      dispatches, no chunk job — and then reuses the stored cutoff.
     //   3. `audienceCutoff` IS WRITTEN EXACTLY ONCE. It is set in the same
     //      statement that consumes the only status a claim can happen from, so
-    //      no second execution can move it. That matters more than it looks:
+    //      no second execution can move it — the resume path reads it and
+    //      never writes it. That matters more than it looks:
     //      the cutoff is the definition of the audience, and a rerun that
     //      re-stamped it mid-fan-out would silently redefine who the broadcast
     //      was for while the chunks were already walking the old population.
@@ -198,6 +250,11 @@ export class BroadcastStartHandler implements JobHandler, OnModuleInit {
     });
 
     if (claimed.count === 0) {
+      // The loser of two simultaneous claims (both read `scheduled`, one swap
+      // won), a cancel that landed between the read and the swap, or a
+      // non-`scheduled`, non-`sending` status. Nothing to do — the winner, if
+      // any, owns the hand-off, and it is idempotent past its claim if it
+      // fails (see the file header).
       this.logger.log(
         `Broadcast ${broadcastId} is '${broadcast.status}', not 'scheduled'; ` +
           `start job ${job.id} claimed nothing and is a no-op`
@@ -206,21 +263,146 @@ export class BroadcastStartHandler implements JobHandler, OnModuleInit {
       return;
     }
 
+    const handedOff = await this.handOff(broadcastId, now);
+
+    if (!handedOff) {
+      this.logger.log(
+        `Broadcast ${broadcastId} left 'sending' (canceled) after start job ${job.id} ` +
+          `claimed it; no chunk queued`
+      );
+
+      return;
+    }
+
+    this.logger.log(
+      `Broadcast ${broadcastId} claimed by start job ${job.id}: ` +
+        `${handedOff.recipientsTargeted} recipient(s) targeted as of ${now.toISOString()}; ` +
+        `first chunk queued as job ${handedOff.chunkJobId}`
+    );
+  }
+
+  /**
+   * Finishes the hand-off for a broadcast an earlier start attempt claimed but
+   * never handed to a chunk chain (#469), or logs a no-op.
+   *
+   * Proceeds only when ALL FOUR hold, and every one of them is load-bearing:
+   *
+   *   - `audienceCutoff !== null` — the claim stamped it; without it there is
+   *     no frozen population to resume against (and this is not a row a claim
+   *     produced).
+   *   - `cursorUserId === null` and `recipientsDispatched === 0` — no chunk
+   *     has made progress. On their own these MISS a first chunk that is still
+   *     `pending`, or one rate-limit-deferred at its very first recipient
+   *     (#456), which has made no progress yet but is alive.
+   *   - NO chunk job exists for this broadcast, in ANY status. On its own this
+   *     MISSES a chain whose old chunk rows were deleted by the job history
+   *     purge — which is why the cursor/dispatched checks stay. "Any status"
+   *     is right because a chunk that ended `failed` already flipped the
+   *     broadcast to `failed` through #459's listener, so a `failed` chunk row
+   *     beside a `sending` broadcast is not a state this path needs to heal.
+   *
+   * The lookup is served by the `[subjectType, subjectId]` index on `jobs`.
+   */
+  private async resumeHandOff(
+    job: Job,
+    broadcast: {
+      id: string;
+      audienceCutoff: Date | null;
+      cursorUserId: string | null;
+      recipientsDispatched: number;
+    }
+  ): Promise<void> {
+    const noOp = (why: string): void => {
+      this.logger.log(
+        `Broadcast ${broadcast.id} is 'sending' (${why}); ` +
+          `start job ${job.id} claimed nothing and is a no-op`
+      );
+    };
+
+    if (broadcast.audienceCutoff === null) {
+      noOp('no audience cutoff');
+
+      return;
+    }
+
+    if (broadcast.cursorUserId !== null || broadcast.recipientsDispatched > 0) {
+      noOp('fan-out already in progress');
+
+      return;
+    }
+
+    const existingChunk = await this.prisma.job.findFirst({
+      where: {
+        type: BROADCAST_CHUNK_TYPE,
+        subjectType: BROADCAST_SUBJECT_TYPE,
+        subjectId: broadcast.id,
+      },
+      select: { id: true },
+    });
+
+    if (existingChunk) {
+      noOp(`chunk job ${existingChunk.id} already exists`);
+
+      return;
+    }
+
+    // The STORED cutoff, never a fresh `now`: the claim froze the audience,
+    // and resuming against a later instant would silently widen it.
+    const handedOff = await this.handOff(broadcast.id, broadcast.audienceCutoff);
+
+    if (!handedOff) {
+      this.logger.log(
+        `Broadcast ${broadcast.id} left 'sending' (canceled) before start job ${job.id} ` +
+          `could resume its hand-off; no chunk queued`
+      );
+
+      return;
+    }
+
+    this.logger.log(
+      `Start job ${job.id} resumed hand-off for broadcast ${broadcast.id} claimed by an ` +
+        `earlier attempt: ${handedOff.recipientsTargeted} recipient(s) targeted as of ` +
+        `${broadcast.audienceCutoff.toISOString()}; first chunk queued as job ${handedOff.chunkJobId}`
+    );
+  }
+
+  /**
+   * The three hand-off steps — count, record `recipientsTargeted`, enqueue the
+   * first chunk — shared by the fresh-claim path (with the `now` it just
+   * stamped) and the resume path (with the stored cutoff), so the two cannot
+   * drift apart.
+   *
+   * Returns `null`, having enqueued nothing, when the broadcast is no longer
+   * `sending` by the time `recipientsTargeted` is written — a cancel won.
+   */
+  private async handOff(
+    broadcastId: string,
+    cutoff: Date
+  ): Promise<{ recipientsTargeted: number; chunkJobId: string } | null> {
     // Counted with the SAME predicate the chunks page with — see
     // `broadcast-audience.ts` for why that is one exported function and not
-    // two hand-written `where` clauses. Counted AFTER the swap, and therefore
-    // against the cutoff this execution just won the right to stamp.
+    // two hand-written `where` clauses. Counted against the cutoff the claim
+    // stamped (the fresh path passes the value it just wrote; the resume path
+    // passes the stored one).
     //
     // A SNAPSHOT, NOT A GUARANTEE: users deactivated mid-fan-out are skipped
     // by later pages, so `recipientsDispatched` may legitimately finish below
     // this number. The column means "targeted at send time"; the schema says
     // so too.
-    const recipientsTargeted = await this.prisma.user.count({ where: audienceWhere(now) });
+    const recipientsTargeted = await this.prisma.user.count({ where: audienceWhere(cutoff) });
 
-    await this.prisma.notificationBroadcast.update({
-      where: { id: broadcastId },
+    // CONDITIONAL on `sending`, like every other write that races a cancel. If
+    // an admin cancelled between the claim and here, this matches nothing and
+    // no chunk is queued — the cancel wins cleanly instead of being left for
+    // the first chunk's own status check to notice.
+    const recorded = await this.prisma.notificationBroadcast.updateMany({
+      where: { id: broadcastId, status: 'sending' },
       data: { recipientsTargeted },
     });
+
+    if (recorded.count === 0) {
+      return null;
+    }
 
     // The handoff. From here the start job is done: every recipient is
     // dispatched by chunk jobs, each of which enqueues its successor.
@@ -248,10 +430,6 @@ export class BroadcastStartHandler implements JobHandler, OnModuleInit {
       skipDedup: true,
     });
 
-    this.logger.log(
-      `Broadcast ${broadcastId} claimed by start job ${job.id}: ` +
-        `${recipientsTargeted} recipient(s) targeted as of ${now.toISOString()}; ` +
-        `first chunk queued as job ${chunkJob.id}`
-    );
+    return { recipientsTargeted, chunkJobId: chunkJob.id };
   }
 }
