@@ -12,6 +12,7 @@ import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
 import { RateLimitError } from '../../jobs/rate-limit.error';
 import { AiError } from '../core/ai-error';
 import { defineTool } from '../core/tools';
+import type { AiResponse } from '../core/types/responses.types';
 import {
   createAiRuntimeHarness,
   HARNESS_MODEL,
@@ -143,7 +144,7 @@ describe('AiResponseRunHandler', () => {
       expect(h.usageEvents).toEqual([expect.objectContaining({ jobId: handle.jobId, status: 'succeeded' })]);
 
       const view = await h.runs.get(HARNESS_USER, handle.runId);
-      expect(view.output?.outputText).toBe('the summary');
+      expect((view.output as AiResponse | null)?.outputText).toBe('the summary');
     });
 
     it('round-trips a structured-output schema through the queue', async () => {

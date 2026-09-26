@@ -38,8 +38,10 @@ import {
   AI_SETTINGS_CARRIES_NO_SECRET,
   systemAiSchema,
 } from '../../src/common/schemas/settings.schema';
+import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
 import {
   HARNESS_EMBEDDING_MODEL,
+  HARNESS_IMAGE_MODEL,
   HARNESS_USER,
   HARNESS_USER_KEY,
   HARNESS_ORG_KEY,
@@ -51,7 +53,12 @@ import { aiProviderTestResultSchema } from '../../src/ai/config/dto/ai-provider-
 import { aiPublicConfigSchema } from '../../src/ai/config/dto/ai-public-config.dto';
 import { usableAiModelSchema } from '../../src/ai/keys/dto/usable-ai-model.dto';
 import { userAiKeyViewSchema, userAiKeyTestResultSchema } from '../../src/ai/keys/dto/user-ai-key.dto';
-import { aiResponseSchema, aiRunStartedSchema, aiRunSchema } from '../../src/ai/http/dto/ai-response.dto';
+import {
+  aiImageRunOutputSchema,
+  aiResponseSchema,
+  aiRunStartedSchema,
+  aiRunSchema,
+} from '../../src/ai/http/dto/ai-response.dto';
 import { aiEmbeddingsResponseSchema } from '../../src/ai/http/dto/ai-embeddings.dto';
 
 const ADMIN_KEY_SENTINEL = 'sk-admin-egress-sentinel-Zq81xY';
@@ -268,6 +275,7 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
       AiRunStartedDto: aiRunStartedSchema,
       AiRunDto: aiRunSchema,
       AiEmbeddingsResponseDto: aiEmbeddingsResponseSchema,
+      AiImageRunOutput: aiImageRunOutputSchema,
     };
 
     it('finds every response schema, so a broken import list cannot pass vacuously', () => {
@@ -343,6 +351,72 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
         assertNoLeak('embeddings error log output', logLines.join('\n'));
       } finally {
         port.embed = original;
+      }
+    });
+
+    it('POST /api/ai/images -> ai.image.generate -> GET /api/ai/runs/:id: no sentinel in any body, row, stored object or log line', async () => {
+      const started = await request(app.context.app.getHttpServer())
+        .post('/api/ai/images')
+        .set(authHeader(holderToken))
+        .send({ model: HARNESS_IMAGE_MODEL, prompt: 'a lighthouse', n: 2 })
+        .expect(202);
+
+      const handler = app.context.app.get(JobHandlerRegistry).get('ai.image.generate');
+      await handler!.process({ id: started.body.data.jobId, payload: { runId: started.body.data.runId } } as never);
+
+      const run = await request(app.context.app.getHttpServer())
+        .get(`/api/ai/runs/${started.body.data.runId}`)
+        .set(authHeader(holderToken))
+        .expect(200);
+
+      expect(run.body.data.status).toBe('succeeded');
+      expect(app.harness.fake.callsTo('images.generate')).toHaveLength(1);
+      assertNoLeak('POST /api/ai/images body', JSON.stringify(started.body));
+      assertNoLeak('POST /api/ai/images headers', JSON.stringify(started.headers));
+      assertNoLeak('image run body', JSON.stringify(run.body));
+      assertNoLeak('ai_runs rows (images)', JSON.stringify(app.harness.runRows));
+      assertNoLeak('ai_usage_events (images)', JSON.stringify(app.harness.usageEvents));
+      assertNoLeak(
+        'storage objects (images)',
+        JSON.stringify(app.harness.storage.objects, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)),
+      );
+      assertNoLeak('log output (images)', logLines.join('\n'));
+    });
+
+    it('an image run whose provider call fails records a run error with no sentinel', async () => {
+      const port = app.harness.fake.images!;
+      const original = port.generate;
+      port.generate = async () => {
+        throw new Error(`upstream rejected ${HARNESS_USER_KEY}`);
+      };
+
+      try {
+        const started = await request(app.context.app.getHttpServer())
+          .post('/api/ai/images')
+          .set(authHeader(holderToken))
+          .send({ model: HARNESS_IMAGE_MODEL, prompt: 'x' })
+          .expect(202);
+
+        const handler = app.context.app.get(JobHandlerRegistry).get('ai.image.generate');
+        const thrown = await handler!
+          .process({ id: started.body.data.jobId, payload: { runId: started.body.data.runId } } as never)
+          .catch((err: unknown) => err);
+
+        const run = await request(app.context.app.getHttpServer())
+          .get(`/api/ai/runs/${started.body.data.runId}`)
+          .set(authHeader(holderToken))
+          .expect(200);
+
+        expect(run.body.data.status).toBe('failed');
+        assertNoLeak('failed image run body', JSON.stringify(run.body));
+        assertNoLeak('failed image run rows', JSON.stringify(app.harness.runRows));
+        assertNoLeak('failed image run usage rows', JSON.stringify(app.harness.usageEvents));
+        // The job's own lastError is the wrapped AiError — its serialised form carries no sentinel either.
+        assertNoLeak('thrown error body', JSON.stringify(thrown));
+        assertNoLeak('thrown error message (the job lastError)', String((thrown as Error | undefined)?.message));
+        assertNoLeak('image failure log output', logLines.join('\n'));
+      } finally {
+        port.generate = original;
       }
     });
 

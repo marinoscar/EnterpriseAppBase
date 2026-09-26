@@ -33,14 +33,36 @@ interface AiMediaResultBase {
 
 // ---- Images -----------------------------------------------------------------
 
+/** The most images one generate/edit call may ask for (`n`). */
+export const AI_IMAGES_MAX_N = 4;
+
+/** The most source images one edit may send. */
+export const AI_IMAGE_EDIT_MAX_INPUTS = 16;
+
+/** The largest source image (or mask) an edit reads, in bytes (25 MiB). */
+export const AI_IMAGE_INPUT_MAX_BYTES = 25 * 1024 * 1024;
+
+/** The MIME types a source image may have. */
+export const AI_IMAGE_INPUT_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const;
+
+/** The MIME types a mask may have (it needs an alpha channel). */
+export const AI_IMAGE_MASK_MIME_TYPES = ['image/png'] as const;
+
+/** The longest prompt accepted, in characters. */
+export const AI_IMAGE_PROMPT_MAX_CHARS = 32_000;
+
+export const AI_IMAGE_QUALITIES = ['low', 'medium', 'high', 'auto'] as const;
+export const AI_IMAGE_BACKGROUNDS = ['transparent', 'opaque', 'auto'] as const;
+export const AI_IMAGE_OUTPUT_FORMATS = ['png', 'jpeg', 'webp'] as const;
+
 export interface AiImageGenerationRequest extends AiMediaRequestBase {
   prompt: string;
   /** Provider-validated, e.g. `1024x1024` or `auto`. */
   size?: string;
-  quality?: 'low' | 'medium' | 'high' | 'auto';
-  background?: 'transparent' | 'opaque' | 'auto';
-  outputFormat?: 'png' | 'jpeg' | 'webp';
-  /** Number of images; defaults to 1. */
+  quality?: (typeof AI_IMAGE_QUALITIES)[number];
+  background?: (typeof AI_IMAGE_BACKGROUNDS)[number];
+  outputFormat?: (typeof AI_IMAGE_OUTPUT_FORMATS)[number];
+  /** Number of images, 1 to `AI_IMAGES_MAX_N`; defaults to 1. */
   n?: number;
 }
 

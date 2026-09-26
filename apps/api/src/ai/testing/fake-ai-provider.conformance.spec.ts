@@ -1,6 +1,12 @@
 import { AiResponseRequest } from '../core/types/responses.types';
 import { describeAiProviderConformance } from './conformance';
-import { FAKE_EMBEDDING_MODEL_CAPABILITIES, FAKE_TEXT_MODEL_CAPABILITIES, FakeAiProvider, FakeAiScriptedResponse } from './fake-ai-provider';
+import {
+  FAKE_EMBEDDING_MODEL_CAPABILITIES,
+  FAKE_IMAGE_MODEL_CAPABILITIES,
+  FAKE_TEXT_MODEL_CAPABILITIES,
+  FakeAiProvider,
+  FakeAiScriptedResponse,
+} from './fake-ai-provider';
 
 /**
  * Answers the kit's canonical requests the way a real model would. The
@@ -74,6 +80,32 @@ describeAiProviderConformance('FakeAiProvider with its embeddings port', () => (
       shortenTo: 4,
       // A model classified without `embeddings` is refused as an AiError.
       failingRequest: { model: 'fake-model', input: 'anything' },
+    },
+  },
+}));
+
+describeAiProviderConformance('FakeAiProvider with its images port', () => ({
+  adapter: new FakeAiProvider({
+    models: ['fake-model', 'fake-image-model'],
+    validKeys: ['fake-valid-key'],
+    responses: conformanceScript,
+    imagesPort: true,
+    classify: (id) =>
+      id === 'fake-image-model' ? FAKE_IMAGE_MODEL_CAPABILITIES : id === 'fake-model' ? FAKE_TEXT_MODEL_CAPABILITIES : null,
+  }),
+  ctx: { apiKey: 'fake-valid-key', requestId: 'conformance-4' },
+  fixtures: {
+    invalidApiKey: 'fake-invalid-key',
+    classify: { known: ['fake-model', 'fake-image-model'], unknown: ['nope'] },
+    responses: {
+      model: 'fake-model',
+      unsupportedRequest: { model: 'fake-model', input: 'search the web', tools: [{ type: 'web_search' }] },
+      failingRequest: { model: 'fake-broken', input: 'anything' },
+    },
+    images: {
+      model: 'fake-image-model',
+      // A model classified without `image_generation` is refused as an AiError.
+      failingRequest: { model: 'fake-model', prompt: 'anything' },
     },
   },
 }));

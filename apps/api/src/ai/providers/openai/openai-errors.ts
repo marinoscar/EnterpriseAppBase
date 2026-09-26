@@ -57,6 +57,8 @@ const CONTENT_FILTER_CODES = new Set([
   'invalid_prompt',
   'bio_policy',
   'misalignment_policy_violation',
+  // The images API's refusal (`/v1/images/*` answers 400 with this code).
+  'moderation_blocked',
 ]);
 
 /** Codes that name the model as the problem — the key cannot reach it. */
@@ -94,6 +96,7 @@ const MESSAGES: Record<AiErrorCode, string> = {
   AI_CONTENT_FILTERED: 'OpenAI refused the request under its content policy.',
   AI_INVALID_REQUEST: 'OpenAI rejected the request as invalid.',
   AI_STRUCTURED_OUTPUT_INVALID: 'The model output does not match the requested schema.',
+  AI_STORAGE_UNAVAILABLE: 'Object storage is unavailable.',
 };
 
 /** The generic, secret-free message this adapter uses for `code`. */

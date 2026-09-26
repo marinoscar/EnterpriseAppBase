@@ -13,6 +13,13 @@
 //
 // ⚠ Only ids, counts, codes and a duration. No prompt, no output, no key —
 // the table has no column able to hold any of them.
+//
+// `units` (#437) is the count for an operation that is not (only) token-
+// metered: `{ images: 2 }` for image generation, and — for the audio stories
+// next — `{ audioSeconds: 31.4 }` or `{ characters: 1200 }`. A flat record of
+// finite, non-negative numbers; anything else in it is dropped, and an empty
+// record is stored as no units at all (`null`), so the #443 aggregates never
+// sum a key that carries nothing.
 // =============================================================================
 
 import { Injectable, Logger } from '@nestjs/common';
@@ -27,6 +34,9 @@ export type AiUsageOperation = 'responses' | 'images' | 'audio.transcribe' | 'au
 /** A round-trip's outcome. `cancelled` — the caller aborted it. */
 export type AiUsageStatus = 'succeeded' | 'failed' | 'cancelled';
 
+/** Non-token units of one round-trip, e.g. `{ images: 2 }`. */
+export type AiUsageUnits = Record<string, number>;
+
 export interface AiUsageRecord {
   userId: string | null;
   provider: string;
@@ -34,6 +44,8 @@ export interface AiUsageRecord {
   operation: AiUsageOperation;
   keySource: AiKeySource;
   usage?: AiUsage;
+  /** Non-token units — see the file header. */
+  units?: AiUsageUnits;
   latencyMs: number;
   status: AiUsageStatus;
   errorCode?: string | null;
@@ -49,6 +61,8 @@ export class AiUsageRecorder {
 
   /** Writes one row. Never throws — see the file header. */
   async record(event: AiUsageRecord): Promise<void> {
+    const units = usageUnits(event.units);
+
     try {
       await this.prisma.aiUsageEvent.create({
         data: {
@@ -61,6 +75,7 @@ export class AiUsageRecorder {
           outputTokens: tokenCount(event.usage?.outputTokens),
           reasoningTokens: tokenCount(event.usage?.reasoningTokens),
           cachedInputTokens: tokenCount(event.usage?.cachedInputTokens),
+          ...(units ? { units } : {}),
           latencyMs: Math.max(0, Math.round(event.latencyMs)),
           status: event.status,
           errorCode: event.errorCode ?? null,
@@ -75,6 +90,17 @@ export class AiUsageRecorder {
       );
     }
   }
+}
+
+/** The storable units: finite, non-negative numbers only; `null` when none are left. */
+export function usageUnits(units: AiUsageUnits | undefined): AiUsageUnits | null {
+  if (!units) return null;
+
+  const clean = Object.entries(units).filter(
+    ([key, value]) => key.length > 0 && typeof value === 'number' && Number.isFinite(value) && value >= 0,
+  );
+
+  return clean.length > 0 ? Object.fromEntries(clean) : null;
 }
 
 /** A provider-reported count as an `Int` column value, or null when unusable. */

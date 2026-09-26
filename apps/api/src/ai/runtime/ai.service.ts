@@ -36,6 +36,14 @@
 // more `TRACKED_OPERATIONS` entry and one more client method — never a
 // second pipeline.
 //
+// IMAGES (#437) are that shape plus a queue hop: `generateImage`/`editImage`
+// run `prepareImage` (kill switch -> shape -> provider -> model with
+// `image_generation`/`image_edit` -> an edit's input storage objects,
+// ownership included) and queue an `ai.image.generate` run; the job calls
+// `executeImageRun`, which runs `prepareImage` AGAIN, reads the inputs'
+// bytes, resolves the key, calls the port and records one usage row
+// (`operation: 'images'`, `units: { images: n }`).
+//
 // ⚠ THE KEY. `apiKey` exists in this file only between step 6 and the
 // adapter call. It is never logged, never put on a span, never persisted and
 // never part of an error.
@@ -58,19 +66,37 @@ import { AiProviderRegistry } from '../core/provider-registry';
 import { parseStructured } from '../core/structured-output';
 import {
   AI_EMBEDDINGS_MAX_INPUTS,
+  AI_IMAGE_EDIT_MAX_INPUTS,
+  AI_IMAGE_INPUT_MAX_BYTES,
+  AI_IMAGE_INPUT_MIME_TYPES,
+  AI_IMAGE_MASK_MIME_TYPES,
+  AI_IMAGE_PROMPT_MAX_CHARS,
+  AI_IMAGES_MAX_N,
+  type AiBinaryPayload,
   type AiEmbeddingRequest,
   type AiEmbeddingResult,
   type AiEmbeddingsPort,
+  type AiImageResult,
+  type AiImagesPort,
 } from '../core/types/media.types';
 import type { AiResponse, AiResponseRequest, AiStreamEvent, AiUsage } from '../core/types/responses.types';
 import { AiKeyResolver, type AiKeySource } from '../keys/ai-key-resolver.service';
 import type { UsableAiModel } from '../keys/dto/usable-ai-model.dto';
 import { UsableModelsService } from '../keys/usable-models.service';
+import { AiStorageInputResolver, type AiStorageInput } from '../storage/ai-storage-input.resolver';
+import {
+  type AiImageOperation,
+  storedAiImageRunRequestSchema,
+  type StoredAiImageRunRequest,
+  toImageGenerationRequest,
+} from './ai-image-run-request';
 import { toStoredRunRequest } from './ai-run-request';
-import { AiRunsService } from './ai-runs.service';
+import { AI_IMAGE_GENERATE_TYPE, AiRunsService } from './ai-runs.service';
 import type {
   AiCallOptions,
+  AiEditImageRequest,
   AiEmbedRequest,
+  AiGenerateImageRequest,
   AiRequest,
   AiRunHandle,
   AiStructuredRequest,
@@ -79,7 +105,12 @@ import type {
   AiToolLoopResult,
 } from './ai-runtime.types';
 import { runToolLoop } from './ai-tool-loop';
-import { AiUsageRecorder, type AiUsageOperation, type AiUsageStatus } from './ai-usage.recorder';
+import {
+  AiUsageRecorder,
+  type AiUsageOperation,
+  type AiUsageStatus,
+  type AiUsageUnits,
+} from './ai-usage.recorder';
 
 /** The facade's span — one per provider round-trip. The adapter's own `ai.provider.call` nests inside it. */
 export const AI_REQUEST_SPAN = 'ai.request';
@@ -155,6 +186,31 @@ export interface AiUserClient {
    *   AiError('AI_CAPABILITY_UNSUPPORTED') for a model without `embeddings`.
    */
   embed(req: AiEmbedRequest, opts?: AiCallOptions): Promise<AiEmbeddingResult>;
+
+  /**
+   * Queues an image generation (an `ai.image.generate` job) and returns at
+   * once; poll `AiRunsService.get(userId, runId)` — a succeeded run's
+   * `output.storageObjectIds` are storage objects the user owns. Always
+   * asynchronous, and not subject to `ai.defaults.allowBackgroundRuns` (there
+   * is no synchronous form to fall back to). The gates run now and again
+   * when the job executes. `model` is REQUIRED.
+   *
+   * @throws AiError('AI_CAPABILITY_UNSUPPORTED') for a model without
+   *   `image_generation`; AiError('AI_INVALID_REQUEST') for an empty prompt
+   *   or `n` outside 1-4.
+   */
+  generateImage(req: AiGenerateImageRequest): Promise<AiRunHandle>;
+
+  /**
+   * As `generateImage`, editing the caller's own images (by storage object
+   * id — see `AiEditImageRequest`), with capability `image_edit`.
+   *
+   * @throws NotFoundException / ForbiddenException for an unknown input or
+   *   another user's (the same answers `ObjectsService` gives);
+   *   AiError('AI_INVALID_REQUEST') for an input that is not ready, not an
+   *   allowed image type, or too large.
+   */
+  editImage(req: AiEditImageRequest): Promise<AiRunHandle>;
 }
 
 /** Internal: who a client acts for, and under which job (for usage rows). */
@@ -180,6 +236,8 @@ const TRACKED_OPERATIONS = {
   'responses.create': 'responses',
   'responses.stream': 'responses',
   'embeddings.create': 'embeddings',
+  'images.generate': 'images',
+  'images.edit': 'images',
 } as const satisfies Record<string, AiUsageOperation>;
 
 type AiTrackedOperation = keyof typeof TRACKED_OPERATIONS;
@@ -199,6 +257,28 @@ export interface PreparedAiEmbeddingCall extends AiCallTarget {
   request: AiEmbeddingRequest;
 }
 
+/** Everything the gate pipeline settled for one image generation or edit. */
+export interface PreparedAiImageCall extends AiCallTarget {
+  operation: AiImageOperation;
+  port: AiImagesPort;
+  /** The request as it is stored in `ai_runs.request` — named fields only, never a key. */
+  stored: StoredAiImageRunRequest;
+  /** An edit's resolved inputs (metadata only — bytes are read when the job runs). */
+  inputs: { images: AiStorageInput[]; mask?: AiStorageInput };
+}
+
+/** `executeImageRun`'s options. */
+export interface AiImageRunExecutionOptions extends AiCallOptions {
+  /** The job the round-trip is incurred under, for its usage row. */
+  jobId?: string;
+  /**
+   * Runs after the gates pass and before the key is resolved or the provider
+   * called — the handler checks there is storage to keep the output in, so a
+   * call whose images could not be stored is never paid for.
+   */
+  beforeCall?: () => Promise<void>;
+}
+
 interface PrepareOptions {
   streaming: boolean;
 }
@@ -208,6 +288,8 @@ interface CallOutcome {
   status: AiUsageStatus;
   /** What the provider billed and how it named the request — any operation's result. */
   result?: { usage?: AiUsage; providerRequestId?: string };
+  /** Non-token units of the round-trip, e.g. `{ images: 2 }`. */
+  units?: AiUsageUnits;
   errorCode?: string;
 }
 
@@ -228,6 +310,7 @@ export class AiService {
     private readonly prisma: PrismaService,
     private readonly usage: AiUsageRecorder,
     private readonly runs: AiRunsService,
+    private readonly inputs: AiStorageInputResolver,
   ) {}
 
   /**
@@ -252,6 +335,8 @@ export class AiService {
         }),
       startRun: (req) => this.startRun(bound, req),
       embed: (req, opts) => this.embed(bound, req, opts),
+      generateImage: (req) => this.startImageRun(bound, 'images.generate', req),
+      editImage: (req) => this.startImageRun(bound, 'images.edit', req),
     };
   }
 
@@ -357,6 +442,87 @@ export class AiService {
     }
 
     await tracker.finish({ status: 'succeeded', result });
+
+    return result;
+  }
+
+  // ---- images ---------------------------------------------------------------------
+
+  private async startImageRun(
+    scope: AiClientScope,
+    operation: AiImageOperation,
+    req: AiGenerateImageRequest | AiEditImageRequest,
+  ): Promise<AiRunHandle> {
+    const call = await this.prepareImage(scope.userId, operation, req);
+
+    return this.runs.create({
+      userId: scope.userId,
+      provider: call.provider,
+      modelId: call.modelId,
+      request: call.stored,
+      jobType: AI_IMAGE_GENERATE_TYPE,
+    });
+  }
+
+  /**
+   * Executes one stored image run for `userId` — the `ai.image.generate`
+   * handler's entry point, not a fork's (a fork calls `generateImage`/
+   * `editImage`, which queue). Re-runs every gate, reads an edit's input
+   * bytes, then makes ONE provider round-trip with one usage row.
+   */
+  async executeImageRun(
+    userId: string,
+    stored: StoredAiImageRunRequest,
+    opts: AiImageRunExecutionOptions = {},
+  ): Promise<AiImageResult> {
+    const scope: AiClientScope = { userId, jobId: opts.jobId };
+    const edit = stored.operation === 'images.edit';
+    const call = await this.prepareImage(userId, stored.operation, {
+      ...toImageGenerationRequest(stored),
+      provider: stored.provider,
+      ...(edit
+        ? {
+            imageStorageObjectIds: stored.imageStorageObjectIds ?? [],
+            ...(stored.maskStorageObjectId ? { maskStorageObjectId: stored.maskStorageObjectId } : {}),
+          }
+        : {}),
+    });
+
+    await opts.beforeCall?.();
+
+    const images: AiBinaryPayload[] = [];
+
+    for (const input of call.inputs.images) {
+      images.push(await this.inputs.read(input, { maxBytes: AI_IMAGE_INPUT_MAX_BYTES, label: 'image' }));
+    }
+
+    const mask = call.inputs.mask
+      ? await this.inputs.read(call.inputs.mask, { maxBytes: AI_IMAGE_INPUT_MAX_BYTES, label: 'mask' })
+      : undefined;
+
+    const request = toImageGenerationRequest(call.stored);
+    const { ctx, keySource } = await this.context(scope, call, opts, () => ({ prompt: request.prompt }));
+    const tracker = this.track(scope, call, keySource, call.operation);
+
+    let result: AiImageResult;
+
+    try {
+      if (edit) {
+        // `prepareImage` refused a port without `edit`; this narrows the type.
+        const editPort = call.port.edit as NonNullable<AiImagesPort['edit']>;
+
+        result = await editPort({ ...request, images, ...(mask ? { mask } : {}) }, ctx);
+      } else {
+        result = await call.port.generate(request, ctx);
+      }
+    } catch (err) {
+      const error = toAiError(err, opts.signal);
+
+      await tracker.finish(failure(error, opts.signal));
+      throw error;
+    }
+
+    await tracker.finish({ status: 'succeeded', result, units: { images: result.images.length } });
 
     return result;
   }
@@ -512,6 +678,7 @@ export class AiService {
           operation: TRACKED_OPERATIONS[operation],
           keySource,
           usage,
+          ...(outcome.units ? { units: outcome.units } : {}),
           latencyMs,
           status: outcome.status,
           errorCode: outcome.errorCode ?? null,
@@ -630,6 +797,95 @@ export class AiService {
       modelId: model,
       port,
       request,
+      baseUrl: slot.baseUrl,
+      logPromptContent: policy.logPromptContent,
+    };
+  }
+
+  /**
+   * The gate pipeline for an image generation or edit: kill switch, request
+   * shape, target, provider, model with `image_generation`/`image_edit` (model
+   * AND provider port), then — for an edit — every input storage object,
+   * checked for ownership, readiness, type and size from its row alone.
+   * Decrypts nothing and reads no bytes.
+   */
+  async prepareImage(
+    userId: string,
+    operation: AiImageOperation,
+    req: AiGenerateImageRequest | AiEditImageRequest,
+  ): Promise<PreparedAiImageCall> {
+    // 1. Kill switch — before anything else is read.
+    await this.aiConfig.assertEnabled();
+
+    const edit = operation === 'images.edit';
+
+    assertImageShape(req, edit);
+
+    if (!req.model?.trim()) {
+      throw new AiError('AI_INVALID_REQUEST', 'Name the image model explicitly.');
+    }
+
+    const { provider, model } = await this.resolveTarget(userId, req);
+
+    // 2. Provider enabled in settings AND registered in this process.
+    const slot = await this.aiConfig.assertProviderEnabled(provider);
+    const port = this.registry.get(provider)?.images;
+    const capability: AiCapability = edit ? 'image_edit' : 'image_generation';
+
+    // 3. Model enabled, the capability declared (model AND provider port), key reach.
+    await this.usableModels.assertUsable(userId, provider, model, [capability]);
+
+    if (!port || (edit && !port.edit)) {
+      // assertUsable already refused a provider without the port; this narrows the type.
+      throw capabilityUnsupported(provider, model, capability);
+    }
+
+    // 4. An edit's inputs: the caller's own, ready, and the right kind.
+    const inputs: PreparedAiImageCall['inputs'] = { images: [] };
+
+    if (edit) {
+      const { imageStorageObjectIds, maskStorageObjectId } = req as AiEditImageRequest;
+
+      for (const id of imageStorageObjectIds) {
+        inputs.images.push(
+          await this.inputs.resolve(userId, id, {
+            mimeTypes: AI_IMAGE_INPUT_MIME_TYPES,
+            maxBytes: AI_IMAGE_INPUT_MAX_BYTES,
+            label: 'image',
+          }),
+        );
+      }
+
+      if (maskStorageObjectId) {
+        inputs.mask = await this.inputs.resolve(userId, maskStorageObjectId, {
+          mimeTypes: AI_IMAGE_MASK_MIME_TYPES,
+          maxBytes: AI_IMAGE_INPUT_MAX_BYTES,
+          label: 'mask',
+        });
+      }
+    }
+
+    const policy = await this.aiConfig.resolve();
+    // Named fields only: whatever else the caller's object carried stays here.
+    const stored = storedAiImageRunRequestSchema.parse({
+      operation,
+      provider,
+      ...toImageGenerationRequest({ operation, provider, ...req, model }),
+      ...(edit
+        ? {
+            imageStorageObjectIds: inputs.images.map((input) => input.id),
+            ...(inputs.mask ? { maskStorageObjectId: inputs.mask.id } : {}),
+          }
+        : {}),
+    });
+
+    return {
+      operation,
+      provider,
+      modelId: model,
+      port,
+      stored,
+      inputs,
       baseUrl: slot.baseUrl,
       logPromptContent: policy.logPromptContent,
     };
@@ -817,6 +1073,45 @@ function assertEmbeddingShape(req: Pick<AiEmbedRequest, 'input' | 'dimensions'>)
     throw new AiError('AI_INVALID_REQUEST', 'dimensions must be a positive integer.', {
       details: { dimensions: req.dimensions },
     });
+  }
+}
+
+/**
+ * An image request's shape, checked before any gate reads a table: a
+ * non-empty prompt within `AI_IMAGE_PROMPT_MAX_CHARS`, `n` in 1-4, and — for
+ * an edit — 1 to `AI_IMAGE_EDIT_MAX_INPUTS` distinct source images.
+ */
+function assertImageShape(req: AiGenerateImageRequest | AiEditImageRequest, edit: boolean): void {
+  if (typeof req.prompt !== 'string' || req.prompt.trim().length === 0) {
+    throw new AiError('AI_INVALID_REQUEST', 'An image request needs a non-empty prompt.');
+  }
+
+  if (req.prompt.length > AI_IMAGE_PROMPT_MAX_CHARS) {
+    throw new AiError('AI_INVALID_REQUEST', `The prompt is longer than ${AI_IMAGE_PROMPT_MAX_CHARS} characters.`, {
+      details: { max: AI_IMAGE_PROMPT_MAX_CHARS },
+    });
+  }
+
+  if (req.n !== undefined && (!Number.isInteger(req.n) || req.n < 1 || req.n > AI_IMAGES_MAX_N)) {
+    throw new AiError('AI_INVALID_REQUEST', `n must be an integer from 1 to ${AI_IMAGES_MAX_N}.`, {
+      details: { n: req.n, max: AI_IMAGES_MAX_N },
+    });
+  }
+
+  if (!edit) return;
+
+  const ids = (req as AiEditImageRequest).imageStorageObjectIds;
+
+  if (!Array.isArray(ids) || ids.length === 0 || ids.length > AI_IMAGE_EDIT_MAX_INPUTS) {
+    throw new AiError(
+      'AI_INVALID_REQUEST',
+      `An image edit needs 1 to ${AI_IMAGE_EDIT_MAX_INPUTS} source images (imageStorageObjectIds).`,
+      { details: { max: AI_IMAGE_EDIT_MAX_INPUTS } },
+    );
+  }
+
+  if (new Set(ids).size !== ids.length) {
+    throw new AiError('AI_INVALID_REQUEST', 'imageStorageObjectIds must not repeat an id.');
   }
 }
 

@@ -11,7 +11,7 @@ import { describeAiProviderConformance } from '../../testing/conformance';
 import { OpenAiClientFactory } from './openai-client.factory';
 import { OpenAiProviderAdapter } from './openai.adapter';
 import { functionCallItem, messageItem, responseFixture } from './testing/openai-fixtures';
-import { MockReply, OpenAiMockServer, mockEmbeddingsBody } from './testing/openai-mock-transport';
+import { MockReply, OpenAiMockServer, mockEmbeddingsBody, mockImagesBody } from './testing/openai-mock-transport';
 
 const VALID_KEY = 'sk-proj-conformance-valid-000000';
 const INVALID_KEY = 'sk-proj-conformance-revoked-0000';
@@ -19,6 +19,8 @@ const MODEL = 'gpt-4o-2024-08-06';
 const BROKEN_MODEL = 'gpt-4o-broken';
 const EMBEDDING_MODEL = 'text-embedding-3-small';
 const BROKEN_EMBEDDING_MODEL = 'text-embedding-3-broken';
+const IMAGE_MODEL = 'gpt-image-1';
+const BROKEN_IMAGE_MODEL = 'gpt-image-broken';
 
 function reply(response: OpenAiSdkResponse): MockReply {
   return { kind: 'response', response, chunkSize: 5 };
@@ -62,6 +64,10 @@ describeAiProviderConformance('OpenAiProviderAdapter (mocked transport)', () => 
       body.model === BROKEN_EMBEDDING_MODEL
         ? { kind: 'error', status: 500, error: { message: 'The server had an error.', type: 'server_error', param: null, code: null } }
         : { kind: 'embeddings', body: mockEmbeddingsBody(body) },
+    images: (_operation, body) =>
+      body.model === BROKEN_IMAGE_MODEL
+        ? { kind: 'error', status: 500, error: { message: 'The server had an error.', type: 'server_error', param: null, code: null } }
+        : { kind: 'images', body: mockImagesBody(body) },
   });
 
   return {
@@ -84,6 +90,10 @@ describeAiProviderConformance('OpenAiProviderAdapter (mocked transport)', () => 
         model: EMBEDDING_MODEL,
         shortenTo: 256,
         failingRequest: { model: BROKEN_EMBEDDING_MODEL, input: 'anything' },
+      },
+      images: {
+        model: IMAGE_MODEL,
+        failingRequest: { model: BROKEN_IMAGE_MODEL, prompt: 'anything' },
       },
     },
   };

@@ -4,7 +4,9 @@
 // =============================================================================
 //
 // A background run is an `ai_runs` row (what the user asked for, what came
-// back) executed by one `ai.response.run` job (docs/specs/ai-platform.md §9).
+// back) executed by one job (docs/specs/ai-platform.md §9): `ai.response.run`
+// for a response, `ai.image.generate` for an image generation or edit (#437;
+// `request.operation` tells them apart — see `ai-image-run-request.ts`).
 // This service owns the row's state machine:
 //
 //   pending ──claim──▶ running ──complete──▶ succeeded
@@ -29,12 +31,15 @@ import type { Prisma } from '@prisma/client';
 
 import { JobsService } from '../../jobs/jobs.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import type { AiResponse } from '../core/types/responses.types';
+import type { StoredAiImageRunRequest } from './ai-image-run-request';
 import { asJson, type StoredAiRunRequest } from './ai-run-request';
-import type { AiRunHandle, AiRunStatus, AiRunView } from './ai-runtime.types';
+import type { AiRunHandle, AiRunOutput, AiRunStatus, AiRunView } from './ai-runtime.types';
 
-/** The job type. PERMANENT once jobs of it exist. */
+/** The job type of a responses run. PERMANENT once jobs of it exist. */
 export const AI_RESPONSE_RUN_TYPE = 'ai.response.run';
+
+/** The job type of an image generation/edit run (#437). PERMANENT once jobs of it exist. */
+export const AI_IMAGE_GENERATE_TYPE = 'ai.image.generate';
 
 /** `Job.subjectType` of an `ai.response.run` job; `subjectId` is the run id. */
 export const AI_RUN_SUBJECT_TYPE = 'ai_run';
@@ -86,7 +91,9 @@ export class AiRunsService {
     userId: string;
     provider: string;
     modelId: string;
-    request: StoredAiRunRequest;
+    request: StoredAiRunRequest | StoredAiImageRunRequest;
+    /** The job type that executes it. Defaults to `ai.response.run`. */
+    jobType?: string;
   }): Promise<AiRunHandle> {
     return this.prisma.$transaction(async (tx) => {
       const run = await tx.aiRun.create({
@@ -101,7 +108,7 @@ export class AiRunsService {
       });
 
       const job = await this.jobs.enqueueWithin(tx, {
-        type: AI_RESPONSE_RUN_TYPE,
+        type: input.jobType ?? AI_RESPONSE_RUN_TYPE,
         reason: 'upload',
         subjectType: AI_RUN_SUBJECT_TYPE,
         subjectId: run.id,
@@ -167,12 +174,12 @@ export class AiRunsService {
   }
 
   /** running -> succeeded. `false` when the run was cancelled meanwhile. */
-  async complete(runId: string, response: AiResponse): Promise<boolean> {
+  async complete(runId: string, output: AiRunOutput): Promise<boolean> {
     const { count } = await this.prisma.aiRun.updateMany({
       where: { id: runId, status: 'running' },
       data: {
         status: 'succeeded',
-        output: asJson(response),
+        output: asJson(output),
         errorCode: null,
         errorMessage: null,
         completedAt: new Date(),
@@ -222,7 +229,7 @@ function toView(row: ViewRow): AiRunView {
     status: row.status as AiRunStatus,
     provider: row.provider,
     modelId: row.modelId,
-    output: (row.output as AiResponse | null) ?? null,
+    output: (row.output as AiRunOutput | null) ?? null,
     errorCode: row.errorCode,
     errorMessage: row.errorMessage,
     jobId: row.jobId,

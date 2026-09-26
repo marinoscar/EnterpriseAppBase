@@ -81,6 +81,51 @@ describe('AiUsageRecorder', () => {
     });
   });
 
+  it('writes units for a non-token-metered operation (#437), generic over the unit names', async () => {
+    const create = jest.fn().mockResolvedValue({});
+    const recorder = new AiUsageRecorder({ aiUsageEvent: { create } } as never);
+    const base = {
+      userId: 'u',
+      provider: 'openai',
+      modelId: 'm',
+      keySource: 'user' as const,
+      latencyMs: 1,
+      status: 'succeeded' as const,
+    };
+
+    await recorder.record({ ...base, operation: 'images', units: { images: 2 } });
+    await recorder.record({ ...base, operation: 'audio.transcribe', units: { audioSeconds: 31.4 } });
+    await recorder.record({ ...base, operation: 'audio.speech', units: { characters: 1200 } });
+
+    expect(create.mock.calls.map((call) => call[0].data.units)).toEqual([
+      { images: 2 },
+      { audioSeconds: 31.4 },
+      { characters: 1200 },
+    ]);
+  });
+
+  it('drops unusable unit values, and stores no units at all when none are left', async () => {
+    const create = jest.fn().mockResolvedValue({});
+    const recorder = new AiUsageRecorder({ aiUsageEvent: { create } } as never);
+    const base = {
+      userId: 'u',
+      provider: 'openai',
+      modelId: 'm',
+      operation: 'images' as const,
+      keySource: 'user' as const,
+      latencyMs: 1,
+      status: 'succeeded' as const,
+    };
+
+    await recorder.record({ ...base, units: { images: 2, bad: Number.NaN, negative: -1, inf: Infinity } });
+    await recorder.record({ ...base, units: { bad: Number.NaN } });
+    await recorder.record({ ...base, units: {} });
+
+    expect(create.mock.calls[0][0].data.units).toEqual({ images: 2 });
+    expect('units' in create.mock.calls[1][0].data).toBe(false);
+    expect('units' in create.mock.calls[2][0].data).toBe(false);
+  });
+
   it('never throws: a failed insert is logged, not propagated', async () => {
     const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
     const recorder = new AiUsageRecorder({

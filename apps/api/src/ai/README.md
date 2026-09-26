@@ -49,15 +49,23 @@ ai/
     ai.service.ts            AiService — forUser(userId), the gate pipeline (see below)
     ai-runs.service.ts        AiRunsService — background run rows; AI_RESPONSE_RUN_TYPE
     ai-response-run.handler.ts  `ai.response.run` job (server-only)
+    ai-image-generate.handler.ts  `ai.image.generate` job (server-only, #437) — image runs
     ai-run-request.ts         toStoredRunRequest/fromStoredRunRequest (ai_runs.request JSON)
+    ai-image-run-request.ts   an image run's stored request; `request.operation` tells runs apart
     ai-tool-loop.ts            runToolLoop — the function-calling agent loop
     ai-usage.recorder.ts       One ai_usage_events row per provider round-trip
   http/                    The consumer HTTP surface (issue #433)
     ai-responses.controller.ts   POST /api/ai/responses, POST /api/ai/responses/stream
     ai-runs.controller.ts        POST /api/ai/runs, GET/POST /api/ai/runs/:runId(/cancel)
+    ai-embeddings.controller.ts  POST /api/ai/embeddings (#440)
+    ai-images.controller.ts      POST /api/ai/images, POST /api/ai/images/edits (#437) — 202, a run
     ai-sse.ts                     pipeAiSse/formatSseEvent/abortOnDisconnect — see below
     ai-http-request.ts           toAiRequest — HTTP DTO -> AiRequest
     json-schema-structured-output.ts   HTTP callers send JSON Schema, not Zod
+  storage/                 Storage objects in and out of AI (issue #437) — shared by every media story
+    ai-storage-input.resolver.ts  AiStorageInputResolver — object id -> ownership-checked input (+ bytes)
+    ai-output-writer.ts          AiOutputWriter — bytes -> the user's storage objects under ai-outputs/
+    ai-storage-errors.ts         aiErrorFromStorage — storage failures as run outcomes
   usage/                   Reading ai_usage_events back (issue #443)
     ai-usage.service.ts          AiUsageService — the aggregate report (GROUPING SETS SQL)
     ai-usage-admin.controller.ts GET /api/admin/ai/usage (ai_config:read)
@@ -122,6 +130,19 @@ one more `prepare…`, one more map entry and one more `AiUserClient` method.
 Synchronous, no job; a large backfill is a fork's own server-only job type
 calling `embed` per chunk of ≤ 256 rows (`docs/specs/ai-platform.md` §5.1).
 
+`generateImage`/`editImage` (issue #437) are that template plus a queue hop:
+`prepareImage()` runs steps 1–3 with `image_generation`/`image_edit` and, for
+an edit, resolves each input storage object through
+`storage/AiStorageInputResolver` (ownership, readiness, type, size — the row
+only); the client then queues an `ai_runs` row (`request.operation:
+'images.generate' | 'images.edit'`) and an `ai.image.generate` job. The job
+calls `executeImageRun()` — `prepareImage()` again, the storage pre-flight,
+the inputs' bytes, then steps 6–9 (`units: { images: n }`) — and stores
+every image through `storage/AiOutputWriter` as the user's own storage
+objects; the run's `output.storageObjectIds` names them
+(`docs/specs/ai-platform.md` §5.2). The two `storage/` pieces are the ones
+the audio and file-input stories reuse.
+
 ## Streaming, end to end
 
 1. A client `POST`s `/api/ai/responses/stream` with `Accept:
@@ -179,14 +200,18 @@ calling `embed` per chunk of ≤ 256 rows (`docs/specs/ai-platform.md` §5.1).
   (so a test can assert exactly which key/model/request reached it — the
   BYOK invariant tests all read this log), and streaming support. With
   `embeddingsPort: true` it also carries a deterministic embeddings port,
-  recorded as `embeddings.embed` calls with their `apiKey`. Register
+  recorded as `embeddings.embed` calls with their `apiKey`; with
+  `imagesPort: true`, an images port (generate + edit, tiny PNGs, recorded
+  as `images.generate`/`images.edit` with the request they received). Register
   it in `AiProviderRegistry` in place of a real adapter for any integration
   test that exercises `AiService`.
 - **`createAiRuntimeHarness()`** (`testing/ai-runtime-harness.ts`) wires up
   an in-memory Prisma-shaped store, a seeded user key (`HARNESS_USER_KEY`)
   and org key (`HARNESS_ORG_KEY`), and a `FakeAiProvider` behind
-  `HARNESS_PROVIDER`/`HARNESS_MODEL` (plus `HARNESS_EMBEDDING_MODEL`, with
-  the fake's embeddings port on), so a test can call
+  `HARNESS_PROVIDER`/`HARNESS_MODEL` (plus `HARNESS_EMBEDDING_MODEL` and
+  `HARNESS_IMAGE_MODEL`, with the fake's embeddings and images ports on, and
+  in-memory object storage — `testing/in-memory-ai-storage.ts` — behind the
+  real input resolver and output writer), so a test can call
   `AiService.forUser(HARNESS_USER)` immediately without standing up the
   whole Nest module tree.
 - **`describeAiProviderConformance()`** (`testing/conformance.ts`) is the
@@ -196,7 +221,8 @@ calling `embed` per chunk of ≤ 256 rows (`docs/specs/ai-platform.md` §5.1).
   mapping is correct, `classifyModel` returns schema-valid capabilities or
   `null`, and (when `responses` is implemented) `create`/`stream`/structured
   output/a tool round-trip all behave, (when `embeddings` is implemented)
-  single/batch/`dimensions` embeddings are well formed, and every error surfaces as an
+  single/batch/`dimensions` embeddings are well formed, (when `images` is
+  implemented) generate/edit return bytes with an image MIME type, and every error surfaces as an
   `AiError`, never a raw SDK exception. `providers/openai/openai.adapter.conformance.spec.ts`
   is the worked example of wiring a real adapter through it; `openai.adapter.live.spec.ts`
   is the separate, opt-in suite that hits the real OpenAI API.

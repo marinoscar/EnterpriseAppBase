@@ -6,8 +6,10 @@
 //
 //   - `FakeAiProvider` registered as `openai` (the only id the settings
 //     schema has a slot for), recording every call and the key it carried,
-//     with its embeddings port on and classifying each model exactly as the
-//     catalog row below does;
+//     with its embeddings and images ports on and classifying each model
+//     exactly as the catalog row below does;
+//   - the REAL `AiStorageInputResolver` and `AiOutputWriter` (#437) over the
+//     in-memory object storage from `in-memory-ai-storage.ts`;
 //   - the in-memory key/model tables from `in-memory-ai-keys-prisma.ts`,
 //     extended with `user_settings`, `ai_usage_events` and `ai_runs`;
 //   - a stubbed settings row, org credential and job queue.
@@ -29,13 +31,17 @@ import { UsableModelsService } from '../keys/usable-models.service';
 import { AiService } from '../runtime/ai.service';
 import { AiRunsService } from '../runtime/ai-runs.service';
 import { AiUsageRecorder } from '../runtime/ai-usage.recorder';
+import { AiOutputWriter } from '../storage/ai-output-writer';
+import { AiStorageInputResolver } from '../storage/ai-storage-input.resolver';
 import {
   FAKE_EMBEDDING_MODEL_CAPABILITIES,
+  FAKE_IMAGE_MODEL_CAPABILITIES,
   FAKE_TEXT_MODEL_CAPABILITIES,
   FakeAiProvider,
   type FakeAiProviderOptions,
 } from './fake-ai-provider';
 import { createInMemoryAiKeysPrisma } from './in-memory-ai-keys-prisma';
+import { createInMemoryAiStorage } from './in-memory-ai-storage';
 
 export const HARNESS_USER = '11111111-1111-4111-8111-111111111111';
 export const HARNESS_OTHER_USER = '22222222-2222-4222-8222-222222222222';
@@ -45,6 +51,8 @@ export const HARNESS_PROVIDER = 'openai';
 export const HARNESS_MODEL = 'fake-model';
 /** The default catalog's embedding model (`FAKE_EMBEDDING_MODEL_CAPABILITIES`). */
 export const HARNESS_EMBEDDING_MODEL = 'fake-embedding-model';
+/** The default catalog's image model (`FAKE_IMAGE_MODEL_CAPABILITIES`: generate + edit). */
+export const HARNESS_IMAGE_MODEL = 'fake-image-model';
 
 export interface HarnessModel {
   modelId: string;
@@ -66,7 +74,7 @@ export interface AiRuntimeHarnessOptions {
   reachable?: string[];
   /** Whether an org key is stored. Default false. */
   orgKey?: boolean;
-  /** Catalog rows. Default: a fully capable `fake-model` and `fake-embedding-model`. */
+  /** Catalog rows. Default: a fully capable `fake-model`, `fake-embedding-model` and `fake-image-model`. */
   models?: HarnessModel[];
   fake?: FakeAiProviderOptions;
   /** `HARNESS_USER`'s `ai.defaultModel` setting. Default none. */
@@ -125,6 +133,7 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
   const models = opts.models ?? [
     { modelId: HARNESS_MODEL },
     { modelId: HARNESS_EMBEDDING_MODEL, capabilities: FAKE_EMBEDDING_MODEL_CAPABILITIES },
+    { modelId: HARNESS_IMAGE_MODEL, capabilities: FAKE_IMAGE_MODEL_CAPABILITIES },
   ];
 
   for (const model of models) {
@@ -177,8 +186,11 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
   const getSecret = jest.fn(async () => orgKey);
   const describe_ = jest.fn(async () => (orgKey ? { hint: '••••9999' } : null));
 
+  const storage = createInMemoryAiStorage();
+
   const prisma = {
     ...db.prisma,
+    ...storage.prisma,
     userSettings: {
       findUnique: jest.fn(async (args: { where: { userId: string } }) => {
         const value = settings.get(args.where.userId);
@@ -254,6 +266,7 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
     models: models.map((m) => m.modelId),
     classify: (modelId) => catalogCapabilities.get(modelId) ?? null,
     embeddingsPort: true,
+    imagesPort: true,
     ...opts.fake,
   });
 
@@ -275,7 +288,9 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
   const usableModels = new UsableModelsService(prisma as never, aiConfig, registry, resolver);
   const recorder = new AiUsageRecorder(prisma as never);
   const runs = new AiRunsService(prisma as never, jobs as never);
-  const ai = new AiService(aiConfig, registry, usableModels, resolver, prisma as never, recorder, runs);
+  const inputs = new AiStorageInputResolver(prisma as never, storage.provider);
+  const outputs = new AiOutputWriter(prisma as never, storage.provider, storage.storageConfig as never);
+  const ai = new AiService(aiConfig, registry, usableModels, resolver, prisma as never, recorder, runs, inputs);
 
   return {
     ai,
@@ -286,6 +301,9 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
     usableModels,
     recorder,
     runs,
+    inputs,
+    outputs,
+    storage,
     prisma,
     jobs,
     policy,
