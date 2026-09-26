@@ -313,3 +313,98 @@ export const mockAiKeyInvalidErrorBody = {
   message: 'The provider rejected this API key',
   details: { reason: 'AI_KEY_INVALID' },
 };
+
+// ---------------------------------------------------------------------------
+// AI Playground (#434). Capability strings here are the API's permanent
+// `AI_CAPABILITIES` values (`responses`, `reasoning`, `structured_output`,
+// `streaming`, …), which is what the playground gates its controls on.
+// ---------------------------------------------------------------------------
+
+/** A reasoning model: effort + summary, structured output, streaming; no temperature. */
+export const mockPlaygroundReasoningModel: UsableAiModel = {
+  provider: 'openai',
+  modelId: 'gpt-5-mini',
+  displayName: 'GPT-5 mini',
+  capabilities: {
+    capabilities: ['responses', 'reasoning', 'structured_output', 'streaming', 'tools', 'vision_input'],
+    inputModalities: ['text', 'image'],
+    outputModalities: ['text'],
+    reasoningEfforts: ['minimal', 'low', 'medium', 'high'],
+    contextWindow: 400000,
+    maxOutputTokens: 128000,
+  },
+  keySource: 'user',
+};
+
+/** A plain chat model: temperature, streaming; no reasoning, no structured output. */
+export const mockPlaygroundChatModel: UsableAiModel = {
+  provider: 'openai',
+  modelId: 'gpt-4.1-mini',
+  displayName: 'GPT-4.1 mini',
+  capabilities: {
+    capabilities: ['responses', 'streaming'],
+    inputModalities: ['text'],
+    outputModalities: ['text'],
+    maxOutputTokens: 32768,
+  },
+  keySource: 'org',
+};
+
+/** Usable, but cannot answer text prompts — listed disabled in the picker. */
+export const mockPlaygroundEmbeddingsModel: UsableAiModel = {
+  provider: 'openai',
+  modelId: 'text-embedding-3-small',
+  displayName: null,
+  capabilities: { capabilities: ['embeddings'], inputModalities: ['text'], outputModalities: ['embedding'] },
+  keySource: 'user',
+};
+
+export const mockPlaygroundModels: UsableAiModel[] = [
+  mockPlaygroundReasoningModel,
+  mockPlaygroundChatModel,
+  mockPlaygroundEmbeddingsModel,
+];
+
+export const mockAiReasoningResponse: AiResponse = {
+  id: 'resp_reason_1',
+  provider: 'openai',
+  model: 'gpt-5-mini',
+  output: [
+    { type: 'reasoning', summary: ['Comparing both options.'] },
+    { type: 'message', text: 'Option B is cheaper.' },
+  ],
+  outputText: 'Option B is cheaper.',
+  usage: { inputTokens: 20, outputTokens: 6, reasoningTokens: 64 },
+  finishReason: 'stop',
+};
+
+/** A reasoning stream: summary deltas first, then the answer. */
+export const mockAiReasoningStreamEvents: AiStreamEvent[] = [
+  { type: 'response.created', id: 'resp_reason_1' },
+  { type: 'reasoning_summary.delta', delta: 'Comparing ' },
+  { type: 'reasoning_summary.delta', delta: 'both options.' },
+  { type: 'output_text.delta', delta: 'Option B ' },
+  { type: 'output_text.delta', delta: 'is cheaper.' },
+  { type: 'response.completed', response: mockAiReasoningResponse },
+];
+
+export const mockAiStructuredResponse: AiResponse = {
+  id: 'resp_struct_1',
+  provider: 'openai',
+  model: 'gpt-5-mini',
+  output: [
+    {
+      type: 'message',
+      text: '{"name":"Dana Ruiz","email":"dana@acme.test","phone":"+1 555 0100","company":"Acme Corp"}',
+    },
+  ],
+  outputText: '{"name":"Dana Ruiz","email":"dana@acme.test","phone":"+1 555 0100","company":"Acme Corp"}',
+  parsed: { name: 'Dana Ruiz', email: 'dana@acme.test', phone: '+1 555 0100', company: 'Acme Corp' },
+  usage: { inputTokens: 40, outputTokens: 30 },
+  finishReason: 'stop',
+};
+
+/** An API error body as the global filter shapes it: generic `code`, AI code in `details.reason`. */
+export function aiErrorBody(reason: string, message = 'AI request failed', extra: Record<string, unknown> = {}) {
+  return { code: 'FORBIDDEN', message, details: { reason, ...extra } };
+}
