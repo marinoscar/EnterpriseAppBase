@@ -9,19 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Background Job Queue** (epic #254): a Postgres-backed generic work queue — no Redis, no second datastore. Atomic `FOR UPDATE SKIP LOCKED` claim, retry and rate-limit budgets tracked independently, a lease reaper that reclaims work abandoned by a dead executor, and per-type lifetime stats that survive history pruning. A new job type is one self-registering handler class: no migration, no enum, no queue wiring, and it appears in the admin dashboard automatically. Admin surface at `/admin/settings/jobs` (queue + insights), API under `/api/admin/jobs/*`, gated by `jobs:read`/`jobs:write`. See `docs/specs/job-queue.md`.
-- **Distributed Worker Nodes** (epic #254): job types can optionally be computed on a remote worker node instead of the API server — the *same* handler code runs either way, with no branching. Ships as `appctl node` (enroll, register, start/stop, doctor, capability probing, heap tuning and a pre-OOM memory valve, a systemd service installer, an interactive dashboard) plus a published worker container image and compose bundle for running a fleet (`docker compose -f infra/compose/worker.compose.yml up --scale worker=N`). A node authenticates with a dedicated `nod_…` credential confined to `/api/nodes/*`, and moves job input/output directly against object storage through short-lived presigned URLs — no storage credential ever reaches a node. Admin fleet view at `/admin/settings/workers`, API under `/api/nodes/*`, `/api/node-credentials` and `/api/admin/nodes/*`, gated by `nodes:read`/`nodes:write`. See `docs/specs/worker-nodes.md` and `docs/deployment/worker-nodes.md`.
-- **Maintenance Mode**: an admin-controlled maintenance window (`/admin/settings/maintenance`, `/api/admin/maintenance`) that returns `503` to ordinary requests with an operator-supplied message, with an environment-variable break-glass (`MAINTENANCE_MODE`) that outranks the persisted setting. No dedicated permission — it is a `system_settings:read`/`write`-gated system setting. See `docs/specs/maintenance-mode.md` and `docs/runbooks/maintenance-mode.md`.
-- **PostgreSQL Backup**: scheduled and on-demand `pg_dump` backups streamed directly into object storage (never buffered), with their own heartbeat, stale-run detection and single-active-run enforcement independent of the job queue. Admin surface at `/admin/settings/db-backup`, API under `/api/admin/db-backup/*`, gated by `db_backup:read`/`db_backup:write`. See `docs/specs/database-backup.md`.
-- **PostgreSQL Restore**: restore the application's database from a backup, or roll back a restore, gated by a dedicated `db_backup:restore` permission kept separate from `db_backup:write` on purpose — scheduling backups and replacing the live database are not the same authority. Pre-flight capability gates (e.g. managed PostgreSQL denying `CREATEDB`) answer with a ready-to-run command block instead of an error. See `docs/specs/database-restore.md` and `docs/runbooks/database-restore.md`.
-- Four operational notification events: a background job giving up (`jobs.job_failed`), a worker node going offline (`nodes.node_offline`), a database backup failing (`db_backup.backup_failed`), and a database restore completing (`db_backup.restore_completed`, mandatory — this one cannot be muted).
+- **Background Job Queue**: a Postgres-backed generic work queue — no Redis, no second datastore. Atomic `FOR UPDATE SKIP LOCKED` claims, a lease reaper, and per-type lifetime stats. A new job type is one self-registering handler class. Admin surface `/admin/settings/jobs`, gated by `jobs:read`/`jobs:write`. See `docs/specs/job-queue.md`.
+- **Distributed Worker Nodes**: node-eligible job types can run on a remote worker node instead of the API server, via `appctl node`. A node authenticates with a `nod_…` credential confined to `/api/nodes/*` and moves job data through presigned URLs. Admin fleet view `/admin/settings/workers`, gated by `nodes:read`/`nodes:write`. See `docs/specs/worker-nodes.md`.
+- **Maintenance Mode**: an admin-controlled window (`/admin/settings/maintenance`) that returns `503` to ordinary requests, with an environment-variable break-glass (`MAINTENANCE_MODE`) that outranks the persisted setting. Gated by `system_settings:read`/`write`. See `docs/specs/maintenance-mode.md`.
+- **PostgreSQL Backup**: scheduled and on-demand `pg_dump` backups streamed directly into object storage, with their own heartbeat and single-active-run enforcement independent of the job queue. Admin surface `/admin/settings/db-backup`, gated by `db_backup:read`/`db_backup:write`. See `docs/specs/database-backup.md`.
+- **PostgreSQL Restore**: restore the database from a backup, or roll back a restore, gated by a dedicated `db_backup:restore` permission kept separate from `db_backup:write`. A capability gate a managed database can't satisfy answers with a ready-to-run command block instead of an error. See `docs/specs/database-restore.md`.
+- Four operational notification events: `jobs.job_failed`, `nodes.node_offline`, `db_backup.backup_failed`, and `db_backup.restore_completed` (mandatory — cannot be muted).
 - A new **Operations** admin settings group (Jobs, Job Insights, Worker Nodes, Database Backup, Broadcasts) alongside the existing General and Access groups.
+- **AI Platform**: admin-governed, bring-your-own-key AI across 5 providers (OpenAI, Anthropic, Gemini, Azure OpenAI, OpenAI-compatible) — responses, streaming, structured output, tool calling, embeddings, images, audio and realtime voice, plus background runs and usage reporting. Admin surface `/admin/settings/ai*`, user surface `/settings/ai`, AI Playground at `/ai`, gated by `ai_config:*`/`ai:use`. See `docs/specs/ai-platform.md`.
+- **Runtime Object Storage Configuration**: point the deployment at AWS S3, Cloudflare R2, or any S3-compatible endpoint from `/admin/settings/storage`, with no restart. Retires the old `STORAGE_PROVIDER`/`S3_*` environment variables. Gated by `storage_config:read`/`storage_config:write`. See `docs/specs/storage-providers.md`.
+- **Web Push Runtime Configuration**: generate, rotate, enable/disable and remove VAPID keys from `/admin/settings/push`, with no restart. Gated by `push:read`/`push:write`. See `docs/specs/browser-notifications.md`.
+- **Admin Broadcasts**: compose a message to every active user, sent now or scheduled, over email/in-app/push, fanned out through chunked background jobs. Admin surface `/admin/settings/broadcasts`, gated by `broadcasts:read`/`broadcasts:write`. See `docs/specs/notification-broadcasts.md`.
+- **Personal Access Tokens**: create and revoke long-lived `pat_…` bearer tokens for API and CLI access at `/settings/tokens`, scoped to the caller's own tokens. See `docs/personal-access-tokens.md`.
+- **Encrypted Credential Store**: runtime-configured secrets (SMTP, VAPID, the storage credential, AI org keys) are encrypted at rest under `SECRETS_ENCRYPTION_KEY`, alongside a parallel per-user credential store for bring-your-own-key features. See `docs/specs/user-credentials.md`.
+- **VPS Deployment (`appctl deploy`)**: `doctor`/`install`/`update`/`status`/`certs`/`uninstall` deploy and manage this application on a VPS with no separate deploy script. The admin **About** page (`/admin/settings/about`) reports the running version, commit and deploy history. See `docs/specs/vps-deploy.md`.
+- **Guided First-Time Setup**: `npm run setup` builds the CLI and runs `appctl init`, which creates `infra/compose/.env` interactively.
+- **Template Tooling**: rebrand a fork with `scripts/rename.mjs` and `scripts/new-project.mjs` (or the `/rename-app`/`/new-project` skills), which rewrite the product identity centralized in `packages/shared`. See `docs/RENAMING.md`.
 
 ## [1.1.0] - 2026-06-10
 
 ### Changed
 
-- **Dependencies**: Major upgrade across the stack — React 19, MUI 9, react-router 7, Vite 8, TypeScript 6 (web); Prisma 7 (now using the `@prisma/adapter-pg` driver adapter), zod 4 + nestjs-zod 5, Jest 30, @fastify/multipart 10, and OpenTelemetry updates (API). class-validator bumped to 0.15.1. NestJS remains on 11.x. Runtime is Node.js 22.
+- **Dependencies**: Major upgrade across the stack — React 19, MUI 9, react-router 7, Vite 8, TypeScript 6 (web); Prisma 7 (now using the `@prisma/adapter-pg` driver adapter), zod 4 + nestjs-zod 5, Jest 30, @fastify/multipart 10, and OpenTelemetry updates (API). class-validator bumped to 0.15.1. NestJS remains on 11.x. Runtime is Node.js 24.
 
 ### Removed
 
@@ -144,42 +153,6 @@ Enterprise Application Foundation - A production-grade full-stack application fo
 - Backend: Jest + Supertest for unit and integration tests
 - Frontend: Vitest + React Testing Library
 - CI pipeline with GitHub Actions
-
-### API Endpoints
-
-#### Authentication
-- `GET /api/auth/providers` - List enabled OAuth providers
-- `GET /api/auth/google` - Initiate Google OAuth
-- `GET /api/auth/google/callback` - OAuth callback
-- `POST /api/auth/refresh` - Refresh access token
-- `POST /api/auth/logout` - Logout and invalidate session
-- `GET /api/auth/me` - Get current user
-
-#### Device Authorization
-- `POST /api/auth/device/code` - Generate device code
-- `POST /api/auth/device/token` - Poll for authorization
-- `GET /api/auth/device/sessions` - List device sessions
-- `DELETE /api/auth/device/sessions/:id` - Revoke device session
-
-#### Users (Admin only)
-- `GET /api/users` - List users (paginated)
-- `GET /api/users/:id` - Get user by ID
-- `PATCH /api/users/:id` - Update user
-
-#### Allowlist (Admin only)
-- `GET /api/allowlist` - List allowlisted emails
-- `POST /api/allowlist` - Add email to allowlist
-- `DELETE /api/allowlist/:id` - Remove from allowlist
-
-#### Settings
-- `GET /api/user-settings` - Get user settings
-- `PUT /api/user-settings` - Update user settings
-- `GET /api/system-settings` - Get system settings
-- `PUT /api/system-settings` - Update system settings (Admin)
-
-#### Health
-- `GET /api/health/live` - Liveness probe
-- `GET /api/health/ready` - Readiness probe
 
 ### Technical Stack
 - **Backend**: Node.js + TypeScript, NestJS with Fastify adapter
