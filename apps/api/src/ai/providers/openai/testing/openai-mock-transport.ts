@@ -20,10 +20,21 @@
 //     `DELETE /files/{id}` removes it (#441). `files` holds what is still
 //     stored, so "the provider-side copy was deleted" is `files.size === 0`;
 //     `filesWith` injects a failure for either operation.
+//   - `POST /chat/completions` (#448) -> whatever `chat(body)` returns: a
+//     `ChatCompletion` (streamed as chunks, with a usage chunk when
+//     `stream_options.include_usage`), an HTTP error, a network failure or a
+//     raw SSE script. Azure's `/deployments/{name}/chat/completions` matches
+//     too.
+//   - `auth: 'api-key'` (#448) reads Azure's `api-key` header instead of the
+//     bearer token; `allowAnonymous` accepts a request carrying no key at all
+//     (a keyless OpenAI-compatible server) while still refusing a wrong one.
 
 import type { Response as OpenAiSdkResponse, ResponseStreamEvent } from 'openai/resources/responses/responses';
 
+import type { ChatCompletion } from 'openai/resources/chat/completions/completions';
+
 import type { OpenAiFetch } from '../openai-client.factory';
+import { chatChunksFor } from './chat-completions-fixtures';
 import { streamEventsFor } from './openai-fixtures';
 
 export interface MockSseFrame {
@@ -37,6 +48,13 @@ export type MockReply =
   | { kind: 'error'; status: number; error: Record<string, unknown>; headers?: Record<string, string> }
   | { kind: 'network' }
   /** A hand-written SSE script. `hang` keeps the connection open after the last frame until aborted. */
+  | { kind: 'sse'; frames: MockSseFrame[]; hang?: boolean };
+
+export type MockChatReply =
+  | { kind: 'completion'; completion: ChatCompletion; chunkSize?: number }
+  | { kind: 'error'; status: number; error: Record<string, unknown>; headers?: Record<string, string> }
+  | { kind: 'network' }
+  /** A hand-written SSE script (`data:` frames only, as Chat Completions sends). */
   | { kind: 'sse'; frames: MockSseFrame[]; hang?: boolean };
 
 export type MockEmbeddingReply =
@@ -224,6 +242,8 @@ export function mockEmbeddingsBody(body: Record<string, unknown>): Record<string
 export interface RecordedRequest {
   method: string;
   path: string;
+  /** The full URL, query string included (Azure's `api-version`). */
+  url: URL;
   apiKey: string | null;
   headers: Headers;
   body: Record<string, unknown> | undefined;
@@ -234,6 +254,12 @@ export interface OpenAiMockServerOptions {
   validKeys: string[];
   models?: string[];
   respond?(body: Record<string, unknown>): MockReply;
+  /** `/chat/completions` responder (#448). Defaults to a network failure. */
+  chat?(body: Record<string, unknown>): MockChatReply;
+  /** Which header carries the key: OpenAI's bearer token (default) or Azure's `api-key`. */
+  auth?: 'bearer' | 'api-key';
+  /** Accept a request that carries no key at all (a keyless compatible server). */
+  allowAnonymous?: boolean;
   /** `/embeddings` responder. Defaults to `mockEmbeddingsBody`. */
   embed?(body: Record<string, unknown>): MockEmbeddingReply;
   /** `/images/*` responder. Defaults to `mockImagesBody`. */
@@ -313,6 +339,9 @@ export class OpenAiMockServer {
   private readonly issuedResponseIds = new Set<string>();
   private requestCounter = 0;
   private respondFn: (body: Record<string, unknown>) => MockReply;
+  private chatFn: (body: Record<string, unknown>) => MockChatReply;
+  private readonly auth: 'bearer' | 'api-key';
+  private readonly allowAnonymous: boolean;
   private readonly queued: MockReply[] = [];
   private embedFn: (body: Record<string, unknown>) => MockEmbeddingReply;
   private imagesFn: (operation: MockImagesOperation, body: Record<string, unknown>) => MockImagesReply;
@@ -331,6 +360,9 @@ export class OpenAiMockServer {
     this.validKeys = new Set(opts.validKeys);
     this.models = opts.models ?? ['gpt-4o', 'gpt-4o-mini', 'o3', 'text-embedding-3-small'];
     this.respondFn = opts.respond ?? (() => ({ kind: 'network' }));
+    this.chatFn = opts.chat ?? (() => ({ kind: 'network' }));
+    this.auth = opts.auth ?? 'bearer';
+    this.allowAnonymous = opts.allowAnonymous ?? false;
     this.embedFn = opts.embed ?? ((body) => ({ kind: 'embeddings', body: mockEmbeddingsBody(body) }));
     this.imagesFn = opts.images ?? ((_operation, body) => ({ kind: 'images', body: mockImagesBody(body) }));
     this.transcribeFn = opts.transcribe ?? ((body) => ({ kind: 'transcription', body: mockTranscriptionBody(body) }));
@@ -362,6 +394,11 @@ export class OpenAiMockServer {
     this.embedFn = fn;
   }
 
+  /** Replaces the `/chat/completions` responder. */
+  chatWith(fn: (body: Record<string, unknown>) => MockChatReply): void {
+    this.chatFn = fn;
+  }
+
   /** Replaces the `/responses` responder. */
   respondWith(fn: (body: Record<string, unknown>) => MockReply): void {
     this.respondFn = fn;
@@ -386,7 +423,12 @@ export class OpenAiMockServer {
 
     const headers = new Headers(init?.headers);
     const auth = headers.get('authorization');
-    const apiKey = auth?.startsWith('Bearer ') ? auth.slice('Bearer '.length) : null;
+    const apiKey =
+      this.auth === 'api-key'
+        ? headers.get('api-key')
+        : auth?.startsWith('Bearer ')
+          ? auth.slice('Bearer '.length)
+          : null;
     const rawBody = typeof init?.body === 'string' ? init.body : undefined;
     const contentType = headers.get('content-type') ?? '';
     const body =
@@ -403,14 +445,16 @@ export class OpenAiMockServer {
             : undefined;
     const signal = init?.signal ?? undefined;
 
-    this.requests.push({ method: init?.method ?? 'GET', path: url.pathname, apiKey, headers, body, signal });
+    this.requests.push({ method: init?.method ?? 'GET', path: url.pathname, url, apiKey, headers, body, signal });
 
     if (signal?.aborted) throw abortError();
 
     this.requestCounter += 1;
     const replyHeaders = { 'x-request-id': `req_mock_${this.requestCounter}` };
 
-    if (!apiKey || !this.validKeys.has(apiKey)) {
+    const anonymous = apiKey === null && this.allowAnonymous;
+
+    if (!anonymous && (!apiKey || !this.validKeys.has(apiKey))) {
       return json(
         401,
         {
@@ -472,6 +516,33 @@ export class OpenAiMockServer {
           return body.stream === true
             ? sseResponse(framesFor(streamEventsFor(reply.response, reply.chunkSize)), replyHeaders, false, signal)
             : json(200, reply.response, replyHeaders);
+      }
+    }
+
+    if (url.pathname.endsWith('/chat/completions') && init?.method === 'POST' && body) {
+      const reply = this.chatFn(body);
+
+      switch (reply.kind) {
+        case 'network':
+          throw new TypeError('fetch failed');
+
+        case 'error':
+          return json(reply.status, { error: reply.error }, { ...replyHeaders, ...(reply.headers ?? {}) });
+
+        case 'sse':
+          return sseResponse(reply.frames, replyHeaders, reply.hang ?? false, signal);
+
+        case 'completion': {
+          if (body.stream !== true) return json(200, reply.completion, replyHeaders);
+
+          const includeUsage = (body.stream_options as { include_usage?: boolean } | undefined)?.include_usage === true;
+          const frames: MockSseFrame[] = [
+            ...chatChunksFor(reply.completion, reply.chunkSize, includeUsage).map((chunk) => ({ data: chunk })),
+            { data: '[DONE]' },
+          ];
+
+          return sseResponse(frames, replyHeaders, false, signal);
+        }
       }
     }
 
