@@ -102,6 +102,14 @@ export interface AiPublicConfig {
      * still works — absent means chain, the pre-#446 behaviour.
      */
     supportsPreviousResponseId?: boolean;
+    /**
+     * Whether calling this provider needs a key (#448). `false` only for an
+     * OpenAI-compatible server the administrator marked keyless: nobody adds
+     * a key for it and its calls are recorded with `keySource: 'none'`.
+     * Optional so an older API that omits it still works — absent means a key
+     * is needed, the pre-#448 behaviour. Test with `=== false`.
+     */
+    requiresKey?: boolean;
   }[];
   /**
    * `defaults.allowBackgroundRuns` (#433): whether `POST /ai/runs` accepts a
@@ -483,8 +491,12 @@ export interface UsableAiModel {
   modelId: string;
   displayName: string | null;
   capabilities: AiModelCapabilities;
-  keySource: 'user' | 'org';
+  /** `'none'` (#448): a keyless server — nobody's key pays. */
+  keySource: AiKeySource;
 }
+
+/** Whose key paid for a call (#448 added `'none'`, a keyless server). */
+export type AiKeySource = 'user' | 'org' | 'none';
 
 // =============================================================================
 // Responses and runs

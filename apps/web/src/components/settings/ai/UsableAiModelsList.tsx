@@ -101,6 +101,9 @@ export function UsableAiModelsList({ models, isLoading, error, providerNames }: 
                         {model.keySource === 'org' && (
                           <Chip size="small" color="info" label="via organization key" />
                         )}
+                        {model.keySource === 'none' && (
+                          <Chip size="small" label="no key needed" />
+                        )}
                       </Stack>
                       <Box sx={{ mt: 0.5 }}>
                         <AiCapabilityChips capabilities={model.capabilities.capabilities} />
