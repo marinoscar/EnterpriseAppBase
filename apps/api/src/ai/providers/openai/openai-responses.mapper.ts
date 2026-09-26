@@ -7,10 +7,14 @@
 // back into an `AiResponse`. The stream mapper reuses both, so a streamed
 // and a non-streamed call cannot disagree about what a response means.
 //
+// STORAGE-OBJECT PARTS (#441). A part naming a `storageObjectId` is mapped
+// from `storage` — what the adapter DELIVERED for it (a presigned URL, a
+// Files API `file_id`, or an inline `data:` URL) — by the object's MODALITY,
+// not the part's type: a stored image is an `input_image` even in a `file`
+// part. A storage part with no delivery is AI_INVALID_REQUEST (only the
+// runtime resolves storage objects; a direct caller cannot).
+//
 // PHASE 1 REFUSALS (AI_CAPABILITY_UNSUPPORTED), each a later story's scope:
-//   - an image/file part that names only a `storageObjectId` (resolving a
-//     storage object into provider-readable bytes is the Phase 2 "file
-//     inputs" story; a `url` passes straight through);
 //   - a hosted tool (web_search, file_search, ...: the Phase 2 "hosted
 //     tools" story);
 //   - a reasoning `effort` for a model the classifier KNOWS does not reason
@@ -36,6 +40,7 @@ import type {
 
 import { AiError } from '../../core/ai-error';
 import type { AiModelCapabilities } from '../../core/capabilities';
+import type { AiStorageInputModality } from '../../core/types/file-inputs.types';
 import { parseStructured, toJsonSchema } from '../../core/structured-output';
 import type {
   AiContentPart,
@@ -52,6 +57,21 @@ import { mapOpenAiResponseFailure, OPENAI_PROVIDER_ID } from './openai-errors';
 
 /** The request body minus `stream`, which the port sets. */
 export type OpenAiRequestBody = Omit<ResponseCreateParamsBase, 'stream'>;
+
+/**
+ * How one storage-object input reached OpenAI (#441): a URL OpenAI fetches
+ * (presigned, or an inline `data:` URL) or a Files API id. ⚠ `url` may be a
+ * presigned URL — it goes into the request body and nowhere else.
+ */
+export interface OpenAiStorageDelivery {
+  modality: AiStorageInputModality;
+  filename: string;
+  url?: string;
+  fileId?: string;
+}
+
+/** Deliveries keyed by storage object id. */
+export type OpenAiStorageDeliveries = ReadonlyMap<string, OpenAiStorageDelivery>;
 
 function unsupported(message: string, details: Record<string, unknown>): AiError {
   return new AiError('AI_CAPABILITY_UNSUPPORTED', message, {
@@ -72,7 +92,39 @@ function isDataUrl(url: string): boolean {
   return url.startsWith('data:');
 }
 
-function toContentPart(part: AiContentPart): ResponseInputContent {
+function toFileContent(url: string, filename: string | undefined): ResponseInputContent {
+  return isDataUrl(url)
+    ? { type: 'input_file', file_data: url, filename: filename ?? 'file' }
+    : { type: 'input_file', file_url: url, ...(filename ? { filename } : {}) };
+}
+
+/** A storage-object part, from what the adapter delivered for it. */
+function toStorageContentPart(
+  part: Extract<AiContentPart, { type: 'image' | 'file' }> & { storageObjectId: string },
+  storage: OpenAiStorageDeliveries | undefined,
+): ResponseInputContent {
+  const delivered = storage?.get(part.storageObjectId);
+
+  if (!delivered || (!delivered.url && !delivered.fileId)) {
+    throw invalid('A storage-object input was not resolved by the runtime.', { part: part.type });
+  }
+
+  const filename = (part.type === 'file' ? part.filename : undefined) ?? delivered.filename;
+
+  if (delivered.modality === 'image') {
+    const detail = (part.type === 'image' ? part.detail : undefined) ?? 'auto';
+
+    return delivered.fileId
+      ? { type: 'input_image', file_id: delivered.fileId, detail }
+      : { type: 'input_image', image_url: delivered.url as string, detail };
+  }
+
+  return delivered.fileId
+    ? { type: 'input_file', file_id: delivered.fileId }
+    : toFileContent(delivered.url as string, filename);
+}
+
+function toContentPart(part: AiContentPart, storage: OpenAiStorageDeliveries | undefined): ResponseInputContent {
   switch (part.type) {
     case 'text':
       return { type: 'input_text', text: part.text };
@@ -82,28 +134,39 @@ function toContentPart(part: AiContentPart): ResponseInputContent {
         return { type: 'input_image', image_url: part.url, detail: part.detail ?? 'auto' };
       }
       if (part.storageObjectId) {
-        throw unsupported('Image inputs from stored files are not supported yet; pass a url.', {
-          part: 'image',
-        });
+        return toStorageContentPart({ ...part, storageObjectId: part.storageObjectId }, storage);
       }
-      throw invalid('An image part needs a url.', { part: 'image' });
+      throw invalid('An image part needs a url or a storageObjectId.', { part: 'image' });
 
     case 'file':
       if (part.url) {
-        return isDataUrl(part.url)
-          ? { type: 'input_file', file_data: part.url, filename: part.filename ?? 'file' }
-          : { type: 'input_file', file_url: part.url, ...(part.filename ? { filename: part.filename } : {}) };
+        return toFileContent(part.url, part.filename);
       }
       if (part.storageObjectId) {
-        throw unsupported('File inputs from stored files are not supported yet; pass a url.', {
-          part: 'file',
-        });
+        return toStorageContentPart({ ...part, storageObjectId: part.storageObjectId }, storage);
       }
-      throw invalid('A file part needs a url.', { part: 'file' });
+      throw invalid('A file part needs a url or a storageObjectId.', { part: 'file' });
   }
 }
 
-function toInputItem(item: AiInputItem): ResponseInputItem {
+/** Every storage object id `req` names, in order, each once. */
+export function storageObjectIdsOf(req: AiResponseRequest): string[] {
+  if (!Array.isArray(req.input)) return [];
+
+  const ids = new Set<string>();
+
+  for (const item of req.input) {
+    if (item.type !== 'message') continue;
+
+    for (const part of item.content) {
+      if (part.type !== 'text' && !part.url && part.storageObjectId) ids.add(part.storageObjectId);
+    }
+  }
+
+  return [...ids];
+}
+
+function toInputItem(item: AiInputItem, storage: OpenAiStorageDeliveries | undefined): ResponseInputItem {
   if (item.type === 'function_call_output') {
     return { type: 'function_call_output', call_id: item.callId, output: item.output };
   }
@@ -127,7 +190,7 @@ function toInputItem(item: AiInputItem): ResponseInputItem {
   const message: EasyInputMessage = {
     type: 'message',
     role: item.role,
-    content: item.content.map(toContentPart),
+    content: item.content.map((part) => toContentPart(part, storage)),
   };
 
   return message;
@@ -199,7 +262,8 @@ function toReasoning(
  * Builds the OpenAI request body for `req`.
  *
  * `caps` is the model's capabilities as classified (or `null` when
- * unclassified); it only gates `reasoning`. `providerOptions.openai` is
+ * unclassified); it only gates `reasoning`. `storage` is what the adapter
+ * delivered for each storage-object part (#441). `providerOptions.openai` is
  * shallow-merged LAST — the escape hatch for `background`, `store`,
  * `service_tier`, ... — except `stream`, which belongs to the port.
  *
@@ -208,10 +272,11 @@ function toReasoning(
 export function toOpenAiRequest(
   req: AiResponseRequest,
   caps: AiModelCapabilities | null,
+  storage?: OpenAiStorageDeliveries,
 ): OpenAiRequestBody {
   const body: OpenAiRequestBody = {
     model: req.model,
-    input: typeof req.input === 'string' ? req.input : req.input.map(toInputItem),
+    input: typeof req.input === 'string' ? req.input : req.input.map((item) => toInputItem(item, storage)),
   };
 
   if (req.instructions !== undefined) body.instructions = req.instructions;

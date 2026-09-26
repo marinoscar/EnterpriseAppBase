@@ -101,11 +101,53 @@ describe('toOpenAiRequest', () => {
   it.each([
     ['image', { type: 'image' as const, storageObjectId: 'obj_1' }],
     ['file', { type: 'file' as const, storageObjectId: 'obj_1' }],
-  ])('rejects a storage-object %s part with AI_CAPABILITY_UNSUPPORTED (Phase 1)', (_kind, part) => {
+  ])('rejects a storage-object %s part the runtime did not deliver with AI_INVALID_REQUEST', (_kind, part) => {
     expectAiError(
       () => toOpenAiRequest({ model: 'gpt-4o', input: [{ type: 'message', role: 'user', content: [part] }] }, GPT4O),
-      'AI_CAPABILITY_UNSUPPORTED',
+      'AI_INVALID_REQUEST',
     );
+  });
+
+  it('maps delivered storage-object parts by their modality: URL -> image_url/file_url, file id -> file_id (#441)', () => {
+    const storage = new Map([
+      ['img', { modality: 'image' as const, filename: 'cat.png', url: 'https://bucket.test/cat.png?X-Amz-Signature=s' }],
+      ['pdf', { modality: 'file' as const, filename: 'contract.pdf', fileId: 'file-abc' }],
+      ['png-as-file', { modality: 'image' as const, filename: 'scan.png', fileId: 'file-img' }],
+      ['csv', { modality: 'file' as const, filename: 'rows.csv', url: 'data:text/csv;base64,YSxi' }],
+    ]);
+
+    const body = toOpenAiRequest(
+      {
+        model: 'gpt-4o',
+        input: [
+          {
+            type: 'message',
+            role: 'user',
+            content: [
+              { type: 'image', storageObjectId: 'img', detail: 'low' },
+              { type: 'file', storageObjectId: 'pdf' },
+              { type: 'file', storageObjectId: 'png-as-file' },
+              { type: 'file', storageObjectId: 'csv', filename: 'override.csv' },
+            ],
+          },
+        ],
+      },
+      GPT4O,
+      storage,
+    );
+
+    expect(body.input).toEqual([
+      {
+        type: 'message',
+        role: 'user',
+        content: [
+          { type: 'input_image', image_url: 'https://bucket.test/cat.png?X-Amz-Signature=s', detail: 'low' },
+          { type: 'input_file', file_id: 'file-abc' },
+          { type: 'input_image', file_id: 'file-img', detail: 'auto' },
+          { type: 'input_file', file_data: 'data:text/csv;base64,YSxi', filename: 'override.csv' },
+        ],
+      },
+    ]);
   });
 
   it('rejects a media part with neither url nor storage object as AI_INVALID_REQUEST', () => {

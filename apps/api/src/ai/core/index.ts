@@ -5,6 +5,7 @@ export * from './ai-error';
 export * from './provider-adapter.interface';
 export * from './types/responses.types';
 export * from './types/media.types';
+export * from './types/file-inputs.types';
 export * from './provider-registry';
 export * from './structured-output';
 export * from './tools';

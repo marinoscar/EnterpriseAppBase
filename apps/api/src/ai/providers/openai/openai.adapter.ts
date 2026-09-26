@@ -19,6 +19,16 @@
 // `AiProviderRegistry.supports()` stays truthful about what this adapter can
 // actually do today.
 //
+// STORAGE-OBJECT INPUTS (#441). `fileInputStrategy` is images by
+// `presigned_url` (a 10-minute signed GET the runtime minted, passed as
+// `image_url` — OpenAI fetches it, the bytes never pass through the API) and
+// files by `upload`: the runtime's capped stream goes to the Files API
+// (`purpose: 'user_data'`) under the caller's own resolved key, the request
+// names it by `file_id`, and the provider-side copy is DELETED once the
+// response completes, fails or its stream ends — best effort, logged by file
+// id only. Nothing is cached across calls (or users): each call uploads its
+// own copy.
+//
 // OBSERVABILITY. Every provider call runs inside an `ai.provider.call` span
 // carrying `ai.provider`, `ai.model`, `ai.operation` and `ai.status` (`ok` or
 // the AiErrorCode) — never prompt text, output text or the key. The debug log
@@ -29,6 +39,7 @@
 
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Span, SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
+import { type OpenAI, toFile } from 'openai';
 import type { ResponseStreamEvent } from 'openai/resources/responses/responses';
 
 import { AiError } from '../../core/ai-error';
@@ -50,6 +61,7 @@ import type {
   AiImageResult,
   AiImagesPort,
 } from '../../core/types/media.types';
+import type { AiFileInputStrategies } from '../../core/types/file-inputs.types';
 import type { AiResponse, AiResponseRequest, AiStreamEvent } from '../../core/types/responses.types';
 import { resolveServiceName } from '../../../common/otel/service-name';
 import { OpenAiClientFactory } from './openai-client.factory';
@@ -61,7 +73,13 @@ import {
   toOpenAiImageGenerateRequest,
 } from './openai-images.mapper';
 import { classifyOpenAiModel } from './openai-model-catalog';
-import { fromOpenAiResponse, toOpenAiRequest } from './openai-responses.mapper';
+import {
+  fromOpenAiResponse,
+  type OpenAiStorageDeliveries,
+  type OpenAiStorageDelivery,
+  storageObjectIdsOf,
+  toOpenAiRequest,
+} from './openai-responses.mapper';
 import { OpenAiStreamMapper } from './openai-stream.mapper';
 
 export const AI_PROVIDER_CALL_SPAN = 'ai.provider.call';
@@ -81,6 +99,9 @@ const tracer = trace.getTracer(resolveServiceName());
 export class OpenAiProviderAdapter implements AiProviderAdapter, OnModuleInit {
   readonly id = OPENAI_PROVIDER_ID;
   readonly displayName = 'OpenAI';
+
+  /** Images by presigned URL, files through the Files API — see the file header. */
+  readonly fileInputStrategy: AiFileInputStrategies = { image: 'presigned_url', file: 'upload' };
 
   readonly responses: AiResponsesPort = {
     create: (req, ctx) => this.createResponse(req, ctx),
@@ -155,20 +176,28 @@ export class OpenAiProviderAdapter implements AiProviderAdapter, OnModuleInit {
 
   private createResponse(req: AiResponseRequest, ctx: AiCallContext): Promise<AiResponse> {
     return this.call('responses.create', req.model, ctx, async () => {
-      const body = toOpenAiRequest(req, this.classifyModel(req.model));
-      const client = this.clients.create(ctx);
+      const uploaded: string[] = [];
+      let client: OpenAI | undefined;
+      const lazyClient = () => (client ??= this.clients.create(ctx));
 
-      const { data, request_id } = await client.responses
-        .create({ ...body, stream: false }, { signal: ctx.signal })
-        .withResponse();
+      try {
+        const storage = await this.deliverStorageInputs(req, ctx, lazyClient, uploaded);
+        const body = toOpenAiRequest(req, this.classifyModel(req.model), storage);
 
-      if (data.status === 'cancelled') {
-        throw new AiError('AI_PROVIDER_UNAVAILABLE', 'The OpenAI response was cancelled.', {
-          details: { provider: OPENAI_PROVIDER_ID, ...(request_id ? { providerRequestId: request_id } : {}) },
-        });
+        const { data, request_id } = await lazyClient()
+          .responses.create({ ...body, stream: false }, { signal: ctx.signal })
+          .withResponse();
+
+        if (data.status === 'cancelled') {
+          throw new AiError('AI_PROVIDER_UNAVAILABLE', 'The OpenAI response was cancelled.', {
+            details: { provider: OPENAI_PROVIDER_ID, ...(request_id ? { providerRequestId: request_id } : {}) },
+          });
+        }
+
+        return fromOpenAiResponse(data, { request: req, providerRequestId: request_id });
+      } finally {
+        await this.deleteUploaded(client, uploaded, ctx);
       }
-
-      return fromOpenAiResponse(data, { request: req, providerRequestId: request_id });
     });
   }
 
@@ -188,13 +217,16 @@ export class OpenAiProviderAdapter implements AiProviderAdapter, OnModuleInit {
     let providerRequestId: string | null = null;
     let sdkStream: AsyncIterable<ResponseStreamEvent> & { controller: AbortController } | undefined;
     let terminated = false;
+    const uploaded: string[] = [];
+    let client: OpenAI | undefined;
+    const lazyClient = () => (client ??= this.clients.create(ctx));
 
     try {
-      const body = toOpenAiRequest(req, this.classifyModel(req.model));
-      const client = this.clients.create(ctx);
+      const storage = await this.deliverStorageInputs(req, ctx, lazyClient, uploaded);
+      const body = toOpenAiRequest(req, this.classifyModel(req.model), storage);
 
       try {
-        const { data, request_id } = await client.responses
+        const { data, request_id } = await lazyClient().responses
           .create({ ...body, stream: true }, { signal: ctx.signal })
           .withResponse();
 
@@ -257,8 +289,90 @@ export class OpenAiProviderAdapter implements AiProviderAdapter, OnModuleInit {
       // A consumer that stopped early leaves the HTTP stream open: close it.
       if (!terminated) sdkStream?.controller.abort();
 
+      await this.deleteUploaded(client, uploaded, ctx);
+
       this.endSpan(span, status);
       this.logCall('responses.stream', req.model, ctx, status, started, providerRequestId);
+    }
+  }
+
+  // ---- storage-object inputs (#441) ------------------------------------------
+
+  /**
+   * What each storage-object part of `req` becomes on the wire, by the
+   * strategy the runtime prepared it for: a presigned (or inline `data:`)
+   * URL, or a Files API id — uploaded here, with the call's own key, and
+   * pushed onto `uploaded` so the caller deletes it whatever happens next.
+   * `undefined` when the request names no storage object.
+   */
+  private async deliverStorageInputs(
+    req: AiResponseRequest,
+    ctx: AiCallContext,
+    client: () => OpenAI,
+    uploaded: string[],
+  ): Promise<OpenAiStorageDeliveries | undefined> {
+    const ids = storageObjectIdsOf(req);
+
+    if (ids.length === 0) return undefined;
+
+    const deliveries = new Map<string, OpenAiStorageDelivery>();
+
+    for (const id of ids) {
+      const input = ctx.storageInputs?.get(id);
+
+      if (!input) {
+        throw new AiError('AI_INVALID_REQUEST', 'A storage-object input was not resolved by the runtime.', {
+          details: { provider: OPENAI_PROVIDER_ID },
+        });
+      }
+
+      const base = { modality: input.modality, filename: input.filename };
+
+      if (input.strategy === 'presigned_url' && input.url) {
+        deliveries.set(id, { ...base, url: input.url });
+      } else if (input.strategy === 'upload' && input.open) {
+        const file = await toFile(await input.open(), input.filename, { type: input.mimeType });
+        const created = await client().files.create({ file, purpose: 'user_data' }, { signal: ctx.signal });
+
+        uploaded.push(created.id);
+        deliveries.set(id, { ...base, fileId: created.id });
+      } else if (input.strategy === 'inline' && input.read) {
+        const payload = await input.read();
+        const data = Buffer.from(payload.data).toString('base64');
+
+        deliveries.set(id, { ...base, url: `data:${input.mimeType};base64,${data}` });
+      } else {
+        throw new AiError('AI_INVALID_REQUEST', 'A storage-object input was not prepared for delivery.', {
+          details: { provider: OPENAI_PROVIDER_ID, strategy: input.strategy },
+        });
+      }
+    }
+
+    return deliveries;
+  }
+
+  /**
+   * Deletes the provider-side copies of this call's uploaded inputs. Best
+   * effort: a failure is logged (file id and outcome only — never the key)
+   * and never replaces the call's own result. Deliberately not bound to
+   * `ctx.signal`: a cancelled call still cleans up.
+   */
+  private async deleteUploaded(client: OpenAI | undefined, uploaded: string[], ctx: AiCallContext): Promise<void> {
+    if (!client) return;
+
+    for (const fileId of uploaded.splice(0)) {
+      try {
+        await client.files.delete(fileId);
+        this.logger.debug({ msg: 'AI input file deleted', provider: OPENAI_PROVIDER_ID, fileId, requestId: ctx.requestId });
+      } catch (err) {
+        this.logger.warn({
+          msg: 'Could not delete an AI input file from the provider',
+          provider: OPENAI_PROVIDER_ID,
+          fileId,
+          requestId: ctx.requestId,
+          status: mapOpenAiError(err).code,
+        });
+      }
     }
   }
 

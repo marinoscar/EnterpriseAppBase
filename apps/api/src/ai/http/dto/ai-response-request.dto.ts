@@ -19,31 +19,44 @@ import { AI_REASONING_EFFORTS } from '../../core/capabilities';
 //     such as a `stream` flag) is a 400 rather than silently ignored — a
 //     client should learn that its tools were not sent to the model.
 //
-// Media parts are accepted BY URL ONLY in Phase 1: resolving a
-// `storageObjectId` into something a provider can read is not wired to HTTP
-// yet, and a part that carries neither is meaningless.
+// Media parts name their bytes by exactly ONE of `url` (a public http(s)
+// URL) or `storageObjectId` (#441: one of the caller's own `ready` storage
+// objects — uploaded through `/api/storage/objects` — which the facade
+// authorises and delivers to the provider without making it public). A
+// part carrying both, or neither, is a 400.
 //
 // ⚠ No field here can carry a key: the facade resolves the key per call.
 // =============================================================================
 
 const url = z.url({ protocol: /^https?$/ }).max(8192);
 
+/** One of the caller's storage objects (`GET /api/storage/objects`). */
+const storageObjectId = z.uuid();
+
+const oneSource = (part: { url?: string; storageObjectId?: string }) =>
+  (part.url === undefined) !== (part.storageObjectId === undefined);
+const oneSourceMessage = { message: 'Give exactly one of url or storageObjectId' };
+
 const contentPartSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('text'), text: z.string() }).strict(),
   z
     .object({
       type: z.literal('image'),
-      url,
+      url: url.optional(),
+      storageObjectId: storageObjectId.optional(),
       detail: z.enum(['low', 'high', 'auto']).optional(),
     })
-    .strict(),
+    .strict()
+    .refine(oneSource, oneSourceMessage),
   z
     .object({
       type: z.literal('file'),
-      url,
+      url: url.optional(),
+      storageObjectId: storageObjectId.optional(),
       filename: z.string().max(255).optional(),
     })
-    .strict(),
+    .strict()
+    .refine(oneSource, oneSourceMessage),
 ]);
 
 const inputItemSchema = z.discriminatedUnion('type', [

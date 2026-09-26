@@ -107,6 +107,24 @@ describe('aiResponseRequestSchema', () => {
     expect(aiResponseRequestSchema.parse(body)).toEqual(body);
   });
 
+  it('accepts media parts by storage object id (#441)', () => {
+    expect(
+      aiResponseRequestSchema.safeParse({
+        input: [
+          {
+            type: 'message',
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Summarise these.' },
+              { type: 'image', storageObjectId: '11111111-1111-4111-8111-111111111111', detail: 'high' },
+              { type: 'file', storageObjectId: '22222222-2222-4222-8222-222222222222', filename: 'contract.pdf' },
+            ],
+          },
+        ],
+      }).success,
+    ).toBe(true);
+  });
+
   it('accepts typed input items with media by URL', () => {
     expect(
       aiResponseRequestSchema.safeParse({
@@ -129,8 +147,16 @@ describe('aiResponseRequestSchema', () => {
     ['a stream flag', { input: 'x', stream: true }],
     ['an empty prompt', { input: '' }],
     ['no input', { model: 'm' }],
-    ['a media part by storage object', {
+    ['a media part by a malformed storage object id', {
       input: [{ type: 'message', role: 'user', content: [{ type: 'image', storageObjectId: 'abc' }] }],
+    }],
+    ['a media part with both url and storageObjectId', {
+      input: [{ type: 'message', role: 'user', content: [
+        { type: 'file', url: 'https://example.com/a.pdf', storageObjectId: '11111111-1111-4111-8111-111111111111' },
+      ] }],
+    }],
+    ['a media part with neither url nor storageObjectId', {
+      input: [{ type: 'message', role: 'user', content: [{ type: 'image' }] }],
     }],
     ['a non-http media URL', {
       input: [{ type: 'message', role: 'user', content: [{ type: 'file', url: 'file:///etc/passwd' }] }],

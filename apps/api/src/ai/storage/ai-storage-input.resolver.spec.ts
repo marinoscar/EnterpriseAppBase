@@ -132,6 +132,47 @@ describe('AiStorageInputResolver', () => {
       await expect(resolver.read(input, { maxBytes: 32 })).rejects.toMatchObject({ code: 'AI_INVALID_REQUEST' });
     });
 
+    it('open streams the bytes, and with maxBytes fails AI_INVALID_REQUEST past the cap (#441)', async () => {
+      const { storage, resolver } = setup();
+      const row = storage.addObject({ uploadedById: OWNER, bytes: Buffer.alloc(64, 1), size: 0 });
+      const input = await resolver.resolve(OWNER, row.id);
+
+      const chunks: Buffer[] = [];
+      for await (const chunk of await resolver.open(input, { maxBytes: 64 })) chunks.push(chunk as Buffer);
+      expect(Buffer.concat(chunks)).toHaveLength(64);
+
+      const capped = await resolver.open(input, { maxBytes: 32, label: 'file' });
+      const err = await caught(async () => {
+        for await (const _chunk of capped) {
+          // drain
+        }
+      });
+
+      expect(err).toMatchObject({ code: 'AI_INVALID_REQUEST' });
+      expect((err as AiError).toJSON().details).toMatchObject({ maxBytes: 32, storageObjectId: row.id });
+    });
+
+    it('presign asks the storage provider for a signed GET of the object with the given lifetime (#441)', async () => {
+      const { storage, resolver } = setup();
+      const row = storage.addObject({ uploadedById: OWNER });
+      const input = await resolver.resolve(OWNER, row.id);
+
+      const url = await resolver.presign(input, 600);
+
+      expect(storage.provider.getSignedDownloadUrl).toHaveBeenCalledWith(row.storageKey, { expiresIn: 600 });
+      expect(url).toContain('X-Amz-Expires=600');
+    });
+
+    it('presign surfaces unconfigured storage as the storage layer’s own error (#441)', async () => {
+      const { storage, resolver } = setup();
+      const row = storage.addObject({ uploadedById: OWNER });
+      const input = await resolver.resolve(OWNER, row.id);
+
+      storage.setConfigured(false);
+
+      await expect(resolver.presign(input, 600)).rejects.toMatchObject({ status: 503 });
+    });
+
     it('surfaces unconfigured storage as the storage layer’s own error', async () => {
       const { storage, resolver } = setup();
       const row = storage.addObject({ uploadedById: OWNER });

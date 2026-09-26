@@ -20,15 +20,17 @@
 //
 // `resolve` answers both from the ROW ALONE — no storage call — so an HTTP
 // route can refuse a bad input synchronously, before anything is queued.
-// `read`/`open` fetch the bytes later (in the job), and `read` re-enforces
-// the size cap while buffering: `storage_objects.size` is `0` for a simple
+// `read`/`open` fetch the bytes later (in the job), and both re-enforce the
+// size cap as the bytes arrive: `storage_objects.size` is `0` for a simple
 // upload until post-processing fills it in, so the row cannot be trusted to
 // bound memory on its own.
 //
-// ⚠ Nothing here logs or returns a presigned URL; bytes stay server-side.
+// `presign` (#441) mints the short-lived signed GET URL a provider fetches a
+// Responses input from itself. ⚠ Nothing here logs a presigned URL; the one
+// caller (`AiService`) hands it to exactly one provider call.
 // =============================================================================
 
-import { Readable } from 'node:stream';
+import { Readable, Transform } from 'node:stream';
 
 import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 
@@ -162,9 +164,41 @@ export class AiStorageInputResolver {
     return { data: Buffer.concat(chunks, total), mimeType: input.mimeType, filename: input.name };
   }
 
-  /** The input's bytes as a stream — for a consumer that can pipe them. */
-  async open(input: AiStorageInput): Promise<Readable> {
-    return this.storage.download(input.storageKey);
+  /**
+   * The input's bytes as a stream — for a consumer that can pipe them. With
+   * `maxBytes`, the stream fails with `AI_INVALID_REQUEST` as soon as more
+   * than that has passed through, whatever the row claimed.
+   */
+  async open(input: AiStorageInput, opts: { maxBytes?: number; label?: string } = {}): Promise<Readable> {
+    const source = await this.storage.download(input.storageKey);
+
+    if (opts.maxBytes === undefined) return source;
+
+    const maxBytes = opts.maxBytes;
+    let total = 0;
+    const capped = new Transform({
+      transform(chunk: Buffer, _encoding, done) {
+        total += chunk.length;
+        done(total > maxBytes ? tooLarge(opts.label ?? 'input', input.id, maxBytes) : null, chunk);
+      },
+    });
+
+    source.on('error', (err) => capped.destroy(err));
+    capped.on('close', () => source.destroy());
+
+    return source.pipe(capped);
+  }
+
+  /**
+   * A short-lived signed GET URL for the input (#441) — for a provider that
+   * fetches an input itself, so the bytes never pass through this API.
+   *
+   * ⚠ The URL is a bearer capability for the object: the caller hands it to
+   * exactly one provider call and never logs, persists or returns it.
+   * Surfaces the storage layer's own errors (`StorageNotConfiguredError`).
+   */
+  async presign(input: AiStorageInput, expiresInSeconds: number): Promise<string> {
+    return this.storage.getSignedDownloadUrl(input.storageKey, { expiresIn: expiresInSeconds });
   }
 
   /** Whether `userId` holds `storage:read_any` through any role. One indexed query. */

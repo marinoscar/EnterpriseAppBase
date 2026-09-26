@@ -4,7 +4,7 @@ import { AiError } from '../core/ai-error';
 import { AiCallContext } from '../core/provider-adapter.interface';
 import { AiProviderRegistry } from '../core/provider-registry';
 import { AiStreamEvent } from '../core/types/responses.types';
-import { FakeAiProvider } from './fake-ai-provider';
+import { FAKE_FILE_INPUT_STRATEGY, FakeAiProvider } from './fake-ai-provider';
 
 const ctx = (apiKey = 'k', extra: Partial<AiCallContext> = {}): AiCallContext => ({
   apiKey,
@@ -177,5 +177,60 @@ describe('FakeAiProvider', () => {
     expect(registry.supports('text-only', 'responses')).toBe(true);
     expect(registry.supports('text-only', 'embeddings')).toBe(false);
     expect(registry.capabilities('embed-only')).toEqual(['embeddings']);
+  });
+  describe('storage-object inputs (#441)', () => {
+    const req = {
+      model: 'fake-model',
+      input: [
+        {
+          type: 'message' as const,
+          role: 'user' as const,
+          content: [
+            { type: 'image' as const, storageObjectId: 'img' },
+            { type: 'file' as const, storageObjectId: 'doc' },
+          ],
+        },
+      ],
+    };
+    const storageInputs = new Map([
+      ['img', { storageObjectId: 'img', modality: 'image' as const, mimeType: 'image/png', filename: 'a.png', strategy: 'presigned_url' as const, url: 'https://signed' }],
+      [
+        'doc',
+        {
+          storageObjectId: 'doc',
+          modality: 'file' as const,
+          mimeType: 'application/pdf',
+          filename: 'b.pdf',
+          strategy: 'upload' as const,
+          open: async () => (async function* () {
+            yield new Uint8Array([1, 2, 3]);
+          })(),
+        },
+      ],
+    ]);
+
+    it("declares OpenAI's strategy by default, and none with fileInputStrategy: false", () => {
+      expect(new FakeAiProvider().fileInputStrategy).toEqual(FAKE_FILE_INPUT_STRATEGY);
+      expect(new FakeAiProvider({ fileInputStrategy: false }).fileInputStrategy).toBeUndefined();
+    });
+
+    it('records the URL / uploaded file id it received, and deletes the upload afterwards', async () => {
+      const fake = new FakeAiProvider();
+
+      const res = await fake.responses!.create(req, ctx('k', { storageInputs }));
+
+      expect(res.outputText).toContain('a.png, b.pdf');
+      expect(fake.calls[0].storageInputs).toEqual([
+        expect.objectContaining({ storageObjectId: 'img', url: 'https://signed' }),
+        expect.objectContaining({ storageObjectId: 'doc', fileId: 'fake_file_1', bytes: 3 }),
+      ]);
+      expect(fake.deletedFileIds).toEqual(['fake_file_1']);
+    });
+
+    it('refuses a storage part the runtime did not resolve', async () => {
+      await expect(new FakeAiProvider().responses!.create(req, ctx())).rejects.toMatchObject({
+        code: 'AI_INVALID_REQUEST',
+      });
+    });
   });
 });

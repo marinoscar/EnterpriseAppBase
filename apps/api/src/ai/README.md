@@ -24,7 +24,8 @@ ai/
     provider-registry.ts     AiProviderRegistry — self-registration, adapterCapabilities()
     structured-output.ts     Zod <-> JSON Schema conversion for structured output
     tools.ts                 defineTool() — function-tool definition + argument validation
-    types/                   AiResponse, AiResponseRequest, AiStreamEvent, media types
+    types/                   AiResponse, AiResponseRequest, AiStreamEvent, media types,
+                             file-inputs.types.ts (storage-object inputs: caps, strategies, #441)
   providers/
     openai/                  The Phase 1 adapter. ONLY place the `openai` SDK is imported —
                              `core/no-provider-sdk.spec.ts` enforces this statically.
@@ -143,6 +144,17 @@ objects; the run's `output.storageObjectIds` names them
 (`docs/specs/ai-platform.md` §5.2). The two `storage/` pieces are the ones
 the audio and file-input stories reuse.
 
+**Storage-object inputs** (issue #441) need no method of their own: an
+`image`/`file` part may carry `storageObjectId` instead of `url`, and
+`prepare()` resolves it (`planStorageInputs`: ownership, readiness,
+modality from the MIME type vs. `vision_input`/`file_input`, 20/50 MiB caps,
+the adapter's `fileInputStrategy`). Just before the key,
+`materializeStorageInputs` prepares a 10-minute presigned URL or a capped
+stream per input and passes them to the adapter as `ctx.storageInputs`
+(never in the request, so nothing logged, queued or recorded carries a URL).
+OpenAI sends images as `image_url` and uploads files to its Files API,
+deleting them after the response. See `docs/specs/ai-platform.md` §5.3.
+
 ## Streaming, end to end
 
 1. A client `POST`s `/api/ai/responses/stream` with `Accept:
@@ -202,7 +214,10 @@ the audio and file-input stories reuse.
   `embeddingsPort: true` it also carries a deterministic embeddings port,
   recorded as `embeddings.embed` calls with their `apiKey`; with
   `imagesPort: true`, an images port (generate + edit, tiny PNGs, recorded
-  as `images.generate`/`images.edit` with the request they received). Register
+  as `images.generate`/`images.edit` with the request they received), and
+  delivers storage-object inputs OpenAI's way by default (images by URL,
+  files by a fake upload, recorded in `calls[].storageInputs` and
+  `deletedFileIds`; `fileInputStrategy: false` declares none). Register
   it in `AiProviderRegistry` in place of a real adapter for any integration
   test that exercises `AiService`.
 - **`createAiRuntimeHarness()`** (`testing/ai-runtime-harness.ts`) wires up

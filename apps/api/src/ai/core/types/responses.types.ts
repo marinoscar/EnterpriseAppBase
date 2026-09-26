@@ -23,10 +23,11 @@ import type { AiReasoningEffort } from '../capabilities';
 export type AiMessageRole = 'user' | 'assistant' | 'system' | 'developer';
 
 /**
- * One part of a message. Media parts point at bytes (a URL or a storage
- * object id) rather than embedding them: resolving a storage object into
- * something a provider can read is the runtime's job (#431), so it happens
- * once, under the caller's own authorization.
+ * One part of a message. Media parts point at bytes (exactly one of a URL or
+ * a storage object id) rather than embedding them: resolving a storage
+ * object into something a provider can read is the runtime's job (#441 —
+ * see `file-inputs.types.ts`), so it happens once per call, under the
+ * caller's own authorization, and the request itself keeps only the id.
  */
 export type AiContentPart =
   | { type: 'text'; text: string }

@@ -15,7 +15,11 @@
 //     object (streamed as SSE when the body says `stream: true`), an HTTP
 //     error, a network failure, or a raw SSE script;
 //   - `previous_response_id` must name a response this server issued, or it
-//     answers 404 like OpenAI would.
+//     answers 404 like OpenAI would;
+//   - `POST /files` (multipart) stores a file and answers a `FileObject`;
+//     `DELETE /files/{id}` removes it (#441). `files` holds what is still
+//     stored, so "the provider-side copy was deleted" is `files.size === 0`;
+//     `filesWith` injects a failure for either operation.
 
 import type { Response as OpenAiSdkResponse, ResponseStreamEvent } from 'openai/resources/responses/responses';
 
@@ -46,6 +50,24 @@ export type MockImagesReply =
   | { kind: 'images'; body: Record<string, unknown> }
   | { kind: 'error'; status: number; error: Record<string, unknown>; headers?: Record<string, string> }
   | { kind: 'network' };
+
+/** A `/v1/files` failure to inject, or `undefined` to answer normally. */
+export type MockFilesReply =
+  | { kind: 'error'; status: number; error: Record<string, unknown> }
+  | { kind: 'network' }
+  | undefined;
+
+/** Which files operation a request made. */
+export type MockFilesOperation = 'upload' | 'delete';
+
+/** A file the mock holds: what the multipart body carried. */
+export interface MockStoredFile {
+  id: string;
+  filename: string;
+  type: string;
+  bytes: number;
+  purpose: string;
+}
 
 /** Which images endpoint a request hit. */
 export type MockImagesOperation = 'generations' | 'edits';
@@ -217,6 +239,14 @@ export class OpenAiMockServer {
   private readonly queued: MockReply[] = [];
   private embedFn: (body: Record<string, unknown>) => MockEmbeddingReply;
   private imagesFn: (operation: MockImagesOperation, body: Record<string, unknown>) => MockImagesReply;
+  private filesFn: (operation: MockFilesOperation, fileId?: string) => MockFilesReply = () => undefined;
+  private fileCounter = 0;
+
+  /** Files uploaded and not (yet) deleted, by id. */
+  readonly files = new Map<string, MockStoredFile>();
+
+  /** Ids of every file deleted, in order. */
+  readonly deletedFileIds: string[] = [];
 
   constructor(opts: OpenAiMockServerOptions) {
     this.validKeys = new Set(opts.validKeys);
@@ -229,6 +259,11 @@ export class OpenAiMockServer {
   /** Replaces the `/images/*` responder. */
   imagesWith(fn: (operation: MockImagesOperation, body: Record<string, unknown>) => MockImagesReply): void {
     this.imagesFn = fn;
+  }
+
+  /** Injects a `/files` failure (return `undefined` to answer normally). */
+  filesWith(fn: (operation: MockFilesOperation, fileId?: string) => MockFilesReply): void {
+    this.filesFn = fn;
   }
 
   /** Replaces the `/embeddings` responder. */
@@ -355,6 +390,63 @@ export class OpenAiMockServer {
         case 'embeddings':
           return json(200, reply.body, replyHeaders);
       }
+    }
+
+    if (url.pathname.endsWith('/files') && init?.method === 'POST' && body) {
+      const injected = this.filesFn('upload');
+
+      if (injected?.kind === 'network') throw new TypeError('fetch failed');
+      if (injected?.kind === 'error') return json(injected.status, { error: injected.error }, replyHeaders);
+
+      const file = body.file as { filename: string; type: string; size: number };
+
+      this.fileCounter += 1;
+
+      const stored: MockStoredFile = {
+        id: `file-mock${this.fileCounter}`,
+        filename: file.filename,
+        type: file.type,
+        bytes: file.size,
+        purpose: String(body.purpose),
+      };
+
+      this.files.set(stored.id, stored);
+
+      return json(
+        200,
+        {
+          id: stored.id,
+          object: 'file',
+          bytes: stored.bytes,
+          created_at: 1_700_000_000,
+          filename: stored.filename,
+          purpose: stored.purpose,
+          status: 'processed',
+        },
+        replyHeaders,
+      );
+    }
+
+    const fileRoute = /\/files\/([^/]+)$/.exec(url.pathname);
+
+    if (fileRoute && init?.method === 'DELETE') {
+      const fileId = decodeURIComponent(fileRoute[1]);
+      const injected = this.filesFn('delete', fileId);
+
+      if (injected?.kind === 'network') throw new TypeError('fetch failed');
+      if (injected?.kind === 'error') return json(injected.status, { error: injected.error }, replyHeaders);
+
+      if (!this.files.delete(fileId)) {
+        return json(
+          404,
+          { error: { message: `No such File object: ${fileId}`, type: 'invalid_request_error', param: 'id', code: null } },
+          replyHeaders,
+        );
+      }
+
+      this.deletedFileIds.push(fileId);
+
+      return json(200, { id: fileId, object: 'file', deleted: true }, replyHeaders);
     }
 
     const images = /\/images\/(generations|edits)$/.exec(url.pathname);
