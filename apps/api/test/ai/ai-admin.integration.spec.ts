@@ -343,6 +343,34 @@ describe('AI Administration Integration', () => {
         );
       });
 
+      it('clears a stored baseUrl and cap end to end', async () => {
+        storedAi = {
+          ...defaultAi(),
+          providers: { openai: { enabled: false, baseUrl: 'https://gw.example.com' } },
+          defaults: { allowBackgroundRuns: true, maxOutputTokensCap: 4096 },
+        };
+
+        const res = record(
+          await request(server())
+            .put(`${BASE}/config`)
+            .set(authHeader(admin.accessToken))
+            .send(
+              configBody({
+                providers: { openai: { enabled: true, baseUrl: '' } },
+                defaults: { allowBackgroundRuns: true, maxOutputTokensCap: null },
+              }),
+            )
+            .expect(200),
+        );
+
+        // As persisted (JSON drops undefined): the keys are gone.
+        const persisted = JSON.parse(JSON.stringify(storedAi));
+        expect(persisted.providers.openai).toEqual({ enabled: true });
+        expect(persisted.defaults).toEqual({ allowBackgroundRuns: true });
+        expect(res.body.data.providers[0].baseUrl).toBeNull();
+        expect(res.body.data.defaults.maxOutputTokensCap).toBeNull();
+      });
+
       it('answers 409 on a version mismatch and writes nothing', async () => {
         record(
           await request(server())

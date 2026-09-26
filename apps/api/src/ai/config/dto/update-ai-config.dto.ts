@@ -24,8 +24,7 @@ export const aiProviderSettingsInputSchema = z.object({
   enabled: z.boolean(),
   /**
    * Endpoint override for an OpenAI-compatible gateway. Omit (or send null /
-   * empty) for "no override". ⚠ An override that is already stored cannot be
-   * cleared through this route yet — see `AiConfigAdminService.replace`.
+   * empty) for "no override" — which CLEARS a stored override.
    */
   baseUrl: z
     .union([z.url().max(2048), z.literal('')])
@@ -37,7 +36,7 @@ export const updateAiConfigSchema = z.object({
   keyPolicy: z.enum(AI_KEY_POLICIES),
   logPromptContent: z.boolean(),
   defaults: z.object({
-    /** Omit or null for "no cap". ⚠ A stored cap cannot be cleared yet — see `baseUrl`. */
+    /** Omit or null for "no cap" — which CLEARS a stored cap. */
     maxOutputTokensCap: z.number().int().positive().max(1_000_000).nullish(),
     allowBackgroundRuns: z.boolean(),
   }),

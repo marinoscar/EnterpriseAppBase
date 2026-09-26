@@ -98,14 +98,14 @@ export class AiAdminController {
     summary: 'Replace the AI platform configuration (Admin only)',
     description:
       'Full replace of the `ai` namespace. `providers` is keyed by provider id; a provider ' +
-      'left out keeps its stored settings. Takes effect immediately on this instance and ' +
-      'within five seconds on every other one — no restart.\n\n' +
+      'left out keeps its stored settings. An empty or null `baseUrl` / `maxOutputTokensCap` ' +
+      'clears a stored one. Takes effect immediately on this instance and within five ' +
+      'seconds on every other one — no restart.\n\n' +
       'Refused with **400** (reason in `details.reason`) when it enables a provider with no ' +
       'registered adapter (`AI_PROVIDER_NOT_REGISTERED`), names a provider this deployment ' +
-      'has no settings slot for (`AI_UNKNOWN_PROVIDER`), selects `byok_with_org_fallback` ' +
-      'while AI is on and an enabled provider has no admin key (`AI_KEY_REQUIRED`), or tries ' +
-      'to clear a stored `baseUrl` / `maxOutputTokensCap` (`AI_SETTING_CLEAR_UNSUPPORTED` — ' +
-      'not supported yet). Nothing is written when any of these apply.\n\n' +
+      'has no settings slot for (`AI_UNKNOWN_PROVIDER`), ' +
+      'or selects `byok_with_org_fallback` while AI is on and an enabled provider has no ' +
+      'admin key (`AI_KEY_REQUIRED`). Nothing is written when any of these apply.\n\n' +
       'There is no key field: the admin key has its own routes, so it is verified before it ' +
       'is stored and never travels with a settings save.',
   })

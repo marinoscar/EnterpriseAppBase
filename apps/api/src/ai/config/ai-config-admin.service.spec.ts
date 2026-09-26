@@ -176,8 +176,8 @@ describe('AiConfigAdminService', () => {
             enabled: true,
             keyPolicy: 'byok',
             logPromptContent: false,
-            defaults: { allowBackgroundRuns: true },
-            providers: { openai: { enabled: true } },
+            defaults: { allowBackgroundRuns: true, maxOutputTokensCap: null },
+            providers: { openai: { enabled: true, baseUrl: null } },
           },
         },
         'admin-1',
@@ -271,24 +271,38 @@ describe('AiConfigAdminService', () => {
       ).resolves.toMatchObject({ enabled: false });
     });
 
-    it('refuses to silently keep a baseUrl the admin cleared', async () => {
+    it.each([
+      ['empty string', ''],
+      ['null', null],
+      ['omission', undefined],
+    ])('clears a stored baseUrl sent as %s by patching it to null', async (_label, baseUrl) => {
       stored = policy({ providers: { openai: { enabled: true, baseUrl: 'https://gw.example.com' } } });
 
-      const error = await service
-        .replace(input({ providers: { openai: { enabled: true, baseUrl: '' } } }), 'admin-1')
-        .catch((err: unknown) => err);
+      await service.replace(
+        input({ providers: { openai: { enabled: true, ...(baseUrl === undefined ? {} : { baseUrl }) } } }),
+        'admin-1',
+      );
 
-      expect((error as BadRequestException).getResponse()).toMatchObject({
-        details: { reason: 'AI_SETTING_CLEAR_UNSUPPORTED', field: 'providers.openai.baseUrl' },
+      expect(systemSettings.patchSettings.mock.calls[0][0].ai.providers).toEqual({
+        openai: { enabled: true, baseUrl: null },
       });
+      expect(prisma.auditEvent.create.mock.calls[0][0].data.meta.changedFields).toContain(
+        'providers.openai.baseUrl',
+      );
     });
 
-    it('refuses to silently keep a maxOutputTokensCap the admin cleared', async () => {
+    it('clears a stored maxOutputTokensCap by patching it to null', async () => {
       stored = policy({ defaults: { allowBackgroundRuns: true, maxOutputTokensCap: 4096 } });
 
-      await expect(
-        service.replace(input({ defaults: { allowBackgroundRuns: true, maxOutputTokensCap: null } }), 'admin-1'),
-      ).rejects.toBeInstanceOf(BadRequestException);
+      await service.replace(
+        input({ defaults: { allowBackgroundRuns: true, maxOutputTokensCap: null } }),
+        'admin-1',
+      );
+
+      expect(systemSettings.patchSettings.mock.calls[0][0].ai.defaults).toEqual({
+        allowBackgroundRuns: true,
+        maxOutputTokensCap: null,
+      });
     });
 
     it('writes a new baseUrl and cap', async () => {

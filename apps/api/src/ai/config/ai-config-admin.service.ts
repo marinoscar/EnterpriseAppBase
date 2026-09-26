@@ -57,7 +57,6 @@ export const AI_CONFIG_REJECTIONS = {
   UNKNOWN_PROVIDER: 'AI_UNKNOWN_PROVIDER',
   PROVIDER_NOT_REGISTERED: 'AI_PROVIDER_NOT_REGISTERED',
   KEY_REQUIRED: 'AI_KEY_REQUIRED',
-  CLEAR_UNSUPPORTED: 'AI_SETTING_CLEAR_UNSUPPORTED',
 } as const;
 
 type SettingsRow = {
@@ -125,12 +124,10 @@ export class AiConfigAdminService {
    *      instance answers "is AI on?" from the new value immediately;
    *   5. the audit row, with changed field NAMES only.
    *
-   * ⚠ KNOWN LIMITATION: `patchSettings` merges with `??` and the `ai` patch
-   * schema has no way to say "remove this optional field", so a stored
-   * `providers.<id>.baseUrl` or `defaults.maxOutputTokensCap` can be CHANGED
-   * but not CLEARED through this route. Rather than silently keep a value the
-   * admin just emptied, that request is refused with a 400
-   * (`AI_SETTING_CLEAR_UNSUPPORTED`) naming the field.
+   * FULL REPLACE OF THE OPTIONAL FIELDS TOO: an empty/absent `baseUrl` or
+   * `maxOutputTokensCap` in the body CLEARS a stored one. `patchSettings`
+   * keeps a field it is not sent, so a cleared field is sent as an explicit
+   * `null`, which its merge treats as "remove" (see `toPatch`).
    */
   async replace(
     input: UpdateAiConfigInput,
@@ -151,7 +148,7 @@ export class AiConfigAdminService {
 
     await this.assertKeysForFallback(next);
 
-    await this.systemSettings.patchSettings({ ai: next }, userId, expectedVersion);
+    await this.systemSettings.patchSettings({ ai: toPatch(next) }, userId, expectedVersion);
 
     // Step 4 — see the method comment. Nothing awaits between the write and this.
     this.aiConfig.invalidateCache();
@@ -296,19 +293,10 @@ export class AiConfigAdminService {
       }
 
       const baseUrl = submitted.baseUrl || undefined;
-
-      if (stored.baseUrl && baseUrl === undefined) {
-        throw this.clearUnsupported(`providers.${id}.baseUrl`);
-      }
-
       providers[id] = baseUrl ? { enabled: submitted.enabled, baseUrl } : { enabled: submitted.enabled };
     }
 
     const maxOutputTokensCap = input.defaults.maxOutputTokensCap ?? undefined;
-
-    if (current.defaults.maxOutputTokensCap !== undefined && maxOutputTokensCap === undefined) {
-      throw this.clearUnsupported('defaults.maxOutputTokensCap');
-    }
 
     return {
       enabled: input.enabled,
@@ -406,15 +394,6 @@ export class AiConfigAdminService {
     });
   }
 
-  private clearUnsupported(field: string): BadRequestException {
-    return new BadRequestException({
-      message:
-        `"${field}" is set and cannot be cleared through this endpoint yet — submit a new ` +
-        'value, or keep the current one.',
-      details: { reason: AI_CONFIG_REJECTIONS.CLEAR_UNSUPPORTED, field },
-    });
-  }
-
   /** Audit row with codes / names only. `targetId` is `'ai'` or a provider id. */
   private async audit(
     userId: string,
@@ -432,6 +411,28 @@ export class AiConfigAdminService {
       },
     });
   }
+}
+
+/**
+ * `next` as a settings PATCH body: every optional field this namespace can
+ * hold is sent explicitly, as `null` when absent, so the PATCH merge REMOVES
+ * a stored value rather than keeping it. That is what makes the admin PUT a
+ * full replace of the optional fields as well as the required ones.
+ */
+export function toPatch(next: SystemAiValue) {
+  return {
+    ...next,
+    providers: Object.fromEntries(
+      Object.entries(next.providers).map(([id, slot]) => [
+        id,
+        { enabled: slot.enabled, baseUrl: slot.baseUrl ?? null },
+      ]),
+    ) as { openai: { enabled: boolean; baseUrl: string | null } },
+    defaults: {
+      allowBackgroundRuns: next.defaults.allowBackgroundRuns,
+      maxOutputTokensCap: next.defaults.maxOutputTokensCap ?? null,
+    },
+  };
 }
 
 /**
