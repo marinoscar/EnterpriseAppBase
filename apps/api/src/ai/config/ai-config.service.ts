@@ -1,0 +1,166 @@
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+
+import type { SystemAiValue } from '../../common/schemas/settings.schema';
+import { CredentialsService } from '../../credentials/credentials.service';
+import { SystemSettingsService } from '../../settings/system-settings/system-settings.service';
+import { AiError } from '../core/ai-error';
+import { AiProviderRegistry } from '../core/provider-registry';
+import { AI_CREDENTIAL_PURPOSE, aiCredentialName } from './ai-credential.constants';
+
+// =============================================================================
+// AiConfigService — the one cached answer to "is AI on?" (issue #428, epic #419)
+// =============================================================================
+//
+// Every other AI story asks this service, never `SystemSettingsService`
+// directly, so the kill switch (docs/specs/ai-platform.md §8) has exactly one
+// reading and one cache. Modelled on `StorageConfigService`:
+//
+//   - The `ai` settings namespace is cached for AI_POLICY_CACHE_MS. A burst of
+//     AI calls costs one `system_settings` read, and an edit made on another
+//     instance lands within one TTL.
+//   - The instance that HANDLED an admin write does not wait at all: the admin
+//     service calls `invalidateCache()` synchronously after the write.
+//   - ⚠ THE ORG KEY IS NEVER CACHED. `getOrgKey` decrypts on every call, so a
+//     rotation or a removal is live on the very next call, and no plaintext
+//     key sits in this process's memory between calls.
+// =============================================================================
+
+/**
+ * How long a settings read is reused. The same five seconds as
+ * `STORAGE_POLICY_CACHE_MS` and `MAINTENANCE_PERSISTED_CACHE_MS`, for the same
+ * reasons — see `storage-config.service.ts`.
+ */
+export const AI_POLICY_CACHE_MS = 5_000;
+
+/** The deployment-wide AI policy (`ai` settings namespace). */
+export type AiPolicy = SystemAiValue;
+
+/** One provider's slot in the policy. */
+export type AiProviderPolicy = SystemAiValue['providers']['openai'];
+
+/**
+ * A provider's policy slot by id, or `undefined` for an id the settings schema
+ * has no slot for. `providers` is a closed object keyed by `AI_PROVIDER_IDS`;
+ * this is the one place that indexes it by an arbitrary string.
+ */
+export function providerPolicy(policy: AiPolicy, providerId: string): AiProviderPolicy | undefined {
+  const providers = policy.providers as Record<string, AiProviderPolicy | undefined>;
+
+  return Object.prototype.hasOwnProperty.call(providers, providerId)
+    ? providers[providerId]
+    : undefined;
+}
+
+@Injectable()
+export class AiConfigService implements OnModuleInit {
+  private readonly logger = new Logger(AiConfigService.name);
+
+  /** Last successful settings read. Carries no secret — `SystemAiValue` has no field able to. */
+  private cache: { value: AiPolicy; readAt: number } | null = null;
+
+  constructor(
+    private readonly systemSettings: SystemSettingsService,
+    private readonly credentials: CredentialsService,
+    private readonly registry: AiProviderRegistry,
+  ) {}
+
+  /**
+   * One best-effort settings read at startup, so the first request after a
+   * restart is answered from a warm cache. Detached and swallowed on purpose:
+   * it must never delay or prevent boot. It reads the SETTINGS only — never
+   * a key (see `StorageConfigService.onModuleInit` for why boot is not a
+   * moment to decrypt anything).
+   */
+  onModuleInit(): void {
+    void this.resolve({ fresh: true })
+      .then((policy) => {
+        this.logger.log(
+          `AI policy loaded: enabled=${policy.enabled} keyPolicy=${policy.keyPolicy}`,
+        );
+      })
+      .catch((error: unknown) => {
+        this.logger.warn(
+          'Could not read the AI settings at startup; they will be read again on ' +
+            `first use: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      });
+  }
+
+  /**
+   * The current policy. `fresh: true` bypasses the cache — for a caller that
+   * is SHOWING or TESTING the configuration, never for a hot path.
+   */
+  async resolve(opts: { fresh?: boolean } = {}): Promise<AiPolicy> {
+    const now = Date.now();
+
+    if (!opts.fresh && this.cache && now - this.cache.readAt < AI_POLICY_CACHE_MS) {
+      return this.cache.value;
+    }
+
+    const value = await this.systemSettings.getAiPolicy();
+    this.cache = { value, readAt: Date.now() };
+
+    return value;
+  }
+
+  /** The kill switch (§8). */
+  async isEnabled(): Promise<boolean> {
+    return (await this.resolve()).enabled;
+  }
+
+  /** Throws `AiError('AI_DISABLED')` (403) when the kill switch is off. */
+  async assertEnabled(): Promise<void> {
+    if (!(await this.isEnabled())) {
+      throw new AiError('AI_DISABLED', 'AI features are disabled in this deployment.');
+    }
+  }
+
+  /**
+   * The provider's policy slot, when AI is on, the provider is enabled in
+   * settings AND an adapter for it is registered in this process.
+   *
+   * @throws AiError('AI_DISABLED') when the kill switch is off.
+   * @throws AiError('AI_PROVIDER_DISABLED') for any other "no".
+   */
+  async assertProviderEnabled(providerId: string): Promise<AiProviderPolicy> {
+    const policy = await this.resolve();
+
+    if (!policy.enabled) {
+      throw new AiError('AI_DISABLED', 'AI features are disabled in this deployment.');
+    }
+
+    const slot = providerPolicy(policy, providerId);
+
+    if (!slot?.enabled || !this.registry.get(providerId)) {
+      throw new AiError(
+        'AI_PROVIDER_DISABLED',
+        `AI provider "${providerId}" is not enabled in this deployment.`,
+        { details: { provider: providerId } },
+      );
+    }
+
+    return slot;
+  }
+
+  /**
+   * The admin (org) key for `providerId`, decrypted, or `null` when none is
+   * stored.
+   *
+   * ⚠ PLAINTEXT, AND NEVER CACHED. Call it at the moment of use, hand the value
+   * straight to an adapter, and never log, persist or return it. Whether a
+   * caller may USE it to serve a user is `AiKeyResolver`'s decision (§3), not
+   * this method's.
+   */
+  async getOrgKey(providerId: string): Promise<string | null> {
+    return this.credentials.getSecret(AI_CREDENTIAL_PURPOSE, aiCredentialName(providerId));
+  }
+
+  /**
+   * Drop the cached policy so the next read consults the row. Call it
+   * SYNCHRONOUSLY right after any write to the `ai` namespace, before the audit
+   * row — the ordering `StorageConfigService.invalidateCache` explains.
+   */
+  invalidateCache(): void {
+    this.cache = null;
+  }
+}
