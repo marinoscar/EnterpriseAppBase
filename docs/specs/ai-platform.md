@@ -83,7 +83,8 @@ through `SystemSettingsService`) holds everything that is *not* secret:
   keyPolicy: 'byok' | 'byok_with_org_fallback' /*'byok'*/,
   providers: { openai:    { enabled: boolean /*false*/, baseUrl?: string },
                anthropic: { enabled: boolean /*false*/, baseUrl?: string } /*§14.1, #446*/ },
-  defaults: { maxOutputTokensCap?: number, allowBackgroundRuns: boolean /*true*/ },
+  defaults: { maxOutputTokensCap?: number, allowBackgroundRuns: boolean /*true*/,
+              allowRealtime: boolean /*false — §5.8*/ },
   logPromptContent: boolean /*false*/,
   usageRetentionDays: number /*180, 1–3650 — §12, #443*/,
   hostedTools: { …switches, mcpAllowedHosts: string[] } /*all off — §5.4, #442*/,
@@ -167,6 +168,12 @@ resolved a given call: `'user'`, `'org'`, or `'admin_discovery'` (§12) — the
 third is reserved for calls the *platform itself* makes with the admin key
 (catalog sync) and is never a value `AiKeyResolver` returns to a runtime
 caller.
+
+Neither key ever reaches a browser. The one provider credential that does is
+a realtime session's **ephemeral client secret** (§5.8). It is minted server-side
+*with* the resolved key, it expires in 60 seconds, it opens one session
+configuration, and it cannot call any other API. It is the single, deliberate
+exception, and it is never the key itself.
 
 ## 4. The capability model
 
@@ -673,6 +680,151 @@ reasoning continuity across tool rounds and every round re-bills the whole
 prompt); **putting the thinking signature in a normal field** (every
 serialiser — DTO, SSE, run row, log — would have to remember to strip it).
 
+### 5.8 Realtime sessions (Phase 3, issue #449)
+
+Low-latency speech-to-speech ("talk to the app") does not fit the shape of
+§5.1–§5.7. The audio flows **browser ↔ provider** over WebRTC for the whole
+conversation, so there is no request for the server to relay and no response
+for it to store. That runs into §3's rule that a key never reaches the
+browser. The answer is a **server-minted, short-lived, single-session
+ephemeral credential**. The server spends the user's real key once, to ask
+the provider for a throwaway client secret, and only that secret goes to the
+browser.
+
+**How OpenAI's ephemeral endpoint works** (verified against the GA Realtime
+API and the `openai` SDK this repository pins, which exposes it as
+`client.realtime.clientSecrets.create`):
+
+1. The server calls `POST /v1/realtime/client_secrets` with the real key
+   (`Authorization: Bearer <user or org key>`) and a body of
+   `{ expires_after: { anchor: 'created_at', seconds }, session: { type:
+   'realtime', model, instructions?, output_modalities?, max_output_tokens?,
+   audio: { output: { voice }, input?: { turn_detection } }, tools? } }`.
+   The `session` object becomes the session's initial configuration.
+2. OpenAI answers `{ value: 'ek_…', expires_at, session }`. `value` is the
+   ephemeral client secret, `expires_at` is epoch seconds, and `session` is
+   the effective configuration, with its own `sess_…` id.
+3. The browser opens an `RTCPeerConnection`, adds the microphone track and a
+   `oai-events` data channel, and POSTs its SDP offer (`Content-Type:
+   application/sdp`) to **`https://api.openai.com/v1/realtime/calls`** with
+   `Authorization: Bearer ek_…`. The response body is the SDP answer. From
+   then on, audio travels over the media tracks, and JSON events
+   (`session.update`, `response.create`, `conversation.item.*`,
+   `response.output_audio_transcript.delta`, …) travel over the data
+   channel.
+
+The legacy `POST /v1/realtime/sessions` (the beta path, which returned
+`client_secret.value` inside a session object) is **not** used. The GA
+endpoint replaced it.
+
+**TTL.** `expires_after.seconds` accepts 10–7200 (2 hours). When it is
+omitted, the typings of the SDK version we pin say the default is 600
+seconds; older documentation described about one minute. We do not depend on
+either default. The adapter always sends **60 seconds**
+(`AI_REALTIME_CLIENT_SECRET_TTL_SECONDS`), which is enough for the browser to
+receive the secret and finish the SDP exchange. The expiry bounds how long
+the secret can **open** a session; a call connected before it expires keeps
+running after it. The session's own length is the provider's limit (currently
+up to 60 minutes per session for OpenAI), not ours.
+
+**What the ephemeral secret can and cannot do.**
+
+- It **can** open realtime sessions against the configuration it was minted
+  with, until it expires. The provider allows more than one connection
+  before expiry; the short TTL is what keeps that window small. Inside a
+  session, the client can change that session over the data channel with
+  `session.update`: its instructions, its tools, turn detection, and
+  enabling input-audio transcription.
+- It **cannot** list models, call the Responses, Files, Images or Audio APIs,
+  mint another secret, or read anything about the account. It is not an API
+  key. It is also useless after `expires_at` for opening anything new.
+- **Consequence:** instructions, voice and the output-token cap the server
+  sends are **initial configuration, not enforcement**. A user holding the
+  secret can reconfigure their own session. That is acceptable because they
+  can only spend their own quota (or the org key's, under the policy the
+  administrator chose), and the gates below have already decided they may
+  use realtime at all.
+
+**Usage reporting.** The server never sees the media stream or the
+provider's `response.done` usage events, so it cannot know token or audio
+counts. Each mint records **one** `ai_usage_events` row with `operation:
+'realtime'` and `units: { sessions: 1 }`, and no token counts. A failed mint
+records a `failed` row with no units, like any failed round trip. Forwarding
+the browser's `response.done` usage back to the API was rejected for now:
+those numbers would be self-reported by the client that benefits from
+under-reporting them, and a usage table we cannot trust is worse than one
+that honestly says "sessions only". Exact realtime cost is on the provider's
+own dashboard.
+
+**The decision.** `ai.forUser(userId).createRealtimeSession({ provider?,
+model?, voice?, instructions?, turnDetection?, tools? })` →
+`{ provider, model, voice, clientSecret, expiresAt, connectUrl }`, gated in
+this order:
+
+1. the kill switch → `AI_DISABLED`;
+2. **`ai.defaults.allowRealtime`** (a new admin flag, **default `false`**) →
+   `AI_REALTIME_DISABLED` (403). It is a separate switch from `enabled`
+   because a realtime session is the one AI surface where the server gives
+   up per-call control: it cannot see, cap or meter what happens after the
+   mint. An administrator should opt into that knowingly. It is published
+   as `allowRealtime` in `GET /api/ai/config` (always `false` while AI is off),
+   so a client can hide its voice mode;
+3. the target: an omitted `model` means the first usable model with
+   `realtime` (in `GET /api/ai/models` order); then the provider is enabled
+   and registered → `AI_PROVIDER_DISABLED`;
+4. the model is enabled, declares `realtime` (model **and** the provider's
+   `realtime` port) and is reachable with a key → `AI_MODEL_NOT_ENABLED`,
+   `AI_CAPABILITY_UNSUPPORTED`, `AI_KEY_REQUIRED`, `AI_MODEL_NOT_REACHABLE`;
+5. the voice is one the model lists (`capabilities.voices`, else the port's
+   `voices`) → `AI_INVALID_REQUEST`. An omitted voice means the model's
+   first;
+6. the key is resolved (§3; the byok invariant holds, so the org key only
+   pays under `byok_with_org_fallback`);
+7. the rate limits (§15). A mint **counts as one request**;
+8. the adapter mints, and the usage row is recorded.
+
+`POST /api/ai/realtime/sessions` (`ai:use`, `AiEnabledGuard`) exposes it.
+The body is `{ provider?, model?, voice?, instructions? }` and the response
+is 201 `{ data: { provider, model, voice, clientSecret, expiresAt,
+connectUrl } }`. There is no job: minting is one short provider round trip,
+and the long-running part (the call itself) runs between the browser and
+the provider, never on the server. That is within the MANDATORY queue rule,
+which covers only work that runs **on** this server past its request. Tools
+are not accepted over HTTP, for the same reason `POST /api/ai/responses`
+refuses function tools. The in-process port accepts them for a fork that
+wants to declare client-executed tools.
+
+**⚠ The single, deliberate exception to "secrets never leave the server".**
+`clientSecret` **is** returned to the browser, because that is its only
+purpose. It is the only credential any AI route returns. It is a provider
+credential scoped to one session configuration, it expires in 60 seconds,
+and it is not an API key. The user's real key (or the org key) is used only
+as the `Authorization` header of the mint call to the provider. It is never
+in this response, a log line, a span, an error, or the usage row. Treat
+`clientSecret` like a bearer token anyway: it is never logged, stored or
+put on a span. `ai-secret-egress.integration.spec.ts` holds both halves as
+executable rules. The fake provider's ephemeral sentinel may appear in this
+one route's `clientSecret` field and nowhere else (not in any log line or
+usage row), while the real-key sentinels may not appear anywhere, this
+response included.
+
+`connectUrl` is derived from the provider slot's `baseUrl` (default
+`https://api.openai.com/v1` → `https://api.openai.com/v1/realtime/calls`),
+so a deployment that points OpenAI at a gateway also points its browsers
+there. That gateway must then be reachable from users' browsers and must
+proxy WebRTC SDP.
+
+Rejected: **relaying the media through the API** (a WebSocket from the server
+to the provider, forwarded to the browser). It would put the API in the data
+path of every second of every call, and it would need sticky long-lived
+connections through nginx for a conversation that is exactly the thing
+WebRTC exists to keep peer-to-peer. The server would see the usage, but at
+the cost of the latency that is the reason to use realtime. **Returning the
+real key** to the browser (the thing §3 exists to rule out). **A job type for
+the mint** (there is no long-running server work to account for).
+**Metering from client-forwarded `response.done` events** (untrustworthy; see
+usage above).
+
 ## 6. Model discovery and classification
 
 A provider's model-listing endpoint returns IDs and little else useful —
@@ -831,6 +983,13 @@ node-eligible** — no `nodeResultSchema` +
   outcomes, retries for a multi-attempt profile, the settle safety net). Embeddings ship no job
   type of their own: `embed` is synchronous, and a large backfill is a
   fork's own server-only job calling it per chunk (§5.1).
+- **Realtime sessions (#449) ship no job type, deliberately.** Minting the
+  ephemeral secret is one short, synchronous provider round trip, and the
+  long-running part (the conversation) runs browser ↔ provider over WebRTC
+  and never on this server. There is nothing server-side to lease, time out
+  or retry (§5.8). If a future realtime feature ever runs a session
+  server-side (a server-held WebSocket, say), that work becomes a
+  server-only job like every other here.
 
 The reason is not incidental — it is **MANDATORY queue rule 3**
 (CLAUDE.md): a node never persists a job-scoped credential, and every
@@ -1008,14 +1167,16 @@ Every provider round-trip — success or failure — writes exactly one
 inputTokens?, outputTokens?, reasoningTokens?, cachedInputTokens?, units?,
 latencyMs, status, errorCode?, providerRequestId?, jobId? }`. `operation` is
 one of `responses | images | audio.transcribe | audio.speech | embeddings |
-catalog` — `catalog` is the one operation with no `userId` (it runs under
+realtime | catalog` — `catalog` is the one operation with no `userId` (it runs under
 the admin key, §6, `keySource: 'admin_discovery'`) and no
 `inputTokens`/`outputTokens` (discovery/classification are not token-metered
 calls); `units` exists for non-token-metered operations (`{ images: 2 }`,
 `{ audioSeconds: 31.4 }`). `AiUsageRecorder` writes it from the facade's
 round-trip outcome (#437 — `images` records `{ images: n }`; #438 —
 `audio.transcribe` records `{ audioSeconds }`; #439 — `audio.speech` records
-`{ characters }`), keeping only
+`{ characters }`; #449 — `realtime` records `{ sessions: 1 }` per minted
+session and **no tokens**, because the media never passes through the server
+(§5.8)), keeping only
 finite, non-negative numbers and storing nothing when none are left.
 
 **Reading it back (#443).** Two routes aggregate these rows, both answering
@@ -1104,6 +1265,7 @@ one HTTP status:
 | `AI_MODEL_NOT_ENABLED` | 403 | The model is not admin-enabled, or is deprecated (§6, §7). |
 | `AI_MODEL_NOT_REACHABLE` | 403 | The model is enabled, but the resolved key cannot reach it (§7). |
 | `AI_CAPABILITY_UNSUPPORTED` | 400 | The model/provider lacks a capability the request needs (§4) — including `previousResponseId` on a provider that stores no responses (`details.capability: "previous_response_id"`, §5.7). |
+| `AI_REALTIME_DISABLED` | 403 | Realtime sessions are switched off for this deployment (`ai.defaults.allowRealtime`, default `false`, §5.8). Published in advance as `allowRealtime: false` in `GET /api/ai/config`. |
 | `AI_TOOL_DISABLED` | 403 | A hosted tool type an administrator has not switched on, or an MCP server host outside `ai.hostedTools.mcpAllowedHosts` (§5.4). |
 | `AI_RATE_LIMITED` | 429 | The provider rate-limited the call, **or** a deployment limit in `ai.limits` was reached (§15 — then `details.limit` names it, with `details.max` and `details.window`); convertible to the queue's `RateLimitError` via `toRateLimitError()` so a job defers rather than burning an attempt. `details.retryAfterMs` (and, over HTTP, a `Retry-After` header in whole seconds, rounded up) says when to retry, whenever it is known. |
 | `AI_PROVIDER_UNAVAILABLE` | 503 | The provider is unreachable or erroring at the transport level. |
@@ -1123,7 +1285,7 @@ specific code from the table above travels **only** in `details.reason`,
 written last inside `AiError`'s constructor so a caller-supplied
 `details.reason` can never disagree with it; a client switches on
 `details.reason`, never on the top-level `code`, to learn which of these
-fourteen conditions occurred. Its `apiKey`/key material must never appear in
+fifteen conditions occurred. Its `apiKey`/key material must never appear in
 `details` or in any log line derived from it, regardless of how the error
 was constructed (a unit test asserts `JSON.stringify(new AiError(...))`
 never includes a key passed via `cause`).
@@ -1303,7 +1465,7 @@ every consumer-facing route (as opposed to `/api/admin/ai/*`'s
 
 | Method & path | Auth | Behaviour |
 |---|---|---|
-| `GET /api/ai/config` | `@Auth()` | `{ enabled, keyPolicy, allowBackgroundRuns, hostedTools:{ web_search, file_search, code_interpreter, image_generation, mcp }, providers:[{ id, displayName, enabled, hasOrgKey, supportsPreviousResponseId }] }` — `supportsPreviousResponseId: false` (Anthropic) means send the conversation as `input`; `previousResponseId` is refused (§5.7). When `enabled=false`: `{ enabled:false, keyPolicy, allowBackgroundRuns:false, hostedTools:{ …all false }, providers:[] }`. Never includes hints or keys. Reachable even while `ai.enabled=false` (§8). |
+| `GET /api/ai/config` | `@Auth()` | `{ enabled, keyPolicy, allowBackgroundRuns, allowRealtime, hostedTools:{ web_search, file_search, code_interpreter, image_generation, mcp }, providers:[{ id, displayName, enabled, hasOrgKey, supportsPreviousResponseId }] }` — `supportsPreviousResponseId: false` (Anthropic) means send the conversation as `input`; `previousResponseId` is refused (§5.7). When `enabled=false`: `{ enabled:false, keyPolicy, allowBackgroundRuns:false, allowRealtime:false, hostedTools:{ …all false }, providers:[] }`. Never includes hints or keys. Reachable even while `ai.enabled=false` (§8). |
 
 **User keys and usable models** (`/api/ai/*`, all
 `@UseGuards(AiEnabledGuard)`, `@Auth({ permissions:[PERMISSIONS.AI_USE] })`):
@@ -1327,6 +1489,7 @@ every consumer-facing route (as opposed to `/api/admin/ai/*`'s
 | `POST /api/ai/images/edits` | `editImage(...)` → `{ runId, jobId }`, status 202. Inputs by storage object id: unknown → 404, another user's → 403, not ready / wrong type / too large → 400 `AI_INVALID_REQUEST`. |
 | `POST /api/ai/audio/transcriptions` | `transcribe(...)` → `{ runId, jobId }`, status 202 (§5.5). The recording by storage object id: unknown → 404, another user's → 403, not ready / not audio / over the provider limit → 400 `AI_INVALID_REQUEST`; a model without `audio_transcription` → 400 `AI_CAPABILITY_UNSUPPORTED`. |
 | `POST /api/ai/audio/speech` | `speak(...)` → `{ runId, jobId }`, status 202 (§5.6). `input` over 4096 characters → 400; a voice the model does not speak → 400 `AI_INVALID_REQUEST`; a model without `audio_speech` → 400 `AI_CAPABILITY_UNSUPPORTED`. The output carries `aiGenerated: true`. |
+| `POST /api/ai/realtime/sessions` | `createRealtimeSession(...)` → `{ provider, model, voice, clientSecret, expiresAt, connectUrl }`, status 201 (§5.8). `allowRealtime` off → 403 `AI_REALTIME_DISABLED`; a model without `realtime` → 400 `AI_CAPABILITY_UNSUPPORTED`; a voice the model does not list → 400 `AI_INVALID_REQUEST`. `clientSecret` is the ephemeral, 60-second, single-session provider secret: the **one** credential any AI route returns, and never the user's key. |
 | `POST /api/ai/runs` | `startRun(...)` → `{ runId, jobId }`, status 202. |
 | (all three responses routes) | `image`/`file` parts take `url` **or** `storageObjectId` (§5.3): unknown object → 404, another user's → 403, wrong modality → 400 `AI_CAPABILITY_UNSUPPORTED`, over 20/50 MiB → 400 `AI_INVALID_REQUEST`, storage unusable → 503 `AI_STORAGE_UNAVAILABLE`. |
 | `GET /api/ai/runs/:id` | Scoped to caller → `{ id, status, provider, modelId, output, errorCode, errorMessage, createdAt, completedAt }` (never the stored prompt, never the job id); `output` is the `AiResponse`, an image run's `{ type: 'images', storageObjectIds, … }`, a transcript `{ type: 'transcription', text, … }`, or speech `{ type: 'speech', storageObjectId, aiGenerated: true, … }`; 404 for another user's run. |
