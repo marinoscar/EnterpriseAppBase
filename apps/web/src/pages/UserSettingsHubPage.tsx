@@ -30,8 +30,12 @@
 
 import { SettingsHub } from '../components/settings/SettingsHub';
 import { USER_SETTINGS_SECTIONS, USER_HUB_TITLE } from '../config/userSettingsSections';
+import { useAiConfig } from '../hooks/useAiConfig';
 
 export default function UserSettingsHubPage() {
+  // The deployment feature map (#425), exactly as the admin hub reads it:
+  // `AI Keys` is declared with `feature: 'ai'`.
+  const { config: aiConfig } = useAiConfig();
   return (
     <SettingsHub
       sections={USER_SETTINGS_SECTIONS}
@@ -45,6 +49,7 @@ export default function UserSettingsHubPage() {
       // the admin hub's system-configuration copy: these are the user's
       // preferences, not the deployment's.
       subtitle="Manage your account preferences"
+      features={{ ai: aiConfig.enabled }}
     />
   );
 }

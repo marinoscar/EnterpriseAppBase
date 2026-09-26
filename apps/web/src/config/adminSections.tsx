@@ -81,6 +81,43 @@ export interface SettingsCardDef {
    * REACHABILITY gate and a content gate.
    */
   alwaysShow?: boolean;
+  /**
+   * A deployment-wide FEATURE this card only exists under (issue #425, epic
+   * #419). Absent means "always part of the IA". Present means the card is
+   * hidden unless the caller's feature map says that feature is on —
+   * `features[feature] === true`, so an omitted map (every caller that
+   * predates this field) hides it too, failing closed.
+   *
+   * A third axis, orthogonal to `permission`: permission asks "may THIS USER
+   * see it?", `feature` asks "does it exist in THIS DEPLOYMENT right now?".
+   * The `AI Models` card needs both — `ai_config:read` AND AI switched on —
+   * while the `AI` card itself deliberately carries no `feature`, because it
+   * is the page an administrator switches AI on from.
+   *
+   * Applied BEFORE `alwaysShow`: a feature that is off means the page is not
+   * there to reach, which no content-gating escape hatch can change.
+   */
+  feature?: SettingsFeatureKey;
+}
+
+/** The deployment features a card may be gated on. One today; a union so a second is a one-word change. */
+export type SettingsFeatureKey = 'ai';
+
+/**
+ * Which features are on, as `visibleSettingsSections` / `settingsPageTitle` /
+ * `isDestinationVisible` read it. Partial: a missing key is "off".
+ */
+export type SettingsFeatures = Partial<Record<SettingsFeatureKey, boolean>>;
+
+/**
+ * Whether a card's `feature` gate (if any) is open under `features`. Exported
+ * so every consumer asks the same question the same way.
+ */
+export function isFeatureEnabled(
+  feature: SettingsFeatureKey | undefined,
+  features: SettingsFeatures = {},
+): boolean {
+  return feature === undefined || features[feature] === true;
 }
 
 /** A titled group of cards — an `overline` header on the hub, a `ListSubheader` in the rail. */
@@ -524,17 +561,24 @@ export const ADMIN_HUB_TITLE = 'Settings';
  * description. Matching descriptions too would mean a two-letter query
  * surfacing eight cards because their prose happens to share a word — a worse
  * result set than a strict title match, and one the user cannot predict.
+ *
+ * `features` (#425) is the deployment feature map a card's `feature` field is
+ * checked against. Optional and fail-closed: a caller that passes none hides
+ * every feature-gated card, so no pre-existing caller can surface one by
+ * accident.
  */
 export function visibleSettingsSections(
   sections: SettingsSectionDef[],
   hasPermission: (permission: string) => boolean,
   query = '',
+  features: SettingsFeatures = {},
 ): SettingsSectionDef[] {
   const needle = query.trim().toLowerCase();
   return sections
     .map((section) => ({
       label: section.label,
       cards: section.cards.filter((card) => {
+        if (!isFeatureEnabled(card.feature, features)) return false;
         if (needle && !card.title.toLowerCase().includes(needle)) return false;
         if (card.alwaysShow) return true;
         if (!card.permission) return true;
@@ -569,12 +613,19 @@ export function visibleSettingsSections(
  * `sections`, `hubPath` and `hubTitle` are parameters for the same reason
  * `visibleSettingsSections` takes `sections`: #96 calls this with the user
  * registry and `/settings`.
+ *
+ * `features` applies the same `feature` gate the hub does (#425): a card whose
+ * feature is off does not exist, so it cannot title a page — the path falls
+ * back to its next-longest owner or the hub title, exactly as an unregistered
+ * path would. Permission is deliberately NOT applied here, as before: a route
+ * the user reached is titled whatever its gate said.
  */
 export function settingsPageTitle(
   sections: SettingsSectionDef[],
   hubPath: string,
   hubTitle: string,
   pathname: string,
+  features: SettingsFeatures = {},
 ): string | null {
   if (pathname !== hubPath && !pathname.startsWith(`${hubPath}/`)) return null;
 
@@ -582,6 +633,7 @@ export function settingsPageTitle(
   for (const section of sections) {
     for (const card of section.cards) {
       if (!card.path) continue;
+      if (!isFeatureEnabled(card.feature, features)) continue;
       const matches = pathname === card.path || pathname.startsWith(`${card.path}/`);
       if (matches && (!best || card.path.length > best.length)) {
         best = { title: card.title, length: card.path.length };
