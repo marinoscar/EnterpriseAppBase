@@ -1208,6 +1208,47 @@ every consumer-facing route (as opposed to `/api/admin/ai/*`'s
   (§12). Every provider call in this platform happens server-side, with no
   exception.
 
+## The Playground (`/ai`, web reference UI — #434, #445)
+
+The Playground is the template's copyable example of consuming every AI
+capability from the browser, and a user's way to prove their key works. It
+calls only the HTTP surface above — never a provider, never a key.
+
+- **Modes.** A segmented control (not a settings tab strip) switches between
+  Chat, Image, Transcribe, Speech and Embeddings. Each mode is defined by one
+  capability (`responses`, `image_generation`, `audio_transcription`,
+  `audio_speech`, `embeddings`) and lists only the usable models (§7) that
+  declare it; a mode no usable model serves stays focusable but
+  `aria-disabled`, with the reason as its tooltip. Nothing is keyed on a model
+  name (`apps/web/src/components/ai/playground/aiPlaygroundModes.ts`). A
+  mode's panel stays mounted once visited, so its inputs and any run it is
+  polling survive a switch.
+- **Chat** streams (`/responses/stream`) or queues a background run, with
+  controls shown only for what the model declares (§4). Attachments (§5.3)
+  are offered per `vision_input`/`file_input` **and** the matching input
+  modality, pre-checked against the 20/50 MiB caps, uploaded through the
+  storage API and sent by `storageObjectId`. Hosted tools (§5.4) appear only
+  when the model has `hosted_tools` and the tool is switched on in
+  `GET /api/ai/config` `hostedTools`; web search, file search (vector store
+  ids typed in), code interpreter and image generation are offered — MCP is
+  deliberately not, since it needs a secret header a playground should not
+  invite users to paste. Citations, tool results and hosted images render
+  under the answer; only `http(s)` URLs from a model or provider are linked.
+- **Image, Transcribe, Speech** are run-backed: one `POST` answering 202, then
+  the shared `useAiRun` poll (`startWith`) and `AiRunCard`. Inputs (an image
+  and mask to edit, a recording) are uploaded and read back until `ready`
+  first. Outputs are the user's storage objects, shown from short-lived
+  signed download URLs: an image gallery (alt text from the prompt), a
+  transcript with timestamped segments and a copy button, and a labelled
+  `<audio controls>` player that always shows **"AI-generated audio"** (the
+  speech disclosure, §5.6). Speech voices come from the model's `capabilities.voices`.
+- **Embeddings** is synchronous: one input per line (≤ 256), then count,
+  dimensions, the first 8 values per vector and — for ≤ 10 inputs — a cosine
+  similarity matrix computed in the browser from the returned vectors.
+- **Errors** of every road (a refused request, an SSE `error` frame, a failed
+  run's `errorCode`) render through the one `AiErrorAlert` mapping; the
+  storage API's own "not configured" reasons read as `AI_STORAGE_UNAVAILABLE`.
+
 ## Verification
 
 | Claim | Where it is asserted |

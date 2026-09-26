@@ -18,17 +18,28 @@
  * message `stopped` right away rather than waiting for the stream promise to
  * settle; every callback checks its own controller afterwards and drops late
  * frames, so a delta already in flight cannot land on a stopped message.
+ *
+ * ATTACHMENTS (#445, API #441). A turn may carry already-uploaded storage
+ * objects; the input then becomes one user message whose content is the text
+ * followed by an `image`/`file` part per attachment (`chatTurnInput`), and
+ * the user message keeps the attachments so the thread can show them.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   createAiResponse,
   streamAiResponse,
+  type AiOutputItem,
   type AiResponse,
   type AiResponseRequest,
   type AiUsage,
 } from '../services/ai';
 import { toAiErrorInfo, type AiErrorInfo } from '../services/aiErrors';
 import { useIsMounted } from './useIsMounted';
+import {
+  chatTurnInput,
+  withAttachmentContext,
+  type AiChatAttachment,
+} from '../components/ai/playground/chatAttachments';
 
 export type AiChatMessageStatus = 'streaming' | 'done' | 'stopped' | 'error';
 
@@ -48,6 +59,13 @@ export interface AiChatMessage {
   error?: AiErrorInfo;
   /** Set on an assistant message that came from a background run. */
   runId?: string;
+  /**
+   * The completed response's output items (assistant only) — where hosted
+   * tool calls and web-search citations live (#442, rendered by #445).
+   */
+  output?: AiOutputItem[];
+  /** Files sent with a user message (#445). */
+  attachments?: AiChatAttachment[];
 }
 
 /** Everything about a turn except its prompt and the conversation linkage. */
@@ -61,11 +79,15 @@ export interface UseAiChatReturn {
   isStreaming: boolean;
   /** The id the next turn will continue from, or `null` for a fresh thread. */
   previousResponseId: string | null;
-  send: (prompt: string, options?: AiChatRequestOptions) => Promise<void>;
+  send: (prompt: string, options?: AiChatRequestOptions, attachments?: AiChatAttachment[]) => Promise<void>;
   stop: () => void;
   reset: () => void;
   /** Append a finished exchange produced elsewhere (a background run). */
-  appendExchange: (prompt: string, response: AiResponse, extra?: { runId?: string }) => void;
+  appendExchange: (
+    prompt: string,
+    response: AiResponse,
+    extra?: { runId?: string; attachments?: AiChatAttachment[] },
+  ) => void;
 }
 
 let sequence = 0;
@@ -81,6 +103,7 @@ function fromResponse(response: AiResponse): Partial<AiChatMessage> {
     parsed: response.parsed,
     responseId: response.id,
     model: response.model,
+    output: response.output,
   };
 }
 
@@ -124,14 +147,14 @@ export function useAiChat(): UseAiChatReturn {
   }, [patch, isMounted]);
 
   const send = useCallback(
-    async (prompt: string, options: AiChatRequestOptions = {}) => {
+    async (prompt: string, options: AiChatRequestOptions = {}, attachments: AiChatAttachment[] = []) => {
       const text = prompt.trim();
       if (!text || controllerRef.current) return;
 
       const { stream = true, ...rest } = options;
       const request: AiResponseRequest = {
         ...rest,
-        input: text,
+        input: chatTurnInput(text, attachments),
         ...(previousIdRef.current ? { previousResponseId: previousIdRef.current } : {}),
       };
 
@@ -143,7 +166,13 @@ export function useAiChat(): UseAiChatReturn {
 
       setMessages((current) => [
         ...current,
-        { id: userId, role: 'user', text, status: 'done' },
+        {
+          id: userId,
+          role: 'user',
+          text,
+          status: 'done',
+          ...(attachments.length > 0 ? { attachments } : {}),
+        },
         { id: assistantId, role: 'assistant', text: '', status: 'streaming', model: rest.model },
       ]);
       setIsStreaming(true);
@@ -197,7 +226,7 @@ export function useAiChat(): UseAiChatReturn {
         if (!stale()) {
           patch(assistantId, () => ({
             status: 'error',
-            error: toAiErrorInfo(err, 'The request failed'),
+            error: withAttachmentContext(toAiErrorInfo(err, 'The request failed'), attachments.length > 0),
           }));
         }
       } finally {
@@ -221,10 +250,16 @@ export function useAiChat(): UseAiChatReturn {
   }, [setPrevious]);
 
   const appendExchange = useCallback(
-    (prompt: string, response: AiResponse, extra: { runId?: string } = {}) => {
+    (prompt: string, response: AiResponse, extra: { runId?: string; attachments?: AiChatAttachment[] } = {}) => {
       setMessages((current) => [
         ...current,
-        { id: nextId('user'), role: 'user', text: prompt, status: 'done' },
+        {
+          id: nextId('user'),
+          role: 'user',
+          text: prompt,
+          status: 'done',
+          ...(extra.attachments?.length ? { attachments: extra.attachments } : {}),
+        },
         {
           id: nextId('assistant'),
           role: 'assistant',

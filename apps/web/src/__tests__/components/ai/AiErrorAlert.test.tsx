@@ -40,6 +40,7 @@ const CASES: { code: string; title: string; link: boolean }[] = [
   { code: 'AI_CAPABILITY_UNSUPPORTED', title: "This model can't do that", link: false },
   { code: 'AI_INVALID_REQUEST', title: 'The request was invalid', link: false },
   { code: 'AI_TOOL_DISABLED', title: "This tool isn't enabled", link: false },
+  { code: 'AI_STORAGE_UNAVAILABLE', title: "File storage isn't available", link: false },
 ];
 
 describe('AiErrorAlert', () => {
