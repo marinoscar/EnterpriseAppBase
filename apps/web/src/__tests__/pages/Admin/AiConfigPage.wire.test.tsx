@@ -85,6 +85,19 @@ describe('AiConfigPage — wire contract', () => {
     expect(screen.getByRole('button', { name: /save changes/i })).toBeDisabled();
   });
 
+  it('sends the realtime switch as defaults.allowRealtime (#449)', async () => {
+    const user = await renderLoaded();
+
+    await user.click(screen.getByRole('switch', { name: 'Allow realtime voice sessions' }));
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
+
+    await screen.findByText('AI configuration saved');
+    const put = captured.find((c) => c.method === 'PUT' && c.path.endsWith('/admin/ai/config'));
+    expect(put?.body).toMatchObject({
+      defaults: { maxOutputTokensCap: 4096, allowBackgroundRuns: true, allowRealtime: true },
+    });
+  });
+
   it('a full replace: re-sends the stored base URL and cap it did not touch', async () => {
     server.use(
       http.get('*/api/admin/ai/config', () =>

@@ -230,7 +230,8 @@ describe('AiConfigPage', () => {
         logPromptContent: false,
         // A full replace: a cleared cap and an absent base URL are sent as
         // explicit nulls, never omitted and never '' or 0.
-        defaults: { maxOutputTokensCap: null, allowBackgroundRuns: true },
+        // `allowRealtime` absent from the stored config reads as off (#449).
+        defaults: { maxOutputTokensCap: null, allowBackgroundRuns: true, allowRealtime: false },
         hostedTools: {
           web_search: false,
           file_search: false,
@@ -590,6 +591,53 @@ describe('AiConfigPage', () => {
       setHook({ keyWarnings: ['ORG_FALLBACK_WITHOUT_KEY'] });
       renderPage();
       expect(screen.getByTestId('ai-org-fallback-without-key')).toBeInTheDocument();
+    });
+  });
+  describe('realtime voice sessions (#449)', () => {
+    it('sends defaults.allowRealtime in the PUT when switched on', async () => {
+      const user = userEvent.setup();
+      const hook = setHook();
+      renderPage();
+
+      const realtime = screen.getByRole('switch', { name: 'Allow realtime voice sessions' });
+      expect(realtime).not.toBeChecked();
+      expect(screen.getByText(/connects directly to the provider/i)).toHaveTextContent(
+        /API key never leaves the server/,
+      );
+
+      await user.click(realtime);
+      await user.click(screen.getByRole('button', { name: /save changes/i }));
+
+      await waitFor(() => expect(hook.save).toHaveBeenCalledTimes(1));
+      expect(hook.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          defaults: { maxOutputTokensCap: 4096, allowBackgroundRuns: true, allowRealtime: true },
+        }),
+      );
+    });
+
+    it('reflects a stored allowRealtime and can switch it back off', async () => {
+      const user = userEvent.setup();
+      const hook = setHook({
+        config: { ...mockAiAdminConfig, defaults: { ...mockAiAdminConfig.defaults, allowRealtime: true } },
+      });
+      renderPage();
+
+      const realtime = screen.getByRole('switch', { name: 'Allow realtime voice sessions' });
+      expect(realtime).toBeChecked();
+      await user.click(realtime);
+      await user.click(screen.getByRole('button', { name: /save changes/i }));
+
+      await waitFor(() => expect(hook.save).toHaveBeenCalledTimes(1));
+      const body = vi.mocked(hook.save).mock.calls[0][0] as { defaults: { allowRealtime?: boolean } };
+      expect(body.defaults.allowRealtime).toBe(false);
+    });
+
+    it('is disabled without ai_config:write', () => {
+      setPermissions(READ_ONLY);
+      setHook();
+      renderPage();
+      expect(screen.getByRole('switch', { name: 'Allow realtime voice sessions' })).toBeDisabled();
     });
   });
 });
