@@ -9,6 +9,10 @@ import {
   AI_USAGE_RETENTION_MAX_DAYS,
   AI_MCP_ALLOWED_HOST_PATTERN,
   AI_MCP_ALLOWED_HOSTS_MAX,
+  AI_LIMIT_MODEL_KEY_MAX,
+  AI_LIMIT_MODEL_KEY_PATTERN,
+  AI_LIMITS_PER_MODEL_MAX,
+  AI_LIMIT_VALUE_MAX,
 } from '../../common/schemas/settings.schema';
 
 // The request-body schemas deliberately RESTATE `common/schemas/settings.schema.ts`
@@ -166,6 +170,36 @@ const storageSettingsSchema = z.object({
 //
 // Bounds mirror `systemAiSchema` exactly.
 
+// `ai.limits` (#450). Every field optional — absent means unlimited. Used by
+// the PUT body and (whole, since a PATCH replaces it wholesale) the PATCH body.
+const aiLimitValueSchema = z.number().int().positive().max(AI_LIMIT_VALUE_MAX);
+const aiLimitsSettingsSchema = z.object({
+  perUser: z
+    .object({
+      requestsPerMinute: aiLimitValueSchema.optional(),
+      requestsPerDay: aiLimitValueSchema.optional(),
+    })
+    .optional(),
+  orgKey: z
+    .object({
+      requestsPerDayPerUser: aiLimitValueSchema.optional(),
+      tokensPerDayPerUser: aiLimitValueSchema.optional(),
+    })
+    .optional(),
+  perModel: z
+    .record(
+      z.string().max(AI_LIMIT_MODEL_KEY_MAX).regex(AI_LIMIT_MODEL_KEY_PATTERN),
+      z.object({
+        maxOutputTokens: aiLimitValueSchema.optional(),
+        requestsPerMinutePerUser: aiLimitValueSchema.optional(),
+      }),
+    )
+    .refine((value) => Object.keys(value).length <= AI_LIMITS_PER_MODEL_MAX, {
+      message: `At most ${AI_LIMITS_PER_MODEL_MAX} per-model limits`,
+    })
+    .optional(),
+});
+
 const aiSettingsSchema = z.object({
   enabled: z.boolean(),
   keyPolicy: z.enum(AI_KEY_POLICIES),
@@ -191,6 +225,7 @@ const aiSettingsSchema = z.object({
       .array(z.string().max(253).regex(AI_MCP_ALLOWED_HOST_PATTERN))
       .max(AI_MCP_ALLOWED_HOSTS_MAX),
   }),
+  limits: aiLimitsSettingsSchema,
 });
 
 // Full replacement (PUT)
@@ -364,6 +399,8 @@ export const patchSystemSettingsSchema = z.object({
             .optional(),
         })
         .optional(),
+      // #450. Replaces wholesale when present — see `systemAiPatchSchema`.
+      limits: aiLimitsSettingsSchema.optional(),
     })
     .optional(),
 });

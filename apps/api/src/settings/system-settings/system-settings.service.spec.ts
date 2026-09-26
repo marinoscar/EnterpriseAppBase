@@ -1752,6 +1752,8 @@ describe('SystemSettingsService', () => {
           mcp: false,
           mcpAllowedHosts: [],
         },
+        // Absent from the stored row (written before #450) -> no limits.
+        limits: {},
       });
     });
   });

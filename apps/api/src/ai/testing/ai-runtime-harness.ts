@@ -202,6 +202,7 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
       mcpAllowedHosts: [],
       ...(p.hostedTools ?? {}),
     },
+    limits: p.limits ?? {},
   };
 
   let orgKey: string | null = opts.orgKey ? HARNESS_ORG_KEY : null;
