@@ -27,6 +27,15 @@
 //   9. trace it as an `ai.request` span (provider, model, operation, key
 //      source, status, token counts — never prompt text, never the key)
 //
+// NON-RESPONSES OPERATIONS (Phase 2, epic #420) run the SAME pipeline with
+// the steps that apply to them: `embed` (#440) is kill switch -> provider ->
+// model/capability/key/reach (with `embeddings` as the one capability
+// needed) -> key -> adapter -> usage row (`operation: 'embeddings'`) ->
+// span. Each operation has a `prepare…` of its own and shares `context()`
+// and `track()`; a later port (images, audio) is one more `prepare…`, one
+// more `TRACKED_OPERATIONS` entry and one more client method — never a
+// second pipeline.
+//
 // ⚠ THE KEY. `apiKey` exists in this file only between step 6 and the
 // adapter call. It is never logged, never put on a span, never persisted and
 // never part of an error.
@@ -47,7 +56,13 @@ import type { AiCapability } from '../core/capabilities';
 import type { AiCallContext, AiResponsesPort } from '../core/provider-adapter.interface';
 import { AiProviderRegistry } from '../core/provider-registry';
 import { parseStructured } from '../core/structured-output';
-import type { AiResponse, AiResponseRequest, AiStreamEvent } from '../core/types/responses.types';
+import {
+  AI_EMBEDDINGS_MAX_INPUTS,
+  type AiEmbeddingRequest,
+  type AiEmbeddingResult,
+  type AiEmbeddingsPort,
+} from '../core/types/media.types';
+import type { AiResponse, AiResponseRequest, AiStreamEvent, AiUsage } from '../core/types/responses.types';
 import { AiKeyResolver, type AiKeySource } from '../keys/ai-key-resolver.service';
 import type { UsableAiModel } from '../keys/dto/usable-ai-model.dto';
 import { UsableModelsService } from '../keys/usable-models.service';
@@ -55,6 +70,7 @@ import { toStoredRunRequest } from './ai-run-request';
 import { AiRunsService } from './ai-runs.service';
 import type {
   AiCallOptions,
+  AiEmbedRequest,
   AiRequest,
   AiRunHandle,
   AiStructuredRequest,
@@ -63,7 +79,7 @@ import type {
   AiToolLoopResult,
 } from './ai-runtime.types';
 import { runToolLoop } from './ai-tool-loop';
-import { AiUsageRecorder, type AiUsageStatus } from './ai-usage.recorder';
+import { AiUsageRecorder, type AiUsageOperation, type AiUsageStatus } from './ai-usage.recorder';
 
 /** The facade's span — one per provider round-trip. The adapter's own `ai.provider.call` nests inside it. */
 export const AI_REQUEST_SPAN = 'ai.request';
@@ -126,6 +142,19 @@ export interface AiUserClient {
    *   survive the queue hop; use `runTools`).
    */
   startRun(req: AiRequest): Promise<AiRunHandle>;
+
+  /**
+   * Embeddings for one text or a batch of up to `AI_EMBEDDINGS_MAX_INPUTS`
+   * (256) texts, one vector per input in input order. Synchronous — no job:
+   * a large backfill enqueues a job type of its own that calls this per
+   * chunk. `model` is REQUIRED (vectors are only comparable within one
+   * model, so it is never inferred from `ai.defaultModel`).
+   *
+   * @throws AiError('AI_INVALID_REQUEST') for an empty or oversized batch,
+   *   an empty text, or a non-positive `dimensions`;
+   *   AiError('AI_CAPABILITY_UNSUPPORTED') for a model without `embeddings`.
+   */
+  embed(req: AiEmbedRequest, opts?: AiCallOptions): Promise<AiEmbeddingResult>;
 }
 
 /** Internal: who a client acts for, and under which job (for usage rows). */
@@ -134,15 +163,40 @@ export interface AiClientScope {
   jobId?: string;
 }
 
-/** Everything the gate pipeline settled for one provider call. */
-export interface PreparedAiCall {
+/**
+ * Who pays and where a provider round-trip goes, whatever the operation —
+ * what the key/context step and the usage/span step need, and nothing more.
+ */
+export interface AiCallTarget {
   provider: string;
+  /** The resolved model id. */
+  modelId: string;
+  baseUrl?: string;
+  logPromptContent: boolean;
+}
+
+/** The facade operations that are traced and recorded, and the usage `operation` each is billed as. */
+const TRACKED_OPERATIONS = {
+  'responses.create': 'responses',
+  'responses.stream': 'responses',
+  'embeddings.create': 'embeddings',
+} as const satisfies Record<string, AiUsageOperation>;
+
+type AiTrackedOperation = keyof typeof TRACKED_OPERATIONS;
+
+/** Everything the gate pipeline settled for one `responses` call. */
+export interface PreparedAiCall extends AiCallTarget {
   port: AiResponsesPort;
   /** The request the adapter receives — model resolved, tokens clamped. */
   request: AiResponseRequest;
   model: UsableAiModel;
-  baseUrl?: string;
-  logPromptContent: boolean;
+}
+
+/** Everything the gate pipeline settled for one `embeddings` call. */
+export interface PreparedAiEmbeddingCall extends AiCallTarget {
+  port: AiEmbeddingsPort;
+  /** The request the adapter receives — model resolved, named fields only. */
+  request: AiEmbeddingRequest;
 }
 
 interface PrepareOptions {
@@ -152,7 +206,8 @@ interface PrepareOptions {
 /** How one round-trip ended, for its usage row and span. */
 interface CallOutcome {
   status: AiUsageStatus;
-  response?: AiResponse;
+  /** What the provider billed and how it named the request — any operation's result. */
+  result?: { usage?: AiUsage; providerRequestId?: string };
   errorCode?: string;
 }
 
@@ -196,6 +251,7 @@ export class AiService {
           signal: opts.signal,
         }),
       startRun: (req) => this.startRun(bound, req),
+      embed: (req, opts) => this.embed(bound, req, opts),
     };
   }
 
@@ -242,7 +298,7 @@ export class AiService {
 
   /** Steps 6-7 for an already-gated call. */
   private async invoke(scope: AiClientScope, call: PreparedAiCall, opts: AiCallOptions): Promise<AiResponse> {
-    const { ctx, keySource } = await this.context(scope, call, opts);
+    const { ctx, keySource } = await this.context(scope, call, opts, () => responsePrompt(call.request));
     const tracker = this.track(scope, call, keySource, 'responses.create');
 
     let response: AiResponse;
@@ -268,14 +324,41 @@ export class AiService {
         const error = toAiError(err, opts.signal);
 
         // The round-trip happened (and was billed): keep its tokens.
-        await tracker.finish({ status: 'failed', response, errorCode: error.code });
+        await tracker.finish({ status: 'failed', result: response, errorCode: error.code });
         throw error;
       }
     }
 
-    await tracker.finish({ status: 'succeeded', response });
+    await tracker.finish({ status: 'succeeded', result: response });
 
     return response;
+  }
+
+  // ---- embed ---------------------------------------------------------------------
+
+  private async embed(
+    scope: AiClientScope,
+    req: AiEmbedRequest,
+    opts: AiCallOptions = {},
+  ): Promise<AiEmbeddingResult> {
+    const call = await this.prepareEmbedding(scope.userId, req);
+    const { ctx, keySource } = await this.context(scope, call, opts, () => call.request.input);
+    const tracker = this.track(scope, call, keySource, 'embeddings.create');
+
+    let result: AiEmbeddingResult;
+
+    try {
+      result = await call.port.embed(call.request, ctx);
+    } catch (err) {
+      const error = toAiError(err, opts.signal);
+
+      await tracker.finish(failure(error, opts.signal));
+      throw error;
+    }
+
+    await tracker.finish({ status: 'succeeded', result });
+
+    return result;
   }
 
   // ---- stream -------------------------------------------------------------------
@@ -294,7 +377,7 @@ export class AiService {
     opts: AiCallOptions = {},
   ): Promise<AsyncIterable<AiStreamEvent>> {
     const call = await this.prepare(scope.userId, req, { streaming: true });
-    const { ctx, keySource } = await this.context(scope, call, opts);
+    const { ctx, keySource } = await this.context(scope, call, opts, () => responsePrompt(call.request));
     const tracker = this.track(scope, call, keySource, 'responses.stream');
     let iterator: AsyncIterator<AiStreamEvent>;
 
@@ -345,7 +428,7 @@ export class AiService {
         const event = result.value;
 
         if (event.type === 'response.completed') {
-          outcome = { status: 'succeeded', response: event.response };
+          outcome = { status: 'succeeded', result: event.response };
         } else if (event.type === 'error') {
           outcome = { status: 'failed', errorCode: event.code };
         }
@@ -379,16 +462,16 @@ export class AiService {
   /** Opens the `ai.request` span and returns the once-only finisher for it. */
   private track(
     scope: AiClientScope,
-    call: PreparedAiCall,
+    call: AiCallTarget,
     keySource: AiKeySource,
-    operation: 'responses.create' | 'responses.stream',
+    operation: AiTrackedOperation,
   ): CallTracker {
     const started = Date.now();
     const span: Span = tracer.startSpan(AI_REQUEST_SPAN, {
       kind: SpanKind.INTERNAL,
       attributes: {
         'ai.provider': call.provider,
-        'ai.model': call.request.model,
+        'ai.model': call.modelId,
         'ai.operation': operation,
         'ai.key_source': keySource,
       },
@@ -401,7 +484,7 @@ export class AiService {
         done = true;
 
         const latencyMs = Date.now() - started;
-        const usage = outcome.response?.usage;
+        const usage = outcome.result?.usage;
 
         span.setAttribute('ai.status', outcome.status);
         if (outcome.errorCode) span.setAttribute('ai.error_code', outcome.errorCode);
@@ -418,21 +501,21 @@ export class AiService {
         span.end();
 
         this.logger.debug(
-          `AI ${operation} ${call.provider}/${call.request.model} key=${keySource} ` +
+          `AI ${operation} ${call.provider}/${call.modelId} key=${keySource} ` +
             `${outcome.status}${outcome.errorCode ? ` (${outcome.errorCode})` : ''} in ${latencyMs}ms`,
         );
 
         await this.usage.record({
           userId: scope.userId,
           provider: call.provider,
-          modelId: call.request.model,
-          operation: 'responses',
+          modelId: call.modelId,
+          operation: TRACKED_OPERATIONS[operation],
           keySource,
           usage,
           latencyMs,
           status: outcome.status,
           errorCode: outcome.errorCode ?? null,
-          providerRequestId: outcome.response?.providerRequestId ?? null,
+          providerRequestId: outcome.result?.providerRequestId ?? null,
           jobId: scope.jobId ?? null,
         });
       },
@@ -494,6 +577,7 @@ export class AiService {
 
     return {
       provider,
+      modelId: model,
       port,
       request,
       model: usable,
@@ -502,11 +586,64 @@ export class AiService {
     };
   }
 
-  /** Step 6: resolve the key and build the adapter context. */
+  /**
+   * The gate pipeline for `embed`: kill switch, request shape, target,
+   * provider, then model/capability/key/reach with `embeddings` as the one
+   * capability needed. Decrypts nothing.
+   */
+  async prepareEmbedding(userId: string, req: AiEmbedRequest): Promise<PreparedAiEmbeddingCall> {
+    // 1. Kill switch — before anything else is read.
+    await this.aiConfig.assertEnabled();
+
+    assertEmbeddingShape(req);
+
+    if (!req.model?.trim()) {
+      throw new AiError(
+        'AI_INVALID_REQUEST',
+        'Name the embedding model explicitly: vectors are only comparable within one model.',
+      );
+    }
+
+    const { provider, model } = await this.resolveTarget(userId, req);
+
+    // 2. Provider enabled in settings AND registered in this process.
+    const slot = await this.aiConfig.assertProviderEnabled(provider);
+    const port = this.registry.get(provider)?.embeddings;
+
+    // 3. Model enabled, `embeddings` declared (model AND provider port), key reach.
+    await this.usableModels.assertUsable(userId, provider, model, ['embeddings']);
+
+    if (!port) {
+      // assertUsable already refused a provider without the port; this narrows the type.
+      throw capabilityUnsupported(provider, model, 'embeddings');
+    }
+
+    const policy = await this.aiConfig.resolve();
+    // Named fields only: whatever else the caller's object carried stays here.
+    const request: AiEmbeddingRequest = { model, input: req.input };
+
+    if (req.dimensions !== undefined) request.dimensions = req.dimensions;
+    if (req.providerOptions !== undefined) request.providerOptions = req.providerOptions;
+
+    return {
+      provider,
+      modelId: model,
+      port,
+      request,
+      baseUrl: slot.baseUrl,
+      logPromptContent: policy.logPromptContent,
+    };
+  }
+
+  /**
+   * Step 6: resolve the key and build the adapter context. `prompt` is the
+   * request's content, rendered only for the opt-in debug line.
+   */
   private async context(
     scope: AiClientScope,
-    call: PreparedAiCall,
+    call: AiCallTarget,
     opts: AiCallOptions,
+    prompt: () => unknown,
   ): Promise<{ ctx: AiCallContext; keySource: AiKeySource }> {
     if (opts.signal?.aborted) {
       throw cancelled(call.provider);
@@ -517,7 +654,7 @@ export class AiService {
 
     if (call.logPromptContent) {
       this.logger.debug(
-        `AI prompt ${requestId} (${call.provider}/${call.request.model}): ${promptPreview(call.request)}`,
+        `AI prompt ${requestId} (${call.provider}/${call.modelId}): ${promptPreview(prompt())}`,
       );
     }
 
@@ -536,7 +673,10 @@ export class AiService {
    * Which (provider, model) the request targets. See `AiRequest` for the
    * fallback order.
    */
-  private async resolveTarget(userId: string, req: AiRequest): Promise<{ provider: string; model: string }> {
+  private async resolveTarget(
+    userId: string,
+    req: { provider?: string; model?: string },
+  ): Promise<{ provider: string; model: string }> {
     const requested = req.model?.trim();
 
     if (requested) {
@@ -643,6 +783,43 @@ export function clampOutputTokens(
   return Math.min(...bounds);
 }
 
+/**
+ * An embedding request's shape, checked before any gate reads a table: 1 to
+ * `AI_EMBEDDINGS_MAX_INPUTS` non-empty texts, and a positive integer
+ * `dimensions` when given. An oversized batch is refused, never split — the
+ * caller decides how to chunk (and, for a backfill, queues its own job).
+ */
+function assertEmbeddingShape(req: Pick<AiEmbedRequest, 'input' | 'dimensions'>): void {
+  const inputs = typeof req.input === 'string' ? [req.input] : req.input;
+
+  if (!Array.isArray(inputs) || inputs.length === 0) {
+    throw new AiError('AI_INVALID_REQUEST', 'Embeddings need at least one input text.');
+  }
+
+  if (inputs.length > AI_EMBEDDINGS_MAX_INPUTS) {
+    throw new AiError(
+      'AI_INVALID_REQUEST',
+      `At most ${AI_EMBEDDINGS_MAX_INPUTS} inputs per embeddings call; split the batch into chunks ` +
+        '(for a large backfill, enqueue a job that embeds one chunk at a time).',
+      { details: { inputs: inputs.length, max: AI_EMBEDDINGS_MAX_INPUTS } },
+    );
+  }
+
+  const empty = inputs.findIndex((text) => typeof text !== 'string' || text.length === 0);
+
+  if (empty !== -1) {
+    throw new AiError('AI_INVALID_REQUEST', 'Embedding inputs must be non-empty strings.', {
+      details: { index: empty },
+    });
+  }
+
+  if (req.dimensions !== undefined && (!Number.isInteger(req.dimensions) || req.dimensions < 1)) {
+    throw new AiError('AI_INVALID_REQUEST', 'dimensions must be a positive integer.', {
+      details: { dimensions: req.dimensions },
+    });
+  }
+}
+
 /** The outcome of a round-trip that threw. An abort is a cancellation, not a failure. */
 function failure(error: AiError, signal?: AbortSignal): CallOutcome {
   return signal?.aborted
@@ -680,9 +857,14 @@ export function toAiError(err: unknown, signal?: AbortSignal): AiError {
   return AiError.wrap(err);
 }
 
+/** What of a responses request the opt-in debug line shows. */
+function responsePrompt(req: AiResponseRequest): unknown {
+  return { instructions: req.instructions, input: req.input };
+}
+
 /** Prompt text for the opt-in debug log line, truncated. Never the key. */
-function promptPreview(req: AiResponseRequest): string {
-  const text = JSON.stringify({ instructions: req.instructions, input: req.input });
+function promptPreview(content: unknown): string {
+  const text = JSON.stringify(content);
 
   return text.length > AI_PROMPT_LOG_MAX_CHARS
     ? `${text.slice(0, AI_PROMPT_LOG_MAX_CHARS)}… (truncated)`
