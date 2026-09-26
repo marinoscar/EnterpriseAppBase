@@ -1744,6 +1744,14 @@ describe('SystemSettingsService', () => {
         // Absent from the stored row (written before #443) -> the default,
         // without disturbing any sibling field.
         usageRetentionDays: 180,
+        hostedTools: {
+          web_search: false,
+          file_search: false,
+          code_interpreter: false,
+          image_generation: false,
+          mcp: false,
+          mcpAllowedHosts: [],
+        },
       });
     });
   });
@@ -1800,6 +1808,42 @@ describe('SystemSettingsService', () => {
       expect(ai.enabled).toBe(true);
       expect(ai.keyPolicy).toBe('byok');
       expect(ai.logPromptContent).toBe(false);
+    });
+
+    it('merges one hostedTools switch, defaulting the rest when the stored row predates them (#442)', async () => {
+      await service.patchSettings({ ai: { hostedTools: { web_search: true } } }, mockUserId);
+
+      const ai = writtenAi() as any;
+      expect(ai.hostedTools).toEqual({
+        web_search: true,
+        file_search: false,
+        code_interpreter: false,
+        image_generation: false,
+        mcp: false,
+        mcpAllowedHosts: [],
+      });
+      expect(ai.providers.openai.baseUrl).toBe('https://proxy.internal/v1');
+    });
+
+    it('replaces hostedTools.mcpAllowedHosts wholesale and leaves the switches alone (#442)', async () => {
+      await service.patchSettings(
+        { ai: { hostedTools: { mcp: true, mcpAllowedHosts: ['mcp.example.com', '*.tools.example.org'] } } },
+        mockUserId,
+      );
+
+      const ai = writtenAi() as any;
+      expect(ai.hostedTools).toMatchObject({
+        web_search: false,
+        mcp: true,
+        mcpAllowedHosts: ['mcp.example.com', '*.tools.example.org'],
+      });
+    });
+
+    it('refuses a malformed MCP host entry (#442)', async () => {
+      await expect(
+        service.patchSettings({ ai: { hostedTools: { mcpAllowedHosts: ['https://mcp.example.com/'] } } } as any, mockUserId),
+      ).rejects.toThrow();
+      expect(mockPrisma.systemSettings.update).not.toHaveBeenCalled();
     });
 
     it('merges a defaults field without touching providers', async () => {

@@ -1242,6 +1242,26 @@ export class SystemSettingsService {
           dto.ai?.logPromptContent ?? currentValue.ai.logPromptContent,
         usageRetentionDays:
           dto.ai?.usageRetentionDays ?? currentValue.ai.usageRetentionDays,
+        // #442: each switch field by field; the host list replaces wholesale
+        // (a merge could never remove a host). A fresh array either way, so
+        // the stored value never aliases the caller's or the default's.
+        hostedTools: {
+          web_search:
+            dto.ai?.hostedTools?.web_search ?? currentValue.ai.hostedTools.web_search,
+          file_search:
+            dto.ai?.hostedTools?.file_search ?? currentValue.ai.hostedTools.file_search,
+          code_interpreter:
+            dto.ai?.hostedTools?.code_interpreter ??
+            currentValue.ai.hostedTools.code_interpreter,
+          image_generation:
+            dto.ai?.hostedTools?.image_generation ??
+            currentValue.ai.hostedTools.image_generation,
+          mcp: dto.ai?.hostedTools?.mcp ?? currentValue.ai.hostedTools.mcp,
+          mcpAllowedHosts: [
+            ...(dto.ai?.hostedTools?.mcpAllowedHosts ??
+              currentValue.ai.hostedTools.mcpAllowedHosts),
+          ],
+        },
       },
     };
 

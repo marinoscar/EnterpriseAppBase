@@ -104,6 +104,7 @@ export class AiConfigAdminService {
         allowBackgroundRuns: policy.defaults.allowBackgroundRuns,
       },
       usageRetentionDays: policy.usageRetentionDays,
+      hostedTools: { ...policy.hostedTools, mcpAllowedHosts: [...policy.hostedTools.mcpAllowedHosts] },
       providers: ids.map((id, index) => this.describeProvider(id, policy, keyInfos[index])),
       version: row?.version ?? 0,
       updatedAt: row?.updatedAt.toISOString() ?? null,
@@ -311,6 +312,11 @@ export class AiConfigAdminService {
       // Optional in the body (#443): a client written before the field
       // existed keeps the stored retention rather than failing validation.
       usageRetentionDays: input.usageRetentionDays ?? current.usageRetentionDays,
+      // Optional in the body too (#442), for the same reason. The host list is
+      // de-duplicated; the DTO already trimmed and lower-cased every entry.
+      hostedTools: input.hostedTools
+        ? { ...input.hostedTools, mcpAllowedHosts: [...new Set(input.hostedTools.mcpAllowedHosts)] }
+        : { ...current.hostedTools, mcpAllowedHosts: [...current.hostedTools.mcpAllowedHosts] },
     };
   }
 
@@ -452,6 +458,13 @@ export function diffFieldNames(before: SystemAiValue, after: SystemAiValue): str
       'defaults.maxOutputTokensCap': value.defaults.maxOutputTokensCap,
       'defaults.allowBackgroundRuns': value.defaults.allowBackgroundRuns,
       usageRetentionDays: value.usageRetentionDays,
+      'hostedTools.web_search': value.hostedTools.web_search,
+      'hostedTools.file_search': value.hostedTools.file_search,
+      'hostedTools.code_interpreter': value.hostedTools.code_interpreter,
+      'hostedTools.image_generation': value.hostedTools.image_generation,
+      'hostedTools.mcp': value.hostedTools.mcp,
+      // Compared as one value: the audit row names the list, never its hosts.
+      'hostedTools.mcpAllowedHosts': value.hostedTools.mcpAllowedHosts.join('\n'),
     };
 
     for (const [id, slot] of Object.entries(value.providers)) {

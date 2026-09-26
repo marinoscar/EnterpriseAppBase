@@ -17,6 +17,14 @@ function policy(overrides: Partial<SystemAiValue> = {}): SystemAiValue {
     defaults: { allowBackgroundRuns: true },
     logPromptContent: false,
     usageRetentionDays: 180,
+    hostedTools: {
+      web_search: false,
+      file_search: false,
+      code_interpreter: false,
+      image_generation: false,
+      mcp: false,
+      mcpAllowedHosts: [],
+    },
     ...overrides,
   };
 }
@@ -180,6 +188,14 @@ describe('AiConfigAdminService', () => {
             defaults: { allowBackgroundRuns: true, maxOutputTokensCap: null },
             providers: { openai: { enabled: true, baseUrl: null } },
             usageRetentionDays: 180,
+            hostedTools: {
+              web_search: false,
+              file_search: false,
+              code_interpreter: false,
+              image_generation: false,
+              mcp: false,
+              mcpAllowedHosts: [],
+            },
           },
         },
         'admin-1',
@@ -217,6 +233,40 @@ describe('AiConfigAdminService', () => {
       );
 
       await expect(service.describeForAdmin()).resolves.toMatchObject({ usageRetentionDays: 30 });
+    });
+
+    it('round-trips hostedTools, and keeps the stored value when the body omits it (#442)', async () => {
+      const on = {
+        web_search: true,
+        file_search: false,
+        code_interpreter: false,
+        image_generation: false,
+        mcp: true,
+        mcpAllowedHosts: ['mcp.example.com'],
+      };
+      stored = policy({ hostedTools: on });
+
+      await service.replace(input(), 'admin-1');
+      expect(systemSettings.patchSettings.mock.calls[0][0].ai.hostedTools).toEqual(on);
+
+      await service.replace(
+        input({ hostedTools: { ...on, web_search: false, mcpAllowedHosts: ['a.example.com', 'a.example.com', '*.b.example.com'] } }),
+        'admin-1',
+      );
+      expect(systemSettings.patchSettings.mock.calls[1][0].ai.hostedTools).toEqual({
+        ...on,
+        web_search: false,
+        mcpAllowedHosts: ['a.example.com', '*.b.example.com'],
+      });
+
+      const changed = prisma.auditEvent.create.mock.calls[1][0].data.meta.changedFields;
+      expect(changed).toEqual(expect.arrayContaining(['hostedTools.web_search', 'hostedTools.mcpAllowedHosts']));
+      // Field NAMES only: the audit row never lists the hosts themselves.
+      expect(JSON.stringify(prisma.auditEvent.create.mock.calls)).not.toContain('b.example.com');
+
+      await expect(service.describeForAdmin()).resolves.toMatchObject({
+        hostedTools: { web_search: false, mcp: true, mcpAllowedHosts: ['a.example.com', '*.b.example.com'] },
+      });
     });
 
     it('keeps a provider the body leaves out', async () => {

@@ -56,6 +56,15 @@ export const aiConfigResponseSchema = z.object({
   }),
   /** Days usage events are kept before the daily `ai.usage.purge` deletes them. */
   usageRetentionDays: z.number().int(),
+  /** Which provider-hosted tools are switched on, and the MCP host allowlist (#442). */
+  hostedTools: z.object({
+    web_search: z.boolean(),
+    file_search: z.boolean(),
+    code_interpreter: z.boolean(),
+    image_generation: z.boolean(),
+    mcp: z.boolean(),
+    mcpAllowedHosts: z.array(z.string()),
+  }),
   /** Registered providers ∪ providers with a settings slot. */
   providers: z.array(aiAdminProviderSchema),
   /** The system-settings row version — send it back as `If-Match` on `PUT`. `0` when nothing is stored yet. */

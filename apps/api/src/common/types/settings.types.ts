@@ -336,5 +336,15 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettingsValue = {
     // #443: `ai_usage_events` kept 180 days — twice the longest usage report
     // window, so a 90-day report never reads a half-purged range.
     usageRetentionDays: 180,
+    // #442: every provider-hosted tool OFF — each reaches outside the
+    // deployment and bills per use, so it is an administrator's decision.
+    hostedTools: {
+      web_search: false,
+      file_search: false,
+      code_interpreter: false,
+      image_generation: false,
+      mcp: false,
+      mcpAllowedHosts: [],
+    },
   },
 };
