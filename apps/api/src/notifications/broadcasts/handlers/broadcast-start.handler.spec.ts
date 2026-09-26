@@ -37,22 +37,32 @@ const startJob = {
 } as Job;
 
 function makeHandler(options: {
-  broadcast?: { id: string; status: string } | null;
+  broadcast?: {
+    id: string;
+    status: string;
+    audienceCutoff?: Date | null;
+    cursorUserId?: string | null;
+    recipientsDispatched?: number;
+  } | null;
   claimedCount?: number;
   userCount?: number;
+  existingChunk?: { id: string } | null;
 } = {}) {
   const findUnique = jest.fn().mockResolvedValue(
     options.broadcast === undefined
       ? { id: BROADCAST_ID, status: 'scheduled' }
       : options.broadcast
   );
+  // Serves both the claim CAS and the conditional `recipientsTargeted` write.
   const updateMany = jest.fn().mockResolvedValue({ count: options.claimedCount ?? 1 });
   const update = jest.fn().mockResolvedValue({});
   const count = jest.fn().mockResolvedValue(options.userCount ?? 42);
+  const findFirst = jest.fn().mockResolvedValue(options.existingChunk ?? null);
 
   const prisma = {
     notificationBroadcast: { findUnique, updateMany, update },
     user: { count },
+    job: { findFirst },
   } as unknown as PrismaService;
 
   const enqueue = jest.fn().mockResolvedValue({ id: 'job-2' });
@@ -67,6 +77,7 @@ function makeHandler(options: {
     updateMany,
     update,
     count,
+    findFirst,
     enqueue,
     register,
   };
@@ -125,8 +136,7 @@ describe('BroadcastStartHandler', () => {
 
     await handler.process(startJob);
 
-    expect(updateMany).toHaveBeenCalledTimes(1);
-    expect(updateMany).toHaveBeenCalledWith({
+    expect(updateMany).toHaveBeenNthCalledWith(1, {
       where: { id: BROADCAST_ID, status: 'scheduled' },
       data: {
         status: 'sending',
@@ -150,7 +160,7 @@ describe('BroadcastStartHandler', () => {
     // The count and the chunk paging MUST use the same predicate — see
     // `broadcast-audience.ts`. Counting against a different one is what makes
     // a progress bar lie.
-    const { handler, updateMany, count, update } = makeHandler({ userCount: 137 });
+    const { handler, updateMany, count } = makeHandler({ userCount: 137 });
 
     await handler.process(startJob);
 
@@ -159,8 +169,8 @@ describe('BroadcastStartHandler', () => {
     expect(count).toHaveBeenCalledWith({
       where: { isActive: true, createdAt: { lte: cutoff } },
     });
-    expect(update).toHaveBeenCalledWith({
-      where: { id: BROADCAST_ID },
+    expect(updateMany).toHaveBeenNthCalledWith(2, {
+      where: { id: BROADCAST_ID, status: 'sending' },
       data: { recipientsTargeted: 137 },
     });
   });
@@ -186,7 +196,9 @@ describe('BroadcastStartHandler', () => {
     // succeeded start job from the admin Jobs dashboard.
     it('re-stamps nothing, counts nothing and enqueues nothing', async () => {
       const { handler, count, update, enqueue } = makeHandler({
-        broadcast: { id: BROADCAST_ID, status: 'sending' },
+        // A fan-out already under way (#469: a `sending` broadcast with no
+        // cursor, no dispatches and no chunk job would be resumed instead).
+        broadcast: { id: BROADCAST_ID, status: 'sending', cursorUserId: 'user-9' },
         claimedCount: 0,
       });
 
