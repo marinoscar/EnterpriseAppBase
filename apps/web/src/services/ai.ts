@@ -60,6 +60,7 @@ export type AiKeyPolicy = (typeof AI_KEY_POLICIES)[number];
  */
 export const AI_ERROR_CODES = [
   'AI_DISABLED',
+  'AI_REALTIME_DISABLED',
   'AI_PROVIDER_DISABLED',
   'AI_KEY_REQUIRED',
   'AI_KEY_INVALID',
@@ -109,6 +110,13 @@ export interface AiPublicConfig {
    * background runs, handles a refusal, and hides them only on `false`.
    */
   allowBackgroundRuns?: boolean;
+  /**
+   * `defaults.allowRealtime` (#449): whether `POST /ai/realtime/sessions`
+   * mints a voice session; always `false` while `enabled` is false. Optional
+   * so an older API that omits it still works — absent means "off": the
+   * playground offers Voice only on an explicit `true`.
+   */
+  allowRealtime?: boolean;
   /**
    * Which provider-hosted tools an administrator has switched on (#442); all
    * false while `enabled` is false. Offer a tool only when its flag is true —
@@ -195,8 +203,11 @@ export interface AiAdminConfig {
   enabled: boolean;
   keyPolicy: AiKeyPolicy;
   logPromptContent: boolean;
-  /** `maxOutputTokensCap: null` means no cap. */
-  defaults: { maxOutputTokensCap: number | null; allowBackgroundRuns: boolean };
+  /**
+   * `maxOutputTokensCap: null` means no cap. `allowRealtime` (#449) is absent
+   * from an older API — read as off.
+   */
+  defaults: { maxOutputTokensCap: number | null; allowBackgroundRuns: boolean; allowRealtime?: boolean };
   /** Absent from an API older than #442 — read as every tool off. */
   hostedTools?: AiHostedToolsSettings;
   /** Rate limits and output caps (#450); `{}` — or absent, from an older API — means unlimited. */
@@ -224,7 +235,8 @@ export interface AiAdminConfigInput {
   enabled: boolean;
   keyPolicy: AiKeyPolicy;
   logPromptContent: boolean;
-  defaults: { maxOutputTokensCap?: number | null; allowBackgroundRuns: boolean };
+  /** `allowRealtime` (#449): omit to keep the stored value. */
+  defaults: { maxOutputTokensCap?: number | null; allowBackgroundRuns: boolean; allowRealtime?: boolean };
   /** Omit to keep the stored value (#442). */
   hostedTools?: AiHostedToolsSettings;
   /**
@@ -935,6 +947,47 @@ export async function createAiTranscriptionRun(req: AiTranscriptionRequest): Pro
 
 export async function createAiSpeechRun(req: AiSpeechRequest): Promise<AiRunStarted> {
   return api.post<AiRunStarted>('/ai/audio/speech', req);
+}
+
+// =============================================================================
+// Realtime voice sessions (#449)
+// =============================================================================
+
+/** The longest `instructions` one realtime session accepts. */
+export const AI_REALTIME_INSTRUCTIONS_MAX_CHARS = 16_000;
+
+/** `POST /ai/realtime/sessions` body. Every field is optional. */
+export interface AiRealtimeSessionRequest {
+  provider?: string;
+  /** A model with `realtime`; omitted, the first usable one. */
+  model?: string;
+  /** One of the model's `capabilities.voices`; omitted, its first. */
+  voice?: string;
+  /** Initial system instructions (at most {@link AI_REALTIME_INSTRUCTIONS_MAX_CHARS}). */
+  instructions?: string;
+}
+
+/**
+ * `POST /ai/realtime/sessions` → 201.
+ *
+ * ⚠ `clientSecret` is the provider's EPHEMERAL, single-session secret (never
+ * the user's key — that stays on the server). It is still a credential: keep
+ * it in a local variable for the one SDP exchange it exists for, and never
+ * log, render or store it.
+ */
+export interface AiRealtimeSession {
+  provider: string;
+  model: string;
+  voice: string;
+  clientSecret: string;
+  /** ISO 8601 — the deadline to CONNECT with `clientSecret`; a connected call continues. */
+  expiresAt: string;
+  /** Where the browser POSTs its SDP offer (`Content-Type: application/sdp`). */
+  connectUrl: string;
+}
+
+export async function createRealtimeSession(req: AiRealtimeSessionRequest = {}): Promise<AiRealtimeSession> {
+  return api.post<AiRealtimeSession>('/ai/realtime/sessions', req);
 }
 
 // =============================================================================

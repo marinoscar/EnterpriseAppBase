@@ -19,7 +19,8 @@
  * a background run alike.
  *
  * MODES (#445). A segmented control switches between Chat, Image,
- * Transcribe, Speech and Embeddings. Each mode lists only the usable models
+ * Transcribe, Speech, Embeddings and — only when an administrator allows
+ * realtime sessions (`GET /ai/config` `allowRealtime`, #449) — Voice. Each mode lists only the usable models
  * that declare its capability, and a mode no usable model can serve is
  * disabled with the reason — all derived from `GET /api/ai/models`, never
  * from model names (`components/ai/playground/aiPlaygroundModes.ts`). A
@@ -86,6 +87,7 @@ import { AI_KEYS_PATH } from '../components/ai/AiErrorAlert';
 import { AiRunCard } from '../components/ai/AiRunCard';
 import {
   AI_PLAYGROUND_MODES,
+  hiddenPlaygroundModes,
   initialPlaygroundMode,
   modelsForMode,
   unavailableModes,
@@ -99,6 +101,7 @@ import { AiImageMode } from '../components/ai/playground/AiImageMode';
 import { AiEmbeddingsMode } from '../components/ai/playground/AiEmbeddingsMode';
 import { AiTranscribeMode } from '../components/ai/playground/AiTranscribeMode';
 import { AiSpeechMode } from '../components/ai/playground/AiSpeechMode';
+import { AiVoiceMode } from '../components/ai/playground/AiVoiceMode';
 import { usePlaygroundModel } from '../components/ai/playground/usePlaygroundModel';
 import {
   AiChatAttachButtons,
@@ -240,10 +243,13 @@ export default function AiPlaygroundPage() {
 
   // Modes (#445): which are usable, and which is shown. A chosen mode that
   // stops being usable falls back to the first usable one.
-  const unavailable = useMemo(() => unavailableModes(models), [models]);
+  // Voice is hidden outright unless realtime sessions are allowed (#449).
+  const allowRealtime = aiConfig.allowRealtime;
+  const hiddenModes = useMemo(() => hiddenPlaygroundModes({ allowRealtime }), [allowRealtime]);
+  const unavailable = useMemo(() => unavailableModes(models, hiddenModes), [models, hiddenModes]);
   const [chosenMode, setChosenMode] = useState<AiPlaygroundModeId | null>(null);
   const mode: AiPlaygroundModeId =
-    chosenMode && !unavailable.has(chosenMode) ? chosenMode : initialPlaygroundMode(models);
+    chosenMode && !unavailable.has(chosenMode) ? chosenMode : initialPlaygroundMode(models, hiddenModes);
   const [visitedModes, setVisitedModes] = useState<ReadonlySet<AiPlaygroundModeId>>(() => new Set());
   const chooseMode = (next: AiPlaygroundModeId) => {
     setChosenMode(next);
@@ -646,6 +652,8 @@ export default function AiPlaygroundPage() {
         );
       case 'speech':
         return <AiSpeechMode models={modeModels.speech} preferredModel={preferredModel} ready={modelsReady} />;
+      case 'voice':
+        return <AiVoiceMode models={modeModels.voice} preferredModel={preferredModel} ready={modelsReady} />;
       // A mode added to AI_PLAYGROUND_MODES before its panel exists.
       default:
         return <AiModePlaceholder mode={entry} />;
@@ -710,12 +718,21 @@ export default function AiPlaygroundPage() {
 
       {showModes && (
         <Stack spacing={2} sx={{ minWidth: 0 }}>
-          <AiPlaygroundModeSelector value={mode} onChange={chooseMode} unavailable={unavailable} />
+          <AiPlaygroundModeSelector
+            value={mode}
+            onChange={chooseMode}
+            unavailable={unavailable}
+            hidden={hiddenModes}
+          />
 
           {mode === 'chat' && chatPanel}
 
           {AI_PLAYGROUND_MODES.filter(
-            (entry) => entry.id !== 'chat' && (entry.id === mode || visitedModes.has(entry.id)),
+            // A hidden mode is unmounted, so a voice call ends when realtime is switched off.
+            (entry) =>
+              entry.id !== 'chat' &&
+              !hiddenModes.has(entry.id) &&
+              (entry.id === mode || visitedModes.has(entry.id)),
           ).map((entry) => (
             // Kept mounted once visited: its inputs and any run it is polling survive a mode switch.
             <Box key={entry.id} hidden={entry.id !== mode} data-testid={`playground-mode-${entry.id}`}>
