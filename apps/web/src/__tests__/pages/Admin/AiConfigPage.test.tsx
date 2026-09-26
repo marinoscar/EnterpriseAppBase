@@ -231,6 +231,14 @@ describe('AiConfigPage', () => {
         // A full replace: a cleared cap and an absent base URL are sent as
         // explicit nulls, never omitted and never '' or 0.
         defaults: { maxOutputTokensCap: null, allowBackgroundRuns: true },
+        hostedTools: {
+          web_search: false,
+          file_search: false,
+          code_interpreter: false,
+          image_generation: false,
+          mcp: false,
+          mcpAllowedHosts: [],
+        },
         providers: { openai: { enabled: true, baseUrl: null } },
       });
       expect(await screen.findByText('AI configuration saved')).toBeInTheDocument();
@@ -279,6 +287,102 @@ describe('AiConfigPage', () => {
       setHook({ saveError: 'Someone else changed the AI configuration while you were editing.' });
       renderPage();
       expect(screen.getByText(/someone else changed/i)).toBeInTheDocument();
+    });
+  });
+
+  describe('hosted tools (#442)', () => {
+    const TOOL_LABELS = ['Web search', 'File search', 'Code interpreter', 'Image generation', 'Remote MCP servers'];
+
+    it('renders one switch per hosted tool, all off by default', () => {
+      setHook();
+      renderPage();
+
+      const section = screen.getByTestId('ai-hosted-tools');
+      for (const label of TOOL_LABELS) {
+        expect(within(section).getByRole('switch', { name: label })).not.toBeChecked();
+      }
+      expect(screen.getByLabelText('Allowed MCP hosts')).toHaveValue('');
+      expect(screen.queryByTestId('ai-mcp-any-host-warning')).not.toBeInTheDocument();
+    });
+
+    it('reflects the stored switches and host list', () => {
+      setHook({
+        config: {
+          ...mockAiAdminConfig,
+          hostedTools: {
+            web_search: true,
+            file_search: false,
+            code_interpreter: true,
+            image_generation: false,
+            mcp: true,
+            mcpAllowedHosts: ['mcp.example.com', '*.tools.example.org'],
+          },
+        },
+      });
+      renderPage();
+
+      expect(screen.getByRole('switch', { name: 'Web search' })).toBeChecked();
+      expect(screen.getByRole('switch', { name: 'File search' })).not.toBeChecked();
+      expect(screen.getByRole('switch', { name: 'Code interpreter' })).toBeChecked();
+      expect(screen.getByRole('switch', { name: 'Remote MCP servers' })).toBeChecked();
+      expect(screen.getByLabelText('Allowed MCP hosts')).toHaveValue('mcp.example.com\n*.tools.example.org');
+    });
+
+    it('saves switched tools and the host list in the same PUT body', async () => {
+      const user = userEvent.setup();
+      const hook = setHook();
+      renderPage();
+
+      await user.click(screen.getByRole('switch', { name: 'Web search' }));
+      await user.click(screen.getByRole('switch', { name: 'Remote MCP servers' }));
+      expect(screen.getByTestId('ai-mcp-any-host-warning')).toBeInTheDocument();
+
+      await user.type(screen.getByLabelText('Allowed MCP hosts'), 'MCP.Example.com{enter}*.tools.example.org{enter}mcp.example.com');
+      expect(screen.queryByTestId('ai-mcp-any-host-warning')).not.toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: /save changes/i }));
+
+      await waitFor(() => expect(hook.save).toHaveBeenCalledTimes(1));
+      expect(vi.mocked(hook.save).mock.calls[0][0].hostedTools).toEqual({
+        web_search: true,
+        file_search: false,
+        code_interpreter: false,
+        image_generation: false,
+        mcp: true,
+        mcpAllowedHosts: ['mcp.example.com', '*.tools.example.org'],
+      });
+    });
+
+    it('blocks a host entry that is a URL, not a host name', async () => {
+      const user = userEvent.setup();
+      setHook();
+      renderPage();
+
+      await user.type(screen.getByLabelText('Allowed MCP hosts'), 'https://mcp.example.com/sse');
+
+      expect(screen.getByText(/is not a host name/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /save changes/i })).toBeDisabled();
+    });
+
+    it('read-only admin: the switches and the host list are disabled', () => {
+      setPermissions(READ_ONLY);
+      setHook();
+      renderPage();
+
+      for (const label of TOOL_LABELS) {
+        expect(screen.getByRole('switch', { name: label })).toBeDisabled();
+      }
+      expect(screen.getByLabelText('Allowed MCP hosts')).toBeDisabled();
+    });
+
+    it('an API older than #442 (no hostedTools) reads as every tool off', () => {
+      const { hostedTools: _omit, ...legacy } = mockAiAdminConfig;
+      setHook({ config: legacy });
+      renderPage();
+
+      for (const label of TOOL_LABELS) {
+        expect(screen.getByRole('switch', { name: label })).not.toBeChecked();
+      }
+      expect(screen.getByRole('button', { name: /save changes/i })).toBeDisabled();
     });
   });
 

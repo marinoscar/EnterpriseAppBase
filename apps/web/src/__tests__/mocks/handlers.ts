@@ -347,6 +347,7 @@ export const handlers = [
           maxOutputTokensCap: body.defaults.maxOutputTokensCap ?? null,
           allowBackgroundRuns: body.defaults.allowBackgroundRuns,
         },
+        hostedTools: body.hostedTools ?? mockAiAdminConfig.hostedTools,
         providers: mockAiAdminConfig.providers.map((provider) => {
           const next = body.providers[provider.id];
           if (!next) return provider;

@@ -65,6 +65,7 @@ export const AI_ERROR_CODES = [
   'AI_MODEL_NOT_ENABLED',
   'AI_MODEL_NOT_REACHABLE',
   'AI_CAPABILITY_UNSUPPORTED',
+  'AI_TOOL_DISABLED',
   'AI_RATE_LIMITED',
   'AI_PROVIDER_UNAVAILABLE',
   'AI_CONTENT_FILTERED',
@@ -93,7 +94,30 @@ export interface AiPublicConfig {
    * background runs, handles a refusal, and hides them only on `false`.
    */
   allowBackgroundRuns?: boolean;
+  /**
+   * Which provider-hosted tools an administrator has switched on (#442); all
+   * false while `enabled` is false. Offer a tool only when its flag is true —
+   * a request naming a disabled one is `403 AI_TOOL_DISABLED`. Optional so an
+   * older API that omits it still works: absent means "none".
+   */
+  hostedTools?: Record<AiHostedToolType, boolean>;
 }
+
+/** The provider-hosted tool types (#442). */
+export const AI_HOSTED_TOOL_TYPES = [
+  'web_search',
+  'file_search',
+  'code_interpreter',
+  'image_generation',
+  'mcp',
+] as const;
+export type AiHostedToolType = (typeof AI_HOSTED_TOOL_TYPES)[number];
+
+/** `ai.hostedTools` — each hosted tool's switch, plus the MCP host allowlist (admin only). */
+export type AiHostedToolsSettings = Record<AiHostedToolType, boolean> & {
+  /** `mcp.example.com` or `*.example.com`; empty means any `https://` host. */
+  mcpAllowedHosts: string[];
+};
 
 /** Masked status of a stored credential — never the credential itself. */
 export interface SecretStatus {
@@ -126,6 +150,8 @@ export interface AiAdminConfig {
   logPromptContent: boolean;
   /** `maxOutputTokensCap: null` means no cap. */
   defaults: { maxOutputTokensCap: number | null; allowBackgroundRuns: boolean };
+  /** Absent from an API older than #442 — read as every tool off. */
+  hostedTools?: AiHostedToolsSettings;
   providers: AiAdminProvider[];
   version: number;
   updatedAt: string | null;
@@ -150,6 +176,8 @@ export interface AiAdminConfigInput {
   keyPolicy: AiKeyPolicy;
   logPromptContent: boolean;
   defaults: { maxOutputTokensCap?: number | null; allowBackgroundRuns: boolean };
+  /** Omit to keep the stored value (#442). */
+  hostedTools?: AiHostedToolsSettings;
   providers: Record<string, { enabled: boolean; baseUrl?: string | null }>;
 }
 
@@ -296,11 +324,19 @@ export interface AiResponseRequest {
   providerOptions?: Record<string, Record<string, unknown>>;
 }
 
+/** A web-search citation: `text.slice(startIndex, endIndex)` is the passage it supports (#442). */
+export interface AiUrlCitation {
+  url: string;
+  title: string;
+  startIndex: number;
+  endIndex: number;
+}
+
 export type AiOutputItem =
-  | { type: 'message'; text: string }
+  | { type: 'message'; text: string; citations?: AiUrlCitation[] }
   | { type: 'reasoning'; summary: string[] }
   | { type: 'function_call'; callId: string; name: string; arguments: string }
-  | { type: 'hosted_tool_call'; tool: string; status: string; result?: unknown };
+  | { type: 'hosted_tool_call'; id?: string; tool: string; status: string; result?: unknown };
 
 export interface AiUsage {
   inputTokens?: number;

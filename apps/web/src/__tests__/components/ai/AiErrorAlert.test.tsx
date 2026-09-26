@@ -39,6 +39,7 @@ const CASES: { code: string; title: string; link: boolean }[] = [
   { code: 'AI_PROVIDER_DISABLED', title: 'This provider is disabled', link: false },
   { code: 'AI_CAPABILITY_UNSUPPORTED', title: "This model can't do that", link: false },
   { code: 'AI_INVALID_REQUEST', title: 'The request was invalid', link: false },
+  { code: 'AI_TOOL_DISABLED', title: "This tool isn't enabled", link: false },
 ];
 
 describe('AiErrorAlert', () => {

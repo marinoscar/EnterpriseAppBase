@@ -21,6 +21,10 @@
  * and removing it is destructive. Each of those is an immediate action on the
  * provider's card (`AiProviderCard`).
  *
+ * The hosted-tool switches (#442) are policy too: five switches and the MCP
+ * host allowlist travel in the same PUT. Every tool is off by default — each
+ * reaches outside the deployment and bills per use.
+ *
  * =============================================================================
  * SNACKBAR vs. ALERT
  * =============================================================================
@@ -68,7 +72,13 @@ import { AiConfigContext } from '../../hooks/useAiConfig';
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
 import { AiProviderCard } from '../../components/admin/ai/AiProviderCard';
 import type { AiProviderFormValue } from '../../components/admin/ai/AiProviderCard';
-import type { AiAdminConfig, AiAdminConfigInput, AiKeyPolicy } from '../../services/ai';
+import { AI_HOSTED_TOOL_TYPES } from '../../services/ai';
+import type {
+  AiAdminConfig,
+  AiAdminConfigInput,
+  AiHostedToolType,
+  AiKeyPolicy,
+} from '../../services/ai';
 
 /** The form's own state — strings for the number field so "blank" is representable. */
 interface AiFormState {
@@ -77,10 +87,34 @@ interface AiFormState {
   logPromptContent: boolean;
   maxOutputTokensCap: string;
   allowBackgroundRuns: boolean;
+  hostedTools: Record<AiHostedToolType, boolean>;
+  /** One host per line, as typed. */
+  mcpAllowedHosts: string;
   providers: Record<string, AiProviderFormValue>;
 }
 
 const MAX_BASE_URL_LENGTH = 512;
+
+/** Label and helper per hosted tool type (#442), in the order the API lists them. */
+const HOSTED_TOOL_COPY: Record<AiHostedToolType, { label: string; help: string }> = {
+  web_search: { label: 'Web search', help: 'Live web search, with the sources cited in the answer.' },
+  file_search: { label: 'File search', help: "Search documents in the provider's vector stores." },
+  code_interpreter: { label: 'Code interpreter', help: 'Run code in a sandbox the provider manages.' },
+  image_generation: { label: 'Image generation', help: 'Generate images as part of an answer.' },
+  mcp: { label: 'Remote MCP servers', help: 'Let the model call tools on MCP servers users name.' },
+};
+
+/** `mcp.example.com` or `*.example.com` — mirrors the API's own pattern. */
+const MCP_HOST_PATTERN =
+  /^(\*\.)?[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$/i;
+
+/** The allowlist textarea as a list: trimmed, lower-cased, blank lines dropped. */
+function parseHosts(text: string): string[] {
+  return text
+    .split(/[\n,]/)
+    .map((host) => host.trim().toLowerCase())
+    .filter(Boolean);
+}
 
 function toFormState(config: AiAdminConfig): AiFormState {
   const providers: Record<string, AiProviderFormValue> = {};
@@ -94,6 +128,14 @@ function toFormState(config: AiAdminConfig): AiFormState {
     maxOutputTokensCap:
       config.defaults.maxOutputTokensCap === null ? '' : String(config.defaults.maxOutputTokensCap),
     allowBackgroundRuns: config.defaults.allowBackgroundRuns,
+    hostedTools: {
+      web_search: config.hostedTools?.web_search ?? false,
+      file_search: config.hostedTools?.file_search ?? false,
+      code_interpreter: config.hostedTools?.code_interpreter ?? false,
+      image_generation: config.hostedTools?.image_generation ?? false,
+      mcp: config.hostedTools?.mcp ?? false,
+    },
+    mcpAllowedHosts: (config.hostedTools?.mcpAllowedHosts ?? []).join('\n'),
     providers,
   };
 }
@@ -121,12 +163,14 @@ function toInput(form: AiFormState): AiAdminConfigInput {
       maxOutputTokensCap: cap ? Number(cap) : null,
       allowBackgroundRuns: form.allowBackgroundRuns,
     },
+    hostedTools: { ...form.hostedTools, mcpAllowedHosts: [...new Set(parseHosts(form.mcpAllowedHosts))] },
     providers,
   };
 }
 
 interface FormErrors {
   maxOutputTokensCap?: string;
+  mcpAllowedHosts?: string;
   baseUrl: Record<string, string>;
 }
 
@@ -136,6 +180,12 @@ function validate(form: AiFormState): FormErrors {
   const cap = form.maxOutputTokensCap.trim();
   if (cap && (!/^\d+$/.test(cap) || Number(cap) <= 0)) {
     errors.maxOutputTokensCap = 'Must be a whole number greater than zero, or blank for no cap.';
+  }
+  const badHost = parseHosts(form.mcpAllowedHosts).find(
+    (host) => host.length > 253 || !MCP_HOST_PATTERN.test(host),
+  );
+  if (badHost) {
+    errors.mcpAllowedHosts = `"${badHost}" is not a host name. Use mcp.example.com or *.example.com — no https:// or path.`;
   }
   for (const [id, value] of Object.entries(form.providers)) {
     const baseUrl = value.baseUrl.trim();
@@ -150,7 +200,11 @@ function validate(form: AiFormState): FormErrors {
 }
 
 function hasErrors(errors: FormErrors): boolean {
-  return !!errors.maxOutputTokensCap || Object.keys(errors.baseUrl).length > 0;
+  return (
+    !!errors.maxOutputTokensCap ||
+    !!errors.mcpAllowedHosts ||
+    Object.keys(errors.baseUrl).length > 0
+  );
 }
 
 export default function AiConfigPage() {
@@ -416,6 +470,62 @@ export default function AiConfigPage() {
                   </FormHelperText>
                 </Grid>
               </Grid>
+
+              <Divider sx={{ my: 3 }} />
+
+              {/* ---------------------------------------------------------
+                  HOSTED TOOLS (#442)
+                  ------------------------------------------------------- */}
+              <Typography variant="h6" component="h2" sx={{ mb: 1 }}>
+                Hosted tools
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Tools the AI provider runs on its side during an answer. Each one reaches outside
+                this deployment and is billed per use by the provider, so every tool is off until
+                you switch it on. The model must also support hosted tools.
+              </Typography>
+              <Grid container spacing={1} data-testid="ai-hosted-tools">
+                {AI_HOSTED_TOOL_TYPES.map((tool) => (
+                  <Grid key={tool} size={{ xs: 12, sm: 6 }}>
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={form.hostedTools[tool]}
+                          onChange={(e) =>
+                            update('hostedTools', { ...form.hostedTools, [tool]: e.target.checked })
+                          }
+                          disabled={!canWrite}
+                          slotProps={{ input: { 'aria-label': HOSTED_TOOL_COPY[tool].label } }}
+                        />
+                      }
+                      label={HOSTED_TOOL_COPY[tool].label}
+                    />
+                    <FormHelperText sx={{ mt: 0 }}>{HOSTED_TOOL_COPY[tool].help}</FormHelperText>
+                  </Grid>
+                ))}
+              </Grid>
+              <TextField
+                fullWidth
+                multiline
+                minRows={2}
+                sx={{ mt: 2 }}
+                label="Allowed MCP hosts"
+                value={form.mcpAllowedHosts}
+                onChange={(e) => update('mcpAllowedHosts', e.target.value)}
+                disabled={!canWrite}
+                error={!!errors.mcpAllowedHosts}
+                helperText={
+                  errors.mcpAllowedHosts ??
+                  'One host per line, e.g. mcp.example.com, or *.example.com for its subdomains. ' +
+                    'Leave empty to allow any https:// server.'
+                }
+              />
+              {form.hostedTools.mcp && parseHosts(form.mcpAllowedHosts).length === 0 && (
+                <Alert severity="warning" sx={{ mt: 2 }} data-testid="ai-mcp-any-host-warning">
+                  Remote MCP is on with no host allowlist: users can point the model at any
+                  https:// server.
+                </Alert>
+              )}
             </Paper>
 
             {/* -------------------------------------------------------------
