@@ -255,6 +255,35 @@ export function externalNetworksIn(paths: readonly string[]): string[] {
   return [...names];
 }
 
+/**
+ * Makes sure every network the given compose files declare `external: true`
+ * exists, creating the missing ones (#391 follow-up).
+ *
+ * ⚠ THE APPLICATION STACK NEEDS THESE BEFORE ITS FIRST `compose run`/`up`.
+ * Compose refuses to instantiate a service attached to an external network
+ * that does not exist ("network devnet declared as external, but could not be
+ * found"), and on a fresh box nothing has created it yet -- the proxy
+ * bootstrap, which also creates it, runs much later, just before `publish`.
+ * Names come from the checkout's own compose files, never from this CLI.
+ */
+export async function ensureExternalNetworks(options: {
+  composeFiles: readonly string[];
+  runCommand: typeof runCommand;
+  onLine?: ((line: string) => void) | undefined;
+}): Promise<{ checked: string[]; created: string[] }> {
+  const checked = externalNetworksIn(options.composeFiles);
+  const created: string[] = [];
+  for (const network of checked) {
+    if (await ensureNetwork(network, options.runCommand)) {
+      created.push(network);
+      options.onLine?.(`Created docker network ${network}`);
+    } else {
+      options.onLine?.(`Docker network ${network} exists`);
+    }
+  }
+  return { checked, created };
+}
+
 export interface BootstrapProxyOptions {
   proxyRoot: string;
   runtime: ProxyRuntime;
@@ -284,7 +313,11 @@ function writeIfAbsent(path: string, content: string): boolean {
   }
 }
 
-async function ensureNetwork(
+/**
+ * Creates `name` unless `docker network inspect` finds it. Idempotent.
+ * Returns true when it created the network.
+ */
+export async function ensureNetwork(
   name: string,
   run: typeof runCommand,
 ): Promise<boolean> {

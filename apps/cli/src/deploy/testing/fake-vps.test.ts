@@ -769,3 +769,45 @@ describe('the OAuth check, through the real pipeline', () => {
     }
   });
 });
+
+describe('the stack\'s external networks exist before compose instantiates it (#391)', () => {
+  const BASE = 'networks:\n  app-network:\n    driver: bridge\n  devnet:\n    external: true\n    name: devnet\n';
+
+  function vpsWithNetworks(): ReturnType<typeof createFakeVps> {
+    return createFakeVps({
+      envExample: TEMPLATE,
+      files: { 'repo/infra/compose/base.compose.yml': BASE },
+    });
+  }
+
+  function indexOf(vps: ReturnType<typeof createFakeVps>, predicate: (argv: readonly string[]) => boolean): number {
+    return vps.invocations.findIndex((call) => predicate(call.argv));
+  }
+
+  const isCreate = (argv: readonly string[]) => argv.join(' ') === 'docker network create devnet';
+  const isFirstInstantiation = (argv: readonly string[]) =>
+    argv[0] === 'docker' && argv[1] === 'compose' && (argv.includes('run') || argv.includes('up'));
+
+  it('creates devnet before the first compose run/up when inspect cannot find it', async () => {
+    const vps = vpsWithNetworks();
+    vps.route(['docker', 'network', 'inspect', 'devnet'], { fail: new Error('Error: No such network: devnet') });
+
+    await install(vps);
+
+    const created = indexOf(vps, isCreate);
+    expect(created).toBeGreaterThanOrEqual(0);
+    expect(created).toBeLessThan(indexOf(vps, isFirstInstantiation));
+    expect(created).toBeLessThan(indexOf(vps, (argv) => argv[1] === 'compose' && argv.includes('up')));
+    // Once per run, not once per compose call.
+    expect(vps.calls('docker', 'network', 'create')).toHaveLength(1);
+  });
+
+  it('does not create it when it already exists', async () => {
+    const vps = vpsWithNetworks();
+
+    await install(vps);
+
+    expect(vps.calls('docker', 'network', 'inspect', 'devnet')).toHaveLength(1);
+    expect(vps.calls('docker', 'network', 'create')).toHaveLength(0);
+  });
+});

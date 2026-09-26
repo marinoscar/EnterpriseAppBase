@@ -24,6 +24,7 @@ import { waitForHealthy, collectHealth, isHealthy, type FetchLike, type OAuthSmo
 import { runOAuthCheck } from './oauth-check.js';
 import {
   bootstrapProxy,
+  ensureExternalNetworks,
   externalNetworksIn,
   inspectProxy,
   type ProxyPresence,
@@ -167,6 +168,8 @@ export interface InstallOptions {
 }
 
 interface InstallContext extends StepContext {
+  /** Set once the stack's external networks are known to exist; see ensureStackNetworks. */
+  networksEnsured?: boolean | undefined;
   options: InstallOptions;
   runCommand: typeof defaultRunCommand;
   journal: Journal;
@@ -401,6 +404,7 @@ async function compose(
   options?: { timeoutMs?: number },
 ): Promise<void> {
   ensureBindSources(context.options.deployRoot);
+  await ensureStackNetworks(context, extra);
 
   const result = await context.runCommand(composeArgv(extra, context.composeProject), {
     cwd: composeCwd(context.options.deployRoot),
@@ -411,6 +415,34 @@ async function compose(
       : { onLine: (line: string) => context.hooks?.onLog?.(line) }),
   });
   context.journal.command(result);
+}
+
+/** Compose subcommands that instantiate services, and so need their networks. */
+const INSTANTIATING = new Set(['up', 'run', 'create', 'start', 'restart']);
+
+/**
+ * Ensures the stack's external networks exist before the FIRST compose call
+ * that instantiates a service -- `migrate`'s `compose run`, before `start`'s
+ * `up`. Once per run (`networksEnsured`), and guarded on the CALL for the same
+ * reason `ensureBindSources` is: an earlier compose step added later cannot
+ * reintroduce the fresh-box failure. Shared with update.
+ */
+export async function ensureStackNetworks(
+  context: Pick<StepContext, 'journal'> & {
+    runCommand: typeof defaultRunCommand;
+    options: { deployRoot: string };
+    networksEnsured?: boolean | undefined;
+  },
+  extra: readonly string[],
+): Promise<void> {
+  if (context.networksEnsured === true || !INSTANTIATING.has(extra[0] ?? '')) return;
+  const composeDir = composeCwd(context.options.deployRoot);
+  await ensureExternalNetworks({
+    composeFiles: COMPOSE_FILES.map((file) => join(composeDir, file)),
+    runCommand: context.runCommand,
+    onLine: (line) => context.journal.line(line),
+  });
+  context.networksEnsured = true;
 }
 
 export function buildInstallSteps(): DeployStep<InstallContext>[] {

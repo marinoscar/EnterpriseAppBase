@@ -60,6 +60,7 @@ import {
   composeCwd,
   composeProjectFor,
   consentOptions,
+  ensureStackNetworks,
   oauthSmokeTarget,
   reportOAuthSmoke,
   scheduleRenewal,
@@ -139,6 +140,8 @@ export interface UpdateOptions {
 }
 
 interface UpdateContext extends StepContext {
+  /** Set once the stack's external networks are known to exist. */
+  networksEnsured?: boolean | undefined;
   options: UpdateOptions;
   runCommand: typeof defaultRunCommand;
   journal: Journal;
@@ -230,6 +233,9 @@ async function compose(
   // source as root:root the moment it instantiates the service, and `compose
   // run` does that as thoroughly as `up`.
   mkdirSync(join(context.options.deployRoot, 'deploy-info'), { recursive: true });
+  // A network deleted since install (a `docker network prune`) fails `up`
+  // with a message about compose, not about the network. See install.ts.
+  await ensureStackNetworks(context, extra);
 
   const result = await context.runCommand(composeArgv(extra, composeProjectFor(context.state)), {
     cwd: composeCwd(context.options.deployRoot),

@@ -10,6 +10,7 @@ import { proxyRuntimeFor } from './proxy.js';
 import {
   DEFAULT_SERVER_CONF,
   bootstrapProxy,
+  ensureExternalNetworks,
   externalNetworks,
   inspectProxy,
   renderDefaultServer,
@@ -173,5 +174,35 @@ describe('bootstrapProxy', () => {
     await bootstrapProxy({ proxyRoot: dir, runtime: RUNTIME, runCommand: run });
 
     expect(readFileSync(join(dir, 'nginx', 'conf.d', DEFAULT_SERVER_CONF), 'utf8')).toBe('# mine\n');
+  });
+});
+
+describe('ensureExternalNetworks', () => {
+  function composeFile(): string {
+    const dir = root();
+    const path = join(dir, 'base.compose.yml');
+    writeFileSync(path, 'networks:\n  app-network:\n    driver: bridge\n  devnet:\n    external: true\n    name: devnet\n');
+    return path;
+  }
+
+  it('creates an external network that inspect cannot find', async () => {
+    const { run, calls } = fake((argv) =>
+      argv.join(' ').startsWith('docker network inspect') ? { exitCode: 1, stderr: 'not found' } : { exitCode: 0 },
+    );
+    const lines: string[] = [];
+    const result = await ensureExternalNetworks({ composeFiles: [composeFile()], runCommand: run, onLine: (l) => lines.push(l) });
+    expect(result).toEqual({ checked: ['devnet'], created: ['devnet'] });
+    expect(calls.map((call) => call.argv.join(' '))).toEqual(['docker network inspect devnet', 'docker network create devnet']);
+    expect(lines).toContain('Created docker network devnet');
+  });
+
+  it('is a no-op when the network exists, and ignores internal networks and absent files', async () => {
+    const { run, calls } = fake(() => ({ exitCode: 0 }));
+    const result = await ensureExternalNetworks({
+      composeFiles: [composeFile(), join(root(), 'missing.compose.yml')],
+      runCommand: run,
+    });
+    expect(result.created).toEqual([]);
+    expect(calls.map((call) => call.argv.join(' '))).toEqual(['docker network inspect devnet']);
   });
 });
