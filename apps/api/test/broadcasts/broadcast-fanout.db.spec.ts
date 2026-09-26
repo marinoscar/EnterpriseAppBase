@@ -50,9 +50,14 @@
 
 import { Job, PrismaClient } from '@prisma/client';
 
+import { RateLimitError } from '../../src/jobs/rate-limit.error';
 import { BroadcastChunkHandler, BROADCAST_CHUNK_TYPE } from '../../src/notifications/broadcasts/handlers/broadcast-chunk.handler';
 import { BroadcastStartHandler, BROADCAST_START_TYPE } from '../../src/notifications/broadcasts/handlers/broadcast-start.handler';
-import { BROADCAST_CHUNK_SIZE, BROADCAST_SUBJECT_TYPE } from '../../src/notifications/broadcasts/broadcast-audience';
+import {
+  BROADCAST_CHUNK_SIZE,
+  BROADCAST_SEND_CONCURRENCY,
+  BROADCAST_SUBJECT_TYPE,
+} from '../../src/notifications/broadcasts/broadcast-audience';
 import { JobsService } from '../../src/jobs/jobs.service';
 import type { ConfigService } from '@nestjs/config';
 import type { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
@@ -117,6 +122,13 @@ function makeNotificationsStub() {
   const calls: RecordedDispatch[] = [];
   let callIndex = 0;
   let trap: { at: number; reached: ReturnType<typeof deferred>; gate: ReturnType<typeof deferred> } | null = null;
+  /**
+   * User ids that should report a provider throttle on their NEXT dispatch
+   * only (issue #456's resume test below) — consumed on read, so a resumed
+   * chunk's re-dispatch of the same recipient succeeds normally, exactly as
+   * the real email provider's throttle window would have lifted by then.
+   */
+  const rateLimitOnce = new Map<string, number | null>();
 
   const notifyNow = jest.fn(
     async (eventKey: string, userId: string, data: unknown, options?: NotifyOptions) => {
@@ -129,6 +141,14 @@ function makeNotificationsStub() {
       }
 
       calls.push({ eventKey, userId, data, options });
+
+      if (rateLimitOnce.has(userId)) {
+        const retryAfterMs = rateLimitOnce.get(userId) ?? null;
+        rateLimitOnce.delete(userId);
+        return { rateLimited: true, retryAfterMs };
+      }
+
+      return { rateLimited: false, retryAfterMs: null };
     }
   );
   const notify = jest.fn();
@@ -150,6 +170,10 @@ function makeNotificationsStub() {
     },
     release(): void {
       trap?.gate.resolve();
+    },
+    /** See `rateLimitOnce` above. */
+    rateLimitOnce(userId: string, retryAfterMs: number | null = null): void {
+      rateLimitOnce.set(userId, retryAfterMs);
     },
     /**
      * Resets BOTH the recorded-dispatch array and the underlying jest mock's
@@ -617,5 +641,129 @@ describeWithDb('Admin broadcast fan-out (real Postgres)', () => {
       // `finish()` never enqueues, whichever way its own CAS resolves.
       expect(await nextPendingChunk(broadcast.id)).toBeNull();
     });
+  });
+
+  // ===========================================================================
+  // 6. A provider throttle mid-page: partial commit, then a full resume
+  // ===========================================================================
+
+  describe('provider throttle (issue #456)', () => {
+    it(
+      'commits only the prefix before a throttled recipient, queues no successor, then ' +
+        'resumes to completion on retry with nobody skipped and duplicates bounded by concurrency',
+      async () => {
+        const PAGE_ONE_SIZE = BROADCAST_CHUNK_SIZE;
+        await createUsers(PAGE_ONE_SIZE + 40, 'throttle-audience');
+        const broadcast = await createBroadcast();
+        const { startHandler, chunkHandler, stub } = handlersFor(clientA, jobsA);
+
+        await startHandler.process(startJobFor(broadcast.id));
+
+        const afterStart = await clientA.notificationBroadcast.findUniqueOrThrow({
+          where: { id: broadcast.id },
+        });
+        const expectedRecipients = await clientA.user.findMany({
+          where: { isActive: true, createdAt: { lte: afterStart.audienceCutoff! } },
+          select: { id: true },
+          orderBy: { id: 'asc' },
+        });
+        const expectedIds = expectedRecipients.map((row) => row.id);
+        expect(expectedIds.length).toBeGreaterThanOrEqual(PAGE_ONE_SIZE + 40);
+
+        // A recipient safely inside the FIRST page (well past the start, so
+        // the committed prefix is provably non-trivial; well before the end,
+        // so there is provably more work left after it).
+        const throttledId = expectedIds[100];
+        stub.rateLimitOnce(throttledId, 30_000);
+
+        const firstChunkJob = await nextPendingChunk(broadcast.id);
+        expect(firstChunkJob).not.toBeNull();
+
+        // --- attempt 1: the provider throttles on `throttledId` ---
+        let thrown: unknown;
+        try {
+          await chunkHandler.process(firstChunkJob!);
+        } catch (err) {
+          thrown = err;
+        }
+
+        expect(thrown).toBeInstanceOf(RateLimitError);
+        expect((thrown as RateLimitError).retryAfterMs).toBe(30_000);
+
+        const afterThrottle = await clientA.notificationBroadcast.findUniqueOrThrow({
+          where: { id: broadcast.id },
+        });
+        // Still `sending` — a throttle defers the CHUNK JOB, not the broadcast.
+        expect(afterThrottle.status).toBe('sending');
+        // Cursor and counter both describe the longest contiguous prefix
+        // that completed before the throttled recipient — index 100 in id
+        // order, so exactly 100 recipients are committed.
+        expect(afterThrottle.recipientsDispatched).toBe(100);
+        expect(afterThrottle.cursorUserId).toBe(expectedIds[99]);
+
+        // NO SUCCESSOR was queued — the page is not done, so nothing chains
+        // off it. The only chunk row for this broadcast is still the one
+        // that just threw, and it is still `pending` (this suite drives
+        // `process()` directly rather than through `JobTerminalService`, so
+        // the row's own status/backoff bookkeeping is out of scope here —
+        // see the file header; what matters is that nothing ELSE was
+        // created).
+        const chunkRows = await clientA.job.findMany({
+          where: { type: BROADCAST_CHUNK_TYPE, subjectType: BROADCAST_SUBJECT_TYPE, subjectId: broadcast.id },
+        });
+        expect(chunkRows).toHaveLength(1);
+        expect(chunkRows[0].id).toBe(firstChunkJob!.id);
+
+        // --- resume: the queue's retry of the SAME job, from the persisted cursor ---
+        // NOT cleared — the final assertions below need the FULL dispatch
+        // history, including attempt 1's 100 committed recipients (plus the
+        // throttled one, which attempt 1 also recorded before failing).
+        const beforeResume = stub.calls.length;
+        await chunkHandler.process(firstChunkJob!);
+        await markProcessed(firstChunkJob!.id);
+
+        // Every recipient from the throttled one onward is reached again on
+        // this resumed run — nobody after the committed prefix was skipped.
+        // Only 140 recipients remain past the committed prefix of 100 (out
+        // of the 240-strong audience), well under one page, so this single
+        // resumed `process()` call reaches all of them at once and finishes
+        // the broadcast directly, with no successor chunk required.
+        const resumedPage = dispatchedIds(stub.calls.slice(beforeResume));
+        expect(resumedPage[0]).toBe(throttledId);
+        expect(resumedPage).toEqual(expectedIds.slice(100));
+
+        // Drive whatever successor chunks the resumed run enqueued (the
+        // remaining recipients past the first 200-recipient page) to
+        // completion.
+        await runChunksToCompletion(chunkHandler, broadcast.id);
+
+        const finalState = await clientA.notificationBroadcast.findUniqueOrThrow({
+          where: { id: broadcast.id },
+        });
+        expect(finalState.status).toBe('sent');
+        // Every audience member was dispatched to at least once.
+        const allDispatchedIds = dispatchedIds(stub.calls);
+        const uniqueDispatched = new Set(allDispatchedIds);
+        for (const id of expectedIds) {
+          expect(uniqueDispatched.has(id)).toBe(true);
+        }
+        // `recipientsDispatched` counts each committed recipient exactly
+        // once — the throttled recipient's FIRST (failed) attempt was never
+        // counted, only its successful resend was — so the total across both
+        // commits (100 then 140) equals the full audience, not more.
+        expect(finalState.recipientsDispatched).toBe(expectedIds.length);
+
+        // Duplicates are bounded by the concurrency pool: only recipients
+        // already in flight when the throttle was discovered could have
+        // both "succeeded" and been re-sent on resume.
+        const counts = new Map<string, number>();
+        for (const id of allDispatchedIds) {
+          counts.set(id, (counts.get(id) ?? 0) + 1);
+        }
+        for (const [, count] of counts) {
+          expect(count).toBeLessThanOrEqual(BROADCAST_SEND_CONCURRENCY);
+        }
+      }
+    );
   });
 });

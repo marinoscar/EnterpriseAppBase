@@ -331,6 +331,52 @@ describe('SesEmailProvider', () => {
   });
 
   // ==========================================================================
+  // Rate-limit classification (issue #456) — passes through BaseEmailProvider
+  // ==========================================================================
+
+  describe('rate-limit classification', () => {
+    it('tags a TooManyRequestsException rejection as rateLimited', async () => {
+      const provider = new SesEmailProvider(
+        makeConfig({
+          'email.awsAccessKeyId': 'AKIAEXAMPLE',
+          'email.awsSecretAccessKey': 'super-secret-access-key-value',
+        }),
+        makeEmailSettings({ ...baseEmailSettings, sesRegion: 'us-east-1' }),
+      );
+      const throttleError = Object.assign(new Error('Maximum sending rate exceeded.'), {
+        name: 'TooManyRequestsException',
+        $metadata: { httpStatusCode: 429 },
+      });
+      sesSendMock.mockRejectedValueOnce(throttleError);
+
+      const result = await provider.send(baseMessage);
+
+      expect(result.success).toBe(false);
+      expect(result.rateLimited).toBe(true);
+    });
+
+    it('does not tag an authentication/authorization error as rateLimited', async () => {
+      const provider = new SesEmailProvider(
+        makeConfig({
+          'email.awsAccessKeyId': 'AKIAEXAMPLE',
+          'email.awsSecretAccessKey': 'super-secret-access-key-value',
+        }),
+        makeEmailSettings({ ...baseEmailSettings, sesRegion: 'us-east-1' }),
+      );
+      const authError = Object.assign(new Error('The security token is invalid'), {
+        name: 'UnrecognizedClientException',
+        $metadata: { httpStatusCode: 403 },
+      });
+      sesSendMock.mockRejectedValueOnce(authError);
+
+      const result = await provider.send(baseMessage);
+
+      expect(result.success).toBe(false);
+      expect(result.rateLimited).toBeUndefined();
+    });
+  });
+
+  // ==========================================================================
   // Client caching
   // ==========================================================================
 
