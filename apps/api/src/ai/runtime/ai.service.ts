@@ -22,6 +22,10 @@
 //   5. clamp maxOutputTokens to the deployment cap and the model's own limit
 //   6. resolve the key (AiKeyResolver — the byok invariant lives there)
 //   7. call the adapter with { apiKey, baseUrl, signal, requestId }
+//   8. record ONE `ai_usage_events` row per round-trip (success, failure or
+//      cancellation) with whose key paid (AiUsageRecorder)
+//   9. trace it as an `ai.request` span (provider, model, operation, key
+//      source, status, token counts — never prompt text, never the key)
 //
 // ⚠ THE KEY. `apiKey` exists in this file only between step 6 and the
 // adapter call. It is never logged, never put on a span, never persisted and
@@ -31,7 +35,9 @@
 import { randomUUID } from 'node:crypto';
 
 import { Injectable, Logger } from '@nestjs/common';
+import { type Span, SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
 
+import { resolveServiceName } from '../../common/otel/service-name';
 import { userAiSettingsSchema } from '../../common/schemas/settings.schema';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AiConfigService } from '../config/ai-config.service';
@@ -44,6 +50,12 @@ import { AiKeyResolver, type AiKeySource } from '../keys/ai-key-resolver.service
 import type { UsableAiModel } from '../keys/dto/usable-ai-model.dto';
 import { UsableModelsService } from '../keys/usable-models.service';
 import type { AiCallOptions, AiRequest } from './ai-runtime.types';
+import { AiUsageRecorder, type AiUsageStatus } from './ai-usage.recorder';
+
+/** The facade's span — one per provider round-trip. The adapter's own `ai.provider.call` nests inside it. */
+export const AI_REQUEST_SPAN = 'ai.request';
+
+const tracer = trace.getTracer(resolveServiceName());
 
 /** Prompt text is logged (only when `ai.logPromptContent`) truncated to this many characters. */
 export const AI_PROMPT_LOG_MAX_CHARS = 2048;
@@ -97,6 +109,18 @@ interface PrepareOptions {
   streaming: boolean;
 }
 
+/** How one round-trip ended, for its usage row and span. */
+interface CallOutcome {
+  status: AiUsageStatus;
+  response?: AiResponse;
+  errorCode?: string;
+}
+
+/** Records a round-trip's usage row and ends its span — exactly once. */
+interface CallTracker {
+  finish(outcome: CallOutcome): Promise<void>;
+}
+
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
@@ -107,6 +131,7 @@ export class AiService {
     private readonly usableModels: UsableModelsService,
     private readonly keyResolver: AiKeyResolver,
     private readonly prisma: PrismaService,
+    private readonly usage: AiUsageRecorder,
   ) {}
 
   /**
@@ -136,13 +161,23 @@ export class AiService {
 
   /** Steps 6-7 for an already-gated call. */
   private async invoke(scope: AiClientScope, call: PreparedAiCall, opts: AiCallOptions): Promise<AiResponse> {
-    const { ctx } = await this.context(scope, call, opts);
+    const { ctx, keySource } = await this.context(scope, call, opts);
+    const tracker = this.track(scope, call, keySource, 'responses.create');
+
+    let response: AiResponse;
 
     try {
-      return await call.port.create(call.request, ctx);
+      response = await call.port.create(call.request, ctx);
     } catch (err) {
-      throw toAiError(err, opts.signal);
+      const error = toAiError(err, opts.signal);
+
+      await tracker.finish(failure(error, opts.signal));
+      throw error;
     }
+
+    await tracker.finish({ status: 'succeeded', response });
+
+    return response;
   }
 
   // ---- stream -------------------------------------------------------------------
@@ -161,8 +196,9 @@ export class AiService {
     opts: AiCallOptions = {},
   ): Promise<AsyncIterable<AiStreamEvent>> {
     const call = await this.prepare(scope.userId, req, { streaming: true });
-    const { ctx } = await this.context(scope, call, opts);
-    const iterator = call.port.stream(call.request, ctx)[Symbol.asyncIterator]();
+    const { ctx, keySource } = await this.context(scope, call, opts);
+    const tracker = this.track(scope, call, keySource, 'responses.stream');
+    let iterator: AsyncIterator<AiStreamEvent>;
 
     // Prime the first event so a provider refusal that happens before the
     // stream starts (a rejected key, a throttle) rejects THIS promise — the
@@ -170,37 +206,128 @@ export class AiService {
     let first: IteratorResult<AiStreamEvent>;
 
     try {
+      iterator = call.port.stream(call.request, ctx)[Symbol.asyncIterator]();
       first = await iterator.next();
     } catch (err) {
-      throw toAiError(err, opts.signal);
+      const error = toAiError(err, opts.signal);
+
+      await tracker.finish(failure(error, opts.signal));
+      throw error;
     }
 
-    return this.relay(first, iterator, opts);
+    return this.relay(first, iterator, tracker, opts);
   }
 
   private async *relay(
     first: IteratorResult<AiStreamEvent>,
     iterator: AsyncIterator<AiStreamEvent>,
+    tracker: CallTracker,
     opts: AiCallOptions,
   ): AsyncGenerator<AiStreamEvent> {
     let finished = false;
+    // Until a terminal event arrives, the stream ending means the consumer
+    // walked away (or the adapter broke the contract — also not a success).
+    let outcome: CallOutcome = { status: 'cancelled' };
 
     try {
       let result = first;
 
       while (!result.done) {
-        yield result.value;
+        const event = result.value;
+
+        if (event.type === 'response.completed') {
+          outcome = { status: 'succeeded', response: event.response };
+        } else if (event.type === 'error') {
+          outcome = { status: 'failed', errorCode: event.code };
+        }
+
+        yield event;
         result = await iterator.next();
       }
 
       finished = true;
+
+      if (outcome.status === 'cancelled' && !opts.signal?.aborted) {
+        outcome = { status: 'failed', errorCode: 'AI_PROVIDER_UNAVAILABLE' };
+      }
     } catch (err) {
       finished = true;
-      throw toAiError(err, opts.signal);
+
+      const error = toAiError(err, opts.signal);
+
+      outcome = failure(error, opts.signal);
+      throw error;
     } finally {
       // A consumer that stopped early: let the adapter close its connection.
       if (!finished) await iterator.return?.();
+
+      await tracker.finish(outcome);
     }
+  }
+
+  // ---- usage + tracing --------------------------------------------------------------
+
+  /** Opens the `ai.request` span and returns the once-only finisher for it. */
+  private track(
+    scope: AiClientScope,
+    call: PreparedAiCall,
+    keySource: AiKeySource,
+    operation: 'responses.create' | 'responses.stream',
+  ): CallTracker {
+    const started = Date.now();
+    const span: Span = tracer.startSpan(AI_REQUEST_SPAN, {
+      kind: SpanKind.INTERNAL,
+      attributes: {
+        'ai.provider': call.provider,
+        'ai.model': call.request.model,
+        'ai.operation': operation,
+        'ai.key_source': keySource,
+      },
+    });
+    let done = false;
+
+    return {
+      finish: async (outcome) => {
+        if (done) return;
+        done = true;
+
+        const latencyMs = Date.now() - started;
+        const usage = outcome.response?.usage;
+
+        span.setAttribute('ai.status', outcome.status);
+        if (outcome.errorCode) span.setAttribute('ai.error_code', outcome.errorCode);
+        if (usage?.inputTokens !== undefined) span.setAttribute('ai.usage.input_tokens', usage.inputTokens);
+        if (usage?.outputTokens !== undefined) span.setAttribute('ai.usage.output_tokens', usage.outputTokens);
+        if (usage?.reasoningTokens !== undefined) {
+          span.setAttribute('ai.usage.reasoning_tokens', usage.reasoningTokens);
+        }
+        span.setStatus(
+          outcome.status === 'failed'
+            ? { code: SpanStatusCode.ERROR, message: outcome.errorCode ?? 'failed' }
+            : { code: SpanStatusCode.OK },
+        );
+        span.end();
+
+        this.logger.debug(
+          `AI ${operation} ${call.provider}/${call.request.model} key=${keySource} ` +
+            `${outcome.status}${outcome.errorCode ? ` (${outcome.errorCode})` : ''} in ${latencyMs}ms`,
+        );
+
+        await this.usage.record({
+          userId: scope.userId,
+          provider: call.provider,
+          modelId: call.request.model,
+          operation: 'responses',
+          keySource,
+          usage,
+          latencyMs,
+          status: outcome.status,
+          errorCode: outcome.errorCode ?? null,
+          providerRequestId: outcome.response?.providerRequestId ?? null,
+          jobId: scope.jobId ?? null,
+        });
+      },
+    };
   }
 
   // ---- the gate pipeline -----------------------------------------------------------
@@ -405,6 +532,13 @@ export function clampOutputTokens(
   }
 
   return Math.min(...bounds);
+}
+
+/** The outcome of a round-trip that threw. An abort is a cancellation, not a failure. */
+function failure(error: AiError, signal?: AbortSignal): CallOutcome {
+  return signal?.aborted
+    ? { status: 'cancelled', errorCode: error.code }
+    : { status: 'failed', errorCode: error.code };
 }
 
 function capabilityUnsupported(provider: string, model: string, capability: AiCapability): AiError {

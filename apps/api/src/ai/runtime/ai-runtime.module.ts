@@ -4,6 +4,7 @@ import { AiConfigModule } from '../config/ai-config.module';
 import { AiCoreModule } from '../core/ai-core.module';
 import { AiKeysModule } from '../keys/ai-keys.module';
 import { AiService } from './ai.service';
+import { AiUsageRecorder } from './ai-usage.recorder';
 
 // =============================================================================
 // AiRuntimeModule (issue #432, epic #419) — THE module forks import
@@ -20,7 +21,7 @@ import { AiService } from './ai.service';
 
 @Module({
   imports: [AiCoreModule, AiConfigModule, AiKeysModule],
-  providers: [AiService],
+  providers: [AiService, AiUsageRecorder],
   exports: [AiService],
 })
 export class AiRuntimeModule {}
