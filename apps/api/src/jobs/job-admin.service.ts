@@ -101,6 +101,7 @@ import { Job, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
 import { JOB_CLOCK, JobClock, systemJobClock } from './job-clock';
+import { JobHandlerRegistry } from './job-handler.registry';
 import { ACTIVE_DEDUP_INDEX_NAME } from './jobs.service';
 import { JobStuckService, stuckRunningWhere } from './job-stuck.service';
 import { jobTypeLabel } from './job-type-labels';
@@ -285,6 +286,7 @@ export class JobAdminService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly stuck: JobStuckService,
+    private readonly registry: JobHandlerRegistry,
     @Optional() @Inject(JOB_CLOCK) private readonly clock: JobClock = systemJobClock
   ) {}
 
@@ -615,25 +617,73 @@ export class JobAdminService {
    * existed, and its dedup key is freed while it is still running, letting a
    * duplicate be enqueued underneath it.
    *
-   * Deleting a PENDING `admin.broadcast.start` / `admin.broadcast.chunk` job is
-   * allowed, but leaves its broadcast stuck in `scheduled`/`sending` with
-   * nothing left to advance it; recover it with the broadcast's Cancel action.
-   * Tracked separately.
+   * THE OWNER'S VETO (#480). A non-running row can still be load-bearing for
+   * state a feature keeps outside `jobs` — the pending `admin.broadcast.start`
+   * that will fire a `scheduled` broadcast, or the pending
+   * `admin.broadcast.chunk` that advances a `sending` one. A delete is not a
+   * settlement: no `job.settled` fires, so no listener ever learns the row is
+   * gone, and the feature's state is stranded. So before deleting, the row's
+   * handler is asked through the optional `JobHandler.canDelete`; a non-null
+   * answer is a 409 (`details.reason: 'owner_refused'`) carrying the handler's
+   * reason as the message. A handler that THROWS refuses too (fail closed,
+   * `details.reason: 'owner_check_failed'`): the delete is irreversible and the
+   * refusal is not. A type with no registered handler (a fork removed it) or
+   * a handler without `canDelete` keeps the pre-#480 behaviour — allowed.
+   *
+   * The veto is advisory against a concurrent change in the feature's state
+   * (the handler's read and the delete are not one transaction); the
+   * conditional `deleteMany` still closes the race that matters to the queue
+   * itself, a row becoming `running` in between.
    */
   async remove(id: string): Promise<void> {
-    const existing = await this.prisma.job.findUnique({
-      where: { id },
-      select: { id: true, status: true },
-    });
+    // The whole row, not a projection: `canDelete` receives a `Job`, and a
+    // handler deciding from the subject needs more than id and status.
+    const existing = await this.prisma.job.findUnique({ where: { id } });
 
     if (!existing) throw jobNotFound(id);
     if (existing.status === 'running') throw jobIsRunning(id, 'deleted');
+
+    await this.assertOwnerAllowsDelete(existing);
 
     const deleted = await this.prisma.job.deleteMany({
       where: { id, status: { not: 'running' } },
     });
 
     if (deleted.count === 0) throw jobIsRunning(id, 'deleted');
+  }
+
+  /**
+   * Asks the row's handler whether it may be deleted (#480), throwing the 409
+   * when it says no or cannot answer. See {@link remove}.
+   */
+  private async assertOwnerAllowsDelete(job: Job): Promise<void> {
+    const handler = this.registry.get(job.type);
+
+    if (!handler?.canDelete) return;
+
+    let reason: string | null;
+
+    try {
+      reason = await handler.canDelete(job);
+    } catch (error) {
+      this.logger.error(
+        `canDelete for job ${job.id} (type ${job.type}) threw; refusing the delete: ` +
+          `${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error.stack : undefined
+      );
+
+      throw jobDeleteRefused(
+        job.id,
+        job.status,
+        'owner_check_failed',
+        `Job ${job.id} cannot be deleted right now: the feature that owns it could not ` +
+          `confirm that deleting it is safe. Try again shortly.`
+      );
+    }
+
+    if (reason !== null) {
+      throw jobDeleteRefused(job.id, job.status, 'owner_refused', reason);
+    }
   }
 }
 
@@ -681,6 +731,30 @@ function jobNotFound(id: string): NotFoundException {
  * from the status, discarding any that an exception supplied. A field added at
  * the top level of this payload would simply not reach the client.
  */
+/**
+ * The 409 {@link JobAdminService.remove} answers when the job's owning handler
+ * vetoes the delete (#480).
+ *
+ * Same body shape as {@link jobIsRunning} — `message` plus a `details` of
+ * `{ jobId, status, reason }` — with a distinct `reason` so a client can tell
+ * the two refusals apart without parsing prose. 409 rather than that 400
+ * because nothing about the request is wrong: the job is in a state its
+ * owner will not let go of, which is a conflict with current state. A
+ * failed ownership check (`owner_check_failed`) uses the same status so a
+ * client handles one refusal shape, not two.
+ */
+function jobDeleteRefused(
+  id: string,
+  status: string,
+  reason: 'owner_refused' | 'owner_check_failed',
+  message: string
+): ConflictException {
+  return new ConflictException({
+    message,
+    details: { jobId: id, status, reason },
+  });
+}
+
 function jobIsRunning(id: string, action: 'retried' | 'deleted'): BadRequestException {
   return new BadRequestException({
     message:

@@ -29,6 +29,7 @@ import { JobClock } from './job-clock';
 import { ACTIVE_DEDUP_INDEX_NAME } from './jobs.service';
 import { stuckRunningWhere } from './job-stuck.service';
 import type { JobStuckService } from './job-stuck.service';
+import type { JobHandlerRegistry } from './job-handler.registry';
 import type { PrismaService } from '../prisma/prisma.service';
 import { jobListQuerySchema } from './dto/job-list-query.dto';
 
@@ -64,6 +65,8 @@ interface Harness {
     leaseHorizon: jest.Mock;
     resetStuck: jest.Mock;
   };
+  /** `get(type)` answers `undefined` (no handler) unless a test overrides it. */
+  registry: { get: jest.Mock };
   /** Moves the pinned clock forward. */
   advance(ms: number): void;
 }
@@ -91,6 +94,8 @@ function makeService(overrides: Partial<Harness['job']> = {}): Harness {
     resetStuck: jest.fn().mockResolvedValue({ reset: 0, failed: 0 }),
   };
 
+  const registry = { get: jest.fn().mockReturnValue(undefined) };
+
   const clock: JobClock = {
     now: () => currentMs,
     sleep: async () => undefined,
@@ -100,10 +105,12 @@ function makeService(overrides: Partial<Harness['job']> = {}): Harness {
     service: new JobAdminService(
       { job } as unknown as PrismaService,
       stuck as unknown as JobStuckService,
+      registry as unknown as JobHandlerRegistry,
       clock
     ),
     job,
     stuck,
+    registry,
     advance: (ms: number) => {
       currentMs += ms;
     },
