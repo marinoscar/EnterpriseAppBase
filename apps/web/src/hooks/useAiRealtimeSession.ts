@@ -1,6 +1,6 @@
 /**
  * One realtime voice session over WebRTC — issue #449, epic #421
- * (docs/specs/ai-platform.md §5.8).
+ * (docs/specs/ai-platform.md §2.15).
  *
  * THE FLOW. `start()`:
  *   1. asks for the microphone (`getUserMedia({ audio: true })`) FIRST, so a

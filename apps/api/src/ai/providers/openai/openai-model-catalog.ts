@@ -9,7 +9,7 @@
 // `classifyModel()` answers from this ordered rule list: FIRST MATCH WINS, and
 // no match means `null` — the catalog (#427) stores the model as
 // `unclassified` and an administrator decides, rather than this file guessing
-// (docs/specs/ai-platform.md §6: a wrong guess is worse than "unknown").
+// (docs/specs/ai-platform.md §2.17: a wrong guess is worse than "unknown").
 //
 // Dated snapshots (`gpt-4o-2024-08-06`, `o3-mini-2025-01-31`) are kept, not
 // filtered as noise, and classify like their family — every pattern is a

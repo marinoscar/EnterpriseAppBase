@@ -13,7 +13,7 @@ import { AI_CAPABILITIES, aiModelCapabilitiesSchema } from '../../core/capabilit
 // =============================================================================
 
 /**
- * Where a row's `capabilities` came from (docs/specs/ai-platform.md §6). An
+ * Where a row's `capabilities` came from (docs/specs/ai-platform.md §2.17). An
  * `admin_override` is never touched by a catalog refresh.
  */
 export const AI_CAPABILITY_SOURCES = ['catalog', 'admin_override', 'unclassified'] as const;

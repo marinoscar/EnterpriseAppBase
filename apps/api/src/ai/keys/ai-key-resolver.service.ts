@@ -9,7 +9,7 @@ import { UserAiKeysService } from './user-ai-keys.service';
 // AiKeyResolver — THE key-resolution rule (issue #431, epic #419)
 // =============================================================================
 //
-// docs/specs/ai-platform.md §3. Every caller that needs a key to serve a user
+// docs/specs/ai-platform.md §2.2. Every caller that needs a key to serve a user
 // — the runtime facade (#432) and the usable-models computation — goes through
 // this file rather than re-deriving the rule:
 //

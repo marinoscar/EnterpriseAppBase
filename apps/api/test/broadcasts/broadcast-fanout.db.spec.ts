@@ -12,7 +12,7 @@
 // CAS in `BroadcastChunkHandler.finish` really cannot overwrite a concurrent
 // cancel. A mocked `updateMany` returns whatever the test told it to; only a
 // real server executing a real UPDATE under real row locks answers those
-// questions, per `docs/specs/notification-broadcasts.md` §11.
+// questions, per `docs/specs/notification-broadcasts.md` §5.
 //
 // THE HANDLERS ARE CONSTRUCTED FOR REAL, over a real `PrismaClient` from
 // `createDbClient()`. `JobsService` is ALSO the real class — its `enqueue` is

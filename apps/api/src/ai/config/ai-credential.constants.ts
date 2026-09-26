@@ -4,7 +4,7 @@
 //
 // One `credentials` row per provider: `(purpose 'ai', name '<providerId>')`.
 // The same shape `storage-credential.constants.ts` uses for the storage secret,
-// and for the same reason — see `docs/specs/ai-platform.md` §2 for why the key
+// and for the same reason — see `docs/specs/ai-platform.md` §2.1 for why the key
 // can never live in the `ai` system-settings namespace.
 //
 // ⚠ `purpose` IS ALSO THE AES-GCM SUB-KEY DOMAIN (see `CredentialsService`), so

@@ -45,7 +45,7 @@ import { TempFileJanitorTask } from './tasks/temp-file-janitor.task';
 // that is a correctness constraint rather than a style choice: handlers
 // self-register from their own `onModuleInit`, and a worker polling in the
 // same lifecycle phase would race them. See `job.worker.ts`'s header,
-// `job-handler.registry.ts`'s, and §1.3 of docs/specs/job-queue.md.
+// `job-handler.registry.ts`'s, and docs/specs/job-queue.md, "Registration".
 //
 // `JOB_CLOCK` and `JOB_RANDOM` are DELIBERATELY NOT PROVIDED. Both services
 // fall back to the real clock and `Math.random` when the optional token

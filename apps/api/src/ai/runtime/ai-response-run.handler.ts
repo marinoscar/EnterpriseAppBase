@@ -1,6 +1,6 @@
 // =============================================================================
 // `ai.response.run` job handler — one background AI response
-// (issue #432, epic #419; docs/specs/ai-platform.md §9)
+// (issue #432, epic #419; docs/specs/ai-platform.md §2.20)
 // =============================================================================
 //
 // Payload `{ runId }`, subjectType `'ai_run'`. Enqueued by
@@ -8,7 +8,7 @@
 //
 // SERVER-ONLY, PERMANENTLY. No `nodeResultSchema`/`persistNodeResult`: the
 // call is made with a USER'S OWN provider key (or the org key), and no AI key
-// may ever reach a worker node — CLAUDE.md MANDATORY queue rule 3, and §9.
+// may ever reach a worker node — CLAUDE.md MANDATORY queue rule 3, and §2.20.
 //
 // PROFILE `{ maxRuntimeMs: 30 min, maxAttempts: 1 }`. A model call is neither
 // idempotent nor free: an automatic retry is a second charge to the user's
@@ -25,7 +25,7 @@
 //     model, capability, invalid   or a user's key being rejected is an
 //     request, content filter,     expected outcome, not an operator's
 //     bad output, storage          incident, so it must not burn an attempt
-//     unavailable)                 or fire `jobs.job_failed` (§8); unconfigured
+//     unavailable)                 or fire `jobs.job_failed` (§2.19); unconfigured
 //                                  storage no retry can fix (#509)
 //   - anything else                run `failed`; the job THROWS, so the
 //     (provider down, timeout,     failure is visible in the queue dashboard

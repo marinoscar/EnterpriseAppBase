@@ -10,7 +10,7 @@
  *    `ApiError`. Its top-level `code` is the GENERIC HTTP code the global
  *    exception filter assigns (`FORBIDDEN`, `BAD_REQUEST`, …); the AI code is
  *    in `details.reason`, with `details.retryAfterMs` beside it for a rate
- *    limit (docs/specs/ai-platform.md §13). Switching on `code` alone never
+ *    limit (docs/specs/ai-platform.md §2.23). Switching on `code` alone never
  *    sees `AI_KEY_REQUIRED`.
  * 2. A failure AFTER a stream started arrives as an `error` SSE frame whose
  *    payload carries `code` directly.

@@ -34,7 +34,7 @@
 //   - IT NEEDS `CREATEDB`, and it runs its DDL over an ADMIN CONNECTION ON THE
 //     `postgres` MAINTENANCE DATABASE — the most privileged credential this
 //     deployment has. The node plane's founding constraint is that a node holds
-//     NO credentials (`docs/specs/worker-nodes.md` §8); the secret broker (#349)
+//     NO credentials (`docs/specs/worker-nodes.md` §1); the secret broker (#349)
 //     exists to mint a SHORT-LIVED READ-ONLY role for a `pg_dump`, and there is
 //     no version of it that could mint this.
 //   - IT ENDS BY EXITING THE PROCESS, so that a supervisor restarts the API with

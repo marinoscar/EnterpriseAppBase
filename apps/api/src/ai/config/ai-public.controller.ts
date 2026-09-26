@@ -15,7 +15,7 @@ import { AiPublicConfigDto } from './dto/ai-public-config.dto';
 // `system_settings`.
 //
 // ⚠ DELIBERATELY NOT BEHIND `AiEnabledGuard` — it is how a browser learns that
-// AI is OFF, so it must answer while AI is off (docs/specs/ai-platform.md §8).
+// AI is OFF, so it must answer while AI is off (docs/specs/ai-platform.md §2.19).
 // Every other route under `/api/ai/*` carries that guard.
 // =============================================================================
 

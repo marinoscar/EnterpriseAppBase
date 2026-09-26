@@ -362,7 +362,7 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
     /**
      * #449: the ONLY response property allowed a secret-shaped name. It holds
      * the provider's ephemeral realtime secret — the single deliberate
-     * credential egress (docs/specs/ai-platform.md §5.8) — never a key.
+     * credential egress (docs/specs/ai-platform.md §2.15) — never a key.
      */
     const ALLOWED_SECRET_PROPERTIES = new Set(['AiRealtimeSessionResponseDto.clientSecret']);
 

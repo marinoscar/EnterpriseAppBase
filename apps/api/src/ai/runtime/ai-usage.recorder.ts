@@ -1,6 +1,6 @@
 // =============================================================================
 // AiUsageRecorder — one `ai_usage_events` row per provider round-trip
-// (issue #432, epic #419; docs/specs/ai-platform.md §12)
+// (issue #432, epic #419; docs/specs/ai-platform.md §2.21)
 // =============================================================================
 //
 // Success AND failure: a failed call can still have been billed, and "how

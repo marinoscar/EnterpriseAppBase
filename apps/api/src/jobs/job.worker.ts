@@ -20,12 +20,12 @@
 // ⚠ IT STARTS FROM `onApplicationBootstrap`, NOT `onModuleInit`
 // -----------------------------------------------------------------------------
 //
-// This is a CORRECTNESS CONSTRAINT, not a preference, and it is stated from
-// the other side in `job-handler.registry.ts` (see its "THE LIFECYCLE
-// CONSEQUENCE THE WORKER (#262) MUST RESPECT" block) and in §1.3 of
-// docs/specs/job-queue.md. The three say the same thing on purpose: the file
-// that creates the hazard, the file that must respect it, and the document
-// that records why.
+// This is a CORRECTNESS CONSTRAINT, not a preference, and it is stated from the
+// other side in `job-handler.registry.ts` (see its "THE LIFECYCLE CONSEQUENCE
+// THE WORKER (#262) MUST RESPECT" block) and in docs/specs/job-queue.md,
+// "Registration". The three say the same thing on purpose: the file that
+// creates the hazard, the file that must respect it, and the document that
+// records why.
 //
 // Handlers self-register from their OWN `onModuleInit`
 // (`registry.register(this)`). Nest runs every `onModuleInit` hook in one
@@ -60,7 +60,7 @@
 // The price is N concurrent single-row claims instead of one N-row claim, and
 // that price is nothing: `FOR UPDATE SKIP LOCKED` is designed for exactly
 // this access pattern and never blocks — two loops racing for one row have
-// one winner and one `[]`, with no waiting on either side (§4.4).
+// one winner and one `[]`, with no waiting on either side (job-queue.md, "Claim").
 //
 // -----------------------------------------------------------------------------
 // WHAT A SLOT DOES, IN ORDER
@@ -116,10 +116,11 @@ import { NodeOffloadService } from './node-offload.service';
  *   - `all` — every registered type. The single-box posture, and the default:
  *     a deployment with no worker nodes must run all of its work somewhere,
  *     and here is the only somewhere there is.
- *   - `system` — only the types a remote node could never run (§2's derived
- *     server-only set), leaving node-eligible work to the fleet. The
- *     recommended posture once worker nodes exist: the API server stops
- *     competing with them for the expensive jobs they were added to take.
+ *   - `system` — only the types a remote node could never run (job-queue.md,
+ *     "Node eligibility": the derived server-only set), leaving node-eligible
+ *     work to the fleet. The recommended posture once worker nodes exist: the
+ *     API server stops competing with them for the expensive jobs they were
+ *     added to take.
  *   - `off` — no pool at all. The process still enqueues, still serves the
  *     admin API, and never executes anything: a pure control plane.
  */
@@ -562,12 +563,12 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
    *
    * `JOBS_SYSTEM_MODE_EXTRA_TYPES` is UNCHANGED and still the escape hatch for
    * the case no derivation can know about: a type a node CAN claim that this
-   * deployment still wants the server to run too — because its fleet is
-   * small, paused, or does not run that type. Overlap with the fleet is SAFE
-   * rather than tolerated: `SKIP LOCKED` means a server and a node racing for
-   * the same row produce one winner and one empty result, never a double
-   * claim (§4.4). What it is no longer needed for is keeping the backups
-   * running.
+   * deployment still wants the server to run too — because its fleet is small,
+   * paused, or does not run that type. Overlap with the fleet is SAFE rather
+   * than tolerated: `SKIP LOCKED` means a server and a node racing for the same
+   * row produce one winner and one empty result, never a double claim
+   * (job-queue.md, "Claim"). What it is no longer needed for is keeping the
+   * backups running.
    *
    * An entry that is not registered in this process is DROPPED with a warning
    * rather than passed through. Claiming a type with no handler here is not a
@@ -824,10 +825,10 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
    * execution the queue knows about and one it has been told is fine.
    *
    * This does not introduce a hazard; it makes a pre-existing one VISIBLE. The
-   * queue has always been at-least-once (§4.5), and before #347 this exact
-   * situation — two executors on one row — happened silently on every job that
-   * outran the stuck threshold, with nothing in the logs at all. An `error`
-   * line naming the job is strictly more than there was.
+   * queue has always been at-least-once (job-queue.md §1), and before #347 this
+   * exact situation — two executors on one row — happened silently on every job
+   * that outran the stuck threshold, with nothing in the logs at all. An
+   * `error` line naming the job is strictly more than there was.
    */
   private startLeaseRenewal(job: Job, handler: JobHandler): { stop: () => void } {
     // THE SAME LEASE THE CLAIM TOOK, resolved through the same function from

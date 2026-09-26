@@ -42,9 +42,9 @@ import { UpdateAiConfigDto } from './dto/update-ai-config.dto';
 //
 // The HTTP surface behind the admin AI settings page (#429). Every route is
 // gated on `ai_config:read` / `ai_config:write` — a permission pair of its own,
-// for the blast-radius reason docs/specs/ai-platform.md §11 gives — and NONE is
+// for the blast-radius reason docs/specs/ai-platform.md §3 gives — and NONE is
 // behind `AiEnabledGuard`: an administrator must always be able to turn the
-// platform back on (§8).
+// platform back on (§2.19).
 //
 //   GET    /api/admin/ai/config                      ai_config:read
 //   PUT    /api/admin/ai/config                      ai_config:write

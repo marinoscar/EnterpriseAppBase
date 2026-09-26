@@ -4,7 +4,7 @@
 //
 // THE CONSTRAINT THIS FILE EXISTS TO BEND WITHOUT BREAKING: a worker node has
 // no database access and no storage credentials (`docs/specs/worker-nodes.md`
-// §8). Every fact it needs arrives in an HTTP response, which is why it has so
+// §1). Every fact it needs arrives in an HTTP response, which is why it has so
 // far only been able to run PURE COMPUTE over bytes it fetched through a
 // presigned URL. Epic #345 requires more than that — a `pg_dump` needs a
 // database connection, and no amount of presigning produces one.
@@ -24,11 +24,11 @@
 //     a leaked database. The whole point of the `nod_` family (§1) is that its
 //     blast radius is `/api/nodes/*` and nothing else.
 //   * FOLD THE CREDENTIAL INTO THE CLAIM RESPONSE. Rejected for the identical
-//     reason presigned URLs are minted on demand (§18): a node claiming its
-//     whole `concurrency` in one call queues that work internally, so the LAST
-//     job's credential has been ageing since before the FIRST job started —
-//     and the fix, a longer validity, widens exactly the window short validity
-//     exists to close.
+//     reason presigned URLs are minted on demand (worker-nodes.md,
+//     "Data plane"): a node claiming its whole `concurrency` in one call queues
+//     that work internally, so the LAST job's credential has been ageing since
+//     before the FIRST job started — and the fix, a longer validity, widens
+//     exactly the window short validity exists to close.
 //
 // So: the credential is obtained PER JOB, from the server, over an
 // authenticated route, bounded by the job's own lease, held in memory only,

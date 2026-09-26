@@ -9,7 +9,7 @@
 //
 // Every credential and endpoint the SDK would otherwise discover on its own
 // is pinned explicitly. There is no `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL`
-// configuration in this application (docs/specs/ai-platform.md §2), and the
+// configuration in this application (docs/specs/ai-platform.md §2.1), and the
 // SDK's credential chain (`ANTHROPIC_AUTH_TOKEN`, an `ant auth login` profile,
 // workload identity federation) must never silently decide which account a
 // call bills: passing `apiKey` explicitly short-circuits that whole chain

@@ -3,7 +3,7 @@
  *
  * `PATCH /admin/ai/models/:id { capabilities }` sets `capabilitySource:
  * 'admin_override'`, and a later catalogue refresh never touches an
- * overridden row (`docs/specs/ai-platform.md` §6). This is how an
+ * overridden row (`docs/specs/ai-platform.md` §2.17). This is how an
  * `unclassified` model — one the provider's classifier did not recognise —
  * becomes enable-able, and how a wrong classification is corrected.
  *

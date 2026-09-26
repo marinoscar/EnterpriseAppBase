@@ -1,6 +1,6 @@
 /**
  * The Playground's Transcribe mode — issue #445 (API: #438,
- * docs/specs/ai-platform.md §5.5).
+ * docs/specs/ai-platform.md §2.13).
  *
  * Choose a recording (any `audio/*`, or MP4/WebM video, at most 25 MiB —
  * checked here before anything is uploaded), upload it through the storage

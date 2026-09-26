@@ -9,7 +9,7 @@
 //
 // SERVER-ONLY, PERMANENTLY. No `nodeResultSchema`/`persistNodeResult`: the
 // sync talks to the provider with the deployment's ADMIN key, and no AI key
-// may ever be brokered to a worker node (docs/specs/ai-platform.md §9).
+// may ever be brokered to a worker node (docs/specs/ai-platform.md §2.20).
 //
 // KILL SWITCH. When AI (or this provider) has been turned off since the job
 // was queued, the sync reports `skipped` and this handler RETURNS NORMALLY:

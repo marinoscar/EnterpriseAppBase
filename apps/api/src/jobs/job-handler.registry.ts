@@ -58,8 +58,8 @@
 // `job.worker.ts` satisfies this and says so from its side; the two headers
 // point at each other on purpose, because the file that creates a hazard and
 // the file that must respect it are the two places somebody will be reading
-// when they consider changing either. §1.3 of docs/specs/job-queue.md is the
-// third, and `job.worker.bootstrap.spec.ts` is the test that would fail.
+// when they consider changing either. docs/specs/job-queue.md, "Registration",
+// is the third, and `job.worker.bootstrap.spec.ts` is the test that would fail.
 // =============================================================================
 
 import { Injectable, Logger } from '@nestjs/common';

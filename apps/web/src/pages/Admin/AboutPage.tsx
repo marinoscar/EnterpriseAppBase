@@ -95,9 +95,10 @@
  *     "This deployment", each `Not recorded` when missing;
  *   - host → its own panel, captured at deploy time (not live);
  *   - runtime → extra facts in "This API process" (live, never from disk);
- *   - history → a table on `sm` and up, stacked cards on a phone. The choice
- *     is made by MOUNTING one or the other (settings-ui.md §6), never by
- *     rendering both and hiding one with CSS.
+ *   - history → a table on `sm` and up, stacked cards on a phone. The choice is
+ *     made by MOUNTING one or the other (settings-ui.md,
+ *     "Accessibility requirements"), never by rendering both and hiding one
+ *     with CSS.
  */
 
 import { Fragment, type ReactNode } from 'react';
@@ -384,7 +385,7 @@ function historyKey(entry: AboutHistoryEntry, index: number): string {
 /**
  * The deployment history. A table where there is room for one; stacked cards
  * on a phone, so no row ever forces the PAGE to scroll sideways. Mounted, not
- * CSS-hidden — see settings-ui.md §6.
+ * CSS-hidden — see settings-ui.md, "Accessibility requirements".
  */
 function HistorySection({
   history,

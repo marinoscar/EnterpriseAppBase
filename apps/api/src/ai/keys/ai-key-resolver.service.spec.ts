@@ -10,7 +10,7 @@ import { AiKeyResolver } from './ai-key-resolver.service';
 //
 //   {user key yes/no} × {policy byok / byok_with_org_fallback} × {org key yes/no}
 //
-// plus the invariant the whole platform rests on (docs/specs/ai-platform.md §3):
+// plus the invariant the whole platform rests on (docs/specs/ai-platform.md §2.2):
 // under `byok` the org key is never returned — and never even READ.
 // =============================================================================
 

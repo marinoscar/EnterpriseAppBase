@@ -10,7 +10,7 @@
 // reads a surprising amount of ambient configuration, and none of it may
 // decide which account or endpoint a call uses (there is no Gemini
 // configuration in this application's environment — docs/specs/ai-platform.md
-// §2):
+// §2.1):
 //
 //   GOOGLE_GENAI_USE_VERTEXAI / _ENTERPRISE  -> `vertexai: false`: always the
 //                                               Gemini Developer API, never a

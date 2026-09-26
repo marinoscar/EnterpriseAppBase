@@ -19,7 +19,7 @@
 //     `headers` member, so the column cannot hold one.
 //
 // ⚠ NEVER KEY MATERIAL. The key is resolved again, at execution time, by
-// the worker (docs/specs/ai-platform.md §3/§9): nothing in this shape can
+// the worker (docs/specs/ai-platform.md §2.2/§2.20): nothing in this shape can
 // hold one, and `toStoredRunRequest` copies named fields only.
 // =============================================================================
 

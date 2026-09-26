@@ -768,7 +768,7 @@ const aiLimitValueSchema = z.number().int().positive().max(AI_LIMIT_VALUE_MAX);
  *    `requestsPerMinutePerUser` limits each user's calls to that one model.
  *
  * Enforced by `AiLimitsService` (`ai/runtime/ai-limits.service.ts`); see
- * `docs/specs/ai-platform.md` §15.
+ * `docs/specs/ai-platform.md` §2.22.
  */
 export const systemAiLimitsSchema = z.object({
   perUser: z
@@ -837,7 +837,7 @@ export type AiKeyPolicy = (typeof AI_KEY_POLICIES)[number];
  * voice session (`POST /api/ai/realtime/sessions`) — an ephemeral provider
  * secret handed to the BROWSER, after which the server can neither see nor
  * meter the conversation. OFF by default: that loss of per-call control is
- * an administrator's decision (docs/specs/ai-platform.md §5.8). A row
+ * an administrator's decision (docs/specs/ai-platform.md §2.15). A row
  * written before the field existed reads it as `false` without disturbing
  * the rest of `defaults` (`SystemSettingsService.withAiSlots`).
  *
@@ -1019,7 +1019,7 @@ export const systemAiAzureProviderSchema = systemAiProviderSchema.extend({
  *    (BYOK, or the org fallback). `false` is the ADMINISTRATOR'S OPT-IN to a
  *    keyless server: calls carry no credential, no user needs a key, and
  *    usage is recorded with `keySource: 'none'` (docs/specs/ai-platform.md
- *    §14.3).
+ *    §2.24).
  */
 export const systemAiCompatibleProviderSchema = systemAiProviderSchema.extend({
   baseUrl: aiEndpointUrlSchema(AI_COMPATIBLE_ENDPOINT_SCHEMES).optional(),

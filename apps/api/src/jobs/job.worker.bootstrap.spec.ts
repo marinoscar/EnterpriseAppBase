@@ -18,8 +18,9 @@
 // not retried. That is a real production bug in the application this design
 // was extracted from; the hook choice is the fix.
 //
-// See `job-handler.registry.ts`'s header, `job.worker.ts`'s header, and §1.3
-// of docs/specs/job-queue.md — the same constraint stated from three sides.
+// See `job-handler.registry.ts`'s header, `job.worker.ts`'s header, and
+// docs/specs/job-queue.md, "Registration" — the same constraint stated from
+// three sides.
 // =============================================================================
 
 import { Injectable, Module, OnModuleInit } from '@nestjs/common';

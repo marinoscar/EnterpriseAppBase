@@ -82,7 +82,10 @@ function handler(type: string, process: () => Promise<void>): JobHandler {
   return { type, process };
 }
 
-/** A NODE-ELIGIBLE handler: it carries BOTH optional members (§2). */
+/**
+ * A NODE-ELIGIBLE handler: it carries BOTH optional members (job-queue.md,
+ * "Node eligibility").
+ */
 function nodeEligibleHandler(type: string): JobHandler {
   return {
     type,

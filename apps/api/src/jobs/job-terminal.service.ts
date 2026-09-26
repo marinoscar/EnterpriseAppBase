@@ -64,7 +64,8 @@
 // outcome the two-counter split exists to prevent. Two failure modes with
 // different causes, different timescales and different correct responses need
 // two budgets; the `Job` model's own block comment in `schema.prisma` and
-// §4.5 of docs/specs/job-queue.md record the same decision from their side.
+// docs/specs/job-queue.md, "Attempts are charged at claim", record the same
+// decision from their side.
 //
 // -----------------------------------------------------------------------------
 // EVERY WRITE IS CONDITIONAL ON THE CLAIM (#477)
@@ -517,14 +518,14 @@ export class JobTerminalService {
       // in this file.
       //
       // `attempts` is charged when a job is CLAIMED, not when it fails (see
-      // §4.5 of docs/specs/job-queue.md: it means "attempts started", which
-      // is the only thing observable from outside a process that may be
-      // OOM-killed mid-run). That is right for failures and wrong for
-      // deferrals: a job that was told "not now" never attempted the work,
-      // and letting a provider outage spend a budget meant for a buggy
-      // handler is how a long backfill fails permanently for a reason that
-      // was never its fault. So the deferral explicitly gives the attempt
-      // back, and the NET effect of claim-then-defer is zero.
+      // docs/specs/job-queue.md, "Attempts are charged at claim": it means
+      // "attempts started", which is the only thing observable from outside a
+      // process that may be OOM-killed mid-run). That is right for failures and
+      // wrong for deferrals: a job that was told "not now" never attempted the
+      // work, and letting a provider outage spend a budget meant for a buggy
+      // handler is how a long backfill fails permanently for a reason that was
+      // never its fault. So the deferral explicitly gives the attempt back, and
+      // the NET effect of claim-then-defer is zero.
       //
       // WRITTEN AS AN ABSOLUTE VALUE, NOT `{ decrement: 1 }`. This write can
       // be attempted twice — `safeTerminalUpdate` retries once, and its first

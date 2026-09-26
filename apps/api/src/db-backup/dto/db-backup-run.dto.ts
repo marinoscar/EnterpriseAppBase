@@ -32,7 +32,8 @@
 // The columns are `BigInt` for a good reason and are not going to stop being
 // one: a dump crossing 2 GiB is ordinary, and a signed 32-bit column overflows
 // at 2147483647 — on the largest backups, which are exactly the deployments
-// this feature exists for. See §1 of `docs/specs/database-backup.md`.
+// this feature exists for. See `docs/specs/database-backup.md`,
+// "Model: `database_backup_runs`".
 //
 // THEY ARE PUBLISHED AS DECIMAL STRINGS, not as numbers. `Number(9_007_199_254
 // _740_993n)` is silently wrong — JSON's number type is a double, and a byte
@@ -272,7 +273,7 @@ export const backupRunSchema = z.object({
    * ⚠ THE SWAP ENDS IN `process.exit(0)`. A poller will therefore usually see
    * `swapping` and then a connection error, and read `completed` only after the
    * supervisor has restarted the process. That is success, not failure — see
-   * `docs/specs/database-restore.md` §8.8.
+   * `docs/specs/database-restore.md`, "Migration roll-forward and exit".
    */
   restoreStatus: z.enum(RESTORE_STATUSES).nullable(),
 

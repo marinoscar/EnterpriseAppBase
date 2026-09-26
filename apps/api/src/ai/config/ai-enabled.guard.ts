@@ -14,7 +14,7 @@ import { AiConfigService } from './ai-config.service';
 //
 // DELIBERATELY NOT APPLIED to:
 //   - `/api/admin/ai/*` — an administrator must always be able to turn the
-//     platform back on (docs/specs/ai-platform.md §8);
+//     platform back on (docs/specs/ai-platform.md §2.19);
 //   - `GET /api/ai/config` — it is how a browser LEARNS that AI is off, so it
 //     must stay reachable while AI is off.
 //

@@ -1,5 +1,5 @@
 /**
- * A speech run's audio — issue #445 (API #439, docs/specs/ai-platform.md §5.6).
+ * A speech run's audio — issue #445 (API #439, docs/specs/ai-platform.md §2.14).
  *
  * The audio is a storage object the caller owns; it plays from a short-lived
  * signed URL (`GET /storage/objects/:id/download`, held in state only) in a

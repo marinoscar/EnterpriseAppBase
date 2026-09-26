@@ -17,8 +17,9 @@ import { JobsService } from '../jobs.service';
 // `DeviceCodeCleanupTask`, `StorageCleanupTask`), each of which did its own
 // deleting inline — and #353 (epic #345) then made every maintenance cron in
 // this application look like this one, using the four arguments below as the
-// case for doing it. See docs/specs/job-queue.md §7.10 for the general rule,
-// its three permanent exemptions, and what it deliberately does not cover.
+// case for doing it. See docs/specs/job-queue.md,
+// "All long-running work is a job", for the general rule, its three permanent
+// exemptions, and what it deliberately does not cover.
 //
 //   - IT IS OBSERVABLE. A purge that ran is a `jobs` row with a status, a
 //     duration, an attempt count and a `lastError` — visible in the admin job

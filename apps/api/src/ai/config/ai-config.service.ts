@@ -19,7 +19,7 @@ import type { AiPublicConfig } from './dto/ai-public-config.dto';
 // =============================================================================
 //
 // Every other AI story asks this service, never `SystemSettingsService`
-// directly, so the kill switch (docs/specs/ai-platform.md §8) has exactly one
+// directly, so the kill switch (docs/specs/ai-platform.md §2.19) has exactly one
 // reading and one cache. Modelled on `StorageConfigService`:
 //
 //   - The `ai` settings namespace is cached for AI_POLICY_CACHE_MS. A burst of
@@ -180,7 +180,7 @@ export class AiConfigService implements OnModuleInit {
     return value;
   }
 
-  /** The kill switch (§8). */
+  /** The kill switch (§2.19). */
   async isEnabled(): Promise<boolean> {
     return (await this.resolve()).enabled;
   }
@@ -225,7 +225,7 @@ export class AiConfigService implements OnModuleInit {
    *
    * ⚠ PLAINTEXT, AND NEVER CACHED. Call it at the moment of use, hand the value
    * straight to an adapter, and never log, persist or return it. Whether a
-   * caller may USE it to serve a user is `AiKeyResolver`'s decision (§3), not
+   * caller may USE it to serve a user is `AiKeyResolver`'s decision (§2.2), not
    * this method's.
    */
   async getOrgKey(providerId: string): Promise<string | null> {

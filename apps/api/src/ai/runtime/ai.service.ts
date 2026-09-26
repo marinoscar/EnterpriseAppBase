@@ -8,8 +8,8 @@
 //   ...
 //   const res = await this.ai.forUser(userId).respond({ input: 'Summarise …' });
 //
-// No SDK, no key, no policy check of the caller's own. Every call runs the
-// same gate pipeline, in this order (docs/specs/ai-platform.md §7, §8, §13):
+// No SDK, no key, no policy check of the caller's own. Every call runs the same
+// gate pipeline, in this order (docs/specs/ai-platform.md §2.18, §2.19, §2.23):
 //
 //   1. kill switch                     AI_DISABLED
 //   2. provider enabled + registered   AI_PROVIDER_DISABLED
@@ -98,7 +98,7 @@
 // records one usage row (`operation: 'audio.speech'`, `units: { characters }`).
 // The handler stores the audio as the user's storage object.
 //
-// REALTIME (#449, docs/specs/ai-platform.md §5.8): `createRealtimeSession`
+// REALTIME (#449, docs/specs/ai-platform.md §2.15): `createRealtimeSession`
 // runs `prepareRealtime` (kill switch -> `ai.defaults.allowRealtime`
 // (AI_REALTIME_DISABLED) -> shape -> target, defaulting to the first usable
 // `realtime` model -> provider -> model with `realtime` -> the voice) and
@@ -1715,7 +1715,7 @@ export class AiService {
     await this.aiConfig.assertEnabled();
 
     // 1b. The realtime switch: minting hands the browser a provider secret
-    // and the server stops seeing the call, so it is opt-in (§5.8).
+    // and the server stops seeing the call, so it is opt-in (§2.15).
     const policy = await this.aiConfig.resolve();
 
     if (!policy.defaults.allowRealtime) {

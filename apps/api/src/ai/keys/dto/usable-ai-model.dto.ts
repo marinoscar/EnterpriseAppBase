@@ -13,7 +13,7 @@ import { aiModelCapabilitiesSchema } from '../../core/capabilities';
 //                when the org fallback serves the provider     (keySource 'org')
 //                or the provider is keyless (#448)             (keySource 'none')
 //
-// docs/specs/ai-platform.md §7. Carries no key, no hint and no catalog
+// docs/specs/ai-platform.md §2.18. Carries no key, no hint and no catalog
 // provenance — only what a model picker needs.
 // =============================================================================
 

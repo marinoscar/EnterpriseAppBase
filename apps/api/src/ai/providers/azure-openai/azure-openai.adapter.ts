@@ -33,7 +33,7 @@
 // adapter does not run; an id the table does not know (`gpt-35-turbo`, a
 // custom map key) is `null` — unclassified — for an administrator to decide.
 //
-// FLAGS (static, conservative — see docs/specs/ai-platform.md §14.3):
+// FLAGS (static, conservative — see docs/specs/ai-platform.md §2.24):
 //   - `supportsPreviousResponseId: false`. Azure's Responses API does store
 //     responses, but a flag is per ADAPTER while `apiStyle` is per slot, and
 //     the Chat Completions style cannot chain; declaring `false` means the

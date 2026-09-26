@@ -256,7 +256,7 @@ export default function AiPlaygroundPage() {
     setVisitedModes((current) => new Set(current).add(mode).add(next));
   };
 
-  // `user_settings.ai.defaultModel` (docs/specs/ai-platform.md §2), typed by
+  // `user_settings.ai.defaultModel` (docs/specs/ai-platform.md §2.1), typed by
   // `UserSettings['ai']` (#430): every mode starts on it when it is listed there.
   const preferredModel: NonNullable<UserSettings['ai']>['defaultModel'] = settings?.ai?.defaultModel;
   const modelsReady = !modelsLoading && !settingsLoading;

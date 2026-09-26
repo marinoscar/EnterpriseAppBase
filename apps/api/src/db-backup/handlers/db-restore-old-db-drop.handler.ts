@@ -38,7 +38,7 @@
 // enforce it. It runs an ADMIN CONNECTION ON THE `postgres` MAINTENANCE
 // DATABASE and drops databases with it. That is the most privileged credential
 // this application ever holds, and the node plane's founding constraint is that
-// a node holds none (`docs/specs/worker-nodes.md` §8). There is no version of
+// a node holds none (`docs/specs/worker-nodes.md` §1). There is no version of
 // this work that belongs on a remote machine.
 //
 // NO PROFILE: the sweep is idempotent (a database already dropped is skipped by

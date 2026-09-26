@@ -16,7 +16,7 @@
 // usage: a deployment that switched AI off still wants old accounting rows to
 // age out. The job makes no provider call and reads no key.
 //
-// SERVER-ONLY, like every `ai.*` type (docs/specs/ai-platform.md §9): no
+// SERVER-ONLY, like every `ai.*` type (docs/specs/ai-platform.md §2.20): no
 // `nodeResultSchema`/`persistNodeResult`.
 // =============================================================================
 

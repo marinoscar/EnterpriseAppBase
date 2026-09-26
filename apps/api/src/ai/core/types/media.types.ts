@@ -261,7 +261,7 @@ export interface AiEmbeddingsPort {
 
 // ---- Realtime ---------------------------------------------------------------
 //
-// #449 (docs/specs/ai-platform.md §5.8). The server mints an EPHEMERAL,
+// #449 (docs/specs/ai-platform.md §2.15). The server mints an EPHEMERAL,
 // short-lived client secret with the resolved key; the browser connects to
 // the provider directly (WebRTC) with that secret. The server never sees the
 // media, so a session has no result beyond the secret itself.
