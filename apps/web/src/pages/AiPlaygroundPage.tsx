@@ -132,6 +132,11 @@ function useUsableModels() {
   return { models, isLoading, error };
 }
 
+/** An empty composer, or one still holding a preset's example, may be replaced by another example. */
+function isUntouchedPrompt(prompt: string): boolean {
+  return prompt.trim() === '' || AI_SCHEMA_PRESETS.some((preset) => preset.examplePrompt === prompt);
+}
+
 /** Parse an optional positive integer field; `undefined` when blank, `null` when invalid. */
 function parseTokens(value: string, max?: number): number | undefined | null {
   if (value.trim() === '') return undefined;
@@ -234,7 +239,7 @@ export default function AiPlaygroundPage() {
       schemaPreset: id,
       schemaText: preset ? formatSchema(preset.jsonSchema) : current.schemaText,
     }));
-    if (preset && prompt.trim() === '') setPrompt(preset.examplePrompt);
+    if (preset && isUntouchedPrompt(prompt)) setPrompt(preset.examplePrompt);
   };
 
   const busy = chat.isStreaming || run.isActive;
@@ -356,7 +361,10 @@ export default function AiPlaygroundPage() {
             control={
               <Switch
                 checked={controls.structured}
-                onChange={(event) => update('structured', event.target.checked)}
+                onChange={(event) => {
+                  update('structured', event.target.checked);
+                  if (event.target.checked) choosePreset(controls.schemaPreset);
+                }}
               />
             }
             label="Structured output"
