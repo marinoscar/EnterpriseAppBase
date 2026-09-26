@@ -188,6 +188,7 @@ describe('Admin broadcasts API (Integration)', () => {
       ['POST /admin/broadcasts/test', 'post', '/api/admin/broadcasts/test'],
       ['POST /admin/broadcasts', 'post', '/api/admin/broadcasts'],
       ['POST /admin/broadcasts/:id/cancel', 'post', `/api/admin/broadcasts/${BROADCAST_ID}/cancel`],
+      ['POST /admin/broadcasts/:id/resume', 'post', `/api/admin/broadcasts/${BROADCAST_ID}/resume`],
       ['DELETE /admin/broadcasts/:id', 'delete', `/api/admin/broadcasts/${BROADCAST_ID}`],
     ];
 
@@ -222,7 +223,7 @@ describe('Admin broadcasts API (Integration)', () => {
       }
     );
 
-    it('admits a seeded admin on every one of the seven routes', async () => {
+    it('admits a seeded admin on every one of the eight routes', async () => {
       const admin = await createMockAdminUser(context);
       const auth = authHeader(admin.accessToken);
 
@@ -244,6 +245,10 @@ describe('Admin broadcasts API (Integration)', () => {
         .expect(200);
       await request(server())
         .post(`/api/admin/broadcasts/${BROADCAST_ID}/cancel`)
+        .set(auth)
+        .expect(200);
+      await request(server())
+        .post(`/api/admin/broadcasts/${BROADCAST_ID}/resume`)
         .set(auth)
         .expect(200);
       await request(server())

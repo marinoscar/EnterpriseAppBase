@@ -291,7 +291,7 @@ describe('BroadcastsService', () => {
       // what makes this race the fan-out's own claim inside the database,
       // where exactly one of them can win.
       expect(updateMany).toHaveBeenCalledWith({
-        where: { id: BROADCAST_ID, status: { in: ['scheduled', 'sending'] } },
+        where: { id: BROADCAST_ID, status: { in: ['scheduled', 'sending', 'failed'] } },
         data: { status: 'canceled', canceledAt: expect.any(Date) },
       });
       expect(result.status).toBe('canceled');
@@ -304,7 +304,7 @@ describe('BroadcastsService', () => {
       const result = await service.cancel(BROADCAST_ID, ADMIN_ID);
 
       expect(updateMany.mock.calls[0][0].where.status).toEqual({
-        in: ['scheduled', 'sending'],
+        in: ['scheduled', 'sending', 'failed'],
       });
       expect(result.status).toBe('canceled');
     });
