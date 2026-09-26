@@ -136,7 +136,7 @@ describe('AiService — hosted tools (#442)', () => {
     });
   });
 
-  describe('image generation output seam', () => {
+  describe('image generation outputs are stored as the user\'s objects', () => {
     const BYTES = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
     const imageItem = (): AiOutputItem => ({
       type: 'hosted_tool_call',
@@ -151,44 +151,73 @@ describe('AiService — hosted tools (#442)', () => {
       },
     });
 
-    it('respond: bytes never leave the facade; the item keeps its metadata and a null storageObjectId', async () => {
-      const h = harness({ fake: { responses: () => ({ output: [imageItem(), { type: 'message', text: 'Here.' }] }) } });
+    it('respond: the bytes become a ready storage object the user owns; only its id is published', async () => {
+      const h = harness({
+        fake: { responses: () => ({ id: 'resp_42', output: [imageItem(), { type: 'message', text: 'Here.' }] }) },
+      });
 
       const response = await h.ai.forUser(HARNESS_USER).respond(ask([TOOL.image_generation]));
+
+      expect(h.storage.objects).toHaveLength(1);
+      const [row] = h.storage.objects;
+      expect(row).toMatchObject({ uploadedById: HARNESS_USER, status: 'ready', mimeType: 'image/png', size: BigInt(BYTES.length) });
+      expect(row.storageKey.startsWith(`ai-outputs/${HARNESS_USER}/resp_42/`)).toBe(true);
+      expect(Array.from(h.storage.blobs.get(row.storageKey) ?? [])).toEqual(Array.from(BYTES));
 
       expect(response.output[0]).toEqual({
         type: 'hosted_tool_call',
         id: 'ig_1',
         tool: 'image_generation',
         status: 'completed',
-        result: { storageObjectId: null, mimeType: 'image/png', revisedPrompt: 'a fox' },
+        result: { storageObjectId: row.id, mimeType: 'image/png', revisedPrompt: 'a fox' },
       });
       expect(JSON.stringify(response)).not.toContain('"data"');
+      expect(h.usageEvents[0]).toMatchObject({ status: 'succeeded', units: { images: 1 } });
     });
 
-    it('stream: settles the image once though the item appears twice, and no frame carries bytes', async () => {
+    it('a background run stores under its run id', async () => {
       const h = harness({ fake: { responses: () => ({ output: [imageItem()] }) } });
-      const persist = jest.spyOn(h.ai as unknown as { persistHostedImage: () => unknown }, 'persistHostedImage');
+
+      await h.ai.forUser(HARNESS_USER, { runId: 'run-7' }).respond(ask([TOOL.image_generation]));
+
+      expect(h.storage.objects[0].storageKey.startsWith(`ai-outputs/${HARNESS_USER}/run-7/`)).toBe(true);
+    });
+
+    it('stream: stores the image once though the item appears twice, and no frame carries bytes', async () => {
+      const h = harness({ fake: { responses: () => ({ output: [imageItem()] }) } });
 
       const events = await collect(await h.ai.forUser(HARNESS_USER).openStream(ask([TOOL.image_generation])));
       const done = events.find((e) => e.type === 'output_item.done') as Extract<AiStreamEvent, { type: 'output_item.done' }>;
       const completed = events.at(-1) as Extract<AiStreamEvent, { type: 'response.completed' }>;
 
-      expect(persist).toHaveBeenCalledTimes(1);
-      expect(done.item).toMatchObject({ result: { storageObjectId: null, mimeType: 'image/png' } });
+      expect(h.storage.objects).toHaveLength(1);
+      expect(done.item).toMatchObject({ result: { storageObjectId: h.storage.objects[0].id, mimeType: 'image/png' } });
       expect(completed.response.output[0]).toEqual(done.item);
       for (const event of events) expect(JSON.stringify(event)).not.toContain('"data"');
+      expect(h.usageEvents[0]).toMatchObject({ units: { images: 1 } });
     });
 
-    it('the seam decides what is published: a persisted id replaces the bytes', async () => {
-      const h = harness({ fake: { responses: () => ({ output: [imageItem()] }) } });
-      jest
-        .spyOn(h.ai as unknown as { persistHostedImage: () => Promise<unknown> }, 'persistHostedImage')
-        .mockResolvedValue({ storageObjectId: 'obj-1', mimeType: 'image/png' });
+    it('storage unavailable: the response still succeeds, the image says why it was not kept', async () => {
+      const h = harness({ fake: { responses: () => ({ output: [imageItem(), { type: 'message', text: 'Here.' }] }) } });
+      h.storage.setConfigured(false);
 
       const response = await h.ai.forUser(HARNESS_USER).respond(ask([TOOL.image_generation]));
 
-      expect(response.output[0]).toMatchObject({ result: { storageObjectId: 'obj-1' } });
+      expect(response.outputText).toBe('Here.');
+      expect(response.output[0]).toMatchObject({
+        result: { storageObjectId: null, storageError: 'AI_STORAGE_UNAVAILABLE', mimeType: 'image/png' },
+      });
+      expect(h.storage.objects).toHaveLength(0);
+      expect(JSON.stringify(response)).not.toContain('"data"');
+    });
+
+    it('a response that drew nothing records no image units and stores nothing', async () => {
+      const h = harness();
+
+      await h.ai.forUser(HARNESS_USER).respond(ask([TOOL.image_generation]));
+
+      expect(h.storage.objects).toHaveLength(0);
+      expect(h.usageEvents[0].units ?? null).toBeNull();
     });
   });
 

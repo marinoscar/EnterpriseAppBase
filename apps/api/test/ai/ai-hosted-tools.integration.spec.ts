@@ -10,7 +10,10 @@
 //       - a function tool, or http:// MCP        -> 400 (validation)
 //       - a background run with MCP headers      -> 400 AI_INVALID_REQUEST
 //     every refusal before any provider call.
-//   * Web-search citations reach the body; generated image bytes never do.
+//   * Web-search citations reach the body; a generated image is stored as a
+//     storage object the caller owns (and downloads like any upload) — its
+//     bytes never reach a body or frame; with storage unavailable the answer
+//     still succeeds and the image carries `storageError`.
 //
 // The runtime is the #432 harness (real AiService over FakeAiProvider), see
 // `ai-http.helper.ts`.
@@ -192,7 +195,7 @@ describe('AI hosted tools HTTP Integration (#442)', () => {
       },
     ];
 
-    it('the tools reach the provider, citations reach the body, and image bytes never do', async () => {
+    it('the tools reach the provider, citations reach the body, and the image is a stored object', async () => {
       t.script(() => ({ output: scripted() }));
 
       const res = await post('/api/ai/responses', {
@@ -208,12 +211,16 @@ describe('AI hosted tools HTTP Integration (#442)', () => {
 
       const output = res.body.data.output;
       expect(output[0]).toMatchObject({ tool: 'web_search', result: { sources: [{ url: 'https://w.example' }] } });
+      expect(t.harness.storage.objects).toHaveLength(1);
+      const [stored] = t.harness.storage.objects;
+      expect(stored).toMatchObject({ uploadedById: HARNESS_USER, status: 'ready' });
+      expect(stored.storageKey.startsWith(`ai-outputs/${HARNESS_USER}/`)).toBe(true);
       expect(output[1]).toEqual({
         type: 'hosted_tool_call',
         id: 'ig_1',
         tool: 'image_generation',
         status: 'completed',
-        result: { storageObjectId: null, mimeType: 'image/png' },
+        result: { storageObjectId: stored.id, mimeType: 'image/png' },
       });
       expect(output[2].citations).toEqual([{ url: 'https://w.example', title: 'Weather', startIndex: 0, endIndex: 6 }]);
       expect(res.text).not.toContain('"data":{"0"');
@@ -234,9 +241,30 @@ describe('AI hosted tools HTTP Integration (#442)', () => {
       const done = frames.filter((frame) => frame.event === 'output_item.done').map((frame) => frame.data.item);
 
       expect(done.map((item) => item.tool ?? item.type)).toEqual(['web_search', 'image_generation', 'message']);
-      expect(done[1].result).toEqual({ storageObjectId: null, mimeType: 'image/png' });
+      expect(t.harness.storage.objects).toHaveLength(1);
+      expect(done[1].result).toEqual({ storageObjectId: t.harness.storage.objects[0].id, mimeType: 'image/png' });
       expect(frames.at(-1)?.event).toBe('response.completed');
+      expect(frames.at(-1)?.data.response.output[1]).toEqual(done[1]);
       expect(res.text).not.toMatch(/"image":/);
+    });
+
+    it('storage unavailable: 200 with the text, the image null with storageError', async () => {
+      t.script(() => ({ output: scripted() }));
+      t.harness.storage.setConfigured(false);
+
+      const res = await post('/api/ai/responses', {
+        model: HOSTED_MODEL,
+        input: 'weather?',
+        tools: [{ type: 'image_generation' }],
+      }).expect(200);
+
+      expect(res.body.data.outputText).toBe('Sunny.');
+      expect(res.body.data.output[1].result).toEqual({
+        storageObjectId: null,
+        storageError: 'AI_STORAGE_UNAVAILABLE',
+        mimeType: 'image/png',
+      });
+      expect(t.harness.storage.objects).toHaveLength(0);
     });
   });
 });

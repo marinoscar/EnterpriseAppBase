@@ -64,9 +64,10 @@
 // `mcpAllowedHosts` — else AI_TOOL_DISABLED (403); the model's
 // `hosted_tools` capability is then step 3's (AI_CAPABILITY_UNSUPPORTED).
 // Every result leaves through an `AiHostedOutputSettler`
-// (`ai-hosted-outputs.ts`): generated image bytes go to `persistHostedImage`
-// (the storage seam) and never onward, and MCP header values are scrubbed
-// from everything returned.
+// (`ai-hosted-outputs.ts`): generated image bytes are stored by
+// `persistHostedImage` as the user's own storage objects (`AiOutputWriter`)
+// and never passed onward, and MCP header values are scrubbed from
+// everything returned. A hosted image counts as `units: { images: n }`.
 //
 // ⚠ MCP HEADERS are secret like the key: never logged (the prompt preview
 // shows instructions and input only), never on a span (`ai.hosted_tools`
@@ -136,6 +137,7 @@ import type {
 import { AiKeyResolver, type AiKeySource } from '../keys/ai-key-resolver.service';
 import type { UsableAiModel } from '../keys/dto/usable-ai-model.dto';
 import { UsableModelsService } from '../keys/usable-models.service';
+import { AiOutputWriter } from '../storage/ai-output-writer';
 import { aiErrorFromStorage } from '../storage/ai-storage-errors';
 import { AiStorageInputResolver, type AiStorageInput } from '../storage/ai-storage-input.resolver';
 import {
@@ -145,7 +147,7 @@ import {
   toImageGenerationRequest,
 } from './ai-image-run-request';
 import { toStoredRunRequest } from './ai-run-request';
-import { AiHostedOutputSettler, discardHostedImage } from './ai-hosted-outputs';
+import { type AiHostedOutputOwner, AiHostedOutputSettler, discardHostedImage } from './ai-hosted-outputs';
 import { AI_IMAGE_GENERATE_TYPE, AiRunsService } from './ai-runs.service';
 import type {
   AiCallOptions,
@@ -272,6 +274,8 @@ export interface AiUserClient {
 export interface AiClientScope {
   userId: string;
   jobId?: string;
+  /** The background run being executed — names the folder its outputs are stored in. */
+  runId?: string;
 }
 
 /**
@@ -380,6 +384,7 @@ export class AiService {
     private readonly usage: AiUsageRecorder,
     private readonly runs: AiRunsService,
     private readonly inputs: AiStorageInputResolver,
+    private readonly outputs: AiOutputWriter,
   ) {}
 
   /**
@@ -388,8 +393,8 @@ export class AiService {
    * `jobId` is internal plumbing for the background-run handler, so its
    * usage rows name the job they were incurred under.
    */
-  forUser(userId: string, scope: { jobId?: string } = {}): AiUserClient {
-    const bound: AiClientScope = { userId, jobId: scope.jobId };
+  forUser(userId: string, scope: { jobId?: string; runId?: string } = {}): AiUserClient {
+    const bound: AiClientScope = { userId, jobId: scope.jobId, runId: scope.runId };
 
     return {
       userId,
@@ -484,7 +489,7 @@ export class AiService {
       }
     }
 
-    await tracker.finish({ status: 'succeeded', result: response });
+    await tracker.finish({ status: 'succeeded', result: response, units: hostedImageUnits(response) });
 
     return this.hostedOutputs(scope, call).response(response);
   }
@@ -494,29 +499,65 @@ export class AiService {
   /** The settler every result of `call` leaves through (see `ai-hosted-outputs.ts`). */
   private hostedOutputs(scope: AiClientScope, call: PreparedAiCall): AiHostedOutputSettler {
     return new AiHostedOutputSettler(
-      { userId: scope.userId, ...(scope.jobId ? { jobId: scope.jobId } : {}) },
+      {
+        userId: scope.userId,
+        ...(scope.jobId ? { jobId: scope.jobId } : {}),
+        ...(scope.runId ? { runId: scope.runId } : {}),
+      },
       mcpHeaderValues(call.request.tools),
       (owner, item, responseId) => this.persistHostedImage(owner, item, responseId),
     );
   }
 
   /**
-   * THE IMAGE STORAGE SEAM (#442 -> #437). Receives one `image_generation`
-   * hosted call with its bytes in `item.result.image` and returns the result
-   * to publish, WITHOUT the bytes.
+   * Persists one hosted `image_generation` result (#442) through the AI
+   * output writer (#437): the bytes become a `ready` storage object OWNED BY
+   * THE USER under `ai-outputs/<userId>/<runId or responseId>/`, and the
+   * published result carries its `storageObjectId` — never the bytes. Called
+   * once per image, even when a stream shows the item twice.
    *
-   * Today it discards them (`storageObjectId: null`). The follow-up wires the
-   * AI output writer here: upload `image.data` (`image.mimeType`) as a
-   * user-owned storage object under `ai-outputs/<owner.userId>/<runId or
-   * responseId>/` and return `{ ...rest, storageObjectId }`. It is called once
-   * per image even when a stream shows the item twice.
+   * STORAGE UNAVAILABLE IS NOT A FAILED RESPONSE. The provider call already
+   * happened (and was billed), and the rest of the answer — text, citations,
+   * other tool calls — is intact, so the image is published with
+   * `storageObjectId: null` and `storageError: 'AI_STORAGE_UNAVAILABLE'`
+   * instead, and a warning is logged (never the bytes). A dedicated image
+   * run (`generateImage`) refuses up front instead; a hosted tool cannot,
+   * because whether the model draws anything is only known afterwards.
    */
   protected async persistHostedImage(
-    owner: { userId: string; jobId?: string },
+    owner: AiHostedOutputOwner,
     item: Extract<AiHostedToolCallItem, { tool: 'image_generation' }>,
-    _responseId: string | undefined,
+    responseId: string | undefined,
   ): Promise<AiImageGenerationCallResult> {
-    return discardHostedImage(owner, item);
+    const image = item.result?.image;
+    const published = await discardHostedImage(owner, item);
+
+    if (!image) return published;
+
+    const folder = owner.runId ?? outputFolder(responseId);
+
+    try {
+      await this.outputs.assertWritable();
+
+      const [stored] = await this.outputs.write({
+        userId: owner.userId,
+        runId: folder,
+        files: [{ data: image.data, mimeType: image.mimeType }],
+        namePrefix: 'ai-image',
+        metadata: { tool: 'image_generation', ...(responseId ? { responseId } : {}) },
+      });
+
+      return { ...published, storageObjectId: stored.storageObjectId, mimeType: stored.mimeType };
+    } catch (err) {
+      const reason = aiErrorFromStorage(err)?.code ?? 'AI_STORAGE_UNAVAILABLE';
+
+      this.logger.warn(
+        `Hosted image ${item.id ?? '(no id)'} for user ${owner.userId} was not stored (${reason}); ` +
+          'the response is returned without it',
+      );
+
+      return { ...published, storageObjectId: null, storageError: 'AI_STORAGE_UNAVAILABLE' };
+    }
   }
 
   // ---- embed ---------------------------------------------------------------------
@@ -697,7 +738,7 @@ export class AiService {
         const event = result.value;
 
         if (event.type === 'response.completed') {
-          outcome = { status: 'succeeded', result: event.response };
+          outcome = { status: 'succeeded', result: event.response, units: hostedImageUnits(event.response) };
         } else if (event.type === 'error') {
           outcome = { status: 'failed', errorCode: event.code };
         }
@@ -1411,6 +1452,26 @@ function storageInputFailure(err: unknown): AiError {
     aiErrorFromStorage(err) ??
     new AiError('AI_STORAGE_UNAVAILABLE', 'A stored input could not be read from object storage.', { cause: err })
   );
+}
+
+/** `{ images: n }` for the hosted images a response generated, or nothing when it drew none. */
+function hostedImageUnits(response: AiResponse): AiUsageUnits | undefined {
+  const images = response.output.filter(
+    (item) => item.type === 'hosted_tool_call' && item.tool === 'image_generation' && !!item.result?.image,
+  ).length;
+
+  return images > 0 ? { images } : undefined;
+}
+
+/**
+ * The storage folder for a response's hosted outputs outside a background
+ * run: the provider's response id, reduced to key-safe characters, or a fresh
+ * id when there is none.
+ */
+function outputFolder(responseId: string | undefined): string {
+  const safe = (responseId ?? '').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 128);
+
+  return safe || randomUUID();
 }
 
 /** The outcome of a round-trip that threw. An abort is a cancellation, not a failure. */

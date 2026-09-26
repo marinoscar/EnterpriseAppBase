@@ -173,10 +173,12 @@ Two things never leave the facade, both handled by
 `runtime/ai-hosted-outputs.ts` on every response and stream event:
 
 - **Image bytes.** An `image_generation` item arrives from the adapter with
-  its bytes in `result.image`; `AiService.persistHostedImage` (the storage
-  seam) receives them once per image and returns the result to publish.
-  Today it discards them (`storageObjectId: null`); the AI output writer
-  plugs in there.
+  its bytes in `result.image`; `AiService.persistHostedImage` stores them once
+  per image through `storage/AiOutputWriter` (a `ready` object the user owns,
+  under `ai-outputs/<userId>/<runId|responseId>/`) and publishes only its
+  `storageObjectId`. Storage unavailable publishes `storageObjectId: null`
+  with `storageError: 'AI_STORAGE_UNAVAILABLE'` rather than failing the
+  response.
 - **MCP `headers`.** Secret like a key: sent to the adapter and nowhere
   else — not the prompt log line, the span (`ai.hosted_tools` names types
   only), a usage row, or `ai_runs.request` (`startRun` refuses an MCP tool

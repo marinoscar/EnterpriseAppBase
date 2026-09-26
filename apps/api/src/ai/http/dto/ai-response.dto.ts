@@ -28,8 +28,10 @@ export const aiUrlCitationSchema = z.object({
 
 /**
  * A hosted tool call's `result`, by `tool` (#442). `image_generation` never
- * carries image data inline: `storageObjectId` names the stored image (null
- * until image persistence is wired).
+ * carries image data inline: `storageObjectId` names the stored image, a
+ * storage object the caller owns (download it through
+ * `GET /api/storage/objects/{id}/download`); null with `storageError` when
+ * storage was unavailable.
  */
 export const aiHostedToolResultSchema = z.union([
   z.object({ queries: z.array(z.string()), sources: z.array(z.object({ url: z.string() })) }).describe('web_search'),
@@ -61,6 +63,8 @@ export const aiHostedToolResultSchema = z.union([
   z
     .object({
       storageObjectId: z.string().nullable(),
+      /** Set when the image was generated but storage was unavailable. */
+      storageError: z.literal('AI_STORAGE_UNAVAILABLE').optional(),
       mimeType: z.string().optional(),
       revisedPrompt: z.string().optional(),
       size: z.string().optional(),

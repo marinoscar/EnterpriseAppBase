@@ -49,6 +49,8 @@ import { JobExecutionProfile } from '../../jobs/job-execution-profile';
 import { JobHandler } from '../../jobs/job-handler.interface';
 import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
 import { AiError, type AiErrorCode } from '../core/ai-error';
+import type { AiResponse } from '../core/types/responses.types';
+import { AiOutputWriter } from '../storage/ai-output-writer';
 import { aiErrorFromStorage } from '../storage/ai-storage-errors';
 import { AiService } from './ai.service';
 import { fromStoredRunRequest } from './ai-run-request';
@@ -96,6 +98,7 @@ export class AiResponseRunHandler implements JobHandler, OnModuleInit {
     private readonly registry: JobHandlerRegistry,
     private readonly ai: AiService,
     private readonly runs: AiRunsService,
+    private readonly outputs: AiOutputWriter,
   ) {}
 
   onModuleInit(): void {
@@ -156,11 +159,13 @@ export class AiResponseRunHandler implements JobHandler, OnModuleInit {
     try {
       const request = fromStoredRunRequest(run.request);
       const response = await this.ai
-        .forUser(run.userId, { jobId: job.id })
+        .forUser(run.userId, { jobId: job.id, runId })
         .respond(request, { signal: controller.signal });
 
       if (!(await this.runs.complete(runId, response))) {
         this.logger.log(`AI run ${runId} was cancelled while it ran; its result is discarded`);
+        // Hosted images (#442) were already stored as the user's objects.
+        await this.outputs.discard(hostedImageObjectIds(response));
       }
     } catch (err) {
       await this.settleFailure(runId, job.id, err, controller.signal.aborted, timedOut);
@@ -234,4 +239,13 @@ export class AiResponseRunHandler implements JobHandler, OnModuleInit {
     // The original error, so the job's `lastError` says what really happened.
     throw err;
   }
+}
+
+/** Storage objects a response's hosted `image_generation` calls were stored as (#442). */
+export function hostedImageObjectIds(response: AiResponse): string[] {
+  return response.output.flatMap((item) =>
+    item.type === 'hosted_tool_call' && item.tool === 'image_generation' && item.result?.storageObjectId
+      ? [item.result.storageObjectId]
+      : [],
+  );
 }

@@ -195,14 +195,16 @@ export interface AiCodeInterpreterCallResult {
  * `image_generation`: the generated image.
  *
  * `image` holds the raw BYTES between the adapter and the facade ONLY — the
- * facade's hosted-output seam (`AiService.settleHostedOutputs`) always
+ * facade's hosted-output settler (`runtime/ai-hosted-outputs.ts`) always
  * removes it before a response leaves the runtime, so no API response, SSE
  * frame or `ai_runs.output` row ever carries image data inline.
  * `storageObjectId` is the user-owned storage object the image was persisted
- * as; `null` until the AI output writer (#437) is wired into that seam.
+ * as, or `null` when it could not be stored — `storageError` then says why.
  */
 export interface AiImageGenerationCallResult {
   storageObjectId: string | null;
+  /** Set when the image was generated but could not be stored. */
+  storageError?: 'AI_STORAGE_UNAVAILABLE';
   mimeType?: string;
   revisedPrompt?: string;
   size?: string;

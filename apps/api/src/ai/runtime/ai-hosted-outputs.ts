@@ -16,11 +16,12 @@
 //      the second sighting reuses the first result, so a real writer uploads
 //      each image exactly once.
 //
-//      TODAY `persistImage` is `discardHostedImage` below: the bytes are
-//      dropped and `storageObjectId` stays `null`. The follow-up for the AI
-//      output writer (#437) replaces it with an upload of `image.data` as a
-//      user-owned storage object under `ai-outputs/<userId>/<runId|responseId>/`,
-//      returning its id — see `AiService.persistHostedImage`.
+//      `AiService.persistHostedImage` is that persister: it writes the bytes
+//      through the AI output writer (#437) as a user-owned storage object
+//      under `ai-outputs/<userId>/<runId|responseId>/` and publishes its id
+//      (or `storageObjectId: null` + `storageError` when storage is
+//      unavailable). `discardHostedImage` below is the bytes-free projection
+//      it starts from.
 //
 //   2. MCP HEADER VALUES. A remote MCP server can echo its own credential
 //      back (in a tool output or an error). Every string of every settled
@@ -43,6 +44,8 @@ export interface AiHostedOutputOwner {
   userId: string;
   /** The queue job a background run executes under, when there is one. */
   jobId?: string;
+  /** The background run, when there is one — its outputs' storage folder. */
+  runId?: string;
 }
 
 type ImageCall = Extract<AiHostedToolCallItem, { tool: 'image_generation' }>;
@@ -57,7 +60,7 @@ export type AiHostedImagePersister = (
   responseId: string | undefined,
 ) => Promise<AiImageGenerationCallResult>;
 
-/** Today's `persistImage`: drop the bytes, keep the metadata, no storage object. */
+/** The result minus its bytes — metadata kept, no storage object. */
 export async function discardHostedImage(
   _owner: AiHostedOutputOwner,
   item: ImageCall,

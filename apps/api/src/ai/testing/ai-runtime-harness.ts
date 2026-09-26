@@ -301,7 +301,7 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
   const runs = new AiRunsService(prisma as never, jobs as never);
   const inputs = new AiStorageInputResolver(prisma as never, storage.provider);
   const outputs = new AiOutputWriter(prisma as never, storage.provider, storage.storageConfig as never);
-  const ai = new AiService(aiConfig, registry, usableModels, resolver, prisma as never, recorder, runs, inputs);
+  const ai = new AiService(aiConfig, registry, usableModels, resolver, prisma as never, recorder, runs, inputs, outputs);
 
   return {
     ai,

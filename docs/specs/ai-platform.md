@@ -478,12 +478,19 @@ image generation and remote MCP servers.
   `{ kind: 'call'|'list_tools'|'approval_request', serverLabel, … }`. Web
   search citations are `citations[{ url, title, startIndex, endIndex }]` on
   the message item, re-based onto its concatenated text.
-- **Generated images never travel inline.** The adapter decodes the image
-  into bytes; the facade's output settler hands them to
+- **Generated images are the user's storage objects.** The adapter decodes
+  the image into bytes; the facade's output settler hands them to
   `AiService.persistHostedImage` (once per image, even though a stream shows
-  the item twice) and publishes only what that returns. Until the AI output
-  writer is wired in there, the bytes are dropped and `storageObjectId` is
-  `null`.
+  the item twice), which writes them through `AiOutputWriter` as a `ready`
+  object owned by the caller under `ai-outputs/<userId>/<runId>/` (a
+  background run) or `ai-outputs/<userId>/<responseId>/`, and publishes only
+  `storageObjectId` (+ metadata). The usage row records `units: { images: n }`.
+  **Storage unavailable does not fail the response** — the text, citations
+  and other items are intact and already paid for — so the image is
+  published as `storageObjectId: null, storageError: 'AI_STORAGE_UNAVAILABLE'`
+  and a warning is logged. (A dedicated image run, §5.2, instead refuses up
+  front: it knows it will draw; a hosted tool only may.) A background run
+  cancelled after its images were stored discards them.
 - **Streaming.** Provider progress events (`response.web_search_call.*`,
   `response.code_interpreter_call.*`, …) are consumed by the stream mapper;
   each hosted call surfaces once, as the `output_item.done` carrying its
