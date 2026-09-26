@@ -126,7 +126,8 @@ describeWithDb('Lease renewal vs. the lease reaper (real Postgres)', () => {
       stubSystemSettings(),
       // Nothing registered: the single-budget, single-lease shape a
       // deployment with no execution profiles has. See `JOB_TIMEOUT_MS`.
-      new JobHandlerRegistry()
+      new JobHandlerRegistry(),
+      new EventEmitter2()
     );
     // The REAL claim, so the token this suite renews against is one
     // `gen_random_uuid()` actually minted — not a hand-set column value that

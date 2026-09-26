@@ -79,9 +79,9 @@ import { NotificationsService } from '../notifications.service';
 // 4. IT FIRES ON THE GIVE-UP ONLY, AND THAT IS `status === 'failed'`
 // -----------------------------------------------------------------------------
 //
-// `JOB_SETTLED_EVENT` is emitted from exactly three places in
-// `job-terminal.service.ts`, and only the two that write `status: 'failed'` are
-// give-ups:
+// `JOB_SETTLED_EVENT` is emitted from exactly four places — three in
+// `job-terminal.service.ts` and one in `job-stuck.service.ts` (#468) — and only
+// the three that write `status: 'failed'` are give-ups:
 //
 //   * `completeSucceeded`  -> `succeeded`  — not this event.
 //   * `failPermanently`    -> `failed`     — the attempt budget is spent, or a
@@ -89,9 +89,13 @@ import { NotificationsService } from '../notifications.service';
 //   * the rate-limit give-up in `deferForRateLimit`, past
 //     `jobs.rateLimitMaxHits` -> `failed`  — a provider limit that waiting will
 //                                            not fix.
+//   * the lease reaper's phase-1 give-up in `JobStuckService.resetStuck`
+//     -> `failed`                          — the executor died on every
+//                                            attempt the budget allowed.
 //
 // AN ORDINARY RETRY AND AN ORDINARY DEFERRAL EMIT NOTHING AT ALL: both write
-// `status: 'pending'` and return without calling `emitSettled`. So the filter
+// `status: 'pending'` and return without calling `emitSettled` — as does the
+// reaper's phase-2 requeue. So the filter
 // below is one comparison, and "terminal only" is a property of the EMITTER
 // rather than something this listener has to reconstruct — which is why it is
 // worth stating here that the guarantee lives over there.

@@ -135,8 +135,9 @@
 // `NodeSecretSweepTask` is a plain provider beside the other two crons, and
 // `NodeSecretRevoker` is a plain provider carrying an `@OnEvent` listener.
 // ⚠ THE PAIR IS NOT REDUNDANT — the event path structurally cannot cover a job
-// settled by the reaper's `updateMany`, a replica that died between settling
-// and revoking, or a `write-failed` outcome. Both headers carry the argument;
+// the reaper REQUEUES (a requeue is not a settlement, so it emits nothing and
+// may still hold a credential), a replica that died between settling and
+// revoking, or a `write-failed` outcome. Both headers carry the argument;
 // do not register one without the other.
 //
 // Note the CONTRAST with `jobs.job_failed`, whose listener lives on the

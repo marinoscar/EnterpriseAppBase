@@ -84,18 +84,8 @@ import { BROADCAST_START_TYPE } from './handlers/broadcast-start.handler';
 // broadcast already `failed` (a start and a chunk both giving up, an operator
 // retrying the dead chunk from the Jobs page and it failing again) is a no-op.
 //
-// -----------------------------------------------------------------------------
-// ⚠ KNOWN GAP: THE LEASE REAPER'S GIVE-UP EMITS NOTHING
-// -----------------------------------------------------------------------------
-//
-// `JobStuckService`'s phase 1 (`jobs/job-stuck.service.ts`) writes
-// `status: 'failed'` directly for a job whose executor died on EVERY attempt
-// (OOM kill, hard crash each time), and does not emit `JOB_SETTLED_EVENT`. A
-// chunk that dies that way still strands its broadcast in `sending`. Closing
-// it means teaching the reaper to emit the event for the rows it fails, which
-// is a queue change with its own subscribers to consider (the job-failure
-// notifier would start firing for reaped jobs too) — tracked separately, not
-// papered over here with a second detection path.
+// The lease reaper's permanent give-up now emits `JOB_SETTLED_EVENT` too (#468),
+// so a chunk whose executor died on every attempt fails its broadcast here.
 // =============================================================================
 
 /** The fan-out job types whose give-up fails the broadcast. */

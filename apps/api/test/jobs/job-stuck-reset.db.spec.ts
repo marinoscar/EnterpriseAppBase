@@ -31,6 +31,7 @@
 // =============================================================================
 
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma, PrismaClient } from '@prisma/client';
 
 import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
@@ -73,7 +74,8 @@ function stuckServiceFor(client: PrismaClient): JobStuckService {
     systemSettings,
     // No handler registered means no execution profile anywhere, which is the
     // single-budget shape the reaper has always had (#346).
-    new JobHandlerRegistry()
+    new JobHandlerRegistry(),
+    new EventEmitter2()
   );
 }
 

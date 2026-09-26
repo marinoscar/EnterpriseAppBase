@@ -17,11 +17,12 @@
 // event path STRUCTURALLY CANNOT cover three cases, and each of them is a case
 // where a credential is MORE likely than average to be outstanding.
 //
-//   1. A JOB SETTLED BY THE REAPER. `JobStuckService` requeues and fails
-//      abandoned jobs with `updateMany`, which returns a count and not rows —
-//      there is no `Job` to build a `JobSettledEvent` from, so NOTHING IS
-//      EMITTED. That is exactly the "the executor died holding the credential"
-//      case, which is the case this whole mechanism most needs covered.
+//   1. A JOB THE REAPER REQUEUES. `JobStuckService`'s phase-2 requeue is not a
+//      settlement, so it emits nothing — and the job may still hold a
+//      credential its dead executor was issued. That is exactly the "the
+//      executor died holding the credential" case, which is the case this
+//      whole mechanism most needs covered. (The reaper's phase-1 give-up to
+//      `failed` DOES emit since #468, so the revoker handles that one.)
 //   2. AN API REPLICA THAT DIED BETWEEN SETTLING AND REVOKING. The terminal
 //      write committed, the emit ran, and the process was gone before the
 //      broker call returned. Nothing retries an in-process listener.

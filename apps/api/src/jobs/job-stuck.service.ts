@@ -91,10 +91,25 @@
 // running a second time for work whose author said it must not. Both paths
 // therefore read the budget through the SAME `resolveMaxAttempts`, and both
 // phases below group by it. See `attemptBudgets`.
+//
+// -----------------------------------------------------------------------------
+// ⚠ THE GIVE-UP IS A SETTLEMENT, SO IT IS ANNOUNCED (#468)
+// -----------------------------------------------------------------------------
+//
+// Phase 1 writes `failed` — a terminal state — on behalf of an executor that
+// will never write it itself. Until #468 it did so silently, so every
+// `JOB_SETTLED_EVENT` listener (`JobFailureNotifier`, `NodeSecretRevoker`,
+// `BroadcastFailureListener`) missed precisely the jobs that died hardest.
+// It now emits once per row it actually changed, through the same
+// `emitJobSettled` the terminal path uses, and exactly once across replicas
+// because each row's write is a single `UPDATE … RETURNING` whose `WHERE`
+// re-asserts "still stuck" — see `resetStuck`. Phase 2 (requeue) is not a
+// settlement and emits nothing.
 // =============================================================================
 
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 
 import { DEFAULT_SYSTEM_SETTINGS } from '../common/types/settings.types';
@@ -102,6 +117,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SystemSettingsService } from '../settings/system-settings/system-settings.service';
 import { resolveLeaseHorizonMs, resolveMaxAttempts } from './job-execution-profile';
 import { JobHandlerRegistry } from './job-handler.registry';
+import { emitJobSettled } from './job-settled.emit';
 
 /** What `resetStuck` did, split by which phase claimed each row. */
 export interface ResetStuckResult {
@@ -248,7 +264,13 @@ export class JobStuckService {
     // for: what is this job type's attempt budget (#346). See
     // `attemptBudgets` below for why the reaper cannot be allowed to answer it
     // with the deployment-wide number.
-    private readonly registry: JobHandlerRegistry
+    private readonly registry: JobHandlerRegistry,
+    // Injected for phase 1 of `resetStuck` only (#468): a job the reaper gives
+    // up on is SETTLED (`failed`), and every settlement must be announced on
+    // `JOB_SETTLED_EVENT` exactly as `JobTerminalService` announces its own —
+    // otherwise `JobFailureNotifier`, `NodeSecretRevoker` and
+    // `BroadcastFailureListener` never hear about the jobs that died hardest.
+    private readonly events: EventEmitter2
   ) {}
 
   /**
@@ -332,13 +354,29 @@ export class JobStuckService {
    * healthy deployment — so N small updates is the right trade for a message
    * that is actually true.
    *
+   * EACH ROW PHASE 1 ACTUALLY CHANGES IS ANNOUNCED ON `JOB_SETTLED_EVENT`
+   * (#468), through the same `emitJobSettled` the terminal path uses, so the
+   * failure notifier, the node-secret revoker and the broadcast failure
+   * listener see a reaped give-up exactly as they see any other `failed`.
+   * EXACTLY ONCE ACROSS REPLICAS: each row's write is a single autocommitted
+   * `UPDATE … WHERE <still stuck> AND id = … RETURNING *`
+   * (`updateManyAndReturn`). Under READ COMMITTED a concurrent replica's
+   * identical statement blocks on the row lock, re-checks its `WHERE` against
+   * the committed `failed` row, no longer matches, and gets `[]` back — so
+   * only the replica whose statement changed the row emits. The same re-check
+   * keeps the reaper from overwriting (or announcing) a row a late executor
+   * already settled. `claimToken` is still cleared with the claim (#361/#364).
+   * An emit can never abort the sweep: a throwing listener is contained by
+   * `emitJobSettled`.
+   *
    * PHASE 2 — REQUEUE. Rows still under budget go back to `pending` with the
    * claim, the lease and the executor released, so any worker (this server,
    * another replica, a node) may take them. ONE `updateMany` PER DISTINCT
    * BUDGET — one in total for a deployment where no handler declares a
    * profile, which is the shape this phase has always had — because every row
    * in a group gets the same treatment and the same message, and only the
-   * number they are compared against differs.
+   * number they are compared against differs. A requeue is NOT a settlement,
+   * so this phase emits nothing.
    *
    * `attempts` IS NOT TOUCHED BY EITHER PHASE. It was charged at claim time
    * and the attempt genuinely happened — the executor started the work and
@@ -410,7 +448,14 @@ export class JobStuckService {
       // network partition that healed). Re-asserting "still stuck" makes the
       // update a no-op in that case instead of stamping `failed` over a
       // perfectly good `succeeded`.
-      const result = await this.prisma.job.updateMany({
+      //
+      // `updateManyAndReturn` (one `UPDATE … RETURNING *`, #468) rather than
+      // `updateMany`: the returned rows are exactly the ones THIS statement
+      // changed — `[]` when a late executor or another replica got there
+      // first — which is what makes the settled event below fire exactly once.
+      // No `select`: the event carries the full `Job` row, as the terminal
+      // path's does.
+      const rows = await this.prisma.job.updateManyAndReturn({
         where: { ...where, id: row.id },
         data: {
           status: 'failed',
@@ -430,13 +475,17 @@ export class JobStuckService {
         },
       });
 
-      failed += result.count;
+      failed += rows.length;
 
-      if (result.count > 0) {
+      for (const settled of rows) {
         this.logger.warn(
-          `Job ${row.id} (${row.type}) was abandoned by its executor on all ` +
-            `${row.attempts} of its attempts; failing it permanently rather than requeueing.`
+          `Job ${settled.id} (${settled.type}) was abandoned by its executor on all ` +
+            `${settled.attempts} of its attempts; failing it permanently rather than requeueing.`
         );
+
+        // After the write has committed (autocommitted single statement), and
+        // contained: a listener that throws cannot abort the rest of the sweep.
+        emitJobSettled(this.events, settled, this.logger);
       }
     }
 
