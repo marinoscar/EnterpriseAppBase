@@ -4,7 +4,11 @@
 // adapter reads — so the mapper specs and the mocked HTTP transport speak
 // the same wire format. Not imported by production code.
 
-import type { Response as OpenAiSdkResponse, ResponseOutputItem } from 'openai/resources/responses/responses';
+import type {
+  Response as OpenAiSdkResponse,
+  ResponseOutputItem,
+  ResponseStreamEvent,
+} from 'openai/resources/responses/responses';
 
 let counter = 0;
 
@@ -93,4 +97,71 @@ export function responseFixture(opts: ResponseFixtureOptions = {}): OpenAiSdkRes
     top_p: 1,
     usage,
   } as unknown as OpenAiSdkResponse;
+}
+
+function chunks(text: string, size: number): string[] {
+  const out: string[] = [];
+
+  for (let i = 0; i < text.length; i += size) out.push(text.slice(i, i + size));
+
+  return out;
+}
+
+/**
+ * The event sequence OpenAI streams for `final`: created, then per output
+ * item `output_item.added`, its deltas (text, reasoning summary, function
+ * arguments) in `chunkSize` pieces, `output_item.done`, and finally the
+ * terminal event matching `final.status`.
+ */
+export function streamEventsFor(final: OpenAiSdkResponse, chunkSize = 4): ResponseStreamEvent[] {
+  let seq = 0;
+  const events: Array<Record<string, unknown>> = [];
+  const push = (event: Record<string, unknown>) => events.push({ ...event, sequence_number: seq++ });
+  const inProgress = { ...final, status: 'in_progress', output: [], usage: null };
+
+  push({ type: 'response.created', response: inProgress });
+  push({ type: 'response.in_progress', response: inProgress });
+
+  final.output.forEach((item, outputIndex) => {
+    const itemId = (item as { id?: string }).id ?? `item_${outputIndex}`;
+
+    push({ type: 'response.output_item.added', output_index: outputIndex, item: { ...item, status: 'in_progress' } });
+
+    if (item.type === 'message') {
+      item.content.forEach((part, contentIndex) => {
+        if (part.type !== 'output_text') return;
+
+        for (const delta of chunks(part.text, chunkSize)) {
+          push({ type: 'response.output_text.delta', item_id: itemId, output_index: outputIndex, content_index: contentIndex, delta, logprobs: [] });
+        }
+
+        push({ type: 'response.output_text.done', item_id: itemId, output_index: outputIndex, content_index: contentIndex, text: part.text, logprobs: [] });
+      });
+    }
+
+    if (item.type === 'reasoning') {
+      item.summary.forEach((part, summaryIndex) => {
+        for (const delta of chunks(part.text, chunkSize)) {
+          push({ type: 'response.reasoning_summary_text.delta', item_id: itemId, output_index: outputIndex, summary_index: summaryIndex, delta });
+        }
+      });
+    }
+
+    if (item.type === 'function_call') {
+      for (const delta of chunks(item.arguments, chunkSize)) {
+        push({ type: 'response.function_call_arguments.delta', item_id: itemId, output_index: outputIndex, delta });
+      }
+
+      push({ type: 'response.function_call_arguments.done', item_id: itemId, output_index: outputIndex, arguments: item.arguments, name: item.name });
+    }
+
+    push({ type: 'response.output_item.done', output_index: outputIndex, item });
+  });
+
+  const terminal =
+    final.status === 'failed' ? 'response.failed' : final.status === 'incomplete' ? 'response.incomplete' : 'response.completed';
+
+  push({ type: terminal, response: final });
+
+  return events as unknown as ResponseStreamEvent[];
 }
