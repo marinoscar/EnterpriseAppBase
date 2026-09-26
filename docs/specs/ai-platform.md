@@ -79,7 +79,8 @@ through `SystemSettingsService`) holds everything that is *not* secret:
   keyPolicy: 'byok' | 'byok_with_org_fallback' /*'byok'*/,
   providers: { openai: { enabled: boolean /*false*/, baseUrl?: string } },
   defaults: { maxOutputTokensCap?: number, allowBackgroundRuns: boolean /*true*/ },
-  logPromptContent: boolean /*false*/ }
+  logPromptContent: boolean /*false*/,
+  usageRetentionDays: number /*180, 1–3650 — §12, #443*/ }
 ```
 
 `GET /api/system-settings` returns the *entire* settings document, wholesale,
@@ -423,6 +424,13 @@ server-only, never node-eligible** — no `nodeResultSchema` +
   user made, and truncating a prompt to store it would make the replayed
   call diverge from the one the user actually asked for. It is still never
   key material — see the ⚠ in that file and in §3 above.
+- `ai.usage.purge` (#443) — deletes `ai_usage_events` rows older than
+  `ai.usageRetentionDays`, 5000 ids a batch, oldest first. No payload, no
+  provider call, no key; **not** gated on the kill switch (retention is
+  data hygiene, not AI use). `profile: { maxRuntimeMs: 30*60_000,
+  maxAttempts: 3 }`. Enqueued daily at 05:00 by `AiUsagePurgeTask` through
+  `enqueueHousekeepingJob` — the one AI cron that uses that helper, because
+  it is global (no per-provider subject).
 - Phase 2/3 media jobs (image generation/edit, audio transcription/speech,
   embeddings at scale) will follow the identical posture once implemented.
 
@@ -608,6 +616,45 @@ the admin key, §6, `keySource: 'admin_discovery'`) and no
 calls); `units` exists for non-token-metered operations (`{ images: 2 }`,
 `{ audioSeconds: 31.4 }`).
 
+**Reading it back (#443).** Two routes aggregate these rows, both answering
+one report shape so one UI component renders either:
+
+```ts
+{ range: { from: 'YYYY-MM-DD', to: 'YYYY-MM-DD' },   // UTC days, both inclusive
+  groupBy: 'day' | 'user' | 'model' | 'provider' | 'keySource',
+  totals: Bucket,
+  series: Array<Bucket & { key: string, label: string }> }
+// Bucket = { requests, failed, inputTokens, outputTokens, reasoningTokens,
+//            cachedInputTokens, units: Record<string, number>,
+//            orgKeyRequests, orgKeyInputTokens, orgKeyOutputTokens }
+```
+
+`requests` counts every round trip (succeeded, failed, cancelled); `failed`
+is status `failed`; an unreported token count sums as zero; `units` sums
+each numeric JSONB key; the `orgKey*` fields are the `keySource: 'org'`
+subtotal — what the organization key paid for. Keys: `day` →
+`YYYY-MM-DD` (chronological, **zero-filled** across the range); `user` → the
+user id (label: the **email**; no-user rows key `system`); `model` →
+`<provider>:<modelId>` (label: the model id); `provider` → the id (label:
+the adapter's display name); `keySource` → `user`/`org`/`admin_discovery`.
+Non-day series are ordered by `requests` descending. Default range is the
+last 30 days; more than 90 days, or `from` after `to`, is a **400**
+`AI_USAGE_RANGE_INVALID` — refused, never clamped. Totals and groups come
+from one `GROUP BY GROUPING SETS ((key), ())` scan (plus one `jsonb_each`
+scan for `units`), so they always add up; the `(created_at)` and
+`(user_id, created_at)` indexes serve the window.
+
+- `GET /api/admin/ai/usage` (`ai_config:read`, **not** behind
+  `AiEnabledGuard` — cost is readable while AI is off) — every user;
+  `groupBy` any of the five; filters `userId`, `provider`, `model`.
+- `GET /api/ai/usage/me` (`ai:use` + `AiEnabledGuard`) — `groupBy` `day` or
+  `model` only; always scoped to the caller in SQL, and the query DTO has
+  no `userId` (a supplied one is stripped), so no request can read another
+  user's usage.
+
+Rows are kept `ai.usageRetentionDays` (default 180 — twice the longest
+report window) and then deleted by the daily `ai.usage.purge` job (§9).
+
 Audit rows (written directly through Prisma — there is no dedicated audit
 service in this codebase, the same pattern `StorageConfigAdminService.audit`
 already uses) record every administrative and key-management act, never the
@@ -706,14 +753,15 @@ already operate on `AiProviderAdapter` and `AiProviderRegistry.ids()`.
 
 | Method & path | Permission | Behaviour |
 |---|---|---|
-| `GET /api/admin/ai/config` | `ai_config:read` | `describeForAdmin()` — `{ enabled, keyPolicy, logPromptContent, defaults, providers:[{ id, displayName, enabled, baseUrl, keyStatus, supportedCapabilities }], version, updatedAt, updatedBy }`. `keyStatus = { configured, hint, updatedAt, updatedByUserId }` from `credentials.describe` — **never** `getSecret`. `providers` = registry ids ∪ settings keys. |
-| `PUT /api/admin/ai/config` | `ai_config:write` | Body `{ enabled, keyPolicy, logPromptContent, defaults, providers:{ [id]: { enabled, baseUrl? } } }`; `If-Match: <version>` (mismatch → 409, like storage). Enabling a provider id not in the registry → 400. Setting `keyPolicy='byok_with_org_fallback'` while that provider has no admin key → 400 `AI_KEY_REQUIRED`. Audit `ai_config:replace` (field names only). |
+| `GET /api/admin/ai/config` | `ai_config:read` | `describeForAdmin()` — `{ enabled, keyPolicy, logPromptContent, defaults, usageRetentionDays, providers:[{ id, displayName, enabled, baseUrl, keyStatus, supportedCapabilities }], version, updatedAt, updatedBy }`. `keyStatus = { configured, hint, updatedAt, updatedByUserId }` from `credentials.describe` — **never** `getSecret`. `providers` = registry ids ∪ settings keys. |
+| `PUT /api/admin/ai/config` | `ai_config:write` | Body `{ enabled, keyPolicy, logPromptContent, defaults, usageRetentionDays?, providers:{ [id]: { enabled, baseUrl? } } }` (`usageRetentionDays` omitted keeps the stored value — the one non-full-replace field, so older clients still save); `If-Match: <version>` (mismatch → 409, like storage). Enabling a provider id not in the registry → 400. Setting `keyPolicy='byok_with_org_fallback'` while that provider has no admin key → 400 `AI_KEY_REQUIRED`. Audit `ai_config:replace` (field names only). |
 | `PUT /api/admin/ai/providers/:provider/key` | `ai_config:write` | Body `{ apiKey }` (min 8). Verified with `adapter.verifyKey` **first**; invalid → 400 `AI_KEY_INVALID`, nothing stored. Audit `ai_config:set_key`. |
 | `DELETE /api/admin/ai/providers/:provider/key` | `ai_config:write` | Body `{ confirmation: 'REMOVE' }`. Audit `ai_config:delete_key`. Under `byok_with_org_fallback`, response includes `warnings:['ORG_FALLBACK_WITHOUT_KEY']`. |
 | `POST /api/admin/ai/providers/:provider/test` | `ai_config:write` | `@HttpCode(200)` always. Body `{ apiKey?, baseUrl? }` (blank ⇒ stored key). Checks: `credentials`, `list_models`, `responses_smoke`. Audit `ai_config:test` (codes only). |
 | `GET /api/admin/ai/models` | `ai_config:read` | Query `provider?, capability?, enabled?, includeDeprecated?(default false), q?`, paginated like `GET /api/admin/jobs`. |
 | `PATCH /api/admin/ai/models/:id` | `ai_config:write` | Body `{ enabled?, displayName?, capabilities? }`. Sets `capabilitySource='admin_override'`. Enabling a deprecated model → 409. Enabling an unclassified model with no capabilities supplied → 400. Audit `ai_model:update`. |
 | `POST /api/admin/ai/models/refresh` | `ai_config:write` | Body `{ provider }`. 409 if no admin key. Enqueues `ai.catalog.refresh`; returns `{ jobId }`. Audit `ai_catalog:refresh_requested`. |
+| `GET /api/admin/ai/usage` | `ai_config:read` | Query `from?, to?, groupBy?(day), userId?, provider?, model?` → the usage report (§12). |
 
 **Public config** (any authenticated user, no `ai_config` permission
 needed — the `/api/notifications/config` pattern), and **user keys/usable
@@ -746,6 +794,7 @@ every consumer-facing route (as opposed to `/api/admin/ai/*`'s
 | `POST /api/ai/runs` | `startRun(...)` → `{ runId, jobId }`, status 202. |
 | `GET /api/ai/runs/:id` | Scoped to caller → `{ id, status, provider, modelId, output, errorCode, errorMessage, createdAt, completedAt }` (never the stored prompt, never the job id); 404 for another user's run. |
 | `POST /api/ai/runs/:id/cancel` | Scoped to caller; 200. |
+| `GET /api/ai/usage/me` | Query `from?, to?, groupBy?(day\|model)` → the caller's own usage report (§12). |
 
 ## Rejected alternatives
 
@@ -837,6 +886,7 @@ every consumer-facing route (as opposed to `/api/admin/ai/*`'s
 | `ai.catalog.refresh` and `ai.response.run` declare no `nodeResultSchema`/`persistNodeResult` and therefore never appear in `JobHandlerRegistry.serverOnlyTypes()`'s complement | `apps/api/src/ai/catalog/ai-catalog-refresh.handler.spec.ts`, `apps/api/src/ai/runtime/ai-response-run.handler.spec.ts` |
 | The gate pipeline produces the exact documented error code for each gate, in order | `apps/api/src/ai/runtime/ai.service.spec.ts` |
 | Every provider round-trip (success and failure) writes exactly one `ai_usage_events` row with the correct `keySource` | `apps/api/src/ai/runtime/ai-usage.recorder.spec.ts` |
+| Usage aggregates add up under every grouping (real SQL over a seeded fixture); `/me` is scoped to the caller; the purge deletes only rows past retention and its cron only enqueues | `apps/api/test/ai/ai-usage.db.spec.ts`, `apps/api/test/ai/ai-usage.integration.spec.ts`, `apps/api/src/ai/usage/*.spec.ts`, `apps/api/test/jobs/cron-enqueue-only.spec.ts` |
 | Streaming and non-streaming responses return identical final text for the same fake script; a pre-stream gate failure is plain JSON, a mid-stream failure is an `error` SSE frame; client abort stops the provider call | `apps/api/test/ai/ai-responses.integration.spec.ts` |
 | `infra/nginx/nginx.conf` contains the `/api/ai/responses/stream` location with `proxy_buffering off` | a config-assertion spec reading the nginx file directly, mirroring `apps/api/test/production-image.spec.ts` |
 | Seed grants: Admin holds all three AI permissions; Contributor and Viewer hold `ai:use` only | `apps/api/test/prisma/seed-data.spec.ts` |

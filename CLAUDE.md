@@ -724,6 +724,7 @@ model catalog, all editable with no restart at `/admin/settings/ai` and
 - `GET /api/admin/ai/models` - Paginated model catalog, filterable by provider/capability/enabled/deprecated (`ai_config:read`)
 - `PATCH /api/admin/ai/models/{id}` - Enable/disable a model or override its capabilities; sets `capabilitySource: "admin_override"` (`ai_config:write`)
 - `POST /api/admin/ai/models/refresh` - Enqueue `ai.catalog.refresh` for one provider using the admin key; 409 with no admin key configured (`ai_config:write`)
+- `GET /api/admin/ai/usage?from&to&groupBy&userId&provider&model` - Usage report over `ai_usage_events`: `{ range, groupBy, totals, series[{ key, label, … }] }`, grouped by `day|user|model|provider|keySource` (user labels are emails), with an `orgKey*` subtotal; UTC days, default 30, max 90 (`ai_config:read`). Rows are purged after `ai.usageRetentionDays` (default 180) by the daily `ai.usage.purge` job
 
 ### AI
 The caller's own AI surface: usable models, BYOK keys, and calling AI itself.
@@ -742,6 +743,7 @@ requires `ai:use`. See
 - `POST /api/ai/runs` - Queue a background AI response (`ai.response.run`); 202 `{ runId, jobId }`; 400 `AI_INVALID_REQUEST` when `ai.defaults.allowBackgroundRuns` is off (`ai:use`)
 - `GET /api/ai/runs/{id}` - Get one background run, scoped to the caller — `{ id, status, provider, modelId, output, errorCode, errorMessage, createdAt, completedAt }`; 404 for another user's run (`ai:use`)
 - `POST /api/ai/runs/{id}/cancel` - Cancel a background run, scoped to the caller; idempotent — a finished run is returned unchanged (`ai:use`)
+- `GET /api/ai/usage/me?from&to&groupBy` - The caller's own usage report, same shape as the admin one, `groupBy` `day|model` only (`ai:use`)
 
 ### Health
 - `GET /api/health/live` - Liveness check
