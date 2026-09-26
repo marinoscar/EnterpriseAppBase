@@ -74,6 +74,7 @@ ai/
     ai-embeddings.controller.ts  POST /api/ai/embeddings (#440)
     ai-images.controller.ts      POST /api/ai/images, POST /api/ai/images/edits (#437) — 202, a run
     ai-audio.controller.ts       POST /api/ai/audio/transcriptions (#438), POST /api/ai/audio/speech (#439) — 202, a run
+    ai-realtime.controller.ts    POST /api/ai/realtime/sessions (#449) — 201, an ephemeral realtime secret
     ai-sse.ts                     pipeAiSse/formatSseEvent/abortOnDisconnect — see below
     ai-http-request.ts           toAiRequest — HTTP DTO -> AiRequest
     json-schema-structured-output.ts   HTTP callers send JSON Schema, not Zod
@@ -180,6 +181,19 @@ the `ai.audio.speech` job calls `executeSpeechRun()` (`units: { characters
 `AiOutputWriter` as `ai-outputs/<userId>/<runId>/speech.<ext>`. Its output
 carries `aiGenerated: true` — the disclosure provider policies require
 (§5.6).
+
+`createRealtimeSession` (issue #449) is synchronous and has no job:
+`prepareRealtime()` checks the kill switch, then `ai.defaults.allowRealtime`
+(default off → `AI_REALTIME_DISABLED`), then steps 2–3 with `realtime`
+(an omitted model is the first usable one) and the voice, then `context()`
+(key + rate limits — a mint counts as one request), then ONE adapter call:
+OpenAI's `POST /v1/realtime/client_secrets` mints an ephemeral `ek_…` secret
+with the user's key. The result — `{ provider, model, voice, clientSecret,
+expiresAt, connectUrl }` — is the one credential the platform returns: the
+browser connects to the provider directly over WebRTC with it, and the
+user's key never leaves. Usage is `operation: 'realtime'`, `units: {
+sessions: 1 }`, no tokens (the server never sees the audio). See
+`docs/specs/ai-platform.md` §5.8.
 
 **Storage-object inputs** (issue #441) need no method of their own: an
 `image`/`file` part may carry `storageObjectId` instead of `url`, and
