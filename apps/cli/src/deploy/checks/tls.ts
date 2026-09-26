@@ -156,6 +156,30 @@ function renewalConfs(context: CheckContext): string[] {
     .map((name) => `${dir}/${name}`);
 }
 
+/** The host proxy root as it appears inside a renewal config, with a trailing slash. */
+function hostRootOf(context: CheckContext): string {
+  return `${context.proxyRoot.replace(/\/+$/, '')}/`;
+}
+
+/** The domain a renewal config belongs to: certbot names it `<domain>.conf`. */
+function confDomain(path: string): string {
+  return path.slice(path.lastIndexOf('/') + 1, -'.conf'.length);
+}
+
+/** Renewal configs that record HOST paths, which a dockerised renew cannot follow. */
+function hostPathConfs(context: CheckContext): string[] {
+  const hostRoot = hostRootOf(context);
+  const fs = contextFs(context);
+  return renewalConfs(context).filter((path) => fs.readFile(path)?.includes(hostRoot) === true);
+}
+
+/** True when THIS deployment's own renewal config records host paths. */
+function ownConfBroken(context: CheckContext): boolean {
+  const domain = context.domain;
+  if (domain === undefined) return false;
+  return hostPathConfs(context).some((path) => confDomain(path) === domain);
+}
+
 /**
  * Renewal configs a dockerised `certbot renew` can actually follow.
  *
@@ -164,18 +188,24 @@ function renewalConfs(context: CheckContext): string[] {
  * same directory mounted at /etc/letsencrypt, cannot resolve them, and reports
  * "expected /etc/letsencrypt/live/<domain>/cert.pem to be a symlink" -- the
  * certificate silently stops renewing, and the first symptom is an expired
- * certificate ninety days later. This turns that into a doctor failure today.
+ * certificate ninety days later. This turns that into a doctor finding today.
  *
  * Container mode only: in host mode the host paths are the right paths.
- * Required only when there is a renewal config to judge, which is what
- * `severityFor` says; with none, there is nothing that can stop renewing.
+ *
+ * ⚠ REQUIRED ONLY FOR THIS DEPLOYMENT'S OWN CONFIG. The letsencrypt directory
+ * is shared by every application on the box, and an install must not be
+ * refused over a NEIGHBOUR's broken renewal -- this deployment cannot fix it
+ * and does not depend on it. So `renewal/<domain>.conf` with host paths is a
+ * required failure; any other domain's is a recommended warning that names
+ * them. With no domain in the context there is no "own" config, so it is
+ * recommended throughout.
  */
 const certificateRenewalPaths: Check = {
   id: 'certificate-renewal-paths',
   title: 'Renewal configs use container paths',
   severity: 'recommended',
   severityFor: (context) =>
-    context.proxyRuntime?.mode === 'container' && renewalConfs(context).length > 0
+    context.proxyRuntime?.mode === 'container' && ownConfBroken(context)
       ? 'required'
       : 'recommended',
   async run(context) {
@@ -194,24 +224,38 @@ const certificateRenewalPaths: Check = {
       return { status: 'skip', detail: 'no renewal configs yet' };
     }
 
-    const hostRoot = `${context.proxyRoot.replace(/\/+$/, '')}/`;
-    const fs = contextFs(context);
-    const offending = confs.filter((path) => fs.readFile(path)?.includes(hostRoot) === true);
-
+    const offending = hostPathConfs(context);
     if (offending.length === 0) {
       return { status: 'pass', detail: `${confs.length} renewal config(s) use container paths` };
     }
 
-    const domains = offending.map((path) => path.slice(path.lastIndexOf('/') + 1, -'.conf'.length));
+    const hostRoot = hostRootOf(context);
+    const domains = offending.map(confDomain);
+    const own = context.domain !== undefined && domains.includes(context.domain);
+    const others = domains.filter((domain) => domain !== context.domain);
+    const fix =
+      `Rewrite them to the paths certbot sees inside the container: ` +
+      `sed -i -e 's#${hostRoot}letsencrypt#/etc/letsencrypt#g' -e 's#${hostRoot}webroot#/var/www/certbot#g' ` +
+      `${offending.join(' ')} ` +
+      `-- then confirm with: docker run --rm -v ${context.proxyRoot}/letsencrypt:/etc/letsencrypt -v ${context.proxyRoot}/webroot:/var/www/certbot certbot/certbot:latest renew --dry-run. ` +
+      `Future certificates are issued by the dockerised certbot (no --config-dir/--work-dir/--logs-dir), which records container paths.`;
+
+    if (own) {
+      return {
+        status: 'fail',
+        detail:
+          `the renewal config for ${context.domain as string} records host paths under ${hostRoot}` +
+          (others.length === 0 ? '' : `; so do: ${others.join(', ')}`),
+        remedy: `A dockerised certbot renew cannot follow it, so this certificate will silently stop renewing. ${fix}`,
+      };
+    }
+
+    // Another application's problem, not this deployment's: reported so it is
+    // not lost, never allowed to block this install.
     return {
-      status: 'fail',
-      detail: `${offending.length} renewal config(s) record host paths under ${hostRoot}: ${domains.join(', ')}`,
-      remedy:
-        `A dockerised certbot renew cannot follow these, so the certificate will silently stop renewing. ` +
-        `Rewrite them to the paths certbot sees inside the container: ` +
-        `sed -i -e 's#${hostRoot}letsencrypt#/etc/letsencrypt#g' -e 's#${hostRoot}webroot#/var/www/certbot#g' ${context.proxyRoot}/letsencrypt/renewal/*.conf ` +
-        `-- then confirm with: docker run --rm -v ${context.proxyRoot}/letsencrypt:/etc/letsencrypt -v ${context.proxyRoot}/webroot:/var/www/certbot certbot/certbot:latest renew --dry-run. ` +
-        `Future certificates are issued by the dockerised certbot (no --config-dir/--work-dir/--logs-dir), which records container paths.`,
+      status: 'warn',
+      detail: `other applications' renewal config(s) record host paths under ${hostRoot}: ${others.join(', ')}`,
+      remedy: `Those certificates will silently stop renewing under a dockerised certbot renew. ${fix}`,
     };
   },
 };

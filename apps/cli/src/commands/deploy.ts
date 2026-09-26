@@ -125,6 +125,10 @@ export interface DoctorCommandOptions {
 export interface DeployContext {
   /** Injected so tests drive the checks without a server. */
   checks?: readonly import('../deploy/checks/index.js').Check[] | undefined;
+  /**
+   * Every subprocess a subcommand runs, including doctor's proxy-runtime
+   * detection (`docker inspect`, `nginx -v`) -- inject it and nothing spawns.
+   */
   runCommand?: typeof runCommand | undefined;
   stdout?: { write(chunk: string): unknown } | undefined;
   stderr?: { write(chunk: string): unknown } | undefined;

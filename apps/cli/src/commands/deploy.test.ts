@@ -42,6 +42,20 @@ interface RunResult {
   error: unknown;
 }
 
+/**
+ * A runCommand that answers every probe as a missing binary.
+ *
+ * `doctor` resolves the proxy runtime (`docker inspect`, `nginx -v`) before it
+ * runs any check, so without this the tests below would spawn real processes.
+ * Every probe failing lands on the documented default -- container mode -- and
+ * the injected checks never call it at all.
+ */
+const noProcesses: typeof import('../deploy/executor.js').runCommand = (async (
+  argv: readonly string[],
+) => {
+  throw new Error(`${argv[0] ?? ''}: command not found`);
+}) as typeof import('../deploy/executor.js').runCommand;
+
 async function runDoctor(
   argv: readonly string[],
   checks: readonly Check[],
@@ -54,6 +68,7 @@ async function runDoctor(
   program.exitOverride();
   registerDeployCommand(program, {
     checks,
+    runCommand: noProcesses,
     stdout: { write: (chunk: string) => stdout.push(chunk) },
     stderr: { write: (chunk: string) => stderr.push(chunk) },
     isTty: false,
