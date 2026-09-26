@@ -467,5 +467,104 @@ describe('Admin jobs API (Integration)', () => {
 
       expect(response.body).toEqual({});
     });
+
+    // =========================================================================
+    // The owner's veto (#480) — real JobHandlerRegistry, real broadcast handlers
+    // =========================================================================
+    //
+    // This app is built the normal way (`createTestApp` boots the whole
+    // `AppModule`), so `JobAdminService`'s injected `JobHandlerRegistry` is the
+    // real one, populated by every handler's real `onModuleInit`. A pending
+    // `admin.broadcast.chunk` job whose broadcast is `sending` therefore hits
+    // the REAL `BroadcastChunkHandler.canDelete`, through the real HTTP
+    // pipeline and the real exception filter — proving the 409 envelope
+    // (`code`, `details.reason`) survives that whole path, not just the bare
+    // service call `job-admin.service.spec.ts` already covers.
+    describe('the owner veto (#480)', () => {
+      const BROADCAST_ID = 'bcast-veto-1';
+
+      it('409s with owner_refused when the job\'s broadcast is still sending', async () => {
+        const admin = await createMockAdminUser(context);
+        prisma.job.findUnique.mockResolvedValue({
+          id: JOB_ID,
+          status: 'pending',
+          type: 'admin.broadcast.chunk',
+          subjectType: 'notification_broadcast',
+          subjectId: BROADCAST_ID,
+        });
+        prisma.notificationBroadcast.findUnique.mockResolvedValue({
+          id: BROADCAST_ID,
+          status: 'sending',
+        });
+
+        const response = await request(server())
+          .delete(`/api/admin/jobs/${JOB_ID}`)
+          .set(authHeader(admin.accessToken))
+          .expect(409);
+
+        // The filter derives `code` from the status regardless of what the
+        // exception's payload carries — see `http-exception.filter.ts`.
+        expect(response.body.code).toBe('CONFLICT');
+        expect(response.body.details).toEqual({
+          jobId: JOB_ID,
+          status: 'pending',
+          reason: 'owner_refused',
+        });
+        expect(response.body.message).toEqual(expect.stringContaining(BROADCAST_ID));
+        expect(prisma.job.deleteMany).not.toHaveBeenCalled();
+      });
+
+      it('204s once the broadcast is no longer scheduled/sending', async () => {
+        const admin = await createMockAdminUser(context);
+        prisma.job.findUnique.mockResolvedValue({
+          id: JOB_ID,
+          status: 'pending',
+          type: 'admin.broadcast.chunk',
+          subjectType: 'notification_broadcast',
+          subjectId: BROADCAST_ID,
+        });
+        prisma.notificationBroadcast.findUnique.mockResolvedValue({
+          id: BROADCAST_ID,
+          status: 'canceled',
+        });
+        prisma.job.deleteMany.mockResolvedValue({ count: 1 });
+
+        await request(server())
+          .delete(`/api/admin/jobs/${JOB_ID}`)
+          .set(authHeader(admin.accessToken))
+          .expect(204);
+      });
+
+      it('204s a broadcast job whose own status is already terminal, even if the broadcast is sending', async () => {
+        const admin = await createMockAdminUser(context);
+        prisma.job.findUnique.mockResolvedValue({
+          id: JOB_ID,
+          status: 'succeeded',
+          type: 'admin.broadcast.chunk',
+          subjectType: 'notification_broadcast',
+          subjectId: BROADCAST_ID,
+        });
+        prisma.job.deleteMany.mockResolvedValue({ count: 1 });
+
+        await request(server())
+          .delete(`/api/admin/jobs/${JOB_ID}`)
+          .set(authHeader(admin.accessToken))
+          .expect(204);
+
+        // Terminal short-circuits before any broadcast lookup.
+        expect(prisma.notificationBroadcast.findUnique).not.toHaveBeenCalled();
+      });
+
+      it('204s an unrelated job type with no registered canDelete', async () => {
+        const admin = await createMockAdminUser(context);
+        prisma.job.findUnique.mockResolvedValue({ id: JOB_ID, status: 'pending', type: 'example.echo' });
+        prisma.job.deleteMany.mockResolvedValue({ count: 1 });
+
+        await request(server())
+          .delete(`/api/admin/jobs/${JOB_ID}`)
+          .set(authHeader(admin.accessToken))
+          .expect(204);
+      });
+    });
   });
 });

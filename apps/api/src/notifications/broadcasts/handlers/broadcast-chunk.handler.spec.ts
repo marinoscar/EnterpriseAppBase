@@ -225,6 +225,37 @@ describe('BroadcastChunkHandler', () => {
     expect(handler.persistNodeResult).toBeUndefined();
   });
 
+  describe('canDelete (#480)', () => {
+    it('returns the shared guard\'s refusal reason while the broadcast is sending', async () => {
+      const { handler, findUnique } = makeHandler({ broadcast: { status: 'sending' } });
+
+      const result = await handler.canDelete(chunkJob);
+
+      expect(findUnique).toHaveBeenCalledWith({
+        where: { id: BROADCAST_ID },
+        select: { id: true, status: true },
+      });
+      expect(result).toEqual(expect.stringContaining(BROADCAST_ID));
+      expect(result).toEqual(expect.stringContaining('sending'));
+    });
+
+    it('returns null for a terminal (succeeded) chunk job even while the broadcast is sending', async () => {
+      const { handler } = makeHandler({ broadcast: { status: 'sending' } });
+
+      const result = await handler.canDelete({ ...chunkJob, status: 'succeeded' } as Job);
+
+      expect(result).toBeNull();
+    });
+
+    it('returns null once the broadcast has finished sending', async () => {
+      const { handler } = makeHandler({ broadcast: { status: 'sent' } });
+
+      const result = await handler.canDelete(chunkJob);
+
+      expect(result).toBeNull();
+    });
+  });
+
   describe('the status guard', () => {
     it('sends nothing when the broadcast has been cancelled', async () => {
       // How cancel is honoured. #324 flips the status and deliberately leaves
