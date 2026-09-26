@@ -144,6 +144,12 @@ export const updateAiConfigSchema = z.object({
     /** Omit or null for "no cap" — which CLEARS a stored cap. */
     maxOutputTokensCap: z.number().int().positive().max(1_000_000).nullish(),
     allowBackgroundRuns: z.boolean(),
+    /**
+     * Whether users may mint realtime voice sessions (#449). Omit to keep the
+     * stored value, like `usageRetentionDays`, so a client written before the
+     * field existed still saves.
+     */
+    allowRealtime: z.boolean().optional(),
   }),
   /**
    * Days `ai_usage_events` rows are kept before the daily purge deletes them

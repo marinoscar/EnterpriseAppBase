@@ -121,6 +121,7 @@ export const systemSettingsResponseSchema = z.object({
     defaults: z.object({
       maxOutputTokensCap: z.number().optional(),
       allowBackgroundRuns: z.boolean(),
+      allowRealtime: z.boolean(),
     }),
     logPromptContent: z.boolean(),
     usageRetentionDays: z.number().int(),

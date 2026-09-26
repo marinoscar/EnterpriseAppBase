@@ -92,7 +92,8 @@ through `SystemSettingsService`) holds everything that is *not* secret:
                'openai-compatible': { enabled: boolean /*false*/, baseUrl?: string /*http(s)*/,
                                       apiStyle?: 'responses' | 'chat_completions',
                                       requiresKey?: boolean } /*§14.3, #448*/ },
-  defaults: { maxOutputTokensCap?: number, allowBackgroundRuns: boolean /*true*/ },
+  defaults: { maxOutputTokensCap?: number, allowBackgroundRuns: boolean /*true*/,
+              allowRealtime: boolean /*false — §5.8*/ },
   logPromptContent: boolean /*false*/,
   usageRetentionDays: number /*180, 1–3650 — §12, #443*/,
   hostedTools: { …switches, mcpAllowedHosts: string[] } /*all off — §5.4, #442*/,
@@ -188,6 +189,12 @@ call: `'user'`, `'org'`, `'none'` (a keyless provider, #448), or
 `'admin_discovery'` (§12) — the last is reserved for calls the *platform itself* makes with the admin key
 (catalog sync) and is never a value `AiKeyResolver` returns to a runtime
 caller.
+
+Neither key ever reaches a browser. The one provider credential that does is
+a realtime session's **ephemeral client secret** (§5.8). It is minted server-side
+*with* the resolved key, it expires in 60 seconds, it opens one session
+configuration, and it cannot call any other API. It is the single, deliberate
+exception, and it is never the key itself.
 
 ## 4. The capability model
 
@@ -706,6 +713,151 @@ reasoning continuity across tool rounds and every round re-bills the whole
 prompt); **putting the thinking signature in a normal field** (every
 serialiser — DTO, SSE, run row, log — would have to remember to strip it).
 
+### 5.8 Realtime sessions (Phase 3, issue #449)
+
+Low-latency speech-to-speech ("talk to the app") does not fit the shape of
+§5.1–§5.7. The audio flows **browser ↔ provider** over WebRTC for the whole
+conversation, so there is no request for the server to relay and no response
+for it to store. That runs into §3's rule that a key never reaches the
+browser. The answer is a **server-minted, short-lived, single-session
+ephemeral credential**. The server spends the user's real key once, to ask
+the provider for a throwaway client secret, and only that secret goes to the
+browser.
+
+**How OpenAI's ephemeral endpoint works** (verified against the GA Realtime
+API and the `openai` SDK this repository pins, which exposes it as
+`client.realtime.clientSecrets.create`):
+
+1. The server calls `POST /v1/realtime/client_secrets` with the real key
+   (`Authorization: Bearer <user or org key>`) and a body of
+   `{ expires_after: { anchor: 'created_at', seconds }, session: { type:
+   'realtime', model, instructions?, output_modalities?, max_output_tokens?,
+   audio: { output: { voice }, input?: { turn_detection } }, tools? } }`.
+   The `session` object becomes the session's initial configuration.
+2. OpenAI answers `{ value: 'ek_…', expires_at, session }`. `value` is the
+   ephemeral client secret, `expires_at` is epoch seconds, and `session` is
+   the effective configuration, with its own `sess_…` id.
+3. The browser opens an `RTCPeerConnection`, adds the microphone track and a
+   `oai-events` data channel, and POSTs its SDP offer (`Content-Type:
+   application/sdp`) to **`https://api.openai.com/v1/realtime/calls`** with
+   `Authorization: Bearer ek_…`. The response body is the SDP answer. From
+   then on, audio travels over the media tracks, and JSON events
+   (`session.update`, `response.create`, `conversation.item.*`,
+   `response.output_audio_transcript.delta`, …) travel over the data
+   channel.
+
+The legacy `POST /v1/realtime/sessions` (the beta path, which returned
+`client_secret.value` inside a session object) is **not** used. The GA
+endpoint replaced it.
+
+**TTL.** `expires_after.seconds` accepts 10–7200 (2 hours). When it is
+omitted, the typings of the SDK version we pin say the default is 600
+seconds; older documentation described about one minute. We do not depend on
+either default. The adapter always sends **60 seconds**
+(`AI_REALTIME_CLIENT_SECRET_TTL_SECONDS`), which is enough for the browser to
+receive the secret and finish the SDP exchange. The expiry bounds how long
+the secret can **open** a session; a call connected before it expires keeps
+running after it. The session's own length is the provider's limit (currently
+up to 60 minutes per session for OpenAI), not ours.
+
+**What the ephemeral secret can and cannot do.**
+
+- It **can** open realtime sessions against the configuration it was minted
+  with, until it expires. The provider allows more than one connection
+  before expiry; the short TTL is what keeps that window small. Inside a
+  session, the client can change that session over the data channel with
+  `session.update`: its instructions, its tools, turn detection, and
+  enabling input-audio transcription.
+- It **cannot** list models, call the Responses, Files, Images or Audio APIs,
+  mint another secret, or read anything about the account. It is not an API
+  key. It is also useless after `expires_at` for opening anything new.
+- **Consequence:** instructions, voice and the output-token cap the server
+  sends are **initial configuration, not enforcement**. A user holding the
+  secret can reconfigure their own session. That is acceptable because they
+  can only spend their own quota (or the org key's, under the policy the
+  administrator chose), and the gates below have already decided they may
+  use realtime at all.
+
+**Usage reporting.** The server never sees the media stream or the
+provider's `response.done` usage events, so it cannot know token or audio
+counts. Each mint records **one** `ai_usage_events` row with `operation:
+'realtime'` and `units: { sessions: 1 }`, and no token counts. A failed mint
+records a `failed` row with no units, like any failed round trip. Forwarding
+the browser's `response.done` usage back to the API was rejected for now:
+those numbers would be self-reported by the client that benefits from
+under-reporting them, and a usage table we cannot trust is worse than one
+that honestly says "sessions only". Exact realtime cost is on the provider's
+own dashboard.
+
+**The decision.** `ai.forUser(userId).createRealtimeSession({ provider?,
+model?, voice?, instructions?, turnDetection?, tools? })` →
+`{ provider, model, voice, clientSecret, expiresAt, connectUrl }`, gated in
+this order:
+
+1. the kill switch → `AI_DISABLED`;
+2. **`ai.defaults.allowRealtime`** (a new admin flag, **default `false`**) →
+   `AI_REALTIME_DISABLED` (403). It is a separate switch from `enabled`
+   because a realtime session is the one AI surface where the server gives
+   up per-call control: it cannot see, cap or meter what happens after the
+   mint. An administrator should opt into that knowingly. It is published
+   as `allowRealtime` in `GET /api/ai/config` (always `false` while AI is off),
+   so a client can hide its voice mode;
+3. the target: an omitted `model` means the first usable model with
+   `realtime` (in `GET /api/ai/models` order); then the provider is enabled
+   and registered → `AI_PROVIDER_DISABLED`;
+4. the model is enabled, declares `realtime` (model **and** the provider's
+   `realtime` port) and is reachable with a key → `AI_MODEL_NOT_ENABLED`,
+   `AI_CAPABILITY_UNSUPPORTED`, `AI_KEY_REQUIRED`, `AI_MODEL_NOT_REACHABLE`;
+5. the voice is one the model lists (`capabilities.voices`, else the port's
+   `voices`) → `AI_INVALID_REQUEST`. An omitted voice means the model's
+   first;
+6. the key is resolved (§3; the byok invariant holds, so the org key only
+   pays under `byok_with_org_fallback`);
+7. the rate limits (§15). A mint **counts as one request**;
+8. the adapter mints, and the usage row is recorded.
+
+`POST /api/ai/realtime/sessions` (`ai:use`, `AiEnabledGuard`) exposes it.
+The body is `{ provider?, model?, voice?, instructions? }` and the response
+is 201 `{ data: { provider, model, voice, clientSecret, expiresAt,
+connectUrl } }`. There is no job: minting is one short provider round trip,
+and the long-running part (the call itself) runs between the browser and
+the provider, never on the server. That is within the MANDATORY queue rule,
+which covers only work that runs **on** this server past its request. Tools
+are not accepted over HTTP, for the same reason `POST /api/ai/responses`
+refuses function tools. The in-process port accepts them for a fork that
+wants to declare client-executed tools.
+
+**⚠ The single, deliberate exception to "secrets never leave the server".**
+`clientSecret` **is** returned to the browser, because that is its only
+purpose. It is the only credential any AI route returns. It is a provider
+credential scoped to one session configuration, it expires in 60 seconds,
+and it is not an API key. The user's real key (or the org key) is used only
+as the `Authorization` header of the mint call to the provider. It is never
+in this response, a log line, a span, an error, or the usage row. Treat
+`clientSecret` like a bearer token anyway: it is never logged, stored or
+put on a span. `ai-secret-egress.integration.spec.ts` holds both halves as
+executable rules. The fake provider's ephemeral sentinel may appear in this
+one route's `clientSecret` field and nowhere else (not in any log line or
+usage row), while the real-key sentinels may not appear anywhere, this
+response included.
+
+`connectUrl` is derived from the provider slot's `baseUrl` (default
+`https://api.openai.com/v1` → `https://api.openai.com/v1/realtime/calls`),
+so a deployment that points OpenAI at a gateway also points its browsers
+there. That gateway must then be reachable from users' browsers and must
+proxy WebRTC SDP.
+
+Rejected: **relaying the media through the API** (a WebSocket from the server
+to the provider, forwarded to the browser). It would put the API in the data
+path of every second of every call, and it would need sticky long-lived
+connections through nginx for a conversation that is exactly the thing
+WebRTC exists to keep peer-to-peer. The server would see the usage, but at
+the cost of the latency that is the reason to use realtime. **Returning the
+real key** to the browser (the thing §3 exists to rule out). **A job type for
+the mint** (there is no long-running server work to account for).
+**Metering from client-forwarded `response.done` events** (untrustworthy; see
+usage above).
+
 ## 6. Model discovery and classification
 
 A provider's model-listing endpoint returns IDs and little else useful —
@@ -878,6 +1030,13 @@ node-eligible** — no `nodeResultSchema` +
   outcomes, retries for a multi-attempt profile, the settle safety net). Embeddings ship no job
   type of their own: `embed` is synchronous, and a large backfill is a
   fork's own server-only job calling it per chunk (§5.1).
+- **Realtime sessions (#449) ship no job type, deliberately.** Minting the
+  ephemeral secret is one short, synchronous provider round trip, and the
+  long-running part (the conversation) runs browser ↔ provider over WebRTC
+  and never on this server. There is nothing server-side to lease, time out
+  or retry (§5.8). If a future realtime feature ever runs a session
+  server-side (a server-held WebSocket, say), that work becomes a
+  server-only job like every other here.
 
 The reason is not incidental — it is **MANDATORY queue rule 3**
 (CLAUDE.md): a node never persists a job-scoped credential, and every
@@ -1035,14 +1194,22 @@ a grant intended for one purpose silently acquire a different, larger one:
   seeded far more broadly for unrelated settings.
 - `ai:use` — may call AI with the caller's own key (or the org fallback
   when policy allows it): the consumer-facing routes under `/api/ai/*`
-  (excluding the always-open `GET /api/ai/config`). Seeded to **all three
-  roles** (Admin, Contributor, Viewer) — using AI with a key the caller
-  themselves supplied is not an administrative act, the same way managing
-  one's own settings or storage objects is not.
+  (excluding the always-open `GET /api/ai/config`). Seeded to **Admin and
+  Contributor**, and deliberately **NOT to Viewer** (issue #499) — using
+  AI with a key the caller themselves supplied is not an administrative
+  act, the same way managing one's own settings or storage objects is
+  not, but Viewer is the DEFAULT role every new signup lands in, and a
+  default `ai:use` grant meant a brand-new account could call AI with no
+  administrator having decided that. Under `byok` this was inert (no key,
+  no calls succeed), but under `byok_with_org_fallback` it meant a new
+  Viewer could silently spend the deployment's own org key the first time
+  they touched an AI surface. An administrator who wants a Viewer to use
+  AI grants `ai:use` back explicitly (a `role_permissions` row) or
+  promotes the account to Contributor.
 
 `ai_config` and `ai:use` are deliberately **not** folded into one
-permission: an administrator must be able to grant "may use AI" to
-everyone (the default posture) while keeping "may reconfigure the AI
+permission: an administrator must be able to grant "may use AI" broadly
+(Admin and Contributor by default) while keeping "may reconfigure the AI
 platform for the whole deployment" restricted to Admin — exactly the
 reachability-vs-authority distinction CLAUDE.md's Settings UI Pattern
 already draws between a destination gate and a tab gate, applied here to
@@ -1055,14 +1222,16 @@ Every provider round-trip — success or failure — writes exactly one
 inputTokens?, outputTokens?, reasoningTokens?, cachedInputTokens?, units?,
 latencyMs, status, errorCode?, providerRequestId?, jobId? }`. `operation` is
 one of `responses | images | audio.transcribe | audio.speech | embeddings |
-catalog` — `catalog` is the one operation with no `userId` (it runs under
+realtime | catalog` — `catalog` is the one operation with no `userId` (it runs under
 the admin key, §6, `keySource: 'admin_discovery'`) and no
 `inputTokens`/`outputTokens` (discovery/classification are not token-metered
 calls); `units` exists for non-token-metered operations (`{ images: 2 }`,
 `{ audioSeconds: 31.4 }`). `AiUsageRecorder` writes it from the facade's
 round-trip outcome (#437 — `images` records `{ images: n }`; #438 —
 `audio.transcribe` records `{ audioSeconds }`; #439 — `audio.speech` records
-`{ characters }`), keeping only
+`{ characters }`; #449 — `realtime` records `{ sessions: 1 }` per minted
+session and **no tokens**, because the media never passes through the server
+(§5.8)), keeping only
 finite, non-negative numbers and storing nothing when none are left.
 
 **Reading it back (#443).** Two routes aggregate these rows, both answering
@@ -1151,6 +1320,7 @@ one HTTP status:
 | `AI_MODEL_NOT_ENABLED` | 403 | The model is not admin-enabled, or is deprecated (§6, §7). |
 | `AI_MODEL_NOT_REACHABLE` | 403 | The model is enabled, but the resolved key cannot reach it (§7). |
 | `AI_CAPABILITY_UNSUPPORTED` | 400 | The model/provider lacks a capability the request needs (§4) — including `previousResponseId` on a provider that stores no responses (`details.capability: "previous_response_id"`, §5.7). |
+| `AI_REALTIME_DISABLED` | 403 | Realtime sessions are switched off for this deployment (`ai.defaults.allowRealtime`, default `false`, §5.8). Published in advance as `allowRealtime: false` in `GET /api/ai/config`. |
 | `AI_TOOL_DISABLED` | 403 | A hosted tool type an administrator has not switched on, or an MCP server host outside `ai.hostedTools.mcpAllowedHosts` (§5.4). |
 | `AI_RATE_LIMITED` | 429 | The provider rate-limited the call, **or** a deployment limit in `ai.limits` was reached (§15 — then `details.limit` names it, with `details.max` and `details.window`); convertible to the queue's `RateLimitError` via `toRateLimitError()` so a job defers rather than burning an attempt. `details.retryAfterMs` (and, over HTTP, a `Retry-After` header in whole seconds, rounded up) says when to retry, whenever it is known. |
 | `AI_PROVIDER_UNAVAILABLE` | 503 | The provider is unreachable or erroring at the transport level — including, for the #448 adapters, an endpoint that answered with a **redirect** (`details.providerCode: "redirect_refused"`, `details.status` the 3xx; never followed, its `Location` never echoed) and a slot with no endpoint at all (`details.missing: "baseUrl"`), §14.3. |
@@ -1184,7 +1354,7 @@ specific code from the table above travels **only** in `details.reason`,
 written last inside `AiError`'s constructor so a caller-supplied
 `details.reason` can never disagree with it; a client switches on
 `details.reason`, never on the top-level `code`, to learn which of these
-fourteen conditions occurred. Its `apiKey`/key material must never appear in
+fifteen conditions occurred. Its `apiKey`/key material must never appear in
 `details` or in any log line derived from it, regardless of how the error
 was constructed (a unit test asserts `JSON.stringify(new AiError(...))`
 never includes a key passed via `cause`).
@@ -1726,7 +1896,7 @@ every consumer-facing route (as opposed to `/api/admin/ai/*`'s
 
 | Method & path | Auth | Behaviour |
 |---|---|---|
-| `GET /api/ai/config` | `@Auth()` | `{ enabled, keyPolicy, allowBackgroundRuns, hostedTools:{ web_search, file_search, code_interpreter, image_generation, mcp }, providers:[{ id, displayName, enabled, hasOrgKey, supportsPreviousResponseId, requiresKey }] }` — `supportsPreviousResponseId: false` (Anthropic, Gemini, Azure OpenAI, OpenAI-compatible) means send the conversation as `input`; `previousResponseId` is refused (§5.7). `requiresKey: false` (#448) marks a keyless OpenAI-compatible server: nobody needs a key for it (§14.3). When `enabled=false`: `{ enabled:false, keyPolicy, allowBackgroundRuns:false, hostedTools:{ …all false }, providers:[] }`. Never includes hints or keys. Reachable even while `ai.enabled=false` (§8). |
+| `GET /api/ai/config` | `@Auth()` | `{ enabled, keyPolicy, allowBackgroundRuns, allowRealtime, hostedTools:{ web_search, file_search, code_interpreter, image_generation, mcp }, providers:[{ id, displayName, enabled, hasOrgKey, supportsPreviousResponseId, requiresKey }] }` — `supportsPreviousResponseId: false` (Anthropic, Gemini, Azure OpenAI, OpenAI-compatible) means send the conversation as `input`; `previousResponseId` is refused (§5.7). `requiresKey: false` (#448) marks a keyless OpenAI-compatible server: nobody needs a key for it (§14.3). When `enabled=false`: `{ enabled:false, keyPolicy, allowBackgroundRuns:false, allowRealtime:false, hostedTools:{ …all false }, providers:[] }`. Never includes hints or keys. Reachable even while `ai.enabled=false` (§8). |
 
 **User keys and usable models** (`/api/ai/*`, all
 `@UseGuards(AiEnabledGuard)`, `@Auth({ permissions:[PERMISSIONS.AI_USE] })`):
@@ -1750,6 +1920,7 @@ every consumer-facing route (as opposed to `/api/admin/ai/*`'s
 | `POST /api/ai/images/edits` | `editImage(...)` → `{ runId, jobId }`, status 202. Inputs by storage object id: unknown → 404, another user's → 403, not ready / wrong type / too large → 400 `AI_INVALID_REQUEST`. |
 | `POST /api/ai/audio/transcriptions` | `transcribe(...)` → `{ runId, jobId }`, status 202 (§5.5). The recording by storage object id: unknown → 404, another user's → 403, not ready / not audio / over the provider limit → 400 `AI_INVALID_REQUEST`; a model without `audio_transcription` → 400 `AI_CAPABILITY_UNSUPPORTED`. |
 | `POST /api/ai/audio/speech` | `speak(...)` → `{ runId, jobId }`, status 202 (§5.6). `input` over 4096 characters → 400; a voice the model does not speak → 400 `AI_INVALID_REQUEST`; a model without `audio_speech` → 400 `AI_CAPABILITY_UNSUPPORTED`. The output carries `aiGenerated: true`. |
+| `POST /api/ai/realtime/sessions` | `createRealtimeSession(...)` → `{ provider, model, voice, clientSecret, expiresAt, connectUrl }`, status 201 (§5.8). `allowRealtime` off → 403 `AI_REALTIME_DISABLED`; a model without `realtime` → 400 `AI_CAPABILITY_UNSUPPORTED`; a voice the model does not list → 400 `AI_INVALID_REQUEST`. `clientSecret` is the ephemeral, 60-second, single-session provider secret: the **one** credential any AI route returns, and never the user's key. |
 | `POST /api/ai/runs` | `startRun(...)` → `{ runId, jobId }`, status 202. |
 | (all three responses routes) | `image`/`file` parts take `url` **or** `storageObjectId` (§5.3): unknown object → 404, another user's → 403, wrong modality → 400 `AI_CAPABILITY_UNSUPPORTED`, over 20/50 MiB → 400 `AI_INVALID_REQUEST`, storage unusable → 503 `AI_STORAGE_UNAVAILABLE`. |
 | `GET /api/ai/runs/:id` | Scoped to caller → `{ id, status, provider, modelId, output, errorCode, errorMessage, createdAt, completedAt }` (never the stored prompt, never the job id); `output` is the `AiResponse`, an image run's `{ type: 'images', storageObjectIds, … }`, a transcript `{ type: 'transcription', text, … }`, or speech `{ type: 'speech', storageObjectId, aiGenerated: true, … }`; 404 for another user's run. |
@@ -1952,16 +2123,16 @@ limits then in force, when it executes.
   (§12). Every provider call in this platform happens server-side, with no
   exception.
 
-## The Playground (`/ai`, web reference UI — #434, #445)
+## The Playground (`/ai`, web reference UI — #434, #445, #449)
 
 The Playground is the template's copyable example of consuming every AI
 capability from the browser, and a user's way to prove their key works. It
 calls only the HTTP surface above — never a provider, never a key.
 
 - **Modes.** A segmented control (not a settings tab strip) switches between
-  Chat, Image, Transcribe, Speech and Embeddings. Each mode is defined by one
-  capability (`responses`, `image_generation`, `audio_transcription`,
-  `audio_speech`, `embeddings`) and lists only the usable models (§7) that
+  Chat, Image, Transcribe, Speech, Embeddings and Voice. Each mode is defined
+  by one capability (`responses`, `image_generation`, `audio_transcription`,
+  `audio_speech`, `embeddings`, `realtime`) and lists only the usable models (§7) that
   declare it; a mode no usable model serves stays focusable but
   `aria-disabled`, with the reason as its tooltip. Nothing is keyed on a model
   name (`apps/web/src/components/ai/playground/aiPlaygroundModes.ts`). A
@@ -1989,9 +2160,44 @@ calls only the HTTP surface above — never a provider, never a key.
 - **Embeddings** is synchronous: one input per line (≤ 256), then count,
   dimensions, the first 8 values per vector and — for ≤ 10 inputs — a cosine
   similarity matrix computed in the browser from the returned vectors.
+- **Voice** (#449, §5.8) is a live speech-to-speech call. It is **hidden**,
+  not merely disabled, unless `GET /api/ai/config` reports
+  `allowRealtime: true` (an older API that omits the flag reads as off), and
+  it is disabled with a reason when no usable model declares `realtime`.
+  Model, voice (the model's `capabilities.voices`) and optional instructions
+  are chosen before Start. `useAiRealtimeSession`
+  (`apps/web/src/hooks/useAiRealtimeSession.ts`) asks for the microphone
+  **first**, so a slow permission prompt cannot eat the secret's ~60-second
+  connect window. It then mints the session and opens an `RTCPeerConnection`
+  with the mic track and the `oai-events` data channel. It POSTs the SDP offer
+  straight to `connectUrl` with `Authorization: Bearer <clientSecret>` and
+  plays the remote track through an `<audio autoplay>` element. The
+  `clientSecret` lives only in a local variable for that one exchange; it is
+  never put in React state, rendered or logged, and a secret already past
+  `expiresAt` is never sent. When the channel opens, the hook sends a
+  `session.update` that turns on input transcription. It then reads both
+  sides into one `aria-live="polite"` transcript labelled You / Assistant.
+  The events it reads are `conversation.item.input_audio_transcription.*`,
+  `response.output_audio_transcript.*`, and the beta
+  `response.audio_transcript.*` names. Each line is keyed by `item_id` and
+  ordered by `conversation.item.created`. Mute disables the mic track. The
+  controls also include Stop and an elapsed `mm:ss` timer. Stop, a failure
+  and unmount all close the channel and the connection, stop the mic and clear
+  the timer. The call keeps running while another mode is shown. Each failure
+  has its own copy: mic blocked (`NotAllowedError`), no mic
+  (`NotFoundError`), no WebRTC, the mint's AI code (`AI_REALTIME_DISABLED`
+  and the rest through `AiErrorAlert`), an SDP exchange the provider refused,
+  a connection that went `failed`/`disconnected`, and an expired session. A
+  provider `error` event is shown without ending the call. The unit tests fake
+  `RTCPeerConnection` and `getUserMedia`, so **manual verification needs a real
+  provider key, a model with `realtime` enabled, `allowRealtime` switched on at
+  `/admin/settings/ai`, and a real microphone**. Start a call, speak, hear the
+  answer, and watch both transcript lines appear.
 - **Errors** of every road (a refused request, an SSE `error` frame, a failed
   run's `errorCode`) render through the one `AiErrorAlert` mapping; the
   storage API's own "not configured" reasons read as `AI_STORAGE_UNAVAILABLE`.
+  `AI_REALTIME_DISABLED` (like `AI_DISABLED`) also re-reads the AI config, so
+  Voice disappears when an administrator switches realtime off mid-session.
 
 ## Verification
 
@@ -2014,10 +2220,11 @@ calls only the HTTP surface above — never a provider, never a key.
 | Usage aggregates add up under every grouping (real SQL over a seeded fixture); `/me` is scoped to the caller; the purge deletes only rows past retention and its cron only enqueues | `apps/api/test/ai/ai-usage.db.spec.ts`, `apps/api/test/ai/ai-usage.integration.spec.ts`, `apps/api/src/ai/usage/*.spec.ts`, `apps/api/test/jobs/cron-enqueue-only.spec.ts` |
 | Streaming and non-streaming responses return identical final text for the same fake script; a pre-stream gate failure is plain JSON, a mid-stream failure is an `error` SSE frame; client abort stops the provider call | `apps/api/test/ai/ai-responses.integration.spec.ts` |
 | `infra/nginx/nginx.conf` contains the `/api/ai/responses/stream` location with `proxy_buffering off` | a config-assertion spec reading the nginx file directly, mirroring `apps/api/test/production-image.spec.ts` |
-| Seed grants: Admin holds all three AI permissions; Contributor and Viewer hold `ai:use` only | `apps/api/test/prisma/seed-data.spec.ts` |
+| Seed grants: Admin holds all three AI permissions; Contributor holds `ai:use` only; Viewer holds neither (#499) | `apps/api/test/prisma/seed-data.spec.ts` |
 | The conformance kit (`describeAiProviderConformance`) passes against `FakeAiProvider` | `apps/api/src/ai/testing/fake-ai-provider.conformance.spec.ts` |
 | Storage-object inputs: ownership/modality/size/strategy gates, delivery by presigned URL and by Files API upload with provider-side deletion (success, failure, stream end), queued runs storing only the id, and no presigned URL in any response, row or log line | `apps/api/src/ai/runtime/ai-file-inputs.spec.ts`, `apps/api/src/ai/providers/openai/openai-file-inputs.spec.ts`, `apps/api/test/ai/ai-file-inputs.integration.spec.ts`, `apps/api/test/ai/ai-secret-egress.integration.spec.ts` |
 | Rate limits (§15): each limit's window and exact `retryAfterMs`, unlimited and query-free when unset, org-key limits never applied to a user's own key, the gate after key resolution, what counts, the per-model output clamp, a limited background run deferred not failed, and 429 + `Retry-After` + `details.limit` over HTTP | `apps/api/src/ai/runtime/ai-limits.service.spec.ts`, `apps/api/src/ai/runtime/ai-limits.facade.spec.ts`, `apps/api/src/ai/runtime/ai-response-run.handler.spec.ts`, `apps/api/src/ai/runtime/ai-image-generate.handler.spec.ts`, `apps/api/test/ai/ai-limits.integration.spec.ts`, `apps/api/src/ai/core/ai-error.spec.ts` |
 | Stateless providers (#446): a caller's `previousResponseId` refused before any key is resolved, `runTools` resending full history with reasoning state replayed and never serialised, the Anthropic adapter passing the conformance kit (forced-tool and native structured outputs) over a mock as stateless as the real API, its mapping/stream/error/classifier tables, and both providers registered under every #435 guard suite | `apps/api/src/ai/runtime/ai-tool-loop.spec.ts`, `apps/api/src/ai/providers/anthropic/*.spec.ts`, `apps/api/src/common/schemas/settings-parity.spec.ts`, `apps/api/test/ai/*.spec.ts` |
 | The Gemini adapter (#447): the conformance kit (unchanged) passing over a mock as strict as the real API, including Gemini 3 thought-signature replay and the embeddings port; the mapping, stream, embeddings, error and classifier tables, the classifier's enrichment from listing metadata, the catalog handing that metadata to `classifyModel`, `@google/genai` confined to its folder, and three providers registered under every #435 guard suite | `apps/api/src/ai/providers/gemini/*.spec.ts`, `apps/api/src/ai/catalog/ai-catalog.service.spec.ts`, `apps/api/src/common/schemas/settings-parity.spec.ts`, `apps/api/test/ai/*.spec.ts` |
+| Realtime sessions (#449, §5.8): the mint fails closed (no provider call, no usage row) when AI or `allowRealtime` is off, the model lacks `realtime`, or no key resolves; the real key is used only as the provider call's `Authorization` header; one `operation: 'realtime'`, `units: { sessions: 1 }` usage row; the ephemeral secret appears only in the route's `data.clientSecret` and no real key appears anywhere, that response included | `apps/api/src/ai/providers/openai/openai-realtime.spec.ts`, `apps/api/src/ai/runtime/ai-realtime.spec.ts`, `apps/api/test/ai/ai-realtime.integration.spec.ts`, `apps/api/test/ai/ai-secret-egress.integration.spec.ts` |
 | Embeddings: one vector per input in order, `dimensions` honoured, a model without `embeddings` → `AI_CAPABILITY_UNSUPPORTED`, > 256 inputs → `AI_INVALID_REQUEST`, one `operation: 'embeddings'` usage row; the #435 key-policy and secret-egress suites drive `POST /api/ai/embeddings` | `apps/api/src/ai/providers/openai/openai-embeddings.spec.ts`, `apps/api/src/ai/runtime/ai-embed.spec.ts`, `apps/api/test/ai/ai-embeddings.integration.spec.ts`, the conformance kit's `embeddings.*` scenarios |

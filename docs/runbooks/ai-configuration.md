@@ -148,8 +148,9 @@ one into existence.
 ## 6. Choosing the key policy
 
 - **`byok` (default)** — every user must bring their own key
-  (`/settings/ai`, gated by `ai:use`, seeded to all three roles) before they
-  can call any model. No admin key, however well-funded, is ever used to
+  (`/settings/ai`, gated by `ai:use`, seeded to Admin and Contributor — NOT
+  Viewer, since issue #499) before they can call any model. No admin key,
+  however well-funded, is ever used to
   serve a user's request under this policy — this is the platform's core
   security invariant, and it is enforced in one place
   (`AiKeyResolver.resolve`), not scattered across call sites.
@@ -167,6 +168,19 @@ appctl api PUT /admin/ai/config --data '{"keyPolicy":"byok_with_org_fallback", .
 (`PUT` replaces the whole non-secret configuration and takes an `If-Match`
 version header, like the storage-configuration endpoint — read the current
 config first to get the current `version`.)
+
+### Letting Viewers use AI
+
+Viewer no longer holds `ai:use` by default (issue #499) — it is the DEFAULT
+role every new signup lands in, and under `byok_with_org_fallback` a
+default grant meant a brand-new account could spend the deployment's own
+org key with no administrator having decided that. To let a Viewer use AI
+anyway, either:
+
+- Grant `ai:use` back to that account specifically (or to the whole Viewer
+  role) via `rbac:manage` — add a `role_permissions` row for
+  `('viewer', 'ai:use')` if you want every Viewer to have it; or
+- Promote the account to Contributor, which already carries the grant.
 
 ## 7. How users add their own key
 
@@ -250,10 +264,11 @@ reference; the full one is `docs/specs/ai-platform.md` §13.
 | `AI_KEY_INVALID` | 400 | A submitted key was rejected by the provider. | The key is wrong, revoked, or scoped incorrectly at the provider. Nothing was stored. |
 | `AI_MODEL_NOT_ENABLED` | 403 | The model is unknown, not admin-enabled, or deprecated. | Enable it (or pick an enabled one) on `/admin/settings/ai/models` — §5. |
 | `AI_MODEL_NOT_REACHABLE` | 403 | The model is enabled, but the resolved key can't reach it. | The key's own tier/org restrictions — try `POST /api/ai/keys/:provider/test`, or refresh reachability by re-testing/re-saving the key. |
-| `AI_CAPABILITY_UNSUPPORTED` | 400 | The model or provider lacks a capability the request needs (e.g. structured output, a tool, vision input), or the request chains with `previousResponseId` on a provider that stores no responses (Anthropic, Gemini — `details.capability: "previous_response_id"`). | Pick a model/provider that declares it, or drop that part of the request; for Anthropic, Gemini, Azure OpenAI or an OpenAI-compatible server, send the conversation as `input` instead of chaining (§13, §14, §16, §17). |
+| `AI_CAPABILITY_UNSUPPORTED` | 400 | The model or provider lacks a capability the request needs (e.g. structured output, a tool, vision input), or the request chains with `previousResponseId` on a provider that stores no responses (Anthropic, Gemini — `details.capability: "previous_response_id"`). | Pick a model/provider that declares it, or drop that part of the request; for Anthropic, Gemini, Azure OpenAI or an OpenAI-compatible server, send the conversation as `input` instead of chaining (§13, §14, §17, §18). |
+| `AI_REALTIME_DISABLED` | 403 | A realtime voice session was requested, but realtime is switched off (the default). | §16 — set `defaults.allowRealtime` on `/admin/settings/ai` if you want voice sessions. |
 | `AI_TOOL_DISABLED` | 403 | A hosted tool (web search, file search, code interpreter, image generation, MCP) that is switched off, or an MCP server host outside the allowlist. | §12 — switch the tool on, or add the host, under **Hosted tools** on `/admin/settings/ai`. |
 | `AI_RATE_LIMITED` | 429 | The provider throttled the call, or one of this deployment's own limits was reached — then `details.limit` names which one. | Transient: wait `Retry-After` seconds (also `details.retryAfterMs`). For a background run this defers automatically rather than charging an attempt. If users hit a limit of yours too often, raise it — §15. |
-| `AI_PROVIDER_UNAVAILABLE` | 503 | The provider is unreachable or erroring at the transport level. | A provider-side outage, or `AI_PROVIDER_UNAVAILABLE` after an aborted/cancelled call. Check the provider's own status page. For Azure OpenAI or an OpenAI-compatible server, also the endpoint itself: `details.providerCode: "redirect_refused"` means it answered with a redirect, which is never followed (usually a wrong `baseUrl`), and `details.missing: "baseUrl"` that none is configured — §16, §17. |
+| `AI_PROVIDER_UNAVAILABLE` | 503 | The provider is unreachable or erroring at the transport level. | A provider-side outage, or `AI_PROVIDER_UNAVAILABLE` after an aborted/cancelled call. Check the provider's own status page. For Azure OpenAI or an OpenAI-compatible server, also the endpoint itself: `details.providerCode: "redirect_refused"` means it answered with a redirect, which is never followed (usually a wrong `baseUrl`), and `details.missing: "baseUrl"` that none is configured — §17, §18. |
 | `AI_CONTENT_FILTERED` | 422 | The provider's own content filter rejected the request or response. | Not a platform bug — the provider refused this specific content. |
 | `AI_INVALID_REQUEST` | 400 | The request itself is malformed (no model/provider resolvable, a background run given a function tool, an invalid `maxOutputTokens`). | Check the request shape; function tools cannot run in a background run — use `runTools()` in-process instead. |
 | `AI_STRUCTURED_OUTPUT_INVALID` | 502 | The model's output didn't parse against the requested schema. | Usually a model/schema mismatch, or a model too weak to reliably follow the schema; consider `strict: true` or a different model. |
@@ -461,7 +476,39 @@ flight on the others (there is deliberately no Redis — see
 `docs/specs/ai-platform.md` §15). Use the **AI Usage** page, not these limits,
 for accounting. Catalog refreshes run on the admin key and never count.
 
-## 16. Enabling Azure OpenAI
+## 16. Realtime voice sessions
+
+`POST /api/ai/realtime/sessions` mints a short-lived **ephemeral** provider
+secret (OpenAI `ek_…`, 60 seconds to connect). The user's browser uses it to
+talk to the provider **directly** over WebRTC. The user's key (or the org key,
+under fallback) is spent on the server to mint it and never reaches the
+browser. It is **off by default**: once a session is connected, this server
+can no longer see, cap or meter the conversation. Switch it on only if you
+accept that. On `/admin/settings/ai`, turn on **Allow realtime voice
+sessions** under *Defaults* (it needs `ai_config:write`) and save. Or use the
+API:
+
+```bash
+curl -X PUT https://app.example.com/api/admin/ai/config \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -H "If-Match: $VERSION" \
+  -d '{ "enabled": true, "keyPolicy": "byok", "logPromptContent": false,
+        "defaults": { "allowBackgroundRuns": true, "allowRealtime": true },
+        "providers": { "openai": { "enabled": true } } }'
+```
+
+(`allowRealtime` omitted from the body keeps the stored value.) Users also
+need an **enabled** realtime model (`gpt-realtime*`, `gpt-4o-realtime-preview*`,
+`gpt-4o-mini-realtime*`) on `/admin/settings/ai/models`, and a key that
+reaches it. `GET /api/ai/config` publishes `allowRealtime`, so the AI
+Playground (`/ai`) hides its **Voice** mode while it is off. Each mint counts as one request against the §15
+limits and is recorded on the **AI Usage** page as operation `realtime`,
+`units.sessions` = 1. No tokens are recorded, because the audio never passes
+through this server; see the provider's own dashboard for realtime cost. If a
+provider base URL is set (a gateway), browsers are sent to that gateway's
+`/realtime/calls` too, so it must be reachable from users' browsers.
+
+## 17. Enabling Azure OpenAI
 
 Azure OpenAI (issue #448) serves OpenAI's models from your own Azure
 resource. It is configured like every provider — no environment variable
@@ -527,7 +574,7 @@ Troubleshooting:
 | `AI_INVALID_REQUEST` on every response | The `api-version` does not serve the Responses API — set `apiStyle` to `chat_completions`, or use a newer `apiVersion`. |
 | `AI_PROVIDER_UNAVAILABLE`, `details.providerCode: "redirect_refused"` | The endpoint answered with a redirect; redirects are never followed. Check the endpoint (a custom domain or gateway in front of Azure). |
 
-## 17. Enabling a self-hosted OpenAI-compatible server (Ollama/vLLM/LM Studio)
+## 18. Enabling a self-hosted OpenAI-compatible server (Ollama/vLLM/LM Studio)
 
 The **OpenAI-compatible** provider (issue #448) talks to any server that
 speaks OpenAI's API at a base URL you choose — Ollama, vLLM, LM Studio,

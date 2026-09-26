@@ -113,6 +113,7 @@ function messagesFor(label: string): Record<AiErrorCode, string> {
     AI_MODEL_NOT_REACHABLE: `The ${label} model is not reachable with this API key.`,
     AI_CAPABILITY_UNSUPPORTED: `The request uses a capability ${label} does not support here.`,
     AI_TOOL_DISABLED: 'The requested tool is not enabled in this deployment.',
+    AI_REALTIME_DISABLED: 'Realtime sessions are not enabled in this deployment.',
     AI_RATE_LIMITED: `${label} rate-limited the request.`,
     AI_PROVIDER_UNAVAILABLE: `${label} is unavailable or the request failed.`,
     AI_CONTENT_FILTERED: `${label} refused the request under its content policy.`,

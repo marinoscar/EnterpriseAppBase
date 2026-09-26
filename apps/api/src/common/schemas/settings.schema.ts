@@ -833,6 +833,14 @@ export type AiKeyPolicy = (typeof AI_KEY_POLICIES)[number];
  * deployment that has not thought about AI at all should not have quietly
  * disabled the queue path the moment this namespace materialises.
  *
+ * `defaults.allowRealtime` (#449) decides whether a user may mint a realtime
+ * voice session (`POST /api/ai/realtime/sessions`) — an ephemeral provider
+ * secret handed to the BROWSER, after which the server can neither see nor
+ * meter the conversation. OFF by default: that loss of per-call control is
+ * an administrator's decision (docs/specs/ai-platform.md §5.8). A row
+ * written before the field existed reads it as `false` without disturbing
+ * the rest of `defaults` (`SystemSettingsService.withAiSlots`).
+ *
  * `logPromptContent` is OFF by default and is a deliberate, named privacy
  * decision: whether this deployment's own logs/telemetry may capture prompt
  * text at all, independent of `enabled`. A deployment can turn AI on while
@@ -1036,6 +1044,8 @@ export const systemAiSchema = z.object({
   defaults: z.object({
     maxOutputTokensCap: z.number().int().positive().optional(),
     allowBackgroundRuns: z.boolean(),
+    // #449. Appended; see the header for how an older row reads it.
+    allowRealtime: z.boolean(),
   }),
   logPromptContent: z.boolean(),
   usageRetentionDays: z.number().int().min(1).max(AI_USAGE_RETENTION_MAX_DAYS),
@@ -1109,6 +1119,7 @@ export const systemAiPatchSchema = z.object({
     .object({
       maxOutputTokensCap: z.number().int().positive().nullable().optional(),
       allowBackgroundRuns: z.boolean().optional(),
+      allowRealtime: z.boolean().optional(),
     })
     .optional(),
   logPromptContent: z.boolean().optional(),

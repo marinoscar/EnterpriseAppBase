@@ -8,7 +8,7 @@ function policy(overrides: Partial<AiPolicy> = {}): AiPolicy {
     enabled: true,
     keyPolicy: 'byok',
     providers: { openai: { enabled: true }, anthropic: { enabled: false }, gemini: { enabled: false }, 'azure-openai': { enabled: false }, 'openai-compatible': { enabled: false } },
-    defaults: { allowBackgroundRuns: true },
+    defaults: { allowBackgroundRuns: true, allowRealtime: false },
     logPromptContent: false,
     usageRetentionDays: 180,
     hostedTools: {
@@ -205,9 +205,13 @@ describe('AiConfigService', () => {
 
   describe('describePublic', () => {
     it('surfaces defaults.allowBackgroundRuns while AI is on', async () => {
-      getAiPolicy.mockResolvedValue(policy({ defaults: { allowBackgroundRuns: false } }));
+      getAiPolicy.mockResolvedValue(policy({ defaults: { allowBackgroundRuns: false, allowRealtime: false } }));
 
       await expect(service.describePublic()).resolves.toMatchObject({ allowBackgroundRuns: false });
+
+      getAiPolicy.mockResolvedValue(policy({ defaults: { allowBackgroundRuns: false, allowRealtime: true } }));
+      service.invalidateCache();
+      await expect(service.describePublic()).resolves.toMatchObject({ allowRealtime: true });
     });
 
     it('publishes each hosted tool switch as a boolean, never the MCP host allowlist (#442)', async () => {
@@ -261,6 +265,7 @@ describe('AiConfigService', () => {
         enabled: false,
         keyPolicy: 'byok_with_org_fallback',
         allowBackgroundRuns: false,
+        allowRealtime: false,
         hostedTools: { web_search: false, file_search: false, code_interpreter: false, image_generation: false, mcp: false },
         providers: [],
       });
@@ -276,6 +281,7 @@ describe('AiConfigService', () => {
         enabled: true,
         keyPolicy: 'byok',
         allowBackgroundRuns: true,
+        allowRealtime: false,
         hostedTools: { web_search: false, file_search: false, code_interpreter: false, image_generation: false, mcp: false },
         providers: [
           { id: 'openai', displayName: 'Fake AI', enabled: true, hasOrgKey: true, supportsPreviousResponseId: true, requiresKey: true },

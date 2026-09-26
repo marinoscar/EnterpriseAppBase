@@ -37,7 +37,12 @@
 //     deterministic bytes (`FAKE-<format>:<voice>:<input>`) in the format's
 //     MIME type and refuses empty/over-long input, a voice outside the
 //     model's `voices` (else `FAKE_SPEECH_VOICES`), and a model classified
-//     without `audio_speech`.
+//     without `audio_speech`;
+//   - with `realtimePort: true`, `realtime.createSession()` (#449) answers a
+//     DISTINCT ephemeral secret per call (`FAKE_REALTIME_SECRET_PREFIX` + a
+//     counter — a sentinel the no-egress suite allows on exactly one route)
+//     and refuses a model classified without `realtime` and a voice outside
+//     the model's `voices` (else `FAKE_REALTIME_VOICES`).
 //
 // And it RECORDS every call, including the `apiKey` it was called with —
 // that is what lets a test prove the organisation key is never used for a
@@ -68,7 +73,10 @@ import {
   AiImageGenerationRequest,
   AiImageResult,
   AiImagesPort,
+  AI_REALTIME_CLIENT_SECRET_TTL_SECONDS,
   AiRealtimePort,
+  AiRealtimeSession,
+  AiRealtimeSessionRequest,
   AiSpeechRequest,
   AiSpeechResult,
   AiTranscriptionRequest,
@@ -109,7 +117,8 @@ export type FakeAiCallMethod =
   | 'images.generate'
   | 'images.edit'
   | 'audio.transcribe'
-  | 'audio.speech';
+  | 'audio.speech'
+  | 'realtime.createSession';
 
 export interface FakeAiCall {
   method: FakeAiCallMethod;
@@ -131,6 +140,8 @@ export interface FakeAiCall {
   audioBytes?: Buffer;
   /** The request an `audio.speech` call received. */
   speechRequest?: AiSpeechRequest;
+  /** The request a `realtime.createSession` call received. */
+  realtimeRequest?: AiRealtimeSessionRequest;
   /** Set when the call observed `ctx.signal` aborting. */
   aborted?: boolean;
   /** What a responses call received for each storage-object part (#441), in part order. */
@@ -196,6 +207,11 @@ export interface FakeAiProviderOptions {
    * Defaults to `false`; `ports.audio`, when given, wins.
    */
   audioPort?: boolean;
+  /**
+   * `true` carries the built-in scripted `realtime` port (`createSession` and
+   * `voices`). Defaults to `false`; `ports.realtime`, when given, wins.
+   */
+  realtimePort?: boolean;
   /** The built-in audio port's `transcriptionMaxBytes`. Defaults to 25 MiB. */
   transcriptionMaxBytes?: number;
   /** Native vector length of the built-in embeddings port. Defaults to 8. */
@@ -273,6 +289,26 @@ export const FAKE_SPEECH_MODEL_CAPABILITIES: AiModelCapabilities = {
   outputModalities: ['audio'],
   voices: ['alloy', 'echo'],
 };
+
+/** The classification a fake realtime model is given in tests: two of the fake's realtime voices. */
+export const FAKE_REALTIME_MODEL_CAPABILITIES: AiModelCapabilities = {
+  capabilities: ['realtime'],
+  inputModalities: ['text', 'audio'],
+  outputModalities: ['text', 'audio'],
+  voices: ['marin', 'alloy'],
+};
+
+/** The built-in realtime port's provider-wide voice list. */
+export const FAKE_REALTIME_VOICES = ['marin', 'alloy', 'cedar'] as const;
+
+/**
+ * Every ephemeral secret the fake mints starts with this — a sentinel a test
+ * can look for. It is NOT key material; `apiKey` is what must never leak.
+ */
+export const FAKE_REALTIME_SECRET_PREFIX = 'ek_fake_realtime_secret_';
+
+/** The base URL the fake's connect URL is built from when the call names none. */
+export const FAKE_REALTIME_BASE_URL = 'https://realtime.fake.invalid/v1';
 
 /** The built-in audio port's provider-wide voice list. */
 export const FAKE_SPEECH_VOICES = ['alloy', 'echo', 'nova'] as const;
@@ -358,7 +394,11 @@ export class FakeAiProvider implements AiProviderAdapter {
     this.embeddings =
       options.ports?.embeddings ??
       (options.embeddingsPort ? { embed: (req, ctx) => this.embed(req, ctx) } : undefined);
-    this.realtime = options.ports?.realtime;
+    this.realtime =
+      options.ports?.realtime ??
+      (options.realtimePort
+        ? { createSession: (req, ctx) => this.createRealtimeSession(req, ctx), voices: FAKE_REALTIME_VOICES }
+        : undefined);
     this.fileInputStrategy =
       options.fileInputStrategy === false ? undefined : (options.fileInputStrategy ?? FAKE_FILE_INPUT_STRATEGY);
 
@@ -692,6 +732,50 @@ export class FakeAiProvider implements AiProviderAdapter {
       model: req.model,
       audio: { data: Buffer.from(`FAKE-${format}:${req.voice}:${req.input}`), mimeType: AI_SPEECH_FORMAT_MIME[format] },
       usage: {},
+      providerRequestId: `fake_req_${this.responseCounter}`,
+    };
+  }
+
+  private async createRealtimeSession(req: AiRealtimeSessionRequest, ctx: AiCallContext): Promise<AiRealtimeSession> {
+    const call = this.record('realtime.createSession', ctx);
+
+    call.realtimeRequest = req;
+
+    await this.pause(ctx, call);
+    this.assertKey(ctx);
+
+    const classification = this.classifyModel(req.model);
+
+    if (classification && !classification.capabilities.includes('realtime')) {
+      throw new AiError('AI_CAPABILITY_UNSUPPORTED', `Model "${req.model}" does not support realtime.`, {
+        details: { capability: 'realtime', model: req.model },
+      });
+    }
+
+    const voices: readonly string[] = classification?.voices ?? FAKE_REALTIME_VOICES;
+    const voice = req.voice ?? voices[0];
+
+    if (!voices.includes(voice)) {
+      throw new AiError('AI_INVALID_REQUEST', `Unknown voice "${voice}".`, { details: { voice } });
+    }
+
+    this.responseCounter += 1;
+
+    const ttl = req.expiresInSeconds ?? AI_REALTIME_CLIENT_SECRET_TTL_SECONDS;
+
+    return {
+      id: `sess_fake_${this.responseCounter}`,
+      provider: this.id,
+      model: req.model,
+      clientSecret: `${FAKE_REALTIME_SECRET_PREFIX}${this.responseCounter}`,
+      expiresAt: new Date(Date.now() + ttl * 1000),
+      connectUrl: `${(ctx.baseUrl ?? FAKE_REALTIME_BASE_URL).replace(/\/+$/, '')}/realtime/calls`,
+      voice,
+      sessionConfig: {
+        ...(req.instructions !== undefined ? { instructions: req.instructions } : {}),
+        ...(req.turnDetection !== undefined ? { turnDetection: req.turnDetection } : {}),
+        ...(req.maxOutputTokens !== undefined ? { maxOutputTokens: req.maxOutputTokens } : {}),
+      },
       providerRequestId: `fake_req_${this.responseCounter}`,
     };
   }

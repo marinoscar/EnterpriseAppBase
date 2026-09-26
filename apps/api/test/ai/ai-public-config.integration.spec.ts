@@ -172,9 +172,24 @@ describe('Public AI config and kill switch', () => {
         enabled: false,
         keyPolicy: 'byok',
         allowBackgroundRuns: false,
+        allowRealtime: false,
         hostedTools: { web_search: false, file_search: false, code_interpreter: false, image_generation: false, mcp: false },
         providers: [],
       });
+    });
+
+    it('publishes allowRealtime only while AI is on (#449)', async () => {
+      storedAi = { ...storedAi, enabled: true, providers: { openai: { enabled: true } }, defaults: { allowBackgroundRuns: true, allowRealtime: true } };
+      const viewer = await createMockViewerUser(context);
+
+      const on = await request(server()).get('/api/ai/config').set(authHeader(viewer.accessToken)).expect(200);
+      expect(on.body.data.allowRealtime).toBe(true);
+
+      storedAi = { ...storedAi, enabled: false };
+      app.get(AiConfigService).invalidateCache();
+
+      const off = await request(server()).get('/api/ai/config').set(authHeader(viewer.accessToken)).expect(200);
+      expect(off.body.data.allowRealtime).toBe(false);
     });
 
     it('lists providers with hasOrgKey when AI is on, and never a key or hint', async () => {
@@ -191,6 +206,7 @@ describe('Public AI config and kill switch', () => {
         enabled: true,
         keyPolicy: 'byok_with_org_fallback',
         allowBackgroundRuns: true,
+        allowRealtime: false,
         hostedTools: { web_search: false, file_search: false, code_interpreter: false, image_generation: false, mcp: false },
         providers: [
           { id: 'openai', displayName: 'Fake AI', enabled: true, hasOrgKey: true, supportsPreviousResponseId: true, requiresKey: true },
@@ -237,16 +253,19 @@ describe('Public AI config and kill switch', () => {
 
     it('lets the request through while AI is on', async () => {
       storedAi = { ...storedAi, enabled: true };
-      const viewer = await createMockViewerUser(context);
+      // #499: the probe controller also requires `ai:use`, which Viewer no
+      // longer holds — a Contributor stands in as the "everyday, allowed"
+      // caller so this test exercises the guard, not RBAC.
+      const contributor = await createMockContributorUser(context);
 
-      await request(server()).get('/api/ai/probe').set(authHeader(viewer.accessToken)).expect(200);
+      await request(server()).get('/api/ai/probe').set(authHeader(contributor.accessToken)).expect(200);
     });
 
     it('an admin turning AI on is effective on the next request (cache invalidated)', async () => {
       const admin = await createMockAdminUser(context);
-      const viewer = await createMockViewerUser(context);
+      const contributor = await createMockContributorUser(context);
 
-      await request(server()).get('/api/ai/probe').set(authHeader(viewer.accessToken)).expect(403);
+      await request(server()).get('/api/ai/probe').set(authHeader(contributor.accessToken)).expect(403);
 
       await request(server())
         .put('/api/admin/ai/config')
@@ -260,23 +279,23 @@ describe('Public AI config and kill switch', () => {
         })
         .expect(200);
 
-      await request(server()).get('/api/ai/probe').set(authHeader(viewer.accessToken)).expect(200);
+      await request(server()).get('/api/ai/probe').set(authHeader(contributor.accessToken)).expect(200);
     });
 
     it('a change made elsewhere lands once the cache window passes', async () => {
-      const viewer = await createMockViewerUser(context);
+      const contributor = await createMockContributorUser(context);
       let now = Date.now();
       const spy = jest.spyOn(Date, 'now').mockImplementation(() => now);
 
       try {
-        await request(server()).get('/api/ai/probe').set(authHeader(viewer.accessToken)).expect(403);
+        await request(server()).get('/api/ai/probe').set(authHeader(contributor.accessToken)).expect(403);
 
         // Another instance flips the row; this one still has the old answer cached.
         storedAi = { ...storedAi, enabled: true };
-        await request(server()).get('/api/ai/probe').set(authHeader(viewer.accessToken)).expect(403);
+        await request(server()).get('/api/ai/probe').set(authHeader(contributor.accessToken)).expect(403);
 
         now += AI_POLICY_CACHE_MS;
-        await request(server()).get('/api/ai/probe').set(authHeader(viewer.accessToken)).expect(200);
+        await request(server()).get('/api/ai/probe').set(authHeader(contributor.accessToken)).expect(200);
       } finally {
         spy.mockRestore();
       }

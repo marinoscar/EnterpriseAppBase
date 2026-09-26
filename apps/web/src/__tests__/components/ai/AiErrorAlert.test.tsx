@@ -48,6 +48,7 @@ const CASES: { code: string; title: string; link: boolean }[] = [
   { code: 'AI_INVALID_REQUEST', title: 'The request was invalid', link: false },
   { code: 'AI_TOOL_DISABLED', title: "This tool isn't enabled", link: false },
   { code: 'AI_STORAGE_UNAVAILABLE', title: "File storage isn't available", link: false },
+  { code: 'AI_REALTIME_DISABLED', title: 'Voice sessions are unavailable', link: false },
 ];
 
 describe('AiErrorAlert', () => {
@@ -78,6 +79,13 @@ describe('AiErrorAlert', () => {
 
   it('asks the shell to re-read the AI config on AI_DISABLED', () => {
     const { refresh } = renderAlert({ code: 'AI_DISABLED', message: 'AI is disabled' });
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('says voice sessions are off, and re-reads the AI config, on AI_REALTIME_DISABLED (#449)', () => {
+    const { refresh } = renderAlert({ code: 'AI_REALTIME_DISABLED', message: 'Realtime sessions are disabled' });
+    expect(screen.getByText('Voice sessions are turned off by your administrator.')).toBeInTheDocument();
+    // The re-read is what hides the playground's Voice mode.
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 

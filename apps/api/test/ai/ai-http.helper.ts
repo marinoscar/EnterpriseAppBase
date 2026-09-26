@@ -57,7 +57,7 @@ const BASE_POLICY: Pick<AiPolicy, 'enabled' | 'keyPolicy' | 'logPromptContent' |
   enabled: true,
   keyPolicy: 'byok',
   logPromptContent: false,
-  defaults: { allowBackgroundRuns: true },
+  defaults: { allowBackgroundRuns: true, allowRealtime: false },
   // #450: no rate limits unless a test sets them.
   limits: {},
 };

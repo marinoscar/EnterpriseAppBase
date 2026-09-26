@@ -21,6 +21,7 @@ import { PatModule } from './pat/pat.module';
 import { NodeCredentialModule } from './nodes/node-credential.module';
 import { NodesModule } from './nodes/nodes.module';
 import { CredentialsModule } from './credentials/credentials.module';
+import { UserCredentialsModule } from './user-credentials/user-credentials.module';
 import { EmailModule } from './email/email.module';
 import { BroadcastsModule } from './notifications/broadcasts/broadcasts.module';
 import { NotificationsModule } from './notifications/notifications.module';
@@ -94,6 +95,10 @@ import configuration from './config/configuration';
     // module graph; consumers still import CredentialsModule explicitly (it is
     // not @Global) so every user of a plaintext-returning service is visible.
     CredentialsModule,
+    // Per-user (owner-bound) encrypted credential store (#387): the sibling
+    // of CredentialsModule for keys a user brings themselves. Registered for
+    // the same reason and on the same terms — not @Global, no controller.
+    UserCredentialsModule,
     // Email transports (#122, epic #109) and, since #124, the admin email
     // settings endpoints. Registered here even though nothing sends mail
     // automatically yet: it makes a broken provider graph fail at boot rather

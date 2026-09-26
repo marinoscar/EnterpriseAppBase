@@ -260,27 +260,91 @@ export interface AiEmbeddingsPort {
 }
 
 // ---- Realtime ---------------------------------------------------------------
+//
+// #449 (docs/specs/ai-platform.md §5.8). The server mints an EPHEMERAL,
+// short-lived client secret with the resolved key; the browser connects to
+// the provider directly (WebRTC) with that secret. The server never sees the
+// media, so a session has no result beyond the secret itself.
+
+/** How long a minted client secret may be used to OPEN a session (seconds). */
+export const AI_REALTIME_CLIENT_SECRET_TTL_SECONDS = 60;
+
+/** The longest initial `instructions` accepted, in characters. */
+export const AI_REALTIME_INSTRUCTIONS_MAX_CHARS = 16_000;
+
+/**
+ * How the provider decides a user's turn has ended. `server_vad` detects
+ * silence; `semantic_vad` judges whether the user has finished their
+ * thought. `null` on a request switches detection off (push-to-talk: the
+ * client commits the audio buffer itself).
+ */
+export type AiRealtimeTurnDetection =
+  | {
+      type: 'server_vad';
+      /** Activation threshold, 0-1. */
+      threshold?: number;
+      prefixPaddingMs?: number;
+      silenceDurationMs?: number;
+    }
+  | {
+      type: 'semantic_vad';
+      eagerness?: 'low' | 'medium' | 'high' | 'auto';
+    };
 
 export interface AiRealtimeSessionRequest extends AiMediaRequestBase {
+  /** Initial system instructions — the client may change them over its data channel. */
   instructions?: string;
+  /** The voice the model answers in; the runtime has already checked the model speaks it. */
   voice?: string;
+  /** Output modalities; the provider's default (audio, with its transcript) when omitted. */
   modalities?: Array<'text' | 'audio'>;
+  /** Client-executed function tools the session starts with. */
   tools?: AiFunctionTool[];
+  /** Omitted: the provider's default. `null`: no automatic turn detection. */
+  turnDetection?: AiRealtimeTurnDetection | null;
+  /** Initial per-response output-token cap (a default the client can change, not an enforcement). */
+  maxOutputTokens?: number;
+  /** Seconds the client secret may open a session; defaults to `AI_REALTIME_CLIENT_SECRET_TTL_SECONDS`. */
+  expiresInSeconds?: number;
 }
 
 /**
  * A short-lived session the BROWSER connects to directly. `clientSecret` is
- * an ephemeral, provider-minted token scoped to this one session — never the
- * provider API key the server called with.
+ * an ephemeral, provider-minted token scoped to this one session
+ * configuration — never the provider API key the server called with.
+ *
+ * ⚠ Treat `clientSecret` as a bearer credential: it is returned to the
+ * caller (that is its purpose) and nowhere else — never logged, never put on
+ * a span, never stored.
  */
 export interface AiRealtimeSession {
-  id: string;
+  /** The provider's session id, when it reports one. */
+  id?: string;
   provider: string;
   model: string;
+  /** The ephemeral secret the browser authenticates the connection with. */
   clientSecret: string;
+  /** When `clientSecret` stops being able to open a session. */
   expiresAt: Date;
+  /** Where the browser POSTs its WebRTC SDP offer, with `Authorization: Bearer <clientSecret>`. */
+  connectUrl: string;
+  /** The voice the session speaks in, as the provider confirmed it. */
+  voice?: string;
+  /** The effective initial configuration, as neutral non-secret fields. */
+  sessionConfig?: {
+    modalities?: Array<'text' | 'audio'>;
+    instructions?: string;
+    turnDetection?: AiRealtimeTurnDetection | null;
+    maxOutputTokens?: number;
+  };
+  providerRequestId?: string;
 }
 
 export interface AiRealtimePort {
   createSession(req: AiRealtimeSessionRequest, ctx: AiCallContext): Promise<AiRealtimeSession>;
+  /**
+   * Every voice `createSession` accepts, as static data. A model may offer a
+   * subset — its catalog capabilities' `voices`; this is the fallback.
+   */
+  readonly voices?: readonly string[];
 }

@@ -58,6 +58,13 @@ const MIGRATIONS_AT_288 = [
   // (ai_models, user_ai_keys, ai_runs, ai_usage_events). A schema change, and
   // not about notifications — see the ⚠ above.
   '20260926034919_add_ai_platform',
+  // #499: a DATA-ONLY migration revoking the `viewer`/`ai:use` role_permissions
+  // row on existing deployments. No schema change and not about notifications
+  // — see the ⚠ above.
+  '20260927000000_revoke_viewer_ai_use',
+  // #387: `user_credentials` — the per-user (owner-bound) sibling of the
+  // `credentials` store. A schema change about secrets, not notifications.
+  '20260927120000_add_user_credentials',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');

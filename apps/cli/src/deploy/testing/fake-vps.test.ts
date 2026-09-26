@@ -702,6 +702,12 @@ describe('ensure-database, through the real pipeline', () => {
       (invocation) => invocation.argv.includes('psql') && /rolcreatedb/.test(invocation.argv.join(' ')),
       't',
     );
+    // #396: the re-verify after the CREATE asks this for real now, where it
+    // used to be `skipped: database-exists did not pass`.
+    vps.route(
+      (invocation) => invocation.argv.includes('psql') && /has_schema_privilege/.test(invocation.argv.join(' ')),
+      't',
+    );
     return vps;
   }
 
@@ -710,10 +716,82 @@ describe('ensure-database, through the real pipeline', () => {
   it('stops a non-interactive run without --create-database, naming the flag, and creates nothing', async () => {
     const vps = vpsWithoutDatabase();
 
+    // --skip-doctor (the harness default) skips preflight, so the refusal
+    // comes from ensure-database -- still before anything is built or migrated.
     await expect(install(vps, { answers: database })).rejects.toThrow(/--create-database/);
 
     expect(vps.invocations.some((call) => /CREATE DATABASE/.test(call.argv.join(' ')))).toBe(false);
     expect(readState(vps.deployRoot)?.lastFailedStep).toBe('ensure-database');
+    expect(vps.calls('docker', 'compose').some((call) => call.argv.includes('build'))).toBe(false);
+  });
+
+  it('with preflight on and the settings already known, stops at preflight -- before anything is cloned (#396)', async () => {
+    const vps = vpsWithoutDatabase();
+
+    // ⚠ The harness answers no host checks (df, DNS...), so preflight has
+    // other reasons to fail too. The assertions are that the database refusal
+    // is AMONG them -- flag, POSTGRES_DB, the .env path -- and that it came
+    // from preflight, with nothing cloned or written.
+
+    const error = await install(vps, { answers: database, skipDoctor: false }).catch((caught: unknown) => caught);
+
+    expect((error as Error).message).toMatch(/--create-database/);
+    expect((error as Error).message).toContain('POSTGRES_DB');
+    expect((error as Error).message).toContain(join(vps.deployRoot, 'repo', 'infra', 'compose', '.env'));
+    expect(readState(vps.deployRoot)?.lastFailedStep).toBe('preflight');
+    expect(vps.invocations.some((call) => call.argv.includes('clone'))).toBe(false);
+    expect(existsSync(join(vps.deployRoot, 'repo', 'infra', 'compose', '.env'))).toBe(false);
+    expect(vps.invocations.some((call) => /CREATE DATABASE/.test(call.argv.join(' ')))).toBe(false);
+  });
+
+  it('an interactive run is never asked, or refused, about the database by preflight (#396)', async () => {
+    const vps = vpsWithoutDatabase();
+    const questions: string[] = [];
+
+    // Preflight still fails here, on the host checks the harness does not
+    // answer (see the test above) -- what this pins is that the database was
+    // not among its reasons and nothing was asked: an interactive run gets
+    // its one question from ensure-database, with the settings it wrote.
+    const error = await install(vps, {
+      answers: database,
+      skipDoctor: false,
+      nonInteractive: false,
+      ask: async (question) => {
+        questions.push(question);
+        return false;
+      },
+    }).catch((caught: unknown) => caught);
+
+    expect(readState(vps.deployRoot)?.lastFailedStep).toBe('preflight');
+    expect((error as Error).message).not.toMatch(/database-exists|--create-database|POSTGRES_DB/);
+    expect(questions).toEqual([]);
+    expect(vps.invocations.some((call) => /rolcreatedb|CREATE DATABASE/.test(call.argv.join(' ')))).toBe(false);
+  });
+
+  it('re-verifies after the CREATE: database-privileges gives a real answer, not a skip (#396)', async () => {
+    const vps = vpsWithoutDatabase();
+
+    await install(vps, { answers: database, createDatabase: true });
+
+    const privilegeProbes = vps.invocations.filter((call) => /has_schema_privilege/.test(call.argv.join(' ')));
+    const createAt = vps.invocations.findIndex((call) => /CREATE DATABASE/.test(call.argv.join(' ')));
+    expect(createAt).toBeGreaterThanOrEqual(0);
+    // At least one privileges probe ran AFTER the database existed.
+    expect(privilegeProbes.some((call) => vps.invocations.indexOf(call) > createAt)).toBe(true);
+  });
+
+  it('stops after the CREATE when the new database cannot take a table, and drops nothing (#396)', async () => {
+    const vps = vpsWithoutDatabase();
+    vps.route(
+      (invocation) => invocation.argv.includes('psql') && /has_schema_privilege/.test(invocation.argv.join(' ')),
+      'f',
+    );
+
+    await expect(install(vps, { answers: database, createDatabase: true })).rejects.toThrow(
+      /GRANT CREATE ON SCHEMA public/,
+    );
+    expect(readState(vps.deployRoot)?.lastFailedStep).toBe('ensure-database');
+    expect(vps.invocations.some((call) => /DROP/i.test(call.argv.join(' ')))).toBe(false);
   });
 
   it('creates it with --create-database and carries on to a healthy stack', async () => {
@@ -757,6 +835,12 @@ describe('--resume against an older state missing the #391 step ids', () => {
     );
     vps.route(
       (invocation) => invocation.argv.includes('psql') && /rolcreatedb/.test(invocation.argv.join(' ')),
+      't',
+    );
+    // #396: the re-verify after the CREATE asks this for real now, where it
+    // used to be `skipped: database-exists did not pass`.
+    vps.route(
+      (invocation) => invocation.argv.includes('psql') && /has_schema_privilege/.test(invocation.argv.join(' ')),
       't',
     );
     return vps;

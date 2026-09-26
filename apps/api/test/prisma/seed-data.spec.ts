@@ -216,7 +216,7 @@ describe('seed data', () => {
       expect(leaked).toEqual([]);
     });
 
-    it('grants ai_config:* to Admin only, and ai:use to Admin, Contributor and Viewer alike (#423)', () => {
+    it('grants ai_config:* to Admin only, and ai:use to Admin and Contributor but NOT Viewer (#423, #499)', () => {
       // `ai_config:*` is the deployment-wide policy — same "narrow,
       // operational surface" posture as `storage_config:*`, `push:*`,
       // `broadcasts:*` and `nodes:*` above: Admin only, including the read
@@ -238,21 +238,24 @@ describe('seed data', () => {
       expect(leakedConfig).toEqual([]);
 
       // `ai:use` is the opposite axis — may this caller invoke AI with their
-      // OWN key — and is granted to every role, exactly like `user_settings
-      // :read`/`:write` above.
+      // OWN key. Admin and Contributor hold it; Viewer deliberately does NOT
+      // (#499) — Viewer is the DEFAULT role every new signup lands in, and
+      // under `byok_with_org_fallback` a default grant would let a brand-new
+      // account spend the deployment's own org key with no administrator
+      // having decided that.
       expect(ROLE_PERMISSIONS.admin).toContain('ai:use');
       expect(ROLE_PERMISSIONS.contributor).toContain('ai:use');
-      expect(ROLE_PERMISSIONS.viewer).toContain('ai:use');
+      expect(ROLE_PERMISSIONS.viewer).not.toContain('ai:use');
     });
 
-    it('⚠ keeps ai_config:* distinct from ai:use, which every role holds (#423)', () => {
+    it('⚠ keeps ai_config:* distinct from ai:use, and withholds ai:use from Viewer (#423, #499)', () => {
       // One character apart in spirit (a colon vs. an underscore) and mean
       // completely different things — the same distinction
       // `storage_config:*` vs. `storage:*` draws two tests above.
       // `ai_config:*` decides whether AI is enabled for the whole deployment
       // and under which policy; `ai:use` decides whether one caller, with
       // their own key, may call it at all.
-      expect(ROLE_PERMISSIONS.viewer).toContain('ai:use');
+      expect(ROLE_PERMISSIONS.viewer).not.toContain('ai:use');
       expect(ROLE_PERMISSIONS.viewer).not.toContain('ai_config:read');
       expect(ROLE_PERMISSIONS.contributor).toContain('ai:use');
       expect(ROLE_PERMISSIONS.contributor).not.toContain('ai_config:write');

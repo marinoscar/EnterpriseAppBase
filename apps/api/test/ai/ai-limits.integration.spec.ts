@@ -45,7 +45,7 @@ describe('AI rate limits over HTTP (#450)', () => {
     // A fresh day for every test: nothing an earlier test admitted is still
     // in any window, local or database.
     now += 24 * 60 * 60 * 1000;
-    alice = await createMockTestUser(t.context, { id: HARNESS_USER, roleName: 'viewer' });
+    alice = await createMockTestUser(t.context, { id: HARNESS_USER, roleName: 'contributor' });
     bob = await createMockTestUser(t.context, { id: HARNESS_OTHER_USER, roleName: 'contributor' });
   });
 
@@ -161,7 +161,7 @@ describe('AI rate limits over HTTP (#450)', () => {
 
   it('per-model maxOutputTokens clamps what the provider is asked for', async () => {
     t.harness.setPolicy({
-      defaults: { allowBackgroundRuns: true, maxOutputTokensCap: 1_000 },
+      defaults: { allowBackgroundRuns: true, allowRealtime: false, maxOutputTokensCap: 1_000 },
       limits: { perModel: { [`openai:${HARNESS_MODEL}`]: { maxOutputTokens: 256 } } },
     });
 

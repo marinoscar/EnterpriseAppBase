@@ -45,7 +45,7 @@ describe('AI audio transcription over HTTP (#438)', () => {
 
   beforeEach(async () => {
     t.reset();
-    const holder = await createMockTestUser(t.context, { id: HARNESS_USER, roleName: 'viewer' });
+    const holder = await createMockTestUser(t.context, { id: HARNESS_USER, roleName: 'contributor' });
     token = holder.accessToken;
   });
 
@@ -213,7 +213,7 @@ describe('AI audio transcription over HTTP (#438)', () => {
 
   it("another user's transcription run is a 404", async () => {
     const started = await transcribe({ storageObjectId: recording().id }).expect(202);
-    const other = await createMockTestUser(t.context, { id: HARNESS_OTHER_USER, roleName: 'viewer' });
+    const other = await createMockTestUser(t.context, { id: HARNESS_OTHER_USER, roleName: 'contributor' });
 
     await request(server()).get(`/api/ai/runs/${started.body.data.runId}`).set(authHeader(other.accessToken)).expect(404);
   });

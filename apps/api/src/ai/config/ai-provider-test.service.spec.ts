@@ -16,7 +16,7 @@ function policy(overrides: Partial<SystemAiValue> = {}): SystemAiValue {
     enabled: true,
     keyPolicy: 'byok',
     providers: { openai: { enabled: true }, anthropic: { enabled: false }, gemini: { enabled: false }, 'azure-openai': { enabled: false }, 'openai-compatible': { enabled: false } },
-    defaults: { allowBackgroundRuns: true },
+    defaults: { allowBackgroundRuns: true, allowRealtime: false },
     logPromptContent: false,
     usageRetentionDays: 180,
     hostedTools: {

@@ -144,10 +144,35 @@ const EMBEDDINGS: AiModelCapabilities = {
   outputModalities: ['embedding'],
 };
 
+/**
+ * Every voice a realtime session accepts — `OpenAiProviderAdapter.realtime
+ * .voices` and the `realtime` classification's `voices` (#449). Not the
+ * speech list: `fable`, `onyx` and `nova` are `/v1/audio/speech` only.
+ * `marin` and `cedar` are the GA `gpt-realtime` voices OpenAI recommends.
+ */
+export const OPENAI_REALTIME_VOICES = [
+  'alloy',
+  'ash',
+  'ballad',
+  'coral',
+  'echo',
+  'sage',
+  'shimmer',
+  'verse',
+  'marin',
+  'cedar',
+] as const;
+
+/**
+ * `gpt-realtime*`, `gpt-4o-realtime-preview*` and `gpt-4o-mini-realtime*`:
+ * speech-to-speech over a browser-held session (#449), minted by the
+ * adapter's `realtime` port.
+ */
 const REALTIME: AiModelCapabilities = {
   capabilities: ['realtime'],
   inputModalities: ['text', 'audio'],
   outputModalities: ['text', 'audio'],
+  voices: [...OPENAI_REALTIME_VOICES],
 };
 
 /** Ordered; first match wins. See the file header before reordering. */

@@ -71,6 +71,9 @@ model User {
   aiKeys                 UserAiKey[]
   aiRuns                 AiRun[]
   aiUsageEvents          AiUsageEvent[]
+  // Per-user encrypted credentials (issue #387). Cascade: a user-owned
+  // secret has no meaning once its owner is gone — see `UserCredential`.
+  userCredentials        UserCredential[]        @relation("UserCredentials")
 
   @@map("users")
 }
@@ -405,6 +408,52 @@ model Credential {
 
   @@unique([purpose, name])
   @@map("credentials")
+}
+
+// =============================================================================
+// Per-User Encrypted Credentials  (issue #387)
+// =============================================================================
+//
+// The sibling of `Credential` above for secrets OWNED BY ONE USER — a user's
+// own key for some external service (bring-your-own-key). Addressed by
+// (userId, purpose, name); `credentials` is untouched and keeps its
+// ownerless (purpose, name) address.
+//
+// `secret` is the same opaque base64 [iv][authTag][ciphertext] payload
+// `encryptSecret()` produces, but encrypted under an OWNER-BOUND sub-key
+// domain, `user:<userId>:<purpose>` (`userCredentialPurpose()` in
+// `common/crypto/secret-cipher.ts`), not under `purpose` alone. A ciphertext
+// copied from user A's row into user B's row therefore fails GCM
+// authentication instead of handing B the use of A's key.
+//
+// All three unique columns are NOT NULL, so `@@unique` is a real Postgres
+// constraint (NULLs are distinct in a unique index) and `findUnique`/`upsert`
+// on `userId_purpose_name` work. Its leading column also serves every
+// by-user lookup, so there is no separate `user_id` index.
+//
+// onDelete: Cascade — deliberately the OPPOSITE of `Credential.updatedByUser`
+// (SetNull). There, the user is provenance for shared infrastructure; here,
+// the user is the owner, and a secret nobody owns is a secret nobody can
+// revoke. `UserCredentialsService` is the sole reader/writer; NEVER select
+// `secret` into anything that reaches an API response or a log line.
+model UserCredential {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  purpose   String
+  name      String
+  // @db.Text for the same reason as `Credential.secret`: never truncate.
+  secret    String   @db.Text
+  // Non-secret display aid, derived from the plaintext on write.
+  hint      String?
+  // Human-readable description. User-entered, non-secret.
+  label     String?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  user User @relation("UserCredentials", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, purpose, name])
+  @@map("user_credentials")
 }
 
 // =============================================================================

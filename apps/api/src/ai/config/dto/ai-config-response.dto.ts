@@ -80,6 +80,8 @@ export const aiConfigResponseSchema = z.object({
     /** Deployment-wide output-token cap, or null for none. */
     maxOutputTokensCap: z.number().int().nullable(),
     allowBackgroundRuns: z.boolean(),
+    /** Whether users may mint realtime voice sessions (#449). */
+    allowRealtime: z.boolean(),
   }),
   /** Days usage events are kept before the daily `ai.usage.purge` deletes them. */
   usageRetentionDays: z.number().int(),

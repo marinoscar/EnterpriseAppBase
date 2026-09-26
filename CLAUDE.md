@@ -399,7 +399,11 @@ is [`docs/runbooks/ai-configuration.md`](docs/runbooks/ai-configuration.md).
    between resolving it and calling the adapter (`ai.service.ts`'s own header
    comment marks the exact window). No route, log line, span, `AiError`,
    `ai_usage_events` row or `ai_runs.request` row may ever carry key
-   material.
+   material. The single deliberate exception to "no credential reaches the
+   browser" is a realtime session's **ephemeral** provider secret (#449,
+   spec §5.8): minted server-side *with* the key, returned only by
+   `POST /api/ai/realtime/sessions`, and allowlisted for that one field by
+   `ai-secret-egress.integration.spec.ts` — never the key itself.
 3. **Long AI work is a queue job and is server-only, never node-eligible.**
    `ai.catalog.refresh` and `ai.response.run` (and any Phase 2/3 media job)
    implement neither `nodeResultSchema` nor `persistNodeResult` — this is
@@ -737,7 +741,7 @@ The caller's own AI surface: usable models, BYOK keys, and calling AI itself.
 `AiEnabledGuard` (403 `details.reason: "AI_DISABLED"` while AI is off) and
 requires `ai:use`. See
 [`docs/specs/ai-platform.md`](docs/specs/ai-platform.md).
-- `GET /api/ai/config` - Whether AI is enabled, the key policy, `allowBackgroundRuns` (whether `POST /api/ai/runs` accepts a request at all), `hostedTools` (which hosted tool types are switched on, booleans only — #442), and which providers are enabled/carry an org key/`supportsPreviousResponseId` (false for Anthropic, Gemini, Azure OpenAI and OpenAI-compatible: send the conversation as `input`, #446/#447/#448) and `requiresKey` (false for a keyless OpenAI-compatible server, #448); reachable while AI is disabled — how a client learns to hide its AI surfaces (any authenticated user, no `ai:use` required)
+- `GET /api/ai/config` - Whether AI is enabled, the key policy, `allowBackgroundRuns` (whether `POST /api/ai/runs` accepts a request at all), `allowRealtime` (whether `POST /api/ai/realtime/sessions` mints — #449), `hostedTools` (which hosted tool types are switched on, booleans only — #442), and which providers are enabled/carry an org key/`supportsPreviousResponseId` (false for Anthropic, Gemini, Azure OpenAI and OpenAI-compatible: send the conversation as `input`, #446/#447/#448) and `requiresKey` (false for a keyless OpenAI-compatible server, #448); reachable while AI is disabled — how a client learns to hide its AI surfaces (any authenticated user, no `ai:use` required)
 - `GET /api/ai/keys` - List the caller's provider keys, masked (`ai:use`)
 - `PUT /api/ai/keys/{provider}` - Set/replace the caller's key; verified against the provider first, then reachable models computed, then stored (`ai:use`)
 - `DELETE /api/ai/keys/{provider}` - Remove the caller's key; 204, idempotent (`ai:use`)
@@ -750,6 +754,7 @@ requires `ai:use`. See
 - `POST /api/ai/images/edits` - Queue an edit of the caller's own images, named by storage object id (`imageStorageObjectIds`, optional PNG `maskStorageObjectId`); 202 `{ runId, jobId }`; unknown input 404, another user's 403, not ready/wrong type/over 25 MiB 400 `AI_INVALID_REQUEST` (`ai:use`)
 - `POST /api/ai/audio/transcriptions` - Queue a transcription of the caller's own recording (`storageObjectId`: `audio/*` or `video/mp4|webm`, at most 25 MiB for OpenAI; `ai.audio.transcribe`, issue #438, epic #420); 202 `{ runId, jobId }`; `model` optional (first usable `audio_transcription` model); unknown recording 404, another user's 403, not ready/not audio/too large 400 `AI_INVALID_REQUEST` (`ai:use`)
 - `POST /api/ai/audio/speech` - Queue text-to-speech (`ai.audio.speech`, issue #439, epic #420); 202 `{ runId, jobId }`; `input` 1–4096 characters (longer is 400); `model`/`voice` optional (first usable `audio_speech` model, its first voice — a model's voices are `capabilities.voices` in `GET /api/ai/models`); the audio becomes a storage object the caller owns, disclosed `aiGenerated: true` (`ai:use`)
+- `POST /api/ai/realtime/sessions` - Mint a realtime voice session (issue #449, epic #421): 201 `{ provider, model, voice, clientSecret, expiresAt, connectUrl }` — `clientSecret` is the provider's **ephemeral**, ~60-second, single-session secret (the one credential any AI route returns; never the user's key) the browser POSTs its WebRTC SDP offer to `connectUrl` with; body `{ model?, voice?, instructions? }` (first usable `realtime` model/its first voice when omitted); 403 `AI_REALTIME_DISABLED` unless the admin flag `ai.defaults.allowRealtime` (default **false**) is on; usage `operation: "realtime"`, `units: { sessions: 1 }` (`ai:use`)
 - `POST /api/ai/runs` - Queue a background AI response (`ai.response.run`); 202 `{ runId, jobId }`; 400 `AI_INVALID_REQUEST` when `ai.defaults.allowBackgroundRuns` is off (`ai:use`)
 - `GET /api/ai/runs/{id}` - Get one background run, scoped to the caller — `{ id, status, provider, modelId, output, errorCode, errorMessage, createdAt, completedAt }`; an image run's `output` is `{ type: "images", storageObjectIds, images, usage }` — storage objects the caller owns, downloaded via `GET /api/storage/objects/{id}/download` (unconfigured storage fails the run `AI_STORAGE_UNAVAILABLE`); a transcription run's is `{ type: "transcription", text, language?, durationSeconds?, segments?, words? }`; a speech run's is `{ type: "speech", storageObjectId, mimeType, format, voice, aiGenerated: true, … }`; 404 for another user's run (`ai:use`)
 - `POST /api/ai/runs/{id}/cancel` - Cancel a background run, scoped to the caller; idempotent — a finished run is returned unchanged (`ai:use`)
@@ -809,11 +814,16 @@ requires `ai:use`. See
   each into a permission seeded far more broadly for unrelated settings
 - `ai:use` - May call AI with the caller's own key (or the org fallback key, when the
   deployment's key policy allows it): every consumer-facing route under `/api/ai/*` except
-  the always-open `GET /api/ai/config`. Seeded to **all three roles** — using AI with a key
-  the caller themselves supplied is not an administrative act, the same posture managing
-  one's own settings or storage objects already takes. Deliberately **not** folded into
-  `ai_config:*`: an administrator must be able to grant "may use AI" broadly while keeping
-  "may reconfigure the AI platform for the whole deployment" Admin-only — see
+  the always-open `GET /api/ai/config`. Seeded to **Admin and Contributor, deliberately NOT
+  Viewer** (issue #499) — using AI with a key the caller themselves supplied is not an
+  administrative act, the same posture managing one's own settings or storage objects
+  already takes, but Viewer is the DEFAULT role every new signup lands in, and a default
+  grant meant a brand-new account could spend the deployment's own org key under
+  `byok_with_org_fallback` with no administrator having decided that. An administrator
+  grants `ai:use` back to a specific Viewer (a `role_permissions` row) or promotes the
+  account to Contributor. Deliberately **not** folded into `ai_config:*`: an administrator
+  must be able to grant "may use AI" broadly while keeping "may reconfigure the AI platform
+  for the whole deployment" Admin-only — see
   [`docs/specs/ai-platform.md`](docs/specs/ai-platform.md) §11
 
 ## Database Tables
@@ -831,6 +841,15 @@ requires `ai:use`. See
 - `storage_objects` - File metadata, status, storage references
 - `storage_object_chunks` - Multipart upload chunk tracking
 - `personal_access_tokens` - User-created long-lived API tokens (hashed)
+- `user_credentials` - Per-user encrypted credentials (issue #387): a sibling of
+  `credentials` (untouched) for secrets a USER owns (bring-your-own-key), addressed by
+  `(userId, purpose, name)` and cascade-deleted with the user. Encrypted under an
+  owner-bound cipher domain, `user:<userId>:<purpose>` — not the bare purpose
+  `credentials` uses — so a row moved to another owner fails GCM authentication rather
+  than decrypting into the wrong user's context. Ships with an empty purpose registry
+  (`USER_CREDENTIAL_PURPOSES`) in production: the only BYO key type today, a user's AI
+  provider key, already lives in `user_ai_keys` below. See
+  [`docs/specs/user-credentials.md`](docs/specs/user-credentials.md).
 - `jobs` - The background queue (epic #254). `subject_type`/`subject_id` are both plain
   `text`, nullable, no FK either way — a job's subject is polymorphic (a storage object
   today, something else tomorrow), and a fork's own tables cannot be enumerated by a
@@ -921,7 +940,7 @@ requires `ai:use`. See
   epic #419) — `userId` nullable/`SetNull` for a system-initiated catalog sync, `keySource`
   (`user|org|none|admin_discovery`; `none` — #448 — for a keyless OpenAI-compatible server
   the administrator marked `requiresKey: false`) records whose key paid, `operation`
-  (`responses|images|audio.transcribe|audio.speech|embeddings|catalog`) is a plain string
+  (`responses|images|audio.transcribe|audio.speech|embeddings|realtime|catalog`) is a plain string
   for the same reason `AiUsageEvent.operation`'s own comment gives: a new operation kind
   must cost zero migrations here. Token columns are all nullable (not every operation or
   provider reports every count); `units` is JSONB for non-token-metered operations
@@ -985,9 +1004,10 @@ The cards gate writes internally (`ai_config:write`) rather than by a second
 card permission, the same reachability-vs-content posture every other group
 in this file takes. The per-user counterpart is the `AI Keys` card in
 `USER_SETTINGS_SECTIONS` (`/settings/ai`, `permission: 'ai:use'`,
-`feature: 'ai'`) — `ai:use` is seeded to all three roles, so this card is
-gated by a real, withholdable grant rather than by role, and hidden while AI
-is off by the identical `feature` mechanism. See
+`feature: 'ai'`) — `ai:use` is seeded to Admin and Contributor, deliberately
+not Viewer (issue #499), so this card is gated by a real, withholdable grant
+rather than by role, and hidden while AI is off by the identical `feature`
+mechanism. See
 [`docs/specs/ai-platform.md`](docs/specs/ai-platform.md) and the MANDATORY AI
 Platform Rules above.
 
@@ -1132,6 +1152,16 @@ rejected alternative, and
 2. Add migration if schema structure changes
 3. Update TypeScript types
 4. Add frontend UI if user-facing
+
+### Adding a User Key Type (Bring-Your-Own-Key)
+
+A user's own credential for something (as opposed to `CredentialsService`'s
+deployment-owned secrets) is one entry in `USER_CREDENTIAL_PURPOSES`
+(`apps/api/src/user-credentials/user-credential-purposes.ts`) plus whatever
+controller the feature needs — `UserCredentialsModule` ships no HTTP surface
+of its own, no migration required. See
+[`docs/specs/user-credentials.md`](docs/specs/user-credentials.md) §9 for the
+full recipe.
 
 ### Adding a Notification
 
@@ -1344,7 +1374,7 @@ resolution, the `ai.limits` rate limits and output-token clamp — #450,
 `docs/specs/ai-platform.md` §15), records one `ai_usage_events` row per
 round-trip, and traces the call. A call over a limit throws
 `AiError('AI_RATE_LIMITED')` with `retryAfterMs` and `details.limit` (429 plus
-`Retry-After` over HTTP); in a job, `err.toRateLimitError()` defers it. Eleven entry points, all on the client
+`Retry-After` over HTTP); in a job, `err.toRateLimitError()` defers it. Twelve entry points, all on the client
 `forUser` returns:
 
 - **`respond(req, opts?)`** — one response. `req.input` is a string or
@@ -1418,6 +1448,11 @@ round-trip, and traces the call. A call over a limit throws
   succeeded run's `output.storageObjectId` is the audio, a storage object
   the user owns, with `aiGenerated: true` — surface that to listeners
   (§5.6).
+- **`createRealtimeSession({ model?, voice?, instructions?, turnDetection?,
+  tools? })`** — synchronously mints an ephemeral realtime secret the
+  BROWSER connects to the provider with over WebRTC (`{ clientSecret,
+  expiresAt, connectUrl, … }`); off unless `ai.defaults.allowRealtime`
+  (`AI_REALTIME_DISABLED`); one usage row, `units: { sessions: 1 }` (§5.8).
 
 **Picking a model**: pass `req.model` (and `req.provider` when more than one
 is registered) to pin it, or leave both unset to fall back to the caller's

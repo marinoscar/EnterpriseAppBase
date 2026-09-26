@@ -53,7 +53,7 @@ function build(c: Omit<Case, 'expected'>, compatible: { requiresKey?: boolean } 
       'azure-openai': { enabled: false },
       'openai-compatible': { enabled: true, baseUrl: 'http://ollama.internal:11434/v1', ...compatible },
     },
-    defaults: { allowBackgroundRuns: true },
+    defaults: { allowBackgroundRuns: true, allowRealtime: false },
     logPromptContent: false,
     usageRetentionDays: 180,
     hostedTools: {
