@@ -4,8 +4,10 @@ import { join } from 'node:path';
 import { BACKUP_KEY_PREFIX } from '../db-backup/db-backup-storage';
 import { NODE_OUTPUT_KEY_PREFIX } from '../nodes/node-data-plane.service';
 import { avatarKeyPrefix } from '../common/profile-image/profile-image';
+import { aiOutputKeyPrefix } from '../ai/storage/ai-output-writer';
 import { STORAGE_PROBE_KEY_PREFIX } from './config/storage-connection-test.service';
 import {
+  AI_OUTPUTS_KEY_PREFIX,
   AVATARS_KEY_PREFIX,
   DATABASE_BACKUPS_KEY_PREFIX,
   NODE_OUTPUTS_KEY_PREFIX,
@@ -32,8 +34,9 @@ describe('STORAGE_KEY_PREFIXES', () => {
     }
   });
 
-  it('holds exactly the five prefixes this application writes', () => {
+  it('holds exactly the six prefixes this application writes', () => {
     expect([...STORAGE_KEY_PREFIXES].sort()).toEqual([
+      'ai-outputs/',
       'avatars/',
       'database-backups/',
       'node-outputs/',
@@ -60,6 +63,12 @@ describe('STORAGE_KEY_PREFIXES', () => {
     it('avatars: the per-user key sits under the root prefix', () => {
       expect(avatarKeyPrefix('user-123')).toBe(`${AVATARS_KEY_PREFIX}user-123/`);
       expect(avatarKeyPrefix('user-123').startsWith(AVATARS_KEY_PREFIX)).toBe(true);
+    });
+
+    it('AI outputs: the per-user, per-run folder sits under the root prefix', () => {
+      expect(aiOutputKeyPrefix('user-123', 'run-9')).toBe(`${AI_OUTPUTS_KEY_PREFIX}user-123/run-9/`);
+      expect(aiOutputKeyPrefix('user-123', 'run-9').startsWith(AI_OUTPUTS_KEY_PREFIX)).toBe(true);
+      expect(AI_OUTPUTS_KEY_PREFIX).toBe('ai-outputs/');
     });
 
     it('storage probes: the connection test writes under this list', () => {

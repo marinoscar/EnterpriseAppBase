@@ -51,6 +51,13 @@ export const DATABASE_BACKUPS_KEY_PREFIX = 'database-backups/';
 export const NODE_OUTPUTS_KEY_PREFIX = 'node-outputs/';
 
 /**
+ * Files an AI operation produced for a user (#437: generated/edited images;
+ * later audio). Individual objects live under `ai-outputs/<userId>/<runId>/`,
+ * built by `aiOutputKeyPrefix` in `ai/storage/ai-output-writer.ts`.
+ */
+export const AI_OUTPUTS_KEY_PREFIX = 'ai-outputs/';
+
+/**
  * Probe objects written by the storage connection test.
  *
  * ⚠ Easy to leave off this list and wrong to: the test deletes its probe on a
@@ -72,5 +79,6 @@ export const STORAGE_KEY_PREFIXES: readonly string[] = Object.freeze([
   AVATARS_KEY_PREFIX,
   DATABASE_BACKUPS_KEY_PREFIX,
   NODE_OUTPUTS_KEY_PREFIX,
+  AI_OUTPUTS_KEY_PREFIX,
   STORAGE_TEST_KEY_PREFIX,
 ]);

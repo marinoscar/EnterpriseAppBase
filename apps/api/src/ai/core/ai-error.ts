@@ -28,6 +28,11 @@ export const AI_ERROR_STATUS = {
   AI_CONTENT_FILTERED: 422,
   AI_INVALID_REQUEST: 400,
   AI_STRUCTURED_OUTPUT_INVALID: 502,
+  // Object storage is not configured (or not usable) for an operation whose
+  // inputs or outputs are storage objects — image generation (#437) and the
+  // media stories after it. An administrator fixes it at
+  // `/admin/settings/storage`; the request itself was fine.
+  AI_STORAGE_UNAVAILABLE: 503,
 } as const;
 
 export type AiErrorCode = keyof typeof AI_ERROR_STATUS;
