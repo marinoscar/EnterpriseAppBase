@@ -106,11 +106,37 @@ const TRANSCRIPTION: AiModelCapabilities = {
   outputModalities: ['text'],
 };
 
-const SPEECH: AiModelCapabilities = {
-  capabilities: ['audio_speech'],
-  inputModalities: ['text'],
-  outputModalities: ['audio'],
-};
+/**
+ * Every voice OpenAI's speech endpoint accepts — `OpenAiProviderAdapter
+ * .audio.voices`. The `tts-1` family speaks the first nine only.
+ */
+export const OPENAI_SPEECH_VOICES = [
+  'alloy',
+  'ash',
+  'coral',
+  'echo',
+  'fable',
+  'onyx',
+  'nova',
+  'sage',
+  'shimmer',
+  'ballad',
+  'verse',
+  'marin',
+  'cedar',
+] as const;
+
+/** The voices `tts-1` and `tts-1-hd` speak. */
+export const OPENAI_TTS1_VOICES = OPENAI_SPEECH_VOICES.slice(0, 9);
+
+function speech(voices: readonly string[]): AiModelCapabilities {
+  return {
+    capabilities: ['audio_speech'],
+    inputModalities: ['text'],
+    outputModalities: ['audio'],
+    voices: [...voices],
+  };
+}
 
 const EMBEDDINGS: AiModelCapabilities = {
   capabilities: ['embeddings'],
@@ -129,7 +155,8 @@ export const OPENAI_CLASSIFIER_RULES: readonly OpenAiClassifierRule[] = [
   // ---- Special-purpose families first: their ids share prefixes with chat models.
   { match: /realtime/, capabilities: REALTIME },
   { match: /transcribe|^whisper-/, capabilities: TRANSCRIPTION },
-  { match: /^tts-|-tts(?:-|$)/, capabilities: SPEECH },
+  { match: /^tts-1(?:-|$)/, capabilities: speech(OPENAI_TTS1_VOICES) },
+  { match: /^tts-|-tts(?:-|$)/, capabilities: speech(OPENAI_SPEECH_VOICES) },
   { match: /^text-embedding-/, capabilities: EMBEDDINGS },
   { match: /^dall-e-2(?:-|$)/, capabilities: IMAGE_GENERATE_AND_EDIT },
   { match: /^dall-e-3(?:-|$)/, capabilities: IMAGE_GENERATE_ONLY },

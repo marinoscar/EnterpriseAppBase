@@ -33,7 +33,11 @@
 //     (bytes or a stream), records it, and answers a deterministic transcript
 //     whose `durationSeconds` is one second per 1000 bytes; it refuses a
 //     model classified without `audio_transcription` and an input larger
-//     than its `transcriptionMaxBytes`.
+//     than its `transcriptionMaxBytes`; its `speech()` (#439) answers
+//     deterministic bytes (`FAKE-<format>:<voice>:<input>`) in the format's
+//     MIME type and refuses empty/over-long input, a voice outside the
+//     model's `voices` (else `FAKE_SPEECH_VOICES`), and a model classified
+//     without `audio_speech`.
 //
 // And it RECORDS every call, including the `apiKey` it was called with —
 // that is what lets a test prove the organisation key is never used for a
@@ -52,6 +56,8 @@ import {
 } from '../core/provider-adapter.interface';
 import { parseStructured } from '../core/structured-output';
 import {
+  AI_SPEECH_FORMAT_MIME,
+  AI_SPEECH_INPUT_MAX_CHARS,
   AI_TRANSCRIPTION_DEFAULT_MAX_BYTES,
   AiAudioPort,
   AiEmbeddingRequest,
@@ -62,6 +68,8 @@ import {
   AiImageResult,
   AiImagesPort,
   AiRealtimePort,
+  AiSpeechRequest,
+  AiSpeechResult,
   AiTranscriptionRequest,
   AiTranscriptionResult,
   isStreamedPayload,
@@ -99,7 +107,8 @@ export type FakeAiCallMethod =
   | 'embeddings.embed'
   | 'images.generate'
   | 'images.edit'
-  | 'audio.transcribe';
+  | 'audio.transcribe'
+  | 'audio.speech';
 
 export interface FakeAiCall {
   method: FakeAiCallMethod;
@@ -117,6 +126,8 @@ export interface FakeAiCall {
   };
   /** The audio bytes an `audio.transcribe` call read. */
   audioBytes?: Buffer;
+  /** The request an `audio.speech` call received. */
+  speechRequest?: AiSpeechRequest;
   /** Set when the call observed `ctx.signal` aborting. */
   aborted?: boolean;
   /** What a responses call received for each storage-object part (#441), in part order. */
@@ -175,7 +186,8 @@ export interface FakeAiProviderOptions {
    */
   imagesPort?: boolean;
   /**
-   * `true` carries the built-in scripted `audio` port (`transcribe`).
+   * `true` carries the built-in scripted `audio` port (`transcribe`,
+   * `speech` and `voices`).
    * Defaults to `false`; `ports.audio`, when given, wins.
    */
   audioPort?: boolean;
@@ -240,6 +252,17 @@ export const FAKE_TRANSCRIPTION_MODEL_CAPABILITIES: AiModelCapabilities = {
   inputModalities: ['audio'],
   outputModalities: ['text'],
 };
+
+/** The classification a fake speech model is given in tests: two of the fake's voices. */
+export const FAKE_SPEECH_MODEL_CAPABILITIES: AiModelCapabilities = {
+  capabilities: ['audio_speech'],
+  inputModalities: ['text'],
+  outputModalities: ['audio'],
+  voices: ['alloy', 'echo'],
+};
+
+/** The built-in audio port's provider-wide voice list. */
+export const FAKE_SPEECH_VOICES = ['alloy', 'echo', 'nova'] as const;
 
 /** The bytes every fake-generated image carries: a real 1x1 PNG. */
 export const FAKE_IMAGE_BYTES = Buffer.from(
@@ -313,6 +336,8 @@ export class FakeAiProvider implements AiProviderAdapter {
         ? {
             transcribe: (req, ctx) => this.transcribe(req, ctx),
             transcriptionMaxBytes: options.transcriptionMaxBytes ?? AI_TRANSCRIPTION_DEFAULT_MAX_BYTES,
+            speech: (req, ctx) => this.speak(req, ctx),
+            voices: FAKE_SPEECH_VOICES,
           }
         : undefined);
     this.embeddings =
@@ -605,6 +630,45 @@ export class FakeAiProvider implements AiProviderAdapter {
         ? { words: text.split(' ').map((word, i) => ({ startSeconds: i, endSeconds: i + 1, word })) }
         : {}),
       usage: { outputTokens: Math.ceil(text.length / 4) },
+      providerRequestId: `fake_req_${this.responseCounter}`,
+    };
+  }
+
+  private async speak(req: AiSpeechRequest, ctx: AiCallContext): Promise<AiSpeechResult> {
+    const call = this.record('audio.speech', ctx);
+
+    call.speechRequest = req;
+
+    await this.pause(ctx, call);
+    this.assertKey(ctx);
+
+    const classification = this.classifyModel(req.model);
+
+    if (classification && !classification.capabilities.includes('audio_speech')) {
+      throw new AiError('AI_CAPABILITY_UNSUPPORTED', `Model "${req.model}" does not support audio_speech.`, {
+        details: { capability: 'audio_speech', model: req.model },
+      });
+    }
+
+    if (req.input.length === 0 || req.input.length > AI_SPEECH_INPUT_MAX_CHARS) {
+      throw new AiError('AI_INVALID_REQUEST', `Speech input must be 1 to ${AI_SPEECH_INPUT_MAX_CHARS} characters.`);
+    }
+
+    const voices: readonly string[] = classification?.voices ?? FAKE_SPEECH_VOICES;
+
+    if (!voices.includes(req.voice)) {
+      throw new AiError('AI_INVALID_REQUEST', `Unknown voice "${req.voice}".`, { details: { voice: req.voice } });
+    }
+
+    const format = req.format ?? 'mp3';
+
+    this.responseCounter += 1;
+
+    return {
+      provider: this.id,
+      model: req.model,
+      audio: { data: Buffer.from(`FAKE-${format}:${req.voice}:${req.input}`), mimeType: AI_SPEECH_FORMAT_MIME[format] },
+      usage: {},
       providerRequestId: `fake_req_${this.responseCounter}`,
     };
   }

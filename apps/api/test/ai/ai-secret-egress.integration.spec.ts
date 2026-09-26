@@ -54,6 +54,7 @@ import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
 import {
   FAKE_EMBEDDING_MODEL_CAPABILITIES,
   FAKE_IMAGE_MODEL_CAPABILITIES,
+  FAKE_SPEECH_MODEL_CAPABILITIES,
   FAKE_TRANSCRIPTION_MODEL_CAPABILITIES,
   FAKE_TEXT_MODEL_CAPABILITIES,
 } from '../../src/ai/testing/fake-ai-provider';
@@ -61,6 +62,7 @@ import {
   HARNESS_EMBEDDING_MODEL,
   HARNESS_IMAGE_MODEL,
   HARNESS_MODEL,
+  HARNESS_SPEECH_MODEL,
   HARNESS_TRANSCRIPTION_MODEL,
   HARNESS_USER,
   HARNESS_USER_KEY,
@@ -79,6 +81,7 @@ import {
   aiResponseSchema,
   aiRunStartedSchema,
   aiRunSchema,
+  aiSpeechRunOutputSchema,
   aiTranscriptionRunOutputSchema,
 } from '../../src/ai/http/dto/ai-response.dto';
 import { aiEmbeddingsResponseSchema } from '../../src/ai/http/dto/ai-embeddings.dto';
@@ -132,6 +135,7 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
         { modelId: HARNESS_EMBEDDING_MODEL, capabilities: FAKE_EMBEDDING_MODEL_CAPABILITIES },
         { modelId: HARNESS_IMAGE_MODEL, capabilities: FAKE_IMAGE_MODEL_CAPABILITIES },
         { modelId: HARNESS_TRANSCRIPTION_MODEL, capabilities: FAKE_TRANSCRIPTION_MODEL_CAPABILITIES },
+        { modelId: HARNESS_SPEECH_MODEL, capabilities: FAKE_SPEECH_MODEL_CAPABILITIES },
       ],
       fake: { hostedTools: ['mcp'] },
     });
@@ -330,6 +334,7 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
       AiEmbeddingsResponseDto: aiEmbeddingsResponseSchema,
       AiImageRunOutput: aiImageRunOutputSchema,
       AiTranscriptionRunOutput: aiTranscriptionRunOutputSchema,
+      AiSpeechRunOutput: aiSpeechRunOutputSchema,
     };
 
     it('finds every response schema, so a broken import list cannot pass vacuously', () => {
@@ -535,6 +540,73 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
         assertNoLeak('transcription failure log output', logLines.join('\n'));
       } finally {
         port.transcribe = original;
+      }
+    });
+
+    it('POST /api/ai/audio/speech -> ai.audio.speech -> GET /api/ai/runs/:id: no sentinel in any body, row, stored object or log line', async () => {
+      const started = await request(app.context.app.getHttpServer())
+        .post('/api/ai/audio/speech')
+        .set(authHeader(holderToken))
+        .send({ input: 'Read this aloud.', model: HARNESS_SPEECH_MODEL, instructions: 'calm' })
+        .expect(202);
+
+      const handler = app.context.app.get(JobHandlerRegistry).get('ai.audio.speech');
+      await handler!.process({ id: started.body.data.jobId, payload: { runId: started.body.data.runId } } as never);
+
+      const run = await request(app.context.app.getHttpServer())
+        .get(`/api/ai/runs/${started.body.data.runId}`)
+        .set(authHeader(holderToken))
+        .expect(200);
+
+      expect(run.body.data.status).toBe('succeeded');
+      expect(app.harness.fake.callsTo('audio.speech')).toHaveLength(1);
+      assertNoLeak('POST /api/ai/audio/speech body', JSON.stringify(started.body));
+      assertNoLeak('POST /api/ai/audio/speech headers', JSON.stringify(started.headers));
+      assertNoLeak('speech run body', JSON.stringify(run.body));
+      assertNoLeak('ai_runs rows (speech)', JSON.stringify(app.harness.runRows));
+      assertNoLeak('ai_usage_events (speech)', JSON.stringify(app.harness.usageEvents));
+      assertNoLeak(
+        'storage objects (speech)',
+        JSON.stringify(app.harness.storage.objects, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)),
+      );
+      assertNoLeak('stored audio bytes (speech)', [...app.harness.storage.blobs.values()].map((b) => b.toString()).join('\n'));
+      assertNoLeak('log output (speech)', logLines.join('\n'));
+    });
+
+    it('a speech run whose provider call fails records a run error with no sentinel', async () => {
+      const port = app.harness.fake.audio!;
+      const original = port.speech;
+      port.speech = async () => {
+        throw new Error(`upstream rejected ${HARNESS_USER_KEY}`);
+      };
+
+      try {
+        const started = await request(app.context.app.getHttpServer())
+          .post('/api/ai/audio/speech')
+          .set(authHeader(holderToken))
+          .send({ input: 'x', model: HARNESS_SPEECH_MODEL })
+          .expect(202);
+
+        const handler = app.context.app.get(JobHandlerRegistry).get('ai.audio.speech');
+        // The last attempt, so the run is failed rather than released for a retry.
+        const thrown = await handler!
+          .process({ id: started.body.data.jobId, attempts: 2, payload: { runId: started.body.data.runId } } as never)
+          .catch((err: unknown) => err);
+
+        const run = await request(app.context.app.getHttpServer())
+          .get(`/api/ai/runs/${started.body.data.runId}`)
+          .set(authHeader(holderToken))
+          .expect(200);
+
+        expect(run.body.data.status).toBe('failed');
+        assertNoLeak('failed speech run body', JSON.stringify(run.body));
+        assertNoLeak('failed speech run rows', JSON.stringify(app.harness.runRows));
+        assertNoLeak('failed speech usage rows', JSON.stringify(app.harness.usageEvents));
+        assertNoLeak('thrown error body (speech)', JSON.stringify(thrown));
+        assertNoLeak('thrown error message (speech job lastError)', String((thrown as Error | undefined)?.message));
+        assertNoLeak('speech failure log output', logLines.join('\n'));
+      } finally {
+        port.speech = original;
       }
     });
 

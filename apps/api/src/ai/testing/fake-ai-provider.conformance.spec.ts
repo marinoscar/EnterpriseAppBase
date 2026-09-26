@@ -3,6 +3,7 @@ import { describeAiProviderConformance } from './conformance';
 import {
   FAKE_EMBEDDING_MODEL_CAPABILITIES,
   FAKE_IMAGE_MODEL_CAPABILITIES,
+  FAKE_SPEECH_MODEL_CAPABILITIES,
   FAKE_TEXT_MODEL_CAPABILITIES,
   FAKE_TRANSCRIPTION_MODEL_CAPABILITIES,
   FakeAiProvider,
@@ -113,7 +114,7 @@ describeAiProviderConformance('FakeAiProvider with its images port', () => ({
 
 describeAiProviderConformance('FakeAiProvider with its audio port', () => ({
   adapter: new FakeAiProvider({
-    models: ['fake-model', 'fake-transcription-model'],
+    models: ['fake-model', 'fake-transcription-model', 'fake-speech-model'],
     validKeys: ['fake-valid-key'],
     responses: conformanceScript,
     audioPort: true,
@@ -121,14 +122,16 @@ describeAiProviderConformance('FakeAiProvider with its audio port', () => ({
     classify: (id) =>
       id === 'fake-transcription-model'
         ? FAKE_TRANSCRIPTION_MODEL_CAPABILITIES
-        : id === 'fake-model'
+        : id === 'fake-speech-model'
+          ? FAKE_SPEECH_MODEL_CAPABILITIES
+          : id === 'fake-model'
           ? FAKE_TEXT_MODEL_CAPABILITIES
           : null,
   }),
   ctx: { apiKey: 'fake-valid-key', requestId: 'conformance-5' },
   fixtures: {
     invalidApiKey: 'fake-invalid-key',
-    classify: { known: ['fake-model', 'fake-transcription-model'], unknown: ['nope'] },
+    classify: { known: ['fake-model', 'fake-transcription-model', 'fake-speech-model'], unknown: ['nope'] },
     responses: {
       model: 'fake-model',
       unsupportedRequest: { model: 'fake-model', input: 'search the web', tools: [{ type: 'web_search' }] },
@@ -137,6 +140,12 @@ describeAiProviderConformance('FakeAiProvider with its audio port', () => ({
     transcription: {
       model: 'fake-transcription-model',
       // A model classified without `audio_transcription` is refused as an AiError.
+      failingModel: 'fake-model',
+    },
+    speech: {
+      model: 'fake-speech-model',
+      voice: 'alloy',
+      // A model classified without `audio_speech` is refused as an AiError.
       failingModel: 'fake-model',
     },
   },

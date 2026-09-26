@@ -8,7 +8,8 @@
 // paths (`POST /api/ai/runs`, executed via its `ai.response.run` handler
 // exactly as `ai-kill-switch.integration.spec.ts` drives it,
 // `POST /api/ai/images`, executed via `ai.image.generate` — #437, and
-// `POST /api/ai/audio/transcriptions`, executed via `ai.audio.transcribe` — #438):
+// `POST /api/ai/audio/transcriptions`, executed via `ai.audio.transcribe` — #438,
+// and `POST /api/ai/audio/speech`, executed via `ai.audio.speech` — #439):
 //
 //   - `byok`, no user key            -> AI_KEY_REQUIRED, the ORG key is never
 //                                        even looked at (`FakeAiProvider`
@@ -45,6 +46,7 @@ import { createMockTestUser, authHeader } from '../helpers/auth-mock.helper';
 import {
   HARNESS_EMBEDDING_MODEL,
   HARNESS_IMAGE_MODEL,
+  HARNESS_SPEECH_MODEL,
   HARNESS_TRANSCRIPTION_MODEL,
   HARNESS_USER,
   HARNESS_USER_KEY,
@@ -57,6 +59,7 @@ const EMBED_BODY = { model: HARNESS_EMBEDDING_MODEL, input: ['hello', 'world'] }
 const IMAGE_BODY = { model: HARNESS_IMAGE_MODEL, prompt: 'a lighthouse' };
 const recordingFor = (app: AiHttpTestApp) =>
   app.harness.storage.addObject({ uploadedById: HARNESS_USER, mimeType: 'audio/mpeg', bytes: Buffer.alloc(1200, 1) });
+const SPEECH_BODY = { input: 'hello there', model: HARNESS_SPEECH_MODEL };
 const IMAGE_REQUEST = { operation: 'images.generate', provider: 'openai', model: HARNESS_IMAGE_MODEL, prompt: 'a lighthouse' };
 
 describe('AI key policy invariant — admin key never spent on a user’s own inference (#435)', () => {
@@ -181,6 +184,38 @@ describe('AI key policy invariant — admin key never spent on a user’s own in
       expect(app.harness.fake.calls).toEqual([]);
     });
 
+    it('POST /api/ai/audio/speech: 403 AI_KEY_REQUIRED at queue time, nothing queued, org key untouched', async () => {
+      const res = await request(app.context.app.getHttpServer())
+        .post('/api/ai/audio/speech')
+        .set(authHeader(holderToken))
+        .send(SPEECH_BODY)
+        .expect(403);
+
+      expect(res.body.details.reason).toBe('AI_KEY_REQUIRED');
+      expect(app.harness.runRows).toEqual([]);
+      expect(app.harness.fake.calls).toEqual([]);
+    });
+
+    it('ai.audio.speech: a queued speech run also fails AI_KEY_REQUIRED when executed, org key untouched', async () => {
+      const handler = app.context.app.get(JobHandlerRegistry).get('ai.audio.speech');
+      const created = await app.harness.prisma.aiRun.create({
+        data: {
+          userId: HARNESS_USER,
+          provider: 'openai',
+          modelId: HARNESS_SPEECH_MODEL,
+          status: 'pending',
+          request: { operation: 'audio.speech', provider: 'openai', model: HARNESS_SPEECH_MODEL, input: 'hi', voice: 'alloy', format: 'mp3' },
+        },
+      });
+
+      await handler!.process({ id: 'job-tts-1', payload: { runId: created.id } } as never);
+
+      const stored = app.harness.runRows.find((r) => r.id === created.id);
+      expect(stored?.status).toBe('failed');
+      expect(stored?.errorCode).toBe('AI_KEY_REQUIRED');
+      expect(app.harness.fake.calls).toEqual([]);
+    });
+
     it('POST /api/ai/runs -> the queued run also fails AI_KEY_REQUIRED when executed, org key untouched', async () => {
       const registry = app.context.app.get(JobHandlerRegistry);
       const handler = registry.get('ai.response.run');
@@ -269,6 +304,22 @@ describe('AI key policy invariant — admin key never spent on a user’s own in
         expect.objectContaining({ userId: HARNESS_USER, operation: 'audio.transcribe', keySource: 'org' }),
       ]);
     });
+
+    it('POST /api/ai/audio/speech -> ai.audio.speech: synthesized WITH the org key, usage row keySource=org', async () => {
+      const started = await request(app.context.app.getHttpServer())
+        .post('/api/ai/audio/speech')
+        .set(authHeader(holderToken))
+        .send(SPEECH_BODY)
+        .expect(202);
+
+      const handler = app.context.app.get(JobHandlerRegistry).get('ai.audio.speech');
+      await handler!.process({ id: started.body.data.jobId, payload: { runId: started.body.data.runId } } as never);
+
+      expect(app.harness.fake.callsTo('audio.speech').map((c) => c.apiKey)).toEqual([HARNESS_ORG_KEY]);
+      expect(app.harness.usageEvents).toEqual([
+        expect.objectContaining({ userId: HARNESS_USER, operation: 'audio.speech', keySource: 'org' }),
+      ]);
+    });
   });
 
   describe('a user key exists — it always wins, whatever the policy and however an org key is configured', () => {
@@ -284,6 +335,7 @@ describe('AI key policy invariant — admin key never spent on a user’s own in
         HARNESS_EMBEDDING_MODEL,
         HARNESS_IMAGE_MODEL,
         HARNESS_TRANSCRIPTION_MODEL,
+        HARNESS_SPEECH_MODEL,
       ]);
     });
 
@@ -383,6 +435,24 @@ describe('AI key policy invariant — admin key never spent on a user’s own in
       expect(app.harness.fake.apiKeys).not.toContain(HARNESS_ORG_KEY);
       expect(app.harness.usageEvents).toEqual([
         expect.objectContaining({ userId: HARNESS_USER, operation: 'audio.transcribe', keySource: 'user' }),
+      ]);
+    });
+
+    it('the queued speech path (POST /api/ai/audio/speech -> ai.audio.speech) spends the user key, never the org key', async () => {
+      const started = await request(app.context.app.getHttpServer())
+        .post('/api/ai/audio/speech')
+        .set(authHeader(holderToken))
+        .send(SPEECH_BODY)
+        .expect(202);
+
+      const handler = app.context.app.get(JobHandlerRegistry).get('ai.audio.speech');
+      await handler!.process({ id: started.body.data.jobId, payload: { runId: started.body.data.runId } } as never);
+
+      expect(app.harness.runRows.find((r) => r.id === started.body.data.runId)?.status).toBe('succeeded');
+      expect(app.harness.fake.callsTo('audio.speech').map((c) => c.apiKey)).toEqual([HARNESS_USER_KEY]);
+      expect(app.harness.fake.apiKeys).not.toContain(HARNESS_ORG_KEY);
+      expect(app.harness.usageEvents).toEqual([
+        expect.objectContaining({ userId: HARNESS_USER, operation: 'audio.speech', keySource: 'user' }),
       ]);
     });
   });

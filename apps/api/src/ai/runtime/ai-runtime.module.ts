@@ -6,6 +6,7 @@ import { AiCoreModule } from '../core/ai-core.module';
 import { AiKeysModule } from '../keys/ai-keys.module';
 import { AiStorageModule } from '../storage/ai-storage.module';
 import { AiService } from './ai.service';
+import { AiAudioSpeechHandler } from './ai-audio-speech.handler';
 import { AiAudioTranscribeHandler } from './ai-audio-transcribe.handler';
 import { AiImageGenerateHandler } from './ai-image-generate.handler';
 import { AiResponseRunHandler } from './ai-response-run.handler';
@@ -25,7 +26,8 @@ import { AiUsageRecorder } from './ai-usage.recorder';
 // registry — the facade applies every gate and resolves every key itself.
 //
 // Also the server-only jobs that execute background runs: `ai.response.run`,
-// `ai.image.generate` (#437) and `ai.audio.transcribe` (#438).
+// `ai.image.generate` (#437), `ai.audio.transcribe` (#438) and
+// `ai.audio.speech` (#439).
 // =============================================================================
 
 @Module({
@@ -39,6 +41,7 @@ import { AiUsageRecorder } from './ai-usage.recorder';
     AiResponseRunHandler,
     AiImageGenerateHandler,
     AiAudioTranscribeHandler,
+    AiAudioSpeechHandler,
   ],
   // `AiRunsService` is exported for the HTTP surface (#433): a run's owner
   // reads and cancels it there.

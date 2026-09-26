@@ -54,6 +54,7 @@ ai/
     ai-media-run.handler.ts   AiMediaRunHandler — the claim/cancel/deadline/outcome lifecycle of media runs
     ai-image-generate.handler.ts  `ai.image.generate` job (server-only, #437) — image runs
     ai-audio-transcribe.handler.ts  `ai.audio.transcribe` job (server-only, #438) — transcription runs
+    ai-audio-speech.handler.ts   `ai.audio.speech` job (server-only, #439) — speech runs -> a storage object
     ai-run-request.ts         toStoredRunRequest/fromStoredRunRequest (ai_runs.request JSON)
     ai-hosted-outputs.ts      AiHostedOutputSettler — image bytes -> storage seam, MCP header scrub
     ai-image-run-request.ts   an image run's stored request
@@ -66,7 +67,7 @@ ai/
     ai-runs.controller.ts        POST /api/ai/runs, GET/POST /api/ai/runs/:runId(/cancel)
     ai-embeddings.controller.ts  POST /api/ai/embeddings (#440)
     ai-images.controller.ts      POST /api/ai/images, POST /api/ai/images/edits (#437) — 202, a run
-    ai-audio.controller.ts       POST /api/ai/audio/transcriptions (#438) — 202, a run
+    ai-audio.controller.ts       POST /api/ai/audio/transcriptions (#438), POST /api/ai/audio/speech (#439) — 202, a run
     ai-sse.ts                     pipeAiSse/formatSseEvent/abortOnDisconnect — see below
     ai-http-request.ts           toAiRequest — HTTP DTO -> AiRequest
     json-schema-structured-output.ts   HTTP callers send JSON Schema, not Zod
@@ -162,6 +163,15 @@ the adapter, and records `units: { audioSeconds }`. The transcript is the
 run's output; nothing is stored (§5.5). Both media jobs extend
 `runtime/ai-media-run.handler.ts`, which owns the run lifecycle — a new
 media job is its `execute()` plus a type and a profile.
+
+`speak` (issue #439) mirrors images: `prepareSpeech()` runs steps 1–3 with
+`audio_speech`, refuses input over 4096 characters first, and resolves the
+voice against the model's catalog `voices` (else the port's `audio.voices`);
+the `ai.audio.speech` job calls `executeSpeechRun()` (`units: { characters
+}`) behind the storage pre-flight and writes the audio through
+`AiOutputWriter` as `ai-outputs/<userId>/<runId>/speech.<ext>`. Its output
+carries `aiGenerated: true` — the disclosure provider policies require
+(§5.6).
 
 **Storage-object inputs** (issue #441) need no method of their own: an
 `image`/`file` part may carry `storageObjectId` instead of `url`, and
@@ -266,14 +276,16 @@ Two things never leave the facade, both handled by
   `deletedFileIds`; `fileInputStrategy: false` declares none); with
   `audioPort: true`, an audio port whose `transcribe` reads the whole input
   (bytes or stream), records it as `audioBytes`, and answers one second per
-  1000 bytes. Register
+  1000 bytes, and whose `speech` answers `FAKE-<format>:<voice>:<input>`
+  bytes (voices `FAKE_SPEECH_VOICES`). Register
   it in `AiProviderRegistry` in place of a real adapter for any integration
   test that exercises `AiService`.
 - **`createAiRuntimeHarness()`** (`testing/ai-runtime-harness.ts`) wires up
   an in-memory Prisma-shaped store, a seeded user key (`HARNESS_USER_KEY`)
   and org key (`HARNESS_ORG_KEY`), and a `FakeAiProvider` behind
   `HARNESS_PROVIDER`/`HARNESS_MODEL` (plus `HARNESS_EMBEDDING_MODEL` and
-  `HARNESS_IMAGE_MODEL` and `HARNESS_TRANSCRIPTION_MODEL`, with the fake's
+  `HARNESS_IMAGE_MODEL`, `HARNESS_TRANSCRIPTION_MODEL` and
+  `HARNESS_SPEECH_MODEL`, with the fake's
   embeddings, images and audio ports on, and
   in-memory object storage — `testing/in-memory-ai-storage.ts` — behind the
   real input resolver and output writer), so a test can call
@@ -289,7 +301,9 @@ Two things never leave the facade, both handled by
   single/batch/`dimensions` embeddings are well formed, (when `images` is
   implemented) generate/edit return bytes with an image MIME type, (when
   `audio.transcribe` is implemented) bytes and streams transcribe and an
-  oversized declared size is refused unread, and every error surfaces as an
+  oversized declared size is refused unread, (when `audio.speech` is
+  implemented) speech returns audio bytes, lists its voices and refuses
+  input over 4096 characters, and every error surfaces as an
   `AiError`, never a raw SDK exception. `providers/openai/openai.adapter.conformance.spec.ts`
   is the worked example of wiring a real adapter through it; `openai.adapter.live.spec.ts`
   is the separate, opt-in suite that hits the real OpenAI API.

@@ -6,7 +6,8 @@
 // A background run is an `ai_runs` row (what the user asked for, what came
 // back) executed by one job (docs/specs/ai-platform.md §9): `ai.response.run`
 // for a response, `ai.image.generate` for an image generation or edit (#437),
-// `ai.audio.transcribe` for a transcription (#438); `request.operation`
+// `ai.audio.transcribe` for a transcription (#438), `ai.audio.speech` for
+// speech (#439); `request.operation`
 // tells them apart — see `ai-run-operation.ts`.
 // This service owns the row's state machine:
 //
@@ -32,7 +33,7 @@ import type { Prisma } from '@prisma/client';
 
 import { JobsService } from '../../jobs/jobs.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import type { StoredAiTranscriptionRunRequest } from './ai-audio-run-request';
+import type { StoredAiSpeechRunRequest, StoredAiTranscriptionRunRequest } from './ai-audio-run-request';
 import type { StoredAiImageRunRequest } from './ai-image-run-request';
 import { asJson, type StoredAiRunRequest } from './ai-run-request';
 import type { AiRunHandle, AiRunOutput, AiRunStatus, AiRunView } from './ai-runtime.types';
@@ -45,6 +46,9 @@ export const AI_IMAGE_GENERATE_TYPE = 'ai.image.generate';
 
 /** The job type of a transcription run (#438). PERMANENT once jobs of it exist. */
 export const AI_AUDIO_TRANSCRIBE_TYPE = 'ai.audio.transcribe';
+
+/** The job type of a speech run (#439). PERMANENT once jobs of it exist. */
+export const AI_AUDIO_SPEECH_TYPE = 'ai.audio.speech';
 
 /** `Job.subjectType` of an `ai.response.run` job; `subjectId` is the run id. */
 export const AI_RUN_SUBJECT_TYPE = 'ai_run';
@@ -98,7 +102,11 @@ export class AiRunsService {
     userId: string;
     provider: string;
     modelId: string;
-    request: StoredAiRunRequest | StoredAiImageRunRequest | StoredAiTranscriptionRunRequest;
+    request:
+      | StoredAiRunRequest
+      | StoredAiImageRunRequest
+      | StoredAiTranscriptionRunRequest
+      | StoredAiSpeechRunRequest;
     /** The job type that executes it. Defaults to `ai.response.run`. */
     jobType?: string;
   }): Promise<AiRunHandle> {

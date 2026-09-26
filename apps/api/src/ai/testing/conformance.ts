@@ -37,6 +37,7 @@ import {
   AiImageResult,
   AiTranscriptionRequest,
   AiTranscriptionResult,
+  AI_SPEECH_INPUT_MAX_CHARS,
   AI_TRANSCRIPTION_DEFAULT_MAX_BYTES,
 } from '../core/types/media.types';
 import { AiOutputItem, AiResponse, AiResponseRequest, AiStreamEvent } from '../core/types/responses.types';
@@ -69,7 +70,12 @@ export type AiConformanceScenario =
   | 'audio.transcribeStream'
   | 'audio.transcribeTooLarge'
   | 'audio.transcribeInvalidKey'
-  | 'audio.transcribeProviderError';
+  | 'audio.transcribeProviderError'
+  | 'audio.speech'
+  | 'audio.speechVoices'
+  | 'audio.speechTooLong'
+  | 'audio.speechInvalidKey'
+  | 'audio.speechProviderError';
 
 export interface AiConformanceFixtures {
   /** A key the provider rejects. */
@@ -112,6 +118,15 @@ export interface AiConformanceFixtures {
     /** A model with `audio_transcription`. */
     model: string;
     /** A request that makes the provider fail (its `audio` is replaced by the kit's). */
+    failingModel: string;
+  };
+  /** Required when the adapter's `audio` port carries `speech`. */
+  speech?: {
+    /** A model with `audio_speech`. */
+    model: string;
+    /** A voice `model` speaks. */
+    voice: string;
+    /** A model that makes the provider fail. */
     failingModel: string;
   };
   /** Runs before each scenario's calls — for a mocked transport that queues replies. */
@@ -753,6 +768,72 @@ export function describeAiProviderConformance(
         const { transcribe, fixture, request } = port();
 
         await expectAiError(() => transcribe(request({ model: fixture.failingModel }), subject.ctx));
+      }));
+    });
+
+    describe('audio port (speech)', () => {
+      const port = () => {
+        const speech = subject.adapter.audio?.speech?.bind(subject.adapter.audio);
+        const fixture = subject.fixtures.speech;
+
+        if (!speech || !fixture) {
+          throw new Error('unreachable: guarded by whenPort()');
+        }
+
+        return { speech, fixture };
+      };
+
+      const whenPort = (fn: () => Promise<void>) => async () => {
+        if (typeof subject.adapter.audio?.speech !== 'function') {
+          return;
+        }
+
+        expect(subject.fixtures.speech).toBeDefined();
+        await fn();
+      };
+
+      scenario('audio.speech', 'speech returns audio bytes with an audio MIME type, never a URL', whenPort(async () => {
+        const { speech, fixture } = port();
+        const result = await speech(
+          { model: fixture.model, voice: fixture.voice, input: 'Hello from the conformance kit.', format: 'wav' },
+          subject.ctx,
+        );
+
+        expect(result.provider).toBe(subject.adapter.id);
+        expect(typeof result.usage).toBe('object');
+        expect(result.audio.data).toBeInstanceOf(Uint8Array);
+        expect(result.audio.data.length).toBeGreaterThan(0);
+        expect(result.audio.mimeType).toMatch(/^audio\//);
+      }));
+
+      scenario('audio.speechVoices', 'the port lists its voices, and the fixture voice is one of them', whenPort(async () => {
+        const { fixture } = port();
+        const voices = subject.adapter.audio?.voices;
+
+        expect(Array.isArray(voices)).toBe(true);
+        expect(voices!.length).toBeGreaterThan(0);
+        expect(voices).toContain(fixture.voice);
+      }));
+
+      scenario('audio.speechTooLong', `input over ${AI_SPEECH_INPUT_MAX_CHARS} characters is AI_INVALID_REQUEST`, whenPort(async () => {
+        const { speech, fixture } = port();
+
+        await expectAiError(
+          () => speech({ model: fixture.model, voice: fixture.voice, input: 'x'.repeat(AI_SPEECH_INPUT_MAX_CHARS + 1) }, subject.ctx),
+          'AI_INVALID_REQUEST',
+        );
+      }));
+
+      scenario('audio.speechInvalidKey', 'a rejected key surfaces as AI_KEY_INVALID', whenPort(async () => {
+        const { speech, fixture } = port();
+
+        await expectAiError(() => speech({ model: fixture.model, voice: fixture.voice, input: 'hi' }, invalidCtx()), 'AI_KEY_INVALID');
+      }));
+
+      scenario('audio.speechProviderError', 'a provider failure surfaces as AiError, never a raw error', whenPort(async () => {
+        const { speech, fixture } = port();
+
+        await expectAiError(() => speech({ model: fixture.failingModel, voice: fixture.voice, input: 'hi' }, subject.ctx));
       }));
     });
   });

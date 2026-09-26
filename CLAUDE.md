@@ -744,8 +744,9 @@ requires `ai:use`. See
 - `POST /api/ai/images` - Queue an image generation (`ai.image.generate`, issue #437, epic #420); 202 `{ runId, jobId }`; `model` required, `n` 1–4; always async, not subject to `allowBackgroundRuns`; a model without `image_generation` is 400 `AI_CAPABILITY_UNSUPPORTED` (`ai:use`)
 - `POST /api/ai/images/edits` - Queue an edit of the caller's own images, named by storage object id (`imageStorageObjectIds`, optional PNG `maskStorageObjectId`); 202 `{ runId, jobId }`; unknown input 404, another user's 403, not ready/wrong type/over 25 MiB 400 `AI_INVALID_REQUEST` (`ai:use`)
 - `POST /api/ai/audio/transcriptions` - Queue a transcription of the caller's own recording (`storageObjectId`: `audio/*` or `video/mp4|webm`, at most 25 MiB for OpenAI; `ai.audio.transcribe`, issue #438, epic #420); 202 `{ runId, jobId }`; `model` optional (first usable `audio_transcription` model); unknown recording 404, another user's 403, not ready/not audio/too large 400 `AI_INVALID_REQUEST` (`ai:use`)
+- `POST /api/ai/audio/speech` - Queue text-to-speech (`ai.audio.speech`, issue #439, epic #420); 202 `{ runId, jobId }`; `input` 1–4096 characters (longer is 400); `model`/`voice` optional (first usable `audio_speech` model, its first voice — a model's voices are `capabilities.voices` in `GET /api/ai/models`); the audio becomes a storage object the caller owns, disclosed `aiGenerated: true` (`ai:use`)
 - `POST /api/ai/runs` - Queue a background AI response (`ai.response.run`); 202 `{ runId, jobId }`; 400 `AI_INVALID_REQUEST` when `ai.defaults.allowBackgroundRuns` is off (`ai:use`)
-- `GET /api/ai/runs/{id}` - Get one background run, scoped to the caller — `{ id, status, provider, modelId, output, errorCode, errorMessage, createdAt, completedAt }`; an image run's `output` is `{ type: "images", storageObjectIds, images, usage }` — storage objects the caller owns, downloaded via `GET /api/storage/objects/{id}/download` (unconfigured storage fails the run `AI_STORAGE_UNAVAILABLE`); a transcription run's is `{ type: "transcription", text, language?, durationSeconds?, segments?, words? }`; 404 for another user's run (`ai:use`)
+- `GET /api/ai/runs/{id}` - Get one background run, scoped to the caller — `{ id, status, provider, modelId, output, errorCode, errorMessage, createdAt, completedAt }`; an image run's `output` is `{ type: "images", storageObjectIds, images, usage }` — storage objects the caller owns, downloaded via `GET /api/storage/objects/{id}/download` (unconfigured storage fails the run `AI_STORAGE_UNAVAILABLE`); a transcription run's is `{ type: "transcription", text, language?, durationSeconds?, segments?, words? }`; a speech run's is `{ type: "speech", storageObjectId, mimeType, format, voice, aiGenerated: true, … }`; 404 for another user's run (`ai:use`)
 - `POST /api/ai/runs/{id}/cancel` - Cancel a background run, scoped to the caller; idempotent — a finished run is returned unchanged (`ai:use`)
 - `GET /api/ai/usage/me?from&to&groupBy` - The caller's own usage report, same shape as the admin one, `groupBy` `day|model` only (`ai:use`)
 
@@ -886,6 +887,7 @@ requires `ai:use`. See
   defaults to `false` — the same "discovery alone changes nothing" posture
   `WorkerNode.status` and `databaseBackup.enabled` both take — so a freshly discovered
   model is inert until an administrator (or a later sync's own policy) turns it on.
+  `capabilities.voices` (#439) lists an `audio_speech` model's voices.
   `discoveredAt` vs. `lastSeenAt` splits creation time from liveness, mirroring
   `WorkerNode.registeredAt`/`.lastHeartbeatAt`.
 - `user_ai_keys` - One BYOK row per `(userId, provider)`, cascade-deleted with the user.
@@ -899,7 +901,8 @@ requires `ai:use`. See
   Recomputed at key-set time, on the weekly `ai.keys.recheck` job, and whenever
   `ai.catalog.refresh` emits `AI_CATALOG_SYNCED_EVENT`.
 - `ai_runs` - One row per background AI response (`ai.response.run`, epic #419), image
-  generation/edit (`ai.image.generate`, #437) or transcription (`ai.audio.transcribe`, #438) —
+  generation/edit (`ai.image.generate`, #437), transcription (`ai.audio.transcribe`, #438) or
+  speech (`ai.audio.speech`, #439) —
   told apart by `request.operation`, absent for a response run, so no migration.
   `jobId` is nullable and deliberately **not a foreign key**, mirroring `jobs.subjectType`/
   `subjectId`'s polymorphism argument above. `request` holds the **full normalized
@@ -1332,7 +1335,7 @@ async summarize(userId: string, text: string) {
 No SDK, no key, no policy check of your own — `forUser` runs the full gate
 pipeline (kill switch, provider/model enablement, capability match, key
 resolution, output-token clamp), records one `ai_usage_events` row per
-round-trip, and traces the call. Ten entry points, all on the client
+round-trip, and traces the call. Eleven entry points, all on the client
 `forUser` returns:
 
 - **`respond(req, opts?)`** — one response. `req.input` is a string or
@@ -1396,6 +1399,11 @@ round-trip, and traces the call. Ten entry points, all on the client
   run; the succeeded run's `output.text` is the transcript. The recording
   is the user's own storage object, streamed to the provider by the job
   (§5.5).
+- **`speak({ input, voice?, model?, format?, instructions?, speed? })`** —
+  always queues an `ai.audio.speech` run (input ≤ 4096 characters); the
+  succeeded run's `output.storageObjectId` is the audio, a storage object
+  the user owns, with `aiGenerated: true` — surface that to listeners
+  (§5.6).
 
 **Picking a model**: pass `req.model` (and `req.provider` when more than one
 is registered) to pin it, or leave both unset to fall back to the caller's

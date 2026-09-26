@@ -13,6 +13,8 @@
 // `AI_OUTPUTS_KEY_PREFIX`, which is on `STORAGE_KEY_PREFIXES`, so
 // `appctl deploy uninstall --purge-storage` finds these objects too. The key
 // is built here from server-side values only; no caller string reaches it.
+// A job whose output has one fixed name (speech, #439: `speech.mp3`) passes
+// it as `keyName` — a constant of its own, validated here, never user input.
 //
 // ROWS are written `ready` with the exact byte count: the bytes are already
 // in hand, so there is no multipart upload to finish and no post-processing
@@ -56,6 +58,7 @@ const EXTENSIONS: Record<string, string> = {
   'audio/opus': 'opus',
   'audio/aac': 'aac',
   'audio/flac': 'flac',
+  'audio/pcm': 'pcm',
   'text/plain': 'txt',
   'application/json': 'json',
 };
@@ -71,7 +74,15 @@ export interface AiOutputFile {
   mimeType: string;
   /** The row's display name. Defaults to `<namePrefix>-<n>.<ext>`. */
   name?: string;
+  /**
+   * The key's last segment, when the output has a fixed name (`speech.mp3`).
+   * Server-chosen only; `[A-Za-z0-9._-]`, not starting with a dot. Defaults
+   * to `<n>-<uuid>.<ext>`.
+   */
+  keyName?: string;
 }
+
+const KEY_NAME = /^[A-Za-z0-9_-][A-Za-z0-9._-]{0,99}$/;
 
 export interface AiOutputWriteOptions {
   /** Owner of the new objects (and the first key segment). */
@@ -123,7 +134,11 @@ export class AiOutputWriter {
     try {
       for (const [index, file] of opts.files.entries()) {
         const ext = extensionForMime(file.mimeType);
-        const storageKey = `${prefix}${index + 1}-${randomUUID()}.${ext}`;
+        if (file.keyName !== undefined && !KEY_NAME.test(file.keyName)) {
+          throw new Error(`Invalid AI output key name: ${JSON.stringify(file.keyName)}`);
+        }
+
+        const storageKey = `${prefix}${file.keyName ?? `${index + 1}-${randomUUID()}.${ext}`}`;
         const name = file.name ?? `${opts.namePrefix ?? 'ai-output'}-${index + 1}.${ext}`;
         const bytes = Buffer.from(file.data.buffer, file.data.byteOffset, file.data.byteLength);
 

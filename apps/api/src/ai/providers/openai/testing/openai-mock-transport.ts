@@ -118,6 +118,26 @@ export function mockTranscriptionBody(body: Record<string, unknown>): Record<str
       };
 }
 
+export type MockSpeechReply =
+  /** The audio bytes, sent as a binary body. */
+  | { kind: 'speech'; bytes: Buffer; contentType?: string }
+  | { kind: 'error'; status: number; error: Record<string, unknown>; headers?: Record<string, string> }
+  | { kind: 'network' };
+
+const MOCK_SPEECH_CONTENT_TYPES: Record<string, string> = {
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
+  opus: 'audio/opus',
+  aac: 'audio/aac',
+  flac: 'audio/flac',
+  pcm: 'audio/pcm',
+};
+
+/** The default `/v1/audio/speech` bytes for `body`: deterministic, format- and input-dependent. */
+export function mockSpeechBytes(body: Record<string, unknown>): Buffer {
+  return Buffer.from(`MOCK-${String(body.response_format ?? 'mp3').toUpperCase()}:${String(body.voice)}:${String(body.input)}`);
+}
+
 /** Which images endpoint a request hit. */
 export type MockImagesOperation = 'generations' | 'edits';
 
@@ -220,6 +240,8 @@ export interface OpenAiMockServerOptions {
   images?(operation: MockImagesOperation, body: Record<string, unknown>): MockImagesReply;
   /** `/audio/transcriptions` responder. Defaults to `mockTranscriptionBody`. */
   transcribe?(body: Record<string, unknown>): MockTranscriptionReply;
+  /** `/audio/speech` responder. Defaults to `mockSpeechBytes`. */
+  speech?(body: Record<string, unknown>): MockSpeechReply;
 }
 
 function json(status: number, payload: unknown, headers: Record<string, string>): Response {
@@ -303,6 +325,7 @@ export class OpenAiMockServer {
   /** Ids of every file deleted, in order. */
   readonly deletedFileIds: string[] = [];
   private transcribeFn: (body: Record<string, unknown>) => MockTranscriptionReply;
+  private speechFn: (body: Record<string, unknown>) => MockSpeechReply;
 
   constructor(opts: OpenAiMockServerOptions) {
     this.validKeys = new Set(opts.validKeys);
@@ -311,6 +334,12 @@ export class OpenAiMockServer {
     this.embedFn = opts.embed ?? ((body) => ({ kind: 'embeddings', body: mockEmbeddingsBody(body) }));
     this.imagesFn = opts.images ?? ((_operation, body) => ({ kind: 'images', body: mockImagesBody(body) }));
     this.transcribeFn = opts.transcribe ?? ((body) => ({ kind: 'transcription', body: mockTranscriptionBody(body) }));
+    this.speechFn = opts.speech ?? ((body) => ({ kind: 'speech', bytes: mockSpeechBytes(body) }));
+  }
+
+  /** Replaces the `/audio/speech` responder. */
+  speechWith(fn: (body: Record<string, unknown>) => MockSpeechReply): void {
+    this.speechFn = fn;
   }
 
   /** Replaces the `/audio/transcriptions` responder. */
@@ -549,6 +578,27 @@ export class OpenAiMockServer {
           return typeof reply.body === 'string'
             ? new Response(reply.body, { status: 200, headers: { 'content-type': 'text/plain; charset=utf-8', ...replyHeaders } })
             : json(200, reply.body, replyHeaders);
+      }
+    }
+
+    if (url.pathname.endsWith('/audio/speech') && init?.method === 'POST' && body) {
+      const reply = this.speechFn(body);
+
+      switch (reply.kind) {
+        case 'network':
+          throw new TypeError('fetch failed');
+
+        case 'error':
+          return json(reply.status, { error: reply.error }, { ...replyHeaders, ...(reply.headers ?? {}) });
+
+        case 'speech':
+          return new Response(new Uint8Array(reply.bytes), {
+            status: 200,
+            headers: {
+              'content-type': reply.contentType ?? MOCK_SPEECH_CONTENT_TYPES[String(body.response_format ?? 'mp3')] ?? 'audio/mpeg',
+              ...replyHeaders,
+            },
+          });
       }
     }
 

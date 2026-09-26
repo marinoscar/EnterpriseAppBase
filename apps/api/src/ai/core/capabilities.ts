@@ -65,6 +65,12 @@ export const aiModelCapabilitiesSchema = z.object({
   reasoningEfforts: z.array(z.enum(AI_REASONING_EFFORTS)).optional(),
   contextWindow: z.number().int().positive().optional(),
   maxOutputTokens: z.number().int().positive().optional(),
+  /**
+   * The voices an `audio_speech` model speaks in (#439) — surfaced through
+   * `GET /api/ai/models` so a picker can offer them. Optional: absent means
+   * "the provider's own list" (`AiAudioPort.voices`).
+   */
+  voices: z.array(z.string().min(1).max(64)).max(100).optional(),
 });
 
 export type AiModelCapabilities = z.infer<typeof aiModelCapabilitiesSchema>;
