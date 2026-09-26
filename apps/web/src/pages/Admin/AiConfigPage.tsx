@@ -154,8 +154,28 @@ function hasErrors(errors: FormErrors): boolean {
 
 export default function AiConfigPage() {
   const { hasPermission } = usePermissions();
-  const { config, isLoading, loadError, isSaving, saveError, clearSaveError, save } =
-    useAiAdminConfig();
+  const {
+    config,
+    isLoading,
+    loadError,
+    isSaving,
+    saveError,
+    clearSaveError,
+    save,
+    keyAction,
+    keyError,
+    clearKeyError,
+    keyWarnings,
+    clearKeyWarnings,
+    setKey,
+    removeKey,
+    probingProvider,
+    probeError,
+    clearProbeError,
+    testResults,
+    clearTestResult,
+    test,
+  } = useAiAdminConfig();
   // The shell's shared `GET /ai/config` answer. Refreshed after a save so the
   // hub, the rail and the AI routes learn at once that AI was switched on or
   // off. Read from context directly — with no shell above (a test), there is
@@ -189,6 +209,21 @@ export default function AiConfigPage() {
 
   const update = <K extends keyof AiFormState>(key: K, value: AiFormState[K]) => {
     setForm((prev) => (prev ? { ...prev, [key]: value } : prev));
+  };
+
+  /** One write or probe at a time, page-wide — they all replace `config`. */
+  const busy = isSaving || keyAction !== null || probingProvider !== null;
+
+  const handleSaveKey = async (providerId: string, displayName: string, apiKey: string) => {
+    const ok = await setKey(providerId, apiKey);
+    if (ok) setSavedMessage(`${displayName} key verified and saved`);
+    return ok;
+  };
+
+  const handleRemoveKey = async (providerId: string, displayName: string) => {
+    const ok = await removeKey(providerId);
+    if (ok) setSavedMessage(`${displayName} key removed`);
+    return ok;
   };
 
   const handleSubmit = async (event: FormEvent) => {
@@ -404,9 +439,45 @@ export default function AiConfigPage() {
                     }
                     canWrite={canWrite}
                     baseUrlError={errors.baseUrl[provider.id]}
+                    aiEnabled={config.enabled}
+                    keyAction={keyAction?.provider === provider.id ? keyAction.action : null}
+                    busy={busy}
+                    keyError={keyError?.provider === provider.id ? keyError.message : null}
+                    onClearKeyError={clearKeyError}
+                    onSaveKey={(apiKey) =>
+                      handleSaveKey(provider.id, provider.displayName, apiKey)
+                    }
+                    onRemoveKey={() => handleRemoveKey(provider.id, provider.displayName)}
+                    isProbing={probingProvider === provider.id}
+                    probeError={probeError?.provider === provider.id ? probeError.message : null}
+                    onClearProbeError={clearProbeError}
+                    testResult={testResults[provider.id] ?? null}
+                    onClearTestResult={() => clearTestResult(provider.id)}
+                    onTest={(apiKey) =>
+                      void test(provider.id, {
+                        apiKey,
+                        // The base URL ON SCREEN, saved or not — so a gateway
+                        // can be proved before it is committed to.
+                        baseUrl: form.providers[provider.id]?.baseUrl.trim() || undefined,
+                      })
+                    }
                   />
                 ))}
               </Stack>
+            )}
+
+            {keyWarnings.includes('ORG_FALLBACK_WITHOUT_KEY') && (
+              <Alert
+                severity="warning"
+                sx={{ mt: 3 }}
+                onClose={clearKeyWarnings}
+                data-testid="ai-org-fallback-without-key"
+              >
+                <AlertTitle>Users can no longer fall back to the organization key</AlertTitle>
+                The key policy still falls back to the organization key, but no key is stored for
+                that provider any more. Users without their own key will be refused until a new
+                organization key is saved or the policy is changed.
+              </Alert>
             )}
 
             {saveError && (
@@ -428,7 +499,7 @@ export default function AiConfigPage() {
               <Button
                 type="submit"
                 variant="contained"
-                disabled={!canWrite || !isDirty || invalid || isSaving}
+                disabled={!canWrite || !isDirty || invalid || busy}
               >
                 {isSaving ? 'Saving…' : 'Save changes'}
               </Button>
