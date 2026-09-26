@@ -38,7 +38,10 @@ evidence. A channel failure is recorded, never thrown back to the caller.
 
 The browser channel's durable `notifications` row is the delivery; the SSE
 publish and the OS toast are liveness on top of it. The admin kill switch
-mutes the toast, never the inbox row. Web Push sends only while a VAPID key
+(`browserEnabled: false`, or an event in `disabledEvents`) drops the browser
+channel for ordinary events, so they write no inbox row. A `mandatory` event
+keeps its row and arrives with `toast: false`. See `policyChannels` and
+`isBrowserToastAllowed` in `notification-policy.ts`. Web Push sends only while a VAPID key
 pair is active: one generated at `/admin/settings/push`, or, when none is
 stored, the `VAPID_*` environment variables.
 
@@ -131,8 +134,9 @@ Live examples:
 - Operational events raised to permission holders: `jobs.job_failed`
   (`ops/job-failure-notifier.ts`), `nodes.node_offline`,
   `db_backup.backup_failed` and `db_backup.restore_completed` (mandatory).
-  See §10 of the browser notifications spec for why `jobs.job_failed` has no
-  digest.
+  See §2.9 and §6 of the
+  [browser notifications spec](../../../../docs/specs/browser-notifications.md)
+  for the operational events and why `jobs.job_failed` has no digest.
 
 ## Admin broadcasts
 
