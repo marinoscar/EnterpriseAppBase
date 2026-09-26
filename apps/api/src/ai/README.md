@@ -62,6 +62,7 @@ ai/
     ai-run-operation.ts       aiRunOperation — `request.operation` tells runs apart
     ai-tool-loop.ts            runToolLoop — the function-calling agent loop
     ai-usage.recorder.ts       One ai_usage_events row per provider round-trip
+    ai-limits.service.ts       AiLimitsService — ai.limits rate limits, step 6b (#450)
   http/                    The consumer HTTP surface (issue #433)
     ai-responses.controller.ts   POST /api/ai/responses, POST /api/ai/responses/stream
     ai-runs.controller.ts        POST /api/ai/runs, GET/POST /api/ai/runs/:runId(/cancel)
@@ -106,8 +107,10 @@ header comment:
     (UsableModelsService.assertUsable)  AI_KEY_REQUIRED
                                         AI_MODEL_NOT_REACHABLE
  4. reasoning effort offered by the model  -> AI_CAPABILITY_UNSUPPORTED
- 5. clamp maxOutputTokens to the deployment cap and the model's own limit
+ 5. clamp maxOutputTokens to the deployment cap, the ai.limits.perModel cap
+    and the model's own limit (the smallest wins)
  6. resolve the key (AiKeyResolver — the byok invariant lives HERE, only)
+ 6b. rate limits (AiLimitsService, #450)  -> AI_RATE_LIMITED (429)
  7. call the adapter: { apiKey, baseUrl, signal, requestId }
  8. record ONE ai_usage_events row (success, failure, or cancellation)
  9. trace it as an `ai.request` span (never the key, never prompt text)
@@ -183,6 +186,32 @@ stream per input and passes them to the adapter as `ctx.storageInputs`
 (never in the request, so nothing logged, queued or recorded carries a URL).
 OpenAI sends images as `image_url` and uploads files to its Files API,
 deleting them after the response. See `docs/specs/ai-platform.md` §5.3.
+
+## Rate limits and output caps (issue #450)
+
+`ai.limits` — `perUser.{requestsPerMinute,requestsPerDay}`,
+`orgKey.{requestsPerDayPerUser,tokensPerDayPerUser}` and
+`perModel['<provider>:<modelId>'].{maxOutputTokens,requestsPerMinutePerUser}`
+— every field optional, absent meaning unlimited, `{}` by default.
+`runtime/ai-limits.service.ts` enforces the rates as step 6b, inside the
+shared `context()` step, so every provider round-trip passes it (each
+`runTools` step, `embed`, and the media runs when the job executes) and no
+enqueue-only call (`startRun`, `generateImage`, `transcribe`, `speak`) ever
+does. It sits after key resolution because `orgKey.*` only counts calls the
+org key pays for. With nothing applicable configured it returns without a
+query.
+
+A refusal is `AiError('AI_RATE_LIMITED')` with `retryAfterMs` and
+`details.limit`; `HttpExceptionFilter` adds `Retry-After`, and the job
+handlers' existing `toRateLimitError()` defers a queued run instead of
+failing it. Per-minute windows take the larger of an in-process log
+(reserved synchronously, exact for bursts within one replica) and an indexed
+`COUNT(*)` over `ai_usage_events` in the last 60 s (so replicas agree; it
+lags by calls in flight elsewhere — there is no Redis here, by design); daily
+windows count since UTC midnight. `perModel[…].maxOutputTokens` is not a rate:
+`effectiveOutputTokensCap` folds it into step 5's clamp. Tests pass a clock
+through the runtime harness (`createAiRuntimeHarness({ clock })`). See
+`docs/specs/ai-platform.md` §15.
 
 ## Hosted tools (issue #442)
 

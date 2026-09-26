@@ -80,7 +80,13 @@ through `SystemSettingsService`) holds everything that is *not* secret:
   providers: { openai: { enabled: boolean /*false*/, baseUrl?: string } },
   defaults: { maxOutputTokensCap?: number, allowBackgroundRuns: boolean /*true*/ },
   logPromptContent: boolean /*false*/,
-  usageRetentionDays: number /*180, 1–3650 — §12, #443*/ }
+  usageRetentionDays: number /*180, 1–3650 — §12, #443*/,
+  hostedTools: { …switches, mcpAllowedHosts: string[] } /*all off — §5.4, #442*/,
+  limits: {                                   /*{} — no limits; §15, #450*/
+    perUser?:  { requestsPerMinute?: number, requestsPerDay?: number },
+    orgKey?:   { requestsPerDayPerUser?: number, tokensPerDayPerUser?: number },
+    perModel?: Record<'<provider>:<modelId>',
+                      { maxOutputTokens?: number, requestsPerMinutePerUser?: number }> } }
 ```
 
 `GET /api/system-settings` returns the *entire* settings document, wholesale,
@@ -1024,7 +1030,7 @@ one HTTP status:
 | `AI_MODEL_NOT_REACHABLE` | 403 | The model is enabled, but the resolved key cannot reach it (§7). |
 | `AI_CAPABILITY_UNSUPPORTED` | 400 | The model/provider lacks a capability the request needs (§4). |
 | `AI_TOOL_DISABLED` | 403 | A hosted tool type an administrator has not switched on, or an MCP server host outside `ai.hostedTools.mcpAllowedHosts` (§5.4). |
-| `AI_RATE_LIMITED` | 429 | The provider rate-limited the call; convertible to the queue's `RateLimitError` via `toRateLimitError()` so a job defers rather than burning an attempt. |
+| `AI_RATE_LIMITED` | 429 | The provider rate-limited the call, **or** a deployment limit in `ai.limits` was reached (§15 — then `details.limit` names it, with `details.max` and `details.window`); convertible to the queue's `RateLimitError` via `toRateLimitError()` so a job defers rather than burning an attempt. `details.retryAfterMs` (and, over HTTP, a `Retry-After` header in whole seconds, rounded up) says when to retry, whenever it is known. |
 | `AI_PROVIDER_UNAVAILABLE` | 503 | The provider is unreachable or erroring at the transport level. |
 | `AI_CONTENT_FILTERED` | 422 | The provider's own content filter rejected the request or response. |
 | `AI_INVALID_REQUEST` | 400 | The request itself is malformed (e.g. no model selected and no default set). |
@@ -1087,8 +1093,8 @@ already operate on `AiProviderAdapter` and `AiProviderRegistry.ids()`.
 
 | Method & path | Permission | Behaviour |
 |---|---|---|
-| `GET /api/admin/ai/config` | `ai_config:read` | `describeForAdmin()` — `{ enabled, keyPolicy, logPromptContent, defaults, usageRetentionDays, hostedTools, providers:[{ id, displayName, enabled, baseUrl, keyStatus, supportedCapabilities }], version, updatedAt, updatedBy }`. `keyStatus = { configured, hint, updatedAt, updatedByUserId }` from `credentials.describe` — **never** `getSecret`. `providers` = registry ids ∪ settings keys. |
-| `PUT /api/admin/ai/config` | `ai_config:write` | Body `{ enabled, keyPolicy, logPromptContent, defaults, usageRetentionDays?, hostedTools?, providers:{ [id]: { enabled, baseUrl? } } }` (`usageRetentionDays` and `hostedTools` omitted keep the stored value — the two non-full-replace fields, so older clients still save; the audit names each changed switch and `hostedTools.mcpAllowedHosts`, never a host); `If-Match: <version>` (mismatch → 409, like storage). Enabling a provider id not in the registry → 400. Setting `keyPolicy='byok_with_org_fallback'` while that provider has no admin key → 400 `AI_KEY_REQUIRED`. Audit `ai_config:replace` (field names only). |
+| `GET /api/admin/ai/config` | `ai_config:read` | `describeForAdmin()` — `{ enabled, keyPolicy, logPromptContent, defaults, usageRetentionDays, hostedTools, limits, providers:[{ id, displayName, enabled, baseUrl, keyStatus, supportedCapabilities }], version, updatedAt, updatedBy }`. `keyStatus = { configured, hint, updatedAt, updatedByUserId }` from `credentials.describe` — **never** `getSecret`. `providers` = registry ids ∪ settings keys. |
+| `PUT /api/admin/ai/config` | `ai_config:write` | Body `{ enabled, keyPolicy, logPromptContent, defaults, usageRetentionDays?, hostedTools?, limits?, providers:{ [id]: { enabled, baseUrl? } } }` (`usageRetentionDays`, `hostedTools` and `limits` omitted keep the stored value — the non-full-replace fields, so older clients still save; a `limits` that IS sent replaces the stored limits wholesale, so `{}` lifts them all (§15); the audit names each changed switch, `hostedTools.mcpAllowedHosts`, each changed `limits.*` number and `limits.perModel` as one field — never a host, never a value); `If-Match: <version>` (mismatch → 409, like storage). Enabling a provider id not in the registry → 400. Setting `keyPolicy='byok_with_org_fallback'` while that provider has no admin key → 400 `AI_KEY_REQUIRED`. Audit `ai_config:replace` (field names only). |
 | `PUT /api/admin/ai/providers/:provider/key` | `ai_config:write` | Body `{ apiKey }` (min 8). Verified with `adapter.verifyKey` **first**; invalid → 400 `AI_KEY_INVALID`, nothing stored. Audit `ai_config:set_key`. |
 | `DELETE /api/admin/ai/providers/:provider/key` | `ai_config:write` | Body `{ confirmation: 'REMOVE' }`. Audit `ai_config:delete_key`. Under `byok_with_org_fallback`, response includes `warnings:['ORG_FALLBACK_WITHOUT_KEY']`. |
 | `POST /api/admin/ai/providers/:provider/test` | `ai_config:write` | `@HttpCode(200)` always. Body `{ apiKey?, baseUrl? }` (blank ⇒ stored key). Checks: `credentials`, `list_models`, `responses_smoke`. Audit `ai_config:test` (codes only). |
@@ -1135,6 +1141,113 @@ every consumer-facing route (as opposed to `/api/admin/ai/*`'s
 | `GET /api/ai/runs/:id` | Scoped to caller → `{ id, status, provider, modelId, output, errorCode, errorMessage, createdAt, completedAt }` (never the stored prompt, never the job id); `output` is the `AiResponse`, an image run's `{ type: 'images', storageObjectIds, … }`, a transcript `{ type: 'transcription', text, … }`, or speech `{ type: 'speech', storageObjectId, aiGenerated: true, … }`; 404 for another user's run. |
 | `POST /api/ai/runs/:id/cancel` | Scoped to caller; 200. |
 | `GET /api/ai/usage/me` | Query `from?, to?, groupBy?(day\|model)` → the caller's own usage report (§12). |
+
+## 15. Rate limits and output caps (Phase 3, issue #450)
+
+Even with BYOK an administrator needs guardrails: against abusive request
+volume, against one user draining the organization key when fallback is on,
+and against runaway generation. `ai.limits` (§2) holds them. **Every field is
+optional and absent means unlimited** — the default `{}` is Phase 1's
+behaviour exactly, so an upgrade never starts refusing calls by itself.
+
+| Field | Window | Counts |
+|---|---|---|
+| `perUser.requestsPerMinute` | sliding 60 s | every inference call the user makes, whoever's key pays |
+| `perUser.requestsPerDay` | UTC day | the same |
+| `orgKey.requestsPerDayPerUser` | UTC day | only calls the **org key** paid for (`keySource: 'org'`) |
+| `orgKey.tokensPerDayPerUser` | UTC day | `input_tokens + output_tokens` of those org-key calls |
+| `perModel['<provider>:<modelId>'].requestsPerMinutePerUser` | sliding 60 s | the user's calls to that one model |
+| `perModel['<provider>:<modelId>'].maxOutputTokens` | — | an output cap, not a rate (below) |
+
+Every number is a positive integer (at most 10⁹). A `perModel` key is the
+lower-case provider id, a colon, and the model id exactly as the catalog
+lists it (`^[a-z0-9-]+:.+$`, e.g. `openai:gpt-4.1-mini`), at most 500 entries.
+Both `PUT /api/admin/ai/config` and `PATCH /api/system-settings` treat
+`limits` as ONE value: sent, it replaces the stored limits wholesale (a
+field-by-field merge could never lift a limit, and "absent" is how one is
+lifted); omitted, the stored limits stay. `GET /api/ai/config` does not
+publish them.
+
+**Where it sits.** `AiLimitsService` (`ai/runtime/ai-limits.service.ts`) is
+step 6b of the gate pipeline (§9 of #432): right **after** key resolution,
+because the org-key limits must know whose key pays — a user on their own
+key is never counted against `orgKey.*`, and a user with no usable key still
+hears `AI_KEY_REQUIRED` rather than a rate limit. It runs inside the shared
+`context()` step, so every provider round-trip passes it: `respond`,
+`respondStructured`, `stream`/`openStream`, **each step** of a `runTools`
+loop, `embed`, and the queued media runs (`executeImageRun`,
+`executeTranscriptionRun`, `executeSpeechRun`, and the `ai.response.run`
+handler's `respond`) **when the job executes**. The enqueue-only calls —
+`startRun`, `generateImage`/`editImage`, `transcribe`, `speak` — never reach
+it, so a queued request is counted once, when it actually calls the
+provider, never twice. A queued run refused by a limit is **deferred**, not
+failed: the handlers already turn `AI_RATE_LIMITED` into the queue's
+`RateLimitError` (`toRateLimitError()`), with the limit's `retryAfterMs`, on
+the separate rate-limit budget (`JOBS_RATELIMIT_*`), and the run returns to
+`pending`.
+
+**What counts.** One `ai_usage_events` row (§12) is one request. Only
+`keySource` `user`/`org` rows count — a catalog sync (`admin_discovery`) is
+the deployment's own call. Failed and cancelled round-trips count (they
+reached the provider). A call a limit refused records **no** row, so
+hammering a limit does not extend the lock-out.
+
+**Two sources for a minute window.** There is no Redis (or any shared cache)
+in this template, and adding one for this alone was rejected (below). A
+per-minute limit is therefore answered from two sources, and the larger
+count wins:
+
+1. an **in-process log** of admitted calls per `userId` (and per
+   `userId:provider:model`), checked and reserved **synchronously**, before
+   any `await` — so a burst of concurrent calls in one replica cannot all
+   pass the check before any of them has finished and written its row; a
+   call refused later in the same gate releases its reservation;
+2. a **`COUNT(*)` over `ai_usage_events`** for that user (and model) with
+   `created_at` in the last 60 seconds — served by the `(user_id,
+   created_at)` index — so several API replicas agree on one budget.
+
+The trade-off, stated plainly: the database count **lags by in-flight
+requests** — a usage row is written when a round-trip *finishes*, so calls
+still running on *other* replicas are invisible to it. Within one replica the
+local log is exact; across replicas the limit can be overshot by at most the
+number of calls in flight elsewhere. That is the right precision for abuse
+protection and the wrong tool for billing, which is what the usage report
+(§12) is for.
+
+Daily windows read the database only: counts (and, for tokens, sums) since
+**UTC midnight**, the same day boundary the usage report uses.
+
+**When no limit applies there is no query at all.** A deployment with `{}`,
+or with limits that do not apply to this call (org-key limits for a user on
+their own key, a `perModel` entry for another model), pays nothing for this
+feature.
+
+**The refusal.** `AiError('AI_RATE_LIMITED')`, 429, with:
+
+```ts
+details: { reason: 'AI_RATE_LIMITED',
+           limit: 'perUser.requestsPerMinute' | 'perUser.requestsPerDay'
+                | 'orgKey.requestsPerDayPerUser' | 'orgKey.tokensPerDayPerUser'
+                | 'perModel.requestsPerMinutePerUser',
+           max: number, window: 'minute' | 'day',
+           keySource?: 'org', provider: string, model: string,
+           retryAfterMs: number }
+```
+
+`retryAfterMs` is, for a minute window, the time until enough counted calls
+have left the window for one more to fit (the `(count − max + 1)`-th oldest
+call's timestamp + 60 s − now); for a daily window, the time until the next
+UTC midnight; never under one second. The global `HttpExceptionFilter` adds
+`Retry-After` (seconds, rounded up) to any 429 whose `details` carry
+`retryAfterMs` — provider throttles included. A call exactly 60 s old has
+already left the window, in the log, the query and the arithmetic alike.
+
+**Per-model output cap.** `perModel[…].maxOutputTokens` joins the gate pipeline's step-5
+clamp: the call's cap is the **smaller** of `defaults.maxOutputTokensCap` and
+the model's `maxOutputTokens`, applied whether or not the request named a
+limit of its own, then bounded by the model's own catalog limit as before. A
+background run stores the clamped value and is clamped again, against the
+limits then in force, when it executes.
 
 ## Rejected alternatives
 
@@ -1199,6 +1312,20 @@ every consumer-facing route (as opposed to `/api/admin/ai/*`'s
   spec already defines, so starting from the lowest common denominator
   would mean redesigning the contract the first time any of those features
   was needed rather than having room for them from the start.
+- **A Redis (or other shared-cache) rate limiter** for §15's per-minute
+  windows. Rejected: this template has no such dependency, and adding a
+  stateful service to every deployment — to be provisioned, secured, backed
+  up and monitored — for abuse protection that tolerates a small overshoot
+  is the wrong trade. The in-process log is exact within a replica, the
+  indexed `ai_usage_events` count makes replicas agree, and the only error
+  is bounded by calls in flight on other replicas (§15). A fork that needs
+  exact cross-replica limits can put a shared store behind
+  `AiLimitsService` without touching a caller.
+- **Counting at enqueue time as well as at execution** for queued AI work.
+  Rejected: a queued request would be counted twice — once as an intent,
+  once as the call — and a burst of enqueues could lock a user out of
+  synchronous calls for work that has not run yet. A limit is checked when
+  the provider is actually called; a queued run over it is deferred (§15).
 - **Browser-side provider calls** (the web app calling OpenAI directly with
   a key handed to the client). Rejected outright: it would require shipping
   a user's own provider key to their browser (defeating the point of
@@ -1232,4 +1359,5 @@ every consumer-facing route (as opposed to `/api/admin/ai/*`'s
 | Seed grants: Admin holds all three AI permissions; Contributor and Viewer hold `ai:use` only | `apps/api/test/prisma/seed-data.spec.ts` |
 | The conformance kit (`describeAiProviderConformance`) passes against `FakeAiProvider` | `apps/api/src/ai/testing/fake-ai-provider.conformance.spec.ts` |
 | Storage-object inputs: ownership/modality/size/strategy gates, delivery by presigned URL and by Files API upload with provider-side deletion (success, failure, stream end), queued runs storing only the id, and no presigned URL in any response, row or log line | `apps/api/src/ai/runtime/ai-file-inputs.spec.ts`, `apps/api/src/ai/providers/openai/openai-file-inputs.spec.ts`, `apps/api/test/ai/ai-file-inputs.integration.spec.ts`, `apps/api/test/ai/ai-secret-egress.integration.spec.ts` |
+| Rate limits (§15): each limit's window and exact `retryAfterMs`, unlimited and query-free when unset, org-key limits never applied to a user's own key, the gate after key resolution, what counts, the per-model output clamp, a limited background run deferred not failed, and 429 + `Retry-After` + `details.limit` over HTTP | `apps/api/src/ai/runtime/ai-limits.service.spec.ts`, `apps/api/src/ai/runtime/ai-limits.facade.spec.ts`, `apps/api/src/ai/runtime/ai-response-run.handler.spec.ts`, `apps/api/src/ai/runtime/ai-image-generate.handler.spec.ts`, `apps/api/test/ai/ai-limits.integration.spec.ts`, `apps/api/src/ai/core/ai-error.spec.ts` |
 | Embeddings: one vector per input in order, `dimensions` honoured, a model without `embeddings` → `AI_CAPABILITY_UNSUPPORTED`, > 256 inputs → `AI_INVALID_REQUEST`, one `operation: 'embeddings'` usage row; the #435 key-policy and secret-egress suites drive `POST /api/ai/embeddings` | `apps/api/src/ai/providers/openai/openai-embeddings.spec.ts`, `apps/api/src/ai/runtime/ai-embed.spec.ts`, `apps/api/test/ai/ai-embeddings.integration.spec.ts`, the conformance kit's `embeddings.*` scenarios |
