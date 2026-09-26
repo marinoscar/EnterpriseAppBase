@@ -922,6 +922,8 @@ export async function runUpdate(options: UpdateOptions): Promise<UpdateResult> {
     command: 'update',
     secrets: existsSync(path) ? secretsFrom(parseEnvFile(readFileSync(path, 'utf8'))) : [],
   });
+  // Announced at once, so a screen can show where the log is while it runs.
+  options.hooks?.onJournal?.(journal.path);
 
   const context: UpdateContext = {
     options,

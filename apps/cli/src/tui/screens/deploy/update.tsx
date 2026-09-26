@@ -5,11 +5,29 @@ import type { DeployHooks } from '../../../deploy/hooks.js';
 import { DEFAULT_APPS_ROOT, deployRootFor } from '../../../deploy/layout.js';
 import { readState, type DeployState } from '../../../deploy/state.js';
 import { runUpdate } from '../../../deploy/update.js';
-import { ConfirmStep, FieldWizard, NameStep, ToggleStep, toggled, withFlags } from './fields.js';
+import {
+  advancedDefaults,
+  advancedFields,
+  advancedFromAnswers,
+  advancedSummary,
+  advancedValues,
+  proxyOverrides,
+  type AdvancedSettings,
+} from './advanced-model.js';
+import {
+  AdvancedStep,
+  ConfirmStep,
+  FieldWizard,
+  NameStep,
+  ToggleStep,
+  toggled,
+  withFlags,
+} from './fields.js';
 import { optionsFromToggles, UPDATE_TOGGLES } from './flags-model.js';
 import type { AppName } from './install-model.js';
 import type { FieldSpec } from './model.js';
 import { RunFrame, useDeployRun } from './run.js';
+import { rerunCommand } from './run-model.js';
 
 // =============================================================================
 // `deploy update`, as a screen  (issue #406)
@@ -35,18 +53,31 @@ export interface UpdateScreenProps {
   located: string | undefined;
 }
 
+/** The name, resolved, and where it runs: fixed once the Advanced step is done. */
+interface Target {
+  name: AppName & { resolved: string };
+  settings: AdvancedSettings;
+  state: DeployState | undefined;
+}
+
 type Step =
   | { kind: 'name' }
-  | { kind: 'questions'; name: AppName; fields: readonly FieldSpec[] }
-  | { kind: 'flags'; name: AppName; answers: ReadonlyMap<string, string> }
-  | { kind: 'confirm'; name: AppName; answers: ReadonlyMap<string, string> };
+  | {
+      kind: 'advanced';
+      name: AppName & { resolved: string };
+      defaults: AdvancedSettings;
+      state: DeployState | undefined;
+    }
+  | { kind: 'questions'; target: Target; fields: readonly FieldSpec[] }
+  | { kind: 'flags'; target: Target; answers: ReadonlyMap<string, string> }
+  | { kind: 'confirm'; target: Target; answers: ReadonlyMap<string, string> };
 
 export function UpdateScreen({ onDone, located }: UpdateScreenProps): ReactNode {
   const [step, setStep] = useState<Step>({ kind: 'name' });
   const [chosen, setChosen] = useState<ReadonlySet<string>>(new Set());
   // Off while a text field owns the keyboard, on everywhere else - including
   // during the run, where Esc is the two-press cancel.
-  const escapeActive = step.kind !== 'name' && step.kind !== 'questions';
+  const escapeActive = step.kind !== 'name' && step.kind !== 'questions' && step.kind !== 'advanced';
   const run = useDeployRun({ onEscape: onDone, escapeActive });
 
   if (run.phase.kind !== 'idle') return <RunFrame action="update" run={run} />;
@@ -58,7 +89,38 @@ export function UpdateScreen({ onDone, located }: UpdateScreenProps): ReactNode 
         located={located}
         appsRoot={DEFAULT_APPS_ROOT}
         onSubmit={(name) => {
-          setStep({ kind: 'questions', name, fields: updateFields(recordFor(name.resolved)) });
+          const resolved = name.resolved;
+          if (resolved === undefined) return;
+          const state = recordFor(deployRootFor(DEFAULT_APPS_ROOT, resolved));
+          setStep({
+            kind: 'advanced',
+            name: { ...name, resolved },
+            defaults: advancedDefaults(DEFAULT_APPS_ROOT, resolved, state),
+            state,
+          });
+        }}
+      />
+    );
+  }
+
+  if (step.kind === 'advanced') {
+    return (
+      <AdvancedStep
+        title={`Update — ${step.name.display}`}
+        summary={advancedSummary('update', step.defaults)}
+        fields={advancedFields('update', step.defaults, step.state)}
+        onComplete={(answers) => {
+          const settings =
+            answers === undefined ? step.defaults : advancedFromAnswers(step.defaults, answers);
+          const state =
+            settings.deployRoot === step.defaults.deployRoot
+              ? step.state
+              : recordFor(settings.deployRoot);
+          setStep({
+            kind: 'questions',
+            target: { name: step.name, settings, state },
+            fields: updateFields(state),
+          });
         }}
       />
     );
@@ -67,10 +129,11 @@ export function UpdateScreen({ onDone, located }: UpdateScreenProps): ReactNode 
   if (step.kind === 'questions') {
     return (
       <FieldWizard
-        title={`Update — ${step.name.display}`}
+        title={`Update — ${step.target.name.display}`}
+        subtitle={`At ${step.target.settings.deployRoot}`}
         fields={step.fields}
         onComplete={(answers) => {
-          setStep({ kind: 'flags', name: step.name, answers });
+          setStep({ kind: 'flags', target: step.target, answers });
         }}
       />
     );
@@ -79,14 +142,14 @@ export function UpdateScreen({ onDone, located }: UpdateScreenProps): ReactNode 
   if (step.kind === 'flags') {
     return (
       <ToggleStep
-        title={`Update — ${step.name.display}`}
+        title={`Update — ${step.target.name.display}`}
         toggles={UPDATE_TOGGLES}
         chosen={chosen}
         onToggle={(flag) => {
           setChosen((current) => toggled(current, flag));
         }}
         onContinue={() => {
-          setStep({ kind: 'confirm', name: step.name, answers: step.answers });
+          setStep({ kind: 'confirm', target: step.target, answers: step.answers });
         }}
       />
     );
@@ -95,27 +158,43 @@ export function UpdateScreen({ onDone, located }: UpdateScreenProps): ReactNode 
   return (
     <ConfirmStep
       action="update"
-      answers={withFlags(step.answers, chosen)}
+      answers={withFlags(
+        new Map([
+          ...advancedValues('update', step.target.settings, step.target.state),
+          ...step.answers,
+        ]),
+        chosen,
+      )}
       onNo={() => {
-        setStep({ kind: 'flags', name: step.name, answers: step.answers });
+        setStep({ kind: 'flags', target: step.target, answers: step.answers });
       }}
       onYes={() => {
-        // ⚠ `name.resolved`, never `name.display`: this becomes a path.
-        const resolved = step.name.resolved;
-        if (resolved === undefined) return;
+        const target = step.target;
         const answers = step.answers;
         const flags = chosen;
-        run.start(async (signal, hooks) => await performUpdate(resolved, answers, flags, signal, hooks));
+        run.start(
+          async (signal, hooks) => await performUpdate(target, answers, flags, signal, hooks),
+          {
+            rerun: rerunCommand({
+              action: 'update',
+              name: target.name.resolved,
+              values: new Map([
+                ...advancedValues('update', target.settings, target.state),
+                ['__ref', answers.get('__ref') ?? ''],
+              ]),
+              chosen: flags,
+            }),
+          },
+        );
       }}
     />
   );
 }
 
 /** The state recorded for a deployment, or undefined when there is none to read. */
-function recordFor(resolved: string | undefined): DeployState | undefined {
-  if (resolved === undefined) return undefined;
+function recordFor(deployRoot: string): DeployState | undefined {
   try {
-    return readState(deployRootFor(DEFAULT_APPS_ROOT, resolved));
+    return readState(deployRoot);
   } catch {
     // ⚠ An UNREADABLE record is not an absent one, but for prefilling the two
     // are the same: there is nothing to offer. `runUpdate` reports the real
@@ -147,7 +226,7 @@ function updateFields(state: DeployState | undefined): FieldSpec[] {
 }
 
 async function performUpdate(
-  resolved: string,
+  target: Target,
   answers: ReadonlyMap<string, string>,
   chosen: ReadonlySet<string>,
   signal: AbortSignal,
@@ -156,7 +235,9 @@ async function performUpdate(
   const ref = answers.get('__ref') ?? '';
 
   const result = await runUpdate({
-    deployRoot: deployRootFor(DEFAULT_APPS_ROOT, resolved),
+    deployRoot: target.settings.deployRoot,
+    // Only what OVERRIDES the record; see `proxyOverrides`.
+    ...proxyOverrides(target.settings, target.state),
     // Load-bearing: without it the abort reaches nothing. See the file header.
     runCommand: withSignal(runCommand, signal),
     // readline cannot ask a question while ink holds stdin in raw mode, so the

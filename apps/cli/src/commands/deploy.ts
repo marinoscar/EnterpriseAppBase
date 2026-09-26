@@ -895,7 +895,8 @@ export function buildReport(results: readonly CompletedCheck[]): DoctorReport {
   };
 }
 
-const MARKS: Record<CheckStatus, string> = {
+/** The status glyphs, shared with the deploy screens so both say the same thing. */
+export const MARKS: Readonly<Record<CheckStatus, string>> = {
   pass: 'OK',
   warn: '!!',
   fail: 'XX',

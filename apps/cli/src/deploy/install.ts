@@ -1236,6 +1236,8 @@ export async function runInstall(options: InstallOptions): Promise<InstallResult
       ? secretsFrom(parseEnvFile(readFileSync(envFilePath(options.deployRoot), 'utf8')))
       : [],
   });
+  // Announced at once, so a screen can show where the log is while it runs.
+  options.hooks?.onJournal?.(journal.path);
 
   // A FRESH install gets its own compose project; anything already here keeps
   // the one it is running under. See composeProjectFor for why renaming an

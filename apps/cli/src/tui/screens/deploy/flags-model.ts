@@ -74,6 +74,30 @@ export const INSTALL_TOGGLES: readonly ToggleFlag[] = [
     help: 'The seed is how new permissions reach a deployment; skipping it surfaces as a 403.',
   },
   {
+    flag: '--create-database',
+    option: 'createDatabase',
+    label: 'Create the database if it is missing',
+    help: 'Consent in advance: the screen cannot stop mid-run to ask, so without this a missing database stops the install.',
+  },
+  {
+    flag: '--bootstrap-proxy',
+    option: 'bootstrapProxy',
+    label: 'Create the shared proxy if there is none',
+    help: 'Consent in advance to set up the reverse proxy on a server that has never had one.',
+  },
+  {
+    flag: '--skip-renewal',
+    option: 'skipRenewal',
+    label: 'Do not schedule certificate renewal',
+    help: 'Renewal is scheduled only when nothing else owns it, so leaving this off is safe.',
+  },
+  {
+    flag: '--skip-oauth-check',
+    option: 'skipOAuthCheck',
+    label: 'Do not verify the OAuth credentials',
+    help: 'For placeholder credentials or no outbound HTTPS. A real deployment wants the check.',
+  },
+  {
     flag: '--no-cache',
     option: 'noCache',
     label: 'Rebuild without the layer cache',
@@ -125,6 +149,24 @@ export const UPDATE_TOGGLES: readonly ToggleFlag[] = [
     help: 'Leaves the vhost and the certificate exactly as they are.',
   },
   {
+    flag: '--create-database',
+    option: 'createDatabase',
+    label: 'Create the database if it is missing',
+    help: 'Consent in advance: the screen cannot stop mid-run to ask.',
+  },
+  {
+    flag: '--skip-renewal',
+    option: 'skipRenewal',
+    label: 'Do not schedule certificate renewal',
+    help: 'Renewal is scheduled only when nothing else owns it, so leaving this off is safe.',
+  },
+  {
+    flag: '--skip-oauth-check',
+    option: 'skipOAuthCheck',
+    label: 'Do not run the OAuth sign-in smoke',
+    help: 'For placeholder credentials or no outbound HTTPS.',
+  },
+  {
     flag: '--no-version-bump',
     option: 'noVersionBump',
     label: 'Do not bump the version',
@@ -152,18 +194,6 @@ export const NOT_IN_TUI: Readonly<Record<string, string>> = Object.freeze({
     'Every answer is collected by the screen itself; a second channel for them would be two sources of truth for one value.',
   '--answers-file':
     'Same as --answer: the screen collects them.',
-  '--proxy-container':
-    'Not offered yet: the screens resolve the proxy runtime the same way the CLI does (recorded, else detected), and the Advanced step that lets an operator override it lands in issue #393.',
-  '--proxy-mode':
-    'Not offered yet, for the same reason as --proxy-container: detection covers the ordinary case, and the Advanced step that exposes the override lands in issue #393.',
-  '--bootstrap-proxy':
-    'Not offered yet: surfaced by the install form in #393. Until then a screen install on a box with no proxy stops with a remedy naming this flag.',
-  '--create-database':
-    'Not offered yet: surfaced by the install form in #393. Until then a missing database stops a screen run with a remedy naming this flag.',
-  '--skip-renewal':
-    'Not offered yet: surfaced by the install form in #393. Renewal is scheduled only when nothing else owns it, so the default is safe.',
-  '--skip-oauth-check':
-    'Not offered yet: surfaced by the install form in #393. The check is what a real deployment wants; the flag exists for placeholder credentials in CI.',
 });
 
 /** The options object a set of chosen toggles produces. */
@@ -177,3 +207,53 @@ export function optionsFromToggles(
   }
   return options;
 }
+
+/**
+ * A flag that takes a VALUE, and the screen field that carries it.
+ *
+ * Declared as data for the same reason the toggles are: the parity test reads
+ * it against the real Commander definitions, and `rerunCommand` reads it to
+ * print the command that repeats a failed run. One list, so the flag a screen
+ * says it passes and the flag the re-run command prints cannot disagree.
+ */
+export interface ValueFlag {
+  /** Exactly as the subcommand declares it. */
+  flag: string;
+  /** The screen field (`__`-prefixed) whose answer is the value. */
+  field: string;
+}
+
+/** The screens that run a pipeline, and so can be re-run from a shell. */
+export type RunnableAction = Exclude<DeployAction, 'status'>;
+
+const ROOT: ValueFlag = { flag: '--root', field: '__root' };
+const PROXY_ROOT: ValueFlag = { flag: '--proxy-root', field: '__proxyRoot' };
+const PORT: ValueFlag = { flag: '--port', field: '__port' };
+const PROXY_CONTAINER: ValueFlag = { flag: '--proxy-container', field: '__proxyContainer' };
+const PROXY_MODE: ValueFlag = { flag: '--proxy-mode', field: '__proxyMode' };
+const DOMAIN: ValueFlag = { flag: '--domain', field: '__domain' };
+const REF: ValueFlag = { flag: '--ref', field: '__ref' };
+
+export const VALUE_FLAGS: Readonly<Record<RunnableAction, readonly ValueFlag[]>> = Object.freeze({
+  doctor: [ROOT, PROXY_ROOT, PORT, DOMAIN, PROXY_CONTAINER, PROXY_MODE],
+  install: [
+    ROOT,
+    DOMAIN,
+    PROXY_ROOT,
+    PORT,
+    PROXY_CONTAINER,
+    PROXY_MODE,
+    { flag: '--repo', field: '__repo' },
+    REF,
+    { flag: '--email', field: '__email' },
+    { flag: '--group', field: '__group' },
+  ],
+  update: [ROOT, REF, PROXY_CONTAINER, PROXY_MODE],
+});
+
+/** The toggles each runnable screen offers. `doctor` takes none. */
+export const TOGGLES_FOR: Readonly<Record<RunnableAction, readonly ToggleFlag[]>> = Object.freeze({
+  doctor: [],
+  install: INSTALL_TOGGLES,
+  update: UPDATE_TOGGLES,
+});

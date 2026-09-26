@@ -5,8 +5,11 @@ import { registerDeployCommand } from '../../../commands/deploy.js';
 import {
   INSTALL_TOGGLES,
   NOT_IN_TUI,
+  TOGGLES_FOR,
   UPDATE_TOGGLES,
+  VALUE_FLAGS,
   optionsFromToggles,
+  type RunnableAction,
   type ToggleFlag,
 } from './flags-model.js';
 
@@ -49,15 +52,20 @@ function covers(declared: readonly string[], flag: string): boolean {
   return declared.includes(flag) || declared.includes(positive);
 }
 
-function checkParity(subcommand: string, toggles: readonly ToggleFlag[]): void {
+function checkParity(subcommand: RunnableAction, toggles: readonly ToggleFlag[]): void {
   const declared = declaredFlags(subcommand);
-  const known = new Set([...toggles.map((toggle) => toggle.flag), ...Object.keys(NOT_IN_TUI)]);
+  const values = VALUE_FLAGS[subcommand].map((value) => value.flag);
+  const known = new Set([
+    ...toggles.map((toggle) => toggle.flag),
+    ...values,
+    ...Object.keys(NOT_IN_TUI),
+  ]);
 
   // A flag the screen offers that the subcommand does not declare is a control
   // that does nothing -- the exact quiet lie these screens exist to avoid.
-  const invented = toggles
-    .map((toggle) => toggle.flag)
-    .filter((flag) => !covers(declared, flag));
+  const invented = [...toggles.map((toggle) => toggle.flag), ...values].filter(
+    (flag) => !covers(declared, flag),
+  );
   expect(invented, `\`deploy ${subcommand}\` does not declare these`).toEqual([]);
 
   // And a flag the subcommand declares that the screen neither offers nor
@@ -75,23 +83,19 @@ function checkParity(subcommand: string, toggles: readonly ToggleFlag[]): void {
 }
 
 /**
- * Options that take a VALUE. The screens render these as text steps, not as
- * toggles, so they belong to neither list -- named here rather than filtered
- * by a heuristic, so adding one is a deliberate act.
+ * Value options the screens reach some OTHER way than a `VALUE_FLAGS` field,
+ * named here rather than filtered by a heuristic so adding one is deliberate.
+ *
+ * ⚠ Every value option a screen asks for as a field is in `VALUE_FLAGS`
+ * (flags-model.ts), which the parity check reads above -- `--root`,
+ * `--proxy-root`, `--port`, `--proxy-container` and `--proxy-mode` (the
+ * Advanced step, #393) among them. Only these three stay here:
+ * - `--name`: the name step, which every screen opens on;
+ * - `--apps-root`: the screens use the default apps root, and `--root` on the
+ *   Advanced step places a deployment anywhere else;
+ * - `--app-version`: the version step suggests the bump itself.
  */
-const VALUE_OPTIONS = new Set([
-  '--root',
-  '--apps-root',
-  '--name',
-  '--domain',
-  '--proxy-root',
-  '--port',
-  '--repo',
-  '--ref',
-  '--email',
-  '--group',
-  '--app-version',
-]);
+const VALUE_OPTIONS = new Set(['--apps-root', '--name', '--app-version']);
 
 describe('the deploy screens reach every flag the subcommands accept', () => {
   it('covers `deploy install`', () => {
@@ -100,6 +104,55 @@ describe('the deploy screens reach every flag the subcommands accept', () => {
 
   it('covers `deploy update`', () => {
     checkParity('update', UPDATE_TOGGLES);
+  });
+
+  it('covers `deploy doctor`: every value flag it offers is one doctor declares', () => {
+    // Doctor has no toggles, and declares output flags (`--json`, `--repo`) the
+    // screen deliberately leaves out; this asserts the half that would lie.
+    const declared = declaredFlags('doctor');
+    const invented = VALUE_FLAGS.doctor
+      .map((value) => value.flag)
+      .filter((flag) => !covers(declared, flag));
+    expect(invented).toEqual([]);
+  });
+
+  it('the #393 flags are surfaced, not excluded', () => {
+    // ⚠ These were in NOT_IN_TUI pointing at #393. A flag both offered and
+    // excluded is two answers to one question.
+    for (const flag of [
+      '--proxy-container',
+      '--proxy-mode',
+      '--bootstrap-proxy',
+      '--create-database',
+      '--skip-renewal',
+      '--skip-oauth-check',
+    ]) {
+      expect(NOT_IN_TUI[flag], flag).toBeUndefined();
+    }
+    const offered = (action: RunnableAction): string[] => [
+      ...TOGGLES_FOR[action].map((toggle) => toggle.flag),
+      ...VALUE_FLAGS[action].map((value) => value.flag),
+    ];
+    expect(offered('install')).toEqual(
+      expect.arrayContaining([
+        '--proxy-container',
+        '--proxy-mode',
+        '--bootstrap-proxy',
+        '--create-database',
+        '--skip-renewal',
+        '--skip-oauth-check',
+      ]),
+    );
+    expect(offered('update')).toEqual(
+      expect.arrayContaining([
+        '--proxy-container',
+        '--proxy-mode',
+        '--create-database',
+        '--skip-renewal',
+        '--skip-oauth-check',
+      ]),
+    );
+    expect(offered('update')).not.toContain('--bootstrap-proxy');
   });
 
   it('every deliberate exclusion names a reason', () => {
@@ -129,6 +182,28 @@ describe('turning chosen toggles into options', () => {
     expect(optionsFromToggles(INSTALL_TOGGLES, new Set(['--no-version-bump']))).toEqual({
       noVersionBump: true,
     });
+  });
+
+  it('maps the #391 consent toggles to the option keys the pipelines read', () => {
+    // ⚠ `skipOAuthCheck`, capital A: the pipelines' spelling, not Commander's
+    // `skipOauthCheck`. The wrong case is an option both pipelines ignore.
+    expect(
+      optionsFromToggles(
+        INSTALL_TOGGLES,
+        new Set(['--create-database', '--bootstrap-proxy', '--skip-renewal', '--skip-oauth-check']),
+      ),
+    ).toEqual({
+      createDatabase: true,
+      bootstrapProxy: true,
+      skipRenewal: true,
+      skipOAuthCheck: true,
+    });
+    expect(
+      optionsFromToggles(
+        UPDATE_TOGGLES,
+        new Set(['--create-database', '--skip-renewal', '--skip-oauth-check', '--bootstrap-proxy']),
+      ),
+    ).toEqual({ createDatabase: true, skipRenewal: true, skipOAuthCheck: true });
   });
 
   it('is empty when nothing was chosen', () => {
