@@ -12,21 +12,20 @@
  * Image runs are ALWAYS asynchronous (whatever `allowBackgroundRuns` says),
  * so there is no streaming path here.
  */
-import { useState, type ChangeEvent, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import {
   Alert,
   Box,
   Button,
   Divider,
   FormControlLabel,
-  IconButton,
   MenuItem,
   Stack,
   Switch,
   TextField,
   Typography,
 } from '@mui/material';
-import { Close as CloseIcon, Image as ImageIcon, UploadFile as UploadFileIcon } from '@mui/icons-material';
+import { Image as ImageIcon, UploadFile as UploadFileIcon } from '@mui/icons-material';
 import {
   AI_IMAGE_INPUT_MAX_BYTES,
   AI_IMAGE_INPUT_MIME_TYPES,
@@ -50,6 +49,7 @@ import { AiErrorAlert } from '../AiErrorAlert';
 import { AiImageGallery } from '../AiImageGallery';
 import { AiPlaygroundPanels } from './AiPlaygroundPanels';
 import { usePlaygroundModel } from './usePlaygroundModel';
+import { AiFilePicker } from './AiFilePicker';
 
 /** Common sizes; `''` leaves the choice to the provider. Not a per-model list — the provider validates. */
 export const AI_IMAGE_SIZE_OPTIONS = ['auto', '1024x1024', '1536x1024', '1024x1536'] as const;
@@ -77,53 +77,6 @@ export function aiImageFileProblem(file: File, kind: 'source' | 'mask'): string 
   }
   if (file.size > AI_IMAGE_INPUT_MAX_BYTES) return 'Images must be 25 MB or smaller';
   return null;
-}
-
-interface FilePickerProps {
-  label: string;
-  accept: readonly string[];
-  file: File | null;
-  error: string | null;
-  disabled?: boolean;
-  onChange: (file: File | null) => void;
-}
-
-function FilePicker({ label, accept, file, error, disabled, onChange }: FilePickerProps) {
-  return (
-    <Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
-        <Button component="label" size="small" variant="outlined" startIcon={<UploadFileIcon />} disabled={disabled}>
-          {file ? `Replace ${label.toLowerCase()}` : `Choose ${label.toLowerCase()}`}
-          <input
-            hidden
-            type="file"
-            aria-label={label}
-            accept={accept.join(',')}
-            onChange={(event: ChangeEvent<HTMLInputElement>) => {
-              onChange(event.target.files?.[0] ?? null);
-              // Let the same file be chosen again after it is removed.
-              event.target.value = '';
-            }}
-          />
-        </Button>
-        {file && (
-          <>
-            <Typography variant="body2" noWrap sx={{ minWidth: 0, flex: 1 }} title={file.name}>
-              {file.name}
-            </Typography>
-            <IconButton size="small" aria-label={`Remove ${label.toLowerCase()}`} onClick={() => onChange(null)} disabled={disabled}>
-              <CloseIcon fontSize="small" />
-            </IconButton>
-          </>
-        )}
-      </Box>
-      {error && (
-        <Typography variant="caption" color="error" role="alert" component="p" sx={{ mt: 0.5 }}>
-          {error}
-        </Typography>
-      )}
-    </Box>
-  );
 }
 
 export function AiImageMode({ models, preferredModel, ready = true, runPollIntervalMs, uploadWaitOptions }: AiImageModeProps) {
@@ -300,7 +253,7 @@ export function AiImageMode({ models, preferredModel, ready = true, runPollInter
       <Box component="form" onSubmit={submit} sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
         {editOn && (
           <Stack spacing={1}>
-            <FilePicker
+            <AiFilePicker
               label="Source image"
               accept={AI_IMAGE_INPUT_MIME_TYPES}
               file={source}
@@ -308,7 +261,7 @@ export function AiImageMode({ models, preferredModel, ready = true, runPollInter
               disabled={busy}
               onChange={setSource}
             />
-            <FilePicker
+            <AiFilePicker
               label="Mask"
               accept={AI_IMAGE_MASK_MIME_TYPES}
               file={mask}

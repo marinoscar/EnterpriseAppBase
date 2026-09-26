@@ -17,7 +17,7 @@
  *   on (see `hooks/useAiConfig.ts`). It never carries a key hint.
  * - `/admin/ai/*` — `ai_config:read` / `ai_config:write`. The organisation's
  *   configuration, provider keys and model catalogue.
- * - `/ai/keys`, `/ai/models`, `/ai/responses`, `/ai/runs`, `/ai/images`,
+ * - `/ai/keys`, `/ai/models`, `/ai/responses`, `/ai/runs`, `/ai/images`, `/ai/audio/*`,
  *   `/ai/embeddings`, `/ai/usage/me` — `ai:use`, and refused with
  *   `403 AI_DISABLED` while AI is off.
  *
@@ -216,6 +216,8 @@ export interface AiModelCapabilities {
   reasoningEfforts?: string[];
   contextWindow?: number;
   maxOutputTokens?: number;
+  /** The voices an `audio_speech` model speaks in (#439), in the provider's order. */
+  voices?: string[];
 }
 
 /** A row of the organisation's model catalogue (`/admin/ai/models`). */
@@ -458,16 +460,67 @@ export interface AiImageRunOutput {
   usage: AiUsage;
 }
 
-/** Every shape a succeeded run's `output` can take — discriminate with the guards below. */
-export type AiRunOutput = AiResponse | AiImageRunOutput;
-
-export function isAiImageRunOutput(output: AiRunOutput | null | undefined): output is AiImageRunOutput {
-  return !!output && 'type' in output && output.type === 'images';
+/** A succeeded transcription run's `output` (#438): the transcript. */
+export interface AiTranscriptionRunOutput {
+  type: 'transcription';
+  provider: string;
+  model: string;
+  /** The recording that was transcribed (the caller's storage object). */
+  storageObjectId: string;
+  text: string;
+  /** As the provider reports it — an ISO code or a name such as `english`. */
+  language?: string;
+  durationSeconds?: number;
+  /** Timestamped segments, where the model produces them. */
+  segments?: { startSeconds: number; endSeconds: number; text: string }[];
+  words?: { startSeconds: number; endSeconds: number; word: string }[];
+  usage: AiUsage;
 }
 
-/** A text run's output (`POST /ai/runs`): an {@link AiResponse}. */
+/**
+ * A succeeded speech run's `output` (#439): the audio as a storage object the
+ * caller owns. `aiGenerated` is always true — a player must say so.
+ */
+export interface AiSpeechRunOutput {
+  type: 'speech';
+  provider: string;
+  model: string;
+  storageObjectId: string;
+  mimeType: string;
+  /** Bytes. */
+  size: number;
+  format: AiSpeechFormat;
+  voice: string;
+  /** Characters spoken. */
+  characters: number;
+  aiGenerated: true;
+  usage: AiUsage;
+}
+
+/** Every shape a succeeded run's `output` can take — discriminate with the guards below. */
+export type AiRunOutput = AiResponse | AiImageRunOutput | AiTranscriptionRunOutput | AiSpeechRunOutput;
+
+function runOutputType(output: AiRunOutput | null | undefined): string | null {
+  return output && 'type' in output && typeof output.type === 'string' ? output.type : null;
+}
+
+export function isAiImageRunOutput(output: AiRunOutput | null | undefined): output is AiImageRunOutput {
+  return runOutputType(output) === 'images';
+}
+
+export function isAiTranscriptionRunOutput(
+  output: AiRunOutput | null | undefined,
+): output is AiTranscriptionRunOutput {
+  return runOutputType(output) === 'transcription';
+}
+
+export function isAiSpeechRunOutput(output: AiRunOutput | null | undefined): output is AiSpeechRunOutput {
+  return runOutputType(output) === 'speech';
+}
+
+/** A text run's output (`POST /ai/runs`): an {@link AiResponse} — the one shape with no `type`. */
 export function isAiResponseRunOutput(output: AiRunOutput | null | undefined): output is AiResponse {
-  return !!output && !isAiImageRunOutput(output);
+  return !!output && runOutputType(output) === null;
 }
 
 /** `GET /ai/runs/:id` — scoped to the caller. */
@@ -744,6 +797,53 @@ export async function createAiImageRun(req: AiImageGenerateRequest): Promise<AiR
 
 export async function createAiImageEditRun(req: AiImageEditRequest): Promise<AiRunStarted> {
   return api.post<AiRunStarted>('/ai/images/edits', req);
+}
+
+// =============================================================================
+// Audio (#438 transcription, #439 speech) — always asynchronous runs
+// =============================================================================
+
+/** Recording types a transcription accepts (`audio/*` plus MP4/WebM video). */
+export const AI_TRANSCRIPTION_INPUT_ACCEPT = 'audio/*,video/mp4,video/webm';
+/** The largest recording the provider takes (OpenAI: 25 MiB). */
+export const AI_TRANSCRIPTION_MAX_BYTES = 25 * 1024 * 1024;
+export const AI_TRANSCRIPTION_PROMPT_MAX_CHARS = 4_000;
+
+/** `POST /ai/audio/transcriptions` body. */
+export interface AiTranscriptionRequest {
+  provider?: string;
+  storageObjectId: string;
+  model?: string;
+  /** ISO-639-1 (`en`). */
+  language?: string;
+  prompt?: string;
+  timestampGranularities?: ('segment' | 'word')[];
+}
+
+export const AI_SPEECH_FORMATS = ['mp3', 'wav', 'opus', 'aac', 'flac', 'pcm'] as const;
+export type AiSpeechFormat = (typeof AI_SPEECH_FORMATS)[number];
+/** The longest text one speech run speaks. */
+export const AI_SPEECH_INPUT_MAX_CHARS = 4_096;
+
+/** `POST /ai/audio/speech` body. */
+export interface AiSpeechRequest {
+  provider?: string;
+  input: string;
+  model?: string;
+  /** One of the model's `capabilities.voices`. */
+  voice?: string;
+  format?: AiSpeechFormat;
+  instructions?: string;
+  /** 0.25 to 4; 1 is normal. */
+  speed?: number;
+}
+
+export async function createAiTranscriptionRun(req: AiTranscriptionRequest): Promise<AiRunStarted> {
+  return api.post<AiRunStarted>('/ai/audio/transcriptions', req);
+}
+
+export async function createAiSpeechRun(req: AiSpeechRequest): Promise<AiRunStarted> {
+  return api.post<AiRunStarted>('/ai/audio/speech', req);
 }
 
 // =============================================================================

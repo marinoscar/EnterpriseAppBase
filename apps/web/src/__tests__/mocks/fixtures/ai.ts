@@ -27,6 +27,8 @@ import type {
   AiAdminConfig,
   AiEmbeddingsResponse,
   AiImageRunOutput,
+  AiSpeechRunOutput,
+  AiTranscriptionRunOutput,
   AiModel,
   AiModelListResponse,
   AiProbeResult,
@@ -753,3 +755,75 @@ export const mockAiHostedToolsResponse: AiResponse = {
   usage: { inputTokens: 30, outputTokens: 12 },
   finishReason: 'stop',
 };
+
+// -----------------------------------------------------------------------------
+// Audio (#438 transcription, #439 speech contracts; #445 UI)
+// -----------------------------------------------------------------------------
+
+export const mockPlaygroundTranscriptionModel: UsableAiModel = {
+  provider: 'openai',
+  modelId: 'whisper-1',
+  displayName: 'Whisper',
+  capabilities: { capabilities: ['audio_transcription'], inputModalities: ['audio'], outputModalities: ['text'] },
+  keySource: 'user',
+};
+
+export const mockPlaygroundSpeechModel: UsableAiModel = {
+  provider: 'openai',
+  modelId: 'gpt-4o-mini-tts',
+  displayName: 'GPT-4o mini TTS',
+  capabilities: {
+    capabilities: ['audio_speech'],
+    inputModalities: ['text'],
+    outputModalities: ['audio'],
+    voices: ['alloy', 'coral', 'verse'],
+  },
+  keySource: 'user',
+};
+
+export const RECORDING_OBJECT_ID = '99999999-9999-4999-8999-999999999999';
+export const SPEECH_OBJECT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+export const mockAiTranscriptionRunOutput: AiTranscriptionRunOutput = {
+  type: 'transcription',
+  provider: 'openai',
+  model: 'whisper-1',
+  storageObjectId: RECORDING_OBJECT_ID,
+  text: 'Hello and welcome. Today we talk about lighthouses.',
+  language: 'english',
+  durationSeconds: 75.4,
+  segments: [
+    { startSeconds: 0, endSeconds: 4.2, text: 'Hello and welcome.' },
+    { startSeconds: 64.5, endSeconds: 75.4, text: 'Today we talk about lighthouses.' },
+  ],
+  usage: {},
+};
+
+export const mockAiSpeechRunOutput: AiSpeechRunOutput = {
+  type: 'speech',
+  provider: 'openai',
+  model: 'gpt-4o-mini-tts',
+  storageObjectId: SPEECH_OBJECT_ID,
+  mimeType: 'audio/mpeg',
+  size: 48_000,
+  format: 'mp3',
+  voice: 'coral',
+  characters: 11,
+  aiGenerated: true,
+  usage: {},
+};
+
+/** A succeeded run carrying `output` (an image, transcription or speech run). */
+export function mockMediaRun(id: string, output: AiRun['output'], status: AiRun['status'] = 'succeeded'): AiRun {
+  return {
+    id,
+    status,
+    provider: 'openai',
+    modelId: 'media-model',
+    output: status === 'succeeded' ? output : null,
+    errorCode: null,
+    errorMessage: null,
+    createdAt: T0,
+    completedAt: status === 'succeeded' ? T0 : null,
+  };
+}

@@ -97,6 +97,7 @@ import { AiPlaygroundPanels } from '../components/ai/playground/AiPlaygroundPane
 import { AiModePlaceholder } from '../components/ai/playground/AiModePlaceholder';
 import { AiImageMode } from '../components/ai/playground/AiImageMode';
 import { AiEmbeddingsMode } from '../components/ai/playground/AiEmbeddingsMode';
+import { AiTranscribeMode } from '../components/ai/playground/AiTranscribeMode';
 import { usePlaygroundModel } from '../components/ai/playground/usePlaygroundModel';
 import {
   AiChatAttachButtons,
@@ -627,8 +628,11 @@ export default function AiPlaygroundPage() {
         return <AiImageMode models={modeModels.image} preferredModel={preferredModel} ready={modelsReady} />;
       case 'embeddings':
         return <AiEmbeddingsMode models={modeModels.embeddings} preferredModel={preferredModel} ready={modelsReady} />;
-      // Phase 2 seams: Transcribe (#438) and Speech (#439) replace this placeholder.
       case 'transcribe':
+        return (
+          <AiTranscribeMode models={modeModels.transcribe} preferredModel={preferredModel} ready={modelsReady} />
+        );
+      // Phase 2 seam: Speech (#439) replaces this placeholder.
       case 'speech':
       default:
         return <AiModePlaceholder mode={entry} />;

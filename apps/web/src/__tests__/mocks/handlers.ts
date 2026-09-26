@@ -7,6 +7,9 @@ import {
   mockAiPublicConfigDisabled,
   mockAiResponse,
   mockAiImageRun,
+  mockAiSpeechRunOutput,
+  mockAiTranscriptionRunOutput,
+  mockMediaRun,
   mockAiRun,
   mockAiStreamEvents,
   mockAiEmbeddingsFor,
@@ -470,7 +473,13 @@ export const handlers = [
 
   http.get(`${API_BASE}/ai/runs/:id`, ({ params }) => {
     const id = String(params.id);
-    const run = id.startsWith(MOCK_IMAGE_RUN_PREFIX) ? mockAiImageRun : mockAiRun;
+    const run = id.startsWith(MOCK_IMAGE_RUN_PREFIX)
+      ? mockAiImageRun
+      : id.startsWith('run_transcribe')
+        ? mockMediaRun(id, mockAiTranscriptionRunOutput)
+        : id.startsWith('run_speech')
+          ? mockMediaRun(id, mockAiSpeechRunOutput)
+          : mockAiRun;
     return HttpResponse.json({ data: { ...run, id } });
   }),
 
@@ -487,6 +496,15 @@ export const handlers = [
 
   http.post(`${API_BASE}/ai/images/edits`, () => {
     return HttpResponse.json({ data: { runId: 'run_img_edit_1', jobId: 'job-ai-image-2' } }, { status: 202 });
+  }),
+
+  // Audio runs (#438, #439): always 202, then polled through `GET /ai/runs/:id`.
+  http.post(`${API_BASE}/ai/audio/transcriptions`, () => {
+    return HttpResponse.json({ data: { runId: 'run_transcribe_1', jobId: 'job-ai-audio-1' } }, { status: 202 });
+  }),
+
+  http.post(`${API_BASE}/ai/audio/speech`, () => {
+    return HttpResponse.json({ data: { runId: 'run_speech_1', jobId: 'job-ai-audio-2' } }, { status: 202 });
   }),
 
   // Storage objects (#445 playground inputs/outputs): an upload answers
