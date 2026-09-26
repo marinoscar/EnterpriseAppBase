@@ -18,8 +18,8 @@
  * - `/admin/ai/*` — `ai_config:read` / `ai_config:write`. The organisation's
  *   configuration, provider keys and model catalogue.
  * - `/ai/keys`, `/ai/models`, `/ai/responses`, `/ai/runs`, `/ai/images`,
- *   `/ai/usage/me` — `ai:use`, and refused with `403 AI_DISABLED` while AI
- *   is off.
+ *   `/ai/embeddings`, `/ai/usage/me` — `ai:use`, and refused with
+ *   `403 AI_DISABLED` while AI is off.
  *
  * =============================================================================
  * A KEY ONLY EVER TRAVELS ONE WAY
@@ -685,6 +685,37 @@ export async function createAiImageRun(req: AiImageGenerateRequest): Promise<AiR
 
 export async function createAiImageEditRun(req: AiImageEditRequest): Promise<AiRunStarted> {
   return api.post<AiRunStarted>('/ai/images/edits', req);
+}
+
+// =============================================================================
+// Embeddings (#440) — synchronous
+// =============================================================================
+
+/** The most inputs one `POST /ai/embeddings` accepts; a larger batch is `AI_INVALID_REQUEST`. */
+export const AI_EMBEDDINGS_MAX_INPUTS = 256;
+
+/** `POST /ai/embeddings` body. `model` is required: vectors compare only within one model. */
+export interface AiEmbeddingsRequest {
+  provider?: string;
+  model: string;
+  input: string | string[];
+  /** Shorten every vector, where the model supports it. */
+  dimensions?: number;
+  providerOptions?: Record<string, Record<string, unknown>>;
+}
+
+export interface AiEmbeddingsResponse {
+  provider: string;
+  model: string;
+  /** The length of every vector. */
+  dimensions: number;
+  /** One per input, in input order. */
+  vectors: number[][];
+  usage: AiUsage;
+}
+
+export async function createAiEmbeddings(req: AiEmbeddingsRequest): Promise<AiEmbeddingsResponse> {
+  return api.post<AiEmbeddingsResponse>('/ai/embeddings', req);
 }
 
 // =============================================================================

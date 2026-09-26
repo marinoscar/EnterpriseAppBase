@@ -9,6 +9,7 @@ import {
   mockAiImageRun,
   mockAiRun,
   mockAiStreamEvents,
+  mockAiEmbeddingsFor,
   mockSignedUrl,
   mockStorageObject,
   MOCK_IMAGE_RUN_PREFIX,
@@ -471,6 +472,12 @@ export const handlers = [
     const id = String(params.id);
     const run = id.startsWith(MOCK_IMAGE_RUN_PREFIX) ? mockAiImageRun : mockAiRun;
     return HttpResponse.json({ data: { ...run, id } });
+  }),
+
+  // Embeddings (#440): synchronous, one deterministic vector per input.
+  http.post(`${API_BASE}/ai/embeddings`, async ({ request }) => {
+    const body = (await request.json()) as { input: string | string[]; dimensions?: number };
+    return HttpResponse.json({ data: mockAiEmbeddingsFor(body.input, body.dimensions) });
   }),
 
   // Image runs (#437): always 202, then polled through `GET /ai/runs/:id`.

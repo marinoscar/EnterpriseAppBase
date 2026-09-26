@@ -25,6 +25,7 @@
 import type { StorageObject } from '../../../services/storage';
 import type {
   AiAdminConfig,
+  AiEmbeddingsResponse,
   AiImageRunOutput,
   AiModel,
   AiModelListResponse,
@@ -635,4 +636,30 @@ export function mockStorageObject(overrides: Partial<StorageObject> = {}): Stora
 /** The signed URL the default handler answers for an object — never a real host. */
 export function mockSignedUrl(id: string): string {
   return `https://storage.example.test/objects/${id}?signature=test`;
+}
+
+// -----------------------------------------------------------------------------
+// Embeddings (#440 contract)
+// -----------------------------------------------------------------------------
+
+/**
+ * A deterministic `POST /ai/embeddings` answer: one vector per input, each
+ * derived from the text's character codes so identical texts are identical
+ * vectors (similarity 1) and different texts differ. Default length 16.
+ */
+export function mockAiEmbeddingsFor(input: string | string[], dimensions = 16): AiEmbeddingsResponse {
+  const inputs = Array.isArray(input) ? input : [input];
+  const vectors = inputs.map((text) =>
+    Array.from({ length: dimensions }, (_unused, index) => {
+      const code = text.charCodeAt(index % Math.max(1, text.length)) || 1;
+      return Math.round(Math.sin(code * (index + 1)) * 10_000) / 10_000;
+    }),
+  );
+  return {
+    provider: 'openai',
+    model: mockPlaygroundEmbeddingsModel.modelId,
+    dimensions,
+    vectors,
+    usage: { inputTokens: inputs.length * 4 },
+  };
 }

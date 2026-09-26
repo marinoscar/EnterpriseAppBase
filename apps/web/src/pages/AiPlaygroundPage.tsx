@@ -83,6 +83,7 @@ import { AiPlaygroundModeSelector } from '../components/ai/playground/AiPlaygrou
 import { AiPlaygroundPanels } from '../components/ai/playground/AiPlaygroundPanels';
 import { AiModePlaceholder } from '../components/ai/playground/AiModePlaceholder';
 import { AiImageMode } from '../components/ai/playground/AiImageMode';
+import { AiEmbeddingsMode } from '../components/ai/playground/AiEmbeddingsMode';
 import { usePlaygroundModel } from '../components/ai/playground/usePlaygroundModel';
 import {
   AI_SCHEMA_PRESETS,
@@ -514,7 +515,11 @@ export default function AiPlaygroundPage() {
         return null;
       case 'image':
         return <AiImageMode models={modeModels.image} preferredModel={preferredModel} ready={modelsReady} />;
-      // Transcribe (#438), Speech (#439), Embeddings (#440).
+      case 'embeddings':
+        return <AiEmbeddingsMode models={modeModels.embeddings} preferredModel={preferredModel} ready={modelsReady} />;
+      // Phase 2 seams: Transcribe (#438) and Speech (#439) replace this placeholder.
+      case 'transcribe':
+      case 'speech':
       default:
         return <AiModePlaceholder mode={entry} />;
     }
