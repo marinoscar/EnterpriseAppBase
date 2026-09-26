@@ -51,9 +51,12 @@ import type { AiResponse, AiResponseRequest, AiStreamEvent } from '../core/types
 import { AiKeyResolver, type AiKeySource } from '../keys/ai-key-resolver.service';
 import type { UsableAiModel } from '../keys/dto/usable-ai-model.dto';
 import { UsableModelsService } from '../keys/usable-models.service';
+import { toStoredRunRequest } from './ai-run-request';
+import { AiRunsService } from './ai-runs.service';
 import type {
   AiCallOptions,
   AiRequest,
+  AiRunHandle,
   AiStructuredRequest,
   AiStructuredResponse,
   AiToolLoopRequest,
@@ -112,6 +115,17 @@ export interface AiUserClient {
    * (default 8, max 20) gated round-trips, each with its own usage row.
    */
   runTools(req: AiToolLoopRequest, opts?: AiCallOptions): Promise<AiToolLoopResult>;
+
+  /**
+   * Queues the request as a background run (an `ai.response.run` job) and
+   * returns at once; poll `AiRunsService.get(userId, runId)`. The gates run
+   * now — an unusable request fails fast — and again when the job executes.
+   *
+   * @throws AiError('AI_INVALID_REQUEST') when `ai.defaults.allowBackgroundRuns`
+   *   is off, or the request carries a function tool (in-process code cannot
+   *   survive the queue hop; use `runTools`).
+   */
+  startRun(req: AiRequest): Promise<AiRunHandle>;
 }
 
 /** Internal: who a client acts for, and under which job (for usage rows). */
@@ -158,6 +172,7 @@ export class AiService {
     private readonly keyResolver: AiKeyResolver,
     private readonly prisma: PrismaService,
     private readonly usage: AiUsageRecorder,
+    private readonly runs: AiRunsService,
   ) {}
 
   /**
@@ -180,6 +195,7 @@ export class AiService {
           userId,
           signal: opts.signal,
         }),
+      startRun: (req) => this.startRun(bound, req),
     };
   }
 
@@ -204,6 +220,24 @@ export class AiService {
     );
 
     return response as AiStructuredResponse<z.output<S>>;
+  }
+
+  private async startRun(scope: AiClientScope, req: AiRequest): Promise<AiRunHandle> {
+    await this.aiConfig.assertEnabled();
+
+    if (!(await this.aiConfig.resolve()).defaults.allowBackgroundRuns) {
+      throw new AiError('AI_INVALID_REQUEST', 'Background AI runs are disabled in this deployment.');
+    }
+
+    const call = await this.prepare(scope.userId, req, { streaming: false });
+
+    return this.runs.create({
+      userId: scope.userId,
+      provider: call.provider,
+      modelId: call.request.model,
+      // Named fields only, and never a key — see `ai-run-request.ts`.
+      request: toStoredRunRequest(call.provider, call.request),
+    });
   }
 
   /** Steps 6-7 for an already-gated call. */

@@ -103,6 +103,8 @@ export const JOB_TYPE_LABELS: Readonly<Record<string, string>> = {
   'ai.catalog.refresh': 'AI model catalog refresh',
   // Weekly re-verification of users' own AI keys and the models each can reach (#431).
   'ai.keys.recheck': 'AI key recheck',
+  // One user's queued AI response (#432) — `AiUserClient.startRun`.
+  'ai.response.run': 'AI background response',
 };
 
 /**
