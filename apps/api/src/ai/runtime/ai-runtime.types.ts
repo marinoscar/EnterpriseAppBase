@@ -11,8 +11,8 @@
 import type { z } from 'zod';
 
 import type { AiDefinedTool } from '../core/tools';
-import type { AiEmbeddingRequest } from '../core/types/media.types';
-import type { AiResponse, AiResponseRequest, AiStreamEvent } from '../core/types/responses.types';
+import type { AiEmbeddingRequest, AiImageGenerationRequest } from '../core/types/media.types';
+import type { AiResponse, AiResponseRequest, AiStreamEvent, AiUsage } from '../core/types/responses.types';
 
 /**
  * A request as a fork writes it. `model` (and `provider`) are optional:
@@ -30,6 +30,26 @@ export type AiRequest = Omit<AiResponseRequest, 'model'> & { provider?: string; 
  * chat `ai.defaultModel`. `provider` resolves as for `AiRequest`.
  */
 export type AiEmbedRequest = Omit<AiEmbeddingRequest, 'model'> & { provider?: string; model: string };
+
+/**
+ * `generateImage`'s request. `model` is REQUIRED — an image model is never
+ * inferred from the caller's chat `ai.defaultModel`. `provider` resolves as
+ * for `AiRequest`.
+ */
+export type AiGenerateImageRequest = Omit<AiImageGenerationRequest, 'model'> & { provider?: string; model: string };
+
+/**
+ * `editImage`'s request: a generation request plus the images to edit, BY
+ * STORAGE OBJECT ID. Each must be the caller's own (or the caller holds
+ * `storage:read_any`), `ready`, PNG/JPEG/WebP and at most
+ * `AI_IMAGE_INPUT_MAX_BYTES`; the mask, when given, must be a PNG.
+ */
+export type AiEditImageRequest = AiGenerateImageRequest & {
+  /** 1 to `AI_IMAGE_EDIT_MAX_INPUTS` storage object ids. */
+  imageStorageObjectIds: string[];
+  /** A PNG whose transparent areas mark what may change. */
+  maskStorageObjectId?: string;
+};
 
 /** Per-call options every facade method accepts. */
 export interface AiCallOptions {
@@ -109,14 +129,41 @@ export interface AiRunHandle {
 export const AI_RUN_STATUSES = ['pending', 'running', 'succeeded', 'failed', 'cancelled'] as const;
 export type AiRunStatus = (typeof AI_RUN_STATUSES)[number];
 
+/** One image an image run stored. */
+export interface AiImageRunOutputImage {
+  storageObjectId: string;
+  mimeType: string;
+  /** Bytes. */
+  size: number;
+  /** The prompt the provider actually used, where it rewrote it (DALL·E 3). */
+  revisedPrompt?: string;
+}
+
+/**
+ * A succeeded image run's `output`: the storage objects it created, owned by
+ * the run's user. Download each with `GET /api/storage/objects/{id}/download`.
+ * The images themselves are never in the row.
+ */
+export interface AiImageRunOutput {
+  type: 'images';
+  provider: string;
+  model: string;
+  storageObjectIds: string[];
+  images: AiImageRunOutputImage[];
+  usage: AiUsage;
+}
+
+/** What a succeeded run's `output` holds: a response, or an image run's stored images. */
+export type AiRunOutput = AiResponse | AiImageRunOutput;
+
 /** A background run as its owner sees it. Carries no request and no key. */
 export interface AiRunView {
   id: string;
   status: AiRunStatus;
   provider: string;
   modelId: string;
-  /** The completed `AiResponse`, once `succeeded`. */
-  output: AiResponse | null;
+  /** Once `succeeded`: the `AiResponse`, or an image run's `AiImageRunOutput`. */
+  output: AiRunOutput | null;
   errorCode: string | null;
   errorMessage: string | null;
   jobId: string | null;

@@ -4,6 +4,7 @@ import { JobsModule } from '../../jobs/jobs.module';
 import { AiConfigModule } from '../config/ai-config.module';
 import { AiCoreModule } from '../core/ai-core.module';
 import { AiKeysModule } from '../keys/ai-keys.module';
+import { AiStorageModule } from '../storage/ai-storage.module';
 import { AiService } from './ai.service';
 import { AiResponseRunHandler } from './ai-response-run.handler';
 import { AiRunsService } from './ai-runs.service';
@@ -25,7 +26,8 @@ import { AiUsageRecorder } from './ai-usage.recorder';
 // =============================================================================
 
 @Module({
-  imports: [AiCoreModule, AiConfigModule, AiKeysModule, JobsModule],
+  // `AiStorageModule` (#437): an image edit's inputs are storage objects.
+  imports: [AiCoreModule, AiConfigModule, AiKeysModule, AiStorageModule, JobsModule],
   providers: [AiService, AiUsageRecorder, AiRunsService, AiResponseRunHandler],
   // `AiRunsService` is exported for the HTTP surface (#433): a run's owner
   // reads and cancels it there.
