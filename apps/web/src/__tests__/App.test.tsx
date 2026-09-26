@@ -501,7 +501,7 @@ describe('App', () => {
       );
     }
 
-    it.each(['/ai', '/settings/ai', '/admin/settings/ai/models'])(
+    it.each(['/ai', '/settings/ai', '/admin/settings/ai/models', '/admin/settings/ai/usage'])(
       'redirects %s to / while AI is disabled, even for a fully permitted admin',
       async (path) => {
         signInAs(AI_ALL, ['admin']);
@@ -511,7 +511,7 @@ describe('App', () => {
           timeout: 5000,
         });
         expect(
-          screen.queryByRole('heading', { level: 1, name: /^AI( Playground| Keys| Models)?$/ }),
+          screen.queryByRole('heading', { level: 1, name: /^AI( Playground| Keys| Models| Usage)?$/ }),
         ).not.toBeInTheDocument();
       },
     );
@@ -531,6 +531,7 @@ describe('App', () => {
       ['/settings/ai', 'AI Keys'],
       ['/admin/settings/ai', 'AI'],
       ['/admin/settings/ai/models', 'AI Models'],
+      ['/admin/settings/ai/usage', 'AI Usage'],
     ])('routes %s to its placeholder once AI is enabled', async (path, heading) => {
       aiOn();
       signInAs(AI_ALL, ['admin']);
@@ -553,12 +554,12 @@ describe('App', () => {
           timeout: 5000,
         });
         expect(
-          screen.queryByRole('heading', { level: 1, name: /^AI( Playground| Keys| Models)?$/ }),
+          screen.queryByRole('heading', { level: 1, name: /^AI( Playground| Keys| Models| Usage)?$/ }),
         ).not.toBeInTheDocument();
       },
     );
 
-    it.each(['/admin/settings/ai', '/admin/settings/ai/models'])(
+    it.each(['/admin/settings/ai', '/admin/settings/ai/models', '/admin/settings/ai/usage'])(
       'redirects %s for a user without ai_config:read, even with AI enabled',
       async (path) => {
         aiOn();
