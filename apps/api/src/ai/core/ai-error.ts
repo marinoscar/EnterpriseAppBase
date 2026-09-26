@@ -25,6 +25,8 @@ export const AI_ERROR_STATUS = {
   AI_CAPABILITY_UNSUPPORTED: 400,
   /** A hosted tool type an administrator has not switched on, or an MCP host outside the allowlist (#442). */
   AI_TOOL_DISABLED: 403,
+  /** Realtime voice sessions are switched off (`ai.defaults.allowRealtime`, #449). */
+  AI_REALTIME_DISABLED: 403,
   AI_RATE_LIMITED: 429,
   AI_PROVIDER_UNAVAILABLE: 503,
   AI_CONTENT_FILTERED: 422,

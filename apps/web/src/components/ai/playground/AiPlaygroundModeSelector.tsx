@@ -21,6 +21,8 @@ export interface AiPlaygroundModeSelectorProps {
   onChange: (mode: AiPlaygroundModeId) => void;
   /** Modes that cannot be selected, each with the reason shown in its tooltip. */
   unavailable: ReadonlySet<AiPlaygroundModeId>;
+  /** Modes not offered at all (switched off by an administrator, #449). */
+  hidden?: ReadonlySet<AiPlaygroundModeId>;
   /** Disables every mode (e.g. while a chat turn is streaming). */
   disabled?: boolean;
 }
@@ -34,7 +36,13 @@ const MOVES: Record<string, (index: number, count: number) => number> = {
   End: (_index, count) => count - 1,
 };
 
-export function AiPlaygroundModeSelector({ value, onChange, unavailable, disabled }: AiPlaygroundModeSelectorProps) {
+export function AiPlaygroundModeSelector({
+  value,
+  onChange,
+  unavailable,
+  hidden,
+  disabled,
+}: AiPlaygroundModeSelectorProps) {
   const groupRef = useRef<HTMLDivElement>(null);
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -47,7 +55,7 @@ export function AiPlaygroundModeSelector({ value, onChange, unavailable, disable
   };
 
   return (
-    // The wrapper scrolls rather than the page if five labels ever outgrow a phone.
+    // The wrapper scrolls rather than the page if six labels ever outgrow a phone.
     <Box sx={{ maxWidth: '100%', overflowX: 'auto' }}>
       <ToggleButtonGroup
         ref={groupRef}
@@ -63,7 +71,7 @@ export function AiPlaygroundModeSelector({ value, onChange, unavailable, disable
           if (next && !unavailable.has(next)) onChange(next);
         }}
       >
-        {AI_PLAYGROUND_MODES.map((mode) => {
+        {AI_PLAYGROUND_MODES.filter((mode) => !hidden?.has(mode.id)).map((mode) => {
           const isUnavailable = unavailable.has(mode.id);
           const button = (
             <ToggleButton

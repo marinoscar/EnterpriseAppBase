@@ -230,6 +230,7 @@ describe('User AI keys and usable models Integration', () => {
         enabled: false,
         keyPolicy: 'byok',
         allowBackgroundRuns: false,
+        allowRealtime: false,
         hostedTools: { web_search: false, file_search: false, code_interpreter: false, image_generation: false, mcp: false },
         providers: [],
       });

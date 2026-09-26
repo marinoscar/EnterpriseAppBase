@@ -26,7 +26,7 @@ function policy(overrides: Partial<AiPolicy> = {}): AiPolicy {
     enabled: true,
     keyPolicy: 'byok',
     providers: { openai: { enabled: true }, anthropic: { enabled: false }, gemini: { enabled: false } },
-    defaults: { allowBackgroundRuns: true },
+    defaults: { allowBackgroundRuns: true, allowRealtime: false },
     logPromptContent: false,
     usageRetentionDays: 180,
     hostedTools: {

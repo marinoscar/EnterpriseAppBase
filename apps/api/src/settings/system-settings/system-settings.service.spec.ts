@@ -1745,7 +1745,9 @@ describe('SystemSettingsService', () => {
           anthropic: { enabled: false },
           gemini: { enabled: false },
         },
-        defaults: { maxOutputTokensCap: 4096, allowBackgroundRuns: false },
+        // `allowRealtime` is absent from the stored row (written before #449):
+        // it reads as `false`, and the cap and switch beside it survive.
+        defaults: { maxOutputTokensCap: 4096, allowBackgroundRuns: false, allowRealtime: false },
         logPromptContent: true,
         // Absent from the stored row (written before #443) -> the default,
         // without disturbing any sibling field.
@@ -1803,6 +1805,43 @@ describe('SystemSettingsService', () => {
         anthropic: { enabled: false },
         gemini: { enabled: false },
       });
+    });
+
+    it('salvages defaults field by field: a damaged allowRealtime costs nothing beside it (#449)', async () => {
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        value: {
+          ai: {
+            enabled: true,
+            keyPolicy: 'byok',
+            providers: { openai: { enabled: true } },
+            defaults: { maxOutputTokensCap: 1024, allowBackgroundRuns: false, allowRealtime: 'yes' },
+            logPromptContent: false,
+          },
+        } as any,
+      } as any);
+
+      const result = await service.getAiPolicy();
+
+      expect(result.defaults).toEqual({ maxOutputTokensCap: 1024, allowBackgroundRuns: false, allowRealtime: false });
+    });
+
+    it('reads a stored allowRealtime: true straight through (#449)', async () => {
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        value: {
+          ai: {
+            enabled: true,
+            keyPolicy: 'byok',
+            providers: { openai: { enabled: true } },
+            defaults: { allowBackgroundRuns: true, allowRealtime: true },
+            logPromptContent: false,
+          },
+        } as any,
+      } as any);
+
+      const result = await service.getAiPolicy();
+
+      expect(result.defaults).toEqual({ allowBackgroundRuns: true, allowRealtime: true });
+      expect(result.defaults).not.toHaveProperty('maxOutputTokensCap');
     });
 
     it('keeps a stored anthropic slot and drops an unknown provider key', async () => {
@@ -1896,6 +1935,7 @@ describe('SystemSettingsService', () => {
       expect(ai.defaults).toEqual({
         maxOutputTokensCap: 2048,
         allowBackgroundRuns: true,
+        allowRealtime: false,
       });
       expect(ai.enabled).toBe(true);
       expect(ai.keyPolicy).toBe('byok');
@@ -2031,11 +2071,26 @@ describe('SystemSettingsService', () => {
       expect(ai.defaults).toEqual({
         maxOutputTokensCap: 2048,
         allowBackgroundRuns: false,
+        allowRealtime: false,
       });
       expect(ai.providers).toEqual({
         openai: { enabled: false, baseUrl: 'https://proxy.internal/v1' },
         anthropic: { enabled: false, baseUrl: undefined },
         gemini: { enabled: false, baseUrl: undefined },
+      });
+    });
+
+    it('switches defaults.allowRealtime on without touching the cap or allowBackgroundRuns (#449)', async () => {
+      await service.patchSettings(
+        { ai: { defaults: { allowRealtime: true } } },
+        mockUserId,
+      );
+
+      const ai = writtenAi() as any;
+      expect(ai.defaults).toEqual({
+        maxOutputTokensCap: 2048,
+        allowBackgroundRuns: true,
+        allowRealtime: true,
       });
     });
 
@@ -2059,7 +2114,7 @@ describe('SystemSettingsService', () => {
       );
 
       const ai = writtenAi() as any;
-      expect(ai.defaults).toEqual({ allowBackgroundRuns: true });
+      expect(ai.defaults).toEqual({ allowBackgroundRuns: true, allowRealtime: false });
       expect(ai.providers.openai.baseUrl).toBe('https://proxy.internal/v1');
     });
 

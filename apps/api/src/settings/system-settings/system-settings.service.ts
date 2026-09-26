@@ -383,9 +383,11 @@ export class SystemSettingsService {
       // (`anthropic`, #446; `gemini`, #447) is absent from every row written before it, and
       // validating `providers` as one unit would then reset the operator's
       // OpenAI switch and endpoint to the defaults on the first read after
-      // upgrading.
+      // upgrading. `defaults` gets the same treatment, field by field, so
+      // a field appended to it later (`allowRealtime`, #449) cannot reset a
+      // stored `maxOutputTokensCap` or `allowBackgroundRuns` beside it.
       ai: this.readNamespace(
-        this.withAiProviders(root?.ai),
+        this.withAiSlots(root?.ai),
         systemAiSchema,
         DEFAULT_SYSTEM_SETTINGS.ai,
       ),
@@ -393,21 +395,23 @@ export class SystemSettingsService {
   }
 
   /**
-   * `stored` (the raw `ai` namespace) with `providers` rebuilt slot by slot:
+   * `stored` (the raw `ai` namespace) with `providers` rebuilt slot by slot —
    * each `AI_PROVIDER_IDS` slot that passes `systemAiProviderSchema` is kept,
-   * any other falls back to that provider's default. Everything else in the
-   * namespace is left for `readNamespace` to salvage as usual.
+   * any other falls back to that provider's default — and `defaults` rebuilt
+   * field by field the same way (#449). Everything else in the namespace is
+   * left for `readNamespace` to salvage as usual.
    */
-  private withAiProviders(stored: unknown): unknown {
+  private withAiSlots(stored: unknown): unknown {
     const source = this.asPlainObject(stored);
 
     if (!source) return stored;
 
     const providers = this.asPlainObject(source.providers) ?? {};
-    const defaults = DEFAULT_SYSTEM_SETTINGS.ai.providers as Record<
+    const providerDefaults = DEFAULT_SYSTEM_SETTINGS.ai.providers as Record<
       string,
       unknown
     >;
+    const storedDefaults = this.asPlainObject(source.defaults);
 
     return {
       ...source,
@@ -417,10 +421,26 @@ export class SystemSettingsService {
 
           return [
             id,
-            parsed.success ? parsed.data : structuredClone(defaults[id]),
+            parsed.success
+              ? parsed.data
+              : structuredClone(providerDefaults[id]),
           ];
         }),
       ),
+      ...(storedDefaults
+        ? {
+            // An absent optional field (`maxOutputTokensCap`) stays absent.
+            defaults: Object.fromEntries(
+              Object.entries(
+                this.readNamespace(
+                  storedDefaults,
+                  systemAiSchema.shape.defaults,
+                  DEFAULT_SYSTEM_SETTINGS.ai.defaults,
+                ),
+              ).filter(([, value]) => value !== undefined),
+            ),
+          }
+        : {}),
     };
   }
 
@@ -1300,6 +1320,9 @@ export class SystemSettingsService {
           allowBackgroundRuns:
             dto.ai?.defaults?.allowBackgroundRuns ??
             currentValue.ai.defaults.allowBackgroundRuns,
+          allowRealtime:
+            dto.ai?.defaults?.allowRealtime ??
+            currentValue.ai.defaults.allowRealtime,
         },
         logPromptContent:
           dto.ai?.logPromptContent ?? currentValue.ai.logPromptContent,

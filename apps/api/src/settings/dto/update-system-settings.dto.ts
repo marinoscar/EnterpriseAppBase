@@ -220,6 +220,7 @@ const aiSettingsSchema = z.object({
   defaults: z.object({
     maxOutputTokensCap: z.number().int().positive().optional(),
     allowBackgroundRuns: z.boolean(),
+    allowRealtime: z.boolean(),
   }),
   logPromptContent: z.boolean(),
   usageRetentionDays: z.number().int().min(1).max(AI_USAGE_RETENTION_MAX_DAYS),
@@ -401,6 +402,7 @@ export const patchSystemSettingsSchema = z.object({
           // Absent leaves it alone; explicit `null` removes the cap.
           maxOutputTokensCap: z.number().int().positive().nullable().optional(),
           allowBackgroundRuns: z.boolean().optional(),
+          allowRealtime: z.boolean().optional(),
         })
         .optional(),
       logPromptContent: z.boolean().optional(),

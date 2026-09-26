@@ -265,6 +265,7 @@ reference; the full one is `docs/specs/ai-platform.md` §13.
 | `AI_MODEL_NOT_ENABLED` | 403 | The model is unknown, not admin-enabled, or deprecated. | Enable it (or pick an enabled one) on `/admin/settings/ai/models` — §5. |
 | `AI_MODEL_NOT_REACHABLE` | 403 | The model is enabled, but the resolved key can't reach it. | The key's own tier/org restrictions — try `POST /api/ai/keys/:provider/test`, or refresh reachability by re-testing/re-saving the key. |
 | `AI_CAPABILITY_UNSUPPORTED` | 400 | The model or provider lacks a capability the request needs (e.g. structured output, a tool, vision input), or the request chains with `previousResponseId` on a provider that stores no responses (Anthropic, Gemini — `details.capability: "previous_response_id"`). | Pick a model/provider that declares it, or drop that part of the request; for Anthropic or Gemini, send the conversation as `input` instead of chaining (§13, §14). |
+| `AI_REALTIME_DISABLED` | 403 | A realtime voice session was requested, but realtime is switched off (the default). | §16 — set `defaults.allowRealtime` on `/admin/settings/ai` if you want voice sessions. |
 | `AI_TOOL_DISABLED` | 403 | A hosted tool (web search, file search, code interpreter, image generation, MCP) that is switched off, or an MCP server host outside the allowlist. | §12 — switch the tool on, or add the host, under **Hosted tools** on `/admin/settings/ai`. |
 | `AI_RATE_LIMITED` | 429 | The provider throttled the call, or one of this deployment's own limits was reached — then `details.limit` names which one. | Transient: wait `Retry-After` seconds (also `details.retryAfterMs`). For a background run this defers automatically rather than charging an attempt. If users hit a limit of yours too often, raise it — §15. |
 | `AI_PROVIDER_UNAVAILABLE` | 503 | The provider is unreachable or erroring at the transport level. | A provider-side outage, or `AI_PROVIDER_UNAVAILABLE` after an aborted/cancelled call. Check the provider's own status page. |
@@ -474,3 +475,36 @@ instance; with several instances they can be overshot by the calls still in
 flight on the others (there is deliberately no Redis — see
 `docs/specs/ai-platform.md` §15). Use the **AI Usage** page, not these limits,
 for accounting. Catalog refreshes run on the admin key and never count.
+
+## 16. Realtime voice sessions
+
+`POST /api/ai/realtime/sessions` mints a short-lived **ephemeral** provider
+secret (OpenAI `ek_…`, 60 seconds to connect). The user's browser uses it to
+talk to the provider **directly** over WebRTC. The user's key (or the org key,
+under fallback) is spent on the server to mint it and never reaches the
+browser. It is **off by default**: once a session is connected, this server
+can no longer see, cap or meter the conversation. Switch it on only if you
+accept that. On `/admin/settings/ai`, turn on **Allow realtime voice
+sessions** under *Defaults* (it needs `ai_config:write`) and save. Or use the
+API:
+
+```bash
+curl -X PUT https://app.example.com/api/admin/ai/config \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -H "If-Match: $VERSION" \
+  -d '{ "enabled": true, "keyPolicy": "byok", "logPromptContent": false,
+        "defaults": { "allowBackgroundRuns": true, "allowRealtime": true },
+        "providers": { "openai": { "enabled": true } } }'
+```
+
+(`allowRealtime` omitted from the body keeps the stored value.) Users also
+need an **enabled** realtime model (`gpt-realtime*`, `gpt-4o-realtime-preview*`,
+`gpt-4o-mini-realtime*`) on `/admin/settings/ai/models`, and a key that
+reaches it. `GET /api/ai/config` publishes `allowRealtime`, so the AI
+Playground (`/ai`) hides its **Voice** mode while it is off. Each mint counts as one request against the §15
+limits and is recorded on the **AI Usage** page as operation `realtime`,
+`units.sessions` = 1. No tokens are recorded, because the audio never passes
+through this server; see the provider's own dashboard for realtime cost. If a
+provider base URL is set (a gateway), browsers are sent to that gateway's
+`/realtime/calls` too, so it must be reachable from users' browsers.
+

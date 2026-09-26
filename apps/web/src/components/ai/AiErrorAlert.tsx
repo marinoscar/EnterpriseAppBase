@@ -9,7 +9,8 @@
  *
  * `AI_DISABLED` also asks the shell to re-read `GET /ai/config`: the switch
  * was flipped while this page was open, and a refreshed config is what makes
- * `RequireAiEnabled` and the navigation stop offering AI.
+ * `RequireAiEnabled` and the navigation stop offering AI. `AI_REALTIME_DISABLED`
+ * (#449) does the same, so the playground stops offering Voice.
  */
 import { useEffect } from 'react';
 import { Alert, AlertTitle, Button } from '@mui/material';
@@ -128,6 +129,13 @@ export function aiErrorCopy(error: AiErrorInfo): AiErrorCopy {
         body: 'AI features have been switched off for this application.',
         severity: 'info',
       };
+    case 'AI_REALTIME_DISABLED':
+      // #449: AI is on, but `ai.defaults.allowRealtime` is off.
+      return {
+        title: 'Voice sessions are unavailable',
+        body: 'Voice sessions are turned off by your administrator.',
+        severity: 'info',
+      };
     case 'AI_PROVIDER_DISABLED':
       return {
         title: 'This provider is disabled',
@@ -196,7 +204,9 @@ export interface AiErrorAlertProps {
 export function AiErrorAlert({ error, onClose }: AiErrorAlertProps) {
   const { refresh } = useAiConfig();
   const copy = aiErrorCopy(error);
-  const isDisabled = error.code === 'AI_DISABLED';
+  // A switch flipped while the page was open: re-read the config so the
+  // surfaces it gates (all of AI, or the playground's Voice mode) disappear.
+  const isDisabled = error.code === 'AI_DISABLED' || error.code === 'AI_REALTIME_DISABLED';
 
   useEffect(() => {
     if (isDisabled) void refresh();

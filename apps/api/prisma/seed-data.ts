@@ -383,6 +383,7 @@ export const DEFAULT_SYSTEM_SETTINGS = {
     },
     defaults: {
       allowBackgroundRuns: true,
+      allowRealtime: false,
     },
     logPromptContent: false,
     usageRetentionDays: 180,

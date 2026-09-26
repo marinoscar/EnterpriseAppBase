@@ -340,6 +340,9 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettingsValue = {
     },
     defaults: {
       allowBackgroundRuns: true,
+      // #449: realtime voice sessions OFF — minting one hands the browser an
+      // ephemeral provider secret and the server stops seeing the call.
+      allowRealtime: false,
     },
     logPromptContent: false,
     // #443: `ai_usage_events` kept 180 days — twice the longest usage report

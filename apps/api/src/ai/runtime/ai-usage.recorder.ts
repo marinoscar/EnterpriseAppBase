@@ -29,7 +29,14 @@ import type { AiUsage } from '../core/types/responses.types';
 import type { AiKeySource } from '../keys/ai-key-resolver.service';
 
 /** The kinds of provider call the runtime records. Permanent strings. */
-export type AiUsageOperation = 'responses' | 'images' | 'audio.transcribe' | 'audio.speech' | 'embeddings';
+export type AiUsageOperation =
+  | 'responses'
+  | 'images'
+  | 'audio.transcribe'
+  | 'audio.speech'
+  | 'embeddings'
+  // #449: one minted realtime session, `units: { sessions: 1 }` — no tokens (the media never passes through the server).
+  | 'realtime';
 
 /** A round-trip's outcome. `cancelled` — the caller aborted it. */
 export type AiUsageStatus = 'succeeded' | 'failed' | 'cancelled';

@@ -14,7 +14,7 @@ function policy(overrides: Partial<SystemAiValue> = {}): SystemAiValue {
     enabled: false,
     keyPolicy: 'byok',
     providers: { openai: { enabled: false }, anthropic: { enabled: false }, gemini: { enabled: false } },
-    defaults: { allowBackgroundRuns: true },
+    defaults: { allowBackgroundRuns: true, allowRealtime: false },
     logPromptContent: false,
     usageRetentionDays: 180,
     hostedTools: {
@@ -35,7 +35,7 @@ function input(overrides: Partial<UpdateAiConfigInput> = {}): UpdateAiConfigInpu
     enabled: true,
     keyPolicy: 'byok',
     logPromptContent: false,
-    defaults: { allowBackgroundRuns: true },
+    defaults: { allowBackgroundRuns: true, allowRealtime: false },
     providers: { openai: { enabled: true }, anthropic: { enabled: false }, gemini: { enabled: false } },
     ...overrides,
   };
@@ -116,7 +116,7 @@ describe('AiConfigAdminService', () => {
       expect(view).toMatchObject({
         enabled: false,
         keyPolicy: 'byok',
-        defaults: { maxOutputTokensCap: null, allowBackgroundRuns: true },
+        defaults: { maxOutputTokensCap: null, allowBackgroundRuns: true, allowRealtime: false },
         version: 3,
         updatedAt: '2026-03-03T00:00:00.000Z',
         updatedBy: { id: 'admin-1', email: 'admin@example.com' },
@@ -191,7 +191,7 @@ describe('AiConfigAdminService', () => {
             enabled: true,
             keyPolicy: 'byok',
             logPromptContent: false,
-            defaults: { allowBackgroundRuns: true, maxOutputTokensCap: null },
+            defaults: { allowBackgroundRuns: true, allowRealtime: false, maxOutputTokensCap: null },
             providers: { openai: { enabled: true, baseUrl: null }, anthropic: { enabled: false, baseUrl: null }, gemini: { enabled: false, baseUrl: null } },
             usageRetentionDays: 180,
             hostedTools: {
@@ -370,7 +370,7 @@ describe('AiConfigAdminService', () => {
     });
 
     it('clears a stored maxOutputTokensCap by patching it to null', async () => {
-      stored = policy({ defaults: { allowBackgroundRuns: true, maxOutputTokensCap: 4096 } });
+      stored = policy({ defaults: { allowBackgroundRuns: true, allowRealtime: false, maxOutputTokensCap: 4096 } });
 
       await service.replace(
         input({ defaults: { allowBackgroundRuns: true, maxOutputTokensCap: null } }),
@@ -379,8 +379,22 @@ describe('AiConfigAdminService', () => {
 
       expect(systemSettings.patchSettings.mock.calls[0][0].ai.defaults).toEqual({
         allowBackgroundRuns: true,
+        allowRealtime: false,
         maxOutputTokensCap: null,
       });
+    });
+
+    it('keeps a stored allowRealtime when the body omits it, and writes it when sent (#449)', async () => {
+      stored = policy({ defaults: { allowBackgroundRuns: true, allowRealtime: true } });
+
+      await service.replace(input({ defaults: { allowBackgroundRuns: true } }), 'admin-1');
+      expect(systemSettings.patchSettings.mock.calls[0][0].ai.defaults.allowRealtime).toBe(true);
+
+      await service.replace(input({ defaults: { allowBackgroundRuns: true, allowRealtime: false } }), 'admin-1');
+      expect(systemSettings.patchSettings.mock.calls[1][0].ai.defaults.allowRealtime).toBe(false);
+      expect(prisma.auditEvent.create.mock.calls.at(-1)?.[0].data.meta.changedFields).toContain(
+        'defaults.allowRealtime',
+      );
     });
 
     it('writes a new baseUrl and cap', async () => {

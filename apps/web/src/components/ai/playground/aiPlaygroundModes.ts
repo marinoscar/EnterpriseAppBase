@@ -14,7 +14,7 @@
 import type { UsableAiModel } from '../../../services/ai';
 import { hasAiCapability } from '../AiModelSelect';
 
-export type AiPlaygroundModeId = 'chat' | 'image' | 'transcribe' | 'speech' | 'embeddings';
+export type AiPlaygroundModeId = 'chat' | 'image' | 'transcribe' | 'speech' | 'embeddings' | 'voice';
 
 export interface AiPlaygroundMode {
   id: AiPlaygroundModeId;
@@ -56,7 +56,25 @@ export const AI_PLAYGROUND_MODES: readonly AiPlaygroundMode[] = [
     capability: 'embeddings',
     unavailableReason: 'None of the models available to you can create embeddings',
   },
+  {
+    // #449. Also HIDDEN (not merely disabled) unless `GET /ai/config`
+    // says `allowRealtime: true` — see {@link hiddenPlaygroundModes}.
+    id: 'voice',
+    label: 'Voice',
+    capability: 'realtime',
+    unavailableReason: 'None of the models available to you can hold a voice conversation',
+  },
 ];
+
+/**
+ * Modes an administrator has switched off for the deployment, so they are
+ * not offered at all (as opposed to {@link unavailableModes}, which are
+ * offered but disabled with a reason). Voice needs `allowRealtime: true`; an
+ * older API that omits the flag reads as off.
+ */
+export function hiddenPlaygroundModes(config: { allowRealtime?: boolean }): Set<AiPlaygroundModeId> {
+  return config.allowRealtime === true ? new Set() : new Set<AiPlaygroundModeId>(['voice']);
+}
 
 export function aiPlaygroundMode(id: AiPlaygroundModeId): AiPlaygroundMode {
   return AI_PLAYGROUND_MODES.find((mode) => mode.id === id) ?? AI_PLAYGROUND_MODES[0];
@@ -67,15 +85,26 @@ export function modelsForMode(models: readonly UsableAiModel[], mode: AiPlaygrou
   return models.filter((model) => hasAiCapability(model, mode.capability));
 }
 
-/** The modes no usable model can serve — offered, but disabled with their reason. */
-export function unavailableModes(models: readonly UsableAiModel[]): Set<AiPlaygroundModeId> {
+/**
+ * The modes that cannot be selected: those no usable model can serve (offered,
+ * but disabled with their reason), plus any `hidden` ones.
+ */
+export function unavailableModes(
+  models: readonly UsableAiModel[],
+  hidden: ReadonlySet<AiPlaygroundModeId> = new Set(),
+): Set<AiPlaygroundModeId> {
   return new Set(
-    AI_PLAYGROUND_MODES.filter((mode) => modelsForMode(models, mode).length === 0).map((mode) => mode.id),
+    AI_PLAYGROUND_MODES.filter((mode) => hidden.has(mode.id) || modelsForMode(models, mode).length === 0).map(
+      (mode) => mode.id,
+    ),
   );
 }
 
 /** The mode to open on: Chat when it can be used, else the first mode that can. */
-export function initialPlaygroundMode(models: readonly UsableAiModel[]): AiPlaygroundModeId {
-  const unavailable = unavailableModes(models);
+export function initialPlaygroundMode(
+  models: readonly UsableAiModel[],
+  hidden: ReadonlySet<AiPlaygroundModeId> = new Set(),
+): AiPlaygroundModeId {
+  const unavailable = unavailableModes(models, hidden);
   return AI_PLAYGROUND_MODES.find((mode) => !unavailable.has(mode.id))?.id ?? 'chat';
 }

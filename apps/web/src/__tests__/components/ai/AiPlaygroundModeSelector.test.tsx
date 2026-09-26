@@ -13,6 +13,7 @@ import { AiPlaygroundModeSelector } from '../../../components/ai/playground/AiPl
 import {
   AI_PLAYGROUND_MODES,
   aiPlaygroundMode,
+  hiddenPlaygroundModes,
   initialPlaygroundMode,
   modelsForMode,
   unavailableModes,
@@ -41,6 +42,7 @@ describe('aiPlaygroundModes', () => {
       ['transcribe', 'audio_transcription'],
       ['speech', 'audio_speech'],
       ['embeddings', 'embeddings'],
+      ['voice', 'realtime'],
     ]);
   });
 
@@ -51,8 +53,23 @@ describe('aiPlaygroundModes', () => {
   });
 
   it('reports modes no model can serve', () => {
-    expect([...unavailableModes(models)].sort()).toEqual(['speech', 'transcribe']);
+    expect([...unavailableModes(models)].sort()).toEqual(['speech', 'transcribe', 'voice']);
     expect(unavailableModes([]).size).toBe(AI_PLAYGROUND_MODES.length);
+  });
+
+  it('hides Voice unless realtime sessions are allowed (#449)', () => {
+    expect([...hiddenPlaygroundModes({ allowRealtime: false })]).toEqual(['voice']);
+    // An older API that omits the flag reads as off.
+    expect([...hiddenPlaygroundModes({})]).toEqual(['voice']);
+    expect(hiddenPlaygroundModes({ allowRealtime: true }).size).toBe(0);
+  });
+
+  it('treats a hidden mode as unavailable even when a model can serve it', () => {
+    const realtime = [model('rr-9', ['realtime'])];
+    expect(unavailableModes(realtime).has('voice')).toBe(false);
+    expect(unavailableModes(realtime, new Set(['voice'])).has('voice')).toBe(true);
+    expect(initialPlaygroundMode(realtime)).toBe('voice');
+    expect(initialPlaygroundMode(realtime, new Set(['voice']))).toBe('chat');
   });
 
   it('opens on Chat when usable, else on the first usable mode', () => {
@@ -63,9 +80,20 @@ describe('aiPlaygroundModes', () => {
 });
 
 describe('AiPlaygroundModeSelector', () => {
-  function renderSelector(value: AiPlaygroundModeId = 'chat', unavailable: AiPlaygroundModeId[] = ['speech']) {
+  function renderSelector(
+    value: AiPlaygroundModeId = 'chat',
+    unavailable: AiPlaygroundModeId[] = ['speech'],
+    hidden: AiPlaygroundModeId[] = [],
+  ) {
     const onChange = vi.fn();
-    render(<AiPlaygroundModeSelector value={value} onChange={onChange} unavailable={new Set(unavailable)} />);
+    render(
+      <AiPlaygroundModeSelector
+        value={value}
+        onChange={onChange}
+        unavailable={new Set(unavailable)}
+        hidden={new Set(hidden)}
+      />,
+    );
     return { onChange, user: userEvent.setup() };
   }
 
@@ -104,10 +132,18 @@ describe('AiPlaygroundModeSelector', () => {
     const { user, onChange } = renderSelector();
     screen.getByRole('button', { name: 'Chat' }).focus();
     await user.keyboard('{ArrowLeft}');
-    expect(screen.getByRole('button', { name: 'Embeddings' })).toHaveFocus();
+    expect(screen.getByRole('button', { name: 'Voice' })).toHaveFocus();
     await user.keyboard('{Home}');
     expect(screen.getByRole('button', { name: 'Chat' })).toHaveFocus();
     await user.keyboard('{ArrowRight}{ArrowRight}{Enter}');
     expect(onChange).toHaveBeenCalledWith('transcribe');
+  });
+
+  it('does not render a hidden mode, and keyboard movement skips it (#449)', async () => {
+    const { user } = renderSelector('chat', ['speech'], ['voice']);
+    expect(screen.queryByRole('button', { name: 'Voice' })).not.toBeInTheDocument();
+    screen.getByRole('button', { name: 'Chat' }).focus();
+    await user.keyboard('{End}');
+    expect(screen.getByRole('button', { name: 'Embeddings' })).toHaveFocus();
   });
 });

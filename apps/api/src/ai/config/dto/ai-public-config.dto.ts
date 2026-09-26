@@ -51,6 +51,13 @@ export const aiPublicConfigSchema = z.object({
    */
   allowBackgroundRuns: z.boolean(),
   /**
+   * `ai.defaults.allowRealtime` — whether `POST /api/ai/realtime/sessions`
+   * mints a realtime voice session (#449); hide a voice mode while it is
+   * false (a mint is refused `403 AI_REALTIME_DISABLED`). Always false while
+   * `enabled` is false.
+   */
+  allowRealtime: z.boolean(),
+  /**
    * Which provider-hosted tool types an administrator has switched on (#442)
    * — a client offers a tool only when its flag is true (a request naming a
    * disabled one is `403 AI_TOOL_DISABLED`). All false while `enabled` is

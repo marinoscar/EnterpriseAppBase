@@ -14,13 +14,19 @@
 //   openai-images.mapper.ts      AiImage*Request <-> /v1/images/{generations,edits}
 //   openai-audio.mapper.ts       AiTranscriptionRequest <-> /v1/audio/transcriptions,
 //                                AiSpeechRequest <-> /v1/audio/speech
+//   openai-realtime.mapper.ts    AiRealtimeSessionRequest <-> /v1/realtime/client_secrets
 //
 // PORTS. `responses`, `embeddings` (#440), `images` (#437, generate AND
-// edit) and `audio` (#438 `transcribe`, #439 `speech` + its static `voices`)
-// are carried. `realtime` is
-// deliberately ABSENT until a later story implements it — presence is the
-// declaration, so `AiProviderRegistry.supports()` stays truthful about what
-// this adapter can actually do today.
+// edit), `audio` (#438 `transcribe`, #439 `speech` + its static `voices`)
+// and `realtime` (#449 `createSession` + its static `voices`) are carried —
+// presence is the declaration, so `AiProviderRegistry.supports()` stays
+// truthful about what this adapter can actually do.
+//
+// REALTIME (#449). `createSession` spends the call's key ONCE, as the
+// `Authorization` header of `POST /v1/realtime/client_secrets`, and returns
+// the EPHEMERAL secret OpenAI mints — the one value this adapter hands back
+// that a browser may hold. It is never logged and never put on a span; the
+// debug line carries the same ids and outcome every other call's does.
 //
 // STORAGE-OBJECT INPUTS (#441). `fileInputStrategy` is images by
 // `presigned_url` (a 10-minute signed GET the runtime minted, passed as
@@ -64,6 +70,9 @@ import type {
   AiImageGenerationRequest,
   AiImageResult,
   AiImagesPort,
+  AiRealtimePort,
+  AiRealtimeSession,
+  AiRealtimeSessionRequest,
   AiSpeechRequest,
   AiSpeechResult,
   AiTranscriptionRequest,
@@ -87,7 +96,8 @@ import {
   toOpenAiImageEditRequest,
   toOpenAiImageGenerateRequest,
 } from './openai-images.mapper';
-import { classifyOpenAiModel, OPENAI_SPEECH_VOICES } from './openai-model-catalog';
+import { classifyOpenAiModel, OPENAI_REALTIME_VOICES, OPENAI_SPEECH_VOICES } from './openai-model-catalog';
+import { fromOpenAiClientSecretResponse, toOpenAiClientSecretRequest } from './openai-realtime.mapper';
 import {
   fromOpenAiResponse,
   type OpenAiStorageDeliveries,
@@ -108,7 +118,8 @@ type OpenAiOperation =
   | 'images.generate'
   | 'images.edit'
   | 'audio.transcribe'
-  | 'audio.speech';
+  | 'audio.speech'
+  | 'realtime.client_secret';
 
 const tracer = trace.getTracer(resolveServiceName());
 
@@ -139,6 +150,11 @@ export class OpenAiProviderAdapter implements AiProviderAdapter, OnModuleInit {
     transcriptionMaxBytes: OPENAI_TRANSCRIPTION_MAX_BYTES,
     speech: (req, ctx) => this.speak(req, ctx),
     voices: OPENAI_SPEECH_VOICES,
+  };
+
+  readonly realtime: AiRealtimePort = {
+    createSession: (req, ctx) => this.createRealtimeSession(req, ctx),
+    voices: OPENAI_REALTIME_VOICES,
   };
 
   private readonly logger = new Logger(OpenAiProviderAdapter.name);
@@ -469,6 +485,30 @@ export class OpenAiProviderAdapter implements AiProviderAdapter, OnModuleInit {
       const bytes = new Uint8Array(await data.arrayBuffer());
 
       return fromOpenAiSpeechResponse(bytes, { request: req, providerRequestId: request_id });
+    });
+  }
+
+  // ---- realtime port -----------------------------------------------------------
+
+  /**
+   * `POST /v1/realtime/client_secrets` — mints the ephemeral secret a browser
+   * opens one WebRTC session with (`openai-realtime.mapper.ts`). The call's
+   * key is the request's `Authorization` header and goes nowhere else.
+   */
+  private createRealtimeSession(req: AiRealtimeSessionRequest, ctx: AiCallContext): Promise<AiRealtimeSession> {
+    return this.call('realtime.client_secret', req.model, ctx, async () => {
+      const body = toOpenAiClientSecretRequest(req);
+      const client = this.clients.create(ctx);
+
+      const { data, request_id } = await client.realtime.clientSecrets
+        .create(body, { signal: ctx.signal })
+        .withResponse();
+
+      return fromOpenAiClientSecretResponse(data, {
+        request: req,
+        baseUrl: ctx.baseUrl,
+        providerRequestId: request_id,
+      });
     });
   }
 

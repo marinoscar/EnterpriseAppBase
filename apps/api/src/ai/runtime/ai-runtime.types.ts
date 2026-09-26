@@ -12,6 +12,7 @@ import type { z } from 'zod';
 
 import type { AiDefinedTool } from '../core/tools';
 import type {
+  AiRealtimeTurnDetection,
   AiSpeechFormat,
   AiEmbeddingRequest,
   AiImageGenerationRequest,
@@ -19,7 +20,13 @@ import type {
   AiTranscriptionTimestampGranularity,
   AiTranscriptionWord,
 } from '../core/types/media.types';
-import type { AiResponse, AiResponseRequest, AiStreamEvent, AiUsage } from '../core/types/responses.types';
+import type {
+  AiFunctionTool,
+  AiResponse,
+  AiResponseRequest,
+  AiStreamEvent,
+  AiUsage,
+} from '../core/types/responses.types';
 
 /**
  * A request as a fork writes it. `model` (and `provider`) are optional:
@@ -102,6 +109,44 @@ export interface AiSpeakRequest {
   /** 0.25 to 4; 1 is normal. */
   speed?: number;
   providerOptions?: Record<string, Record<string, unknown>>;
+}
+
+/**
+ * `createRealtimeSession`'s request (#449, docs/specs/ai-platform.md §5.8).
+ *
+ * `model` is optional: omitted, the first model the caller can use that
+ * declares `realtime` (in `GET /api/ai/models` order) — never the chat
+ * `ai.defaultModel`. `voice` defaults to the model's first listed voice.
+ * Everything here is the session's INITIAL configuration: the browser that
+ * holds the ephemeral secret may change it over its data channel.
+ */
+export interface AiRealtimeRequest {
+  provider?: string;
+  model?: string;
+  voice?: string;
+  /** Initial system instructions, at most `AI_REALTIME_INSTRUCTIONS_MAX_CHARS`. */
+  instructions?: string;
+  /** Omitted: the provider's default. `null`: no automatic turn detection (push-to-talk). */
+  turnDetection?: AiRealtimeTurnDetection | null;
+  /** Client-executed function tools the session starts with (in-process callers only). */
+  tools?: AiFunctionTool[];
+  providerOptions?: Record<string, Record<string, unknown>>;
+}
+
+/**
+ * A minted realtime session. `clientSecret` is the provider's EPHEMERAL
+ * secret — hand it to the browser that will connect, and nowhere else (never
+ * log or store it). It is never the caller's key.
+ */
+export interface AiRealtimeSessionResult {
+  provider: string;
+  model: string;
+  voice: string;
+  clientSecret: string;
+  /** When `clientSecret` can no longer OPEN a session (a connected call continues). */
+  expiresAt: Date;
+  /** Where the browser POSTs its SDP offer with `Authorization: Bearer <clientSecret>`. */
+  connectUrl: string;
 }
 
 /** Per-call options every facade method accepts. */

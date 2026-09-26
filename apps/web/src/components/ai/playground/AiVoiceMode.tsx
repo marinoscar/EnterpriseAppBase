@@ -1,0 +1,264 @@
+/**
+ * The Playground's Voice mode — issue #449, epic #421
+ * (docs/specs/ai-platform.md §5.8).
+ *
+ * A live speech-to-speech call with a `realtime` model. The server mints a
+ * short-lived, single-session secret with the user's key; the BROWSER then
+ * connects to the provider directly over WebRTC with it. All of that lives in
+ * `hooks/useAiRealtimeSession.ts` — this component is the controls, the
+ * timer, the transcript and the failure copy.
+ *
+ * Shown only when `GET /ai/config` says `allowRealtime: true`
+ * (`pages/AiPlaygroundPage.tsx`). Voices follow the selected model's own
+ * `capabilities.voices`; none is hard-coded here.
+ *
+ * ACCESSIBILITY. The transcript is an `aria-live="polite"` log, so a screen
+ * reader hears each finished line without the audio being interrupted; the
+ * status line (connecting, timer) is a `role="status"` region.
+ */
+import { useEffect, useState, type ReactNode } from 'react';
+import { Alert, AlertTitle, Box, Button, Chip, Divider, MenuItem, Stack, TextField, Typography } from '@mui/material';
+import {
+  CallEnd as StopIcon,
+  Mic as MicIcon,
+  MicOff as MicOffIcon,
+  KeyboardVoice as StartIcon,
+} from '@mui/icons-material';
+import { AI_REALTIME_INSTRUCTIONS_MAX_CHARS, type AiRealtimeSessionRequest, type UsableAiModel } from '../../../services/ai';
+import {
+  formatRealtimeElapsed,
+  useAiRealtimeSession,
+  type AiRealtimeFailure,
+} from '../../../hooks/useAiRealtimeSession';
+import { AiErrorAlert } from '../AiErrorAlert';
+import { AiModelSelect } from '../AiModelSelect';
+import { AiPlaygroundPanels } from './AiPlaygroundPanels';
+import { usePlaygroundModel } from './usePlaygroundModel';
+
+export interface AiVoiceModeProps {
+  /** The usable models declaring `realtime`. */
+  models: UsableAiModel[];
+  preferredModel?: { provider: string; modelId: string } | null;
+  ready?: boolean;
+}
+
+/** Copy for every failure except `api`, which `AiErrorAlert` renders. */
+export function realtimeFailureCopy(
+  failure: Exclude<AiRealtimeFailure, { kind: 'api' }>,
+): { title: string; body: string; severity: 'error' | 'warning' } {
+  switch (failure.kind) {
+    case 'mic-denied':
+      return {
+        title: 'Microphone access was blocked',
+        body: 'Allow this site to use your microphone in the browser’s address bar or site settings, then start again.',
+        severity: 'warning',
+      };
+    case 'no-mic':
+      return {
+        title: 'No microphone found',
+        body: 'Connect a microphone (or check it is not in use by another app), then start again.',
+        severity: 'warning',
+      };
+    case 'mic-error':
+      return { title: 'The microphone could not be opened', body: failure.message, severity: 'error' };
+    case 'unsupported':
+      return {
+        title: 'Voice sessions are not supported in this browser',
+        body: 'This browser cannot make WebRTC calls. Try a current version of Chrome, Edge, Firefox or Safari.',
+        severity: 'warning',
+      };
+    case 'sdp':
+      return {
+        title: 'Could not connect to the provider',
+        body: `The call could not be set up. Try again in a moment. (${failure.message})`,
+        severity: 'error',
+      };
+    case 'connection-lost':
+      return {
+        title: 'The connection was lost',
+        body: 'The call dropped — check your network and start a new session.',
+        severity: 'error',
+      };
+    case 'expired':
+      return {
+        title: 'The session expired before it connected',
+        body: 'Voice sessions must connect within about a minute. Start again.',
+        severity: 'warning',
+      };
+    case 'provider':
+      return { title: 'The provider reported an error', body: failure.message, severity: 'warning' };
+  }
+}
+
+export function AiVoiceMode({ models, preferredModel, ready = true }: AiVoiceModeProps) {
+  const { modelKey, setModelKey, selected } = usePlaygroundModel(models, preferredModel, ready);
+  const call = useAiRealtimeSession();
+
+  const voices = selected?.capabilities.voices ?? [];
+  const [voice, setVoice] = useState('');
+  const [instructions, setInstructions] = useState('');
+
+  // Keep the voice one the selected model speaks: its first, until the user picks another.
+  useEffect(() => {
+    if (voices.length === 0) {
+      if (voice !== '') setVoice('');
+    } else if (!voices.includes(voice)) {
+      setVoice(voices[0]);
+    }
+  }, [voices, voice]);
+
+  const active = call.status === 'starting' || call.status === 'connected';
+  const tooLong = instructions.length > AI_REALTIME_INSTRUCTIONS_MAX_CHARS;
+  const canStart = !!selected && !active && !tooLong;
+
+  const start = () => {
+    if (!canStart || !selected) return;
+    const request: AiRealtimeSessionRequest = { provider: selected.provider, model: selected.modelId };
+    if (voice) request.voice = voice;
+    if (instructions.trim()) request.instructions = instructions.trim();
+    void call.start(request);
+  };
+
+  if (!selected) return null;
+
+  const settings = (
+    <Stack spacing={2}>
+      <AiModelSelect models={models} value={modelKey} onChange={setModelKey} disabled={active} capability="realtime" />
+      {voices.length > 0 && (
+        <TextField
+          select
+          size="small"
+          label="Voice"
+          value={voice}
+          disabled={active}
+          onChange={(event) => setVoice(event.target.value)}
+        >
+          {voices.map((name) => (
+            <MenuItem key={name} value={name}>
+              {name}
+            </MenuItem>
+          ))}
+        </TextField>
+      )}
+      <TextField
+        size="small"
+        label="Instructions"
+        placeholder="Optional system instructions"
+        multiline
+        minRows={2}
+        maxRows={6}
+        value={instructions}
+        disabled={active}
+        onChange={(event) => setInstructions(event.target.value)}
+        error={tooLong}
+        helperText={
+          tooLong
+            ? `At most ${AI_REALTIME_INSTRUCTIONS_MAX_CHARS.toLocaleString()} characters`
+            : 'Applied when the session starts'
+        }
+      />
+    </Stack>
+  );
+
+  let failureAlert: ReactNode = null;
+  if (call.failure?.kind === 'api') {
+    failureAlert = <AiErrorAlert error={call.failure.error} onClose={call.clearFailure} />;
+  } else if (call.failure) {
+    const copy = realtimeFailureCopy(call.failure);
+    failureAlert = (
+      <Alert severity={copy.severity} onClose={call.clearFailure} data-realtime-failure={call.failure.kind}>
+        <AlertTitle>{copy.title}</AlertTitle>
+        {copy.body}
+      </Alert>
+    );
+  }
+
+  const statusText =
+    call.status === 'starting'
+      ? 'Connecting…'
+      : call.status === 'connected'
+        ? `Live · ${formatRealtimeElapsed(call.elapsedSeconds)}${call.muted ? ' · Muted' : ''}`
+        : call.status === 'ended'
+          ? `Ended · ${formatRealtimeElapsed(call.elapsedSeconds)}`
+          : null;
+
+  return (
+    <AiPlaygroundPanels settings={settings} label="Voice">
+      {/* The assistant's voice. Hidden: there is nothing to show, only to hear. */}
+      <audio ref={call.audioRef} autoPlay hidden data-testid="realtime-audio" />
+
+      {failureAlert}
+
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+        {active ? (
+          <>
+            <Button
+              variant="outlined"
+              color={call.muted ? 'warning' : 'inherit'}
+              startIcon={call.muted ? <MicOffIcon /> : <MicIcon />}
+              onClick={() => call.setMuted(!call.muted)}
+              disabled={call.status !== 'connected'}
+              aria-pressed={call.muted}
+            >
+              {call.muted ? 'Unmute' : 'Mute'}
+            </Button>
+            <Button variant="contained" color="error" startIcon={<StopIcon />} onClick={call.stop}>
+              Stop
+            </Button>
+          </>
+        ) : (
+          <Button variant="contained" startIcon={<StartIcon />} onClick={start} disabled={!canStart}>
+            Start
+          </Button>
+        )}
+        <Box sx={{ flex: 1 }} />
+        <Typography
+          variant="body2"
+          color="text.secondary"
+          role="status"
+          data-testid="realtime-status"
+          sx={{ fontVariantNumeric: 'tabular-nums' }}
+        >
+          {statusText}
+        </Typography>
+      </Box>
+
+      <Divider />
+
+      <Box
+        role="log"
+        aria-live="polite"
+        aria-label="Voice transcript"
+        sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, minHeight: 120 }}
+      >
+        {call.transcript.length === 0 ? (
+          <Typography variant="body2" color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
+            {active
+              ? 'Listening — start speaking.'
+              : 'Start a session and talk to the model. Your browser will ask to use the microphone. The replies are AI-generated audio.'}
+          </Typography>
+        ) : (
+          call.transcript.map((line) => (
+            <Box key={line.id} sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', minWidth: 0 }}>
+              <Chip
+                size="small"
+                label={line.role === 'user' ? 'You' : 'Assistant'}
+                color={line.role === 'user' ? 'default' : 'primary'}
+                variant={line.role === 'user' ? 'outlined' : 'filled'}
+                sx={{ flexShrink: 0, minWidth: 80 }}
+              />
+              <Typography
+                variant="body2"
+                sx={{ wordBreak: 'break-word', whiteSpace: 'pre-wrap', opacity: line.final ? 1 : 0.75 }}
+              >
+                {line.text}
+              </Typography>
+            </Box>
+          ))
+        )}
+      </Box>
+    </AiPlaygroundPanels>
+  );
+}
+
+export default AiVoiceMode;
