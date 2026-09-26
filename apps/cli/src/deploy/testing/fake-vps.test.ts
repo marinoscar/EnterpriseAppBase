@@ -15,7 +15,8 @@ import { runStatusCommand } from '../../commands/deploy.js';
 import { isDeployment, resolveEnvPath } from '../deployment-evidence.js';
 import { parseEnvExample, parseEnvFile } from '../env-spec.js';
 import { runInstall } from '../install.js';
-import { readState } from '../state.js';
+import { deployStatePath, readState } from '../state.js';
+import { runUpdate } from '../update.js';
 import {
   createFakeVps,
   listenForProbe,
@@ -81,7 +82,10 @@ afterAll(async () => {
   await api.close();
 });
 
-function install(vps: ReturnType<typeof createFakeVps>) {
+function install(
+  vps: ReturnType<typeof createFakeVps>,
+  overrides: Partial<Parameters<typeof runInstall>[0]> = {},
+) {
   return runInstall({
     deployRoot: vps.deployRoot,
     bindPort: api.port,
@@ -104,6 +108,7 @@ function install(vps: ReturnType<typeof createFakeVps>) {
     // rather than about the pipeline. The one test that is about versioning
     // turns it on and builds a real repository for it.
     noVersionBump: true,
+    ...overrides,
   });
 }
 
@@ -198,7 +203,12 @@ describe('the fake VPS harness', () => {
     const vps = vpsWithTemplate();
     await install(vps);
 
-    const composeCalls = vps.calls('docker', 'compose');
+    // `docker compose version` is the host-facts probe (issue #392): it asks
+    // the CLI plugin its own version and touches no project, so `-p` has no
+    // meaning there.
+    const composeCalls = vps
+      .calls('docker', 'compose')
+      .filter((call) => call.argv[2] !== 'version');
     expect(composeCalls.length).toBeGreaterThan(0);
 
     // ⚠ Without `-p`, Compose derives the project from the compose file's
@@ -435,5 +445,229 @@ describe('the CLI writes its own marker into the .env', () => {
     // existing containers, builds a parallel stack, and collides with the old
     // one on the bind port. A bookkeeping change causing an outage.
     expect(contents).not.toContain('COMPOSE_PROJECT_NAME');
+  });
+});
+
+// =============================================================================
+// Host facts and deployment history  (issue #392)
+// =============================================================================
+//
+// The REAL pipelines, end to end: what a successful run records in the state
+// file and in info.json, what a failed one leaves alone, and that the two
+// documents carry the same history.
+// =============================================================================
+
+const FIXTURE = JSON.parse(
+  readFileSync(
+    resolve(__dirname, '..', '..', '..', '..', 'api', 'test', 'fixtures', 'deploy-info.sample.json'),
+    'utf8',
+  ),
+) as Record<string, unknown>;
+
+/** Recursive key set; see deploy-info.test.ts. `remote` is excluded by the callers. */
+function keyShape(value: unknown): unknown {
+  if (Array.isArray(value)) return value.length === 0 ? [] : [keyShape(value[0])];
+  if (typeof value === 'object' && value !== null) {
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort()
+        .map((key) => [key, keyShape((value as Record<string, unknown>)[key])]),
+    );
+  }
+  return 'leaf';
+}
+
+function readInfo(vps: ReturnType<typeof createFakeVps>): Record<string, unknown> {
+  return JSON.parse(
+    readFileSync(join(vps.deployRoot, 'deploy-info', 'info.json'), 'utf8'),
+  ) as Record<string, unknown>;
+}
+
+function failTheBuild(vps: ReturnType<typeof createFakeVps>): void {
+  vps.route(
+    (invocation) => invocation.argv[0] === 'docker' && invocation.argv.includes('build'),
+    { fail: new Error('build failed') },
+  );
+}
+
+describe('host facts and deployment history (issue #392)', () => {
+  it('records one success entry, the host and the proxy on a successful install', async () => {
+    const vps = vpsWithTemplate();
+    vps.route(['docker', 'version', '--format'], '27.3.1');
+    vps.route(['docker', 'compose', 'version', '--short'], '2.29.7');
+
+    await install(vps);
+
+    const state = readState(vps.deployRoot);
+    expect(state?.version).toBe(2);
+    expect(state?.history).toHaveLength(1);
+    expect(state?.history?.[0]).toMatchObject({
+      command: 'install',
+      commitSha: state?.commitSha,
+      previousCommitSha: null,
+      ref: 'main',
+      outcome: 'success',
+    });
+    expect(state?.history?.[0]?.durationMs).toBeGreaterThanOrEqual(0);
+    expect(state?.history?.[0]?.at).toBe(state?.lastDeployedAt);
+
+    expect(state?.host?.dockerVersion).toBe('27.3.1');
+    expect(state?.host?.composeVersion).toBe('2.29.7');
+    expect(state?.host?.capturedAt).toEqual(expect.any(String));
+
+    // A domain with no certificate on disk: the expiry is unknown, not invented.
+    expect(state?.proxy).toMatchObject({
+      domain: 'app.example.test',
+      bindPort: api.port,
+      certificateExpiresAt: null,
+    });
+
+    // Host facts are probed ONCE per run, not per write.
+    expect(vps.calls('docker', 'version')).toHaveLength(1);
+    expect(vps.calls('docker', 'compose', 'version')).toHaveLength(1);
+  });
+
+  it('rewrites info.json at the end of the run, carrying the same history as the state', async () => {
+    const vps = vpsWithTemplate();
+    await install(vps);
+
+    const info = readInfo(vps);
+    const state = readState(vps.deployRoot);
+
+    // ⚠ The health-gate write predates this run's success, so without the
+    // end-of-run rewrite the About page would show an empty history.
+    expect(info['history']).toEqual(state?.history);
+    expect(info['lastCommand']).toBe('install');
+    expect(info['bindPort']).toBe(api.port);
+    expect(info['host']).toEqual(state?.host);
+    expect((info['run'] as { completed: string[] }).completed).toContain('verify');
+  });
+
+  it('writes info.json with exactly the shared fixture key set at every level', async () => {
+    const vps = vpsWithTemplate();
+    await install(vps);
+
+    const { remote: _infoRemote, ...info } = readInfo(vps);
+    const { remote: _fixtureRemote, ...fixture } = FIXTURE;
+
+    expect(keyShape(info)).toEqual(keyShape(fixture));
+    expect(Object.keys(readInfo(vps)).sort()).toEqual(Object.keys(FIXTURE).sort());
+  });
+
+  it('appends newest first across successful runs, naming what each replaced', async () => {
+    const vps = vpsWithTemplate();
+    await install(vps);
+    const first = readState(vps.deployRoot);
+
+    vps.route(['git', 'rev-parse', 'HEAD'], 'd'.repeat(40));
+    await install(vps, { reinstall: true });
+
+    const history = readState(vps.deployRoot)?.history ?? [];
+    expect(history).toHaveLength(2);
+    expect(history[0]?.commitSha).toBe('d'.repeat(40));
+    expect(history[0]?.previousCommitSha).toBe(first?.commitSha);
+    expect(history[1]).toEqual(first?.history?.[0]);
+  });
+
+  it('does not append history for a failed run, and keeps the history already there', async () => {
+    const vps = vpsWithTemplate();
+    await install(vps);
+    const before = readState(vps.deployRoot);
+
+    failTheBuild(vps);
+    await expect(install(vps, { reinstall: true })).rejects.toThrow();
+
+    const after = readState(vps.deployRoot);
+    expect(after?.lastOutcome).toBe('failure');
+    expect(after?.history).toEqual(before?.history);
+    // Host/proxy are what the last SUCCESSFUL run observed.
+    expect(after?.host).toEqual(before?.host);
+    expect(after?.proxy).toEqual(before?.proxy);
+  });
+
+  it('a failed first install records no history at all', async () => {
+    const vps = vpsWithTemplate();
+    failTheBuild(vps);
+
+    await expect(install(vps)).rejects.toThrow();
+
+    expect(readState(vps.deployRoot)?.history ?? []).toEqual([]);
+  });
+
+  it('keeps the state file 0600 and free of every secret the env answers carried', async () => {
+    const vps = vpsWithTemplate();
+    await install(vps);
+
+    expect(statSync(deployStatePath(vps.deployRoot)).mode & 0o777).toBe(0o600);
+
+    const raw = readFileSync(deployStatePath(vps.deployRoot), 'utf8');
+    const info = readFileSync(join(vps.deployRoot, 'deploy-info', 'info.json'), 'utf8');
+    const secrets = [...ANSWERS]
+      .filter(([key]) => /SECRET|PASSWORD|TOKEN|ENCRYPTION_KEY|CLIENT_ID/.test(key))
+      .map(([, value]) => value);
+
+    expect(secrets.length).toBeGreaterThan(0);
+    for (const secret of secrets) {
+      expect(raw).not.toContain(secret);
+      expect(info).not.toContain(secret);
+    }
+  });
+
+  it('an update appends to the history an install began, and rewrites info.json', async () => {
+    const vps = vpsWithTemplate();
+    await install(vps);
+    const installed = readState(vps.deployRoot);
+
+    // The fake clone needs a `.git` for update's own bookkeeping, and a new
+    // revision for the fetch to move to.
+    mkdirSync(join(vps.deployRoot, 'repo', '.git'), { recursive: true });
+    vps.route(['git', 'rev-parse', 'HEAD'], 'e'.repeat(40));
+    // Update's light preflight checks free space; install's skipped doctor did not.
+    vps.route(
+      ['df'],
+      'Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/sda1 100000000 10000000 80000000 12% /',
+    );
+
+    await runUpdate({
+      deployRoot: vps.deployRoot,
+      runCommand: vps.runCommand,
+      nonInteractive: true,
+      skipProxy: true,
+      skipSeed: true,
+      noVersionBump: true,
+      force: true,
+      answers: new Map([...ANSWERS, ['POSTGRES_PORT', String(probe.port)]]),
+    });
+
+    const state = readState(vps.deployRoot);
+    expect(state?.history).toHaveLength(2);
+    expect(state?.history?.[0]).toMatchObject({ command: 'update', outcome: 'success' });
+    expect(state?.history?.[1]).toEqual(installed?.history?.[0]);
+
+    const info = readInfo(vps);
+    expect(info['lastCommand']).toBe('update');
+    expect(info['history']).toEqual(state?.history);
+  });
+  it('an update that finds nothing new deploys nothing, and so records nothing', async () => {
+    const vps = vpsWithTemplate();
+    await install(vps);
+    const before = readState(vps.deployRoot);
+
+    mkdirSync(join(vps.deployRoot, 'repo', '.git'), { recursive: true });
+    vps.route(
+      ['df'],
+      'Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/sda1 100000000 10000000 80000000 12% /',
+    );
+
+    const result = await runUpdate({
+      deployRoot: vps.deployRoot,
+      runCommand: vps.runCommand,
+      nonInteractive: true,
+      skipProxy: true,
+      noVersionBump: true,
+    });
+
+    expect(result.changed).toBe(false);
+    expect(readState(vps.deployRoot)?.history).toEqual(before?.history);
   });
 });

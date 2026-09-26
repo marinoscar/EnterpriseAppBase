@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 import { parseEnvExample, type EnvVarSpec } from '../../../deploy/env-spec.js';
 import { deployRootFor } from '../../../deploy/layout.js';
-import type { DeployState } from '../../../deploy/state.js';
+import { DEPLOY_STATE_VERSION, type DeployState } from '../../../deploy/state.js';
 import {
   appName,
   decideResume,
@@ -233,7 +233,7 @@ describe('reconcileSeed: retracts the seed the moment the name stops matching', 
 
 function baseState(overrides: Partial<DeployState> = {}): DeployState {
   return {
-    version: 1,
+    version: DEPLOY_STATE_VERSION,
     repoUrl: 'https://example.com/repo.git',
     ref: 'main',
     commitSha: 'abc123',

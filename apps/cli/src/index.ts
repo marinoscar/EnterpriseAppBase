@@ -183,16 +183,27 @@ export { createRedactor, openJournal, pruneOldRuns, timestampSlug } from './depl
 export type { Journal, OpenJournalOptions, Redactor, SecretEntry } from './deploy/journal.js';
 
 export {
+  DEPLOY_HISTORY_LIMIT,
   DEPLOY_STATE_FILENAME,
   DEPLOY_STATE_VERSION,
   DeployStateError,
   NotInstalledError,
+  appendHistory,
   deployStatePath,
   readState,
   requireState,
+  upgradeState,
   writeState,
 } from './deploy/state.js';
-export type { DeployState } from './deploy/state.js';
+export type {
+  DeployProxyFacts,
+  DeployState,
+  DeploymentHistoryEntry,
+  HostFacts,
+} from './deploy/state.js';
+
+export { collectHostFacts } from './deploy/host-facts.js';
+export type { CollectHostFactsOptions, OsProbe } from './deploy/host-facts.js';
 
 export type { DeployHooks, StepOutcome, StepResult } from './deploy/hooks.js';
 

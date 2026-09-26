@@ -167,8 +167,9 @@ describe('install: --domain is only required when something will be published', 
 describe('deploy state stays readable across this change', () => {
   it('a record with neither composeProject nor proxyRoot still loads', () => {
     const deployRoot = mkdtempSync(join(tmpdir(), 'appctl-state-compat-'));
+    // ⚠ A LITERAL v1 RECORD, as every deployment in the field has on disk.
     writeState({
-      version: DEPLOY_STATE_VERSION,
+      version: 1 as typeof DEPLOY_STATE_VERSION,
       repoUrl: 'https://example.invalid/app.git',
       ref: 'main',
       commitSha: 'a'.repeat(40),
@@ -184,8 +185,9 @@ describe('deploy state stays readable across this change', () => {
 
     expect(state?.composeProject).toBeUndefined();
     expect(state?.proxyRoot).toBeUndefined();
-    // ⚠ The version must NOT have been bumped to add optional fields: a bump
-    // makes this CLI refuse every state file already on every live server.
-    expect(state?.version).toBe(1);
+    // ⚠ Read FORWARD, never refused: the v2 bump (issue #392) is safe only
+    // because `upgradeState` carries every v1 record on a live server into it.
+    expect(state?.version).toBe(DEPLOY_STATE_VERSION);
+    expect(state?.history).toEqual([]);
   });
 });
