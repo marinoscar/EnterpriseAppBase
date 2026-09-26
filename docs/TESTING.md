@@ -132,6 +132,15 @@ npm run test:debug
 npm run test:ci
 ```
 
+**Sharding:** CI runs the backend suite as two parallel shards
+(`--shard=1/2`, `--shard=2/2`) rather than one long job. To run a single
+shard locally:
+
+```bash
+cd apps/api
+npx jest --config ./test/jest.config.js --shard=1/2
+```
+
 ### Frontend Tests
 
 ```bash
@@ -598,7 +607,7 @@ module.exports = {
   rootDir: '..',
   testRegex: '.*\\.spec\\.ts$',
   transform: {
-    '^.+\\.(t|j)s$': 'ts-jest',
+    '^.+\\.ts$': ['ts-jest', { tsconfig: { isolatedModules: true } }],
   },
   collectCoverageFrom: [
     'src/**/*.ts',
@@ -610,9 +619,6 @@ module.exports = {
   coverageDirectory: './coverage',
   testEnvironment: 'node',
   roots: ['<rootDir>/src/', '<rootDir>/test/'],
-  moduleNameMapper: {
-    '^@/(.*)$': '<rootDir>/src/$1',
-  },
   setupFilesAfterEnv: ['<rootDir>/test/setup.ts'],
   globalTeardown: '<rootDir>/test/teardown.ts',
   testTimeout: 30000,
@@ -625,7 +631,20 @@ module.exports = {
 - `roots`: Includes both `src/` and `test/` directories
 - `setupFilesAfterEnv`: Runs setup before tests
 - `testTimeout`: 30 seconds for database operations
-- `moduleNameMapper`: Supports `@/` path alias
+- **Transpile-only mode**: the inline `tsconfig: { isolatedModules: true }`
+  makes ts-jest transpile each file independently with `ts.transpileModule`
+  instead of running a full, type-checking LanguageService — measured
+  locally, this took the full suite from 262s to 116s (~2.3x). It applies to
+  Jest only; `apps/api/tsconfig.json` itself does not set `isolatedModules`,
+  since `tsc` would then reject decorated signatures and type re-exports
+  with TS1272/TS1205. Type-checking of tests moved from "inside every Jest
+  worker" to `apps/api/tsconfig.json`'s own `include` (now covering
+  `test/**/*` as well as `src/**/*`), so `npm run typecheck --workspace=api`
+  is what catches a type error in a spec or test helper.
+- **No `await import(...)` in specs**: under `module: NodeNext`,
+  `transpileModule` leaves a dynamic `import()` as a real dynamic import,
+  which Jest's CommonJS VM rejects at runtime. Use a static `import` at the
+  top of the file instead.
 
 ### Frontend Configuration
 
@@ -809,6 +828,15 @@ npm run test:ui
 
 **Issue:** JWT validation fails in tests
 - **Solution:** Ensure `JWT_SECRET` is set in test environment
+
+**Issue:** "A dynamic import callback was invoked without --experimental-vm-modules"
+- **Cause:** A spec uses `await import(...)`. ts-jest's transpile-only mode
+  (`isolatedModules: true`) transpiles each file on its own with
+  `ts.transpileModule`, so a dynamic `import()` under `module: NodeNext`
+  passes through as a real dynamic import instead of being rewritten to
+  `require`, and Jest's CommonJS VM rejects that.
+- **Solution:** Replace the dynamic `import(...)` with a static `import` at
+  the top of the file.
 
 ### Frontend
 

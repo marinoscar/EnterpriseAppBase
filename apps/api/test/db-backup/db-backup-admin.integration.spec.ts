@@ -68,7 +68,10 @@ import { DatabaseBackupController } from '../../src/db-backup/db-backup.controll
 import { BACKUP_DOWNLOAD_URL_EXPIRY_SECONDS } from '../../src/db-backup/db-backup-admin.service';
 import { DatabaseBackupRunnerService } from '../../src/db-backup/db-backup-runner.service';
 import { PgJobRoleBroker } from '../../src/db-backup/pg-job-role.broker';
-import { DatabaseBackupAlreadyRunningError } from '../../src/db-backup/db-backup.errors';
+import {
+  DatabaseBackupAlreadyRunningError,
+  DatabaseBackupStorageProviderError,
+} from '../../src/db-backup/db-backup.errors';
 import { STORAGE_PROVIDER } from '../../src/storage/providers/storage-provider.interface';
 import {
   TestContext,
@@ -480,9 +483,6 @@ describe('Admin database-backup API (Integration)', () => {
 
     it('reports a storage provider this deployment lacks as a 400, not a 500', async () => {
       const admin = await createMockAdminUser(context);
-      const { DatabaseBackupStorageProviderError } = await import(
-        '../../src/db-backup/db-backup.errors'
-      );
       runner.queueBackup.mockRejectedValue(
         new DatabaseBackupStorageProviderError('gcs', 's3')
       );
@@ -592,9 +592,6 @@ describe('Admin database-backup API (Integration)', () => {
 
     it('refuses a storageProvider that is not the active one with a clean 400', async () => {
       const admin = await createMockAdminUser(context);
-      const { DatabaseBackupStorageProviderError } = await import(
-        '../../src/db-backup/db-backup.errors'
-      );
       runner.assertStorageProviderUsable.mockImplementation(() => {
         throw new DatabaseBackupStorageProviderError('gcs', 's3');
       });

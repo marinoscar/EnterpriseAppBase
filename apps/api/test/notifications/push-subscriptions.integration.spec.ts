@@ -10,6 +10,7 @@ import {
 import { prismaMock, resetPrismaMock } from '../mocks/prisma.mock';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import { authHeader, createMockViewerUser } from '../helpers/auth-mock.helper';
+import { PushSubscriptionService } from '../../src/notifications/push-subscription.service';
 
 // =============================================================================
 // Push subscription endpoints, over HTTP (issue #229, epic #215)
@@ -175,9 +176,6 @@ describe('Push subscriptions integration (#229)', () => {
 
   describe('with VAPID keys configured', () => {
     beforeEach(async () => {
-      const { PushSubscriptionService } = await import(
-        '../../src/notifications/push-subscription.service'
-      );
       const pushSubscriptions = context.module.get(PushSubscriptionService);
       jest.spyOn(pushSubscriptions, 'isEnabled').mockResolvedValue(true);
       jest

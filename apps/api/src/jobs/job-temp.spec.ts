@@ -9,6 +9,8 @@
 // match every file in `/tmp`).
 // =============================================================================
 
+import { promises as fs } from 'node:fs';
+
 import { APP_NAME } from '@app/shared';
 
 import { JOB_TEMP_PREFIX, jobTempDir, jobTempPath } from './job-temp';
@@ -45,8 +47,6 @@ describe('jobTempPath', () => {
   });
 
   it('creates nothing — it only returns a path', async () => {
-    const { promises: fs } = await import('node:fs');
-
     await expect(fs.access(jobTempPath())).rejects.toThrow();
   });
 });

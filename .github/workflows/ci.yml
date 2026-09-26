@@ -35,6 +35,30 @@ concurrency:
 # real, small cost — but it no longer outweighs the win of running that
 # work on additional runners' CPUs in parallel instead of one runner's CPU
 # serially. See the `web-test` job below.
+#
+# The API suite followed it out (2026-09-26). Measured on the eight most
+# recent runs, `npm test --workspace=api` took 170-175s — by then the single
+# largest step in the workflow — and it ran serially after `npm ci` and the
+# three typechecks, making `Build & Test` a ~4m20s job while every other job
+# finished in ~2m15s or less. Total wall clock was 4m00s-4m40s, and that one
+# job was the whole critical path. Two changes, both measured locally on the
+# same 4-core box before landing:
+#
+#   1. ts-jest now transpiles instead of type-checking (`isolatedModules` in
+#      `apps/api/test/jest.config.js`): the full suite went 262s -> 116s
+#      (~2.3x). The type-check that used to happen inside every Jest worker
+#      is not lost — `tsc --noEmit` in this job already checks `src/**`, and
+#      `apps/api/tsconfig.json` now includes `test/**` too. The `smoke` job's
+#      `test:db` step uses the same config and gets the same cut for free.
+#   2. What remains runs as the sharded `api-test` matrix below, concurrently
+#      with typecheck, in the same shape as `web-test`. The cold-cache
+#      penalty the first paragraph measured was mostly ts-jest COMPILE time
+#      on first import; with (1) there is far less of it to pay.
+#
+# `Build & Test` is now typecheck + CLI test + CLI build (~1m30s), and no
+# single job should exceed the ~2m15s the web shards and `smoke` already
+# take. If the API suite grows again, add a shard here before doing anything
+# cleverer.
 # =============================================================================
 
 jobs:
@@ -56,11 +80,15 @@ jobs:
       - run: npx prisma generate
         working-directory: apps/api
 
+      # `typecheck --workspace=api` covers `apps/api/test/**` as well as
+      # `src/**` (see the note atop this file): it is the one type-check the
+      # integration specs and their helpers get now that Jest only transpiles.
       - run: npm run typecheck --workspace=api
       - run: npm run typecheck --workspace=web
       - run: npm run typecheck --workspace=cli
 
-      - run: npm test --workspace=api
+      # The API Jest suite is the sharded `api-test` job below, not a step
+      # here — see the note atop this file for the measurements behind that.
       - run: npm run test:run --workspace=cli
 
       # The CLI is the one workspace whose BUILD is the deliverable — the `bin`
@@ -70,6 +98,52 @@ jobs:
       # import extension, or a rootDir slip that emits dist/src/cli.js and
       # leaves the `bin` path dangling. (issue #140, epic #110)
       - run: npm run build --workspace=cli
+
+  api-test:
+    name: API Tests (shard ${{ matrix.shard }}/2)
+    runs-on: ubuntu-latest
+    # No `needs:` — runs concurrently with `build`, exactly like `web-test`.
+    # Split out of `Build & Test` and sharded across 2 runners because this
+    # suite (316 files, ~7,000 tests) was the single longest step in the
+    # workflow and the whole critical path; see the note atop this file for
+    # the numbers, and for why the earlier "keep it in one job" finding no
+    # longer holds now that ts-jest transpiles rather than type-checks.
+    #
+    # Two shards, not four: after the transpile-only change the whole suite
+    # projects to ~75s on a runner (the measured 170-175s scaled by the local
+    # 116/262 ratio), so two ~40s halves plus ~45s of checkout/install finish
+    # well inside the ~2m15s the web shards and `smoke` take. A third runner
+    # would buy nothing on wall clock. Check the first few runs against that
+    # projection rather than trusting it.
+    #
+    # `NODE_ENV: test` for the same reason `Build & Test` sets it: the
+    # suites assume it (`test/setup.ts` sets it too, but only after the
+    # config has been read). `prisma generate` is needed because the specs
+    # import `@prisma/client`, unlike the web suite.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    env:
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - run: npx prisma generate
+        working-directory: apps/api
+
+      # `npm test` is `jest --config ./test/jest.config.js` plus the
+      # ignore patterns that keep `e2e` and `*.db.spec.ts` out (the latter
+      # run in `smoke`, the one job with a database); `--shard` is Jest's
+      # own file-level split, deterministic for a given file list.
+      - run: npm test --workspace=api -- --shard=${{ matrix.shard }}/2
 
   web-test:
     name: Web Tests (shard ${{ matrix.shard }}/4)
