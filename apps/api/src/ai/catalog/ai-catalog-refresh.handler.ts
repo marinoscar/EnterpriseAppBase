@@ -21,7 +21,8 @@
 // one of its attempts.
 // =============================================================================
 
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Job } from '@prisma/client';
 import { z } from 'zod';
 
@@ -34,6 +35,7 @@ import {
   AiCatalogService,
   isCatalogSyncSkipped,
 } from './ai-catalog.service';
+import { AI_CATALOG_SYNCED_EVENT, type AiCatalogSyncedEvent } from './ai-catalog.events';
 
 /** What a refresh job carries. `actorUserId` is present only for an admin-requested refresh. */
 export const aiCatalogRefreshPayloadSchema = z.object({
@@ -55,6 +57,7 @@ export class AiCatalogRefreshHandler implements JobHandler, OnModuleInit {
   constructor(
     private readonly registry: JobHandlerRegistry,
     private readonly catalog: AiCatalogService,
+    @Optional() private readonly events?: EventEmitter2,
   ) {}
 
   onModuleInit(): void {
@@ -94,5 +97,29 @@ export class AiCatalogRefreshHandler implements JobHandler, OnModuleInit {
       `Catalog refresh for "${providerId}" done: ${result.total} listed, ` +
         `${result.added} added, ${result.updated} updated, ${result.deprecated} deprecated`,
     );
+
+    this.emitSynced({
+      providerId,
+      added: result.added,
+      updated: result.updated,
+      deprecated: result.deprecated,
+      jobId: job.id,
+    });
+  }
+
+  /**
+   * The exported hook (`ai-catalog.events.ts`). Wrapped because
+   * `EventEmitter2` dispatches synchronously: a listener that throws must not
+   * turn a committed sync into a failed job.
+   */
+  private emitSynced(event: AiCatalogSyncedEvent): void {
+    try {
+      this.events?.emit(AI_CATALOG_SYNCED_EVENT, event);
+    } catch (error) {
+      this.logger.error(
+        `An ${AI_CATALOG_SYNCED_EVENT} listener threw for "${event.providerId}"; the sync is ` +
+          `unaffected: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 }

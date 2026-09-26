@@ -2,6 +2,7 @@
 // AiCatalogRefreshHandler (issue #427, epic #419)
 // =============================================================================
 
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Job } from '@prisma/client';
 
 import type { JobHandler } from '../../jobs/job-handler.interface';
@@ -9,18 +10,19 @@ import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
 import { RateLimitError } from '../../jobs/rate-limit.error';
 import { AiError } from '../core/ai-error';
 import { AiCatalogRefreshHandler } from './ai-catalog-refresh.handler';
+import { AI_CATALOG_SYNCED_EVENT } from './ai-catalog.events';
 import type { AiCatalogService } from './ai-catalog.service';
 
 function job(payload: unknown): Job {
   return { id: 'job-1', type: 'ai.catalog.refresh', payload } as unknown as Job;
 }
 
-function makeHandler(sync: jest.Mock) {
+function makeHandler(sync: jest.Mock, emit: jest.Mock = jest.fn()) {
   const catalog = { sync } as unknown as AiCatalogService;
   const registry = new JobHandlerRegistry();
-  const handler = new AiCatalogRefreshHandler(registry, catalog);
+  const handler = new AiCatalogRefreshHandler(registry, catalog, { emit } as unknown as EventEmitter2);
 
-  return { handler, registry };
+  return { handler, registry, emit };
 }
 
 describe('AiCatalogRefreshHandler', () => {
@@ -112,5 +114,40 @@ describe('AiCatalogRefreshHandler', () => {
     const { handler } = makeHandler(jest.fn().mockRejectedValue(original));
 
     await expect(handler.process(job({ providerId: 'openai' }))).rejects.toBe(original);
+  });
+
+  describe('the exported hook (AI_CATALOG_SYNCED_EVENT, #431)', () => {
+    it('emits the counts after a sync that ran', async () => {
+      const sync = jest.fn().mockResolvedValue({ added: 2, updated: 1, deprecated: 0, total: 9 });
+      const { handler, emit } = makeHandler(sync);
+
+      await handler.process(job({ providerId: 'openai' }));
+
+      expect(emit).toHaveBeenCalledWith(AI_CATALOG_SYNCED_EVENT, {
+        providerId: 'openai',
+        added: 2,
+        updated: 1,
+        deprecated: 0,
+        jobId: 'job-1',
+      });
+    });
+
+    it('emits nothing for a skipped sync', async () => {
+      const { handler, emit } = makeHandler(jest.fn().mockResolvedValue({ skipped: 'AI_DISABLED' }));
+
+      await handler.process(job({ providerId: 'openai' }));
+
+      expect(emit).not.toHaveBeenCalled();
+    });
+
+    it('a throwing listener cannot fail a committed sync', async () => {
+      const sync = jest.fn().mockResolvedValue({ added: 1, updated: 0, deprecated: 0, total: 1 });
+      const emit = jest.fn(() => {
+        throw new Error('listener blew up');
+      });
+      const { handler } = makeHandler(sync, emit);
+
+      await expect(handler.process(job({ providerId: 'openai' }))).resolves.toBeUndefined();
+    });
   });
 });

@@ -158,9 +158,17 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
           'which providers are enabled, each provider\'s admin (org) key, a connection test, and ' +
           'the model catalog — which models are enabled, their capability overrides, and catalog ' +
           'refresh. Gated on `ai_config:read`/`ai_config:write` (Admin only) and reachable while ' +
-          'AI is disabled, so it can always be turned back on. Also hosts `GET /api/ai/config`, ' +
-          'the narrow "is AI on?" projection any signed-in user may read. Admin keys are ' +
-          'write-only: held in the encrypted credential store and never returned.',
+          'AI is disabled, so it can always be turned back on. Admin keys are write-only: held ' +
+          'in the encrypted credential store and never returned.',
+      },
+      {
+        name: 'AI',
+        description:
+          'Using AI as a signed-in user: `GET /api/ai/config` (is AI on, which key policy, which ' +
+          'providers — readable by anyone, even while AI is off), your own provider keys (bring ' +
+          'your own key: verified before it is stored, encrypted at rest, write-only), and the ' +
+          'models you can actually call. Everything except `GET /api/ai/config` requires ' +
+          '`ai:use` and answers `403` with `details.reason: "AI_DISABLED"` while AI is disabled.',
       },
     ],
   },
