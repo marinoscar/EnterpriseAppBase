@@ -10,7 +10,7 @@ import {
   mockAiStructuredResponse,
 } from '../mocks/fixtures/ai';
 import { controlledAiStream } from '../utils/aiStream';
-import { useAiChat } from '../../hooks/useAiChat';
+import { buildHistoryInput, useAiChat, type AiChatMessage } from '../../hooks/useAiChat';
 
 /**
  * `useAiChat` — issue #434. Streaming against a hand-driven MSW
@@ -246,5 +246,87 @@ describe('useAiChat', () => {
     act(() => result.current.reset());
     expect(result.current.messages).toHaveLength(0);
     expect(result.current.previousResponseId).toBeNull();
+  });
+
+  describe('a provider that cannot chain (chainResponses: false, #446)', () => {
+    const text = (role: 'user' | 'assistant', value: string) => ({
+      type: 'message',
+      role,
+      content: [{ type: 'text', text: value }],
+    });
+
+    async function completeTurn(
+      result: { current: ReturnType<typeof useAiChat> },
+      stream: ReturnType<typeof controlledAiStream>,
+      prompt: string,
+      count: number,
+      options: Parameters<ReturnType<typeof useAiChat>['send']>[1],
+    ) {
+      act(() => void result.current.send(prompt, options));
+      await waitFor(() => expect(stream.requests).toHaveLength(count));
+      act(() => {
+        stream.push({ type: 'response.completed', response: mockAiResponse });
+        stream.close();
+      });
+      await waitFor(() => expect(result.current.isStreaming).toBe(false));
+    }
+
+    it('sends the full conversation as input and never previousResponseId', async () => {
+      const stream = controlledAiStream();
+      const { result } = renderHook(() => useAiChat());
+      const options = { provider: 'anthropic', model: 'claude-sonnet-4-5', chainResponses: false };
+
+      await completeTurn(result, stream, 'first', 1, options);
+      act(() => void result.current.send('second', options));
+      await waitFor(() => expect(stream.requests).toHaveLength(2));
+
+      expect(stream.requests[0].body).toEqual({
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-5',
+        input: [text('user', 'first')],
+      });
+      expect(stream.requests[1].body).toEqual({
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-5',
+        input: [text('user', 'first'), text('assistant', 'Hello! How can I help?'), text('user', 'second')],
+      });
+    });
+
+    it('resends a conversation that started on a chaining provider', async () => {
+      const stream = controlledAiStream();
+      const { result } = renderHook(() => useAiChat());
+
+      await completeTurn(result, stream, 'first', 1, { provider: 'openai', model: 'gpt-5-mini' });
+      expect(result.current.previousResponseId).toBe('resp_123');
+
+      act(() => void result.current.send('second', { provider: 'anthropic', chainResponses: false }));
+      await waitFor(() => expect(stream.requests).toHaveLength(2));
+      expect(stream.requests[1].body.previousResponseId).toBeUndefined();
+      expect(stream.requests[1].body.input).toEqual([
+        text('user', 'first'),
+        text('assistant', 'Hello! How can I help?'),
+        text('user', 'second'),
+      ]);
+    });
+
+    it('buildHistoryInput drops unfinished exchanges, user half included', () => {
+      const messages: AiChatMessage[] = [
+        { id: 'u1', role: 'user', text: 'one', status: 'done' },
+        { id: 'a1', role: 'assistant', text: 'answer one', status: 'done' },
+        { id: 'u2', role: 'user', text: 'two', status: 'done' },
+        { id: 'a2', role: 'assistant', text: 'partial', status: 'stopped' },
+        { id: 'u3', role: 'user', text: 'three', status: 'done' },
+        { id: 'a3', role: 'assistant', text: '', status: 'error' },
+        { id: 'u4', role: 'user', text: 'four', status: 'done' },
+        { id: 'a4', role: 'assistant', text: 'answer four', status: 'done' },
+      ];
+      expect(buildHistoryInput(messages, 'five')).toEqual([
+        text('user', 'one'),
+        text('assistant', 'answer one'),
+        text('user', 'four'),
+        text('assistant', 'answer four'),
+        text('user', 'five'),
+      ]);
+    });
   });
 });

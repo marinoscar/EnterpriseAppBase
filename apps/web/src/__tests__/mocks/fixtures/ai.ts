@@ -52,7 +52,7 @@ export const mockAiPublicConfigEnabled: AiPublicConfig = {
   enabled: true,
   keyPolicy: 'byok_with_org_fallback',
   allowBackgroundRuns: true,
-  providers: [{ id: 'openai', displayName: 'OpenAI', enabled: true, hasOrgKey: true }],
+  providers: [{ id: 'openai', displayName: 'OpenAI', enabled: true, hasOrgKey: true, supportsPreviousResponseId: true }],
 };
 
 export const mockAiAdminConfig: AiAdminConfig = {
@@ -294,7 +294,7 @@ export const mockAiPublicConfigByok: AiPublicConfig = {
   enabled: true,
   keyPolicy: 'byok',
   allowBackgroundRuns: true,
-  providers: [{ id: 'openai', displayName: 'OpenAI', enabled: true, hasOrgKey: false }],
+  providers: [{ id: 'openai', displayName: 'OpenAI', enabled: true, hasOrgKey: false, supportsPreviousResponseId: true }],
 };
 
 /** AI on, but no provider enabled yet. */
@@ -302,7 +302,7 @@ export const mockAiPublicConfigNoProviders: AiPublicConfig = {
   enabled: true,
   keyPolicy: 'byok',
   allowBackgroundRuns: true,
-  providers: [{ id: 'openai', displayName: 'OpenAI', enabled: false, hasOrgKey: false }],
+  providers: [{ id: 'openai', displayName: 'OpenAI', enabled: false, hasOrgKey: false, supportsPreviousResponseId: true }],
 };
 
 /** The caller has not added a key for OpenAI. */
@@ -414,6 +414,36 @@ export const mockPlaygroundEmbeddingsModel: UsableAiModel = {
   displayName: null,
   capabilities: { capabilities: ['embeddings'], inputModalities: ['text'], outputModalities: ['embedding'] },
   keySource: 'user',
+};
+
+/**
+ * A Claude model (#446): Anthropic is stateless, so a follow-up turn resends
+ * the conversation rather than naming `previousResponseId`. Not part of
+ * `mockPlaygroundModels`; a test serves it together with
+ * `mockAiPublicConfigWithAnthropic`.
+ */
+export const mockPlaygroundClaudeModel: UsableAiModel = {
+  provider: 'anthropic',
+  modelId: 'claude-sonnet-4-5',
+  displayName: 'Claude Sonnet 4.5',
+  capabilities: {
+    capabilities: ['responses', 'streaming'],
+    inputModalities: ['text'],
+    outputModalities: ['text'],
+    maxOutputTokens: 64000,
+  },
+  keySource: 'user',
+};
+
+/** AI on with OpenAI (chains by id) and Anthropic (cannot chain, #446). */
+export const mockAiPublicConfigWithAnthropic: AiPublicConfig = {
+  enabled: true,
+  keyPolicy: 'byok',
+  allowBackgroundRuns: true,
+  providers: [
+    { id: 'openai', displayName: 'OpenAI', enabled: true, hasOrgKey: false, supportsPreviousResponseId: true },
+    { id: 'anthropic', displayName: 'Anthropic', enabled: true, hasOrgKey: false, supportsPreviousResponseId: false },
+  ],
 };
 
 export const mockPlaygroundModels: UsableAiModel[] = [
