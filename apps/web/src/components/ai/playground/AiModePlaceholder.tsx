@@ -2,11 +2,10 @@
  * Stand-in for a Playground mode whose panel has not been built yet —
  * issue #445.
  *
- * Transcribe (#438) and Speech (#439) are offered by the mode selector as
- * soon as a usable model declares their capability (the selector is purely
- * capability-driven), so the page needs something to show until their
- * panels land. Replace the entry in `AiPlaygroundPage`'s `renderModePanel`
- * with the real panel; nothing else refers to this component.
+ * The mode selector offers a mode as soon as a usable model declares its
+ * capability, so a mode added to `AI_PLAYGROUND_MODES` needs something to show
+ * until its panel lands. Every mode has a real panel today; this is the
+ * `default` branch of `AiPlaygroundPage`'s `renderModePanel`.
  */
 import { Paper, Typography } from '@mui/material';
 import type { AiPlaygroundMode } from './aiPlaygroundModes';
