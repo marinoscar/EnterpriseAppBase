@@ -85,6 +85,14 @@
 // call) and records one usage row (`operation: 'audio.transcribe'`,
 // `units: { audioSeconds }` when the provider reports a duration).
 //
+// SPEECH (#439): `speak` runs `prepareSpeech` (kill switch -> shape, input
+// at most 4096 characters -> target, defaulting to the first usable
+// `audio_speech` model -> provider -> model -> the voice, checked against
+// the model's catalog `voices` or the port's own list) and queues an
+// `ai.audio.speech` run; `executeSpeechRun` gates again, calls the port and
+// records one usage row (`operation: 'audio.speech'`, `units: { characters }`).
+// The handler stores the audio as the user's storage object.
+//
 // ⚠ THE KEY. `apiKey` exists in this file only between step 6 and the
 // adapter call. It is never logged, never put on a span, never persisted and
 // never part of an error. A presigned input URL gets the same treatment.
@@ -122,6 +130,11 @@ import {
 import { AiProviderRegistry } from '../core/provider-registry';
 import { parseStructured } from '../core/structured-output';
 import {
+  AI_SPEECH_FORMATS,
+  AI_SPEECH_INPUT_MAX_CHARS,
+  AI_SPEECH_INSTRUCTIONS_MAX_CHARS,
+  AI_SPEECH_SPEED_MAX,
+  AI_SPEECH_SPEED_MIN,
   AI_TRANSCRIPTION_DEFAULT_MAX_BYTES,
   AI_TRANSCRIPTION_INPUT_MIME_TYPES,
   AI_TRANSCRIPTION_PROMPT_MAX_CHARS,
@@ -141,6 +154,8 @@ import {
   type AiImageResult,
   type AiImagesPort,
   type AiMediaInput,
+  type AiSpeechRequest,
+  type AiSpeechResult,
   type AiTranscriptionRequest,
   type AiTranscriptionResult,
 } from '../core/types/media.types';
@@ -161,8 +176,11 @@ import { aiErrorFromStorage } from '../storage/ai-storage-errors';
 import { AiStorageInputResolver, type AiStorageInput } from '../storage/ai-storage-input.resolver';
 import {
   AI_LANGUAGE_CODE,
+  AI_SPEECH_OPERATION,
   AI_TRANSCRIBE_OPERATION,
+  storedAiSpeechRunRequestSchema,
   storedAiTranscriptionRunRequestSchema,
+  type StoredAiSpeechRunRequest,
   type StoredAiTranscriptionRunRequest,
 } from './ai-audio-run-request';
 import {
@@ -173,7 +191,12 @@ import {
 } from './ai-image-run-request';
 import { toStoredRunRequest } from './ai-run-request';
 import { type AiHostedOutputOwner, AiHostedOutputSettler, discardHostedImage } from './ai-hosted-outputs';
-import { AI_AUDIO_TRANSCRIBE_TYPE, AI_IMAGE_GENERATE_TYPE, AiRunsService } from './ai-runs.service';
+import {
+  AI_AUDIO_SPEECH_TYPE,
+  AI_AUDIO_TRANSCRIBE_TYPE,
+  AI_IMAGE_GENERATE_TYPE,
+  AiRunsService,
+} from './ai-runs.service';
 import type {
   AiCallOptions,
   AiEditImageRequest,
@@ -181,6 +204,7 @@ import type {
   AiGenerateImageRequest,
   AiRequest,
   AiRunHandle,
+  AiSpeakRequest,
   AiStructuredRequest,
   AiTranscribeRequest,
   AiStructuredResponse,
@@ -311,6 +335,20 @@ export interface AiUserClient {
    *   `audio_transcription`.
    */
   transcribe(req: AiTranscribeRequest): Promise<AiRunHandle>;
+
+  /**
+   * Queues text-to-speech (an `ai.audio.speech` job) and returns at once;
+   * poll `AiRunsService.get(userId, runId)` — a succeeded run's
+   * `output.storageObjectId` is the audio, a storage object the user owns
+   * (`aiGenerated: true`: disclose it). Always asynchronous, and not subject
+   * to `ai.defaults.allowBackgroundRuns`. See `AiSpeakRequest` for how an
+   * omitted model or voice is chosen.
+   *
+   * @throws AiError('AI_INVALID_REQUEST') for empty input or more than 4096
+   *   characters, a voice the model does not speak, a speed outside 0.25-4;
+   *   AiError('AI_CAPABILITY_UNSUPPORTED') for a model without `audio_speech`.
+   */
+  speak(req: AiSpeakRequest): Promise<AiRunHandle>;
 }
 
 /** Internal: who a client acts for, and under which job (for usage rows). */
@@ -343,6 +381,7 @@ const TRACKED_OPERATIONS = {
   'images.generate': 'images',
   'images.edit': 'images',
   'audio.transcribe': 'audio.transcribe',
+  'audio.speech': 'audio.speech',
 } as const satisfies Record<string, AiUsageOperation>;
 
 type AiTrackedOperation = keyof typeof TRACKED_OPERATIONS;
@@ -395,7 +434,14 @@ export interface PreparedAiTranscriptionCall extends AiCallTarget {
   maxBytes: number;
 }
 
-/** `executeImageRun`'s (and `executeTranscriptionRun`'s) options. */
+/** Everything the gate pipeline settled for one speech synthesis. */
+export interface PreparedAiSpeechCall extends AiCallTarget {
+  speech: NonNullable<AiAudioPort['speech']>;
+  /** The request as it is stored in `ai_runs.request` — voice and format resolved, never a key. */
+  stored: StoredAiSpeechRunRequest;
+}
+
+/** `executeImageRun`'s (and the audio runs') options. */
 export interface AiImageRunExecutionOptions extends AiCallOptions {
   /** The job the round-trip is incurred under, for its usage row. */
   jobId?: string;
@@ -467,6 +513,7 @@ export class AiService {
       generateImage: (req) => this.startImageRun(bound, 'images.generate', req),
       editImage: (req) => this.startImageRun(bound, 'images.edit', req),
       transcribe: (req) => this.startTranscriptionRun(bound, req),
+      speak: (req) => this.startSpeechRun(bound, req),
     };
   }
 
@@ -822,6 +869,72 @@ export class AiService {
     const bytes = await this.inputs.read(input, { maxBytes, label: 'audio' });
 
     return { payload: bytes, exceeded: () => undefined, close: () => undefined };
+  }
+
+  // ---- speech -------------------------------------------------------------------------
+
+  private async startSpeechRun(scope: AiClientScope, req: AiSpeakRequest): Promise<AiRunHandle> {
+    const call = await this.prepareSpeech(scope.userId, req);
+
+    return this.runs.create({
+      userId: scope.userId,
+      provider: call.provider,
+      modelId: call.modelId,
+      request: call.stored,
+      jobType: AI_AUDIO_SPEECH_TYPE,
+    });
+  }
+
+  /**
+   * Executes one stored speech run for `userId` — the `ai.audio.speech`
+   * handler's entry point, not a fork's (a fork calls `speak`, which
+   * queues). Re-runs every gate, then makes ONE provider round-trip with one
+   * usage row (`units: { characters }`).
+   */
+  async executeSpeechRun(
+    userId: string,
+    stored: StoredAiSpeechRunRequest,
+    opts: AiImageRunExecutionOptions = {},
+  ): Promise<AiSpeechResult> {
+    const scope: AiClientScope = { userId, jobId: opts.jobId };
+    const call = await this.prepareSpeech(userId, {
+      input: stored.input,
+      voice: stored.voice,
+      provider: stored.provider,
+      model: stored.model,
+      format: stored.format,
+      ...speechFields(stored),
+    });
+
+    await opts.beforeCall?.();
+
+    const { ctx, keySource } = await this.context(scope, call, opts, () => ({
+      input: call.stored.input,
+      instructions: call.stored.instructions,
+    }));
+    const tracker = this.track(scope, call, keySource, 'audio.speech');
+    const request: AiSpeechRequest = {
+      model: call.modelId,
+      input: call.stored.input,
+      voice: call.stored.voice,
+      format: call.stored.format,
+      ...speechFields(call.stored),
+    };
+
+    let result: AiSpeechResult;
+
+    try {
+      result = await call.speech(request, ctx);
+    } catch (err) {
+      const error = toAiError(err, opts.signal);
+
+      await tracker.finish(failure(error, opts.signal));
+      throw error;
+    }
+
+    await tracker.finish({ status: 'succeeded', result, units: { characters: request.input.length } });
+
+    return result;
   }
 
   // ---- stream -------------------------------------------------------------------
@@ -1410,6 +1523,76 @@ export class AiService {
   }
 
   /**
+   * The gate pipeline for speech: kill switch, request shape (input at most
+   * `AI_SPEECH_INPUT_MAX_CHARS`), target (an omitted model is the first
+   * usable `audio_speech` model), provider, model with `audio_speech` (model
+   * AND provider port), then the voice — the request's, else the model's
+   * first — checked against the model's catalog `voices`, else the port's.
+   * Decrypts nothing.
+   */
+  async prepareSpeech(userId: string, req: AiSpeakRequest): Promise<PreparedAiSpeechCall> {
+    // 1. Kill switch — before anything else is read.
+    await this.aiConfig.assertEnabled();
+
+    assertSpeechShape(req);
+
+    const { provider, model } = req.model?.trim()
+      ? await this.resolveTarget(userId, req)
+      : await this.firstUsableModel(userId, 'audio_speech', req.provider);
+
+    // 2. Provider enabled in settings AND registered in this process.
+    const slot = await this.aiConfig.assertProviderEnabled(provider);
+    const port = this.registry.get(provider)?.audio;
+
+    // 3. Model enabled, `audio_speech` declared (model AND port), key reach.
+    const { model: usable } = await this.usableModels.assertUsable(userId, provider, model, ['audio_speech']);
+
+    const speech = port?.speech?.bind(port);
+
+    if (!port || !speech) {
+      // assertUsable already refused a provider without the method; this narrows the type.
+      throw capabilityUnsupported(provider, model, 'audio_speech');
+    }
+
+    // 4. The voice: one this model speaks.
+    const voices: readonly string[] | undefined = usable.capabilities.voices ?? port.voices;
+    const voice = req.voice ?? voices?.[0];
+
+    if (!voice) {
+      throw new AiError('AI_INVALID_REQUEST', `Name a voice: model "${model}" lists none.`, {
+        details: { provider, model },
+      });
+    }
+
+    if (voices && !voices.includes(voice)) {
+      throw new AiError('AI_INVALID_REQUEST', `Model "${model}" does not speak in voice "${voice}".`, {
+        details: { provider, model, voice, voices: [...voices] },
+      });
+    }
+
+    const policy = await this.aiConfig.resolve();
+    // Named fields only: whatever else the caller's object carried stays here.
+    const stored = storedAiSpeechRunRequestSchema.parse({
+      operation: AI_SPEECH_OPERATION,
+      provider,
+      model,
+      input: req.input,
+      voice,
+      format: req.format ?? 'mp3',
+      ...speechFields(req),
+    });
+
+    return {
+      provider,
+      modelId: model,
+      speech,
+      stored,
+      baseUrl: slot.baseUrl,
+      logPromptContent: policy.logPromptContent,
+    };
+  }
+
+  /**
    * The first model `userId` can use right now that declares `capability`
    * (on `provider`, when given) — in `GET /api/ai/models` order. For an
    * operation whose model is never the chat `ai.defaultModel`.
@@ -1768,6 +1951,63 @@ function transcriptionFields(
     ...(req.language !== undefined ? { language: req.language } : {}),
     ...(req.prompt !== undefined ? { prompt: req.prompt } : {}),
     ...(req.timestampGranularities !== undefined ? { timestampGranularities: [...req.timestampGranularities] } : {}),
+    ...(req.providerOptions !== undefined ? { providerOptions: req.providerOptions } : {}),
+  };
+}
+
+/**
+ * A speech request's shape, checked before any gate reads a table: 1 to
+ * `AI_SPEECH_INPUT_MAX_CHARS` characters of input, a non-empty voice when
+ * given, a known format, instructions within their limit, and a speed in
+ * range.
+ */
+function assertSpeechShape(req: AiSpeakRequest): void {
+  if (typeof req.input !== 'string' || req.input.trim().length === 0) {
+    throw new AiError('AI_INVALID_REQUEST', 'Speech needs non-empty input text.');
+  }
+
+  if (req.input.length > AI_SPEECH_INPUT_MAX_CHARS) {
+    throw new AiError(
+      'AI_INVALID_REQUEST',
+      `Speech input is longer than ${AI_SPEECH_INPUT_MAX_CHARS} characters; split the text into several runs.`,
+      { details: { length: req.input.length, max: AI_SPEECH_INPUT_MAX_CHARS } },
+    );
+  }
+
+  if (req.voice !== undefined && (typeof req.voice !== 'string' || req.voice.trim().length === 0 || req.voice.length > 64)) {
+    throw new AiError('AI_INVALID_REQUEST', 'voice must be a voice name.');
+  }
+
+  if (req.format !== undefined && !(AI_SPEECH_FORMATS as readonly string[]).includes(req.format)) {
+    throw new AiError('AI_INVALID_REQUEST', `format must be one of ${AI_SPEECH_FORMATS.join(', ')}.`, {
+      details: { format: req.format },
+    });
+  }
+
+  if (
+    req.instructions !== undefined &&
+    (req.instructions.length === 0 || req.instructions.length > AI_SPEECH_INSTRUCTIONS_MAX_CHARS)
+  ) {
+    throw new AiError('AI_INVALID_REQUEST', `instructions must be 1 to ${AI_SPEECH_INSTRUCTIONS_MAX_CHARS} characters.`);
+  }
+
+  if (
+    req.speed !== undefined &&
+    !(typeof req.speed === 'number' && req.speed >= AI_SPEECH_SPEED_MIN && req.speed <= AI_SPEECH_SPEED_MAX)
+  ) {
+    throw new AiError('AI_INVALID_REQUEST', `speed must be from ${AI_SPEECH_SPEED_MIN} to ${AI_SPEECH_SPEED_MAX}.`, {
+      details: { speed: req.speed },
+    });
+  }
+}
+
+/** The optional, provider-facing fields of a speech request (named fields only). */
+function speechFields(
+  req: Pick<AiSpeakRequest, 'instructions' | 'speed' | 'providerOptions'>,
+): Pick<AiSpeechRequest, 'instructions' | 'speed' | 'providerOptions'> {
+  return {
+    ...(req.instructions !== undefined ? { instructions: req.instructions } : {}),
+    ...(req.speed !== undefined ? { speed: req.speed } : {}),
     ...(req.providerOptions !== undefined ? { providerOptions: req.providerOptions } : {}),
   };
 }

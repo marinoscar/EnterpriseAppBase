@@ -12,6 +12,7 @@ import type { z } from 'zod';
 
 import type { AiDefinedTool } from '../core/tools';
 import type {
+  AiSpeechFormat,
   AiEmbeddingRequest,
   AiImageGenerationRequest,
   AiTranscriptionSegment,
@@ -77,6 +78,29 @@ export interface AiTranscribeRequest {
   prompt?: string;
   /** Segment and/or word timestamps, where the model supports them (OpenAI: Whisper). */
   timestampGranularities?: AiTranscriptionTimestampGranularity[];
+  providerOptions?: Record<string, Record<string, unknown>>;
+}
+
+/**
+ * `speak`'s request (#439): text to speech, stored as the caller's own
+ * storage object.
+ *
+ * `model` is optional exactly as for `AiTranscribeRequest` (the first usable
+ * model declaring `audio_speech`); `voice` is optional too — omitted, the
+ * first voice the model lists (its catalog `voices`, else the provider's).
+ */
+export interface AiSpeakRequest {
+  /** 1 to 4096 characters. */
+  input: string;
+  voice?: string;
+  provider?: string;
+  model?: string;
+  /** Defaults to `mp3`. */
+  format?: AiSpeechFormat;
+  /** Style/tone instructions, where the model supports them. */
+  instructions?: string;
+  /** 0.25 to 4; 1 is normal. */
+  speed?: number;
   providerOptions?: Record<string, Record<string, unknown>>;
 }
 
@@ -200,8 +224,31 @@ export interface AiTranscriptionRunOutput {
   usage: AiUsage;
 }
 
-/** What a succeeded run's `output` holds: a response, an image run's stored images, or a transcript. */
-export type AiRunOutput = AiResponse | AiImageRunOutput | AiTranscriptionRunOutput;
+/**
+ * A succeeded speech run's `output` (#439): the storage object holding the
+ * audio, owned by the run's user — download it with
+ * `GET /api/storage/objects/{id}/download`. `aiGenerated` is always `true`:
+ * provider usage policies (OpenAI's among them) require telling listeners
+ * the voice is AI-generated, and a client should surface it.
+ */
+export interface AiSpeechRunOutput {
+  type: 'speech';
+  provider: string;
+  model: string;
+  storageObjectId: string;
+  mimeType: string;
+  /** Bytes. */
+  size: number;
+  format: AiSpeechFormat;
+  voice: string;
+  /** Characters spoken — what `units.characters` meters. */
+  characters: number;
+  aiGenerated: true;
+  usage: AiUsage;
+}
+
+/** What a succeeded run's `output` holds: a response, an image run's images, a transcript, or speech. */
+export type AiRunOutput = AiResponse | AiImageRunOutput | AiTranscriptionRunOutput | AiSpeechRunOutput;
 
 /** A background run as its owner sees it. Carries no request and no key. */
 export interface AiRunView {
@@ -209,7 +256,7 @@ export interface AiRunView {
   status: AiRunStatus;
   provider: string;
   modelId: string;
-  /** Once `succeeded`: the `AiResponse`, an image run's `AiImageRunOutput`, or an `AiTranscriptionRunOutput`. */
+  /** Once `succeeded`: the `AiResponse`, or a media run's `AiImageRunOutput`/`AiTranscriptionRunOutput`/`AiSpeechRunOutput`. */
   output: AiRunOutput | null;
   errorCode: string | null;
   errorMessage: string | null;
