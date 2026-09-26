@@ -306,4 +306,79 @@ describe('UserAiKeysService', () => {
       expect(await service.recheckReachable(USER_A, 'openai')).toBe('missing');
     });
   });
+
+  describe('staleCutoff', () => {
+    const NOW = new Date('2026-09-26T00:00:00.000Z');
+    const WEEK_AGO = new Date('2026-09-19T00:00:00.000Z');
+
+    it('is a week ago when no model was discovered since', async () => {
+      expect(await service.staleCutoff('openai', NOW)).toEqual(WEEK_AGO);
+    });
+
+    it('moves up to the newest discovery, so keys checked before it are stale', async () => {
+      const discovered = new Date('2026-09-25T12:00:00.000Z');
+      db.addModel({ modelId: 'gpt-new', discoveredAt: discovered });
+
+      expect(await service.staleCutoff('openai', NOW)).toEqual(discovered);
+    });
+
+    it("ignores another provider's discoveries", async () => {
+      db.addModel({ provider: 'other', modelId: 'x', discoveredAt: new Date('2026-09-25T00:00:00.000Z') });
+
+      expect(await service.staleCutoff('openai', NOW)).toEqual(WEEK_AGO);
+    });
+  });
+
+  describe('recheckStale', () => {
+    const OLD = new Date('2026-01-01T00:00:00.000Z');
+    const CUTOFF = new Date('2026-06-01T00:00:00.000Z');
+
+    function seed(count: number, checkedAt: Date | null, key = KEY_A) {
+      for (let i = 0; i < count; i += 1) {
+        db.keys.push({
+          id: `00000000-0000-4000-8000-${String(db.keys.length).padStart(12, '0')}`,
+          userId: `user-${db.keys.length}`,
+          provider: 'openai',
+          secret: encryptSecret(key, AI_USER_KEY_PURPOSE),
+          hint: '••••AAAA',
+          verifiedAt: OLD,
+          lastErrorCode: null,
+          reachableModelIds: [],
+          reachableCheckedAt: checkedAt,
+          createdAt: OLD,
+          updatedAt: OLD,
+        });
+      }
+    }
+
+    it('rechecks only stale keys, across batches of 50', async () => {
+      seed(120, OLD);
+      seed(2, null);
+      seed(5, new Date()); // fresh
+
+      const counts = await service.recheckStale('openai', CUTOFF);
+
+      expect(counts).toEqual({ ok: 122, invalid: 0, missing: 0, failed: 0 });
+      expect(db.prisma.userAiKey.findMany.mock.calls.every(([args]) => (args as { take: number }).take === 50)).toBe(true);
+      expect(db.keys.filter((row) => row.reachableModelIds.length === 2)).toHaveLength(122);
+    });
+
+    it('records a revoked key without deleting it, and carries on', async () => {
+      seed(1, OLD, REVOKED);
+      seed(1, OLD);
+
+      const counts = await service.recheckStale('openai', CUTOFF);
+
+      expect(counts).toEqual({ ok: 1, invalid: 1, missing: 0, failed: 0 });
+      expect(db.keys).toHaveLength(2);
+      expect(db.keys[0].lastErrorCode).toBe('AI_KEY_INVALID');
+    });
+
+    it('stops (propagates) when AI is switched off', async () => {
+      seed(1, OLD);
+      setPolicy(policy({ enabled: false }));
+
+      await expect(service.recheckStale('openai', CUTOFF)).rejects.toMatchObject({ code: 'AI_DISABLED' });
+    });
+  });
 });

@@ -11,7 +11,12 @@ import { withTimeout as withAiCallTimeout } from '../config/ai-provider-test.ser
 import { AiError, type AiErrorCode } from '../core/ai-error';
 import type { AiCallContext, AiProviderAdapter } from '../core/provider-adapter.interface';
 import { AiProviderRegistry } from '../core/provider-registry';
-import { AI_USER_KEY_AUDIT_TARGET, AI_USER_KEY_PURPOSE } from './ai-user-key.constants';
+import {
+  AI_KEY_RECHECK_BATCH_SIZE,
+  AI_KEY_RECHECK_MAX_AGE_MS,
+  AI_USER_KEY_AUDIT_TARGET,
+  AI_USER_KEY_PURPOSE,
+} from './ai-user-key.constants';
 import type {
   UserAiKeyTestCheck,
   UserAiKeyTestResult,
@@ -69,6 +74,9 @@ export interface UserAiKeyProbe {
 
 /** Outcome of re-checking one stored key (`recheckReachable`). */
 export type UserAiKeyRecheckOutcome = 'ok' | 'invalid' | 'missing' | 'failed';
+
+/** What one `recheckStale` sweep did, per outcome. */
+export type UserAiKeyRecheckCounts = Record<UserAiKeyRecheckOutcome, number>;
 
 @Injectable()
 export class UserAiKeysService {
@@ -241,6 +249,62 @@ export class UserAiKeysService {
     }
 
     return probe.error.code === 'AI_KEY_INVALID' ? 'invalid' : 'failed';
+  }
+
+  /**
+   * The cut-off below which a key's reachable list is stale for `provider`:
+   * older than AI_KEY_RECHECK_MAX_AGE_MS, OR computed before the newest model
+   * the catalog discovered for that provider — a key checked before a model
+   * existed in `ai_models` cannot list it, however recently it was checked.
+   */
+  async staleCutoff(provider: string, now: Date = new Date()): Promise<Date> {
+    const byAge = new Date(now.getTime() - AI_KEY_RECHECK_MAX_AGE_MS);
+    const newest = await this.prisma.aiModel.findFirst({
+      where: { provider },
+      orderBy: { discoveredAt: 'desc' },
+      select: { discoveredAt: true },
+    });
+
+    return newest && newest.discoveredAt > byAge ? newest.discoveredAt : byAge;
+  }
+
+  /**
+   * Re-check every `provider` key whose reachable list was computed before
+   * `olderThan` (or never), AI_KEY_RECHECK_BATCH_SIZE rows at a time, in id
+   * order. For the `ai.keys.recheck` job ONLY — each key is one provider
+   * round trip, which is exactly the work the queue exists to account for.
+   *
+   * A rate limit propagates (the job defers; rows already refreshed are no
+   * longer stale, so the retry resumes where this left off). AI or the
+   * provider being switched off mid-sweep propagates too — the handler treats
+   * that as a normal stop.
+   */
+  async recheckStale(provider: string, olderThan: Date): Promise<UserAiKeyRecheckCounts> {
+    const counts: UserAiKeyRecheckCounts = { ok: 0, invalid: 0, missing: 0, failed: 0 };
+    let cursor: string | undefined;
+
+    for (;;) {
+      const rows = await this.prisma.userAiKey.findMany({
+        where: {
+          provider,
+          OR: [{ reachableCheckedAt: null }, { reachableCheckedAt: { lt: olderThan } }],
+          ...(cursor ? { id: { gt: cursor } } : {}),
+        },
+        orderBy: { id: 'asc' },
+        take: AI_KEY_RECHECK_BATCH_SIZE,
+        select: { id: true, userId: true },
+      });
+
+      for (const row of rows) {
+        counts[await this.recheckReachable(row.userId, provider)] += 1;
+      }
+
+      if (rows.length < AI_KEY_RECHECK_BATCH_SIZE) {
+        return counts;
+      }
+
+      cursor = rows[rows.length - 1].id;
+    }
   }
 
   // ---------------------------------------------------------------------------
