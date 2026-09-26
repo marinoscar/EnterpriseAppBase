@@ -348,6 +348,8 @@ export const handlers = [
           allowBackgroundRuns: body.defaults.allowBackgroundRuns,
         },
         hostedTools: body.hostedTools ?? mockAiAdminConfig.hostedTools,
+        // Omitted keeps the stored value; sent, it replaces it wholesale (#450).
+        limits: body.limits ?? mockAiAdminConfig.limits,
         providers: mockAiAdminConfig.providers.map((provider) => {
           const next = body.providers[provider.id];
           if (!next) return provider;

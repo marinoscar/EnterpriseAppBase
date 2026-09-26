@@ -119,6 +119,38 @@ export type AiHostedToolsSettings = Record<AiHostedToolType, boolean> & {
   mcpAllowedHosts: string[];
 };
 
+/**
+ * One model's `ai.limits.perModel` entry (#450). `maxOutputTokens` clamps
+ * every call to the model (the smaller of it and `defaults.maxOutputTokensCap`
+ * wins); `requestsPerMinutePerUser` limits each user's calls to it.
+ */
+export interface AiModelLimits {
+  maxOutputTokens?: number;
+  requestsPerMinutePerUser?: number;
+}
+
+/**
+ * `ai.limits` (#450) — rate limits and output caps. Every field is optional
+ * and ABSENT MEANS UNLIMITED; `{}` is "no limits at all". Each value is an
+ * integer from 1 to {@link AI_LIMIT_MAX}.
+ */
+export interface AiLimits {
+  /** Every inference call a user makes, whoever's key pays. */
+  perUser?: { requestsPerMinute?: number; requestsPerDay?: number };
+  /** Only calls the organization key pays for. */
+  orgKey?: { requestsPerDayPerUser?: number; tokensPerDayPerUser?: number };
+  /** Keyed `<provider>:<modelId>` — see {@link aiModelLimitKey}. At most 500 entries. */
+  perModel?: Record<string, AiModelLimits>;
+}
+
+/** The largest value any `ai.limits` field accepts. */
+export const AI_LIMIT_MAX = 1_000_000_000;
+
+/** A `limits.perModel` key: `<provider>:<modelId>`. */
+export function aiModelLimitKey(provider: string, modelId: string): string {
+  return `${provider}:${modelId}`;
+}
+
 /** Masked status of a stored credential — never the credential itself. */
 export interface SecretStatus {
   configured: boolean;
@@ -152,6 +184,8 @@ export interface AiAdminConfig {
   defaults: { maxOutputTokensCap: number | null; allowBackgroundRuns: boolean };
   /** Absent from an API older than #442 — read as every tool off. */
   hostedTools?: AiHostedToolsSettings;
+  /** Rate limits and output caps (#450); `{}` — or absent, from an older API — means unlimited. */
+  limits?: AiLimits;
   providers: AiAdminProvider[];
   version: number;
   updatedAt: string | null;
@@ -178,7 +212,51 @@ export interface AiAdminConfigInput {
   defaults: { maxOutputTokensCap?: number | null; allowBackgroundRuns: boolean };
   /** Omit to keep the stored value (#442). */
   hostedTools?: AiHostedToolsSettings;
+  /**
+   * Omit to keep the stored value (#450). When sent it REPLACES the stored
+   * limits wholesale — `{}` lifts every limit, and a `perModel` entry left out
+   * is lifted too.
+   */
+  limits?: AiLimits;
   providers: Record<string, { enabled: boolean; baseUrl?: string | null }>;
+}
+
+/**
+ * The `PUT` body that re-saves `config` exactly as it stands — every value
+ * explicit, because the PUT is a full replace. A read-modify-write caller
+ * (the model dialog's per-model limits) spreads its one change over this.
+ */
+export function aiAdminConfigToInput(config: AiAdminConfig): AiAdminConfigInput {
+  const providers: AiAdminConfigInput['providers'] = {};
+  for (const provider of config.providers) {
+    providers[provider.id] = { enabled: provider.enabled, baseUrl: provider.baseUrl };
+  }
+  return {
+    enabled: config.enabled,
+    keyPolicy: config.keyPolicy,
+    logPromptContent: config.logPromptContent,
+    defaults: { ...config.defaults },
+    ...(config.hostedTools ? { hostedTools: config.hostedTools } : {}),
+    limits: config.limits ?? {},
+    providers,
+  };
+}
+
+/**
+ * `limits` with one model's `perModel` entry replaced — or removed, when
+ * `entry` sets nothing. Every other entry, and `perUser`/`orgKey`, is kept.
+ */
+export function withModelLimits(limits: AiLimits | undefined, key: string, entry: AiModelLimits): AiLimits {
+  const perModel = { ...(limits?.perModel ?? {}) };
+  if (entry.maxOutputTokens === undefined && entry.requestsPerMinutePerUser === undefined) {
+    delete perModel[key];
+  } else {
+    perModel[key] = entry;
+  }
+  const next: AiLimits = { ...(limits ?? {}) };
+  delete next.perModel;
+  if (Object.keys(perModel).length > 0) next.perModel = perModel;
+  return next;
 }
 
 export interface AiProbeCheck {

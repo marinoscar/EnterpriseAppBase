@@ -239,6 +239,8 @@ describe('AiConfigPage', () => {
           mcp: false,
           mcpAllowedHosts: [],
         },
+        // No limits stored and none typed: `{}`, sent explicitly (#450).
+        limits: {},
         providers: { openai: { enabled: true, baseUrl: null } },
       });
       expect(await screen.findByText('AI configuration saved')).toBeInTheDocument();
