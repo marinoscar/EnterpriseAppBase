@@ -18,12 +18,14 @@ import { PERMISSIONS } from '../../common/constants/roles.constants';
 import { ApiDataResponse } from '../../common/decorators/api-data-response.decorator';
 import { ErrorDto } from '../../common/dto/error.dto';
 import { AiEnabledGuard } from '../config/ai-enabled.guard';
+import { UsableAiModelDto } from './dto/usable-ai-model.dto';
 import {
   SetUserAiKeyDto,
   TestUserAiKeyDto,
   UserAiKeyTestResultDto,
   UserAiKeyViewDto,
 } from './dto/user-ai-key.dto';
+import { UsableModelsService } from './usable-models.service';
 import { UserAiKeysService } from './user-ai-keys.service';
 
 // =============================================================================
@@ -36,6 +38,7 @@ import { UserAiKeysService } from './user-ai-keys.service';
 //   PUT    /api/ai/keys/:provider          ai:use
 //   DELETE /api/ai/keys/:provider          ai:use (204, idempotent)
 //   POST   /api/ai/keys/:provider/test     ai:use (always 200)
+//   GET    /api/ai/models                  ai:use
 //
 // `AiEnabledGuard` on the CLASS: while `ai.enabled` is false every route here
 // answers `403` with `details.reason: 'AI_DISABLED'` (docs/specs/ai-platform.md
@@ -57,7 +60,10 @@ const PROVIDER_PARAM = {
 @Controller('ai')
 @UseGuards(AiEnabledGuard)
 export class UserAiKeysController {
-  constructor(private readonly keys: UserAiKeysService) {}
+  constructor(
+    private readonly keys: UserAiKeysService,
+    private readonly usableModels: UsableModelsService,
+  ) {}
 
   @Get('keys')
   @Auth({ permissions: [PERMISSIONS.AI_USE] })
@@ -145,5 +151,23 @@ export class UserAiKeysController {
     @CurrentUser('id') userId: string,
   ) {
     return this.keys.test(userId, provider, dto.apiKey);
+  }
+
+  @Get('models')
+  @Auth({ permissions: [PERMISSIONS.AI_USE] })
+  @ApiOperation({
+    summary: 'List the AI models I can use',
+    description:
+      'Every model you can call right now: admin-enabled, not deprecated, and reachable ' +
+      'with **your** key for its provider (`keySource: "user"`). When you have no key for ' +
+      'a provider and the deployment\'s key policy is `byok_with_org_fallback` with an ' +
+      'organisation key stored, every admin-enabled model of that provider is listed with ' +
+      '`keySource: "org"`. Otherwise that provider contributes nothing. Sorted by provider, ' +
+      'then model id. `403` with `details.reason: "AI_DISABLED"` while AI is disabled.',
+  })
+  @ApiDataResponse(UsableAiModelDto, { isArray: true, description: 'The models you can use' })
+  @ApiResponse({ status: 403, description: '`AI_DISABLED`, or missing `ai:use`', type: ErrorDto })
+  async listModels(@CurrentUser('id') userId: string) {
+    return this.usableModels.listForUser(userId);
   }
 }
