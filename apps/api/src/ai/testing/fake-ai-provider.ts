@@ -296,10 +296,11 @@ export class FakeAiProvider implements AiProviderAdapter {
     return this.calls.filter((call) => call.method === method);
   }
 
-  /** Forget recorded calls and rewind an array script. */
+  /** Forget recorded calls and fake files, and rewind an array script. */
   reset(): void {
     this.calls.length = 0;
     this.deletedFileIds.length = 0;
+    this.fileCounter = 0;
     this.scriptCursor = 0;
   }
 

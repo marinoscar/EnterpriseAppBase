@@ -11,6 +11,11 @@
 // (admin/org, this user, another user), so a leak is attributable to exactly
 // which key crossed a boundary it should not have.
 //
+// A presigned storage URL (#441) is held to the same rule: every URL the
+// harness's in-memory storage mints carries `IN_MEMORY_PRESIGNED_SIGNATURE`,
+// which is one more sentinel below — a stored-file input may reach the
+// provider by presigned URL, and nowhere else.
+//
 // Two app contexts, because the admin surface (`AiConfigAdminService` and
 // friends) and the consumer surface (`AiService`/`AiRunsService`, exercised
 // through `ai-http.helper`'s harness) are wired through different services
@@ -46,6 +51,7 @@ import {
   HARNESS_USER_KEY,
   HARNESS_ORG_KEY,
 } from '../../src/ai/testing/ai-runtime-harness';
+import { IN_MEMORY_PRESIGNED_SIGNATURE } from '../../src/ai/testing/in-memory-ai-storage';
 import { createAiHttpTestApp, type AiHttpTestApp, ALL_KEYS, OTHER_USER_KEY, parseSse } from './ai-http.helper';
 import { aiConfigResponseSchema, aiKeyRemovalResponseSchema } from '../../src/ai/config/dto/ai-config-response.dto';
 import { aiModelSchema, refreshAiCatalogResultSchema } from '../../src/ai/config/dto/ai-model.dto';
@@ -63,7 +69,7 @@ import { aiEmbeddingsResponseSchema } from '../../src/ai/http/dto/ai-embeddings.
 
 const ADMIN_KEY_SENTINEL = 'sk-admin-egress-sentinel-Zq81xY';
 /** Every value that must never appear anywhere this suite inspects. */
-const ALL_SENTINELS = [...ALL_KEYS, ADMIN_KEY_SENTINEL];
+const ALL_SENTINELS = [...ALL_KEYS, ADMIN_KEY_SENTINEL, IN_MEMORY_PRESIGNED_SIGNATURE];
 
 /** Every place a sentinel might leak, joined into one haystack per capture. */
 function assertNoLeak(label: string, haystack: string): void {
@@ -454,6 +460,68 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
         .expect(200);
 
       assertNoLeak('GET /api/ai/keys body', JSON.stringify(res.body));
+    });
+
+    it('storage-object inputs (#441): the presigned URL reaches the provider and nothing else — responses, stream, runs', async () => {
+      const server = app.context.app.getHttpServer();
+      const image = app.harness.storage.addObject({ uploadedById: HARNESS_USER, mimeType: 'image/png', name: 'cat.png' });
+      const file = app.harness.storage.addObject({
+        uploadedById: HARNESS_USER,
+        mimeType: 'application/pdf',
+        name: 'contract.pdf',
+        bytes: Buffer.from('%PDF-1.7'),
+      });
+      const body = {
+        model: 'fake-model',
+        input: [
+          {
+            type: 'message',
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Summarise.' },
+              { type: 'image', storageObjectId: image.id },
+              { type: 'file', storageObjectId: file.id },
+            ],
+          },
+        ],
+      };
+
+      const res = await request(server).post('/api/ai/responses').set(authHeader(holderToken)).send(body).expect(200);
+      const streamed = await request(server)
+        .post('/api/ai/responses/stream')
+        .set(authHeader(holderToken))
+        .set('Accept', 'text/event-stream')
+        .send(body)
+        .expect(200);
+      const started = await request(server).post('/api/ai/runs').set(authHeader(holderToken)).send(body).expect(202);
+
+      await app.context.app
+        .get(JobHandlerRegistry)
+        .get('ai.response.run')!
+        .process({ id: started.body.data.jobId, payload: { runId: started.body.data.runId } } as never);
+
+      const run = await request(server)
+        .get(`/api/ai/runs/${started.body.data.runId}`)
+        .set(authHeader(holderToken))
+        .expect(200);
+
+      // The provider DID receive presigned URLs — so their absence below is meaningful.
+      const delivered = [...app.harness.fake.callsTo('responses.create'), ...app.harness.fake.callsTo('responses.stream')]
+        .flatMap((call) => call.storageInputs ?? [])
+        .filter((input) => input.url);
+
+      expect(delivered).toHaveLength(3);
+      expect(delivered.every((input) => input.url!.includes(IN_MEMORY_PRESIGNED_SIGNATURE))).toBe(true);
+      expect(run.body.data.status).toBe('succeeded');
+
+      assertNoLeak('POST /api/ai/responses (storage inputs) body', JSON.stringify(res.body));
+      assertNoLeak('POST /api/ai/responses (storage inputs) headers', JSON.stringify(res.headers));
+      assertNoLeak('SSE frames (storage inputs)', streamed.text);
+      assertNoLeak('POST /api/ai/runs (storage inputs) body', JSON.stringify(started.body));
+      assertNoLeak('run body (storage inputs)', JSON.stringify(run.body));
+      assertNoLeak('ai_runs rows (storage inputs)', JSON.stringify(app.harness.runRows));
+      assertNoLeak('ai_usage_events (storage inputs)', JSON.stringify(app.harness.usageEvents));
+      assertNoLeak('log output (storage inputs)', logLines.join('\n'));
     });
 
     it('every ai_usage_events row and every ai_runs.request row carries no sentinel', async () => {
