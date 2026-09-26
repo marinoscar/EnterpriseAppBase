@@ -60,6 +60,27 @@ const KEY_ENV_VAR = 'SECRETS_ENCRYPTION_KEY';
 const SUBKEY_LABEL_PREFIX = 'enterpriseappbase:secret-cipher:v1:';
 
 /**
+ * First segment of every owner-bound sub-key domain (issue #387). See
+ * {@link userCredentialPurpose}. System purposes may not contain `:` at all
+ * (`credentials/credential-internals.ts`), so no system purpose can begin
+ * with this.
+ */
+export const USER_CREDENTIAL_DOMAIN_PREFIX = 'user:';
+
+/**
+ * A canonical UUID: lowercase hex, 8-4-4-4-12. Postgres and Prisma both
+ * render `uuid` values this way, so an id read back from the database always
+ * matches; an uppercase or brace-wrapped spelling of the same id does not.
+ */
+const CANONICAL_UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/** Is `value` a canonical (lowercase, hyphenated) UUID string? */
+export function isCanonicalUuid(value: unknown): value is string {
+  return typeof value === 'string' && CANONICAL_UUID_PATTERN.test(value);
+}
+
+/**
  * Strict base64 (standard alphabet, canonical padding). We validate the *text*
  * rather than trusting the decode, because `Buffer.from(x, 'base64')` silently
  * skips characters it does not recognise — `"not a real key!!!"` decodes to
@@ -138,6 +159,12 @@ function getMasterKey(): Buffer {
  *
  * The purpose set is a small, closed vocabulary chosen by callers in code
  * ('smtp', 'oauth', …), not user input, so this Map cannot grow unboundedly.
+ *
+ * OWNER-BOUND DOMAINS ARE NOT CACHED (issue #387). A per-user domain
+ * (`userCredentialPurpose()` below) is one string per user × purpose, which is
+ * exactly the open-ended vocabulary this cache must not hold: it would grow
+ * with the user base for the life of the process and keep one derived key per
+ * user resident in the heap. One HMAC-SHA256 per decrypt costs microseconds.
  */
 const derivedKeyCache = new Map<string, Buffer>();
 
@@ -179,14 +206,18 @@ function deriveKey(purpose: string): Buffer {
     );
   }
 
-  const cached = derivedKeyCache.get(purpose);
-  if (cached) return cached;
+  const cacheable = !purpose.startsWith(USER_CREDENTIAL_DOMAIN_PREFIX);
+
+  if (cacheable) {
+    const cached = derivedKeyCache.get(purpose);
+    if (cached) return cached;
+  }
 
   const derived = createHmac('sha256', getMasterKey())
     .update(`${SUBKEY_LABEL_PREFIX}${purpose}`)
     .digest();
 
-  derivedKeyCache.set(purpose, derived);
+  if (cacheable) derivedKeyCache.set(purpose, derived);
   return derived;
 }
 
@@ -308,4 +339,45 @@ export function decryptSecret(payload: string, purpose: string): string {
  */
 export function assertEncryptionKeyConfigured(): void {
   getMasterKey();
+}
+
+/**
+ * The owner-bound sub-key domain for a PER-USER credential (issue #387):
+ * `user:<userId>:<purpose>`.
+ *
+ * Pass the result as the `purpose` argument of {@link encryptSecret} /
+ * {@link decryptSecret}; those functions are unchanged. Binding the owner into
+ * the domain means a ciphertext copied from user A's row into user B's row —
+ * a SQL write, a bug copying rows — fails GCM authentication rather than
+ * handing B the use of A's key. The system store's domain is the bare purpose;
+ * this is the same construction with the owner prepended.
+ *
+ * WHY THE STRING DECOMPOSES ONE WAY ONLY:
+ *   - `userId` must be a canonical UUID: fixed length, no `:`, one spelling
+ *     per id (an uppercase variant would otherwise derive a second key for
+ *     the same user and strand every row written under the first).
+ *   - `purpose` must not contain `:`, so the final segment is unambiguous.
+ *   - System purposes may not contain `:` either, so no system purpose can
+ *     equal, or begin with, `user:` — the two key spaces cannot collide.
+ * Together that makes (userId, purpose) → domain injective, which is what the
+ * concatenation in `deriveKey` relies on.
+ *
+ * @throws a plain Error (no values in it) on a non-canonical id or a bad
+ *         purpose. Callers validate first and report their own 400; this is
+ *         the backstop that keeps a malformed domain from ever deriving a key.
+ */
+export function userCredentialPurpose(userId: string, purpose: string): string {
+  if (!isCanonicalUuid(userId)) {
+    throw new Error(
+      'userCredentialPurpose requires a canonical (lowercase, hyphenated) UUID userId.',
+    );
+  }
+
+  if (typeof purpose !== 'string' || purpose.length === 0 || purpose.includes(':')) {
+    throw new Error(
+      'userCredentialPurpose requires a non-empty purpose containing no ":".',
+    );
+  }
+
+  return `${USER_CREDENTIAL_DOMAIN_PREFIX}${userId}:${purpose}`;
 }

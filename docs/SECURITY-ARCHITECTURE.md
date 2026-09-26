@@ -1886,6 +1886,43 @@ Notable properties of this behaviour:
 
 `CredentialsService.describe(purpose, name)` and `.list(purpose)` — the presentation reads used to show what credentials exist — select only `{ purpose, name, hint, label, updatedByUserId, createdAt, updatedAt }` and never select the `secret` column at all. Consequently they work correctly with no encryption key configured, and would keep working even if the configured key could never decrypt a single row, because the ciphertext is never fetched. Only `getSecret(purpose, name)` — server-side only, never called from a controller — returns plaintext, and on a decrypt failure it throws rather than silently returning `null`, so a key change or corruption cannot silently disable a feature.
 
+### Per-User Encrypted Credentials (issue #387)
+
+`CredentialsService` above holds secrets the **deployment** owns. A sibling
+store, `UserCredentialsService` (`apps/api/src/user-credentials/`), holds
+secrets a **user** brings themselves (bring-your-own-key), in their own
+`user_credentials` table — `credentials` itself is untouched. It is
+addressed by `(userId, purpose, name)` rather than `(purpose, name)`, and
+every row is encrypted under an **owner-bound** cipher domain,
+`user:<userId>:<purpose>` (`userCredentialPurpose()` in `secret-cipher.ts`),
+not the bare purpose the system store uses. Binding the owner into the
+domain means a ciphertext copied from one user's row into another's — a SQL
+write, or a bug that copies rows — fails GCM authentication instead of
+handing the new "owner" the old owner's secret. `userId` must be a canonical
+(lowercase, hyphenated) UUID and `purpose` must not contain `:` — a rule now
+enforced for **system** purposes too, so no system purpose can collide with,
+or be mistaken for, a user's domain. Per-user derived keys are deliberately
+never cached (unlike system purposes), since that vocabulary grows with the
+user base.
+
+`UserCredentialsService` holds the identical two invariants as
+`CredentialsService` (no plaintext egress; blank preserves), has no
+controller of its own, and writes no audit events, for the same reasons.
+`UserCredentialResolver` decides whose key answers for a given purpose — the
+user's own credential, else the deployment's registered counterpart, else
+none — and a user credential that exists but fails to decrypt **throws
+rather than silently falling back to the deployment's key**, so a broken
+user key can never result in the organization being silently billed for
+that user's call. This issue ships the store and resolver only, with **zero
+production purposes declared** (`USER_CREDENTIAL_PURPOSES` is empty) — the
+one BYOK type this application has today, a user's AI provider key, already
+lives in a separate table (`user_ai_keys`, epic #419) with its own cipher
+purpose (`'ai_user_key'`, not owner-bound) and its own resolver
+(`AiKeyResolver`), so this registry declares no `'ai'` entry to avoid a
+second store for the same key. Full design, the schema, the rejected
+alternatives, and the recipe for adding a user key type are in
+[`docs/specs/user-credentials.md`](specs/user-credentials.md).
+
 ---
 
 ## Conclusion

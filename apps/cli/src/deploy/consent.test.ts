@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { confirm } from '../prompt.js';
-import { consented, obtainConsent } from './consent.js';
+import { canObtainConsent, consented, obtainConsent } from './consent.js';
 
 // =============================================================================
 // obtainConsent's four outcomes, and the precedence between them  (issue #391)
@@ -96,5 +96,28 @@ describe('consented', () => {
     expect(consented('granted')).toBe(true);
     expect(consented('declined')).toBe(false);
     expect(consented('unavailable')).toBe(false);
+  });
+});
+
+describe('canObtainConsent (#396)', () => {
+  it('is true with the flag, even non-interactive', () => {
+    expect(canObtainConsent({ flag: true, nonInteractive: true })).toBe(true);
+  });
+
+  it('is false non-interactive without the flag, even with an ask seam', () => {
+    expect(canObtainConsent({ nonInteractive: true, ask: async () => true })).toBe(false);
+  });
+
+  it('is true when someone can be asked, and never asks', () => {
+    let asked = false;
+    expect(
+      canObtainConsent({
+        ask: async () => {
+          asked = true;
+          return true;
+        },
+      }),
+    ).toBe(true);
+    expect(asked).toBe(false);
   });
 });

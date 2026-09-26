@@ -833,6 +833,15 @@ requires `ai:use`. See
 - `storage_objects` - File metadata, status, storage references
 - `storage_object_chunks` - Multipart upload chunk tracking
 - `personal_access_tokens` - User-created long-lived API tokens (hashed)
+- `user_credentials` - Per-user encrypted credentials (issue #387): a sibling of
+  `credentials` (untouched) for secrets a USER owns (bring-your-own-key), addressed by
+  `(userId, purpose, name)` and cascade-deleted with the user. Encrypted under an
+  owner-bound cipher domain, `user:<userId>:<purpose>` — not the bare purpose
+  `credentials` uses — so a row moved to another owner fails GCM authentication rather
+  than decrypting into the wrong user's context. Ships with an empty purpose registry
+  (`USER_CREDENTIAL_PURPOSES`) in production: the only BYO key type today, a user's AI
+  provider key, already lives in `user_ai_keys` below. See
+  [`docs/specs/user-credentials.md`](docs/specs/user-credentials.md).
 - `jobs` - The background queue (epic #254). `subject_type`/`subject_id` are both plain
   `text`, nullable, no FK either way — a job's subject is polymorphic (a storage object
   today, something else tomorrow), and a fork's own tables cannot be enumerated by a
@@ -1134,6 +1143,16 @@ rejected alternative, and
 2. Add migration if schema structure changes
 3. Update TypeScript types
 4. Add frontend UI if user-facing
+
+### Adding a User Key Type (Bring-Your-Own-Key)
+
+A user's own credential for something (as opposed to `CredentialsService`'s
+deployment-owned secrets) is one entry in `USER_CREDENTIAL_PURPOSES`
+(`apps/api/src/user-credentials/user-credential-purposes.ts`) plus whatever
+controller the feature needs — `UserCredentialsModule` ships no HTTP surface
+of its own, no migration required. See
+[`docs/specs/user-credentials.md`](docs/specs/user-credentials.md) §9 for the
+full recipe.
 
 ### Adding a Notification
 

@@ -62,6 +62,9 @@ const MIGRATIONS_AT_288 = [
   // row on existing deployments. No schema change and not about notifications
   // — see the ⚠ above.
   '20260927000000_revoke_viewer_ai_use',
+  // #387: `user_credentials` — the per-user (owner-bound) sibling of the
+  // `credentials` store. A schema change about secrets, not notifications.
+  '20260927120000_add_user_credentials',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');
