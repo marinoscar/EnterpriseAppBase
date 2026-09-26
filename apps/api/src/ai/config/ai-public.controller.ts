@@ -19,7 +19,7 @@ import { AiPublicConfigDto } from './dto/ai-public-config.dto';
 // Every other route under `/api/ai/*` carries that guard.
 // =============================================================================
 
-@ApiTags('AI Administration')
+@ApiTags('AI')
 @Controller('ai')
 export class AiPublicController {
   constructor(private readonly aiConfig: AiConfigService) {}
