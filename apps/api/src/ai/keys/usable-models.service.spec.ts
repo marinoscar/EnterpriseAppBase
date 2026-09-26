@@ -25,7 +25,7 @@ function policy(overrides: Partial<AiPolicy> = {}): AiPolicy {
   return {
     enabled: true,
     keyPolicy: 'byok',
-    providers: { openai: { enabled: true }, anthropic: { enabled: false }, gemini: { enabled: false } },
+    providers: { openai: { enabled: true }, anthropic: { enabled: false }, gemini: { enabled: false }, 'azure-openai': { enabled: false }, 'openai-compatible': { enabled: false } },
     defaults: { allowBackgroundRuns: true },
     logPromptContent: false,
     usageRetentionDays: 180,
@@ -168,7 +168,7 @@ describe('UsableModelsService', () => {
 
     it('is empty when the provider is disabled', async () => {
       addUserKey(USER, ['gpt-mini']);
-      current = policy({ providers: { openai: { enabled: false }, anthropic: { enabled: false }, gemini: { enabled: false } } });
+      current = policy({ providers: { openai: { enabled: false }, anthropic: { enabled: false }, gemini: { enabled: false }, 'azure-openai': { enabled: false }, 'openai-compatible': { enabled: false } } });
 
       expect(await service.listForUser(USER)).toEqual([]);
     });
@@ -236,7 +236,7 @@ describe('UsableModelsService', () => {
     it('AI_DISABLED / AI_PROVIDER_DISABLED before anything else', async () => {
       addUserKey(USER, ['gpt-mini']);
 
-      current = policy({ providers: { openai: { enabled: false }, anthropic: { enabled: false }, gemini: { enabled: false } } });
+      current = policy({ providers: { openai: { enabled: false }, anthropic: { enabled: false }, gemini: { enabled: false }, 'azure-openai': { enabled: false }, 'openai-compatible': { enabled: false } } });
       expect(await code(service.assertUsable(USER, 'openai', 'gpt-mini'))).toBe('AI_PROVIDER_DISABLED');
     });
   });

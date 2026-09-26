@@ -17,7 +17,7 @@ function makeTask(policy: Partial<AiPolicy>, keyCount = 3) {
   const resolve = jest.fn().mockResolvedValue({
     enabled: true,
     keyPolicy: 'byok',
-    providers: { openai: { enabled: true }, anthropic: { enabled: false }, gemini: { enabled: false } },
+    providers: { openai: { enabled: true }, anthropic: { enabled: false }, gemini: { enabled: false }, 'azure-openai': { enabled: false }, 'openai-compatible': { enabled: false } },
     defaults: { allowBackgroundRuns: true },
     logPromptContent: false,
     ...policy,
@@ -44,7 +44,7 @@ describe('AiKeysRecheckTask', () => {
   });
 
   it('queues nothing for a disabled provider', async () => {
-    const { task, enqueue } = makeTask({ providers: { openai: { enabled: false }, anthropic: { enabled: false }, gemini: { enabled: false } } });
+    const { task, enqueue } = makeTask({ providers: { openai: { enabled: false }, anthropic: { enabled: false }, gemini: { enabled: false }, 'azure-openai': { enabled: false }, 'openai-compatible': { enabled: false } } });
 
     await task.handleCron();
 

@@ -45,7 +45,7 @@ function build(c: Omit<Case, 'expected'>) {
   const policy: AiPolicy = {
     enabled: true,
     keyPolicy: c.keyPolicy,
-    providers: { openai: { enabled: true }, anthropic: { enabled: false }, gemini: { enabled: false } },
+    providers: { openai: { enabled: true }, anthropic: { enabled: false }, gemini: { enabled: false }, 'azure-openai': { enabled: false }, 'openai-compatible': { enabled: false } },
     defaults: { allowBackgroundRuns: true },
     logPromptContent: false,
     usageRetentionDays: 180,

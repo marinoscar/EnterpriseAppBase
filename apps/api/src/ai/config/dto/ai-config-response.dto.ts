@@ -1,7 +1,7 @@
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
-import { AI_KEY_POLICIES } from '../../../common/schemas/settings.schema';
+import { AI_KEY_POLICIES, AI_OPENAI_API_STYLES } from '../../../common/schemas/settings.schema';
 import { AI_CAPABILITIES } from '../../core/capabilities';
 
 // =============================================================================
@@ -37,8 +37,35 @@ export const aiAdminProviderSchema = z.object({
   registered: z.boolean(),
   /** The `ai.providers.<id>.enabled` switch, as stored. */
   enabled: z.boolean(),
-  /** Endpoint override for OpenAI-compatible gateways, or null for the provider default. */
+  /**
+   * Endpoint override for OpenAI-compatible gateways, or null for the provider
+   * default. For `azure-openai` it is the resource endpoint
+   * (`https://<resource>.openai.azure.com`) and for `openai-compatible` the
+   * server's API root (`http://ollama.internal:11434/v1`); both need one
+   * before they can be enabled (#448).
+   */
   baseUrl: z.string().nullable(),
+  /**
+   * The settings fields this provider accepts besides `enabled` (#448) —
+   * `baseUrl` for every provider, plus `apiVersion`, `apiStyle` and
+   * `deployments` for `azure-openai`, and `apiStyle` and `requiresKey` for
+   * `openai-compatible`. A form renders exactly these.
+   */
+  settingsFields: z.array(z.enum(['baseUrl', 'apiVersion', 'apiStyle', 'deployments', 'requiresKey'])),
+  /** Azure OpenAI `api-version`, or null for the default (`2025-04-01-preview`). */
+  apiVersion: z.string().nullable(),
+  /**
+   * Which wire API the adapter speaks, or null for the default — `responses`
+   * for `azure-openai`, `chat_completions` for `openai-compatible`.
+   */
+  apiStyle: z.enum(AI_OPENAI_API_STYLES).nullable(),
+  /** Azure OpenAI model id -> deployment name, or null when none is configured. */
+  deployments: z.record(z.string(), z.string()).nullable(),
+  /**
+   * OpenAI-compatible: whether calls need a key, or null for the default
+   * (`true`). `false` means keyless (`keySource: "none"`).
+   */
+  requiresKey: z.boolean().nullable(),
   keyStatus: aiKeyStatusSchema,
   /** Capabilities the provider's ADAPTER supports (derived from its ports), not any one model's. */
   supportedCapabilities: z.array(z.enum(AI_CAPABILITIES)),

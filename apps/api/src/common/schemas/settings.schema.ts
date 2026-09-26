@@ -694,10 +694,11 @@ export const systemMaintenancePatchSchema = z.object({
 //
 // `AI_PROVIDER_IDS` NAMES A REGISTRATION, NOT A CLOSED SET FOREVER — `as const`
 // listed `'openai'` alone through Phase 1, and Phase 3 appends to the array
-// rather than replacing it (`'anthropic'`, #446; `'gemini'`, #447). A fork adding its own
+// rather than replacing it (`'anthropic'`, #446; `'gemini'`, #447;
+// `'azure-openai'` and `'openai-compatible'`, #448). A fork adding its own
 // provider extends this array; nothing about the shape below assumes a fixed
 // number of members. Append only: the order is the admin UI's order.
-export const AI_PROVIDER_IDS = ['openai', 'anthropic', 'gemini'] as const;
+export const AI_PROVIDER_IDS = ['openai', 'anthropic', 'gemini', 'azure-openai', 'openai-compatible'] as const;
 
 /** A registered AI provider id. See {@link AI_PROVIDER_IDS}. */
 export type AiProviderId = (typeof AI_PROVIDER_IDS)[number];
@@ -873,11 +874,149 @@ export type AiKeyPolicy = (typeof AI_KEY_POLICIES)[number];
  */
 /**
  * One provider's slot in `ai.providers`: its switch and optional endpoint
- * override. Every provider id has exactly this shape.
+ * override. Every provider id has at least this shape; the two #448 slots
+ * below extend it.
  */
 export const systemAiProviderSchema = z.object({
   enabled: z.boolean(),
   baseUrl: z.string().url().optional(),
+});
+
+// ---- OpenAI-family endpoints (#448) ------------------------------------------
+//
+// SSRF POSTURE. `azure-openai` and `openai-compatible` point this server's
+// outbound AI calls at an administrator-chosen host, so their `baseUrl` is
+// validated harder than `openai.baseUrl` (which is left as it was):
+//
+//   - scheme `https` only for Azure (every Azure OpenAI resource is https),
+//     `http` or `https` for a compatible server (a self-hosted Ollama on a
+//     private network is commonly plain http);
+//   - no credentials in the URL (`https://user:pass@host`) — a key belongs in
+//     the encrypted credential store, never in a JSONB blob `GET
+//     /api/system-settings` returns wholesale;
+//   - no fragment, which no HTTP request can carry anyway.
+//
+// POINTING AT AN INTERNAL HOST IS AN EXPLICIT ADMINISTRATOR DECISION, not
+// something this validation refuses: `http://ollama.internal:11434/v1` is the
+// canonical self-hosted setup, and the setting is writable only with
+// `ai_config:write` / `system_settings:write`, both seeded Admin-only. What the
+// adapters additionally refuse is being REDIRECTED somewhere else: their
+// transport follows no redirect to another origin (see
+// `ai/providers/openai/openai-redirect-guard.ts`).
+
+/** Longest accepted `baseUrl` for the #448 slots. */
+export const AI_ENDPOINT_URL_MAX = 2048;
+
+/** Why an endpoint URL is refused, or null when it is acceptable. Shared with the admin DTOs. */
+export function aiEndpointUrlProblem(value: string, schemes: readonly string[]): string | null {
+  let url: URL;
+
+  try {
+    url = new URL(value);
+  } catch {
+    return 'Must be an absolute URL';
+  }
+
+  if (!schemes.includes(url.protocol.replace(/:$/, ''))) {
+    return `The scheme must be ${schemes.join(' or ')}`;
+  }
+
+  if (url.username || url.password) return 'Credentials may not be embedded in the URL';
+  if (url.hash || value.includes('#')) return 'A fragment (#...) is not allowed';
+  if (!url.hostname) return 'A host is required';
+
+  return null;
+}
+
+/** A `baseUrl` for an admin-chosen OpenAI-family endpoint, restricted to `schemes`. */
+export function aiEndpointUrlSchema(schemes: readonly string[]) {
+  return z
+    .string()
+    .max(AI_ENDPOINT_URL_MAX)
+    .superRefine((value, ctx) => {
+      const problem = aiEndpointUrlProblem(value, schemes);
+
+      if (problem) ctx.addIssue({ code: 'custom', message: problem });
+    });
+}
+
+/** Schemes a `providers['azure-openai'].baseUrl` may use. */
+export const AI_AZURE_ENDPOINT_SCHEMES = ['https'] as const;
+
+/** Schemes a `providers['openai-compatible'].baseUrl` may use. */
+export const AI_COMPATIBLE_ENDPOINT_SCHEMES = ['http', 'https'] as const;
+
+/** Which wire API an OpenAI-family adapter speaks. */
+export const AI_OPENAI_API_STYLES = ['responses', 'chat_completions'] as const;
+export type AiOpenAiApiStyle = (typeof AI_OPENAI_API_STYLES)[number];
+
+/**
+ * An Azure `api-version` query value (`2025-04-01-preview`, `2024-10-21`,
+ * `preview`). A plain token: it is sent as a query parameter and nothing else.
+ */
+export const AI_AZURE_API_VERSION_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+
+/** An Azure deployment name: letters, digits, `.`, `_` and `-`, at most 64. */
+export const AI_AZURE_DEPLOYMENT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+
+/** Most entries `providers['azure-openai'].deployments` may hold. */
+export const AI_AZURE_DEPLOYMENTS_MAX = 200;
+
+/** Longest accepted model id key in `deployments`. */
+export const AI_AZURE_MODEL_ID_MAX = 256;
+
+export const aiAzureDeploymentsSchema = z
+  .record(
+    z.string().min(1).max(AI_AZURE_MODEL_ID_MAX),
+    z.string().regex(AI_AZURE_DEPLOYMENT_PATTERN, 'An Azure deployment name'),
+  )
+  .refine((value) => Object.keys(value).length <= AI_AZURE_DEPLOYMENTS_MAX, {
+    message: `At most ${AI_AZURE_DEPLOYMENTS_MAX} deployments`,
+  });
+
+/**
+ * `providers['azure-openai']` (#448).
+ *
+ *  - `baseUrl` — the resource endpoint, `https://<resource>.openai.azure.com`
+ *    (the SDK appends `/openai`). Named `baseUrl`, like every other slot, so
+ *    every generic consumer (the admin test's override, the catalog sync, the
+ *    per-call context) handles it with no Azure special case. Required before
+ *    the provider can be enabled — see `AiConfigAdminService`.
+ *  - `apiVersion` — the `api-version` query value; absent means
+ *    `AZURE_OPENAI_DEFAULT_API_VERSION` (`ai/providers/azure-openai`).
+ *  - `apiStyle` — `responses` (the default: current api-versions serve the
+ *    Responses API) or `chat_completions` for an older api-version or a
+ *    deployment the Responses API does not cover.
+ *  - `deployments` — model id -> deployment name. Azure routes by DEPLOYMENT,
+ *    and a deployment may be named anything; when this map is set its keys
+ *    ARE the model list the catalog discovers, and a model id missing from it
+ *    is sent as its own deployment name.
+ */
+export const systemAiAzureProviderSchema = systemAiProviderSchema.extend({
+  baseUrl: aiEndpointUrlSchema(AI_AZURE_ENDPOINT_SCHEMES).optional(),
+  apiVersion: z.string().regex(AI_AZURE_API_VERSION_PATTERN).optional(),
+  apiStyle: z.enum(AI_OPENAI_API_STYLES).optional(),
+  deployments: aiAzureDeploymentsSchema.optional(),
+});
+
+/**
+ * `providers['openai-compatible']` (#448) — Ollama, vLLM, LM Studio or any
+ * other server speaking the OpenAI wire protocol.
+ *
+ *  - `baseUrl` — the server's API root, INCLUDING its version segment
+ *    (`http://ollama.internal:11434/v1`); required before enabling.
+ *  - `apiStyle` — `chat_completions` (the default: what every compatible
+ *    server serves) or `responses` for one that also serves the Responses API.
+ *  - `requiresKey` — absent or `true`: a key is resolved like any provider's
+ *    (BYOK, or the org fallback). `false` is the ADMINISTRATOR'S OPT-IN to a
+ *    keyless server: calls carry no credential, no user needs a key, and
+ *    usage is recorded with `keySource: 'none'` (docs/specs/ai-platform.md
+ *    §14.3).
+ */
+export const systemAiCompatibleProviderSchema = systemAiProviderSchema.extend({
+  baseUrl: aiEndpointUrlSchema(AI_COMPATIBLE_ENDPOINT_SCHEMES).optional(),
+  apiStyle: z.enum(AI_OPENAI_API_STYLES).optional(),
+  requiresKey: z.boolean().optional(),
 });
 
 export const systemAiSchema = z.object({
@@ -890,6 +1029,9 @@ export const systemAiSchema = z.object({
     anthropic: systemAiProviderSchema,
     // #447. Appended, and salvaged per provider exactly like `anthropic`.
     gemini: systemAiProviderSchema,
+    // #448. Appended, each with its own extended slot shape.
+    'azure-openai': systemAiAzureProviderSchema,
+    'openai-compatible': systemAiCompatibleProviderSchema,
   }),
   defaults: z.object({
     maxOutputTokensCap: z.number().int().positive().optional(),
@@ -931,6 +1073,26 @@ const systemAiProviderPatchSchema = z.object({
   baseUrl: z.string().url().nullable().optional(),
 });
 
+/**
+ * The #448 slots in a PATCH: every optional field takes `null` to remove it
+ * (back to its default). `deployments` REPLACES wholesale when present — the
+ * same rule as `mcpAllowedHosts` and `limits`: a merge could never remove one.
+ */
+const systemAiAzureProviderPatchSchema = z.object({
+  enabled: z.boolean().optional(),
+  baseUrl: aiEndpointUrlSchema(AI_AZURE_ENDPOINT_SCHEMES).nullable().optional(),
+  apiVersion: z.string().regex(AI_AZURE_API_VERSION_PATTERN).nullable().optional(),
+  apiStyle: z.enum(AI_OPENAI_API_STYLES).nullable().optional(),
+  deployments: aiAzureDeploymentsSchema.nullable().optional(),
+});
+
+const systemAiCompatibleProviderPatchSchema = z.object({
+  enabled: z.boolean().optional(),
+  baseUrl: aiEndpointUrlSchema(AI_COMPATIBLE_ENDPOINT_SCHEMES).nullable().optional(),
+  apiStyle: z.enum(AI_OPENAI_API_STYLES).nullable().optional(),
+  requiresKey: z.boolean().nullable().optional(),
+});
+
 export const systemAiPatchSchema = z.object({
   enabled: z.boolean().optional(),
   keyPolicy: z.enum(AI_KEY_POLICIES).optional(),
@@ -939,6 +1101,8 @@ export const systemAiPatchSchema = z.object({
       openai: systemAiProviderPatchSchema.optional(),
       anthropic: systemAiProviderPatchSchema.optional(),
       gemini: systemAiProviderPatchSchema.optional(),
+      'azure-openai': systemAiAzureProviderPatchSchema.optional(),
+      'openai-compatible': systemAiCompatibleProviderPatchSchema.optional(),
     })
     .optional(),
   defaults: z

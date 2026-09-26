@@ -104,6 +104,19 @@ export const systemSettingsResponseSchema = z.object({
         enabled: z.boolean(),
         baseUrl: z.string().optional(),
       }),
+      'azure-openai': z.object({
+        enabled: z.boolean(),
+        baseUrl: z.string().optional(),
+        apiVersion: z.string().optional(),
+        apiStyle: z.enum(['responses', 'chat_completions']).optional(),
+        deployments: z.record(z.string(), z.string()).optional(),
+      }),
+      'openai-compatible': z.object({
+        enabled: z.boolean(),
+        baseUrl: z.string().optional(),
+        apiStyle: z.enum(['responses', 'chat_completions']).optional(),
+        requiresKey: z.boolean().optional(),
+      }),
     }),
     defaults: z.object({
       maxOutputTokensCap: z.number().optional(),

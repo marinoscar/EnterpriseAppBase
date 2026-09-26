@@ -372,6 +372,12 @@ export const DEFAULT_SYSTEM_SETTINGS = {
       gemini: {
         enabled: false,
       },
+      'azure-openai': {
+        enabled: false,
+      },
+      'openai-compatible': {
+        enabled: false,
+      },
     },
     defaults: {
       allowBackgroundRuns: true,
