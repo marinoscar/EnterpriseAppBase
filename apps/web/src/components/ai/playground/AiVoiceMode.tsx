@@ -12,6 +12,17 @@
  * (`pages/AiPlaygroundPage.tsx`). Voices follow the selected model's own
  * `capabilities.voices`; none is hard-coded here.
  *
+ * MICROPHONE PERMISSION (issue #508). Before a session starts, the
+ * microphone permission is checked up front (`hooks/useMicrophonePermission`)
+ * rather than discovered by a failed Start: while the browser will still ask,
+ * an "Allow microphone" button requests it from a click (mobile browsers
+ * ignore a gestureless request); once it is blocked, platform-specific steps
+ * (Android, iOS, desktop) say where to unblock it and Start is disabled until
+ * it is; on plain http:// the remedy is HTTPS. A Start that fails with
+ * `mic-denied` shows the same platform steps in its own alert, suppresses the
+ * permission panel so the two never repeat each other, and clears itself once
+ * the permission turns `granted`.
+ *
  * ACCESSIBILITY. The transcript is an `aria-live="polite"` log, so a screen
  * reader hears each finished line without the audio being interrupted; the
  * status line (connecting, timer) is a `role="status"` region.
@@ -20,6 +31,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Alert, AlertTitle, Box, Button, Chip, Divider, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import {
   CallEnd as StopIcon,
+  Refresh as RefreshIcon,
   Mic as MicIcon,
   MicOff as MicOffIcon,
   KeyboardVoice as StartIcon,
@@ -30,6 +42,11 @@ import {
   useAiRealtimeSession,
   type AiRealtimeFailure,
 } from '../../../hooks/useAiRealtimeSession';
+import {
+  detectMicPlatform,
+  useMicrophonePermission,
+  type MicPlatform,
+} from '../../../hooks/useMicrophonePermission';
 import { AiErrorAlert } from '../AiErrorAlert';
 import { AiModelSelect } from '../AiModelSelect';
 import { AiPlaygroundPanels } from './AiPlaygroundPanels';
@@ -42,6 +59,22 @@ export interface AiVoiceModeProps {
   ready?: boolean;
 }
 
+/** Where to unblock the microphone, per platform (issue #508). */
+export function micUnblockSteps(platform: MicPlatform): string {
+  switch (platform) {
+    case 'android':
+      return 'Tap the site-settings icon next to the address bar → Permissions → Microphone → Allow. If it is still blocked, open Android Settings → Apps → Chrome (your browser) → Permissions → Microphone and allow it.';
+    case 'ios':
+      return 'Open Settings → Safari (or your browser) → Microphone and allow this site, or tap ‘aA’ in the address bar → Website Settings → Microphone → Allow.';
+    case 'desktop':
+      return 'Click the site-settings icon (lock/tune) in the address bar → Microphone → Allow, then return here.';
+  }
+}
+
+function currentMicPlatform(): MicPlatform {
+  return detectMicPlatform(typeof navigator === 'undefined' ? '' : navigator.userAgent);
+}
+
 /** Copy for every failure except `api`, which `AiErrorAlert` renders. */
 export function realtimeFailureCopy(
   failure: Exclude<AiRealtimeFailure, { kind: 'api' }>,
@@ -50,7 +83,7 @@ export function realtimeFailureCopy(
     case 'mic-denied':
       return {
         title: 'Microphone access was blocked',
-        body: 'Allow this site to use your microphone in the browser’s address bar or site settings, then start again.',
+        body: 'Allow this site to use your microphone in the site settings next to the browser’s address bar — and, on a phone, check the browser app itself is allowed the microphone in the system settings — then start again.',
         severity: 'warning',
       };
     case 'no-mic':
@@ -93,6 +126,22 @@ export function realtimeFailureCopy(
 export function AiVoiceMode({ models, preferredModel, ready = true }: AiVoiceModeProps) {
   const { modelKey, setModelKey, selected } = usePlaygroundModel(models, preferredModel, ready);
   const call = useAiRealtimeSession();
+  const mic = useMicrophonePermission();
+  const [platform] = useState(currentMicPlatform);
+  const micDeniedFailure = call.failure?.kind === 'mic-denied';
+  const { refresh: refreshMic, permission: micPermission } = mic;
+  const { clearFailure } = call;
+
+  // A Start that failed on the microphone: re-read the permission so the
+  // panel (and Start's disabled state) reflect what the browser now says.
+  useEffect(() => {
+    if (micDeniedFailure) refreshMic();
+  }, [micDeniedFailure, refreshMic]);
+
+  // …and once the user has allowed it, the "blocked" alert is stale.
+  useEffect(() => {
+    if (micDeniedFailure && micPermission === 'granted') clearFailure();
+  }, [micDeniedFailure, micPermission, clearFailure]);
 
   const voices = selected?.capabilities.voices ?? [];
   const [voice, setVoice] = useState('');
@@ -109,7 +158,8 @@ export function AiVoiceMode({ models, preferredModel, ready = true }: AiVoiceMod
 
   const active = call.status === 'starting' || call.status === 'connected';
   const tooLong = instructions.length > AI_REALTIME_INSTRUCTIONS_MAX_CHARS;
-  const canStart = !!selected && !active && !tooLong;
+  const micBlocked = mic.permission === 'denied' || mic.permission === 'insecure';
+  const canStart = !!selected && !active && !tooLong && !micBlocked;
 
   const start = () => {
     if (!canStart || !selected) return;
@@ -169,8 +219,73 @@ export function AiVoiceMode({ models, preferredModel, ready = true }: AiVoiceMod
       <Alert severity={copy.severity} onClose={call.clearFailure} data-realtime-failure={call.failure.kind}>
         <AlertTitle>{copy.title}</AlertTitle>
         {copy.body}
+        {call.failure.kind === 'mic-denied' && (
+          <Typography variant="body2" sx={{ mt: 1 }} data-mic-steps={platform}>
+            {micUnblockSteps(platform)}
+          </Typography>
+        )}
       </Alert>
     );
+  }
+
+  const requestMic = () => {
+    void mic.request();
+  };
+
+  // The permission panel: before a session only, and never alongside a
+  // mic-denied failure alert that already says the same thing.
+  let micPanel: ReactNode = null;
+  if (!active && !micDeniedFailure) {
+    if (mic.permission === 'prompt') {
+      micPanel = (
+        <Alert
+          severity="info"
+          data-mic-permission="prompt"
+          action={
+            <Button
+              color="inherit"
+              size="small"
+              startIcon={<MicIcon />}
+              onClick={requestMic}
+              disabled={mic.requesting}
+            >
+              {mic.requesting ? 'Requesting…' : 'Allow microphone'}
+            </Button>
+          }
+        >
+          <AlertTitle>Microphone access needed</AlertTitle>
+          Voice mode needs your microphone. Your browser will ask for permission.
+        </Alert>
+      );
+    } else if (mic.permission === 'denied') {
+      micPanel = (
+        <Alert
+          severity="warning"
+          data-mic-permission="denied"
+          action={
+            <Button
+              color="inherit"
+              size="small"
+              startIcon={<RefreshIcon />}
+              onClick={requestMic}
+              disabled={mic.requesting}
+            >
+              {mic.requesting ? 'Checking…' : 'Check again'}
+            </Button>
+          }
+        >
+          <AlertTitle>Microphone access is blocked</AlertTitle>
+          <span data-mic-steps={platform}>{micUnblockSteps(platform)}</span>
+        </Alert>
+      );
+    } else if (mic.permission === 'insecure') {
+      micPanel = (
+        <Alert severity="error" data-mic-permission="insecure">
+          <AlertTitle>Microphone requires a secure connection</AlertTitle>
+          Browsers only allow microphone access over HTTPS. Open this page using https://.
+        </Alert>
+      );
+    }
   }
 
   const statusText =
@@ -188,6 +303,7 @@ export function AiVoiceMode({ models, preferredModel, ready = true }: AiVoiceMod
       <audio ref={call.audioRef} autoPlay hidden data-testid="realtime-audio" />
 
       {failureAlert}
+      {micPanel}
 
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
         {active ? (
