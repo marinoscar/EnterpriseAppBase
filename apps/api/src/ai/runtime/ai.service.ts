@@ -1,0 +1,447 @@
+// =============================================================================
+// AiService — THE runtime facade (issue #432, epic #419)
+// =============================================================================
+//
+// The one injectable a fork uses to add AI to a feature:
+//
+//   constructor(private readonly ai: AiService) {}
+//   ...
+//   const res = await this.ai.forUser(userId).respond({ input: 'Summarise …' });
+//
+// No SDK, no key, no policy check of the caller's own. Every call runs the
+// same gate pipeline, in this order (docs/specs/ai-platform.md §7, §8, §13):
+//
+//   1. kill switch                     AI_DISABLED
+//   2. provider enabled + registered   AI_PROVIDER_DISABLED
+//   3. model enabled / capabilities /  AI_MODEL_NOT_ENABLED,
+//      key exists / key reaches model  AI_CAPABILITY_UNSUPPORTED,
+//                                      AI_KEY_REQUIRED, AI_MODEL_NOT_REACHABLE
+//      (UsableModelsService.assertUsable, with the capabilities the request's
+//      SHAPE needs — structured output, tools, reasoning, images, streaming)
+//   4. reasoning effort offered by the model
+//   5. clamp maxOutputTokens to the deployment cap and the model's own limit
+//   6. resolve the key (AiKeyResolver — the byok invariant lives there)
+//   7. call the adapter with { apiKey, baseUrl, signal, requestId }
+//
+// ⚠ THE KEY. `apiKey` exists in this file only between step 6 and the
+// adapter call. It is never logged, never put on a span, never persisted and
+// never part of an error.
+// =============================================================================
+
+import { randomUUID } from 'node:crypto';
+
+import { Injectable, Logger } from '@nestjs/common';
+
+import { userAiSettingsSchema } from '../../common/schemas/settings.schema';
+import { PrismaService } from '../../prisma/prisma.service';
+import { AiConfigService } from '../config/ai-config.service';
+import { AiError } from '../core/ai-error';
+import type { AiCapability } from '../core/capabilities';
+import type { AiCallContext, AiResponsesPort } from '../core/provider-adapter.interface';
+import { AiProviderRegistry } from '../core/provider-registry';
+import type { AiResponse, AiResponseRequest, AiStreamEvent } from '../core/types/responses.types';
+import { AiKeyResolver, type AiKeySource } from '../keys/ai-key-resolver.service';
+import type { UsableAiModel } from '../keys/dto/usable-ai-model.dto';
+import { UsableModelsService } from '../keys/usable-models.service';
+import type { AiCallOptions, AiRequest } from './ai-runtime.types';
+
+/** Prompt text is logged (only when `ai.logPromptContent`) truncated to this many characters. */
+export const AI_PROMPT_LOG_MAX_CHARS = 2048;
+
+/**
+ * One user's AI client. Obtain it with `AiService.forUser(userId)`; every
+ * method runs the full gate pipeline, resolves the right key, records one
+ * usage row per provider round-trip, and traces the call.
+ */
+export interface AiUserClient {
+  /** The user this client acts for. */
+  readonly userId: string;
+
+  /** One response. */
+  respond(req: AiRequest, opts?: AiCallOptions): Promise<AiResponse>;
+
+  /**
+   * A streamed response. Lazy: gate and pre-stream provider errors surface on
+   * the first iteration. A caller that must answer them BEFORE committing to
+   * a stream (an SSE route) uses `openStream` instead.
+   */
+  stream(req: AiRequest, opts?: AiCallOptions): AsyncIterable<AiStreamEvent>;
+
+  /**
+   * A streamed response whose gates and provider connection are settled
+   * EAGERLY: the promise rejects with an `AiError` for every failure that
+   * happens before the first event; after that, a failure is an in-band
+   * `error` event and the iterable ends.
+   */
+  openStream(req: AiRequest, opts?: AiCallOptions): Promise<AsyncIterable<AiStreamEvent>>;
+}
+
+/** Internal: who a client acts for, and under which job (for usage rows). */
+export interface AiClientScope {
+  userId: string;
+  jobId?: string;
+}
+
+/** Everything the gate pipeline settled for one provider call. */
+export interface PreparedAiCall {
+  provider: string;
+  port: AiResponsesPort;
+  /** The request the adapter receives — model resolved, tokens clamped. */
+  request: AiResponseRequest;
+  model: UsableAiModel;
+  baseUrl?: string;
+  logPromptContent: boolean;
+}
+
+interface PrepareOptions {
+  streaming: boolean;
+}
+
+@Injectable()
+export class AiService {
+  private readonly logger = new Logger(AiService.name);
+
+  constructor(
+    private readonly aiConfig: AiConfigService,
+    private readonly registry: AiProviderRegistry,
+    private readonly usableModels: UsableModelsService,
+    private readonly keyResolver: AiKeyResolver,
+    private readonly prisma: PrismaService,
+  ) {}
+
+  /**
+   * The AI client for `userId`. Cheap — create one per request.
+   *
+   * `jobId` is internal plumbing for the background-run handler, so its
+   * usage rows name the job they were incurred under.
+   */
+  forUser(userId: string, scope: { jobId?: string } = {}): AiUserClient {
+    const bound: AiClientScope = { userId, jobId: scope.jobId };
+
+    return {
+      userId,
+      respond: (req, opts) => this.respond(bound, req, opts),
+      stream: (req, opts) => this.lazyStream(bound, req, opts),
+      openStream: (req, opts) => this.openStream(bound, req, opts),
+    };
+  }
+
+  // ---- respond ----------------------------------------------------------------
+
+  private async respond(scope: AiClientScope, req: AiRequest, opts: AiCallOptions = {}): Promise<AiResponse> {
+    const call = await this.prepare(scope.userId, req, { streaming: false });
+
+    return this.invoke(scope, call, opts);
+  }
+
+  /** Steps 6-7 for an already-gated call. */
+  private async invoke(scope: AiClientScope, call: PreparedAiCall, opts: AiCallOptions): Promise<AiResponse> {
+    const { ctx } = await this.context(scope, call, opts);
+
+    try {
+      return await call.port.create(call.request, ctx);
+    } catch (err) {
+      throw toAiError(err, opts.signal);
+    }
+  }
+
+  // ---- stream -------------------------------------------------------------------
+
+  private async *lazyStream(
+    scope: AiClientScope,
+    req: AiRequest,
+    opts: AiCallOptions = {},
+  ): AsyncGenerator<AiStreamEvent> {
+    yield* await this.openStream(scope, req, opts);
+  }
+
+  private async openStream(
+    scope: AiClientScope,
+    req: AiRequest,
+    opts: AiCallOptions = {},
+  ): Promise<AsyncIterable<AiStreamEvent>> {
+    const call = await this.prepare(scope.userId, req, { streaming: true });
+    const { ctx } = await this.context(scope, call, opts);
+    const iterator = call.port.stream(call.request, ctx)[Symbol.asyncIterator]();
+
+    // Prime the first event so a provider refusal that happens before the
+    // stream starts (a rejected key, a throttle) rejects THIS promise — the
+    // caller can still answer it as an ordinary error, not an in-band frame.
+    let first: IteratorResult<AiStreamEvent>;
+
+    try {
+      first = await iterator.next();
+    } catch (err) {
+      throw toAiError(err, opts.signal);
+    }
+
+    return this.relay(first, iterator, opts);
+  }
+
+  private async *relay(
+    first: IteratorResult<AiStreamEvent>,
+    iterator: AsyncIterator<AiStreamEvent>,
+    opts: AiCallOptions,
+  ): AsyncGenerator<AiStreamEvent> {
+    let finished = false;
+
+    try {
+      let result = first;
+
+      while (!result.done) {
+        yield result.value;
+        result = await iterator.next();
+      }
+
+      finished = true;
+    } catch (err) {
+      finished = true;
+      throw toAiError(err, opts.signal);
+    } finally {
+      // A consumer that stopped early: let the adapter close its connection.
+      if (!finished) await iterator.return?.();
+    }
+  }
+
+  // ---- the gate pipeline -----------------------------------------------------------
+
+  /**
+   * Steps 1-5 of the pipeline: everything but the key. Throws the exact
+   * `AiError` for the first gate that refuses. Decrypts nothing.
+   */
+  async prepare(userId: string, req: AiRequest, opts: PrepareOptions): Promise<PreparedAiCall> {
+    // 1. Kill switch — before anything else is read.
+    await this.aiConfig.assertEnabled();
+
+    const { provider, model } = await this.resolveTarget(userId, req);
+
+    // 2. Provider enabled in settings AND registered in this process.
+    const slot = await this.aiConfig.assertProviderEnabled(provider);
+    const port = this.registry.get(provider)?.responses;
+
+    // 3. Model enabled, capabilities (model AND provider port), key reach.
+    const needed = requiredCapabilities(req, opts.streaming);
+    const { model: usable } = await this.usableModels.assertUsable(userId, provider, model, needed);
+
+    if (!port) {
+      // assertUsable already refused a provider without a responses port
+      // (`responses` is always in `needed`); this narrows the type.
+      throw capabilityUnsupported(provider, model, 'responses');
+    }
+
+    // 4. Reasoning effort must be one the model offers, when it says.
+    const effort = req.reasoning?.effort;
+    const efforts = usable.capabilities.reasoningEfforts;
+
+    if (effort && efforts && !efforts.includes(effort)) {
+      throw new AiError(
+        'AI_CAPABILITY_UNSUPPORTED',
+        `Model "${model}" does not offer reasoning effort "${effort}".`,
+        { details: { provider, model, capability: 'reasoning', effort } },
+      );
+    }
+
+    // 5. Clamp output tokens.
+    const policy = await this.aiConfig.resolve();
+    const maxOutputTokens = clampOutputTokens(
+      req.maxOutputTokens,
+      policy.defaults.maxOutputTokensCap,
+      usable.capabilities.maxOutputTokens,
+    );
+
+    const { provider: _provider, model: _model, ...rest } = req;
+    const request: AiResponseRequest = { ...rest, model };
+
+    if (maxOutputTokens !== undefined) {
+      request.maxOutputTokens = maxOutputTokens;
+    }
+
+    return {
+      provider,
+      port,
+      request,
+      model: usable,
+      baseUrl: slot.baseUrl,
+      logPromptContent: policy.logPromptContent,
+    };
+  }
+
+  /** Step 6: resolve the key and build the adapter context. */
+  private async context(
+    scope: AiClientScope,
+    call: PreparedAiCall,
+    opts: AiCallOptions,
+  ): Promise<{ ctx: AiCallContext; keySource: AiKeySource }> {
+    if (opts.signal?.aborted) {
+      throw cancelled(call.provider);
+    }
+
+    const { apiKey, keySource } = await this.keyResolver.resolve(scope.userId, call.provider);
+    const requestId = randomUUID();
+
+    if (call.logPromptContent) {
+      this.logger.debug(
+        `AI prompt ${requestId} (${call.provider}/${call.request.model}): ${promptPreview(call.request)}`,
+      );
+    }
+
+    return {
+      ctx: {
+        apiKey,
+        requestId,
+        ...(call.baseUrl ? { baseUrl: call.baseUrl } : {}),
+        ...(opts.signal ? { signal: opts.signal } : {}),
+      },
+      keySource,
+    };
+  }
+
+  /**
+   * Which (provider, model) the request targets. See `AiRequest` for the
+   * fallback order.
+   */
+  private async resolveTarget(userId: string, req: AiRequest): Promise<{ provider: string; model: string }> {
+    const requested = req.model?.trim();
+
+    if (requested) {
+      const provider = req.provider ?? (await this.defaultModel(userId))?.provider ?? this.soleProvider();
+
+      if (!provider) {
+        throw new AiError('AI_INVALID_REQUEST', 'No provider selected.', { details: { model: requested } });
+      }
+
+      return { provider, model: requested };
+    }
+
+    const fallback = await this.defaultModel(userId);
+
+    if (!fallback || (req.provider !== undefined && req.provider !== fallback.provider)) {
+      throw new AiError('AI_INVALID_REQUEST', 'No model selected.');
+    }
+
+    return { provider: fallback.provider, model: fallback.modelId };
+  }
+
+  /**
+   * The user's `ai.defaultModel`, read RAW from `user_settings.value` — not
+   * through `UserSettingsService.getSettings`, which creates a row when none
+   * exists (see `NotificationsService.loadRecipient` for the full argument).
+   */
+  private async defaultModel(userId: string): Promise<{ provider: string; modelId: string } | null> {
+    const row = await this.prisma.userSettings.findUnique({
+      where: { userId },
+      select: { value: true },
+    });
+    const value = row?.value as { ai?: unknown } | null | undefined;
+    const parsed = userAiSettingsSchema.safeParse(value?.ai);
+
+    return parsed.success ? parsed.data.defaultModel : null;
+  }
+
+  private soleProvider(): string | undefined {
+    const ids = this.registry.ids();
+
+    return ids.length === 1 ? ids[0] : undefined;
+  }
+}
+
+// ---- helpers ---------------------------------------------------------------------------
+
+/**
+ * The model capabilities a request's SHAPE needs. `responses` always; the
+ * rest follow from what the request carries.
+ */
+export function requiredCapabilities(
+  req: Pick<AiResponseRequest, 'structuredOutput' | 'tools' | 'reasoning' | 'input'>,
+  streaming: boolean,
+): AiCapability[] {
+  const needed = new Set<AiCapability>(['responses']);
+
+  if (streaming) needed.add('streaming');
+  if (req.structuredOutput) needed.add('structured_output');
+  if (req.reasoning?.effort) needed.add('reasoning');
+
+  for (const tool of req.tools ?? []) {
+    needed.add(tool.type === 'function' ? 'tools' : 'hosted_tools');
+  }
+
+  if (Array.isArray(req.input)) {
+    for (const item of req.input) {
+      if (item.type !== 'message') continue;
+
+      for (const part of item.content) {
+        if (part.type === 'image') needed.add('vision_input');
+        if (part.type === 'file') needed.add('file_input');
+      }
+    }
+  }
+
+  return [...needed];
+}
+
+/**
+ * The effective `maxOutputTokens`: the caller's value bounded by the
+ * deployment cap and the model's own limit. With no caller value, the
+ * deployment cap still bounds the call (it "bounds every call"); the model's
+ * limit alone does not invent one.
+ */
+export function clampOutputTokens(
+  requested: number | undefined,
+  deploymentCap: number | undefined,
+  modelMax: number | undefined,
+): number | undefined {
+  if (requested !== undefined && (!Number.isInteger(requested) || requested < 1)) {
+    throw new AiError('AI_INVALID_REQUEST', 'maxOutputTokens must be a positive integer.', {
+      details: { maxOutputTokens: requested },
+    });
+  }
+
+  const bounds = [requested ?? deploymentCap, deploymentCap, modelMax].filter(
+    (value): value is number => value !== undefined,
+  );
+
+  if (requested === undefined && deploymentCap === undefined) {
+    return undefined;
+  }
+
+  return Math.min(...bounds);
+}
+
+function capabilityUnsupported(provider: string, model: string, capability: AiCapability): AiError {
+  return new AiError('AI_CAPABILITY_UNSUPPORTED', `Model "${model}" does not support ${capability}.`, {
+    details: { provider, model, capability },
+  });
+}
+
+function cancelled(provider: string): AiError {
+  return new AiError('AI_PROVIDER_UNAVAILABLE', 'The AI request was cancelled.', {
+    details: { provider, aborted: true },
+  });
+}
+
+/**
+ * Normalises anything a provider call threw. An abort is reported as a
+ * cancellation (never as the raw `AbortError`), everything else via
+ * `AiError.wrap` — so nothing raw escapes the facade.
+ */
+export function toAiError(err: unknown, signal?: AbortSignal): AiError {
+  if (err instanceof AiError) return err;
+
+  if (signal?.aborted) {
+    return new AiError('AI_PROVIDER_UNAVAILABLE', 'The AI request was cancelled.', {
+      cause: err,
+      details: { aborted: true },
+    });
+  }
+
+  return AiError.wrap(err);
+}
+
+/** Prompt text for the opt-in debug log line, truncated. Never the key. */
+function promptPreview(req: AiResponseRequest): string {
+  const text = JSON.stringify({ instructions: req.instructions, input: req.input });
+
+  return text.length > AI_PROMPT_LOG_MAX_CHARS
+    ? `${text.slice(0, AI_PROMPT_LOG_MAX_CHARS)}… (truncated)`
+    : text;
+}
