@@ -3,6 +3,7 @@ import { severityOf } from './types.js';
 import { DATABASE_CHECKS } from './database.js';
 import { DNS_CHECKS } from './dns.js';
 import { HOST_CHECKS } from './host.js';
+import { SOURCE_CHECKS } from './source.js';
 import { TLS_CHECKS } from './tls.js';
 
 // =============================================================================
@@ -19,6 +20,8 @@ import { TLS_CHECKS } from './tls.js';
 // with no docker should say so before it starts probing databases.
 export const ALL_CHECKS: readonly Check[] = [
   ...HOST_CHECKS,
+  // After git-installed (in HOST_CHECKS), which gh-installed requires.
+  ...SOURCE_CHECKS,
   ...DATABASE_CHECKS,
   ...DNS_CHECKS,
   ...TLS_CHECKS,
@@ -45,7 +48,38 @@ export function requiredChecks(
 }
 
 export * from './types.js';
-export { HOST_CHECKS, evaluateDf } from './host.js';
-export { DATABASE_CHECKS, databaseSettings, probeTcp } from './database.js';
+export { HOST_CHECKS, evaluateDf, probe } from './host.js';
+export {
+  SOURCE_CHECKS,
+  SOURCE_CHECK_IDS,
+  gitCredentialStateFor,
+  gitHasCredentialFor,
+  isHttpsGithubUrl,
+  needsGithubCli,
+  nonInteractiveGitEnv,
+} from './source.js';
+export {
+  DATABASE_CHECKS,
+  MAINTENANCE_DATABASE,
+  canCreateDatabase,
+  databaseSettings,
+  probeTcp,
+  runPsql,
+  type CreateDatabaseCapability,
+  type DatabaseSettings,
+  type PsqlResult,
+} from './database.js';
 export { DNS_CHECKS } from './dns.js';
-export { TLS_CHECKS, parseNotAfter } from './tls.js';
+export {
+  CLI_RENEWAL_CRON_PATH,
+  TLS_CHECKS,
+  cronCommandPaths,
+  cronLines,
+  detectRenewalOwner,
+  parseNotAfter,
+  renewsWithCertbot,
+  type RenewalMechanism,
+  type RenewalOwnerKind,
+  type RenewalOwnership,
+  type RenewalProbe,
+} from './tls.js';

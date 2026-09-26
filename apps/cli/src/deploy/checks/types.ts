@@ -195,6 +195,26 @@ export interface CheckContext {
   proxyRuntime?: ProxyRuntime | undefined;
   /** Reads the certificate served on the wire; injected so no test opens a socket. */
   servedCertificate?: ((domain: string) => Promise<ServedCertificate>) | undefined;
+  /**
+   * The repository this deployment clones or fetches, when it is known (a
+   * flag, the deployment record, or the checkout's `origin`). Display-safe:
+   * normalised, so it carries no embedded credential.
+   */
+  repoUrl?: string | undefined;
+  /**
+   * Whether git can ALREADY read `repoUrl` without a prompt -- a public
+   * repository, a credential helper, a stored token. Computed ONCE by the
+   * command building this context (see `gitCredentialStateFor`), because
+   * `severityFor` must stay synchronous and cheap. Absent means "not probed":
+   * nothing is promoted on an unknown.
+   */
+  gitCredentialed?: boolean | undefined;
+  /**
+   * True when this run will NOT publish through the shared proxy (install or
+   * update with --skip-proxy). The proxy prerequisites are then advice, not
+   * blockers. Doctor leaves it unset: it asks about a deployment in general.
+   */
+  skipProxy?: boolean | undefined;
 }
 
 export type Severity = 'required' | 'recommended';

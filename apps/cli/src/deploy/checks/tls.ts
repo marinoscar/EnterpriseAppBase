@@ -1,5 +1,7 @@
+import { CLI_NAME } from '../../branding.js';
+import type { ProxyMode } from '../proxy.js';
 import type { Check, CheckContext, CheckResult } from './types.js';
-import { contextFs, contextServedCertificate } from './types.js';
+import { contextFs, contextServedCertificate, realFs } from './types.js';
 
 // =============================================================================
 // The certificate, if there is one yet  (issue #177, epic #168)
@@ -111,38 +113,362 @@ const certificateValidity: Check = {
   },
 };
 
+// -----------------------------------------------------------------------------
+// Who owns renewal  (issue #390, epic #388)
+// -----------------------------------------------------------------------------
+//
+// The answer is not "is anything scheduled" but WHICH mechanism is, because
+// that decides whether install (#391) should schedule anything: on a server
+// whose certificates are already renewed by a central script covering every
+// application on the box, a second schedule is not redundancy but a race --
+// two processes renewing the same certificates, spending a rate-limit budget
+// shared by every subdomain.
+// -----------------------------------------------------------------------------
+
+/**
+ * Where #391 installs this CLI's own renewal schedule, when nothing else owns
+ * it: `/etc/cron.d/appctl-certbot-renew` for the stock CLI name. Built from
+ * `CLI_NAME` so a renamed fork stays consistent (and so no `APPCTL_`-prefixed
+ * literal trips the env-prefix guard).
+ */
+export const CLI_RENEWAL_CRON_PATH = `/etc/cron.d/${CLI_NAME}-certbot-renew`;
+
+/** The file the certbot distribution package ships. */
+const CERTBOT_PACKAGE_CRON_PATH = '/etc/cron.d/certbot';
+
+export type RenewalOwnerKind = 'central-script' | 'systemd-timer' | 'cron' | 'appctl' | 'none';
+
+export interface RenewalMechanism {
+  owner: Exclude<RenewalOwnerKind, 'none'>;
+  /** One line: what was found, and where. */
+  detail: string;
+  /** The script, cron file or unit that does it. */
+  path?: string | undefined;
+  /**
+   * Whether this mechanism renews THIS proxy's certificates. False for a host
+   * certbot (systemd timer, or a cron line running host certbot) when the
+   * proxy is containerised: that renews the host's /etc/letsencrypt, not
+   * `<proxyRoot>/letsencrypt`. Recorded so it is visible, never the owner.
+   */
+  owns: boolean;
+}
+
+export interface RenewalOwnership {
+  /**
+   * The mechanism that owns renewal, by precedence: a central script, then a
+   * systemd timer, then any other cron entry, then appctl's own. `none` when
+   * nothing renews at all.
+   */
+  owner: RenewalOwnerKind;
+  detail: string;
+  path?: string | undefined;
+  /** EVERY mechanism found, in precedence order -- more than one is worth knowing. */
+  mechanisms: RenewalMechanism[];
+  /**
+   * `*renew*` scripts under the proxy root that renew with certbot but that
+   * nothing schedules. Reported so a remedy can say "schedule THIS", never
+   * counted as an owner.
+   */
+  unscheduledScripts: string[];
+}
+
+export interface RenewalProbe {
+  /** Defaults to the real filesystem. */
+  fs?: CheckContext['fs'];
+  runCommand: CheckContext['runCommand'];
+  /** Where to look for an unscheduled central script. Optional. */
+  proxyRoot?: string | undefined;
+  /**
+   * How the proxy runs. In `container` mode a host certbot (timer, or a cron
+   * line that neither names the proxy root nor runs the certbot/certbot image)
+   * is recorded but does not own renewal. Undefined keeps the historical,
+   * mode-blind behaviour.
+   */
+  mode?: ProxyMode | undefined;
+}
+
+const OWNER_PRECEDENCE: readonly RenewalMechanism['owner'][] = [
+  'central-script',
+  'systemd-timer',
+  'cron',
+  'appctl',
+];
+
+/** True when a script's contents renew certificates with certbot. */
+export function renewsWithCertbot(contents: string | undefined): boolean {
+  if (contents === undefined) return false;
+  return /certbot/i.test(contents) && /\brenew\b/i.test(contents);
+}
+
+/** Interpreters and binaries that are never the "script" a cron line runs. */
+const NOT_A_SCRIPT = new Set(['certbot', 'docker', 'sh', 'bash', 'dash', 'zsh', 'env', 'flock', 'nice', 'ionice', 'timeout', 'run-parts']);
+
+/**
+ * The absolute-path tokens of a cron command that could be a script it runs.
+ *
+ * Redirection targets (`>> /var/log/renew.log`) are excluded: a log file can
+ * perfectly well mention `certbot renew`, and must not be mistaken for the
+ * thing that does it.
+ */
+export function cronCommandPaths(line: string): string[] {
+  const tokens = line.trim().split(/\s+/);
+  const paths: string[] = [];
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index] as string;
+    const previous = tokens[index - 1] ?? '';
+    if (/^\d*[<>]{1,2}&?$/.test(previous)) continue;
+    if (/^\d*[<>]/.test(token)) continue;
+    const cleaned = token.replace(/^["']|["';&|]+$/g, '');
+    if (!cleaned.startsWith('/')) continue;
+    const name = cleaned.slice(cleaned.lastIndexOf('/') + 1);
+    if (NOT_A_SCRIPT.has(name)) continue;
+    paths.push(cleaned);
+  }
+  return paths;
+}
+
+/** The scheduling lines of a crontab: no comments, blanks or VAR=value lines. */
+export function cronLines(contents: string): string[] {
+  return contents
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '' && !line.startsWith('#'))
+    .filter((line) => !/^[A-Za-z_][A-Za-z0-9_]*\s*=/.test(line));
+}
+
+/** Why a host certbot does not own a containerised proxy's certificates. */
+const HOST_CERTBOT_NOTE =
+  'renews the host /etc/letsencrypt, not the containerised proxy\'s certificates';
+
+/**
+ * True when a DIRECT cron line (one invoking certbot itself) renews this
+ * proxy's certificates: always outside container mode; in container mode only
+ * when it names the proxy root or runs the dockerised certbot/certbot image.
+ */
+function cronLineOwns(line: string, probe: RenewalProbe): boolean {
+  if (probe.mode !== 'container') return true;
+  if (/certbot\/certbot/i.test(line)) return true;
+  const root = probe.proxyRoot?.replace(/\/+$/, '');
+  return root !== undefined && root !== '' && line.includes(root);
+}
+
+/**
+ * Classifies one cron source's lines: a line running a script that renews
+ * with certbot is a `central-script`; a line invoking `certbot ... renew`
+ * directly is a `cron` owner.
+ */
+function classifyCron(
+  fs: NonNullable<CheckContext['fs']>,
+  probe: RenewalProbe,
+  contents: string,
+  source: string,
+  /** The cron FILE, when the source is one; root's crontab has no path. */
+  sourcePath?: string,
+): RenewalMechanism[] {
+  const found: RenewalMechanism[] = [];
+  for (const line of cronLines(contents)) {
+    const script = cronCommandPaths(line).find(
+      (path) => fs.exists(path) && !fs.isDirectory(path) && renewsWithCertbot(fs.readFile(path)),
+    );
+    if (script !== undefined) {
+      found.push({
+        owner: 'central-script',
+        detail: `${script}, scheduled from ${source}`,
+        path: script,
+        owns: true,
+      });
+      continue;
+    }
+    if (/\bcertbot\b/i.test(line) && /\brenew\b/i.test(line)) {
+      const owns = cronLineOwns(line, probe);
+      found.push({
+        owner: 'cron',
+        detail: `certbot renew, scheduled from ${source}${owns ? '' : ` (${HOST_CERTBOT_NOTE})`}`,
+        ...(sourcePath === undefined ? {} : { path: sourcePath }),
+        owns,
+      });
+    }
+  }
+  return found;
+}
+
+/** root's crontab, or undefined when there is none or it cannot be read. */
+async function rootCrontab(run: CheckContext['runCommand']): Promise<string | undefined> {
+  for (const argv of [['crontab', '-l', '-u', 'root'], ['crontab', '-l']] as const) {
+    try {
+      const result = await run(argv, { cwd: process.cwd(), timeoutMs: 15_000 });
+      return result.stdout;
+    } catch {
+      // "no crontab for root", or not permitted to read root's -- try the next.
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Works out which mechanism renews certificates on this box. Read-only; never
+ * throws.
+ *
+ * Recognised, generically rather than by name:
+ *   - a CENTRAL SCRIPT: a cron line (root's crontab, /etc/crontab, /etc/cron.d/*)
+ *     whose command runs an existing file that itself runs `certbot renew`;
+ *   - a SYSTEMD TIMER: `systemctl is-enabled certbot.timer`;
+ *   - a CRON entry: /etc/cron.d/certbot, or any cron line invoking
+ *     `certbot ... renew` directly;
+ *   - APPCTL's own: `CLI_RENEWAL_CRON_PATH`, the file #391 installs.
+ *
+ * Exported for #391: its renewal step acts on exactly this answer.
+ */
+export async function detectRenewalOwner(probe: RenewalProbe): Promise<RenewalOwnership> {
+  const fs = probe.fs ?? realFs;
+  const mechanisms: RenewalMechanism[] = [];
+
+  const crontab = await rootCrontab(probe.runCommand);
+  if (crontab !== undefined) mechanisms.push(...classifyCron(fs, probe, crontab, "root's crontab"));
+
+  const systemCrontab = fs.readFile('/etc/crontab');
+  if (systemCrontab !== undefined) mechanisms.push(...classifyCron(fs, probe, systemCrontab, '/etc/crontab', '/etc/crontab'));
+
+  for (const name of fs.readdir('/etc/cron.d').slice().sort()) {
+    const path = `/etc/cron.d/${name}`;
+    if (path === CLI_RENEWAL_CRON_PATH || path === CERTBOT_PACKAGE_CRON_PATH) continue;
+    const contents = fs.readFile(path);
+    if (contents !== undefined) mechanisms.push(...classifyCron(fs, probe, contents, path, path));
+  }
+
+  const timer = await probe
+    .runCommand(['systemctl', 'is-enabled', 'certbot.timer'], { cwd: process.cwd(), timeoutMs: 15_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (timer) {
+    // A systemd timer runs the HOST certbot against the host's config dir; in
+    // container mode that is never this proxy's certificates.
+    const owns = probe.mode !== 'container';
+    mechanisms.push({
+      owner: 'systemd-timer',
+      detail: `certbot.timer is enabled${owns ? '' : ` (${HOST_CERTBOT_NOTE})`}`,
+      path: 'certbot.timer',
+      owns,
+    });
+  }
+
+  if (fs.exists(CERTBOT_PACKAGE_CRON_PATH)) {
+    // Outside container mode its existence is enough (the historical rule).
+    // In container mode it owns renewal only if a line in it names the proxy
+    // root or runs the dockerised certbot.
+    const owns =
+      probe.mode !== 'container' ||
+      cronLines(fs.readFile(CERTBOT_PACKAGE_CRON_PATH) ?? '').some((line) => cronLineOwns(line, probe));
+    mechanisms.push({
+      owner: 'cron',
+      detail: `${CERTBOT_PACKAGE_CRON_PATH}${owns ? '' : ` (${HOST_CERTBOT_NOTE})`}`,
+      path: CERTBOT_PACKAGE_CRON_PATH,
+      owns,
+    });
+  }
+
+  if (fs.exists(CLI_RENEWAL_CRON_PATH)) {
+    mechanisms.push({
+      owner: 'appctl',
+      detail: `scheduled by ${CLI_NAME} (${CLI_RENEWAL_CRON_PATH})`,
+      path: CLI_RENEWAL_CRON_PATH,
+      owns: true,
+    });
+  }
+
+  // De-duplicated by owner+path: the same script referenced twice is one owner.
+  const unique = mechanisms.filter(
+    (mechanism, index) =>
+      mechanisms.findIndex((other) => other.owner === mechanism.owner && other.path === mechanism.path) === index,
+  );
+  unique.sort((a, b) => OWNER_PRECEDENCE.indexOf(a.owner) - OWNER_PRECEDENCE.indexOf(b.owner));
+
+  const scheduled = new Set(unique.filter((m) => m.owns).map((mechanism) => mechanism.path));
+  const unscheduledScripts =
+    probe.proxyRoot === undefined
+      ? []
+      : fs
+          .readdir(probe.proxyRoot)
+          .filter((name) => /renew/i.test(name))
+          .map((name) => `${probe.proxyRoot as string}/${name}`)
+          .filter((path) => !scheduled.has(path) && !fs.isDirectory(path) && renewsWithCertbot(fs.readFile(path)))
+          .sort();
+
+  const primary = unique.find((mechanism) => mechanism.owns);
+  if (primary === undefined) {
+    const ignored = unique.map((mechanism) => mechanism.detail);
+    return {
+      owner: 'none',
+      detail:
+        (unscheduledScripts.length === 0
+          ? 'no renewal timer, cron entry or scheduled renewal script found'
+          : `${unscheduledScripts.join(', ')} renews certificates, but nothing schedules it`) +
+        (ignored.length === 0 ? '' : `; found but not renewing this proxy: ${ignored.join('; ')}`),
+      mechanisms: unique,
+      unscheduledScripts,
+    };
+  }
+
+  return {
+    owner: primary.owner,
+    detail: primary.detail,
+    ...(primary.path === undefined ? {} : { path: primary.path }),
+    mechanisms: unique,
+    unscheduledScripts,
+  };
+}
+
 const certificateRenewal: Check = {
   id: 'certificate-renewal',
   title: 'Automatic renewal',
   severity: 'recommended',
-  requires: ['certificate-present'],
+  // No `requires`, and no domain needed: WHO renews is a property of the box,
+  // not of one certificate, and install (#391) needs the answer before the
+  // first certificate exists -- that is when it decides whether to schedule.
   async run(context) {
-    if (context.domain === undefined) {
-      return { status: 'skip', detail: 'no domain given' };
+    const ownership = await detectRenewalOwner({
+      fs: contextFs(context),
+      runCommand: context.runCommand,
+      proxyRoot: context.proxyRoot,
+      mode: context.proxyRuntime?.mode,
+    });
+
+    if (ownership.owner === 'none') {
+      const script = ownership.unscheduledScripts[0];
+      return {
+        status: 'warn',
+        detail: ownership.detail,
+        // A certificate nobody renews is a 90-day timer on an outage.
+        remedy:
+          script !== undefined
+            ? `Schedule it from root's crontab (crontab -e -u root), e.g.: 17 3,15 * * * ${script} -- or the site breaks 90 days from issuance with no warning.`
+            : 'Set up automatic renewal -- a twice-daily certbot renew followed by a proxy reload -- or the site breaks 90 days from issuance with no warning.',
+      };
     }
-    if (!contextFs(context).exists(livePath(context, 'fullchain.pem'))) {
-      return { status: 'skip', detail: 'nothing to renew yet' };
-    }
 
-    const timer = await context
-      .runCommand(['systemctl', 'is-enabled', 'certbot.timer'], {
-        cwd: process.cwd(),
-        timeoutMs: 15_000,
-      })
-      .then(() => true)
-      .catch(() => false);
-
-    if (timer) return { status: 'pass', detail: 'certbot.timer is enabled' };
-
-    const cron = contextFs(context).exists('/etc/cron.d/certbot');
-    if (cron) return { status: 'pass', detail: '/etc/cron.d/certbot' };
-
-    return {
-      status: 'warn',
-      detail: 'no renewal timer or cron entry found',
-      // A certificate nobody renews is a 90-day timer on an outage.
-      remedy: 'Set up automatic renewal, or the site breaks 90 days from issuance with no warning.',
+    const others = ownership.mechanisms.filter((mechanism) => mechanism.path !== ownership.path || mechanism.owner !== ownership.owner);
+    const labels: Record<RenewalMechanism['owner'], string> = {
+      'central-script': 'central script',
+      'systemd-timer': 'systemd timer',
+      cron: 'cron',
+      appctl: CLI_NAME,
     };
+    const detail =
+      `owned by ${labels[ownership.owner as RenewalMechanism['owner']]}: ${ownership.detail}` +
+      (others.length === 0 ? '' : `; also: ${others.map((other) => other.detail).join('; ')}`);
+
+    // appctl's own schedule ALONGSIDE another owner is the race #391 exists to
+    // avoid: two processes renewing the same certificates.
+    const appctl = ownership.mechanisms.find((mechanism) => mechanism.owner === 'appctl' && mechanism.owns);
+    if (appctl !== undefined && ownership.owner !== 'appctl') {
+      return {
+        status: 'warn',
+        detail,
+        remedy: `Renewal is scheduled twice, which races on the same certificates. Remove ${CLI_NAME}'s copy: rm ${CLI_RENEWAL_CRON_PATH}`,
+      };
+    }
+
+    return { status: 'pass', detail };
   },
 };
 
@@ -205,7 +531,7 @@ const certificateRenewalPaths: Check = {
   title: 'Renewal configs use container paths',
   severity: 'recommended',
   severityFor: (context) =>
-    context.proxyRuntime?.mode === 'container' && ownConfBroken(context)
+    context.proxyRuntime?.mode === 'container' && context.skipProxy !== true && ownConfBroken(context)
       ? 'required'
       : 'recommended',
   async run(context) {

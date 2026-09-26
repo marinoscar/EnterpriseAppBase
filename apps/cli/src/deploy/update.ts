@@ -4,7 +4,15 @@ import { basename, join } from 'node:path';
 import { CLI_NAME } from '../branding.js';
 import { PreconditionError, UsageError } from '../errors.js';
 import { CLI_VERSION } from '../package-info.js';
-import { ALL_CHECKS, checksPassed, runChecks } from './checks/index.js';
+import {
+  ALL_CHECKS,
+  SOURCE_CHECK_IDS,
+  checksPassed,
+  gitCredentialStateFor,
+  runChecks,
+  severityOf,
+  type CheckContext,
+} from './checks/index.js';
 import { diffEnv, parseEnvExample, parseEnvFile } from './env-spec.js';
 import { genuinelyNewKeys } from './env-absence.js';
 import { adoptDeployment } from './adopt.js';
@@ -26,7 +34,7 @@ import {
   type ProxyTarget,
   type ResolvedProxyRuntime,
 } from './proxy.js';
-import { ensureCheckout, resolveRepoTarget, type RepoTarget } from './repo.js';
+import { ensureCheckout, normaliseRepoUrl, resolveRepoTarget, type RepoTarget } from './repo.js';
 import { NotInstalledError, readState, writeState, type DeployState } from './state.js';
 import { runPipeline, type DeployStep, type StepContext } from './steps/pipeline.js';
 import {
@@ -200,13 +208,18 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
           'disk-space',
         ]);
 
-        const results = await runChecks(
-          ALL_CHECKS.filter((check) => wanted.has(check.id)),
-          {
-            runCommand: context.runCommand,
-            deployRoot: context.options.deployRoot,
-            bindPort: context.state.bindPort,
-            // From the record, not reconstructed. Deriving it as
+        // `fetch` talks to the recorded repository, so whether git can still
+        // read it is an essential too -- but only as the REQUIRED subset of
+        // the source checks: gh is advice everywhere except an HTTPS GitHub
+        // URL git cannot read (#390).
+        const repoUrl = normaliseRepoUrl(context.state.repoUrl);
+        const gitCredentialed = await gitCredentialStateFor(repoUrl, context.runCommand);
+
+        const checkContext: CheckContext = {
+          runCommand: context.runCommand,
+          deployRoot: context.options.deployRoot,
+          bindPort: context.state.bindPort,
+          // From the record, not reconstructed. Deriving it as
           // `<deployRoot>/../../proxy` silently ignored a non-default
           // --proxy-root given at install time, and wrote the vhost somewhere
           // the proxy does not read.
@@ -217,7 +230,18 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
           ...(context.options.skipProxy === true || context.state.domain === undefined
             ? {}
             : { proxyRuntime: await proxyRuntimeOf(context) }),
-          },
+          repoUrl,
+          ...(gitCredentialed === undefined ? {} : { gitCredentialed }),
+          ...(context.options.skipProxy === true ? { skipProxy: true } : {}),
+        };
+
+        const results = await runChecks(
+          ALL_CHECKS.filter(
+            (check) =>
+              wanted.has(check.id) ||
+              (SOURCE_CHECK_IDS.has(check.id) && severityOf(check, checkContext) === 'required'),
+          ),
+          checkContext,
         );
 
         for (const result of results) {
