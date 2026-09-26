@@ -383,7 +383,10 @@ Three more steps prompt before acting and each takes a `--non-interactive`
 opt-in flag: `--bootstrap-proxy` (bring up a fresh container-mode proxy when
 this box has none — an existing proxy is never touched either way),
 `--create-database` (run `CREATE DATABASE` when the configured database does
-not exist and nothing else about the connection is wrong), and
+not exist and nothing else about the connection is wrong, then re-run every
+database check against it — a role that cannot create tables stops there; a
+`--non-interactive` run without the flag stops at preflight, before cloning,
+whenever the `.env` or `--answer`s already name every `POSTGRES_*` setting), and
 `--skip-renewal` (opt **out** of the renewal-scheduling step, which otherwise
 schedules a twice-daily renewal only when nothing already owns it).
 `--skip-oauth-check` skips the live Google credentials probe (a malformed

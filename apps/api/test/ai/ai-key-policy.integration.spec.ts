@@ -79,7 +79,7 @@ describe('AI key policy invariant — admin key never spent on a user’s own in
     // so the auth token has to be minted fresh every test — one created in
     // `beforeAll` would 401 from the second test onward.
     app.reset();
-    const holder = await createMockTestUser(app.context, { id: HARNESS_USER, roleName: 'viewer' });
+    const holder = await createMockTestUser(app.context, { id: HARNESS_USER, roleName: 'contributor' });
     holderToken = holder.accessToken;
   });
 

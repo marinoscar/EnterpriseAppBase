@@ -807,11 +807,16 @@ requires `ai:use`. See
   each into a permission seeded far more broadly for unrelated settings
 - `ai:use` - May call AI with the caller's own key (or the org fallback key, when the
   deployment's key policy allows it): every consumer-facing route under `/api/ai/*` except
-  the always-open `GET /api/ai/config`. Seeded to **all three roles** — using AI with a key
-  the caller themselves supplied is not an administrative act, the same posture managing
-  one's own settings or storage objects already takes. Deliberately **not** folded into
-  `ai_config:*`: an administrator must be able to grant "may use AI" broadly while keeping
-  "may reconfigure the AI platform for the whole deployment" Admin-only — see
+  the always-open `GET /api/ai/config`. Seeded to **Admin and Contributor, deliberately NOT
+  Viewer** (issue #499) — using AI with a key the caller themselves supplied is not an
+  administrative act, the same posture managing one's own settings or storage objects
+  already takes, but Viewer is the DEFAULT role every new signup lands in, and a default
+  grant meant a brand-new account could spend the deployment's own org key under
+  `byok_with_org_fallback` with no administrator having decided that. An administrator
+  grants `ai:use` back to a specific Viewer (a `role_permissions` row) or promotes the
+  account to Contributor. Deliberately **not** folded into `ai_config:*`: an administrator
+  must be able to grant "may use AI" broadly while keeping "may reconfigure the AI platform
+  for the whole deployment" Admin-only — see
   [`docs/specs/ai-platform.md`](docs/specs/ai-platform.md) §11
 
 ## Database Tables
@@ -829,6 +834,15 @@ requires `ai:use`. See
 - `storage_objects` - File metadata, status, storage references
 - `storage_object_chunks` - Multipart upload chunk tracking
 - `personal_access_tokens` - User-created long-lived API tokens (hashed)
+- `user_credentials` - Per-user encrypted credentials (issue #387): a sibling of
+  `credentials` (untouched) for secrets a USER owns (bring-your-own-key), addressed by
+  `(userId, purpose, name)` and cascade-deleted with the user. Encrypted under an
+  owner-bound cipher domain, `user:<userId>:<purpose>` — not the bare purpose
+  `credentials` uses — so a row moved to another owner fails GCM authentication rather
+  than decrypting into the wrong user's context. Ships with an empty purpose registry
+  (`USER_CREDENTIAL_PURPOSES`) in production: the only BYO key type today, a user's AI
+  provider key, already lives in `user_ai_keys` below. See
+  [`docs/specs/user-credentials.md`](docs/specs/user-credentials.md).
 - `jobs` - The background queue (epic #254). `subject_type`/`subject_id` are both plain
   `text`, nullable, no FK either way — a job's subject is polymorphic (a storage object
   today, something else tomorrow), and a fork's own tables cannot be enumerated by a
@@ -982,9 +996,10 @@ The cards gate writes internally (`ai_config:write`) rather than by a second
 card permission, the same reachability-vs-content posture every other group
 in this file takes. The per-user counterpart is the `AI Keys` card in
 `USER_SETTINGS_SECTIONS` (`/settings/ai`, `permission: 'ai:use'`,
-`feature: 'ai'`) — `ai:use` is seeded to all three roles, so this card is
-gated by a real, withholdable grant rather than by role, and hidden while AI
-is off by the identical `feature` mechanism. See
+`feature: 'ai'`) — `ai:use` is seeded to Admin and Contributor, deliberately
+not Viewer (issue #499), so this card is gated by a real, withholdable grant
+rather than by role, and hidden while AI is off by the identical `feature`
+mechanism. See
 [`docs/specs/ai-platform.md`](docs/specs/ai-platform.md) and the MANDATORY AI
 Platform Rules above.
 
@@ -1129,6 +1144,16 @@ rejected alternative, and
 2. Add migration if schema structure changes
 3. Update TypeScript types
 4. Add frontend UI if user-facing
+
+### Adding a User Key Type (Bring-Your-Own-Key)
+
+A user's own credential for something (as opposed to `CredentialsService`'s
+deployment-owned secrets) is one entry in `USER_CREDENTIAL_PURPOSES`
+(`apps/api/src/user-credentials/user-credential-purposes.ts`) plus whatever
+controller the feature needs — `UserCredentialsModule` ships no HTTP surface
+of its own, no migration required. See
+[`docs/specs/user-credentials.md`](docs/specs/user-credentials.md) §9 for the
+full recipe.
 
 ### Adding a Notification
 

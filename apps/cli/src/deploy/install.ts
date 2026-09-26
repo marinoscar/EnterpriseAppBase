@@ -18,8 +18,14 @@ import { isDeployment } from './deployment-evidence.js';
 import { runEnvWizard } from './env-wizard.js';
 import type { EnvGroup } from './env-metadata.js';
 import { runCommand as defaultRunCommand } from './executor.js';
-import { consented, obtainConsent, type ConsentOptions, type ConsentOutcome } from './consent.js';
-import { ensureDatabase, onlyDatabaseMissing } from './database.js';
+import {
+  canObtainConsent,
+  consented,
+  obtainConsent,
+  type ConsentOptions,
+  type ConsentOutcome,
+} from './consent.js';
+import { ensureDatabase, onlyDatabaseMissing, unattendedDatabaseRefusal } from './database.js';
 import { waitForHealthy, collectHealth, isHealthy, type FetchLike, type OAuthSmoke } from './health.js';
 import { runOAuthCheck } from './oauth-check.js';
 import {
@@ -391,6 +397,60 @@ function envFilePath(deployRoot: string): string {
   return join(composeCwd(deployRoot), '.env');
 }
 
+/**
+ * What the wizard will start from: the `.env` on disk, with the caller's
+ * non-blank answers over it. Shared by the `environment` step and preflight's
+ * database gate (#396), so the gate probes the settings the run will write.
+ */
+function plannedEnvironment(options: InstallOptions): Map<string, string> | undefined {
+  const path = envFilePath(options.deployRoot);
+  const onDisk = existsSync(path) ? parseEnvFile(readFileSync(path, 'utf8')) : undefined;
+
+  // Answers supplied by a caller win over what is on disk: they are the
+  // more recent statement of intent.
+  //
+  // A BLANK ANSWER IS NOT AN ANSWER, though, and this is the guard that
+  // says so. The TUI collects every essential key into a form and hands
+  // the whole map over, so a field the operator left alone arrives as
+  // `''`. Letting that beat the on-disk value means a re-install over a
+  // live deployment overwrites the secrets it did not ask about - and for
+  // `SECRETS_ENCRYPTION_KEY` that makes every credential encrypted under
+  // the old key permanently undecryptable, with no visible symptom.
+  //
+  // Dropping blanks here means "leave it as it is" survives the round
+  // trip, which is what an untouched field means in every UI anyone has
+  // ever used.
+  if (options.answers === undefined) return onDisk;
+  const supplied = [...options.answers].filter(([, value]) => value !== '');
+  return new Map([...(onDisk ?? new Map<string, string>()), ...supplied]);
+}
+
+/**
+ * The POSTGRES_* keys that must all be known, non-blank, before checkout for
+ * preflight to probe the database (#396). POSTGRES_SSL is left out: absent
+ * means `false` both here and in the template.
+ */
+const PRE_CHECKOUT_DATABASE_KEYS = [
+  'POSTGRES_HOST',
+  'POSTGRES_PORT',
+  'POSTGRES_USER',
+  'POSTGRES_PASSWORD',
+  'POSTGRES_DB',
+] as const;
+
+/**
+ * The environment preflight may probe the database with, or undefined when
+ * the settings are not knowable until the wizard has run -- a first install
+ * whose answers leave a POSTGRES_* key to the template, which is not on disk
+ * until `checkout`. A template default is never guessed at here: probing a
+ * database the run will not use could refuse an install that would work.
+ */
+function preCheckoutDatabaseEnvironment(options: InstallOptions): Map<string, string> | undefined {
+  const env = plannedEnvironment(options);
+  if (env === undefined) return undefined;
+  return PRE_CHECKOUT_DATABASE_KEYS.every((key) => (env.get(key) ?? '') !== '') ? env : undefined;
+}
+
 /** Secrets for the journal's redactor, from the metadata rather than a guess. */
 export function secretsFrom(env: ReadonlyMap<string, string>): SecretEntry[] {
   return [...env.entries()]
@@ -443,6 +503,32 @@ export async function ensureStackNetworks(
     onLine: (line) => context.journal.line(line),
   });
   context.networksEnsured = true;
+}
+
+/**
+ * Preflight's database gate (#396): the refusal `ensure-database` is certain
+ * to give, or undefined. Asks nothing and creates nothing; see the call site.
+ */
+async function preflightDatabaseRefusal(context: InstallContext): Promise<Error | undefined> {
+  if (canObtainConsent(consentOptions(context, context.options.createDatabase))) return undefined;
+
+  const env = preCheckoutDatabaseEnvironment(context.options);
+  if (env === undefined) {
+    context.journal.line(
+      'Database settings are not known until the environment is configured; ensure-database will check.',
+    );
+    return undefined;
+  }
+
+  // The existence checks carry the password in PGPASSWORD; a fresh journal
+  // has not seen it yet, and a psql error must not put it in the log.
+  context.journal.addSecrets?.(secretsFrom(env));
+  return await unattendedDatabaseRefusal({
+    env,
+    runCommand: context.runCommand,
+    envPath: envFilePath(context.options.deployRoot),
+    onLine: (line) => context.journal.line(line),
+  });
 }
 
 export function buildInstallSteps(): DeployStep<InstallContext>[] {
@@ -528,14 +614,30 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
           context.journal.line(`${result.status} ${result.id}: ${result.detail}`);
         }
 
-        if (!checksPassed(results)) {
+        // #396: a missing database is a QUESTION, and `ensure-database` asks
+        // it -- after `validate-environment`, with the settings the wizard
+        // actually wrote. The one case decided HERE is the one whose answer is
+        // already certain: nobody can be asked (--non-interactive, no
+        // terminal) and --create-database was not given, so the install is
+        // bound to stop at `ensure-database` -- and stopping now spares the
+        // clone. Only when the settings are knowable before checkout (a
+        // re-install's `.env`, or answers naming every POSTGRES_* key); on a
+        // first install that leaves one to the template, the refusal still
+        // comes from `ensure-database`, before anything is built or migrated.
+        // Never prompts: an interactive run is asked later, once.
+        const databaseRefusal = await preflightDatabaseRefusal(context);
+
+        if (!checksPassed(results) || databaseRefusal !== undefined) {
           const failed = results.filter((result) => result.status === 'fail');
           // Aborts BEFORE anything is cloned or written.
           throw new PreconditionError(
             `Prerequisites not met:\n` +
-              failed
-                .map((result) => `  - ${result.id}: ${result.detail}\n    ${result.remedy ?? ''}`)
-                .join('\n') +
+              [
+                ...failed.map((result) => `  - ${result.id}: ${result.detail}\n    ${result.remedy ?? ''}`),
+                ...(databaseRefusal === undefined
+                  ? []
+                  : [`  - database-exists: ${databaseRefusal.message.split('\n').join('\n    ')}`]),
+              ].join('\n') +
               `\nRun \`${CLI_NAME} deploy doctor\` for the full report.`,
           );
         }
@@ -581,31 +683,9 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
         const specs = parseEnvExample(readFileSync(templatePath, 'utf8'));
 
         const path = envFilePath(context.options.deployRoot);
-        const onDisk = existsSync(path) ? parseEnvFile(readFileSync(path, 'utf8')) : undefined;
-
-        // Answers supplied by a caller win over what is on disk: they are the
-        // more recent statement of intent.
-        //
-        // A BLANK ANSWER IS NOT AN ANSWER, though, and this is the guard that
-        // says so. The TUI collects every essential key into a form and hands
-        // the whole map over, so a field the operator left alone arrives as
-        // `''`. Letting that beat the on-disk value means a re-install over a
-        // live deployment overwrites the secrets it did not ask about - and for
-        // `SECRETS_ENCRYPTION_KEY` that makes every credential encrypted under
-        // the old key permanently undecryptable, with no visible symptom.
-        //
-        // Dropping blanks here means "leave it as it is" survives the round
-        // trip, which is what an untouched field means in every UI anyone has
-        // ever used.
-        const supplied = new Map(
-          [...(context.options.answers ?? new Map<string, string>())].filter(
-            ([, value]) => value !== '',
-          ),
-        );
-        const existing =
-          context.options.answers === undefined
-            ? onDisk
-            : new Map([...(onDisk ?? new Map()), ...supplied]);
+        // On disk, with the caller's non-blank answers over it -- see
+        // plannedEnvironment for why a blank answer is not an answer.
+        const existing = plannedEnvironment(context.options);
 
         const domain = context.options.domain;
         if (domain === undefined && context.options.skipProxy !== true) {
@@ -751,11 +831,14 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
           return;
         }
 
+        // #396: the one "offer, create, re-verify" implementation -- see
+        // ensureDatabase's own comment.
         const result = await ensureDatabase({
           env,
           runCommand: context.runCommand,
           createDatabase: context.options.createDatabase,
           ...consentOptions(context),
+          envPath: envFilePath(context.options.deployRoot),
           onLine: (line) => context.journal.line(line),
         });
         context.database = 'exists';

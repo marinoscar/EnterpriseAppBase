@@ -148,8 +148,9 @@ one into existence.
 ## 6. Choosing the key policy
 
 - **`byok` (default)** — every user must bring their own key
-  (`/settings/ai`, gated by `ai:use`, seeded to all three roles) before they
-  can call any model. No admin key, however well-funded, is ever used to
+  (`/settings/ai`, gated by `ai:use`, seeded to Admin and Contributor — NOT
+  Viewer, since issue #499) before they can call any model. No admin key,
+  however well-funded, is ever used to
   serve a user's request under this policy — this is the platform's core
   security invariant, and it is enforced in one place
   (`AiKeyResolver.resolve`), not scattered across call sites.
@@ -167,6 +168,19 @@ appctl api PUT /admin/ai/config --data '{"keyPolicy":"byok_with_org_fallback", .
 (`PUT` replaces the whole non-secret configuration and takes an `If-Match`
 version header, like the storage-configuration endpoint — read the current
 config first to get the current `version`.)
+
+### Letting Viewers use AI
+
+Viewer no longer holds `ai:use` by default (issue #499) — it is the DEFAULT
+role every new signup lands in, and under `byok_with_org_fallback` a
+default grant meant a brand-new account could spend the deployment's own
+org key with no administrator having decided that. To let a Viewer use AI
+anyway, either:
+
+- Grant `ai:use` back to that account specifically (or to the whole Viewer
+  role) via `rbac:manage` — add a `role_permissions` row for
+  `('viewer', 'ai:use')` if you want every Viewer to have it; or
+- Promote the account to Contributor, which already carries the grant.
 
 ## 7. How users add their own key
 

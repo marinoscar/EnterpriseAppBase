@@ -4,7 +4,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 
 import { decryptSecret, encryptSecret } from '../../common/crypto/secret-cipher';
-import { deriveHint } from '../../credentials/credentials.service';
+import { deriveHint } from '../../credentials/credential-internals';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AiConfigService, providerPolicy } from '../config/ai-config.service';
 import { withTimeout as withAiCallTimeout } from '../config/ai-provider-test.service';

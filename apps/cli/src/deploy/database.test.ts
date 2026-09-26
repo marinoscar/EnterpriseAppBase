@@ -4,9 +4,11 @@ import { PreconditionError, UsageError } from '../errors.js';
 import type { CompletedCheck } from './checks/index.js';
 import {
   assertCreatableDatabaseName,
+  blocksNewDatabase,
   createDatabaseStatement,
   ensureDatabase,
   onlyDatabaseMissing,
+  unattendedDatabaseRefusal,
 } from './database.js';
 import { CommandFailedError, type CommandResult, type RunCommandOptions, type runCommand } from './executor.js';
 
@@ -28,6 +30,16 @@ const MISSING: CompletedCheck[] = [
   completed('database-reachable', 'pass'),
   completed('database-credentials', 'pass'),
   completed('database-exists', 'fail', 'database "appdb" does not exist'),
+];
+
+/** The full re-verify after a CREATE, all well. */
+const VERIFIED: CompletedCheck[] = [
+  completed('database-reachable', 'pass'),
+  completed('database-credentials', 'pass'),
+  completed('database-exists', 'pass', 'appdb'),
+  { ...completed('database-create-privilege', 'pass', 'appuser holds CREATEDB'), severity: 'recommended' },
+  { ...completed('database-privileges', 'pass', 'appuser can create tables'), severity: 'recommended' },
+  { ...completed('database-ssl', 'skip', 'POSTGRES_SSL is not true'), severity: 'recommended' },
 ];
 
 const EXISTS: CompletedCheck[] = [
@@ -116,6 +128,7 @@ describe('ensureDatabase', () => {
       createDatabase: true,
       nonInteractive: true,
       check: async () => MISSING,
+      verify: async () => VERIFIED,
     });
 
     expect(result.outcome).toBe('created');
@@ -136,6 +149,7 @@ describe('ensureDatabase', () => {
       env: ENV,
       runCommand: yes.run,
       check: async () => MISSING,
+      verify: async () => VERIFIED,
       ask: async (question) => {
         questions.push(question);
         return true;
@@ -222,7 +236,204 @@ describe('ensureDatabase', () => {
         ? { ok: false, stderr: 'ERROR:  database "appdb" already exists (42P04)' }
         : CAN_CREATE(statement),
     );
-    const result = await ensureDatabase({ env: ENV, runCommand: run, createDatabase: true, check: async () => MISSING });
+    const result = await ensureDatabase({
+      env: ENV,
+      runCommand: run,
+      createDatabase: true,
+      check: async () => MISSING,
+      verify: async () => VERIFIED,
+    });
     expect(result.outcome).toBe('created');
+  });
+});
+
+// =============================================================================
+// Offer, create, RE-VERIFY -- and name the line to correct  (issue #396)
+// =============================================================================
+
+describe('ensureDatabase re-verifies what it created (#396)', () => {
+  it('runs the full check set after the CREATE, reports every line, and returns it', async () => {
+    const { run } = psqlFake(CAN_CREATE);
+    const lines: string[] = [];
+    const order: string[] = [];
+    const result = await ensureDatabase({
+      env: ENV,
+      runCommand: run,
+      createDatabase: true,
+      check: async () => {
+        order.push('check');
+        return MISSING;
+      },
+      verify: async () => {
+        order.push('verify');
+        return VERIFIED;
+      },
+      onLine: (line) => lines.push(line),
+    });
+
+    expect(order).toEqual(['check', 'verify']);
+    expect(result.checks).toEqual(VERIFIED);
+    // A real answer, where `skipped: database-exists did not pass` used to be.
+    expect(lines).toContain('pass database-privileges: appuser can create tables');
+    expect(lines.some((line) => /skipped: database-exists/.test(line))).toBe(false);
+  });
+
+  it('does not re-verify a database that already existed', async () => {
+    const { run } = psqlFake(CAN_CREATE);
+    let verified = false;
+    const result = await ensureDatabase({
+      env: ENV,
+      runCommand: run,
+      check: async () => EXISTS,
+      verify: async () => {
+        verified = true;
+        return VERIFIED;
+      },
+    });
+    expect(verified).toBe(false);
+    expect(result.checks).toEqual(EXISTS);
+  });
+
+  it('stops when the new database cannot take a table, with the GRANT as the remedy', async () => {
+    const { run, seen } = psqlFake(CAN_CREATE);
+    const error = await ensureDatabase({
+      env: ENV,
+      runCommand: run,
+      createDatabase: true,
+      check: async () => MISSING,
+      verify: async () =>
+        VERIFIED.map((result) =>
+          result.id === 'database-privileges'
+            ? {
+                ...result,
+                status: 'warn' as const,
+                detail: 'appuser cannot create in schema public',
+                remedy: 'Migrations will fail. Grant it: GRANT CREATE ON SCHEMA public TO appuser;',
+              }
+            : result,
+        ),
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(PreconditionError);
+    expect((error as Error).message).toContain('database-privileges');
+    expect((error as Error).message).toContain('GRANT CREATE ON SCHEMA public');
+    // Created once, and nothing issued to undo it.
+    expect(creates(seen)).toHaveLength(1);
+    for (const call of seen) expect(call.argv.join(' ')).not.toMatch(/DROP/i);
+  });
+
+  it('stops when a required check fails against the new database', async () => {
+    const { run } = psqlFake(CAN_CREATE);
+    await expect(
+      ensureDatabase({
+        env: ENV,
+        runCommand: run,
+        createDatabase: true,
+        check: async () => MISSING,
+        verify: async () =>
+          VERIFIED.map((result) =>
+            result.id === 'database-exists'
+              ? { ...result, status: 'fail' as const, detail: 'database "appdb" does not exist' }
+              : result,
+          ),
+      }),
+    ).rejects.toThrow(/not usable yet[\s\S]*database-exists/);
+  });
+
+  it('does not stop on a privileges answer it could not determine', () => {
+    expect(
+      blocksNewDatabase({
+        ...completed('database-privileges', 'warn', 'could not determine privileges'),
+        severity: 'recommended',
+      }),
+    ).toBe(false);
+    expect(
+      blocksNewDatabase({
+        ...completed('database-privileges', 'warn', 'appuser cannot create in schema public'),
+        severity: 'recommended',
+      }),
+    ).toBe(true);
+  });
+});
+
+describe('refusals name POSTGRES_DB and the file it is in (#396)', () => {
+  const ENV_PATH = '/opt/apps/app/repo/infra/compose/.env';
+
+  it('declined: names POSTGRES_DB and the .env path', async () => {
+    const { run, seen } = psqlFake(CAN_CREATE);
+    const error = await ensureDatabase({
+      env: ENV,
+      runCommand: run,
+      envPath: ENV_PATH,
+      check: async () => MISSING,
+      ask: async () => false,
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(PreconditionError);
+    const message = (error as Error).message;
+    expect(message).toContain('declined');
+    expect(message).toContain('POSTGRES_DB');
+    expect(message).toContain(`If "appdb" is not the name you meant, correct POSTGRES_DB in ${ENV_PATH}`);
+    expect(creates(seen)).toHaveLength(0);
+  });
+
+  it('unattended: names the flag, POSTGRES_DB and the .env path', async () => {
+    const { run } = psqlFake(CAN_CREATE);
+    const error = await ensureDatabase({
+      env: ENV,
+      runCommand: run,
+      envPath: ENV_PATH,
+      nonInteractive: true,
+      check: async () => MISSING,
+    }).catch((caught: unknown) => caught);
+
+    const message = (error as Error).message;
+    expect(message).toContain('--create-database');
+    expect(message).toContain(`correct POSTGRES_DB in ${ENV_PATH}`);
+  });
+});
+
+describe('unattendedDatabaseRefusal (#396)', () => {
+  it('returns the refusal ensureDatabase would give, and never creates -- even with an ask seam about', async () => {
+    const { run, seen } = psqlFake(CAN_CREATE);
+    const refusal = await unattendedDatabaseRefusal({
+      env: ENV,
+      runCommand: run,
+      envPath: '/x/.env',
+      check: async () => MISSING,
+    });
+
+    expect(refusal).toBeInstanceOf(PreconditionError);
+    expect(refusal?.message).toContain('--create-database');
+    expect(refusal?.message).toContain('correct POSTGRES_DB in /x/.env');
+    expect(creates(seen)).toHaveLength(0);
+  });
+
+  it('has nothing to say when the database exists', async () => {
+    const { run } = psqlFake(CAN_CREATE);
+    expect(await unattendedDatabaseRefusal({ env: ENV, runCommand: run, check: async () => EXISTS })).toBeUndefined();
+  });
+
+  it('leaves every other database failure to validate-environment', async () => {
+    const { run, seen } = psqlFake(CAN_CREATE);
+    const refusal = await unattendedDatabaseRefusal({
+      env: ENV,
+      runCommand: run,
+      check: async () => [
+        completed('database-reachable', 'fail', 'connection refused to db.example.test:5432'),
+        completed('database-credentials', 'skip'),
+        completed('database-exists', 'skip'),
+      ],
+    });
+    expect(refusal).toBeUndefined();
+    expect(seen).toEqual([]);
+  });
+
+  it('refuses with the CREATEDB remedy when the role could not create it anyway', async () => {
+    const { run } = psqlFake((statement) =>
+      /rolcreatedb/.test(statement) ? { ok: true, stdout: 'f' } : { ok: true },
+    );
+    const refusal = await unattendedDatabaseRefusal({ env: ENV, runCommand: run, check: async () => MISSING });
+    expect(refusal?.message).toContain('CREATEDB');
   });
 });

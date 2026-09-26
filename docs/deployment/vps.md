@@ -260,7 +260,12 @@ it.
      about the connection checks out, `install` asks whether to create it —
      see the prerequisites section above for exactly which failure this
      covers and which it does not. `--create-database` answers yes without
-     asking, for a non-interactive run.
+     asking, for a non-interactive run. Once created, every database check
+     runs again against it (so `database-privileges` gives a real answer),
+     and declining names `POSTGRES_DB` and the `.env` to correct it in —
+     a typo and a not-yet-created database look identical from outside.
+     `appctl deploy doctor` never creates anything: it still fails on a
+     missing database, with the `createdb` remedy.
    - **If this box has no shared proxy yet**, `install` asks whether to
      bootstrap one — see the prerequisites section above. `--bootstrap-proxy`
      answers yes without asking.
