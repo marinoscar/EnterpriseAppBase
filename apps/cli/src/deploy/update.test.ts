@@ -267,3 +267,133 @@ describe('runUpdate: an unreadable state file is not an unrecorded deployment', 
     expect(error).not.toBeInstanceOf(NotInstalledError);
   });
 });
+
+// =============================================================================
+// The `preflight` step's source-check wiring (#390): `fetch` talks to the
+// recorded repository, so gh is folded in as the REQUIRED subset of
+// SOURCE_CHECK_IDS only -- gh is advice everywhere except an HTTPS GitHub URL
+// git cannot read.
+// =============================================================================
+describe('the preflight step: gh is required only for an unreadable HTTPS GitHub URL', () => {
+  function preflightStep() {
+    const step = buildUpdateSteps().find((candidate) => candidate.id === 'preflight');
+    if (step === undefined) throw new Error('the "preflight" step was removed or renamed');
+    return step;
+  }
+
+  /** Answers every host-check probe successfully; git/gh answered per test. */
+  function makeRunCommand(
+    respond: (argv: readonly string[]) => { exitCode: number; stdout?: string; stderr?: string } | undefined,
+  ): typeof runCommand {
+    return (async (argv: readonly string[], options: { cwd: string }): Promise<CommandResult> => {
+      const line = argv.join(' ');
+      const canned =
+        respond(argv) ??
+        (line.startsWith('docker --version')
+          ? { exitCode: 0, stdout: 'Docker version 27.3.1, build abc' }
+          : line.startsWith('docker info')
+            ? { exitCode: 0, stdout: '27.3.1' }
+            : line.startsWith('docker compose version')
+              ? { exitCode: 0, stdout: 'Docker Compose version v2.29.0' }
+              : line.startsWith('git --version')
+                ? { exitCode: 0, stdout: 'git version 2.43.0' }
+                : line.startsWith('df -Pk')
+                  ? {
+                      exitCode: 0,
+                      stdout:
+                        'Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/sda1 100000000 10000000 80000000 12% /',
+                    }
+                  : undefined);
+
+      if (canned === undefined) {
+        throw new Error(`unexpected command in preflight test: ${line}`);
+      }
+
+      const result: CommandResult = {
+        argv: [...argv],
+        cwd: options.cwd,
+        exitCode: canned.exitCode,
+        stdout: canned.stdout ?? '',
+        stderr: canned.stderr ?? '',
+        durationMs: 1,
+        timedOut: false,
+      };
+      if (result.exitCode !== 0) {
+        const error = new Error(canned.stderr ?? 'failed') as Error & { result: CommandResult };
+        error.result = result;
+        throw error;
+      }
+      return result;
+    }) as typeof runCommand;
+  }
+
+  function contextFor(root: string, state: Record<string, unknown>, runCommandFn: typeof runCommand) {
+    return {
+      options: { deployRoot: root },
+      state: { bindPort: 3535, proxyRoot: join(root, 'proxy'), domain: undefined, ...state },
+      runCommand: runCommandFn,
+      journal: { line: () => undefined, redact: (text: string) => text },
+      hooks: undefined,
+      completed: new Set<string>(),
+      env: new Map<string, string>(),
+    };
+  }
+
+  it('does not require gh at all for a non-github (or ssh) repository', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'appctl-update-preflight-'));
+    const context = contextFor(root, { repoUrl: 'git@github.com:acme/widgets.git' }, makeRunCommand(() => undefined));
+
+    // gh is never even probed: no `gh ...` argv is answered above, so this
+    // would throw "unexpected command" if gh-installed/gh-authenticated ran.
+    await expect(preflightStep().run(context as never)).resolves.toBeUndefined();
+  });
+
+  it('does not require gh when git can already read the HTTPS GitHub URL', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'appctl-update-preflight-'));
+    const context = contextFor(
+      root,
+      { repoUrl: 'https://github.com/acme/widgets' },
+      makeRunCommand((argv) =>
+        argv.join(' ').startsWith('git ls-remote') ? { exitCode: 0, stdout: 'abc\tHEAD' } : undefined,
+      ),
+    );
+
+    await expect(preflightStep().run(context as never)).resolves.toBeUndefined();
+  });
+
+  it('REQUIRES gh (and FAILS the preflight) for an HTTPS GitHub URL git cannot read, with gh missing', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'appctl-update-preflight-'));
+    const context = contextFor(
+      root,
+      { repoUrl: 'https://github.com/acme/widgets' },
+      makeRunCommand((argv) => {
+        const line = argv.join(' ');
+        if (line.startsWith('git ls-remote')) return { exitCode: 128, stderr: 'fatal: could not read Username' };
+        if (line.startsWith('gh')) return undefined; // not installed
+        return undefined;
+      }),
+    );
+
+    const error = await preflightStep().run(context as never).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain('gh-installed');
+  });
+
+  it('passes when gh is required AND actually installed and authenticated', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'appctl-update-preflight-'));
+    const context = contextFor(
+      root,
+      { repoUrl: 'https://github.com/acme/widgets' },
+      makeRunCommand((argv) => {
+        const line = argv.join(' ');
+        if (line.startsWith('git ls-remote')) return { exitCode: 128, stderr: 'fatal: could not read Username' };
+        if (line.startsWith('gh --version')) return { exitCode: 0, stdout: 'gh version 2.63.0\n' };
+        if (line.startsWith('gh auth status')) return { exitCode: 0, stdout: '✓ Logged in to github.com\n' };
+        return undefined;
+      }),
+    );
+
+    await expect(preflightStep().run(context as never)).resolves.toBeUndefined();
+  });
+});
