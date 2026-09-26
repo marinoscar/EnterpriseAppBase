@@ -2,7 +2,10 @@
  * Settings → AI Keys (`/settings/ai`) — issue #430, epic #419.
  *
  * Bring your own key: one card per provider the administrator has enabled,
- * where the user saves (server-verified), tests and removes their own key.
+ * where the user saves (server-verified), tests and removes their own key;
+ * then the models that key (or the organisation's) can reach, and the user's
+ * default model — the one part stored in the user settings document
+ * (`ai.defaultModel`, PATCH `/api/user-settings`).
  *
  * A THIN PAGE WRAPPER, NOT `UserSettingsSection` — the same call as
  * `UserTokensPage`. Keys are their own resource behind `/api/ai/keys`, not part
@@ -18,13 +21,25 @@ import { Navigate } from 'react-router-dom';
 import { usePermissions } from '../hooks/usePermissions';
 import { useAiConfig } from '../hooks/useAiConfig';
 import { useUserAiKeys } from '../hooks/useUserAiKeys';
+import { useUsableAiModels } from '../hooks/useUsableAiModels';
+import { useUserSettings } from '../hooks/useUserSettings';
 import { UserAiKeyCard } from '../components/settings/ai/UserAiKeyCard';
+import { UsableAiModelsList } from '../components/settings/ai/UsableAiModelsList';
+import { DefaultAiModelPicker } from '../components/settings/ai/DefaultAiModelPicker';
+import type { AiDefaultModel } from '../types';
 
 export default function UserAiKeysPage() {
   const { hasPermission } = usePermissions();
   const { config, isLoading: configLoading } = useAiConfig();
   const { keys, isLoading: keysLoading, error: keysError, setKey, deleteKey, testKey } =
     useUserAiKeys();
+  const usable = useUsableAiModels();
+  // `syncTheme: false` — this page never edits the theme, so loading the
+  // settings document must not push the stored theme into the shell.
+  const { settings, isLoading: settingsLoading, updateSettings } = useUserSettings({
+    syncTheme: false,
+  });
+  const refreshModels = usable.refresh;
 
   if (!hasPermission('ai:use')) {
     return <Navigate to="/" replace />;
@@ -32,6 +47,13 @@ export default function UserAiKeysPage() {
 
   const providers = config.providers.filter((provider) => provider.enabled);
   const fallbackPolicy = config.keyPolicy === 'byok_with_org_fallback';
+  const providerNames = Object.fromEntries(
+    config.providers.map((provider) => [provider.id, provider.displayName]),
+  );
+
+  const saveDefaultModel = async (defaultModel: AiDefaultModel | null) => {
+    await updateSettings({ ai: { defaultModel } });
+  };
 
   return (
     <Container maxWidth="md">
@@ -63,8 +85,24 @@ export default function UserAiKeysPage() {
                 onSave={setKey}
                 onTest={testKey}
                 onRemove={deleteKey}
+                onChanged={() => void refreshModels()}
               />
             ))}
+
+            <UsableAiModelsList
+              models={usable.models}
+              isLoading={usable.isLoading}
+              error={usable.error}
+              providerNames={providerNames}
+            />
+
+            <DefaultAiModelPicker
+              models={usable.models}
+              value={settings?.ai?.defaultModel}
+              onChange={saveDefaultModel}
+              disabled={settingsLoading || usable.isLoading || !settings}
+              providerNames={providerNames}
+            />
           </Stack>
         )}
       </Box>
