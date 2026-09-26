@@ -268,6 +268,15 @@ function AppRoutes() {
                     path="/admin/users"
                     element={<Navigate to="/admin/settings/users" replace />}
                   />
+                  {/* Issue #392. The "Deployment" page that issue asked for is
+                      delivered by the About page, so this URL is a REDIRECT
+                      and deliberately NOT a second `ADMIN_SECTIONS` card — one
+                      question, one destination. Ungated for the same reason
+                      as the two above: the TARGET route gates. */}
+                  <Route
+                    path="/admin/settings/deployment"
+                    element={<Navigate to="/admin/settings/about" replace />}
+                  />
 
                   {/* The Console hub (#93, epic #90) — the searchable, grouped
                       card grid that reads `ADMIN_SECTIONS`. It replaces the

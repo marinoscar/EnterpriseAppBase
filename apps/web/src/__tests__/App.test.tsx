@@ -43,6 +43,11 @@ vi.mock('../pages/Admin/UsersPage', () => ({
   default: () => <h1>Admin Users</h1>,
 }));
 
+// Issue #392: the target of the `/admin/settings/deployment` redirect.
+vi.mock('../pages/Admin/AboutPage', () => ({
+  default: () => <h1>Admin About</h1>,
+}));
+
 /**
  * The four `/settings/*` routes from issue #96, epic #90. Same rationale as
  * the admin stand-ins above: the real pages already render correctly (their
@@ -420,6 +425,36 @@ describe('App', () => {
           ).toBeInTheDocument(),
         { timeout: 5000 },
       );
+    });
+
+    it('sends /admin/settings/deployment to the About page (#392 — no second card)', async () => {
+      signInAs(['user_settings:read', 'system_settings:read'], ['admin']);
+
+      render(
+        <MemoryRouter initialEntries={['/admin/settings/deployment']}>
+          <App />
+        </MemoryRouter>,
+      );
+
+      await waitFor(
+        () => expect(screen.getByRole('heading', { name: 'Admin About' })).toBeInTheDocument(),
+        { timeout: 5000 },
+      );
+    });
+
+    it('still gates the /admin/settings/deployment redirect on the About route', async () => {
+      signInAs(['user_settings:read']);
+
+      render(
+        <MemoryRouter initialEntries={['/admin/settings/deployment']}>
+          <App />
+        </MemoryRouter>,
+      );
+
+      await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), {
+        timeout: 5000,
+      });
+      expect(screen.queryByRole('heading', { name: 'Admin About' })).not.toBeInTheDocument();
     });
 
     it('still refuses a redirected route the user may not reach', async () => {

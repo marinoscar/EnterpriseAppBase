@@ -36,6 +36,7 @@ import { render, mockAdminUser, mockUser } from '../../utils/test-utils';
 import AboutPage from '../../../pages/Admin/AboutPage';
 import { api } from '../../../services/api';
 import type { AboutResponse } from '../../../types';
+import { setViewportWidth } from '../../setup';
 
 /** A complete, successful document — the baseline every state overrides. */
 function aboutResponse(overrides: Partial<AboutResponse> = {}): AboutResponse {
@@ -414,5 +415,253 @@ describe('AboutPage — the permission gate', () => {
     });
 
     expect(await screen.findByTestId('about-deployment-facts')).toBeInTheDocument();
+  });
+});
+
+/**
+ * Issue #392 — deployment detail delivered on this page rather than a parallel
+ * "Deployment" page. Every field is optional AND nullable (an older API or an
+ * older deploy record), so each block is asserted twice: populated, and absent.
+ */
+describe('AboutPage — deployment detail (#392)', () => {
+  const DAY = 86_400_000;
+  const inDays = (days: number) => new Date(Date.now() + days * DAY).toISOString();
+
+  function full(overrides: Partial<AboutResponse> = {}): AboutResponse {
+    return aboutResponse({
+      lastCommand: 'update',
+      bindPort: 8080,
+      proxy: { mode: 'host', container: null, certificateExpiresAt: inDays(80) },
+      host: {
+        hostname: 'vps-prod-01',
+        os: 'Ubuntu 24.04.1 LTS',
+        kernel: '6.8.0-45-generic',
+        arch: 'x64',
+        cpus: 4,
+        memoryBytes: 8 * 1024 ** 3,
+        dockerVersion: '27.3.1',
+        composeVersion: '2.29.7',
+        capturedAt: '2026-08-30T18:40:00.000Z',
+      },
+      history: [
+        {
+          at: '2026-08-30T18:40:00.000Z',
+          command: 'update',
+          commitSha: '4f21ab9c33de7715b0a1d2e3f4a5b6c7d8e9f001',
+          previousCommitSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678',
+          ref: 'main',
+          durationMs: 95_000,
+          cliVersion: '1.9.0',
+          outcome: 'success',
+        },
+        {
+          at: '2026-01-04T09:12:00.000Z',
+          command: 'install',
+          commitSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678',
+          previousCommitSha: null,
+          ref: 'v2.0.0',
+          durationMs: null,
+          cliVersion: '1.2.0',
+          outcome: 'success',
+        },
+      ],
+      runtime: {
+        processStartedAt: '2026-08-30T18:41:00.000Z',
+        nodeVersion: 'v20.17.0',
+        environment: 'production',
+      },
+      ...overrides,
+    });
+  }
+
+  it('shows the last command, bind port and proxy among the deployment facts', async () => {
+    serveAbout(full());
+    render(<AboutPage />, { wrapperOptions: { user: mockAdminUser } });
+
+    const facts = await screen.findByTestId('about-deployment-facts');
+    expect(within(facts).getByText('Update')).toBeInTheDocument();
+    expect(within(facts).getByText('8080')).toBeInTheDocument();
+    expect(within(facts).getByText('Host proxy')).toBeInTheDocument();
+  });
+
+  it('labels an install as Install', async () => {
+    serveAbout(full({ lastCommand: 'install' }));
+    render(<AboutPage />, { wrapperOptions: { user: mockAdminUser } });
+
+    const facts = await screen.findByTestId('about-deployment-facts');
+    expect(within(facts).getByText('Install')).toBeInTheDocument();
+  });
+
+  it('renders the host panel with formatted memory', async () => {
+    serveAbout(full());
+    render(<AboutPage />, { wrapperOptions: { user: mockAdminUser } });
+
+    const host = await screen.findByTestId('about-host-facts');
+    expect(within(host).getByText('vps-prod-01')).toBeInTheDocument();
+    expect(within(host).getByText('Ubuntu 24.04.1 LTS')).toBeInTheDocument();
+    expect(within(host).getByText('6.8.0-45-generic')).toBeInTheDocument();
+    expect(within(host).getByText('x64')).toBeInTheDocument();
+    expect(within(host).getByText('4')).toBeInTheDocument();
+    expect(within(host).getByText('8 GiB')).toBeInTheDocument();
+    expect(within(host).getByText('27.3.1')).toBeInTheDocument();
+    expect(within(host).getByText('2.29.7')).toBeInTheDocument();
+    expect(screen.queryByTestId('about-host-not-recorded')).not.toBeInTheDocument();
+  });
+
+  it('renders the runtime facts inside the API process panel', async () => {
+    serveAbout(full());
+    render(<AboutPage />, { wrapperOptions: { user: mockAdminUser } });
+
+    const apiFacts = await screen.findByTestId('about-api-facts');
+    expect(within(apiFacts).getByText('v20.17.0')).toBeInTheDocument();
+    expect(within(apiFacts).getByText('production')).toBeInTheDocument();
+    expect(within(apiFacts).getByText('Process started')).toBeInTheDocument();
+  });
+
+  it('lists every history entry as a table row, previous → new commit', async () => {
+    serveAbout(full());
+    render(<AboutPage />, { wrapperOptions: { user: mockAdminUser } });
+
+    const table = await screen.findByTestId('about-history-table');
+    const rows = within(table).getAllByTestId('about-history-row');
+    expect(rows).toHaveLength(2);
+
+    expect(within(rows[0]).getByText('Update')).toBeInTheDocument();
+    expect(within(rows[0]).getByText('a1b2c3d')).toBeInTheDocument();
+    expect(within(rows[0]).getByText('4f21ab9')).toBeInTheDocument();
+    expect(within(rows[0]).getByText('main')).toBeInTheDocument();
+    expect(within(rows[0]).getByText('1m 35s')).toBeInTheDocument();
+    expect(within(rows[0]).getByText('1.9.0')).toBeInTheDocument();
+
+    // A first install has no previous commit and an unmeasured duration.
+    expect(within(rows[1]).getByText('Install')).toBeInTheDocument();
+    expect(within(rows[1]).getByText('a1b2c3d')).toBeInTheDocument();
+    expect(within(rows[1]).queryByText('→')).not.toBeInTheDocument();
+    expect(within(rows[1]).getByText('v2.0.0')).toBeInTheDocument();
+    expect(within(rows[1]).getByText('Not recorded')).toBeInTheDocument();
+  });
+
+  it('collapses the history into stacked cards on a phone, with no table mounted', async () => {
+    setViewportWidth(390);
+    serveAbout(full());
+    render(<AboutPage />, { wrapperOptions: { user: mockAdminUser } });
+
+    const list = await screen.findByTestId('about-history-list');
+    expect(within(list).getAllByTestId('about-history-item')).toHaveLength(2);
+    expect(screen.queryByTestId('about-history-table')).not.toBeInTheDocument();
+  });
+
+  describe('certificate expiry', () => {
+    it('renders a comfortable expiry in the normal colour, relative and absolute', async () => {
+      serveAbout(full());
+      render(<AboutPage />, { wrapperOptions: { user: mockAdminUser } });
+
+      const cert = await screen.findByTestId('about-certificate-expiry');
+      expect(cert).toHaveAttribute('data-state', 'ok');
+      expect(cert).toHaveTextContent(/Expires in (79|80) days/);
+      expect(cert).toHaveTextContent('(');
+    });
+
+    it('warns when fewer than 21 days remain', async () => {
+      serveAbout(full({ proxy: { mode: 'host', container: null, certificateExpiresAt: inDays(10) } }));
+      render(<AboutPage />, { wrapperOptions: { user: mockAdminUser } });
+
+      const cert = await screen.findByTestId('about-certificate-expiry');
+      expect(cert).toHaveAttribute('data-state', 'expiring');
+      expect(cert).toHaveStyle({ color: 'rgb(237, 108, 2)' });
+    });
+
+    it('marks an expired certificate as an error', async () => {
+      serveAbout(full({ proxy: { mode: 'host', container: null, certificateExpiresAt: inDays(-3) } }));
+      render(<AboutPage />, { wrapperOptions: { user: mockAdminUser } });
+
+      const cert = await screen.findByTestId('about-certificate-expiry');
+      expect(cert).toHaveAttribute('data-state', 'expired');
+      expect(cert).toHaveTextContent(/Expired 3 days ago/);
+      expect(cert).toHaveStyle({ color: 'rgb(211, 47, 47)' });
+    });
+  });
+
+  describe('absent or null #392 fields', () => {
+    it('renders exactly as before when the response predates #392', async () => {
+      // `aboutResponse()` carries none of the new keys at all.
+      serveAbout(aboutResponse());
+      render(<AboutPage />, { wrapperOptions: { user: mockAdminUser } });
+
+      const facts = await screen.findByTestId('about-deployment-facts');
+      // Last command, bind port, proxy and certificate.
+      expect(within(facts).getAllByText('Not recorded')).toHaveLength(4);
+      expect(screen.queryByTestId('about-certificate-expiry')).not.toBeInTheDocument();
+      expect(screen.getByTestId('about-host-not-recorded')).toBeInTheDocument();
+      expect(screen.getByTestId('about-history-empty')).toBeInTheDocument();
+      const apiFacts = screen.getByTestId('about-api-facts');
+      expect(within(apiFacts).getAllByText('Not recorded')).toHaveLength(3);
+    });
+
+    it('treats explicit nulls the same as absent keys', async () => {
+      serveAbout(
+        aboutResponse({
+          lastCommand: null,
+          bindPort: null,
+          proxy: null,
+          host: null,
+          history: [],
+          runtime: null,
+        }),
+      );
+      render(<AboutPage />, { wrapperOptions: { user: mockAdminUser } });
+
+      await screen.findByTestId('about-deployment-facts');
+      expect(screen.getByTestId('about-host-not-recorded')).toBeInTheDocument();
+      expect(screen.getByTestId('about-history-empty')).toBeInTheDocument();
+      expect(screen.queryByTestId('about-history-table')).not.toBeInTheDocument();
+    });
+
+    it('renders the history fallback for history: null on a readable record', async () => {
+      serveAbout(full({ history: null }));
+      render(<AboutPage />, { wrapperOptions: { user: mockAdminUser } });
+
+      expect(await screen.findByTestId('about-history-empty')).toBeInTheDocument();
+      expect(screen.queryByTestId('about-history-table')).not.toBeInTheDocument();
+      // The rest of the #392 detail is unaffected.
+      expect(screen.getByTestId('about-host-facts')).toBeInTheDocument();
+    });
+
+    it('renders null host sub-fields as "Not recorded"', async () => {
+      serveAbout(
+        full({
+          host: {
+            hostname: 'vps-prod-01',
+            os: null,
+            kernel: null,
+            arch: null,
+            cpus: null,
+            memoryBytes: null,
+            dockerVersion: null,
+            composeVersion: null,
+            capturedAt: null,
+          },
+        }),
+      );
+      render(<AboutPage />, { wrapperOptions: { user: mockAdminUser } });
+
+      const host = await screen.findByTestId('about-host-facts');
+      expect(within(host).getAllByText('Not recorded')).toHaveLength(8);
+    });
+
+    it('shows no host or history panel at all when there is no record', async () => {
+      serveAbout(
+        full({ deployInfoStatus: 'absent', app: null, run: null, remote: null }),
+      );
+      render(<AboutPage />, { wrapperOptions: { user: mockAdminUser } });
+
+      await screen.findByTestId('about-no-record');
+      expect(screen.queryByTestId('about-host-facts')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('about-host-not-recorded')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('about-history-table')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('about-history-empty')).not.toBeInTheDocument();
+      // The runtime is live, not from the record, so it survives.
+      expect(within(screen.getByTestId('about-api-facts')).getByText('v20.17.0')).toBeInTheDocument();
+    });
   });
 });

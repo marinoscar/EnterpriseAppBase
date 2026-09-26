@@ -116,6 +116,51 @@ export interface DeployInfoRun {
   outcome: DeployRunOutcome | null;
 }
 
+// --- Issue #392: additive fields. `schema` stays 1 — see DEPLOY_INFO_SCHEMA_VERSION. ---
+
+/** Which `appctl deploy` subcommand last wrote the document. */
+export type DeployCommand = 'install' | 'update';
+
+/** How TLS is terminated in front of this deployment. */
+export type DeployProxyMode = 'container' | 'host';
+
+export interface DeployInfoProxy {
+  mode: DeployProxyMode | null;
+  /** The proxy container's name, when `mode` is `'container'`. */
+  container: string | null;
+  /** ISO-8601; as observed by the CLI when it wrote the file, never re-probed. */
+  certificateExpiresAt: string | null;
+}
+
+/** Facts about the machine, captured by the CLI at `capturedAt` — never live. */
+export interface DeployInfoHost {
+  hostname: string | null;
+  os: string | null;
+  kernel: string | null;
+  arch: string | null;
+  cpus: number | null;
+  memoryBytes: number | null;
+  dockerVersion: string | null;
+  composeVersion: string | null;
+  capturedAt: string | null;
+}
+
+/** One successful deploy run. The history is success-only by contract. */
+export interface DeployInfoHistoryEntry {
+  /** ISO-8601 finish time. Required: an entry without one is dropped. */
+  at: string;
+  command: DeployCommand;
+  commitSha: string | null;
+  previousCommitSha: string | null;
+  ref: string | null;
+  durationMs: number | null;
+  cliVersion: string | null;
+  outcome: 'success';
+}
+
+/** The most history entries ever surfaced, whatever the file carries. */
+export const DEPLOY_INFO_HISTORY_LIMIT = 20;
+
 export interface DeployInfoDocument {
   app: DeployInfoApp;
   installedAt: string | null;
@@ -124,6 +169,12 @@ export interface DeployInfoDocument {
   domain: string | null;
   remote: DeployInfoRemote | null;
   run: DeployInfoRun | null;
+  lastCommand: DeployCommand | null;
+  bindPort: number | null;
+  proxy: DeployInfoProxy | null;
+  host: DeployInfoHost | null;
+  /** Newest first, at most `DEPLOY_INFO_HISTORY_LIMIT`; `[]` when the file has none. */
+  history: DeployInfoHistoryEntry[];
 }
 
 export interface DeployInfoReadResult {
@@ -222,6 +273,11 @@ export async function readDeployInfo(path: string): Promise<DeployInfoReadResult
       domain: readString(parsed.domain),
       remote: readRemote(parsed.remote),
       run: readRun(parsed.run),
+      lastCommand: readCommand(parsed.lastCommand),
+      bindPort: readPort(parsed.bindPort),
+      proxy: readProxy(parsed.proxy),
+      host: readHost(parsed.host),
+      history: readHistory(parsed.history),
     },
   };
 }
@@ -303,4 +359,109 @@ function readRun(value: unknown): DeployInfoRun | null {
     // `invalid` — see this file's header on why only `schema` is strict.
     outcome: outcome === 'success' || outcome === 'failure' ? outcome : null,
   };
+}
+
+// -----------------------------------------------------------------------------
+// Issue #392 additions — same leniency rules as everything above
+// -----------------------------------------------------------------------------
+
+/**
+ * A string that parses as a date, or `null`.
+ *
+ * Deliberately loose (anything `Date.parse` accepts): the writer emits
+ * `toISOString()`, and this only has to stop obvious garbage reaching a client
+ * that will try to render it as a date. The ORIGINAL string is returned, never
+ * a re-serialisation, so what the disk said is what the client sees.
+ */
+function readTimestamp(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length === 0) return null;
+
+  return Number.isNaN(Date.parse(value)) ? null : value;
+}
+
+function readInteger(value: unknown, min: number, max = Number.MAX_SAFE_INTEGER): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max
+    ? value
+    : null;
+}
+
+function readNonNegative(value: unknown): number | null {
+  const number = readNumber(value);
+
+  return number !== null && number >= 0 ? number : null;
+}
+
+function readCommand(value: unknown): DeployCommand | null {
+  return value === 'install' || value === 'update' ? value : null;
+}
+
+function readPort(value: unknown): number | null {
+  return readInteger(value, 1, 65535);
+}
+
+function readProxy(value: unknown): DeployInfoProxy | null {
+  if (!isRecord(value)) return null;
+
+  const mode = value.mode;
+
+  return {
+    mode: mode === 'container' || mode === 'host' ? mode : null,
+    container: readString(value.container),
+    certificateExpiresAt: readTimestamp(value.certificateExpiresAt),
+  };
+}
+
+function readHost(value: unknown): DeployInfoHost | null {
+  if (!isRecord(value)) return null;
+
+  return {
+    hostname: readString(value.hostname),
+    os: readString(value.os),
+    kernel: readString(value.kernel),
+    arch: readString(value.arch),
+    cpus: readInteger(value.cpus, 1),
+    memoryBytes: readInteger(value.memoryBytes, 0),
+    dockerVersion: readString(value.dockerVersion),
+    composeVersion: readString(value.composeVersion),
+    capturedAt: readTimestamp(value.capturedAt),
+  };
+}
+
+/**
+ * The success-only deploy history, newest first as the writer orders it.
+ *
+ * An entry is DROPPED — not nulled — when it lacks the three facts that make
+ * it an entry at all: a parseable `at`, a recognised `command`, and
+ * `outcome: 'success'` (the history is success-only by contract, so anything
+ * else is not a history entry this reader understands). Every other sub-field
+ * degrades to `null` like the rest of the document. The list is capped AFTER
+ * filtering, so an invalid entry never costs a valid one its place.
+ */
+function readHistory(value: unknown): DeployInfoHistoryEntry[] {
+  if (!Array.isArray(value)) return [];
+
+  const entries: DeployInfoHistoryEntry[] = [];
+
+  for (const item of value) {
+    if (entries.length >= DEPLOY_INFO_HISTORY_LIMIT) break;
+    if (!isRecord(item)) continue;
+
+    const at = readTimestamp(item.at);
+    const command = readCommand(item.command);
+
+    if (at === null || command === null || item.outcome !== 'success') continue;
+
+    entries.push({
+      at,
+      command,
+      commitSha: readString(item.commitSha),
+      previousCommitSha: readString(item.previousCommitSha),
+      ref: readString(item.ref),
+      durationMs: readNonNegative(item.durationMs),
+      cliVersion: readString(item.cliVersion),
+      outcome: 'success',
+    });
+  }
+
+  return entries;
 }

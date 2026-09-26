@@ -23,6 +23,13 @@ import { resolveApiVersion } from '../openapi/version';
 import { readDeployInfo, resolveDeployInfoPath } from './deploy-info';
 import type { AboutResponse } from './dto/about-response.dto';
 
+/**
+ * When this process started, fixed once at module load. `process.uptime()` is
+ * measured from process start, so subtracting it from "now" at load time gives
+ * the start instant; computing it per request would drift by clock jitter.
+ */
+const PROCESS_STARTED_AT = new Date(Date.now() - process.uptime() * 1000).toISOString();
+
 /** The key the health indicator reports its result under. */
 const DATABASE_INDICATOR_KEY = 'database';
 
@@ -70,6 +77,20 @@ export class AboutService {
       // `'failure'` still arrives with `deployInfoStatus: 'ok'` and every other
       // field populated, plus `run.failedStep` naming where it stopped.
       run: document?.run ?? null,
+
+      // Issue #392 additions — same `null`-when-no-document rule.
+      lastCommand: document?.lastCommand ?? null,
+      bindPort: document?.bindPort ?? null,
+      proxy: document?.proxy ?? null,
+      host: document?.host ?? null,
+      history: document?.history ?? null,
+
+      // Live, not from disk — the one part of this report always current.
+      runtime: {
+        processStartedAt: PROCESS_STARTED_AT,
+        nodeVersion: process.version,
+        environment: process.env.NODE_ENV?.trim() || null,
+      },
 
       database,
       databaseError,

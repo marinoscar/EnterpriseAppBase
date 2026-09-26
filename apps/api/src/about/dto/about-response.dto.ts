@@ -110,6 +110,64 @@ export const aboutRunSchema = z.object({
   outcome: z.enum(['success', 'failure']).nullable(),
 });
 
+// --- Issue #392: additive document fields ------------------------------------
+
+export const aboutProxySchema = z.object({
+  /** `container` — the bundled proxy container; `host` — a proxy on the host. */
+  mode: z.enum(['container', 'host']).nullable(),
+  /** The proxy container's name, when `mode` is `container`. */
+  container: z.string().nullable(),
+  /**
+   * ISO-8601. ⚠ AS OBSERVED BY THE CLI WHEN IT WROTE THE FILE — this endpoint
+   * does not probe the certificate.
+   */
+  certificateExpiresAt: z.string().nullable(),
+});
+
+export const aboutHostSchema = z.object({
+  hostname: z.string().nullable(),
+  /** e.g. `Ubuntu 24.04.1 LTS` (os-release PRETTY_NAME) or `os.type()`. */
+  os: z.string().nullable(),
+  /** `os.release()`. */
+  kernel: z.string().nullable(),
+  /** `os.arch()`. */
+  arch: z.string().nullable(),
+  cpus: z.number().int().nullable(),
+  /** `os.totalmem()`, in bytes. */
+  memoryBytes: z.number().int().nullable(),
+  dockerVersion: z.string().nullable(),
+  composeVersion: z.string().nullable(),
+  /** ISO-8601. Every fact above is as of this moment, never live. */
+  capturedAt: z.string().nullable(),
+});
+
+export const aboutHistoryEntrySchema = z.object({
+  /** ISO-8601 finish time of the run. */
+  at: z.string(),
+  command: z.enum(['install', 'update']),
+  commitSha: z.string().nullable(),
+  /** The commit the run replaced; `null` for an install. */
+  previousCommitSha: z.string().nullable(),
+  ref: z.string().nullable(),
+  durationMs: z.number().nullable(),
+  cliVersion: z.string().nullable(),
+  /** The history is success-only; a failed run is reported by `run`, not here. */
+  outcome: z.literal('success'),
+});
+
+/**
+ * Live facts about THIS API process — the only part of the response not read
+ * from the deploy document, and so the only part that is always current.
+ */
+export const aboutRuntimeSchema = z.object({
+  /** ISO-8601; when this process started (now minus `process.uptime()`). */
+  processStartedAt: z.string(),
+  /** `process.version`, e.g. `v22.11.0`. */
+  nodeVersion: z.string(),
+  /** `NODE_ENV`, or `null` when unset. */
+  environment: z.string().nullable(),
+});
+
 export const aboutDatabaseSchema = z.object({
   status: z.string(),
   /** Round-trip time of the probe, as the health module already formats it. */
@@ -149,6 +207,24 @@ export const aboutResponseSchema = z.object({
   domain: z.string().nullable(),
   remote: aboutRemoteSchema.nullable(),
   run: aboutRunSchema.nullable(),
+
+  /** Which `appctl deploy` subcommand last wrote the document. */
+  lastCommand: z.enum(['install', 'update']).nullable(),
+  /** The host port the stack is bound to (1–65535). */
+  bindPort: z.number().int().nullable(),
+  proxy: aboutProxySchema.nullable(),
+  host: aboutHostSchema.nullable(),
+  /**
+   * Successful deploy runs, newest first, at most 20.
+   *
+   * `null` when no document was read (like every other document field); `[]`
+   * when a document was read but carries no history — the difference between
+   * "cannot know" and "knows there is none".
+   */
+  history: z.array(aboutHistoryEntrySchema).nullable(),
+
+  /** Live facts about this API process. Always present, never from disk. */
+  runtime: aboutRuntimeSchema,
 
   /**
    * A liveness fact about the database, from the same indicator

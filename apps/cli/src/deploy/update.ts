@@ -35,7 +35,14 @@ import {
   type ResolvedProxyRuntime,
 } from './proxy.js';
 import { ensureCheckout, normaliseRepoUrl, resolveRepoTarget, type RepoTarget } from './repo.js';
-import { NotInstalledError, readState, writeState, type DeployState } from './state.js';
+import {
+  NotInstalledError,
+  appendHistory,
+  readState,
+  writeState,
+  type DeployState,
+  type HostFacts,
+} from './state.js';
 import { runPipeline, type DeployStep, type StepContext } from './steps/pipeline.js';
 import {
   checkoutPathFor,
@@ -44,7 +51,9 @@ import {
   stampAppVersion,
   type VersionStepResult,
 } from './version-step.js';
-import { writeDeployInfo } from './deploy-info.js';
+import { writeDeployInfo, type DeployInfoInput } from './deploy-info.js';
+import { collectHostFacts } from './host-facts.js';
+import { observeProxy, proxyInfoOf } from './run-record.js';
 import { composeArgv, composeCwd, composeProjectFor, secretsFrom } from './install.js';
 import type { PromptContext } from '../prompt.js';
 
@@ -124,6 +133,66 @@ interface UpdateContext extends StepContext {
   version?: VersionStepResult | undefined;
   /** Resolved by `publish` when it runs; recorded in the state afterwards. */
   proxyRuntime?: ResolvedProxyRuntime | undefined;
+  /** Collected once, on first use; see `hostFactsOf`. */
+  hostFacts?: HostFacts | undefined;
+}
+
+/** Collected ONCE per run and reused; see install.ts's `hostFactsOf`. */
+async function hostFactsOf(context: UpdateContext): Promise<HostFacts> {
+  context.hostFacts ??= await collectHostFacts({ runCommand: context.runCommand });
+  return context.hostFacts;
+}
+
+/** The proxy mode/container this run knows: resolved now, else as recorded. */
+function currentRuntime(context: UpdateContext): {
+  mode: 'container' | 'host' | undefined;
+  container: string | undefined;
+} {
+  return context.proxyRuntime === undefined
+    ? { mode: context.state.proxyMode, container: context.state.proxyContainer }
+    : { mode: context.proxyRuntime.mode, container: context.proxyRuntime.container };
+}
+
+/**
+ * The info.json input for this run, as known at `at`. One builder for the
+ * health-gate write and the end-of-run rewrite; see install.ts's
+ * `installDeployInfo` for why.
+ */
+function updateDeployInfo(context: UpdateContext, at: string): DeployInfoInput {
+  const state = context.state;
+  const ref = context.target?.ref ?? state.ref;
+  const runtime = currentRuntime(context);
+  return {
+    name: basename(context.options.deployRoot),
+    ...(context.version?.version === undefined ? {} : { version: context.version.version }),
+    ...(context.commitSha === undefined ? {} : { commitSha: context.commitSha }),
+    ...(ref === undefined ? {} : { ref }),
+    installedAt: state.installedAt,
+    updatedAt: at,
+    cliVersion: CLI_VERSION,
+    ...(state.domain === undefined ? {} : { domain: state.domain }),
+    // What THIS run has finished so far -- not the resume set, which is what
+    // a PREVIOUS run finished.
+    completed: [...(context.progress ?? [])],
+    lastCommand: 'update',
+    bindPort: state.bindPort,
+    proxy: proxyInfoOf(
+      state.domain === undefined
+        ? undefined
+        : {
+            domain: state.domain,
+            bindPort: state.bindPort,
+            mode: runtime.mode ?? null,
+            container: runtime.container ?? null,
+            // Until the end-of-run rewrite, what the last successful run read.
+            certificateExpiresAt:
+              state.proxy?.domain === state.domain ? state.proxy.certificateExpiresAt : null,
+          },
+    ),
+    ...(context.hostFacts === undefined ? {} : { host: context.hostFacts }),
+    // Success-only: THIS run is not in it until it has succeeded.
+    history: state.history ?? [],
+  };
 }
 
 /** Certificates are renewed within this window, not on every deploy. */
@@ -569,22 +638,15 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
         // which runs between here and there -- would leave that page reporting
         // nothing at all about a deployment that is up and serving, which is
         // exactly when somebody is looking at it.
-        const now = new Date().toISOString();
-        const result = writeDeployInfo(context.options.deployRoot, {
-          name: basename(context.options.deployRoot),
-          ...(context.version?.version === undefined
-            ? {}
-            : { version: context.version.version }),
-          ...(context.commitSha === undefined ? {} : { commitSha: context.commitSha }),
-          ...(context.target?.ref ?? context.state.ref === undefined ? {} : { ref: context.target?.ref ?? context.state.ref }),
-          installedAt: context.state.installedAt,
-          updatedAt: now,
-          cliVersion: CLI_VERSION,
-          ...(context.state.domain === undefined ? {} : { domain: context.state.domain }),
-          // What THIS run has finished by the health gate -- not the resume
-          // set, which is what a PREVIOUS run finished.
-          completed: [...(context.progress ?? [])],
-        });
+        //
+        // ⚠ AND REWRITTEN AT THE END of a successful update (see `runUpdate`),
+        // the only point at which this run's history entry and a freshly read
+        // certificate expiry exist.
+        await hostFactsOf(context);
+        const result = writeDeployInfo(
+          context.options.deployRoot,
+          updateDeployInfo(context, new Date().toISOString()),
+        );
 
         // ⚠ BOOKKEEPING, NOT THE DEPLOYMENT. By this point the stack is up and
         // answering; a file this CLI could not write is a warning, never a
@@ -820,12 +882,36 @@ export async function runUpdate(options: UpdateOptions): Promise<UpdateResult> {
     };
   }
 
+  // ⚠ ONLY THIS PATH APPENDS HISTORY: a failed update throws above, and an
+  // unchanged one deployed nothing, so both leave the prior list untouched.
+  const now = new Date().toISOString();
+  const host = await hostFactsOf(context);
+  const runtime = currentRuntime(context);
+  const proxy = await observeProxy({
+    domain: state.domain,
+    bindPort: state.bindPort,
+    proxyRoot: proxyRootFor(context),
+    mode: runtime.mode,
+    container: runtime.container,
+    runCommand: context.runCommand,
+  });
+  const history = appendHistory(state.history, {
+    at: now,
+    command: 'update',
+    commitSha: (context.commitSha ?? state.commitSha) || null,
+    previousCommitSha: (context.previousSha ?? state.commitSha) || null,
+    ref: context.target?.ref ?? state.ref ?? null,
+    durationMs: Date.now() - startedAt,
+    cliVersion: CLI_VERSION,
+    outcome: 'success',
+  });
+
   writeState({
     ...state,
     ref: context.target?.ref ?? state.ref,
     commitSha: context.commitSha ?? state.commitSha,
     previousSha: context.previousSha,
-    lastDeployedAt: new Date().toISOString(),
+    lastDeployedAt: now,
     lastCommand: 'update',
     appctlVersion: CLI_VERSION,
     // Only when `publish` ran: an update that did not touch the proxy has
@@ -833,7 +919,23 @@ export async function runUpdate(options: UpdateOptions): Promise<UpdateResult> {
     ...(context.proxyRuntime === undefined
       ? {}
       : { proxyMode: context.proxyRuntime.mode, proxyContainer: context.proxyRuntime.container }),
+    host,
+    history,
+    proxy,
   } as DeployState);
+
+  // The end-of-run rewrite of info.json; see install.ts's for why.
+  const info = writeDeployInfo(options.deployRoot, {
+    ...updateDeployInfo(context, now),
+    proxy: proxyInfoOf(proxy),
+    host,
+    history,
+  });
+  journal.line(
+    info.written
+      ? `Wrote ${info.path}`
+      : `warning: could not write ${info.path}: ${info.error ?? 'unknown'}`,
+  );
 
   journal.finish('success');
 

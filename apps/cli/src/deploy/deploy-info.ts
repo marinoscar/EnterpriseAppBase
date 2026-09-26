@@ -28,6 +28,14 @@
  * this file did deploy something, and the page's third state — complete, but
  * the run did not finish — is rendered from `run.outcome` plus `run.failedStep`.
  *
+ * ⚠ AND REWRITTEN ONCE MORE AT THE END OF A SUCCESSFUL RUN (issue #392). The
+ * health-gate write cannot carry this run's `history` entry (history is
+ * success-only, and the run has not succeeded yet) nor the certificate
+ * `publish` has yet to issue. Install and update build both writes from one
+ * builder, so the second only ADDS what the run learned since; a run that fails
+ * after the health gate leaves the first write — with the prior history —
+ * standing, which is exactly the "complete, but did not finish" state.
+ *
  * =============================================================================
  * ⚠ THREE RULES THE READER DEPENDS ON
  * =============================================================================
@@ -48,6 +56,8 @@
 import { renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import type { DeploymentHistoryEntry, HostFacts } from './state.js';
+
 /** The one value `schema` may hold. See rule 1 above. */
 export const DEPLOY_INFO_SCHEMA_VERSION = 1;
 
@@ -67,6 +77,22 @@ export interface DeployInfoInput {
   completed?: readonly string[] | undefined;
   failedStep?: string | undefined;
   outcome?: 'success' | 'failure' | undefined;
+  /** Which command wrote this document (issue #392). */
+  lastCommand?: 'install' | 'update' | undefined;
+  /** Loopback port the proxy forwards to. */
+  bindPort?: number | undefined;
+  /** How the shared proxy publishes this deployment; absent means not known. */
+  proxy?:
+    | {
+        mode?: 'container' | 'host' | null | undefined;
+        container?: string | null | undefined;
+        certificateExpiresAt?: string | null | undefined;
+      }
+    | undefined;
+  /** The host, as `collectHostFacts` observed it; absent means not known. */
+  host?: HostFacts | undefined;
+  /** The deployment state's own history -- the SAME entries, newest first. */
+  history?: readonly DeploymentHistoryEntry[] | undefined;
 }
 
 /** `undefined` becomes `null`; see rule 2. */
@@ -102,6 +128,46 @@ export function buildDeployInfo(input: DeployInfoInput): Record<string, unknown>
       // a later failure rewrites it with the failed step named.
       outcome: orNull(input.outcome) ?? 'success',
     },
+    // ⚠ ISSUE #392's ADDITIVE FIELDS. `schema` stays 1 (rule 1), every key is
+    // ALWAYS written (rule 2), and each object is rebuilt key by key rather
+    // than spread, so the document's shape is exactly the contract's and a
+    // field added to an internal type can never leak into it. The shared
+    // fixture `apps/api/test/fixtures/deploy-info.sample.json` pins that shape
+    // from both sides.
+    lastCommand: orNull(input.lastCommand),
+    bindPort: orNull(input.bindPort),
+    proxy:
+      input.proxy === undefined
+        ? null
+        : {
+            mode: orNull(input.proxy.mode),
+            container: orNull(input.proxy.container),
+            certificateExpiresAt: orNull(input.proxy.certificateExpiresAt),
+          },
+    host:
+      input.host === undefined
+        ? null
+        : {
+            hostname: input.host.hostname,
+            os: input.host.os,
+            kernel: input.host.kernel,
+            arch: input.host.arch,
+            cpus: input.host.cpus,
+            memoryBytes: input.host.memoryBytes,
+            dockerVersion: input.host.dockerVersion,
+            composeVersion: input.host.composeVersion,
+            capturedAt: input.host.capturedAt,
+          },
+    history: (input.history ?? []).map((entry) => ({
+      at: entry.at,
+      command: entry.command,
+      commitSha: entry.commitSha,
+      previousCommitSha: entry.previousCommitSha,
+      ref: entry.ref,
+      durationMs: entry.durationMs,
+      cliVersion: entry.cliVersion,
+      outcome: entry.outcome,
+    })),
   };
 }
 
