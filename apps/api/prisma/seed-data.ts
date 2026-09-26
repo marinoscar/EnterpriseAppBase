@@ -386,5 +386,6 @@ export const DEFAULT_SYSTEM_SETTINGS = {
       mcp: false,
       mcpAllowedHosts: [],
     },
+    limits: {},
   },
 };

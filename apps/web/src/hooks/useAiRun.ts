@@ -14,6 +14,13 @@
  * answering on its own.
  *
  * `onSettled` fires exactly once per run, when it reaches a terminal state.
+ *
+ * ANY RUN, NOT ONLY TEXT (#445). `start` queues a text response; `startWith`
+ * takes whichever call created the run — `POST /ai/images`,
+ * `POST /ai/images/edits`, and the media routes after them all answer the
+ * same 202 `{ runId, jobId }` and settle through the same `GET /ai/runs/:id`.
+ * Narrow the settled `output` with `isAiResponseRunOutput` /
+ * `isAiImageRunOutput`.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -22,6 +29,7 @@ import {
   getAiRun,
   type AiResponseRequest,
   type AiRun,
+  type AiRunStarted,
   type AiRunStatus,
 } from '../services/ai';
 import { toAiErrorInfo, type AiErrorInfo } from '../services/aiErrors';
@@ -49,8 +57,14 @@ export interface UseAiRunReturn {
   isStarting: boolean;
   isCancelling: boolean;
   error: AiErrorInfo | null;
-  /** Start a run; resolves to its id, or `null` when the API refused it. */
+  /** Start a text run; resolves to its id, or `null` when the API refused it. */
   start: (request: AiResponseRequest) => Promise<string | null>;
+  /**
+   * Start a run through any call that answers 202 `{ runId, jobId }` (an image
+   * generation, say) and poll it like `start`. Resolves to its id, or `null`
+   * when the call threw.
+   */
+  startWith: (create: () => Promise<AiRunStarted>) => Promise<string | null>;
   cancel: () => Promise<void>;
   /** Forget the run (stops polling; does NOT cancel it server-side). */
   clear: () => void;
@@ -110,15 +124,15 @@ export function useAiRun(options: UseAiRunOptions = {}): UseAiRunReturn {
     };
   }, [runId, polling, intervalMs, accept, isMounted]);
 
-  const start = useCallback(
-    async (request: AiResponseRequest) => {
+  const startWith = useCallback(
+    async (create: () => Promise<AiRunStarted>) => {
       setIsStarting(true);
       setError(null);
       setRun(null);
       setRunId(null);
       setPolling(false);
       try {
-        const started = await createAiRun(request);
+        const started = await create();
         if (!isMounted()) return started.runId;
         setRunId(started.runId);
         setPolling(true);
@@ -132,6 +146,8 @@ export function useAiRun(options: UseAiRunOptions = {}): UseAiRunReturn {
     },
     [isMounted],
   );
+
+  const start = useCallback((request: AiResponseRequest) => startWith(() => createAiRun(request)), [startWith]);
 
   const cancel = useCallback(async () => {
     if (!runId) return;
@@ -155,5 +171,5 @@ export function useAiRun(options: UseAiRunOptions = {}): UseAiRunReturn {
 
   const isActive = isStarting || polling;
 
-  return { run, runId, isActive, isStarting, isCancelling, error, start, cancel, clear };
+  return { run, runId, isActive, isStarting, isCancelling, error, start, startWith, cancel, clear };
 }

@@ -105,6 +105,7 @@ export class AiConfigAdminService {
       },
       usageRetentionDays: policy.usageRetentionDays,
       hostedTools: { ...policy.hostedTools, mcpAllowedHosts: [...policy.hostedTools.mcpAllowedHosts] },
+      limits: structuredClone(policy.limits),
       providers: ids.map((id, index) => this.describeProvider(id, policy, keyInfos[index])),
       version: row?.version ?? 0,
       updatedAt: row?.updatedAt.toISOString() ?? null,
@@ -317,6 +318,9 @@ export class AiConfigAdminService {
       hostedTools: input.hostedTools
         ? { ...input.hostedTools, mcpAllowedHosts: [...new Set(input.hostedTools.mcpAllowedHosts)] }
         : { ...current.hostedTools, mcpAllowedHosts: [...current.hostedTools.mcpAllowedHosts] },
+      // Optional in the body too (#450). When sent it replaces the stored
+      // limits WHOLESALE — leaving a field out is how a limit is lifted.
+      limits: structuredClone(input.limits ?? current.limits),
     };
   }
 
@@ -465,6 +469,12 @@ export function diffFieldNames(before: SystemAiValue, after: SystemAiValue): str
       'hostedTools.mcp': value.hostedTools.mcp,
       // Compared as one value: the audit row names the list, never its hosts.
       'hostedTools.mcpAllowedHosts': value.hostedTools.mcpAllowedHosts.join('\n'),
+      'limits.perUser.requestsPerMinute': value.limits.perUser?.requestsPerMinute,
+      'limits.perUser.requestsPerDay': value.limits.perUser?.requestsPerDay,
+      'limits.orgKey.requestsPerDayPerUser': value.limits.orgKey?.requestsPerDayPerUser,
+      'limits.orgKey.tokensPerDayPerUser': value.limits.orgKey?.tokensPerDayPerUser,
+      // Compared as one value, like the host list: the audit row names the map.
+      'limits.perModel': stableJson(value.limits.perModel ?? {}),
     };
 
     for (const [id, slot] of Object.entries(value.providers)) {
@@ -479,4 +489,16 @@ export function diffFieldNames(before: SystemAiValue, after: SystemAiValue): str
   const b = flat(after);
 
   return [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((key) => a[key] !== b[key]);
+}
+
+/** A JSON rendering independent of key order, for comparing two values. */
+function stableJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'undefined';
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, v]) => v !== undefined)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+
+  return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableJson(v)}`).join(',')}}`;
 }

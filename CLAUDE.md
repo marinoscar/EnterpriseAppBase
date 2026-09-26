@@ -720,7 +720,7 @@ model catalog, all editable with no restart at `/admin/settings/ai` and
 [`docs/specs/ai-platform.md`](docs/specs/ai-platform.md) and
 [`docs/runbooks/ai-configuration.md`](docs/runbooks/ai-configuration.md).
 - `GET /api/admin/ai/config` - The `ai` namespace plus one entry per provider (`enabled`, `baseUrl`, capabilities, masked `keyStatus`); the admin key itself is never returned (`ai_config:read`)
-- `PUT /api/admin/ai/config` - Full replace of the non-secret configuration, including the `hostedTools` switches and MCP host allowlist (#442; like `usageRetentionDays`, omitted keeps the stored value); `If-Match` version check (`ai_config:write`)
+- `PUT /api/admin/ai/config` - Full replace of the non-secret configuration, including the `hostedTools` switches and MCP host allowlist (#442) and the `limits` rate limits/output caps (#450: `perUser`, `orgKey`, `perModel['<provider>:<modelId>']`, all optional, absent = unlimited; sent whole, so `{}` lifts them all) — like `usageRetentionDays`, each omitted keeps the stored value; `If-Match` version check (`ai_config:write`)
 - `PUT /api/admin/ai/providers/{provider}/key` - Set/replace the admin (org) key; verified against the provider first, 400 `AI_KEY_INVALID` and nothing stored on rejection (`ai_config:write`)
 - `DELETE /api/admin/ai/providers/{provider}/key` - Remove the admin key; body `{"confirmation":"REMOVE"}`, warns if this leaves `byok_with_org_fallback` with no fallback (`ai_config:write`)
 - `POST /api/admin/ai/providers/{provider}/test` - Three checks — `credentials`, `list_models`, `responses_smoke` (a real, billed call) — against the submitted or stored key; always 200, read `success` (`ai_config:write`)
@@ -1337,8 +1337,11 @@ async summarize(userId: string, text: string) {
 
 No SDK, no key, no policy check of your own — `forUser` runs the full gate
 pipeline (kill switch, provider/model enablement, capability match, key
-resolution, output-token clamp), records one `ai_usage_events` row per
-round-trip, and traces the call. Eleven entry points, all on the client
+resolution, the `ai.limits` rate limits and output-token clamp — #450,
+`docs/specs/ai-platform.md` §15), records one `ai_usage_events` row per
+round-trip, and traces the call. A call over a limit throws
+`AiError('AI_RATE_LIMITED')` with `retryAfterMs` and `details.limit` (429 plus
+`Retry-After` over HTTP); in a job, `err.toRateLimitError()` defers it. Eleven entry points, all on the client
 `forUser` returns:
 
 - **`respond(req, opts?)`** — one response. `req.input` is a string or

@@ -51,12 +51,22 @@ function setPermissions(granted: string[]) {
   });
 }
 
-function setConfig(config: AiAdminConfig | null = mockAiAdminConfig) {
-  mockUseAiAdminConfig.mockReturnValue({
+function setConfig(
+  config: AiAdminConfig | null = mockAiAdminConfig,
+  overrides: Partial<UseAiAdminConfigReturn> = {},
+): UseAiAdminConfigReturn {
+  const value = {
     config,
     isLoading: false,
     loadError: null,
-  } as unknown as UseAiAdminConfigReturn);
+    save: vi.fn().mockResolvedValue(true),
+    isSaving: false,
+    saveError: null,
+    clearSaveError: vi.fn(),
+    ...overrides,
+  } as unknown as UseAiAdminConfigReturn;
+  mockUseAiAdminConfig.mockReturnValue(value);
+  return value;
 }
 
 function setModels(overrides: Partial<UseAiModelsReturn> = {}): UseAiModelsReturn {
@@ -229,7 +239,7 @@ describe('AiModelsPage', () => {
       );
 
       const dialog = await screen.findByRole('dialog');
-      const save = within(dialog).getByRole('button', { name: /save capabilities/i });
+      const save = within(dialog).getByRole('button', { name: /^save$/i });
       expect(save).toBeDisabled(); // nothing chosen yet
 
       await user.click(within(dialog).getByRole('checkbox', { name: 'Text' }));
@@ -252,6 +262,165 @@ describe('AiModelsPage', () => {
         }),
       );
       await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    });
+  });
+
+  describe('per-model limits (#450)', () => {
+    const KEY = 'openai:gpt-5-mini';
+    const OTHER = { 'openai:text-embedding-3-small': { requestsPerMinutePerUser: 9 } };
+    const withLimits: AiAdminConfig = {
+      ...mockAiAdminConfig,
+      limits: {
+        perUser: { requestsPerDay: 100 },
+        perModel: { [KEY]: { maxOutputTokens: 1000, requestsPerMinutePerUser: 5 }, ...OTHER },
+      },
+    };
+
+    /** The PUT body re-saving `withLimits` as loaded, with `limits` replaced. */
+    function expectedInput(limits: AiAdminConfig['limits']) {
+      return {
+        enabled: withLimits.enabled,
+        keyPolicy: withLimits.keyPolicy,
+        logPromptContent: withLimits.logPromptContent,
+        defaults: withLimits.defaults,
+        hostedTools: withLimits.hostedTools,
+        limits,
+        providers: { openai: { enabled: false, baseUrl: null } },
+      };
+    }
+
+    async function openDialog(user: ReturnType<typeof userEvent.setup>) {
+      await user.click(await screen.findByRole('button', { name: 'Edit capabilities for gpt-5-mini' }));
+      return screen.findByRole('dialog');
+    }
+
+    it('prefills the limit fields from limits.perModel', async () => {
+      const user = userEvent.setup();
+      setModels();
+      setConfig(withLimits);
+      renderPage();
+
+      const dialog = await openDialog(user);
+      expect(within(dialog).getByLabelText('Max output tokens per call')).toHaveValue('1000');
+      expect(within(dialog).getByLabelText('Requests per minute per user')).toHaveValue('5');
+      // The capability's own figure is a different field.
+      expect(within(dialog).getByLabelText('Maximum output tokens')).toHaveValue('128000');
+    });
+
+    it('a model with no entry opens with blank (unlimited) fields', async () => {
+      const user = userEvent.setup();
+      setModels();
+      renderPage();
+
+      const dialog = await openDialog(user);
+      expect(within(dialog).getByLabelText('Max output tokens per call')).toHaveValue('');
+      expect(within(dialog).getByLabelText('Requests per minute per user')).toHaveValue('');
+    });
+
+    it('a changed limit PATCHes the capabilities, then PUTs the config with only this entry replaced', async () => {
+      const user = userEvent.setup();
+      const models = setModels();
+      const config = setConfig(withLimits);
+      renderPage();
+
+      const dialog = await openDialog(user);
+      const rpm = within(dialog).getByLabelText('Requests per minute per user');
+      await user.clear(rpm);
+      await user.type(rpm, '12');
+      await user.click(within(dialog).getByRole('button', { name: /^save$/i }));
+
+      await waitFor(() => expect(config.save).toHaveBeenCalledTimes(1));
+      expect(models.updateCapabilities).toHaveBeenCalledWith(
+        mockAiModels[0],
+        expect.objectContaining({ capabilities: mockAiModels[0].capabilities?.capabilities }),
+      );
+      expect(config.save).toHaveBeenCalledWith(
+        expectedInput({
+          perUser: { requestsPerDay: 100 },
+          perModel: { [KEY]: { maxOutputTokens: 1000, requestsPerMinutePerUser: 12 }, ...OTHER },
+        }),
+      );
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    });
+
+    it('clearing both fields removes the entry and keeps every other limit', async () => {
+      const user = userEvent.setup();
+      setModels();
+      const config = setConfig(withLimits);
+      renderPage();
+
+      const dialog = await openDialog(user);
+      await user.clear(within(dialog).getByLabelText('Max output tokens per call'));
+      await user.clear(within(dialog).getByLabelText('Requests per minute per user'));
+      await user.click(within(dialog).getByRole('button', { name: /^save$/i }));
+
+      await waitFor(() => expect(config.save).toHaveBeenCalledTimes(1));
+      expect(config.save).toHaveBeenCalledWith(
+        expectedInput({ perUser: { requestsPerDay: 100 }, perModel: OTHER }),
+      );
+    });
+
+    it('unchanged limits send no config PUT', async () => {
+      const user = userEvent.setup();
+      const models = setModels();
+      const config = setConfig(withLimits);
+      renderPage();
+
+      const dialog = await openDialog(user);
+      await user.click(within(dialog).getByRole('button', { name: /^save$/i }));
+
+      await waitFor(() => expect(models.updateCapabilities).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      expect(config.save).not.toHaveBeenCalled();
+    });
+
+    it('a refused config save keeps the dialog open and shows why', async () => {
+      const user = userEvent.setup();
+      setModels();
+      const config = setConfig(mockAiAdminConfig, { save: vi.fn().mockResolvedValue(false) });
+      const { rerender } = renderPage();
+
+      const dialog = await openDialog(user);
+      await user.type(within(dialog).getByLabelText('Max output tokens per call'), '4000');
+      await user.click(within(dialog).getByRole('button', { name: /^save$/i }));
+
+      await waitFor(() =>
+        expect(config.save).toHaveBeenCalledWith(
+          expectedInput({ perModel: { [KEY]: { maxOutputTokens: 4000 } } }),
+        ),
+      );
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+      setConfig(mockAiAdminConfig, { saveError: 'Someone else changed the AI configuration' });
+      rerender(<AiModelsPage />);
+      expect(within(screen.getByRole('dialog')).getByText(/someone else changed/i)).toBeInTheDocument();
+    });
+
+    it('blocks an invalid limit', async () => {
+      const user = userEvent.setup();
+      setModels();
+      renderPage();
+
+      const dialog = await openDialog(user);
+      await user.type(within(dialog).getByLabelText('Requests per minute per user'), '0');
+      expect(within(dialog).getByText(/whole number greater than zero/i)).toBeInTheDocument();
+      expect(within(dialog).getByRole('button', { name: /^save$/i })).toBeDisabled();
+
+      await user.clear(within(dialog).getByLabelText('Requests per minute per user'));
+      await user.type(within(dialog).getByLabelText('Max output tokens per call'), '1000000001');
+      expect(within(dialog).getByText(/at most 1,000,000,000/i)).toBeInTheDocument();
+      expect(within(dialog).getByRole('button', { name: /^save$/i })).toBeDisabled();
+    });
+
+    it('without the configuration the limit fields are disabled', async () => {
+      const user = userEvent.setup();
+      setModels();
+      setConfig(null);
+      renderPage();
+
+      const dialog = await openDialog(user);
+      expect(within(dialog).getByLabelText('Max output tokens per call')).toBeDisabled();
+      expect(within(dialog).getByText(/could not be loaded/i)).toBeInTheDocument();
     });
   });
 

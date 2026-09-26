@@ -37,6 +37,7 @@ function policy(overrides: Partial<AiPolicy> = {}): AiPolicy {
       mcp: false,
       mcpAllowedHosts: [],
     },
+    limits: {},
     ...overrides,
   };
 }

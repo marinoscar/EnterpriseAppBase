@@ -26,6 +26,7 @@ function policy(overrides: Partial<SystemAiValue> = {}): SystemAiValue {
       mcp: false,
       mcpAllowedHosts: [],
     },
+    limits: {},
     ...overrides,
   };
 }

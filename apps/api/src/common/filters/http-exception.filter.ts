@@ -130,6 +130,16 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
     this.logOutcome(request, status, message, exception);
 
+    // A 429 that says when to come back (`details.retryAfterMs` — every
+    // `AiError('AI_RATE_LIMITED')` that knows, including the AI rate limits of
+    // #450) also says so in the standard header, in whole seconds rounded UP
+    // so a client that honours it never retries early.
+    const retryAfterSeconds = status === 429 ? retryAfterSecondsOf(details) : undefined;
+
+    if (retryAfterSeconds !== undefined) {
+      response.header('Retry-After', String(retryAfterSeconds));
+    }
+
     // Fastify response - use code() and send()
     response.code(status).send(errorResponse);
   }
@@ -188,4 +198,13 @@ export class HttpExceptionFilter implements ExceptionFilter {
     };
     return codeMap[status] || 'ERROR';
   }
+}
+
+/** `details.retryAfterMs` as a `Retry-After` delta-seconds value (at least 1), or `undefined`. */
+function retryAfterSecondsOf(details: unknown): number | undefined {
+  if (details === null || typeof details !== 'object') return undefined;
+
+  const ms = (details as { retryAfterMs?: unknown }).retryAfterMs;
+
+  return typeof ms === 'number' && Number.isFinite(ms) && ms > 0 ? Math.max(1, Math.ceil(ms / 1000)) : undefined;
 }

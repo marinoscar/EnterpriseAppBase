@@ -57,6 +57,7 @@ function build(c: Omit<Case, 'expected'>) {
       mcp: false,
       mcpAllowedHosts: [],
     },
+    limits: {},
   };
   const aiConfig = new AiConfigService(
     { getAiPolicy: jest.fn(async () => policy) } as never,

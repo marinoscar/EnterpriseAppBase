@@ -239,6 +239,8 @@ describe('AiConfigPage', () => {
           mcp: false,
           mcpAllowedHosts: [],
         },
+        // No limits stored and none typed: `{}`, sent explicitly (#450).
+        limits: {},
         providers: { openai: { enabled: true, baseUrl: null } },
       });
       expect(await screen.findByText('AI configuration saved')).toBeInTheDocument();
@@ -383,6 +385,126 @@ describe('AiConfigPage', () => {
         expect(screen.getByRole('switch', { name: label })).not.toBeChecked();
       }
       expect(screen.getByRole('button', { name: /save changes/i })).toBeDisabled();
+    });
+  });
+
+  describe('limits (#450)', () => {
+    const LIMIT_LABELS = [
+      'Requests per minute, per user',
+      'Requests per day, per user',
+      'Organization key: requests per day, per user',
+      'Organization key: tokens per day, per user',
+    ];
+
+    it('renders the four limit fields inside the page, blank meaning unlimited', () => {
+      setHook();
+      renderPage();
+
+      expect(screen.getByRole('heading', { level: 2, name: 'Limits' })).toBeInTheDocument();
+      const section = screen.getByTestId('ai-limits');
+      for (const label of LIMIT_LABELS) {
+        expect(within(section).getByLabelText(label)).toHaveValue('');
+      }
+      // Inside the page, not a tab.
+      expect(screen.queryByRole('tab')).not.toBeInTheDocument();
+    });
+
+    it('reflects the stored limits', () => {
+      setHook({
+        config: {
+          ...mockAiAdminConfig,
+          limits: {
+            perUser: { requestsPerMinute: 20 },
+            orgKey: { tokensPerDayPerUser: 500000 },
+          },
+        },
+      });
+      renderPage();
+
+      expect(screen.getByLabelText('Requests per minute, per user')).toHaveValue('20');
+      expect(screen.getByLabelText('Requests per day, per user')).toHaveValue('');
+      expect(screen.getByLabelText('Organization key: tokens per day, per user')).toHaveValue('500000');
+      expect(screen.getByRole('button', { name: /save changes/i })).toBeDisabled(); // clean
+    });
+
+    it.each([
+      ['0', /whole number greater than zero/i],
+      ['-3', /whole number greater than zero/i],
+      ['2.5', /whole number greater than zero/i],
+      ['ten', /whole number greater than zero/i],
+      ['1000000001', /at most 1,000,000,000/i],
+    ])('blocks %s', async (value, message) => {
+      const user = userEvent.setup();
+      const hook = setHook();
+      renderPage();
+
+      await user.type(screen.getByLabelText('Requests per day, per user'), value);
+      expect(screen.getByText(message)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /save changes/i })).toBeDisabled();
+      expect(hook.save).not.toHaveBeenCalled();
+    });
+
+    it('sends the typed limits in the same PUT, blank fields omitted, per-model entries kept', async () => {
+      const user = userEvent.setup();
+      const perModel = { 'openai:gpt-5-mini': { maxOutputTokens: 2048 } };
+      const hook = setHook({
+        config: {
+          ...mockAiAdminConfig,
+          limits: { orgKey: { requestsPerDayPerUser: 50 }, perModel },
+        },
+      });
+      renderPage();
+
+      await user.type(screen.getByLabelText('Requests per minute, per user'), ' 30 ');
+      await user.type(screen.getByLabelText('Requests per day, per user'), '1000');
+      // Clearing the stored org-key limit lifts it: the whole `orgKey` goes.
+      await user.clear(screen.getByLabelText('Organization key: requests per day, per user'));
+      await user.click(screen.getByRole('button', { name: /save changes/i }));
+
+      await waitFor(() => expect(hook.save).toHaveBeenCalledTimes(1));
+      expect(vi.mocked(hook.save).mock.calls[0][0].limits).toEqual({
+        perUser: { requestsPerMinute: 30, requestsPerDay: 1000 },
+        perModel,
+      });
+    });
+
+    it('clearing every limit sends {} — which lifts them all', async () => {
+      const user = userEvent.setup();
+      const hook = setHook({
+        config: { ...mockAiAdminConfig, limits: { perUser: { requestsPerDay: 5 } } },
+      });
+      renderPage();
+
+      await user.clear(screen.getByLabelText('Requests per day, per user'));
+      await user.click(screen.getByRole('button', { name: /save changes/i }));
+
+      await waitFor(() => expect(hook.save).toHaveBeenCalledTimes(1));
+      expect(vi.mocked(hook.save).mock.calls[0][0].limits).toEqual({});
+    });
+
+    it('an API older than #450 (no limits) reads as unlimited and saves {}', async () => {
+      const user = userEvent.setup();
+      const { limits: _omit, ...legacy } = mockAiAdminConfig;
+      const hook = setHook({ config: legacy });
+      renderPage();
+
+      for (const label of LIMIT_LABELS) {
+        expect(screen.getByLabelText(label)).toHaveValue('');
+      }
+      await user.click(screen.getByRole('switch', { name: 'Log prompt content' }));
+      await user.click(screen.getByRole('button', { name: /save changes/i }));
+      await waitFor(() => expect(hook.save).toHaveBeenCalledTimes(1));
+      expect(vi.mocked(hook.save).mock.calls[0][0].limits).toEqual({});
+    });
+
+    it('read-only admin: the limit fields are disabled', () => {
+      setPermissions(READ_ONLY);
+      setHook();
+      renderPage();
+
+      for (const label of LIMIT_LABELS) {
+        expect(screen.getByLabelText(label)).toBeDisabled();
+      }
     });
   });
 

@@ -29,6 +29,7 @@ import { AiProviderRegistry } from '../core/provider-registry';
 import { AiKeyResolver } from '../keys/ai-key-resolver.service';
 import { UsableModelsService } from '../keys/usable-models.service';
 import { AiService } from '../runtime/ai.service';
+import { AiLimitsService, type AiLimitsClock } from '../runtime/ai-limits.service';
 import { AiRunsService } from '../runtime/ai-runs.service';
 import { AiUsageRecorder } from '../runtime/ai-usage.recorder';
 import { AiOutputWriter } from '../storage/ai-output-writer';
@@ -92,6 +93,11 @@ export interface AiRuntimeHarnessOptions {
   defaultModel?: { provider: string; modelId: string } | null;
   /** Register the fake provider at all. Default true. */
   registerProvider?: boolean;
+  /**
+   * The clock `AiLimitsService` reads and usage rows are stamped with (#450).
+   * Default: the real `Date.now`.
+   */
+  clock?: AiLimitsClock;
 }
 
 export interface StoredAiRun {
@@ -126,6 +132,33 @@ function matchesRun(row: StoredAiRun, where: Where = {}): boolean {
   return true;
 }
 
+/**
+ * The `ai_usage_events` filters `AiLimitsService` uses: equality, `{ in }`,
+ * and `{ gt }` / `{ gte }` on a Date column.
+ */
+function matchesUsage(row: Record<string, any>, where: Where = {}): boolean {
+  for (const [key, expected] of Object.entries(where)) {
+    const actual = row[key];
+
+    if (expected instanceof Date) {
+      if (!(actual instanceof Date) || actual.getTime() !== expected.getTime()) return false;
+    } else if (expected && typeof expected === 'object') {
+      if ('in' in expected && !(expected.in as unknown[]).includes(actual)) return false;
+      if ('gte' in expected && !(actual instanceof Date && actual.getTime() >= (expected.gte as Date).getTime())) {
+        return false;
+      }
+      if ('gt' in expected && !(actual instanceof Date && actual.getTime() > (expected.gt as Date).getTime())) {
+        return false;
+      }
+      if ('not' in expected && actual === expected.not) return false;
+    } else if (actual !== expected) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 function pick(row: object, select?: Record<string, boolean>): Record<string, unknown> {
   const source = row as Record<string, unknown>;
 
@@ -137,6 +170,7 @@ function pick(row: object, select?: Record<string, boolean>): Record<string, unk
 export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
   const db = createInMemoryAiKeysPrisma();
   const usageEvents: Array<Record<string, any>> = [];
+  const clock: AiLimitsClock = opts.clock ?? (() => Date.now());
   const runRows: StoredAiRun[] = [];
   const enqueued: Array<Record<string, any>> = [];
   const settings = new Map<string, unknown>();
@@ -204,6 +238,7 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
       mcpAllowedHosts: [],
       ...(p.hostedTools ?? {}),
     },
+    limits: p.limits ?? {},
   };
 
   let orgKey: string | null = opts.orgKey ? HARNESS_ORG_KEY : null;
@@ -223,9 +258,47 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
     },
     aiUsageEvent: {
       create: jest.fn(async (args: { data: Record<string, unknown> }) => {
-        const row = { id: randomUUID(), createdAt: new Date(), ...args.data };
+        const row = { id: randomUUID(), createdAt: new Date(clock()), ...args.data };
         usageEvents.push(row);
         return row;
+      }),
+      // The reads `AiLimitsService` makes (#450).
+      count: jest.fn(
+        async (args: { where?: Where } = {}) => usageEvents.filter((r) => matchesUsage(r, args.where)).length,
+      ),
+      findMany: jest.fn(
+        async (
+          args: {
+            where?: Where;
+            orderBy?: { createdAt: 'asc' | 'desc' };
+            skip?: number;
+            take?: number;
+            select?: Record<string, boolean>;
+          } = {},
+        ) => {
+          const rows = usageEvents.filter((r) => matchesUsage(r, args.where));
+
+          if (args.orderBy?.createdAt) {
+            const dir = args.orderBy.createdAt === 'asc' ? 1 : -1;
+            rows.sort((a, b) => dir * (a.createdAt.getTime() - b.createdAt.getTime()));
+          }
+
+          const skip = args.skip ?? 0;
+          const page = rows.slice(skip, args.take === undefined ? undefined : skip + args.take);
+
+          return page.map((r) => pick(r, args.select));
+        },
+      ),
+      aggregate: jest.fn(async (args: { where?: Where; _sum?: Record<string, boolean> }) => {
+        const rows = usageEvents.filter((r) => matchesUsage(r, args.where));
+        const _sum: Record<string, number | null> = {};
+
+        for (const field of Object.keys(args._sum ?? {})) {
+          const values = rows.map((r) => r[field]).filter((v): v is number => typeof v === 'number');
+          _sum[field] = values.length > 0 ? values.reduce((a, b) => a + b, 0) : null;
+        }
+
+        return { _sum };
       }),
     },
     aiRun: {
@@ -315,7 +388,19 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
   const runs = new AiRunsService(prisma as never, jobs as never);
   const inputs = new AiStorageInputResolver(prisma as never, storage.provider);
   const outputs = new AiOutputWriter(prisma as never, storage.provider, storage.storageConfig as never);
-  const ai = new AiService(aiConfig, registry, usableModels, resolver, prisma as never, recorder, runs, inputs, outputs);
+  const limits = new AiLimitsService(prisma as never, aiConfig, clock);
+  const ai = new AiService(
+    aiConfig,
+    registry,
+    usableModels,
+    resolver,
+    prisma as never,
+    recorder,
+    runs,
+    inputs,
+    outputs,
+    limits,
+  );
 
   return {
     ai,
@@ -328,6 +413,7 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
     runs,
     inputs,
     outputs,
+    limits,
     storage,
     prisma,
     jobs,

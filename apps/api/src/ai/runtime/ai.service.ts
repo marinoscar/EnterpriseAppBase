@@ -21,8 +21,11 @@
 //      (UsableModelsService.assertUsable, with the capabilities the request's
 //      SHAPE needs — structured output, tools, reasoning, images, streaming)
 //   4. reasoning effort offered by the model
-//   5. clamp maxOutputTokens to the deployment cap and the model's own limit
+//   5. clamp maxOutputTokens to the deployment cap, the model's
+//      `ai.limits.perModel` cap and the model's own limit (smallest wins)
 //   6. resolve the key (AiKeyResolver — the byok invariant lives there)
+//   6b. rate limits (#450, AiLimitsService) — now that whose key pays is
+//      known; AI_RATE_LIMITED (429) with `retryAfterMs` and `details.limit`
 //   7. call the adapter with { apiKey, baseUrl, signal, requestId }
 //   8. record ONE `ai_usage_events` row per round-trip (success, failure or
 //      cancellation) with whose key paid (AiUsageRecorder)
@@ -213,6 +216,7 @@ import type {
   AiToolLoopRequest,
   AiToolLoopResult,
 } from './ai-runtime.types';
+import { AiLimitsService, effectiveOutputTokensCap } from './ai-limits.service';
 import { runToolLoop } from './ai-tool-loop';
 import {
   AiUsageRecorder,
@@ -488,6 +492,7 @@ export class AiService {
     private readonly runs: AiRunsService,
     private readonly inputs: AiStorageInputResolver,
     private readonly outputs: AiOutputWriter,
+    private readonly limits: AiLimitsService,
   ) {}
 
   /**
@@ -1164,10 +1169,12 @@ export class AiService {
     // 4b. Storage-object inputs: ownership, readiness, modality, size, strategy.
     const storageInputs = await this.planStorageInputs(userId, provider, model, usable, req.input);
 
-    // 5. Clamp output tokens.
+    // 5. Clamp output tokens: the deployment cap and the model's own
+    // `ai.limits.perModel` cap (#450) combine — the smaller wins — and bound
+    // the call even when the request named no limit of its own.
     const maxOutputTokens = clampOutputTokens(
       req.maxOutputTokens,
-      policy.defaults.maxOutputTokensCap,
+      effectiveOutputTokensCap(policy.defaults.maxOutputTokensCap, policy.limits, provider, model),
       usable.capabilities.maxOutputTokens,
     );
 
@@ -1636,7 +1643,8 @@ export class AiService {
   }
 
   /**
-   * Step 6: resolve the key and build the adapter context. `prompt` is the
+   * Step 6: resolve the key, apply the rate limits (6b) and build the
+   * adapter context. `prompt` is the
    * request's content, rendered only for the opt-in debug line.
    */
   private async context(
@@ -1651,6 +1659,16 @@ export class AiService {
     }
 
     const { apiKey, keySource } = await this.keyResolver.resolve(scope.userId, call.provider);
+
+    // 6b. Rate limits (#450) — here because the org-key limits need to know
+    // whose key pays. A refusal records no usage row: nothing was sent.
+    await this.limits.enforce({
+      userId: scope.userId,
+      provider: call.provider,
+      modelId: call.modelId,
+      keySource,
+    });
+
     const requestId = randomUUID();
 
     if (call.logPromptContent) {

@@ -10,6 +10,7 @@ function runThroughFilter(exception: unknown) {
   const response = {
     code: jest.fn().mockReturnThis(),
     send: jest.fn().mockReturnThis(),
+    header: jest.fn().mockReturnThis(),
   };
   const host = {
     switchToHttp: () => ({
@@ -20,7 +21,11 @@ function runThroughFilter(exception: unknown) {
 
   new HttpExceptionFilter().catch(exception, host);
 
-  return { status: response.code.mock.calls[0][0], body: response.send.mock.calls[0][0] };
+  return {
+    status: response.code.mock.calls[0][0],
+    body: response.send.mock.calls[0][0],
+    headers: Object.fromEntries(response.header.mock.calls as Array<[string, string]>),
+  };
 }
 
 describe('AiError', () => {
@@ -77,13 +82,27 @@ describe('AiError', () => {
     });
 
     it('keeps retryAfterMs for a 429', () => {
-      const { status, body } = runThroughFilter(
+      const { status, body, headers } = runThroughFilter(
         new AiError('AI_RATE_LIMITED', 'Rate limited', { retryAfterMs: 2000 }),
       );
 
       expect(status).toBe(429);
       expect(body.code).toBe('TOO_MANY_REQUESTS');
-      expect(body.details).toEqual({ reason: 'AI_RATE_LIMITED', retryAfterMs: 2000 });
+      expect(body.details).toEqual({ reason: 'AI_RATE_LIMITED', retryAfterMs: 2000 });      // #450: and says so in the standard header, in whole seconds.
+      expect(headers).toEqual({ 'Retry-After': '2' });
+    });
+
+    it('rounds Retry-After UP to whole seconds, never below one', () => {
+      expect(
+        runThroughFilter(new AiError('AI_RATE_LIMITED', 'Rate limited', { retryAfterMs: 1_001 })).headers,
+      ).toEqual({ 'Retry-After': '2' });
+      expect(
+        runThroughFilter(new AiError('AI_RATE_LIMITED', 'Rate limited', { retryAfterMs: 10 })).headers,
+      ).toEqual({ 'Retry-After': '1' });
+    });
+
+    it('sends no Retry-After when the 429 does not know when to retry', () => {
+      expect(runThroughFilter(new AiError('AI_RATE_LIMITED', 'Rate limited')).headers).toEqual({});
     });
 
     it('does not leak a key held by the cause', () => {

@@ -17,8 +17,9 @@
  *   on (see `hooks/useAiConfig.ts`). It never carries a key hint.
  * - `/admin/ai/*` — `ai_config:read` / `ai_config:write`. The organisation's
  *   configuration, provider keys and model catalogue.
- * - `/ai/keys`, `/ai/models`, `/ai/responses`, `/ai/runs`, `/ai/usage/me` — `ai:use`, and
- *   refused with `403 AI_DISABLED` while AI is off.
+ * - `/ai/keys`, `/ai/models`, `/ai/responses`, `/ai/runs`, `/ai/images`, `/ai/audio/*`,
+ *   `/ai/embeddings`, `/ai/usage/me` — `ai:use`, and refused with
+ *   `403 AI_DISABLED` while AI is off.
  *
  * =============================================================================
  * A KEY ONLY EVER TRAVELS ONE WAY
@@ -71,6 +72,7 @@ export const AI_ERROR_CODES = [
   'AI_CONTENT_FILTERED',
   'AI_INVALID_REQUEST',
   'AI_STRUCTURED_OUTPUT_INVALID',
+  'AI_STORAGE_UNAVAILABLE',
 ] as const;
 export type AiErrorCode = (typeof AI_ERROR_CODES)[number];
 
@@ -86,7 +88,20 @@ export interface AiPublicConfig {
   enabled: boolean;
   keyPolicy: AiKeyPolicy;
   /** Empty while `enabled` is false. */
-  providers: { id: string; displayName: string; enabled: boolean; hasOrgKey: boolean }[];
+  providers: {
+    id: string;
+    displayName: string;
+    enabled: boolean;
+    hasOrgKey: boolean;
+    /**
+     * Whether a request may continue a conversation by `previousResponseId`
+     * (#446). `false` for a stateless provider (Anthropic): send the
+     * conversation so far as `input` instead, or the API answers `400
+     * AI_CAPABILITY_UNSUPPORTED`. Optional so an older API that omits it
+     * still works — absent means chain, the pre-#446 behaviour.
+     */
+    supportsPreviousResponseId?: boolean;
+  }[];
   /**
    * `defaults.allowBackgroundRuns` (#433): whether `POST /ai/runs` accepts a
    * request; always `false` while `enabled` is false. Optional so an older API
@@ -118,6 +133,38 @@ export type AiHostedToolsSettings = Record<AiHostedToolType, boolean> & {
   /** `mcp.example.com` or `*.example.com`; empty means any `https://` host. */
   mcpAllowedHosts: string[];
 };
+
+/**
+ * One model's `ai.limits.perModel` entry (#450). `maxOutputTokens` clamps
+ * every call to the model (the smaller of it and `defaults.maxOutputTokensCap`
+ * wins); `requestsPerMinutePerUser` limits each user's calls to it.
+ */
+export interface AiModelLimits {
+  maxOutputTokens?: number;
+  requestsPerMinutePerUser?: number;
+}
+
+/**
+ * `ai.limits` (#450) — rate limits and output caps. Every field is optional
+ * and ABSENT MEANS UNLIMITED; `{}` is "no limits at all". Each value is an
+ * integer from 1 to {@link AI_LIMIT_MAX}.
+ */
+export interface AiLimits {
+  /** Every inference call a user makes, whoever's key pays. */
+  perUser?: { requestsPerMinute?: number; requestsPerDay?: number };
+  /** Only calls the organization key pays for. */
+  orgKey?: { requestsPerDayPerUser?: number; tokensPerDayPerUser?: number };
+  /** Keyed `<provider>:<modelId>` — see {@link aiModelLimitKey}. At most 500 entries. */
+  perModel?: Record<string, AiModelLimits>;
+}
+
+/** The largest value any `ai.limits` field accepts. */
+export const AI_LIMIT_MAX = 1_000_000_000;
+
+/** A `limits.perModel` key: `<provider>:<modelId>`. */
+export function aiModelLimitKey(provider: string, modelId: string): string {
+  return `${provider}:${modelId}`;
+}
 
 /** Masked status of a stored credential — never the credential itself. */
 export interface SecretStatus {
@@ -152,6 +199,8 @@ export interface AiAdminConfig {
   defaults: { maxOutputTokensCap: number | null; allowBackgroundRuns: boolean };
   /** Absent from an API older than #442 — read as every tool off. */
   hostedTools?: AiHostedToolsSettings;
+  /** Rate limits and output caps (#450); `{}` — or absent, from an older API — means unlimited. */
+  limits?: AiLimits;
   providers: AiAdminProvider[];
   version: number;
   updatedAt: string | null;
@@ -178,7 +227,51 @@ export interface AiAdminConfigInput {
   defaults: { maxOutputTokensCap?: number | null; allowBackgroundRuns: boolean };
   /** Omit to keep the stored value (#442). */
   hostedTools?: AiHostedToolsSettings;
+  /**
+   * Omit to keep the stored value (#450). When sent it REPLACES the stored
+   * limits wholesale — `{}` lifts every limit, and a `perModel` entry left out
+   * is lifted too.
+   */
+  limits?: AiLimits;
   providers: Record<string, { enabled: boolean; baseUrl?: string | null }>;
+}
+
+/**
+ * The `PUT` body that re-saves `config` exactly as it stands — every value
+ * explicit, because the PUT is a full replace. A read-modify-write caller
+ * (the model dialog's per-model limits) spreads its one change over this.
+ */
+export function aiAdminConfigToInput(config: AiAdminConfig): AiAdminConfigInput {
+  const providers: AiAdminConfigInput['providers'] = {};
+  for (const provider of config.providers) {
+    providers[provider.id] = { enabled: provider.enabled, baseUrl: provider.baseUrl };
+  }
+  return {
+    enabled: config.enabled,
+    keyPolicy: config.keyPolicy,
+    logPromptContent: config.logPromptContent,
+    defaults: { ...config.defaults },
+    ...(config.hostedTools ? { hostedTools: config.hostedTools } : {}),
+    limits: config.limits ?? {},
+    providers,
+  };
+}
+
+/**
+ * `limits` with one model's `perModel` entry replaced — or removed, when
+ * `entry` sets nothing. Every other entry, and `perUser`/`orgKey`, is kept.
+ */
+export function withModelLimits(limits: AiLimits | undefined, key: string, entry: AiModelLimits): AiLimits {
+  const perModel = { ...(limits?.perModel ?? {}) };
+  if (entry.maxOutputTokens === undefined && entry.requestsPerMinutePerUser === undefined) {
+    delete perModel[key];
+  } else {
+    perModel[key] = entry;
+  }
+  const next: AiLimits = { ...(limits ?? {}) };
+  delete next.perModel;
+  if (Object.keys(perModel).length > 0) next.perModel = perModel;
+  return next;
 }
 
 export interface AiProbeCheck {
@@ -214,6 +307,8 @@ export interface AiModelCapabilities {
   reasoningEfforts?: string[];
   contextWindow?: number;
   maxOutputTokens?: number;
+  /** The voices an `audio_speech` model speaks in (#439), in the provider's order. */
+  voices?: string[];
 }
 
 /** A row of the organisation's model catalogue (`/admin/ai/models`). */
@@ -307,11 +402,70 @@ export type AiInputItem =
  * JSON Schema for structured output, never Zod; function tools are not
  * accepted over HTTP in Phase 1.
  */
+/**
+ * A provider-hosted tool a request may carry (#442) — mirrors
+ * `aiHostedToolSchema` (`apps/api/src/ai/core/hosted-tools.ts`), which is
+ * `.strict()`. Offered only when the model has `hosted_tools` AND the tool's
+ * `GET /ai/config` `hostedTools` flag is on; otherwise `403 AI_TOOL_DISABLED`.
+ */
+export type AiHostedTool =
+  | {
+      type: 'web_search';
+      searchContextSize?: 'low' | 'medium' | 'high';
+      userLocation?: { country?: string; city?: string };
+    }
+  | { type: 'file_search'; vectorStoreIds: string[]; maxResults?: number }
+  | { type: 'code_interpreter'; container?: { type: 'auto' } }
+  | { type: 'image_generation'; size?: string; quality?: string }
+  | {
+      type: 'mcp';
+      serverLabel: string;
+      serverUrl: string;
+      allowedTools?: string[];
+      requireApproval?: 'never' | 'always';
+      /** ⚠ Secret; refused on a background run. */
+      headers?: Record<string, string>;
+    };
+
+/** `web_search` result (#442): what was searched and the sources consulted. */
+export interface AiWebSearchCallResult {
+  queries: string[];
+  sources: Array<{ url: string }>;
+}
+
+/** `file_search` result: queries run and chunks retrieved. */
+export interface AiFileSearchCallResult {
+  queries: string[];
+  results: Array<{ fileId?: string; filename?: string; score?: number; text?: string }>;
+}
+
+/** `code_interpreter` result: the code run and what it printed or drew. */
+export interface AiCodeInterpreterCallResult {
+  code: string | null;
+  containerId: string;
+  outputs: Array<{ type: 'logs'; logs: string } | { type: 'image'; url: string }>;
+}
+
+/**
+ * `image_generation` result: the image was saved as the caller's storage
+ * object, or `storageObjectId` is `null` and `storageError` says why.
+ */
+export interface AiImageGenerationCallResult {
+  storageObjectId: string | null;
+  storageError?: 'AI_STORAGE_UNAVAILABLE';
+  mimeType?: string;
+  revisedPrompt?: string;
+  size?: string;
+  quality?: string;
+}
+
 export interface AiResponseRequest {
   provider?: string;
   model?: string;
   instructions?: string;
   input: string | AiInputItem[];
+  /** Provider-hosted tools (#442); function tools are not accepted over HTTP. */
+  tools?: AiHostedTool[];
   structuredOutput?: { name: string; jsonSchema: object; strict?: boolean };
   reasoning?: {
     effort?: 'minimal' | 'low' | 'medium' | 'high';
@@ -375,13 +529,99 @@ export interface AiRunStarted {
   jobId: string;
 }
 
+/**
+ * A succeeded image run's `output` (#437): storage objects the caller owns.
+ * Download each through `GET /storage/objects/:id/download`
+ * (`services/storage.ts`); the bytes are never in the run.
+ */
+export interface AiImageRunOutput {
+  type: 'images';
+  provider: string;
+  model: string;
+  /** One per image, in the order the provider returned them. */
+  storageObjectIds: string[];
+  images: {
+    storageObjectId: string;
+    mimeType: string;
+    /** Bytes. */
+    size: number;
+    /** The prompt the provider actually used, where it rewrote it. */
+    revisedPrompt?: string;
+  }[];
+  usage: AiUsage;
+}
+
+/** A succeeded transcription run's `output` (#438): the transcript. */
+export interface AiTranscriptionRunOutput {
+  type: 'transcription';
+  provider: string;
+  model: string;
+  /** The recording that was transcribed (the caller's storage object). */
+  storageObjectId: string;
+  text: string;
+  /** As the provider reports it — an ISO code or a name such as `english`. */
+  language?: string;
+  durationSeconds?: number;
+  /** Timestamped segments, where the model produces them. */
+  segments?: { startSeconds: number; endSeconds: number; text: string }[];
+  words?: { startSeconds: number; endSeconds: number; word: string }[];
+  usage: AiUsage;
+}
+
+/**
+ * A succeeded speech run's `output` (#439): the audio as a storage object the
+ * caller owns. `aiGenerated` is always true — a player must say so.
+ */
+export interface AiSpeechRunOutput {
+  type: 'speech';
+  provider: string;
+  model: string;
+  storageObjectId: string;
+  mimeType: string;
+  /** Bytes. */
+  size: number;
+  format: AiSpeechFormat;
+  voice: string;
+  /** Characters spoken. */
+  characters: number;
+  aiGenerated: true;
+  usage: AiUsage;
+}
+
+/** Every shape a succeeded run's `output` can take — discriminate with the guards below. */
+export type AiRunOutput = AiResponse | AiImageRunOutput | AiTranscriptionRunOutput | AiSpeechRunOutput;
+
+function runOutputType(output: AiRunOutput | null | undefined): string | null {
+  return output && 'type' in output && typeof output.type === 'string' ? output.type : null;
+}
+
+export function isAiImageRunOutput(output: AiRunOutput | null | undefined): output is AiImageRunOutput {
+  return runOutputType(output) === 'images';
+}
+
+export function isAiTranscriptionRunOutput(
+  output: AiRunOutput | null | undefined,
+): output is AiTranscriptionRunOutput {
+  return runOutputType(output) === 'transcription';
+}
+
+export function isAiSpeechRunOutput(output: AiRunOutput | null | undefined): output is AiSpeechRunOutput {
+  return runOutputType(output) === 'speech';
+}
+
+/** A text run's output (`POST /ai/runs`): an {@link AiResponse} — the one shape with no `type`. */
+export function isAiResponseRunOutput(output: AiRunOutput | null | undefined): output is AiResponse {
+  return !!output && runOutputType(output) === null;
+}
+
 /** `GET /ai/runs/:id` — scoped to the caller. */
 export interface AiRun {
   id: string;
   status: AiRunStatus;
   provider: string;
   modelId: string;
-  output: AiResponse | null;
+  /** Once `succeeded`; otherwise `null`. */
+  output: AiRunOutput | null;
   errorCode: string | null;
   /** A safe, generic description of the failure once `failed`. */
   errorMessage: string | null;
@@ -606,6 +846,126 @@ export async function getAiRun(id: string): Promise<AiRun> {
 
 export async function cancelAiRun(id: string): Promise<AiRun> {
   return api.post<AiRun>(`/ai/runs/${encodeURIComponent(id)}/cancel`);
+}
+
+// =============================================================================
+// Images (#437) — always asynchronous: 202 { runId, jobId }, then poll the run
+// =============================================================================
+
+/** Mirrors `apps/api/src/ai/core/types/media.types.ts`. */
+export const AI_IMAGES_MAX_N = 4;
+export const AI_IMAGE_QUALITIES = ['low', 'medium', 'high', 'auto'] as const;
+export const AI_IMAGE_INPUT_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const;
+export const AI_IMAGE_MASK_MIME_TYPES = ['image/png'] as const;
+/** The largest source image (or mask) an edit reads, in bytes (25 MiB). */
+export const AI_IMAGE_INPUT_MAX_BYTES = 25 * 1024 * 1024;
+export const AI_IMAGE_PROMPT_MAX_CHARS = 32_000;
+
+/** `POST /ai/images` body. `model` is required — never inferred from the chat default. */
+export interface AiImageGenerateRequest {
+  provider?: string;
+  model: string;
+  prompt: string;
+  /** `WIDTHxHEIGHT` or `auto`; the provider decides which sizes a model accepts. */
+  size?: string;
+  quality?: (typeof AI_IMAGE_QUALITIES)[number];
+  background?: 'transparent' | 'opaque' | 'auto';
+  outputFormat?: 'png' | 'jpeg' | 'webp';
+  /** 1 to {@link AI_IMAGES_MAX_N}. */
+  n?: number;
+  providerOptions?: Record<string, Record<string, unknown>>;
+}
+
+/** `POST /ai/images/edits` body: inputs are the caller's own, `ready` storage objects. */
+export interface AiImageEditRequest extends AiImageGenerateRequest {
+  imageStorageObjectIds: string[];
+  maskStorageObjectId?: string;
+}
+
+export async function createAiImageRun(req: AiImageGenerateRequest): Promise<AiRunStarted> {
+  return api.post<AiRunStarted>('/ai/images', req);
+}
+
+export async function createAiImageEditRun(req: AiImageEditRequest): Promise<AiRunStarted> {
+  return api.post<AiRunStarted>('/ai/images/edits', req);
+}
+
+// =============================================================================
+// Audio (#438 transcription, #439 speech) — always asynchronous runs
+// =============================================================================
+
+/** Recording types a transcription accepts (`audio/*` plus MP4/WebM video). */
+export const AI_TRANSCRIPTION_INPUT_ACCEPT = 'audio/*,video/mp4,video/webm';
+/** The largest recording the provider takes (OpenAI: 25 MiB). */
+export const AI_TRANSCRIPTION_MAX_BYTES = 25 * 1024 * 1024;
+export const AI_TRANSCRIPTION_PROMPT_MAX_CHARS = 4_000;
+
+/** `POST /ai/audio/transcriptions` body. */
+export interface AiTranscriptionRequest {
+  provider?: string;
+  storageObjectId: string;
+  model?: string;
+  /** ISO-639-1 (`en`). */
+  language?: string;
+  prompt?: string;
+  timestampGranularities?: ('segment' | 'word')[];
+}
+
+export const AI_SPEECH_FORMATS = ['mp3', 'wav', 'opus', 'aac', 'flac', 'pcm'] as const;
+export type AiSpeechFormat = (typeof AI_SPEECH_FORMATS)[number];
+/** The longest text one speech run speaks. */
+export const AI_SPEECH_INPUT_MAX_CHARS = 4_096;
+
+/** `POST /ai/audio/speech` body. */
+export interface AiSpeechRequest {
+  provider?: string;
+  input: string;
+  model?: string;
+  /** One of the model's `capabilities.voices`. */
+  voice?: string;
+  format?: AiSpeechFormat;
+  instructions?: string;
+  /** 0.25 to 4; 1 is normal. */
+  speed?: number;
+}
+
+export async function createAiTranscriptionRun(req: AiTranscriptionRequest): Promise<AiRunStarted> {
+  return api.post<AiRunStarted>('/ai/audio/transcriptions', req);
+}
+
+export async function createAiSpeechRun(req: AiSpeechRequest): Promise<AiRunStarted> {
+  return api.post<AiRunStarted>('/ai/audio/speech', req);
+}
+
+// =============================================================================
+// Embeddings (#440) — synchronous
+// =============================================================================
+
+/** The most inputs one `POST /ai/embeddings` accepts; a larger batch is `AI_INVALID_REQUEST`. */
+export const AI_EMBEDDINGS_MAX_INPUTS = 256;
+
+/** `POST /ai/embeddings` body. `model` is required: vectors compare only within one model. */
+export interface AiEmbeddingsRequest {
+  provider?: string;
+  model: string;
+  input: string | string[];
+  /** Shorten every vector, where the model supports it. */
+  dimensions?: number;
+  providerOptions?: Record<string, Record<string, unknown>>;
+}
+
+export interface AiEmbeddingsResponse {
+  provider: string;
+  model: string;
+  /** The length of every vector. */
+  dimensions: number;
+  /** One per input, in input order. */
+  vectors: number[][];
+  usage: AiUsage;
+}
+
+export async function createAiEmbeddings(req: AiEmbeddingsRequest): Promise<AiEmbeddingsResponse> {
+  return api.post<AiEmbeddingsResponse>('/ai/embeddings', req);
 }
 
 // =============================================================================

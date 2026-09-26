@@ -172,6 +172,22 @@ describe('AiImageGenerateHandler', () => {
       expect(row(handle.runId).status).toBe('pending');
     });
 
+    it('an ai.limits refusal (#450) defers the job too — checked when the run executes', async () => {
+      const { h, handler, jobFor, row, generate } = setup({
+        policy: { limits: { perUser: { requestsPerDay: 1 } } },
+      });
+      const first = await generate();
+      const second = await generate();
+
+      await handler.process(jobFor(first));
+      const err = await handler.process(jobFor(second)).catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(RateLimitError);
+      expect(row(first.runId).status).toBe('succeeded');
+      expect(row(second.runId).status).toBe('pending');
+      expect(h.fake.callsTo('images.generate')).toHaveLength(1);
+    });
+
     it('a provider outage fails the run and the job throws', async () => {
       const { h, handler, jobFor, row, generate } = setup();
       const handle = await generate();

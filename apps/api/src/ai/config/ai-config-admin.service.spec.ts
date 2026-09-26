@@ -25,6 +25,7 @@ function policy(overrides: Partial<SystemAiValue> = {}): SystemAiValue {
       mcp: false,
       mcpAllowedHosts: [],
     },
+    limits: {},
     ...overrides,
   };
 }
@@ -201,6 +202,7 @@ describe('AiConfigAdminService', () => {
               mcp: false,
               mcpAllowedHosts: [],
             },
+            limits: {},
           },
         },
         'admin-1',

@@ -355,5 +355,8 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettingsValue = {
       mcp: false,
       mcpAllowedHosts: [],
     },
+    // #450: no limits — every field of `ai.limits` is optional and absent
+    // means unlimited, so an upgrade never starts refusing calls by itself.
+    limits: {},
   },
 };

@@ -76,7 +76,12 @@ export class AiEmbeddingsController {
       '`AI_MODEL_NOT_REACHABLE`, or missing `ai:use`',
     type: ErrorDto,
   })
-  @ApiResponse({ status: 429, description: '`AI_RATE_LIMITED`', type: ErrorDto })
+  @ApiResponse({
+    status: 429,
+    description:
+      '`AI_RATE_LIMITED` — the provider throttled the call, or a deployment rate limit (`ai.limits`, named in `details.limit`) was reached. `details.retryAfterMs` and the `Retry-After` header (seconds) say when to retry',
+    type: ErrorDto,
+  })
   @ApiResponse({ status: 503, description: '`AI_PROVIDER_UNAVAILABLE`', type: ErrorDto })
   async embed(
     @Body() dto: AiEmbeddingsRequestDto,

@@ -6,8 +6,16 @@ import {
   mockAiProbeResultPassed,
   mockAiPublicConfigDisabled,
   mockAiResponse,
+  mockAiImageRun,
+  mockAiSpeechRunOutput,
+  mockAiTranscriptionRunOutput,
+  mockMediaRun,
   mockAiRun,
   mockAiStreamEvents,
+  mockAiEmbeddingsFor,
+  mockSignedUrl,
+  mockStorageObject,
+  MOCK_IMAGE_RUN_PREFIX,
   mockAiUsageReport,
   mockUsableAiModels,
   mockUserAiKeys,
@@ -348,6 +356,8 @@ export const handlers = [
           allowBackgroundRuns: body.defaults.allowBackgroundRuns,
         },
         hostedTools: body.hostedTools ?? mockAiAdminConfig.hostedTools,
+        // Omitted keeps the stored value; sent, it replaces it wholesale (#450).
+        limits: body.limits ?? mockAiAdminConfig.limits,
         providers: mockAiAdminConfig.providers.map((provider) => {
           const next = body.providers[provider.id];
           if (!next) return provider;
@@ -464,7 +474,53 @@ export const handlers = [
   }),
 
   http.get(`${API_BASE}/ai/runs/:id`, ({ params }) => {
-    return HttpResponse.json({ data: { ...mockAiRun, id: String(params.id) } });
+    const id = String(params.id);
+    const run = id.startsWith(MOCK_IMAGE_RUN_PREFIX)
+      ? mockAiImageRun
+      : id.startsWith('run_transcribe')
+        ? mockMediaRun(id, mockAiTranscriptionRunOutput)
+        : id.startsWith('run_speech')
+          ? mockMediaRun(id, mockAiSpeechRunOutput)
+          : mockAiRun;
+    return HttpResponse.json({ data: { ...run, id } });
+  }),
+
+  // Embeddings (#440): synchronous, one deterministic vector per input.
+  http.post(`${API_BASE}/ai/embeddings`, async ({ request }) => {
+    const body = (await request.json()) as { input: string | string[]; dimensions?: number };
+    return HttpResponse.json({ data: mockAiEmbeddingsFor(body.input, body.dimensions) });
+  }),
+
+  // Image runs (#437): always 202, then polled through `GET /ai/runs/:id`.
+  http.post(`${API_BASE}/ai/images`, () => {
+    return HttpResponse.json({ data: { runId: 'run_img_1', jobId: 'job-ai-image-1' } }, { status: 202 });
+  }),
+
+  http.post(`${API_BASE}/ai/images/edits`, () => {
+    return HttpResponse.json({ data: { runId: 'run_img_edit_1', jobId: 'job-ai-image-2' } }, { status: 202 });
+  }),
+
+  // Audio runs (#438, #439): always 202, then polled through `GET /ai/runs/:id`.
+  http.post(`${API_BASE}/ai/audio/transcriptions`, () => {
+    return HttpResponse.json({ data: { runId: 'run_transcribe_1', jobId: 'job-ai-audio-1' } }, { status: 202 });
+  }),
+
+  http.post(`${API_BASE}/ai/audio/speech`, () => {
+    return HttpResponse.json({ data: { runId: 'run_speech_1', jobId: 'job-ai-audio-2' } }, { status: 202 });
+  }),
+
+  // Storage objects (#445 playground inputs/outputs): an upload answers
+  // `processing`, a read answers `ready`, and a download is a signed URL.
+  http.post(`${API_BASE}/storage/objects`, () => {
+    return HttpResponse.json({ data: mockStorageObject() }, { status: 201 });
+  }),
+
+  http.get(`${API_BASE}/storage/objects/:id/download`, ({ params }) => {
+    return HttpResponse.json({ data: { url: mockSignedUrl(String(params.id)), expiresIn: 300 } });
+  }),
+
+  http.get(`${API_BASE}/storage/objects/:id`, ({ params }) => {
+    return HttpResponse.json({ data: mockStorageObject({ id: String(params.id), status: 'ready' }) });
   }),
 
   http.post(`${API_BASE}/ai/runs/:id/cancel`, ({ params }) => {

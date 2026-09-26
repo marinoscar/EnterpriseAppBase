@@ -25,6 +25,12 @@
  * host allowlist travel in the same PUT. Every tool is off by default — each
  * reaches outside the deployment and bills per use.
  *
+ * The Limits section (#450) is policy as well: the per-user and org-key rate
+ * limits travel in the same PUT as `limits`, blank meaning unlimited. Because
+ * the API replaces `limits` WHOLESALE, the per-model entries (edited from the
+ * AI Models page's dialog, not here) are re-sent unchanged from the loaded
+ * configuration — omitting them would lift every per-model limit.
+ *
  * =============================================================================
  * SNACKBAR vs. ALERT
  * =============================================================================
@@ -72,13 +78,42 @@ import { AiConfigContext } from '../../hooks/useAiConfig';
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
 import { AiProviderCard } from '../../components/admin/ai/AiProviderCard';
 import type { AiProviderFormValue } from '../../components/admin/ai/AiProviderCard';
-import { AI_HOSTED_TOOL_TYPES } from '../../services/ai';
+import { AI_HOSTED_TOOL_TYPES, AI_LIMIT_MAX } from '../../services/ai';
 import type {
   AiAdminConfig,
   AiAdminConfigInput,
   AiHostedToolType,
   AiKeyPolicy,
+  AiLimits,
 } from '../../services/ai';
+
+/** The four deployment-wide limit fields (#450); per-model limits live on the AI Models page. */
+const LIMIT_FIELDS = [
+  'perUserRequestsPerMinute',
+  'perUserRequestsPerDay',
+  'orgKeyRequestsPerDayPerUser',
+  'orgKeyTokensPerDayPerUser',
+] as const;
+type LimitField = (typeof LIMIT_FIELDS)[number];
+
+const LIMIT_COPY: Record<LimitField, { label: string; help: string }> = {
+  perUserRequestsPerMinute: {
+    label: 'Requests per minute, per user',
+    help: "Every AI call a user makes, whoever's key pays.",
+  },
+  perUserRequestsPerDay: {
+    label: 'Requests per day, per user',
+    help: "Counted per UTC day, whoever's key pays.",
+  },
+  orgKeyRequestsPerDayPerUser: {
+    label: 'Organization key: requests per day, per user',
+    help: 'Only calls the organization key pays for.',
+  },
+  orgKeyTokensPerDayPerUser: {
+    label: 'Organization key: tokens per day, per user',
+    help: 'Input plus output tokens the organization key pays for.',
+  },
+};
 
 /** The form's own state — strings for the number field so "blank" is representable. */
 interface AiFormState {
@@ -90,6 +125,8 @@ interface AiFormState {
   hostedTools: Record<AiHostedToolType, boolean>;
   /** One host per line, as typed. */
   mcpAllowedHosts: string;
+  /** Strings so "blank" (unlimited) is representable. */
+  limits: Record<LimitField, string>;
   providers: Record<string, AiProviderFormValue>;
 }
 
@@ -116,6 +153,23 @@ function parseHosts(text: string): string[] {
     .filter(Boolean);
 }
 
+/** A stored limit as its field's text — blank when unset. */
+function limitText(value: number | undefined): string {
+  return value === undefined ? '' : String(value);
+}
+
+/** A limit field's text as a number — `undefined` (omitted: unlimited) when blank. */
+function limitValue(text: string): number | undefined {
+  const trimmed = text.trim();
+  return trimmed ? Number(trimmed) : undefined;
+}
+
+/** Drop the `undefined` members, and the whole object when nothing is left. */
+function compact<T extends Record<string, number | undefined>>(value: T): Partial<T> | undefined {
+  const entries = Object.entries(value).filter(([, v]) => v !== undefined);
+  return entries.length > 0 ? (Object.fromEntries(entries) as Partial<T>) : undefined;
+}
+
 function toFormState(config: AiAdminConfig): AiFormState {
   const providers: Record<string, AiProviderFormValue> = {};
   for (const provider of config.providers) {
@@ -136,7 +190,35 @@ function toFormState(config: AiAdminConfig): AiFormState {
       mcp: config.hostedTools?.mcp ?? false,
     },
     mcpAllowedHosts: (config.hostedTools?.mcpAllowedHosts ?? []).join('\n'),
+    limits: {
+      perUserRequestsPerMinute: limitText(config.limits?.perUser?.requestsPerMinute),
+      perUserRequestsPerDay: limitText(config.limits?.perUser?.requestsPerDay),
+      orgKeyRequestsPerDayPerUser: limitText(config.limits?.orgKey?.requestsPerDayPerUser),
+      orgKeyTokensPerDayPerUser: limitText(config.limits?.orgKey?.tokensPerDayPerUser),
+    },
     providers,
+  };
+}
+
+/**
+ * `limits` for the PUT. Blank fields are omitted (unlimited). The per-model
+ * entries are not on this form: they are re-sent exactly as loaded, because
+ * the API replaces `limits` wholesale.
+ */
+function toLimits(form: AiFormState, config: AiAdminConfig): AiLimits {
+  const perUser = compact({
+    requestsPerMinute: limitValue(form.limits.perUserRequestsPerMinute),
+    requestsPerDay: limitValue(form.limits.perUserRequestsPerDay),
+  });
+  const orgKey = compact({
+    requestsPerDayPerUser: limitValue(form.limits.orgKeyRequestsPerDayPerUser),
+    tokensPerDayPerUser: limitValue(form.limits.orgKeyTokensPerDayPerUser),
+  });
+  const perModel = config.limits?.perModel;
+  return {
+    ...(perUser ? { perUser } : {}),
+    ...(orgKey ? { orgKey } : {}),
+    ...(perModel && Object.keys(perModel).length > 0 ? { perModel } : {}),
   };
 }
 
@@ -149,7 +231,7 @@ function toFormState(config: AiAdminConfig): AiFormState {
  * it, `null` to clear it — and every provider on screen is included. Omitting
  * "unchanged" fields, the instinct from a PATCH, would silently wipe them.
  */
-function toInput(form: AiFormState): AiAdminConfigInput {
+function toInput(form: AiFormState, config: AiAdminConfig): AiAdminConfigInput {
   const providers: AiAdminConfigInput['providers'] = {};
   for (const [id, value] of Object.entries(form.providers)) {
     providers[id] = { enabled: value.enabled, baseUrl: value.baseUrl.trim() || null };
@@ -164,6 +246,7 @@ function toInput(form: AiFormState): AiAdminConfigInput {
       allowBackgroundRuns: form.allowBackgroundRuns,
     },
     hostedTools: { ...form.hostedTools, mcpAllowedHosts: [...new Set(parseHosts(form.mcpAllowedHosts))] },
+    limits: toLimits(form, config),
     providers,
   };
 }
@@ -171,12 +254,26 @@ function toInput(form: AiFormState): AiAdminConfigInput {
 interface FormErrors {
   maxOutputTokensCap?: string;
   mcpAllowedHosts?: string;
+  limits: Partial<Record<LimitField, string>>;
   baseUrl: Record<string, string>;
+}
+
+/** Blank, or a whole number from 1 to {@link AI_LIMIT_MAX}; else the error to show. */
+function limitError(text: string): string | undefined {
+  const value = text.trim();
+  if (!value) return undefined;
+  if (!/^\d+$/.test(value) || Number(value) <= 0) {
+    return 'Must be a whole number greater than zero, or blank for no limit.';
+  }
+  if (Number(value) > AI_LIMIT_MAX) {
+    return `Must be at most ${AI_LIMIT_MAX.toLocaleString('en-US')}.`;
+  }
+  return undefined;
 }
 
 /** Thin client-side validation — the API validates for real; this stops the obvious typo. */
 function validate(form: AiFormState): FormErrors {
-  const errors: FormErrors = { baseUrl: {} };
+  const errors: FormErrors = { limits: {}, baseUrl: {} };
   const cap = form.maxOutputTokensCap.trim();
   if (cap && (!/^\d+$/.test(cap) || Number(cap) <= 0)) {
     errors.maxOutputTokensCap = 'Must be a whole number greater than zero, or blank for no cap.';
@@ -186,6 +283,10 @@ function validate(form: AiFormState): FormErrors {
   );
   if (badHost) {
     errors.mcpAllowedHosts = `"${badHost}" is not a host name. Use mcp.example.com or *.example.com — no https:// or path.`;
+  }
+  for (const field of LIMIT_FIELDS) {
+    const error = limitError(form.limits[field]);
+    if (error) errors.limits[field] = error;
   }
   for (const [id, value] of Object.entries(form.providers)) {
     const baseUrl = value.baseUrl.trim();
@@ -203,6 +304,7 @@ function hasErrors(errors: FormErrors): boolean {
   return (
     !!errors.maxOutputTokensCap ||
     !!errors.mcpAllowedHosts ||
+    Object.keys(errors.limits).length > 0 ||
     Object.keys(errors.baseUrl).length > 0
   );
 }
@@ -257,7 +359,7 @@ export default function AiConfigPage() {
     return <LoadingSpinner />;
   }
 
-  const errors = form ? validate(form) : { baseUrl: {} };
+  const errors: FormErrors = form ? validate(form) : { limits: {}, baseUrl: {} };
   const invalid = hasErrors(errors);
   const isDirty =
     !!form && !!config && JSON.stringify(form) !== JSON.stringify(toFormState(config));
@@ -283,8 +385,8 @@ export default function AiConfigPage() {
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!form || invalid || !canWrite) return;
-    const ok = await save(toInput(form));
+    if (!form || !config || invalid || !canWrite) return;
+    const ok = await save(toInput(form, config));
     if (ok) {
       setSavedMessage('AI configuration saved');
       void sharedAiConfig?.refresh();
@@ -526,6 +628,36 @@ export default function AiConfigPage() {
                   https:// server.
                 </Alert>
               )}
+
+              <Divider sx={{ my: 3 }} />
+
+              {/* ---------------------------------------------------------
+                  LIMITS (#450)
+                  ------------------------------------------------------- */}
+              <Typography variant="h6" component="h2" sx={{ mb: 1 }}>
+                Limits
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Guardrails on how much each user can call AI. Leave a field blank for no limit. A
+                user over a limit is refused until the window resets — a minute, or midnight UTC
+                for daily limits. Per-model limits are set on each model on the AI Models page.
+              </Typography>
+              <Grid container spacing={2} data-testid="ai-limits">
+                {LIMIT_FIELDS.map((field) => (
+                  <Grid key={field} size={{ xs: 12, sm: 6 }}>
+                    <TextField
+                      fullWidth
+                      label={LIMIT_COPY[field].label}
+                      value={form.limits[field]}
+                      onChange={(e) => update('limits', { ...form.limits, [field]: e.target.value })}
+                      disabled={!canWrite}
+                      slotProps={{ htmlInput: { inputMode: 'numeric' } }}
+                      error={!!errors.limits[field]}
+                      helperText={errors.limits[field] ?? LIMIT_COPY[field].help}
+                    />
+                  </Grid>
+                ))}
+              </Grid>
             </Paper>
 
             {/* -------------------------------------------------------------
@@ -615,8 +747,8 @@ export default function AiConfigPage() {
                 {isSaving ? 'Saving…' : 'Save changes'}
               </Button>
               <Typography variant="body2" color="text.secondary">
-                Saves the switches, the policy, the defaults and each provider&apos;s settings.
-                Keys are saved separately, on each provider.
+                Saves the switches, the policy, the defaults, the limits and each
+                provider&apos;s settings. Keys are saved separately, on each provider.
               </Typography>
             </Box>
           </Box>

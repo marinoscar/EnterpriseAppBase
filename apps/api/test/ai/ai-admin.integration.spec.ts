@@ -459,6 +459,79 @@ describe('AI Administration Integration', () => {
             .expect(400),
         );
       });
+
+      describe('limits (#450)', () => {
+        const limits = {
+          perUser: { requestsPerMinute: 20, requestsPerDay: 500 },
+          orgKey: { requestsPerDayPerUser: 100, tokensPerDayPerUser: 200_000 },
+          perModel: { 'openai:gpt-4.1-mini': { maxOutputTokens: 2_048, requestsPerMinutePerUser: 5 } },
+        };
+
+        it('stores them, returns them on GET, and audits the changed limit fields by name', async () => {
+          const res = record(
+            await request(server())
+              .put(`${BASE}/config`)
+              .set(authHeader(admin.accessToken))
+              .send(configBody({ limits }))
+              .expect(200),
+          );
+
+          expect(res.body.data.limits).toEqual(limits);
+          expect((storedAi as Record<string, unknown>).limits).toEqual(limits);
+
+          const read = record(await request(server()).get(`${BASE}/config`).set(authHeader(admin.accessToken)).expect(200));
+          expect(read.body.data.limits).toEqual(limits);
+
+          expect(auditCalls()).toContainEqual(
+            expect.objectContaining({
+              meta: {
+                changedFields: expect.arrayContaining([
+                  'limits.perUser.requestsPerMinute',
+                  'limits.perUser.requestsPerDay',
+                  'limits.orgKey.requestsPerDayPerUser',
+                  'limits.orgKey.tokensPerDayPerUser',
+                  'limits.perModel',
+                ]),
+              },
+            }),
+          );
+        });
+
+        it('keeps the stored limits when the body omits them, and lifts them all with {}', async () => {
+          (storedAi as Record<string, unknown>).limits = limits;
+
+          record(
+            await request(server()).put(`${BASE}/config`).set(authHeader(admin.accessToken)).send(configBody()).expect(200),
+          );
+          expect((storedAi as Record<string, unknown>).limits).toEqual(limits);
+
+          record(
+            await request(server())
+              .put(`${BASE}/config`)
+              .set(authHeader(admin.accessToken))
+              .send(configBody({ limits: {} }))
+              .expect(200),
+          );
+          expect((storedAi as Record<string, unknown>).limits).toEqual({});
+        });
+
+        it.each([
+          ['a zero limit', { perUser: { requestsPerMinute: 0 } }],
+          ['a fractional limit', { orgKey: { tokensPerDayPerUser: 1.5 } }],
+          ['a per-model key without a provider', { perModel: { 'gpt-4.1-mini': { maxOutputTokens: 10 } } }],
+          ['a per-model key with an upper-case provider', { perModel: { 'OpenAI:gpt': { maxOutputTokens: 10 } } }],
+        ])('rejects %s with 400 and writes nothing', async (_name, bad) => {
+          record(
+            await request(server())
+              .put(`${BASE}/config`)
+              .set(authHeader(admin.accessToken))
+              .send(configBody({ limits: bad }))
+              .expect(400),
+          );
+
+          expect(context.prismaMock.systemSettings.update).not.toHaveBeenCalled();
+        });
+      });
     });
 
     describe('provider key', () => {

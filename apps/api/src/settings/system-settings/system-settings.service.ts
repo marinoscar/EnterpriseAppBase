@@ -1325,6 +1325,12 @@ export class SystemSettingsService {
               currentValue.ai.hostedTools.mcpAllowedHosts),
           ],
         },
+        // #450: WHOLESALE — a present `limits` is the new value, an absent
+        // one keeps the stored value. A merge could never lift a limit (or
+        // drop a per-model entry), and absent is how a limit is lifted.
+        // Cloned either way so the stored value never aliases the caller's
+        // object or the module-level default.
+        limits: structuredClone(dto.ai?.limits ?? currentValue.ai.limits),
       },
     };
 

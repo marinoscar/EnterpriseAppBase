@@ -27,6 +27,57 @@ export interface AiErrorCopy {
   action?: { label: string; to: string };
 }
 
+/** `retryAfterMs` as "45 seconds", "3 minutes" or "2 hours" — always rounded UP. */
+export function formatRetryAfter(ms: number): string {
+  const seconds = Math.max(1, Math.ceil(ms / 1000));
+  const plural = (n: number, unit: string) => `${n} ${unit}${n === 1 ? '' : 's'}`;
+  if (seconds < 90) return plural(seconds, 'second');
+  const minutes = Math.ceil(seconds / 60);
+  if (minutes < 90) return plural(minutes, 'minute');
+  return plural(Math.ceil(minutes / 60), 'hour');
+}
+
+/**
+ * What one of the deployment's own limits (#450) allows, in words — the
+ * `details.limit` names are permanent API strings. Unknown names fall back to
+ * the raw name, so a limit added later still reads as a limit.
+ */
+function describeLimit(limit: string, max: number | undefined): string {
+  const n = max !== undefined ? max.toLocaleString('en-US') : null;
+  const requests = n !== null ? `${n} request${max === 1 ? '' : 's'}` : 'requests';
+  switch (limit) {
+    case 'perUser.requestsPerMinute':
+      return `${requests} per minute`;
+    case 'perUser.requestsPerDay':
+      return `${requests} per day`;
+    case 'orgKey.requestsPerDayPerUser':
+      return `${requests} per day on the organization's key`;
+    case 'orgKey.tokensPerDayPerUser':
+      return `${n !== null ? `${n} tokens` : 'tokens'} per day on the organization's key`;
+    case 'perModel.requestsPerMinutePerUser':
+      return `${requests} per minute for this model`;
+    default:
+      return n !== null ? `${limit}: ${n}` : limit;
+  }
+}
+
+/** `AI_RATE_LIMITED` refused by a limit this deployment's administrator set (#450). */
+function deploymentLimitCopy(error: AiErrorInfo & { limit: string }): AiErrorCopy {
+  const retry = error.retryAfterMs !== undefined ? formatRetryAfter(error.retryAfterMs) : null;
+  const daily = error.window === 'day' || /PerDay/.test(error.limit);
+  const orgKey = error.limit.startsWith('orgKey.');
+  return {
+    title: `Limit reached (${describeLimit(error.limit, error.max)})`,
+    body:
+      (retry ? `Try again in ${retry}.` : 'Try again later.') +
+      (daily ? ' Daily limits reset at midnight UTC.' : '') +
+      ' This limit is set by your administrator.' +
+      (orgKey ? ' Adding your own API key lifts it.' : ''),
+    severity: 'warning',
+    ...(orgKey ? { action: { label: 'Add API key', to: AI_KEYS_PATH } } : {}),
+  };
+}
+
 /**
  * Code → copy. Exported for surfaces that need the words without the alert
  * (a snackbar, a table cell).
@@ -61,6 +112,8 @@ export function aiErrorCopy(error: AiErrorInfo): AiErrorCopy {
         action: { label: 'Manage API keys', to: AI_KEYS_PATH },
       };
     case 'AI_RATE_LIMITED': {
+      // One of this deployment's own limits, not the provider's throttle.
+      if (error.limit) return deploymentLimitCopy({ ...error, limit: error.limit });
       const seconds =
         error.retryAfterMs !== undefined ? Math.max(1, Math.ceil(error.retryAfterMs / 1000)) : null;
       return {
@@ -111,6 +164,15 @@ export function aiErrorCopy(error: AiErrorInfo): AiErrorCopy {
         body: 'The model returned output that does not satisfy the requested JSON Schema. Try again or simplify the schema.',
         severity: 'error',
       };
+    case 'AI_STORAGE_UNAVAILABLE':
+      // #437: an operation whose inputs or outputs are storage objects (an
+      // image run, and the media modes after it) on a deployment with no
+      // usable object storage. Only an administrator can fix it.
+      return {
+        title: "File storage isn't available",
+        body: 'This application has no file storage set up to keep AI inputs and results in. Ask your administrator to configure storage.',
+        severity: 'error',
+      };
     case 'AI_INVALID_REQUEST':
       return {
         title: 'The request was invalid',
@@ -141,8 +203,10 @@ export function AiErrorAlert({ error, onClose }: AiErrorAlertProps) {
     // Once per distinct failure, not on every render of the same one.
   }, [isDisabled, error, refresh]);
 
-  // The server's own message is shown under the copy when it adds something.
-  const detail = copy.body !== error.message && error.message ? error.message : null;
+  // The server's own message is shown under the copy when it adds something —
+  // not for a deployment limit, whose copy already says everything it does.
+  const detail =
+    copy.body !== error.message && error.message && !error.limit ? error.message : null;
 
   return (
     <Alert
