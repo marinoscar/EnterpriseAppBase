@@ -5,10 +5,19 @@
  * user's way to prove their setup works end to end: pick a usable model, chat
  * with it token by token, stop it, and see what each turn cost.
  *
- * LAYOUT. A settings panel beside the chat from `sm` up; below `sm` the panel
- * stacks above the chat and collapses behind a "Settings" toggle. The compact
- * switch is `down('sm')` — the same boundary as CLAUDE.md's five coupled
- * breakpoint gates, none of which this page changes.
+ * MODES (#445). A segmented control switches between Chat, Image,
+ * Transcribe, Speech and Embeddings. Each mode lists only the usable models
+ * that declare its capability, and a mode no usable model can serve is
+ * disabled with the reason — all derived from `GET /api/ai/models`, never
+ * from model names (`components/ai/playground/aiPlaygroundModes.ts`). A
+ * mode's panel stays mounted once visited, so switching away and back keeps
+ * its inputs and any run it is polling.
+ *
+ * LAYOUT. Every mode uses `AiPlaygroundPanels`: a settings panel beside the
+ * work area from `sm` up; below `sm` the panel stacks above and collapses
+ * behind a "Settings" toggle. The compact switch is `down('sm')` — the same
+ * boundary as CLAUDE.md's five coupled breakpoint gates, none of which this
+ * page changes.
  *
  * CONTROLS FOLLOW THE MODEL. Each control is shown only when the selected
  * model declares the capability it needs, so a request can never carry an
@@ -18,31 +27,31 @@
  * page: the route's `RequirePermission` is the real gate, and this is defence
  * in depth for a render reached some other way.
  */
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react';
 import {
   Alert,
   Box,
   Button,
   CircularProgress,
-  Collapse,
   Container,
   Divider,
   FormControlLabel,
   MenuItem,
-  Paper,
   Stack,
   Switch,
   TextField,
   Typography,
-  useMediaQuery,
-  useTheme,
 } from '@mui/material';
-import {
-  Add as AddIcon,
-  Send as SendIcon,
-  Stop as StopIcon,
-  Tune as TuneIcon,
-} from '@mui/icons-material';
+import { Add as AddIcon, Send as SendIcon, Stop as StopIcon } from '@mui/icons-material';
 import { Link as RouterLink, Navigate } from 'react-router-dom';
 import { usePermissions } from '../hooks/usePermissions';
 import { useUserSettings } from '../hooks/useUserSettings';
@@ -53,15 +62,23 @@ import { useAiConfig } from '../hooks/useAiConfig';
 import { ApiError } from '../services/api';
 import { listUsableAiModels, type AiResponseRequest, type UsableAiModel } from '../services/ai';
 import { useIsMounted } from '../hooks/useIsMounted';
-import {
-  AiModelSelect,
-  aiModelDisabledReason,
-  aiModelKey,
-  hasAiCapability,
-} from '../components/ai/AiModelSelect';
+import { AiModelSelect, hasAiCapability } from '../components/ai/AiModelSelect';
 import { AiChatThread } from '../components/ai/AiChatThread';
 import { AI_KEYS_PATH } from '../components/ai/AiErrorAlert';
 import { AiRunCard } from '../components/ai/AiRunCard';
+import {
+  AI_PLAYGROUND_MODES,
+  aiPlaygroundMode,
+  initialPlaygroundMode,
+  modelsForMode,
+  unavailableModes,
+  type AiPlaygroundMode,
+  type AiPlaygroundModeId,
+} from '../components/ai/playground/aiPlaygroundModes';
+import { AiPlaygroundModeSelector } from '../components/ai/playground/AiPlaygroundModeSelector';
+import { AiPlaygroundPanels } from '../components/ai/playground/AiPlaygroundPanels';
+import { AiModePlaceholder } from '../components/ai/playground/AiModePlaceholder';
+import { usePlaygroundModel } from '../components/ai/playground/usePlaygroundModel';
 import {
   AI_SCHEMA_PRESETS,
   CUSTOM_SCHEMA_ID,
@@ -149,9 +166,6 @@ function parseTemperature(value: string): number | undefined | null {
 
 export default function AiPlaygroundPage() {
   const { hasPermission } = usePermissions();
-  const theme = useTheme();
-  const isCompact = useMediaQuery(theme.breakpoints.down('sm'));
-  const settingsPanelId = useId();
 
   const { models, isLoading: modelsLoading, error: modelsError } = useUsableModels();
   const { settings, isLoading: settingsLoading } = useUserSettings({ syncTheme: false });
@@ -170,23 +184,27 @@ export default function AiPlaygroundPage() {
     },
   });
 
-  const [modelKey, setModelKey] = useState('');
   const [controls, setControls] = useState<PlaygroundControls>(INITIAL_CONTROLS);
   const [prompt, setPrompt] = useState('');
-  const [settingsOpen, setSettingsOpen] = useState(false);
 
-  const pickable = useMemo(() => models.filter((model) => aiModelDisabledReason(model) === null), [models]);
-  const selected = models.find((model) => aiModelKey(model) === modelKey) ?? null;
+  // Modes (#445): which are usable, and which is shown. A chosen mode that
+  // stops being usable falls back to the first usable one.
+  const unavailable = useMemo(() => unavailableModes(models), [models]);
+  const [chosenMode, setChosenMode] = useState<AiPlaygroundModeId | null>(null);
+  const mode: AiPlaygroundModeId =
+    chosenMode && !unavailable.has(chosenMode) ? chosenMode : initialPlaygroundMode(models);
+  const [visitedModes, setVisitedModes] = useState<ReadonlySet<AiPlaygroundModeId>>(() => new Set());
+  const chooseMode = (next: AiPlaygroundModeId) => {
+    setChosenMode(next);
+    setVisitedModes((current) => new Set(current).add(mode).add(next));
+  };
 
-  // Default selection: the user's saved default when it is usable here, else the first pickable model.
-  useEffect(() => {
-    if (modelKey || modelsLoading || settingsLoading || pickable.length === 0) return;
-    // `user_settings.ai.defaultModel` (docs/specs/ai-platform.md §2), typed
-    // by `UserSettings['ai']` (#430).
-    const preferred: NonNullable<UserSettings['ai']>['defaultModel'] = settings?.ai?.defaultModel;
-    const match = preferred ? pickable.find((model) => aiModelKey(model) === aiModelKey(preferred)) : undefined;
-    setModelKey(aiModelKey(match ?? pickable[0]));
-  }, [modelKey, modelsLoading, settingsLoading, pickable, settings]);
+  // `user_settings.ai.defaultModel` (docs/specs/ai-platform.md §2), typed by
+  // `UserSettings['ai']` (#430): every mode starts on it when it is listed there.
+  const preferredModel: NonNullable<UserSettings['ai']>['defaultModel'] = settings?.ai?.defaultModel;
+  const modelsReady = !modelsLoading && !settingsLoading;
+  const chatModels = useMemo(() => modelsForMode(models, aiPlaygroundMode('chat')), [models]);
+  const { modelKey, setModelKey, selected } = usePlaygroundModel(chatModels, preferredModel, modelsReady);
 
   const supportsReasoning = hasAiCapability(selected, 'reasoning');
   const supportsStructured = hasAiCapability(selected, 'structured_output');
@@ -284,7 +302,7 @@ export default function AiPlaygroundPage() {
   const settingsContent = selected && (
     <Stack spacing={2}>
       <AiModelSelect
-        models={models}
+        models={chatModels}
         value={modelKey}
         onChange={setModelKey}
         disabled={busy}
@@ -417,7 +435,76 @@ export default function AiPlaygroundPage() {
     </Stack>
   );
 
-  const noPickableModels = !modelsLoading && !modelsError && pickable.length === 0;
+  const modelsLoaded = !modelsLoading && !modelsError;
+  const noModels = modelsLoaded && models.length === 0;
+  const noUsableMode = modelsLoaded && models.length > 0 && unavailable.size === AI_PLAYGROUND_MODES.length;
+
+  const chatPanel = selected && (
+    <AiPlaygroundPanels settings={settingsContent} label="Chat">
+      {chat.messages.length === 0 && !runPrompt ? (
+        <Typography variant="body2" color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
+          Send a message to start a conversation.
+        </Typography>
+      ) : (
+        <AiChatThread messages={chat.messages} />
+      )}
+
+      {runPrompt && (run.isActive || run.run || run.error) && (
+        <AiRunCard
+          prompt={runPrompt}
+          run={run.run}
+          error={run.error}
+          isStarting={run.isStarting}
+          isCancelling={run.isCancelling}
+          onCancel={() => void run.cancel()}
+          onDismiss={() => {
+            run.clear();
+            setRunPrompt('');
+          }}
+        />
+      )}
+
+      <Divider />
+
+      <Box component="form" onSubmit={submit} sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+        <TextField
+          label="Message"
+          placeholder="Ask something…"
+          multiline
+          minRows={2}
+          maxRows={8}
+          fullWidth
+          value={prompt}
+          onChange={(event) => setPrompt(event.target.value)}
+          onKeyDown={onPromptKeyDown}
+        />
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, flexWrap: 'wrap' }}>
+          {chat.isStreaming ? (
+            <Button variant="outlined" color="inherit" startIcon={<StopIcon />} onClick={chat.stop}>
+              Stop
+            </Button>
+          ) : (
+            <Button type="submit" variant="contained" endIcon={<SendIcon />} disabled={!canSend}>
+              {useBackground ? 'Start run' : 'Send'}
+            </Button>
+          )}
+        </Box>
+      </Box>
+    </AiPlaygroundPanels>
+  );
+
+  /** A non-chat mode's panel. Chat's state lives on this page, so its panel is rendered inline. */
+  const renderModePanel = (entry: AiPlaygroundMode): ReactNode => {
+    switch (entry.id) {
+      case 'chat':
+        return null;
+      // Image (#437), Transcribe (#438), Speech (#439), Embeddings (#440).
+      default:
+        return <AiModePlaceholder mode={entry} />;
+    }
+  };
+
+  const showModes = modelsLoaded && models.length > 0 && !noUsableMode;
 
   return (
     <Container maxWidth="lg" sx={{ py: { xs: 2, md: 3 }, px: { xs: 2, sm: 3 } }}>
@@ -439,13 +526,15 @@ export default function AiPlaygroundPage() {
             Try prompts against the models available to you.
           </Typography>
         </Box>
-        <Button
-          startIcon={<AddIcon />}
-          onClick={startNewConversation}
-          disabled={chat.messages.length === 0 || run.isActive}
-        >
-          New conversation
-        </Button>
+        {mode === 'chat' && showModes && (
+          <Button
+            startIcon={<AddIcon />}
+            onClick={startNewConversation}
+            disabled={chat.messages.length === 0 || run.isActive}
+          >
+            New conversation
+          </Button>
+        )}
       </Box>
 
       {modelsLoading && (
@@ -456,7 +545,7 @@ export default function AiPlaygroundPage() {
 
       {modelsError && <Alert severity="error">{modelsError}</Alert>}
 
-      {noPickableModels && (
+      {(noModels || noUsableMode) && (
         <Alert
           severity="info"
           action={
@@ -465,106 +554,27 @@ export default function AiPlaygroundPage() {
             </Button>
           }
         >
-          {models.length === 0
+          {noModels
             ? 'No models are available to you yet. Add an API key for an enabled provider to start using the playground.'
-            : 'None of the models available to you can answer text prompts. Add an API key that can reach a text model.'}
+            : 'None of the models available to you can be used in the playground. Add an API key that can reach a text model.'}
         </Alert>
       )}
 
-      {selected && (
-        <Box
-          sx={{
-            display: 'flex',
-            flexDirection: { xs: 'column', sm: 'row' },
-            alignItems: { xs: 'stretch', sm: 'flex-start' },
-            gap: 2,
-            minWidth: 0,
-          }}
-        >
-          <Paper
-            component="aside"
-            variant="outlined"
-            aria-label="Playground settings"
-            sx={{ width: { xs: '100%', sm: 260, md: 320 }, flexShrink: 0, p: 2, minWidth: 0 }}
-          >
-            {isCompact ? (
-              <>
-                <Button
-                  fullWidth
-                  startIcon={<TuneIcon />}
-                  onClick={() => setSettingsOpen((open) => !open)}
-                  aria-expanded={settingsOpen}
-                  aria-controls={settingsPanelId}
-                  sx={{ justifyContent: 'flex-start' }}
-                >
-                  Settings
-                </Button>
-                <Collapse in={settingsOpen} id={settingsPanelId}>
-                  <Box sx={{ pt: 2 }}>{settingsContent}</Box>
-                </Collapse>
-              </>
-            ) : (
-              <Box id={settingsPanelId}>{settingsContent}</Box>
-            )}
-          </Paper>
+      {showModes && (
+        <Stack spacing={2} sx={{ minWidth: 0 }}>
+          <AiPlaygroundModeSelector value={mode} onChange={chooseMode} unavailable={unavailable} />
 
-          <Paper
-            component="section"
-            variant="outlined"
-            aria-label="Chat"
-            sx={{ flex: 1, minWidth: 0, p: { xs: 1.5, sm: 2 }, display: 'flex', flexDirection: 'column', gap: 2 }}
-          >
-            {chat.messages.length === 0 && !runPrompt ? (
-              <Typography variant="body2" color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
-                Send a message to start a conversation.
-              </Typography>
-            ) : (
-              <AiChatThread messages={chat.messages} />
-            )}
+          {mode === 'chat' && chatPanel}
 
-            {runPrompt && (run.isActive || run.run || run.error) && (
-              <AiRunCard
-                prompt={runPrompt}
-                run={run.run}
-                error={run.error}
-                isStarting={run.isStarting}
-                isCancelling={run.isCancelling}
-                onCancel={() => void run.cancel()}
-                onDismiss={() => {
-                  run.clear();
-                  setRunPrompt('');
-                }}
-              />
-            )}
-
-            <Divider />
-
-            <Box component="form" onSubmit={submit} sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-              <TextField
-                label="Message"
-                placeholder="Ask something…"
-                multiline
-                minRows={2}
-                maxRows={8}
-                fullWidth
-                value={prompt}
-                onChange={(event) => setPrompt(event.target.value)}
-                onKeyDown={onPromptKeyDown}
-              />
-              <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, flexWrap: 'wrap' }}>
-                {chat.isStreaming ? (
-                  <Button variant="outlined" color="inherit" startIcon={<StopIcon />} onClick={chat.stop}>
-                    Stop
-                  </Button>
-                ) : (
-                  <Button type="submit" variant="contained" endIcon={<SendIcon />} disabled={!canSend}>
-                    {useBackground ? 'Start run' : 'Send'}
-                  </Button>
-                )}
-              </Box>
+          {AI_PLAYGROUND_MODES.filter(
+            (entry) => entry.id !== 'chat' && (entry.id === mode || visitedModes.has(entry.id)),
+          ).map((entry) => (
+            // Kept mounted once visited: its inputs and any run it is polling survive a mode switch.
+            <Box key={entry.id} hidden={entry.id !== mode} data-testid={`playground-mode-${entry.id}`}>
+              {renderModePanel(entry)}
             </Box>
-          </Paper>
-        </Box>
+          ))}
+        </Stack>
       )}
     </Container>
   );

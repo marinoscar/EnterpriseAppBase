@@ -2,14 +2,16 @@
  * Model picker over `GET /api/ai/models` — issue #434, epic #419.
  *
  * Presentational: the page loads the usable models (they also drive which
- * controls it shows and its empty state) and passes them in. Every usable
- * model is listed; one that cannot serve a text response (no `responses`
- * capability — an embeddings model, say) is shown DISABLED with the reason,
- * rather than hidden, so a user looking for it learns why they cannot pick it.
+ * controls it shows and its empty state) and passes them in. Every model
+ * passed is listed; one that lacks `capability` (the playground mode's
+ * capability, #445 — `responses` by default) is shown DISABLED with the
+ * reason, rather than hidden. The playground itself passes only the models
+ * its current mode can use, so this is defence for any other caller.
  */
 import { Box, ListItemText, MenuItem, TextField, Typography } from '@mui/material';
 import type { UsableAiModel } from '../../services/ai';
 import { AiCapabilityChips } from './AiCapabilityChips';
+import { aiCapabilityLabel } from './aiCapabilities';
 
 /** Stable key for a provider/model pair. */
 export function aiModelKey(model: { provider: string; modelId: string }): string {
@@ -24,10 +26,11 @@ export function hasAiCapability(model: UsableAiModel | null | undefined, capabil
   return model?.capabilities.capabilities.includes(capability) ?? false;
 }
 
-/** Why a model cannot be picked in the playground, or `null` when it can. */
-export function aiModelDisabledReason(model: UsableAiModel): string | null {
-  if (!hasAiCapability(model, 'responses')) return 'Does not support text responses';
-  return null;
+/** Why a model cannot be picked for `capability`, or `null` when it can. */
+export function aiModelDisabledReason(model: UsableAiModel, capability = 'responses'): string | null {
+  if (hasAiCapability(model, capability)) return null;
+  if (capability === 'responses') return 'Does not support text responses';
+  return `Does not support ${aiCapabilityLabel(capability).toLowerCase()}`;
 }
 
 export interface AiModelSelectProps {
@@ -36,9 +39,11 @@ export interface AiModelSelectProps {
   value: string;
   onChange: (key: string) => void;
   disabled?: boolean;
+  /** The capability a model needs to be pickable. Defaults to `responses`. */
+  capability?: string;
 }
 
-export function AiModelSelect({ models, value, onChange, disabled }: AiModelSelectProps) {
+export function AiModelSelect({ models, value, onChange, disabled, capability = 'responses' }: AiModelSelectProps) {
   const selected = models.find((model) => aiModelKey(model) === value) ?? null;
 
   return (
@@ -61,7 +66,7 @@ export function AiModelSelect({ models, value, onChange, disabled }: AiModelSele
         }}
       >
         {models.map((model) => {
-          const reason = aiModelDisabledReason(model);
+          const reason = aiModelDisabledReason(model, capability);
           return (
             <MenuItem key={aiModelKey(model)} value={aiModelKey(model)} disabled={reason !== null}>
               <ListItemText
