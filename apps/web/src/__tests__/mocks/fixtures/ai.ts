@@ -40,12 +40,14 @@ const T0 = '2026-09-01T12:00:00.000Z';
 export const mockAiPublicConfigDisabled: AiPublicConfig = {
   enabled: false,
   keyPolicy: 'byok',
+  allowBackgroundRuns: false,
   providers: [],
 };
 
 export const mockAiPublicConfigEnabled: AiPublicConfig = {
   enabled: true,
   keyPolicy: 'byok_with_org_fallback',
+  allowBackgroundRuns: true,
   providers: [{ id: 'openai', displayName: 'OpenAI', enabled: true, hasOrgKey: true }],
 };
 
@@ -263,6 +265,7 @@ export const mockAiRun: AiRun = {
   modelId: 'gpt-5-mini',
   output: mockAiResponse,
   errorCode: null,
+  errorMessage: null,
   createdAt: T0,
   completedAt: T0,
 };
@@ -278,6 +281,7 @@ export const mockAiRun: AiRun = {
 export const mockAiPublicConfigByok: AiPublicConfig = {
   enabled: true,
   keyPolicy: 'byok',
+  allowBackgroundRuns: true,
   providers: [{ id: 'openai', displayName: 'OpenAI', enabled: true, hasOrgKey: false }],
 };
 
@@ -285,6 +289,7 @@ export const mockAiPublicConfigByok: AiPublicConfig = {
 export const mockAiPublicConfigNoProviders: AiPublicConfig = {
   enabled: true,
   keyPolicy: 'byok',
+  allowBackgroundRuns: true,
   providers: [{ id: 'openai', displayName: 'OpenAI', enabled: false, hasOrgKey: false }],
 };
 
