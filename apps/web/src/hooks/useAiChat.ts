@@ -7,11 +7,22 @@
  * the assistant message is appended up front and filled in as the answer
  * arrives, so the thread never jumps.
  *
- * MULTI-TURN IS SERVER-SIDE. The provider keeps the conversation; each turn
- * sends only the new prompt plus `previousResponseId` — the id of the last
- * COMPLETED response. A stopped, failed or still-streaming turn never
- * advances it, so the next turn continues from the last answer that actually
- * finished.
+ * MULTI-TURN IS SERVER-SIDE WHERE THE PROVIDER ALLOWS IT. A provider that
+ * keeps the conversation (OpenAI) is sent only the new prompt plus
+ * `previousResponseId` — the id of the last COMPLETED response. A stopped,
+ * failed or still-streaming turn never advances it, so the next turn
+ * continues from the last answer that actually finished.
+ *
+ * A stateless provider (Anthropic, `supportsPreviousResponseId: false` in
+ * `GET /api/ai/config` — #446) refuses `previousResponseId` with
+ * `AI_CAPABILITY_UNSUPPORTED`, so for it the caller passes
+ * `chainResponses: false` and the turn carries the whole conversation as
+ * `input` instead: every COMPLETED prior exchange as message items (the
+ * same "completed only" rule as the id above), then the new turn with its
+ * attachments. A prior user turn resends its attachments' `storageObjectId`
+ * parts, never their bytes. The message list alone is enough to rebuild
+ * that, so switching from a chaining provider to a stateless one
+ * mid-conversation just works.
  *
  * STOP IS IMMEDIATE ON THE CLIENT. `stop()` aborts the request (the API
  * observes the disconnect and aborts the provider call — #433) and marks the
@@ -28,6 +39,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   createAiResponse,
   streamAiResponse,
+  type AiInputItem,
   type AiOutputItem,
   type AiResponse,
   type AiResponseRequest,
@@ -36,6 +48,7 @@ import {
 import { toAiErrorInfo, type AiErrorInfo } from '../services/aiErrors';
 import { useIsMounted } from './useIsMounted';
 import {
+  attachmentPart,
   chatTurnInput,
   withAttachmentContext,
   type AiChatAttachment,
@@ -72,6 +85,12 @@ export interface AiChatMessage {
 export type AiChatRequestOptions = Omit<AiResponseRequest, 'input' | 'previousResponseId'> & {
   /** `false` sends one JSON round trip instead of streaming. Default `true`. */
   stream?: boolean;
+  /**
+   * `false` for a provider that cannot continue a conversation by
+   * `previousResponseId` (#446): the turn resends the conversation so far as
+   * `input` instead. Default `true` (chain by id).
+   */
+  chainResponses?: boolean;
 };
 
 export interface UseAiChatReturn {
@@ -88,6 +107,49 @@ export interface UseAiChatReturn {
     response: AiResponse,
     extra?: { runId?: string; attachments?: AiChatAttachment[] },
   ) => void;
+  /**
+   * The conversation so far plus this turn, as `input` items — what a turn
+   * sends to a provider that cannot chain (#446). See {@link buildHistoryInput}.
+   */
+  historyInput: (prompt: string, attachments?: readonly AiChatAttachment[]) => AiInputItem[];
+}
+
+function userMessage(text: string, attachments: readonly AiChatAttachment[] = []): AiInputItem {
+  return { type: 'message', role: 'user', content: [{ type: 'text', text }, ...attachments.map(attachmentPart)] };
+}
+
+function assistantMessage(text: string): AiInputItem {
+  return { type: 'message', role: 'assistant', content: [{ type: 'text', text }] };
+}
+
+/**
+ * Every completed prior exchange, then this turn, as message items (#446).
+ *
+ * An exchange is a user message and the assistant message that follows it;
+ * it is resent only when that answer finished (`done`) with text — a
+ * stopped, failed or still-streaming turn is dropped, user half included,
+ * exactly as it never advances `previousResponseId`. A user message is its
+ * text followed by one `image`/`file` part per attachment, named by
+ * `storageObjectId` (the same parts `chatTurnInput` builds, #445); the
+ * assistant's is its text.
+ */
+export function buildHistoryInput(
+  messages: readonly AiChatMessage[],
+  prompt: string,
+  attachments: readonly AiChatAttachment[] = [],
+): AiInputItem[] {
+  const items: AiInputItem[] = [];
+  for (let i = 0; i < messages.length - 1; i += 1) {
+    const user = messages[i];
+    const assistant = messages[i + 1];
+    if (user.role !== 'user' || assistant.role !== 'assistant') continue;
+    if (assistant.status === 'done' && assistant.text !== '' && user.text !== '') {
+      items.push(userMessage(user.text, user.attachments), assistantMessage(assistant.text));
+    }
+    i += 1;
+  }
+  items.push(userMessage(prompt, attachments));
+  return items;
 }
 
 let sequence = 0;
@@ -115,6 +177,11 @@ export function useAiChat(): UseAiChatReturn {
   const activeIdRef = useRef<string | null>(null);
   // Read inside `send` without making it depend on the state value.
   const previousIdRef = useRef<string | null>(null);
+  // The committed message list, for building a stateless turn's history.
+  const messagesRef = useRef<AiChatMessage[]>([]);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
   const isMounted = useIsMounted();
 
   const setPrevious = useCallback((id: string | null) => {
@@ -151,12 +218,14 @@ export function useAiChat(): UseAiChatReturn {
       const text = prompt.trim();
       if (!text || controllerRef.current) return;
 
-      const { stream = true, ...rest } = options;
-      const request: AiResponseRequest = {
-        ...rest,
-        input: chatTurnInput(text, attachments),
-        ...(previousIdRef.current ? { previousResponseId: previousIdRef.current } : {}),
-      };
+      const { stream = true, chainResponses = true, ...rest } = options;
+      const request: AiResponseRequest = chainResponses
+        ? {
+            ...rest,
+            input: chatTurnInput(text, attachments),
+            ...(previousIdRef.current ? { previousResponseId: previousIdRef.current } : {}),
+          }
+        : { ...rest, input: buildHistoryInput(messagesRef.current, text, attachments) };
 
       const userId = nextId('user');
       const assistantId = nextId('assistant');
@@ -274,5 +343,11 @@ export function useAiChat(): UseAiChatReturn {
     [setPrevious],
   );
 
-  return { messages, isStreaming, previousResponseId, send, stop, reset, appendExchange };
+  const historyInput = useCallback(
+    (prompt: string, attachments: readonly AiChatAttachment[] = []) =>
+      buildHistoryInput(messagesRef.current, prompt, attachments),
+    [],
+  );
+
+  return { messages, isStreaming, previousResponseId, send, stop, reset, appendExchange, historyInput };
 }

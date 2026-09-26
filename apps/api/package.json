@@ -36,6 +36,7 @@
     "storage:purge": "node dist/storage/purge/storage-purge.main.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
     "@app/shared": "*",
     "@aws-sdk/client-s3": "^3.975.0",
     "@aws-sdk/client-sesv2": "^3.1121.0",

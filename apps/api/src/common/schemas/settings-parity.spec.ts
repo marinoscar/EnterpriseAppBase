@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import {
+  AI_PROVIDER_IDS,
   systemSettingsSchema,
   systemSettingsPatchSchema,
 } from './settings.schema';
@@ -280,5 +281,32 @@ describe('system settings parity across the places a namespace must be declared'
     // page nobody can save — the exact trap #130's degraded read exists to
     // avoid.
     expect(() => systemSettingsSchema.parse(DEFAULT_SYSTEM_SETTINGS)).not.toThrow();
+  });
+
+  it('declares one ai.providers slot per AI_PROVIDER_IDS entry in every source (#446)', () => {
+    // One level deeper than the namespace-by-field check above, for the one
+    // nested map that grows by appending an id: a provider added to
+    // `AI_PROVIDER_IDS` but missed in one of these places would otherwise be
+    // silently unconfigurable (or silently unwritable) there.
+    const providersOf = (schema: z.ZodObject<z.ZodRawShape>): string[] | null => {
+      const ai = unwrap((schema.shape as Record<string, unknown>).ai);
+
+      return ai instanceof z.ZodObject
+        ? objectKeys((ai.shape as Record<string, unknown>).providers)
+        : null;
+    };
+
+    const sources: Array<[string, string[] | null]> = [
+      ['systemSettingsSchema', providersOf(systemSettingsSchema)],
+      ['systemSettingsPatchSchema', providersOf(systemSettingsPatchSchema)],
+      ['updateSystemSettingsSchema (PUT body)', providersOf(updateSystemSettingsSchema)],
+      ['patchSystemSettingsSchema (PATCH body)', providersOf(patchSystemSettingsSchema)],
+      ['DEFAULT_SYSTEM_SETTINGS', valueKeys(DEFAULT_SYSTEM_SETTINGS.ai.providers)],
+    ];
+
+    for (const [name, keys] of sources) {
+      expect(keys).not.toBeNull();
+      expectSameKeys(keys ?? [], [...AI_PROVIDER_IDS], `${name}: ai.providers slots`);
+    }
   });
 });

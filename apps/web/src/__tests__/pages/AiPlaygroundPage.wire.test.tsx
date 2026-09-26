@@ -19,11 +19,14 @@ import { http, HttpResponse } from 'msw';
 import { render } from '../utils/test-utils';
 import { server } from '../mocks/server';
 import {
+  mockAiPublicConfigWithAnthropic,
   mockAiResponse,
   mockAiRun,
+  mockPlaygroundClaudeModel,
   mockPlaygroundModels,
   toSseBody,
 } from '../mocks/fixtures/ai';
+import { AiConfigContext, type UseAiConfigReturn } from '../../hooks/useAiConfig';
 import AiPlaygroundPage from '../../pages/AiPlaygroundPage';
 import { AI_SCHEMA_PRESETS } from '../../components/ai/aiSchemaPresets';
 import { AI_RUN_POLL_INTERVAL_MS } from '../../hooks/useAiRun';
@@ -69,6 +72,42 @@ async function renderPage(userOptions?: Parameters<typeof userEvent.setup>[0]) {
   await waitFor(() => expect(select).toHaveTextContent('GPT-5 mini'));
   return user;
 }
+
+/** The playground with Anthropic configured as a provider that cannot chain (#446). */
+async function renderPageWithAnthropic(userOptions?: Parameters<typeof userEvent.setup>[0]) {
+  server.use(
+    http.get('*/api/ai/models', () =>
+      HttpResponse.json({ data: [...mockPlaygroundModels, mockPlaygroundClaudeModel] }),
+    ),
+  );
+  const aiValue: UseAiConfigReturn = {
+    config: mockAiPublicConfigWithAnthropic,
+    isLoading: false,
+    error: null,
+    refresh: vi.fn().mockResolvedValue(undefined),
+  };
+  const user = userEvent.setup(userOptions);
+  render(
+    <AiConfigContext.Provider value={aiValue}>
+      <AiPlaygroundPage />
+    </AiConfigContext.Provider>,
+    { wrapperOptions: { route: '/ai', aiEnabled: true } },
+  );
+  const select = await screen.findByRole('combobox', { name: 'Model' });
+  await waitFor(() => expect(select).toHaveTextContent('GPT-5 mini'));
+  return user;
+}
+
+async function pickModel(user: ReturnType<typeof userEvent.setup>, name: RegExp) {
+  await user.click(screen.getByRole('combobox', { name: 'Model' }));
+  await user.click(screen.getByRole('option', { name }));
+}
+
+const textItem = (role: 'user' | 'assistant', text: string) => ({
+  type: 'message',
+  role,
+  content: [{ type: 'text', text }],
+});
 
 async function send(user: ReturnType<typeof userEvent.setup>, text: string) {
   await user.type(screen.getByRole('textbox', { name: 'Message' }), text);
@@ -122,6 +161,114 @@ describe('AiPlaygroundPage — wire', () => {
     expect((captured[0].body as Record<string, unknown>).previousResponseId).toBeUndefined();
     expect(captured[1].body).toMatchObject({ input: 'second', previousResponseId: 'resp_123' });
     expect(captured[2].body).toMatchObject({ input: 'third', previousResponseId: 'resp_456' });
+  });
+
+  describe('a provider that cannot chain (Anthropic, #446)', () => {
+    it('resends the full conversation as input, with no previousResponseId', async () => {
+      const second: AiResponse = { ...mockAiResponse, id: 'msg_2', outputText: 'Second answer' };
+      const captured = captureStream([{ ...mockAiResponse, id: 'msg_1' }, second]);
+      const user = await renderPageWithAnthropic();
+      await pickModel(user, /Claude Sonnet 4\.5/);
+
+      await send(user, 'first');
+      await screen.findByText('Hello! How can I help?');
+      await send(user, 'second');
+      await screen.findByText('Second answer');
+      await send(user, 'third');
+
+      await waitFor(() => expect(captured).toHaveLength(3));
+      expect(captured[0].body).toEqual({
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-5',
+        input: [textItem('user', 'first')],
+      });
+      expect(captured[1].body).toEqual({
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-5',
+        input: [textItem('user', 'first'), textItem('assistant', 'Hello! How can I help?'), textItem('user', 'second')],
+      });
+      expect(captured[2].body).toEqual({
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-5',
+        input: [
+          textItem('user', 'first'),
+          textItem('assistant', 'Hello! How can I help?'),
+          textItem('user', 'second'),
+          textItem('assistant', 'Second answer'),
+          textItem('user', 'third'),
+        ],
+      });
+    });
+
+    it('switching from OpenAI to Claude mid-conversation resends what OpenAI answered', async () => {
+      const captured = captureStream();
+      const user = await renderPageWithAnthropic();
+
+      await send(user, 'first');
+      await screen.findByText('Hello! How can I help?');
+      await pickModel(user, /Claude Sonnet 4\.5/);
+      await send(user, 'second');
+
+      await waitFor(() => expect(captured).toHaveLength(2));
+      expect(captured[0].body).toMatchObject({ provider: 'openai', input: 'first' });
+      expect(captured[1].body).toEqual({
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-5',
+        input: [textItem('user', 'first'), textItem('assistant', 'Hello! How can I help?'), textItem('user', 'second')],
+      });
+    });
+
+    it('OpenAI keeps chaining by previousResponseId when Anthropic is also configured', async () => {
+      const captured = captureStream();
+      const user = await renderPageWithAnthropic();
+
+      await send(user, 'first');
+      await screen.findByText('Hello! How can I help?');
+      await send(user, 'second');
+
+      await waitFor(() => expect(captured).toHaveLength(2));
+      expect(captured[1].body).toEqual({
+        provider: 'openai',
+        model: 'gpt-5-mini',
+        input: 'second',
+        reasoning: { summary: 'auto' },
+        previousResponseId: 'resp_123',
+      });
+    });
+
+    it('a background run resends the conversation too', async () => {
+      captureStream();
+      const runs: unknown[] = [];
+      server.use(
+        http.post('*/api/ai/runs', async ({ request }) => {
+          runs.push(await request.json());
+          return HttpResponse.json({ data: { runId: 'run_42', jobId: 'job_42' } }, { status: 202 });
+        }),
+        http.get('*/api/ai/runs/:id', ({ params }) =>
+          HttpResponse.json({
+            data: { ...mockAiRun, id: String(params.id), status: 'running', output: null, completedAt: null },
+          }),
+        ),
+      );
+      const user = await renderPageWithAnthropic();
+      await pickModel(user, /Claude Sonnet 4\.5/);
+
+      await send(user, 'context');
+      await screen.findByText('Hello! How can I help?');
+      await user.click(screen.getByRole('switch', { name: 'Run in background' }));
+      await send(user, 'Summarise');
+
+      await waitFor(() => expect(runs).toHaveLength(1));
+      expect(runs[0]).toEqual({
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-5',
+        input: [
+          textItem('user', 'context'),
+          textItem('assistant', 'Hello! How can I help?'),
+          textItem('user', 'Summarise'),
+        ],
+      });
+    });
   });
 
   it('sends effort, max output tokens and instructions exactly as the DTO names them', async () => {

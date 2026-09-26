@@ -45,7 +45,7 @@ function build(c: Omit<Case, 'expected'>) {
   const policy: AiPolicy = {
     enabled: true,
     keyPolicy: c.keyPolicy,
-    providers: { openai: { enabled: true } },
+    providers: { openai: { enabled: true }, anthropic: { enabled: false } },
     defaults: { allowBackgroundRuns: true },
     logPromptContent: false,
     usageRetentionDays: 180,

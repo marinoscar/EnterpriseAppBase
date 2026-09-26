@@ -693,11 +693,11 @@ export const systemMaintenancePatchSchema = z.object({
 // #428, #431, #432).
 //
 // `AI_PROVIDER_IDS` NAMES A REGISTRATION, NOT A CLOSED SET FOREVER — `as const`
-// today lists `'openai'` alone because that is the only provider this phase
-// integrates, and Phase 3 appends to the array rather than replacing it. A
-// fork adding its own provider extends this array; nothing about the shape
-// below assumes exactly one member.
-export const AI_PROVIDER_IDS = ['openai'] as const;
+// listed `'openai'` alone through Phase 1, and Phase 3 appends to the array
+// rather than replacing it (`'anthropic'`, #446). A fork adding its own
+// provider extends this array; nothing about the shape below assumes a fixed
+// number of members. Append only: the order is the admin UI's order.
+export const AI_PROVIDER_IDS = ['openai', 'anthropic'] as const;
 
 /** A registered AI provider id. See {@link AI_PROVIDER_IDS}. */
 export type AiProviderId = (typeof AI_PROVIDER_IDS)[number];
@@ -750,7 +750,7 @@ export type AiKeyPolicy = (typeof AI_KEY_POLICIES)[number];
  * exact counterpart of `systemStorageSchema.endpoint`. It exists for
  * OpenAI-compatible proxies and self-hosted gateways, and is optional because
  * absent means "use the provider's own default host". `providers` is closed
- * to `AI_PROVIDER_IDS` (currently one member) rather than an open
+ * to `AI_PROVIDER_IDS` (`openai`, `anthropic`) rather than an open
  * `z.record`, for the same reason `STORAGE_PROVIDER_KINDS` is a closed enum
  * and not a free string: this value is read by name at the consuming layer, a
  * `z.record` cannot be validated field-by-field by `readNamespace` below (it
@@ -803,14 +803,23 @@ export type AiKeyPolicy = (typeof AI_KEY_POLICIES)[number];
  * file. The defaults live in `DEFAULT_SYSTEM_SETTINGS` (settings.types.ts)
  * and nowhere else.
  */
+/**
+ * One provider's slot in `ai.providers`: its switch and optional endpoint
+ * override. Every provider id has exactly this shape.
+ */
+export const systemAiProviderSchema = z.object({
+  enabled: z.boolean(),
+  baseUrl: z.string().url().optional(),
+});
+
 export const systemAiSchema = z.object({
   enabled: z.boolean(),
   keyPolicy: z.enum(AI_KEY_POLICIES),
   providers: z.object({
-    openai: z.object({
-      enabled: z.boolean(),
-      baseUrl: z.string().url().optional(),
-    }),
+    openai: systemAiProviderSchema,
+    // #446. Appended; a stored row written before this slot existed is
+    // salvaged per provider by `SystemSettingsService`, never reset.
+    anthropic: systemAiProviderSchema,
   }),
   defaults: z.object({
     maxOutputTokensCap: z.number().int().positive().optional(),
@@ -845,17 +854,19 @@ export type SystemAiValue = z.infer<typeof systemAiSchema>;
 // host" / "no cap"). The same absent-vs-null distinction
 // `storage.forcePathStyle` and `maintenance.startedAt` already draw; without
 // it an override, once set, could be changed but never cleared (#428).
+/** One provider's slot in a PATCH: each field optional, `baseUrl: null` removes the override. */
+const systemAiProviderPatchSchema = z.object({
+  enabled: z.boolean().optional(),
+  baseUrl: z.string().url().nullable().optional(),
+});
+
 export const systemAiPatchSchema = z.object({
   enabled: z.boolean().optional(),
   keyPolicy: z.enum(AI_KEY_POLICIES).optional(),
   providers: z
     .object({
-      openai: z
-        .object({
-          enabled: z.boolean().optional(),
-          baseUrl: z.string().url().nullable().optional(),
-        })
-        .optional(),
+      openai: systemAiProviderPatchSchema.optional(),
+      anthropic: systemAiProviderPatchSchema.optional(),
     })
     .optional(),
   defaults: z

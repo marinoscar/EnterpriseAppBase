@@ -203,6 +203,7 @@ export class AiConfigService implements OnModuleInit {
           displayName: adapter?.displayName ?? id,
           enabled: providerPolicy(policy, id)?.enabled ?? false,
           hasOrgKey: info !== null,
+          supportsPreviousResponseId: this.registry.supportsPreviousResponseId(id),
         };
       }),
     );

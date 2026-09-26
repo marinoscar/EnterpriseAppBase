@@ -41,7 +41,10 @@ describe('AiModule', () => {
       const registry = ctx.app.get(AiProviderRegistry);
 
       expect(registry).toBeInstanceOf(AiProviderRegistry);
-      expect(registry.ids()).toEqual(['openai']);
+      expect(registry.ids()).toEqual(['openai', 'anthropic']);
+      // Anthropic stores no responses, so it declares it cannot chain (#446).
+      expect(registry.supportsPreviousResponseId('openai')).toBe(true);
+      expect(registry.supportsPreviousResponseId('anthropic')).toBe(false);
     });
   });
 

@@ -366,6 +366,9 @@ export const DEFAULT_SYSTEM_SETTINGS = {
       openai: {
         enabled: false,
       },
+      anthropic: {
+        enabled: false,
+      },
     },
     defaults: {
       allowBackgroundRuns: true,

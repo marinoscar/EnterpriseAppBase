@@ -290,12 +290,19 @@ export default function AiPlaygroundPage() {
   const update = <K extends keyof PlaygroundControls>(key: K, value: PlaygroundControls[K]) =>
     setControls((current) => ({ ...current, [key]: value }));
 
+  // A stateless provider (#446) cannot continue by `previousResponseId`; the
+  // turn resends the conversation instead. Unknown to the config: chain.
+  const chainResponses =
+    !selected ||
+    aiConfig.providers.find((provider) => provider.id === selected.provider)?.supportsPreviousResponseId !== false;
+
   const buildOptions = useCallback((): AiChatRequestOptions | null => {
     if (!selected || !controlsValid) return null;
     const options: AiChatRequestOptions = {
       provider: selected.provider,
       model: selected.modelId,
       stream: hasAiCapability(selected, 'streaming'),
+      chainResponses,
     };
     if (controls.instructions.trim()) options.instructions = controls.instructions.trim();
     if (typeof maxTokens === 'number') options.maxOutputTokens = maxTokens;
@@ -309,7 +316,7 @@ export default function AiPlaygroundPage() {
     if (schema?.ok) options.structuredOutput = { name: schemaName, jsonSchema: schema.schema, strict: true };
     if (hosted.tools.length > 0) options.tools = hosted.tools;
     return options;
-  }, [selected, controlsValid, controls, maxTokens, supportsReasoning, temperature, efforts, schema, schemaName, hosted.tools]);
+  }, [selected, controlsValid, chainResponses, controls, maxTokens, supportsReasoning, temperature, efforts, schema, schemaName, hosted.tools]);
 
   const choosePreset = (id: string) => {
     const preset = AI_SCHEMA_PRESETS.find((entry) => entry.id === id);
@@ -365,15 +372,19 @@ export default function AiPlaygroundPage() {
     setPendingAttachments([]);
     if (useBackground) {
       // A run is not streamed; it answers once, through polling.
-      const { stream: _unused, ...request } = options;
+      const { stream: _unused, chainResponses: chain, ...request } = options;
       runPromptRef.current = text;
       runAttachmentsRef.current = attachments;
       setRunPrompt(text);
-      void run.start({
-        ...request,
-        input: chatTurnInput(text, attachments),
-        ...(chat.previousResponseId ? { previousResponseId: chat.previousResponseId } : {}),
-      });
+      void run.start(
+        chain === false
+          ? { ...request, input: chat.historyInput(text, attachments) }
+          : {
+              ...request,
+              input: chatTurnInput(text, attachments),
+              ...(chat.previousResponseId ? { previousResponseId: chat.previousResponseId } : {}),
+            },
+      );
       return;
     }
     void chat.send(text, options, attachments);

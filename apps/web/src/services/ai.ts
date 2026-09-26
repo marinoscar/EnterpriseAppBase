@@ -88,7 +88,20 @@ export interface AiPublicConfig {
   enabled: boolean;
   keyPolicy: AiKeyPolicy;
   /** Empty while `enabled` is false. */
-  providers: { id: string; displayName: string; enabled: boolean; hasOrgKey: boolean }[];
+  providers: {
+    id: string;
+    displayName: string;
+    enabled: boolean;
+    hasOrgKey: boolean;
+    /**
+     * Whether a request may continue a conversation by `previousResponseId`
+     * (#446). `false` for a stateless provider (Anthropic): send the
+     * conversation so far as `input` instead, or the API answers `400
+     * AI_CAPABILITY_UNSUPPORTED`. Optional so an older API that omits it
+     * still works — absent means chain, the pre-#446 behaviour.
+     */
+    supportsPreviousResponseId?: boolean;
+  }[];
   /**
    * `defaults.allowBackgroundRuns` (#433): whether `POST /ai/runs` accepts a
    * request; always `false` while `enabled` is false. Optional so an older API

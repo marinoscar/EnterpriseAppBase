@@ -5,6 +5,7 @@ import { AiConfigModule } from './config/ai-config.module';
 import { AiCoreModule } from './core/ai-core.module';
 import { AiHttpModule } from './http/ai-http.module';
 import { AiKeysModule } from './keys/ai-keys.module';
+import { AnthropicProviderModule } from './providers/anthropic/anthropic.module';
 import { OpenAiProviderModule } from './providers/openai/openai.module';
 import { AiRuntimeModule } from './runtime/ai-runtime.module';
 import { AiUsageModule } from './usage/ai-usage.module';
@@ -21,6 +22,7 @@ import { AiUsageModule } from './usage/ai-usage.module';
   imports: [
     AiCoreModule,
     OpenAiProviderModule,
+    AnthropicProviderModule,
     AiCatalogModule,
     AiConfigModule,
     AiKeysModule,
