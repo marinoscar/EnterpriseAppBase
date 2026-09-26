@@ -315,6 +315,30 @@ describe('AiCatalogService.sync', () => {
       expect(h.prisma.row('weird').capabilities).toEqual(EMPTY_AI_MODEL_CAPABILITIES);
     });
 
+    it('hands the listing metadata of each id back to the classifier (#447)', async () => {
+      const provider = fakeWith(['rich', 'plain']);
+      const classify = jest.spyOn(provider, 'classifyModel').mockImplementation((_id, metadata) =>
+        metadata?.outputTokenLimit
+          ? { ...FAKE_TEXT_MODEL_CAPABILITIES, maxOutputTokens: metadata.outputTokenLimit }
+          : FAKE_TEXT_MODEL_CAPABILITIES,
+      );
+      jest.spyOn(provider, 'listModels').mockResolvedValue([
+        { id: 'rich', metadata: { outputTokenLimit: 12_345, supportedActions: ['generateContent'] } },
+        // A repeat of an id keeps the FIRST listing's metadata, like the id itself.
+        { id: 'rich', metadata: { outputTokenLimit: 1 } },
+        { id: 'plain' },
+      ]);
+      const h = makeHarness({ provider });
+
+      await h.service.sync('fake');
+
+      expect(classify).toHaveBeenCalledWith('rich', { outputTokenLimit: 12_345, supportedActions: ['generateContent'] });
+      // No metadata -> the one-argument call every existing classifier expects.
+      expect(classify).toHaveBeenCalledWith('plain');
+      expect(h.prisma.row('rich')).toMatchObject({ maxOutputTokens: 12_345 });
+      expect(h.prisma.row('plain')).toMatchObject({ maxOutputTokens: FAKE_TEXT_MODEL_CAPABILITIES.maxOutputTokens });
+    });
+
     it('deduplicates repeated ids in the listing', async () => {
       const h = makeHarness({ provider: fakeWith(['dup', 'dup', 'other']) });
 
