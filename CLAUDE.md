@@ -690,17 +690,17 @@ The caller's own AI surface: usable models, BYOK keys, and calling AI itself.
 `AiEnabledGuard` (403 `details.reason: "AI_DISABLED"` while AI is off) and
 requires `ai:use`. See
 [`docs/specs/ai-platform.md`](docs/specs/ai-platform.md).
-- `GET /api/ai/config` - Whether AI is enabled, the key policy, and which providers are enabled/carry an org key; reachable while AI is disabled — how a client learns to hide its AI surfaces (any authenticated user, no `ai:use` required)
+- `GET /api/ai/config` - Whether AI is enabled, the key policy, `allowBackgroundRuns` (whether `POST /api/ai/runs` accepts a request at all), and which providers are enabled/carry an org key; reachable while AI is disabled — how a client learns to hide its AI surfaces (any authenticated user, no `ai:use` required)
 - `GET /api/ai/keys` - List the caller's provider keys, masked (`ai:use`)
 - `PUT /api/ai/keys/{provider}` - Set/replace the caller's key; verified against the provider first, then reachable models computed, then stored (`ai:use`)
 - `DELETE /api/ai/keys/{provider}` - Remove the caller's key; 204, idempotent (`ai:use`)
 - `POST /api/ai/keys/{provider}/test` - Two checks only — `credentials`, `list_models` — deliberately no billed smoke call against the caller's own account; always 200 (`ai:use`)
 - `GET /api/ai/models` - Models the caller can use right now: admin-enabled, not deprecated, and reachable with their resolved key (`ai:use`)
-- `POST /api/ai/responses` ⚠ *#433, not yet on `main` as this was written* - One AI response via `AiService.forUser(id).respond(...)` (`ai:use`)
-- `POST /api/ai/responses/stream` ⚠ *#433* - The same call streamed as Server-Sent Events over an unbuffered nginx route (`ai:use`)
-- `POST /api/ai/runs` ⚠ *#433* - Queue a background AI response (`ai.response.run`); returns `{ runId, jobId }` (`ai:use`)
-- `GET /api/ai/runs/{id}` ⚠ *#433* - Get one background run, scoped to the caller; 404 for another user's run (`ai:use`)
-- `POST /api/ai/runs/{id}/cancel` ⚠ *#433* - Cancel a background run, scoped to the caller (`ai:use`)
+- `POST /api/ai/responses` - One AI response via `AiService.forUser(id).respond(...)`; 1 MB body limit, function tools not accepted over HTTP (`ai:use`)
+- `POST /api/ai/responses/stream` - The same request as SSE (`Accept: text/event-stream`, no `stream` flag) — `event: <type>` frames, `: ping` every 15s, ending with `response.completed` or an in-band `error` frame; every pre-stream refusal is an ordinary JSON error over an unbuffered nginx route (issue #433, epic #419) (`ai:use`)
+- `POST /api/ai/runs` - Queue a background AI response (`ai.response.run`); 202 `{ runId, jobId }`; 400 `AI_INVALID_REQUEST` when `ai.defaults.allowBackgroundRuns` is off (`ai:use`)
+- `GET /api/ai/runs/{id}` - Get one background run, scoped to the caller — `{ id, status, provider, modelId, output, errorCode, errorMessage, createdAt, completedAt }`; 404 for another user's run (`ai:use`)
+- `POST /api/ai/runs/{id}/cancel` - Cancel a background run, scoped to the caller; idempotent — a finished run is returned unchanged (`ai:use`)
 
 ### Health
 - `GET /api/health/live` - Liveness check

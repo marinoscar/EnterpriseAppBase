@@ -52,10 +52,12 @@ ai/
     ai-run-request.ts         toStoredRunRequest/fromStoredRunRequest (ai_runs.request JSON)
     ai-tool-loop.ts            runToolLoop — the function-calling agent loop
     ai-usage.recorder.ts       One ai_usage_events row per provider round-trip
-  http/                    ⚠ NOT YET ON `main` as this README is written (#433) — the
-                           consumer HTTP surface: POST /api/ai/responses(/stream),
-                           /api/ai/runs. See docs/specs/ai-platform.md §10 for the contract
-                           this story implements against.
+  http/                    The consumer HTTP surface (issue #433)
+    ai-responses.controller.ts   POST /api/ai/responses, POST /api/ai/responses/stream
+    ai-runs.controller.ts        POST /api/ai/runs, GET/POST /api/ai/runs/:runId(/cancel)
+    ai-sse.ts                     pipeAiSse/formatSseEvent/abortOnDisconnect — see below
+    ai-http-request.ts           toAiRequest — HTTP DTO -> AiRequest
+    json-schema-structured-output.ts   HTTP callers send JSON Schema, not Zod
   testing/                 FakeAiProvider, describeAiProviderConformance, test harness
 ```
 
@@ -106,38 +108,49 @@ then hands a JSON-safe copy of the request (`toStoredRunRequest`) to
 
 ## Streaming, end to end
 
-*(The controller side of this — `POST /api/ai/responses/stream` and the
-nginx route — is issue #433 and was not yet merged to `main` when this
-README was written; the description below is the contract
-`docs/specs/ai-platform.md` §10 defines for it, not verified against that
-controller's actual code.)*
-
 1. A client `POST`s `/api/ai/responses/stream` with `Accept:
-   text/event-stream`.
+   text/event-stream`. `@Sse()` was deliberately **not** used —
+   `AiResponsesController.stream()` takes `@Res()` directly, because
+   `@Sse()` commits to `200 text/event-stream` before the handler runs, and
+   this route's contract needs the opposite: a gate refusal must still be an
+   ordinary JSON error, not an in-band frame (`ai-sse.ts`'s own header
+   explains the choice in full).
 2. The controller calls `AiService.forUser(id).openStream(req)` rather than
    the lazy `stream()` — `openStream`'s returned *promise* rejects with the
    `AiError` for any gate or pre-stream provider failure, so a failure that
    happens before the first byte is written answers as an ordinary JSON
-   error with the matching HTTP status, exactly like a non-streaming route.
-   Only a failure **after** streaming has started is sent in-band, as an
-   `event: error` frame, after which the stream closes.
-3. Each `AiStreamEvent` the adapter yields is written as
-   `event: <type>\ndata: <json>\n\n`; a `: ping\n\n` heartbeat comment is
-   sent every 15 seconds to keep the connection alive through any proxy
-   with an idle-connection timeout.
-4. Response headers include `X-Accel-Buffering: no` (the header nginx
-   respects to disable buffering for this one response), following the
-   precedent `apps/api/src/notifications/notifications.controller.ts`
-   already set for `/api/notifications/stream`.
+   error with the matching HTTP status, exactly like a non-streaming route,
+   via the global exception filter (nothing has been written to `reply`
+   yet). Only a failure **after** streaming has started is sent in-band, via
+   `pipeAiSse`, as an `event: error` frame (`{ type: 'error', code,
+   message }`), after which the stream closes.
+3. Once `openStream` resolves, `pipeAiSse` (`http/ai-sse.ts`) **hijacks**
+   the Fastify reply (`reply.hijack()`) and writes frames straight to the
+   socket by hand: each `AiStreamEvent` as
+   `` event: <type>\ndata: <json>\n\n ``, and a `: ping\n\n` heartbeat
+   comment every 15 seconds (`AI_SSE_HEARTBEAT_MS`) so no proxy reaps a
+   quiet connection while a reasoning model is still thinking.
+4. Response headers include `X-Accel-Buffering: no` (`AI_SSE_HEADERS`, the
+   header nginx respects to disable buffering for this one response),
+   following the precedent
+   `apps/api/src/notifications/notifications.controller.ts` already set for
+   `/api/notifications/stream`.
 5. `infra/nginx/nginx.conf` carries a dedicated, longest-prefix-wins
    `location /api/ai/responses/stream` block, placed before the general
    `/api` block, with `proxy_buffering off` and a long `proxy_read_timeout`
    — nginx buffers `/api` with a 60-second read timeout by default, which
    would truncate any response that streams for longer than a minute.
-6. A client disconnect is observed via `request.raw.on('close')` and aborts
-   the in-flight provider call through an `AbortController` threaded into
-   `AiCallContext.signal` — an abandoned stream must not keep spending a
-   user's rate limit or provider spend after nobody is listening.
+   `apps/cli/src/deploy/proxy.ts` (the vhost the CLI's `appctl deploy`
+   generates on a target server) carries the identical block, so a
+   deployed fork streams correctly too, not only local dev.
+6. A client disconnect is observed via `abortOnDisconnect` listening on the
+   **response's** own `close` event (not the request's — since Node 16 an
+   `IncomingMessage` emits `close` as soon as its body is consumed, which
+   for a `POST` is before the first event is even generated) and aborts an
+   `AbortController` threaded into `AiCallContext.signal` — an abandoned
+   stream must not keep spending a user's rate limit or provider spend
+   after nobody is listening. The same helper backs the non-streaming
+   `POST /api/ai/responses` too.
 7. On the web side, `apps/web/src/services/sse.ts`'s `postSse()` is the
    client half of this contract: one `POST`ed request, one streamed answer,
    no reconnect (a reconnect would re-submit the prompt) — see
