@@ -39,7 +39,7 @@ Every fact has one home, every statement is verified against the code, and every
 - **Verify everything.** Never invent a route, permission, env var, file or command; `grep` the code and `ls` the path first. If unsure, leave it out.
 - **Relative links only**, resolved from the containing file. `apps/api/test/docs-links.spec.ts` fails on a link to a missing file in README, CLAUDE.md, CHANGELOG, `docs/**` and `.claude/agents/`.
 - **No endpoint lists outside OpenAPI.** Specs carry a compact route table; the details live in `/api/docs` (`npm run openapi:dump`).
-- **Leave template identity strings alone.** `scripts/rename.mjs` rewrites README's `# My App` title, its tagline sentence, the two `/actions` badge URLs, the clone `cd` line and the directory-tree root by exact string and count. See [RENAMING.md](../../docs/RENAMING.md).
+- **Leave template identity strings alone.** `scripts/rename.mjs` rewrites README's H1 product-name title, its tagline sentence, the two `/actions` badge URLs, the clone `cd` line and the directory-tree root by exact string and count. See [RENAMING.md](../../docs/RENAMING.md).
 - **Never add a commented `# KEY=value` line** to `infra/compose/.env.example`: a CLI test parses every such line as a declared variable.
 - **Style.** Short sentences, topic headings, tables for inventories, bullets over paragraphs, fenced code for commands.
 
