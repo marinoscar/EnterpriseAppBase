@@ -16,7 +16,7 @@ import { runStatusCommand } from '../../commands/deploy.js';
 import { isDeployment, resolveEnvPath } from '../deployment-evidence.js';
 import { parseEnvExample, parseEnvFile } from '../env-spec.js';
 import { runInstall, type InstallOptions } from '../install.js';
-import { deployStatePath, readState } from '../state.js';
+import { deployStatePath, readState, writeState, type DeployState } from '../state.js';
 import { runUpdate } from '../update.js';
 import {
   FAKE_GOOGLE_CLIENT_ID,
@@ -726,6 +726,82 @@ describe('ensure-database, through the real pipeline', () => {
     expect(creates[0]?.argv).toContain('postgres');
     expect(creates[0]?.argv[creates[0].argv.length - 1]).toBe('CREATE DATABASE "appdb"');
     expect(readState(vps.deployRoot)?.lastOutcome).toBe('success');
+  });
+});
+
+// =============================================================================
+// --resume against a state predating the #391 steps  (backward compatibility)
+// =============================================================================
+//
+// `completedSteps` on a real deployment's state file was written by whatever
+// CLI version last succeeded there. A deployment installed BEFORE #391 added
+// `validate-environment`'s database gate, `ensure-database`, `proxy-bootstrap`
+// and `renewal` simply has no entry for any of them -- there is no migration
+// that could have retrofitted one. `--resume` must run them anyway: the
+// pipeline skips a step only when its OWN id is in `completed`, so an id that
+// never existed in an older run is, correctly, not "already done".
+// =============================================================================
+describe('--resume against an older state missing the #391 step ids', () => {
+  /** psql against the application database answers 3D000; everything else works. */
+  function vpsWithoutDatabase(): ReturnType<typeof createFakeVps> {
+    const vps = vpsWithTemplate();
+    vps.route(
+      (invocation) =>
+        invocation.argv.includes('psql') &&
+        invocation.argv.includes('appdb') &&
+        invocation.argv[invocation.argv.length - 1] === 'select 1',
+      () =>
+        vps.calls('docker', 'run').some((call) => /CREATE DATABASE/.test(call.argv.join(' ')))
+          ? { stdout: '1' }
+          : { fail: new Error('FATAL:  database "appdb" does not exist (3D000)') },
+    );
+    vps.route(
+      (invocation) => invocation.argv.includes('psql') && /rolcreatedb/.test(invocation.argv.join(' ')),
+      't',
+    );
+    return vps;
+  }
+
+  const database = new Map([['POSTGRES_DB', 'appdb']]);
+
+  it('re-runs validate-environment and ensure-database, reading the .env this CLI already wrote to disk', async () => {
+    const vps = vpsWithoutDatabase();
+    await install(vps, { answers: database, createDatabase: true });
+
+    const installed = readState(vps.deployRoot);
+    expect(installed?.completedSteps).toContain('ensure-database');
+
+    // ⚠ THE SETUP: a completedSteps list an OLDER CLI could actually have
+    // written -- `environment` (so `context.env` is undefined this run,
+    // exactly as it would be for a real pre-#391 deployment) but nothing that
+    // did not exist yet.
+    const preDatabaseGate = new Set(['validate-environment', 'ensure-database', 'proxy-bootstrap', 'renewal']);
+    const olderCompletedSteps = (installed?.completedSteps ?? []).filter((id) => !preDatabaseGate.has(id));
+    expect(olderCompletedSteps).toContain('environment');
+    expect(olderCompletedSteps).not.toContain('ensure-database');
+
+    writeState({
+      ...(installed as DeployState),
+      completedSteps: olderCompletedSteps,
+      lastOutcome: 'failure',
+      lastFailedStep: 'validate-environment',
+    } as DeployState);
+
+    const psqlCallsBefore = vps.calls('docker', 'run').filter((call) => call.argv.includes('psql')).length;
+
+    // ⚠ IF `ensure-database` HAD SILENTLY STAYED UNDEFINED (context.env), this
+    // would throw "No environment to read the database settings from" instead
+    // of resolving -- environmentOf's disk fallback is what makes it succeed.
+    await expect(install(vps, { answers: database, createDatabase: true, resume: true })).resolves.toBeDefined();
+
+    const resumed = readState(vps.deployRoot);
+    expect(resumed?.lastOutcome).toBe('success');
+    // Both ran again this time, rather than being treated as already done.
+    expect(resumed?.completedSteps).toContain('validate-environment');
+    expect(resumed?.completedSteps).toContain('ensure-database');
+
+    const psqlCallsAfter = vps.calls('docker', 'run').filter((call) => call.argv.includes('psql')).length;
+    expect(psqlCallsAfter).toBeGreaterThan(psqlCallsBefore);
   });
 });
 

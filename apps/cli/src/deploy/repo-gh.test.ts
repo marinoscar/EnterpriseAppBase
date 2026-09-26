@@ -41,6 +41,11 @@ describe('configureGhCredentials', () => {
     expect(calls).not.toContain('gh auth setup-git');
   });
 
+  it('is "gh-unavailable" when gh is logged in but setup-git itself fails', async () => {
+    const { run } = fake({ 'git ls-remote': false, 'gh auth status': true, 'gh auth setup-git': false });
+    expect(await configureGhCredentials(GITHUB_URL, run)).toBe('gh-unavailable');
+  });
+
   it('never runs anything for an SSH or non-GitHub URL', async () => {
     const { run, calls } = fake({});
     expect(await configureGhCredentials('git@github.com:owner/repo.git', run)).toBe('not-applicable');
