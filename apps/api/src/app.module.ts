@@ -30,6 +30,7 @@ import { LoggerModule } from './common/logger/logger.module';
 import { TestAuthModule } from './test-auth/test-auth.module';
 import { MaintenanceModule } from './common/maintenance/maintenance.module';
 import { MaintenanceGuard } from './common/maintenance/maintenance.guard';
+import { AiModule } from './ai/ai.module';
 
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -179,6 +180,12 @@ import configuration from './config/configuration';
     // settings or storage graphs. Registered after them all the same: it
     // reports on the application, so it is the application that owns it.
     AboutModule,
+
+    // The AI platform (epic #419). Since #424 this is only the
+    // provider-agnostic core: contracts and an in-memory provider registry,
+    // no database access and no provider registered. Later stories add their
+    // modules as import lines inside `AiModule`, not here.
+    AiModule,
 
     // Test modules (non-production only)
     ...(process.env.NODE_ENV !== 'production' ? [TestAuthModule] : []),

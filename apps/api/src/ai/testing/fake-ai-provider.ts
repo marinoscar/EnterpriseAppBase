@@ -1,0 +1,507 @@
+// =============================================================================
+// FakeAiProvider (issue #424, epic #419)
+// =============================================================================
+//
+// A scriptable, in-memory `AiProviderAdapter` for tests. No network, no SDK.
+//
+// It behaves like a well-mannered real adapter, so tests written against it
+// exercise the same contract a real provider must meet — it passes
+// `describeAiProviderConformance` itself (`fake-ai-provider.conformance.spec.ts`):
+//
+//   - every failure is an `AiError` (a raw error thrown by a script is
+//     wrapped, exactly as an adapter wraps SDK errors);
+//   - a key outside `validKeys` is `AI_KEY_INVALID`;
+//   - a request needing a capability the model is not classified with, or a
+//     hosted tool the fake was not told it supports, is
+//     `AI_CAPABILITY_UNSUPPORTED`;
+//   - `structuredOutput` responses are validated into `parsed`;
+//   - `stream()` chunks the scripted response into well-ordered events.
+//
+// And it RECORDS every call, including the `apiKey` it was called with —
+// that is what lets a test prove the organisation key is never used for a
+// user's inference under a BYOK policy (#435). `calls` holds the keys only
+// because it is test-only code; nothing under `ai/core` may do the same.
+// =============================================================================
+
+import { AiError } from '../core/ai-error';
+import { AiCapability, AiModelCapabilities } from '../core/capabilities';
+import {
+  AiCallContext,
+  AiDiscoveredModel,
+  AiKeyVerification,
+  AiProviderAdapter,
+  AiResponsesPort,
+} from '../core/provider-adapter.interface';
+import { parseStructured } from '../core/structured-output';
+import {
+  AiAudioPort,
+  AiEmbeddingsPort,
+  AiImagesPort,
+  AiRealtimePort,
+} from '../core/types/media.types';
+import {
+  AiHostedToolType,
+  AiOutputItem,
+  AiResponse,
+  AiResponseRequest,
+  AiStreamEvent,
+} from '../core/types/responses.types';
+
+/**
+ * A scripted response. Anything left out is filled in: `id`, `provider`,
+ * `model` (from the request), `output` from `outputText` (or the reverse),
+ * `usage`, and `finishReason` (`tool_calls` when a function call is present).
+ */
+export type FakeAiScriptedResponse = Partial<AiResponse>;
+
+export type FakeAiScript =
+  | FakeAiScriptedResponse[]
+  | ((req: AiResponseRequest, ctx: AiCallContext) => FakeAiScriptedResponse | Promise<FakeAiScriptedResponse>);
+
+export type FakeAiCallMethod = 'listModels' | 'verifyKey' | 'responses.create' | 'responses.stream';
+
+export interface FakeAiCall {
+  method: FakeAiCallMethod;
+  apiKey: string;
+  requestId: string;
+  baseUrl?: string;
+  request?: AiResponseRequest;
+  /** Set when the call observed `ctx.signal` aborting. */
+  aborted?: boolean;
+}
+
+export interface FakeAiProviderOptions {
+  /** Registry id. Defaults to `'fake'`; a test may register it as a real id. */
+  id?: string;
+  displayName?: string;
+  /**
+   * What `responses.create`/`stream` return. An array is consumed in order
+   * (running out is an error); a function is called per request. Defaults to
+   * echoing the last user text.
+   */
+  responses?: FakeAiScript;
+  /** Model ids `listModels` reports. Defaults to `['fake-model']`. */
+  models?: string[];
+  /** Keys accepted as valid. Omitted: any non-empty key is valid. */
+  validKeys?: string[];
+  /**
+   * Classification per model id. Defaults: every id in `models` gets
+   * `FAKE_TEXT_MODEL_CAPABILITIES`, anything else is unclassified (`null`).
+   */
+  classify?: Record<string, AiModelCapabilities> | ((modelId: string) => AiModelCapabilities | null);
+  /** Hosted tools the fake accepts. Defaults to none. */
+  hostedTools?: AiHostedToolType[];
+  /** `false` omits the responses port entirely. Defaults to `true`. */
+  responsesPort?: boolean;
+  /** Extra ports to carry, for registry/runtime tests. */
+  ports?: {
+    images?: AiImagesPort;
+    audio?: AiAudioPort;
+    embeddings?: AiEmbeddingsPort;
+    realtime?: AiRealtimePort;
+  };
+  /** Characters per streamed delta. Defaults to 4. */
+  chunkSize?: number;
+  /** Delay before a create and between stream events, in ms (abort-aware). Defaults to 0. */
+  delayMs?: number;
+}
+
+/** The classification the fake gives its models unless told otherwise. */
+export const FAKE_TEXT_MODEL_CAPABILITIES: AiModelCapabilities = {
+  capabilities: [
+    'responses',
+    'reasoning',
+    'tools',
+    'structured_output',
+    'streaming',
+    'vision_input',
+    'file_input',
+  ],
+  inputModalities: ['text', 'image', 'file'],
+  outputModalities: ['text'],
+  reasoningEfforts: ['minimal', 'low', 'medium', 'high'],
+  contextWindow: 128_000,
+  maxOutputTokens: 16_384,
+};
+
+export class FakeAiProvider implements AiProviderAdapter {
+  readonly id: string;
+  readonly displayName: string;
+
+  readonly responses?: AiResponsesPort;
+  readonly images?: AiImagesPort;
+  readonly audio?: AiAudioPort;
+  readonly embeddings?: AiEmbeddingsPort;
+  readonly realtime?: AiRealtimePort;
+
+  /** Every call, in order. */
+  readonly calls: FakeAiCall[] = [];
+
+  private readonly models: string[];
+  private readonly validKeys?: Set<string>;
+  private readonly script?: FakeAiScript;
+  private scriptCursor = 0;
+  private responseCounter = 0;
+  private readonly options: FakeAiProviderOptions;
+
+  constructor(options: FakeAiProviderOptions = {}) {
+    this.options = options;
+    this.id = options.id ?? 'fake';
+    this.displayName = options.displayName ?? 'Fake AI';
+    this.models = options.models ?? ['fake-model'];
+    this.validKeys = options.validKeys ? new Set(options.validKeys) : undefined;
+    this.script = options.responses;
+
+    if (options.responsesPort !== false) {
+      this.responses = {
+        create: (req, ctx) => this.create(req, ctx),
+        stream: (req, ctx) => this.stream(req, ctx),
+      };
+    }
+
+    this.images = options.ports?.images;
+    this.audio = options.ports?.audio;
+    this.embeddings = options.ports?.embeddings;
+    this.realtime = options.ports?.realtime;
+  }
+
+  /** Every distinct key the fake was called with, in first-use order. */
+  get apiKeys(): string[] {
+    return [...new Set(this.calls.map((call) => call.apiKey))];
+  }
+
+  /** Calls for one method. */
+  callsTo(method: FakeAiCallMethod): FakeAiCall[] {
+    return this.calls.filter((call) => call.method === method);
+  }
+
+  /** Forget recorded calls and rewind an array script. */
+  reset(): void {
+    this.calls.length = 0;
+    this.scriptCursor = 0;
+  }
+
+  // ---- AiProviderAdapter ----------------------------------------------------
+
+  async listModels(ctx: AiCallContext): Promise<AiDiscoveredModel[]> {
+    this.record('listModels', ctx);
+    this.assertKey(ctx);
+
+    return this.models.map((id) => ({ id, ownedBy: this.id }));
+  }
+
+  async verifyKey(ctx: AiCallContext): Promise<AiKeyVerification> {
+    this.record('verifyKey', ctx);
+
+    return this.isValidKey(ctx.apiKey)
+      ? { ok: true }
+      : { ok: false, code: 'AI_KEY_INVALID', detail: 'The fake provider rejected this key.' };
+  }
+
+  classifyModel(modelId: string): AiModelCapabilities | null {
+    const { classify } = this.options;
+
+    if (typeof classify === 'function') {
+      return classify(modelId);
+    }
+
+    if (classify) {
+      return classify[modelId] ?? null;
+    }
+
+    return this.models.includes(modelId) ? FAKE_TEXT_MODEL_CAPABILITIES : null;
+  }
+
+  // ---- Responses port ---------------------------------------------------------
+
+  private async create(req: AiResponseRequest, ctx: AiCallContext): Promise<AiResponse> {
+    const call = this.record('responses.create', ctx, req);
+
+    await this.pause(ctx, call);
+
+    return this.produce(req, ctx, false);
+  }
+
+  private async *stream(req: AiResponseRequest, ctx: AiCallContext): AsyncGenerator<AiStreamEvent> {
+    const call = this.record('responses.stream', ctx, req);
+
+    let response: AiResponse;
+
+    try {
+      this.throwIfAborted(ctx, call);
+      response = await this.produce(req, ctx, true);
+    } catch (err) {
+      // A caller's abort is not a provider failure: surface it as-is, the
+      // way `fetch` does, rather than as an `error` event.
+      if (ctx.signal?.aborted) {
+        call.aborted = true;
+        throw err;
+      }
+
+      const aiError = AiError.wrap(err);
+      yield { type: 'error', code: aiError.code, message: aiError.message };
+      return;
+    }
+
+    const chunkSize = Math.max(1, this.options.chunkSize ?? 4);
+
+    const events: AiStreamEvent[] = [{ type: 'response.created', id: response.id }];
+
+    for (const item of response.output) {
+      if (item.type === 'message') {
+        for (const delta of chunk(item.text, chunkSize)) {
+          events.push({ type: 'output_text.delta', delta });
+        }
+      } else if (item.type === 'reasoning') {
+        for (const summary of item.summary) {
+          events.push({ type: 'reasoning_summary.delta', delta: summary });
+        }
+      } else if (item.type === 'function_call') {
+        for (const delta of chunk(item.arguments, chunkSize)) {
+          events.push({ type: 'function_call.arguments.delta', callId: item.callId, delta });
+        }
+      }
+
+      events.push({ type: 'output_item.done', item });
+    }
+
+    events.push({ type: 'response.completed', response });
+
+    for (const event of events) {
+      await this.pause(ctx, call);
+      yield event;
+    }
+  }
+
+  // ---- internals ----------------------------------------------------------------
+
+  private async produce(req: AiResponseRequest, ctx: AiCallContext, streaming: boolean): Promise<AiResponse> {
+    this.assertKey(ctx);
+    this.assertSupported(req, streaming);
+
+    let scripted: FakeAiScriptedResponse;
+
+    try {
+      scripted = await this.next(req, ctx);
+    } catch (err) {
+      // What a real adapter does with an SDK error: never let it escape raw.
+      throw AiError.wrap(err);
+    }
+
+    const response = this.complete(req, scripted);
+
+    if (req.structuredOutput && response.parsed === undefined && response.finishReason === 'stop') {
+      response.parsed = parseStructured(req.structuredOutput.schema, response.outputText);
+    }
+
+    return response;
+  }
+
+  private async next(req: AiResponseRequest, ctx: AiCallContext): Promise<FakeAiScriptedResponse> {
+    const script = this.script;
+
+    if (typeof script === 'function') {
+      return script(req, ctx);
+    }
+
+    if (Array.isArray(script)) {
+      if (this.scriptCursor >= script.length) {
+        throw new AiError(
+          'AI_PROVIDER_UNAVAILABLE',
+          `FakeAiProvider: the response script is exhausted (${script.length} scripted).`,
+        );
+      }
+
+      return script[this.scriptCursor++];
+    }
+
+    return { outputText: `fake: ${lastUserText(req)}` };
+  }
+
+  private complete(req: AiResponseRequest, scripted: FakeAiScriptedResponse): AiResponse {
+    this.responseCounter += 1;
+
+    const output: AiOutputItem[] =
+      scripted.output ??
+      (scripted.outputText !== undefined ? [{ type: 'message', text: scripted.outputText }] : []);
+
+    const outputText =
+      scripted.outputText ??
+      output
+        .filter((item): item is Extract<AiOutputItem, { type: 'message' }> => item.type === 'message')
+        .map((item) => item.text)
+        .join('');
+
+    const hasCall = output.some((item) => item.type === 'function_call');
+
+    return {
+      id: scripted.id ?? `fake_resp_${this.responseCounter}`,
+      provider: scripted.provider ?? this.id,
+      model: scripted.model ?? req.model,
+      output,
+      outputText,
+      parsed: scripted.parsed,
+      usage: scripted.usage ?? {
+        inputTokens: Math.ceil(lastUserText(req).length / 4),
+        outputTokens: Math.ceil(outputText.length / 4),
+      },
+      finishReason: scripted.finishReason ?? (hasCall ? 'tool_calls' : 'stop'),
+      providerRequestId: scripted.providerRequestId ?? `fake_req_${this.responseCounter}`,
+    };
+  }
+
+  private assertSupported(req: AiResponseRequest, streaming: boolean): void {
+    const hostedAllowed = new Set(this.options.hostedTools ?? []);
+
+    for (const tool of req.tools ?? []) {
+      if (tool.type !== 'function' && !hostedAllowed.has(tool.type)) {
+        throw new AiError(
+          'AI_CAPABILITY_UNSUPPORTED',
+          `The ${this.displayName} provider does not support the "${tool.type}" hosted tool.`,
+          { details: { capability: 'hosted_tools', tool: tool.type } },
+        );
+      }
+    }
+
+    const classification = this.classifyModel(req.model);
+
+    if (!classification) {
+      return;
+    }
+
+    for (const capability of requiredCapabilities(req, streaming)) {
+      if (capability === 'hosted_tools' && hostedAllowed.size > 0) {
+        continue;
+      }
+
+      if (!classification.capabilities.includes(capability)) {
+        throw new AiError(
+          'AI_CAPABILITY_UNSUPPORTED',
+          `Model "${req.model}" does not support ${capability}.`,
+          { details: { capability, model: req.model } },
+        );
+      }
+    }
+  }
+
+  private isValidKey(apiKey: string): boolean {
+    if (!apiKey) {
+      return false;
+    }
+
+    return this.validKeys ? this.validKeys.has(apiKey) : true;
+  }
+
+  private assertKey(ctx: AiCallContext): void {
+    if (!this.isValidKey(ctx.apiKey)) {
+      throw new AiError('AI_KEY_INVALID', 'The AI provider rejected the API key.');
+    }
+  }
+
+  private record(method: FakeAiCallMethod, ctx: AiCallContext, request?: AiResponseRequest): FakeAiCall {
+    const call: FakeAiCall = {
+      method,
+      apiKey: ctx.apiKey,
+      requestId: ctx.requestId,
+      baseUrl: ctx.baseUrl,
+      request,
+    };
+
+    this.calls.push(call);
+
+    return call;
+  }
+
+  private throwIfAborted(ctx: AiCallContext, call: FakeAiCall): void {
+    if (ctx.signal?.aborted) {
+      call.aborted = true;
+      throw abortReason(ctx.signal);
+    }
+  }
+
+  /** Waits `delayMs` (if any), rejecting as soon as the signal aborts. */
+  private async pause(ctx: AiCallContext, call: FakeAiCall): Promise<void> {
+    this.throwIfAborted(ctx, call);
+
+    const delayMs = this.options.delayMs ?? 0;
+
+    if (delayMs <= 0) {
+      return;
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      const onAbort = () => {
+        clearTimeout(timer);
+        call.aborted = true;
+        reject(abortReason(ctx.signal as AbortSignal));
+      };
+      const timer = setTimeout(() => {
+        ctx.signal?.removeEventListener('abort', onAbort);
+        resolve();
+      }, delayMs);
+
+      ctx.signal?.addEventListener('abort', onAbort, { once: true });
+    });
+  }
+}
+
+// ---- helpers ------------------------------------------------------------------
+
+/** The capabilities a request needs from its model, as the #431 gates derive them. */
+function requiredCapabilities(req: AiResponseRequest, streaming: boolean): AiCapability[] {
+  const needed = new Set<AiCapability>(['responses']);
+
+  if (streaming) needed.add('streaming');
+  if (req.structuredOutput) needed.add('structured_output');
+  if (req.reasoning?.effort) needed.add('reasoning');
+
+  for (const tool of req.tools ?? []) {
+    needed.add(tool.type === 'function' ? 'tools' : 'hosted_tools');
+  }
+
+  if (Array.isArray(req.input)) {
+    for (const item of req.input) {
+      if (item.type !== 'message') continue;
+
+      for (const part of item.content) {
+        if (part.type === 'image') needed.add('vision_input');
+        if (part.type === 'file') needed.add('file_input');
+      }
+    }
+  }
+
+  return [...needed];
+}
+
+function lastUserText(req: AiResponseRequest): string {
+  if (typeof req.input === 'string') {
+    return req.input;
+  }
+
+  for (let i = req.input.length - 1; i >= 0; i -= 1) {
+    const item = req.input[i];
+
+    if (item.type === 'message' && item.role === 'user') {
+      return item.content
+        .filter((part): part is { type: 'text'; text: string } => part.type === 'text')
+        .map((part) => part.text)
+        .join(' ');
+    }
+  }
+
+  return '';
+}
+
+function chunk(text: string, size: number): string[] {
+  const parts: string[] = [];
+
+  for (let i = 0; i < text.length; i += size) {
+    parts.push(text.slice(i, i + size));
+  }
+
+  return parts;
+}
+
+function abortReason(signal: AbortSignal): unknown {
+  return signal.reason ?? new DOMException('The operation was aborted.', 'AbortError');
+}
