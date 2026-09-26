@@ -93,6 +93,10 @@ npm run build --workspace=web
 The guard (`apps/cli/src/template-identity.test.ts`) is the one that matters
 most: it derives its patterns from the manifest, so after a rename it is
 checking the **new** name. If it fails, it names the offending `file:line`.
+The whole CLI suite, including `new-project-script.test.ts`, is expected to
+pass right away — before the repository is renamed on GitHub or `origin` is
+re-pointed — so a red CLI suite at this step is a real finding, not a
+sequencing artifact.
 
 ## Step 4 — the visual baselines
 

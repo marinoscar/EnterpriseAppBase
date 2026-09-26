@@ -1,21 +1,37 @@
 # `@app/shared`
 
-Constants that more than one app needs: the application's display name, and the
-two brand colours the web app manifest and the MUI theme both have to agree on.
+Constants that more than one app needs: the application's display name and
+slug, the GitHub repository it lives in, and the two brand colours the web
+app manifest and the MUI theme both have to agree on.
 
 ## Rebranding a fork
 
-Edit **three lines** in [`index.js`](./index.js):
+Use `scripts/rename.mjs` (or the `/rename-app` skill) — this is **the**
+supported route, not one option among several. See
+[`docs/RENAMING.md`](../../docs/RENAMING.md) for the full runbook:
 
-```js
-exports.APP_NAME = 'Your Product Name';
-exports.THEME_COLOR = '#7c3aed';
-exports.BACKGROUND_COLOR = '#ffffff';
+```bash
+node scripts/rename.mjs --name "Your Product Name" --repo you/your-repo --theme '#7c3aed'
 ```
 
-Then rebuild. For everything rendered at runtime that is the whole change —
-every surface below derives from these constants rather than restating them, so
-nothing else needs editing and nothing can be missed.
+It edits [`identity.json`](./identity.json) for you *and* the codemod
+targets below that no runtime read can reach — `README.md`, `install.sh`, the
+Compose `OTEL_SERVICE_NAME` default, the test database name,
+`package.json`'s `"name"` field, and the two brand SVGs — then prints the
+manual checklist (regenerating the visual baselines, re-pointing `origin`,
+and so on).
+
+### The runtime-only shortcut
+
+Editing `identity.json`'s five fields (`productName`, `tagline`, `repoSlug`,
+`themeColor`, `backgroundColor`) by hand and rebuilding is enough for
+*everything rendered at runtime* — every surface in the Consumers table below
+reads the manifest through `index.js` rather than restating it, so nothing
+there needs a second edit. It is a shortcut, though, not the supported route:
+it leaves every codemod target above exactly as stale as before — the
+README, `install.sh`, the Compose OTEL default, the test database name,
+`package.json`'s `"name"`, and the two SVGs will keep the old identity until
+`rename.mjs` (or a manual pass over that same list) catches up.
 
 Three caveats, all real:
 
@@ -78,6 +94,8 @@ Keep this list current when you add one.
 | Web theme, `palette.primary.main` (light) | `apps/web/src/theme/light.ts` | `THEME_COLOR` |
 | Brand icons and favicon — generated pixels, not read at runtime | `apps/web/public/icons/*.png`, `apps/web/public/favicon.ico` via `apps/web/scripts/generate-icons.py` | `THEME_COLOR`, `BACKGROUND_COLOR` |
 | Web app manifest (`name`, `short_name`, `description`, `theme_color`, `background_color`) | `apps/web/pwa/manifest.ts` | `APP_NAME`, `THEME_COLOR`, `BACKGROUND_COLOR` |
+| OpenTelemetry service name fallback (used when `OTEL_SERVICE_NAME` is unset) | `apps/api/src/common/otel/service-name.ts` | `${APP_SLUG}-api` |
+| OpenAPI document's repository link | `apps/api/src/openapi/document.ts`, `apps/api/src/openapi/description.ts` | `REPO_URL` |
 
 `background_color` above is `BACKGROUND_COLOR`'s only runtime consumer (issue
 #217, epic #215) — it is read directly at build time, so unlike the icon

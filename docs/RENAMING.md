@@ -55,12 +55,14 @@ the diff before you run anything.
 Change `packages/shared/identity.json` (or let the script do it) and these
 surfaces are correct the next time the app builds — no codemod involved,
 because they all read `APP_NAME` / `THEME_COLOR` / `BACKGROUND_COLOR` /
-`REPO_SLUG` from `@app/shared` rather than holding their own copy. The
-~12-row consumer table — the web wordmark, the OpenAPI document title, the
-email layout, the CLI banner, the MUI theme, the web app manifest, and so on
-— lives in [`packages/shared/README.md`](../packages/shared/README.md#consumers)
-and isn't duplicated here to avoid two lists drifting apart. Two more
-surfaces that work the same way, added since that table was written:
+`REPO_SLUG` / `APP_SLUG` / `REPO_URL` from `@app/shared` rather than holding
+their own copy. The ~13-row consumer table — the web wordmark, the OpenAPI
+document title, the email layout, the CLI banner, the MUI theme, the web app
+manifest, the OpenTelemetry service name, the OpenAPI repository link, and so
+on — lives in
+[`packages/shared/README.md`](../packages/shared/README.md#consumers) and
+isn't duplicated here to avoid two lists drifting apart. Two of those rows
+are easy to miss on a skim, so it's worth naming them directly:
 
 - The **OpenTelemetry service name** — `apps/api/src/common/otel/service-name.ts`
   falls back to `${APP_SLUG}-api` whenever the `OTEL_SERVICE_NAME` environment
@@ -277,9 +279,16 @@ sitting in a *published* OpenAPI document or a live Compose default, and
 nobody notices until a user does.
 
 **The guard test (`apps/cli/src/template-identity.test.ts`) fails.** It
-fails when the current product name or repo slug (or either half of the
-slug) shows up in a file outside its small allowlist. Two ways to resolve
-it, in order of preference:
+scans for the current product name, the `owner/name` repository slug, and
+the bare repo name — deliberately not the bare owner alone, since a common
+owner name would false-positive against unrelated prose while the full
+`owner/name` slug already catches every real repository reference.
+Codemod targets are exempt by construction: the guard's allowlist is
+*derived* from `buildPlan()` in `scripts/rename.mjs` rather than
+hand-listed, so the codemod's own output (`"name": "acme-hub"` in
+`package.json`, say, when a fork's repo name happens to equal its product
+slug) can never trip it. Two ways to resolve a genuine failure, in order of
+preference:
 
 1. **Derive the value instead of writing it out.** Import `APP_NAME` /
    `APP_SLUG` / `REPO_SLUG` / `REPO_URL` from `@app/shared` rather than
@@ -288,10 +297,17 @@ it, in order of preference:
    above already uses everywhere.
 2. **If the file genuinely cannot import runtime code** (a shell script, a
    Compose YAML default, a file executed before the repo exists on disk —
-   see the [codemodded group](#codemodded)), add it to `scripts/rename.mjs`'s
-   edit plan instead, so a future rename keeps it in sync automatically,
-   and justify the allowlist entry in the test file's own comments rather
-   than adding it silently.
+   see the [codemodded group](#codemodded)), add an anchor to
+   `scripts/rename.mjs`'s edit plan instead, so a future rename keeps it in
+   sync automatically — the guard now allowlists the file automatically too,
+   so there's no separate allowlist entry to justify.
+
+**The CLI suite is expected to be green immediately after `npm install`**,
+even before the repository is renamed on GitHub or `origin` is re-pointed.
+That's not a sequencing artifact: the new-project safety-check test
+(`new-project-script.test.ts`) supplies its own remote inside a temporary
+clone rather than reading this checkout's `origin`, so it passes regardless
+of whether the real rename has happened yet.
 
 **`python3` or Pillow is missing when regenerating icons.** The rename
 script tries to run `apps/web/scripts/generate-icons.py` for you after a
