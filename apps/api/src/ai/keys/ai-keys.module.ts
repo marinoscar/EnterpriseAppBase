@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { AiConfigModule } from '../config/ai-config.module';
 import { AiCoreModule } from '../core/ai-core.module';
+import { AiKeyResolver } from './ai-key-resolver.service';
 import { UserAiKeysController } from './user-ai-keys.controller';
 import { UserAiKeysService } from './user-ai-keys.service';
 
@@ -18,6 +19,7 @@ import { UserAiKeysService } from './user-ai-keys.service';
 @Module({
   imports: [AiCoreModule, AiConfigModule],
   controllers: [UserAiKeysController],
-  providers: [UserAiKeysService],
+  providers: [UserAiKeysService, AiKeyResolver],
+  exports: [AiKeyResolver],
 })
 export class AiKeysModule {}

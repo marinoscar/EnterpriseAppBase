@@ -157,6 +157,16 @@ export class AiConfigService implements OnModuleInit {
   }
 
   /**
+   * Whether an admin (org) key is stored for `providerId` — answered from the
+   * credential's metadata, WITHOUT decrypting it. For callers that only need
+   * to know a key exists (the usable-models listing), so they never hold
+   * plaintext they will not use.
+   */
+  async hasOrgKey(providerId: string): Promise<boolean> {
+    return (await this.credentials.describe(AI_CREDENTIAL_PURPOSE, aiCredentialName(providerId))) !== null;
+  }
+
+  /**
    * `GET /api/ai/config` — the narrow projection any signed-in user may read.
    *
    * Answered from the CACHED policy (it is polled by every browser) and only
