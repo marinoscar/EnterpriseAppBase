@@ -15,6 +15,7 @@
         "../../node_modules/@nestjs/swagger/dist/*"
       ]
     },
+    "rootDir": ".",
     "incremental": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
@@ -25,11 +26,11 @@
     ]
   },
   "include": [
-    "src/**/*"
+    "src/**/*",
+    "test/**/*"
   ],
   "exclude": [
     "node_modules",
-    "dist",
-    "test"
+    "dist"
   ]
 }
