@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
 
 import { UsageError } from '../errors.js';
 import type { runCommand } from './executor.js';
@@ -25,6 +25,37 @@ import type { DeployHooks } from './hooks.js';
 //   - Reload, never restart. A restart drops connections for every other
 //     application on the box.
 //   - A vhost this tool did not write is never touched.
+//
+// =============================================================================
+// ⚠ TWO KINDS OF PATH, AND CONFLATING THEM IS A BUG WE HAVE ALREADY SHIPPED
+// =============================================================================
+//
+// Every certificate and webroot path exists TWICE: once as the HOST sees it
+// (`<proxyRoot>/letsencrypt/...`, `<proxyRoot>/webroot`) and once as NGINX sees
+// it. When the proxy runs on the host those are the same string. When it runs
+// in a container -- the documented target architecture: one long-lived nginx
+// container fronting every application, with `./letsencrypt` mounted at
+// `/etc/letsencrypt` and `./webroot` at `/var/www/certbot` -- they are not, and
+// a host path written into the vhost names a file that does not exist inside
+// the container. `nginx -t` then fails for every site on the box.
+//
+//   - `livePath(target, file)` is the HOST accessor. It is what this process
+//     stats and what openssl reads: `certificateStatus`, `certificateExpiry`
+//     and the TLS doctor checks legitimately use it.
+//   - `configLivePath(runtime, domain, file)` and `runtime.webroot` are the
+//     CONFIG accessors: what goes INTO an nginx config. `renderVhost` uses
+//     these and nothing else.
+//
+// The same split applies to certbot. A host certbot run with `--config-dir
+// <proxyRoot>/letsencrypt` records HOST paths in `renewal/<domain>.conf`, which
+// a dockerised `certbot renew` cannot follow -- the certificate then silently
+// stops renewing. In container mode certbot therefore runs as
+// `certbot/certbot` with the two volumes mounted at the container paths, and
+// WITHOUT --config-dir/--work-dir/--logs-dir.
+//
+// Which runtime applies is a `ProxyRuntime`, resolved once per command by
+// `resolveProxyRuntime` (explicit flag, then the deployment record, then
+// detection) and passed down -- never re-guessed at a call site.
 // =============================================================================
 
 export interface ProxyTarget {
@@ -34,10 +65,177 @@ export interface ProxyTarget {
   proxyRoot: string;
 }
 
+export type ProxyMode = 'container' | 'host';
+
+export const PROXY_MODES: readonly ProxyMode[] = ['container', 'host'];
+
+/** The container name the shared-proxy model uses unless told otherwise. */
+export const DEFAULT_PROXY_CONTAINER = 'proxy-nginx';
+
+/** Mount points inside the proxy container (and the dockerised certbot). */
+export const CONTAINER_CERT_ROOT = '/etc/letsencrypt';
+export const CONTAINER_WEBROOT = '/var/www/certbot';
+
+/** The dockerised certbot used in container mode. */
+export const CERTBOT_IMAGE = 'certbot/certbot:latest';
+
+/**
+ * How the shared proxy runs, and where IT sees the certificate and webroot.
+ *
+ * `certRoot` and `webroot` are CONFIG paths -- what nginx resolves -- never
+ * host paths. See the module header.
+ */
+export interface ProxyRuntime {
+  mode: ProxyMode;
+  /** The proxy container's name. Meaningful in container mode only. */
+  container: string;
+  /** `/etc/letsencrypt` in container mode; `<proxyRoot>/letsencrypt` on the host. */
+  certRoot: string;
+  /** `/var/www/certbot` in container mode; `<proxyRoot>/webroot` on the host. */
+  webroot: string;
+}
+
+/** Where a resolved runtime came from, for the journal and for doctor. */
+export type ProxyRuntimeSource = 'explicit' | 'detected' | 'default';
+
+export interface ResolvedProxyRuntime extends ProxyRuntime {
+  source: ProxyRuntimeSource;
+}
+
+/** Docker's own container-name grammar; also keeps a leading `-` out of argv. */
+const CONTAINER_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/;
+
+export function assertValidContainerName(name: string): void {
+  if (!CONTAINER_NAME.test(name)) {
+    throw new UsageError(
+      `"${name}" is not a valid container name, so it will not be passed to docker.`,
+    );
+  }
+}
+
+/** Parses a `--proxy-mode` value, refusing anything else. */
+export function parseProxyMode(value: string): ProxyMode {
+  if ((PROXY_MODES as readonly string[]).includes(value)) return value as ProxyMode;
+  throw new UsageError(
+    `--proxy-mode must be one of ${PROXY_MODES.join(', ')}, not "${value}".`,
+  );
+}
+
+/** The runtime for a known mode. Pure; the test seam. */
+export function proxyRuntimeFor(
+  mode: ProxyMode,
+  proxyRoot: string,
+  container: string = DEFAULT_PROXY_CONTAINER,
+): ProxyRuntime {
+  return mode === 'container'
+    ? { mode, container, certRoot: CONTAINER_CERT_ROOT, webroot: CONTAINER_WEBROOT }
+    : {
+        mode,
+        container,
+        certRoot: join(proxyRoot, 'letsencrypt'),
+        webroot: join(proxyRoot, 'webroot'),
+      };
+}
+
+export interface ResolveProxyRuntimeOptions {
+  proxyRoot: string;
+  /** Explicit mode (a flag, or the deployment record). Skips detection. */
+  mode?: ProxyMode | undefined;
+  /** Explicit container name. Also what detection looks for. */
+  container?: string | undefined;
+  runCommand: typeof runCommand;
+}
+
+/** Runs a probe purely for its exit status. Never throws. */
+async function succeeds(
+  run: typeof runCommand,
+  argv: readonly string[],
+): Promise<boolean> {
+  try {
+    await run(argv, { cwd: process.cwd(), timeoutMs: 20_000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Decides how the shared proxy runs.
+ *
+ * In order: an explicit mode wins outright; otherwise a container with the
+ * expected name (`docker inspect`) means container mode; otherwise a host
+ * `nginx` binary means host mode; otherwise container mode, because that is
+ * the documented target architecture and the one a fresh server is being
+ * prepared for.
+ *
+ * Read-only -- `docker inspect` and `nginx -v` change nothing -- so doctor can
+ * call it. Never throws on a failed probe; it does throw a UsageError on an
+ * invalid container name, before anything reaches an argv.
+ */
+export async function resolveProxyRuntime(
+  options: ResolveProxyRuntimeOptions,
+): Promise<ResolvedProxyRuntime> {
+  const container = options.container ?? DEFAULT_PROXY_CONTAINER;
+  assertValidContainerName(container);
+
+  if (options.mode !== undefined) {
+    return { ...proxyRuntimeFor(options.mode, options.proxyRoot, container), source: 'explicit' };
+  }
+
+  if (await succeeds(options.runCommand, ['docker', 'inspect', '--type', 'container', '--format', '{{.Name}}', container])) {
+    return { ...proxyRuntimeFor('container', options.proxyRoot, container), source: 'detected' };
+  }
+
+  if (await succeeds(options.runCommand, ['nginx', '-v'])) {
+    return { ...proxyRuntimeFor('host', options.proxyRoot, container), source: 'detected' };
+  }
+
+  return { ...proxyRuntimeFor('container', options.proxyRoot, container), source: 'default' };
+}
+
+/**
+ * The runtime a command should act under, from what it was told and what the
+ * deployment recorded: an explicit flag wins, then the record, then detection.
+ *
+ * A recorded container name is reused even when only the mode is overridden,
+ * and vice versa -- each half falls back independently.
+ */
+export async function resolveRecordedProxyRuntime(options: {
+  proxyRoot: string;
+  flags: { mode?: ProxyMode | undefined; container?: string | undefined };
+  recorded?: { proxyMode?: ProxyMode | undefined; proxyContainer?: string | undefined } | undefined;
+  runCommand: typeof runCommand;
+}): Promise<ResolvedProxyRuntime> {
+  const mode = options.flags.mode ?? options.recorded?.proxyMode;
+  const container = options.flags.container ?? options.recorded?.proxyContainer;
+  return await resolveProxyRuntime({
+    proxyRoot: options.proxyRoot,
+    runCommand: options.runCommand,
+    ...(mode === undefined ? {} : { mode }),
+    ...(container === undefined ? {} : { container }),
+  });
+}
+
+/** A one-line description for the journal and for progress output. */
+export function describeProxyRuntime(runtime: ResolvedProxyRuntime): string {
+  const where = runtime.mode === 'container' ? `container ${runtime.container}` : 'host nginx';
+  return `Proxy runtime: ${where} (${runtime.source})`;
+}
+
 export interface ProxyOptions {
   runCommand: typeof runCommand;
   hooks?: DeployHooks | undefined;
-  /** Container the proxy runs in, when it is containerised. */
+  /**
+   * How the proxy runs. Every pipeline passes this; it is optional only so the
+   * low-level helpers keep their historical default (host mode, or container
+   * mode when `proxyContainer` alone is given).
+   */
+  runtime?: ProxyRuntime | undefined;
+  /**
+   * Container the proxy runs in, when it is containerised.
+   *
+   * Superseded by `runtime`, which wins when both are given.
+   */
   proxyContainer?: string | undefined;
   /** Upload cap, matched to MAX_FILE_SIZE so uploads do not 413 at the edge. */
   maxBodyBytes?: number | undefined;
@@ -68,8 +266,45 @@ export function vhostPath(target: ProxyTarget): string {
   return join(target.proxyRoot, 'nginx', 'conf.d', `${target.domain}.conf`);
 }
 
+/**
+ * A certificate file's HOST path: what this process stats and openssl reads.
+ *
+ * ⚠ Never write this into an nginx config -- use `configLivePath`. See the
+ * module header.
+ */
 export function livePath(target: ProxyTarget, file: string): string {
   return join(target.proxyRoot, 'letsencrypt', 'live', target.domain, file);
+}
+
+/**
+ * A certificate file's path AS NGINX SEES IT: what goes into the vhost.
+ *
+ * Equal to `livePath` in host mode; `/etc/letsencrypt/live/...` in container
+ * mode. Built with posix joins, since it names a path inside nginx's world.
+ */
+export function configLivePath(runtime: ProxyRuntime, domain: string, file: string): string {
+  return posix.join(runtime.certRoot, 'live', domain, file);
+}
+
+/**
+ * The runtime a low-level helper acts under when its caller gave none.
+ *
+ * Preserves the helpers' historical behaviour: host paths, and container mode
+ * only when a `proxyContainer` alone was passed.
+ */
+export function effectiveRuntime(target: ProxyTarget, options: ProxyOptions): ProxyRuntime {
+  if (options.runtime !== undefined) return options.runtime;
+  return options.proxyContainer === undefined
+    ? proxyRuntimeFor('host', target.proxyRoot)
+    : proxyRuntimeFor('container', target.proxyRoot, options.proxyContainer);
+}
+
+/** The container `nginx` runs in, or undefined for a host binary. */
+function proxyContainerOf(options: ProxyOptions): string | undefined {
+  if (options.runtime !== undefined) {
+    return options.runtime.mode === 'container' ? options.runtime.container : undefined;
+  }
+  return options.proxyContainer;
 }
 
 /**
@@ -83,7 +318,11 @@ export function livePath(target: ProxyTarget, file: string): string {
  * add_header REPLACES the inherited set rather than merging with it - so
  * adding any header here would silently delete the application's CSP.
  */
-export function renderVhost(target: ProxyTarget, options?: { maxBodyBytes?: number | undefined }): string {
+export function renderVhost(
+  target: ProxyTarget,
+  runtime: ProxyRuntime,
+  options?: { maxBodyBytes?: number | undefined },
+): string {
   assertValidDomain(target.domain);
 
   const maxBody = options?.maxBodyBytes;
@@ -100,7 +339,7 @@ server {
     # Left served over HTTP on purpose: renewal uses the same webroot
     # challenge, and redirecting it to HTTPS breaks every future renewal.
     location /.well-known/acme-challenge/ {
-        root ${join(target.proxyRoot, 'webroot')};
+        root ${runtime.webroot};
     }
 
     location / {
@@ -114,8 +353,8 @@ server {
     http2 on;
     server_name ${target.domain};
 
-    ssl_certificate     ${livePath(target, 'fullchain.pem')};
-    ssl_certificate_key ${livePath(target, 'privkey.pem')};
+    ssl_certificate     ${configLivePath(runtime, target.domain, 'fullchain.pem')};
+    ssl_certificate_key ${configLivePath(runtime, target.domain, 'privkey.pem')};
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_prefer_server_ciphers off;
     ssl_session_cache shared:SSL:10m;
@@ -201,18 +440,10 @@ export async function issueCertificate(
     return { issued: false, path: status.path };
   }
 
-  const webroot = join(target.proxyRoot, 'webroot');
-  const argv = [
-    'certbot', 'certonly',
-    '--webroot', '--webroot-path', webroot,
-    '-d', target.domain,
-    '--non-interactive', '--agree-tos',
-    '--email', options.email,
-    '--config-dir', join(target.proxyRoot, 'letsencrypt'),
-    '--work-dir', join(target.proxyRoot, 'letsencrypt', 'work'),
-    '--logs-dir', join(target.proxyRoot, 'letsencrypt', 'logs'),
-    ...(options.staging === true ? ['--staging'] : []),
-  ];
+  const argv = certbotArgv(target, effectiveRuntime(target, options), {
+    email: options.email,
+    staging: options.staging,
+  });
 
   options.hooks?.onProgress?.(`Requesting a certificate for ${target.domain}`);
 
@@ -240,6 +471,56 @@ export async function issueCertificate(
   return { issued: true, path: livePath(target, 'fullchain.pem') };
 }
 
+/**
+ * The argv that runs `certbot certonly --webroot` for this runtime.
+ *
+ * CONTAINER MODE runs the dockerised certbot with the proxy's two volumes
+ * mounted at the SAME paths the proxy container uses, and deliberately passes
+ * no --config-dir/--work-dir/--logs-dir: those flags are exactly what write
+ * host paths into `renewal/<domain>.conf`, which a dockerised `certbot renew`
+ * then cannot follow. With the defaults, every recorded path is under
+ * `/etc/letsencrypt`, which is where every later dockerised renewal looks.
+ *
+ * HOST MODE keeps the historical argv: a host certbot whose state lives under
+ * the proxy root.
+ *
+ * Exported for its test.
+ */
+export function certbotArgv(
+  target: ProxyTarget,
+  runtime: ProxyRuntime,
+  options: { email: string; staging?: boolean | undefined; forceRenewal?: boolean | undefined },
+): string[] {
+  const common = [
+    '-d', target.domain,
+    '--non-interactive', '--agree-tos',
+    '--email', options.email,
+    ...(options.forceRenewal === true ? ['--force-renewal'] : []),
+    ...(options.staging === true ? ['--staging'] : []),
+  ];
+
+  if (runtime.mode === 'container') {
+    return [
+      'docker', 'run', '--rm',
+      '-v', `${join(target.proxyRoot, 'letsencrypt')}:${CONTAINER_CERT_ROOT}`,
+      '-v', `${join(target.proxyRoot, 'webroot')}:${CONTAINER_WEBROOT}`,
+      CERTBOT_IMAGE,
+      'certonly',
+      '--webroot', '-w', CONTAINER_WEBROOT,
+      ...common,
+    ];
+  }
+
+  return [
+    'certbot', 'certonly',
+    '--webroot', '--webroot-path', join(target.proxyRoot, 'webroot'),
+    ...common,
+    '--config-dir', join(target.proxyRoot, 'letsencrypt'),
+    '--work-dir', join(target.proxyRoot, 'letsencrypt', 'work'),
+    '--logs-dir', join(target.proxyRoot, 'letsencrypt', 'logs'),
+  ];
+}
+
 export interface InstallVhostResult {
   path: string;
   changed: boolean;
@@ -258,7 +539,7 @@ export async function installVhost(
   assertValidDomain(target.domain);
 
   const path = vhostPath(target);
-  const rendered = renderVhost(target, {
+  const rendered = renderVhost(target, effectiveRuntime(target, options), {
     ...(options.maxBodyBytes === undefined ? {} : { maxBodyBytes: options.maxBodyBytes }),
   });
 
@@ -308,10 +589,9 @@ export interface ValidationResult {
 
 /** Runs `nginx -t`, in the container when the proxy is containerised. */
 export async function validateProxy(options: ProxyOptions): Promise<ValidationResult> {
+  const container = proxyContainerOf(options);
   const argv =
-    options.proxyContainer === undefined
-      ? ['nginx', '-t']
-      : ['docker', 'exec', options.proxyContainer, 'nginx', '-t'];
+    container === undefined ? ['nginx', '-t'] : ['docker', 'exec', container, 'nginx', '-t'];
 
   try {
     const result = await options.runCommand(argv, { cwd: process.cwd(), timeoutMs: 60_000 });
@@ -329,10 +609,11 @@ export async function validateProxy(options: ProxyOptions): Promise<ValidationRe
 
 /** Reloads, never restarts: a restart drops every other site's connections. */
 export async function reloadProxy(options: ProxyOptions): Promise<void> {
+  const container = proxyContainerOf(options);
   const argv =
-    options.proxyContainer === undefined
+    container === undefined
       ? ['nginx', '-s', 'reload']
-      : ['docker', 'exec', options.proxyContainer, 'nginx', '-s', 'reload'];
+      : ['docker', 'exec', container, 'nginx', '-s', 'reload'];
 
   await options.runCommand(argv, { cwd: process.cwd(), timeoutMs: 60_000 });
 }
@@ -477,8 +758,21 @@ export async function certificateExpiry(
   };
 }
 
+export interface RenewResult {
+  renewed: boolean;
+  /**
+   * True only when the proxy validated and reloaded after a renewal. A renewal
+   * with `reloaded: false` has a new certificate on disk that is NOT being
+   * served, and the caller must say so.
+   */
+  reloaded: boolean;
+  reason: string;
+  expiry: CertificateExpiry;
+}
+
 /**
- * Renews a certificate that is inside the renewal window.
+ * Renews a certificate that is inside the renewal window, then validates and
+ * reloads the proxy so the renewed certificate is actually served.
  *
  * ⚠ It renews only when the expiry says so. Let's Encrypt allows 5 DUPLICATE
  * certificates per week, and a command that re-issued on every invocation would
@@ -489,7 +783,7 @@ export async function certificateExpiry(
 export async function renewCertificate(
   target: ProxyTarget,
   options: CertificateOptions & { force?: boolean | undefined; now?: Date | undefined },
-): Promise<{ renewed: boolean; reason: string; expiry: CertificateExpiry }> {
+): Promise<RenewResult> {
   assertValidDomain(target.domain);
 
   const expiry = await certificateExpiry(target, {
@@ -498,44 +792,29 @@ export async function renewCertificate(
   });
 
   if (!expiry.exists) {
-    return { renewed: false, reason: 'no certificate is installed for this domain', expiry };
+    return { renewed: false, reloaded: false, reason: 'no certificate is installed for this domain', expiry };
   }
 
   if (options.force !== true && expiry.problem !== undefined) {
     // Refuses rather than renewing: an unreadable expiry is a question, and
     // spending a rate-limited issuance to answer it is the wrong trade.
-    return { renewed: false, reason: expiry.problem, expiry };
+    return { renewed: false, reloaded: false, reason: expiry.problem, expiry };
   }
 
   if (options.force !== true && !expiry.dueForRenewal) {
     return {
       renewed: false,
+      reloaded: false,
       reason: `not due: ${String(expiry.daysRemaining)} day(s) remaining, renews within ${RENEW_WITHIN_DAYS}`,
       expiry,
     };
   }
 
-  const argv = [
-    'certbot',
-    'certonly',
-    '--webroot',
-    '--webroot-path',
-    join(target.proxyRoot, 'webroot'),
-    '-d',
-    target.domain,
-    '--non-interactive',
-    '--agree-tos',
-    '--email',
-    options.email,
-    '--force-renewal',
-    '--config-dir',
-    join(target.proxyRoot, 'letsencrypt'),
-    '--work-dir',
-    join(target.proxyRoot, 'letsencrypt', 'work'),
-    '--logs-dir',
-    join(target.proxyRoot, 'letsencrypt', 'logs'),
-    ...(options.staging === true ? ['--staging'] : []),
-  ];
+  const argv = certbotArgv(target, effectiveRuntime(target, options), {
+    email: options.email,
+    staging: options.staging,
+    forceRenewal: true,
+  });
 
   await options.runCommand(argv, { cwd: target.proxyRoot, timeoutMs: 5 * 60_000 });
 
@@ -544,5 +823,32 @@ export async function renewCertificate(
     ...(options.now === undefined ? {} : { now: options.now }),
   });
 
-  return { renewed: true, reason: 'renewed', expiry: after };
+  // ⚠ THE RELOAD IS LOAD-BEARING. nginx reads the certificate when it loads
+  // its configuration, so a renewed certificate on disk is NOT a served one:
+  // until the proxy reloads it keeps serving the old certificate until that
+  // expires, on a server whose files all look correct. Validated first, so a
+  // neighbour's broken vhost cannot be turned into a failed reload for every
+  // site on the box.
+  const validation = await validateProxy(options);
+  if (!validation.ok) {
+    return {
+      renewed: true,
+      reloaded: false,
+      reason: `renewed, but the proxy was NOT reloaded because nginx -t failed: ${validation.output}`,
+      expiry: after,
+    };
+  }
+
+  try {
+    await reloadProxy(options);
+  } catch (error) {
+    return {
+      renewed: true,
+      reloaded: false,
+      reason: `renewed, but the proxy reload failed: ${error instanceof Error ? error.message : String(error)}`,
+      expiry: after,
+    };
+  }
+
+  return { renewed: true, reloaded: true, reason: 'renewed and the proxy reloaded', expiry: after };
 }

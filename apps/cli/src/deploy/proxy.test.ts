@@ -11,6 +11,7 @@ import {
   certificateStatus,
   installVhost,
   issueCertificate,
+  proxyRuntimeFor,
   removeVhost,
   renderVhost,
   validateProxy,
@@ -73,7 +74,8 @@ describe('assertValidDomain', () => {
 
 describe('renderVhost', () => {
   const root = makeProxyRoot();
-  const rendered = renderVhost(target(root));
+  const runtime = proxyRuntimeFor('host', root);
+  const rendered = renderVhost(target(root), runtime);
 
   it('redirects HTTP to HTTPS', () => {
     expect(rendered).toContain('return 301 https://$host$request_uri;');
@@ -112,16 +114,16 @@ describe('renderVhost', () => {
   });
 
   it('is deterministic, so a re-run produces no spurious diff', () => {
-    expect(renderVhost(target(root))).toBe(rendered);
+    expect(renderVhost(target(root), runtime)).toBe(rendered);
   });
 
   it('sizes client_max_body_size from the configured upload limit', () => {
-    const sized = renderVhost(target(root), { maxBodyBytes: 10 * 1024 * 1024 });
+    const sized = renderVhost(target(root), runtime, { maxBodyBytes: 10 * 1024 * 1024 });
     expect(sized).toContain('client_max_body_size 10m;');
   });
 
   it('refuses a hostile domain', () => {
-    expect(() => renderVhost({ ...target(root), domain: 'a b;c' })).toThrow(UsageError);
+    expect(() => renderVhost({ ...target(root), domain: 'a b;c' }, runtime)).toThrow(UsageError);
   });
 });
 

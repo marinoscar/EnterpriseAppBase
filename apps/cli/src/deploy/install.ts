@@ -14,7 +14,16 @@ import { runCommand as defaultRunCommand } from './executor.js';
 import { waitForHealthy, collectHealth, isHealthy } from './health.js';
 import type { DeployHooks } from './hooks.js';
 import { openJournal, type Journal, type SecretEntry } from './journal.js';
-import { bootstrapProxyRoot, installVhost, issueCertificate, type ProxyTarget } from './proxy.js';
+import {
+  bootstrapProxyRoot,
+  describeProxyRuntime,
+  installVhost,
+  issueCertificate,
+  resolveRecordedProxyRuntime,
+  type ProxyMode,
+  type ProxyTarget,
+  type ResolvedProxyRuntime,
+} from './proxy.js';
 import { ensureCheckout, resolveRepoTarget, type RepoTarget } from './repo.js';
 import {
   DEPLOY_STATE_VERSION,
@@ -67,6 +76,13 @@ export interface InstallOptions {
   domain?: string | undefined;
   bindPort: number;
   proxyRoot: string;
+  /**
+   * How the shared proxy runs. Absent means "as recorded, else detected" --
+   * see `resolveProxyRuntime`.
+   */
+  proxyMode?: ProxyMode | undefined;
+  /** The proxy container's name. Absent means "as recorded, else proxy-nginx". */
+  proxyContainer?: string | undefined;
   repo?: string | undefined;
   ref?: string | undefined;
   nonInteractive?: boolean | undefined;
@@ -116,6 +132,38 @@ interface InstallContext extends StepContext {
   composeProject?: string | undefined;
   /** The result of the `version` step, read by `publish-version`. */
   version?: VersionStepResult | undefined;
+  /** What a previous run recorded about the proxy, for --resume/--reinstall. */
+  recordedProxy?: Pick<DeployState, 'proxyMode' | 'proxyContainer'> | undefined;
+  /** Resolved once, on first use; see `proxyRuntimeOf`. */
+  proxyRuntime?: ResolvedProxyRuntime | undefined;
+}
+
+/**
+ * The proxy runtime this run acts under, resolved ONCE and then reused, so the
+ * preflight, the certificate and the vhost can never disagree about it.
+ */
+async function proxyRuntimeOf(context: InstallContext): Promise<ResolvedProxyRuntime> {
+  if (context.proxyRuntime !== undefined) return context.proxyRuntime;
+
+  const runtime = await resolveRecordedProxyRuntime({
+    proxyRoot: context.options.proxyRoot,
+    flags: { mode: context.options.proxyMode, container: context.options.proxyContainer },
+    recorded: context.recordedProxy,
+    runCommand: context.runCommand,
+  });
+  context.proxyRuntime = runtime;
+  context.journal.line(describeProxyRuntime(runtime));
+  return runtime;
+}
+
+/** The state fields that record the runtime, when one was resolved. */
+function recordedRuntime(
+  context: InstallContext,
+): Pick<DeployState, 'proxyMode' | 'proxyContainer'> {
+  const runtime = context.proxyRuntime;
+  // A run that never touched the proxy keeps whatever was recorded before.
+  if (runtime === undefined) return context.recordedProxy ?? {};
+  return { proxyMode: runtime.mode, proxyContainer: runtime.container };
 }
 
 export function composeCwd(deployRoot: string): string {
@@ -242,15 +290,21 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
           for (const path of created) context.journal.line(`Created ${path}`);
         }
 
-        const results = await runChecks(requiredChecks(ALL_CHECKS), {
+        const checkContext = {
           runCommand: context.runCommand,
           deployRoot: context.options.deployRoot,
           bindPort: context.options.bindPort,
           proxyRoot: context.options.proxyRoot,
+          // Resolved before the checks, because it decides which of them are
+          // required: certbot-installed only on the host, renewal-path hygiene
+          // only in a container.
+          proxyRuntime: await proxyRuntimeOf(context),
           ...(context.options.domain === undefined
             ? {}
             : { domain: context.options.domain }),
-        });
+        };
+
+        const results = await runChecks(requiredChecks(ALL_CHECKS, checkContext), checkContext);
 
         for (const result of results) {
           context.journal.line(`${result.status} ${result.id}: ${result.detail}`);
@@ -606,9 +660,12 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
           );
         }
 
+        const runtime = await proxyRuntimeOf(context);
+
         // Certificate FIRST. See rule 4 in the header.
         await issueCertificate(target, {
           runCommand: context.runCommand,
+          runtime,
           email,
           ...(context.options.staging === undefined ? {} : { staging: context.options.staging }),
           ...(context.hooks === undefined ? {} : { hooks: context.hooks }),
@@ -616,6 +673,9 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
 
         await installVhost(target, {
           runCommand: context.runCommand,
+          // Paths in the vhost, and where `nginx -t` / the reload run, both
+          // come from here. Omitting it is the host-binary assumption.
+          runtime,
           ...(context.hooks === undefined ? {} : { hooks: context.hooks }),
           ...(context.env?.get('MAX_FILE_SIZE') === undefined
             ? {}
@@ -737,6 +797,16 @@ export async function runInstall(options: InstallOptions): Promise<InstallResult
     journal,
     hooks: options.hooks,
     composeProject,
+    ...(existingState === undefined
+      ? {}
+      : {
+          recordedProxy: {
+            ...(existingState.proxyMode === undefined ? {} : { proxyMode: existingState.proxyMode }),
+            ...(existingState.proxyContainer === undefined
+              ? {}
+              : { proxyContainer: existingState.proxyContainer }),
+          },
+        }),
     completed:
       options.resume === true && existingState !== undefined
         ? new Set(existingState.completedSteps ?? [])
@@ -777,6 +847,7 @@ export async function runInstall(options: InstallOptions): Promise<InstallResult
         composeProject,
         ...(options.domain === undefined ? {} : { domain: options.domain }),
         ...(options.proxyRoot === undefined ? {} : { proxyRoot: options.proxyRoot }),
+        ...recordedRuntime(context),
         completedSteps: result.completed,
         lastOutcome: 'failure',
         lastFailedStep: result.failed.id,
@@ -813,6 +884,9 @@ export async function runInstall(options: InstallOptions): Promise<InstallResult
     // Recorded so update writes the vhost where install put it, rather than
     // re-deriving a path that ignores a non-default --proxy-root.
     ...(options.proxyRoot === undefined ? {} : { proxyRoot: options.proxyRoot }),
+    // Recorded so update, certs and uninstall act under the runtime this
+    // install actually used, rather than re-detecting it.
+    ...recordedRuntime(context),
     // Recorded so a later `update` knows which opt-in groups this deployment
     // uses. It cannot be re-derived from the `.env`: a group's keys look
     // identical whether the feature is on or off.

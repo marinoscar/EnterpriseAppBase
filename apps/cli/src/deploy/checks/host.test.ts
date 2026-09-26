@@ -43,12 +43,16 @@ const permissiveFs: CheckFs = {
   exists: () => true,
   isDirectory: () => true,
   isWritable: () => true,
+  readFile: () => '',
+  readdir: () => [],
 };
 
 const emptyFs: CheckFs = {
   exists: () => false,
   isDirectory: () => false,
   isWritable: () => false,
+  readFile: () => undefined,
+  readdir: () => [],
 };
 
 /** A server where everything is in place. */
@@ -80,6 +84,9 @@ function context(overrides: Partial<CheckContext> = {}): CheckContext {
     totalMemoryBytes: () => 4 * 1024 * 1024 * 1024,
     portFree: async () => true,
     portListening: async () => true,
+    servedCertificate: async () => {
+      throw new Error('no network in tests');
+    },
     ...overrides,
   };
 }

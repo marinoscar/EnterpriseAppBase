@@ -27,8 +27,20 @@ function fakeRunCommand(respond: Responder): typeof import('../executor.js').run
   }) as typeof import('../executor.js').runCommand;
 }
 
-const presentFs: CheckFs = { exists: () => true, isDirectory: () => true, isWritable: () => true };
-const absentFs: CheckFs = { exists: () => false, isDirectory: () => false, isWritable: () => false };
+const presentFs: CheckFs = {
+  exists: () => true,
+  isDirectory: () => true,
+  isWritable: () => true,
+  readFile: () => '',
+  readdir: () => [],
+};
+const absentFs: CheckFs = {
+  exists: () => false,
+  isDirectory: () => false,
+  isWritable: () => false,
+  readFile: () => undefined,
+  readdir: () => [],
+};
 
 const ENV = new Map([
   ['POSTGRES_HOST', 'db.internal'],
@@ -47,6 +59,10 @@ function context(overrides: Partial<CheckContext> = {}): CheckContext {
     domain: 'app.example.test',
     env: ENV,
     fs: presentFs,
+    // No test opens a socket: the served-certificate probe is stubbed out.
+    servedCertificate: async () => {
+      throw new Error('no network in tests');
+    },
     ...overrides,
   };
 }

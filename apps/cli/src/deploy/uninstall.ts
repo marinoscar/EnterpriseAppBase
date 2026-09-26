@@ -37,12 +37,22 @@ import { runCommand as defaultRunCommand } from './executor.js';
 import type { DeployHooks } from './hooks.js';
 import { composeArgv, composeCwd, composeProjectFor, secretsFrom } from './install.js';
 import { openJournal } from './journal.js';
-import { removeVhost, type ProxyTarget } from './proxy.js';
+import {
+  describeProxyRuntime,
+  removeVhost,
+  resolveRecordedProxyRuntime,
+  type ProxyMode,
+  type ProxyTarget,
+} from './proxy.js';
 import { readState, deployStatePath } from './state.js';
 
 export interface UninstallOptions {
   deployRoot: string;
   proxyRoot?: string | undefined;
+  /** Overrides the recorded proxy mode; absent means "as recorded, else detected". */
+  proxyMode?: ProxyMode | undefined;
+  /** Overrides the recorded proxy container name. */
+  proxyContainer?: string | undefined;
   /** Opt-in: drop the application's PostgreSQL database. */
   dropDatabase?: boolean | undefined;
   /** Opt-in: delete every object this application wrote to storage. */
@@ -62,6 +72,12 @@ export interface UninstallPlan {
   /** Present when a deployment record was readable. */
   domain?: string | undefined;
   composeProject: string;
+  /**
+   * The proxy runtime the deployment record names, if any. Read here because
+   * the record itself is deleted before the run ends.
+   */
+  proxyMode?: ProxyMode | undefined;
+  proxyContainer?: string | undefined;
   databaseName?: string | undefined;
   /** Paths this run will delete. */
   removes: string[];
@@ -146,6 +162,8 @@ export function planUninstall(options: UninstallOptions): UninstallPlan {
     deployRoot,
     ...(state?.domain === undefined ? {} : { domain: state.domain }),
     composeProject: composeProjectFor(state),
+    ...(state?.proxyMode === undefined ? {} : { proxyMode: state.proxyMode }),
+    ...(state?.proxyContainer === undefined ? {} : { proxyContainer: state.proxyContainer }),
     ...(env.get('POSTGRES_DB') === undefined ? {} : { databaseName: env.get('POSTGRES_DB') }),
     removes,
     keeps,
@@ -297,10 +315,22 @@ export async function runUninstall(options: UninstallOptions): Promise<Uninstall
       proxyRoot: options.proxyRoot,
     };
     try {
+      // The runtime decides where `nginx -t` and the reload run. Without it,
+      // a containerised proxy is validated against a host binary that is not
+      // there, and the vhost is removed but never unloaded.
+      const runtime = await resolveRecordedProxyRuntime({
+        proxyRoot: options.proxyRoot,
+        flags: { mode: options.proxyMode, container: options.proxyContainer },
+        recorded: plan,
+        runCommand,
+      });
+      journal.line(describeProxyRuntime(runtime));
+
       // Refuses any vhost this CLI did not write -- the `# Managed by appctl
       // deploy` sentinel -- so a hand-written neighbour is never removed.
       await removeVhost(target, {
         runCommand,
+        runtime,
         ...(options.hooks === undefined ? {} : { hooks: options.hooks }),
       });
     } catch (error) {

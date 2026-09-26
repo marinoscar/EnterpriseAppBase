@@ -56,6 +56,22 @@ export interface DeployState {
    */
   proxyRoot?: string | undefined;
   /**
+   * How the shared proxy ran when this deployment last published through it:
+   * `container` (nginx in a container, certbot dockerised) or `host`.
+   *
+   * Recorded so `update`, `certs` and `uninstall` act under the SAME runtime
+   * install detected or was told, rather than re-detecting on a server whose
+   * proxy happens to be stopped at that moment. A flag still overrides it.
+   * Absent means "not recorded" -- the reader detects, as install did.
+   *
+   * Optional, and ⚠ the state version is deliberately NOT bumped for it (a
+   * later issue does that deliberately): a bump makes this CLI refuse every
+   * state file already on a live server.
+   */
+  proxyMode?: 'container' | 'host' | undefined;
+  /** The proxy container's name, alongside `proxyMode`. Same rules. */
+  proxyContainer?: string | undefined;
+  /**
    * The Docker Compose project this deployment's containers live under.
    *
    * ⚠ Recorded, never derived. Naming an existing deployment's project renames
