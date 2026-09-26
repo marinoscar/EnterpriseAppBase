@@ -89,14 +89,63 @@ export interface AiImagesPort {
 
 // ---- Audio ------------------------------------------------------------------
 
+/**
+ * Media handed to a provider as a STREAM rather than a buffer (#438): the
+ * bytes are read once, as the provider request is sent, so a 25 MB recording
+ * is never held in memory whole. `size`, when known, lets an adapter refuse
+ * an oversized input before it opens a connection.
+ */
+export interface AiStreamedPayload {
+  stream: AsyncIterable<Uint8Array>;
+  mimeType: string;
+  filename?: string;
+  /** Bytes, when known in advance. */
+  size?: number;
+}
+
+/** Media going INTO a provider: whole bytes, or a stream (`'stream' in input`). */
+export type AiMediaInput = AiBinaryPayload | AiStreamedPayload;
+
+/** Whether `input` is streamed rather than buffered. */
+export function isStreamedPayload(input: AiMediaInput): input is AiStreamedPayload {
+  return 'stream' in input && input.stream !== undefined;
+}
+
+/**
+ * The MIME types a transcription input may have: any audio, plus the two
+ * video containers people record voice memos and meetings in. `type/*` is a
+ * wildcard (`AiStorageInputResolver` understands it).
+ */
+export const AI_TRANSCRIPTION_INPUT_MIME_TYPES = ['audio/*', 'video/mp4', 'video/webm'] as const;
+
+/**
+ * The largest transcription input when the provider's audio port declares
+ * no limit of its own (`AiAudioPort.transcriptionMaxBytes`): 25 MiB, OpenAI's.
+ */
+export const AI_TRANSCRIPTION_DEFAULT_MAX_BYTES = 25 * 1024 * 1024;
+
+/** The longest vocabulary/context prompt accepted, in characters. */
+export const AI_TRANSCRIPTION_PROMPT_MAX_CHARS = 4_000;
+
+export const AI_TRANSCRIPTION_RESPONSE_FORMATS = ['text', 'json', 'verbose_json'] as const;
+export const AI_TRANSCRIPTION_TIMESTAMP_GRANULARITIES = ['segment', 'word'] as const;
+
+export type AiTranscriptionTimestampGranularity = (typeof AI_TRANSCRIPTION_TIMESTAMP_GRANULARITIES)[number];
+
 export interface AiTranscriptionRequest extends AiMediaRequestBase {
-  audio: AiBinaryPayload;
+  audio: AiMediaInput;
   /** ISO-639-1 hint. */
   language?: string;
   /** Vocabulary/context hint. */
   prompt?: string;
-  /** Request per-segment timestamps where supported. */
-  timestamps?: boolean;
+  /**
+   * The provider's answer shape. Omit and the adapter asks for the richest
+   * one the model supports (OpenAI: `verbose_json` for Whisper, `json` for
+   * the GPT-4o transcribe family).
+   */
+  responseFormat?: (typeof AI_TRANSCRIPTION_RESPONSE_FORMATS)[number];
+  /** Per-segment and/or per-word timestamps, where the model supports them. */
+  timestampGranularities?: AiTranscriptionTimestampGranularity[];
 }
 
 export interface AiTranscriptionSegment {
@@ -105,11 +154,19 @@ export interface AiTranscriptionSegment {
   text: string;
 }
 
+export interface AiTranscriptionWord {
+  startSeconds: number;
+  endSeconds: number;
+  word: string;
+}
+
 export interface AiTranscriptionResult extends AiMediaResultBase {
   text: string;
   language?: string;
+  /** The audio's length, when the provider reports it — what `audioSeconds` usage is metered on. */
   durationSeconds?: number;
   segments?: AiTranscriptionSegment[];
+  words?: AiTranscriptionWord[];
 }
 
 export interface AiSpeechRequest extends AiMediaRequestBase {
@@ -128,6 +185,12 @@ export interface AiSpeechResult extends AiMediaResultBase {
 export interface AiAudioPort {
   /** Present only when the provider supports `audio_transcription`. */
   transcribe?(req: AiTranscriptionRequest, ctx: AiCallContext): Promise<AiTranscriptionResult>;
+  /**
+   * The largest audio input `transcribe` accepts, in bytes. The runtime
+   * refuses a larger input with `AI_INVALID_REQUEST` BEFORE calling. Omitted:
+   * `AI_TRANSCRIPTION_DEFAULT_MAX_BYTES`.
+   */
+  readonly transcriptionMaxBytes?: number;
   /** Present only when the provider supports `audio_speech`. */
   speech?(req: AiSpeechRequest, ctx: AiCallContext): Promise<AiSpeechResult>;
 }

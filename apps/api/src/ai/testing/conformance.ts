@@ -35,6 +35,9 @@ import {
   AiEmbeddingResult,
   AiImageGenerationRequest,
   AiImageResult,
+  AiTranscriptionRequest,
+  AiTranscriptionResult,
+  AI_TRANSCRIPTION_DEFAULT_MAX_BYTES,
 } from '../core/types/media.types';
 import { AiOutputItem, AiResponse, AiResponseRequest, AiStreamEvent } from '../core/types/responses.types';
 
@@ -61,7 +64,12 @@ export type AiConformanceScenario =
   | 'images.generate'
   | 'images.edit'
   | 'images.invalidKey'
-  | 'images.providerError';
+  | 'images.providerError'
+  | 'audio.transcribe'
+  | 'audio.transcribeStream'
+  | 'audio.transcribeTooLarge'
+  | 'audio.transcribeInvalidKey'
+  | 'audio.transcribeProviderError';
 
 export interface AiConformanceFixtures {
   /** A key the provider rejects. */
@@ -99,6 +107,13 @@ export interface AiConformanceFixtures {
     /** A request that makes the provider fail. */
     failingRequest: AiImageGenerationRequest;
   };
+  /** Required when the adapter's `audio` port carries `transcribe`. */
+  transcription?: {
+    /** A model with `audio_transcription`. */
+    model: string;
+    /** A request that makes the provider fail (its `audio` is replaced by the kit's). */
+    failingModel: string;
+  };
   /** Runs before each scenario's calls — for a mocked transport that queues replies. */
   arrange?(scenario: AiConformanceScenario): void | Promise<void>;
 }
@@ -128,6 +143,37 @@ export const CONFORMANCE_PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
   'base64',
 );
+
+/**
+ * A real, tiny WAV (8 kHz mono 16-bit, 0.05 s of silence) — the audio the
+ * kit's transcription scenarios send.
+ */
+export const CONFORMANCE_WAV = (() => {
+  const samples = 400;
+  const data = samples * 2;
+  const wav = Buffer.alloc(44 + data);
+
+  wav.write('RIFF', 0);
+  wav.writeUInt32LE(36 + data, 4);
+  wav.write('WAVE', 8);
+  wav.write('fmt ', 12);
+  wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20);
+  wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(8000, 24);
+  wav.writeUInt32LE(16000, 28);
+  wav.writeUInt16LE(2, 32);
+  wav.writeUInt16LE(16, 34);
+  wav.write('data', 36);
+  wav.writeUInt32LE(data, 40);
+
+  return wav;
+})();
+
+/** `CONFORMANCE_WAV` as a stream of small chunks. */
+async function* conformanceWavStream(): AsyncGenerator<Uint8Array> {
+  for (let i = 0; i < CONFORMANCE_WAV.length; i += 128) yield CONFORMANCE_WAV.subarray(i, i + 128);
+}
 
 /** The structured-output schema the kit requests. */
 export const conformanceStructuredSchema = z.object({
@@ -238,6 +284,23 @@ function expectWellFormedImages(result: AiImageResult, adapter: AiProviderAdapte
     expect(image.data).toBeInstanceOf(Uint8Array);
     expect(image.data.length).toBeGreaterThan(0);
     expect(image.mimeType).toMatch(/^image\//);
+  }
+}
+
+function expectWellFormedTranscription(result: AiTranscriptionResult, adapter: AiProviderAdapter): void {
+  expect(result.provider).toBe(adapter.id);
+  expect(typeof result.model).toBe('string');
+  expect(typeof result.usage).toBe('object');
+  expect(typeof result.text).toBe('string');
+  expect(result.text.length).toBeGreaterThan(0);
+
+  if (result.durationSeconds !== undefined) {
+    expect(Number.isFinite(result.durationSeconds) && result.durationSeconds >= 0).toBe(true);
+  }
+
+  for (const segment of result.segments ?? []) {
+    expect(segment.endSeconds).toBeGreaterThanOrEqual(segment.startSeconds);
+    expect(typeof segment.text).toBe('string');
   }
 }
 
@@ -615,6 +678,81 @@ export function describeAiProviderConformance(
         const { images, fixture } = port();
 
         await expectAiError(() => images.generate(fixture.failingRequest, subject.ctx));
+      }));
+    });
+
+    describe('audio port (transcription)', () => {
+      const port = () => {
+        const transcribe = subject.adapter.audio?.transcribe?.bind(subject.adapter.audio);
+        const fixture = subject.fixtures.transcription;
+
+        if (!transcribe || !fixture) {
+          throw new Error('unreachable: guarded by whenPort()');
+        }
+
+        const request = (patch: Partial<AiTranscriptionRequest> = {}): AiTranscriptionRequest => ({
+          model: fixture.model,
+          audio: { data: CONFORMANCE_WAV, mimeType: 'audio/wav', filename: 'conformance.wav' },
+          ...patch,
+        });
+
+        return { transcribe, fixture, request };
+      };
+
+      const whenPort = (fn: () => Promise<void>) => async () => {
+        if (typeof subject.adapter.audio?.transcribe !== 'function') {
+          return;
+        }
+
+        expect(subject.fixtures.transcription).toBeDefined();
+        await fn();
+      };
+
+      scenario('audio.transcribe', 'transcribe returns text for audio bytes', whenPort(async () => {
+        const { transcribe, request } = port();
+
+        expectWellFormedTranscription(await transcribe(request(), subject.ctx), subject.adapter);
+      }));
+
+      scenario('audio.transcribeStream', 'transcribe accepts a streamed input', whenPort(async () => {
+        const { transcribe, request } = port();
+        const result = await transcribe(
+          request({
+            audio: { stream: conformanceWavStream(), mimeType: 'audio/wav', filename: 'conformance.wav', size: CONFORMANCE_WAV.length },
+          }),
+          subject.ctx,
+        );
+
+        expectWellFormedTranscription(result, subject.adapter);
+      }));
+
+      scenario('audio.transcribeTooLarge', 'an input declared larger than transcriptionMaxBytes is AI_INVALID_REQUEST', whenPort(async () => {
+        const { transcribe, request } = port();
+        const max = subject.adapter.audio?.transcriptionMaxBytes ?? AI_TRANSCRIPTION_DEFAULT_MAX_BYTES;
+        let read = false;
+
+        async function* never(): AsyncGenerator<Uint8Array> {
+          read = true;
+          yield new Uint8Array(1);
+        }
+
+        await expectAiError(
+          () => transcribe(request({ audio: { stream: never(), mimeType: 'audio/wav', size: max + 1 } }), subject.ctx),
+          'AI_INVALID_REQUEST',
+        );
+        expect(read).toBe(false);
+      }));
+
+      scenario('audio.transcribeInvalidKey', 'a rejected key surfaces as AI_KEY_INVALID', whenPort(async () => {
+        const { transcribe, request } = port();
+
+        await expectAiError(() => transcribe(request(), invalidCtx()), 'AI_KEY_INVALID');
+      }));
+
+      scenario('audio.transcribeProviderError', 'a provider failure surfaces as AiError, never a raw error', whenPort(async () => {
+        const { transcribe, fixture, request } = port();
+
+        await expectAiError(() => transcribe(request({ model: fixture.failingModel }), subject.ctx));
       }));
     });
   });

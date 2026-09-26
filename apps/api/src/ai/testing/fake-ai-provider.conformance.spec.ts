@@ -4,6 +4,7 @@ import {
   FAKE_EMBEDDING_MODEL_CAPABILITIES,
   FAKE_IMAGE_MODEL_CAPABILITIES,
   FAKE_TEXT_MODEL_CAPABILITIES,
+  FAKE_TRANSCRIPTION_MODEL_CAPABILITIES,
   FakeAiProvider,
   FakeAiScriptedResponse,
 } from './fake-ai-provider';
@@ -106,6 +107,37 @@ describeAiProviderConformance('FakeAiProvider with its images port', () => ({
       model: 'fake-image-model',
       // A model classified without `image_generation` is refused as an AiError.
       failingRequest: { model: 'fake-model', prompt: 'anything' },
+    },
+  },
+}));
+
+describeAiProviderConformance('FakeAiProvider with its audio port', () => ({
+  adapter: new FakeAiProvider({
+    models: ['fake-model', 'fake-transcription-model'],
+    validKeys: ['fake-valid-key'],
+    responses: conformanceScript,
+    audioPort: true,
+    transcriptionMaxBytes: 1024 * 1024,
+    classify: (id) =>
+      id === 'fake-transcription-model'
+        ? FAKE_TRANSCRIPTION_MODEL_CAPABILITIES
+        : id === 'fake-model'
+          ? FAKE_TEXT_MODEL_CAPABILITIES
+          : null,
+  }),
+  ctx: { apiKey: 'fake-valid-key', requestId: 'conformance-5' },
+  fixtures: {
+    invalidApiKey: 'fake-invalid-key',
+    classify: { known: ['fake-model', 'fake-transcription-model'], unknown: ['nope'] },
+    responses: {
+      model: 'fake-model',
+      unsupportedRequest: { model: 'fake-model', input: 'search the web', tools: [{ type: 'web_search' }] },
+      failingRequest: { model: 'fake-broken', input: 'anything' },
+    },
+    transcription: {
+      model: 'fake-transcription-model',
+      // A model classified without `audio_transcription` is refused as an AiError.
+      failingModel: 'fake-model',
     },
   },
 }));

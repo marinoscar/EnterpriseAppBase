@@ -12,12 +12,13 @@
 //   openai-model-catalog.ts      classifyModel()'s rule table
 //   openai-embeddings.mapper.ts  AiEmbeddingRequest <-> /v1/embeddings
 //   openai-images.mapper.ts      AiImage*Request <-> /v1/images/{generations,edits}
+//   openai-audio.mapper.ts       AiTranscriptionRequest <-> /v1/audio/transcriptions
 //
-// PORTS. `responses`, `embeddings` (#440) and `images` (#437, generate AND
-// edit) are carried. `audio` and `realtime` are deliberately ABSENT until
-// Phase 2 (#420) implements them — presence is the declaration, so
-// `AiProviderRegistry.supports()` stays truthful about what this adapter can
-// actually do today.
+// PORTS. `responses`, `embeddings` (#440), `images` (#437, generate AND
+// edit) and `audio` (#438: `transcribe`) are carried. `realtime` is
+// deliberately ABSENT until a later story implements it — presence is the
+// declaration, so `AiProviderRegistry.supports()` stays truthful about what
+// this adapter can actually do today.
 //
 // STORAGE-OBJECT INPUTS (#441). `fileInputStrategy` is images by
 // `presigned_url` (a 10-minute signed GET the runtime minted, passed as
@@ -53,6 +54,7 @@ import type {
 } from '../../core/provider-adapter.interface';
 import { AiProviderRegistry } from '../../core/provider-registry';
 import type {
+  AiAudioPort,
   AiEmbeddingRequest,
   AiEmbeddingResult,
   AiEmbeddingsPort,
@@ -60,10 +62,17 @@ import type {
   AiImageGenerationRequest,
   AiImageResult,
   AiImagesPort,
+  AiTranscriptionRequest,
+  AiTranscriptionResult,
 } from '../../core/types/media.types';
 import type { AiFileInputStrategies } from '../../core/types/file-inputs.types';
 import type { AiResponse, AiResponseRequest, AiStreamEvent } from '../../core/types/responses.types';
 import { resolveServiceName } from '../../../common/otel/service-name';
+import {
+  fromOpenAiTranscriptionResponse,
+  OPENAI_TRANSCRIPTION_MAX_BYTES,
+  toOpenAiTranscriptionRequest,
+} from './openai-audio.mapper';
 import { OpenAiClientFactory } from './openai-client.factory';
 import { fromOpenAiEmbeddingResponse, toOpenAiEmbeddingRequest } from './openai-embeddings.mapper';
 import { mapOpenAiError, OPENAI_PROVIDER_ID } from './openai-errors';
@@ -91,7 +100,8 @@ type OpenAiOperation =
   | 'responses.stream'
   | 'embeddings.create'
   | 'images.generate'
-  | 'images.edit';
+  | 'images.edit'
+  | 'audio.transcribe';
 
 const tracer = trace.getTracer(resolveServiceName());
 
@@ -115,6 +125,11 @@ export class OpenAiProviderAdapter implements AiProviderAdapter, OnModuleInit {
   readonly images: AiImagesPort = {
     generate: (req, ctx) => this.generateImages(req, ctx),
     edit: (req, ctx) => this.editImages(req, ctx),
+  };
+
+  readonly audio: AiAudioPort = {
+    transcribe: (req, ctx) => this.transcribe(req, ctx),
+    transcriptionMaxBytes: OPENAI_TRANSCRIPTION_MAX_BYTES,
   };
 
   private readonly logger = new Logger(OpenAiProviderAdapter.name);
@@ -413,6 +428,25 @@ export class OpenAiProviderAdapter implements AiProviderAdapter, OnModuleInit {
       const { data, request_id } = await client.images.edit(body, { signal: ctx.signal }).withResponse();
 
       return fromOpenAiImagesResponse(data, { request: req, providerRequestId: request_id });
+    });
+  }
+
+  // ---- audio port -------------------------------------------------------------
+
+  /**
+   * `POST /v1/audio/transcriptions` (multipart). A streamed input is sent as
+   * it is read — see `openai-audio.mapper.ts`.
+   */
+  private transcribe(req: AiTranscriptionRequest, ctx: AiCallContext): Promise<AiTranscriptionResult> {
+    return this.call('audio.transcribe', req.model, ctx, async () => {
+      const body = await toOpenAiTranscriptionRequest(req);
+      const client = this.clients.create(ctx);
+
+      const { data, request_id } = await client.audio.transcriptions
+        .create(body, { signal: ctx.signal })
+        .withResponse();
+
+      return fromOpenAiTranscriptionResponse(data, { request: req, providerRequestId: request_id });
     });
   }
 

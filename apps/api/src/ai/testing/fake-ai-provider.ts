@@ -28,7 +28,12 @@
 //     did not resolve is `AI_INVALID_REQUEST`), an `upload` input's stream is
 //     drained into a fake provider-side file that is "deleted" once the
 //     response ends, and the call records WHAT it received — a URL or a file
-//     id — in `FakeAiCall.storageInputs`, plus `deletedFileIds`.
+//     id — in `FakeAiCall.storageInputs`, plus `deletedFileIds`;
+//   - with `audioPort: true`, `audio.transcribe()` reads the whole input
+//     (bytes or a stream), records it, and answers a deterministic transcript
+//     whose `durationSeconds` is one second per 1000 bytes; it refuses a
+//     model classified without `audio_transcription` and an input larger
+//     than its `transcriptionMaxBytes`.
 //
 // And it RECORDS every call, including the `apiKey` it was called with —
 // that is what lets a test prove the organisation key is never used for a
@@ -47,6 +52,7 @@ import {
 } from '../core/provider-adapter.interface';
 import { parseStructured } from '../core/structured-output';
 import {
+  AI_TRANSCRIPTION_DEFAULT_MAX_BYTES,
   AiAudioPort,
   AiEmbeddingRequest,
   AiEmbeddingResult,
@@ -56,6 +62,9 @@ import {
   AiImageResult,
   AiImagesPort,
   AiRealtimePort,
+  AiTranscriptionRequest,
+  AiTranscriptionResult,
+  isStreamedPayload,
 } from '../core/types/media.types';
 import type {
   AiFileInputStrategies,
@@ -89,7 +98,8 @@ export type FakeAiCallMethod =
   | 'responses.stream'
   | 'embeddings.embed'
   | 'images.generate'
-  | 'images.edit';
+  | 'images.edit'
+  | 'audio.transcribe';
 
 export interface FakeAiCall {
   method: FakeAiCallMethod;
@@ -101,6 +111,12 @@ export interface FakeAiCall {
   embeddingRequest?: AiEmbeddingRequest;
   /** The request an `images.generate`/`images.edit` call received. */
   imageRequest?: AiImageGenerationRequest | AiImageEditRequest;
+  /** The request an `audio.transcribe` call received, without its audio. */
+  transcriptionRequest?: Omit<AiTranscriptionRequest, 'audio'> & {
+    audio: { mimeType: string; filename?: string; size?: number; streamed: boolean };
+  };
+  /** The audio bytes an `audio.transcribe` call read. */
+  audioBytes?: Buffer;
   /** Set when the call observed `ctx.signal` aborting. */
   aborted?: boolean;
   /** What a responses call received for each storage-object part (#441), in part order. */
@@ -158,6 +174,13 @@ export interface FakeAiProviderOptions {
    * Defaults to `false`; `ports.images`, when given, wins.
    */
   imagesPort?: boolean;
+  /**
+   * `true` carries the built-in scripted `audio` port (`transcribe`).
+   * Defaults to `false`; `ports.audio`, when given, wins.
+   */
+  audioPort?: boolean;
+  /** The built-in audio port's `transcriptionMaxBytes`. Defaults to 25 MiB. */
+  transcriptionMaxBytes?: number;
   /** Native vector length of the built-in embeddings port. Defaults to 8. */
   embeddingDimensions?: number;
   /** Extra ports to carry, for registry/runtime tests. */
@@ -209,6 +232,13 @@ export const FAKE_IMAGE_MODEL_CAPABILITIES: AiModelCapabilities = {
   capabilities: ['image_generation', 'image_edit'],
   inputModalities: ['text', 'image'],
   outputModalities: ['image'],
+};
+
+/** The classification a fake transcription model is given in tests. */
+export const FAKE_TRANSCRIPTION_MODEL_CAPABILITIES: AiModelCapabilities = {
+  capabilities: ['audio_transcription'],
+  inputModalities: ['audio'],
+  outputModalities: ['text'],
 };
 
 /** The bytes every fake-generated image carries: a real 1x1 PNG. */
@@ -277,7 +307,14 @@ export class FakeAiProvider implements AiProviderAdapter {
             edit: (req, ctx) => this.generateImages('images.edit', req, ctx),
           }
         : undefined);
-    this.audio = options.ports?.audio;
+    this.audio =
+      options.ports?.audio ??
+      (options.audioPort
+        ? {
+            transcribe: (req, ctx) => this.transcribe(req, ctx),
+            transcriptionMaxBytes: options.transcriptionMaxBytes ?? AI_TRANSCRIPTION_DEFAULT_MAX_BYTES,
+          }
+        : undefined);
     this.embeddings =
       options.ports?.embeddings ??
       (options.embeddingsPort ? { embed: (req, ctx) => this.embed(req, ctx) } : undefined);
@@ -487,6 +524,87 @@ export class FakeAiProvider implements AiProviderAdapter {
       model: req.model,
       images: Array.from({ length: n }, () => ({ data: Buffer.from(FAKE_IMAGE_BYTES), mimeType })),
       usage: { inputTokens: Math.ceil(req.prompt.length / 4) },
+      providerRequestId: `fake_req_${this.responseCounter}`,
+    };
+  }
+
+  // ---- Audio port -----------------------------------------------------------------
+
+  private async transcribe(req: AiTranscriptionRequest, ctx: AiCallContext): Promise<AiTranscriptionResult> {
+    const call = this.record('audio.transcribe', ctx);
+    const { audio, ...rest } = req;
+
+    call.transcriptionRequest = {
+      ...rest,
+      audio: {
+        mimeType: audio.mimeType,
+        ...(audio.filename !== undefined ? { filename: audio.filename } : {}),
+        ...(isStreamedPayload(audio) && audio.size !== undefined ? { size: audio.size } : {}),
+        streamed: isStreamedPayload(audio),
+      },
+    };
+
+    await this.pause(ctx, call);
+    this.assertKey(ctx);
+
+    const classification = this.classifyModel(req.model);
+
+    if (classification && !classification.capabilities.includes('audio_transcription')) {
+      throw new AiError('AI_CAPABILITY_UNSUPPORTED', `Model "${req.model}" does not support audio_transcription.`, {
+        details: { capability: 'audio_transcription', model: req.model },
+      });
+    }
+
+    const maxBytes = this.options.transcriptionMaxBytes ?? AI_TRANSCRIPTION_DEFAULT_MAX_BYTES;
+
+    // A declared size is refused BEFORE a byte is read, as a real adapter does.
+    if (isStreamedPayload(audio) && audio.size !== undefined && audio.size > maxBytes) {
+      throw new AiError('AI_INVALID_REQUEST', `The audio is larger than ${maxBytes} bytes.`, {
+        details: { size: audio.size, maxBytes },
+      });
+    }
+
+    let bytes: Buffer;
+
+    try {
+      if (isStreamedPayload(audio)) {
+        const chunks: Buffer[] = [];
+
+        for await (const chunk of audio.stream) chunks.push(Buffer.from(chunk));
+
+        bytes = Buffer.concat(chunks);
+      } else {
+        bytes = Buffer.from(audio.data);
+      }
+    } catch (err) {
+      throw AiError.wrap(err);
+    }
+
+    call.audioBytes = bytes;
+
+    if (bytes.length === 0 || bytes.length > maxBytes) {
+      throw new AiError('AI_INVALID_REQUEST', `The audio must be 1 to ${maxBytes} bytes.`, {
+        details: { size: bytes.length, maxBytes },
+      });
+    }
+
+    const durationSeconds = bytes.length / 1000;
+    const text = `fake transcript of ${bytes.length} bytes`;
+    const granularities = req.timestampGranularities ?? [];
+
+    this.responseCounter += 1;
+
+    return {
+      provider: this.id,
+      model: req.model,
+      text,
+      language: req.language ?? 'en',
+      durationSeconds,
+      ...(granularities.includes('segment') ? { segments: [{ startSeconds: 0, endSeconds: durationSeconds, text }] } : {}),
+      ...(granularities.includes('word')
+        ? { words: text.split(' ').map((word, i) => ({ startSeconds: i, endSeconds: i + 1, word })) }
+        : {}),
+      usage: { outputTokens: Math.ceil(text.length / 4) },
       providerRequestId: `fake_req_${this.responseCounter}`,
     };
   }
