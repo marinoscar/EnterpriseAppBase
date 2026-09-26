@@ -133,6 +133,7 @@ export function AiSpeechMode({ models, preferredModel, ready = true, runPollInte
           prompt={runText}
           run={run.run}
           error={run.error}
+          stale={run.stale}
           isStarting={run.isStarting}
           isCancelling={run.isCancelling}
           onCancel={() => void run.cancel()}

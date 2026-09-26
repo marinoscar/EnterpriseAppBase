@@ -9,9 +9,19 @@
  *
  * POLLING IS A TIMEOUT CHAIN, NOT AN INTERVAL: the next read is scheduled
  * only after the previous one answered, so a slow API can never stack
- * overlapping requests. A failed read stops polling and surfaces the error —
- * a run the caller cannot read (404: not theirs, or gone) will not start
- * answering on its own.
+ * overlapping requests.
+ *
+ * A FAILED READ IS NOT A FAILED RUN (#509). A read that fails for a reason
+ * that can clear on its own — the browser's network `TypeError` ("Failed to
+ * fetch"), a 5xx, a 408/429 — marks the last-known `run` as `stale` and keeps
+ * polling with a modest linear backoff; the next successful read clears it.
+ * Only after {@link AI_RUN_MAX_POLL_FAILURES} consecutive failures does the
+ * hook give up, stop polling and surface `error` (with `stale` still set, so
+ * the card can say the status it shows is the last one it saw, not the
+ * current one). A read the server refuses outright (any other 4xx — 404: not
+ * theirs, or gone) will not start answering on its own, so it stops polling
+ * and surfaces the error at once, as before. A run that itself settled
+ * `failed` is not a read failure at all: it arrives as `run.errorCode`.
  *
  * `onSettled` fires exactly once per run, when it reaches a terminal state.
  *
@@ -32,10 +42,23 @@ import {
   type AiRunStarted,
   type AiRunStatus,
 } from '../services/ai';
+import { ApiError } from '../services/api';
 import { toAiErrorInfo, type AiErrorInfo } from '../services/aiErrors';
 import { useIsMounted } from './useIsMounted';
 
 export const AI_RUN_POLL_INTERVAL_MS = 2000;
+
+/** Consecutive transient read failures tolerated before the hook gives up. */
+export const AI_RUN_MAX_POLL_FAILURES = 3;
+
+/**
+ * Whether a failed `GET /ai/runs/:id` may succeed if simply retried: a
+ * network-level failure (no HTTP response at all), a 5xx, a 408 or a 429.
+ */
+function isTransientReadFailure(err: unknown): boolean {
+  if (!(err instanceof ApiError)) return true;
+  return err.status >= 500 || err.status === 408 || err.status === 429;
+}
 
 const TERMINAL: readonly AiRunStatus[] = ['succeeded', 'failed', 'cancelled'];
 
@@ -56,7 +79,18 @@ export interface UseAiRunReturn {
   isActive: boolean;
   isStarting: boolean;
   isCancelling: boolean;
+  /**
+   * A real failure to start, read or cancel the run — never a single
+   * transient read failure. A run that settled `failed` reports through
+   * `run.errorCode` instead.
+   */
   error: AiErrorInfo | null;
+  /**
+   * True while the latest read of the run failed, so `run` is the last
+   * KNOWN state rather than the current one (#509). Cleared by the next
+   * successful read.
+   */
+  stale: boolean;
   /** Start a text run; resolves to its id, or `null` when the API refused it. */
   start: (request: AiResponseRequest) => Promise<string | null>;
   /**
@@ -78,6 +112,7 @@ export function useAiRun(options: UseAiRunOptions = {}): UseAiRunReturn {
   const [isCancelling, setIsCancelling] = useState(false);
   const [error, setError] = useState<AiErrorInfo | null>(null);
   const [polling, setPolling] = useState(false);
+  const [stale, setStale] = useState(false);
   const isMounted = useIsMounted();
 
   const onSettledRef = useRef(onSettled);
@@ -88,6 +123,7 @@ export function useAiRun(options: UseAiRunOptions = {}): UseAiRunReturn {
     (next: AiRun) => {
       if (!isMounted()) return;
       setRun(next);
+      setStale(false);
       if (isAiRunTerminal(next.status)) {
         setPolling(false);
         if (settledRef.current !== next.id) {
@@ -103,16 +139,35 @@ export function useAiRun(options: UseAiRunOptions = {}): UseAiRunReturn {
     if (!runId || !polling) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let failures = 0;
 
     const poll = async () => {
       try {
         const next = await getAiRun(runId);
         if (cancelled) return;
+        failures = 0;
         accept(next);
         if (!isAiRunTerminal(next.status)) timer = setTimeout(poll, intervalMs);
       } catch (err) {
         if (cancelled || !isMounted()) return;
-        setError(toAiErrorInfo(err, 'Could not read the background run'));
+        const transient = isTransientReadFailure(err);
+        failures += 1;
+        setStale(true);
+        if (transient && failures < AI_RUN_MAX_POLL_FAILURES) {
+          // Keep the last-known run on screen, flagged stale; back off a little.
+          timer = setTimeout(poll, intervalMs * (failures + 1));
+          return;
+        }
+        const info = toAiErrorInfo(err, 'Could not read the background run');
+        setError(
+          err instanceof ApiError
+            ? info
+            : {
+                ...info,
+                message:
+                  "Lost contact with the server while checking this run's status. The run may still be in progress.",
+              },
+        );
         setPolling(false);
       }
     };
@@ -128,6 +183,7 @@ export function useAiRun(options: UseAiRunOptions = {}): UseAiRunReturn {
     async (create: () => Promise<AiRunStarted>) => {
       setIsStarting(true);
       setError(null);
+      setStale(false);
       setRun(null);
       setRunId(null);
       setPolling(false);
@@ -166,10 +222,11 @@ export function useAiRun(options: UseAiRunOptions = {}): UseAiRunReturn {
     setRunId(null);
     setRun(null);
     setError(null);
+    setStale(false);
     setPolling(false);
   }, []);
 
   const isActive = isStarting || polling;
 
-  return { run, runId, isActive, isStarting, isCancelling, error, start, startWith, cancel, clear };
+  return { run, runId, isActive, isStarting, isCancelling, error, stale, start, startWith, cancel, clear };
 }

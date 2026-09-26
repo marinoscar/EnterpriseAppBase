@@ -236,6 +236,7 @@ export function AiImageMode({ models, preferredModel, ready = true, runPollInter
           prompt={runPrompt}
           run={run.run}
           error={run.error}
+          stale={run.stale}
           isStarting={run.isStarting}
           isCancelling={run.isCancelling}
           onCancel={() => void run.cancel()}
