@@ -1,330 +1,226 @@
 # AI Platform
 
-> Epic #418 (umbrella), phase #419, and its stories #422–#436. This spec is
-> filed by #422 (A0 — write this document) so that every parallel story in
-> waves 0–4 shares one contract instead of each re-deriving it. It is written
-> **ahead of** the code stories it describes (#423 database, #424 core
-> contracts, #426 OpenAI adapter, #427 catalog, #428 admin API, #431 user
-> keys, #432 runtime facade, #433 HTTP surface, #434 web admin UI, #435 web
-> user UI, #436 CLAUDE.md recipe + runbook) so that parallel implementers
-> build against it rather than against each other's in-progress code. Where
-> this document says a file will exist, that file does not yet exist at the
-> time this spec is written — treat every path below as the contract for
-> whichever story creates it, not as evidence it is already there.
->
-> **Out of scope for this document:** code (any of #423–#436 implements it);
-> the CLAUDE.md "Adding an AI feature" recipe (#436); the operator runbook
-> (#436). This document is the spec those two summarize and link back to.
+> **Status:** shipped · **Code:** `apps/api/src/ai/`, `apps/web/src/pages/AiPlaygroundPage.tsx`, `apps/web/src/pages/Admin/AiConfigPage.tsx`, `AiModelsPage.tsx`, `AiUsagePage.tsx` · **API:** `/api/ai/*`, `/api/admin/ai/*` (see `/api/docs`) · **Admin UI:** `/admin/settings/ai`, `/admin/settings/ai/models`, `/admin/settings/ai/usage`; user `/settings/ai`; Playground `/ai` · **Runbook:** [ai-configuration.md](../runbooks/ai-configuration.md) · **Recipe:** [apps/api/src/ai/README.md](../../apps/api/src/ai/README.md)
 
-## 1. What this is
+The AI platform gives an app built from this template one admin-governed,
+bring-your-own-key (BYOK), multi-provider AI capability. Feature code injects
+`AiService`, calls `forUser(userId)`, and gets responses, streaming,
+structured output, tool calling, embeddings, images, audio and realtime voice
+sessions. Every call runs one gate pipeline that enforces the kill switch,
+provider and model enablement, capabilities, the key policy and rate limits,
+and records a usage row. Provider keys never leave the server. Five providers
+ship: `openai`, `anthropic`, `gemini`, `azure-openai` and `openai-compatible`.
 
-The AI platform adds one admin-governed, bring-your-own-key (BYOK),
-multi-provider, multimodal AI capability to this template, on the same
-"administrator-editable, live, no restart" footing as Web Push (#355),
-Broadcasts (#319) and Object Storage (#372) before it. Nothing about it is
-deploy-time configuration: there is no `OPENAI_API_KEY` environment
-variable, and there must never be one — see §14's rejected alternative and
-the parallel rule already stated for storage in CLAUDE.md.
+## 1. Purpose
 
-Seven things are true about this platform, and each is a separate gate a
-call must pass, in this order — the governance model every other section
-in this document exists to make precise:
+A fork gets AI it can switch on per deployment without writing SDK code,
+storing keys, or building governance. Configuration happens at runtime in the
+admin UI, with no restart. There are no AI environment variables.
 
-1. **The platform itself is off by default.** `ai.enabled` starts `false`.
-   An operator must turn it on before anything AI-shaped is reachable.
-   (§8, the kill switch.)
-2. **An operator chooses the key policy** before anyone can call a model:
-   strict BYOK (`byok`, the default) or BYOK with an organization fallback
-   (`byok_with_org_fallback`). This is a deployment-wide decision, not a
-   per-user one. (§3.)
-3. **An operator enables specific providers.** A provider existing in the
-   adapter registry does not mean it is reachable — `providers.<id>.enabled`
-   must be true. (§2.)
-4. **An operator may configure an admin/org key**, which exists for two
-   purposes only: discovering and classifying that provider's models (§6),
-   and — only under the fallback policy — serving requests for users who
-   have not brought their own key (§3). It is never a default key for
-   everyone regardless of policy.
-5. **An operator curates the model catalog.** Discovery lists model IDs;
-   classification guesses their capabilities; an operator's enablement and
-   capability overrides are the only things that make a model callable, and
-   nothing automated ever overwrites either. (§6.)
-6. **A user brings their own key**, per provider, verified against the
-   provider and checked for which of the enabled models it can actually
-   reach — a key's tier or org restrictions are real and differ per key.
-   (§3, §7.)
-7. **A user calls AI within what they are both permitted and able to use** —
-   holding `ai:use`, and restricted to models that are simultaneously
-   admin-enabled and reachable with whichever key resolution (§3) supplies.
-   (§7, §11.)
+Seven gates govern every call, in this order:
 
-Multimodal and multi-provider are contract properties, not features shipped
-on day one: the normalized request/response (§5) and the capability model
-(§4) are shaped so that image generation, audio transcription/speech,
-embeddings and realtime are addable later (Phase 2/3) without a breaking
-change to callers, and so a second provider (anything beyond the Phase 1
-OpenAI adapter) is an adapter implementation, not a rewrite of the platform.
-Phase 3 proved it: the Anthropic adapter (issue #446, §14.1) fits the same
-contract with one declared, behavioural adapter flag
-(`supportsPreviousResponseId`, §5.7) and no change to any `AiService`
-caller, and the Gemini adapter (issue #447, §14.2) — a third API shape —
-fits it with the same flags plus one optional, backward-compatible
-classifier argument (listing metadata, §6).
+1. **The platform is off by default.** `ai.enabled` starts `false` (§2.19).
+2. **The operator chooses a key policy:** `byok` (default) or
+   `byok_with_org_fallback` (§2.2).
+3. **The operator enables providers.** A registered adapter is not reachable
+   until `providers.<id>.enabled` is true.
+4. **The operator may store an admin (org) key per provider.** It discovers
+   models, and serves users only under the fallback policy.
+5. **The operator curates the model catalog.** Discovery never enables a
+   model; only an administrator does (§2.17).
+6. **Each user brings their own key**, verified and checked for which models
+   it can reach (§2.18).
+7. **A user calls only what they may and can use:** they hold `ai:use`, and
+   the model is admin-enabled and reachable with the resolved key.
 
-## 2. The configuration model
+What it is not:
 
-Configuration lives in two places, deliberately split, mirroring the split
-storage already established in §2 of `docs/specs/storage-providers.md`:
+- **No browser-to-provider calls** and no keys in the browser. The one
+  exception is a realtime session's ephemeral secret (§2.15).
+- **No vector storage or search.** `embed` returns vectors; storing and
+  querying them (for example with `pgvector`) is the fork's job.
+- **No worker-node execution.** Every `ai.*` job is server-only, permanently.
+- **No function tools over HTTP.** They run server code, so only in-process
+  `runTools()` accepts them.
 
-**The `ai` system-settings namespace** (`system_settings.global`, read/write
-through `SystemSettingsService`) holds everything that is *not* secret:
+## 2. How it works
+
+### 2.1 Configuration model
+
+Configuration lives in four places, split by sensitivity:
+
+| Where | Holds |
+|---|---|
+| `ai` namespace of `system_settings` | Everything non-secret (below) |
+| `CredentialsService`, purpose `'ai'`, name `<providerId>` | The admin (org) key per provider, encrypted, with a masked hint |
+| `user_ai_keys` table | One BYOK key per `(userId, provider)`, encrypted under cipher purpose `'ai_user_key'`, cascade-deleted with the user |
+| `user_settings.ai` | `{ defaultModel: { provider, modelId } \| null }` |
 
 ```ts
-// ai settings namespace (system_settings, global row)
+// ai namespace (defaults in comments)
 { enabled: boolean /*false*/,
-  keyPolicy: 'byok' | 'byok_with_org_fallback' /*'byok'*/,
-  providers: { openai:    { enabled: boolean /*false*/, baseUrl?: string },
-               anthropic: { enabled: boolean /*false*/, baseUrl?: string } /*§14.1, #446*/,
-               gemini:    { enabled: boolean /*false*/, baseUrl?: string } /*§14.2, #447*/,
-               'azure-openai': { enabled: boolean /*false*/, baseUrl?: string /*https*/,
-                                 apiVersion?: string, apiStyle?: 'responses' | 'chat_completions',
-                                 deployments?: Record<modelId, deploymentName> } /*§14.3, #448*/,
-               'openai-compatible': { enabled: boolean /*false*/, baseUrl?: string /*http(s)*/,
-                                      apiStyle?: 'responses' | 'chat_completions',
-                                      requiresKey?: boolean } /*§14.3, #448*/ },
+  keyPolicy: 'byok' | 'byok_with_org_fallback' /*'byok'*/,   // AI_KEY_POLICIES
+  providers: {
+    openai:    { enabled /*false*/, baseUrl? },
+    anthropic: { enabled /*false*/, baseUrl? },
+    gemini:    { enabled /*false*/, baseUrl? },
+    'azure-openai': { enabled, baseUrl? /*https*/, apiVersion?, apiStyle?: 'responses'|'chat_completions',
+                      deployments?: Record<modelId, deploymentName> },
+    'openai-compatible': { enabled, baseUrl? /*http(s)*/, apiStyle?, requiresKey?: boolean /*true*/ } },
   defaults: { maxOutputTokensCap?: number, allowBackgroundRuns: boolean /*true*/,
-              allowRealtime: boolean /*false — §5.8*/ },
+              allowRealtime: boolean /*false*/ },
   logPromptContent: boolean /*false*/,
-  usageRetentionDays: number /*180, 1–3650 — §12, #443*/,
-  hostedTools: { …switches, mcpAllowedHosts: string[] } /*all off — §5.4, #442*/,
-  limits: {                                   /*{} — no limits; §15, #450*/
-    perUser?:  { requestsPerMinute?: number, requestsPerDay?: number },
-    orgKey?:   { requestsPerDayPerUser?: number, tokensPerDayPerUser?: number },
-    perModel?: Record<'<provider>:<modelId>',
-                      { maxOutputTokens?: number, requestsPerMinutePerUser?: number }> } }
+  usageRetentionDays: number /*180, 1–3650*/,
+  hostedTools: { web_search, file_search, code_interpreter, image_generation, mcp /*all false*/,
+                 mcpAllowedHosts: string[] },
+  limits: { perUser?, orgKey?, perModel? } /*{} — unlimited, §2.22*/ }
 ```
 
-`GET /api/system-settings` returns the *entire* settings document, wholesale,
-to any caller holding `system_settings:read` — that is simply how
-`SystemSettingsService` works, and it is not being special-cased for `ai`.
-That single fact is why the admin/org provider key can never live inside
-this namespace: anything in `system_settings` is, by construction, returned
-in full on every read of it. The key instead lives in **`CredentialsService`**
-(the same encrypted-secret store SMTP, Web Push's VAPID private key and the
-object-storage secret already use), addressed by `purpose: 'ai'`,
-`name: '<providerId>'` — one row per provider, holding ciphertext plus a
-masked hint, never the plaintext, exactly like
-`storage-credential.constants.ts`'s pattern for the storage secret.
+- Provider ids are `AI_PROVIDER_IDS` in
+  `apps/api/src/common/schemas/settings.schema.ts`.
+- The admin key is never in `system_settings`, because
+  `GET /api/system-settings` returns the whole document.
+- The two cipher purposes (`'ai'`, `'ai_user_key'`) derive different
+  sub-keys, so neither store can decrypt the other's ciphertext.
+- `providerCallSettings(slot)` (`ai-config.service.ts`) hands every
+  provider-specific field to the adapter as `AiCallContext.providerSettings`.
 
-A **third** place holds per-user BYOK material: the `user_ai_keys` table
-(§3, #423), one row per `(userId, provider)`, encrypted with
-`encryptSecret(plaintext, 'ai_user_key')` — a dedicated cipher *purpose*,
-distinct from the `'ai'` purpose the admin/org key's `CredentialsService`
-row uses, so the two secret spaces cannot be confused by construction (a
-`CredentialsService` lookup and a `user_ai_keys` decrypt use different HMAC
-subkeys; neither can decrypt the other's ciphertext even by accident). It is
-**not** stored in `CredentialsService`, because that store is scoped to
-deployment-wide secrets with no per-user ownership or cascade-delete
-semantics — see §14's rejected alternative for why reusing it anyway was
-considered and turned down.
+### 2.2 Keys and key resolution
 
-Non-secret, per-user preference (which model to default to) lives in a
-fourth place: the `ai` sub-object already inside `user_settings` —
-`ai: { defaultModel: { provider, modelId } | null }` — because it is exactly
-as sensitive as every other per-user UI preference already in that
-document, and creating a fourth settings surface for one nullable field
-would be its own complexity.
+Two keys can pay for a call:
 
-## 3. The two keys and the key-resolution rule
+- **Admin (org) key:** one per provider. Catalog discovery and the admin
+  connection test use it. It serves user requests **only** under
+  `byok_with_org_fallback`.
+- **User (BYOK) key:** one per user and provider, verified and checked for
+  reachable models when it is set.
 
-There are exactly two keys a provider call can use, and they answer two
-different questions:
-
-- **The admin (org) key** — one per provider, in `CredentialsService`,
-  `purpose:'ai'`. It exists to let the *platform* talk to a provider before
-  any user has brought a key: catalog discovery and classification (§6) run
-  under it unconditionally, and the connection-test probe (§9 of the admin
-  routes table) uses it. It is **also** usable to *serve* a user's request,
-  but **only** when `keyPolicy = 'byok_with_org_fallback'`.
-- **The user (BYOK) key** — one per `(user, provider)`, in `user_ai_keys`,
-  verified against the provider and checked for reachable models at set
-  time (§7).
-
-`AiKeyResolver.resolve(userId, provider)` is the one place this rule is
-implemented, and every caller — the runtime facade (§9's `AiService`), the
-usable-models computation (§7) — goes through it rather than re-deriving it:
+`AiKeyResolver.resolve(userId, provider)` is the only implementation of the
+rule. Every caller goes through it:
 
 ```ts
 resolve(userId, provider): Promise<{ apiKey: string; keySource: 'user' | 'org' | 'none' }>
-// 0. provider slot says requiresKey: false (#448)        -> { none }  (AI_KEYLESS_API_KEY)
-// 1. user key exists                                    -> { user }
-// 2. policy 'byok_with_org_fallback' AND org key exists  -> { org }
-// 3. otherwise                                           -> throw AiError('AI_KEY_REQUIRED')
+// 0. provider slot has requiresKey: false            -> { none }  (AI_KEYLESS_API_KEY marker)
+// 1. user key exists                                 -> { user }
+// 2. 'byok_with_org_fallback' AND org key exists     -> { org }
+// 3. otherwise                                       -> throw AiError('AI_KEY_REQUIRED')
 ```
 
-**Rule 0 is an administrator's opt-in, never a fallback** (#448, §14.3).
-Only the `openai-compatible` slot has a `requiresKey` field, and only an
-administrator (`ai_config:write`) can set it to `false` — for a self-hosted
-server (Ollama, vLLM, LM Studio) that authenticates nobody. No key is read
-or decrypted; the call carries the `AI_KEYLESS_API_KEY` marker
-(`ai/core/provider-adapter.interface.ts`), which the adapter turns into **no
-credential on the wire**, and the usage row says `keySource: 'none'`. It
-precedes rule 1 (the server would ignore a user's key anyway) and holds under
-either key policy: `byok` promises that only a user's own provider account
-is *billed*, and a keyless server bills no account.
+- **Under `byok` the org key is never returned.** This is the platform's
+  core security invariant.
+- **Rule 0 is an administrator's opt-in**, only on the `openai-compatible`
+  slot, for a self-hosted server that authenticates nobody. No key is read,
+  the adapter sends no credential, and usage records `keySource: 'none'`. It
+  holds under either policy, since nothing is billed.
+- `ai_usage_events.keySource` also has `'admin_discovery'` for the platform's
+  own catalog calls. The resolver never returns it.
 
-**Under `keyPolicy = 'byok'` the org/admin key must never be returned by this
-method, full stop** — not as a convenience, not as a "just this once" for an
-internal caller. This is the platform's core security invariant, restated
-here so it is traceable to one line: an administrator who opted a
-deployment into strict BYOK has made a promise to every user that their own
-provider account, quota and billing are the only ones a call of theirs can
-touch. The conformance test that pins this ("under `byok`, the fake provider
-records **zero** calls with the org key") is listed once, here, and again
-verbatim in #431's and #432's acceptance criteria, precisely because two
-independent stories both depend on it holding.
+**Keys never leave the server.** No route, log line, span, `AiError`,
+`ai_usage_events` row or `ai_runs.request` row carries key material.
+`apiKey` exists in `ai.service.ts` only between key resolution and the adapter
+call. The single exception to "no credential reaches the browser" is the
+realtime session's **ephemeral** secret (§2.15), minted with the key and
+never the key itself.
 
-`ai_usage_events.keySource` records which value actually resolved a given
-call: `'user'`, `'org'`, `'none'` (a keyless provider, #448), or
-`'admin_discovery'` (§12) — the last is reserved for calls the *platform itself* makes with the admin key
-(catalog sync) and is never a value `AiKeyResolver` returns to a runtime
-caller.
-
-Neither key ever reaches a browser. The one provider credential that does is
-a realtime session's **ephemeral client secret** (§5.8). It is minted server-side
-*with* the resolved key, it expires in 60 seconds, it opens one session
-configuration, and it cannot call any other API. It is the single, deliberate
-exception, and it is never the key itself.
-
-## 4. The capability model
-
-Providers do not all speak the same protocol, and forcing them to would mean
-the platform's public contract could only ever express what the *weakest*
-supported provider can do (§14's rejected alternative). Instead, capability
-is modeled at two levels that must agree:
-
-**`AiCapability`** — a fixed enum a model or a provider *has or does not
-have*:
+### 2.3 Capabilities and ports
 
 ```ts
 export const AI_CAPABILITIES = ['responses','reasoning','tools','hosted_tools','structured_output','streaming',
   'vision_input','file_input','image_generation','image_edit','audio_transcription','audio_speech',
   'embeddings','realtime'] as const;
-export type AiCapability = typeof AI_CAPABILITIES[number];
 ```
 
-**Capability ports on `AiProviderAdapter`** — optional interface members,
-one per capability family, that a provider adapter implements only for what
-it actually supports:
+A model has capabilities (stored per `ai_models` row). A provider has
+**ports**: optional members of `AiProviderAdapter`.
 
 ```ts
 export interface AiProviderAdapter {
-  readonly id: string;               // 'openai' — permanent once chosen
+  readonly id: string;                       // permanent once referenced
   readonly displayName: string;
-  listModels(ctx: AiCallContext): Promise<AiDiscoveredModel[]>;
-  verifyKey(ctx: AiCallContext): Promise<AiKeyVerification>;
-  classifyModel(modelId: string): AiModelCapabilities | null;   // null => 'unclassified'
-  // Capability ports — presence IS the declaration (same idiom as JobHandler.nodeResultSchema)
+  listModels(ctx): Promise<AiDiscoveredModel[]>;
+  verifyKey(ctx): Promise<AiKeyVerification>;
+  classifyModel(modelId, metadata?): AiModelCapabilities | null;   // null => unclassified
   readonly responses?: AiResponsesPort;
   readonly images?: AiImagesPort;
   readonly audio?: AiAudioPort;
   readonly embeddings?: AiEmbeddingsPort;
   readonly realtime?: AiRealtimePort;
+  readonly supportsPreviousResponseId?: boolean;   // absent = true (§2.10)
+  readonly supportsHostedTools?: boolean;          // absent = true
+  readonly fileInputStrategy?: { image, file };    // absent = no stored inputs (§2.9)
 }
 ```
 
-**Presence is the declaration** — the identical idiom CLAUDE.md's job-queue
-section already uses for `JobHandler.nodeResultSchema` +
-`persistNodeResult`: there is no `supportedCapabilities: AiCapability[]`
-field on the adapter that could drift out of sync with what the adapter's
-methods actually do. `AiProviderRegistry.supports(id, cap)` (§9) *derives*
-the answer from port presence, so an adapter that implements `images` but
-forgets to declare an `image_generation` flag somewhere is not a state this
-model can represent — implementing the port **is** declaring the
-capability.
+- **Presence is the declaration.** There is no `supportedCapabilities`
+  array. `AiProviderRegistry.supports(id, cap)` derives the answer from port
+  presence, the same idiom as `JobHandler.nodeResultSchema`.
+- A call needs the capability on the model **and** the port on the provider.
+- `AiModelCapabilities` also carries `reasoningEfforts`, `contextWindow`,
+  `maxOutputTokens`, `inputModalities` and `voices` (for `audio_speech` and
+  `realtime` models). When a model lists no voices, the port's static
+  `voices` is the fallback.
 
-Why not a lowest-common-denominator chat API (one `chat(messages)` method
-every provider must somehow satisfy): reasoning-effort controls, hosted
-tools (web search, file search, code interpreter, MCP), structured outputs
-and background/streaming semantics are all things a "just messages" surface
-either cannot express or can only express by inventing a provider-neutral
-subset that throws away exactly the features BYOK users pick a provider
-for. The capability model instead lets a caller (or the gate pipeline in
-§9) ask "can this model do X" and get a precise answer, and lets a second
-provider ship supporting only a subset of capabilities without changing the
-interface anyone else depends on.
+### 2.4 The gate pipeline
 
-**Model metadata beyond the capability list.** `AiModelCapabilities` also
-carries optional descriptive fields a picker needs — `reasoningEfforts`,
-`contextWindow`, `maxOutputTokens`, and (#439) `voices`: the voices an
-`audio_speech` model speaks. Optional, so every stored row stays valid; the
-classifier fills it (OpenAI: nine voices for `tts-1`/`tts-1-hd`, thirteen
-for the GPT-4o TTS family), an administrator may override it like any
-other capability field, and `GET /api/ai/models` publishes it. When a model
-lists none, the provider's static `AiAudioPort.voices` is the fallback.
+`AiService` (`apps/api/src/ai/runtime/ai.service.ts`) runs every call through
+the same steps. Each operation has its own `prepare…` step and shares the key
+and usage steps.
 
-## 5. The normalized request/response
+| Step | Gate | Refusal |
+|---|---|---|
+| 1 | Kill switch | `AI_DISABLED` |
+| 2 | Provider enabled and registered; `previousResponseId` on a provider that cannot chain | `AI_PROVIDER_DISABLED`, `AI_CAPABILITY_UNSUPPORTED` |
+| 2b | Hosted tools: shape, admin switch, MCP host allowlist | `AI_TOOL_DISABLED` |
+| 3 | `UsableModelsService.assertUsable`: model enabled, capabilities the request's shape needs, key exists, key reaches model | `AI_MODEL_NOT_ENABLED`, `AI_CAPABILITY_UNSUPPORTED`, `AI_KEY_REQUIRED`, `AI_MODEL_NOT_REACHABLE` |
+| 4 | Reasoning effort offered by the model; then storage-object inputs (§2.9) | `AI_CAPABILITY_UNSUPPORTED`, `AI_INVALID_REQUEST` |
+| 5 | Clamp `maxOutputTokens` to the smallest of `defaults.maxOutputTokensCap`, `limits.perModel[…].maxOutputTokens` and the model's limit | — |
+| 6 | Resolve the key (§2.2) | `AI_KEY_REQUIRED` |
+| 6b | Rate limits (§2.22) | `AI_RATE_LIMITED` |
+| 7 | Call the adapter with `{ apiKey, baseUrl, providerSettings, signal, requestId }` | adapter's `AiError` |
+| 8 | Record one `ai_usage_events` row per round trip (success, failure or cancellation) | — |
+| 9 | Trace an `ai.request` span (provider, model, operation, key source, status, tokens) | — |
 
-Requests and responses are shaped after the OpenAI Responses API — not
-because every provider must literally be that API, but because it is the
-richest widely-used shape (typed input items, hosted tools, structured
-outputs, reasoning) and normalizing *down* from it to a simpler provider is
-tractable, while normalizing *up* from a bare chat-completions shape is not.
+With no `model` in the request, the caller's `user_settings.ai.defaultModel`
+applies (chat operations only). Queued operations run steps 1–4 when they
+enqueue and the whole pipeline again when the job executes.
+
+### 2.5 Normalized request and response
+
+Requests and responses follow the OpenAI Responses API shape. It is the
+richest widely used shape, and mapping down to a simpler provider is
+tractable where mapping up is not. Types live in
+`apps/api/src/ai/core/types/`.
 
 ```ts
-// responses.types.ts (Responses-API-shaped)
 export type AiInputItem =
   | { type: 'message'; role: 'user'|'assistant'|'system'|'developer'; content: AiContentPart[] }
-  | { type: 'function_call'; callId: string; name: string; arguments: string }   // replayed (§5.7, #446)
+  | { type: 'function_call'; callId: string; name: string; arguments: string }   // replayed (§2.10)
   | { type: 'function_call_output'; callId: string; output: string }
-  | AiReasoningItem;                                                              // replayed (§5.7, #446)
-export interface AiReasoningItem {
-  type: 'reasoning'; summary: string[];
-  [AI_PROVIDER_STATE]?: { provider: string; data: unknown };   // opaque, symbol-keyed, never serialised (§5.7)
-}
+  | AiReasoningItem;                                   // summary + symbol-keyed AI_PROVIDER_STATE
 export type AiContentPart =
   | { type: 'text'; text: string }
   | { type: 'image'; url?: string; storageObjectId?: string; detail?: 'low'|'high'|'auto' }
   | { type: 'file'; storageObjectId?: string; url?: string; filename?: string };
-export interface AiFunctionTool<P extends z.ZodTypeAny = z.ZodTypeAny> {
-  type: 'function'; name: string; description: string; parameters: P; strict?: boolean;
-}
-export type AiHostedTool =                                         // §5.4 (#442)
-  | { type: 'web_search'; searchContextSize?: 'low'|'medium'|'high'; userLocation?: { country?: string; city?: string } }
-  | { type: 'file_search'; vectorStoreIds: string[]; maxResults?: number }
-  | { type: 'code_interpreter'; container?: { type: 'auto' } }
-  | { type: 'image_generation'; size?: string; quality?: string }
-  | { type: 'mcp'; serverLabel: string; serverUrl: string; allowedTools?: string[];
-      requireApproval?: 'never'|'always'; headers?: Record<string, string> };
-export interface AiResponseRequest<S extends z.ZodTypeAny = z.ZodTypeAny> {
-  model: string;
-  instructions?: string;
-  input: string | AiInputItem[];
+export interface AiResponseRequest {
+  model: string; instructions?: string; input: string | AiInputItem[];
   tools?: Array<AiFunctionTool | AiHostedTool>;
   toolChoice?: 'auto' | 'none' | 'required' | { type: 'function'; name: string };
-  structuredOutput?: { name: string; schema: S; strict?: boolean };
+  structuredOutput?: { name: string; schema: ZodType; strict?: boolean };
   reasoning?: { effort?: 'minimal'|'low'|'medium'|'high'; summary?: 'auto'|'concise'|'detailed' };
-  maxOutputTokens?: number;
-  temperature?: number;
-  previousResponseId?: string;
+  maxOutputTokens?: number; temperature?: number; previousResponseId?: string;
   metadata?: Record<string, string>;
-  providerOptions?: Record<string, Record<string, unknown>>;   // keyed by provider id; escape hatch
+  providerOptions?: Record<string, Record<string, unknown>>;   // keyed by provider id
 }
-export type AiOutputItem =
-  | { type: 'message'; text: string; citations?: { url: string; title: string; startIndex: number; endIndex: number }[] }
-  | AiReasoningItem
-  | { type: 'function_call'; callId: string; name: string; arguments: string }
-  | { type: 'hosted_tool_call'; id?: string; tool: AiHostedToolType; status: string; result?: /* typed per tool, §5.4 */ };
-export interface AiUsage { inputTokens?: number; outputTokens?: number; reasoningTokens?: number; cachedInputTokens?: number; }
 export interface AiResponse<T = unknown> {
   id: string; provider: string; model: string;
-  output: AiOutputItem[]; outputText: string; parsed?: T;
-  usage: AiUsage; finishReason: 'stop'|'length'|'tool_calls'|'content_filter'|'error';
+  output: AiOutputItem[];      // message (with citations) | reasoning | function_call | hosted_tool_call
+  outputText: string; parsed?: T;
+  usage: { inputTokens?, outputTokens?, reasoningTokens?, cachedInputTokens? };
+  finishReason: 'stop'|'length'|'tool_calls'|'content_filter'|'error';
   providerRequestId?: string;
 }
 export type AiStreamEvent =
-  | { type: 'response.created'; id: string }
-  | { type: 'output_text.delta'; delta: string }
+  | { type: 'response.created'; id: string } | { type: 'output_text.delta'; delta: string }
   | { type: 'reasoning_summary.delta'; delta: string }
   | { type: 'function_call.arguments.delta'; callId: string; delta: string }
   | { type: 'output_item.done'; item: AiOutputItem }
@@ -332,1899 +228,745 @@ export type AiStreamEvent =
   | { type: 'error'; code: AiErrorCode; message: string };
 ```
 
-`providerOptions`, keyed by provider id, is the deliberate escape hatch: a
-caller who needs one provider's specific knob (a beta header, a
-provider-only sampling parameter) can reach it without the normalized
-contract growing a field for every provider's idiosyncrasy. It is optional,
-provider-scoped, and never required for the contract's own guarantees to
-hold.
+- `providerOptions` is the escape hatch for one provider's own knob. It is
+  never needed for the contract's guarantees.
+- Binary results from media ports are **bytes plus a MIME type**, never a
+  provider URL. The runtime stores them as the user's storage objects.
+
+### 2.6 Responses and streaming
+
+The client from `forUser(userId)` offers `respond(req, opts?)`,
+`stream(req, opts?)` (lazy: failures surface on first iteration) and
+`openStream(req, opts?)` (eager: pre-stream failures reject the promise).
+`opts.signal` aborts the provider call.
+
+`POST /api/ai/responses/stream` is Server-Sent Events over a plain `POST`:
+
+- Frames are `event: <type>\ndata: <json>\n\n`, with a `: ping` comment
+  every 15 seconds. Headers: `Content-Type: text/event-stream`,
+  `Cache-Control: no-cache`, `X-Accel-Buffering: no`. No `stream` flag in the
+  body.
+- **Every failure before the first event is an ordinary JSON error** with its
+  HTTP status. Only a failure after streaming starts is an in-band
+  `error` frame, then the stream closes.
+- The handler is a hand-written `@Res()` handler (`ai/http/ai-sse.ts`), not
+  `@Sse()`, which would commit to `200` before the gates run.
+- A client disconnect is detected on the **response's** `close` event and
+  aborts the provider call; the usage row records `cancelled`. The
+  non-streaming route threads the same signal.
+- Known gap: a throttle an adapter reports as an in-band first `error` event
+  yields a JSON `429` without `details.retryAfterMs`.
+- The request DTO (`ai/http/dto/ai-response-request.dto.ts`) is `.strict()`:
+  unknown keys are a `400`. The body limit is 1 MB. `structuredOutput.jsonSchema`
+  is converted with `z.fromJSONSchema`, bounded at 64 KB, local `$ref`s only.
+
+nginx buffers `/api` with a 60-second timeout, so `infra/nginx/nginx.conf`
+has a dedicated `location /api/ai/responses/stream` block (before the general
+`/api` block) with `proxy_buffering off`, `proxy_cache off`,
+`chunked_transfer_encoding off` and 600-second timeouts. `gzip_types` must not
+include `text/event-stream`. The `appctl deploy` host vhost
+(`apps/cli/src/deploy/proxy.ts`) carries the same block, because nginx
+consumes `X-Accel-Buffering` instead of forwarding it.
+
+### 2.7 Structured output and function tools
+
+- **`respondStructured({ schema, schemaName?, strict?, ...req })`**: `schema`
+  is a Zod schema. `parsed` is typed and always present, or the call throws
+  `AI_STRUCTURED_OUTPUT_INVALID` (502).
+- **`runTools({ input, tools, maxSteps? })`**: the function-calling loop,
+  up to 8 gated round trips by default, 20 at most, each with its own usage
+  row. Define a tool with `defineTool` (`ai/core/tools.ts`); one Zod schema is
+  both the provider-facing JSON Schema and the validation of the model's
+  arguments.
+- On a provider that cannot chain, the loop resends the full conversation
+  each round (§2.10).
+
+### 2.8 Hosted tools and MCP
+
+Hosted tools run **inside the provider** during one response: `web_search`,
+`file_search`, `code_interpreter`, `image_generation` and `mcp`.
+
+- **Two gates.** The type must be switched on in `ai.hostedTools.<type>`
+  (all off by default; each reaches outside the deployment and bills per use),
+  else `AI_TOOL_DISABLED` (403). The model must declare `hosted_tools`, else
+  `AI_CAPABILITY_UNSUPPORTED`. Only OpenAI supports them today.
+- **MCP.** `serverUrl` must be `https://` with no credentials in it.
+  `ai.hostedTools.mcpAllowedHosts` (hostnames, or `*.example.com`) narrows
+  the allowed hosts; empty means any. `headers` are secret: passed to the
+  adapter only, never logged, traced, stored or put in an error. A
+  background run carrying them is refused (`AI_INVALID_REQUEST`). Echoed
+  header values are replaced with `[REDACTED]`.
+- **Outputs** are `hosted_tool_call` items with a typed `result` per tool.
+  Web search citations are on the message item as
+  `citations[{ url, title, startIndex, endIndex }]`.
+- **Generated images** become the caller's storage objects under
+  `ai-outputs/<userId>/<runId or responseId>/`; only `storageObjectId` is
+  published. If storage is unavailable the response still succeeds, with
+  `storageObjectId: null, storageError: 'AI_STORAGE_UNAVAILABLE'`.
+- `GET /api/ai/config` publishes the five switches as `hostedTools` booleans,
+  never the allowlist.
+
+### 2.9 Storage-object inputs
+
+An `image` or `file` part may name a `storageObjectId` instead of a `url`
+(exactly one). Every responses entry point accepts it, including
+`POST /api/ai/runs`.
+
+- **Checks** (`AiStorageInputResolver`): the object must be the caller's own
+  (the resolver also honours a `storage:read_any` grant, which is not seeded)
+  and `ready`. Unknown is `404`; another user's is `403`.
+- **Modality follows the MIME type.** PNG/JPEG/GIF/WebP is an image and needs
+  `vision_input`; anything else needs `file_input`, both in the model's
+  capabilities and `inputModalities`. Otherwise `AI_CAPABILITY_UNSUPPORTED`.
+- **Caps:** images 20 MiB, files 50 MiB, at most 16 distinct objects per
+  request, else `AI_INVALID_REQUEST`. Storage that cannot presign or read is
+  `503 AI_STORAGE_UNAVAILABLE`.
+- **Delivery** follows the adapter's `fileInputStrategy` (`presigned_url`,
+  `upload` or `inline` per modality): a 10-minute presigned GET URL, a
+  provider upload deleted after the response, or a capped byte stream.
+- **The request is never rewritten.** It keeps the id, so logs,
+  `ai_runs.request` and errors carry no URL or bytes. A presigned URL is a
+  bearer capability and is never logged, stored, traced or returned.
+- A background run resolves the object again when it executes.
+- Sending a file to a model sends its contents to that provider. That egress
+  is what an administrator opts into by enabling the provider.
 
-Media (images/audio/embeddings/realtime) request/response types live in
-`media.types.ts`, declared now (as part of #424, wave 0) but implemented
-only in Phase 2/3: `AiImagesPort { generate(req, ctx); edit?(req, ctx) }`,
-`AiAudioPort { transcribe?(req, ctx); speech?(req, ctx) }`,
-`AiEmbeddingsPort { embed(req, ctx) }`, `AiRealtimePort { createSession(req,
-ctx) }`. Every binary result is **bytes plus a MIME type** — never a
-provider URL and never a filesystem path — so that the caller (not the AI
-platform) decides whether and how to persist the result, through the
-existing Storage Objects surface (`docs/specs/storage-providers.md`), the
-same separation of concerns already enforced everywhere else media touches
-storage in this repository. (Embeddings are the exception by nature: their
-result is numbers, `{ vectors, dimensions }`, returned inline.)
+### 2.10 Conversation state and `previousResponseId`
 
-### 5.1 Embeddings (Phase 2, issue #440)
-
-The first Phase 2 port, and the shape the others follow: an adapter port
-(`embeddings.embed`), one facade method (`AiUserClient.embed`), one usage
-`operation` (`'embeddings'`), and one route (`POST /api/ai/embeddings`).
-
-- **Facade.** `ai.forUser(userId).embed({ model, input, dimensions? })` →
-  `{ provider, model, vectors, dimensions, usage }`, one vector per input in
-  input order. It runs the same gate pipeline as `respond` (§7, §8), with
-  `embeddings` as the one capability needed (model **and** provider port),
-  then records one `ai_usage_events` row (`operation: 'embeddings'`,
-  `inputTokens`). Synchronous — no job.
-- **`model` is required.** Vectors are only comparable within one model, so
-  an embedding model is never inferred from the caller's chat
-  `ai.defaultModel`; store `model` and `dimensions` beside every vector.
-- **Batch limit.** At most `AI_EMBEDDINGS_MAX_INPUTS` (256) non-empty texts
-  per call. A larger batch is refused with `AI_INVALID_REQUEST` and a
-  message telling the caller to chunk — never silently split.
-- **`dimensions`** shortens every vector where the model supports it
-  (OpenAI `text-embedding-3-*`); `text-embedding-ada-002` with `dimensions`
-  is refused by the adapter as `AI_INVALID_REQUEST` rather than sent to a
-  provider 400. Other ids pass through — the provider is the authority.
-- **OpenAI wire detail.** The adapter pins `encoding_format: 'float'`: the
-  SDK's own default (base64, decoded into `Float32Array`) does not survive
-  `JSON.stringify` as an array. A reply with the wrong vector count or
-  ragged lengths is `AI_PROVIDER_UNAVAILABLE`.
-- **Large backfills are the fork's own job.** Embedding thousands of rows
-  is long-running work (MANDATORY queue rule 1): declare a job type of your
-  own (server-only, like every `ai.*` type, §9), enqueue one job per chunk
-  of ≤ 256 rows with a payload of **row ids** (not texts), and have its
-  `process()` re-read the rows, call `ai.forUser(ownerId).embed(...)` once,
-  and write the vectors back; on `AI_RATE_LIMITED`, `throw err.toRateLimitError() ?? err` so the
-  job defers instead of spending an attempt. No worked `example.ai-embed`
-  handler ships; `ai.response.run` is the pattern to copy.
-
-**Future work — out of scope for #440.** Vector *storage* and *search*:
-a `pgvector` column/extension, an index (HNSW/IVFFlat), and a similarity
-query API (`nearest(k)`, cosine/inner-product) are a future epic. Until
-then a fork stores vectors itself (a `Float[]`/JSONB column, or its own
-`vector` column behind a migration it owns) and computes similarity in the
-query or in process.
-
-### 5.2 Images (Phase 2, issue #437)
-
-The embeddings shape (§5.1) plus a queue hop: an adapter port
-(`images.generate` / `images.edit`), two facade methods, one usage
-`operation` (`'images'`), one job type (`ai.image.generate`, §9) and two
-routes. Outputs are **storage objects the user owns** — never base64 in an
-API response or a database row.
-
-- **Facade.** `ai.forUser(userId).generateImage({ model, prompt, size?,
-  quality?, background?, outputFormat?, n? })` and `.editImage({ …,
-  imageStorageObjectIds, maskStorageObjectId? })` → `{ runId, jobId }`.
-  Always asynchronous, and **not** subject to `allowBackgroundRuns` (there
-  is no synchronous form to fall back to). `model` is required; `n` is 1–4
-  (`AI_IMAGES_MAX_N`); an edit takes 1–16 source images.
-- **Gates, twice.** `prepareImage` runs at queue time and again in the job:
-  kill switch → shape → provider → model with `image_generation` (or
-  `image_edit`), model **and** provider port → an edit's inputs. A model
-  without the capability is `AI_CAPABILITY_UNSUPPORTED`.
-- **Inputs by storage object id** (`ai/storage/AiStorageInputResolver`,
-  shared with #438/#441). The caller must be the uploader or hold
-  `storage:read_any`; an unknown id is **404** and another user's is
-  **403** — the answers `ObjectsService` gives. Each input must be `ready`,
-  PNG/JPEG/WebP (the mask PNG) and ≤ 25 MiB, else `AI_INVALID_REQUEST`;
-  the cap is enforced again while reading, since a simple upload's row size
-  is 0 until post-processing. `ai_runs.request` stores the ids, never the
-  bytes.
-- **The job** (`ai.image.generate`, `{ runId }`): gates → **storage
-  pre-flight** (`AiOutputWriter.assertWritable()`, so images that could not
-  be kept are never paid for) → one provider call (one usage row,
-  `units: { images: n }` plus tokens where reported) → every image written
-  as a `ready` storage object owned by the user under
-  `ai-outputs/<userId>/<runId>/` (`AI_OUTPUTS_KEY_PREFIX`, on
-  `STORAGE_KEY_PREFIXES`) → the run completes with `output = { type:
-  'images', provider, model, storageObjectIds, images: [{ storageObjectId,
-  mimeType, size, revisedPrompt? }], usage }`. The client downloads each
-  through `GET /api/storage/objects/{id}/download`.
-- **Runs.** The same `ai_runs` table and `AiRunsService`; the operation is
-  `request.operation` (`images.generate` | `images.edit`; absent means a
-  responses run, so no migration and no change to old rows). Cancel works
-  identically; images written after a cancel won are discarded.
-- **Storage failures** become run outcomes: unconfigured or unwritable
-  storage → `AI_STORAGE_UNAVAILABLE` (the job throws — an operator must
-  act); an input deleted or no longer the user's → `AI_INVALID_REQUEST`.
-- **OpenAI wire detail.** GPT-image models take `output_format`,
-  `background` and `quality`; DALL·E models get `response_format:
-  'b64_json'` instead (their default is a URL) and `quality: 'high'` →
-  `hd` on DALL·E 3. A URL-only answer is `AI_PROVIDER_UNAVAILABLE`, never
-  fetched. `moderation_blocked` → `AI_CONTENT_FILTERED`.
-
-The Responses API `image_generation` hosted tool (#442) is §5.4; the UI is
-#445.
-
-### 5.3 File and image inputs from storage objects (Phase 2, issue #441)
-
-An `image`/`file` content part may name one of the caller's storage objects
-(`{ type: 'file', storageObjectId }`) instead of a public `url` — exactly
-one of the two. No new port, method or route: every Responses entry point
-(`respond`, `stream`, `openStream`, `respondStructured`, `runTools`,
-`startRun`) and `POST /api/ai/responses`, `/stream`, `/runs` accept it.
-
-- **Resolved in the facade, before the adapter** (`prepare`, after the
-  reasoning gate). Ownership and readiness through
-  `AiStorageInputResolver` (§5.2: unknown **404**, another user's **403** —
-  the `ObjectsService` answers, not the 404 the issue text proposed).
-  **Modality follows the MIME type, not the part type**: PNG/JPEG/GIF/WebP
-  is an image and needs `vision_input`, anything else a file and needs
-  `file_input` — each in the model's `capabilities` **and**
-  `inputModalities`, else `AI_CAPABILITY_UNSUPPORTED`; an `image` part
-  naming a non-image is `AI_INVALID_REQUEST`. Caps (`ai/core`
-  `file-inputs.types.ts`): images **20 MiB**, files **50 MiB**, at most 16
-  distinct objects per request — else `AI_INVALID_REQUEST`.
-- **Delivery is the adapter's declaration.** `AiProviderAdapter
-  .fileInputStrategy` — `{ image, file }`, each `'presigned_url' | 'upload'
-  | 'inline'`; absent means the provider refuses stored inputs
-  (`AI_CAPABILITY_UNSUPPORTED`). After the gates and **before the key**,
-  the facade prepares what the strategy needs and hands it to the adapter
-  as `ctx.storageInputs` (`AiResolvedStorageInput`, keyed by id): a
-  presigned GET URL (TTL **10 min**, the storage provider's own
-  `getSignedDownloadUrl`), or `open()`/`read()` over a stream capped at the
-  modality's limit. The **request is never rewritten**: it keeps the id,
-  so the opt-in prompt log, `ai_runs.request` and every error carry no URL
-  and no bytes.
-- **OpenAI**: images → `presigned_url`, sent as `input_image.image_url`
-  (OpenAI fetches it; the bytes never pass through the API). Files →
-  `upload`: streamed to the Files API (`purpose: 'user_data'`) with the
-  call's own resolved key, referenced by `file_id`, and **deleted
-  provider-side** once the response completes, fails, or its stream ends
-  (or is abandoned) — best effort, logged by file id only. Nothing is
-  cached across calls or users; a `runTools` step that resends the file
-  uploads it again.
-- **Background runs** store the id only; the job resolves again when it
-  runs (fresh URL, same checks). An input gone or no longer the user's by
-  then fails the run `AI_INVALID_REQUEST` (the job returns); storage that
-  cannot presign or read is `AI_STORAGE_UNAVAILABLE` — chosen over
-  `AI_PROVIDER_UNAVAILABLE` because the fault, and the fix
-  (`/admin/settings/storage`), is the deployment's storage, exactly as in
-  §5.2. No usage row is written when this happens before the provider call.
-- ⚠ **A presigned URL is a bearer capability**: it exists only in
-  `ctx.storageInputs` for one call, and is never logged, persisted, put on
-  a span or returned (the secret-egress suite hunts a presigned-URL
-  sentinel as it hunts keys).
-- **Data egress.** Sending a stored file to a model sends its contents to
-  that third-party provider (and, for an upload, stores a copy there until
-  the deletion above). That egress is what an administrator opts into by
-  switching AI on and enabling a provider (§8); only the caller's own
-  objects (or, with `storage:read_any`, anyone's) can be sent, and only in
-  a request the caller makes.
-
-### 5.4 Hosted tools (Phase 2, issue #442)
-
-Tools the **provider** executes inside one Responses call: live web search,
-file search over provider-side vector stores, a sandboxed code interpreter,
-image generation and remote MCP servers.
-
-- **Two gates.** The tool type must be switched on by an administrator
-  (`ai.hostedTools.<type>`, all **off** by default — each one reaches outside
-  the deployment and bills per use), else `AI_TOOL_DISABLED` (403); and the
-  model must declare `hosted_tools` (§4), else `AI_CAPABILITY_UNSUPPORTED`.
-  The admin gate runs first, right after provider enablement
-  (`core/hosted-tools.ts`); every tool's shape is validated there too.
-- **MCP.** `serverUrl` must be `https://` with no credentials in it. An
-  optional `ai.hostedTools.mcpAllowedHosts` (hostnames, or `*.example.com`
-  for subdomains) narrows which hosts it may name — empty means any host —
-  and a host outside it is `AI_TOOL_DISABLED`. `headers` (the MCP server's
-  own credential) are secret material: passed to the adapter and nowhere
-  else — never in the prompt log line, a span, an `ai_usage_events` row or
-  an `AiError`; a background run carrying them is refused with
-  `AI_INVALID_REQUEST` rather than stored (the `ai_runs.request` shape has no
-  `headers` member); and any header value a server echoes back is replaced
-  with `[REDACTED]` in the response and every stream frame.
-- **Outputs.** Each call is a `hosted_tool_call` item with a typed `result`:
-  `web_search` `{ queries, sources[{ url }] }`, `file_search` `{ queries,
-  results[{ fileId?, filename?, score?, text? }] }`, `code_interpreter`
-  `{ code, containerId, outputs[logs|image url] }`, `image_generation`
-  `{ storageObjectId, mimeType?, revisedPrompt?, size?, quality? }`, `mcp`
-  `{ kind: 'call'|'list_tools'|'approval_request', serverLabel, … }`. Web
-  search citations are `citations[{ url, title, startIndex, endIndex }]` on
-  the message item, re-based onto its concatenated text.
-- **Generated images are the user's storage objects.** The adapter decodes
-  the image into bytes; the facade's output settler hands them to
-  `AiService.persistHostedImage` (once per image, even though a stream shows
-  the item twice), which writes them through `AiOutputWriter` as a `ready`
-  object owned by the caller under `ai-outputs/<userId>/<runId>/` (a
-  background run) or `ai-outputs/<userId>/<responseId>/`, and publishes only
-  `storageObjectId` (+ metadata). The usage row records `units: { images: n }`.
-  **Storage unavailable does not fail the response** — the text, citations
-  and other items are intact and already paid for — so the image is
-  published as `storageObjectId: null, storageError: 'AI_STORAGE_UNAVAILABLE'`
-  and a warning is logged. (A dedicated image run, §5.2, instead refuses up
-  front: it knows it will draw; a hosted tool only may.) A background run
-  cancelled after its images were stored discards them.
-- **Streaming.** Provider progress events (`response.web_search_call.*`,
-  `response.code_interpreter_call.*`, …) are consumed by the stream mapper;
-  each hosted call surfaces once, as the `output_item.done` carrying its
-  final typed item — identical to what `create` returns.
-- **Clients.** `GET /api/ai/config` publishes the five switches as
-  `hostedTools` booleans (all false while AI is off; never the allowlist).
-  The OpenAI classifier declares `hosted_tools` for its reasoning and chat
-  multimodal families; an administrator can override the chip per model.
-
-### 5.5 Audio transcription (Phase 2, issue #438)
-
-The §5.2 shape with the recording as the one input and the transcript as
-the run's output: an adapter method (`audio.transcribe`), one facade
-method, one usage `operation` (`'audio.transcribe'`), one job type
-(`ai.audio.transcribe`, §9) and one route.
-
-- **Facade.** `ai.forUser(userId).transcribe({ storageObjectId, model?,
-  language?, prompt?, timestampGranularities? })` → `{ runId, jobId }`.
-  Always asynchronous and not subject to `allowBackgroundRuns`. `model` is
-  optional: omitted, it is the first model the caller can use that declares
-  `audio_transcription` (in `GET /api/ai/models` order) — never the chat
-  `ai.defaultModel`; none → `AI_INVALID_REQUEST`.
-- **The recording** is a storage object resolved by the same
-  `AiStorageInputResolver` (§5.2): the caller's own (or `storage:read_any`),
-  unknown → **404**, another user's → **403** (the storage API's answers,
-  kept deliberately rather than the 404 the issue sketched), `ready`, a type
-  matching `audio/*`, `video/mp4` or `video/webm` (the resolver understands
-  `type/*`), and no larger than the port's `transcriptionMaxBytes` (OpenAI:
-  25 MiB) — else `AI_INVALID_REQUEST`, refused at queue time from the row
-  alone, before anything is queued or called.
-- **The job** (`ai.audio.transcribe`, `{ runId }`) re-runs the gates, then
-  **streams** the recording to the adapter (`AiMediaInput` may be bytes or
-  an `AsyncIterable`): a row that knows its size is read through
-  `openCapped`, which fails past the cap whatever the row said; a simple
-  upload whose size is still 0 is read with the cap enforced first, so an
-  oversized file never reaches the provider. One usage row, `units: {
-  audioSeconds }` whenever the provider reports a duration (tokens are
-  recorded where it reports those instead). The run completes with
-  `output = { type: 'transcription', provider, model, storageObjectId, text,
-  language?, durationSeconds?, segments?, words?, usage }`; nothing is
-  written to object storage.
-- **Retries.** Transcription is idempotent, so the job declares
-  `maxAttempts: 2`: an unexpected failure with an attempt left puts the run
-  back to `pending` for the queue's retry (a run left `running` under the
-  same job by a crashed process is resumed); expected refusals are never
-  retried. The shared lifecycle lives in `AiMediaRunHandler`, which
-  `ai.image.generate` uses too.
-- **OpenAI wire detail.** `POST /v1/audio/transcriptions`, multipart; a
-  streamed input goes through the SDK's `toStreamingFile`, so the body is
-  sent as it is read. Whisper is asked for `verbose_json` (language,
-  duration, segments, `timestamp_granularities`); the GPT-4o transcribe
-  family for `json`, without `timestamp_granularities` (it does not take
-  them). The upload is named with an extension OpenAI can decode (`memo` +
-  `audio/mp4` → `memo.m4a`).
-
-### 5.6 Speech synthesis (Phase 2, issue #439)
-
-§5.2 the other way round: text in, **one storage object the user owns**
-out. An adapter method (`audio.speech`) plus a static `audio.voices` list,
-one facade method, one usage `operation` (`'audio.speech'`), one job type
-(`ai.audio.speech`, §9) and one route.
-
-- **Facade.** `ai.forUser(userId).speak({ input, voice?, model?, format?,
-  instructions?, speed? })` → `{ runId, jobId }`. Always asynchronous and
-  not subject to `allowBackgroundRuns`. `input` is 1–4096 characters
-  (`AI_SPEECH_INPUT_MAX_CHARS`, OpenAI's limit) — longer is
-  `AI_INVALID_REQUEST` before any gate reads a table, and before any call;
-  split long text into several runs. `model` defaults as for transcription
-  (first usable `audio_speech` model); `voice` defaults to the first the
-  model lists, and must be one of the model's `voices` (§4), else the
-  port's — anything else is `AI_INVALID_REQUEST`. `format` defaults to
-  `mp3` (`mp3|wav|opus|aac|flac|pcm`); `speed` is 0.25–4.
-- **The job** (`ai.audio.speech`, `{ runId }`): gates → storage pre-flight
-  (`assertWritable`, so audio that could not be kept is never paid for) →
-  one provider call (one usage row, `units: { characters }`) → the audio
-  written as one `ready` object at `ai-outputs/<userId>/<runId>/speech.<ext>`
-  (`AiOutputWriter`'s `keyName`) → the run completes with `output = {
-  type: 'speech', provider, model, storageObjectId, mimeType, size, format,
-  voice, characters, aiGenerated: true, usage }`. Download it through
-  `GET /api/storage/objects/{id}/download`. `maxAttempts: 2` — re-synthesis
-  writes equivalent audio to the same key.
-- **Disclosure.** Provider usage policies — OpenAI's among them — require
-  making clear to end users that a voice they hear is AI-generated, not a
-  human. Every speech output therefore carries `aiGenerated: true`, and the
-  stored object's metadata carries `aiGenerated: 'true'` so the fact travels
-  with the file; a client that plays the audio must surface it. This is a
-  deployment's obligation the platform makes easy, not one it can discharge.
-- **OpenAI wire detail.** `POST /v1/audio/speech` with `response_format`;
-  the answer is the audio file itself (never a URL). `instructions` is sent
-  only to models that take it — the `tts-1` family rejects it, so it is
-  dropped there rather than sent to a 400.
-
-### 5.7 Stateless providers and conversation replay (Phase 3, issue #446)
-
-The contract above was shaped after a provider that STORES responses:
-`previousResponseId` chains a request onto an earlier one, and the tool loop
-(`runTools`) sent each round's `function_call_output`s chained onto the
-response that asked for them. Anthropic's Messages API stores nothing — every
-request carries the whole conversation — so a second provider needed one
-declared fact, and the contract one small widening.
-
-**The flag.** `AiProviderAdapter.supportsPreviousResponseId?: boolean`,
-**absent meaning `true`** (so OpenAI, the fake provider and any fork's
-adapter written before it are unchanged). It is a behavioural flag, not a
-capability: the conversation still works, it travels differently.
-`AiProviderRegistry.supportsPreviousResponseId(id)` is its derivation.
-Anthropic and Gemini (§14.2) declare `false`.
-
-**A caller's `previousResponseId` is refused, not ignored.** The gate
-pipeline (step 2a, after the provider is known and before any key is
-resolved) answers `AI_CAPABILITY_UNSUPPORTED` with `details.capability:
-"previous_response_id"` for a provider that declares `false`. Silently
-dropping it would answer as though the conversation had just begun — a
-wrong answer that looks right. The adapter's own mapper refuses it too, as
-defence in depth for a direct port caller. The caller sends the conversation
-as `input` instead (user and assistant `message` items).
-
-**The tool loop resends full history** for such a provider, decided per round
-by the provider that answered: the original input, then every round's model
-output replayed as input — `message` as an assistant message,
-`function_call` and `reasoning` as themselves — then that round's tool
-outputs. `core/conversation.ts` (`asInputItems`, `replayOutput`) is the one
-definition of "the conversation so far", shared by the loop and the
-conformance kit. Hosted-tool items are not replayed (the provider executed
-them inside its own response; a stateless provider has none of ours).
-
-**The widening.** `AiInputItem` gains `function_call` (the model's own call,
-replayed — without it the neutral contract had no way to say "you asked for
-this") and `reasoning`. OpenAI accepts a replayed `function_call` as input;
-it drops a replayed `reasoning` item, because OpenAI's reasoning replay needs
-its own item id and encrypted content, and chaining is how OpenAI keeps
-reasoning across turns.
-
-**Opaque provider state, invisible by construction.** Anthropic signs every
-`thinking` block and requires the signed block (or the encrypted
-`redacted_thinking` block) back at the start of the next request of a
-tool-use turn when thinking is on. That material must survive the tool loop
-and must never reach a caller: it is not the reasoning summary a caller may
-see, and "never expose raw or redacted thinking" is a rule. So it rides on
-the `reasoning` item under the `AI_PROVIDER_STATE` **symbol** key, as `{
-provider, data }`. `JSON.stringify` skips symbol keys — every HTTP body, SSE
-frame, log line and `ai_runs.output` row is therefore free of it with no code
-to remember — while an in-process object spread (the tool loop's hop) keeps
-it. An adapter reads only state whose `provider` is its own id. A stored
-background run drops replayed `reasoning` items entirely (their state is
-in-process only by design).
-
-Gemini (#447) uses the same mechanism for a different shape of state: its
-opaque `thoughtSignature` sits on individual response PARTS — a thought
-summary, a text part, or a function call (Gemini 3 requires the function
-call's signature back on the resent turn). Each signature becomes a
-`reasoning` item whose state names the part it belongs to (`target:
-'thought' | 'text' | 'function_call'`, plus the `callId` for a call); the
-signature-only items carry an empty `summary`. Replaying puts each signature
-back on exactly that part. No contract change was needed: `replayOutput`
-already keeps a reasoning item's state and nothing else's, which is why the
-signature travels on a reasoning item rather than on the `function_call`
-item itself.
-
-Rejected: **ignoring `previousResponseId`** on a stateless provider (a
-silently wrong answer); **an in-process response cache** in the adapter to
-emulate chaining (it breaks across replicas, background runs and restarts,
-and holds users' conversations in memory with no retention policy); **always
-resending history, for every provider** (OpenAI loses its server-side
-reasoning continuity across tool rounds and every round re-bills the whole
-prompt); **putting the thinking signature in a normal field** (every
-serialiser — DTO, SSE, run row, log — would have to remember to strip it).
-
-### 5.8 Realtime sessions (Phase 3, issue #449)
-
-Low-latency speech-to-speech ("talk to the app") does not fit the shape of
-§5.1–§5.7. The audio flows **browser ↔ provider** over WebRTC for the whole
-conversation, so there is no request for the server to relay and no response
-for it to store. That runs into §3's rule that a key never reaches the
-browser. The answer is a **server-minted, short-lived, single-session
-ephemeral credential**. The server spends the user's real key once, to ask
-the provider for a throwaway client secret, and only that secret goes to the
-browser.
-
-**How OpenAI's ephemeral endpoint works** (verified against the GA Realtime
-API and the `openai` SDK this repository pins, which exposes it as
-`client.realtime.clientSecrets.create`):
-
-1. The server calls `POST /v1/realtime/client_secrets` with the real key
-   (`Authorization: Bearer <user or org key>`) and a body of
-   `{ expires_after: { anchor: 'created_at', seconds }, session: { type:
-   'realtime', model, instructions?, output_modalities?, max_output_tokens?,
-   audio: { output: { voice }, input?: { turn_detection } }, tools? } }`.
-   The `session` object becomes the session's initial configuration.
-2. OpenAI answers `{ value: 'ek_…', expires_at, session }`. `value` is the
-   ephemeral client secret, `expires_at` is epoch seconds, and `session` is
-   the effective configuration, with its own `sess_…` id.
-3. The browser opens an `RTCPeerConnection`, adds the microphone track and a
-   `oai-events` data channel, and POSTs its SDP offer (`Content-Type:
-   application/sdp`) to **`https://api.openai.com/v1/realtime/calls`** with
-   `Authorization: Bearer ek_…`. The response body is the SDP answer. From
-   then on, audio travels over the media tracks, and JSON events
-   (`session.update`, `response.create`, `conversation.item.*`,
-   `response.output_audio_transcript.delta`, …) travel over the data
-   channel.
-
-The legacy `POST /v1/realtime/sessions` (the beta path, which returned
-`client_secret.value` inside a session object) is **not** used. The GA
-endpoint replaced it.
-
-**TTL.** `expires_after.seconds` accepts 10–7200 (2 hours). When it is
-omitted, the typings of the SDK version we pin say the default is 600
-seconds; older documentation described about one minute. We do not depend on
-either default. The adapter always sends **60 seconds**
-(`AI_REALTIME_CLIENT_SECRET_TTL_SECONDS`), which is enough for the browser to
-receive the secret and finish the SDP exchange. The expiry bounds how long
-the secret can **open** a session; a call connected before it expires keeps
-running after it. The session's own length is the provider's limit (currently
-up to 60 minutes per session for OpenAI), not ours.
-
-**What the ephemeral secret can and cannot do.**
-
-- It **can** open realtime sessions against the configuration it was minted
-  with, until it expires. The provider allows more than one connection
-  before expiry; the short TTL is what keeps that window small. Inside a
-  session, the client can change that session over the data channel with
-  `session.update`: its instructions, its tools, turn detection, and
-  enabling input-audio transcription.
-- It **cannot** list models, call the Responses, Files, Images or Audio APIs,
-  mint another secret, or read anything about the account. It is not an API
-  key. It is also useless after `expires_at` for opening anything new.
-- **Consequence:** instructions, voice and the output-token cap the server
-  sends are **initial configuration, not enforcement**. A user holding the
-  secret can reconfigure their own session. That is acceptable because they
-  can only spend their own quota (or the org key's, under the policy the
-  administrator chose), and the gates below have already decided they may
-  use realtime at all.
-
-**Usage reporting.** The server never sees the media stream or the
-provider's `response.done` usage events, so it cannot know token or audio
-counts. Each mint records **one** `ai_usage_events` row with `operation:
-'realtime'` and `units: { sessions: 1 }`, and no token counts. A failed mint
-records a `failed` row with no units, like any failed round trip. Forwarding
-the browser's `response.done` usage back to the API was rejected for now:
-those numbers would be self-reported by the client that benefits from
-under-reporting them, and a usage table we cannot trust is worse than one
-that honestly says "sessions only". Exact realtime cost is on the provider's
-own dashboard.
-
-**The decision.** `ai.forUser(userId).createRealtimeSession({ provider?,
-model?, voice?, instructions?, turnDetection?, tools? })` →
-`{ provider, model, voice, clientSecret, expiresAt, connectUrl }`, gated in
-this order:
-
-1. the kill switch → `AI_DISABLED`;
-2. **`ai.defaults.allowRealtime`** (a new admin flag, **default `false`**) →
-   `AI_REALTIME_DISABLED` (403). It is a separate switch from `enabled`
-   because a realtime session is the one AI surface where the server gives
-   up per-call control: it cannot see, cap or meter what happens after the
-   mint. An administrator should opt into that knowingly. It is published
-   as `allowRealtime` in `GET /api/ai/config` (always `false` while AI is off),
-   so a client can hide its voice mode;
-3. the target: an omitted `model` means the first usable model with
-   `realtime` (in `GET /api/ai/models` order); then the provider is enabled
-   and registered → `AI_PROVIDER_DISABLED`;
-4. the model is enabled, declares `realtime` (model **and** the provider's
-   `realtime` port) and is reachable with a key → `AI_MODEL_NOT_ENABLED`,
-   `AI_CAPABILITY_UNSUPPORTED`, `AI_KEY_REQUIRED`, `AI_MODEL_NOT_REACHABLE`;
-5. the voice is one the model lists (`capabilities.voices`, else the port's
-   `voices`) → `AI_INVALID_REQUEST`. An omitted voice means the model's
-   first;
-6. the key is resolved (§3; the byok invariant holds, so the org key only
-   pays under `byok_with_org_fallback`);
-7. the rate limits (§15). A mint **counts as one request**;
-8. the adapter mints, and the usage row is recorded.
-
-`POST /api/ai/realtime/sessions` (`ai:use`, `AiEnabledGuard`) exposes it.
-The body is `{ provider?, model?, voice?, instructions? }` and the response
-is 201 `{ data: { provider, model, voice, clientSecret, expiresAt,
-connectUrl } }`. There is no job: minting is one short provider round trip,
-and the long-running part (the call itself) runs between the browser and
-the provider, never on the server. That is within the MANDATORY queue rule,
-which covers only work that runs **on** this server past its request. Tools
-are not accepted over HTTP, for the same reason `POST /api/ai/responses`
-refuses function tools. The in-process port accepts them for a fork that
-wants to declare client-executed tools.
-
-**⚠ The single, deliberate exception to "secrets never leave the server".**
-`clientSecret` **is** returned to the browser, because that is its only
-purpose. It is the only credential any AI route returns. It is a provider
-credential scoped to one session configuration, it expires in 60 seconds,
-and it is not an API key. The user's real key (or the org key) is used only
-as the `Authorization` header of the mint call to the provider. It is never
-in this response, a log line, a span, an error, or the usage row. Treat
-`clientSecret` like a bearer token anyway: it is never logged, stored or
-put on a span. `ai-secret-egress.integration.spec.ts` holds both halves as
-executable rules. The fake provider's ephemeral sentinel may appear in this
-one route's `clientSecret` field and nowhere else (not in any log line or
-usage row), while the real-key sentinels may not appear anywhere, this
-response included.
-
-`connectUrl` is derived from the provider slot's `baseUrl` (default
-`https://api.openai.com/v1` → `https://api.openai.com/v1/realtime/calls`),
-so a deployment that points OpenAI at a gateway also points its browsers
-there. That gateway must then be reachable from users' browsers and must
-proxy WebRTC SDP.
-
-Rejected: **relaying the media through the API** (a WebSocket from the server
-to the provider, forwarded to the browser). It would put the API in the data
-path of every second of every call, and it would need sticky long-lived
-connections through nginx for a conversation that is exactly the thing
-WebRTC exists to keep peer-to-peer. The server would see the usage, but at
-the cost of the latency that is the reason to use realtime. **Returning the
-real key** to the browser (the thing §3 exists to rule out). **A job type for
-the mint** (there is no long-running server work to account for).
-**Metering from client-forwarded `response.done` events** (untrustworthy; see
-usage above).
-
-## 6. Model discovery and classification
-
-A provider's model-listing endpoint returns IDs and little else useful —
-not a capability list. Discovery and classification are therefore two
-separate steps, both driven by the admin/org key, both server-only:
-
-1. **Discovery**: `adapter.listModels(ctx)` returns `AiDiscoveredModel[]`
-   (`{ id, ownedBy?, createdAt?, metadata? }`) — ids, plus whatever the
-   provider's listing says about each model in `metadata`
-   (`AiDiscoveredModelMetadata`: `displayName`, `inputTokenLimit`,
-   `outputTokenLimit`, `supportedActions`, `thinking`; all optional, #447).
-   OpenAI and Anthropic list ids only; Gemini's listing carries all five.
-2. **Classification**: `adapter.classifyModel(modelId, metadata?)` applies a
-   curated, per-provider pattern classifier (e.g. matching `gpt-4o*` against
-   known capability sets) and returns `AiModelCapabilities | null`. `null`
-   means the provider's own classifier does not recognize the id — the row
-   is persisted with `capabilitySource: 'unclassified'`, never guessed at by
-   a generic heuristic that could be silently wrong about what a model can
-   actually do. The catalog sync hands each id's `metadata` back to the
-   adapter that listed it (the second argument is omitted when there is
-   none, so a one-argument classifier is called exactly as before); a
-   classifier may use it to ENRICH its rule table — the provider's own token
-   limits, or a listing that says a model cannot generate at all — but must
-   answer from the id alone when it is absent, because every request-time
-   lookup and every other caller passes the id only. `metadata` is never
-   stored as-is: what the catalog keeps is the classifier's
-   `AiModelCapabilities`.
-
-Every `ai_models` row carries `capabilitySource: 'catalog' | 'admin_override'
-| 'unclassified'`, and this field is the entire reason catalog refresh is
-safe to run unattended, on a daily cron, forever:
-
-- A **new** model is inserted with whatever `classifyModel` returned
-  (`'catalog'`) or an empty capability set (`'unclassified'`), always
-  `enabled: false` — discovery never turns a model on.
-- An **existing** row has its `capabilities` touched by a refresh **only
-  when** `capabilitySource !== 'admin_override'`. An administrator's
-  capability override, once made, is permanent until the administrator
-  changes it again — a refresh can never silently revert it.
-- `enabled` is **never** written by a refresh for a model still present in
-  the provider's list, under any `capabilitySource`. Enablement is
-  exclusively an administrator's act (`PATCH /api/admin/ai/models/:id`, §9).
-- A model that stops appearing in the provider's list gets
-  `deprecatedAt: now()` (if not already set) and is force-disabled
-  (`enabled: false`) — a model the provider withdrew cannot go on being
-  served regardless of what an administrator previously chose. If it
-  reappears later, `deprecatedAt` is cleared, but `enabled` stays `false`:
-  reappearance is not re-enablement, because whatever made the provider
-  withdraw it once is exactly the kind of thing an administrator should
-  look at again before serving it to users a second time.
-- Rows are never deleted, deprecated or not — `ai_runs` and
-  `ai_usage_events` reference model ids by value, and history should stay
-  readable after a model is retired.
-
-## 7. Usable models for a user
-
-"Which models can I use?" is answered by intersecting two independent
-things that are each already true elsewhere in this document — it is not a
-new source of truth of its own:
-
-```
-usable(user) = { admin-enabled AND not deprecated } ∩ { reachable with user's key }
-             ∪ { admin-enabled AND not deprecated }              (only when org fallback applies)
-```
-
-Concretely, per enabled provider: if the user has a configured key,
-usable models are `ai_models` rows with `enabled=true, deprecatedAt=null`
-whose id is also in that key's `reachableModelIds` (computed at key-set
-time, §3 of #431 — a key's tier or organization restrictions are real, and
-a key that lacks GPT-4-class access must not advertise those models as
-usable just because an administrator enabled them). If the user has *no*
-key and the deployment's `keyPolicy = 'byok_with_org_fallback'`, every
-admin-enabled, non-deprecated model for that provider is usable, with
-`keySource: 'org'`. If the provider is keyless (`requiresKey: false`, §3
-rule 0, #448), every admin-enabled, non-deprecated model for it is usable by
-everyone, with `keySource: 'none'`. Otherwise, that provider contributes
-nothing to the user's usable set.
-
-`UsableModelsService.assertUsable(userId, provider, modelId, capability?)` is
-the single-model form of the same check, called by the runtime facade's
-gate pipeline (§9) before any provider call, and it is the one place the
-four related error codes actually originate: `AI_MODEL_NOT_ENABLED` (the
-model is not admin-enabled, or is deprecated), `AI_MODEL_NOT_REACHABLE` (it
-is enabled, but the resolved key cannot reach it), `AI_KEY_REQUIRED` (no key
-resolves at all — delegated to `AiKeyResolver`, §3), and
-`AI_CAPABILITY_UNSUPPORTED` (the model or provider lacks the capability the
-request needs, §4).
-
-## 8. The kill switch
-
-`ai.enabled = false` is the platform's single off switch, and its scope is
-exact and total on the *consumer* side while leaving the *admin* side
-reachable, so a deployment can always turn itself back on:
-
-- Every route under `/api/ai/*` **except** `GET /api/ai/config` responds
-  `403` with `details.reason: 'AI_DISABLED'` — the envelope's top-level
-  `code` is the published, status-derived `FORBIDDEN` (§13's own note on
-  why an `AiError`'s code travels in `details.reason`, never at the top
-  level) — enforced by `AiEnabledGuard`, applied at
-  the controller level on every user-facing AI controller (§10, §11). `GET
-  /api/ai/config` is the one exception, deliberately: it is how a signed-in
-  user's browser learns AI is off at all, and a route that answers "AI is
-  disabled" must itself stay reachable while AI is disabled.
-- Every AI job handler (`ai.catalog.refresh`, `ai.response.run`, and any
-  Phase 2/3 media job) checks `ai.enabled` at process time and, if it has
-  gone false since the job was enqueued, **fails without retry** by marking
-  its own outcome terminal — this is a normal, expected outcome (the
-  platform was turned off mid-flight), not a bug, so it must not fire the
-  noisy `jobs.job_failed` notification or burn retry attempts.
-- The catalog refresh cron (§9) does not enqueue anything while disabled —
-  it is the one cron in this platform that has real work to skip, unlike a
-  pure "decide whether to enqueue" tick.
-- The web application hides every AI-related card, route and navigation
-  entry when `GET /api/ai/config` (or the admin equivalent) reports
-  `enabled: false` — no AI-shaped UI is reachable by URL guessing either.
-- `/api/admin/ai/*` **stays reachable** throughout, regardless of
-  `ai.enabled` — an administrator must always be able to turn the platform
-  back on, inspect what is configured, or fix a bad configuration, even
-  while it is off. This asymmetry (`/api/ai/*` gated, `/api/admin/ai/*`
-  never gated by this switch) is deliberate and is the same asymmetry
-  Maintenance Mode already has between the affected application and its
-  own admin control (`docs/specs/maintenance-mode.md`).
-
-## 9. Jobs
-
-Every job type this platform has or plans is **server-only, never
-node-eligible** — no `nodeResultSchema` +
-`persistNodeResult` pair, ever, for any AI job type:
-
-- `ai.catalog.refresh` — discovers and classifies one provider's models
-  using the **admin** key (§6). Payload `{ providerId }`. `profile: {
-  maxRuntimeMs: 5*60_000, maxAttempts: 3 }`.
-- `ai.response.run` — executes one background AI response using a **user's**
-  key (§9 of the runtime facade, `AiService.startRun`). Payload `{ runId }`.
-  `profile: { maxRuntimeMs: 30*60_000, maxAttempts: 1 }` — a model call is
-  neither idempotent nor cheap to blindly retry, so this type opts out of
-  the deployment default attempt count rather than accept an automatic
-  second charge against a user's own provider account. `ai_runs.request`
-  stores the **full normalized request** — `instructions`, the complete
-  `input` (whatever text/image/file content the caller sent), tool
-  definitions, structured-output schema — everything `toStoredRunRequest`
-  (`runtime/ai-run-request.ts`) needs to re-issue an identical call when the
-  job executes, minus only the key. It is not redacted or truncated: the
-  worker that later claims this job must reconstruct the exact request the
-  user made, and truncating a prompt to store it would make the replayed
-  call diverge from the one the user actually asked for. It is still never
-  key material — see the ⚠ in that file and in §3 above.
-- `ai.usage.purge` (#443) — deletes `ai_usage_events` rows older than
-  `ai.usageRetentionDays`, 5000 ids a batch, oldest first. No payload, no
-  provider call, no key; **not** gated on the kill switch (retention is
-  data hygiene, not AI use). `profile: { maxRuntimeMs: 30*60_000,
-  maxAttempts: 3 }`. Enqueued daily at 05:00 by `AiUsagePurgeTask` through
-  `enqueueHousekeepingJob` — the one AI cron that uses that helper, because
-  it is global (no per-provider subject).
-- `ai.image.generate` (#437) — executes one image generation or edit run
-  (§5.2) with the user's key. Payload `{ runId }`. `profile: { maxRuntimeMs:
-  10*60_000, maxAttempts: 1 }` for the same reason as `ai.response.run`:
-  images are billed per image. Same terminal-code handling as below, plus
-  `AI_STORAGE_UNAVAILABLE`, which fails the run and **throws**.
-- `ai.audio.transcribe` (#438) — executes one transcription run (§5.5).
-  Payload `{ runId }`. `profile: { maxRuntimeMs: 15*60_000, maxAttempts: 2
-  }` — the one AI job allowed an automatic retry, because transcribing the
-  same recording twice changes nothing but the bill.
-- `ai.audio.speech` (#439) — executes one speech run (§5.6). Payload
-  `{ runId }`. `profile: { maxRuntimeMs: 5*60_000, maxAttempts: 2 }` — at
-  most 4096 characters, and a retry rewrites the same `speech.<ext>` key.
-  Like `ai.image.generate`, `AI_STORAGE_UNAVAILABLE` fails the run and
-  **throws**.
-- Every media job extends `AiMediaRunHandler` (claim, cancel, deadline,
-  outcomes, retries for a multi-attempt profile, the settle safety net). Embeddings ship no job
-  type of their own: `embed` is synchronous, and a large backfill is a
-  fork's own server-only job calling it per chunk (§5.1).
-- **Realtime sessions (#449) ship no job type, deliberately.** Minting the
-  ephemeral secret is one short, synchronous provider round trip, and the
-  long-running part (the conversation) runs browser ↔ provider over WebRTC
-  and never on this server. There is nothing server-side to lease, time out
-  or retry (§5.8). If a future realtime feature ever runs a session
-  server-side (a server-held WebSocket, say), that work becomes a
-  server-only job like every other here.
-
-The reason is not incidental — it is **MANDATORY queue rule 3**
-(CLAUDE.md): a node never persists a job-scoped credential, and every
-secret a node needs is brokered per-job by the server through
-`job_node_secrets`. There is no way to broker a *user's own provider API
-key* to a remote worker node under that mechanism without the key leaving
-the server's control, which this platform's entire BYOK security posture
-(§3) forbids categorically. The admin/org key has the identical problem: it
-is exactly the credential §6 uses to talk to a provider on the platform's
-behalf, and handing it to a node would let that node impersonate the
-deployment to the provider. **Neither key may ever be brokered to a node**,
-so neither job type may ever declare node eligibility — this is a
-permanent property of this platform, not a placeholder pending a future
-broker.
-
-Every cron in this platform **only enqueues**, per MANDATORY queue rule 1:
-the daily `ai.catalog.refresh` backfill task and the weekly `ai.keys.recheck`
-task (staleness re-verification of a user's reachable-model list, #431) both
-read settings or rows to decide *whether* work is due, then call
-`JobsService.enqueue(...)` and do nothing else — neither uses
-`enqueueHousekeepingJob` (that helper dedups by type alone, and both tasks'
-payloads differ per subject), and both must pass
-`apps/api/test/jobs/cron-enqueue-only.spec.ts`.
-
-`ai.keys.recheck` is also enqueued **outside** its weekly cron, on
-`AI_CATALOG_SYNCED_EVENT` (`ai/catalog/ai-catalog.events.ts`): every
-`ai.catalog.refresh` job that actually ran a sync (never one that was
-skipped) emits this event, and a listener in the keys module (never the
-reverse — the catalog module imports nothing from `keys/`, so the
-dependency stays one-directional) enqueues a recheck for the affected
-provider's users at once rather than waiting up to a week for a model a
-sync just deprecated or newly classified. `EventEmitter2` dispatches this
-event **synchronously inside the job's own `process()`**, so the listener
-must return immediately and only enqueue — it may never itself await a
-provider round trip or a sweep, per MANDATORY queue rule 1.
-
-A background run's own terminal handling (`ai.response.run`) draws a line
-between an **expected** refusal and an **operator incident**:
-`AI_RUN_TERMINAL_CODES` (`runtime/ai-response-run.handler.ts`) is the fixed
-set of `AiErrorCode`s — `AI_DISABLED`, `AI_PROVIDER_DISABLED`,
-`AI_KEY_REQUIRED`, `AI_KEY_INVALID`, `AI_MODEL_NOT_ENABLED`,
-`AI_MODEL_NOT_REACHABLE`, `AI_CAPABILITY_UNSUPPORTED`, `AI_INVALID_REQUEST`,
-`AI_CONTENT_FILTERED`, `AI_STRUCTURED_OUTPUT_INVALID` — that end the run
-`failed` with the code recorded, while the *job* still **returns normally**
-(no retry, no `jobs.job_failed`): the platform being off, a key being
-rejected, or a model no longer being enabled are outcomes the user caused
-or an administrator chose, not a bug the queue dashboard should surface as
-an incident. `AI_RATE_LIMITED` is handled earlier and separately (the run
-goes back to `pending`, the job defers via `toRateLimitError()`); every
-other code — a provider outage, a timeout, an unexpected exception — is
-**not** in this set, so the job throws and is retried/flagged the ordinary
-way.
-
-## 10. Streaming
-
-`POST /api/ai/responses/stream` streams Server-Sent Events over a plain
-`POST` — the same shape `/api/notifications/stream` already established in
-this codebase, not a new streaming mechanism. Each `AiStreamEvent` is
-written as `event: <type>\ndata: <json>\n\n`; a `: ping\n\n` heartbeat
-comment is sent every 15 seconds to keep the connection alive through
-proxies that time out an idle stream. Response headers include
-`Content-Type: text/event-stream`, `Cache-Control: no-cache`, `Connection:
-keep-alive`, and — critically — `X-Accel-Buffering: no`, the header nginx
-respects to disable its own response buffering for this specific response.
-
-**Gate errors (kill switch, key required, model not enabled, capability
-unsupported — everything in §7's and §9's gate pipeline) are surfaced
-*before* the first byte is written**, as an ordinary JSON error response
-with the matching HTTP status (§13) — exactly like a non-streaming route —
-so a client's request library can `.catch()` it the normal way. Only a
-failure that occurs **after** streaming has already started (a provider
-error mid-response) is sent as an in-band `event: error` frame, after which
-the stream closes; a client cannot tell the difference between "this
-request was invalid" and "this request failed while streaming" by response
-code alone, because the first never gets past headers and the second
-already has.
-
-A client disconnect is observed on the **response's** `close` event (while
-the response has not finished) and aborts the in-flight provider call
-through an `AbortController` whose signal is threaded into
-`AiCallContext.signal` — an abandoned stream must not keep a provider
-request (and a user's rate limit or spend) running after nobody is
-listening. Not `request.raw.on('close')`: since Node 16 an
-`IncomingMessage` emits `close` as soon as its body has been consumed,
-which for a `POST` is before the first event exists. The non-streaming
-`POST /api/ai/responses` threads the same signal, so a client that gives up
-on a long answer stops paying for it too; either way the usage row records
-`cancelled`.
-
-**Implementation note (#433).** The route is a hand-written `@Res()` handler,
-not Nest's `@Sse()`: `@Sse()` commits to `200 text/event-stream` before the
-handler runs, which would force every gate refusal in-band. The handler
-awaits `AiService.openStream` (eager — it rejects with the `AiError` for
-every pre-stream failure, including a provider that refuses before its
-first event), and only then hijacks the reply (`apps/api/src/ai/http/ai-sse.ts`),
-carrying over headers already set on it. One known gap: when an adapter
-reports a pre-stream throttle as an in-band first `error` event rather than
-by throwing, the JSON `429` carries `details.reason` but not
-`details.retryAfterMs` — the stream event type has no field for it.
-
-**Request body.** `apps/api/src/ai/http/dto/ai-response-request.dto.ts` is
-`.strict()`: a body carrying `tools` (or any unknown key, such as a
-`stream` flag) is a `400`, never silently dropped. Media parts are accepted
-by `http(s)` URL only in Phase 1. `structuredOutput.jsonSchema` is converted
-with zod's `z.fromJSONSchema` (no ajv dependency; the same conversion a
-background run uses to rebuild its stored schema), bounded at 64 KB, local
-`$ref`s only — an unreadable schema is `400 AI_INVALID_REQUEST`.
-
-nginx buffers `/api` with a 60-second read timeout by default, which is
-fatal to any response that takes longer than a minute to finish streaming.
-A dedicated, longest-prefix-wins location block, placed **before** the
-general `/api` block and modeled on the existing `/api/notifications/stream`
-block, disables buffering specifically for this one route:
-
-```nginx
-location /api/ai/responses/stream {
-    proxy_pass http://api_upstream;          # use the same upstream name as the /api block
-    proxy_http_version 1.1;
-    proxy_set_header Connection '';
-    proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_buffering off; proxy_cache off; chunked_transfer_encoding off;
-    proxy_read_timeout 600s; proxy_send_timeout 600s;
-    client_max_body_size 2m;
-}
-```
-
-`gzip_types` must also exclude `text/event-stream` if it is configured at
-all, for the same reason: a gzip encoder that buffers to build its window
-defeats the entire point of an unbuffered proxy in front of it.
-
-The `appctl deploy` edge vhost (`apps/cli/src/deploy/proxy.ts`
-`renderVhost`) carries the same block, as it already does for the
-notifications stream: nginx consumes `X-Accel-Buffering` rather than
-forwarding it, so without its own location the host proxy would re-buffer
-what the application's nginx forwards unbuffered.
-`apps/api/test/ai/ai-stream-nginx.spec.ts` asserts the application block.
-
-## 11. Permissions
-
-Three permissions, all newly introduced by this platform (#423), following
-the same blast-radius argument CLAUDE.md's RBAC section already makes for
-`push:*`, `broadcasts:*`, `nodes:*` and `storage_config:*` — a new
-permission pair earns its existence when reusing an existing one would let
-a grant intended for one purpose silently acquire a different, larger one:
-
-- `ai_config:read` / `ai_config:write` — deployment-wide AI configuration:
-  the kill switch, key policy, provider enablement, admin/org keys, model
-  catalog enablement and overrides. Seeded **Admin only**. Reusing
-  `system_settings:*` was considered and rejected for the identical reason
-  `storage_config:*` was split out rather than folded in: a wrong AI
-  configuration (the wrong key policy, a model enabled that should not
-  serve requests) has a blast radius specific to this platform, not to
-  routine settings edits, and should not ride along with a permission
-  seeded far more broadly for unrelated settings.
-- `ai:use` — may call AI with the caller's own key (or the org fallback
-  when policy allows it): the consumer-facing routes under `/api/ai/*`
-  (excluding the always-open `GET /api/ai/config`). Seeded to **Admin and
-  Contributor**, and deliberately **NOT to Viewer** (issue #499) — using
-  AI with a key the caller themselves supplied is not an administrative
-  act, the same way managing one's own settings or storage objects is
-  not, but Viewer is the DEFAULT role every new signup lands in, and a
-  default `ai:use` grant meant a brand-new account could call AI with no
-  administrator having decided that. Under `byok` this was inert (no key,
-  no calls succeed), but under `byok_with_org_fallback` it meant a new
-  Viewer could silently spend the deployment's own org key the first time
-  they touched an AI surface. An administrator who wants a Viewer to use
-  AI grants `ai:use` back explicitly (a `role_permissions` row) or
-  promotes the account to Contributor.
-
-`ai_config` and `ai:use` are deliberately **not** folded into one
-permission: an administrator must be able to grant "may use AI" broadly
-(Admin and Contributor by default) while keeping "may reconfigure the AI
-platform for the whole deployment" restricted to Admin — exactly the
-reachability-vs-authority distinction CLAUDE.md's Settings UI Pattern
-already draws between a destination gate and a tab gate, applied here to
-two permissions instead of two UI surfaces.
-
-## 12. Usage & audit
-
-Every provider round-trip — success or failure — writes exactly one
-`ai_usage_events` row: `{ userId?, provider, modelId, operation, keySource,
-inputTokens?, outputTokens?, reasoningTokens?, cachedInputTokens?, units?,
-latencyMs, status, errorCode?, providerRequestId?, jobId? }`. `operation` is
-one of `responses | images | audio.transcribe | audio.speech | embeddings |
-realtime | catalog` — `catalog` is the one operation with no `userId` (it runs under
-the admin key, §6, `keySource: 'admin_discovery'`) and no
-`inputTokens`/`outputTokens` (discovery/classification are not token-metered
-calls); `units` exists for non-token-metered operations (`{ images: 2 }`,
-`{ audioSeconds: 31.4 }`). `AiUsageRecorder` writes it from the facade's
-round-trip outcome (#437 — `images` records `{ images: n }`; #438 —
-`audio.transcribe` records `{ audioSeconds }`; #439 — `audio.speech` records
-`{ characters }`; #449 — `realtime` records `{ sessions: 1 }` per minted
-session and **no tokens**, because the media never passes through the server
-(§5.8)), keeping only
-finite, non-negative numbers and storing nothing when none are left.
-
-**Reading it back (#443).** Two routes aggregate these rows, both answering
-one report shape so one UI component renders either:
-
-```ts
-{ range: { from: 'YYYY-MM-DD', to: 'YYYY-MM-DD' },   // UTC days, both inclusive
-  groupBy: 'day' | 'user' | 'model' | 'provider' | 'keySource',
-  totals: Bucket,
-  series: Array<Bucket & { key: string, label: string }> }
-// Bucket = { requests, failed, inputTokens, outputTokens, reasoningTokens,
-//            cachedInputTokens, units: Record<string, number>,
-//            orgKeyRequests, orgKeyInputTokens, orgKeyOutputTokens }
-```
-
-`requests` counts every round trip (succeeded, failed, cancelled); `failed`
-is status `failed`; an unreported token count sums as zero; `units` sums
-each numeric JSONB key; the `orgKey*` fields are the `keySource: 'org'`
-subtotal — what the organization key paid for. Keys: `day` →
-`YYYY-MM-DD` (chronological, **zero-filled** across the range); `user` → the
-user id (label: the **email**; no-user rows key `system`); `model` →
-`<provider>:<modelId>` (label: the model id); `provider` → the id (label:
-the adapter's display name); `keySource` → `user`/`org`/`none`/`admin_discovery`.
-Non-day series are ordered by `requests` descending. Default range is the
-last 30 days; more than 90 days, or `from` after `to`, is a **400**
-`AI_USAGE_RANGE_INVALID` — refused, never clamped. Totals and groups come
-from one `GROUP BY GROUPING SETS ((key), ())` scan (plus one `jsonb_each`
-scan for `units`), so they always add up; the `(created_at)` and
-`(user_id, created_at)` indexes serve the window.
-
-- `GET /api/admin/ai/usage` (`ai_config:read`, **not** behind
-  `AiEnabledGuard` — cost is readable while AI is off) — every user;
-  `groupBy` any of the five; filters `userId`, `provider`, `model`.
-- `GET /api/ai/usage/me` (`ai:use` + `AiEnabledGuard`) — `groupBy` `day` or
-  `model` only; always scoped to the caller in SQL, and the query DTO has
-  no `userId` (a supplied one is stripped), so no request can read another
-  user's usage.
-
-Rows are kept `ai.usageRetentionDays` (default 180 — twice the longest
-report window) and then deleted by the daily `ai.usage.purge` job (§9).
-
-**Reading it back (UI, #444).** Two surfaces render the #443 aggregates, both
-through `services/ai.ts` (`getAiUsage`, `getMyAiUsage` — every usage type lives
-there) and `hooks/useAiUsage.ts`. The admin **AI Usage** card
-(`/admin/settings/ai/usage`, `ai_config:read`, `feature: 'ai'`, appended to the
-AI group) shows totals, the organization-key share (`keySource: 'org'`),
-requests per day and a breakdown by user, model, provider or key source over
-7/30/90 days; it reads `groupBy=day` plus the chosen breakdown, so two requests
-per range. The user's own last 30 days by model is a **Usage section of
-`/settings/ai`** — not a tab (Settings UI Pattern rule 2). The day chart is a
-dependency-free bar chart with a Chart/Table toggle, never the only view.
-
-Audit rows (written directly through Prisma — there is no dedicated audit
-service in this codebase, the same pattern `StorageConfigAdminService.audit`
-already uses) record every administrative and key-management act, never the
-key material itself: `ai_config:replace`, `ai_config:set_key`,
-`ai_config:delete_key`, `ai_config:test`, `ai_model:update`,
-`ai_catalog:refresh_requested`, `ai_catalog:refresh` (the completed sync,
-recorded by the job itself with `{ added, updated, deprecated }` counts),
-`ai_key:set`, `ai_key:delete` (the last two are the user's own BYOK key
-lifecycle, `targetType: 'user_ai_key'`). Every one of these carries codes,
-counts or field *names* in its `meta` — never a key, never raw prompt text.
-
-**Prompt content is never logged unless an administrator has explicitly set
-`ai.logPromptContent = true`.** Even then, it is logged at debug level only,
-truncated to 2 KB, and it is a *log* line, never a database column or an
-audit `meta` field — turning this setting on is an explicit, reversible,
-deployment-wide opt-in for debugging, not a standing feature. OpenTelemetry
-spans for `ai.request` carry `ai.provider`, `ai.model`, `ai.operation`,
-`ai.key_source`, `ai.status` and token-count attributes, and — per the
-identical rule — never prompt text and never a key, regardless of
-`logPromptContent`.
-
-## 13. Error taxonomy
-
-Every error this platform raises is an `AiError` (never a raw provider SDK
-error escaping to a caller), carrying a stable `code` that maps to exactly
-one HTTP status:
-
-| Code | HTTP | Meaning |
-|---|---|---|
-| `AI_DISABLED` | 403 | The kill switch (§8) is off. |
-| `AI_PROVIDER_DISABLED` | 403 | The platform is on, but this provider is not enabled. |
-| `AI_KEY_REQUIRED` | 403 | No key resolves for this user/provider under the active policy (§3). |
-| `AI_KEY_INVALID` | 400 | A submitted key failed `verifyKey` against the provider. |
-| `AI_MODEL_NOT_ENABLED` | 403 | The model is not admin-enabled, or is deprecated (§6, §7). |
-| `AI_MODEL_NOT_REACHABLE` | 403 | The model is enabled, but the resolved key cannot reach it (§7). |
-| `AI_CAPABILITY_UNSUPPORTED` | 400 | The model/provider lacks a capability the request needs (§4) — including `previousResponseId` on a provider that stores no responses (`details.capability: "previous_response_id"`, §5.7). |
-| `AI_REALTIME_DISABLED` | 403 | Realtime sessions are switched off for this deployment (`ai.defaults.allowRealtime`, default `false`, §5.8). Published in advance as `allowRealtime: false` in `GET /api/ai/config`. |
-| `AI_TOOL_DISABLED` | 403 | A hosted tool type an administrator has not switched on, or an MCP server host outside `ai.hostedTools.mcpAllowedHosts` (§5.4). |
-| `AI_RATE_LIMITED` | 429 | The provider rate-limited the call, **or** a deployment limit in `ai.limits` was reached (§15 — then `details.limit` names it, with `details.max` and `details.window`); convertible to the queue's `RateLimitError` via `toRateLimitError()` so a job defers rather than burning an attempt. `details.retryAfterMs` (and, over HTTP, a `Retry-After` header in whole seconds, rounded up) says when to retry, whenever it is known. |
-| `AI_PROVIDER_UNAVAILABLE` | 503 | The provider is unreachable or erroring at the transport level — including, for the #448 adapters, an endpoint that answered with a **redirect** (`details.providerCode: "redirect_refused"`, `details.status` the 3xx; never followed, its `Location` never echoed) and a slot with no endpoint at all (`details.missing: "baseUrl"`), §14.3. |
-| `AI_CONTENT_FILTERED` | 422 | The provider's own content filter rejected the request or response. |
-| `AI_INVALID_REQUEST` | 400 | The request itself is malformed (e.g. no model selected and no default set). |
-| `AI_STRUCTURED_OUTPUT_INVALID` | 502 | The model's output failed to parse against the requested schema. |
-| `AI_STORAGE_UNAVAILABLE` | 503 | An operation whose inputs or outputs are storage objects (§5.2, §5.3) met unconfigured or unwritable object storage (or storage that cannot presign an input); an administrator fixes it at `/admin/settings/storage`. Seen as a background run's `errorCode`, or directly on a synchronous response with a stored input. |
-
-**Admin configuration refusals (#448).** `PUT /api/admin/ai/config`
-validates each provider's settings against that provider's own slot schema
-before anything is written. These are ordinary `400`s (not `AiError`s),
-with the reason in `details.reason` and the provider in `details.provider`:
-
-| `details.reason` | When |
-|---|---|
-| `AI_UNKNOWN_PROVIDER` | The body names a provider id with no settings slot. |
-| `AI_PROVIDER_NOT_REGISTERED` | Enabling a provider no adapter is registered for. |
-| `AI_KEY_REQUIRED` | `byok_with_org_fallback` while an enabled, key-requiring provider has no admin key (a keyless provider is exempt). |
-| `AI_PROVIDER_FIELD_UNSUPPORTED` | A value for a field the provider's slot does not have (`details.field`) — e.g. `requiresKey` on `openai`. An empty/null value is simply absent. |
-| `AI_PROVIDER_SETTINGS_INVALID` | The built slot fails its schema (`details.fields`): a non-`https` Azure endpoint, credentials or a fragment in a URL, a malformed `apiVersion` or deployment name. |
-| `AI_BASE_URL_REQUIRED` | Enabling `azure-openai` or `openai-compatible` without a `baseUrl` — neither has a default host. |
-
-`AiError` follows the `StorageNotConfiguredError` style already established
-in this codebase: it serializes through the global `HttpExceptionFilter` as
-`{ statusCode, code, message, details: { reason: code, retryAfterMs? } }`.
-**The envelope's top-level `code`** is always the status-derived, published,
-closed enum (`FORBIDDEN`, `TOO_MANY_REQUESTS`, ...) that `common/dto/error.dto.ts`
-and the filter's own header already define for every error in this API —
-`AiError` does not get a second, competing meaning for that field. The AI-
-specific code from the table above travels **only** in `details.reason`,
-written last inside `AiError`'s constructor so a caller-supplied
-`details.reason` can never disagree with it; a client switches on
-`details.reason`, never on the top-level `code`, to learn which of these
-fifteen conditions occurred. Its `apiKey`/key material must never appear in
-`details` or in any log line derived from it, regardless of how the error
-was constructed (a unit test asserts `JSON.stringify(new AiError(...))`
-never includes a key passed via `cause`).
-
-## 14. Adding a provider
-
-A second (or third) provider is an adapter implementation against the
-existing contract, not a platform change, by design:
-
-1. **Implement `AiProviderAdapter`** — `id` (permanent once jobs/usage/keys
-   reference it), `displayName`, `listModels`, `verifyKey`,
-   `classifyModel`, and whichever capability ports (§4) the provider
-   genuinely supports. Self-register in `onModuleInit()` via
-   `AiProviderRegistry.register(this)` — the identical "one line, no
-   decorator, no central dispatch table" idiom `JobHandlerRegistry` already
-   uses for job handlers.
-2. **Write a classifier** for `classifyModel` — a curated, per-provider
-   pattern match against known model-id shapes, returning
-   `AiModelCapabilities` or `null` for an id the classifier does not
-   recognize (§6). This is deliberately hand-curated per provider, not a
-   generic heuristic, because guessing a model's capabilities wrong is worse
-   than admitting "unclassified, an administrator should look at this."
-   If the provider's model list carries facts about each model, return them
-   as `AiDiscoveredModel.metadata` and let the classifier enrich its table
-   from its optional second argument (§6, §14.2).
-3. **Declare whether it can chain.** A provider that stores no responses
-   declares `supportsPreviousResponseId: false` (§5.7); the runtime then
-   refuses a caller's `previousResponseId` and runs the tool loop by
-   resending history. Omit it for a provider that chains.
-4. **Run the conformance kit** (`describeAiProviderConformance`, #424)
-   against the new adapter. It asserts, uniformly across every provider:
-   `listModels` returns ids; `verifyKey`'s ok/invalid mapping; `classifyModel`
-   returns schema-valid capabilities or `null`; if `responses` is
-   implemented — `create` returns `outputText`, `stream` yields
-   `response.created … response.completed` in order with deltas
-   concatenating to the final text, structured output returns a
-   schema-valid `parsed`, a function-tool round-trip works (chained with
-   `previousResponseId`, or — reading the declared flag — with the
-   conversation replayed), and an unsupported capability surfaces as
-   `AI_CAPABILITY_UNSUPPORTED`; and, always, that every error the adapter
-   can produce is an `AiError`, never a raw SDK exception. Run it over a
-   MOCKED TRANSPORT (the real SDK with an injected `fetch`) that validates
-   what the real API validates — a mock that accepts what the provider
-   would reject proves nothing.
-5. **Register the id** in `AI_PROVIDER_IDS` and give it a
-   `providers.<id>` slot in every place the settings namespace is declared
-   (`settings-parity.spec.ts` pins one slot per id); add the module to
-   `AiModule`'s imports.
-
-Nothing about the registry, the gate pipeline (§9 of #432), the admin API
-(§9 below) or the HTTP surface (§10 below) changes to add a provider — they
-already operate on `AiProviderAdapter` and `AiProviderRegistry.ids()`.
-
-There are three worked examples, deliberately different in shape:
-`providers/openai/` (the Responses API — every port, chaining),
-`providers/anthropic/` (the Messages API — `responses` only, stateless) and
-`providers/gemini/` (`generateContent` — `responses` and `embeddings`,
-stateless, part-level replay state, metadata-enriched classifier). A
-provider that speaks OpenAI's wire protocol is not a fourth shape but a
-composition of the first: `providers/azure-openai/` and
-`providers/openai-compatible/` (§14.3) reuse the OpenAI adapter's mappers
-and engines with their own client factory and settings.
-
-### 14.1 The Anthropic adapter (Phase 3, issue #446)
-
-`apps/api/src/ai/providers/anthropic/` mirrors the OpenAI layout — client
-factory, messages mapper, stream mapper, errors, model catalog, module, and a
-`testing/` mock transport — and is the only place `@anthropic-ai/sdk` is
-imported. It carries the `responses` port only (Anthropic has no
-embeddings, image-generation or audio endpoints) and declares
+`previousResponseId` chains a request onto a stored response. Only OpenAI
+stores responses. Every other adapter declares
 `supportsPreviousResponseId: false`.
 
-**Request mapping.** `instructions` (plus any `system`/`developer`
-messages) → `system`; `message` items → `user`/`assistant` turns of content
-blocks — `text`, `image` (URL, or base64 from a `data:` URL), `document`
-(a PDF by URL or base64, plain text inline); `function_call` → assistant
-`tool_use` and `function_call_output` → user `tool_result`; consecutive
-items of one role merge into one turn, the shape the API requires. Function
-tools → `tools` with `input_schema`; `toolChoice` → `auto`/`none`/`any`
-(`required`)/`tool`. Hosted tools are refused (`AI_CAPABILITY_UNSUPPORTED`):
-Anthropic's server tools are a different set, not mapped yet. `metadata` is
-not mapped (Anthropic's only metadata field is an end-user id);
-`providerOptions.anthropic` is the escape hatch, as `providerOptions.openai`
-is for OpenAI.
+- For those providers a caller's `previousResponseId` is **refused** with
+  `AI_CAPABILITY_UNSUPPORTED` and `details.capability: "previous_response_id"`,
+  before any key is resolved. Send the conversation as `input` instead.
+- `runTools` resends the full history each round for such a provider:
+  original input, then each round's output replayed (`message` as assistant,
+  `function_call` and `reasoning` as themselves), then tool outputs.
+  `core/conversation.ts` (`asInputItems`, `replayOutput`) is the single
+  definition.
+- **Opaque provider state** (Anthropic thinking signatures, Gemini
+  thought signatures) rides on a `reasoning` item under the
+  `AI_PROVIDER_STATE` **symbol** key. `JSON.stringify` skips symbols, so no
+  HTTP body, SSE frame, log line or run row can carry it. A stored background
+  run drops replayed `reasoning` items.
+- `GET /api/ai/config` publishes `supportsPreviousResponseId` per provider.
 
-**`max_tokens` is required** by the Messages API: the caller's (already
-clamped) `maxOutputTokens`, else `ANTHROPIC_DEFAULT_MAX_TOKENS` (16,000 —
-well inside a ten-minute non-streaming request) capped at the model's own
-output limit.
+### 2.11 Embeddings
 
-**Reasoning.** The classifier records how each family thinks:
-- *adaptive* (Claude 4.6 and later, where `budget_tokens` is deprecated or
-  rejected): `thinking: { type: 'adaptive', display: 'summarized' }` plus
-  `output_config.effort` — `minimal`/`low` → `low`, `medium`, `high`;
-- *budget* (Claude 3.7 – 4.5): `thinking: { type: 'enabled', budget_tokens }`
-  from `ANTHROPIC_THINKING_BUDGETS` (1,024 / 2,048 / 6,144 / 16,384 for
-  minimal … high), added on top of the default answer allowance — or, with an
-  explicit `maxOutputTokens`, shrunk to fit it, and refused
-  (`AI_INVALID_REQUEST`) when even the 1,024-token minimum does not;
-- *none* (Claude 3.5 and earlier): an effort is `AI_CAPABILITY_UNSUPPORTED`.
+`embed({ model, input, dimensions? })` →
+`{ provider, model, dimensions, vectors, usage }`, synchronous, one vector per
+input in order. Route: `POST /api/ai/embeddings`.
 
-A `thinking` block's text becomes the reasoning item's `summary` — Claude 4
-returns a summary there, never the raw chain of thought; its signature and
-every `redacted_thinking` block travel only as `AI_PROVIDER_STATE` (§5.7).
-`temperature` is refused where the family rejects sampling parameters, and
-together with extended thinking everywhere, rather than sent to fail.
+- `model` is required. Vectors compare only within one model, so store
+  `model` and `dimensions` beside each vector.
+- At most 256 inputs (`AI_EMBEDDINGS_MAX_INPUTS`); more is `AI_INVALID_REQUEST`,
+  never silently split.
+- `dimensions` shortens vectors where the model supports it.
+- Usage: `operation: 'embeddings'`, `inputTokens` where reported.
+- **Backfills are a fork's own job:** a server-only job type, one job per
+  chunk of ≤ 256 row **ids**, calling `embed` once per run and throwing
+  `err.toRateLimitError() ?? err`.
 
-**Structured output.** Families with Anthropic's native structured outputs
-use `output_config.format` (`json_schema`); older ones use a forced single
-tool whose `input_schema` is the schema, its `tool_use` input mapped back as
-the message text. Either way `parseStructured` validates it, exactly as for
-OpenAI. The forced-tool path refuses extended thinking (Anthropic forbids a
-forced `tool_choice` with thinking) and other tools alongside it (forcing
-the schema tool would make them unreachable).
+### 2.12 Images
 
-**Streaming.** `message_start` → `response.created`; `content_block_delta`
-`text_delta` → `output_text.delta`, `thinking_delta` →
-`reasoning_summary.delta`, `input_json_delta` →
-`function_call.arguments.delta` (or `output_text.delta` for the forced
-schema tool, so deltas still equal the final text); `signature_delta` is
-kept for replay and never emitted; `content_block_stop` →
-`output_item.done`; `message_stop` → `response.completed`, built by the same
-function `create` uses. An `event: error` frame ends the stream with one
-`error` event carrying our generic message.
+`generateImage({ model, prompt, size?, quality?, background?, outputFormat?, n? })`
+and `editImage({ …, imageStorageObjectIds, maskStorageObjectId? })` →
+`{ runId, jobId }`. Routes: `POST /api/ai/images`, `POST /api/ai/images/edits`
+(202).
 
-**Discovery and classification.** `listModels` and `verifyKey` use `GET
-/v1/models`. The classifier is a curated, ordered rule table over the Claude
-families (Claude 3, 3.5, 3.7, 4.x Opus/Sonnet/Haiku, 5.x Opus/Sonnet, Fable,
-Mythos): every family declares `responses`, `tools`, `structured_output` and
-`streaming`; `reasoning` where extended thinking exists; `vision_input`;
-`file_input` from Claude 3.5 Sonnet on (PDFs). None declares `hosted_tools`,
-and the adapter declares `supportsHostedTools: false`: hosted tools ride on
-the `responses` port with no port of their own, so without that declaration
-the registry would derive `hosted_tools` from the port and the admin view's
-`supportedCapabilities` would claim it. The flag, like
-`supportsPreviousResponseId`, is optional and absent means `true` (OpenAI,
-the fake provider and existing forks are unchanged).
-Anything else is `null` — unclassified.
+- Always queued (`ai.image.generate`); not subject to `allowBackgroundRuns`.
+- `model` required; `n` is 1–4; an edit takes 1–16 source images, each
+  `ready`, PNG/JPEG/WebP (mask PNG), ≤ 25 MiB.
+- The job checks storage is writable **before** calling the provider, then
+  writes each image as a `ready` storage object under
+  `ai-outputs/<userId>/<runId>/`. Output:
+  `{ type: 'images', provider, model, storageObjectIds, images: [{ storageObjectId, mimeType, size, revisedPrompt? }], usage }`.
+- Usage: `operation: 'images'`, `units: { images: n }`.
+- Download through `GET /api/storage/objects/{id}/download`.
 
-**Errors.** 401 → `AI_KEY_INVALID`; 403 and 404 → `AI_MODEL_NOT_REACHABLE`;
-429 (and 402 `billing_error`, OpenAI's `insufficient_quota` precedent) →
-`AI_RATE_LIMITED` with `retry-after`; 529 `overloaded_error`, 5xx and 408 →
-`AI_PROVIDER_UNAVAILABLE` (with `retry-after` when named); other 4xx →
-`AI_INVALID_REQUEST`; an abort → `AI_PROVIDER_UNAVAILABLE` with
-`details.aborted`, as OpenAI's. Only the status, Anthropic's error `type` and
-its request id reach `details` — never the provider's text.
+### 2.13 Audio transcription
 
-**Storage-object inputs** (§5.3): images by `presigned_url`, documents
-`inline` — nothing is uploaded to Anthropic, so nothing needs deleting.
+`transcribe({ storageObjectId, model?, language?, prompt?, timestampGranularities? })`
+→ `{ runId, jobId }`. Route: `POST /api/ai/audio/transcriptions` (202).
 
-**The client** is built per call with the key explicitly (which
-short-circuits the SDK's own credential chain — `ANTHROPIC_API_KEY`,
-`ANTHROPIC_AUTH_TOKEN`, a CLI profile, workload identity federation),
-`authToken: null`, an explicit base URL, `maxRetries: 0` and logging off.
+- Always queued (`ai.audio.transcribe`). `model` defaults to the first usable
+  `audio_transcription` model, never the chat default.
+- The recording is the caller's storage object: `ready`, `audio/*`,
+  `video/mp4` or `video/webm`, at most the port's `transcriptionMaxBytes`
+  (25 MiB for OpenAI). Checked at queue time from the row.
+- The job **streams** the recording through a size-capped reader.
+- Output: `{ type: 'transcription', provider, model, storageObjectId, text, language?, durationSeconds?, segments?, words?, usage }`.
+  Nothing is written to storage.
+- Usage: `operation: 'audio.transcribe'`, `units: { audioSeconds }` when
+  reported.
 
-**Clients learn the flag from `GET /api/ai/config`.** Each `providers[]`
-entry carries `supportsPreviousResponseId` (read from the adapter through
-the registry), so a client never has to discover statelessness by being
-refused. The web AI Playground uses it: for a provider that cannot chain it
-resends the conversation so far (the completed user and assistant turns) as
-`input` instead of sending `previousResponseId`; for OpenAI it keeps
-chaining.
+### 2.14 Speech synthesis
 
-### 14.2 The Gemini adapter (Phase 3, issue #447)
+`speak({ input, voice?, model?, format?, instructions?, speed? })` →
+`{ runId, jobId }`. Route: `POST /api/ai/audio/speech` (202).
 
-`apps/api/src/ai/providers/gemini/` mirrors the Anthropic layout — client
-factory, content mapper, stream mapper, embeddings mapper, errors, model
-catalog, module, and a `testing/` mock transport — and is the only place
-`@google/genai` is imported (`gemini-sdk-boundary.spec.ts` pins it). The
-adapter is `'gemini'` / "Google Gemini", carries the `responses` and
-`embeddings` ports, and declares `supportsPreviousResponseId: false`,
-`supportsHostedTools: false` and `fileInputStrategy: { image: 'inline',
-file: 'inline' }`. Images, audio and realtime are absent: Gemini's
-image-output, speech and Live models are a different surface this adapter
-does not map (and its classifier leaves them unclassified).
+- Always queued (`ai.audio.speech`). `input` is 1–4096 characters
+  (`AI_SPEECH_INPUT_MAX_CHARS`).
+- `model` defaults to the first usable `audio_speech` model; `voice` to that
+  model's first voice and must be one it lists. `format` defaults to `mp3`
+  (`mp3|wav|opus|aac|flac|pcm`); `speed` is 0.25–4.
+- The audio is written to `ai-outputs/<userId>/<runId>/speech.<ext>`. Output:
+  `{ type: 'speech', provider, model, storageObjectId, mimeType, size, format, voice, characters, aiGenerated: true, usage }`.
+- **Disclosure:** provider policies require telling listeners a voice is
+  AI-generated. The output carries `aiGenerated: true` and the stored object's
+  metadata `aiGenerated: 'true'`. A client that plays it must show this.
+- Usage: `operation: 'audio.speech'`, `units: { characters }`.
 
-**The client** is built per call on the Gemini Developer API with the key,
-an explicit base URL, API version `v1beta` and no `retryOptions` (the SDK
-then never retries). Everything the SDK would read from the environment is
-overridden: `vertexai: false` (so `GOOGLE_GENAI_USE_VERTEXAI` can never route
-a call to a Vertex project's credentials), the explicit key
-(`GOOGLE_API_KEY`/`GEMINI_API_KEY` ignored) and base URL
-(`GOOGLE_GEMINI_BASE_URL` ignored). There are still no AI environment
-variables (§2).
+### 2.15 Realtime voice sessions
 
-**Request mapping.** `instructions` (plus `system`/`developer` messages) →
-`systemInstruction`; `message` items → `user`/`model` turns of parts:
-`text`; `inlineData` (base64) for a `data:` URL or a storage object's
-bytes; `fileData { fileUri, mimeType? }` for any other URL (the MIME type
-from the path's extension when it names one — Gemini is the authority
-otherwise). `function_call` → model `functionCall { name, args, id? }`;
-`function_call_output` → user `functionResponse { name, response, id? }`.
-Gemini matches a response to its call by NAME, so the mapper reads the name
-off the matching `function_call` earlier in the (full-history) input, and
-refuses an output whose call is not there. A JSON-object output is sent as
-the `response`; anything else is wrapped as `{ output }`, the key Gemini
-documents. Consecutive items of one role merge into one turn. Function
-tools → one tool of `functionDeclarations` with `parametersJsonSchema`;
-`toolChoice` → `functionCallingConfig.mode` `AUTO`/`NONE`/`ANY`
-(`required`), a named function → `ANY` + `allowedFunctionNames`.
-`maxOutputTokens` and `temperature` map to the same-named config fields;
-`metadata` is dropped (the API has no free-form request metadata);
-`providerOptions.gemini` is merged into the config last.
+Speech-to-speech audio flows **browser ↔ provider** over WebRTC. The server
+spends the key once to mint a short-lived secret, and only that secret goes to
+the browser.
 
-**Function-call ids.** Gemini 3 names each call; earlier models do not. An
-id-less call gets a synthetic `callId` (`gemini_call_<uuid>`) so the neutral
-contract's non-empty id holds; a synthetic id is never sent back.
+`createRealtimeSession({ provider?, model?, voice?, instructions?, turnDetection?, tools? })`
+→ `{ provider, model, voice, clientSecret, expiresAt, connectUrl }`. Route:
+`POST /api/ai/realtime/sessions` (201), body `{ provider?, model?, voice?, instructions? }`.
 
-**Reasoning.** With a reasoning effort or a summary requested, the config
-carries `thinkingConfig { includeThoughts: true }` — Gemini then returns
-thought SUMMARIES (parts marked `thought: true`), which become reasoning
-items' `summary`; the raw chain of thought is never returned. An effort is
-expressed per family (`GeminiModelProfile.thinking`):
-- *level* (Gemini 3.x): `thinkingLevel` — Flash all four levels, Pro only
-  `LOW` (minimal/low) and `HIGH` (medium/high);
-- *budget* (Gemini 2.5, and any unclassified model): `thinkingBudget` from
-  `GEMINI_THINKING_BUDGETS` (512 / 2,048 / 8,192 / 24,576 — inside the
-  ranges of 2.5 Pro, Flash and Flash-Lite alike);
-- *none* (Gemini 2.0, 1.5): an effort is `AI_CAPABILITY_UNSUPPORTED`.
+Gates, in order: kill switch → `ai.defaults.allowRealtime` (default `false`,
+else `AI_REALTIME_DISABLED` 403) → target (default: first usable `realtime`
+model) → provider → model with `realtime` and a reachable key → voice →
+key → rate limits (one mint is one request) → mint.
 
-**Thought signatures** are replayed through `AI_PROVIDER_STATE` on reasoning
-items that name the part they came from (§5.7) — required by Gemini 3 on a
-function-call turn, which the mock transport enforces as the real API does.
+- **OpenAI mint:** `POST /v1/realtime/client_secrets` with the real key and
+  the initial session configuration. The secret's TTL is always 60 seconds
+  (`AI_REALTIME_CLIENT_SECRET_TTL_SECONDS`), enough to finish the SDP
+  exchange. A connected call outlives it.
+- **Browser:** POSTs its SDP offer to `connectUrl` (derived from the slot's
+  `baseUrl`, default `https://api.openai.com/v1/realtime/calls`) with
+  `Authorization: Bearer <clientSecret>`.
+- **What the secret can do:** open sessions with that configuration until it
+  expires, and reconfigure its own session over the data channel. It cannot
+  call any other API. Server-sent instructions and caps are initial
+  configuration, not enforcement.
+- **The one credential any AI route returns.** Treat it as a bearer token:
+  never logged, stored or traced.
+- **Usage:** one row per mint, `operation: 'realtime'`,
+  `units: { sessions: 1 }`, no tokens. The server never sees the media.
+- **No job:** minting is one short round trip; the long-running call runs off
+  the server. Tools are not accepted over HTTP.
 
-**Structured output** → `responseMimeType: 'application/json'` +
-`responseJsonSchema`, then `parseStructured`, exactly as for the other
-providers. It is refused (`AI_CAPABILITY_UNSUPPORTED`) on Gemini 2.0/1.5
-(not declared `structured_output`) and, on Gemini 2.5, together with
-function tools (that pair is a 400 there; Gemini 3 accepts it). A filtered
-answer to a structured request is `AI_CONTENT_FILTERED` — there is nothing
-to parse.
+### 2.16 Background runs
 
-**Streaming** uses `generateContentStream` (`:streamGenerateContent?alt=sse`).
-Gemini streams partial responses with no terminal event: the first chunk →
-`response.created`; text slices → `output_text.delta`; thought slices →
-`reasoning_summary.delta`; a function call (sent whole) →
-`function_call.arguments.delta` + `output_item.done`; a change of part kind
-closes the open item (`output_item.done`); the end of the stream →
-`response.completed`, but only if a finish reason (or a blocked prompt) was
-seen — a stream that ends without one is truncated and ends with an `error`
-event. Both paths assemble parts with the same `GeminiOutputAssembler` and
-finish with the same function, so a streamed and a non-streamed response
-have identical output items. A consumer that stops early aborts the request
-through the adapter's own abort controller (the SDK's iterator only releases
-its reader).
+`startRun(req)` queues an `ai.response.run` job and returns `{ runId, jobId }`.
+Route: `POST /api/ai/runs` (202). Poll `GET /api/ai/runs/{id}`, cancel with
+`POST /api/ai/runs/{id}/cancel` (idempotent; a finished run is returned
+unchanged).
 
-**Finish reasons.** `MAX_TOKENS` → `length`; `SAFETY`, `RECITATION`,
-`BLOCKLIST`, `PROHIBITED_CONTENT`, `SPII`, `LANGUAGE`, `IMAGE_*` safety →
-`content_filter` (and a prompt blocked with no candidate); malformed or
-unexpected tool calls and `OTHER` → `error`; otherwise `tool_calls` when the
-output holds a call, else `stop`. **Usage**: `inputTokens` =
-`promptTokenCount` + `toolUsePromptTokenCount`; `outputTokens` =
-`candidatesTokenCount` + `thoughtsTokenCount` (thinking is billed as output,
-as OpenAI's and Anthropic's counts include it); `reasoningTokens` =
-`thoughtsTokenCount`; `cachedInputTokens` = `cachedContentTokenCount`.
+- Refused with `AI_INVALID_REQUEST` when `ai.defaults.allowBackgroundRuns` is
+  off, or when the request carries a function tool or MCP headers.
+- `ai_runs.request` stores the **full normalized request**
+  (`toStoredRunRequest`, `runtime/ai-run-request.ts`), untruncated, never a
+  key. The executor resolves the key at run time.
+- Images, transcription and speech runs share `ai_runs`, told apart by
+  `request.operation` (absent means a response run).
+- Run status: `pending | running | succeeded | failed | cancelled`. A run is
+  scoped to its owner; another user's is `404`. The response never includes
+  the stored prompt or the job id.
 
-**Embeddings** (§5.1) via `embedContent` (`:batchEmbedContents` on the wire):
-every input is its own `Content` — a bare string array would be folded by
-the SDK into ONE multimodal content (one vector) for `gemini-embedding-2`;
-`dimensions` → `outputDimensionality`; the answer must be one finite vector
-per input, all one length, or it is `AI_PROVIDER_UNAVAILABLE`. The Gemini API
-reports no token count for embeddings, so `usage` is `{}`.
+### 2.17 Model discovery and classification
 
-**Hosted tools are not mapped** (`supportsHostedTools: false`; every hosted
-tool is refused with `AI_CAPABILITY_UNSUPPORTED`). Google Search grounding
-and code execution exist, but neither maps cleanly onto §5.4's result types:
-grounding cites sources through `vertexaisearch.cloud.google.com` redirect
-links rather than the source URLs `AiWebSearchCallResult.sources` and
-`AiUrlCitation.url` promise, and locates citations by UTF-8 byte offsets per
-part where `AiUrlCitation` means character offsets into the message text;
-code execution has no container (`containerId` is required) and returns
-plots as inline bytes where the type carries a URL; and Gemini 2.5 cannot
-combine either tool with function calling. A lossy mapping would be worse
-than an honest refusal — this is a follow-up.
+Two steps, both under the admin key (or keyless), both server-only:
 
-**Storage-object inputs** (§5.3) are `inline` for both modalities: the
-runtime reads the bytes under its 20 MiB / 50 MiB caps and the adapter sends
-them as base64 `inlineData`. A presigned URL is not usable as `fileData`
-(Gemini expects a Files API or Cloud Storage URI there), and the Files API
-would add an upload, a wait for the file to become `ACTIVE` and a delete for
-bytes that fit inline. Nothing is uploaded, so nothing is left to delete;
-Gemini's own inline request-size limit is the authority on a very large
-file, and its 400 is `AI_INVALID_REQUEST`.
+1. **Discovery:** `listModels` returns `{ id, ownedBy?, createdAt?, metadata? }`.
+   `metadata` (`displayName`, `inputTokenLimit`, `outputTokenLimit`,
+   `supportedActions`, `thinking`) is filled only where the listing says more
+   than ids (Gemini).
+2. **Classification:** `classifyModel(modelId, metadata?)` applies a curated,
+   per-provider rule table and returns `AiModelCapabilities` or `null`. It
+   must answer from the id alone when `metadata` is absent, because
+   request-time callers pass only the id.
 
-**Discovery and classification.** `listModels` pages `GET /v1beta/models`
-(1,000 per page), strips the `models/` prefix, and returns each model's
-listing facts as `metadata` (§6); `verifyKey` lists one model. The
-classifier (`gemini-model-catalog.ts`) is a curated, ordered rule table —
-Gemini 3.x Pro/Flash/Flash-Lite, 2.5 Pro/Flash/Flash-Lite, 2.0 Flash /
-Flash-Lite, 1.5 Pro/Flash, and the embedding models
-(`gemini-embedding-*`, `text-embedding-004`) — that deliberately leaves
-image-output, TTS, Live/native-audio, computer-use and robotics variants and
-the non-Gemini families (Imagen, Veo, Gemma, AQA, LearnLM) unclassified. The
-listing metadata then enriches it: the provider's `inputTokenLimit` /
-`outputTokenLimit` replace the table's limits; a `supportedActions` list
-that lacks the method a profile needs (`generateContent`, or
-`embedContent`/`batchEmbedContents`) makes the id unclassified, whatever its
-name suggests; and an id no rule knows is still classified when the listing
-is clear — a `gemini-*` model supporting `generateContent` gets the generic
-current-generation profile (reasoning only if `thinking` says so), a model
-supporting `embedContent` the embedding profile. Aliases such as
-`gemini-flash-latest` classify this way. Every generative Gemini model
-declares `vision_input` and `file_input`; none declares `hosted_tools`.
+Each `ai_models` row has `capabilitySource: 'catalog' | 'admin_override' | 'unclassified'`.
+Catalog refresh is safe to run unattended because:
 
-**Errors** (`gemini-errors.ts`). The SDK throws one typed error, `ApiError
-{ status, message }`, whose message is Google's JSON error body (or, for an
-error object mid-stream, `got status: <STATUS>. <json>`). Only three facts
-are read from it — the canonical `status`, `ErrorInfo.reason` and
-`RetryInfo.retryDelay` — and only those, the HTTP status and nothing of the
-provider's text reach `details`.
+- New models are inserted with `enabled: false`. Discovery never enables.
+- A refresh updates `capabilities` only when the source is not
+  `admin_override`.
+- A refresh never writes `enabled` for a model still listed.
+- A model no longer listed gets `deprecatedAt` and is force-disabled. If it
+  reappears, `deprecatedAt` clears but it stays disabled.
+- Rows are never deleted; runs and usage reference model ids by value.
 
-| Gemini answer | `AiErrorCode` |
-|---|---|
-| 400 `INVALID_ARGUMENT` with reason `API_KEY_INVALID` (Gemini's answer to a bad key) | `AI_KEY_INVALID` |
-| 401 `UNAUTHENTICATED`, 403 `PERMISSION_DENIED` | `AI_KEY_INVALID` |
-| 404 `NOT_FOUND` | `AI_MODEL_NOT_REACHABLE` |
-| 429 `RESOURCE_EXHAUSTED` | `AI_RATE_LIMITED`, `retryAfterMs` from `RetryInfo` |
-| 408, 499, 5xx (`INTERNAL`, `UNAVAILABLE`, `DEADLINE_EXCEEDED`) | `AI_PROVIDER_UNAVAILABLE` (with the retry delay when named) |
-| any other 4xx (`INVALID_ARGUMENT`, `FAILED_PRECONDITION`, ...) | `AI_INVALID_REQUEST` |
-| the caller's signal aborted the request | `AI_PROVIDER_UNAVAILABLE`, `details.aborted` |
-| the client's own timeout aborted it | `AI_PROVIDER_UNAVAILABLE`, `details.transport: "timeout"` |
-| `fetch` failed | `AI_PROVIDER_UNAVAILABLE`, `details.transport: "connection"` |
-| anything else (a malformed SSE chunk, ...) | `AI_PROVIDER_UNAVAILABLE` |
+A successful sync emits `AI_CATALOG_SYNCED_EVENT`
+(`ai/catalog/ai-catalog.events.ts`). A listener in the keys module enqueues
+`ai.keys.recheck` for that provider's users. The listener only enqueues.
 
-**Conformance.** `gemini.adapter.conformance.spec.ts` runs the unchanged kit
-twice over a mock transport injected into the real SDK: Gemini 2.5 (id-less
-calls, embeddings with `dimensions`) and Gemini 3 (named calls whose
-`thoughtSignature` the mock requires back). The mock validates what the real
-API validates: the bad-key 400, unknown fields, alternating turns starting
-with a user turn, a function-response turn immediately after its call turn
-with one response per call, `thinkingConfig` only on thinking models, no
-JSON response together with function calling on Gemini 2.5.
+### 2.18 Usable models
 
-### 14.3 The OpenAI-compatible adapters: Azure OpenAI and generic servers (Phase 3, issue #448)
+```
+usable(user) = { enabled AND not deprecated } ∩ { reachable with the user's key }
+             ∪ { enabled AND not deprecated }   when org fallback or a keyless provider applies
+```
 
-Enterprise deployments frequently must use **Azure OpenAI** (data
-residency, an existing enterprise agreement) or a **self-hosted** model
-server — Ollama, vLLM, LM Studio, llama.cpp's server, a LiteLLM gateway —
-that exposes OpenAI's API at its own base URL. Two adapters cover them:
-`azure-openai` ("Azure OpenAI") and `openai-compatible`
-("OpenAI-compatible"). Neither is a new mapping. Both are **compositions of
-the OpenAI adapter's own pieces**, extracted into shared helpers under
-`providers/openai/` rather than copied (the OpenAI adapter's behaviour and
-tests are unchanged by the extraction):
+- With a user key: enabled models whose id is in the key's
+  `reachableModelIds` (computed when the key is set, on the weekly
+  `ai.keys.recheck`, and after a catalog sync).
+- With no user key under `byok_with_org_fallback`: every enabled model of a
+  provider with an org key, `keySource: 'org'`.
+- On a keyless provider: every enabled model, `keySource: 'none'`.
+- `GET /api/ai/models` returns `{ provider, modelId, displayName, capabilities, keySource }[]`.
 
-| Shared piece (`providers/openai/`) | What it is |
-|---|---|
-| `openai-errors.ts` — `OpenAiFamily` | `{ providerId, label }`: the one thing that differs in an error or a response between family members — the provider id stamped on `details`/`AiResponse.provider` and the name in the generic, secret-free messages. Every mapper takes it, defaulting to OpenAI. |
-| `openai-responses.engine.ts` | `create`/`stream` against `POST /responses`, with the #441 storage delivery and an optional **wire model** (an Azure deployment name). |
-| `openai-chat-completions.mapper.ts` / `-stream.mapper.ts` / `.engine.ts` | The **Chat Completions** path (below) — new in #448, shared by both adapters. |
-| `openai-call-telemetry.ts` | The `ai.provider.call` span and debug line (§12). |
-| `openai-client.factory.ts` — `pinnedOpenAiClientOptions` | Every SDK option pinned: no `OPENAI_*` environment read, `maxRetries: 0`, no SDK logging. |
-| `openai-redirect-guard.ts` — `noRedirectFetch` | The SSRF control below. |
-| `openai-embeddings.mapper.ts` | `/embeddings`, reused by both adapters' embeddings port. |
+`UsableModelsService.assertUsable(userId, provider, modelId, capability?)`
+is the single-model check and the one origin of `AI_MODEL_NOT_ENABLED`,
+`AI_MODEL_NOT_REACHABLE`, `AI_KEY_REQUIRED` and `AI_CAPABILITY_UNSUPPORTED`.
 
-`openai-sdk-boundary.spec.ts` pins the `openai` package to exactly these
-three directories (`openai/`, `azure-openai/`, `openai-compatible/`).
+### 2.19 Kill switch
 
-**Settings** (§2). Each adapter's slot extends the common `{ enabled,
-baseUrl? }`, and the runtime hands every non-secret field besides `enabled`
-and `baseUrl` to the adapter as `AiCallContext.providerSettings`, which the
-adapter reads with its own schema and defaults (`providerCallSettings(slot)`
-in `ai-config.service.ts` builds both for every call site: the facade, the
-catalog sync, the admin key verification and connection test, and the user
-key probe):
+`ai.enabled = false` shuts the consumer side and leaves the admin side open:
 
-| Slot | Field | Meaning | Default |
+- `AiEnabledGuard` (`ai/config/ai-enabled.guard.ts`), applied at controller
+  level, answers `403` with `details.reason: 'AI_DISABLED'` on every
+  `/api/ai/*` route except `GET /api/ai/config`. It runs before `@Auth()`, so
+  it denies even unauthenticated callers.
+- `GET /api/ai/config` stays open: it is how the browser learns AI is off.
+- **`/api/admin/ai/*` is deliberately outside the guard**, so an
+  administrator can always switch AI back on.
+- AI job handlers check `ai.enabled` when they run and end without retry if
+  it went off. `ai.usage.purge` is not gated (retention is data hygiene).
+- The catalog cron enqueues nothing while disabled.
+- The web app hides every AI card, route and navigation entry.
+
+### 2.20 Jobs
+
+Every `ai.*` job type is **server-only, forever**. None carries
+`nodeResultSchema` or `persistNodeResult`, because both the user's key and the
+org key must never be brokered to a worker node.
+
+| Type | Payload | Profile | Notes |
 |---|---|---|---|
-| `azure-openai` | `baseUrl` | The resource endpoint, `https://<resource>.openai.azure.com` (the adapter appends `/openai`, once). **https only.** Named `baseUrl` like every slot, so every generic consumer handles it with no Azure special case. | none — required to enable |
-| | `apiVersion` | The `api-version` query value. | `2025-04-01-preview` (`AZURE_OPENAI_DEFAULT_API_VERSION`) |
-| | `apiStyle` | `responses` or `chat_completions`. | `responses` — current api-versions serve the Responses API |
-| | `deployments` | `Record<modelId, deploymentName>`; replaced whole on write. | none — each model id is sent as its own deployment name |
-| `openai-compatible` | `baseUrl` | The server's API root **including** its version segment (`http://ollama.internal:11434/v1`). **http or https.** | none — required to enable |
-| | `apiStyle` | `chat_completions` or `responses`. | `chat_completions` — what every compatible server serves |
-| | `requiresKey` | `false` is the administrator's opt-in to a **keyless** server (below). | `true` |
+| `ai.catalog.refresh` | `{ providerId }` | 5 min, 3 attempts | Admin key. Daily cron at 04:00, and `POST /api/admin/ai/models/refresh`. |
+| `ai.response.run` | `{ runId }` | 30 min, 1 attempt | A model call is not safe to retry blindly. |
+| `ai.image.generate` | `{ runId }` | 10 min, 1 attempt | Billed per image. |
+| `ai.audio.transcribe` | `{ runId }` | 15 min, 2 attempts | Idempotent. |
+| `ai.audio.speech` | `{ runId }` | 5 min, 2 attempts | A retry rewrites the same key. |
+| `ai.keys.recheck` | `{ provider }` | 30 min, 3 attempts | Weekly cron, and on catalog sync. |
+| `ai.usage.purge` | none | 30 min, 3 attempts | Daily at 05:00 via `enqueueHousekeepingJob`; 5000 ids per batch. |
 
-The admin view (`GET /api/admin/ai/config`) reports each provider's
-`settingsFields` (read off its slot schema) and the stored `apiVersion`,
-`apiStyle`, `deployments`, `requiresKey` (`null` when unset, i.e. the
-default); `PUT` accepts them per provider and refuses a field the provider
-does not have, a slot that fails its schema, or enabling either adapter with
-no endpoint — the §13 admin refusal table.
+- Media jobs extend `AiMediaRunHandler` (claim, cancel, deadline, outcomes,
+  retries, settle safety net).
+- Every AI cron only enqueues.
+- **Expected refusals end the run, not the job.** `AI_RUN_TERMINAL_CODES`
+  (`runtime/ai-response-run.handler.ts`): `AI_DISABLED`,
+  `AI_PROVIDER_DISABLED`, `AI_KEY_REQUIRED`, `AI_KEY_INVALID`,
+  `AI_MODEL_NOT_ENABLED`, `AI_MODEL_NOT_REACHABLE`,
+  `AI_CAPABILITY_UNSUPPORTED`, `AI_TOOL_DISABLED`, `AI_INVALID_REQUEST`,
+  `AI_CONTENT_FILTERED`, `AI_STRUCTURED_OUTPUT_INVALID`,
+  `AI_STORAGE_UNAVAILABLE`. The run fails with the code; the job returns
+  normally (no retry, no `jobs.job_failed`).
+- `AI_RATE_LIMITED` returns the run to `pending` and defers the job through
+  `toRateLimitError()`. Any other error throws and retries normally.
+- Embeddings and realtime ship no job type.
 
-**Azure OpenAI** (`providers/azure-openai/`).
+### 2.21 Usage, audit and retention
 
-- *Client*: one `AzureOpenAI` per call with `baseURL: <endpoint>/openai`,
-  the slot's `apiVersion` and the key in Azure's **`api-key` header**.
-  `baseURL`, `apiVersion` and `apiKey` are always explicit: `AzureOpenAI`
-  falls back to `OPENAI_BASE_URL` / `OPENAI_API_VERSION` /
-  `AZURE_OPENAI_API_KEY`, and an ambient variable on a host must not move or
-  break a call (a spec pins this with the variables set).
-- *Deployments*: Azure routes by **deployment name**. A model id is looked
-  up in `deployments` and falls back to itself (Azure's common convention of
-  naming a deployment after its model); the deployment goes on the wire
-  (the body's `model` for the Responses API, `/deployments/<name>/…` for
-  Chat Completions and embeddings), while the model id stays what
-  classification, telemetry, usage rows and the neutral response use.
-- *Model list*: `GET /openai/models` is always called (it is also how a key
-  is verified). With a `deployments` map configured, **its keys are the
-  model list** — Azure's data plane cannot enumerate a resource's
-  deployments, and the listing it does return names every model the region
-  offers, deployed or not. Without a map the listing is returned as-is and
-  the administrator enables what is deployed.
-- *Classifier*: Azure models are OpenAI models, so ids classify with
-  OpenAI's own table (`classifyOpenAiModel`) **minus `hosted_tools`**; an id
-  the table does not know (`gpt-35-turbo`, a custom map key) is
-  unclassified.
-- *Ports*: `responses` and `embeddings`. Images and audio are absent for now
-  (their Azure routing differs per api-version).
-- *Storage inputs* (§5.3): images by `presigned_url`, files `inline`.
+Every provider round trip writes one `ai_usage_events` row:
+`{ userId?, provider, modelId, operation, keySource, inputTokens?, outputTokens?, reasoningTokens?, cachedInputTokens?, units?, latencyMs, status, errorCode?, providerRequestId?, jobId? }`.
 
-**OpenAI-compatible** (`providers/openai-compatible/`).
+- `operation`: `responses | images | audio.transcribe | audio.speech | embeddings | realtime | catalog`.
+  `catalog` has no user and `keySource: 'admin_discovery'`.
+- `units` holds non-token meters: `{ images }`, `{ audioSeconds }`,
+  `{ characters }`, `{ sessions: 1 }`.
 
-- *Client*: the OpenAI SDK per call at `baseUrl`, key as a bearer token
-  (what vLLM's `--api-key`, LM Studio and most gateways check).
-- *Model list*: `GET {baseUrl}/models`. **`classifyModel` answers `null` for
-  every id**: a compatible server's ids (`llama3.1:8b`,
-  `Qwen/Qwen2.5-7B-Instruct`) say nothing reliable about capabilities, so
-  every discovered model is stored `unclassified` and an administrator
-  declares it in the Models UI (an `admin_override`, §6) before enabling it.
-  The conformance kit's `classifyModel` scenario is skipped for this reason
-  (it needs at least one classified id); the adapter's own spec pins `null`.
-- *Ports*: `responses` and `embeddings` (`POST {baseUrl}/embeddings`, which
-  Ollama, vLLM and LM Studio serve, through the shared mapper).
-- *Storage inputs*: `inline` for both modalities — a self-hosted server
-  usually cannot reach this deployment's object storage, and `data:` images
-  are what Ollama and vLLM accept.
-- *Token limit parameter*: `max_tokens` (Azure's Chat Completions path uses
-  `max_completion_tokens`, its current name and the only one its reasoning
-  deployments accept).
+**Reports.** `GET /api/admin/ai/usage` and `GET /api/ai/usage/me` return one
+shape:
 
-**The Chat Completions mapper** — graceful degradation. Compatible servers
-nearly always serve `POST /chat/completions` and rarely the Responses API.
-`instructions` become a leading `system` message; `developer` turns are sent
-as `system` (compatible servers rarely know the role); image parts become
-`image_url` (a URL, presigned URL or `data:` URL) and file parts `file` with
-inline `file_data` or a `file_id` (a remote file URL is refused);
-function tools become `tools[].function` with the Zod schema's JSON Schema;
-a replayed tool round-trip becomes `tool_calls` on the preceding assistant
-turn and one `tool` message per output; replayed `reasoning` items are
-dropped; structured output becomes `response_format: { type: 'json_schema',
-json_schema: { name, schema, strict } }`, then `parseStructured` (§5).
-Streaming asks for `stream_options: { include_usage: true }` so the last
-chunk carries token usage; the stream mapper accumulates text and
-tool-call-argument deltas (keyed by the call id each call announced in its
-first fragment) and completes through the same `fromChatCompletion` the
-non-streamed path uses, so both paths agree on what a response means and a
-stream that ends without a finish reason is failed as truncated. Refused
-with `AI_CAPABILITY_UNSUPPORTED`: a reasoning **effort** (Chat Completions
-has no reasoning summaries and compatible servers no effort knob — a summary
-request alone is a no-op), `previousResponseId`, and any hosted tool.
-`metadata` is not forwarded.
+```ts
+{ range: { from: 'YYYY-MM-DD', to: 'YYYY-MM-DD' },   // UTC days, inclusive
+  groupBy: 'day' | 'user' | 'model' | 'provider' | 'keySource',
+  totals: Bucket, series: Array<Bucket & { key: string; label: string }> }
+// Bucket = { requests, failed, inputTokens, outputTokens, reasoningTokens, cachedInputTokens,
+//            units: Record<string, number>, orgKeyRequests, orgKeyInputTokens, orgKeyOutputTokens }
+```
 
-**Flags — static and conservative.** Both adapters declare
-`supportsPreviousResponseId: false` and `supportsHostedTools: false`, in
-**both** API styles. A flag is per adapter while `apiStyle` is per slot; the
-alternative — resolving the flag per call from settings — was rejected as
-more machinery than it buys: Azure's Responses API does store responses,
-but declaring `false` only means the tool loop resends the full history
-(§5.7), which works in both styles, and the public config's published flag
-(§5.7) stays a fact about the provider rather than about a setting that can
-change between two requests of one conversation. A hosted tool that reaches
-either port directly is refused before any request.
+- Default range 30 days; more than 90, or `from` after `to`, is
+  `400 AI_USAGE_RANGE_INVALID`. `day` series are zero-filled; others are
+  ordered by `requests`. The `user` label is the email.
+- The admin report is not behind `AiEnabledGuard`. `/me` allows `groupBy`
+  `day` or `model` only and is scoped to the caller in SQL.
+- Rows are purged after `ai.usageRetentionDays` (default 180) by
+  `ai.usage.purge`.
+- UI: the admin **AI Usage** card, and a Usage section inside `/settings/ai`.
 
-**`keySource: 'none'`** (§3 rule 0). With `openai-compatible` enabled and
-`requiresKey: false`:
+**Audit.** Admin and key acts write audit rows with codes, counts or field
+names only: `ai_config:replace`, `ai_config:set_key`, `ai_config:delete_key`,
+`ai_config:test`, `ai_model:update`, `ai_catalog:refresh_requested`,
+`ai_catalog:refresh`, `ai_key:set`, `ai_key:delete`.
 
-- `AiKeyResolver` answers `{ apiKey: AI_KEYLESS_API_KEY, keySource: 'none' }`
-  first, under either key policy, reading no key; `sourceFor` answers
-  `'none'`, so every admin-enabled model is usable with no BYOK key (§7).
-- The client factory sees the marker and removes the SDK's `Authorization`
-  header entirely — the marker never reaches the wire (the adapter spec
-  asserts no request carries it), nor any response, log line, usage or run
-  row (`ai-secret-egress.integration.spec.ts`).
-- Usage rows record `keySource: 'none'`; the rate limits count it like a
-  user's own call and never against `orgKey.*` (§15).
-- `GET /api/ai/config` publishes `requiresKey: false` for it, so a client
-  stops prompting users for a key nobody needs.
-- The catalog sync and the admin connection test run keyless with no admin
-  key stored, `POST /api/admin/ai/models/refresh` does not 409 for such a
-  provider, and `byok_with_org_fallback` does not require it to have an org
-  key.
-- `ai_usage_events.key_source` is a plain string, so `'none'` costs no
-  migration.
+**Prompt content** is never logged unless `ai.logPromptContent = true`; then
+only at debug level, truncated to 2 KB, never in a column or audit row. Spans
+never carry prompt text or keys.
 
-**SSRF posture.** Both adapters send this server's requests to a host an
-administrator typed in.
+### 2.22 Rate limits and output caps
 
-- *Validated*: `aiEndpointUrlSchema` (`settings.schema.ts`) — scheme `https`
-  only for Azure, `http`/`https` for a compatible server; no credentials in
-  the URL (`https://user:pass@…` — a key belongs in the credential store,
-  never in a document `GET /api/system-settings` returns wholesale); no
-  fragment. A stored slot that fails it resets to its default on read, and
-  the admin `PUT` refuses it (`AI_PROVIDER_SETTINGS_INVALID`).
-- *Not refused*: an internal host. `http://ollama.internal:11434/v1` is the
-  canonical self-hosted setup; **pointing the platform at an internal host
-  is an explicit administrator decision**, writable only with
-  `ai_config:write` / `system_settings:write`, both seeded Admin-only.
-- *Never redirected*: `noRedirectFetch` sends every request with `redirect:
-  'manual'` and turns **any** 3xx — same-origin included — into a synthetic
-  `redirect_refused` error the SDK raises as an ordinary `APIError`,
-  mapped to `AI_PROVIDER_UNAVAILABLE` with `details.status` and
-  `details.providerCode: "redirect_refused"`; the `Location` is never
-  followed or echoed. Refusing all redirects rather than only cross-origin
-  ones is deliberate: an OpenAI-shaped API root has no business redirecting
-  a POST, a same-origin redirect is nearly always a misconfigured `baseUrl`
-  (a missing `/v1`) better reported than absorbed, and "same origin" is
-  exactly the check a hostile DNS answer or proxy would aim to confuse.
-- `providers.openai.baseUrl` is left exactly as it was (#428).
-
-**Conformance.** The unchanged kit runs four times over the mocked
-transport (the real SDK with an injected `fetch`; the mock checks Azure's
-`api-key` header, not a bearer token): Azure in the Responses and the Chat
-Completions style, and the compatible adapter in both. The kit skips the
-ports neither adapter carries.
-
-### HTTP surface
-
-**Admin** (`/api/admin/ai/*`, `@ApiTags('AI Administration')`):
-
-| Method & path | Permission | Behaviour |
-|---|---|---|
-| `GET /api/admin/ai/config` | `ai_config:read` | `describeForAdmin()` — `{ enabled, keyPolicy, logPromptContent, defaults, usageRetentionDays, hostedTools, limits, providers:[{ id, displayName, enabled, baseUrl, settingsFields, apiVersion, apiStyle, deployments, requiresKey, keyStatus, supportedCapabilities }], version, updatedAt, updatedBy }` (the four provider-specific fields are `null` where unset or not applicable — §14.3). `keyStatus = { configured, hint, updatedAt, updatedByUserId }` from `credentials.describe` — **never** `getSecret`. `providers` = registry ids ∪ settings keys. |
-| `PUT /api/admin/ai/config` | `ai_config:write` | Body `{ enabled, keyPolicy, logPromptContent, defaults, usageRetentionDays?, hostedTools?, limits?, providers:{ [id]: { enabled, baseUrl?, apiVersion?, apiStyle?, deployments?, requiresKey? } } }` (the last four only for a provider whose `settingsFields` lists them; empty or null means the default — §14.3) (`usageRetentionDays`, `hostedTools` and `limits` omitted keep the stored value — the non-full-replace fields, so older clients still save; a `limits` that IS sent replaces the stored limits wholesale, so `{}` lifts them all (§15); the audit names each changed switch, `hostedTools.mcpAllowedHosts`, each changed `limits.*` number and `limits.perModel` as one field — never a host, never a value); `If-Match: <version>` (mismatch → 409, like storage). Enabling a provider id not in the registry → 400. Setting `keyPolicy='byok_with_org_fallback'` while that provider has no admin key → 400 `AI_KEY_REQUIRED` (a keyless provider is exempt). A provider's settings are validated against its own slot — 400 `AI_PROVIDER_FIELD_UNSUPPORTED` / `AI_PROVIDER_SETTINGS_INVALID` / `AI_BASE_URL_REQUIRED` (§13). Audit `ai_config:replace` (field names only). |
-| `PUT /api/admin/ai/providers/:provider/key` | `ai_config:write` | Body `{ apiKey }` (min 8). Verified with `adapter.verifyKey` **first**; invalid → 400 `AI_KEY_INVALID`, nothing stored. Audit `ai_config:set_key`. |
-| `DELETE /api/admin/ai/providers/:provider/key` | `ai_config:write` | Body `{ confirmation: 'REMOVE' }`. Audit `ai_config:delete_key`. Under `byok_with_org_fallback`, response includes `warnings:['ORG_FALLBACK_WITHOUT_KEY']`. |
-| `POST /api/admin/ai/providers/:provider/test` | `ai_config:write` | `@HttpCode(200)` always. Body `{ apiKey?, baseUrl? }` (blank ⇒ stored key). Checks: `credentials`, `list_models`, `responses_smoke`. The provider slot's other settings (§14.3) apply; a keyless provider with no key submitted or stored is tested with no key. Audit `ai_config:test` (codes only). |
-| `GET /api/admin/ai/models` | `ai_config:read` | Query `provider?, capability?, enabled?, includeDeprecated?(default false), q?`, paginated like `GET /api/admin/jobs`. |
-| `PATCH /api/admin/ai/models/:id` | `ai_config:write` | Body `{ enabled?, displayName?, capabilities? }`. Sets `capabilitySource='admin_override'`. Enabling a deprecated model → 409. Enabling an unclassified model with no capabilities supplied → 400. Audit `ai_model:update`. |
-| `POST /api/admin/ai/models/refresh` | `ai_config:write` | Body `{ provider }`. 409 if no admin key — unless the provider is keyless (`requiresKey: false`, §14.3). Enqueues `ai.catalog.refresh`; returns `{ jobId }`. Audit `ai_catalog:refresh_requested`. |
-| `GET /api/admin/ai/usage` | `ai_config:read` | Query `from?, to?, groupBy?(day), userId?, provider?, model?` → the usage report (§12). |
-
-**Public config** (any authenticated user, no `ai_config` permission
-needed — the `/api/notifications/config` pattern), and **user keys/usable
-models** below, both carry `@ApiTags('AI')` — issue #431 moved
-`GET /api/ai/config` onto this tag alongside the rest of `/api/ai/*`, so
-every consumer-facing route (as opposed to `/api/admin/ai/*`'s
-`AI Administration` tag) groups under one heading in the API reference:
-
-| Method & path | Auth | Behaviour |
-|---|---|---|
-| `GET /api/ai/config` | `@Auth()` | `{ enabled, keyPolicy, allowBackgroundRuns, allowRealtime, hostedTools:{ web_search, file_search, code_interpreter, image_generation, mcp }, providers:[{ id, displayName, enabled, hasOrgKey, supportsPreviousResponseId, requiresKey }] }` — `supportsPreviousResponseId: false` (Anthropic, Gemini, Azure OpenAI, OpenAI-compatible) means send the conversation as `input`; `previousResponseId` is refused (§5.7). `requiresKey: false` (#448) marks a keyless OpenAI-compatible server: nobody needs a key for it (§14.3). When `enabled=false`: `{ enabled:false, keyPolicy, allowBackgroundRuns:false, allowRealtime:false, hostedTools:{ …all false }, providers:[] }`. Never includes hints or keys. Reachable even while `ai.enabled=false` (§8). |
-
-**User keys and usable models** (`/api/ai/*`, all
-`@UseGuards(AiEnabledGuard)`, `@Auth({ permissions:[PERMISSIONS.AI_USE] })`):
-
-| Method & path | Behaviour |
-|---|---|
-| `GET /api/ai/keys` | List the caller's `UserAiKeyView[]` — one per enabled provider, configured or not. |
-| `PUT /api/ai/keys/:provider` | Body `{ apiKey }` (min 8, max 512). Verifies, then computes reachable models, then stores. |
-| `DELETE /api/ai/keys/:provider` | 204. Idempotent. |
-| `POST /api/ai/keys/:provider/test` | `@HttpCode(200)`. Body `{ apiKey? }` (blank ⇒ stored key). **Two checks only** — `credentials` (the provider accepts the key) and `list_models` (how many catalog models it can reach) — deliberately **not** the admin probe's third `responses_smoke` check above: a real model call bills whoever's key is being tested, and it is this platform's own money for the admin probe but a user's own provider account for this one, so this route never spends it on their behalf. |
-| `GET /api/ai/models` | `UsableAiModel[]` = `{ provider, modelId, displayName, capabilities, keySource }` (§7). |
-
-**Consumer responses and background runs** (`/api/ai/*`, same guard/auth):
-
-| Method & path | Behaviour |
-|---|---|
-| `POST /api/ai/responses` | `forUser(id).respond(...)` → `AiResponse` (includes `parsed` when structured). |
-| `POST /api/ai/responses/stream` | SSE (§10). `tools` takes hosted tools only (§5.4); function tools are not accepted over HTTP — they execute server-side code and are for in-process `runTools()` only. Request body limit 1 MB. |
-| `POST /api/ai/embeddings` | `forUser(id).embed(...)` → `{ provider, model, dimensions, vectors, usage }` (§5.1). `model` required; > 256 inputs → 400 `AI_INVALID_REQUEST`; a model without `embeddings` → 400 `AI_CAPABILITY_UNSUPPORTED`. Request body limit 1 MB. |
-| `POST /api/ai/images` | `generateImage(...)` → `{ runId, jobId }`, status 202 (§5.2). A model without `image_generation` → 400 `AI_CAPABILITY_UNSUPPORTED`. |
-| `POST /api/ai/images/edits` | `editImage(...)` → `{ runId, jobId }`, status 202. Inputs by storage object id: unknown → 404, another user's → 403, not ready / wrong type / too large → 400 `AI_INVALID_REQUEST`. |
-| `POST /api/ai/audio/transcriptions` | `transcribe(...)` → `{ runId, jobId }`, status 202 (§5.5). The recording by storage object id: unknown → 404, another user's → 403, not ready / not audio / over the provider limit → 400 `AI_INVALID_REQUEST`; a model without `audio_transcription` → 400 `AI_CAPABILITY_UNSUPPORTED`. |
-| `POST /api/ai/audio/speech` | `speak(...)` → `{ runId, jobId }`, status 202 (§5.6). `input` over 4096 characters → 400; a voice the model does not speak → 400 `AI_INVALID_REQUEST`; a model without `audio_speech` → 400 `AI_CAPABILITY_UNSUPPORTED`. The output carries `aiGenerated: true`. |
-| `POST /api/ai/realtime/sessions` | `createRealtimeSession(...)` → `{ provider, model, voice, clientSecret, expiresAt, connectUrl }`, status 201 (§5.8). `allowRealtime` off → 403 `AI_REALTIME_DISABLED`; a model without `realtime` → 400 `AI_CAPABILITY_UNSUPPORTED`; a voice the model does not list → 400 `AI_INVALID_REQUEST`. `clientSecret` is the ephemeral, 60-second, single-session provider secret: the **one** credential any AI route returns, and never the user's key. |
-| `POST /api/ai/runs` | `startRun(...)` → `{ runId, jobId }`, status 202. |
-| (all three responses routes) | `image`/`file` parts take `url` **or** `storageObjectId` (§5.3): unknown object → 404, another user's → 403, wrong modality → 400 `AI_CAPABILITY_UNSUPPORTED`, over 20/50 MiB → 400 `AI_INVALID_REQUEST`, storage unusable → 503 `AI_STORAGE_UNAVAILABLE`. |
-| `GET /api/ai/runs/:id` | Scoped to caller → `{ id, status, provider, modelId, output, errorCode, errorMessage, createdAt, completedAt }` (never the stored prompt, never the job id); `output` is the `AiResponse`, an image run's `{ type: 'images', storageObjectIds, … }`, a transcript `{ type: 'transcription', text, … }`, or speech `{ type: 'speech', storageObjectId, aiGenerated: true, … }`; 404 for another user's run. |
-| `POST /api/ai/runs/:id/cancel` | Scoped to caller; 200. |
-| `GET /api/ai/usage/me` | Query `from?, to?, groupBy?(day\|model)` → the caller's own usage report (§12). |
-
-## 15. Rate limits and output caps (Phase 3, issue #450)
-
-Even with BYOK an administrator needs guardrails: against abusive request
-volume, against one user draining the organization key when fallback is on,
-and against runaway generation. `ai.limits` (§2) holds them. **Every field is
-optional and absent means unlimited** — the default `{}` is Phase 1's
-behaviour exactly, so an upgrade never starts refusing calls by itself.
+`ai.limits` is optional throughout; absent means unlimited, and an empty
+`{}` costs no query.
 
 | Field | Window | Counts |
 |---|---|---|
-| `perUser.requestsPerMinute` | sliding 60 s | every inference call the user makes, whoever's key pays |
+| `perUser.requestsPerMinute` | sliding 60 s | every inference call, whoever's key pays |
 | `perUser.requestsPerDay` | UTC day | the same |
-| `orgKey.requestsPerDayPerUser` | UTC day | only calls the **org key** paid for (`keySource: 'org'`) |
-| `orgKey.tokensPerDayPerUser` | UTC day | `input_tokens + output_tokens` of those org-key calls |
-| `perModel['<provider>:<modelId>'].requestsPerMinutePerUser` | sliding 60 s | the user's calls to that one model |
-| `perModel['<provider>:<modelId>'].maxOutputTokens` | — | an output cap, not a rate (below) |
+| `orgKey.requestsPerDayPerUser` | UTC day | calls the org key paid for |
+| `orgKey.tokensPerDayPerUser` | UTC day | input + output tokens of those calls |
+| `perModel['<provider>:<modelId>'].requestsPerMinutePerUser` | sliding 60 s | the user's calls to that model |
+| `perModel['<provider>:<modelId>'].maxOutputTokens` | — | an output cap (gate step 5) |
 
-Every number is a positive integer (at most 10⁹). A `perModel` key is the
-lower-case provider id, a colon, and the model id exactly as the catalog
-lists it (`^[a-z0-9-]+:.+$`, e.g. `openai:gpt-4.1-mini`), at most 500 entries.
-Both `PUT /api/admin/ai/config` and `PATCH /api/system-settings` treat
-`limits` as ONE value: sent, it replaces the stored limits wholesale (a
-field-by-field merge could never lift a limit, and "absent" is how one is
-lifted); omitted, the stored limits stay. `GET /api/ai/config` does not
-publish them.
+- Numbers are positive integers ≤ 10⁹. `perModel` keys match
+  `^[a-z0-9-]+:.+$`, at most 500 entries.
+- `limits` is **one value**: a `PUT` that sends it replaces it whole (`{}`
+  lifts all limits); omitting it keeps it. `GET /api/ai/config` does not
+  publish it.
+- `AiLimitsService` is gate step 6b, after key resolution. It runs on every
+  round trip, including each `runTools` step and each queued run **when it
+  executes**, never at enqueue. A queued run over a limit is deferred.
+- **What counts:** one `ai_usage_events` row with `keySource` `user`, `org`
+  or `none`. `none` never counts against `orgKey.*`. Failed and cancelled
+  calls count. A refused call writes no row.
+- **Minute windows** take the larger of an in-process log (reserved
+  synchronously, exact within one replica) and a `COUNT(*)` over
+  `ai_usage_events` for the last 60 s (agreement across replicas). Overshoot is
+  bounded by calls in flight on other replicas. Daily windows read the
+  database only.
+- **Refusal:** `429 AI_RATE_LIMITED` with
+  `details: { limit, max, window: 'minute'|'day', keySource?, provider, model, retryAfterMs }`.
+  The filter adds `Retry-After` in whole seconds.
 
-**Where it sits.** `AiLimitsService` (`ai/runtime/ai-limits.service.ts`) is
-step 6b of the gate pipeline (§9 of #432): right **after** key resolution,
-because the org-key limits must know whose key pays — a user on their own
-key is never counted against `orgKey.*`, and a user with no usable key still
-hears `AI_KEY_REQUIRED` rather than a rate limit. It runs inside the shared
-`context()` step, so every provider round-trip passes it: `respond`,
-`respondStructured`, `stream`/`openStream`, **each step** of a `runTools`
-loop, `embed`, and the queued media runs (`executeImageRun`,
-`executeTranscriptionRun`, `executeSpeechRun`, and the `ai.response.run`
-handler's `respond`) **when the job executes**. The enqueue-only calls —
-`startRun`, `generateImage`/`editImage`, `transcribe`, `speak` — never reach
-it, so a queued request is counted once, when it actually calls the
-provider, never twice. A queued run refused by a limit is **deferred**, not
-failed: the handlers already turn `AI_RATE_LIMITED` into the queue's
-`RateLimitError` (`toRateLimitError()`), with the limit's `retryAfterMs`, on
-the separate rate-limit budget (`JOBS_RATELIMIT_*`), and the run returns to
-`pending`.
+### 2.23 Errors
 
-**What counts.** One `ai_usage_events` row (§12) is one request. Only
-`keySource` `user`/`org`/`none` rows count — a catalog sync
-(`admin_discovery`) is the deployment's own call. A keyless call (`none`,
-#448) counts like a user's own-key call: against `perUser.*` and
-`perModel.*`, never against `orgKey.*`, since no organization key pays for
-it. Failed and cancelled round-trips count (they
-reached the provider). A call a limit refused records **no** row, so
-hammering a limit does not extend the lock-out.
+Every failure is an `AiError` (`ai/core/ai-error.ts`) with a stable code. No
+raw SDK error escapes an adapter. The envelope's top-level `code` stays the
+status-derived value (`FORBIDDEN`, …); **the AI code travels in
+`details.reason`**. Switch on `details.reason`, never on `message`.
 
-**Two sources for a minute window.** There is no Redis (or any shared cache)
-in this template, and adding one for this alone was rejected (below). A
-per-minute limit is therefore answered from two sources, and the larger
-count wins:
+| Code | HTTP | Meaning |
+|---|---|---|
+| `AI_DISABLED` | 403 | Kill switch is off. |
+| `AI_PROVIDER_DISABLED` | 403 | Provider not enabled or not registered. |
+| `AI_KEY_REQUIRED` | 403 | No key resolves under the active policy. |
+| `AI_KEY_INVALID` | 400 | A submitted key failed `verifyKey`. |
+| `AI_MODEL_NOT_ENABLED` | 403 | Model not enabled, or deprecated. |
+| `AI_MODEL_NOT_REACHABLE` | 403 | Enabled, but the resolved key cannot reach it. |
+| `AI_CAPABILITY_UNSUPPORTED` | 400 | Model or provider lacks a needed capability (including `previous_response_id`). |
+| `AI_TOOL_DISABLED` | 403 | Hosted tool switched off, or MCP host not allowed. |
+| `AI_REALTIME_DISABLED` | 403 | `ai.defaults.allowRealtime` is off. |
+| `AI_RATE_LIMITED` | 429 | Provider throttle or an `ai.limits` limit; `details.retryAfterMs` when known. |
+| `AI_PROVIDER_UNAVAILABLE` | 503 | Transport failure, timeout, abort (`details.aborted`), refused redirect (`details.providerCode: "redirect_refused"`), or no endpoint (`details.missing: "baseUrl"`). |
+| `AI_CONTENT_FILTERED` | 422 | The provider's content filter refused. |
+| `AI_INVALID_REQUEST` | 400 | The request is malformed or over a limit. |
+| `AI_STRUCTURED_OUTPUT_INVALID` | 502 | Output did not parse against the schema. |
+| `AI_STORAGE_UNAVAILABLE` | 503 | Object storage unconfigured or unusable for a storage-backed input or output. |
 
-1. an **in-process log** of admitted calls per `userId` (and per
-   `userId:provider:model`), checked and reserved **synchronously**, before
-   any `await` — so a burst of concurrent calls in one replica cannot all
-   pass the check before any of them has finished and written its row; a
-   call refused later in the same gate releases its reservation;
-2. a **`COUNT(*)` over `ai_usage_events`** for that user (and model) with
-   `created_at` in the last 60 seconds — served by the `(user_id,
-   created_at)` index — so several API replicas agree on one budget.
+`AiError.cause` is non-enumerable, so an SDK error echoing headers never
+reaches `JSON.stringify`. In a job, `throw err.toRateLimitError() ?? err`
+defers on a throttle instead of spending an attempt.
 
-The trade-off, stated plainly: the database count **lags by in-flight
-requests** — a usage row is written when a round-trip *finishes*, so calls
-still running on *other* replicas are invisible to it. Within one replica the
-local log is exact; across replicas the limit can be overshot by at most the
-number of calls in flight elsewhere. That is the right precision for abuse
-protection and the wrong tool for billing, which is what the usage report
-(§12) is for.
+`PUT /api/admin/ai/config` validates each provider against its own slot. Its
+refusals are plain `400`s with `details.reason` and `details.provider`:
 
-Daily windows read the database only: counts (and, for tokens, sums) since
-**UTC midnight**, the same day boundary the usage report uses.
+| `details.reason` | When |
+|---|---|
+| `AI_UNKNOWN_PROVIDER` | No settings slot for that id. |
+| `AI_PROVIDER_NOT_REGISTERED` | Enabling a provider with no registered adapter. |
+| `AI_KEY_REQUIRED` | Fallback policy while an enabled, key-requiring provider has no admin key. |
+| `AI_PROVIDER_FIELD_UNSUPPORTED` | A field the slot does not have (`details.field`). |
+| `AI_PROVIDER_SETTINGS_INVALID` | The slot fails its schema (`details.fields`). |
+| `AI_BASE_URL_REQUIRED` | Enabling `azure-openai` or `openai-compatible` without `baseUrl`. |
 
-**When no limit applies there is no query at all.** A deployment with `{}`,
-or with limits that do not apply to this call (org-key limits for a user on
-their own key, a `perModel` entry for another model), pays nothing for this
-feature.
+### 2.24 The five providers
 
-**The refusal.** `AiError('AI_RATE_LIMITED')`, 429, with:
+**`openai`** (`providers/openai/`). The Responses API with every port:
+`responses`, `images`, `audio`, `embeddings`, `realtime`. The only provider
+that stores responses (`previousResponseId` works) and the only one with
+hosted tools. Stored images go by presigned URL; files are uploaded to the
+Files API (`purpose: 'user_data'`) and deleted after the response. The
+folder also holds the OpenAI wire family's shared pieces (errors, Responses
+and Chat Completions engines, pinned client options, `noRedirectFetch`)
+reused by the next two adapters.
 
-```ts
-details: { reason: 'AI_RATE_LIMITED',
-           limit: 'perUser.requestsPerMinute' | 'perUser.requestsPerDay'
-                | 'orgKey.requestsPerDayPerUser' | 'orgKey.tokensPerDayPerUser'
-                | 'perModel.requestsPerMinutePerUser',
-           max: number, window: 'minute' | 'day',
-           keySource?: 'org', provider: string, model: string,
-           retryAfterMs: number }
+**`anthropic`** (`providers/anthropic/`). The Messages API, `responses` port
+only, stateless (`supportsPreviousResponseId: false`), no hosted tools
+(`supportsHostedTools: false`). `max_tokens` is required, defaulting to
+16,000 (`ANTHROPIC_DEFAULT_MAX_TOKENS`) capped at the model's limit.
+Reasoning uses adaptive thinking (Claude 4.6+) or a thinking budget
+(Claude 3.7–4.5); a thinking signature travels only as `AI_PROVIDER_STATE`.
+Structured output uses native `output_config.format` or a forced tool on
+older models. Stored images by presigned URL, documents inline.
+
+**`gemini`** (`providers/gemini/`). `generateContent` on the Gemini Developer
+API (`v1beta`, `vertexai: false`, no SDK environment reads), `responses` and
+`embeddings` ports, stateless, no hosted tools. Thought signatures on
+response parts replay through `AI_PROVIDER_STATE`. The classifier is enriched
+by the listing's `metadata`. Every stored input is sent inline. Embeddings
+report no token count.
+
+**`azure-openai`** (`providers/azure-openai/`). A composition of the OpenAI
+pieces: one `AzureOpenAI` client per call with `<baseUrl>/openai`, the slot's
+`apiVersion` (default `2025-04-01-preview`) and the key in the `api-key`
+header. `apiStyle` picks Responses (default) or Chat Completions.
+`deployments` maps model ids to deployment names (falling back to the id);
+when set, its keys are the model list. Classified with OpenAI's table minus
+`hosted_tools`. `responses` and `embeddings`, stateless flags.
+
+**`openai-compatible`** (`providers/openai-compatible/`). Ollama, vLLM, LM
+Studio, llama.cpp or a gateway at `baseUrl` (including its `/v1`), key as a
+bearer token. `apiStyle` defaults to Chat Completions, which refuses
+reasoning effort, `previousResponseId` and hosted tools. **Every model is
+unclassified**; an administrator declares capabilities before enabling it.
+`requiresKey: false` makes it keyless (§2.2). Stored inputs are inline.
+
+**Endpoint safety** for the last two: `baseUrl` must be `https` (Azure) or
+`http`/`https` (compatible), with no credentials and no fragment. Internal
+hosts are allowed; pointing at one is an administrator decision.
+`noRedirectFetch` refuses **every** 3xx and never follows or echoes
+`Location`.
+
+### 2.25 The Playground
+
+`/ai` (`apps/web/src/pages/AiPlaygroundPage.tsx`) is the reference browser
+client. It calls only the HTTP surface.
+
+- **Modes:** Chat, Image, Transcribe, Speech, Embeddings, Voice, each tied to
+  one capability and listing only usable models that declare it
+  (`components/ai/playground/aiPlaygroundModes.ts`). A mode no model serves is
+  `aria-disabled` with a reason.
+- **Chat** streams or queues a run, attaches storage objects per the model's
+  modalities, and offers hosted tools that are switched on (not MCP). For a
+  provider that cannot chain it resends the conversation as `input`.
+- **Image, Transcribe, Speech** poll their runs. The speech player always
+  shows "AI-generated audio".
+- **Embeddings** shows vectors and, for ≤ 10 inputs, a cosine similarity
+  matrix.
+- **Voice** is hidden unless `allowRealtime` is true. `useAiRealtimeSession`
+  (`apps/web/src/hooks/useAiRealtimeSession.ts`) asks for the microphone
+  first, mints, and keeps `clientSecret` in a local variable only.
+- Errors render through one `AiErrorAlert` mapping.
+
+## 3. Configuration and permissions
+
+**Settings:** the `ai` namespace (§2.1). **Environment:** none. Do not add
+`OPENAI_API_KEY` or any equivalent.
+
+**Permissions** (matrix in [ARCHITECTURE.md](../ARCHITECTURE.md)):
+
+- `ai_config:read` / `ai_config:write` — deployment-wide AI configuration.
+  Seeded Admin only.
+- `ai:use` — call AI with one's own key (or the org fallback). Seeded to
+  Admin and Contributor, **not Viewer**. Viewer is the default role for new
+  signups; an administrator grants `ai:use` to a Viewer explicitly or promotes
+  the account.
+
+**Settings UI:** the admin `AI` group has **AI** (`/admin/settings/ai`, no
+`feature`, so it stays reachable to switch AI on), **AI Models** and **AI
+Usage** (both `feature: 'ai'`), all gated on `ai_config:read`. The user card
+**AI Keys** (`/settings/ai`) is gated on `ai:use` with `feature: 'ai'`.
+
+**Admin API** (`/api/admin/ai/*`, tag `AI Administration`, not behind
+`AiEnabledGuard`):
+
+| Route | Purpose | Permission |
+|---|---|---|
+| `GET /api/admin/ai/config` | Namespace plus per-provider `enabled`, `baseUrl`, `settingsFields`, slot fields, masked `keyStatus`, `supportedCapabilities`; never the key | `ai_config:read` |
+| `PUT /api/admin/ai/config` | Replace config; `If-Match` (409 on mismatch); omitted `usageRetentionDays`/`hostedTools`/`limits` kept | `ai_config:write` |
+| `PUT /api/admin/ai/providers/{provider}/key` | Set admin key; verified first, 400 `AI_KEY_INVALID` stores nothing | `ai_config:write` |
+| `DELETE /api/admin/ai/providers/{provider}/key` | Remove admin key; body `{"confirmation":"REMOVE"}`; warns `ORG_FALLBACK_WITHOUT_KEY` | `ai_config:write` |
+| `POST /api/admin/ai/providers/{provider}/test` | `credentials`, `list_models`, `responses_smoke` (billed); always 200 | `ai_config:write` |
+| `GET /api/admin/ai/models` | Paginated catalog, filterable | `ai_config:read` |
+| `PATCH /api/admin/ai/models/{id}` | Enable/disable, override capabilities (`admin_override`); 409 for deprecated, 400 unclassified without capabilities | `ai_config:write` |
+| `POST /api/admin/ai/models/refresh` | Enqueue `ai.catalog.refresh`; 409 without admin key unless keyless | `ai_config:write` |
+| `GET /api/admin/ai/usage` | Usage report, any `groupBy`, filters `userId`/`provider`/`model` | `ai_config:read` |
+
+**Consumer API** (`/api/ai/*`, tag `AI`, `AiEnabledGuard` + `ai:use` unless
+noted):
+
+| Route | Purpose |
+|---|---|
+| `GET /api/ai/config` | Any signed-in user, open while AI is off: `enabled`, `keyPolicy`, `allowBackgroundRuns`, `allowRealtime`, `hostedTools`, providers with `hasOrgKey`, `supportsPreviousResponseId`, `requiresKey` |
+| `GET /api/ai/keys` | Caller's keys, masked, one per enabled provider |
+| `PUT /api/ai/keys/{provider}` | Set key (8–512 chars): verify, compute reachable models, store |
+| `DELETE /api/ai/keys/{provider}` | Remove key; 204, idempotent |
+| `POST /api/ai/keys/{provider}/test` | `credentials`, `list_models` only (no billed call); always 200 |
+| `GET /api/ai/models` | Usable models (§2.18) |
+| `POST /api/ai/responses` | One response |
+| `POST /api/ai/responses/stream` | Same, as SSE (§2.6) |
+| `POST /api/ai/embeddings` | Embeddings (§2.11) |
+| `POST /api/ai/images`, `/images/edits` | Queue image generation or edit; 202 |
+| `POST /api/ai/audio/transcriptions` | Queue transcription; 202 |
+| `POST /api/ai/audio/speech` | Queue speech; 202 |
+| `POST /api/ai/realtime/sessions` | Mint a realtime session; 201 |
+| `POST /api/ai/runs` | Queue a background response; 202 |
+| `GET /api/ai/runs/{id}` | One run, caller's only |
+| `POST /api/ai/runs/{id}/cancel` | Cancel a run; idempotent |
+| `GET /api/ai/usage/me` | Caller's usage, `groupBy` `day` or `model` |
+
+## 4. Extending it in a fork
+
+To **use** AI in a feature, follow the recipe in
+[apps/api/src/ai/README.md](../../apps/api/src/ai/README.md): import
+`AiModule`, inject `AiService`, call `forUser(userId)`.
+
+To **add a provider**, implement an adapter against the existing contract.
+Nothing in the registry, the gate pipeline, the admin API or the HTTP
+surface changes. Copy the closest worked example: `providers/openai/`
+(Responses API, every port), `providers/anthropic/` (Messages API,
+stateless), `providers/gemini/` (`generateContent`, metadata-enriched
+classifier), or compose the OpenAI pieces as `providers/azure-openai/` and
+`providers/openai-compatible/` do for an OpenAI-wire server.
+
+1. **Implement `AiProviderAdapter`** (`ai/core/provider-adapter.interface.ts`)
+   in `apps/api/src/ai/providers/<provider>/`: `id` (permanent once jobs,
+   usage or keys reference it), `displayName`, `listModels`, `verifyKey`,
+   `classifyModel`, and only the ports the provider genuinely supports.
+   Declare `supportsPreviousResponseId: false` if it stores no responses and
+   `supportsHostedTools: false` if it has none of the hosted tools. Declare
+   `fileInputStrategy` if it accepts stored inputs. Import the provider's SDK
+   only in this folder.
+2. **Self-register** from `onModuleInit()`:
+
+   ```ts
+   onModuleInit(): void {
+     this.registry.register(this);
+   }
+   ```
+
+   The last registration wins, with a warning, as in `JobHandlerRegistry`.
+3. **Write a classifier**: a curated rule table over known model-id shapes,
+   returning `AiModelCapabilities` (`ai/core/capabilities.ts`) or `null` for
+   an unknown id. If the listing carries facts, return them as
+   `AiDiscoveredModel.metadata` and use `classifyModel`'s optional second
+   argument to enrich the table.
+4. **Map every error onto `AiErrorCode`** (`ai/core/ai-error.ts`) with
+   `AiError.wrap(err, code, message)` or a specific `AiError`. Put only
+   status, provider error type and request id in `details`, never provider
+   text.
+5. **Run the conformance kit** (`describeAiProviderConformance`,
+   `apps/api/src/ai/testing/conformance.ts`) over a mocked transport that
+   validates what the real API validates (the real SDK with an injected
+   `fetch`). It asserts: `listModels` returns ids; `verifyKey` maps ok and
+   invalid correctly; `classifyModel` returns schema-valid capabilities or
+   `null`; if `responses` exists, `create` returns `outputText`, `stream`
+   emits `response.created … response.completed` with deltas that equal the
+   final text, structured output yields a valid `parsed`, a function-tool
+   round trip works (chained, or replayed per the declared flag), and an
+   unsupported capability is `AI_CAPABILITY_UNSUPPORTED`; and every error is
+   an `AiError`.
+6. **Register the provider id**: add it to `AI_PROVIDER_IDS`
+   (`common/schemas/settings.schema.ts`), give it a `providers.<id>` slot
+   everywhere the namespace is declared (`settings-parity.spec.ts` checks
+   one slot per id), add `<provider>.module.ts` to `AiModule`'s imports, and
+   add an SDK boundary spec like `providers/gemini/gemini-sdk-boundary.spec.ts`.
+
+A new AI route needs `AiEnabledGuard` plus `ai:use` (consumer) or
+`ai_config:*` (admin, no guard). A new AI job type must stay server-only.
+A new AI settings page follows the
+[Settings UI Pattern](settings-ui.md) and declares `feature: 'ai'`. The
+guardrails below discover all of these automatically.
+
+## 5. Guardrails
+
+| Invariant | Test |
+|---|---|
+| Every `/api/ai/*` route except `GET /api/ai/config` answers `403 AI_DISABLED` while off; every `/api/admin/ai/*` route stays reachable; every `ai.*` job makes zero provider calls while off (routes and job types discovered, not listed) | `apps/api/test/ai/ai-kill-switch.integration.spec.ts` |
+| Every discovered route × Admin/Contributor/Viewer/anonymous, expected permission read from `@Auth()` metadata and grants from `prisma/seed-data.ts` | `apps/api/test/ai/ai-rbac-matrix.integration.spec.ts` |
+| Sentinel keys (admin, this user, another user) never appear in bodies, headers, logs, audit `meta`, usage rows, run rows or errors; the ephemeral secret only in `data.clientSecret` | `apps/api/test/ai/ai-secret-egress.integration.spec.ts` |
+| The byok/fallback/keyless resolution rule over every inference route, sync and queued | `apps/api/test/ai/ai-key-policy.integration.spec.ts` |
+| Every `ai.*` job type is in `JobHandlerRegistry.serverOnlyTypes()` | `apps/api/test/ai/ai-jobs-server-only.spec.ts` |
+| No file outside `ai/providers/<provider>/` imports a provider SDK, in `apps/api/src` or `apps/web/src` | `apps/api/test/ai/ai-no-sdk-leak.spec.ts` |
+| No provider SDK in `ai/core` | `apps/api/src/ai/core/no-provider-sdk.spec.ts` |
+| Each SDK confined to its folder(s) | `apps/api/src/ai/providers/openai/openai-sdk-boundary.spec.ts`, `anthropic/anthropic-sdk-boundary.spec.ts`, `gemini/gemini-sdk-boundary.spec.ts` |
+| AI registry cards carry the exact permission their controller enforces | `apps/web/src/__tests__/config/aiSettingsRegistry.test.ts` |
+| Resolution matrix; org key never returned under `byok` | `apps/api/src/ai/keys/ai-key-resolver.service.spec.ts` |
+| Capability support derived from ports only | `apps/api/src/ai/core/provider-registry.spec.ts` |
+| `AiError` never serializes key material | `apps/api/src/ai/core/ai-error.spec.ts` |
+| Catalog sync never overwrites `admin_override`, never enables, deprecates without deleting | `apps/api/src/ai/catalog/ai-catalog.service.spec.ts` |
+| AI crons only enqueue | `apps/api/test/jobs/cron-enqueue-only.spec.ts` |
+| Streaming nginx location unbuffered | `apps/api/test/ai/ai-stream-nginx.spec.ts` |
+| Seed grants (Viewer lacks `ai:use`) | `apps/api/test/prisma/seed-data.spec.ts` |
+| One provider slot per id | `apps/api/src/common/schemas/settings-parity.spec.ts` |
+| Each adapter passes the conformance kit | `apps/api/src/ai/testing/fake-ai-provider.conformance.spec.ts`, `apps/api/src/ai/providers/*/*.adapter.conformance.spec.ts` |
+
+## 6. Design decisions
+
+- **Owned contract, not the Vercel AI SDK or LangChain.** The governance
+  model (two keys, a resolution invariant, per-user reachability, kill
+  switch, audit) is this template's. An adapter may use any SDK internally.
+- **Responses-shaped, not lowest-common-denominator chat.** A bare
+  `chat(messages)` cannot express reasoning, hosted tools, structured output
+  or background semantics.
+- **Ports declare capabilities.** A `supportedCapabilities` list could drift
+  from what the adapter implements; port presence cannot.
+- **User keys in `user_ai_keys`, not `CredentialsService` or `user_settings`.**
+  The credential store has no user ownership or cascade; `user_settings` is
+  returned whole on read.
+- **No environment variables.** Two sources of truth for the live credential
+  is the ambiguity this design removes, and a per-user key has no
+  environment shape.
+- **No browser-side provider calls.** The key would reach the browser, and
+  every gate and usage row would become optional.
+- **AI jobs never run on nodes.** Neither key may be brokered to a remote
+  machine. This is permanent.
+- **`ai:use` separate from `ai_config:*`.** "May use AI" can be granted
+  broadly while "may reconfigure AI" stays Admin-only. Viewer is excluded
+  because a default grant let a new account spend the org key.
+- **`ai_config:*`, not `system_settings:*`.** A wrong key policy or enabled
+  model has a blast radius specific to AI.
+- **Refuse `previousResponseId` on stateless providers.** Ignoring it gives
+  a wrong answer that looks right; an in-process response cache breaks across
+  replicas and holds conversations with no retention.
+- **Provider state on a symbol key.** A normal field would need every
+  serializer to remember to strip it.
+- **Realtime via an ephemeral secret, not a media relay.** Relaying puts the
+  API in the data path of every second of audio. Client-reported usage was
+  rejected as untrustworthy; sessions are counted instead.
+- **Rate limits without Redis.** A shared cache for abuse protection that
+  tolerates a small overshoot is the wrong trade. A fork needing exact limits
+  can put one behind `AiLimitsService`.
+- **Count at execution, not enqueue.** Counting both would double-count and
+  lock users out for work not yet run.
+- **Refuse all redirects on admin-typed endpoints.** A same-origin redirect is
+  usually a misconfigured `baseUrl`, and "same origin" is what a hostile DNS
+  answer would target.
+- **Static stateless flags for Azure and compatible servers.** Resolving the
+  flag per call from `apiStyle` buys little; resending history works in both
+  styles.
+- **Hosted tools not mapped for Gemini.** Its grounding citations and code
+  execution results do not fit the neutral result types; an honest refusal
+  beats a lossy mapping.
+
+## 7. Verification
+
+```bash
+cd apps/api
+npm test -- src/ai test/ai
+npm run test:db -- ai-usage
+cd ../web && npm test -- ai
 ```
 
-`retryAfterMs` is, for a minute window, the time until enough counted calls
-have left the window for one more to fit (the `(count − max + 1)`-th oldest
-call's timestamp + 60 s − now); for a daily window, the time until the next
-UTC midnight; never under one second. The global `HttpExceptionFilter` adds
-`Retry-After` (seconds, rounded up) to any 429 whose `details` carry
-`retryAfterMs` — provider throttles included. A call exactly 60 s old has
-already left the window, in the log, the query and the arithmetic alike.
+By hand, following the [runbook](../runbooks/ai-configuration.md):
 
-**Per-model output cap.** `perModel[…].maxOutputTokens` joins the gate pipeline's step-5
-clamp: the call's cap is the **smaller** of `defaults.maxOutputTokensCap` and
-the model's `maxOutputTokens`, applied whether or not the request named a
-limit of its own, then bounded by the model's own catalog limit as before. A
-background run stores the clamped value and is clamped again, against the
-limits then in force, when it executes.
+1. At `/admin/settings/ai`, switch AI on, enable a provider and store an admin
+   key. **Test** should pass all three checks.
+2. Refresh the catalog, then enable a model at `/admin/settings/ai/models`.
+3. As a Contributor, add a key at `/settings/ai`, open `/ai` and send a chat
+   message. The answer streams.
+4. `/admin/settings/ai/usage` shows the request.
+5. Switch AI off. `/ai` disappears and `POST /api/ai/responses` answers
+   `403` with `details.reason: "AI_DISABLED"`.
 
-## Rejected alternatives
+## History
 
-- **Adopting the Vercel AI SDK (or a similar third-party SDK) as the
-  public contract.** Rejected: this platform's contract must be something
-  this template owns and can extend without waiting on an upstream
-  release — a curated capability model per provider (§4), a governance
-  model with two distinct keys and a resolution rule with a hard security
-  invariant (§3), and per-user encrypted BYOK storage tied to this
-  repository's own cipher and audit conventions are all specific to this
-  application's shape and would sit awkwardly bolted onto a generic SDK
-  designed for a different (typically client-side, single-key) use case.
-  Nothing stops an adapter's *implementation* from using such an SDK
-  internally to talk to a provider — that is an adapter's private
-  business — but the platform's own types, gates and storage are this
-  repository's, not a dependency's.
-- **LangChain**, for the same reason and more acutely: its abstractions
-  (chains, agents, memory) solve a different problem than "one governed,
-  BYOK, capability-gated facade a fork can inject anywhere," and adopting
-  it would mean designing this platform's actual requirements — the kill
-  switch, the key-resolution rule, per-user reachability, the audit trail —
-  as a layer bolted on top of an abstraction that has no concept of any of
-  them, rather than as the platform itself.
-- **Storing user BYOK keys in `CredentialsService`** instead of a dedicated
-  `user_ai_keys` table. Rejected: that store is designed for deployment-wide
-  secrets with no user ownership, no cascade-delete-on-user-removal
-  semantics, and no natural `(userId, provider)` addressing — modeling a
-  per-user key there would mean either inventing user-scoping inside a
-  store that was never designed for it, or accepting that a deleted user's
-  keys silently outlive them. `user_ai_keys.userId` with `onDelete: Cascade`
-  makes "the key belongs to the user, and disappears exactly when they do"
-  a database-level guarantee instead of an application-level convention
-  that could be missed.
-- **Storing user keys in `user_settings` JSONB.** Rejected on the same
-  principle CLAUDE.md's storage-config section already states for the
-  storage secret: `user_settings` (like `system_settings`) is returned
-  wholesale on read, and a column that must never appear in a bulk read has
-  no business living inside a document whose entire contract is "return
-  everything." A dedicated encrypted column, read by name, one row per
-  provider, is the only shape that keeps "never returned by a GET" true by
-  construction rather than by remembering to redact it.
-- **A node-eligible AI job** (`nodeResultSchema` + `persistNodeResult` on
-  `ai.catalog.refresh` or `ai.response.run`). Rejected categorically, not
-  provisionally — see §9: both job types use a key (admin or user) that
-  must never leave the server, and MANDATORY queue rule 3 forbids a node
-  persisting a job-scoped credential at all. There is no broker design that
-  makes this safe; it is simply out of scope for any worker node, ever, for
-  this platform.
-- **Environment-variable configuration** (`OPENAI_API_KEY` or equivalent),
-  even as a migration aid or fallback alongside the runtime configuration.
-  Rejected for the identical reason `docs/specs/storage-providers.md` §11
-  gives for not keeping a permanent `STORAGE_PROVIDER`/`S3_BUCKET`
-  environment fallback: two sources of truth for which credential is live is
-  the exact ambiguity this platform's admin-governed model exists to
-  remove, and per-user BYOK in particular has no sensible environment-variable
-  shape at all — a key belongs to one user, not to the process.
-- **A single chat-completions-shaped interface** as the normalized contract,
-  instead of the Responses-API-shaped request/response of §5. Rejected: see
-  §4 — reasoning efforts, hosted tools, structured outputs and
-  background/streaming semantics cannot be expressed by a bare
-  `chat(messages)` shape without inventing exactly the richer shape this
-  spec already defines, so starting from the lowest common denominator
-  would mean redesigning the contract the first time any of those features
-  was needed rather than having room for them from the start.
-- **A Redis (or other shared-cache) rate limiter** for §15's per-minute
-  windows. Rejected: this template has no such dependency, and adding a
-  stateful service to every deployment — to be provisioned, secured, backed
-  up and monitored — for abuse protection that tolerates a small overshoot
-  is the wrong trade. The in-process log is exact within a replica, the
-  indexed `ai_usage_events` count makes replicas agree, and the only error
-  is bounded by calls in flight on other replicas (§15). A fork that needs
-  exact cross-replica limits can put a shared store behind
-  `AiLimitsService` without touching a caller.
-- **Counting at enqueue time as well as at execution** for queued AI work.
-  Rejected: a queued request would be counted twice — once as an intent,
-  once as the call — and a burst of enqueues could lock a user out of
-  synchronous calls for work that has not run yet. A limit is checked when
-  the provider is actually called; a queued run over it is deferred (§15).
-- **Browser-side provider calls** (the web app calling OpenAI directly with
-  a key handed to the client). Rejected outright: it would require shipping
-  a user's own provider key to their browser (defeating the point of
-  server-side encrypted storage, §2), makes the kill switch and every gate
-  in §7/§9 unenforceable (a client can simply not call the gate), and
-  removes every usage/audit row this platform's accounting depends on
-  (§12). Every provider call in this platform happens server-side, with no
-  exception.
-
-## The Playground (`/ai`, web reference UI — #434, #445, #449)
-
-The Playground is the template's copyable example of consuming every AI
-capability from the browser, and a user's way to prove their key works. It
-calls only the HTTP surface above — never a provider, never a key.
-
-- **Modes.** A segmented control (not a settings tab strip) switches between
-  Chat, Image, Transcribe, Speech, Embeddings and Voice. Each mode is defined
-  by one capability (`responses`, `image_generation`, `audio_transcription`,
-  `audio_speech`, `embeddings`, `realtime`) and lists only the usable models (§7) that
-  declare it; a mode no usable model serves stays focusable but
-  `aria-disabled`, with the reason as its tooltip. Nothing is keyed on a model
-  name (`apps/web/src/components/ai/playground/aiPlaygroundModes.ts`). A
-  mode's panel stays mounted once visited, so its inputs and any run it is
-  polling survive a switch.
-- **Chat** streams (`/responses/stream`) or queues a background run, with
-  controls shown only for what the model declares (§4). Attachments (§5.3)
-  are offered per `vision_input`/`file_input` **and** the matching input
-  modality, pre-checked against the 20/50 MiB caps, uploaded through the
-  storage API and sent by `storageObjectId`. Hosted tools (§5.4) appear only
-  when the model has `hosted_tools` and the tool is switched on in
-  `GET /api/ai/config` `hostedTools`; web search, file search (vector store
-  ids typed in), code interpreter and image generation are offered — MCP is
-  deliberately not, since it needs a secret header a playground should not
-  invite users to paste. Citations, tool results and hosted images render
-  under the answer; only `http(s)` URLs from a model or provider are linked.
-- **Image, Transcribe, Speech** are run-backed: one `POST` answering 202, then
-  the shared `useAiRun` poll (`startWith`) and `AiRunCard`. Inputs (an image
-  and mask to edit, a recording) are uploaded and read back until `ready`
-  first. Outputs are the user's storage objects, shown from short-lived
-  signed download URLs: an image gallery (alt text from the prompt), a
-  transcript with timestamped segments and a copy button, and a labelled
-  `<audio controls>` player that always shows **"AI-generated audio"** (the
-  speech disclosure, §5.6). Speech voices come from the model's `capabilities.voices`.
-- **Embeddings** is synchronous: one input per line (≤ 256), then count,
-  dimensions, the first 8 values per vector and — for ≤ 10 inputs — a cosine
-  similarity matrix computed in the browser from the returned vectors.
-- **Voice** (#449, §5.8) is a live speech-to-speech call. It is **hidden**,
-  not merely disabled, unless `GET /api/ai/config` reports
-  `allowRealtime: true` (an older API that omits the flag reads as off), and
-  it is disabled with a reason when no usable model declares `realtime`.
-  Model, voice (the model's `capabilities.voices`) and optional instructions
-  are chosen before Start. `useAiRealtimeSession`
-  (`apps/web/src/hooks/useAiRealtimeSession.ts`) asks for the microphone
-  **first**, so a slow permission prompt cannot eat the secret's ~60-second
-  connect window. It then mints the session and opens an `RTCPeerConnection`
-  with the mic track and the `oai-events` data channel. It POSTs the SDP offer
-  straight to `connectUrl` with `Authorization: Bearer <clientSecret>` and
-  plays the remote track through an `<audio autoplay>` element. The
-  `clientSecret` lives only in a local variable for that one exchange; it is
-  never put in React state, rendered or logged, and a secret already past
-  `expiresAt` is never sent. When the channel opens, the hook sends a
-  `session.update` that turns on input transcription. It then reads both
-  sides into one `aria-live="polite"` transcript labelled You / Assistant.
-  The events it reads are `conversation.item.input_audio_transcription.*`,
-  `response.output_audio_transcript.*`, and the beta
-  `response.audio_transcript.*` names. Each line is keyed by `item_id` and
-  ordered by `conversation.item.created`. Mute disables the mic track. The
-  controls also include Stop and an elapsed `mm:ss` timer. Stop, a failure
-  and unmount all close the channel and the connection, stop the mic and clear
-  the timer. The call keeps running while another mode is shown. Each failure
-  has its own copy: mic blocked (`NotAllowedError`), no mic
-  (`NotFoundError`), no WebRTC, the mint's AI code (`AI_REALTIME_DISABLED`
-  and the rest through `AiErrorAlert`), an SDP exchange the provider refused,
-  a connection that went `failed`/`disconnected`, and an expired session. A
-  provider `error` event is shown without ending the call. The unit tests fake
-  `RTCPeerConnection` and `getUserMedia`, so **manual verification needs a real
-  provider key, a model with `realtime` enabled, `allowRealtime` switched on at
-  `/admin/settings/ai`, and a real microphone**. Start a call, speak, hear the
-  answer, and watch both transcript lines appear.
-- **Errors** of every road (a refused request, an SSE `error` frame, a failed
-  run's `errorCode`) render through the one `AiErrorAlert` mapping; the
-  storage API's own "not configured" reasons read as `AI_STORAGE_UNAVAILABLE`.
-  `AI_REALTIME_DISABLED` (like `AI_DISABLED`) also re-reads the AI config, so
-  Voice disappears when an administrator switches realtime off mid-session.
-
-## Verification
-
-| Claim | Where it is asserted |
-|---|---|
-| Under `keyPolicy='byok'`, `AiKeyResolver.resolve` never returns the org key, and the fake provider records zero calls with it | `apps/api/src/ai/keys/ai-key-resolver.service.spec.ts`, restated in `apps/api/src/ai/runtime/ai.service.spec.ts` |
-| The full `{user key yes/no} × {policy byok/fallback} × {org key yes/no}` resolution matrix | `apps/api/src/ai/keys/ai-key-resolver.service.spec.ts` |
-| `AiProviderRegistry.supports()` is derived purely from capability-port presence, never a separate flag | `apps/api/src/ai/core/provider-registry.spec.ts` |
-| Every error raised anywhere in the AI platform is an `AiError`, never a raw provider SDK error, and never includes key material in `details` or when `JSON.stringify`'d | `apps/api/src/ai/core/ai-error.spec.ts`, `apps/api/src/ai/testing/fake-ai-provider.conformance.spec.ts` |
-| Catalog sync never overwrites an `admin_override` capability, never flips `enabled` on a still-present model, and force-disables (without deleting) a model that disappears | `apps/api/src/ai/catalog/ai-catalog.service.spec.ts` |
-| The catalog refresh and key-recheck crons only enqueue | `apps/api/test/jobs/cron-enqueue-only.spec.ts` |
-| `AiEnabledGuard` returns `403 { code:'AI_DISABLED' }` on every `/api/ai/*` route except `GET /api/ai/config`, and `/api/admin/ai/*` stays reachable while disabled | `apps/api/src/ai/config/ai-enabled.guard.spec.ts`, `apps/api/test/ai/ai-public-config.integration.spec.ts` |
-| No response body from any AI route ever contains a plaintext key (serialize-and-search test) | `apps/api/test/ai/ai-admin.integration.spec.ts`, `apps/api/test/ai/ai-user-keys.integration.spec.ts` |
-| `user_ai_keys.secret` is ciphertext under the `'ai_user_key'` cipher purpose, distinct from the admin key's `CredentialsService` purpose `'ai'` | `apps/api/src/ai/keys/user-ai-keys.service.spec.ts` |
-| Deleting a user cascades their `user_ai_keys`; user A can never read/test/delete user B's key | `apps/api/test/ai/ai-user-keys.integration.spec.ts` |
-| Usable models = admin-enabled ∩ reachable (or admin-enabled when org fallback applies); deprecated models excluded | `apps/api/src/ai/keys/usable-models.service.spec.ts` |
-| `ai.catalog.refresh` and `ai.response.run` declare no `nodeResultSchema`/`persistNodeResult` and therefore never appear in `JobHandlerRegistry.serverOnlyTypes()`'s complement | `apps/api/src/ai/catalog/ai-catalog-refresh.handler.spec.ts`, `apps/api/src/ai/runtime/ai-response-run.handler.spec.ts` |
-| The gate pipeline produces the exact documented error code for each gate, in order | `apps/api/src/ai/runtime/ai.service.spec.ts` |
-| Every provider round-trip (success and failure) writes exactly one `ai_usage_events` row with the correct `keySource` | `apps/api/src/ai/runtime/ai-usage.recorder.spec.ts` |
-| Usage aggregates add up under every grouping (real SQL over a seeded fixture); `/me` is scoped to the caller; the purge deletes only rows past retention and its cron only enqueues | `apps/api/test/ai/ai-usage.db.spec.ts`, `apps/api/test/ai/ai-usage.integration.spec.ts`, `apps/api/src/ai/usage/*.spec.ts`, `apps/api/test/jobs/cron-enqueue-only.spec.ts` |
-| Streaming and non-streaming responses return identical final text for the same fake script; a pre-stream gate failure is plain JSON, a mid-stream failure is an `error` SSE frame; client abort stops the provider call | `apps/api/test/ai/ai-responses.integration.spec.ts` |
-| `infra/nginx/nginx.conf` contains the `/api/ai/responses/stream` location with `proxy_buffering off` | a config-assertion spec reading the nginx file directly, mirroring `apps/api/test/production-image.spec.ts` |
-| Seed grants: Admin holds all three AI permissions; Contributor holds `ai:use` only; Viewer holds neither (#499) | `apps/api/test/prisma/seed-data.spec.ts` |
-| The conformance kit (`describeAiProviderConformance`) passes against `FakeAiProvider` | `apps/api/src/ai/testing/fake-ai-provider.conformance.spec.ts` |
-| Storage-object inputs: ownership/modality/size/strategy gates, delivery by presigned URL and by Files API upload with provider-side deletion (success, failure, stream end), queued runs storing only the id, and no presigned URL in any response, row or log line | `apps/api/src/ai/runtime/ai-file-inputs.spec.ts`, `apps/api/src/ai/providers/openai/openai-file-inputs.spec.ts`, `apps/api/test/ai/ai-file-inputs.integration.spec.ts`, `apps/api/test/ai/ai-secret-egress.integration.spec.ts` |
-| Rate limits (§15): each limit's window and exact `retryAfterMs`, unlimited and query-free when unset, org-key limits never applied to a user's own key, the gate after key resolution, what counts, the per-model output clamp, a limited background run deferred not failed, and 429 + `Retry-After` + `details.limit` over HTTP | `apps/api/src/ai/runtime/ai-limits.service.spec.ts`, `apps/api/src/ai/runtime/ai-limits.facade.spec.ts`, `apps/api/src/ai/runtime/ai-response-run.handler.spec.ts`, `apps/api/src/ai/runtime/ai-image-generate.handler.spec.ts`, `apps/api/test/ai/ai-limits.integration.spec.ts`, `apps/api/src/ai/core/ai-error.spec.ts` |
-| Stateless providers (#446): a caller's `previousResponseId` refused before any key is resolved, `runTools` resending full history with reasoning state replayed and never serialised, the Anthropic adapter passing the conformance kit (forced-tool and native structured outputs) over a mock as stateless as the real API, its mapping/stream/error/classifier tables, and both providers registered under every #435 guard suite | `apps/api/src/ai/runtime/ai-tool-loop.spec.ts`, `apps/api/src/ai/providers/anthropic/*.spec.ts`, `apps/api/src/common/schemas/settings-parity.spec.ts`, `apps/api/test/ai/*.spec.ts` |
-| The Gemini adapter (#447): the conformance kit (unchanged) passing over a mock as strict as the real API, including Gemini 3 thought-signature replay and the embeddings port; the mapping, stream, embeddings, error and classifier tables, the classifier's enrichment from listing metadata, the catalog handing that metadata to `classifyModel`, `@google/genai` confined to its folder, and three providers registered under every #435 guard suite | `apps/api/src/ai/providers/gemini/*.spec.ts`, `apps/api/src/ai/catalog/ai-catalog.service.spec.ts`, `apps/api/src/common/schemas/settings-parity.spec.ts`, `apps/api/test/ai/*.spec.ts` |
-| Realtime sessions (#449, §5.8): the mint fails closed (no provider call, no usage row) when AI or `allowRealtime` is off, the model lacks `realtime`, or no key resolves; the real key is used only as the provider call's `Authorization` header; one `operation: 'realtime'`, `units: { sessions: 1 }` usage row; the ephemeral secret appears only in the route's `data.clientSecret` and no real key appears anywhere, that response included | `apps/api/src/ai/providers/openai/openai-realtime.spec.ts`, `apps/api/src/ai/runtime/ai-realtime.spec.ts`, `apps/api/test/ai/ai-realtime.integration.spec.ts`, `apps/api/test/ai/ai-secret-egress.integration.spec.ts` |
-| Embeddings: one vector per input in order, `dimensions` honoured, a model without `embeddings` → `AI_CAPABILITY_UNSUPPORTED`, > 256 inputs → `AI_INVALID_REQUEST`, one `operation: 'embeddings'` usage row; the #435 key-policy and secret-egress suites drive `POST /api/ai/embeddings` | `apps/api/src/ai/providers/openai/openai-embeddings.spec.ts`, `apps/api/src/ai/runtime/ai-embed.spec.ts`, `apps/api/test/ai/ai-embeddings.integration.spec.ts`, the conformance kit's `embeddings.*` scenarios |
+- Epic #418 (umbrella). Epic #419 (phase 1): #422 spec, #423 database, #424
+  core contracts, #425 settings cards, #426 OpenAI adapter, #427 catalog,
+  #428 admin API, #431 user keys, #432 runtime facade, #433 HTTP and SSE,
+  #434–#435 web UI and guardrail suites, #436 recipe and runbook.
+- Epic #420 (phase 2): #437 images, #438 transcription, #439 speech, #440
+  embeddings, #441 storage-object inputs, #442 hosted tools, #443 usage
+  reports, #444 usage UI, #445 Playground media modes.
+- Epic #421 (phase 3): #446 Anthropic, #447 Gemini, #448 Azure OpenAI and
+  OpenAI-compatible, #449 realtime sessions, #450 rate limits.
+- #499 removed `ai:use` from Viewer. #509 made `AI_STORAGE_UNAVAILABLE` a
+  terminal run code.

@@ -145,7 +145,7 @@ over a limit throws `AiError('AI_RATE_LIMITED')` with `retryAfterMs` and
   provider that stores them (OpenAI); Anthropic, Gemini, Azure OpenAI and
   OpenAI-compatible refuse it with
   `AI_CAPABILITY_UNSUPPORTED` — send the conversation as `input` instead
-  (`runTools` already does, spec §5.7).
+  (`runTools` already does, spec §2.10).
 - **`stream(req, opts?)`** — an `AsyncIterable<AiStreamEvent>`. Lazy: a gate
   or pre-stream provider failure surfaces on the first iteration. Use this
   for an in-process consumer that is already committed to iterating.
@@ -191,7 +191,7 @@ over a limit throws `AiError('AI_RATE_LIMITED')` with `retryAfterMs` and
 - **`embed({ model, input, dimensions? }, opts?)`** — one vector per input
   (a string or up to 256 strings), synchronous; `model` is required. For a
   large backfill, enqueue your own server-only job that embeds one chunk
-  per run (`docs/specs/ai-platform.md` §5.1).
+  per run (`docs/specs/ai-platform.md` §2.11).
 - **`generateImage({ model, prompt, n?, size?, … })` /
   `editImage({ …, imageStorageObjectIds, maskStorageObjectId? })`** —
   always queue an `ai.image.generate` run and return `{ runId, jobId }`;
@@ -199,22 +199,22 @@ over a limit throws `AiError('AI_RATE_LIMITED')` with `retryAfterMs` and
   user owns (under `ai-outputs/<userId>/<runId>/`). Edit inputs are the
   user's own storage objects, never bytes. A later media feature reads and
   writes storage the same way, through `ai/storage`'s
-  `AiStorageInputResolver` / `AiOutputWriter` (§5.2).
+  `AiStorageInputResolver` / `AiOutputWriter` (§2.12).
 - **`transcribe({ storageObjectId, model?, language?, prompt?,
   timestampGranularities? })`** — always queues an `ai.audio.transcribe`
   run; the succeeded run's `output.text` is the transcript. The recording
   is the user's own storage object, streamed to the provider by the job
-  (§5.5).
+  (§2.13).
 - **`speak({ input, voice?, model?, format?, instructions?, speed? })`** —
   always queues an `ai.audio.speech` run (input ≤ 4096 characters); the
   succeeded run's `output.storageObjectId` is the audio, a storage object
   the user owns, with `aiGenerated: true` — surface that to listeners
-  (§5.6).
+  (§2.14).
 - **`createRealtimeSession({ model?, voice?, instructions?, turnDetection?,
   tools? })`** — synchronously mints an ephemeral realtime secret the
   BROWSER connects to the provider with over WebRTC (`{ clientSecret,
   expiresAt, connectUrl, … }`); off unless `ai.defaults.allowRealtime`
-  (`AI_REALTIME_DISABLED`); one usage row, `units: { sessions: 1 }` (§5.8).
+  (`AI_REALTIME_DISABLED`); one usage row, `units: { sessions: 1 }` (§2.15).
 
 **Picking a model**: pass `req.model` (and `req.provider` when more than one
 is registered) to pin it, or leave both unset to fall back to the caller's
@@ -224,7 +224,7 @@ either path is called, so a feature never re-implements the fallback.
 **Handling `AiError`**: every failure this platform can produce is an
 `AiError` with a stable `.code` (never a raw provider SDK error) — catch it
 and switch on `.code`, not on `err.message`, which is deliberately generic
-for anything wrapping a caught SDK error. `docs/specs/ai-platform.md` §13
+for anything wrapping a caught SDK error. `docs/specs/ai-platform.md` §2.23
 has the full table (`AI_DISABLED`, `AI_KEY_REQUIRED`, `AI_MODEL_NOT_ENABLED`,
 `AI_CAPABILITY_UNSUPPORTED`, `AI_RATE_LIMITED`, …); a job handler does
 `throw err.toRateLimitError() ?? err;` so a provider throttle defers the job
@@ -281,7 +281,7 @@ steps 6–9 with `respond` — `context()` and `track()` take a provider-neutral
 (`embeddings.create`) to the usage `operation` (`embeddings`). A new port is
 one more `prepare…`, one more map entry and one more `AiUserClient` method.
 Synchronous, no job; a large backfill is a fork's own server-only job type
-calling `embed` per chunk of ≤ 256 rows (`docs/specs/ai-platform.md` §5.1).
+calling `embed` per chunk of ≤ 256 rows (`docs/specs/ai-platform.md` §2.11).
 
 `generateImage`/`editImage` are that template plus a queue hop:
 `prepareImage()` runs steps 1–3 with `image_generation`/`image_edit` and, for
@@ -293,7 +293,7 @@ calls `executeImageRun()` — `prepareImage()` again, the storage pre-flight,
 the inputs' bytes, then steps 6–9 (`units: { images: n }`) — and stores
 every image through `storage/AiOutputWriter` as the user's own storage
 objects; the run's `output.storageObjectIds` names them
-(`docs/specs/ai-platform.md` §5.2). The two `storage/` pieces are the ones
+(`docs/specs/ai-platform.md` §2.12). The two `storage/` pieces are the ones
 the audio and file-input stories reuse.
 
 `transcribe` is the same template with the recording as the
@@ -303,7 +303,7 @@ it) and resolves the recording (`audio/*`, `video/mp4|webm`, at most the
 port's `transcriptionMaxBytes`); `executeTranscriptionRun()` gates again,
 streams the recording through `AiStorageInputResolver.openCapped()` into
 the adapter, and records `units: { audioSeconds }`. The transcript is the
-run's output; nothing is stored (§5.5). Both media jobs extend
+run's output; nothing is stored (§2.13). Both media jobs extend
 `runtime/ai-media-run.handler.ts`, which owns the run lifecycle — a new
 media job is its `execute()` plus a type and a profile.
 
@@ -314,7 +314,7 @@ the `ai.audio.speech` job calls `executeSpeechRun()` (`units: { characters
 }`) behind the storage pre-flight and writes the audio through
 `AiOutputWriter` as `ai-outputs/<userId>/<runId>/speech.<ext>`. Its output
 carries `aiGenerated: true` — the disclosure provider policies require
-(§5.6).
+(§2.14).
 
 `createRealtimeSession` is synchronous and has no job:
 `prepareRealtime()` checks the kill switch, then `ai.defaults.allowRealtime`
@@ -327,7 +327,7 @@ expiresAt, connectUrl }` — is the one credential the platform returns: the
 browser connects to the provider directly over WebRTC with it, and the
 user's key never leaves. Usage is `operation: 'realtime'`, `units: {
 sessions: 1 }`, no tokens (the server never sees the audio). See
-`docs/specs/ai-platform.md` §5.8.
+`docs/specs/ai-platform.md` §2.15.
 
 **Storage-object inputs** need no method of their own: an
 `image`/`file` part may carry `storageObjectId` instead of `url`, and
@@ -344,7 +344,7 @@ is uploaded to it; Gemini sends both images and files inline (base64
 `inlineData`) — a presigned URL is not a `fileData` URI Gemini accepts. Azure
 OpenAI takes images by presigned URL and files inline; an OpenAI-compatible
 server gets both inline (it usually cannot reach this deployment's storage).
-See `docs/specs/ai-platform.md` §5.3.
+See `docs/specs/ai-platform.md` §2.9.
 
 **Stateless providers**: an adapter declaring
 `supportsPreviousResponseId: false` (Anthropic, Gemini, and — conservatively,
@@ -360,7 +360,7 @@ part it belongs on) under the `AI_PROVIDER_STATE` symbol, which
 `JSON.stringify` never sees — it survives the in-process hop and nothing
 else. `GET /api/ai/config` publishes the flag per provider
 (`providers[].supportsPreviousResponseId`) so a client resends history
-rather than being refused. See `docs/specs/ai-platform.md` §5.7.
+rather than being refused. See `docs/specs/ai-platform.md` §2.10.
 
 ## OpenAI-compatible endpoints and keyless servers
 
@@ -386,7 +386,7 @@ credential, and the limits count it like a user's own call. SSRF: the
 endpoints are validated by `aiEndpointUrlSchema` (https for Azure, http/https
 for compatible; no credentials, no fragment), an internal host is an explicit
 admin decision, and `noRedirectFetch` refuses every redirect. See
-`docs/specs/ai-platform.md` §14.3.
+`docs/specs/ai-platform.md` §2.24.
 
 ## Adding a provider
 
@@ -394,7 +394,7 @@ A new provider is an adapter implementation against the existing
 `AiProviderAdapter` contract, never a platform change. The full recipe —
 self-registration, the model classifier, error mapping onto `AiErrorCode`,
 and the conformance kit every adapter must pass — is
-[`docs/specs/ai-platform.md`](../../../../docs/specs/ai-platform.md) §14.
+[`docs/specs/ai-platform.md`](../../../../docs/specs/ai-platform.md) §4.
 
 ## Rate limits and output caps
 
@@ -420,7 +420,7 @@ lags by calls in flight elsewhere — there is no Redis here, by design); daily
 windows count since UTC midnight. `perModel[…].maxOutputTokens` is not a rate:
 `effectiveOutputTokensCap` folds it into step 5's clamp. Tests pass a clock
 through the runtime harness (`createAiRuntimeHarness({ clock })`). See
-`docs/specs/ai-platform.md` §15.
+`docs/specs/ai-platform.md` §2.22.
 
 ## Hosted tools
 
