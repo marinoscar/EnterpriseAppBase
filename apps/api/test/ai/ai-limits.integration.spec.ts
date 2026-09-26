@@ -161,7 +161,7 @@ describe('AI rate limits over HTTP (#450)', () => {
 
   it('per-model maxOutputTokens clamps what the provider is asked for', async () => {
     t.harness.setPolicy({
-      defaults: { allowBackgroundRuns: true, maxOutputTokensCap: 1_000 },
+      defaults: { allowBackgroundRuns: true, allowRealtime: false, maxOutputTokensCap: 1_000 },
       limits: { perModel: { [`openai:${HARNESS_MODEL}`]: { maxOutputTokens: 256 } } },
     });
 

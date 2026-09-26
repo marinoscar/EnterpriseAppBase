@@ -152,7 +152,7 @@ describe('AI background runs HTTP API Integration', () => {
     });
 
     it('400 AI_INVALID_REQUEST when background runs are disabled', async () => {
-      t.harness.setPolicy({ defaults: { allowBackgroundRuns: false } });
+      t.harness.setPolicy({ defaults: { allowBackgroundRuns: false, allowRealtime: false } });
 
       const res = record(
         await request(server()).post('/api/ai/runs').set(authHeader(alice.accessToken)).send(body).expect(400),
