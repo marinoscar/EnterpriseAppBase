@@ -10,7 +10,12 @@
 // actually throw.
 // =============================================================================
 
-import { classifyRateLimit, parseRetryAfterMs, RateLimitError } from './rate-limit.error';
+import {
+  CLASSIFY_RATE_LIMIT,
+  classifyRateLimit,
+  parseRetryAfterMs,
+  RateLimitError,
+} from './rate-limit.error';
 
 /** A fixed "now" so the HTTP-date cases are exact rather than approximate. */
 const NOW = Date.UTC(2026, 8, 6, 12, 0, 0);
@@ -209,6 +214,104 @@ describe('classifyRateLimit', () => {
       expect(
         classifyRateLimit({ status: 429, headers: { 'retry-after': 'soon' } }, NOW).retryAfterMs
       ).toBeNull();
+    });
+  });
+
+  // Issue #509: an application's own typed error carries an HTTP *response*
+  // status (an AiError 503 for "storage not configured"), not a provider
+  // capacity signal. Such an error answers for itself, and its answer is final.
+  describe('an error that classifies itself (CLASSIFY_RATE_LIMIT)', () => {
+    /** A 503-shaped error — with a Retry-After, a throttle name — that says otherwise. */
+    function selfClassifying(answer: () => unknown) {
+      return {
+        status: 503,
+        name: 'ThrottlingException',
+        headers: { 'retry-after': '60' },
+        [CLASSIFY_RATE_LIMIT]: answer,
+      };
+    }
+
+    it('is a well-known global symbol, so a second module copy agrees', () => {
+      expect(CLASSIFY_RATE_LIMIT).toBe(Symbol.for('jobs.classifyRateLimit'));
+    });
+
+    it('believes "not a rate limit" even with a 503 status and a throttle name', () => {
+      const err = selfClassifying(() => ({ rateLimited: false, retryAfterMs: null }));
+
+      expect(classifyRateLimit(err, NOW)).toEqual({ rateLimited: false, retryAfterMs: null });
+    });
+
+    it('honours "rate limited" and its own delay, ignoring the Retry-After header', () => {
+      const err = selfClassifying(() => ({ rateLimited: true, retryAfterMs: 7_500 }));
+
+      expect(classifyRateLimit(err, NOW)).toEqual({ rateLimited: true, retryAfterMs: 7_500 });
+    });
+
+    it('honours "rate limited" with no delay as pure backoff', () => {
+      const err = { status: 400, [CLASSIFY_RATE_LIMIT]: () => ({ rateLimited: true, retryAfterMs: null }) };
+
+      expect(classifyRateLimit(err, NOW)).toEqual({ rateLimited: true, retryAfterMs: null });
+    });
+
+    it('calls the classifier with the error as `this` (a prototype method works)', () => {
+      class OwnError extends Error {
+        constructor(readonly throttled: boolean) {
+          super('own');
+        }
+
+        [CLASSIFY_RATE_LIMIT]() {
+          return { rateLimited: this.throttled, retryAfterMs: null };
+        }
+      }
+
+      expect(classifyRateLimit(new OwnError(true), NOW).rateLimited).toBe(true);
+      expect(classifyRateLimit(new OwnError(false), NOW).rateLimited).toBe(false);
+    });
+
+    it.each([
+      ['zero', 0],
+      ['negative', -1_000],
+      ['NaN', Number.NaN],
+      ['Infinity', Number.POSITIVE_INFINITY],
+      ['a string', '5000'],
+      ['undefined', undefined],
+    ])('normalises an invalid retryAfterMs (%s) to null', (_label, retryAfterMs) => {
+      const err = selfClassifying(() => ({ rateLimited: true, retryAfterMs }));
+
+      expect(classifyRateLimit(err, NOW)).toEqual({ rateLimited: true, retryAfterMs: null });
+    });
+
+    it.each([
+      ['undefined', undefined],
+      ['null', null],
+      ['a boolean', true],
+      ['a truthy non-boolean rateLimited', { rateLimited: 'yes', retryAfterMs: 1_000 }],
+    ])('reads a malformed answer (%s) as not a rate limit, never the heuristics', (_label, answer) => {
+      expect(classifyRateLimit(selfClassifying(() => answer), NOW)).toEqual({
+        rateLimited: false,
+        retryAfterMs: null,
+      });
+    });
+
+    it('never throws when the classifier throws — not a rate limit', () => {
+      const err = selfClassifying(() => {
+        throw new Error('exploding classifier');
+      });
+
+      expect(() => classifyRateLimit(err, NOW)).not.toThrow();
+      expect(classifyRateLimit(err, NOW)).toEqual({ rateLimited: false, retryAfterMs: null });
+    });
+
+    it('falls back to the heuristics when the symbol holds something other than a function', () => {
+      expect(classifyRateLimit({ status: 429, [CLASSIFY_RATE_LIMIT]: true }, NOW).rateLimited).toBe(true);
+    });
+
+    it('RateLimitError still wins outright', () => {
+      const err = Object.assign(new RateLimitError('slow', 1_000), {
+        [CLASSIFY_RATE_LIMIT]: () => ({ rateLimited: false, retryAfterMs: null }),
+      });
+
+      expect(classifyRateLimit(err, NOW)).toEqual({ rateLimited: true, retryAfterMs: 1_000 });
     });
   });
 });

@@ -3,7 +3,12 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { server } from '../mocks/server';
 import { aiErrorBody, mockAiResponse, mockAiRun } from '../mocks/fixtures/ai';
-import { AI_RUN_POLL_INTERVAL_MS, isAiRunTerminal, useAiRun } from '../../hooks/useAiRun';
+import {
+  AI_RUN_MAX_POLL_FAILURES,
+  AI_RUN_POLL_INTERVAL_MS,
+  isAiRunTerminal,
+  useAiRun,
+} from '../../hooks/useAiRun';
 import type { AiRun, AiRunStatus } from '../../services/ai';
 
 /**
@@ -204,5 +209,139 @@ describe('useAiRun — startWith (#445)', () => {
     expect(id).toBeNull();
     expect(result.current.error).toMatchObject({ code: null, message: 'refused' });
     expect(result.current.isActive).toBe(false);
+  });
+});
+
+describe('useAiRun — transient read failures (#509)', () => {
+  it('tolerates 3 consecutive failures before giving up', () => {
+    expect(AI_RUN_MAX_POLL_FAILURES).toBe(3);
+  });
+
+  it('keeps polling through a transient network failure, flags stale, then clears it', async () => {
+    // pending → network error → pending → succeeded
+    const script: Array<AiRunStatus | 'network'> = ['pending', 'network', 'pending', 'succeeded'];
+    let reads = 0;
+    const seen: Array<{ stale: boolean; status: string | undefined }> = [];
+    server.use(
+      http.get('*/api/ai/runs/:id', ({ params }) => {
+        const step = script[Math.min(reads, script.length - 1)];
+        reads += 1;
+        if (step === 'network') return HttpResponse.error();
+        return HttpResponse.json({ data: runWith(step, { id: String(params.id) }) });
+      }),
+    );
+    const onSettled = vi.fn();
+    const { result } = renderHook(() => {
+      const r = useAiRun({ intervalMs: FAST, onSettled });
+      seen.push({ stale: r.stale, status: r.run?.status });
+      return r;
+    });
+
+    await act(async () => {
+      await result.current.start({ input: 'x' });
+    });
+
+    await waitFor(() => expect(result.current.run?.status).toBe('succeeded'));
+    expect(result.current.error).toBeNull();
+    expect(result.current.stale).toBe(false);
+    expect(onSettled).toHaveBeenCalledTimes(1);
+    // The failed read was exposed as stale over the last-known "pending" run.
+    expect(seen).toContainEqual({ stale: true, status: 'pending' });
+    expect(reads).toBe(4);
+  });
+
+  it('treats a 5xx read as transient too', async () => {
+    let reads = 0;
+    server.use(
+      http.get('*/api/ai/runs/:id', ({ params }) => {
+        reads += 1;
+        if (reads === 1) return HttpResponse.json({ code: 'BAD_GATEWAY', message: 'upstream' }, { status: 502 });
+        return HttpResponse.json({ data: runWith('succeeded', { id: String(params.id) }) });
+      }),
+    );
+    const { result } = renderHook(() => useAiRun({ intervalMs: FAST }));
+
+    await act(async () => {
+      await result.current.start({ input: 'x' });
+    });
+
+    await waitFor(() => expect(result.current.run?.status).toBe('succeeded'));
+    expect(result.current.error).toBeNull();
+    expect(result.current.stale).toBe(false);
+  });
+
+  it('surfaces an error and stays stale after N consecutive failures, then stops polling', async () => {
+    let reads = 0;
+    server.use(
+      http.get('*/api/ai/runs/:id', ({ params }) => {
+        reads += 1;
+        if (reads === 1) return HttpResponse.json({ data: runWith('pending', { id: String(params.id) }) });
+        return HttpResponse.error();
+      }),
+    );
+    const { result } = renderHook(() => useAiRun({ intervalMs: FAST }));
+
+    await act(async () => {
+      await result.current.start({ input: 'x' });
+    });
+
+    await waitFor(() => expect(result.current.error).not.toBeNull(), { timeout: 2000 });
+    expect(result.current.stale).toBe(true);
+    expect(result.current.run?.status).toBe('pending');
+    expect(result.current.isActive).toBe(false);
+    expect(result.current.error).toMatchObject({ code: null });
+    expect(result.current.error?.message).toMatch(/may still be in progress/);
+    expect(reads).toBe(1 + AI_RUN_MAX_POLL_FAILURES);
+
+    await new Promise((resolve) => setTimeout(resolve, FAST * 10));
+    expect(reads).toBe(1 + AI_RUN_MAX_POLL_FAILURES);
+
+    act(() => result.current.clear());
+    expect(result.current.stale).toBe(false);
+    expect(result.current.error).toBeNull();
+  });
+
+  it('does not report a single transient failure as an error', async () => {
+    let reads = 0;
+    server.use(
+      http.get('*/api/ai/runs/:id', ({ params }) => {
+        reads += 1;
+        if (reads === 1) return HttpResponse.error();
+        return HttpResponse.json({ data: runWith('running', { id: String(params.id) }) });
+      }),
+    );
+    const errors: unknown[] = [];
+    const { result } = renderHook(() => {
+      const r = useAiRun({ intervalMs: FAST });
+      errors.push(r.error);
+      return r;
+    });
+
+    await act(async () => {
+      await result.current.start({ input: 'x' });
+    });
+    await waitFor(() => expect(result.current.run?.status).toBe('running'));
+    expect(result.current.stale).toBe(false);
+    expect(errors.every((e) => e === null)).toBe(true);
+    expect(result.current.isActive).toBe(true);
+    act(() => result.current.clear());
+  });
+
+  it('still surfaces a genuinely failed run through errorCode, not as stale', async () => {
+    server.use(
+      http.get('*/api/ai/runs/:id', ({ params }) =>
+        HttpResponse.json({ data: runWith('failed', { id: String(params.id), errorCode: 'AI_PROVIDER_ERROR' }) }),
+      ),
+    );
+    const { result } = renderHook(() => useAiRun({ intervalMs: FAST }));
+
+    await act(async () => {
+      await result.current.start({ input: 'x' });
+    });
+
+    await waitFor(() => expect(result.current.run?.status).toBe('failed'));
+    expect(result.current.run?.errorCode).toBe('AI_PROVIDER_ERROR');
+    expect(result.current.error).toBeNull();
+    expect(result.current.stale).toBe(false);
   });
 });

@@ -6,6 +6,12 @@
  * the conversation by the page; this card only says so. A failed run renders
  * its `errorCode` through the shared {@link AiErrorAlert} mapping.
  *
+ * A `stale` run (#509) — its latest status read failed — is shown as the last
+ * KNOWN status, not the current one: the chip is outlined and labelled
+ * "(last known)", and while the hook is still retrying a quiet "Reconnecting…"
+ * line replaces any error banner. Only when the hook gives up does `error`
+ * render, still beside the stale chip rather than a live-looking badge.
+ *
  * Every run-backed Playground mode reuses it (#445): `title` names the run
  * ("Image run") and `successMessage` says where its result went.
  */
@@ -34,6 +40,8 @@ export interface AiRunCardProps {
   onDismiss: () => void;
   /** The card's heading and accessible name. Defaults to "Background run". */
   title?: string;
+  /** The latest status read failed; `run` is the last known state (#509). */
+  stale?: boolean;
   /** Shown once the run succeeds; `null` shows nothing. */
   successMessage?: ReactNode;
 }
@@ -46,6 +54,7 @@ export function AiRunCard({
   isCancelling,
   onCancel,
   onDismiss,
+  stale = false,
   title = 'Background run',
   successMessage = 'The answer was added to the conversation.',
 }: AiRunCardProps) {
@@ -53,6 +62,7 @@ export function AiRunCard({
   const terminal = run ? isAiRunTerminal(run.status) : false;
   const settledOrBroken = terminal || (error !== null && !isStarting);
   const meta = STATUS[status];
+  const reconnecting = stale && !error && !terminal;
 
   return (
     <Paper variant="outlined" sx={{ p: 1.5, minWidth: 0 }} aria-label={title} role="region">
@@ -61,7 +71,13 @@ export function AiRunCard({
           {title}
         </Typography>
         {!error || run ? (
-          <Chip size="small" label={isStarting ? 'Starting' : meta.label} color={meta.color} data-testid="run-status" />
+          <Chip
+            size="small"
+            label={isStarting ? 'Starting' : stale ? `${meta.label} (last known)` : meta.label}
+            color={stale ? 'default' : meta.color}
+            variant={stale ? 'outlined' : 'filled'}
+            data-testid="run-status"
+          />
         ) : null}
         {!settledOrBroken && <CircularProgress size={14} aria-label="Waiting for the run" />}
         <Box sx={{ flex: 1 }} />
@@ -83,6 +99,11 @@ export function AiRunCard({
       >
         {prompt}
       </Typography>
+      {reconnecting && (
+        <Typography variant="caption" color="text.secondary" role="status" sx={{ display: 'block', mt: 0.5 }}>
+          Reconnecting… the status shown may be out of date.
+        </Typography>
+      )}
       {status === 'succeeded' && successMessage !== null && (
         <Typography variant="body2" sx={{ mt: 1 }}>
           {successMessage}

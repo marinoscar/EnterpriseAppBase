@@ -143,14 +143,18 @@ describe('AiAudioTranscribeHandler', () => {
       expect(h.fake.calls).toEqual([]);
     });
 
-    it('unconfigured storage (the recording cannot be read) fails the run AI_STORAGE_UNAVAILABLE on the last attempt', async () => {
+    // Issue #509: terminal on the FIRST attempt — no retry, and no rate-limit
+    // deferral of the 503 it used to rethrow, can configure storage.
+    it('unconfigured storage (the recording cannot be read) fails the run AI_STORAGE_UNAVAILABLE on attempt 1 of 2; the job returns', async () => {
       const { h, handler, jobFor, row, transcribe } = setup();
       const handle = await transcribe();
+      const release = jest.spyOn(h.runs, 'release');
 
       h.storage.setConfigured(false);
 
-      await expect(handler.process(jobFor(handle, 2))).rejects.toMatchObject({ code: 'AI_STORAGE_UNAVAILABLE' });
+      await expect(handler.process(jobFor(handle, 1))).resolves.toBeUndefined();
       expect(row(handle.runId)).toMatchObject({ status: 'failed', errorCode: 'AI_STORAGE_UNAVAILABLE' });
+      expect(release).not.toHaveBeenCalled();
       expect(h.fake.calls).toEqual([]);
     });
 

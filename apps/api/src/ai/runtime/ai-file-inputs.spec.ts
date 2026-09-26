@@ -472,7 +472,7 @@ describe('AiService — storage-object inputs (#441)', () => {
       expect(h.fake.calls).toEqual([]);
     });
 
-    it('unconfigured storage when the job runs fails the run AI_STORAGE_UNAVAILABLE and the job throws', async () => {
+    it('unconfigured storage when the job runs fails the run AI_STORAGE_UNAVAILABLE; the job returns (#509)', async () => {
       const { h, client, png } = setup();
       const handle = await client.startRun({ model: HARNESS_MODEL, input: ask({ type: 'image', storageObjectId: png().id }) });
 
@@ -480,11 +480,14 @@ describe('AiService — storage-object inputs (#441)', () => {
 
       const { handler, job } = handlerFor(h);
 
-      await expect(handler.process(job(handle))).rejects.toBeDefined();
+      // Terminal, not rethrown: a rethrown StorageNotConfiguredError (a 503)
+      // was deferred by the queue as a provider throttle — issue #509.
+      await expect(handler.process(job(handle))).resolves.toBeUndefined();
       expect(h.runRows.find((r) => r.id === handle.runId)).toMatchObject({
         status: 'failed',
         errorCode: 'AI_STORAGE_UNAVAILABLE',
       });
+      expect(h.fake.calls).toEqual([]);
     });
   });
 

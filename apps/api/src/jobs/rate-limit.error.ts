@@ -30,6 +30,27 @@
 // exists. Handlers should not have to wrap every SDK, and SDK errors should
 // not have to be pre-classified, so both work.
 //
+// -----------------------------------------------------------------------------
+// ERRORS THAT CLASSIFY THEMSELVES (issue #509)
+// -----------------------------------------------------------------------------
+//
+// The status/name heuristics below exist for errors that know nothing about
+// this queue. They are WRONG for this application's own typed, code-carrying
+// errors: `AiError` extends Nest's `HttpException`, so its `.status` is the
+// HTTP *response* status this platform chose for its code — 503 for
+// "object storage is not configured" — not an upstream capacity signal. Read
+// as a throttle, that 503 held an unrunnable job in rate-limit deferral for
+// up to `JOBS_RATELIMIT_MAX_HITS` backoffs of up to fifteen minutes each,
+// never charging an attempt, for a condition only an administrator can fix.
+//
+// So an error may answer for itself: a function at the well-known
+// `CLASSIFY_RATE_LIMIT` symbol is asked FIRST (after `RateLimitError`), and
+// its answer is FINAL — the heuristics are not consulted. A symbol rather
+// than an import keeps the layering one-way: `jobs/` is the lower layer and
+// never imports from a feature (`ai/`), while a feature's error class
+// implements the symbol from here. `Symbol.for` makes it survive duplicate
+// module instances (a test double, a second copy of this file in a bundle).
+//
 // A remote worker node is a THIRD way in and deliberately does NOT live here:
 // it cannot throw a typed error across HTTP, so it reports the same
 // conclusion as flags (`{ rateLimited: true, retryAfterMs }`) and
@@ -78,6 +99,47 @@ export interface RateLimitClassification {
 }
 
 const NOT_RATE_LIMITED: RateLimitClassification = { rateLimited: false, retryAfterMs: null };
+
+/**
+ * The well-known key an error implements to classify itself (issue #509).
+ * See "ERRORS THAT CLASSIFY THEMSELVES" in the file header.
+ */
+export const CLASSIFY_RATE_LIMIT: unique symbol = Symbol.for('jobs.classifyRateLimit');
+
+/**
+ * An error that knows whether it is a rate limit. Its answer outranks every
+ * status/name heuristic in `classifyRateLimit`; it should be a prototype
+ * method (never an own enumerable property) so it cannot leak into a
+ * serialised body.
+ */
+export interface SelfClassifyingRateLimit {
+  [CLASSIFY_RATE_LIMIT](): RateLimitClassification;
+}
+
+/**
+ * Normalises whatever a self-classifying error returned: `rateLimited` must
+ * be literally `true`, and a delay must be a finite positive number — any
+ * other value is "no opinion" (`null`), never zero.
+ */
+function normalizeSelfClassification(result: unknown): RateLimitClassification {
+  if (result === null || typeof result !== 'object') {
+    return NOT_RATE_LIMITED;
+  }
+
+  const { rateLimited, retryAfterMs } = result as Record<string, unknown>;
+
+  if (rateLimited !== true) {
+    return NOT_RATE_LIMITED;
+  }
+
+  return {
+    rateLimited: true,
+    retryAfterMs:
+      typeof retryAfterMs === 'number' && Number.isFinite(retryAfterMs) && retryAfterMs > 0
+        ? retryAfterMs
+        : null,
+  };
+}
 
 /**
  * HTTP statuses that mean "you are being throttled".
@@ -309,6 +371,17 @@ export function classifyRateLimit(
   // something upstream threw an unusual object. Degrading to "not a rate
   // limit" costs at most one attempt.
   try {
+    // An error that classifies itself is believed, and ONLY it — see
+    // "ERRORS THAT CLASSIFY THEMSELVES" in the header (issue #509). A
+    // throwing classifier lands in the catch below: not a rate limit.
+    const selfClassify = (candidate as Partial<Record<typeof CLASSIFY_RATE_LIMIT, unknown>>)[
+      CLASSIFY_RATE_LIMIT
+    ];
+
+    if (typeof selfClassify === 'function') {
+      return normalizeSelfClassification((selfClassify as () => unknown).call(candidate));
+    }
+
     const status = readStatus(candidate);
     const byStatus = status !== null && RATE_LIMIT_STATUSES.has(status);
 

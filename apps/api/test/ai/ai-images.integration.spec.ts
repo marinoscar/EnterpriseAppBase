@@ -133,7 +133,8 @@ describe('AI images over HTTP (#437)', () => {
 
       t.harness.storage.setConfigured(false);
 
-      await expect(runJob(started.body.data)).rejects.toMatchObject({ code: 'AI_STORAGE_UNAVAILABLE' });
+      // Terminal: the job returns rather than throwing a 503 the queue would defer (issue #509).
+      await expect(runJob(started.body.data)).resolves.toBeUndefined();
 
       const res = await getRun(started.body.data.runId).expect(200);
 

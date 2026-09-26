@@ -576,6 +576,7 @@ export default function AiPlaygroundPage() {
           prompt={runPrompt}
           run={run.run}
           error={run.error && withAttachmentContext(run.error, runAttachmentsRef.current.length > 0)}
+          stale={run.stale}
           isStarting={run.isStarting}
           isCancelling={run.isCancelling}
           onCancel={() => void run.cancel()}

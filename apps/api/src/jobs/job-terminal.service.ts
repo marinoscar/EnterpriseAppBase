@@ -37,9 +37,11 @@
 //
 //   1. A thrown `RateLimitError` — the most specific and least ambiguous
 //      signal there is: a handler that looked at the response and said so.
-//   2. `classifyRateLimit(error)` — the SDK error shapes nobody wrapped.
-//      Ahead of the caller's flags because it reads the actual error, while a
-//      flag is a claim about it.
+//   2. `classifyRateLimit(error)` — the SDK error shapes nobody wrapped, and
+//      this application's own typed errors that classify themselves by CODE
+//      (`CLASSIFY_RATE_LIMIT`, issue #509 — an `AiError` 503 is a response
+//      status, not a throttle). Ahead of the caller's flags because it reads
+//      the actual error, while a flag is a claim about it.
 //   3. The caller's `opts` flags — the node path, and any caller that knows
 //      something the error object does not carry.
 //   4. Otherwise: an ordinary failure.
@@ -415,7 +417,9 @@ export class JobTerminalService {
       const classified = classifyRateLimit(error, now.getTime());
 
       if (classified.rateLimited) {
-        // 2. The error object says so (a 429/503/529, or an AWS throttle name).
+        // 2. The error object says so: its own `CLASSIFY_RATE_LIMIT` answer
+        //    when it has one (an `AiError` — by code, never by status; #509),
+        //    otherwise a 429/503/529 or an AWS throttle name.
         rateLimited = true;
         retryAfterMs = classified.retryAfterMs;
       } else if (opts?.rateLimited) {
