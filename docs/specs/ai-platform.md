@@ -64,6 +64,10 @@ on day one: the normalized request/response (§5) and the capability model
 embeddings and realtime are addable later (Phase 2/3) without a breaking
 change to callers, and so a second provider (anything beyond the Phase 1
 OpenAI adapter) is an adapter implementation, not a rewrite of the platform.
+Phase 3 proved it: the Anthropic adapter (issue #446, §14.1) fits the same
+contract with one declared, behavioural adapter flag
+(`supportsPreviousResponseId`, §5.7) and no change to any `AiService`
+caller.
 
 ## 2. The configuration model
 
@@ -236,7 +240,13 @@ tractable, while normalizing *up* from a bare chat-completions shape is not.
 // responses.types.ts (Responses-API-shaped)
 export type AiInputItem =
   | { type: 'message'; role: 'user'|'assistant'|'system'|'developer'; content: AiContentPart[] }
-  | { type: 'function_call_output'; callId: string; output: string };
+  | { type: 'function_call'; callId: string; name: string; arguments: string }   // replayed (§5.7, #446)
+  | { type: 'function_call_output'; callId: string; output: string }
+  | AiReasoningItem;                                                              // replayed (§5.7, #446)
+export interface AiReasoningItem {
+  type: 'reasoning'; summary: string[];
+  [AI_PROVIDER_STATE]?: { provider: string; data: unknown };   // opaque, symbol-keyed, never serialised (§5.7)
+}
 export type AiContentPart =
   | { type: 'text'; text: string }
   | { type: 'image'; url?: string; storageObjectId?: string; detail?: 'low'|'high'|'auto' }
@@ -267,7 +277,7 @@ export interface AiResponseRequest<S extends z.ZodTypeAny = z.ZodTypeAny> {
 }
 export type AiOutputItem =
   | { type: 'message'; text: string; citations?: { url: string; title: string; startIndex: number; endIndex: number }[] }
-  | { type: 'reasoning'; summary: string[] }
+  | AiReasoningItem
   | { type: 'function_call'; callId: string; name: string; arguments: string }
   | { type: 'hosted_tool_call'; id?: string; tool: AiHostedToolType; status: string; result?: /* typed per tool, §5.4 */ };
 export interface AiUsage { inputTokens?: number; outputTokens?: number; reasoningTokens?: number; cachedInputTokens?: number; }
@@ -591,6 +601,70 @@ one facade method, one usage `operation` (`'audio.speech'`), one job type
   the answer is the audio file itself (never a URL). `instructions` is sent
   only to models that take it — the `tts-1` family rejects it, so it is
   dropped there rather than sent to a 400.
+
+### 5.7 Stateless providers and conversation replay (Phase 3, issue #446)
+
+The contract above was shaped after a provider that STORES responses:
+`previousResponseId` chains a request onto an earlier one, and the tool loop
+(`runTools`) sent each round's `function_call_output`s chained onto the
+response that asked for them. Anthropic's Messages API stores nothing — every
+request carries the whole conversation — so a second provider needed one
+declared fact, and the contract one small widening.
+
+**The flag.** `AiProviderAdapter.supportsPreviousResponseId?: boolean`,
+**absent meaning `true`** (so OpenAI, the fake provider and any fork's
+adapter written before it are unchanged). It is a behavioural flag, not a
+capability: the conversation still works, it travels differently.
+`AiProviderRegistry.supportsPreviousResponseId(id)` is its derivation.
+Anthropic declares `false`.
+
+**A caller's `previousResponseId` is refused, not ignored.** The gate
+pipeline (step 2a, after the provider is known and before any key is
+resolved) answers `AI_CAPABILITY_UNSUPPORTED` with `details.capability:
+"previous_response_id"` for a provider that declares `false`. Silently
+dropping it would answer as though the conversation had just begun — a
+wrong answer that looks right. The adapter's own mapper refuses it too, as
+defence in depth for a direct port caller. The caller sends the conversation
+as `input` instead (user and assistant `message` items).
+
+**The tool loop resends full history** for such a provider, decided per round
+by the provider that answered: the original input, then every round's model
+output replayed as input — `message` as an assistant message,
+`function_call` and `reasoning` as themselves — then that round's tool
+outputs. `core/conversation.ts` (`asInputItems`, `replayOutput`) is the one
+definition of "the conversation so far", shared by the loop and the
+conformance kit. Hosted-tool items are not replayed (the provider executed
+them inside its own response; a stateless provider has none of ours).
+
+**The widening.** `AiInputItem` gains `function_call` (the model's own call,
+replayed — without it the neutral contract had no way to say "you asked for
+this") and `reasoning`. OpenAI accepts a replayed `function_call` as input;
+it drops a replayed `reasoning` item, because OpenAI's reasoning replay needs
+its own item id and encrypted content, and chaining is how OpenAI keeps
+reasoning across turns.
+
+**Opaque provider state, invisible by construction.** Anthropic signs every
+`thinking` block and requires the signed block (or the encrypted
+`redacted_thinking` block) back at the start of the next request of a
+tool-use turn when thinking is on. That material must survive the tool loop
+and must never reach a caller: it is not the reasoning summary a caller may
+see, and "never expose raw or redacted thinking" is a rule. So it rides on
+the `reasoning` item under the `AI_PROVIDER_STATE` **symbol** key, as `{
+provider, data }`. `JSON.stringify` skips symbol keys — every HTTP body, SSE
+frame, log line and `ai_runs.output` row is therefore free of it with no code
+to remember — while an in-process object spread (the tool loop's hop) keeps
+it. An adapter reads only state whose `provider` is its own id. A stored
+background run drops replayed `reasoning` items entirely (their state is
+in-process only by design).
+
+Rejected: **ignoring `previousResponseId`** on a stateless provider (a
+silently wrong answer); **an in-process response cache** in the adapter to
+emulate chaining (it breaks across replicas, background runs and restarts,
+and holds users' conversations in memory with no retention policy); **always
+resending history, for every provider** (OpenAI loses its server-side
+reasoning continuity across tool rounds and every round re-bills the whole
+prompt); **putting the thinking signature in a normal field** (every
+serialiser — DTO, SSE, run row, log — would have to remember to strip it).
 
 ## 6. Model discovery and classification
 
@@ -1022,7 +1096,7 @@ one HTTP status:
 | `AI_KEY_INVALID` | 400 | A submitted key failed `verifyKey` against the provider. |
 | `AI_MODEL_NOT_ENABLED` | 403 | The model is not admin-enabled, or is deprecated (§6, §7). |
 | `AI_MODEL_NOT_REACHABLE` | 403 | The model is enabled, but the resolved key cannot reach it (§7). |
-| `AI_CAPABILITY_UNSUPPORTED` | 400 | The model/provider lacks a capability the request needs (§4). |
+| `AI_CAPABILITY_UNSUPPORTED` | 400 | The model/provider lacks a capability the request needs (§4) — including `previousResponseId` on a provider that stores no responses (`details.capability: "previous_response_id"`, §5.7). |
 | `AI_TOOL_DISABLED` | 403 | A hosted tool type an administrator has not switched on, or an MCP server host outside `ai.hostedTools.mcpAllowedHosts` (§5.4). |
 | `AI_RATE_LIMITED` | 429 | The provider rate-limited the call; convertible to the queue's `RateLimitError` via `toRateLimitError()` so a job defers rather than burning an attempt. |
 | `AI_PROVIDER_UNAVAILABLE` | 503 | The provider is unreachable or erroring at the transport level. |
@@ -1065,21 +1139,128 @@ existing contract, not a platform change, by design:
    recognize (§6). This is deliberately hand-curated per provider, not a
    generic heuristic, because guessing a model's capabilities wrong is worse
    than admitting "unclassified, an administrator should look at this."
-3. **Run the conformance kit** (`describeAiProviderConformance`, #424)
+3. **Declare whether it can chain.** A provider that stores no responses
+   declares `supportsPreviousResponseId: false` (§5.7); the runtime then
+   refuses a caller's `previousResponseId` and runs the tool loop by
+   resending history. Omit it for a provider that chains.
+4. **Run the conformance kit** (`describeAiProviderConformance`, #424)
    against the new adapter. It asserts, uniformly across every provider:
    `listModels` returns ids; `verifyKey`'s ok/invalid mapping; `classifyModel`
    returns schema-valid capabilities or `null`; if `responses` is
    implemented — `create` returns `outputText`, `stream` yields
    `response.created … response.completed` in order with deltas
    concatenating to the final text, structured output returns a
-   schema-valid `parsed`, a function-tool round-trip works, and an
-   unsupported capability surfaces as `AI_CAPABILITY_UNSUPPORTED`; and,
-   always, that every error the adapter can produce is an `AiError`, never
-   a raw SDK exception.
+   schema-valid `parsed`, a function-tool round-trip works (chained with
+   `previousResponseId`, or — reading the declared flag — with the
+   conversation replayed), and an unsupported capability surfaces as
+   `AI_CAPABILITY_UNSUPPORTED`; and, always, that every error the adapter
+   can produce is an `AiError`, never a raw SDK exception. Run it over a
+   MOCKED TRANSPORT (the real SDK with an injected `fetch`) that validates
+   what the real API validates — a mock that accepts what the provider
+   would reject proves nothing.
+5. **Register the id** in `AI_PROVIDER_IDS` and give it a
+   `providers.<id>` slot in every place the settings namespace is declared
+   (`settings-parity.spec.ts` pins one slot per id); add the module to
+   `AiModule`'s imports.
 
 Nothing about the registry, the gate pipeline (§9 of #432), the admin API
 (§9 below) or the HTTP surface (§10 below) changes to add a provider — they
 already operate on `AiProviderAdapter` and `AiProviderRegistry.ids()`.
+
+There are two worked examples, deliberately different in shape:
+`providers/openai/` (the Responses API — every port, chaining) and
+`providers/anthropic/` (the Messages API — `responses` only, stateless).
+
+### 14.1 The Anthropic adapter (Phase 3, issue #446)
+
+`apps/api/src/ai/providers/anthropic/` mirrors the OpenAI layout — client
+factory, messages mapper, stream mapper, errors, model catalog, module, and a
+`testing/` mock transport — and is the only place `@anthropic-ai/sdk` is
+imported. It carries the `responses` port only (Anthropic has no
+embeddings, image-generation or audio endpoints) and declares
+`supportsPreviousResponseId: false`.
+
+**Request mapping.** `instructions` (plus any `system`/`developer`
+messages) → `system`; `message` items → `user`/`assistant` turns of content
+blocks — `text`, `image` (URL, or base64 from a `data:` URL), `document`
+(a PDF by URL or base64, plain text inline); `function_call` → assistant
+`tool_use` and `function_call_output` → user `tool_result`; consecutive
+items of one role merge into one turn, the shape the API requires. Function
+tools → `tools` with `input_schema`; `toolChoice` → `auto`/`none`/`any`
+(`required`)/`tool`. Hosted tools are refused (`AI_CAPABILITY_UNSUPPORTED`):
+Anthropic's server tools are a different set, not mapped yet. `metadata` is
+not mapped (Anthropic's only metadata field is an end-user id);
+`providerOptions.anthropic` is the escape hatch, as `providerOptions.openai`
+is for OpenAI.
+
+**`max_tokens` is required** by the Messages API: the caller's (already
+clamped) `maxOutputTokens`, else `ANTHROPIC_DEFAULT_MAX_TOKENS` (16,000 —
+well inside a ten-minute non-streaming request) capped at the model's own
+output limit.
+
+**Reasoning.** The classifier records how each family thinks:
+- *adaptive* (Claude 4.6 and later, where `budget_tokens` is deprecated or
+  rejected): `thinking: { type: 'adaptive', display: 'summarized' }` plus
+  `output_config.effort` — `minimal`/`low` → `low`, `medium`, `high`;
+- *budget* (Claude 3.7 – 4.5): `thinking: { type: 'enabled', budget_tokens }`
+  from `ANTHROPIC_THINKING_BUDGETS` (1,024 / 2,048 / 6,144 / 16,384 for
+  minimal … high), added on top of the default answer allowance — or, with an
+  explicit `maxOutputTokens`, shrunk to fit it, and refused
+  (`AI_INVALID_REQUEST`) when even the 1,024-token minimum does not;
+- *none* (Claude 3.5 and earlier): an effort is `AI_CAPABILITY_UNSUPPORTED`.
+
+A `thinking` block's text becomes the reasoning item's `summary` — Claude 4
+returns a summary there, never the raw chain of thought; its signature and
+every `redacted_thinking` block travel only as `AI_PROVIDER_STATE` (§5.7).
+`temperature` is refused where the family rejects sampling parameters, and
+together with extended thinking everywhere, rather than sent to fail.
+
+**Structured output.** Families with Anthropic's native structured outputs
+use `output_config.format` (`json_schema`); older ones use a forced single
+tool whose `input_schema` is the schema, its `tool_use` input mapped back as
+the message text. Either way `parseStructured` validates it, exactly as for
+OpenAI. The forced-tool path refuses extended thinking (Anthropic forbids a
+forced `tool_choice` with thinking) and other tools alongside it (forcing
+the schema tool would make them unreachable).
+
+**Streaming.** `message_start` → `response.created`; `content_block_delta`
+`text_delta` → `output_text.delta`, `thinking_delta` →
+`reasoning_summary.delta`, `input_json_delta` →
+`function_call.arguments.delta` (or `output_text.delta` for the forced
+schema tool, so deltas still equal the final text); `signature_delta` is
+kept for replay and never emitted; `content_block_stop` →
+`output_item.done`; `message_stop` → `response.completed`, built by the same
+function `create` uses. An `event: error` frame ends the stream with one
+`error` event carrying our generic message.
+
+**Discovery and classification.** `listModels` and `verifyKey` use `GET
+/v1/models`. The classifier is a curated, ordered rule table over the Claude
+families (Claude 3, 3.5, 3.7, 4.x Opus/Sonnet/Haiku, 5.x Opus/Sonnet, Fable,
+Mythos): every family declares `responses`, `tools`, `structured_output` and
+`streaming`; `reasoning` where extended thinking exists; `vision_input`;
+`file_input` from Claude 3.5 Sonnet on (PDFs). None declares `hosted_tools`.
+Anything else is `null` — unclassified.
+
+**Errors.** 401 → `AI_KEY_INVALID`; 403 and 404 → `AI_MODEL_NOT_REACHABLE`;
+429 (and 402 `billing_error`, OpenAI's `insufficient_quota` precedent) →
+`AI_RATE_LIMITED` with `retry-after`; 529 `overloaded_error`, 5xx and 408 →
+`AI_PROVIDER_UNAVAILABLE` (with `retry-after` when named); other 4xx →
+`AI_INVALID_REQUEST`; an abort → `AI_PROVIDER_UNAVAILABLE` with
+`details.aborted`, as OpenAI's. Only the status, Anthropic's error `type` and
+its request id reach `details` — never the provider's text.
+
+**Storage-object inputs** (§5.3): images by `presigned_url`, documents
+`inline` — nothing is uploaded to Anthropic, so nothing needs deleting.
+
+**The client** is built per call with the key explicitly (which
+short-circuits the SDK's own credential chain — `ANTHROPIC_API_KEY`,
+`ANTHROPIC_AUTH_TOKEN`, a CLI profile, workload identity federation),
+`authToken: null`, an explicit base URL, `maxRetries: 0` and logging off.
+
+**Known limitation.** The web AI Playground chains multi-turn chat with
+`previousResponseId`, so its second turn against a Claude model is refused;
+teaching it to resend history for a provider that cannot chain is a
+follow-up (it needs the flag exposed on `GET /api/ai/config`).
 
 ### HTTP surface
 
@@ -1232,4 +1413,5 @@ every consumer-facing route (as opposed to `/api/admin/ai/*`'s
 | Seed grants: Admin holds all three AI permissions; Contributor and Viewer hold `ai:use` only | `apps/api/test/prisma/seed-data.spec.ts` |
 | The conformance kit (`describeAiProviderConformance`) passes against `FakeAiProvider` | `apps/api/src/ai/testing/fake-ai-provider.conformance.spec.ts` |
 | Storage-object inputs: ownership/modality/size/strategy gates, delivery by presigned URL and by Files API upload with provider-side deletion (success, failure, stream end), queued runs storing only the id, and no presigned URL in any response, row or log line | `apps/api/src/ai/runtime/ai-file-inputs.spec.ts`, `apps/api/src/ai/providers/openai/openai-file-inputs.spec.ts`, `apps/api/test/ai/ai-file-inputs.integration.spec.ts`, `apps/api/test/ai/ai-secret-egress.integration.spec.ts` |
+| Stateless providers (#446): a caller's `previousResponseId` refused before any key is resolved, `runTools` resending full history with reasoning state replayed and never serialised, the Anthropic adapter passing the conformance kit (forced-tool and native structured outputs) over a mock as stateless as the real API, its mapping/stream/error/classifier tables, and both providers registered under every #435 guard suite | `apps/api/src/ai/runtime/ai-tool-loop.spec.ts`, `apps/api/src/ai/providers/anthropic/*.spec.ts`, `apps/api/src/common/schemas/settings-parity.spec.ts`, `apps/api/test/ai/*.spec.ts` |
 | Embeddings: one vector per input in order, `dimensions` honoured, a model without `embeddings` → `AI_CAPABILITY_UNSUPPORTED`, > 256 inputs → `AI_INVALID_REQUEST`, one `operation: 'embeddings'` usage row; the #435 key-policy and secret-egress suites drive `POST /api/ai/embeddings` | `apps/api/src/ai/providers/openai/openai-embeddings.spec.ts`, `apps/api/src/ai/runtime/ai-embed.spec.ts`, `apps/api/test/ai/ai-embeddings.integration.spec.ts`, the conformance kit's `embeddings.*` scenarios |
