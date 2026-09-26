@@ -1,0 +1,411 @@
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+
+import type { SystemAiValue } from '../../common/schemas/settings.schema';
+import { AiError } from '../core/ai-error';
+import { AiProviderRegistry } from '../core/provider-registry';
+import { FakeAiProvider } from '../testing/fake-ai-provider';
+import { AiConfigAdminService, diffFieldNames } from './ai-config-admin.service';
+import type { UpdateAiConfigInput } from './dto/update-ai-config.dto';
+
+const SECRET = 'sk-admin-secret-key-do-not-leak';
+
+function policy(overrides: Partial<SystemAiValue> = {}): SystemAiValue {
+  return {
+    enabled: false,
+    keyPolicy: 'byok',
+    providers: { openai: { enabled: false } },
+    defaults: { allowBackgroundRuns: true },
+    logPromptContent: false,
+    ...overrides,
+  };
+}
+
+function input(overrides: Partial<UpdateAiConfigInput> = {}): UpdateAiConfigInput {
+  return {
+    enabled: true,
+    keyPolicy: 'byok',
+    logPromptContent: false,
+    defaults: { allowBackgroundRuns: true },
+    providers: { openai: { enabled: true } },
+    ...overrides,
+  };
+}
+
+const KEY_INFO = {
+  purpose: 'ai',
+  name: 'openai',
+  hint: '••••leak',
+  label: 'AI provider key (Fake AI)',
+  updatedByUserId: 'admin-1',
+  createdAt: new Date('2026-01-01T00:00:00.000Z'),
+  updatedAt: new Date('2026-02-02T00:00:00.000Z'),
+};
+
+describe('AiConfigAdminService', () => {
+  let prisma: { systemSettings: { findUnique: jest.Mock }; auditEvent: { create: jest.Mock } };
+  let systemSettings: { getAiPolicy: jest.Mock; patchSettings: jest.Mock };
+  let credentials: {
+    describe: jest.Mock;
+    setSecret: jest.Mock;
+    deleteSecret: jest.Mock;
+    getSecret: jest.Mock;
+  };
+  let aiConfig: { resolve: jest.Mock; invalidateCache: jest.Mock };
+  let registry: AiProviderRegistry;
+  let fake: FakeAiProvider;
+  let service: AiConfigAdminService;
+  let stored: SystemAiValue;
+
+  beforeEach(() => {
+    stored = policy();
+    prisma = {
+      systemSettings: {
+        findUnique: jest.fn().mockResolvedValue({
+          version: 3,
+          updatedAt: new Date('2026-03-03T00:00:00.000Z'),
+          updatedByUser: { id: 'admin-1', email: 'admin@example.com' },
+        }),
+      },
+      auditEvent: { create: jest.fn().mockResolvedValue({}) },
+    };
+    systemSettings = {
+      getAiPolicy: jest.fn(async () => stored),
+      patchSettings: jest.fn(async (dto: { ai: SystemAiValue }) => {
+        stored = dto.ai;
+      }),
+    };
+    credentials = {
+      describe: jest.fn().mockResolvedValue(null),
+      setSecret: jest.fn().mockResolvedValue(undefined),
+      deleteSecret: jest.fn().mockResolvedValue(undefined),
+      getSecret: jest.fn(),
+    };
+    aiConfig = {
+      resolve: jest.fn(async () => stored),
+      invalidateCache: jest.fn(),
+    };
+    registry = new AiProviderRegistry();
+    fake = new FakeAiProvider({ id: 'openai', validKeys: [SECRET] });
+    registry.register(fake);
+    service = new AiConfigAdminService(
+      prisma as never,
+      systemSettings as never,
+      credentials as never,
+      registry,
+      aiConfig as never,
+    );
+  });
+
+  describe('describeForAdmin', () => {
+    it('joins policy, provenance, registry and masked key status', async () => {
+      credentials.describe.mockResolvedValue(KEY_INFO);
+      stored = policy({ providers: { openai: { enabled: true, baseUrl: 'https://gw.example.com' } } });
+
+      const view = await service.describeForAdmin();
+
+      expect(view).toMatchObject({
+        enabled: false,
+        keyPolicy: 'byok',
+        defaults: { maxOutputTokensCap: null, allowBackgroundRuns: true },
+        version: 3,
+        updatedAt: '2026-03-03T00:00:00.000Z',
+        updatedBy: { id: 'admin-1', email: 'admin@example.com' },
+      });
+      expect(view.providers).toEqual([
+        {
+          id: 'openai',
+          displayName: 'Fake AI',
+          registered: true,
+          enabled: true,
+          baseUrl: 'https://gw.example.com',
+          keyStatus: {
+            configured: true,
+            hint: '••••leak',
+            updatedAt: '2026-02-02T00:00:00.000Z',
+            updatedByUserId: 'admin-1',
+          },
+          supportedCapabilities: expect.arrayContaining(['responses', 'streaming']),
+        },
+      ]);
+      expect(credentials.describe).toHaveBeenCalledWith('ai', 'openai');
+      expect(credentials.getSecret).not.toHaveBeenCalled();
+    });
+
+    it('lists registry ids ∪ settings slots, and reports an unregistered slot', async () => {
+      registry = new AiProviderRegistry();
+      registry.register(new FakeAiProvider({ id: 'fake' }));
+      service = new AiConfigAdminService(
+        prisma as never,
+        systemSettings as never,
+        credentials as never,
+        registry,
+        aiConfig as never,
+      );
+
+      const view = await service.describeForAdmin();
+
+      expect(view.providers.map((p) => [p.id, p.registered])).toEqual([
+        ['fake', true],
+        ['openai', false],
+      ]);
+      expect(view.providers[1].supportedCapabilities).toEqual([]);
+    });
+
+    it('reports version 0 when no settings row exists', async () => {
+      prisma.systemSettings.findUnique.mockResolvedValue(null);
+
+      await expect(service.describeForAdmin()).resolves.toMatchObject({
+        version: 0,
+        updatedAt: null,
+        updatedBy: null,
+      });
+    });
+  });
+
+  describe('replace', () => {
+    it('writes the namespace, invalidates the cache before auditing, and audits field names only', async () => {
+      const order: string[] = [];
+      aiConfig.invalidateCache.mockImplementation(() => order.push('invalidate'));
+      prisma.auditEvent.create.mockImplementation(async () => order.push('audit'));
+
+      await service.replace(input(), 'admin-1', 3);
+
+      expect(systemSettings.patchSettings).toHaveBeenCalledWith(
+        {
+          ai: {
+            enabled: true,
+            keyPolicy: 'byok',
+            logPromptContent: false,
+            defaults: { allowBackgroundRuns: true },
+            providers: { openai: { enabled: true } },
+          },
+        },
+        'admin-1',
+        3,
+      );
+      expect(order).toEqual(['invalidate', 'audit']);
+      expect(prisma.auditEvent.create).toHaveBeenCalledWith({
+        data: {
+          actorUserId: 'admin-1',
+          action: 'ai_config:replace',
+          targetType: 'ai_config',
+          targetId: 'ai',
+          meta: { changedFields: ['enabled', 'providers.openai.enabled'] },
+        },
+      });
+    });
+
+    it('refuses a stale If-Match with 409 before writing', async () => {
+      await expect(service.replace(input(), 'admin-1', 2)).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+      expect(systemSettings.patchSettings).not.toHaveBeenCalled();
+    });
+
+    it('keeps a provider the body leaves out', async () => {
+      stored = policy({ providers: { openai: { enabled: true, baseUrl: 'https://gw.example.com' } } });
+
+      await service.replace(input({ providers: {} }), 'admin-1');
+
+      expect(systemSettings.patchSettings.mock.calls[0][0].ai.providers).toEqual({
+        openai: { enabled: true, baseUrl: 'https://gw.example.com' },
+      });
+    });
+
+    it('rejects a provider id with no settings slot (400)', async () => {
+      const error = await service
+        .replace(input({ providers: { nope: { enabled: false } } }), 'admin-1')
+        .catch((err: unknown) => err);
+
+      expect(error).toBeInstanceOf(BadRequestException);
+      expect((error as BadRequestException).getResponse()).toMatchObject({
+        details: { reason: 'AI_UNKNOWN_PROVIDER', provider: 'nope' },
+      });
+      expect(systemSettings.patchSettings).not.toHaveBeenCalled();
+    });
+
+    it('rejects enabling a provider with no registered adapter (400)', async () => {
+      registry = new AiProviderRegistry();
+      service = new AiConfigAdminService(
+        prisma as never,
+        systemSettings as never,
+        credentials as never,
+        registry,
+        aiConfig as never,
+      );
+
+      const error = await service.replace(input(), 'admin-1').catch((err: unknown) => err);
+
+      expect((error as BadRequestException).getResponse()).toMatchObject({
+        details: { reason: 'AI_PROVIDER_NOT_REGISTERED' },
+      });
+    });
+
+    it('rejects byok_with_org_fallback while an enabled provider has no admin key (400 AI_KEY_REQUIRED)', async () => {
+      const error = await service
+        .replace(input({ keyPolicy: 'byok_with_org_fallback' }), 'admin-1')
+        .catch((err: unknown) => err);
+
+      expect(error).toBeInstanceOf(BadRequestException);
+      expect((error as BadRequestException).getStatus()).toBe(400);
+      expect((error as BadRequestException).getResponse()).toMatchObject({
+        message: expect.stringContaining('openai'),
+        details: { reason: 'AI_KEY_REQUIRED', provider: 'openai' },
+      });
+      expect(systemSettings.patchSettings).not.toHaveBeenCalled();
+    });
+
+    it('accepts byok_with_org_fallback when the key exists', async () => {
+      credentials.describe.mockResolvedValue(KEY_INFO);
+
+      await expect(
+        service.replace(input({ keyPolicy: 'byok_with_org_fallback' }), 'admin-1'),
+      ).resolves.toMatchObject({ keyPolicy: 'byok_with_org_fallback' });
+    });
+
+    it('never blocks turning the kill switch off', async () => {
+      stored = policy({ enabled: true, keyPolicy: 'byok_with_org_fallback', providers: { openai: { enabled: true } } });
+
+      await expect(
+        service.replace(input({ enabled: false, keyPolicy: 'byok_with_org_fallback' }), 'admin-1'),
+      ).resolves.toMatchObject({ enabled: false });
+    });
+
+    it('refuses to silently keep a baseUrl the admin cleared', async () => {
+      stored = policy({ providers: { openai: { enabled: true, baseUrl: 'https://gw.example.com' } } });
+
+      const error = await service
+        .replace(input({ providers: { openai: { enabled: true, baseUrl: '' } } }), 'admin-1')
+        .catch((err: unknown) => err);
+
+      expect((error as BadRequestException).getResponse()).toMatchObject({
+        details: { reason: 'AI_SETTING_CLEAR_UNSUPPORTED', field: 'providers.openai.baseUrl' },
+      });
+    });
+
+    it('refuses to silently keep a maxOutputTokensCap the admin cleared', async () => {
+      stored = policy({ defaults: { allowBackgroundRuns: true, maxOutputTokensCap: 4096 } });
+
+      await expect(
+        service.replace(input({ defaults: { allowBackgroundRuns: true, maxOutputTokensCap: null } }), 'admin-1'),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('writes a new baseUrl and cap', async () => {
+      await service.replace(
+        input({
+          defaults: { allowBackgroundRuns: false, maxOutputTokensCap: 2048 },
+          providers: { openai: { enabled: true, baseUrl: 'https://gw.example.com' } },
+        }),
+        'admin-1',
+      );
+
+      expect(systemSettings.patchSettings.mock.calls[0][0].ai).toMatchObject({
+        defaults: { allowBackgroundRuns: false, maxOutputTokensCap: 2048 },
+        providers: { openai: { enabled: true, baseUrl: 'https://gw.example.com' } },
+      });
+    });
+  });
+
+  describe('setKey', () => {
+    it('verifies, stores, audits and returns the masked view', async () => {
+      credentials.describe.mockResolvedValue(KEY_INFO);
+
+      const view = await service.setKey('openai', SECRET, 'admin-1');
+
+      expect(fake.callsTo('verifyKey')).toHaveLength(1);
+      expect(credentials.setSecret).toHaveBeenCalledWith('ai', 'openai', SECRET, {
+        label: 'AI provider key (Fake AI)',
+        updatedByUserId: 'admin-1',
+      });
+      expect(prisma.auditEvent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          action: 'ai_config:set_key',
+          targetType: 'ai_config',
+          targetId: 'openai',
+          meta: { provider: 'openai' },
+        }),
+      });
+      expect(JSON.stringify(view)).not.toContain(SECRET);
+      expect(JSON.stringify(prisma.auditEvent.create.mock.calls)).not.toContain(SECRET);
+    });
+
+    it('passes the stored baseUrl to verification', async () => {
+      stored = policy({ providers: { openai: { enabled: true, baseUrl: 'https://gw.example.com' } } });
+
+      await service.setKey('openai', SECRET, 'admin-1');
+
+      expect(fake.callsTo('verifyKey')[0].baseUrl).toBe('https://gw.example.com');
+    });
+
+    it('stores nothing and throws AI_KEY_INVALID (400) for a rejected key', async () => {
+      const error = await service.setKey('openai', 'sk-wrong-key-123', 'admin-1').catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(AiError);
+      expect((error as AiError).code).toBe('AI_KEY_INVALID');
+      expect((error as AiError).getStatus()).toBe(400);
+      expect(JSON.stringify(error)).not.toContain('sk-wrong-key-123');
+      expect(credentials.setSecret).not.toHaveBeenCalled();
+      expect(prisma.auditEvent.create).not.toHaveBeenCalled();
+    });
+
+    it('stores nothing when verification itself fails', async () => {
+      jest.spyOn(fake, 'verifyKey').mockRejectedValue(new Error(`boom ${SECRET}`));
+
+      const error = await service.setKey('openai', SECRET, 'admin-1').catch((e: unknown) => e);
+
+      expect((error as AiError).code).toBe('AI_PROVIDER_UNAVAILABLE');
+      expect(JSON.stringify(error)).not.toContain(SECRET);
+      expect(credentials.setSecret).not.toHaveBeenCalled();
+    });
+
+    it('404s for a provider with no adapter', async () => {
+      await expect(service.setKey('nope', SECRET, 'admin-1')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('deleteKey', () => {
+    it('deletes, audits, and warns nothing under byok', async () => {
+      const view = await service.deleteKey('openai', 'admin-1');
+
+      expect(credentials.deleteSecret).toHaveBeenCalledWith('ai', 'openai');
+      expect(prisma.auditEvent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          action: 'ai_config:delete_key',
+          targetType: 'ai_config',
+          meta: { provider: 'openai' },
+        }),
+      });
+      expect(view.warnings).toEqual([]);
+    });
+
+    it('warns ORG_FALLBACK_WITHOUT_KEY under byok_with_org_fallback', async () => {
+      stored = policy({ keyPolicy: 'byok_with_org_fallback' });
+
+      await expect(service.deleteKey('openai', 'admin-1')).resolves.toMatchObject({
+        warnings: ['ORG_FALLBACK_WITHOUT_KEY'],
+      });
+    });
+
+    it('404s for an unknown provider', async () => {
+      await expect(service.deleteKey('nope', 'admin-1')).rejects.toBeInstanceOf(NotFoundException);
+      expect(credentials.deleteSecret).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('diffFieldNames', () => {
+    it('names changed fields, never values', () => {
+      expect(
+        diffFieldNames(
+          policy(),
+          policy({
+            keyPolicy: 'byok_with_org_fallback',
+            providers: { openai: { enabled: false, baseUrl: 'https://x.example.com' } },
+          }),
+        ),
+      ).toEqual(['keyPolicy', 'providers.openai.baseUrl']);
+    });
+  });
+});

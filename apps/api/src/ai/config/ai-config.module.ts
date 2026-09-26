@@ -3,6 +3,8 @@ import { Module } from '@nestjs/common';
 import { CredentialsModule } from '../../credentials/credentials.module';
 import { SettingsModule } from '../../settings/settings.module';
 import { AiCoreModule } from '../core/ai-core.module';
+import { AiAdminController } from './ai-admin.controller';
+import { AiConfigAdminService } from './ai-config-admin.service';
 import { AiConfigService } from './ai-config.service';
 import { AiEnabledGuard } from './ai-enabled.guard';
 
@@ -21,7 +23,8 @@ import { AiEnabledGuard } from './ai-enabled.guard';
 
 @Module({
   imports: [SettingsModule, CredentialsModule, AiCoreModule],
-  providers: [AiConfigService, AiEnabledGuard],
+  controllers: [AiAdminController],
+  providers: [AiConfigService, AiEnabledGuard, AiConfigAdminService],
   exports: [AiConfigService, AiEnabledGuard],
 })
 export class AiConfigModule {}

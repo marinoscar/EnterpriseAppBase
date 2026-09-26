@@ -149,6 +149,22 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
     ],
   },
   {
+    name: 'AI',
+    tags: [
+      {
+        name: 'AI Administration',
+        description:
+          'The AI platform\'s deployment-wide configuration: the kill switch, the key policy, ' +
+          'which providers are enabled, each provider\'s admin (org) key, a connection test, and ' +
+          'the model catalog — which models are enabled, their capability overrides, and catalog ' +
+          'refresh. Gated on `ai_config:read`/`ai_config:write` (Admin only) and reachable while ' +
+          'AI is disabled, so it can always be turned back on. Also hosts `GET /api/ai/config`, ' +
+          'the narrow "is AI on?" projection any signed-in user may read. Admin keys are ' +
+          'write-only: held in the encrypted credential store and never returned.',
+      },
+    ],
+  },
+  {
     name: 'Operations',
     tags: [
       {
