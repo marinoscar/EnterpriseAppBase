@@ -72,6 +72,23 @@ describe('AiProviderRegistry', () => {
     }
   });
 
+  describe('supportsPreviousResponseId() (#446)', () => {
+    it('is true when the adapter declares nothing (the default), and for an unknown id', () => {
+      registry.register(bareAdapter('chains'));
+
+      expect(registry.supportsPreviousResponseId('chains')).toBe(true);
+      expect(registry.supportsPreviousResponseId('unknown')).toBe(true);
+    });
+
+    it('is false only when the adapter declares false', () => {
+      registry.register(bareAdapter('stateless', { supportsPreviousResponseId: false }));
+      registry.register(bareAdapter('explicit', { supportsPreviousResponseId: true }));
+
+      expect(registry.supportsPreviousResponseId('stateless')).toBe(false);
+      expect(registry.supportsPreviousResponseId('explicit')).toBe(true);
+    });
+  });
+
   describe('supports() — derived purely from port presence', () => {
     it('is false for every capability on an unknown provider', () => {
       for (const cap of AI_CAPABILITIES) {
