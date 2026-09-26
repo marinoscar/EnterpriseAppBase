@@ -198,7 +198,7 @@ export function UserAiKeyCard({
     busy === which ? <CircularProgress size={16} color="inherit" /> : undefined;
 
   return (
-    <Card component="section" aria-labelledby={`${fieldId}-title`}>
+    <Card component="section" aria-label={`${provider.displayName} key`}>
       <CardContent>
         <Stack spacing={2}>
           <Box>

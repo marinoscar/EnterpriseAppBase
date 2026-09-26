@@ -81,7 +81,11 @@ export function UsableAiModelsList({ models, isLoading, error, providerNames }: 
         ) : (
           <Stack spacing={2} divider={<Divider flexItem />}>
             {[...groups.entries()].map(([provider, list]) => (
-              <Box key={provider} component="section" aria-label={providerNames[provider] ?? provider}>
+              <Box
+                key={provider}
+                component="section"
+                aria-label={`${providerNames[provider] ?? provider} models`}
+              >
                 <Typography variant="subtitle1" component="h3">
                   {providerNames[provider] ?? provider}
                 </Typography>
