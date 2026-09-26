@@ -1661,6 +1661,8 @@ either port directly is refused before any request.
   row (`ai-secret-egress.integration.spec.ts`).
 - Usage rows record `keySource: 'none'`; the rate limits count it like a
   user's own call and never against `orgKey.*` (§15).
+- `GET /api/ai/config` publishes `requiresKey: false` for it, so a client
+  stops prompting users for a key nobody needs.
 - The catalog sync and the admin connection test run keyless with no admin
   key stored, `POST /api/admin/ai/models/refresh` does not 409 for such a
   provider, and `byok_with_org_fallback` does not require it to have an org
@@ -1724,7 +1726,7 @@ every consumer-facing route (as opposed to `/api/admin/ai/*`'s
 
 | Method & path | Auth | Behaviour |
 |---|---|---|
-| `GET /api/ai/config` | `@Auth()` | `{ enabled, keyPolicy, allowBackgroundRuns, hostedTools:{ web_search, file_search, code_interpreter, image_generation, mcp }, providers:[{ id, displayName, enabled, hasOrgKey, supportsPreviousResponseId }] }` — `supportsPreviousResponseId: false` (Anthropic, Gemini) means send the conversation as `input`; `previousResponseId` is refused (§5.7). When `enabled=false`: `{ enabled:false, keyPolicy, allowBackgroundRuns:false, hostedTools:{ …all false }, providers:[] }`. Never includes hints or keys. Reachable even while `ai.enabled=false` (§8). |
+| `GET /api/ai/config` | `@Auth()` | `{ enabled, keyPolicy, allowBackgroundRuns, hostedTools:{ web_search, file_search, code_interpreter, image_generation, mcp }, providers:[{ id, displayName, enabled, hasOrgKey, supportsPreviousResponseId, requiresKey }] }` — `supportsPreviousResponseId: false` (Anthropic, Gemini, Azure OpenAI, OpenAI-compatible) means send the conversation as `input`; `previousResponseId` is refused (§5.7). `requiresKey: false` (#448) marks a keyless OpenAI-compatible server: nobody needs a key for it (§14.3). When `enabled=false`: `{ enabled:false, keyPolicy, allowBackgroundRuns:false, hostedTools:{ …all false }, providers:[] }`. Never includes hints or keys. Reachable even while `ai.enabled=false` (§8). |
 
 **User keys and usable models** (`/api/ai/*`, all
 `@UseGuards(AiEnabledGuard)`, `@Auth({ permissions:[PERMISSIONS.AI_USE] })`):

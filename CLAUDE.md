@@ -737,7 +737,7 @@ The caller's own AI surface: usable models, BYOK keys, and calling AI itself.
 `AiEnabledGuard` (403 `details.reason: "AI_DISABLED"` while AI is off) and
 requires `ai:use`. See
 [`docs/specs/ai-platform.md`](docs/specs/ai-platform.md).
-- `GET /api/ai/config` - Whether AI is enabled, the key policy, `allowBackgroundRuns` (whether `POST /api/ai/runs` accepts a request at all), `hostedTools` (which hosted tool types are switched on, booleans only — #442), and which providers are enabled/carry an org key/`supportsPreviousResponseId` (false for Anthropic, Gemini, Azure OpenAI and OpenAI-compatible: send the conversation as `input`, #446/#447/#448); reachable while AI is disabled — how a client learns to hide its AI surfaces (any authenticated user, no `ai:use` required)
+- `GET /api/ai/config` - Whether AI is enabled, the key policy, `allowBackgroundRuns` (whether `POST /api/ai/runs` accepts a request at all), `hostedTools` (which hosted tool types are switched on, booleans only — #442), and which providers are enabled/carry an org key/`supportsPreviousResponseId` (false for Anthropic, Gemini, Azure OpenAI and OpenAI-compatible: send the conversation as `input`, #446/#447/#448) and `requiresKey` (false for a keyless OpenAI-compatible server, #448); reachable while AI is disabled — how a client learns to hide its AI surfaces (any authenticated user, no `ai:use` required)
 - `GET /api/ai/keys` - List the caller's provider keys, masked (`ai:use`)
 - `PUT /api/ai/keys/{provider}` - Set/replace the caller's key; verified against the provider first, then reachable models computed, then stored (`ai:use`)
 - `DELETE /api/ai/keys/{provider}` - Remove the caller's key; 204, idempotent (`ai:use`)
