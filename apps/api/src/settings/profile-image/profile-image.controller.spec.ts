@@ -1,4 +1,6 @@
 import { Readable } from 'node:stream';
+
+import { NotFoundException } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 
 import { ProfileImageController } from './profile-image.controller';
@@ -94,7 +96,6 @@ describe('ProfileImageController preview (#367)', () => {
   });
 
   it('lets a NotFoundException from the service propagate (no header is written first)', async () => {
-    const { NotFoundException } = await import('@nestjs/common');
     mockAvatars.openStored.mockRejectedValue(new NotFoundException('Not found'));
     const reply = createMockReply();
 
