@@ -1,5 +1,6 @@
 import type { Logger } from '@nestjs/common';
 
+import { classifyEmailRateLimit } from './email-rate-limit';
 import type { EmailMessage, EmailSendResult } from './email.types';
 import type { EmailProvider } from './providers/email-provider.interface';
 
@@ -24,6 +25,17 @@ import type { EmailProvider } from './providers/email-provider.interface';
 // which the right answer is "let it propagate": a bug in nodemailer and an
 // unverified SES sender are the same thing to a caller in the middle of a role
 // change, namely "no email went out".
+//
+// ONE DISTINCTION IS PRESERVED, THOUGH (issue #456): whether that "no email
+// went out" was the provider THROTTLING us. The catch still catches
+// everything and still returns a result — the contract is unchanged — but the
+// result additionally carries `rateLimited: true` (and `retryAfterMs` when the
+// provider named one) when `classifyEmailRateLimit` positively recognises a
+// throttle. That is what lets a broadcast stop sending into a refusing
+// provider instead of writing its remaining audience off; callers that do not
+// care simply never read the field. Classified HERE, once, on the raw thrown
+// error, because this is the last place that still has the SDK's error object
+// — by the time the result reaches a channel it is a redacted string.
 // =============================================================================
 
 /**
@@ -105,6 +117,26 @@ export class SecretRedactor {
 }
 
 /**
+ * The optional throttle fields of an {@link EmailSendResult}, spread in only
+ * when there is something to say — so a non-throttle failure has exactly the
+ * `{ success, error }` shape it had before #456, and a `retryAfterMs` that is
+ * absent, non-finite or not positive is omitted rather than recorded as a
+ * meaningless zero ("retry immediately" is not something a provider said).
+ */
+function rateLimitFields(
+  rateLimited: boolean,
+  retryAfterMs: number | null,
+): Pick<EmailSendResult, 'rateLimited' | 'retryAfterMs'> {
+  if (!rateLimited) {
+    return {};
+  }
+
+  return typeof retryAfterMs === 'number' && Number.isFinite(retryAfterMs) && retryAfterMs > 0
+    ? { rateLimited: true, retryAfterMs }
+    : { rateLimited: true };
+}
+
+/**
  * Base class for every email transport in this app.
  *
  * Subclasses implement {@link deliver}; they do not implement `send` and must
@@ -169,10 +201,14 @@ export abstract class BaseEmailProvider implements EmailProvider {
       }
 
       // A subclass-authored failure still goes through redaction and
-      // truncation, so there is exactly one exit path for error text.
+      // truncation, so there is exactly one exit path for error text. A
+      // subclass that recognised a throttle itself (from a non-throwing
+      // response) keeps that verdict; nothing today does, but dropping it here
+      // would make the field silently unusable for the next transport.
       return {
         success: false,
         error: this.formatError(result.error ?? 'Unknown error.', redact),
+        ...rateLimitFields(result.rateLimited === true, result.retryAfterMs ?? null),
       };
     } catch (err) {
       const error = this.formatError(
@@ -192,9 +228,21 @@ export abstract class BaseEmailProvider implements EmailProvider {
       // retained far more widely than mail is. The error and the transport are
       // what makes a misconfiguration diagnosable; the message content adds
       // nothing to that and a great deal to the blast radius of a log leak.
-      this.logger.warn(`${this.transportName} send failed: ${error}`);
+      // Classified from the RAW thrown value, before it is flattened into a
+      // string — the status code, SDK error name and SMTP `responseCode` live
+      // on the object, not in its message. Total and never throws, so this
+      // line cannot be the thing that breaks the contract above.
+      const throttle = classifyEmailRateLimit(err);
 
-      return { success: false, error };
+      this.logger.warn(
+        `${this.transportName} send failed${throttle.rateLimited ? ' (provider rate limit)' : ''}: ${error}`,
+      );
+
+      return {
+        success: false,
+        error,
+        ...rateLimitFields(throttle.rateLimited, throttle.retryAfterMs),
+      };
     }
   }
 

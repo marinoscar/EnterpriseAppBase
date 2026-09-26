@@ -19,6 +19,7 @@
 // =============================================================================
 
 export { BaseEmailProvider, SecretRedactor } from './base-email.provider';
+export { classifyEmailRateLimit } from './email-rate-limit';
 export { EmailModule } from './email.module';
 export {
   EmailSettingsService,
